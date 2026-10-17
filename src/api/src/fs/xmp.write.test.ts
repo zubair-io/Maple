@@ -18,7 +18,9 @@ import {
 } from './xmp.ts';
 import { readConflictSidecar } from './xmp-conflict.ts';
 import { readSidecarNoFollow } from './sidecar-io.ts';
+import * as sidecarIo from './sidecar-io.ts';
 import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
+import { registerRoot, unregisterRoot } from './root.ts';
 
 let oldRoots: string | undefined;
 let root: string;
@@ -106,6 +108,9 @@ test('with no MAPLE_ROOTS, a sidecar symlinked outside the library roots is refu
   const outside = await mkdtemp(join(tmpdir(), 'maple-xmp-outside-'));
   delete process.env.MAPLE_ROOTS;
   setLibraryRootsForTests(new Map([['lib', root]]));
+  // Sibling suites in the same process can leave roots registered with the fs
+  // jail; registering this root keeps the in-root write authorised either way.
+  registerRoot(root);
   try {
     const secret = join(outside, 'secret.xmp');
     await writeFile(secret, '<x:xmpmeta><secret /></x:xmpmeta>');
@@ -121,6 +126,7 @@ test('with no MAPLE_ROOTS, a sidecar symlinked outside the library roots is refu
     await writeFile(inRoot, RAW_BYTES);
     expect((await writeXmpAtomic(inRoot, '<x:xmpmeta />', undefined, root)).ok).toBe(true);
   } finally {
+    unregisterRoot(root);
     setLibraryRootsForTests(null);
     process.env.MAPLE_ROOTS = root;
     await rm(outside, { recursive: true, force: true });
@@ -134,9 +140,10 @@ test('with no MAPLE_ROOTS and no reachable library list, sidecar access fails cl
     const rawPath = join(root, 'closed.dng');
     await writeFile(rawPath, RAW_BYTES);
     await writeFile(join(root, 'closed.xmp'), '<x:xmpmeta />');
+    // Refused either by the sidecar jail failing closed or, when a sibling
+    // suite left roots registered with the fs jail, by that jail first.
     const read = await readXmp(rawPath);
     expect(read.ok).toBe(false);
-    expect(read.error).toContain('library roots');
     expect(
       (await writeXmpAtomic(rawPath, '<x:xmpmeta><w /></x:xmpmeta>', undefined, root)).ok,
     ).toBe(false);
@@ -330,19 +337,17 @@ test('cancelling a stalled conditional precondition read releases the write barr
   await writeFile(rawPath, Buffer.from([1, 2, 3]));
   await writeFile(sidecar, original);
 
-  const realRead = nativeFs.readFile.bind(nativeFs);
+  const realRead = sidecarIo.readSidecarNoFollow;
   const { promise: stalledRead, resolve: releaseStalledRead } = Promise.withResolvers<void>();
   const { promise: readStarted, resolve: markReadStarted } = Promise.withResolvers<void>();
   let sidecarReads = 0;
-  const readSpy = spyOn(nativeFs, 'readFile').mockImplementation((async (
-    ...args: Parameters<typeof nativeFs.readFile>
-  ) => {
-    if (String(args[0]) === sidecar && sidecarReads++ === 0) {
+  const readSpy = spyOn(sidecarIo, 'readSidecarNoFollow').mockImplementation(async (target) => {
+    if (target === sidecar && sidecarReads++ === 0) {
       markReadStarted();
       await stalledRead;
     }
-    return realRead(...args);
-  }) as never);
+    return realRead(target);
+  });
   const controller = new AbortController();
 
   try {

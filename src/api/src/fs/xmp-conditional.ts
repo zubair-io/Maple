@@ -1,10 +1,14 @@
 /** Exact-content preconditions for path-keyed native cloud saves (#4317).
  * Checks and publication share the existing server-side write barrier. */
-import * as fs from 'node:fs/promises';
 import { computeBodyETag } from '../runtime/http-etag';
 import { primarySidecarDestination, preparePrimarySidecarWrite, xmpSidecarPath } from './xmp';
 import { serializeSidecarWrite, waitForAbortable } from './sidecar-write-order';
-import { isMissingSidecar, writeSidecarAtomic, writeSidecarCreateOnly } from './sidecar-io';
+import {
+  isMissingSidecar,
+  readSidecarNoFollow,
+  writeSidecarAtomic,
+  writeSidecarCreateOnly,
+} from './sidecar-io';
 
 export type ConditionalXmpResult =
   | { kind: 'ok'; data: string }
@@ -24,7 +28,7 @@ export async function writeXmpIfUnchanged(
       async (destination) => {
         try {
           signal?.throwIfAborted();
-          const current = await waitForAbortable(fs.readFile(destination, 'utf8'), signal).catch(
+          const current = await waitForAbortable(readSidecarNoFollow(destination), signal).catch(
             (error: unknown) => {
               if (isMissingSidecar(error)) return null;
               throw error;
