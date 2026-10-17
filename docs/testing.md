@@ -329,6 +329,12 @@ Two additional jobs provide backend-specific evidence. Both currently set **`con
 - **`raw-gpu-metal`** (`raw-pipeline.yml`, `macos-latest`) runs `cargo test -p raw-gpu` unmodified, on the real Metal backend a GitHub-hosted macOS runner exposes to headless wgpu. It is deliberately minimal — just the parity tests themselves — because the compile gates and the WGSL naga-frontend validation are backend-independent and already run on Linux. `raw-gpu`'s tests hard-`.expect()` a `GpuContext`, so a missing Metal adapter fails this job outright rather than soft-passing; a clean run is itself the proof the runner has one.
 - **`web-webgpu-smoke`** (`web.yml`, `ubuntu-latest`) runs two existing dev-server e2e specs — `e2e/raw-open.spec.ts` (a real RAW decode with no WASM trap) and `e2e/slider-tick-render.perf.spec.ts` (opens a real live GPU/WASM render session and drives the Exposure slider through real per-tick renders) — in headless Chromium with `--enable-unsafe-webgpu` (set by the perf spec's own `launchOptions`, the flag that makes a WebGPU adapter resolve at all in headless Chrome). Both specs already skip-pass without the gitignored `test-fixtures/raws/test_0006.DNG`, the same convention as every other fixture-gated gate, so an unprovisioned run supplies no RAW-open or slider-render evidence — but unlike `color-pipeline`'s fixture probe (which skips before provisioning any toolchain), this job still pays the full Rust/wasm-pack + raw-wasm-build + Chromium-install setup cost every run, the same cost `web-build`/`web-test`/`web-test-common` already pay unconditionally.
 
+The physical upright-canvas regression (`cd src/web && bun x playwright test
+--config=playwright.orientation.config.ts`) requires `test_0013.DNG` and a real
+Chrome WebGPU adapter. It fails if either is absent. It compares upright canvas,
+native dimensions, crop bounds and a radial mask's pixel changes against its
+handle, then reopens the real OPFS sidecar through the CPU path.
+
 Real hardware — locally, and through the Apple UITest harness — remains the deeper signal for both surfaces; these two jobs are the cheap, always-on backstop against a divergence reaching `main` with every existing check green.
 
 ---

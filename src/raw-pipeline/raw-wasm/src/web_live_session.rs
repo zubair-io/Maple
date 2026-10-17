@@ -58,7 +58,7 @@ use crate::gpu_render::{
     develop_prefix_rgba, effective_target_long_edge, inferred_auto_will_fit,
     model_from_live_params, resolve_target_color_space, session_prefix_matches, GpuWhiteBalance,
 };
-use raw_core::stages::perspective;
+use crate::web_live_geometry::{display_dims, present_geometry};
 use raw_core::xmp::AdjustmentModel;
 use raw_gpu::{GpuContext, LiveSession, WebPresentSurface};
 use wasm_bindgen::prelude::*;
@@ -106,9 +106,9 @@ pub struct WebLiveSession {
     /// session's lifetime, so a prefix re-develop reproduces the same dims and
     /// the canvas surface never needs resizing.
     target_long_edge: u32,
-    /// Developed (viewport-sized, sensor-framing) image dims — also the canvas +
+    /// Oriented viewport image dims — also the canvas +
     /// surface dims. ≤ `target_long_edge` on the long edge (#1080). The present
-    /// asserts canvas dims == session dims; dims never change across ticks (same
+    /// maps into sensor-framed session dims; dims never change across ticks (same
     /// image, same target), so the canvas is sized once on open.
     width: u32,
     height: u32,
@@ -234,13 +234,13 @@ impl WebLiveSession {
         // surfaces as a JsError for the same CPU fallback.
         let session = LiveSession::new(&ctx, &rgba, width, height).map_err(|e| JsError::new(&e))?;
 
-        // Size the canvas to the developed (viewport-sized) dims so the present's
-        // surface-dims == image-dims invariant holds (the FS recovers each pixel
-        // from the fragment position; a mismatch desyncs the dither cell). CSS
+        // Size the canvas to the upright viewport. The present maps display
+        // coordinates back into the sensor-framed resident chain. CSS
         // scales the element to the layout box on the main thread. Then build the
         // persistent present surface ONCE (surface + configure + colour-space
         // retag + present-pipeline compile) — every tick reuses it. `None` (the
         // pre-#3191 call shape) preserves the historical always-P3 request.
+        let (width, height) = display_dims(raw_img.orientation, (width, height));
         canvas.set_width(width);
         canvas.set_height(height);
         let requested_color_space = resolve_target_color_space(target_color_space.as_deref());
@@ -436,24 +436,6 @@ impl WebLiveSession {
     /// Build the chain inputs for `model`, run the resident chain to its f32
     /// buffer, and present to the held canvas surface. The shared tail of `open` +
     /// `render`. Returns the achieved colour-space tag (from the one-time retag).
-    /// The manual-geometry homography for the present shader (#3410).
-    ///
-    /// Note the framing caveat this inherits: `develop_prefix_rgba` hands the
-    /// live chain a SENSOR-framed buffer (the web canvas has never applied EXIF
-    /// orientation — the one-shot readback path orients on the CPU afterwards),
-    /// so on a rotated RAW this warps in sensor framing while the export tail
-    /// warps in display framing. That divergence predates this stage and covers
-    /// the whole canvas, not just geometry; it is tracked separately rather
-    /// than papered over here.
-    fn present_geometry(&self, model: &AdjustmentModel) -> raw_gpu::PresentGeometry {
-        let geometry = perspective::Perspective::from_model(model);
-        if geometry.is_identity() {
-            return raw_gpu::PresentGeometry::IDENTITY;
-        }
-        let inverse = geometry.inverse_matrix(perspective::aspect_ratio(self.width, self.height));
-        raw_gpu::PresentGeometry::from_inverse(inverse.0)
-    }
-
     async fn render_model(&mut self, model: &AdjustmentModel) -> Result<String, JsError> {
         if !session_prefix_matches(
             model,
@@ -471,10 +453,11 @@ impl WebLiveSession {
                     self.target_long_edge,
                 )
                 .map_err(|e| JsError::new(&e))?;
-            if (w, h) != (self.width, self.height) {
+            if (w, h) != self.session.dims() {
                 return Err(JsError::new(&format!(
                     "WebLiveSession::render: re-develop dims {w}x{h} != {}x{} (canvas not resized)",
-                    self.width, self.height
+                    self.session.dims().0,
+                    self.session.dims().1
                 )));
             }
             if let Some(fits) = inferred_auto_will_fit(model, &prefix_model) {
@@ -510,9 +493,8 @@ impl WebLiveSession {
         let inputs = &mut profile.inputs;
         self.white_balance.apply(model, inputs);
         inputs.nr_sampling_scale = self.nr_sampling_scale;
-        // The canvas and its mask overlay both present this sensor-framed
-        // buffer as-is, so masks stay in that frame until #4474 orients it.
-        inputs.mask_orientation = 1;
+        // Masks are authored upright; the resident chain remains sensor-framed.
+        inputs.mask_orientation = self.raw_img.orientation.exif_tag();
         // #1913 (generalised by #3191): the display-encode primaries MUST match
         // the canvas colour-space tag the present surface ACHIEVED — not the
         // `target_color_space` `open` was asked for, which the browser may not
@@ -536,7 +518,7 @@ impl WebLiveSession {
             &self.ctx,
             &self.session,
             final_idx,
-            self.present_geometry(model),
+            present_geometry(self.raw_img.orientation, self.session.dims(), model),
         )?;
         self.auto_fit.set(auto_fit);
         Ok(self.present.color_space().to_string())

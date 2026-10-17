@@ -14,6 +14,8 @@ import { ProfileSectionComponent } from '../../projects/maple-common/src/lib/com
 import { ImageCanvasComponent } from '../../projects/maple-common/src/lib/components/image-canvas/image-canvas.component';
 import { LibraryStateService } from '../../projects/maple-common/src/lib/state/library-state.service';
 import { EditorStateService } from '../../projects/maple-common/src/lib/editor/editor-state.service';
+import { MaskSessionService } from '../../projects/maple-common/src/lib/components/mask-overlay/mask-session.service';
+import type { AdjustmentModel } from '../../projects/maple-common/src/lib/models/adjustment-model';
 import { XmpStoreService } from '../../projects/maple-common/src/lib/xmp/xmp-store.service';
 import { GpuLiveRenderGate } from '../../projects/maple-common/src/lib/raw-pipeline/gpu-live-render.gate';
 @Component({
@@ -87,6 +89,28 @@ Object.assign(window, {
         gpuActive: active.component.instance.canvas?.gpuPresent.active() ?? false,
         autoFit: library.lensCorrectionsFor(id).autoFit,
       };
+    },
+    dimensions() {
+      return active?.component.instance.canvas?.canvasSvc.nativeDimensions();
+    },
+    async geometry(patch: Partial<AdjustmentModel>, tool: 'crop' | 'mask' | 'exposure') {
+      if (!active) throw Error('No physical canvas fixture mounted');
+      const library = active.app.injector.get(LibraryStateService);
+      const id = library.focusedAssetId()!;
+      library.updateAdjustment(id, patch);
+      active.app.injector.get(EditorStateService).armTool(tool);
+      active.app.injector.get(MaskSessionService).selectedIndex.set(0);
+      await active.app.injector.get(XmpStoreService).settleAsset(id);
+      const canvas = active.component.instance.canvas!;
+      if (canvas.gpuPresent.active())
+        await canvas.gpuPresent.render(
+          canvas.serializeForRender(library.adjustmentFor(id)()),
+          canvas.renderGeneration,
+        );
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+      return canvas.canvasSvc.nativeDimensions();
     },
     dispose,
   },

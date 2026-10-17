@@ -127,6 +127,8 @@ mod gpu_render;
 // an `OffscreenCanvas` + drives WebGPU via `wasm_bindgen_futures`); gpu-gated. The
 // native-host build (the `gpu_render` parity test) does not compile it — its core
 // helpers are shared from `gpu_render`, which the test drives directly.
+#[cfg(all(feature = "gpu", any(target_arch = "wasm32", test)))]
+mod web_live_geometry;
 #[cfg(all(feature = "gpu", target_arch = "wasm32"))]
 mod web_live_session;
 
