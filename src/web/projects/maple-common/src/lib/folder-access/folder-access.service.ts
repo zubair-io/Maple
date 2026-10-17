@@ -42,10 +42,7 @@ import {
   fallbackEnsureSubdirectory,
 } from './fallback-backend';
 import { FolderAccessError } from './folder-access.error';
-
-interface DataTransferItemWithHandle extends DataTransferItem {
-  getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>;
-}
+import type { DropSnapshot } from './drop-snapshot';
 
 @Injectable({ providedIn: 'root' })
 export class FolderAccessService {
@@ -107,16 +104,11 @@ export class FolderAccessService {
   }
 
   /** Resolve a directory dragged from the OS without opening another picker. */
-  async openDroppedFolder(dataTransfer: DataTransfer): Promise<MapleFolderHandle | null> {
+  async openDroppedFolder(drop: DropSnapshot): Promise<MapleFolderHandle | null> {
     if (this.backend !== 'fs-access') return null;
 
-    for (const item of Array.from(dataTransfer.items)) {
-      const handle = await (item as DataTransferItemWithHandle).getAsFileSystemHandle?.();
-      if (handle?.kind === 'directory') {
-        return fsAccessOpenDroppedFolder(handle as FileSystemDirectoryHandle);
-      }
-    }
-    return null;
+    const directory = (await drop.handles).find((handle) => handle?.kind === 'directory');
+    return directory ? fsAccessOpenDroppedFolder(directory as FileSystemDirectoryHandle) : null;
   }
 
   /**
@@ -152,21 +144,18 @@ export class FolderAccessService {
    * those still throw for the caller's generic error handling.
    */
   async resolveDrop(
-    dataTransfer: DataTransfer,
+    drop: DropSnapshot,
     knownFolders: KnownFolder[],
     onBeforePicker?: () => void,
   ): Promise<DropResolution> {
     if (this.backend !== 'fs-access') {
-      return this._copyFallback(
-        dataTransfer,
-        'This browser cannot reference dropped files in place',
-      );
+      return this._copyFallback(drop, 'This browser cannot reference dropped files in place');
     }
 
-    const resolved = await this._getDroppedHandles(dataTransfer);
+    const resolved = await this._getDroppedHandles(drop);
     if (!resolved) {
       return this._copyFallback(
-        dataTransfer,
+        drop,
         'This browser could not resolve the dropped item(s) to a file location',
       );
     }
@@ -184,32 +173,26 @@ export class FolderAccessService {
     // outside the four supported cases — copy rather than guess.
     if (directories.length > 0 || files.length === 0) {
       return this._copyFallback(
-        dataTransfer,
+        drop,
         'Dropping folders together with loose files is not supported for reference mounting',
       );
     }
 
-    return this._mountDroppedFiles(dataTransfer, files, knownFolders, onBeforePicker);
+    return this._mountDroppedFiles(drop, files, knownFolders, onBeforePicker);
   }
 
-  private _copyFallback(dataTransfer: DataTransfer, reason: string): DropResolution {
+  private _copyFallback(drop: DropSnapshot, reason: string): DropResolution {
     return {
       kind: 'copy-fallback',
-      files: Array.from(dataTransfer.files),
+      files: [...drop.files],
       reason: `${reason} — copied instead.`,
     };
   }
 
   /** Resolve every dropped item to its FS Access handle, or null if any item
    * couldn't be resolved (the whole drop then falls back to copy-import). */
-  private async _getDroppedHandles(dataTransfer: DataTransfer): Promise<FileSystemHandle[] | null> {
-    const items = Array.from(dataTransfer.items).filter((item) => item.kind === 'file');
-    const handles = await Promise.all(
-      items.map(
-        (item) =>
-          (item as DataTransferItemWithHandle).getAsFileSystemHandle?.() ?? Promise.resolve(null),
-      ),
-    );
+  private async _getDroppedHandles(drop: DropSnapshot): Promise<FileSystemHandle[] | null> {
+    const handles = await drop.handles;
     if (handles.length === 0 || handles.some((h) => !h)) return null;
     return handles as FileSystemHandle[];
   }
@@ -231,7 +214,7 @@ export class FolderAccessService {
    * drop lands inside one; otherwise confirms the parent via a seeded picker
    * (the FS Access API has no parent-directory lookup for a lone file). */
   private async _mountDroppedFiles(
-    dataTransfer: DataTransfer,
+    drop: DropSnapshot,
     files: FileSystemFileHandle[],
     knownFolders: KnownFolder[],
     onBeforePicker?: () => void,
@@ -239,7 +222,7 @@ export class FolderAccessService {
     const inKnownFolder = await this._mountIfInsideKnownFolder(files, knownFolders);
     if (inKnownFolder) return inKnownFolder;
     onBeforePicker?.();
-    return this._mountViaSeededPicker(dataTransfer, files);
+    return this._mountViaSeededPicker(drop, files);
   }
 
   /**
@@ -315,17 +298,14 @@ export class FolderAccessService {
   /** No known folder contains the drop — confirm its parent via a directory
    * picker seeded at the first file's location. */
   private async _mountViaSeededPicker(
-    dataTransfer: DataTransfer,
+    drop: DropSnapshot,
     files: FileSystemFileHandle[],
   ): Promise<DropResolution> {
     const picked = await fsAccessPickContainingFolder(files[0]);
     if (!picked) return { kind: 'cancelled' };
     const match = await fsAccessResolveCommonParent(picked, files);
     if (!match) {
-      return this._copyFallback(
-        dataTransfer,
-        'The selected folder did not contain the dropped file(s)',
-      );
+      return this._copyFallback(drop, 'The selected folder did not contain the dropped file(s)');
     }
     const folder = await fsAccessOpenDroppedFolder(match.dir);
     if (!folder) return { kind: 'cancelled' };

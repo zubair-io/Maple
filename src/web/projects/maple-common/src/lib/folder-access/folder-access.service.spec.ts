@@ -5,6 +5,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FolderAccessService } from './folder-access.service';
 import type { KnownFolder } from './folder-access.types';
+import { snapshotDrop } from './drop-snapshot';
+import type { DropSnapshot } from './drop-snapshot';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -45,12 +47,12 @@ interface FakeItem {
   getAsFileSystemHandle: () => Promise<FileSystemHandle | null>;
 }
 
-function dataTransferFor(handles: (FileSystemHandle | null)[], files: File[] = []): DataTransfer {
+function dataTransferFor(handles: (FileSystemHandle | null)[], files: File[] = []): DropSnapshot {
   const items: FakeItem[] = handles.map((h) => ({
     kind: 'file',
     getAsFileSystemHandle: vi.fn().mockResolvedValue(h),
   }));
-  return { items, files } as unknown as DataTransfer;
+  return snapshotDrop({ items, files } as unknown as DataTransfer);
 }
 
 function knownFolder(native: FileSystemDirectoryHandle, isCurrent: boolean): KnownFolder {
@@ -83,6 +85,20 @@ function withFsAccessBackend(): () => void {
     else Reflect.deleteProperty(window, 'showDirectoryPicker');
   };
 }
+
+describe('snapshotDrop', () => {
+  it('reads the files and starts every handle lookup synchronously, before any await', () => {
+    const lookups = [vi.fn().mockResolvedValue(null), vi.fn().mockResolvedValue(null)];
+    const file = new File(['x'], 'a.dng');
+    const snapshot = snapshotDrop({
+      items: lookups.map((getAsFileSystemHandle) => ({ kind: 'file', getAsFileSystemHandle })),
+      files: [file],
+    } as unknown as DataTransfer);
+
+    expect(lookups.map((lookup) => lookup.mock.calls.length)).toEqual([1, 1]);
+    expect(snapshot.files).toEqual([file]);
+  });
+});
 
 describe('FolderAccessService.resolveDrop', () => {
   let restoreBackend: (() => void) | null = null;
