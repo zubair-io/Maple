@@ -44,6 +44,7 @@ extension EditSessionDecodedCacheTests {
 
     let session = try makeIsolatedFixtureSession(from: original)
     XCTAssertNotEqual(session.asset.sidecarURL, sidecar)
+    await session.loadSidecar()
     session.model.exposure = 0.5
     await session.flushPendingSidecarWrite()
 

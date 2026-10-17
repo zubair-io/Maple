@@ -113,9 +113,9 @@ final class AdjustmentPasteApplierTests: XCTestCase {
 
     func testApplyMutatesLiveSessionModelWithinScopedGroupOnly() async {
         let asset = await tempAsset()
-        var initial = AdjustmentModel.default
-        initial.exposure = -1.0
-        let session = EditSession(asset: asset, model: initial, culling: CullingState())
+        let session = EditSession(asset: asset)
+        await session.loadSidecar()
+        session.model.exposure = -1.0
 
         var source = AdjustmentModel.default
         source.vibrance = 42     // .color — should move

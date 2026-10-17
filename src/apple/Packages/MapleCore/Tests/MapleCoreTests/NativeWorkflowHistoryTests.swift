@@ -82,6 +82,7 @@ final class NativeWorkflowHistoryTests: EditorTestCase {
     let (directory, raw, original) = try files()
     defer { try? FileManager.default.removeItem(at: directory) }
     let session = EditSession(asset: AssetRef(url: raw), model: .default, culling: CullingState())
+    await session.loadSidecar()
     session.model.exposure = 0.25
     session.model.exposure = 0.5
     session.beginEdit()
@@ -165,6 +166,7 @@ final class NativeWorkflowHistoryTests: EditorTestCase {
     let sidecar = SidecarPath.sidecarURL(for: raw)
     try Data(future.utf8).write(to: sidecar)
     let session = EditSession(asset: AssetRef(url: raw), model: .default, culling: CullingState())
+    await session.loadSidecar()
     session.beginEdit(description: "Exposure")
     session.model.exposure = 1.25
     session.endEdit()

@@ -165,6 +165,7 @@ struct EditorSurface: View {
           )
         }
       }
+      .disabled(!state.session.hasLoadedSidecar)
       .popover(isPresented: presetsPresented(asSheet: false), arrowEdge: .trailing) {
         presetsPanel.frame(width: 340, height: 460)
       }
@@ -193,6 +194,8 @@ struct EditorSurface: View {
           )
           Spacer(minLength: 0)
         }
+        EditorSidecarLoadNotice(session: state.session)
+          .padding(.top, 8)
         Spacer()
       }
       .padding(.top, 8)
