@@ -104,8 +104,9 @@ interface NativeCodeRow {
 }
 
 /**
- * Issue a single-use code bound to the user, the PKCE challenge and an opaque
- * `state`. The raw code is returned once; only its hash is persisted.
+ * Issue a single-use code bound to the user, the PKCE challenge, an opaque
+ * `state`, and (when issued from an HTTP request) the issuing browser's IP.
+ * The raw code is returned once; only its hash is persisted.
  */
 export async function issueNativeCode(
   args: {
@@ -113,14 +114,15 @@ export async function issueNativeCode(
     codeChallenge: string;
     state: string;
     deviceLabel: string;
+    issuedIp?: string | null;
   },
   dbOverride?: SqliteDb,
 ): Promise<IssuedNativeCode> {
   const code = newHandoffCode();
   await sqliteDb(dbOverride).write(
     `INSERT INTO native_auth_codes
-       (id, code_hash, code_challenge, state, user_id, device_label, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, code_hash, code_challenge, state, user_id, device_label, issued_ip, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       newObjectIdHex(),
       hashHandoffCode(code),
@@ -128,6 +130,7 @@ export async function issueNativeCode(
       args.state,
       toHex(args.userId),
       args.deviceLabel,
+      args.issuedIp ?? null,
       nowIso(),
       expiryIso(),
     ],
@@ -168,17 +171,24 @@ export async function redeemNativeCode(
   return row === null ? null : toRedeemedNative(row);
 }
 
+export interface ClaimNativeCodeOptions {
+  callerIp?: string;
+  code?: string;
+}
+
+function isSqliteDb(value: unknown): value is SqliteDb {
+  return typeof value === 'object' && value !== null && 'read' in value && 'write' in value;
+}
+
 /**
- * Consume a pending code by `state` and PKCE verifier, without the raw code
- * (#3063).
+ * Consume a pending code by `state` and PKCE verifier (#3063), bound either to
+ * the redirect-delivered `code` or to the issuing browser's client IP (#4673).
  *
  * The polling completion channel. Chromium refuses to launch `maple-app://`
- * from a script navigation with no user gesture, so a browser that was already
- * signed in mints a code it can never deliver through the redirect. The raw
- * code only ever existed to bind that redirect hop; a caller holding the
- * private verifier and the ceremony's `state` is the same principal, so the
- * same single-use, unexpired, challenge-must-match swap applies. `null` while
- * nothing is pending — the app keeps polling.
+ * from a script navigation with no user gesture, so a native shell on the same
+ * host polls with its private verifier and the ceremony's `state`. Binding
+ * code-less polling to `issued_ip` prevents a remote attacker who crafted
+ * `(code_challenge, state)` from claiming a code issued on a victim's machine.
  *
  * Unlike {@link redeemNativeCode}, `state` is not a unique column, so the row
  * is pinned by id first and the swap is scoped to it. Without that, a reused
@@ -188,22 +198,38 @@ export async function redeemNativeCode(
 export async function claimNativeCode(
   state: string,
   codeVerifier: string,
+  optionsOrDb?: ClaimNativeCodeOptions | SqliteDb,
   dbOverride?: SqliteDb,
 ): Promise<RedeemedNativeCode | null> {
-  const db = sqliteDb(dbOverride);
+  const options: ClaimNativeCodeOptions = isSqliteDb(optionsOrDb) ? {} : (optionsOrDb ?? {});
+  const db = sqliteDb(isSqliteDb(optionsOrDb) ? optionsOrDb : dbOverride);
   const challenge = pkceS256(codeVerifier);
+  if (options.code !== undefined) {
+    const row = await spendCodeByHash<NativeCodeRow>(
+      db,
+      'native_auth_codes',
+      NATIVE_IDENTITY_COLUMNS,
+      hashHandoffCode(options.code),
+      { sql: ' AND state = ? AND code_challenge = ?', params: [state, challenge] },
+    );
+    return row === null ? null : toRedeemedNative(row);
+  }
+  const callerIp = options.callerIp ?? '';
   const candidates = await db.read<{ id: string }>(
     `SELECT id FROM native_auth_codes
-      WHERE state = ? AND code_challenge = ? AND consumed_at IS NULL AND expires_at > ?
+      WHERE state = ? AND code_challenge = ?
+        AND (issued_ip IS NULL OR issued_ip = ?)
+        AND consumed_at IS NULL AND expires_at > ?
       ORDER BY created_at, id LIMIT 1`,
-    [state, challenge, nowIso()],
+    [state, challenge, callerIp, nowIso()],
   );
   const id = candidates[0]?.id;
   if (id === undefined) return null;
   const result = await db.write(
     `UPDATE native_auth_codes SET consumed_at = ?
-      WHERE id = ? AND consumed_at IS NULL AND expires_at > ?`,
-    [nowIso(), id, nowIso()],
+      WHERE id = ? AND (issued_ip IS NULL OR issued_ip = ?)
+        AND consumed_at IS NULL AND expires_at > ?`,
+    [nowIso(), id, callerIp, nowIso()],
   );
   if (result.changes !== 1) return null;
   const rows = await db.read<NativeCodeRow>(

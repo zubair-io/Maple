@@ -14,7 +14,8 @@ import {
   lanHandoffIssueRoutes,
   lanHandoffRedeemRoutes,
 } from '../../src/routes/auth-lan-handoff.ts';
-import { signAccessToken } from '../../src/auth/tokens.ts';
+import { signAccessToken, signStepUpToken } from '../../src/auth/tokens.ts';
+import { issueRefreshToken } from '../../src/auth/refresh_store.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
@@ -31,6 +32,7 @@ const app = new Elysia()
 let live: LiveTestDatabase;
 let userId: ObjectId;
 let bearer: string;
+let refreshCookie: string;
 
 beforeEach(async () => {
   live = await createLiveTestDatabase();
@@ -39,6 +41,8 @@ beforeEach(async () => {
     { file_access: true, sub: userId.toHexString(), email: 'owner@maple.local', role: 'owner' },
     process.env.MAPLE_JWT_SECRET!,
   );
+  const primary = await issueRefreshToken(userId, 'browser');
+  refreshCookie = `maple_refresh=${primary.raw}`;
 });
 
 afterEach(() => {
@@ -77,8 +81,29 @@ describe('web-to-web-LAN session handoff', () => {
     expect(r.status).toBe(401);
   });
 
-  it('issues a code (authed) and redeems it for a fresh session', async () => {
-    const issueRes = await issue({ authorization: `Bearer ${bearer}` });
+  it('rejects an access-only JWT with 403 when neither a live primary refresh token nor step-up is presented (#4673)', async () => {
+    const r = await issue({ authorization: `Bearer ${bearer}` });
+    expect(r.status).toBe(403);
+    expect(refreshTokenCount()).toBe(1);
+  });
+
+  it('rejects a paired-device refresh token (non-primary) as proof (#4673)', async () => {
+    const tv = await issueRefreshToken(userId, 'Apple TV', { platform: 'tvos' });
+    const r = await issue({
+      authorization: `Bearer ${bearer}`,
+      cookie: `maple_refresh=${tv.raw}`,
+    });
+    expect(r.status).toBe(403);
+  });
+
+  it('accepts a valid X-Step-Up header when no refresh token is presented (#4673)', async () => {
+    const stepUp = await signStepUpToken(userId.toHexString(), process.env.MAPLE_JWT_SECRET!);
+    const r = await issue({ authorization: `Bearer ${bearer}`, 'x-step-up': stepUp });
+    expect(r.status).toBe(200);
+  });
+
+  it('issues a code (authed + primary refresh proof) and redeems it for a fresh session', async () => {
+    const issueRes = await issue({ authorization: `Bearer ${bearer}`, cookie: refreshCookie });
     expect(issueRes.status).toBe(200);
     const { code } = (await issueRes.json()) as { code: string };
     expect(typeof code).toBe('string');
@@ -104,7 +129,7 @@ describe('web-to-web-LAN session handoff', () => {
     expect(setCookie).toContain('HttpOnly');
     expect(setCookie.toLowerCase()).not.toContain('secure');
 
-    expect(refreshTokenCount()).toBe(1);
+    expect(refreshTokenCount()).toBe(2);
 
     // Single-use: a replay of the same code fails.
     const reuse = await redeem(code, '203.0.113.21');

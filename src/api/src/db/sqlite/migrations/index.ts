@@ -56,6 +56,7 @@ import { rearmUnresolvedLocationSkipsMigration } from './0031-rearm-unresolved-l
 import { sidecarDivergencesMigration } from './0032-sidecar-divergences.ts';
 import { workerStallThresholdMigration } from './0033-worker-stall-threshold.ts';
 import { backupSidecarNameChecksMigration } from './0034-backup-sidecar-name-checks.ts';
+import { nativeCodeIssuedIpMigration } from './0035-native-code-issued-ip.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -92,4 +93,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   sidecarDivergencesMigration,
   workerStallThresholdMigration,
   backupSidecarNameChecksMigration,
+  nativeCodeIssuedIpMigration,
 ];

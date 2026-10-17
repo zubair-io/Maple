@@ -12,6 +12,7 @@
 
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { NativeHandoffConsentComponent } from '../auth/native-handoff-consent.component';
 import { AppUpdateService } from '../sw/app-update.service';
 import { LanSwitchBannerComponent } from '../network/lan-switch-banner.component';
 import { GpuFallbackNoticeService } from '../components/gpu-fallback-notice/gpu-fallback-notice.service';
@@ -25,6 +26,7 @@ import { SidecarSaveStateService } from '../xmp/sidecar-save-state.service';
   imports: [
     RouterOutlet,
     LanSwitchBannerComponent,
+    NativeHandoffConsentComponent,
     MuiStatusTextComponent,
     MuiToastContainerComponent,
   ],

@@ -22,12 +22,12 @@ import { AuthService } from './auth.service';
  * history/bookmarks and a page refresh afterward falls through to the normal
  * cookie-based refresh below.
  *
- * Finally, once the session is hydrated (or known absent), this completes a
- * pending NATIVE handoff: an app that opened this URL with
- * `?native_callback=maple-app&code_challenge=…&state=…` is waiting for a
- * one-time code. A fresh passkey ceremony hands that code over on its own, but
- * an already-signed-in browser never runs one — without this step the app waits
- * forever while the browser just shows the library (#2963).
+ * Native sign-in handoff (`?native_callback=maple-app&code_challenge=…&state=…`)
+ * is deliberately NOT completed here (#4673): auto-issuing a code on page load
+ * when a refresh cookie is present would let a crafted URL mint a device
+ * session with zero user interaction. Instead, `NativeHandoffConsentComponent`
+ * (mounted in `RootShellComponent`) presents a consent interstitial and calls
+ * `auth.resumeNativeHandoff()` only on an explicit user click.
  *
  * This intentionally BLOCKS bootstrap: `provideAppInitializer` awaits the
  * returned promise, so the app finishes booting only once the redeem (or
@@ -52,11 +52,6 @@ export function provideAuthBootstrap(): EnvironmentProviders {
       if (!redeemed && (await auth.refresh()) === 'refreshed') {
         await auth.loadMe();
       }
-      // The session is now as hydrated as it is going to get. If a native app
-      // opened this URL to collect an auth code, hand it over — see
-      // AuthService.resumeNativeHandoff. Awaited (not fire-and-forget) so the
-      // redirect goes out before the router paints the library behind it.
-      await auth.resumeNativeHandoff();
     } catch {
       /* never block boot on auth hydration */
     }
