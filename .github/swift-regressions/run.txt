@@ -392,3 +392,4 @@ PanoMergePreviewTests
 
 # RGB bias precision (#4667): generated large images, no external fixtures.
 CIEDE2000BiasTests
+BackupSettingsMigrationTests
