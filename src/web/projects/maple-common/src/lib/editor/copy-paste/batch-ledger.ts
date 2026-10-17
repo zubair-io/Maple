@@ -34,7 +34,7 @@ export interface BatchOperation {
   directory?: FileSystemDirectoryHandle;
 }
 
-export function primaryBatchTarget(rawFilename: string): BatchSidecarTarget {
+function primaryBatchTarget(rawFilename: string): BatchSidecarTarget {
   return {
     rawFilename,
     filename: primarySidecarFilename(rawFilename),
