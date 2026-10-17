@@ -394,24 +394,21 @@ export class ImageCanvasGpuPresent {
     fitAsset: AssetId | null,
     fitRevision: number | undefined,
   ): void {
-    const state: LibraryStateService = this.host.state;
-    // Scalar ticks retain per-image provenance; only an XMP reply refreshes it.
-    if (!fastParams && this.host.currentAssetId)
-      this.host.state.seedLensProfile(
-        this.host.currentAssetId,
-        rendered.lensProfile ?? null,
-        rendered.autoFit,
-        fitRevision,
-      );
-    const currentModel = fitAsset ? state.adjustmentFor(fitAsset)() : null;
-    if (!fastParams) this.prefixModel = currentModel;
     this.scalarPrefixAsset = fitAsset;
+    if (!fitAsset) {
+      this.scalarPrefixRevision = undefined;
+      return;
+    }
+    const state: LibraryStateService = this.host.state;
+    const currentModel = state.adjustmentFor(fitAsset)();
+    if (!fastParams) {
+      this.prefixModel = currentModel;
+      // Scalar ticks retain per-image provenance; only an XMP reply refreshes it.
+      state.seedLensProfile(fitAsset, rendered.lensProfile ?? null, rendered.autoFit, fitRevision);
+    }
+    const fastPathReady = Boolean(params) || canUseLiveFastPath(currentModel);
     this.scalarPrefixRevision =
-      (params !== undefined || (currentModel !== null && canUseLiveFastPath(currentModel))) &&
-      fitAsset !== null &&
-      fitRevision === state.autoFitRevisionFor(fitAsset)
-        ? fitRevision
-        : undefined;
+      fastPathReady && fitRevision === state.autoFitRevisionFor(fitAsset) ? fitRevision : undefined;
   }
 
   /**
