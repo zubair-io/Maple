@@ -19,7 +19,9 @@ import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import {
   createLiveTestDatabase,
+  insertAsset,
   insertFolder,
+  insertLocation,
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { foldersRoutes } from './folders.ts';
@@ -242,6 +244,33 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
       await writeFile(nodePath.join(folderPath, 'clip.mov'), PREVIOUS);
       expect((await upload('clip.mov', REPLACEMENT)).status).toBe(201);
       await expectPreviousInTrash('clip.mov');
+    });
+
+    it('re-catalogues a replaced video the indexer had already discovered', async () => {
+      await writeFile(nodePath.join(folderPath, 'clip.mov'), PREVIOUS);
+      const previousId = insertAsset(live.db);
+      insertLocation(live.db, {
+        assetId: previousId,
+        libraryId: folderId,
+        path: '',
+        filename: 'clip.mov',
+      });
+
+      const res = await upload('clip.mov', REPLACEMENT);
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { asset_id?: string };
+      expect(body.asset_id).toMatch(/^[a-f0-9]{24}$/);
+      await expectPreviousInTrash('clip.mov');
+
+      const live_ = live.db
+        .query(
+          `SELECT a.id FROM assets a JOIN asset_locations l ON l.asset_id = a.id
+            WHERE l.library_id = ? AND l.path = '' AND l.filename = 'clip.mov'
+              AND a.deleted_at IS NULL AND l.deleted_at IS NULL`,
+        )
+        .all(folderId) as { id: string }[];
+      expect(live_.map((row) => row.id)).toEqual([body.asset_id!]);
+      expect(changes().at(-1)?.asset_id).toBe(body.asset_id!);
     });
 
     it('keeps the previous non-indexed file in .maple/trash', async () => {
