@@ -136,13 +136,15 @@ export async function publishSidecarSnapshot(source: string, dest: string): Prom
   });
 }
 
-/** Remove a moved sidecar's source inside its save barrier. A save that
+/** Settle a carried sidecar's source inside its save barrier. A save that
  * landed after the snapshot is carried to `dest` when `dest` still holds the
- * snapshot; when both sides changed the source is kept rather than lost. */
-export async function unlinkMovedSidecar(
+ * snapshot. The source is then removed unless a sibling still claims it
+ * (`keepSource`); when both ends changed it is kept so neither save is lost. */
+export async function settleCarriedSidecar(
   source: string,
   dest: string,
   snapshot: Buffer,
+  keepSource: boolean,
 ): Promise<void> {
   await serializeSidecarWrite(source, async () => {
     const current = await fs.readFile(source).catch(() => null);
@@ -163,6 +165,6 @@ export async function unlinkMovedSidecar(
         return;
       }
     }
-    await fs.unlink(source);
+    if (!keepSource) await fs.unlink(source);
   });
 }

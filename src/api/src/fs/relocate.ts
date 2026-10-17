@@ -57,9 +57,14 @@ import {
   SidecarCollisionError,
   assetDestinationOccupied,
   publishSidecarSnapshot,
-  unlinkMovedSidecar,
+  settleCarriedSidecar,
 } from './sidecar-ownership.ts';
-import { planSidecars, type SidecarPlan } from './relocate-sidecar-plan.ts';
+import {
+  planSidecars,
+  sourceSidecarStays,
+  type MovedSidecar,
+  type SidecarPlan,
+} from './relocate-sidecar-plan.ts';
 
 export { sidecarRenameTarget };
 
@@ -284,12 +289,6 @@ async function tryCopyCompanion(companion: string, dest: string): Promise<boolea
   }
 }
 
-interface MovedSidecar {
-  source: string;
-  dest: string;
-  snapshot: Buffer;
-}
-
 interface SidecarCopyResult {
   copiedSidecars: string[];
   movedSidecars: MovedSidecar[];
@@ -314,7 +313,7 @@ async function copyPrimaryAndSidecars(
   createdPaths.push(finalDest);
 
   const copiedSidecars: string[] = [];
-  const movedSidecars: MovedSidecar[] = [];
+  const carried: Omit<MovedSidecar, 'keepSource'>[] = [];
   for (const entry of plan.entries) {
     if (entry.samePath) {
       copiedSidecars.push(entry.dest);
@@ -325,9 +324,7 @@ async function copyPrimaryAndSidecars(
     if (!snapshot) continue;
     createdPaths.push(entry.dest);
     copiedSidecars.push(entry.dest);
-    if (!plan.sourceClaimedBySibling) {
-      movedSidecars.push({ source: entry.source, dest: entry.dest, snapshot });
-    }
+    carried.push({ source: entry.source, dest: entry.dest, snapshot });
   }
 
   const companionPaths: string[] = [];
@@ -364,6 +361,14 @@ async function copyPrimaryAndSidecars(
     }
   }
 
+  const keepSource = await sourceSidecarStays(
+    req.sourceAbsPath,
+    finalDest,
+    plan,
+    req.extraCompanionAbsPaths ?? [],
+    movedCompanionSources,
+  );
+  const movedSidecars = carried.map((entry) => ({ ...entry, keepSource }));
   return { copiedSidecars, movedSidecars, companionPaths, movedCompanionSources };
 }
 
@@ -407,7 +412,8 @@ async function deleteOriginals(
   const removals = [
     ...movedSidecars.map((moved) => ({
       src: moved.source,
-      remove: () => unlinkMovedSidecar(moved.source, moved.dest, moved.snapshot),
+      remove: () =>
+        settleCarriedSidecar(moved.source, moved.dest, moved.snapshot, moved.keepSource),
     })),
     ...movedCompanionSources.map((src) => ({ src, remove: () => fs.unlink(src) })),
   ];

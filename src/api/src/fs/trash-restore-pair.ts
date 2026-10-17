@@ -8,7 +8,7 @@ import { isVideoFilename } from '../indexer/media-types';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { child as childLogger } from '../log.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
-import { sidecarStemClaimedBySibling, unlinkMovedSidecar } from './sidecar-ownership.ts';
+import { settleCarriedSidecar, sidecarStemClaimedBySibling } from './sidecar-ownership.ts';
 
 const log = childLogger('fs/trash-restore');
 
@@ -119,11 +119,10 @@ export async function restoreFilePair(
     for (const entry of staged) {
       // After any source was removed, retain published copies even if a later
       // ownership check fails: rollback would discard the only remaining bytes.
-      if (entry.isSidecar && sidecarClaimedInTrash) continue;
       await beforeSourceDelete?.();
       const snapshot = snapshots.get(entry);
       const removal = snapshot
-        ? unlinkMovedSidecar(entry.source, entry.destination, snapshot)
+        ? settleCarriedSidecar(entry.source, entry.destination, snapshot, sidecarClaimedInTrash)
         : fs.unlink(entry.source);
       await removal.catch((error) => {
         log.warn(

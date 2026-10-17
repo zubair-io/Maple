@@ -136,6 +136,52 @@ describe('trash', () => {
   });
 });
 
+describe('companions', () => {
+  test('a same-stem companion that fails to copy keeps its claim on the source sidecar', async () => {
+    const raw = await write('src/IMG_1.dng', 'pixels');
+    const companion = await write('src/IMG_1.jpg', 'rendered');
+    await write('src/IMG_1.xmp', '<edits/>');
+    await fs.chmod(companion, 0o000);
+    try {
+      const outcome = await relocateFile({
+        sourceAbsPath: raw,
+        destAbsPath: abs('dst/IMG_1.dng'),
+        mode: 'move',
+        collision: 'auto-suffix',
+        extraCompanionAbsPaths: [companion],
+      });
+      expect(outcome.kind).toBe('relocated');
+    } finally {
+      await fs.chmod(companion, 0o644);
+    }
+    expect(await tree()).toEqual({
+      'src/IMG_1.jpg': 'rendered',
+      'src/IMG_1.xmp': '<edits/>',
+      'dst/IMG_1.dng': 'pixels',
+      'dst/IMG_1.xmp': '<edits/>',
+    });
+  });
+
+  test('a same-stem companion that moves with the photo takes the sidecar with it', async () => {
+    const raw = await write('src/IMG_1.dng', 'pixels');
+    const companion = await write('src/IMG_1.jpg', 'rendered');
+    await write('src/IMG_1.xmp', '<edits/>');
+    const outcome = await relocateFile({
+      sourceAbsPath: raw,
+      destAbsPath: abs('dst/IMG_1.dng'),
+      mode: 'move',
+      collision: 'auto-suffix',
+      extraCompanionAbsPaths: [companion],
+    });
+    expect(outcome.kind).toBe('relocated');
+    expect(await tree()).toEqual({
+      'dst/IMG_1.dng': 'pixels',
+      'dst/IMG_1.jpg': 'rendered',
+      'dst/IMG_1.xmp': '<edits/>',
+    });
+  });
+});
+
 describe('duplicates mover', () => {
   test('quarantining the RAW of a RAW+JPEG pair copies the shared sidecar', async () => {
     const raw = await write('lib/IMG_1.CR3', 'raw');
@@ -223,6 +269,46 @@ describe('saves landing during a move', () => {
       'a/IMG_1.xmp': '<old-path-save/>',
       'b/IMG_1.CR3': 'raw',
       'b/IMG_1.xmp': '<new-path-save/>',
+    });
+  });
+
+  test('a save to a shared sidecar mid-move reaches the destination and stays for the sibling', async () => {
+    const raw = await write('a/IMG_1.CR3', 'raw');
+    await write('a/IMG_1.JPG', 'jpg');
+    const sidecar = await write('a/IMG_1.xmp', '<before/>');
+    const outcome = await relocateFile({
+      sourceAbsPath: raw,
+      destAbsPath: abs('b/IMG_1.CR3'),
+      mode: 'move',
+      collision: 'auto-suffix',
+      onVerified: () => save(sidecar, '<saved-mid-move/>'),
+    });
+    expect(outcome.kind).toBe('relocated');
+    expect(await tree()).toEqual({
+      'a/IMG_1.JPG': 'jpg',
+      'a/IMG_1.xmp': '<saved-mid-move/>',
+      'b/IMG_1.CR3': 'raw',
+      'b/IMG_1.xmp': '<saved-mid-move/>',
+    });
+  });
+
+  test('a save to a sidecar shared in the trash reaches the restored photo and stays for the sibling', async () => {
+    const trashedRaw = await write('lib/.maple/trash/IMG_1.CR3', 'raw');
+    await write('lib/.maple/trash/IMG_1.JPG', 'jpg');
+    const trashedSidecar = await write('lib/.maple/trash/IMG_1.xmp', '<before/>');
+    const result = await moveOutOfTrash(
+      trashedRaw,
+      abs('lib/IMG_1.CR3'),
+      undefined,
+      undefined,
+      () => save(trashedSidecar, '<saved-mid-restore/>'),
+    );
+    expect(result.kind).toBe('ok');
+    expect(await tree()).toEqual({
+      'lib/IMG_1.CR3': 'raw',
+      'lib/IMG_1.xmp': '<saved-mid-restore/>',
+      'lib/.maple/trash/IMG_1.JPG': 'jpg',
+      'lib/.maple/trash/IMG_1.xmp': '<saved-mid-restore/>',
     });
   });
 
