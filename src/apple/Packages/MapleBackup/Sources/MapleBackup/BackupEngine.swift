@@ -426,7 +426,8 @@ public actor BackupEngine {
         // Delete the local-edit XMP only after the sidecar actually lands on
         // the server, so a failed attempt re-derives correctly on retry and
         // a crash before delivery leaves the user's edit on disk.
-        try? sidecars.delete(phassetLocalId: task.id.phassetLocalId)
+        try sidecars.deleteIfUnchanged(
+          phassetLocalId: task.id.phassetLocalId, matching: localEditXmp)
       }
     }
 
