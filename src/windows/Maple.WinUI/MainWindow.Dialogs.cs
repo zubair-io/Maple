@@ -124,7 +124,7 @@ namespace Maple.WinUI
                         await ShowMessageAsync("Maple Cloud", message);
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex)
             {
                 DiagLog.Write($"[cloud] connect failed: {ex}");
                 ViewModel.CloudStatus = $"Connection failed: {ex.Message}";
@@ -141,7 +141,7 @@ namespace Maple.WinUI
             {
                 await ViewModel.CompleteAuthCallbackAsync(uri);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex)
             {
                 DiagLog.Write($"[cloud] sign-in callback failed: {ex}");
                 ViewModel.CloudStatus = $"Sign-in failed: {ex.Message}";

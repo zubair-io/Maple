@@ -59,6 +59,15 @@ public sealed class CloudSignInTransportTests : IDisposable
     }
 
     [Fact]
+    public async Task ProbeReportsUnreachableServerWhenHealthRequestDrops()
+    {
+        using var client = Client(Unreachable);
+        var (ok, message, _) = await client.ProbeAsync(CancellationToken.None);
+        Assert.False(ok);
+        Assert.Contains("unreachable", message);
+    }
+
+    [Fact]
     public async Task GetFoldersReturnsNullWhenServerUnreachable()
     {
         using var client = Client(Unreachable);
