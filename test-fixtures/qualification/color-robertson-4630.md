@@ -81,11 +81,14 @@ cohort, or authorize merging this checkpoint. After integrating the current
 main, complete version invalidation, generated evidence, hardware/binding
 parity and the affected physical comparison before opening the PR.
 
-The physical selection is prepared: 20 neutral baselines, the same 20 Auto
+The physical selection completed: 20 neutral baselines, the same 20 Auto
 baselines, and all 180 canonical temperature/tint and WB cases, for **220
 comparisons**. It uses the same frozen native-pair comparator and numerical
-budgets as the ongoing main run. Main's verified outputs will supply controls;
-no full main run is restarted. No physical failure is claimed as cleared yet.
+budgets as the ongoing main run. The cohort reports **192 passing and 28
+failing comparisons**: 28 failures among 200 Neutral cases and zero failures
+among 20 Auto baselines. There are no missing cases, errors or skips. All
+820 physical input hashes, the frozen binary and comparator sources remain
+unchanged. This subset is not a new full-main failure count.
 
 All **220 candidate PNG files** now have SHA-256 hashes identical to the
 corresponding frozen main outputs, proving identical pixels and metadata
@@ -95,9 +98,10 @@ also identical to current main `676c40a7db1121179b5fe08dd2332e7da8a1834a`.
 The per-file hashes and replay command are retained in
 `physical/current-main-png-identity.json` and
 `compare-robertson-main-outputs.py` in the evidence directory. This supersedes
-the earlier 33-case diagnostic. Budget comparisons and final whole-input
-audits remain pending with both runners; this does not claim a passing
-whole-corpus gate or any canonical failure cleared.
+the earlier 33-case diagnostic. Identical candidate/control files and the same
+references, comparator and budgets establish **zero new failures and zero
+canonical failures cleared** in this cohort. The physical comparison and
+final whole-input audit are complete; the full-main runner continues.
 
 Evidence, commands, frozen SDK source, source identities and the selected
 manifest are preserved under
