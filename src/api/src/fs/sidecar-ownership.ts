@@ -45,8 +45,8 @@ function stemOf(filename: string): string {
 }
 
 /** True when a file in `primaryAbsPath`'s folder, other than the primary and
- * `excluded` (files leaving with it), shares its sidecar stem. Over-inclusive
- * on purpose: a false positive leaves a harmless duplicate sidecar behind, a
+ * `excluded` (files leaving with it), shares its sidecar stem. An unlistable
+ * folder counts as claimed. Over-inclusive on purpose: a false positive leaves a harmless duplicate sidecar behind, a
  * false negative carries away another photo's edits. */
 export async function sidecarStemClaimedBySibling(
   primaryAbsPath: string,
@@ -55,7 +55,8 @@ export async function sidecarStemClaimedBySibling(
   const dir = path.dirname(primaryAbsPath);
   const skip = new Set([primaryAbsPath, ...excluded].map(comparable));
   const stem = stemOf(primaryAbsPath);
-  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => null);
+  if (entries === null) return true;
   return entries.some(
     (entry) =>
       !entry.isDirectory() &&
