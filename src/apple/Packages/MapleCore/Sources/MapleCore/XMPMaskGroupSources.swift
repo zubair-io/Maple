@@ -36,25 +36,30 @@ enum XMPMaskGroupSources {
   }
 
   static func collect(_ xml: String) -> Collection {
-    let namespaces = SourceNamespaces.atFirstDescription(xml)
+    let fallbackNamespaces = SourceNamespaces.atFirstDescription(xml)
     let candidates = XMPChildElementScanner.descriptionChildren(in: xml)
       .filter { local($0.qName, "MaskGroupBasedCorrections") }
     let groups =
       candidates
       .filter {
-        XMPMaskGroupNamespaces.matches(
+        let base = $0.inheritedNamespaces.isEmpty ? fallbackNamespaces : $0.inheritedNamespaces
+        return XMPMaskGroupNamespaces.matches(
           $0.qName, LocalAdjustmentXMP.groupContainer,
-          namespaces: scope(namespaces, attributes: rootAttributes($0.source)))
+          namespaces: scope(base, attributes: rootAttributes($0.source)))
       }
     var collection = Collection()
     collection.groupSources = Set(groups.map(\.source))
     for candidate in candidates where !collection.groupSources.contains(candidate.source) {
+      let base =
+        candidate.inheritedNamespaces.isEmpty ? fallbackNamespaces : candidate.inheritedNamespaces
       collection.unownedGroupSources[candidate.source] = explicitNamespaces(
         candidate.source,
-        namespaces: scope(namespaces, attributes: rootAttributes(candidate.source)))
+        namespaces: scope(base, attributes: rootAttributes(candidate.source)))
     }
     var opaque = false
     for group in groups {
+      let namespaces =
+        group.inheritedNamespaces.isEmpty ? fallbackNamespaces : group.inheritedNamespaces
       let rootChildren = children(group.source, "MaskGroupBasedCorrections")
       let groupNamespaces = scope(namespaces, attributes: rootAttributes(group.source))
       guard rootChildren.count == 1,
