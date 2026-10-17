@@ -814,21 +814,24 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // FPXExtensionContext aborts the extension with an
                     // NSAssertionHandler failure.
                     async let metaTask = catalog.getAsset(assetID: id)
-                    async let downloadTask: Void = catalog.downloadAsset(assetID: id, to: localURL)
+                    let downloadTask = Task { try await catalog.downloadAsset(assetID: id, to: localURL) }
+                    defer { downloadTask.cancel() }
                     let resolved = try await metaTask
                     // Same trashed check as `item(for:)` (#4706, #4805): check
                     // metadata BEFORE awaiting the download so a reaped asset
                     // whose on-disk file is gone surfaces `noSuchItem` instead
-                    // of the raw endpoint's 403 error.
+                    // of the raw endpoint's 403 error, and cancel any in-flight
+                    // download for a soft-deleted file in `.maple/trash/`.
                     guard let resolved, !resolved.isTrashed else {
                         log.error("fetchContents asset \(id, privacy: .public) — missing or trashed")
-                        _ = try? await downloadTask
+                        downloadTask.cancel()
+                        _ = try? await downloadTask.value
                         try? FileManager.default.removeItem(at: localURL)
                         completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                             code: NSFileProviderError.noSuchItem.rawValue))
                         return
                     }
-                    _ = try await downloadTask
+                    try await downloadTask.value
                     self.recordMeta(domain: self.domain.identifier.rawValue,
                                     localBasename: localURL.lastPathComponent,
                                     assetID: id,
@@ -866,16 +869,19 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // sidecars apart from RAWs by basename alone.
                     let localURL = tmpDir.appendingPathComponent(UUID().uuidString + ".xmp")
                     async let metaTask = catalog.getAsset(assetID: assetID)
-                    async let bytesTask = catalog.getXMP(assetID: assetID, conflictBasename: conflictBasename)
+                    let bytesTask = Task {
+                        try await catalog.getXMP(assetID: assetID, conflictBasename: conflictBasename)
+                    }
+                    defer { bytesTask.cancel() }
                     let resolved = try await metaTask
                     guard let resolved, !resolved.isTrashed else {
-                        _ = try? await bytesTask
-                        try? FileManager.default.removeItem(at: localURL)
+                        bytesTask.cancel()
+                        _ = try? await bytesTask.value
                         completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                             code: NSFileProviderError.noSuchItem.rawValue))
                         return
                     }
-                    let bytes = try await bytesTask
+                    let bytes = try await bytesTask.value
                     try bytes.write(to: localURL, options: .atomic)
                     self.recordMeta(domain: self.domain.identifier.rawValue,
                                     localBasename: localURL.lastPathComponent,
@@ -963,7 +969,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // reader) can identify it by basename.
                     let localURL = tmpDir.appendingPathComponent(UUID().uuidString + ".avif")
                     async let metaTask = catalog.getAsset(assetID: assetID)
-                    async let bytesTask = catalog.getThumb(assetID: assetID)
+                    let bytesTask = Task { try await catalog.getThumb(assetID: assetID) }
+                    defer { bytesTask.cancel() }
                     let resolved = try await metaTask
                     // If the underlying asset is gone (server deleted,
                     // never indexed, or trashed/reaped) there's nothing
@@ -971,13 +978,13 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // evicts the stranded thumb from its cache.
                     guard let resolved, !resolved.isTrashed else {
                         log.notice("fetchContents thumb \(assetID, privacy: .public) — missing or trashed")
-                        _ = try? await bytesTask
-                        try? FileManager.default.removeItem(at: localURL)
+                        bytesTask.cancel()
+                        _ = try? await bytesTask.value
                         completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                             code: NSFileProviderError.noSuchItem.rawValue))
                         return
                     }
-                    let bytes = try await bytesTask
+                    let bytes = try await bytesTask.value
                     try bytes.write(to: localURL, options: .atomic)
                     let thumbName = MapleThumbCacheKey.thumbFilename(forRawBasename: resolved.filename)
                     let parentIdent = try await Self.resolveThumbParent(meta: resolved,
