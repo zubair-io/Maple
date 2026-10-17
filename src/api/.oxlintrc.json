@@ -57,6 +57,8 @@
         "src/generated/workflow.contract.test.ts",
         // #4036: real-file transaction tests write only their own disposable fixture directory.
         "src/routes/xmp.workflow.test.ts",
+        // #4749: variant symlink test stages a throwaway photo + sidecar in a temp dir only.
+        "src/routes/xmp.workflow-symlink.test.ts",
         // #4616: cancellation regressions use only disposable workflow fixtures under os.tmpdir().
         "src/routes/xmp.workflow-cancel.test.ts",
         "tests/coverage.instrument.ts",
