@@ -205,9 +205,12 @@ namespace Maple.WinUI.Services.CloudFiles
                 {
                     try
                     {
-                        CfApi.CfUnregisterSyncRoot(SyncRootPath);
+                        // Sweep while still registered: unregistering turns
+                        // hydrated placeholders into plain files, which the
+                        // probe would then (correctly) refuse to delete.
                         var swept = CloudFilesSyncRootCleanup.Sweep(
                             SyncRootPath, CloudFilesPlaceholderProbe.IsUnmodifiedPlaceholder);
+                        CfApi.CfUnregisterSyncRoot(SyncRootPath);
                         DiagLog.Write(
                             $"[cloudfiles] unregistered sync root: removed {swept.Removed} placeholders, kept {swept.Preserved} local items");
                     }
