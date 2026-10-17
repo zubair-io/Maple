@@ -11,5 +11,6 @@ pub mod predictions;
 pub mod predictions_display;
 pub mod synth_chart;
 pub mod synth_dng;
+pub mod synth_linearraw_dng;
 pub mod synth_perf;
 pub mod synth_sweep;
