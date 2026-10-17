@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { insertStageState } from '../src/db/repos/assets.test-helpers.ts';
+import { findAssetAtAddress } from '../src/db/repos/assets.address.ts';
 import { runMissingReaperOnce } from '../src/workers/missing-reaper.ts';
 import { authedHandle } from './helpers/authed-handle.ts';
 import { readLocations, seedBackupAsset } from './helpers/sqlite-fixtures.ts';
@@ -120,6 +122,48 @@ describe('backup missing-copy recovery', () => {
     expect(await fs.readFile(path.join(handle.tmpLib, repairedPath))).toEqual(bytes);
     expect(await findMapleIdsPresentInLibrary([mapleId], handle.libId)).toEqual(new Set([mapleId]));
   });
+
+  for (const reaped of [true, false]) {
+    test(`repair revives only reaped assets (reaped: ${reaped})`, async () => {
+      const id = seedMissing(true);
+      const deletedAt = '2026-01-02T00:00:00Z';
+      insertStageState(handle.db, id.toHexString(), 'thumb');
+      insertStageState(handle.db, id.toHexString(), 'embed', { version: 3 });
+      if (reaped) {
+        // Keep the root available so the real reaper can confirm the loss.
+        await fs.writeFile(path.join(handle.tmpLib, 'sentinel.txt'), 'root available');
+        await runMissingReaperOnce({ deleteBeforeIso: '2026-10-01T00:00:00Z' });
+      } else {
+        handle.db.run(`UPDATE assets SET deleted_at = ?, deleted_reason = NULL WHERE id = ?`, [
+          deletedAt,
+          id.toHexString(),
+        ]);
+      }
+      const deletion = () =>
+        handle.db
+          .query('SELECT deleted_at, deleted_reason FROM assets WHERE id = ?')
+          .get(id.toHexString()) as { deleted_at: string | null; deleted_reason: string | null };
+      expect(deletion().deleted_at).not.toBeNull();
+      expect(deletion().deleted_reason).toBe(reaped ? 'reaped' : null);
+      expect(await findAssetAtAddress(handle.libId, 'previous-layout', 'photo.HEIC')).toBeNull();
+      const res = await upload();
+      expect(res.status).toBe(200);
+      expect(await fs.readFile(path.join(handle.tmpLib, relPath))).toEqual(bytes);
+      const visible = await findAssetAtAddress(handle.libId, 'previous-layout', 'photo.HEIC');
+      expect(visible?._id.toHexString() ?? null).toBe(reaped ? id.toHexString() : null);
+      expect(deletion()).toEqual({ deleted_at: reaped ? null : deletedAt, deleted_reason: null });
+      expect(
+        handle.db
+          .query('SELECT asset_claimable FROM stage_state WHERE asset_id = ? AND stage = ?')
+          .get(id.toHexString(), 'thumb'),
+      ).toEqual({ asset_claimable: reaped ? 1 : 0 });
+      expect(
+        handle.db
+          .query('SELECT version FROM stage_state WHERE asset_id = ? AND stage = ?')
+          .get(id.toHexString(), 'embed'),
+      ).toEqual({ version: reaped ? 0 : 3 });
+    });
+  }
 
   test('partial completed-session retry consumes every chunk before dedup', async () => {
     const first = await upload();

@@ -318,6 +318,12 @@ export async function appendBackupLocation(
   const library = toHex(input.libraryId);
   const replaced = input.replacedRelPath ? splitRelPath(input.replacedRelPath) : null;
   await db.transaction([
+    {
+      // Revive before location triggers re-arm search for the recovered file.
+      sql: `UPDATE assets SET deleted_at = NULL, deleted_reason = NULL
+            WHERE id = ? AND deleted_reason = 'reaped'`,
+      params: [hex],
+    },
     ...(replaced === null
       ? []
       : [
