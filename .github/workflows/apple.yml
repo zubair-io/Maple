@@ -42,6 +42,7 @@ on:
       - 'src/scripts/test_export_recipe_interchange.sh'
       - 'src/scripts/qualification/recipe-interchange.swift'
       - 'test-fixtures/export-recipes/interchange-cases.json'
+      - 'test-fixtures/xmp-namespaces/**'
       - 'src/web/e2e/recipe-interchange/**'
       - 'src/web/playwright.recipe-interchange.config.ts'
       - 'src/web/projects/maple-common/src/lib/export/export-recipe-store.ts'
@@ -59,6 +60,7 @@ on:
       - 'src/scripts/test_export_recipe_interchange.sh'
       - 'src/scripts/qualification/recipe-interchange.swift'
       - 'test-fixtures/export-recipes/interchange-cases.json'
+      - 'test-fixtures/xmp-namespaces/**'
       - 'src/web/e2e/recipe-interchange/**'
       - 'src/web/playwright.recipe-interchange.config.ts'
       - 'src/web/projects/maple-common/src/lib/export/export-recipe-store.ts'
@@ -298,6 +300,7 @@ jobs:
           cp -R src/apple/MapleUITests/Fixtures/synthetic "$MAPLE_SWIFT_TEST_ROOT/MapleUITests/Fixtures/"
           mkdir -p "$MAPLE_SWIFT_TEST_ROOT/test-fixtures"
           cp -R test-fixtures/local-adjustments "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
+          cp -R test-fixtures/xmp-namespaces "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           cp -R test-fixtures/workflow "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           cp -R test-fixtures/export-recipes "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           cp -R test-fixtures/file-operations "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"

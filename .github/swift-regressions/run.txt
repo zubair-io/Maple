@@ -277,6 +277,7 @@ XMPSerializationBlackWhiteTests
 XMPSerializationStageKnobTests
 XMPSerializationTests
 XMPSerializationWbMethodToneCurveModeTests
+XMPPassthroughNamespaceTests
 XMPSidecarStoreMetadataSaveTests
 DisplayPreviewPersistTests
 GpuPreviewPersistTests

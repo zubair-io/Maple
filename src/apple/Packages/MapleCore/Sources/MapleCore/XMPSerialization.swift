@@ -409,10 +409,6 @@ public struct XMPSerializer {
       ]).joined(separator: "\n")
   }
 
-  /// The `dc` namespace declaration, needed whenever the keyword bag is
-  /// emitted (and by the metadata overload's `dc:` blocks).
-  static let dcNamespace = (prefix: "dc", uri: "http://purl.org/dc/elements/1.1/")
-
   // MARK: - Public serializer
 
   /// Serialize a full adjustment sidecar. This is the persisted-save entry
@@ -457,7 +453,8 @@ public struct XMPSerializer {
       .joined(separator: "\n")
 
     return XMPCanonical.document(
-      extraNamespaces: culling.keywords.isEmpty ? [] : [dcNamespace],
+      extraNamespaces: _conditionalNamespaces(
+        needed: culling.keywords.isEmpty ? [] : ["dc"], passthrough: passthrough),
       attributes: attrs,
       children: children)
   }
