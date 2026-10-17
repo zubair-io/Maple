@@ -1,10 +1,13 @@
 package app.justmaple.aperture
 
+import android.os.Build.VERSION.SDK_INT
+import android.os.Bundle
 import app.justmaple.aperture.data.*
 import java.io.File
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 class SharedCacheProviderTest {
@@ -144,6 +147,65 @@ class SharedCacheProviderTest {
             fixture.mode("readOnly")
             assertArrayEquals(sharedBytes, bytes(fixture.library, photo, 512))
             assertEquals(listOf(legacyName), fixture.children(thumbs).map { it.second })
+            assertArrayEquals(fixture.original, fixture.read(photo.uri))
+        }
+    }
+
+    @Test
+    fun sharedHitsReadInPlaceAndWriteNothingPrivately() = runBlocking {
+        assumeTrue("Android 10/11 decode AVIF through a private PNG bridge", SDK_INT >= 31)
+        CacheProviderFixture().use { fixture ->
+            val photo = fixture.library.list(fixture.root).photos.single()
+            val maple = fixture.directory(fixture.root, ".maple")
+            Thread.sleep(20)
+            val sharedBytes = fixture.asset("srgb-rgb.avif")
+            fixture.write(
+                fixture.directory(maple, "thumbs"),
+                SharedCacheTier.Thumbnail.filename(photo.name),
+                sharedBytes,
+            )
+            fixture.write(
+                fixture.directory(maple, "previews"),
+                SharedCacheTier.Preview.filename(photo.name),
+                sharedBytes,
+            )
+            val private = File(fixture.context.cacheDir, "thumbnails").apply { mkdirs() }
+            val staleMirror = File(private, "shared-stale-mirror.avif").apply { writeBytes(sharedBytes) }
+            val before = private.listFiles().orEmpty().map { it.name }.toSet() - staleMirror.name
+            val library = PhotoLibrary(fixture.context)
+            repeat(2) {
+                assertArrayEquals(sharedBytes, bytes(library, photo, 512))
+                assertArrayEquals(sharedBytes, bytes(library, photo, 2048))
+            }
+            assertFalse("Pre-#4797 mirror copies are retired", staleMirror.exists())
+            assertEquals(before, private.listFiles().orEmpty().map { it.name }.toSet())
+            library.withThumbnail(photo, 512) { file, _ -> assertNull(file) }
+            assertArrayEquals(fixture.original, fixture.read(photo.uri))
+        }
+    }
+
+    @Test
+    fun aSharedFileRewrittenWhileOpeningFailsClosed() = runBlocking {
+        CacheProviderFixture().use { fixture ->
+            val photo = fixture.library.list(fixture.root).photos.single()
+            val thumbs = fixture.directory(fixture.directory(fixture.root, ".maple"), "thumbs")
+            Thread.sleep(20)
+            val name = SharedCacheTier.Thumbnail.filename(photo.name)
+            val sharedBytes = fixture.asset("srgb-rgb.avif")
+            val shared = fixture.write(thumbs, name, sharedBytes)
+            fixture.call("cache-test-mode", Bundle().apply { putString("pauseSidecarRead", name) })
+            val read = async(Dispatchers.IO) { bytes(PhotoLibrary(fixture.context), photo, 512) }
+            val truncated = sharedBytes.copyOf(sharedBytes.size / 2)
+            try {
+                fixture.awaitBlocked()
+                fixture.resolver.openOutputStream(shared, "wt")!!.use { it.write(truncated) }
+            } finally {
+                fixture.call("cache-test-release")
+            }
+            val shown = read.await()
+            assertFalse(shown.contentEquals(truncated))
+            assertFalse(shown.contentEquals(sharedBytes))
+            assertTrue(shown.size > 10)
             assertArrayEquals(fixture.original, fixture.read(photo.uri))
         }
     }

@@ -315,25 +315,20 @@ pub unsafe extern "C" fn maple_android_shared_derivative(
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn maple_android_cache_png(
-    path: *const c_char,
-    destination: *const c_char,
-) -> i32 {
+pub unsafe extern "C" fn maple_android_cache_png(fd: i32, destination: *const c_char) -> i32 {
     guarded(-1, || {
-        transfer::cache_png(text(path)?, text(destination)?)?;
+        transfer::cache_png(fd, text(destination)?)?;
         Ok(0)
     })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn maple_android_cache_valid(
-    path: *const c_char,
+    fd: i32,
     edge: u32,
     format: *const c_char,
 ) -> bool {
-    guarded(false, || {
-        transfer::cache_valid(text(path)?, edge, text(format)?)
-    })
+    guarded(false, || transfer::cache_valid(fd, edge, text(format)?))
 }
 
 #[no_mangle]

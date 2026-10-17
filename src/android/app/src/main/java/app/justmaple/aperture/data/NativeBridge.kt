@@ -52,9 +52,9 @@ object NativeBridge {
 
     external fun sharedDerivative(path: String, destination: String, xml: String, preview: Boolean)
 
-    external fun cacheValid(path: String, edge: Int, format: String): Boolean
+    external fun cacheValid(fd: Int, edge: Int, format: String): Boolean
 
-    external fun cachePng(path: String, destination: String)
+    external fun cachePng(fd: Int, destination: String)
 
     external fun export(path: String, xml: String, destination: String)
 

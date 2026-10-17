@@ -44,7 +44,7 @@ internal class CloudDerivativeCache(private val cloud: CloudLibrary, private val
         if (response?.status == 304) {
             val previous = checkNotNull(cached) { "Cloud returned 304 without a cached image" }
             synchronized(OpenThumbnail.lock) {
-                previous.image.file.setLastModified(System.currentTimeMillis())
+                previous.image.file?.setLastModified(System.currentTimeMillis())
                 index.setLastModified(System.currentTimeMillis())
             }
             return CachedDerivative(previous.image, index, false)
