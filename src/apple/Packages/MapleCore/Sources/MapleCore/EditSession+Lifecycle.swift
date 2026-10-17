@@ -17,7 +17,7 @@ extension EditSession {
       return
     }
     guard let store = sidecarStore else { return }
-    hasUnconfirmedSidecarUpdate = true
+    sidecarUpdateGeneration &+= 1
     let previous = sidecarUpdateTask
     sidecarUpdateTask = Task {
       await previous?.value
@@ -80,12 +80,14 @@ extension EditSession {
       await task.value
     }
     if hasUnconfirmedSidecarUpdate {
+      let generation = sidecarUpdateGeneration
       do {
         try await store.writeConfirmed(model: model, culling: culling)
-        hasUnconfirmedSidecarUpdate = false
-        sidecarError = nil
+        if sidecarUpdateGeneration == generation {
+          confirmedSidecarGeneration = generation
+          sidecarError = nil
+        }
       } catch {
-        hasUnconfirmedSidecarUpdate = true
         sidecarDirtyWhileDisabled = true
         sidecarError = error
         throw error
@@ -141,7 +143,8 @@ extension EditSession {
       return
     }
     departing.sidecarDirtyWhileDisabled = false
-    departing.hasUnconfirmedSidecarUpdate = false
+    departing.confirmedSidecarGeneration = departing.sidecarUpdateGeneration
+    departing.sidecarError = nil
     departing.sidecarUpdateTask?.cancel()
     departing.sidecarUpdateTask = nil
     isHydratingInitialState = true

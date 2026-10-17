@@ -4,6 +4,9 @@ import Foundation
 
 @MainActor
 extension EditSession {
+  var hasUnconfirmedSidecarUpdate: Bool {
+    sidecarUpdateGeneration > confirmedSidecarGeneration || sidecarError != nil
+  }
   var sidecarStore: (any SidecarStoreProtocol)? {
     guard !sidecarWritesDisabled else { return nil }
     return workflow.selectedStore ?? primarySidecarStore
@@ -15,7 +18,6 @@ extension EditSession {
       let stream = await store.errors()
       for await error in stream {
         guard let self, !Task.isCancelled, self.sidecarStore === store else { return }
-        self.hasUnconfirmedSidecarUpdate = true
         self.sidecarError = error
       }
     }
@@ -29,7 +31,8 @@ extension EditSession {
       scheduleSidecarUpdate(model: model, culling: culling)
       return
     }
-    hasUnconfirmedSidecarUpdate = true
+    sidecarUpdateGeneration &+= 1
+    let generation = sidecarUpdateGeneration
     let previous = sidecarUpdateTask
     sidecarUpdateTask = Task {
       await previous?.value
@@ -37,10 +40,11 @@ extension EditSession {
       do {
         try await semantic.commitSemantic(
           model: model, culling: culling, action: action, label: label)
-        self.hasUnconfirmedSidecarUpdate = false
-        self.sidecarError = nil
+        if self.sidecarUpdateGeneration == generation {
+          self.confirmedSidecarGeneration = generation
+          self.sidecarError = nil
+        }
       } catch {
-        self.hasUnconfirmedSidecarUpdate = true
         self.sidecarDirtyWhileDisabled = true
         self.sidecarError = error
       }
