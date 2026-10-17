@@ -72,6 +72,42 @@ pub struct MapleToneCurves {
 /// # Safety
 /// `ptr` must be valid for `len` f32 reads, or null. A trailing odd float
 /// (len not a multiple of 2) is ignored rather than read as a half-pair.
+/// Everything `MapleToneCurves` carries that the scalar params ABI cannot:
+/// point curves, their mode, the display-referred curves (#2232) and the
+/// parametric regions + splits (#4738). Shared by every curves-aware entry.
+///
+/// # Safety
+/// Each non-null `*_ptr` must point at `*_len` readable `f32`s.
+pub(crate) unsafe fn inject_tone_curves(
+    model: &mut raw_core::xmp::AdjustmentModel,
+    c: &MapleToneCurves,
+) {
+    model.tone_curve_luma = curve_from_flat(c.luma_ptr, c.luma_len);
+    model.tone_curve_red = curve_from_flat(c.red_ptr, c.red_len);
+    model.tone_curve_green = curve_from_flat(c.green_ptr, c.green_len);
+    model.tone_curve_blue = curve_from_flat(c.blue_ptr, c.blue_len);
+    model.tone_curve_mode = match c.mode {
+        1 => ToneCurveMode::RatioPreserving,
+        _ => ToneCurveMode::PerChannel,
+    };
+    model.display_tone_curve_luma = curve_from_flat(c.display_luma_ptr, c.display_luma_len);
+    model.display_tone_curve_red = curve_from_flat(c.display_red_ptr, c.display_red_len);
+    model.display_tone_curve_green = curve_from_flat(c.display_green_ptr, c.display_green_len);
+    model.display_tone_curve_blue = curve_from_flat(c.display_blue_ptr, c.display_blue_len);
+    model.parametric_highlights = c.parametric_highlights;
+    model.parametric_lights = c.parametric_lights;
+    model.parametric_darks = c.parametric_darks;
+    model.parametric_shadows = c.parametric_shadows;
+    let [shadow, midtone, highlight] = crate::scene_linear_chain::parametric_split_or_defaults(
+        c.parametric_shadow_split,
+        c.parametric_midtone_split,
+        c.parametric_highlight_split,
+    );
+    model.parametric_shadow_split = shadow;
+    model.parametric_midtone_split = midtone;
+    model.parametric_highlight_split = highlight;
+}
+
 unsafe fn curve_from_flat(ptr: *const f32, len: usize) -> ToneCurve {
     if ptr.is_null() || len < 2 {
         return ToneCurve::default();
@@ -234,32 +270,7 @@ unsafe fn chain_with_film(
     let mut ci = chain_inputs_from_params(p);
     ci.model.film_strength = strength;
     if !curves.is_null() {
-        let c = &*curves;
-        ci.model.tone_curve_luma = curve_from_flat(c.luma_ptr, c.luma_len);
-        ci.model.tone_curve_red = curve_from_flat(c.red_ptr, c.red_len);
-        ci.model.tone_curve_green = curve_from_flat(c.green_ptr, c.green_len);
-        ci.model.tone_curve_blue = curve_from_flat(c.blue_ptr, c.blue_len);
-        ci.model.tone_curve_mode = match c.mode {
-            1 => ToneCurveMode::RatioPreserving,
-            _ => ToneCurveMode::PerChannel,
-        };
-        ci.model.display_tone_curve_luma = curve_from_flat(c.display_luma_ptr, c.display_luma_len);
-        ci.model.display_tone_curve_red = curve_from_flat(c.display_red_ptr, c.display_red_len);
-        ci.model.display_tone_curve_green =
-            curve_from_flat(c.display_green_ptr, c.display_green_len);
-        ci.model.display_tone_curve_blue = curve_from_flat(c.display_blue_ptr, c.display_blue_len);
-        ci.model.parametric_highlights = c.parametric_highlights;
-        ci.model.parametric_lights = c.parametric_lights;
-        ci.model.parametric_darks = c.parametric_darks;
-        ci.model.parametric_shadows = c.parametric_shadows;
-        let [shadow, midtone, highlight] = crate::scene_linear_chain::parametric_split_or_defaults(
-            c.parametric_shadow_split,
-            c.parametric_midtone_split,
-            c.parametric_highlight_split,
-        );
-        ci.model.parametric_shadow_split = shadow;
-        ci.model.parametric_midtone_split = midtone;
-        ci.model.parametric_highlight_split = highlight;
+        inject_tone_curves(&mut ci.model, &*curves);
     }
     let opts = ci.options(p.skip_agx != 0);
 

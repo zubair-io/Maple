@@ -148,6 +148,10 @@ mod scene_linear_chain_fused;
 // Curves-aware sibling of the fused entry (#2576): same chain + encode, plus
 // the user point tone curves the scalars-only params ABI cannot carry.
 mod scene_linear_chain_curves;
+// #4738: the P3-aware fused entry's curves-aware twin, and the perspective
+// warp for hosts that run the chain over the scene-linear FFI buffer.
+mod perspective_entry;
+mod scene_linear_chain_curves_target;
 // Multi-format developed export (#2584): the C-ABI shim over
 // raw_core::export (JPEG / 16-bit TIFF / PNG, ICC-tagged, long-edge cap).
 mod export_file;
@@ -267,11 +271,15 @@ mod handle_tests;
 #[path = "id_tests.rs"]
 mod id_tests;
 #[cfg(test)]
+mod perspective_entry_tests;
+#[cfg(test)]
 #[path = "render_film_tests.rs"]
 mod render_film_tests;
 #[cfg(test)]
 #[path = "render_tests.rs"]
 mod render_tests;
+#[cfg(test)]
+mod scene_linear_chain_curves_target_tests;
 #[cfg(test)]
 #[path = "scene_linear_chain_curves_tests.rs"]
 mod scene_linear_chain_curves_tests;
