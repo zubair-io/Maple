@@ -15,7 +15,9 @@ SCRIPTS = Path(__file__).resolve().parent
 
 
 class DetailReferenceTests(unittest.TestCase):
-    def run_detail_pass(self, label, protocol, reference_state, marker="PY_DETAIL"):
+    def run_detail_pass(
+        self, label, protocol, reference_state, marker="PY_DETAIL", missing_input=None
+    ):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             full, down, sidecar, _outputs = _qualified_native_pair(root)
@@ -54,6 +56,10 @@ class DetailReferenceTests(unittest.TestCase):
             ]
             for case in cases:
                 shutil.copyfile(full, root / (case["name"].replace("/", "_") + ".png"))
+            if missing_input == "candidate":
+                (root / (cases[1]["name"].replace("/", "_") + ".png")).unlink()
+            elif missing_input == "raw":
+                cases[1]["raw"] = str(root / "missing.dng")
             manifest, budgets, summary = [
                 root / name
                 for name in ("manifest.json", "budgets.json", "summary.jsonl")
@@ -203,6 +209,46 @@ class DetailReferenceTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, result.stdout)
                 self.assertEqual(summary["errors"], 1)
                 self.assertEqual(summary["skipped_no_reference"], 0)
+
+    def test_declared_missing_render_inputs_fail_all_passes(self):
+        for marker, label in (
+            ("PY", "exposure_min"),
+            ("PY_AUTO", "baseline"),
+            ("PY_DETAIL", "nr_luminance_max"),
+        ):
+            for missing in ("candidate", "raw"):
+                with self.subTest(marker=marker, missing=missing):
+                    result, summary = self.run_detail_pass(
+                        label, "native-pair-lanczos-v1", "present", marker, missing
+                    )
+                    self.assertEqual(result.returncode, 1, result.stdout)
+                    self.assertEqual(summary["compared"], 1)
+                    self.assertEqual(summary["errors"], 1)
+                    self.assertEqual(summary["skipped_no_candidate"], 0)
+                    self.assertEqual(summary["skipped_no_raw"], 0)
+                    record = next(
+                        c for c in summary["cases"] if c["fixture"] == "test_0001"
+                    )
+                    self.assertEqual(record["status"], "error")
+                    self.assertIn(missing, record["error"])
+
+    def test_legacy_missing_render_inputs_keep_skip_accounting(self):
+        for marker, label in (
+            ("PY", "exposure_min"),
+            ("PY_AUTO", "baseline"),
+            ("PY_DETAIL", "nr_luminance_max"),
+        ):
+            for missing in ("candidate", "raw"):
+                with self.subTest(marker=marker, missing=missing):
+                    result, summary = self.run_detail_pass(
+                        label, None, "present", marker, missing
+                    )
+                    self.assertEqual(
+                        result.returncode, 0, result.stdout + result.stderr
+                    )
+                    self.assertEqual(summary["compared"], 1)
+                    self.assertEqual(summary["errors"], 0)
+                    self.assertEqual(summary[f"skipped_no_{missing}"], 1)
 
 
 if __name__ == "__main__":

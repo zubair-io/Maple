@@ -263,30 +263,39 @@ for case in sorted(cases, key=lambda c: c["name"]):
     # "_auto" → "baseline_auto"). The candidate filename uses the raw
     # manifest flat name (no suffix) since batch always writes by manifest name.
     case_label = case_label_base + case_label_suffix
+    strict_inputs = case.get("reference_protocol") is not None
 
-    # Skip if RAW missing — maple-cli batch will already have errored
-    # but we want to surface the skip cleanly.
+    # Declared protocols require complete render inputs; legacy omissions
+    # retain skip accounting. Batch errors must not hide migrated cases.
     if not os.path.exists(case["raw"]):
-        skipped_no_raw += 1
+        skipped_no_raw += 0 if strict_inputs else 1
+        errors += 1 if strict_inputs else 0
+        if strict_inputs:
+            print(f"{fixture} {case_label}: required raw missing: {case['raw']}", file=sys.stderr)
         case_records.append({
             "fixture": fixture,
             "case": case_label,
             "profile": "neutral",
             "resolution": preferred_res,
-            "status": "skipped_no_raw",
+            "status": "error" if strict_inputs else "skipped_no_raw",
+            **({"error": f"required raw missing: {case['raw']}"} if strict_inputs else {}),
         })
         continue
 
     flat = name.replace("/", "_")
     cand_path = os.path.join(cand_dir, f"{flat}.png")
     if not os.path.exists(cand_path):
-        skipped_no_cand += 1
+        skipped_no_cand += 0 if strict_inputs else 1
+        errors += 1 if strict_inputs else 0
+        if strict_inputs:
+            print(f"{fixture} {case_label}: required candidate missing: {cand_path}", file=sys.stderr)
         case_records.append({
             "fixture": fixture,
             "case": case_label,
             "profile": "neutral",
             "resolution": preferred_res,
-            "status": "skipped_no_candidate",
+            "status": "error" if strict_inputs else "skipped_no_candidate",
+            **({"error": f"required candidate missing: {cand_path}"} if strict_inputs else {}),
         })
         continue
 
@@ -547,28 +556,37 @@ for case in sorted(cases, key=lambda c: c["name"]):
     name = case["name"]
     fixture, case_label_base = (name.split("/", 1) + [""])[:2]
     case_label = case_label_base + case_label_suffix
+    strict_inputs = case.get("reference_protocol") is not None
 
     if not os.path.exists(case["raw"]):
-        skipped_no_raw += 1
+        skipped_no_raw += 0 if strict_inputs else 1
+        errors += 1 if strict_inputs else 0
+        if strict_inputs:
+            print(f"{fixture} {case_label}: required raw missing: {case['raw']}", file=sys.stderr)
         case_records.append({
             "fixture": fixture,
             "case": case_label,
             "profile": "auto",
             "resolution": preferred_res,
-            "status": "skipped_no_raw",
+            "status": "error" if strict_inputs else "skipped_no_raw",
+            **({"error": f"required raw missing: {case['raw']}"} if strict_inputs else {}),
         })
         continue
 
     flat = name.replace("/", "_")
     cand_path = os.path.join(cand_dir, f"{flat}.png")
     if not os.path.exists(cand_path):
-        skipped_no_cand += 1
+        skipped_no_cand += 0 if strict_inputs else 1
+        errors += 1 if strict_inputs else 0
+        if strict_inputs:
+            print(f"{fixture} {case_label}: required candidate missing: {cand_path}", file=sys.stderr)
         case_records.append({
             "fixture": fixture,
             "case": case_label,
             "profile": "auto",
             "resolution": preferred_res,
-            "status": "skipped_no_candidate",
+            "status": "error" if strict_inputs else "skipped_no_candidate",
+            **({"error": f"required candidate missing: {cand_path}"} if strict_inputs else {}),
         })
         continue
 
@@ -799,28 +817,37 @@ for case in sorted(cases, key=lambda c: c["name"]):
     name = case["name"]
     fixture, case_label_base = (name.split("/", 1) + [""])[:2]
     case_label = case_label_base + case_label_suffix
+    strict_inputs = case.get("reference_protocol") is not None
 
     if not os.path.exists(case["raw"]):
-        skipped_no_raw += 1
+        skipped_no_raw += 0 if strict_inputs else 1
+        errors += 1 if strict_inputs else 0
+        if strict_inputs:
+            print(f"{fixture} {case_label}: required raw missing: {case['raw']}", file=sys.stderr)
         case_records.append({
             "fixture": fixture,
             "case": case_label,
             "profile": "detail-fullres",
             "resolution": preferred_res,
-            "status": "skipped_no_raw",
+            "status": "error" if strict_inputs else "skipped_no_raw",
+            **({"error": f"required raw missing: {case['raw']}"} if strict_inputs else {}),
         })
         continue
 
     flat = name.replace("/", "_")
     cand_path = os.path.join(cand_dir, f"{flat}.png")
     if not os.path.exists(cand_path):
-        skipped_no_cand += 1
+        skipped_no_cand += 0 if strict_inputs else 1
+        errors += 1 if strict_inputs else 0
+        if strict_inputs:
+            print(f"{fixture} {case_label}: required candidate missing: {cand_path}", file=sys.stderr)
         case_records.append({
             "fixture": fixture,
             "case": case_label,
             "profile": "detail-fullres",
             "resolution": preferred_res,
-            "status": "skipped_no_candidate",
+            "status": "error" if strict_inputs else "skipped_no_candidate",
+            **({"error": f"required candidate missing: {cand_path}"} if strict_inputs else {}),
         })
         continue
 
