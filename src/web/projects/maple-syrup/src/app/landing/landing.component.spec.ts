@@ -6,6 +6,7 @@ import {
   MapleFolderHandle,
   folderPermissionError,
 } from '@maple-common';
+import type { DropSnapshot } from '@maple-common';
 import { LandingComponent, SINGLE_FILE_PERSISTENCE } from './landing.component';
 
 describe('LandingComponent', () => {
@@ -208,14 +209,40 @@ describe('LandingComponent', () => {
   it('opens a dropped writable folder through the shared folder path', async () => {
     folderAccess.openDroppedFolder.mockResolvedValue(folder);
     const preventDefault = vi.fn();
-    const dataTransfer = { files: { item: () => null } } as unknown as DataTransfer;
+    const dataTransfer = { items: [], files: { item: () => null } } as unknown as DataTransfer;
 
     await component.onDrop({ preventDefault, dataTransfer } as unknown as DragEvent);
 
     expect(preventDefault).toHaveBeenCalledOnce();
-    expect(folderAccess.openDroppedFolder).toHaveBeenCalledWith(dataTransfer);
+    expect(folderAccess.openDroppedFolder).toHaveBeenCalledWith(
+      expect.objectContaining({ files: [] }),
+    );
     expect(libraryState.openFolder).toHaveBeenCalledWith(folder);
     expect(router.navigate).toHaveBeenCalledWith(['/browse']);
+  });
+
+  it('captures the dropped files and handles before the first await, while the drop is still readable', async () => {
+    const file = new File(['raw'], 'dropped.DNG', { type: 'image/x-adobe-dng' });
+    const handle = { kind: 'file', name: 'dropped.DNG' } as FileSystemHandle;
+    let locked = false;
+    const getAsFileSystemHandle = vi.fn(async () => handle);
+    const dataTransfer = {
+      items: [{ kind: 'file', getAsFileSystemHandle }],
+      get files() {
+        return locked ? [] : [file];
+      },
+    } as unknown as DataTransfer;
+    folderAccess.openDroppedFolder.mockImplementation(async (drop: unknown) => {
+      locked = true;
+      expect(await (drop as DropSnapshot).handles).toEqual([handle]);
+      return null;
+    });
+
+    await component.onDrop({ preventDefault: vi.fn(), dataTransfer } as unknown as DragEvent);
+
+    expect(getAsFileSystemHandle).toHaveBeenCalledOnce();
+    const assetId = persistSingleFile.mock.calls[0][0];
+    expect(persistSingleFile).toHaveBeenCalledWith(assetId, file, undefined);
   });
 
   it('opens a picked writable folder through the same workspace path', async () => {
@@ -288,7 +315,7 @@ describe('LandingComponent', () => {
   });
 
   it('announces an empty or unsupported drop instead of ignoring it', async () => {
-    const dataTransfer = { files: { item: () => null } } as unknown as DataTransfer;
+    const dataTransfer = { items: [], files: { item: () => null } } as unknown as DataTransfer;
 
     await component.onDrop({ preventDefault: vi.fn(), dataTransfer } as unknown as DragEvent);
     fixture.detectChanges();

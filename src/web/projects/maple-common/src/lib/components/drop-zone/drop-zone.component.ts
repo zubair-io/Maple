@@ -14,6 +14,8 @@ import { errorMessage } from '../../util/errors';
 import { AssetId } from '../../models/asset';
 import { Router } from '@angular/router';
 import { FolderAccessService } from '../../folder-access/folder-access.service';
+import { snapshotDrop } from '../../folder-access/drop-snapshot';
+import type { DropSnapshot } from '../../folder-access/drop-snapshot';
 import { KnownFolder, MapleFolderHandle } from '../../folder-access/folder-access.types';
 import { viewRouteCommands } from '../../addressing/route-address';
 import { MuiButtonComponent } from '../../ui/button/mui-button.component';
@@ -137,13 +139,13 @@ export class DropZoneComponent {
     e.preventDefault();
     this.dragOver.set(false);
     if (!e.dataTransfer) return;
-    await this.handleDrop(e.dataTransfer);
+    await this.handleDrop(snapshotDrop(e.dataTransfer));
   }
 
   // ── Drop resolution (#2650) — reference-mount via FS Access when the ─────
   // browser supports it; copy-import stays the explicit fallback otherwise.
 
-  private async handleDrop(dataTransfer: DataTransfer): Promise<void> {
+  private async handleDrop(drop: DropSnapshot): Promise<void> {
     this.dropStatus.set(null);
     this.openError.set(null);
     try {
@@ -152,7 +154,7 @@ export class DropZoneComponent {
       // treat an already-known folder as unknown.
       await this.folderAccess.whenPersistedHandlesReady();
       const resolution = await this.folderAccess.resolveDrop(
-        dataTransfer,
+        drop,
         this._knownFolders(),
         // Fires just before the seeded confirmation picker opens, so that
         // native dialog doesn't appear with no prior explanation.
