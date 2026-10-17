@@ -7,20 +7,30 @@ import { prepareIdenticalReplacementPurge } from '../cloud-backup/lifecycle.ts';
 import { unlinkPrimaryForPurge } from '../fs/mirrored.ts';
 import { listPairedSidecarsStrict } from '../fs/xmp-conflict.ts';
 import { trashAssetById } from './asset-trash.ts';
-import { moveFileToTrash } from '../fs/trash.ts';
+import { moveFileToTrash, moveToTrash } from '../fs/trash.ts';
 
 /** Indexed replacement uses the same leased, durable Trash workflow as DELETE.
- * An unindexed file has no catalog or backup identity to fence, and moves alone:
- * any same-stem `.xmp` belongs to a photo, not to it (#4694). */
-export async function trashUploadReplacement(
-  existingId: ObjectId | undefined,
-  root: string,
-  libraryId: ObjectId,
-  original: string,
-  relativeDirectory: string,
-  filename: string,
-) {
-  if (!existingId) return moveFileToTrash(original, root);
+ * An unindexed file has no catalog or backup identity to fence: media that is
+ * merely not indexed yet still carries its sidecars into Trash, while a plain
+ * file moves alone — any same-stem `.xmp` belongs to a photo, not to it (#4694). */
+export interface UploadReplacement {
+  existingId: ObjectId | undefined;
+  root: string;
+  libraryId: ObjectId;
+  original: string;
+  relativeDirectory: string;
+  filename: string;
+  /** Media (indexed or not) carries its `.xmp` sidecars into Trash; a plain file moves alone. */
+  pairedWithSidecars: boolean;
+}
+
+export async function trashUploadReplacement(replacement: UploadReplacement) {
+  const { existingId, root, libraryId, original, relativeDirectory, filename } = replacement;
+  if (!existingId) {
+    return replacement.pairedWithSidecars
+      ? moveToTrash(original, root)
+      : moveFileToTrash(original, root);
+  }
   const result = await trashAssetById(existingId, {
     entry: { libraryId, path: relativeDirectory, filename },
   });

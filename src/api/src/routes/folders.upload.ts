@@ -15,7 +15,7 @@ import {
 import { findAssetToReplaceAtAddress, upsertUploadedAsset } from '../db/repos/assets.address.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { ALL_STAGE_NAMES } from '../workers/stages/manifest.ts';
-import { classifyMediaType } from '../indexer/media-types.ts';
+import { classifyMediaType, isVideoFilename } from '../indexer/media-types.ts';
 import {
   trashUploadReplacement,
   discardIdenticalReplacement,
@@ -108,25 +108,28 @@ async function sourceExists(filename: string): Promise<boolean> {
     return false;
   }
 }
+function refuseSidecarReplacement(target: string, filename: string): void {
+  if (!isSidecarUpload(filename)) return;
+  throw new UploadConflictError(
+    `A sidecar already exists at "${target}"; write sidecars through the XMP routes`,
+  );
+}
 async function trashExistingUpload(input: UploadTarget): Promise<TrashedReplacement | undefined> {
   const { folder, target, absPath, filename } = input;
   try {
     await stat(absPath);
-    if (isSidecarUpload(filename)) {
-      throw new UploadConflictError(
-        `A sidecar already exists at "${target}"; write sidecars through the XMP routes`,
-      );
-    }
+    refuseSidecarReplacement(target, filename);
     const directory = relativeDirectory(target);
     const existing = await findAssetToReplaceAtAddress(folder._id, directory, filename);
-    const moved = await trashUploadReplacement(
-      existing?._id,
-      folder.path,
-      folder._id,
-      absPath,
-      directory,
+    const moved = await trashUploadReplacement({
+      existingId: existing?._id,
+      root: folder.path,
+      libraryId: folder._id,
+      original: absPath,
+      relativeDirectory: directory,
       filename,
-    );
+      pairedWithSidecars: input.isMedia || isVideoFilename(filename),
+    });
     if (moved.kind === 'ok')
       return existing ? { docId: existing._id, newAbsPath: moved.newAbsPath } : undefined;
     // Another actor may have completed the move; it owns the Trash update.
