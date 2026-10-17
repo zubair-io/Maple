@@ -161,6 +161,7 @@ extension AppShell {
     } else {
       source = CloudSource(
         server: LocalNetworkResolver.shared.effectiveURL(for: server),
+        identity: server,
         folderID: asset.folder_id,
         libraryPath: "",
         httpClient: makeAuthenticatedHTTPClient(server: server))

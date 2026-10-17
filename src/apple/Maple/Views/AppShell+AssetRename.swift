@@ -162,7 +162,8 @@ extension AppShell {
     switch result {
     case .ok(let response):
       let source = CloudSource(
-        server: effectiveServer, folderID: catalog.folderID, libraryPath: "", httpClient: httpClient
+        server: effectiveServer, identity: catalog.serverID, folderID: catalog.folderID,
+        libraryPath: "", httpClient: httpClient
       )
       return try asset.renamedCloud(to: newFilename, at: response.newAbsPath, source: source)
     case .skipped:

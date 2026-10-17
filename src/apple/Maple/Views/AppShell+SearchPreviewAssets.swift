@@ -26,6 +26,7 @@ extension AppShell {
     let parentPath = (catalog.absPath as NSString).deletingLastPathComponent
     let source = CloudSource(
       server: LocalNetworkResolver.shared.effectiveURL(for: server),
+      identity: server,
       folderID: catalog.folderID,
       libraryPath: parentPath,
       httpClient: makeAuthenticatedHTTPClient(server: server))

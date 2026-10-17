@@ -460,7 +460,7 @@ public final class BrowseViewModel {
           // front) and reveal the containing folder (#2518). Address
           // is nil here; it arrives on the `by-fspath` response.
           catalog: CatalogRef(
-            serverID: capturedSource.server,
+            serverID: capturedSource.identity,
             folderID: capturedSource.folderID,
             absPath: img.path,
             address: nil
