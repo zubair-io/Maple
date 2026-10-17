@@ -18,6 +18,8 @@ The server also serves an OpenAPI description of itself: Scalar UI at `/docs`, s
 
 Anything marked bearer or stricter returns the standard error envelope on failure: `{ error, code, requestId, details? }`.
 
+**What `file_access` covers (#2893, #4746).** It gates everything that reads or changes the library as files: raw-file reads by path, absolute server paths, browsing, and moving, renaming, relocating or trashing files on disk. A member without it keeps photo backup, timeline, search and editing. Sidecar writes (`/api/xmp`, `/api/assets/:id/xmp`, XMP variants), rendered-preview publishing (`PUT /api/preview`) and backup ingest are editing and backup flows, so they stay at plain bearer on purpose.
+
 ## Health and network
 
 | Method | Path                         | Auth   | Purpose                                                                                                                                               |
@@ -90,8 +92,8 @@ A library is a registered root folder with a slug. `:id` is the folder's 24-char
 | POST   | `/api/folders/:id/file/relocate`  | +file  | Move or copy a non-asset file                                                                                                             |
 | POST   | `/api/folders/:id/trash-folder`   | +file  | Recursively trash a folder and everything under it                                                                                        |
 | POST   | `/api/folders/:id/restore-folder` | +file  | Restore a recursively trashed folder                                                                                                      |
-| POST   | `/api/library/relocate-count`     | bearer | Count how many of the given `addresses` would move into their canonical `<year>/<region>/<city>/` folder                                  |
-| POST   | `/api/library/relocate`           | bearer | Perform that relocation, sidecars included. Per-asset error isolation; crash-safe copy → verify → repoint → delete                        |
+| POST   | `/api/library/relocate-count`     | +file  | Count how many of the given `addresses` would move into their canonical `<year>/<region>/<city>/` folder                                  |
+| POST   | `/api/library/relocate`           | +file  | Perform that relocation, sidecars included. Per-asset error isolation; crash-safe copy → verify → repoint → delete                        |
 | GET    | `/api/folders/:id/mirror`         | owner  | This library's configured mirror (backup) locations                                                                                       |
 | PUT    | `/api/folders/:id/mirror`         | owner  | Replace the mirror set; validates roots and reloads the in-memory registry                                                                |
 | POST   | `/api/mirror/test`                | owner  | Validate a candidate mirror path without saving                                                                                           |
