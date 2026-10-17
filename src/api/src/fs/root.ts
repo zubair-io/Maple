@@ -114,7 +114,7 @@ export async function resolveRealPath(filePath: string): Promise<string> {
  * Check whether `filePath` is under one of the registered roots (or any
  * MAPLE_ROOTS env entries). Returns the real (resolved) path on success.
  */
-async function checkAllowed(filePath: string): Promise<OpResult<string>> {
+export async function checkAllowed(filePath: string): Promise<OpResult<string>> {
   let real: string;
   try {
     // Resolve symlinks to prevent directory traversal.

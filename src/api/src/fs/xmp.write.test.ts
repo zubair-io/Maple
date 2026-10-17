@@ -10,10 +10,12 @@ import { serializeSidecarWrite } from './sidecar-write-order';
 import { writeXmpIfUnchanged } from './xmp-conditional.ts';
 import {
   deleteXmpSidecar,
+  readXmp,
   updateXmpAtomic,
   writeXmpAtomic,
   writeXmpWithPrecondition,
 } from './xmp.ts';
+import { readConflictSidecar } from './xmp-conflict.ts';
 
 let oldRoots: string | undefined;
 let root: string;
@@ -45,6 +47,72 @@ async function holdSidecarWrite(sidecar: string) {
   await entered;
   return { inFlight, releaseWrite };
 }
+
+// #4749 — a sidecar path that is a symlink to the original (or to anything
+// that is not an .xmp file inside the jail) must never be written through,
+// deleted through, or read through.
+const RAW_BYTES = Buffer.from([0x49, 0x49, 0x2a, 0x00]);
+
+async function plantSidecarSymlinkToOriginal() {
+  const rawPath = join(root, 'linked.dng');
+  const sidecarPath = join(root, 'linked.xmp');
+  await writeFile(rawPath, RAW_BYTES);
+  await symlink(rawPath, sidecarPath);
+  return { rawPath, sidecarPath };
+}
+
+test('save refuses a sidecar symlinked to the original and leaves the RAW intact', async () => {
+  const { rawPath, sidecarPath } = await plantSidecarSymlinkToOriginal();
+
+  const plain = await writeXmpAtomic(rawPath, '<x:xmpmeta />', undefined, root);
+  expect(plain.ok).toBe(false);
+  const preconditioned = await writeXmpWithPrecondition(
+    rawPath,
+    '<x:xmpmeta />',
+    null,
+    'test-device',
+    false,
+    root,
+  );
+  expect(preconditioned.kind).toBe('error');
+  const merged = await updateXmpAtomic(rawPath, () => '<x:xmpmeta />', undefined, root);
+  expect(merged.ok).toBe(false);
+
+  expect(await readFile(rawPath)).toEqual(RAW_BYTES);
+  expect((await lstat(sidecarPath)).isSymbolicLink()).toBe(true);
+});
+
+test('reset refuses to delete through a sidecar symlinked to the original', async () => {
+  const { rawPath, sidecarPath } = await plantSidecarSymlinkToOriginal();
+
+  const result = await deleteXmpSidecar(rawPath, root);
+  expect(result.ok).toBe(false);
+  expect(await readFile(rawPath)).toEqual(RAW_BYTES);
+  expect((await lstat(sidecarPath)).isSymbolicLink()).toBe(true);
+});
+
+test('read refuses a sidecar symlinked to the original', async () => {
+  const { rawPath } = await plantSidecarSymlinkToOriginal();
+  expect((await readXmp(rawPath)).ok).toBe(false);
+});
+
+test('read refuses a sidecar symlinked outside the registered roots', async () => {
+  const outside = await mkdtemp(join(tmpdir(), 'maple-xmp-outside-'));
+  try {
+    const secret = join(outside, 'secret.xmp');
+    await writeFile(secret, '<x:xmpmeta><secret /></x:xmpmeta>');
+    const rawPath = join(root, 'escape.dng');
+    await writeFile(rawPath, RAW_BYTES);
+    await symlink(secret, join(root, 'escape.xmp'));
+    await symlink(secret, join(root, 'escape (conflict from Mac).xmp'));
+
+    expect((await readXmp(rawPath)).ok).toBe(false);
+    const conflict = await readConflictSidecar(rawPath, 'escape (conflict from Mac).xmp');
+    expect(conflict.ok).toBe(false);
+  } finally {
+    await rm(outside, { recursive: true, force: true });
+  }
+});
 
 test('idempotent delete removes a dangling sidecar symlink without touching the original', async () => {
   const rawPath = join(root, 'dangling.dng');
