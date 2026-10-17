@@ -1,8 +1,11 @@
 import * as fs from './mirrored.ts';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
+import { child as childLogger } from '../log.ts';
 import {
   SidecarCollisionError,
+  publishSidecarSnapshot,
   sameSidecarFile,
+  sidecarAlreadyCarried,
   sidecarStemClaimedBySibling,
 } from './sidecar-ownership.ts';
 
@@ -10,6 +13,8 @@ export interface SidecarPlanEntry {
   source: string;
   dest: string;
   samePath: boolean;
+  /** `dest` already holds identical bytes: the photo joins it, no copy. */
+  joinsCarried: boolean;
   replacesOccupant: boolean;
 }
 
@@ -59,10 +64,17 @@ export async function planSidecars(req: SidecarPlanRequest): Promise<SidecarPlan
     if (!dest) continue; // defensive — mirrors moveSidecarsAlongside
     const samePath = await sameSidecarFile(source, dest);
     const occupied = !samePath && (await exists(dest));
-    if (occupied && (!req.replace || destinationClaimedBySibling)) {
+    const joinsCarried = occupied && (await sidecarAlreadyCarried(source, dest));
+    if (occupied && !joinsCarried && (!req.replace || destinationClaimedBySibling)) {
       throw new SidecarCollisionError(dest);
     }
-    entries.push({ source, dest, samePath, replacesOccupant: occupied });
+    entries.push({
+      source,
+      dest,
+      samePath,
+      joinsCarried,
+      replacesOccupant: occupied && !joinsCarried,
+    });
   }
   return { entries, sourceClaimedBySibling, destinationClaimedBySibling };
 }
@@ -79,4 +91,53 @@ export async function sourceSidecarStays(
   if (plan.sourceClaimedBySibling) return true;
   if (movedCompanions.length === requestedCompanions.length) return false;
   return sidecarStemClaimedBySibling(sourceAbsPath, [finalDest, ...movedCompanions]);
+}
+
+const log = childLogger('fs/relocate');
+
+/** Best-effort copy of one sidecar — a failure is logged and the original
+ * left in place; only a collision aborts the whole asset. */
+async function tryCopySidecar(sidecar: string, dest: string): Promise<Buffer | null> {
+  try {
+    return await publishSidecarSnapshot(sidecar, dest);
+  } catch (err) {
+    if (err instanceof SidecarCollisionError) throw err;
+    log.warn(
+      { sidecar, dest, err: err instanceof Error ? err.message : err },
+      'relocate: sidecar copy failed — original left in place',
+    );
+    return null;
+  }
+}
+
+/** Carry every planned sidecar to its destination, recording each path it
+ * creates as it lands so a later throw can revert exactly what exists. */
+export async function carryPlannedSidecars(
+  plan: SidecarPlan,
+  createdPaths: string[],
+): Promise<{ copiedSidecars: string[]; carried: Omit<MovedSidecar, 'keepSource'>[] }> {
+  const copiedSidecars: string[] = [];
+  const carried: Omit<MovedSidecar, 'keepSource'>[] = [];
+  for (const entry of plan.entries) {
+    if (entry.samePath) {
+      copiedSidecars.push(entry.dest);
+      continue;
+    }
+    if (entry.joinsCarried) {
+      copiedSidecars.push(entry.dest);
+      carried.push({
+        source: entry.source,
+        dest: entry.dest,
+        snapshot: await fs.readFile(entry.dest),
+      });
+      continue;
+    }
+    if (entry.replacesOccupant) await fs.unlink(entry.dest).catch(() => {});
+    const snapshot = await tryCopySidecar(entry.source, entry.dest);
+    if (!snapshot) continue;
+    createdPaths.push(entry.dest);
+    copiedSidecars.push(entry.dest);
+    carried.push({ source: entry.source, dest: entry.dest, snapshot });
+  }
+  return { copiedSidecars, carried };
 }

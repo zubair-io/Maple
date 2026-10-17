@@ -56,11 +56,11 @@ import { classifySameFile, performCaseOnlyRename } from './relocate-case-only-re
 import {
   SidecarCollisionError,
   assetDestinationOccupied,
-  publishSidecarSnapshot,
   settleCarriedSidecar,
 } from './sidecar-ownership.ts';
 import {
   planSidecars,
+  carryPlannedSidecars,
   sourceSidecarStays,
   type MovedSidecar,
   type SidecarPlan,
@@ -246,7 +246,7 @@ async function resolveDestination(
   const occupied = (candidate: string) =>
     req.carrySidecars === false
       ? pathExists(candidate)
-      : assetDestinationOccupied(candidate, ownSidecars);
+      : assetDestinationOccupied(candidate, ownSidecars, req.sourceAbsPath);
   if (isSuffixing(req.collision)) {
     const finalDest = await pickFreePath(req.destAbsPath, req.callerTag ?? 'relocate', occupied);
     return { kind: 'proceed', finalDest };
@@ -257,25 +257,8 @@ async function resolveDestination(
   return { kind: 'proceed', finalDest: req.destAbsPath };
 }
 
-/** Best-effort copy of one sidecar — logs and reports failure rather than
- * throwing, so one bad sidecar never blocks or reverts the primary relocate
- * (matches `moveSidecarsAlongside`'s "RAW moved, sidecar left in place"
- * contract). */
-async function tryCopySidecar(sidecar: string, dest: string): Promise<Buffer | null> {
-  try {
-    return await publishSidecarSnapshot(sidecar, dest);
-  } catch (err) {
-    if (err instanceof SidecarCollisionError) throw err;
-    log.warn(
-      { sidecar, dest, err: err instanceof Error ? err.message : err },
-      'relocate: sidecar copy failed — original left in place',
-    );
-    return null;
-  }
-}
-
-/** Best-effort copy of one non-sidecar companion — same contract as
- * `tryCopySidecar` (#2667). */
+/** Best-effort copy of one non-sidecar companion — same contract as a
+ * sidecar (`carryPlannedSidecars`, #2667). */
 async function tryCopyCompanion(companion: string, dest: string): Promise<boolean> {
   try {
     await copyVerifiedIntoPlace(companion, dest);
@@ -312,20 +295,7 @@ async function copyPrimaryAndSidecars(
   await copyVerifiedIntoPlace(req.sourceAbsPath, finalDest);
   createdPaths.push(finalDest);
 
-  const copiedSidecars: string[] = [];
-  const carried: Omit<MovedSidecar, 'keepSource'>[] = [];
-  for (const entry of plan.entries) {
-    if (entry.samePath) {
-      copiedSidecars.push(entry.dest);
-      continue;
-    }
-    if (entry.replacesOccupant) await fs.unlink(entry.dest).catch(() => {});
-    const snapshot = await tryCopySidecar(entry.source, entry.dest);
-    if (!snapshot) continue;
-    createdPaths.push(entry.dest);
-    copiedSidecars.push(entry.dest);
-    carried.push({ source: entry.source, dest: entry.dest, snapshot });
-  }
+  const { copiedSidecars, carried } = await carryPlannedSidecars(plan, createdPaths);
 
   const companionPaths: string[] = [];
   const movedCompanionSources: string[] = [];

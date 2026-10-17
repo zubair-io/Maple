@@ -93,6 +93,43 @@ describe('assetDestinationOccupied', () => {
   });
 });
 
+describe('batch moves', () => {
+  test('moving both halves of a RAW+JPEG pair keeps them on one stem with one sidecar', async () => {
+    const raw = await write('a/IMG_1.CR3', 'raw');
+    const jpg = await write('a/IMG_1.JPG', 'jpg');
+    await write('a/IMG_1.xmp', '<shared/>');
+    for (const source of [raw, jpg]) {
+      const outcome = await relocateFile({
+        sourceAbsPath: source,
+        destAbsPath: abs(`b/${path.basename(source)}`),
+        mode: 'move',
+        collision: 'auto-suffix',
+      });
+      expect(outcome.kind).toBe('relocated');
+    }
+    expect(await tree()).toEqual({
+      'b/IMG_1.CR3': 'raw',
+      'b/IMG_1.JPG': 'jpg',
+      'b/IMG_1.xmp': '<shared/>',
+    });
+  });
+
+  test('a destination sidecar with different bytes still collides', async () => {
+    const jpg = await write('a/IMG_1.JPG', 'jpg');
+    await write('a/IMG_1.xmp', '<mine/>');
+    await write('b/IMG_1.CR3', 'raw');
+    await write('b/IMG_1.xmp', '<theirs/>');
+    const outcome = await relocateFile({
+      sourceAbsPath: jpg,
+      destAbsPath: abs('b/IMG_1.JPG'),
+      mode: 'move',
+      collision: 'auto-suffix',
+    });
+    expect(outcome).toMatchObject({ kind: 'relocated', newAbsPath: abs('b/IMG_1.1.JPG') });
+    expect(await fs.readFile(abs('b/IMG_1.xmp'), 'utf8')).toBe('<theirs/>');
+  });
+});
+
 describe('trash', () => {
   test('trashing the RAW of a RAW+JPEG pair copies the shared sidecar and leaves it for the JPG', async () => {
     const raw = await write('lib/IMG_1.CR3', 'raw');
