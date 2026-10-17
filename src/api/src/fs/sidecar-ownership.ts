@@ -63,7 +63,8 @@ export async function sidecarStemClaimedBySibling(
   excluded: readonly string[] = [],
 ): Promise<boolean> {
   const dir = path.dirname(primaryAbsPath);
-  const skip = new Set([primaryAbsPath, ...excluded].map(comparable));
+  const exact = (p: string) => path.resolve(p).normalize('NFC');
+  const skip = new Set([primaryAbsPath, ...excluded].map(exact));
   const stem = stemOf(primaryAbsPath);
   const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => null);
   if (entries === null) return true;
@@ -73,9 +74,16 @@ export async function sidecarStemClaimedBySibling(
       !entry.name.startsWith('.') &&
       !entry.name.includes('.tmp.') &&
       path.extname(entry.name).toLowerCase() !== '.xmp' &&
-      !skip.has(comparable(path.join(dir, entry.name))) &&
+      !skip.has(exact(path.join(dir, entry.name))) &&
       stemOf(entry.name) === stem,
   );
+}
+
+async function isOwnSidecar(ownSidecars: readonly string[], sidecar: string): Promise<boolean> {
+  for (const own of ownSidecars) {
+    if (await sameSidecarFile(own, sidecar)) return true;
+  }
+  return false;
 }
 
 /** True when `dest` already holds exactly `source`'s bytes — the sidecar an
@@ -103,11 +111,11 @@ export async function assetDestinationOccupied(
   } catch {
     const paired = await listPairedSidecars(candidate);
     for (const sidecar of paired) {
-      if (ownSidecars.some((own) => sameSidecarPath(own, sidecar))) continue;
+      if (await isOwnSidecar(ownSidecars, sidecar)) continue;
       const incoming = sourceAbsPath
         ? ownSidecars.find((own) => {
             const target = sidecarRenameTarget(sourceAbsPath, candidate, own);
-            return target !== null && sameSidecarPath(target, sidecar);
+            return target !== null && path.resolve(target) === path.resolve(sidecar);
           })
         : undefined;
       if (incoming && (await sidecarAlreadyCarried(incoming, sidecar))) continue;
@@ -150,6 +158,20 @@ async function writeVerifiedTemp(dest: string, bytes: Buffer): Promise<string> {
     throw new Error(`relocate: sidecar copy verification failed: ${dest}`);
   }
   return tmp;
+}
+
+/** Join an identical sidecar already at `dest`: snapshot `source` under its
+ * save barrier and confirm `dest` still matches under its own. A save that
+ * changed `dest` in between turns the join back into a collision. */
+export async function joinCarriedSidecar(source: string, dest: string): Promise<Buffer> {
+  return serializeSidecarWrite(source, async () => {
+    const snapshot = await fs.readFile(source);
+    const matches = await serializeSidecarWrite(dest, async () =>
+      snapshot.equals(await fs.readFile(dest).catch(() => Buffer.alloc(0))),
+    );
+    if (!matches) throw new SidecarCollisionError(dest);
+    return snapshot;
+  });
 }
 
 /** Read `source` inside its save barrier and publish those bytes at `dest`

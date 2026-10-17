@@ -17,6 +17,8 @@ import {
   sidecarStemClaimedBySibling,
   assetDestinationOccupied,
   sameSidecarFile,
+  joinCarriedSidecar,
+  SidecarCollisionError,
 } from './sidecar-ownership.ts';
 
 let root: string;
@@ -111,6 +113,35 @@ describe('batch moves', () => {
       'b/IMG_1.CR3': 'raw',
       'b/IMG_1.JPG': 'jpg',
       'b/IMG_1.xmp': '<shared/>',
+    });
+  });
+
+  test('a join whose destination changed under its barrier becomes a collision', async () => {
+    const source = await write('a/IMG_1.xmp', '<shared/>');
+    const dest = await write('b/IMG_1.xmp', '<edited-since/>');
+    await expect(joinCarriedSidecar(source, dest)).rejects.toBeInstanceOf(SidecarCollisionError);
+    await write('b/IMG_1.xmp', '<shared/>');
+    expect((await joinCarriedSidecar(source, dest)).toString()).toBe('<shared/>');
+  });
+
+  test('on a case-sensitive volume a/ and A/ are different folders', async () => {
+    await write('probe', 'x');
+    if (await fs.exists(abs('PROBE'))) return;
+    await fs.rm(abs('probe'));
+    const raw = await write('a/X.CR3', 'raw');
+    await write('a/X.xmp', '<mine/>');
+    await write('A/X.xmp', '<theirs/>');
+    const outcome = await relocateFile({
+      sourceAbsPath: raw,
+      destAbsPath: abs('A/X.CR3'),
+      mode: 'move',
+      collision: 'auto-suffix',
+    });
+    expect(outcome).toMatchObject({ kind: 'relocated', newAbsPath: abs('A/X.1.CR3') });
+    expect(await tree()).toEqual({
+      'A/X.xmp': '<theirs/>',
+      'A/X.1.CR3': 'raw',
+      'A/X.1.xmp': '<mine/>',
     });
   });
 
