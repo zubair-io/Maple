@@ -17,14 +17,18 @@
  * registered folder root.
  */
 
-// Mirror-aware drop-in: trash moves replicate to the library's backup root(s).
-import * as fs from './mirrored.ts';
 import * as path from 'node:path';
 import { listPairedSidecars } from './xmp-conflict.ts';
 import { child as childLogger } from '../log.ts';
 import { relocateFile, pickFreePath, sidecarRenameTarget } from './relocate.ts';
 import { classifySameFile } from './relocate-case-only-rename.ts';
 import { restoreDestinationOccupied, restoreFilePair } from './trash-restore-pair.ts';
+import {
+  publishSidecarSnapshot,
+  sameSidecarPath,
+  sidecarStemClaimedBySibling,
+  unlinkMovedSidecar,
+} from './sidecar-ownership.ts';
 
 import { TRASH_RESTORE_COLLISION_SUFFIX } from '../generated/filename-vocabulary.generated.ts';
 
@@ -40,20 +44,23 @@ export type MoveResult = { kind: 'ok'; newAbsPath: string } | { kind: 'error'; e
  * correct (e.g. `IMG_1 (conflict from Mac).xmp` follows `IMG_1.ARW` →
  * `IMG_1.1.ARW` to `IMG_1.1 (conflict from Mac).xmp`).
  *
- * Best-effort: a sidecar that fails to move is logged and skipped — the RAW has
- * already moved and a lost sidecar copy is recoverable. Shared by `moveToTrash`,
- * `moveOutOfTrash`, and the DeDuplicate worker's `moveToDuplicates`.
+ * Follows the shared-sidecar ownership rule (#4692): a sidecar another
+ * same-stem photo still uses is copied, never moved; an occupied destination
+ * is never replaced. Best-effort: a sidecar that fails to move is logged and
+ * left in place. Used by the DeDuplicate worker's `moveToDuplicates`.
  */
 export async function moveSidecarsAlongside(oldAbsPath: string, newAbsPath: string): Promise<void> {
   const sidecars = await listPairedSidecars(oldAbsPath);
+  const claimedBySibling = await sidecarStemClaimedBySibling(oldAbsPath, [newAbsPath]);
   for (const sidecar of sidecars) {
     // sidecarRenameTarget (fs/relocate.ts) is the same base-swap computation
     // this function used to inline — shared now so the copy-based relocate
-    // primitive and this rename-based mover can't drift apart.
+    // primitive and this mover can't drift apart.
     const destPath = sidecarRenameTarget(oldAbsPath, newAbsPath, sidecar);
-    if (!destPath) continue; // defensive
+    if (!destPath || sameSidecarPath(sidecar, destPath)) continue;
     try {
-      await fs.rename(sidecar, destPath);
+      const snapshot = await publishSidecarSnapshot(sidecar, destPath);
+      if (!claimedBySibling) await unlinkMovedSidecar(sidecar, destPath, snapshot);
     } catch (err) {
       log.warn(
         { sidecar, destPath, err: err instanceof Error ? err.message : err },

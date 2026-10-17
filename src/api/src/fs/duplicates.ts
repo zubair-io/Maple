@@ -21,6 +21,7 @@
 import * as fs from './mirrored.ts';
 import * as path from 'node:path';
 import { pickFreePath, moveSidecarsAlongside, type MoveResult } from './trash.ts';
+import { assetDestinationOccupied } from './sidecar-ownership.ts';
 import { relativeUnderRoot } from './root-match.ts';
 
 /** Reserved top-level folder (under each library root) holding moved duplicate
@@ -75,7 +76,9 @@ export function computeDuplicatesPath(absPath: string, folderRoot: string): stri
 export async function moveToDuplicates(absPath: string, folderRoot: string): Promise<MoveResult> {
   const target = computeDuplicatesPath(absPath, folderRoot);
   await fs.mkdir(path.dirname(target), { recursive: true });
-  const freeTarget = await pickFreePath(target, 'moveToDuplicates');
+  const freeTarget = await pickFreePath(target, 'moveToDuplicates', (candidate) =>
+    assetDestinationOccupied(candidate, []),
+  );
   try {
     await fs.rename(absPath, freeTarget);
   } catch (err) {
