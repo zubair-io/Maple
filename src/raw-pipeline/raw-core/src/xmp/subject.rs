@@ -196,6 +196,7 @@ fn inspect_lenient_desc(e: &BytesStart<'_>, idx: usize) -> DescCandidate {
 fn eligible_lenient(xml: &str) -> Vec<bool> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
+    let mut namespaces = super::local_adjustments::namespaces::Namespaces::default();
     let mut stack: Vec<String> = Vec::new();
     let mut workflow_depth = 0usize;
     let mut active_desc: Option<(usize, usize)> = None;
@@ -203,12 +204,19 @@ fn eligible_lenient(xml: &str) -> Vec<bool> {
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => {
-                let Ok(name) = super::element_name(&e) else {
+                let Ok(raw_name) = super::element_name(&e) else {
                     break;
                 };
-                let name = name.to_string();
-                if workflow_depth > 0 || name == "papp:Workflow" {
+                if workflow_depth > 0 || raw_name == "papp:Workflow" {
                     workflow_depth += 1;
+                    continue;
+                }
+                let Ok((name, normalized)) = namespaces.start(&e) else {
+                    break;
+                };
+                if stack.len() == 1 && is_xmpmeta_name(&stack[0]) && !is_rdf_name(&name) {
+                    namespaces.end(raw_name);
+                    workflow_depth = 1;
                     continue;
                 }
                 if let Some((idx, d)) = active_desc {
@@ -218,25 +226,32 @@ fn eligible_lenient(xml: &str) -> Vec<bool> {
                 } else if stack.last().is_none_or(|p| is_rdf_name(p)) && is_description_name(&name)
                 {
                     let idx = descs.len();
-                    descs.push(inspect_lenient_desc(&e, idx));
+                    descs.push(inspect_lenient_desc(&normalized, idx));
                     active_desc = Some((idx, stack.len()));
                 }
                 stack.push(name);
             }
             Ok(Event::Empty(e)) => {
-                let Ok(name) = super::element_name(&e) else {
+                let Ok(raw_name) = super::element_name(&e) else {
                     break;
                 };
-                if workflow_depth > 0 || name == "papp:Workflow" {
+                if workflow_depth > 0 || raw_name == "papp:Workflow" {
+                    continue;
+                }
+                let Ok((name, normalized)) = namespaces.empty(&e) else {
+                    break;
+                };
+                if stack.len() == 1 && is_xmpmeta_name(&stack[0]) && !is_rdf_name(&name) {
                     continue;
                 }
                 if let Some((idx, d)) = active_desc {
-                    if stack.len() == d + 1 && container(name) {
+                    if stack.len() == d + 1 && container(&name) {
                         descs[idx].score += 1;
                     }
-                } else if stack.last().is_none_or(|p| is_rdf_name(p)) && is_description_name(name) {
+                } else if stack.last().is_none_or(|p| is_rdf_name(p)) && is_description_name(&name)
+                {
                     let idx = descs.len();
-                    descs.push(inspect_lenient_desc(&e, idx));
+                    descs.push(inspect_lenient_desc(&normalized, idx));
                 }
             }
             Ok(Event::End(_)) => {
@@ -244,6 +259,7 @@ fn eligible_lenient(xml: &str) -> Vec<bool> {
                     workflow_depth -= 1;
                     continue;
                 }
+                namespaces.end("");
                 stack.pop();
                 if active_desc.is_some_and(|(_, d)| stack.len() == d) {
                     active_desc = None;
