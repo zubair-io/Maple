@@ -9,6 +9,7 @@ import android.system.OsConstants
 import android.system.StructStat
 import java.io.InputStream
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -44,6 +45,39 @@ internal class CacheDocuments(private val context: Context) {
 
     fun find(entries: List<LocalDocument>, name: String) =
         entries.filter { it.name == name && !it.directory }.singleOrNull()
+
+    /** A folder the server never sweeps may still hold the frozen `.v25` name; rename, never re-render. */
+    suspend fun adoptLegacy(
+        source: FolderCacheSource,
+        tier: SharedCacheTier,
+        directory: Uri,
+        listed: List<LocalDocument>,
+    ): List<LocalDocument> {
+        val name = tier.filename(source.photo.name)
+        if (find(listed, name) != null) return listed
+        val legacy = find(listed, tier.legacyFilename(source.photo.name)) ?: return listed
+        if (legacy.flags and DocumentsContract.Document.FLAG_SUPPORTS_RENAME == 0) return listed
+        return try {
+            publication.withLock {
+                val current = entries(directory)
+                if (find(current, name) != null || find(current, legacy.name) != legacy)
+                    return@withLock current
+                verifyDerived(source, legacy.uri)
+                val renamed = rename(legacy.uri, name)
+                val after = entries(directory)
+                // Providers that de-duplicate on rename leave a stray sibling; it is derived data.
+                if (find(after, name)?.uri == renamed) after
+                else {
+                    remove(source, renamed)
+                    entries(directory)
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            listed
+        }
+    }
 
     suspend fun publish(
         source: FolderCacheSource,

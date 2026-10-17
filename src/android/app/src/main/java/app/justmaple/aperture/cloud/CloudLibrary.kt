@@ -3,7 +3,6 @@ package app.justmaple.aperture.cloud
 import android.content.Context
 import android.net.Uri
 import app.justmaple.aperture.data.*
-import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.OutputStream
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
@@ -128,7 +127,7 @@ class CloudLibrary(context: Context) {
         fun get(route: String) =
             http.request(
                 photo.uri.host!!,
-                mediaPath(route, photo.uri) + "?pv=${AdjustmentFields.pipelineOutputVersion}",
+                mediaPath(route, photo.uri),
                 headers = etag?.let { mapOf("If-None-Match" to it) } ?: emptyMap(),
             )
         val primary = get(if (edge > 512) "preview" else "thumb")

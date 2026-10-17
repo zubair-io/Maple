@@ -3,7 +3,6 @@ package app.justmaple.aperture.data
 import android.content.Context
 import android.os.Build
 import android.os.ParcelFileDescriptor
-import app.justmaple.aperture.generated.AdjustmentFields
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -28,7 +27,9 @@ internal class FolderDerivativeCache(private val context: Context) {
             val source = snapshot()
             val entries = optional {
                 documents.directory(source.photo.parent!!, tier, false)?.let { directory ->
-                    documents.entries(directory)
+                    val listed = documents.entries(directory)
+                    if (source.canShare) documents.adoptLegacy(source, tier, directory, listed)
+                    else listed
                 }
             }
                 .orEmpty()
@@ -55,8 +56,7 @@ internal class FolderDerivativeCache(private val context: Context) {
                 if (unchanged) return display(shared)
                 shared.image.close()
             }
-            val key =
-                "folder-${AdjustmentFields.pipelineOutputVersion}-${source.identity}-${tier.edge}"
+            val key = "folder-${source.identity}-${tier.edge}"
             val ready = privateFile(key) { temporary -> render(source, temporary, tier) }
             try {
                 currentCoroutineContext().ensureActive()
@@ -85,7 +85,7 @@ internal class FolderDerivativeCache(private val context: Context) {
         val entry = candidate.document
         if (entry.size <= 0 || entry.size > MAX_BYTES) return null
         val key =
-            "shared-${AdjustmentFields.pipelineOutputVersion}-${source.identity}-${tier.edge}-${PhotoLibrary.digest("${entry.uri}:${entry.size}:${entry.modified}")}"
+            "shared-${source.identity}-${tier.edge}-${PhotoLibrary.digest("${entry.uri}:${entry.size}:${entry.modified}")}"
         val extension = if (candidate.format == "jpeg") "jpg" else candidate.format
         return privateFile(key, extension) { temporary ->
             context.contentResolver.openInputStream(entry.uri)?.use { input ->
