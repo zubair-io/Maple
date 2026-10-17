@@ -59,10 +59,10 @@ public struct LocalDisplayPreviewSink: DisplayPreviewSink {
 /// #2017) — the cloud sibling of `CloudSidecarStore`'s XMP `PUT`. The server
 /// overwrites its own copy of the same canonical `<filename>.avif`.
 public struct CloudDisplayPreviewSink: DisplayPreviewSink {
-  let server: URL
+  public let server: URL
   /// The asset's original absolute path ON THE SERVER (e.g. `/lib/Photos/…
   /// /IMG_1234.CR2`), the same value `CloudSource` derives from the asset id.
-  let assetPath: String
+  public let assetPath: String
   let httpClient: AuthenticatedHTTPClient
 
   public init(server: URL, assetPath: String, httpClient: AuthenticatedHTTPClient) {
