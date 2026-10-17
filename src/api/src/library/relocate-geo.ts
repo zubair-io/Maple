@@ -55,6 +55,15 @@ const log = childLogger('library/relocate-geo');
  * not reproduced here. */
 export type GeoMoveOutcome = 'moved' | 'skipped';
 
+/** `true` when both paths name the same file on disk — the destination is a
+ * directory symlink, case alias or hard link of the source (#4701). Comparing
+ * such a file with itself reports identical bytes, and the dedupe would then
+ * delete the only original. */
+async function isSameFile(a: string, b: string): Promise<boolean> {
+  const [statA, statB] = await Promise.all([fs.stat(a), fs.stat(b)]);
+  return statA.dev === statB.dev && statA.ino === statB.ino;
+}
+
 async function pathExists(p: string): Promise<boolean> {
   try {
     await fs.stat(p);
@@ -144,6 +153,14 @@ export async function relocateGeoAsset(
   const renderedAbsPath = doc.apple_rendered_path
     ? path.join(libRoot, doc.apple_rendered_path)
     : null;
+
+  if ((await pathExists(destAbsPath)) && (await isSameFile(sourceAbsPath, destAbsPath))) {
+    log.warn(
+      { _id: String(doc._id), sourceAbsPath, destAbsPath },
+      'relocateGeoAsset: destination is the source file itself (symlink or case alias) — skipped',
+    );
+    return 'skipped';
+  }
 
   const sidecars = await listPairedSidecars(sourceAbsPath);
   const renderedPresent = renderedAbsPath !== null && (await pathExists(renderedAbsPath));
