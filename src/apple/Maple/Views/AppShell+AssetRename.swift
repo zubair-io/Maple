@@ -87,11 +87,11 @@ extension AppShell {
     }
     renameError = nil
     Task { @MainActor in
-      if let existingSession = sessions[asset.id] {
-        await existingSession.flushPendingSidecarWrite()
-        await existingSession.setSidecarWritesEnabled(false)
-      }
       do {
+        if let existingSession = sessions[asset.id] {
+          try await existingSession.flushPendingSidecarWriteConfirmed()
+          await existingSession.setSidecarWritesEnabled(false)
+        }
         let newAsset = try await performRename(asset: asset, to: newFilename)
         applyRenamed(oldID: asset.id, newAsset: newAsset)
         renamingAssetID = nil

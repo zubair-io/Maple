@@ -17,6 +17,7 @@ extension EditSession {
       return
     }
     guard let store = sidecarStore else { return }
+    hasUnconfirmedSidecarUpdate = true
     let previous = sidecarUpdateTask
     sidecarUpdateTask = Task {
       await previous?.value
@@ -63,6 +64,12 @@ extension EditSession {
   /// method never reached the store at all. Reviewed in #2556 for the
   /// same reason.
   public func flushPendingSidecarWrite() async {
+    try? await flushPendingSidecarWriteConfirmed()
+  }
+
+  /// Flush any pending sidecar write and throw if an unconfirmed edit cannot
+  /// be durably persisted (#4711).
+  public func flushPendingSidecarWriteConfirmed() async throws {
     await workflow.task?.value
     // A flush is a commit boundary (#2432): close the open transaction
     // so the sidecar describes a recorded action, not a half-gesture.
@@ -72,7 +79,20 @@ extension EditSession {
       sidecarUpdateTask = nil
       await task.value
     }
-    await store.flush()
+    if hasUnconfirmedSidecarUpdate {
+      do {
+        try await store.writeConfirmed(model: model, culling: culling)
+        hasUnconfirmedSidecarUpdate = false
+        sidecarError = nil
+      } catch {
+        hasUnconfirmedSidecarUpdate = true
+        sidecarDirtyWhileDisabled = true
+        sidecarError = error
+        throw error
+      }
+    } else {
+      await store.flush()
+    }
   }
 
   /// Enable or disable sidecar/preview writes on this session (#4711).
@@ -93,7 +113,8 @@ extension EditSession {
       }
       return
     }
-    sidecarDirtyWhileDisabled = sidecarDirtyWhileDisabled || sidecarUpdateTask != nil
+    sidecarDirtyWhileDisabled =
+      sidecarDirtyWhileDisabled || hasUnconfirmedSidecarUpdate || sidecarUpdateTask != nil
     let store = workflow.selectedStore ?? primarySidecarStore
     while let task = sidecarUpdateTask {
       sidecarUpdateTask = nil
@@ -111,10 +132,14 @@ extension EditSession {
       scheduleDisplayPreviewPersist(pendingPreview)
     }
     departing.endEdit()
-    guard departing.sidecarDirtyWhileDisabled || departing.sidecarUpdateTask != nil else {
+    guard
+      departing.sidecarDirtyWhileDisabled || departing.hasUnconfirmedSidecarUpdate
+        || departing.sidecarUpdateTask != nil
+    else {
       return
     }
     departing.sidecarDirtyWhileDisabled = false
+    departing.hasUnconfirmedSidecarUpdate = false
     departing.sidecarUpdateTask?.cancel()
     departing.sidecarUpdateTask = nil
     isHydratingInitialState = true

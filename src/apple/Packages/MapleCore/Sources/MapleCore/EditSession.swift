@@ -375,6 +375,7 @@ public final class EditSession {
   /// Blocks sidecar/preview writes during asset rename and tracks in-flight edits (#4711).
   @ObservationIgnored var sidecarWritesDisabled = false
   @ObservationIgnored var sidecarDirtyWhileDisabled = false
+  @ObservationIgnored var hasUnconfirmedSidecarUpdate = false
   /// Owns pending preview/debounce/write lifetime; session guards remain here.
   @ObservationIgnored let previewPersistence: DisplayPreviewPersistence
   @ObservationIgnored var sidecarErrorTask: Task<Void, Never>?
