@@ -368,6 +368,7 @@ final class EditSessionTests: XCTestCase {
       bytesProvider: { throw NSError(domain: "test", code: -1) }
     )
     let editSession = EditSession(asset: asset, remoteSidecarStore: cloudStore)
+    await editSession.loadSidecar()
 
     var edited = editSession.model
     edited.exposure = 1.75

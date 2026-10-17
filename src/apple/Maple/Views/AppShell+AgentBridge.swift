@@ -19,6 +19,14 @@ extension AppShell {
           message: "Failed to open or resolve edit session for \(asset.displayName).")
       }
       await session.loadSidecar()
+      try Task.checkCancellation()
+      // Activate only a session whose saved edits are in memory (#4710).
+      guard session.hasLoadedSidecar else {
+        throw AgentError(
+          code: "sidecar_unavailable",
+          message:
+            "Couldn't read the saved edits for \(asset.displayName) (\(session.sidecarError?.localizedDescription ?? "read failed")).")
+      }
       AgentEditService.shared.activate(session)
       return session
     }

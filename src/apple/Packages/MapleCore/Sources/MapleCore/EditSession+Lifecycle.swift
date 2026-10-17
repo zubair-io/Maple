@@ -11,7 +11,8 @@ extension EditSession {
   /// path. The tail also gives exit a real completion barrier, instead of
   /// hoping an unstructured update reaches the store before `flush()`.
   func scheduleSidecarUpdate(model: AdjustmentModel, culling: CullingState) {
-    guard !workflow.isApplying else { return }
+    // Nothing is persisted before the sidecar has loaded (#4708).
+    guard hasLoadedSidecar, !workflow.isApplying else { return }
     if sidecarWritesDisabled {
       sidecarDirtyWhileDisabled = true
       return
@@ -24,6 +25,15 @@ extension EditSession {
       guard !self.sidecarWritesDisabled, !Task.isCancelled else { return }
       await store.update(model: model, culling: culling)
     }
+  }
+
+  /// Rate, flag, label or hide only after the sidecar has loaded, so the
+  /// write merges over the saved develop settings instead of defaults.
+  public func setCulling(_ edit: (inout CullingState) -> Void) async throws {
+    await loadSidecar()
+    try Task.checkCancellation()
+    guard hasLoadedSidecar else { throw sidecarError ?? CancellationError() }
+    edit(&culling)
   }
 
   /// Replace the IPTC keyword list (#632). Routes through `culling`'s
@@ -70,6 +80,8 @@ extension EditSession {
   /// Flush any pending sidecar write and throw if an unconfirmed edit cannot
   /// be durably persisted (#4711).
   public func flushPendingSidecarWriteConfirmed() async throws {
+    // A rating queued before load is merged and saved once the load lands (#4708).
+    if !hasLoadedSidecar, queuedCullingPatch != nil { await loadSidecar() }
     while true {
       await workflow.waitForIdle()
       // A flush is a commit boundary (#2432): close the open transaction
@@ -150,9 +162,10 @@ extension EditSession {
     let hasDirtyEdits =
       departing.sidecarDirtyWhileDisabled || departing.hasUnconfirmedSidecarUpdate
       || departing.sidecarUpdateTask != nil
-    let hasHistory =
-      !departing.transactions.undoStack.isEmpty || !departing.transactions.redoStack.isEmpty
-    guard hasDirtyEdits || departing.hasLoadedSidecar || hasHistory else {
+    // A session that never loaded holds defaults, not the photo's edits;
+    // this one hydrates itself, keeping any rating queued on the old (#4708).
+    guard departing.hasLoadedSidecar else {
+      queuedCullingPatch = departing.queuedCullingPatch
       return
     }
     departing.sidecarDirtyWhileDisabled = false

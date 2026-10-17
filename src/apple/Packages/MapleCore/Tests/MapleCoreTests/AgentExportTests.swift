@@ -28,6 +28,7 @@ final class AgentExportTests: XCTestCase {
     let originalBytes = try sourceBytes()
     try originalBytes.write(to: original)
     let session = EditSession(asset: AssetRef(url: original), model: .default)
+    await session.loadSidecar()
     let baseline = try await MapleExporter.exportData(session: session, options: .defaults)
     session.beginEdit(description: "Brighter")
     session.model.exposure = 0.75
@@ -38,6 +39,7 @@ final class AgentExportTests: XCTestCase {
     let expected = try await MapleExporter.exportData(session: session, options: .defaults)
     let exports = root.appendingPathComponent("Exports")
     let service = AgentEditService(exportDirectory: exports)
+    await session.loadSidecar()
     service.activate(session)
     let revision = AgentEditService.revision(of: session)
     let result = try await call(service, revision: revision).outcome.get().result
@@ -75,6 +77,7 @@ final class AgentExportTests: XCTestCase {
     let bytes = try sourceBytes()
     let session = EditSession(
       asset: AssetRef(displayName: "source.png", hintExtension: "png") { bytes }, model: .default)
+    await session.loadSidecar()
     service.activate(session)
     let missing = await call(service, revision: nil)
     XCTAssertEqual(missing.outcome.failureCode, "invalid_arguments")
@@ -97,6 +100,7 @@ final class AgentExportTests: XCTestCase {
 
   func testPhotoSwitchDuringExportDoesNotPublish() async throws {
     let replacement = EditSession(asset: AssetRef(url: URL(fileURLWithPath: "/next.dng")))
+    await replacement.loadSidecar()
     try await exportWhileChanging { service, _ in
       service.activate(replacement)
     }
@@ -190,6 +194,7 @@ final class AgentExportTests: XCTestCase {
     let session = EditSession(
       asset: AssetRef(displayName: "source.png", hintExtension: "png") { bytes })
     let service = AgentEditService(exportDirectory: existingFile)
+    await session.loadSidecar()
     service.activate(session)
     let response = await call(service, revision: AgentEditService.revision(of: session))
     guard case .failure = response.outcome else { return XCTFail("Expected a write failure") }
@@ -208,6 +213,7 @@ final class AgentExportTests: XCTestCase {
     let session = EditSession(
       asset: AssetRef(displayName: "source.png", hintExtension: "png") { await source.read() })
     let service = AgentEditService(exportDirectory: exports)
+    await session.loadSidecar()
     service.activate(session)
     let revision = AgentEditService.revision(of: session)
     let pending = Task { await call(service, revision: revision) }
@@ -250,6 +256,7 @@ final class AgentExportTests: XCTestCase {
     let session = EditSession(
       asset: AssetRef(displayName: "source.png", hintExtension: "png") { await source.read() })
     let service = AgentEditService(exportDirectory: exports)
+    await session.loadSidecar()
     service.activate(session)
     let revision = AgentEditService.revision(of: session)
 

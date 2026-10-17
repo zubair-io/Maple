@@ -25,6 +25,7 @@ extension EditSession {
   func scheduleSemanticSidecarCommit(
     model: AdjustmentModel, culling: CullingState, action: String, label: String
   ) {
+    guard hasLoadedSidecar else { return }
     // Filesystem, PhotoKit and API expose the real semantic-commit capability.
     // SMB retains ordinary saves until its real share qualification lands (#2437).
     guard let semantic = sidecarStore as? any SemanticSidecarStoreProtocol else {

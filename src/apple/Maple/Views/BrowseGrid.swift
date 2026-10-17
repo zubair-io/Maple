@@ -19,6 +19,9 @@
 import MapleCore
 import MapleUI
 import SwiftUI
+import os
+
+private let browseGridLogger = Logger(subsystem: "app.justmaple.aperture", category: "browse-grid")
 
 #if os(macOS)
   import AppKit
@@ -680,20 +683,24 @@ private struct BrowseKeyboardShortcuts: ViewModifier {
   }
 
   private func setStars(_ n: Int) {
-    guard let id = vm.selectedID, let session = sessions[id] else { return }
-    Task { @MainActor in
-      var c = session.culling
-      c.stars = n
-      session.culling = c
-    }
+    updateCulling { $0.stars = n }
   }
 
   private func setFlag(_ f: CullFlag) {
+    updateCulling { $0.flag = f }
+  }
+
+  /// A primed session may not have loaded its sidecar yet; `setCulling`
+  /// waits for it so a rating never rewrites saved edits as defaults (#4708).
+  private func updateCulling(_ edit: @escaping (inout CullingState) -> Void) {
     guard let id = vm.selectedID, let session = sessions[id] else { return }
     Task { @MainActor in
-      var c = session.culling
-      c.flag = f
-      session.culling = c
+      do {
+        try await session.setCulling(edit)
+      } catch {
+        browseGridLogger.error(
+          "rating not saved — sidecar unreadable: \(error.localizedDescription, privacy: .public)")
+      }
     }
   }
 }

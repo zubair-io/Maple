@@ -35,6 +35,7 @@ MaskCoordinatePrecisionTests
 # tool-count assertions were never run here.
 BlackWhiteMixInteractionTests
 CropEditingStateTests
+EditSessionSidecarWriteGuardTests
 EditSessionTransactionTests
 EditorAutoSourceTests
 EditorCommandRouterTests
@@ -361,6 +362,7 @@ AgentInspectionRevisionTests # real lazy-raster fences: discard replies after ed
 SMBDisconnectDrainTests
 SMBSourceDiscoveryTests
 AgentMaskScopeTests # vectorscope & mask tools: Rec.709 chroma, skin locus, mask creation, overlay render, local edits
+AgentSidecarReadinessTests
 AgentBrowseTests # browse mode & culling tools: list_photos, get_thumbnails, set_rating, set_flag, open_photo
 AgentScopeColorTests # #4104: paired ROI and canonical range coverage
 

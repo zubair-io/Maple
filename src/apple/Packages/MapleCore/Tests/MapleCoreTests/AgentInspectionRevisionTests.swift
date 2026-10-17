@@ -19,6 +19,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
 
   func testPhotoSwitchDuringInspectionDiscardsTheOldImageAndMetrics() async throws {
     let next = makeSession("next.dng")
+    await next.loadSidecar()
     try await inspectWhileChanging { service, _ in service.activate(next) }
   }
 
@@ -32,6 +33,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
 
   func testPhotoSwitchDuringVectorscopeDiscardsTheOldMetrics() async throws {
     let next = makeSession("next.dng")
+    await next.loadSidecar()
     try await inspectWhileChanging(tool: "maple_get_vectorscope") { service, _ in
       service.activate(next)
     }
@@ -47,6 +49,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
 
   func testPhotoSwitchDuringMaskOverlayDiscardsTheOldImage() async throws {
     let next = makeSession("next.dng")
+    await next.loadSidecar()
     try await inspectWhileChanging(tool: "maple_render_mask_overlay") { service, _ in
       service.activate(next)
     }
@@ -62,6 +65,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
 
   func testPhotoSwitchDuringSelectedMaskScopeDiscardsCanonicalMetrics() async throws {
     let next = makeSession("next.dng")
+    await next.loadSidecar()
     try await inspectCanonicalWhileChanging(selectedMask: true) { service, _ in
       service.activate(next)
     }
@@ -77,6 +81,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
 
   func testPhotoSwitchDuringP3InspectionDiscardsCanonicalImageAndMetrics() async throws {
     let next = makeSession("next.dng")
+    await next.loadSidecar()
     try await inspectCanonicalWhileChanging(selectedMask: false) { service, _ in
       service.activate(next)
     }
@@ -92,6 +97,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
 
   func testPhotoSwitchDuringPersonDetectionDoesNotCommitAMask() async throws {
     let next = makeSession("next.dng")
+    await next.loadSidecar()
     try await createPersonWhileChanging { service, _ in service.activate(next) }
     XCTAssertTrue(next.model.localAdjustments.isEmpty)
     XCTAssertTrue(next.undoHistory.isEmpty)
@@ -107,6 +113,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
     let originalBytes = try Data(contentsOf: original)
     let session = EditSession(
       asset: AssetRef(url: original), model: .default, culling: CullingState())
+    await session.loadSidecar()
     var validations = 0
     do {
       _ = try await AgentMaskService.createMask(["kind": "person_skin"], in: session) {
@@ -149,6 +156,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
     let originalBytes = try Data(contentsOf: original)
     let session = EditSession(
       asset: AssetRef(url: original), model: .default, culling: CullingState())
+    await session.loadSidecar()
     let service = AgentEditService()
     service.activate(session)
     let response = await service.handle(
@@ -196,6 +204,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
       asset: AssetRef(displayName: "portrait.png", hintExtension: "png") { await source.read() },
       model: .default, culling: CullingState())
     let service = AgentEditService()
+    await session.loadSidecar()
     service.activate(session)
     let revision = AgentEditService.revision(of: session)
     let response = Task {
@@ -246,6 +255,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
     try FileManager.default.copyItem(at: fixture, to: original)
     let originalBytes = try Data(contentsOf: original)
     let session = EditSession(asset: AssetRef(url: original))
+    await session.loadSidecar()
     session.previewSize = CGSize(width: 256, height: 256)
     await session.openAssetPipelineAsync()
     if selectedMask {
@@ -299,6 +309,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
     XCTAssertEqual(primedIsRaw, resolvedIsRaw)
     XCTAssertFalse(primedIsRaw ?? session.asset.isRaw)
     let service = AgentEditService()
+    await session.loadSidecar()
     service.activate(session)
     let maskID = selectedMask ? try XCTUnwrap(session.selectedMaskId) : nil
     let response = Task {
@@ -342,6 +353,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
     try FileManager.default.copyItem(at: fixture, to: original)
     let originalBytes = try Data(contentsOf: original)
     let session = EditSession(asset: AssetRef(url: original))
+    await session.loadSidecar()
     session.previewSize = CGSize(width: 256, height: 256)
     await session.openAssetPipelineAsync()
     if tool == "maple_render_mask_overlay" { session.createWholeImageSkinMask() }
@@ -355,6 +367,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
       imageProvider: source, size: source.width, source.height,
       format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB), options: nil)
     let service = AgentEditService()
+    await session.loadSidecar()
     service.activate(session)
     let response = Task {
       await service.handle(
