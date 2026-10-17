@@ -18,6 +18,7 @@ import {
 } from './xmp.ts';
 import { readConflictSidecar } from './xmp-conflict.ts';
 import { readSidecarNoFollow } from './sidecar-io.ts';
+import { setLibraryRootsForTests } from '../indexer/libraries.cache.ts';
 
 let oldRoots: string | undefined;
 let root: string;
@@ -96,6 +97,34 @@ test('reset refuses to delete through a sidecar symlinked to the original', asyn
 test('read refuses a sidecar symlinked to the original', async () => {
   const { rawPath } = await plantSidecarSymlinkToOriginal();
   expect((await readXmp(rawPath)).ok).toBe(false);
+});
+
+// #4749 — the documented default deployment sets no MAPLE_ROOTS and never calls
+// registerRoot for database libraries, so the sidecar jail must consult the
+// library roots itself instead of inheriting the fs jail's allow-all fallback.
+test('with no MAPLE_ROOTS, a sidecar symlinked outside the library roots is refused', async () => {
+  const outside = await mkdtemp(join(tmpdir(), 'maple-xmp-outside-'));
+  delete process.env.MAPLE_ROOTS;
+  setLibraryRootsForTests(new Map([['lib', root]]));
+  try {
+    const secret = join(outside, 'secret.xmp');
+    await writeFile(secret, '<x:xmpmeta><secret /></x:xmpmeta>');
+    const rawPath = join(root, 'db-jail.dng');
+    await writeFile(rawPath, RAW_BYTES);
+    await symlink(secret, join(root, 'db-jail.xmp'));
+
+    expect((await readXmp(rawPath)).ok).toBe(false);
+    expect((await writeXmpAtomic(rawPath, '<x:xmpmeta />', undefined, root)).ok).toBe(false);
+    expect(await readFile(secret, 'utf8')).toBe('<x:xmpmeta><secret /></x:xmpmeta>');
+
+    const inRoot = join(root, 'db-jail-ok.dng');
+    await writeFile(inRoot, RAW_BYTES);
+    expect((await writeXmpAtomic(inRoot, '<x:xmpmeta />', undefined, root)).ok).toBe(true);
+  } finally {
+    setLibraryRootsForTests(null);
+    process.env.MAPLE_ROOTS = root;
+    await rm(outside, { recursive: true, force: true });
+  }
 });
 
 test('read refuses a sidecar symlinked outside the registered roots', async () => {
