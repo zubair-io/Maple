@@ -3,8 +3,7 @@
 //! contents were moved verbatim.
 
 use super::*;
-
-use super::*;
+use crate::types::adjustment::AutoExposureMode;
 
 /// A caller model with every fit-relevant field deliberately non-default,
 /// so anything leaking through `fit_develop_model` is unmissable.
