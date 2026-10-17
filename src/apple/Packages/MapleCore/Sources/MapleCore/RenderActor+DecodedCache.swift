@@ -30,12 +30,20 @@ extension RenderActor {
   /// would hand back a low-res buffer. The cache's `decodedIsFull` flag is
   /// set so `snapshot(forAsset:)` can tell the refine pass whether the
   /// cached decode is sufficient.
+  ///
+  /// `liveModel` (#4715): the session's in-memory model. When given, the
+  /// decode bakes ITS stripped fields (via a temp XMP) and the cache is
+  /// keyed on them, so a heal spot or highlight-recovery toggle lands on
+  /// this tick instead of after the debounced sidecar write — and lands
+  /// at all for remote assets, which have no sidecar on disk. `nil`
+  /// keeps the sidecar-keyed behaviour for callers without a session.
   func sharedDecode(
     asset: AssetRef,
     target: CGSize? = nil,
     profile: Profile = .auto,
     autoExposure: AutoExposureMode = .on,
     quality: PipelineRenderer.Quality = .preview,
+    liveModel: AdjustmentModel? = nil,
     normalize: @escaping @Sendable (CIImage, AssetRef) async -> CIImage
   ) async -> CIImage? {
     // Videos are selectable for metadata editing (#1638) but have no still
@@ -82,8 +90,10 @@ extension RenderActor {
     // back the wrong-quality buffer.
     // cancelAll revokes ownership before the abandoned FFI task finishes.
     // A new render must start a fresh decode instead of joining that task.
+    let liveBaked = liveModel.map(Self.bakedModel(fromLive:))
     if let existing = decodeTask, decodeCancelFlag != nil, decodeTaskAssetID == asset.id,
       decodeTaskSidecarURL == asset.sidecarURL,
+      liveBaked == nil || decodeTaskBakedModel == liveBaked,
       decodeTaskProfile == decodeProfile,
       decodeTaskAutoExposure == decodeAutoExposure,
       decodeTaskQuality == decodeQuality,
@@ -105,6 +115,7 @@ extension RenderActor {
     decodeTask = nil
     decodeTaskAssetID = nil
     decodeTaskSidecarURL = nil
+    decodeTaskBakedModel = nil
 
     let decodeSignpostID = editSessionSignposter.makeSignpostID()
     let decodeState = editSessionSignposter.beginInterval("decode", id: decodeSignpostID)
@@ -190,7 +201,16 @@ extension RenderActor {
             )
           }
           let asset = dispatchAsset
+          // #4715: the live model's baked fields drive the decode when
+          // the session hands them in; the on-disk sidecar (debounced,
+          // absent for remote assets) only when it does not.
+          let liveXMP = liveModel.flatMap {
+            RawCoreBridge.writeStrippedModelXMP(
+              $0, profileOverride: decodeProfile, autoExposureOverride: decodeAutoExposure)
+          }
+          defer { if let liveXMP { try? FileManager.default.removeItem(at: liveXMP) } }
           let sidecar: URL? = {
+            if let liveXMP { return liveXMP }
             guard let url = asset.sidecarURL,
               FileManager.default.fileExists(atPath: url.path)
             else { return nil }
@@ -269,6 +289,7 @@ extension RenderActor {
     decodeTask = task
     decodeTaskAssetID = asset.id
     decodeTaskSidecarURL = asset.sidecarURL
+    decodeTaskBakedModel = liveBaked
     decodeTaskIsFull = wantsFull
     decodeTaskProfile = decodeProfile
     decodeTaskAutoExposure = decodeAutoExposure
@@ -291,6 +312,7 @@ extension RenderActor {
       decodeTask = nil
       decodeTaskAssetID = nil
       decodeTaskSidecarURL = nil
+      decodeTaskBakedModel = nil
       decodeCancelFlag = nil
       return nil
     }
@@ -336,7 +358,7 @@ extension RenderActor {
     // write landing mid-capture can only make a future check do an extra
     // parse, never serve stale.
     let currentMtime = EditSession.sidecarMtime(for: asset)
-    let currentBaked = Self.bakedModel(for: asset)
+    let currentBaked = liveBaked ?? Self.bakedModel(for: asset)
     let newRawResolution = decoded.extent.size
     let sameAssetCached = (decodedForAssetID == asset.id) && (decodedImage != nil)
     let cachedCoversNewDecode = Self.cacheCoversNewDecode(
@@ -354,7 +376,7 @@ extension RenderActor {
       decodedImage = normalized
       decodedRawResolution = newRawResolution
       decodedForAssetID = asset.id
-      decodedAtModel = EditSession.parseSidecarModel(for: asset)
+      decodedAtModel = liveModel ?? EditSession.parseSidecarModel(for: asset)
       decodedBakedModel = currentBaked
       decodedSidecarMtime = currentMtime
       decodedSidecarURL = asset.sidecarURL
@@ -389,6 +411,7 @@ extension RenderActor {
     decodeTask = nil
     decodeTaskAssetID = nil
     decodeTaskSidecarURL = nil
+    decodeTaskBakedModel = nil
     decodeCancelFlag = nil
     return normalized
   }
@@ -437,6 +460,7 @@ extension RenderActor {
     decodeTask = nil
     decodeTaskAssetID = nil
     decodeTaskSidecarURL = nil
+    decodeTaskBakedModel = nil
     decodeTaskIsFull = false
     decodeTaskProfile = nil
     decodeTaskAutoExposure = nil
@@ -456,17 +480,25 @@ extension RenderActor {
     decodedCameraSupport = nil
   }
 
-  public func snapshot(forAsset asset: AssetRef) -> DecodedSnapshot {
+  /// `liveModel` (#4715): freshness compares the cached baked model to the
+  /// session's live model — no disk read, no debounce, and the only
+  /// possible key for a remote asset. Without it the sidecar-keyed #950
+  /// path below applies.
+  public func snapshot(forAsset asset: AssetRef, liveModel: AdjustmentModel? = nil)
+    -> DecodedSnapshot
+  {
     // #950: unchanged mtime skips the XMP parse. Autosaves of live-only
     // fields keep the baked model valid; accept their observed mtime so
     // later ticks return to this fast path instead of parsing indefinitely.
     // Capture before parsing: a concurrent write must remain detectable on
     // the next tick, never be accepted without comparing its baked model.
     let assetMatches = (decodedForAssetID == asset.id)
-    let currentMtime = assetMatches ? EditSession.sidecarMtime(for: asset) : nil
+    let currentMtime = assetMatches && liveModel == nil ? EditSession.sidecarMtime(for: asset) : nil
     let isFresh: Bool
     if !assetMatches {
       isFresh = false
+    } else if let liveModel {
+      isFresh = (Self.bakedModel(fromLive: liveModel) == decodedBakedModel)
     } else if decodedSidecarURL == asset.sidecarURL,
       let mt = decodedSidecarMtime, currentMtime == mt
     {
@@ -512,11 +544,19 @@ extension RenderActor {
 
   nonisolated static func bakedModel(for asset: AssetRef) -> AdjustmentModel {
     guard EditSession.sidecarMtime(for: asset) != nil else { return defaultBakedModel }
-    var m = RawCoreBridge.stripAppleGPUStages(
-      EditSession.parseSidecarModel(for: asset)
-    )
+    return bakedModel(fromLive: EditSession.parseSidecarModel(for: asset))
+  }
+
+  /// The same key, taken from a model already in memory (#4715). Crop and
+  /// perspective are presentation stages (raw-core's `prefix_policy!`
+  /// lists them so; Apple applies both on the developed image), never
+  /// decode-baked, so they are normalised out of the key too.
+  nonisolated static func bakedModel(fromLive model: AdjustmentModel) -> AdjustmentModel {
+    var m = RawCoreBridge.stripAppleGPUStages(model)
     m.profile = AdjustmentModel().profile  // #871 owns profile freshness
     m.autoExposure = AdjustmentModel().autoExposure  // #1387 owns autoExposure freshness
+    m.crop = AdjustmentModel().crop
+    m.perspective = AdjustmentModel().perspective
     return m
   }
 

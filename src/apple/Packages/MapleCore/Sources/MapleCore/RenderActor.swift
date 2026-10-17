@@ -214,6 +214,9 @@ public actor RenderActor {
     >?
   var decodeTaskAssetID: AssetRef.ID?
   var decodeTaskSidecarURL: URL?
+  /// Baked model the in-flight decode was launched for (#4715), so a
+  /// baked edit landing mid-decode starts its own rather than joining.
+  var decodeTaskBakedModel: AdjustmentModel?
   /// Cancel flag bound to the in-flight `decodeTask` (#951). Created when a
   /// NEW decode launches in `sharedDecode`; flipped (`requestCancel()`) only
   /// when that decode is genuinely abandoned — a different-identity decode

@@ -485,11 +485,35 @@ public enum RawCoreBridge {
     }
   }
 
+  /// Temp XMP of the live model's decode-baked fields that the CALLER
+  /// deletes (#4715) — `withStrippedModelXMP` scopes its file to a
+  /// synchronous body, which cannot span an `await`ed decode.
+  public static func writeStrippedModelXMP(
+    _ model: AdjustmentModel,
+    profileOverride: Profile? = nil,
+    autoExposureOverride: AutoExposureMode? = nil
+  ) -> URL? {
+    var stripped = stripAppleGPUStages(model)
+    applyOverrides(
+      profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, to: &stripped)
+    return writeTemporaryXMP(model: stripped, culling: CullingState())
+  }
+
   private static func withTemporaryXMP<T>(
     model: AdjustmentModel,
     culling: CullingState,
     body: (URL?) throws -> T
   ) throws -> T {
+    guard let tmp = writeTemporaryXMP(model: model, culling: culling) else {
+      // Fall back to nil — FFI uses AdjustmentModel::default,
+      // which is the same defaults the strip would produce.
+      return try body(nil)
+    }
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    return try body(tmp)
+  }
+
+  private static func writeTemporaryXMP(model: AdjustmentModel, culling: CullingState) -> URL? {
     // `omitWhiteBalance` (#1883): the decode contract is "WB no-ops at
     // decode; the Apple chain re-applies it live as a delta". Since
     // #1726's camera-space WB, writing an EXPLICIT crs:Temperature=6500
@@ -515,11 +539,8 @@ public enum RawCoreBridge {
       bridgeLog.error(
         "withStrippedXMP: failed to write temp XMP \(tmp.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
       )
-      // Fall back to nil — FFI uses AdjustmentModel::default,
-      // which is the same defaults the strip would produce.
-      return try body(nil)
+      return nil
     }
-    defer { try? FileManager.default.removeItem(at: tmp) }
-    return try body(tmp)
+    return tmp
   }
 }
