@@ -1,6 +1,9 @@
 """Keep workflow job selection and their fail-closed result gates aligned."""
 
+import os
 import shlex
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -17,6 +20,81 @@ def workflow(name):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_merge_group_allowlist_rejects_second_pr_growth(self):
+        steps = workflow("cross")["jobs"]["allowlist-shrinks-only"]["steps"]
+        compute = next(
+            step["run"] for step in steps if step.get("name") == "Compute merge base"
+        )
+        compare = next(
+            step["run"]
+            for step in steps
+            if step.get("name") == "Compare allowlist length against merge base"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", *args], cwd=repo, text=True
+                ).strip()
+
+            git("init", "-q")
+            git("config", "user.name", "CI Test")
+            git("config", "user.email", "ci@example.invalid")
+            git("config", "commit.gpgsign", "false")
+            (repo / "tools").mkdir()
+            (repo / "tools/check-file-budget.sh").write_text(
+                'case "$path" in *.ts) : ;; esac\n'
+            )
+            (repo / "tools/budget-allowlist.txt").write_text("src/web/old.ts\n")
+            git("add", "--", "tools/check-file-budget.sh", "tools/budget-allowlist.txt")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            git("checkout", "-q", "-b", "first-pr")
+            (repo / "first.txt").write_text("first PR\n")
+            git("add", "--", "first.txt")
+            git("commit", "-qm", "first PR")
+            git("checkout", "-q", "-b", "second-pr", base)
+            (repo / "tools/budget-allowlist.txt").write_text(
+                "src/web/old.ts\nsrc/web/new.ts\n"
+            )
+            git("add", "--", "tools/budget-allowlist.txt")
+            git("commit", "-qm", "second PR")
+            git("checkout", "-q", "--detach", base)
+            git("merge", "-q", "--no-ff", "first-pr", "-m", "merge first PR")
+            git("merge", "-q", "--no-ff", "second-pr", "-m", "merge second PR")
+            env_file = repo / "github-env"
+            env = {
+                **os.environ,
+                "GITHUB_ENV": str(env_file),
+                "GROUP_BASE": base,
+                "GROUP_HEAD": git("rev-parse", "HEAD"),
+            }
+            computed = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    compute.replace("${{ github.event_name }}", "merge_group"),
+                ],
+                cwd=repo,
+                check=False,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(computed.returncode, 0, computed.stderr)
+            self.assertIn(f"MERGE_BASE={base}", env_file.read_text())
+            checked = subprocess.run(
+                ["bash", "-c", compare],
+                cwd=repo,
+                check=False,
+                env={**env, "MERGE_BASE": base},
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(checked.returncode, 1, checked.stdout + checked.stderr)
+            self.assertIn("src/web/new.ts", checked.stdout)
+
     def test_combined_group_events_and_cross_gates(self):
         names = (
             "android",
@@ -43,6 +121,7 @@ class WorkflowTests(unittest.TestCase):
         for job_id in (
             "format-check",
             "budget-headroom",
+            "allowlist-shrinks-only",
             "budgets-ratchet-shrinks-only",
             "gitleaks",
         ):
@@ -59,6 +138,7 @@ class WorkflowTests(unittest.TestCase):
             for job_id in (
                 "format-check",
                 "budget-headroom",
+                "allowlist-shrinks-only",
                 "budgets-ratchet-shrinks-only",
                 "gitleaks",
             )
@@ -71,9 +151,8 @@ class WorkflowTests(unittest.TestCase):
             'bash tools/check-budget-headroom.sh "$GROUP_BASE"',
             steps["budget-headroom"],
         )
-        self.assertIn(
-            'merge_base="$GROUP_BASE"', steps["budgets-ratchet-shrinks-only"]
-        )
+        self.assertIn('merge_base="$GROUP_BASE"', steps["budgets-ratchet-shrinks-only"])
+        self.assertIn('merge_base="$GROUP_BASE"', steps["allowlist-shrinks-only"])
         self.assertIn('RANGE="${GROUP_BASE}..${GROUP_HEAD}"', steps["gitleaks"])
 
     def test_raw_pipeline_watches_its_comparison_regressions(self):
