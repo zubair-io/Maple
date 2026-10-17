@@ -32,6 +32,7 @@ final class AgentBrowseTests: XCTestCase {
           code: "asset_not_found", message: "No photo found with ID `\(assetID)`.")
       }
       let session = ensureSession(for: asset)
+      await session.loadSidecar()
       selectedAssetID = assetID
       return session
     }
@@ -83,6 +84,7 @@ final class AgentBrowseTests: XCTestCase {
     s1.culling.colorLabel = .yellow
 
     service.browseDelegate = delegate
+    await s1.loadSidecar()
     service.activate(s1)
 
     let payload = try await call(service, "maple_list_photos", ["offset": 0, "limit": 2]).get()
@@ -175,6 +177,7 @@ final class AgentBrowseTests: XCTestCase {
       )
       let service = AgentEditService()
       service.browseDelegate = adapter
+      await session.loadSidecar()
       service.activate(session)
       try await AgentHTTPTestClient.withService(service) { client in
         let rated = try await client.send(
