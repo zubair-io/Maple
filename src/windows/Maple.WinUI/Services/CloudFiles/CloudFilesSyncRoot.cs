@@ -245,7 +245,7 @@ namespace Maple.WinUI.Services.CloudFiles
         private void OnFetchPlaceholders(IntPtr infoPtr, IntPtr paramsPtr)
         {
             var info = Marshal.PtrToStructure<CfApi.CF_CALLBACK_INFO>(infoPtr);
-            var listing = ListEntriesAsync(ReadIdentity(info)).GetAwaiter().GetResult();
+            var listing = CloudFilesListing.ListOrFail(() => ListEntriesAsync(ReadIdentity(info)));
             var entries = listing.Entries;
             var completion = CloudFilesListing.Completion(listing);
 

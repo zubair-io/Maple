@@ -95,5 +95,21 @@ namespace Maple.WinUI.Tests
             Assert.Equal(0u, completion.Flags);
             Assert.Equal(unchecked((int)0xC0000001), completion.Status);
         }
+
+        [Fact]
+        public void SynchronousThrowBeforeTheTaskStarts_IsIncomplete()
+        {
+            var listing = CloudFilesListing.ListOrFail(() => throw new InvalidOperationException("bad identity"));
+
+            Assert.False(listing.Complete);
+        }
+
+        [Fact]
+        public void FaultedTask_IsIncomplete()
+        {
+            var listing = CloudFilesListing.ListOrFail(() => Task.FromException<PlaceholderListing>(new InvalidOperationException("boom")));
+
+            Assert.False(listing.Complete);
+        }
     }
 }

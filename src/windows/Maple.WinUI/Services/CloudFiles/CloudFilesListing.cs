@@ -29,6 +29,19 @@ namespace Maple.WinUI.Services.CloudFiles
                 ? new(CfApi.CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION, CfApi.STATUS_SUCCESS)
                 : new(0, CfApi.STATUS_UNSUCCESSFUL);
 
+        internal static PlaceholderListing ListOrFail(Func<Task<PlaceholderListing>> list)
+        {
+            try
+            {
+                return list().GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                DiagLog.Write($"[cloudfiles] fetch-placeholders failed: {ex.Message}");
+                return Failed;
+            }
+        }
+
         internal static async Task<PlaceholderListing> PageAllAsync(Func<string?, Task<PlaceholderPage?>> fetchPage)
         {
             var entries = new List<PlaceholderEntry>();
