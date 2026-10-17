@@ -144,6 +144,7 @@ impl MapleApp {
                                     .on_hover_text(name.as_ref());
                                     if ui.clip_rect().intersects(response.rect)
                                         && !self.thumbnail_pending.contains(&photo.path)
+                                        && !self.thumbnail_cache.contains_key(&photo.path)
                                         && self
                                             .thumbnails
                                             .request(self.thumbnail_epoch, photo.clone())
