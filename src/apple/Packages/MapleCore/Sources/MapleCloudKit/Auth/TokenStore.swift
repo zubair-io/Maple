@@ -64,6 +64,31 @@ public enum TokenStore {
   }()
 
   @TaskLocal private static var heldLockServers: Set<URL> = []
+  private static let generationLock = NSLock()
+  nonisolated(unsafe) private static var mutationGenerations: [URL: UInt64] = [:]
+  nonisolated(unsafe) static var clearUnlockedObserverForTesting: (@Sendable (URL) -> Void)?
+
+  public static func reserveMutationGeneration(for server: URL) -> UInt64 {
+    generationLock.lock()
+    defer { generationLock.unlock() }
+    let next = (mutationGenerations[server] ?? 0) &+ 1
+    mutationGenerations[server] = next
+    return next
+  }
+
+  public static func invalidateMutationGeneration(_ generation: UInt64, for server: URL) {
+    generationLock.lock()
+    defer { generationLock.unlock() }
+    if mutationGenerations[server] == generation {
+      mutationGenerations[server] = generation &+ 1
+    }
+  }
+
+  private static func isCurrentMutationGeneration(_ generation: UInt64, for server: URL) -> Bool {
+    generationLock.lock()
+    defer { generationLock.unlock() }
+    return (mutationGenerations[server] ?? 0) == generation
+  }
 
   /// Update in place first, add only when nothing exists yet. The former
   /// delete-then-add left the item absent for a moment, and any other
@@ -78,7 +103,13 @@ public enum TokenStore {
   /// on this task, the `@TaskLocal` guard avoids re-opening and re-locking
   /// the file.
   public static func save(_ tokens: AuthTokens, server: URL) throws {
+    if heldLockServers.contains(server) {
+      try saveUnlocked(tokens, server: server)
+      return
+    }
+    let generation = reserveMutationGeneration(for: server)
     try withAcquiredLockIfNeeded(server: server) {
+      guard isCurrentMutationGeneration(generation, for: server) else { return }
       try saveUnlocked(tokens, server: server)
     }
   }
@@ -86,8 +117,18 @@ public enum TokenStore {
   /// Async credential writer that awaits the per-server cross-process refresh
   /// lock via `Task.sleep` rather than blocking the caller's thread (#4873).
   /// Call from `@MainActor` / async contexts (`AuthSession`, pairing flows).
-  public static func saveAsync(_ tokens: AuthTokens, server: URL) async throws {
+  public static func saveAsync(
+    _ tokens: AuthTokens,
+    server: URL,
+    generation: UInt64? = nil
+  ) async throws {
+    if heldLockServers.contains(server) {
+      try saveUnlocked(tokens, server: server)
+      return
+    }
+    let targetGeneration = generation ?? reserveMutationGeneration(for: server)
     try await withRefreshLock(server: server) {
+      guard isCurrentMutationGeneration(targetGeneration, for: server) else { return }
       try saveUnlocked(tokens, server: server)
     }
   }
@@ -139,30 +180,48 @@ public enum TokenStore {
   }
 
   public static func clear(server: URL) {
+    if heldLockServers.contains(server) {
+      clearUnlocked(server: server)
+      return
+    }
+    let generation = reserveMutationGeneration(for: server)
     do {
       try withAcquiredLockIfNeeded(server: server) {
+        guard isCurrentMutationGeneration(generation, for: server) else { return }
         clearUnlocked(server: server)
       }
     } catch {
       // Never leave credentials in the Keychain if the lock file could not be
-      // opened or lock acquisition timed out.
-      clearUnlocked(server: server)
+      // opened or lock acquisition timed out, unless a newer save/register
+      // superseded this clear while it was waiting.
+      if isCurrentMutationGeneration(generation, for: server) {
+        clearUnlocked(server: server)
+      }
     }
   }
 
   /// Async credential clear that awaits the per-server cross-process refresh
   /// lock via `Task.sleep` rather than blocking the caller's thread (#4873).
-  public static func clearAsync(server: URL) async {
+  public static func clearAsync(server: URL, generation: UInt64? = nil) async {
+    if heldLockServers.contains(server) {
+      clearUnlocked(server: server)
+      return
+    }
+    let targetGeneration = generation ?? reserveMutationGeneration(for: server)
     do {
       try await withRefreshLock(server: server) {
+        guard isCurrentMutationGeneration(targetGeneration, for: server) else { return }
         clearUnlocked(server: server)
       }
     } catch {
-      clearUnlocked(server: server)
+      if isCurrentMutationGeneration(targetGeneration, for: server) {
+        clearUnlocked(server: server)
+      }
     }
   }
 
   private static func clearUnlocked(server: URL) {
+    clearUnlockedObserverForTesting?(server)
     _ = SecItemDelete(baseQuery(server: server) as CFDictionary)
   }
 
@@ -254,11 +313,16 @@ public enum TokenStore {
   /// persist `tokens`. Returns `true` if the save completed immediately, or
   /// `false` when another refresh holds the lock (so a `@MainActor` caller can
   /// hand off to `saveAsync` without blocking the UI thread).
-  public static func trySaveWithoutBlocking(_ tokens: AuthTokens, server: URL) throws -> Bool {
+  public static func trySaveWithoutBlocking(
+    _ tokens: AuthTokens,
+    server: URL,
+    generation: UInt64? = nil
+  ) throws -> Bool {
     if heldLockServers.contains(server) {
       try saveUnlocked(tokens, server: server)
       return true
     }
+    let targetGeneration = generation ?? reserveMutationGeneration(for: server)
     #if canImport(Darwin)
       let descriptor = try openRefreshLockDescriptor(server: server)
       guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
@@ -268,6 +332,7 @@ public enum TokenStore {
         throw NSError(domain: "TokenStore", code: Int(lockErrno))
       }
       defer { releaseRefreshLock(descriptor) }
+      guard isCurrentMutationGeneration(targetGeneration, for: server) else { return true }
       var held = heldLockServers
       held.insert(server)
       try $heldLockServers.withValue(held) {
@@ -275,6 +340,7 @@ public enum TokenStore {
       }
       return true
     #else
+      guard isCurrentMutationGeneration(targetGeneration, for: server) else { return true }
       try saveUnlocked(tokens, server: server)
       return true
     #endif
@@ -286,24 +352,30 @@ public enum TokenStore {
   /// `@MainActor` caller can hand off to `clearAsync` without blocking the UI
   /// thread). If the lock file cannot be opened at all, clears immediately and
   /// returns `true`.
-  public static func tryClearWithoutBlocking(server: URL) -> Bool {
+  public static func tryClearWithoutBlocking(server: URL, generation: UInt64? = nil) -> Bool {
     if heldLockServers.contains(server) {
       clearUnlocked(server: server)
       return true
     }
+    let targetGeneration = generation ?? reserveMutationGeneration(for: server)
     #if canImport(Darwin)
       guard let descriptor = try? openRefreshLockDescriptor(server: server) else {
-        clearUnlocked(server: server)
+        if isCurrentMutationGeneration(targetGeneration, for: server) {
+          clearUnlocked(server: server)
+        }
         return true
       }
       guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
         let lockErrno = errno
         Darwin.close(descriptor)
         if lockErrno == EWOULDBLOCK { return false }
-        clearUnlocked(server: server)
+        if isCurrentMutationGeneration(targetGeneration, for: server) {
+          clearUnlocked(server: server)
+        }
         return true
       }
       defer { releaseRefreshLock(descriptor) }
+      guard isCurrentMutationGeneration(targetGeneration, for: server) else { return true }
       var held = heldLockServers
       held.insert(server)
       $heldLockServers.withValue(held) {
@@ -311,7 +383,9 @@ public enum TokenStore {
       }
       return true
     #else
-      clearUnlocked(server: server)
+      if isCurrentMutationGeneration(targetGeneration, for: server) {
+        clearUnlocked(server: server)
+      }
       return true
     #endif
   }

@@ -151,14 +151,17 @@ public final class AuthSession {
   }
 
   public func setSignedIn(user: AuthUser, tokens: AuthTokens) throws {
-    let savedImmediately = try TokenStore.trySaveWithoutBlocking(tokens, server: server)
+    let generation = TokenStore.reserveMutationGeneration(for: server)
+    let savedImmediately = try TokenStore.trySaveWithoutBlocking(
+      tokens, server: server, generation: generation
+    )
     AuthUserCache.save(user, server: server)
     self.user = user
     self.hasCredentials = true
     let server = self.server
     Task {
       if !savedImmediately {
-        try? await TokenStore.saveAsync(tokens, server: server)
+        try? await TokenStore.saveAsync(tokens, server: server, generation: generation)
       }
       await FileProviderDomainController().mirrorTokens(serverURL: server)
     }
