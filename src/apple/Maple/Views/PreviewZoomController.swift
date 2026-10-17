@@ -61,7 +61,7 @@
       self.source = source
       self.provider = provider
       let decodedKey = DevelopedImageRevision.shared.decodedKey(
-        for: seedKey, url: source.localAssetURL)
+        for: seedKey, source: source)
       self.seedImage = ThumbnailDecoder.cachedImage(forKey: decodedKey).map { UIImage(cgImage: $0) }
       super.init(nibName: nil, bundle: nil)
     }

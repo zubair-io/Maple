@@ -38,6 +38,6 @@ enum EditorSeedThumbnailVM {
   /// entry.
   @MainActor static func decodeKey(for asset: AssetRef) -> String {
     DevelopedImageRevision.shared.decodedKey(
-      for: asset.stableID ?? asset.id.uuidString, url: asset.primaryURL)
+      for: asset.stableID ?? asset.id.uuidString, source: .local(asset, source: nil))
   }
 }

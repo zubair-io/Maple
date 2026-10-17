@@ -62,7 +62,7 @@ struct PreviewImage: View {
   }
 
   private var loadID: String {
-    DevelopedImageRevision.shared.decodedKey(for: sourceID, url: source.localAssetURL)
+    DevelopedImageRevision.shared.decodedKey(for: sourceID, source: source)
   }
 
   var body: some View {

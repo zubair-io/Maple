@@ -26,7 +26,7 @@ struct AsyncThumbnail<Content: View>: View {
 
   private var decodedKey: String {
     DevelopedImageRevision.shared.decodedKey(
-      for: asset.stableID ?? asset.id.uuidString, url: asset.primaryURL)
+      for: asset.stableID ?? asset.id.uuidString, source: .local(asset, source: nil))
   }
 
   var body: some View {

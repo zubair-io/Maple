@@ -82,7 +82,7 @@ struct PhotoThumbnailCell: View {
 
   private var decodedKey: String {
     DevelopedImageRevision.shared.decodedKey(
-      for: item.id, url: item.thumbnailSource.localAssetURL)
+      for: item.id, source: item.thumbnailSource)
   }
 
   /// Multi-select-aware accessibility label — restores the per-cell
