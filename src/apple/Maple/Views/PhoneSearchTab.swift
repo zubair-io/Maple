@@ -172,6 +172,16 @@
       // while this tab is already alive — `.task(id:)` won't re-run since
       // `sessionKey` hasn't changed.
       .onChange(of: pendingSeed) { _, _ in applySeedIfNeeded() }
+      .onChange(of: Array(sessions.keys)) { _, _ in
+        guard let current = path.last?.asset, sessions[current.id] == nil,
+          let stableID = current.stableID,
+          let renamed = sessions.values.first(where: { $0.asset.stableID == stableID })?.asset
+        else { return }
+        if let idx = previewAssets.firstIndex(where: { $0.id == current.id }) {
+          previewAssets[idx] = renamed
+        }
+        path = LibraryDestination.replacingAsset(in: path, with: renamed)
+      }
     }
 
     /// Apply a pending deep-link/Map-pin seed (#3163). Two halves, split

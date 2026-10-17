@@ -57,6 +57,7 @@ extension EditSession {
   /// method never reached the store at all. Reviewed in #2556 for the
   /// same reason.
   public func flushPendingSidecarWrite() async {
+    guard !sidecarWritesDisabled else { return }
     await workflow.task?.value
     // A flush is a commit boundary (#2432): close the open transaction
     // so the sidecar describes a recorded action, not a half-gesture.
@@ -64,5 +65,18 @@ extension EditSession {
     guard let store = sidecarStore else { return }
     await sidecarUpdateTask?.value
     await store.flush()
+  }
+
+  /// Enable or disable sidecar/preview writes on this session (#4711).
+  /// Call after `flushPendingSidecarWrite()` and before renaming the asset so
+  /// a late debounce timer or editor-exit teardown cannot resurrect the old
+  /// `<old-name>.xmp` on disk; re-enable if the rename fails.
+  public func setSidecarWritesEnabled(_ enabled: Bool) {
+    sidecarWritesDisabled = !enabled
+    if !enabled {
+      sidecarUpdateTask?.cancel()
+      sidecarUpdateTask = nil
+      previewPersistence.discardPendingImage()
+    }
   }
 }
