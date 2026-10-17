@@ -195,6 +195,30 @@ export async function findIngestDedupTarget(
   };
 }
 
+/**
+ * Whether `(libraryId, relPath)` in `asset_locations` is already claimed by an
+ * asset other than `assetId`. Used before placing or adopting a file on disk so
+ * a cross-library or repair upload disambiguates instead of colliding with
+ * another asset's location row.
+ */
+export async function isLocationOwnedByOtherAsset(
+  libraryId: ObjectId,
+  relPath: string,
+  assetId?: ObjectId,
+  dbOverride?: SqliteDb,
+): Promise<boolean> {
+  const { dir, filename } = splitRelPath(relPath);
+  const rows = await sqliteDb(dbOverride).read<{ asset_id: string }>(
+    `SELECT asset_id FROM asset_locations
+      WHERE library_id = ? AND path = ? AND filename = ?
+      LIMIT 1`,
+    [toHex(libraryId), dir, filename],
+  );
+  const row = rows[0];
+  if (row === undefined) return false;
+  return assetId === undefined || row.asset_id !== toHex(assetId);
+}
+
 /** One row of the device reconciliation feed. */
 export interface BackupStateEntry {
   phasset_local_id: string;
