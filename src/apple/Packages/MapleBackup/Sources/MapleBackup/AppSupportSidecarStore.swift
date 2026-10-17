@@ -32,19 +32,15 @@ public enum AppSupportSidecarStoreError: Error, LocalizedError, Sendable {
 
 public final class AppSupportSidecarStore {
 
-  /// Default location at
-  /// `~/Library/Application Support/Maple/PhotoKitSidecars/`.
-  /// Creates the directory if missing.
+  /// `PhotoKitSidecars/` inside the shared backup root
+  /// (`BackupStorage.sharedRoot`), shared by the app and the backup helper
+  /// (#4717). Creates the directory if missing.
   public static func defaultRoot() throws -> URL {
-    let appSupport = try FileManager.default.url(
-      for: .applicationSupportDirectory,
-      in: .userDomainMask,
-      appropriateFor: nil,
-      create: true)
-    let dir =
-      appSupport
-      .appendingPathComponent("Maple", isDirectory: true)
-      .appendingPathComponent("PhotoKitSidecars", isDirectory: true)
+    try defaultRoot(in: try BackupStorage.sharedRoot())
+  }
+
+  public static func defaultRoot(in root: URL) throws -> URL {
+    let dir = root.appendingPathComponent("PhotoKitSidecars", isDirectory: true)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     return dir
   }

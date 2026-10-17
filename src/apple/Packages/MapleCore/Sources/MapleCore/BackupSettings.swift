@@ -11,6 +11,7 @@
 
 import CryptoKit
 import Foundation
+import MapleBackup
 
 public struct BackupSettings: Equatable, Codable, Sendable {
 
@@ -86,20 +87,52 @@ public struct BackupSettings: Equatable, Codable, Sendable {
   }
 
   public static var isStoppedByUser: Bool {
-    get { UserDefaults.standard.bool(forKey: "maple.backup.stoppedByUser") }
-    set { UserDefaults.standard.set(newValue, forKey: "maple.backup.stoppedByUser") }
+    get { isStoppedByUser(in: sharedDefaults) }
+    set { setStoppedByUser(newValue, in: sharedDefaults) }
+  }
+
+  public static func isStoppedByUser(
+    in defaults: UserDefaults = sharedDefaults, migratingFrom legacy: UserDefaults = .standard
+  ) -> Bool {
+    if defaults.object(forKey: stoppedKey) == nil, defaults !== legacy,
+      let inherited = legacy.object(forKey: stoppedKey)
+    {
+      defaults.set(inherited, forKey: stoppedKey)
+    }
+    return defaults.bool(forKey: stoppedKey)
+  }
+
+  public static func setStoppedByUser(_ stopped: Bool, in defaults: UserDefaults = sharedDefaults) {
+    defaults.set(stopped, forKey: stoppedKey)
   }
 
   // MARK: - Persistence
 
-  private static let key = "maple.backup.settings.v1"
+  /// The App Group suite every Apple process reads (#4717): before this,
+  /// settings lived in each process's own `UserDefaults.standard`, so the
+  /// macOS backup helper always exited with "no backup settings
+  /// configured". Falls back to `.standard` only if the suite cannot be
+  /// opened at all.
+  public static var sharedDefaults: UserDefaults {
+    UserDefaults(suiteName: BackupStorage.appGroupID) ?? .standard
+  }
 
-  public func save(to defaults: UserDefaults = .standard) {
+  private static let key = "maple.backup.settings.v1"
+  private static let stoppedKey = "maple.backup.stoppedByUser"
+
+  public func save(to defaults: UserDefaults = sharedDefaults) {
     guard let data = try? JSONEncoder().encode(self) else { return }
     defaults.set(data, forKey: Self.key)
   }
 
-  public static func load(from defaults: UserDefaults = .standard) -> BackupSettings? {
+  /// Reads the shared suite; a suite that has never held settings inherits
+  /// them once from the legacy per-process domain the app used to write.
+  public static func load(
+    from defaults: UserDefaults = sharedDefaults, migratingFrom legacy: UserDefaults = .standard
+  ) -> BackupSettings? {
+    if defaults.data(forKey: key) == nil, defaults !== legacy, let inherited = legacy.data(forKey: key) {
+      defaults.set(inherited, forKey: key)
+    }
     guard let data = defaults.data(forKey: key) else { return nil }
     return try? JSONDecoder().decode(BackupSettings.self, from: data)
   }
