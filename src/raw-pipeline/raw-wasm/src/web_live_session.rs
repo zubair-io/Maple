@@ -55,9 +55,8 @@
 //! the #1029-W3 maintainer checkpoint.
 
 use crate::gpu_render::{
-    chain_inputs_with_status, develop_prefix_rgba, effective_target_long_edge,
-    inferred_auto_will_fit, model_from_live_params, resolve_target_color_space,
-    session_prefix_matches, GpuWhiteBalance,
+    develop_prefix_rgba, effective_target_long_edge, inferred_auto_will_fit,
+    model_from_live_params, resolve_target_color_space, session_prefix_matches, GpuWhiteBalance,
 };
 use raw_core::stages::perspective;
 use raw_core::xmp::AdjustmentModel;
@@ -94,6 +93,7 @@ pub struct WebLiveSession {
     /// The EXACT stripped-prefix model `session`'s uploaded buffer was developed
     /// from. A render re-develops iff its newly-derived prefix model differs.
     prefix_model: AdjustmentModel,
+    live_profile: Option<raw_core::gpu_host::live_profile::LiveProfile>,
     /// Session-cached `auto_will_fit` probe outcome for `Profile::Auto` (#4736),
     /// so preview-less Auto images never re-scan `raw` on scalar slider ticks.
     auto_will_fit_cache: Option<bool>,
@@ -250,7 +250,7 @@ impl WebLiveSession {
 
         let lens_profile_json = crate::lens_profile::metadata(&raw_img, &model);
         let auto_will_fit_cache = inferred_auto_will_fit(&model, &prefix_model);
-        let handle = WebLiveSession {
+        let mut handle = WebLiveSession {
             ctx,
             raw_img,
             raw,
@@ -258,6 +258,7 @@ impl WebLiveSession {
             present,
             session,
             prefix_model,
+            live_profile: None,
             auto_will_fit_cache,
             whites_anchor_ev,
             white_balance,
@@ -481,6 +482,7 @@ impl WebLiveSession {
             }
             self.session.update_image(&self.ctx, &rgba);
             self.prefix_model = prefix_model;
+            self.live_profile = None;
             self.whites_anchor_ev = whites_anchor_ev;
             self.nr_sampling_scale = nr_sampling_scale;
             self.lens_profile_json = crate::lens_profile::metadata(&self.raw_img, model);
@@ -490,17 +492,23 @@ impl WebLiveSession {
             .map_err(|e| JsError::new(&e))
     }
 
-    async fn present_for_model(&self, model: &AdjustmentModel) -> Result<String, String> {
-        let (mut inputs, auto_fit) = chain_inputs_with_status(
-            &self.raw_img,
-            &self.raw,
-            &self.ext,
-            model,
-            self.film_lut.as_ref(),
-            self.film_lut_key,
-            self.whites_anchor_ev,
-        );
-        self.white_balance.apply(model, &mut inputs);
+    async fn present_for_model(&mut self, model: &AdjustmentModel) -> Result<String, String> {
+        let profile = self.live_profile.get_or_insert_with(|| {
+            raw_core::gpu_host::live_profile::LiveProfile::new(
+                &self.raw_img,
+                &self.raw,
+                &self.ext,
+                model,
+                self.film_lut.as_ref(),
+                self.film_lut_key,
+                self.whites_anchor_ev,
+            )
+        });
+        profile.set_film(self.film_lut.as_ref(), self.film_lut_key);
+        profile.update(model);
+        let auto_fit = profile.auto_fit;
+        let inputs = &mut profile.inputs;
+        self.white_balance.apply(model, inputs);
         inputs.nr_sampling_scale = self.nr_sampling_scale;
         // The canvas and its mask overlay both present this sensor-framed
         // buffer as-is, so masks stay in that frame until #4474 orients it.
@@ -517,7 +525,7 @@ impl WebLiveSession {
             crate::gpu_render::target_primaries_for_color_space(self.present.color_space());
         let final_idx = self
             .session
-            .render_chain_to_f32_async(&self.ctx, &inputs, None)
+            .render_chain_to_f32_async(&self.ctx, inputs, None)
             .await
             .map_err(|e| format!("WebLiveSession: {e}"))?
             .ok_or_else(|| "WebLiveSession: live chain returned no buffer".to_string())?;
