@@ -205,6 +205,11 @@ public actor AuthenticatedHTTPClient {
         // replacement or release the refresh lock until it is durably persisted;
         // otherwise this launch appears healthy while the next launch replays the
         // dead predecessor and forces the user to pair again.
+        //
+        // Unless the credentials were cleared while the refresh round trip
+        // was in flight: persisting now would write the rotation back over
+        // the user's sign-out, so drop it instead (#4716).
+        guard tokensProvider() != nil else { throw RefreshFailure.cancelled }
         try onTokensRefreshed(tokens)
         return tokens
       }
