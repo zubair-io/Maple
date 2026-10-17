@@ -135,7 +135,8 @@ extension XMPSerializer {
           $0.range(of: "[<\\s/]\(prefix):[A-Za-z_]", options: .regularExpression) != nil
         }
     }
-    return order
+    return
+      order
       .filter { needed.contains($0) || preserved.contains($0) }
       .compactMap { prefix in xmpMetadataNamespaces[prefix].map { (prefix: prefix, uri: $0) } }
   }
@@ -159,6 +160,8 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
   /// envelope rebuilds those elements, so a prefix a preserved node relies on
   /// rides along on `rdf:Description` instead.
   private var ancestorDeclarations: [String: String] = [:]
+  private var namespaceScopes: [[String: String]] = []
+  private var primaryDescriptionContext: XMPChildElementScanner.DescriptionContext?
 
   func parser(
     _ parser: XMLParser,
@@ -167,16 +170,43 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
     qualifiedName qName: String?,
     attributes attributeDict: [String: String]
   ) {
+    let declarations = Dictionary(
+      uniqueKeysWithValues: attributeDict.compactMap { key, value in
+        key == "xmlns"
+          ? ("", value) : (key.hasPrefix("xmlns:") ? (String(key.dropFirst(6)), value) : nil)
+      })
+    let namespaces =
+      (namespaceScopes.last ?? ["rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#"])
+      .merging(declarations) { _, current in current }
+    let depth = namespaceScopes.count
+    namespaceScopes.append(namespaces)
     let qual = qName ?? elementName
-    guard qual == "Description" || qual.hasSuffix(":Description") else {
+    guard depth <= 2,
+      XMPChildElementScanner.canonicalQualifiedName(qual, namespaces: namespaces)
+        == "rdf:Description"
+    else {
       if !captured {
         ancestorDeclarations.merge(
-          attributeDict.filter { $0.key.hasPrefix("xmlns:") }) { _, nearer in nearer }
+          attributeDict.filter { $0.key.hasPrefix("xmlns:") }
+        ) { _, nearer in nearer }
       }
       return
     }
-    authoredRating = authoredRating ?? attributeDict["xmp:Rating"]
-    authoredLabel = authoredLabel ?? attributeDict["xmp:Label"]
+    let context = XMPChildElementScanner.descriptionContext(
+      attributes: attributeDict, namespaces: namespaces)
+    if let primary = primaryDescriptionContext {
+      guard context == primary else { return }
+    } else {
+      primaryDescriptionContext = context
+    }
+    let xmpAttr: (String) -> String? = { local in
+      attributeDict.first {
+        XMPChildElementScanner.canonicalQualifiedName($0.key, namespaces: namespaces)
+          == "xmp:" + local
+      }?.value ?? (namespaces["xmp"] == nil ? attributeDict["xmp:" + local] : nil)
+    }
+    authoredRating = authoredRating ?? xmpAttr("Rating")
+    authoredLabel = authoredLabel ?? xmpAttr("Label")
     guard !captured else { return }
     captured = true
     // `attributeDict` is unordered, so source order is unrecoverable here.
@@ -188,5 +218,14 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
       .filter { !XMPKnownFields.isKnownAttribute($0.key) }
       .map { XMPPassthrough.Attribute(name: $0.key, value: $0.value) }
       .sorted { $0.name < $1.name }
+  }
+
+  func parser(
+    _ parser: XMLParser,
+    didEndElement elementName: String,
+    namespaceURI: String?,
+    qualifiedName qName: String?
+  ) {
+    _ = namespaceScopes.popLast()
   }
 }
