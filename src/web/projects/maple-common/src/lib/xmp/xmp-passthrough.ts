@@ -189,6 +189,47 @@ const verbatimBrushLayerOrders = (descriptions: readonly Element[]): number[] =>
       .flatMap(verbatimLayerOrders),
   );
 
+function isModeledDescriptionChild(
+  child: Element,
+  model: Partial<AdjustmentModel>,
+  seenCurves: Set<string>,
+): boolean {
+  const curveKey = toneCurveElementKey(child);
+  if (curveKey) {
+    if (!seenCurves.has(curveKey)) {
+      seenCurves.add(curveKey);
+      model[curveKey] = parseToneCurveElement(child);
+    }
+    return true;
+  }
+  const containerKind = localAdjustmentContainerKind(child);
+  if (containerKind === 'group') return true;
+  if (containerKind) {
+    model.localAdjustments = [
+      ...(model.localAdjustments ?? []),
+      ...parseLocalAdjustmentsContainer(child, containerKind),
+    ];
+    return true;
+  }
+  return isManagedChild(child);
+}
+
+function hydrateDescriptionChildren(
+  descriptions: readonly Element[],
+  primary: Element,
+  model: Partial<AdjustmentModel>,
+): string[] {
+  const unknownNodes: string[] = [];
+  const seenCurves = new Set<string>();
+  for (const current of descriptions) {
+    for (const child of Array.from(current.children)) {
+      if (isModeledDescriptionChild(child, model, seenCurves)) continue;
+      if (current === primary) unknownNodes.push(selfContainedXml(child));
+    }
+  }
+  return unknownNodes;
+}
+
 /**
  * Capture fields Maple does not model and hydrate Maple-owned point curves.
  * The parser intentionally delegates the whole child classification here so
@@ -216,43 +257,11 @@ export function collectXmpPassthrough(
       }
       return { name: attr.name, value: attr.value };
     });
-  const unknownNodes: string[] = [];
   const passthroughPrefixes = new Set<string>();
   const descriptions = eligibleDescriptions(description);
-  // Repair spots (#3409) are collected in one pass of their own so the
-  // child loop below keeps a single skip branch for them rather than the
-  // two-container-plus-precedence logic `retouchSpotsFrom` owns.
   const retouchSpots = retouchSpotsFrom(descriptions);
   if (retouchSpots.length > 0) model.retouchSpots = retouchSpots;
-
-  const seenCurves = new Set<string>();
-  for (const current of descriptions) {
-    for (const child of Array.from(current.children)) {
-      const curveKey = toneCurveElementKey(child);
-      if (curveKey) {
-        if (!seenCurves.has(curveKey)) {
-          seenCurves.add(curveKey);
-          model[curveKey] = parseToneCurveElement(child);
-        }
-        continue;
-      }
-      // Local adjustments (#358): both containers are modeled, so they hydrate
-      // the model — in document order, linear and radial alike — and never
-      // reach the passthrough bucket, or the writer would emit them twice.
-      const containerKind = localAdjustmentContainerKind(child);
-      if (containerKind === 'group') continue;
-      if (containerKind) {
-        model.localAdjustments = [
-          ...(model.localAdjustments ?? []),
-          ...parseLocalAdjustmentsContainer(child, containerKind),
-        ];
-        continue;
-      }
-      // `isManagedChild` covers both repair containers (#3409), hydrated above.
-      if (isManagedChild(child)) continue;
-      if (current === description) unknownNodes.push(selfContainedXml(child));
-    }
-  }
+  const unknownNodes = hydrateDescriptionChildren(descriptions, description, model);
 
   const { verbatim: groupKeys, ...maskGroups } = collectMaskGroups(description, model);
   const verbatimLayerOrderKeys = [...verbatimBrushLayerOrders(descriptions), ...groupKeys];
