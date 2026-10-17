@@ -200,6 +200,9 @@
 		};
 		A1F0006100000000000000A1 /* MapleUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFolders = (
+				Goldens,
+			);
 			path = MapleUITests;
 			sourceTree = "<group>";
 		};
