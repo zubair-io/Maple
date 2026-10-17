@@ -55,8 +55,9 @@
 //! the #1029-W3 maintainer checkpoint.
 
 use crate::gpu_render::{
-    chain_inputs_with_status, develop_prefix_rgba, effective_target_long_edge, prefix_model_for,
-    resolve_target_color_space, GpuWhiteBalance,
+    chain_inputs_with_status, develop_prefix_rgba, effective_target_long_edge,
+    model_from_live_params, redevelop_if_prefix_changed, resolve_target_color_space,
+    GpuWhiteBalance,
 };
 use raw_core::stages::perspective;
 use raw_core::xmp::AdjustmentModel;
@@ -290,79 +291,14 @@ impl WebLiveSession {
     #[wasm_bindgen]
     pub async fn render(&mut self, xmp: Option<String>) -> Result<String, JsError> {
         let model = parse_model(&xmp).map_err(|e| JsError::new(&e))?;
-
-        // Re-develop + re-upload iff the prefix model changed. The hot-path sliders
-        // are zeroed in the prefix, so a WB/tone/vibrance/… tick takes the cheap
-        // branch: same buffer, same LiveSession, zero new GPU buffers.
-        let new_prefix = prefix_model_for(&self.raw_img, &self.raw, &self.ext, &model);
-        if new_prefix != self.prefix_model {
-            let (rgba, w, h, prefix_model, whites_anchor_ev, nr_sampling_scale) =
-                develop_prefix_rgba(
-                    &self.raw_img,
-                    &self.raw,
-                    &self.ext,
-                    &model,
-                    self.target_long_edge,
-                )
-                .map_err(|e| JsError::new(&e))?;
-            // Dims are stable across ticks (same image, same session-pinned
-            // target), but assert so a future quality/target switch can't
-            // silently desync the canvas surface.
-            if (w, h) != (self.width, self.height) {
-                return Err(JsError::new(&format!(
-                    "WebLiveSession::render: re-develop dims {w}x{h} != {}x{} (canvas not resized)",
-                    self.width, self.height
-                )));
-            }
-            self.session.update_image(&self.ctx, &rgba);
-            self.prefix_model = prefix_model;
-            self.whites_anchor_ev = whites_anchor_ev;
-            self.nr_sampling_scale = nr_sampling_scale;
-            self.lens_profile_json = crate::lens_profile::metadata(&self.raw_img, &model);
-        }
-
-        self.present_for_model(&model)
-            .await
-            .map_err(|e| JsError::new(&e))
+        self.render_model(&model).await
     }
 
     /// Re-render the live canvas with a flat parameters array (avoiding XML parsing on hot path).
     #[wasm_bindgen]
     pub async fn render_with_params(&mut self, params: &[f32]) -> Result<String, JsError> {
-        if params.len() < 19 {
-            return Err(JsError::new(
-                "render_with_params: params slice too short (expected at least 19 elements)",
-            ));
-        }
-
-        // We clone the prefix model to preserve the base (such as auto exposure, local adjustments, crop, etc.)
-        let mut model = self.prefix_model.clone();
-
-        model.exposure = params[0];
-        model.brightness = params[1];
-        model.contrast = params[2];
-        model.highlights = params[3];
-        model.shadows = params[4];
-        model.whites = params[5];
-        model.blacks = params[6];
-        model.vibrance = params[7];
-        model.saturation = params[8];
-        model.temperature = params[9];
-        model.tint = params[10];
-        model.temperature_seen = true;
-        model.tint_seen = true;
-        model.clarity = params[11];
-        model.texture = params[12];
-        model.dehaze = params[13];
-        model.vignette_amount = params[14];
-        model.vignette_feather = params[15];
-        model.grain_amount = params[16];
-        model.grain_size = params[17];
-        model.grain_roughness = params[18];
-
-        self.present_for_model(&model)
-            .await
-            .map_err(|e| JsError::new(&e))
+        let model = model_from_live_params(params).map_err(|e| JsError::new(&e))?;
+        self.render_model(&model).await
     }
 
     /// Load (or replace) the session's film-look LUT (epic #2683, Task 9).
@@ -510,6 +446,27 @@ impl WebLiveSession {
         }
         let inverse = geometry.inverse_matrix(perspective::aspect_ratio(self.width, self.height));
         raw_gpu::PresentGeometry::from_inverse(inverse.0)
+    }
+
+    async fn render_model(&mut self, model: &AdjustmentModel) -> Result<String, JsError> {
+        redevelop_if_prefix_changed(
+            &self.ctx,
+            &mut self.session,
+            &self.raw_img,
+            &self.raw,
+            &self.ext,
+            model,
+            self.target_long_edge,
+            (self.width, self.height),
+            &mut self.prefix_model,
+            &mut self.whites_anchor_ev,
+            &mut self.nr_sampling_scale,
+            &mut self.lens_profile_json,
+        )
+        .map_err(|e| JsError::new(&e))?;
+        self.present_for_model(model)
+            .await
+            .map_err(|e| JsError::new(&e))
     }
 
     async fn present_for_model(&self, model: &AdjustmentModel) -> Result<String, String> {

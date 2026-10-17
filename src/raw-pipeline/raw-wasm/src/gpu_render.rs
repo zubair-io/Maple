@@ -46,14 +46,16 @@
 // they compile for `wasm32` OR `test`. The `#[wasm_bindgen] async` entry
 // (`render_bytes_gpu`) is wasm-only — its macro expansion references
 // `wasm_bindgen_futures`, a wasm-only dep.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) use raw_core::gpu_host::model::prefix_matches;
 #[cfg(test)]
 use raw_core::gpu_host::prepare::auto_will_fit;
 #[cfg(test)]
 pub(crate) use raw_core::gpu_host::prepare::fit_profile_artifacts_with_status;
-#[cfg(target_arch = "wasm32")]
-pub(crate) use raw_core::gpu_host::prepare::prefix_model_for;
 #[cfg(any(target_arch = "wasm32", test))]
-pub(crate) use raw_core::gpu_host::prepare::{chain_inputs_with_status, develop_prefix_rgba};
+pub(crate) use raw_core::gpu_host::prepare::{
+    chain_inputs_with_status, develop_prefix_rgba, effective_ae_mode,
+};
 #[cfg(any(target_arch = "wasm32", test))]
 use raw_core::xmp::AdjustmentModel;
 #[cfg(any(target_arch = "wasm32", test))]
@@ -154,6 +156,83 @@ pub(crate) fn resolve_target_color_space(requested: Option<&str>) -> &str {
     }
 }
 
+/// Build the `AdjustmentModel` for `WebLiveSession::render_with_params` from a
+/// flat 19-scalar parameter slice (#4736), starting from default kept-prefix
+/// fields with `sharpen_amount` and `nr_color` zeroed to match the stripped prefix.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn model_from_live_params(params: &[f32]) -> Result<AdjustmentModel, String> {
+    if params.len() < 19 {
+        return Err(
+            "render_with_params: params slice too short (expected at least 19 elements)"
+                .to_string(),
+        );
+    }
+    Ok(AdjustmentModel {
+        exposure: params[0],
+        brightness: params[1],
+        contrast: params[2],
+        highlights: params[3],
+        shadows: params[4],
+        whites: params[5],
+        blacks: params[6],
+        vibrance: params[7],
+        saturation: params[8],
+        temperature: params[9],
+        tint: params[10],
+        temperature_seen: true,
+        tint_seen: true,
+        clarity: params[11],
+        texture: params[12],
+        dehaze: params[13],
+        vignette_amount: params[14],
+        vignette_feather: params[15],
+        grain_amount: params[16],
+        grain_size: params[17],
+        grain_roughness: params[18],
+        sharpen_amount: 0.0,
+        nr_color: 0.0,
+        ..AdjustmentModel::default()
+    })
+}
+
+/// Re-develop the stripped prefix and re-upload to `session` when `model`'s
+/// kept-prefix fields differ from `prefix_model` (#4736).
+#[cfg(any(target_arch = "wasm32", test))]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn redevelop_if_prefix_changed(
+    ctx: &GpuContext,
+    session: &mut LiveSession,
+    raw_img: &raw_core::image::RawImage,
+    raw: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+    target_long_edge: u32,
+    expected_dims: (u32, u32),
+    prefix_model: &mut AdjustmentModel,
+    whites_anchor_ev: &mut f32,
+    nr_sampling_scale: &mut f32,
+    lens_profile_json: &mut Option<String>,
+) -> Result<bool, String> {
+    let ae_mode = effective_ae_mode(model, raw, ext);
+    if prefix_matches(model, prefix_model, ae_mode) {
+        return Ok(false);
+    }
+    let (rgba, w, h, new_prefix, new_anchor_ev, new_nr_scale) =
+        develop_prefix_rgba(raw_img, raw, ext, model, target_long_edge)?;
+    if (w, h) != expected_dims {
+        return Err(format!(
+            "WebLiveSession::render: re-develop dims {w}x{h} != {}x{} (canvas not resized)",
+            expected_dims.0, expected_dims.1
+        ));
+    }
+    session.update_image(ctx, &rgba);
+    *prefix_model = new_prefix;
+    *whites_anchor_ev = new_anchor_ev;
+    *nr_sampling_scale = new_nr_scale;
+    *lens_profile_json = crate::lens_profile::metadata(raw_img, model);
+    Ok(true)
+}
+
 #[cfg(test)]
 mod primaries_tests {
     /// #1913: the live present's display-encode primaries must match the canvas
@@ -195,6 +274,107 @@ mod primaries_tests {
         assert_eq!(resolve(Some("")), "display-p3");
         assert_eq!(resolve(Some("P3")), "display-p3");
         assert_eq!(resolve(Some("adobe-rgb")), "display-p3");
+    }
+
+    /// #4736: `render_with_params` must build its `AdjustmentModel` from default
+    /// kept-prefix fields (not by cloning a stale `self.prefix_model`) and
+    /// re-develop + re-upload when the session's uploaded prefix was non-default.
+    #[test]
+    fn set_then_revert_prefix_redevelops_on_render_with_params() {
+        use raw_core::types::local_adjustment::Point2;
+        use raw_core::types::retouch::{RetouchKind, RetouchSpot};
+        use raw_core::xmp::{HighlightRecoveryMode, Profile};
+        use raw_gpu::{GpuContext, LiveSession};
+
+        assert!(super::model_from_live_params(&[0.0; 18]).is_err());
+        let params = [
+            0.5, 1.0, 10.0, -15.0, 20.0, 5.0, -5.0, 12.0, 8.0, 5200.0, 4.0, 15.0, 10.0, 5.0, -10.0,
+            50.0, 0.0, 25.0, 50.0,
+        ];
+        let reverted = super::model_from_live_params(&params).expect("19 params valid");
+        assert_eq!(
+            (reverted.exposure, reverted.temperature, reverted.tint),
+            (0.5, 5200.0, 4.0)
+        );
+        assert!(reverted.temperature_seen && reverted.tint_seen);
+        assert_eq!((reverted.sharpen_amount, reverted.nr_color), (0.0, 0.0));
+        assert_eq!(
+            reverted.highlight_recovery,
+            HighlightRecoveryMode::ChromaticAdaptation
+        );
+        assert_eq!(reverted.profile, Profile::Auto);
+        assert!(reverted.retouch_spots.is_empty());
+
+        let Some(path) = super::tests::synthetic_dng_path() else {
+            return;
+        };
+        if !super::tests::gpu_available() {
+            return;
+        }
+        let bytes = std::fs::read(&path).expect("read synthetic DNG");
+        let raw_img = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode synthetic DNG");
+        let ctx = pollster::block_on(GpuContext::new_async()).expect("gpu context");
+        let edited_prefix = super::AdjustmentModel {
+            highlight_recovery: HighlightRecoveryMode::Off,
+            profile: Profile::Neutral,
+            retouch_spots: vec![RetouchSpot {
+                kind: RetouchKind::Clone,
+                center: Point2 { x: 0.25, y: 0.25 },
+                source: Point2 { x: 0.75, y: 0.75 },
+                radius: 0.15,
+                feather: 0.5,
+                opacity: 1.0,
+            }],
+            ..reverted.clone()
+        };
+        let (rgba, w, h, mut prefix, mut anchor_ev, mut nr_scale) =
+            super::develop_prefix_rgba(&raw_img, &bytes, "dng", &edited_prefix, 32)
+                .expect("initial non-default prefix develop");
+        let mut session = LiveSession::new(&ctx, &rgba, w, h).expect("session upload");
+        let mut lcp = crate::lens_profile::metadata(&raw_img, &edited_prefix);
+
+        let redeveloped = super::redevelop_if_prefix_changed(
+            &ctx,
+            &mut session,
+            &raw_img,
+            &bytes,
+            "dng",
+            &reverted,
+            32,
+            (w, h),
+            &mut prefix,
+            &mut anchor_ev,
+            &mut nr_scale,
+            &mut lcp,
+        )
+        .expect("redevelop on revert");
+        assert!(redeveloped, "reverting prefix fields must re-develop");
+        assert_eq!(
+            prefix.highlight_recovery,
+            HighlightRecoveryMode::ChromaticAdaptation
+        );
+        assert_eq!(prefix.profile, Profile::Auto);
+        assert!(prefix.retouch_spots.is_empty());
+
+        let mut next_params = params;
+        next_params[0] = 1.25;
+        let next_model = super::model_from_live_params(&next_params).expect("next params");
+        let redeveloped_again = super::redevelop_if_prefix_changed(
+            &ctx,
+            &mut session,
+            &raw_img,
+            &bytes,
+            "dng",
+            &next_model,
+            32,
+            (w, h),
+            &mut prefix,
+            &mut anchor_ev,
+            &mut nr_scale,
+            &mut lcp,
+        )
+        .expect("second scalar tick");
+        assert!(!redeveloped_again, "scalar tick must reuse default prefix");
     }
 }
 

@@ -13,6 +13,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { ImageCanvasGpuPresent, wireScopeSampleEffect } from './image-canvas.gpu-present';
+import { buildLiveParams, canUseLiveFastPath } from './image-canvas.live-params';
 import type { GpuPresentHost } from './image-canvas.gpu-present';
 import type { OpenedLiveSession } from '../../raw-pipeline/raw-pipeline.service';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
@@ -179,6 +180,45 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     present.teardown();
     await present.render(auto, 1, params);
     expect(render).toHaveBeenLastCalledWith(auto, undefined);
+  });
+
+  it('tracks prefixModel across set-then-revert of a prefix field and resumes scalar renders (#4736)', async () => {
+    const baseline: AdjustmentModel = {
+      ...defaultAdjustmentModel(),
+      whiteBalancePreset: 'Custom',
+      sharpenAmount: 0,
+      nrColor: 0,
+    };
+    const modelSig = signal<AdjustmentModel>(baseline);
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()), baseline);
+    vi.mocked(host.state.adjustmentFor).mockReturnValue(modelSig);
+    const present = new ImageCanvasGpuPresent(host);
+    const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
+      colorSpace: 'srgb',
+    });
+
+    // 1. Set non-default prefix field (`highlightRecovery: 'Off'`).
+    modelSig.set({ ...baseline, highlightRecovery: 'Off' });
+    expect(canUseLiveFastPath(modelSig(), present.prefixModel)).toBe(false);
+    await present.render('<off/>', 1, undefined);
+    expect(render).toHaveBeenLastCalledWith('<off/>', undefined);
+    expect(present.prefixModel?.highlightRecovery).toBe('Off');
+
+    // 2. Revert `highlightRecovery` to default: `present.prefixModel` still has `'Off'`,
+    //    so `canUseLiveFastPath` rejects the fast path and forces a full XMP render.
+    modelSig.set(baseline);
+    expect(canUseLiveFastPath(modelSig(), present.prefixModel)).toBe(false);
+    await present.render('<default/>', 1, undefined);
+    expect(render).toHaveBeenLastCalledWith('<default/>', undefined);
+    expect(present.prefixModel?.highlightRecovery).toBe(baseline.highlightRecovery);
+
+    // 3. Subsequent scalar tick uses fastParams immediately now that prefixModel is back at default.
+    const nextModel: AdjustmentModel = { ...baseline, exposure: 0.5 };
+    modelSig.set(nextModel);
+    expect(canUseLiveFastPath(nextModel, present.prefixModel)).toBe(true);
+    const params = buildLiveParams(nextModel);
+    await present.render('<scalar/>', 1, params);
+    expect(render).toHaveBeenLastCalledWith('<scalar/>', params);
   });
 
   it('uses full XMP when Auto is chosen while a Neutral render is pending', async () => {

@@ -137,6 +137,58 @@ describe('canUseLiveFastPath (#1914)', () => {
   it('rejects a non-identity crop', () => {
     expect(canUseLiveFastPath({ ...fastPathBaseline(), crop: NON_IDENTITY_CROP })).toBe(false);
   });
+
+  it('rejects a reverted model when the uploaded prefixModel is missing or still carries a non-default prefix field (#4736)', () => {
+    const reverted = fastPathBaseline();
+
+    // No uploaded prefix established yet.
+    expect(canUseLiveFastPath(reverted, null)).toBe(false);
+
+    // Default uploaded prefix (whether cold-opened at defaultAdjustmentModel() or
+    // after a fast-path-compatible render) allows the fast path.
+    expect(canUseLiveFastPath(reverted, defaultAdjustmentModel())).toBe(true);
+    expect(canUseLiveFastPath(reverted, fastPathBaseline())).toBe(true);
+
+    // Set-then-revert `highlightRecovery`: prefixModel has 'Off', current model reverted to 'Blend'.
+    const highlightOffPrefix: AdjustmentModel = {
+      ...fastPathBaseline(),
+      highlightRecovery: 'Off',
+    };
+    expect(canUseLiveFastPath(reverted, highlightOffPrefix)).toBe(false);
+
+    // Set-then-revert `retouchSpots`: prefixModel has a spot, current model cleared it.
+    const retouchPrefix: AdjustmentModel = {
+      ...fastPathBaseline(),
+      retouchSpots: [
+        {
+          kind: 'heal',
+          center: { x: 0.25, y: 0.25 },
+          source: { x: 0.75, y: 0.75 },
+          radius: 0.05,
+          feather: 0.5,
+          opacity: 1,
+        },
+      ],
+    };
+    expect(canUseLiveFastPath(reverted, retouchPrefix)).toBe(false);
+
+    // Set-then-revert `profile`: prefixModel has 'Neutral', current model reverted to 'Auto'.
+    const neutralPrefix: AdjustmentModel = {
+      ...fastPathBaseline(),
+      profile: 'Neutral',
+    };
+    expect(canUseLiveFastPath(reverted, neutralPrefix)).toBe(false);
+
+    // Set-then-revert `crop`: prefixModel has a crop, current model reverted to identity.
+    const croppedPrefix: AdjustmentModel = {
+      ...fastPathBaseline(),
+      crop: NON_IDENTITY_CROP,
+    };
+    expect(canUseLiveFastPath(reverted, croppedPrefix)).toBe(false);
+
+    // Once the full render(xmp) updates prefixModel to the reverted model, the fast path resumes.
+    expect(canUseLiveFastPath({ ...reverted, exposure: 0.75 }, reverted)).toBe(true);
+  });
 });
 
 describe('buildLiveParams (#1914)', () => {
