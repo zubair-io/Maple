@@ -94,6 +94,7 @@ struct BackupSettingsView: View {
           Task {
             if EngineHost.shared.progress.phase == .running {
               BackupSettings.isStoppedByUser = true
+              BackupAgentService.sync()
               await EngineHost.shared.stop()
               return
             }
@@ -119,6 +120,7 @@ struct BackupSettingsView: View {
             photosAccessError = nil
             BackupSettings.isStoppedByUser = false
             settings.save()
+            BackupAgentService.sync()
             hasStarted = true
             Self.saveHasStarted(true)
             await EngineHost.shared.start(settings: settings, retryFailed: true)

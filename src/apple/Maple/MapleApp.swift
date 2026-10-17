@@ -270,6 +270,7 @@ struct MapleApp: App {
     // in hand — latch that evidence so users whose grant was revoked
     // before PhotosAccessMemory existed still get the sidebar warning.
     PhotosAccessMemory.latchGrantEvidence()
+    BackupAgentService.sync()
     let status = PhotoKitLibrary.authorizationStatus()
     guard status == .authorized || status == .limited else { return }
     await EngineHost.shared.start(settings: settings)

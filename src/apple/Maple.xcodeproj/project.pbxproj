@@ -45,6 +45,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		A4718000000000000000A1D2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1F0001A00000000000000A1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E3DD94822FB50E55009392B4;
+			remoteInfo = MapleBackupAgent;
+		};
 		6C0BF6B7E85D714F2FFABA55 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A1F0001A00000000000000A1 /* Project object */;
@@ -494,6 +501,7 @@
 				A1F0000A00000000000000A1 /* Frameworks */,
 				A1F0001300000000000000A1 /* Resources */,
 				BAD237F2A91BD12FDAF04E36 /* Embed Foundation Extensions */,
+				A4718000000000000000A1E1 /* Embed backup agent (macOS) / declare background tasks (iOS) */,
 				A1F0005200000000000000A1 /* Stamp build provenance */,
 			);
 			buildRules = (
@@ -503,6 +511,7 @@
 				A94BA048F0AF3949586FB40E /* PBXTargetDependency */,
 				F036300CB260BA8DAC101057 /* PBXTargetDependency */,
 				B1D0006100000000000000B1 /* PBXTargetDependency */,
+				A4718000000000000000A1D1 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A1F0000900000000000000A1 /* Maple */,
@@ -805,6 +814,26 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		A4718000000000000000A1E1 /* Embed backup agent (macOS) / declare background tasks (iOS) */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+			);
+			name = "Embed backup agent (macOS) / declare background tasks (iOS)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "set -eu\n# #4718. macOS: the closed-app backup helper ships INSIDE the app bundle so\n# SMAppService can register it (BundleProgram in the launchd plist points at\n# Contents/MacOS/MapleBackupAgent). iOS: the BGTask that does that job\n# there must be declared in Info.plist; GENERATE_INFOPLIST_FILE=YES has no\n# committed plist and Xcode has no INFOPLIST_KEY_ for the scheduler list,\n# so stamp both keys into the generated plist the way the provenance phase\n# does. inputPaths names the plist so this runs after ProcessInfoPlistFile.\ncase \"${PLATFORM_NAME}\" in\n  macosx)\n    APP=\"${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}\"\n    mkdir -p \"${APP}/MacOS\" \"${APP}/Library/LaunchAgents\"\n    cp -f \"${BUILT_PRODUCTS_DIR}/MapleBackupAgent\" \"${APP}/MacOS/MapleBackupAgent\"\n    cp -f \"${SRCROOT}/MapleBackupAgent/app.justmaple.aperture.backup.plist\" \"${APP}/Library/LaunchAgents/app.justmaple.aperture.backup.plist\"\n    ;;\n  iphoneos|iphonesimulator)\n    INFO_PLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n    PB=/usr/libexec/PlistBuddy\n    \"$PB\" -c \"Delete :BGTaskSchedulerPermittedIdentifiers\" \"$INFO_PLIST\" 2>/dev/null || true\n    \"$PB\" -c \"Add :BGTaskSchedulerPermittedIdentifiers array\" -c \"Add :BGTaskSchedulerPermittedIdentifiers:0 string app.justmaple.aperture.backup.refresh\" \"$INFO_PLIST\"\n    \"$PB\" -c \"Delete :UIBackgroundModes\" \"$INFO_PLIST\" 2>/dev/null || true\n    \"$PB\" -c \"Add :UIBackgroundModes array\" -c \"Add :UIBackgroundModes:0 string fetch\" -c \"Add :UIBackgroundModes:1 string processing\" \"$INFO_PLIST\"\n    ;;\nesac\n";
+		};
 		A1F0005000000000000000A1 /* Clean test fixtures */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -948,6 +977,15 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		A4718000000000000000A1D1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = MapleBackupAgent;
+			platformFilters = (
+				macos,
+			);
+			target = E3DD94822FB50E55009392B4 /* MapleBackupAgent */;
+			targetProxy = A4718000000000000000A1D2 /* PBXContainerItemProxy */;
+		};
 		6E7046EBC2924B60E9A53BDF /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = MapleFileProvider;
@@ -1698,8 +1736,6 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_HARDENED_RUNTIME = YES;
-				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = app.justmaple.aperture.backup.refresh;
-				INFOPLIST_KEY_UIBackgroundModes = "fetch processing";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
@@ -1716,8 +1752,6 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_HARDENED_RUNTIME = YES;
-				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = app.justmaple.aperture.backup.refresh;
-				INFOPLIST_KEY_UIBackgroundModes = "fetch processing";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
