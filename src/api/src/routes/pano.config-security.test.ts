@@ -25,7 +25,8 @@ import {
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
-import { clearMirrorRoots, setMirrorRoots } from '../fs/mirror-registry.ts';
+import { clearMirrorRoots } from '../fs/mirror-registry.ts';
+import { replaceFolderDestinations } from '../cloud-backup/local-mirror-bridge.ts';
 import { savePanoConfig } from '../pano/pano-config.repo.ts';
 
 const app = new Elysia().use(fakeAuth()).use(panoRoutes);
@@ -165,12 +166,26 @@ describe('PUT /api/pano/config — owner gate and executable jail (#4743)', () =
   it("refuses an executable inside a library's mirror root", async () => {
     const mirror = path.join(tmpDir, 'mirror');
     await fs.mkdir(mirror, { recursive: true });
-    setMirrorRoots({ [path.join(tmpDir, 'lib')]: [mirror] });
+    await replaceFolderDestinations(folderId, [{ path: mirror, enabled: true }]);
     const planted = path.join(mirror, 'mirrored-cli');
     await fs.copyFile(fakeCli, planted);
     const res = await putJson('/api/pano/config', { maple_cli_path: planted });
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toContain('mirror');
+  });
+
+  it('keeps refusing an executable under a mirror that has since been disabled', async () => {
+    const mirror = path.join(tmpDir, 'paused-mirror');
+    await fs.mkdir(mirror, { recursive: true });
+    await replaceFolderDestinations(folderId, [{ path: mirror, enabled: false }]);
+    const planted = path.join(mirror, 'mirrored-cli');
+    await fs.copyFile(fakeCli, planted);
+    await savePanoConfig({ maple_cli_path: planted, enabled: true });
+    const got = (await (await getReq('/api/pano/config')).json()) as {
+      maple_cli_path: string | null;
+    };
+    expect(got.maple_cli_path).toBeNull();
+    expect((await putJson('/api/pano/config', { ort_dylib_path: planted })).status).toBe(400);
   });
 
   it('neutralises a previously stored library-root path instead of probing it', async () => {
