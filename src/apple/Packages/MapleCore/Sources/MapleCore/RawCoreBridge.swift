@@ -105,11 +105,16 @@
 //     CPU alike, #1043); forced to literal 0 (NOT the 25/40 defaults) to
 //     kill the double-apply described above
 //
+//   * `sharpenRadius`, `sharpenDetail`, `sharpenMasking`, and the
+//     post-AgX / display-side fields (parametric splits, `toneCurveMode`,
+//     `displayToneCurve*`, `splitTone*`, `colorGrade*`, `grain*`,
+//     `filmLook`/`filmStrength`, `wbMethod`) — never applied by the
+//     decode, but stripped since #4737 so that the stripped model (the
+//     decoded-image cache key) does not change when they do. The live
+//     chain reads them from the LIVE model, not from this copy.
+//
 // **Kept** (Apple-irreplaceable, baked at decode only):
 //   * `highlightRecovery`          — pre-DCP, no chain equivalent.
-//   * `sharpenRadius`, `sharpenDetail`, `sharpenMasking` — read by the
-//     chain's sharpen stage; inert during decode, whose `sharpenAmount`
-//     is zeroed above, so there is nothing to strip.
 //   * `captureSharpeningAmount`, `captureSharpeningSigma` — runs inside
 //     the Rust `develop_scene_linear_*` decode, post-DCP/PGTM, and has
 //     no Apple Metal equivalent. Default amount = 0 short-circuits the

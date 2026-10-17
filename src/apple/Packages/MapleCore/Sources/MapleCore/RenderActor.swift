@@ -94,8 +94,9 @@ public actor RenderActor {
   /// drag pause. Keying on the stripped model is correct by construction:
   /// identical stripped model ⇒ identical decode ⇒ cache hit; a change to
   /// any *baked* (KEPT) field — `highlightRecovery`,
-  /// `captureSharpeningAmount/Sigma`, the unsharp `sharpenRadius/Detail/
-  /// Masking` — changes the value and forces a re-decode. We store the
+  /// `captureSharpeningAmount/Sigma` — changes the value and forces a
+  /// re-decode (the unsharp `sharpenRadius/Detail/Masking` are stripped
+  /// since #4737 and no longer do). We store the
   /// stripped model itself and compare by value (`==`): a hash would be a
   /// collision risk for zero benefit on a single in-memory comparison.
   ///
@@ -190,8 +191,8 @@ public actor RenderActor {
   /// WRITTEN — a real decode landing in `sharedDecode`'s write-gated
   /// block, or a `seed`/`seedIfUnpopulated` call (#2049). This is the
   /// buffer's IDENTITY, independent of pixel dimensions: a baked-field
-  /// edit (highlightRecovery, captureSharpeningAmount/Sigma, the unsharp
-  /// sharpenRadius/Detail/Masking) forces a fresh decode at the SAME
+  /// edit (highlightRecovery, captureSharpeningAmount/Sigma) forces a
+  /// fresh decode at the SAME
   /// target dims, so dims alone can't tell the GPU-live present that the
   /// uploaded buffer is stale — this generation can. Never reset (a
   /// monotonic counter across asset switches is fine: switching assets
