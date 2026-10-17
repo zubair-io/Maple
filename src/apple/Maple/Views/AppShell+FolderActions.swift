@@ -338,9 +338,9 @@ extension AppShell {
     let store = resolveRemoteSidecarStore(for: asset)
     if store == nil, asset.primaryURL == nil, asset.stableID != nil {
       let provenance = String(describing: asset.thumbnailProvenance)
+      let detail = "\(asset.displayName) provenance=\(provenance)"
       folderActionsLog.error(
-        "no sidecar store for sourced asset \(asset.displayName, privacy: .public) "
-          + "provenance=\(provenance, privacy: .public) — edits will be session-local")
+        "no sidecar store for sourced asset \(detail, privacy: .public); edits stay session-local")
     }
     return store
   }
