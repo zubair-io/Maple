@@ -32,18 +32,15 @@ struct MapleBackupAgentEntryPoint {
       return
     }
 
+    // Same App Group root the app writes (#4717) — a separate process must
+    // report the same device id and resume the same state DB.
+    let storageRoot = try BackupStorage.sharedRoot()
     let deviceId = try DeviceIdentity.current(
-      storageURL: try DeviceIdentity.defaultStorageURL())
+      storageURL: DeviceIdentity.storageURL(in: storageRoot))
     let sidecars = AppSupportSidecarStore(
-      root: try AppSupportSidecarStore.defaultRoot())
-
-    let appSupport = try FileManager.default.url(
-      for: .applicationSupportDirectory, in: .userDomainMask,
-      appropriateFor: nil, create: true
-    )
-    .appendingPathComponent("Maple", isDirectory: true)
-    try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-    let stateURL = appSupport.appendingPathComponent(s.stateDatabaseFilename)
+      root: try AppSupportSidecarStore.defaultRoot(in: storageRoot))
+    let stateURL = BackupStorage.stateDatabaseURL(
+      in: storageRoot, filename: s.stateDatabaseFilename)
     let state = try BackupStateStore(databaseURL: stateURL)
 
     let queue = InProcessBackupQueue()
