@@ -86,11 +86,20 @@ Every candidate RGB bias channel also passes. Both comparisons use the same
 10,668,000 pixels, original RAW, sidecar and reference; hashes are unchanged.
 This is one failure cleared on the candidate, not a whole-corpus result.
 
-The 87-comparison selection (67 Neutral cases and all 20 Auto baselines) is
-still running. It includes the historical AgX cohort, every Neutral baseline,
-all test_0000 native detail controls and maximum sharpening on test_0004 and
-test_0014. Main and candidate are classified per metric and per bias channel.
-Whole-corpus integration remains outstanding.
+The 87-comparison selection completed with **73 passes and 14 failures**,
+against 18 failures on the matched main control. It includes the historical
+AgX cohort, every Neutral baseline, all test_0000 native detail controls and
+maximum sharpening on test_0004 and test_0014. The four cleared cases are
+test_0000/contrast_min and test_0007/tint_max, wb_auto and wb_tungsten. All 20
+Auto baselines pass. Source, input and executable hashes remain unchanged.
+
+The candidate is **not qualified to land**: test_0014/sharpen_amount_max gains
+a green-channel bias breach, from main `0.16156593811047731` to candidate
+`0.16167013038482758`, above the unchanged `0.1616` ceiling. Its red and blue
+channels already fail on main; grouping the three channels together would hide
+this new regression. No previously passing whole case becomes failing, but
+the added metric breach still requires repair. The full 806-comparison run
+continues to identify the complete effect. Budgets remain unchanged.
 
 For test_0000 luminance NR, the selection uses the separately qualified Adobe
 authoring overlay from #4851 on both sides. Replaying main against that same
