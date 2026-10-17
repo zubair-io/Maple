@@ -395,3 +395,6 @@ PanoMergePreviewTests
 
 # RGB bias precision (#4667): generated large images, no external fixtures.
 CIEDE2000BiasTests
+
+# PhotoKit backup acknowledgement and queued production source writes (#4937).
+PhotoKitConditionalCleanupTests

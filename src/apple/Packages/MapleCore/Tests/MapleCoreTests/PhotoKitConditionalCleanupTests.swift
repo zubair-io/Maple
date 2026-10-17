@@ -4,6 +4,73 @@ import XCTest
 @testable import MapleCore
 
 final class PhotoKitConditionalCleanupTests: XCTestCase {
+  private actor CompletionFlag {
+    private(set) var done = false
+    func finish() { done = true }
+  }
+
+  func testQueuedPhotoKitSourceWriteSurvivesCoordinatedAcknowledgementRemoval() async throws {
+    let (backing, root) = try freshBacking()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let id = "PHOTO/L0/006"
+    let source = PhotoKitSource(sidecarOverride: backing)
+    let ref = ImageRef(id: id, displayName: id)
+    var first = AdjustmentModel.default
+    first.exposure = 1
+    try await source.writeXMP(Sidecar(model: first, culling: CullingState()), for: ref)
+    let sent = try XCTUnwrap(backing.read(phassetLocalId: id))
+
+    let entered = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    let holderDone = DispatchSemaphore(value: 0)
+    defer { release.signal() }
+    DispatchQueue.global().async {
+      let coordinator = NSFileCoordinator(filePresenter: nil)
+      var coordinationError: NSError?
+      coordinator.coordinate(
+        writingItemAt: backing.sidecarURL(phassetLocalId: id), options: .forDeleting,
+        error: &coordinationError
+      ) { url in
+        entered.signal()
+        release.wait()
+        XCTAssertEqual(try? Data(contentsOf: url), Data(sent.utf8))
+        do {
+          try FileManager.default.removeItem(at: url)
+        } catch {
+          XCTFail("Acknowledgement removal failed: \(error)")
+        }
+      }
+      XCTAssertNil(coordinationError)
+      holderDone.signal()
+    }
+    XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+
+    var newer = AdjustmentModel.default
+    newer.exposure = 2
+    let attempted = root.appendingPathComponent("writer-attempt")
+    let sidecar = Sidecar(model: newer, culling: CullingState())
+    let completion = CompletionFlag()
+    let writer = Task.detached {
+      try Data().write(to: attempted)
+      try await source.writeXMP(sidecar, for: ref)
+      await completion.finish()
+    }
+    for _ in 0..<500 where !FileManager.default.fileExists(atPath: attempted.path) {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    XCTAssertTrue(FileManager.default.fileExists(atPath: attempted.path))
+    try await Task.sleep(for: .milliseconds(300))
+    let finishedWhileCleanupHeldFile = await completion.done
+    XCTAssertFalse(finishedWhileCleanupHeldFile, "PhotoKitSource bypassed cleanup coordination")
+    release.signal()
+    try await writer.value
+    XCTAssertEqual(holderDone.wait(timeout: .now() + 5), .success)
+    let saved = try XCTUnwrap(backing.read(phassetLocalId: id))
+    XCTAssertNotEqual(saved, sent)
+    let (readModel, _) = try await source.readXMP(for: ref)
+    XCTAssertEqual(readModel.exposure, 2, accuracy: 0.0001)
+  }
+
   func testNewerProductionEditorXMPIsPreserved() async throws {
     let (backing, root) = try freshBacking()
     defer { try? FileManager.default.removeItem(at: root) }

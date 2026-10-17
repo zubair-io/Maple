@@ -88,8 +88,8 @@ public final class AppSupportSidecarStore {
     return s
   }
 
-  /// Atomic write: temp file → `replaceItemAt`. Overwrites any existing
-  /// row at the same key. Leaves no orphan `.tmp` files on success.
+  /// Atomic write: temp file → replace or move into place. Overwrites any
+  /// existing row at the same key. Leaves no orphan `.tmp` files on success.
   public func write(phassetLocalId: String, xmp: String) throws {
     let final = sidecarURL(phassetLocalId: phassetLocalId)
     let coordinator = NSFileCoordinator(filePresenter: nil)
@@ -102,7 +102,11 @@ public final class AppSupportSidecarStore {
           .appendingPathComponent(".\(coordinatedURL.lastPathComponent).tmp")
         try Data(xmp.utf8).write(to: tmp, options: .atomic)
         do {
-          _ = try FileManager.default.replaceItemAt(coordinatedURL, withItemAt: tmp)
+          if FileManager.default.fileExists(atPath: coordinatedURL.path) {
+            _ = try FileManager.default.replaceItemAt(coordinatedURL, withItemAt: tmp)
+          } else {
+            try FileManager.default.moveItem(at: tmp, to: coordinatedURL)
+          }
         } catch {
           // If replaceItemAt fails, clean up the temp so we don't leave
           // it behind, then rethrow.
