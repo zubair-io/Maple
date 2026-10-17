@@ -146,6 +146,32 @@ describe('panoStitchHandler feature engine (#4555)', () => {
     expect(args).toContain(`ORT_DYLIB_PATH=${ortDylib}`);
   });
 
+  // #4743 — a persisted payload is re-checked against the current library
+  // roots right before the spawn, so a legacy or re-rooted executable inside
+  // a member-writable library never runs.
+  it('refuses to spawn a persisted mapleCli that sits inside a library root', async () => {
+    const planted = path.join(tmpDir, 'lib', 'planted-cli');
+    await fs.copyFile(fakeCli, planted);
+    await fs.rm(argsLog, { force: true });
+    await expect(
+      panoStitchHandler.run({ ...basePayload(), mapleCli: planted }, handlerContext()),
+    ).rejects.toThrow('library root');
+    await expect(fs.stat(argsLog)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('refuses to spawn with a persisted ortDylibPath inside a library root', async () => {
+    const planted = path.join(tmpDir, 'lib', 'libonnxruntime.dylib');
+    await fs.writeFile(planted, 'not a dylib');
+    await fs.rm(argsLog, { force: true });
+    await expect(
+      panoStitchHandler.run(
+        { ...basePayload(), featuresEngine: 'ml', modelsDir: tmpDir, ortDylibPath: planted },
+        handlerContext(),
+      ),
+    ).rejects.toThrow('library root');
+    await expect(fs.stat(argsLog)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('refuses an ML run whose ONNX Runtime path is missing', async () => {
     await expect(
       panoStitchHandler.run(
