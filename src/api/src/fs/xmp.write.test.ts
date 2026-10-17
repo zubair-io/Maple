@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { computeBodyETag } from '../runtime/http-etag';
 import * as mirroredFs from './mirrored.ts';
+import * as mirrorRead from './mirror-read.ts';
 import { conflictCopyPath } from './xmp-conflict.ts';
 import { serializeSidecarWrite } from './sidecar-write-order';
 import { writeXmpIfUnchanged } from './xmp-conditional.ts';
@@ -107,10 +108,26 @@ test('read refuses a sidecar symlinked outside the registered roots', async () =
     await symlink(secret, join(root, 'escape (conflict from Mac).xmp'));
 
     expect((await readXmp(rawPath)).ok).toBe(false);
-    const conflict = await readConflictSidecar(rawPath, 'escape (conflict from Mac).xmp');
+    const conflict = await readConflictSidecar(rawPath, 'escape (conflict from Mac)');
     expect(conflict.ok).toBe(false);
+    expect(conflict.error).toContain('outside all registered roots');
   } finally {
     await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test('read opens the path that passed authorization, not the symlink it was asked for', async () => {
+  const rawPath = join(root, 'aliased.dng');
+  const realSidecar = join(root, 'aliased-real.xmp');
+  await writeFile(rawPath, RAW_BYTES);
+  await writeFile(realSidecar, '<x:xmpmeta />');
+  await symlink(realSidecar, join(root, 'aliased.xmp'));
+  const readSpy = spyOn(mirrorRead, 'readFileWithFailover');
+  try {
+    expect((await readXmp(rawPath)).ok).toBe(true);
+    expect(readSpy.mock.calls.map(([target]) => target)).toEqual([realSidecar]);
+  } finally {
+    readSpy.mockRestore();
   }
 });
 
