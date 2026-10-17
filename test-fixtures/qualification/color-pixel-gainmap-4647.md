@@ -85,9 +85,18 @@ all original inputs, frozen executables and comparison sources remain unchanged.
 
 The candidate clears the control's `dehaze_max` failure, but that failure is
 new in the AMaZE prerequisite, as the three-way comparison below establishes.
-The remaining candidate failures are `exposure_max`, `whites_min`, and native
-`detail_sharpen_amount_max`. No original-main failure is claimed cleared by
-this result. Full806 comparison and the lens-resampling follow-up continue.
+The remaining candidate failures are `contrast_min`, `exposure_max`, and native
+`sharpen_amount_max`. The earlier report incorrectly listed `whites_min` in
+that set; the complete log and a fresh three-way comparison show it passes.
+
+`whites_min` is one confirmed original-main failure cleared: mean/p95 improve
+from 10.691575/17.889930 to 8.655390/11.627690, and worst absolute channel bias
+from 0.112273 to 0.089589, within the unchanged 9.2/17.4/0.0936 ceilings.
+The maximum also improves from 35.012409 to 27.955597 (ceiling43.4). All
+12,032,000 pixels and source hashes are checked. However, `contrast_min` is
+newly failing versus the balanced-AMaZE control (max32.63, ceiling31.5), and
+the exposure maximum remains worse than main. This is not accepted for merge.
+Full806 comparison and the lens-resampling follow-up continue.
 
 ### Dehaze interaction with the AMaZE prerequisite
 
