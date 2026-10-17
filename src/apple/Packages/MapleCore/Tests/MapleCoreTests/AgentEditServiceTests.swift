@@ -220,6 +220,7 @@ final class AgentEditServiceTests: XCTestCase {
       let raw = dir.appendingPathComponent("grey.dng")
       try FileManager.default.copyItem(at: Self.syntheticDNG, to: raw)
       let session = EditSession(asset: AssetRef(url: raw), model: .default, culling: CullingState())
+      await session.loadSidecar()
       let service = AgentEditService()
       service.activate(session)
       try await AgentHTTPTestClient.withService(service) { client in

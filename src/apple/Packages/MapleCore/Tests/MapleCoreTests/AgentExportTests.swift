@@ -28,6 +28,7 @@ final class AgentExportTests: XCTestCase {
     let originalBytes = try sourceBytes()
     try originalBytes.write(to: original)
     let session = EditSession(asset: AssetRef(url: original), model: .default)
+    await session.loadSidecar()
     let baseline = try await MapleExporter.exportData(session: session, options: .defaults)
     session.beginEdit(description: "Brighter")
     session.model.exposure = 0.75

@@ -23,6 +23,10 @@ extension EditorWorkflowState {
       defer { if self.generation == current { self.isBusy = false } }
       do {
         await session.loadSidecar()
+        guard session.hasLoadedSidecar else {
+          throw session.sidecarError
+            ?? WorkflowSidecarError(message: "The sidecar has not loaded.")
+        }
         await session.sidecarUpdateTask?.value
         let root = try self.variantStore(session)
         guard let source = session.sidecarStore as? any WorkflowSidecarStoreProtocol else {

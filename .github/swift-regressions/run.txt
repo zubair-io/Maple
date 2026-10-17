@@ -36,6 +36,7 @@ MaskCoordinatePrecisionTests
 # tool-count assertions were never run here.
 BlackWhiteMixInteractionTests
 CropEditingStateTests
+EditSessionSidecarWriteGuardTests
 EditSessionTransactionTests
 EditorAutoSourceTests
 EditorCommandRouterTests
