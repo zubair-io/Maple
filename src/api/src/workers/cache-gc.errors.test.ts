@@ -7,8 +7,6 @@ import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts
 import { registerLibrary } from '../../tests/helpers/assets-route-fixtures.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 
-const LEGACY_KEY = '0123456789abcdef'; // gitleaks:allow sha256_prefix16 — 16 hex
-
 afterEach(() => invalidateLibraryRoots());
 async function mkTree(): Promise<string> {
   return mkdtemp(path.join(os.tmpdir(), 'cache-gc-errors-'));
@@ -28,17 +26,13 @@ describe('sweepOrphanedCaches — filesystem race and failure guards', () => {
     const root = await mkTree();
     try {
       registerLibrary(live.db, root);
-      // Four legacy-keyed orphans. The mock makes `fs.unlink` race-fail
+      // Four orphans named after filenames that no longer exist. The mock makes `fs.unlink` race-fail
       // (ENOENT) for the first to land in unlinkSafe, simulating another
       // process having removed it between readdir and unlink.
-      const racedKey = '0123456789abcdee'; // gitleaks:allow sha256_prefix16 — 16 hex
-      const otherKeys = [
-        '0123456789abcded', // gitleaks:allow sha256_prefix16 — 16 hex
-        '0123456789abcdec', // gitleaks:allow sha256_prefix16 — 16 hex
-        '0123456789abcdeb', // gitleaks:allow sha256_prefix16 — 16 hex
-      ];
-      const racedPath = path.join(root, '.maple', 'thumbs', `${racedKey}.jpg`);
-      const otherPaths = otherKeys.map((k) => path.join(root, '.maple', 'thumbs', `${k}.jpg`));
+      const racedPath = path.join(root, '.maple', 'thumbs', 'gone-0.dng.jpg');
+      const otherPaths = ['gone-1.dng.jpg', 'gone-2.dng.jpg', 'gone-3.dng.jpg'].map((name) =>
+        path.join(root, '.maple', 'thumbs', name),
+      );
       for (const p of [racedPath, ...otherPaths]) {
         await writeJpg(p);
         await agePast(p);
@@ -109,12 +103,9 @@ describe('sweepOrphanedCaches — filesystem race and failure guards', () => {
       // Four orphan files in one cache dir. We need at least 3 same-errno
       // failures to trip FAIL_THRESHOLD; the 4th may or may not be attempted
       // depending on whether the abort raced the loop body.
-      const orphans = [
-        path.join(lockedDir, `${LEGACY_KEY}.jpg`),
-        path.join(lockedDir, '0123456789abcdee.jpg'),
-        path.join(lockedDir, '0123456789abcded.jpg'),
-        path.join(lockedDir, '0123456789abcdec.jpg'),
-      ];
+      const orphans = ['gone-0.dng.jpg', 'gone-1.dng.jpg', 'gone-2.dng.jpg', 'gone-3.dng.jpg'].map(
+        (name) => path.join(lockedDir, name),
+      );
       for (const p of orphans) {
         await writeJpg(p);
         await agePast(p);

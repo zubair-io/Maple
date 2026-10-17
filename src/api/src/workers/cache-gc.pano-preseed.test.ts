@@ -5,13 +5,11 @@
  * SQLite database installed as the process-wide handle, so the two files can
  * run standalone or together without sharing any state.
  *
- * The pano stitcher pre-seeds a thumb + preview keyed by
- * `sha256_prefix16(basename)` immediately after stitching, before the pano
- * is indexed and gets a maple_id (maple-pano/src/stitch/io.rs
- * write_display_sidecars, #1365) — Apple's synchronous MapleSidecarPaths
- * resolver mirrors this exact scheme on the read side. This is NOT the same
- * as the always-orphaned pre-migration legacy thumb key: it's legitimate iff
- * a live filename in this exact directory hashes to it.
+ * The pano stitcher pre-seeds a `<filename>.avif` thumb immediately after
+ * stitching, before the pano is indexed (maple-pano/src/stitch/io.rs
+ * write_display_sidecars, #1365): it is live iff that filename is live in
+ * this exact directory. The older `sha256_prefix16(basename)` pre-seed name is
+ * a #4793-retired name the sweep leaves untouched (#4928).
  */
 import { describe, test, expect, afterEach } from 'bun:test';
 import { mkdtemp, mkdir, writeFile, rm, stat, utimes } from 'node:fs/promises';
@@ -93,7 +91,7 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
     }
   });
 
-  test('renames a legacy hashed pano pre-seed thumb to <filename>.avif (#4793)', async () => {
+  test('leaves a legacy hashed pano pre-seed thumb untouched (#4928)', async () => {
     using live = await createLiveTestDatabase();
     const root = await mkTree();
     try {
@@ -109,11 +107,12 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
       await agePast(hashed);
 
       const result = await sweepOrphanedCaches(root);
-      expect(result.deleted).toBe(0);
+      expect(result).toEqual({ scanned: 0, deleted: 0, skipped_recent: 0 });
 
-      await expect(stat(hashed)).rejects.toThrow();
-      const renamed = await stat(path.join(root, '.maple', 'thumbs', 'panorama-test.png.avif'));
-      expect(renamed.size).toBeGreaterThan(0);
+      expect((await stat(hashed)).size).toBeGreaterThan(0);
+      await expect(
+        stat(path.join(root, '.maple', 'thumbs', 'panorama-test.png.avif')),
+      ).rejects.toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -144,7 +143,7 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
     }
   });
 
-  test('unlinks a pano pre-seed thumb (sha256_prefix16-keyed) matching NO live filename', async () => {
+  test('leaves a legacy hashed pano pre-seed thumb matching NO live filename untouched (#4928)', async () => {
     using live = await createLiveTestDatabase();
     const root = await mkTree();
     try {
@@ -155,9 +154,9 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
       await agePast(preSeedThumb);
 
       const result = await sweepOrphanedCaches(root);
-      expect(result.deleted).toBe(1);
+      expect(result.deleted).toBe(0);
 
-      await expect(stat(preSeedThumb)).rejects.toThrow();
+      expect((await stat(preSeedThumb)).size).toBeGreaterThan(0);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

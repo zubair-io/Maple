@@ -105,10 +105,9 @@ export async function startWorkers(): Promise<void> {
       log.info({ roots: discoverRoots }, 'discover sweep started in-process');
     }
 
-    // Fire-and-forget cache-gc sweep per library. Renames retired hashed and
-    // pipeline-versioned derivatives into place (#4793) and reaps orphans for
-    // hard-deleted or relocated assets. See
-    // `workers/cache-gc.ts` for why no migration sentinel.
+    // Fire-and-forget cache-gc sweep per library: reaps orphans for
+    // hard-deleted or relocated assets and leaves retired hashed/versioned
+    // names untouched (#4928). See `workers/cache-gc.ts` for why no sentinel.
     for (const root of discoverRoots) {
       void (async (libRoot: string) => {
         try {

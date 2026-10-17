@@ -23,7 +23,8 @@ import {
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 
 const KNOWN_ID = 'a'.repeat(32);
-const LEGACY_KEY = '0123456789abcdef'; // gitleaks:allow sha256_prefix16 — 16 hex
+/** A thumb named after a filename that no longer exists — a genuine orphan. */
+const DEAD_THUMB = 'gone.dng.jpg';
 
 async function mkTree(): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'cache-gc-'));
@@ -92,7 +93,7 @@ describe('sweepOrphanedCaches', () => {
 
       const retiredThumb = path.join(root, '.maple', 'thumbs', `${KNOWN_ID}.jpg`);
       const liveThumb = path.join(root, '.maple', 'thumbs', 'live.dng.avif');
-      const deadKeyThumb = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.jpg`);
+      const deadKeyThumb = path.join(root, '.maple', 'thumbs', DEAD_THUMB);
       for (const f of [retiredThumb, deadKeyThumb]) {
         await writeJpg(f);
         await agePast(f);
@@ -325,7 +326,7 @@ describe('sweepOrphanedCaches', () => {
     const root = await mkTree();
     try {
       registerLibrary(live.db, root);
-      const nested = path.join(root, 'vacation', '2024', '.maple', 'thumbs', `${LEGACY_KEY}.jpg`);
+      const nested = path.join(root, 'vacation', '2024', '.maple', 'thumbs', DEAD_THUMB);
       await writeJpg(nested);
       await agePast(nested);
 
@@ -397,7 +398,7 @@ describe('sweepOrphanedCaches', () => {
       registerLibrary(live.db, root);
       // A real .maple cache with one legacy orphan to verify the sweep still
       // does its job around the symlink.
-      const realOrphan = path.join(root, '.maple', 'thumbs', `${LEGACY_KEY}.jpg`);
+      const realOrphan = path.join(root, '.maple', 'thumbs', DEAD_THUMB);
       await writeJpg(realOrphan);
       await agePast(realOrphan);
 

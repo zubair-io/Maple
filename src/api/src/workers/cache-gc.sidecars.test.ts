@@ -32,8 +32,8 @@ import {
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { sweepOrphanedCaches } from './cache-gc.ts';
 
-/** A 16-hex stem that hashes no live filename — a genuine orphan. */
-const DEAD_KEY = '0123456789abcdef'; // gitleaks:allow sha256_prefix16 — 16 hex
+/** A thumb named after a filename that no longer exists — a genuine orphan. */
+const DEAD_THUMB = 'gone.dng.avif';
 
 // The library-roots cache is process-wide and must not outlive its database.
 afterEach(() => {
@@ -91,7 +91,7 @@ describe('sweepOrphanedCaches — legacy thumb .meta sidecars', () => {
       const libraryId = registerLibrary(live.db, root);
       insertLiveAsset(live.db, libraryId, '', 'live.dng');
 
-      const orphan = path.join(thumbsDir(root), `${DEAD_KEY}.avif`);
+      const orphan = path.join(thumbsDir(root), DEAD_THUMB);
       const liveThumb = path.join(thumbsDir(root), 'live.dng.avif');
       for (const f of [orphan, liveThumb]) {
         await writeAvif(f);
@@ -131,7 +131,7 @@ describe('sweepOrphanedCaches — legacy thumb .meta sidecars', () => {
 
       // A sidecar with no artefact beside it — never scanned as an entry, so
       // without the dedicated pass it would leak forever.
-      const stranded = path.join(thumbsDir(root), `${DEAD_KEY}.avif.meta`);
+      const stranded = path.join(thumbsDir(root), `${DEAD_THUMB}.meta`);
       await mkdir(path.dirname(stranded), { recursive: true });
       await writeFile(stranded, JSON.stringify({ mtimeMs: 1, size: 1 }));
       await agePast(stranded);
@@ -158,7 +158,7 @@ describe('sweepOrphanedCaches — legacy thumb .meta sidecars', () => {
       registerLibrary(live.db, root);
       // Not aged: within the recency window a sidecar belongs to a thumb some
       // stage is mid-publish on, so it must survive this pass.
-      const fresh = path.join(thumbsDir(root), `${DEAD_KEY}.avif.meta`);
+      const fresh = path.join(thumbsDir(root), `${DEAD_THUMB}.meta`);
       await mkdir(path.dirname(fresh), { recursive: true });
       await writeFile(fresh, JSON.stringify({ mtimeMs: 1, size: 1 }));
 
