@@ -14,7 +14,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import {
@@ -210,5 +210,51 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
     expect(change.folder_id).toBe(folderId);
     expect(change.abs_path).toBe(expectedAbsPath);
     expect(change.relative_path).toBe(target);
+  });
+
+  // #4694 — a same-named upload must never destroy the previous file in
+  // place, whatever its type. Indexed media already went to Trash; videos
+  // and plain files were overwritten by the rename.
+  describe('replacing an existing file (#4694)', () => {
+    const PREVIOUS = new Uint8Array([0x70, 0x72, 0x65, 0x76]);
+    const REPLACEMENT = new Uint8Array([0x6e, 0x65, 0x77, 0x21]);
+
+    async function upload(target: string, bytes: Uint8Array<ArrayBuffer>): Promise<Response> {
+      const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
+      return app.handle(
+        new Request(`http://localhost/api/folders/${folderId}/upload`, {
+          method: 'POST',
+          headers: { 'X-Maple-Target-Path': target, 'Content-Type': 'application/octet-stream' },
+          body: bytes,
+        }),
+      );
+    }
+
+    async function expectPreviousInTrash(target: string) {
+      const trashed = nodePath.join(folderPath, '.maple', 'trash', target);
+      expect(new Uint8Array(await readFile(trashed))).toEqual(PREVIOUS);
+      expect(new Uint8Array(await readFile(nodePath.join(folderPath, target)))).toEqual(
+        REPLACEMENT,
+      );
+    }
+
+    it('keeps the previous video in .maple/trash', async () => {
+      await writeFile(nodePath.join(folderPath, 'clip.mov'), PREVIOUS);
+      expect((await upload('clip.mov', REPLACEMENT)).status).toBe(201);
+      await expectPreviousInTrash('clip.mov');
+    });
+
+    it('keeps the previous non-indexed file in .maple/trash', async () => {
+      await writeFile(nodePath.join(folderPath, 'notes.txt'), PREVIOUS);
+      expect((await upload('notes.txt', REPLACEMENT)).status).toBe(201);
+      await expectPreviousInTrash('notes.txt');
+    });
+
+    it('refuses to replace an existing sidecar through the raw upload path', async () => {
+      const sidecar = nodePath.join(folderPath, 'photo.xmp');
+      await writeFile(sidecar, PREVIOUS);
+      expect((await upload('photo.xmp', REPLACEMENT)).status).toBe(409);
+      expect(new Uint8Array(await readFile(sidecar))).toEqual(PREVIOUS);
+    });
   });
 });
