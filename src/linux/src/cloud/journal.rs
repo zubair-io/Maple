@@ -63,15 +63,8 @@ impl EditJournal {
                     "Cloud journal identity did not match the requested photograph".into(),
                 ));
             }
-            if journal.pending()?
-                && (record.entry.mtime != entry.mtime || record.entry.size != entry.size)
-            {
-                return Err(CloudError::Protocol(format!(
-                    "The remote original changed. Pending edits are preserved at {}",
-                    journal.directory.display()
-                )));
-            }
         }
+        journal.validate_original(entry)?;
         Ok(journal)
     }
     /// Photographs this server has journals for, including edits left
@@ -171,6 +164,20 @@ impl EditJournal {
         self.record
             .as_ref()
             .is_some_and(|record| record.server == server && record.entry.address == entry.address)
+    }
+
+    pub fn validate_original(&self, entry: &CloudEntry) -> Result<(), CloudError> {
+        if let Some(record) = &self.record {
+            if self.pending()?
+                && (record.entry.mtime != entry.mtime || record.entry.size != entry.size)
+            {
+                return Err(CloudError::Protocol(format!(
+                    "The remote original changed. Pending edits are preserved at {}",
+                    self.directory.display()
+                )));
+            }
+        }
+        Ok(())
     }
 
     pub fn synchronize(

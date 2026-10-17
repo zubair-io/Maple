@@ -10,8 +10,8 @@ impl MapleApp {
             self.error = Some(format!("Cloud transfer failed: {error}"));
             self.busy = false;
         }
-        if let Some((photo, entry)) = self.cloud.ready.take() {
-            self.navigate(Navigation::CloudReady(photo, entry));
+        if let Some((photo, entry, pending_recovery)) = self.cloud.ready.take() {
+            self.navigate(Navigation::CloudReady(photo, entry, pending_recovery));
         }
         if let Some((id, photo)) = self.cloud.reloaded.take() {
             if id == self.session {

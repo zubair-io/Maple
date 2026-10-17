@@ -86,6 +86,17 @@ fn journal_excludes_other_editors_and_keeps_changed_original_pending_data() {
     Control::Exposure.set(&mut document.model, -1.0).unwrap();
     store.save(&document).unwrap();
     let xml = fs::read(path.with_extension("xmp")).unwrap();
+    let changed_size = CloudEntry {
+        size: remote.size + 1,
+        ..remote.clone()
+    };
+    let changed_mtime = CloudEntry {
+        mtime: "2026-10-07T00:00:00Z".into(),
+        ..remote.clone()
+    };
+    assert!(journal.validate_original(&changed_size).is_err());
+    assert!(journal.validate_original(&changed_mtime).is_err());
+    assert!(journal.validate_original(&remote).is_ok());
     drop(journal);
     let mut changed = remote;
     changed.size += 1;
