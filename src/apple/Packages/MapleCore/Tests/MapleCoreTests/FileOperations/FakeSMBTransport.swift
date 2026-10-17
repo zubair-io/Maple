@@ -81,6 +81,12 @@ actor FakeSMBTransport: SMBFileTransport {
   }
 
   func fileExists(at path: String) -> Bool { files[path] != nil }
+
+  /// Every file outside `.maple/` with its contents, for whole-tree assertions.
+  func allFiles() -> [String: String] {
+    files.filter { !$0.key.contains("/.maple/") }
+      .mapValues { String(decoding: $0.data, as: UTF8.self) }
+  }
   func directoryExists(at path: String) -> Bool { directories.contains(path) }
 
   // MARK: - SMBFileTransport

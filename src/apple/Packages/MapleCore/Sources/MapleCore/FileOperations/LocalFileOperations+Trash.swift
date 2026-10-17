@@ -27,16 +27,14 @@ extension LocalFileOperations {
     /// this module owns.
     static func trashToOSTrash(_ primaryURL: URL) async throws -> RelocateOutcome {
       let fm = FileManager.default
+      let sidecarURL = SidecarPath.sidecarURL(for: primaryURL)
+      let sidecarShared = SidecarOwnership.localStemClaimedBySibling(primaryURL)
       var trashedPrimary: NSURL?
       try fm.trashItem(at: primaryURL, resultingItemURL: &trashedPrimary)
 
-      let sidecarURL = SidecarPath.sidecarURL(for: primaryURL)
-      var trashedSidecarURL: URL?
-      if fm.fileExists(atPath: sidecarURL.path) {
-        var resultingURL: NSURL?
-        try? fm.trashItem(at: sidecarURL, resultingItemURL: &resultingURL)
-        trashedSidecarURL = resultingURL as URL?
-      }
+      let trashedSidecarURL =
+        !fm.fileExists(atPath: sidecarURL.path)
+        ? nil : sidecarShared ? trashCopy(of: sidecarURL) : trashedItem(sidecarURL)
       await invalidateDerivedCaches(forOldPrimaryPath: primaryURL.path)
       return RelocateOutcome(
         primaryPath: (trashedPrimary as URL?)?.path ?? primaryURL.path,
@@ -44,6 +42,27 @@ extension LocalFileOperations {
         renamedDueToCollision: false,
         sidecarFollowed: trashedSidecarURL != nil
       )
+    }
+
+    private static func trashedItem(_ url: URL) -> URL? {
+      var resultingURL: NSURL?
+      try? FileManager.default.trashItem(at: url, resultingItemURL: &resultingURL)
+      return resultingURL as URL?
+    }
+
+    /// A sidecar another same-stem photo still uses stays put (#4707); the
+    /// Trash gets a same-named copy, staged on the same volume.
+    private static func trashCopy(of sidecarURL: URL) -> URL? {
+      let fm = FileManager.default
+      guard
+        let staging = try? fm.url(
+          for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: sidecarURL,
+          create: true)
+      else { return nil }
+      defer { try? fm.removeItem(at: staging) }
+      let copy = staging.appendingPathComponent(sidecarURL.lastPathComponent)
+      guard (try? fm.copyItem(at: sidecarURL, to: copy)) != nil else { return nil }
+      return trashedItem(copy)
     }
   #endif
 
