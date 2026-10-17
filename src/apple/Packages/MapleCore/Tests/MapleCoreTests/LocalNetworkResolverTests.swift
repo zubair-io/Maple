@@ -48,6 +48,17 @@ final class LocalNetworkResolverTests: XCTestCase {
     XCTAssertEqual(effective, identity)
   }
 
+  func test_refusesPlainHTTPCandidate_forUppercaseHTTPSIdentityScheme() async {
+    let session = URLSession.stubbedSequence { req in
+      let body = #"{"available":true,"ip":"192.168.1.42","port":3000,"scheme":"http"}"#
+      return (Data(body.utf8), Self.okResponse(for: req))
+    }
+    let shouting = URL(string: "HTTPS://public.example.com")!
+    let effective = await LocalNetworkResolving.resolveEffectiveURL(
+      identity: shouting, session: session)
+    XCTAssertEqual(effective, shouting)
+  }
+
   func test_unreachableHostnameDoesNotFallBackToPlainHTTP_forHTTPSIdentity() async {
     let body =
       #"{"available":true,"ip":"192.168.1.42","port":3000,"scheme":"http","https":{"ip":"local.example.com","port":3443,"scheme":"https"}}"#
