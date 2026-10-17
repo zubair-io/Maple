@@ -44,11 +44,15 @@ impl DescCandidate {
 }
 
 pub(super) fn is_description_name(name: &str) -> bool {
-    name == "rdf:Description" || name == "Description" || name.ends_with(":Description")
+    name == "rdf:Description" || name == "Description"
 }
 
 pub(super) fn is_rdf_name(name: &str) -> bool {
-    name == "rdf:RDF" || name == "RDF" || name.ends_with(":RDF")
+    name == "rdf:RDF" || name == "RDF"
+}
+
+pub(super) fn is_xmpmeta_name(name: &str) -> bool {
+    name == "x:xmpmeta" || name == "xmpmeta" || name.ends_with(":xmpmeta")
 }
 
 fn eligible_from_candidates(descs: &[DescCandidate]) -> Vec<bool> {

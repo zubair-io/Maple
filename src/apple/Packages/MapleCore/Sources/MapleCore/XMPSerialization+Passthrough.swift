@@ -164,6 +164,8 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
   private let primaryDescription: XMPChildElementScanner.PrimaryDescription?
   private var topLevelDescriptionIndex = 0
   private var primaryDescriptionContext: XMPChildElementScanner.DescriptionContext?
+  private var sawRdfEnvelope = false
+  private var rdfEnvelopeDepth: Int?
 
   init(primaryDescription: XMPChildElementScanner.PrimaryDescription? = nil) {
     self.primaryDescription = primaryDescription
@@ -187,11 +189,22 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
     let depth = namespaceScopes.count
     namespaceScopes.append(namespaces)
     let qual = qName ?? elementName
-    guard depth <= 2,
-      XMPChildElementScanner.canonicalQualifiedName(qual, namespaces: namespaces)
-        == "rdf:Description"
+    let canonicalName = XMPChildElementScanner.canonicalQualifiedName(
+      qual, namespaces: namespaces)
+    if !sawRdfEnvelope, depth <= 1, canonicalName == "rdf:RDF" {
+      sawRdfEnvelope = true
+      rdfEnvelopeDepth = depth + 1
+      if !captured {
+        ancestorDeclarations.merge(
+          attributeDict.filter { $0.key.hasPrefix("xmlns:") }
+        ) { _, nearer in nearer }
+      }
+      return
+    }
+    guard rdfEnvelopeDepth == depth || (depth == 0 && primaryDescription == nil),
+      canonicalName == "rdf:Description"
     else {
-      if !captured, depth < 2 {
+      if !captured, depth == 0 {
         ancestorDeclarations.merge(
           attributeDict.filter { $0.key.hasPrefix("xmlns:") }
         ) { _, nearer in nearer }
@@ -244,5 +257,8 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
     qualifiedName qName: String?
   ) {
     _ = namespaceScopes.popLast()
+    if let envDepth = rdfEnvelopeDepth, namespaceScopes.count < envDepth {
+      rdfEnvelopeDepth = nil
+    }
   }
 }

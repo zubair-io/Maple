@@ -231,4 +231,36 @@ final class XMPAuthoredCullingTests: XCTestCase {
     XCTAssertTrue(xml.contains(#"crs:Shadows2012="+77""#), xml)
     XCTAssertTrue(xml.contains("ToneCurvePV2012Green"), xml)
   }
+
+  func testStrayXmpmetaDescriptionBeforeRdfEnvelopeDoesNotShiftPrimaryIndex() async throws {
+    let source = """
+      <?xpacket begin="\u{feff}" id="W5M0MpCehiHzreSzNTczkc9d"?>
+      <x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+        <rdf:Description
+          xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+          xmlns:tiff="http://ns.adobe.com/tiff/1.0/"
+          tiff:Model="StrayBeforeEnvelope"
+          crs:Exposure2012="-2.25"/>
+        <rdf:RDF>
+          <rdf:Description
+            xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+            xmlns:tiff="http://ns.adobe.com/tiff/1.0/"
+            tiff:Make="Fujifilm"
+            crs:Exposure2012="+0.75"
+            crs:Contrast2012="+18"/>
+        </rdf:RDF>
+      </x:xmpmeta>
+      <?xpacket end="w"?>
+      """
+    let xml = try await saved(from: source) { model, _ in
+      XCTAssertEqual(model.exposure, 0.75, accuracy: 1e-6)
+      XCTAssertEqual(model.contrast, 18, accuracy: 1e-6)
+      model.exposure = 1.1
+    }
+    let (reparsed, _) = try XMPParser.parse(xml)
+    XCTAssertEqual(reparsed.exposure, 1.1, accuracy: 1e-6)
+    XCTAssertEqual(reparsed.contrast, 18, accuracy: 1e-6)
+    XCTAssertTrue(xml.contains(#"tiff:Make="Fujifilm""#), xml)
+    XCTAssertTrue(xml.contains(#"tiff:Model="StrayBeforeEnvelope""#), xml)
+  }
 }
