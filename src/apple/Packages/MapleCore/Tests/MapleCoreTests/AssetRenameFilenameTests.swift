@@ -81,15 +81,21 @@ final class AssetRenameFilenameTests: XCTestCase {
     let oldSession = EditSession(asset: oldAsset)
     await oldSession.loadSidecar()
 
-    // Make a pre-rename edit that is still inside the 750ms debounce window.
+    // Make a pre-rename edit that is still inside the 750ms debounce window,
+    // and kick off an overlapping workflow snapshot operation.
     oldSession.beginEdit(kind: .adjustment, description: "Exposure")
     oldSession.model.exposure = 1.25
     oldSession.culling.stars = 4
+    let snapshotTask = Task {
+      await oldSession.workflow.saveSnapshot(name: "Before rename", session: oldSession)
+    }
 
-    // Pre-rename step from AppShell.commitRename: flush pending edits and
-    // disable further writes on the departing session before moving the file.
+    // Pre-rename step from AppShell.commitRename: flush pending edits (joining
+    // any in-flight workflow operation) and disable further writes before move.
     await oldSession.flushPendingSidecarWrite()
     await oldSession.setSidecarWritesEnabled(false)
+    await snapshotTask.value
+    XCTAssertEqual(oldSession.workflow.record?.snapshots.map(\.name), ["Before rename"])
     XCTAssertTrue(fm.fileExists(atPath: oldSidecarURL.path))
 
     let outcome = try await LocalFileOperations.relocate(
@@ -111,10 +117,12 @@ final class AssetRenameFilenameTests: XCTestCase {
     XCTAssertTrue(newSession.canUndo)
     XCTAssertEqual(newSession.undoHistory.map(\.description), ["Exposure"])
 
-    // Simulate late edits / editor-exit teardown on the old session AND
-    // subsequent user edits on the new session.
+    // Simulate late edits / workflow calls / editor-exit teardown on the old
+    // session AND subsequent user edits on the new session.
     oldSession.model.exposure = -2.0
     oldSession.culling.stars = 1
+    await oldSession.workflow.saveSnapshot(name: "Stale", session: oldSession)
+    await oldSession.workflow.createVariant(name: "StaleVariant", session: oldSession)
     await oldSession.flushPendingSidecarWrite()
     await oldSession.persistDisplayPreviewOnExit()
 
