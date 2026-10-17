@@ -20,6 +20,7 @@ namespace Maple.WinUI.Tests
         private readonly string _root = Path.Combine(
             Path.GetTempPath(), "maple-cloudfiles-cleanup-" + Guid.NewGuid().ToString("N"));
         private readonly HashSet<string> _placeholders = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _unpopulatedDirectories = new(StringComparer.Ordinal);
 
         public void Dispose()
         {
@@ -41,13 +42,19 @@ namespace Maple.WinUI.Tests
 
         private bool IsUnmodifiedPlaceholder(string path) => _placeholders.Contains(Path.GetFullPath(path));
 
+        private CleanupProbes Probes => new(
+            IsUnmodifiedPlaceholder,
+            path => _unpopulatedDirectories.Contains(Path.GetFullPath(path)));
+
+        private CleanupResult Sweep() => CloudFilesSyncRootCleanup.Sweep(_root, Probes);
+
         [Fact]
         public void NonPlaceholderFileSurvivesDisable()
         {
             var local = Write("Library/local-only.jpg", placeholder: false);
             var cloud = Write("Library/cloud.jpg", placeholder: true);
 
-            var result = CloudFilesSyncRootCleanup.Sweep(_root, IsUnmodifiedPlaceholder);
+            var result = Sweep();
 
             Assert.True(File.Exists(local));
             Assert.False(File.Exists(cloud));
@@ -63,7 +70,7 @@ namespace Maple.WinUI.Tests
             // in-sync by the probe — it must be treated like any local file.
             var edited = Write("Library/edited.dng", placeholder: false);
 
-            CloudFilesSyncRootCleanup.Sweep(_root, IsUnmodifiedPlaceholder);
+            Sweep();
 
             Assert.True(File.Exists(edited));
         }
@@ -75,7 +82,7 @@ namespace Maple.WinUI.Tests
             Write("Library/2024/b.jpg", placeholder: true);
             Directory.CreateDirectory(Path.Combine(_root, "Other", "Empty"));
 
-            var result = CloudFilesSyncRootCleanup.Sweep(_root, IsUnmodifiedPlaceholder);
+            var result = Sweep();
 
             Assert.False(Directory.Exists(_root));
             Assert.Equal(2, result.Removed);
@@ -89,7 +96,7 @@ namespace Maple.WinUI.Tests
             Write("Library/2024/gone.jpg", placeholder: true);
             Write("Library/2023/gone.jpg", placeholder: true);
 
-            CloudFilesSyncRootCleanup.Sweep(_root, IsUnmodifiedPlaceholder);
+            Sweep();
 
             Assert.True(File.Exists(keep));
             Assert.True(Directory.Exists(Path.Combine(_root, "Library", "2024")));
@@ -103,7 +110,8 @@ namespace Maple.WinUI.Tests
             // placeholder; when in doubt, keep it.
             var path = Write("Library/odd.jpg", placeholder: true);
 
-            var result = CloudFilesSyncRootCleanup.Sweep(_root, _ => throw new IOException("probe failed"));
+            var result = CloudFilesSyncRootCleanup.Sweep(
+                _root, new CleanupProbes(_ => throw new IOException("probe failed"), _ => false));
 
             Assert.True(File.Exists(path));
             Assert.Equal(1, result.Preserved);
@@ -128,7 +136,7 @@ namespace Maple.WinUI.Tests
             _placeholders.Add(Path.GetFullPath(Path.Combine(link, "theirs.jpg")));
             try
             {
-                var result = CloudFilesSyncRootCleanup.Sweep(_root, IsUnmodifiedPlaceholder);
+                var result = Sweep();
 
                 Assert.True(File.Exists(outsideFile));
                 Assert.True(Directory.Exists(link));
@@ -143,20 +151,82 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public void UnpopulatedPlaceholderDirectory_IsRemovedWithoutBeingEntered()
+        {
+            // Never opened in Explorer: nothing local beneath it, and
+            // enumerating it would cost a FETCH_PLACEHOLDERS round-trip.
+            var unopened = Path.Combine(_root, "Library", "2019");
+            Directory.CreateDirectory(unopened);
+            _unpopulatedDirectories.Add(Path.GetFullPath(unopened));
+
+            var result = Sweep();
+
+            Assert.False(Directory.Exists(unopened));
+            Assert.False(Directory.Exists(_root));
+            Assert.Equal(1, result.Removed);
+        }
+
+        [Fact]
+        public void ApprovedDirectoryThatStillHoldsLocalContent_FallsBackToTheWalk()
+        {
+            // The probe can be stale; a directory with anything inside
+            // cannot be removed outright, so it is swept item by item.
+            var keep = Write("Library/2019/mine.txt", placeholder: false);
+            _unpopulatedDirectories.Add(Path.GetFullPath(Path.Combine(_root, "Library", "2019")));
+
+            var result = Sweep();
+
+            Assert.True(File.Exists(keep));
+            Assert.Equal(1, result.Preserved);
+        }
+
+        [Fact]
+        public void DeleteFailure_KeepsTheItemAndTheSweepCarriesOn()
+        {
+            // A locked or protected placeholder must not abort the sweep —
+            // the caller unregisters afterwards whatever happened here.
+            var stuck = Write("Library/stuck.jpg", placeholder: true);
+            var other = Write("Library/other.jpg", placeholder: true);
+            var stuckDir = Path.GetDirectoryName(stuck)!;
+            File.SetAttributes(stuck, FileAttributes.ReadOnly);
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(stuckDir, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            try
+            {
+                var result = Sweep();
+
+                // Windows refuses the read-only file alone; Unix refuses
+                // both via the read-only parent. Either way: no throw, the
+                // stuck file stays, every item is accounted for.
+                Assert.True(File.Exists(stuck));
+                Assert.True(Directory.Exists(_root));
+                Assert.True(result.Preserved >= 1);
+                Assert.Equal(2, result.Removed + result.Preserved);
+                Assert.Equal(File.Exists(other), result.Removed == 0);
+            }
+            finally
+            {
+                if (!OperatingSystem.IsWindows())
+                    File.SetUnixFileMode(stuckDir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                File.SetAttributes(stuck, FileAttributes.Normal);
+            }
+        }
+
+        [Fact]
         public void MissingRoot_IsANoOp()
         {
-            var result = CloudFilesSyncRootCleanup.Sweep(_root, IsUnmodifiedPlaceholder);
+            var result = Sweep();
 
             Assert.Equal(0, result.Removed);
             Assert.Equal(0, result.Preserved);
         }
 
         [Fact]
-        public void Adoption_RefusesNonEmptyUnregisteredFolder()
+        public void Adoption_RefusesNonEmptyFolderThatIsNotMaplesSyncRoot()
         {
             Write("holiday.jpg", placeholder: false);
 
-            var refusal = CloudFilesSyncRootCleanup.AdoptionRefusal(_root, isRegisteredSyncRoot: false);
+            var refusal = CloudFilesSyncRootCleanup.AdoptionRefusal(_root, isMapleSyncRoot: false);
 
             Assert.NotNull(refusal);
             Assert.Contains("Maple Cloud", refusal);
@@ -165,13 +235,13 @@ namespace Maple.WinUI.Tests
         [Fact]
         public void Adoption_AcceptsMissingEmptyOrRegisteredFolder()
         {
-            Assert.Null(CloudFilesSyncRootCleanup.AdoptionRefusal(_root, isRegisteredSyncRoot: false));
+            Assert.Null(CloudFilesSyncRootCleanup.AdoptionRefusal(_root, isMapleSyncRoot: false));
 
             Directory.CreateDirectory(_root);
-            Assert.Null(CloudFilesSyncRootCleanup.AdoptionRefusal(_root, isRegisteredSyncRoot: false));
+            Assert.Null(CloudFilesSyncRootCleanup.AdoptionRefusal(_root, isMapleSyncRoot: false));
 
             Write("Library/cloud.jpg", placeholder: true);
-            Assert.Null(CloudFilesSyncRootCleanup.AdoptionRefusal(_root, isRegisteredSyncRoot: true));
+            Assert.Null(CloudFilesSyncRootCleanup.AdoptionRefusal(_root, isMapleSyncRoot: true));
         }
     }
 }
