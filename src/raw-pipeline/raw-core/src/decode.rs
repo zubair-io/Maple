@@ -233,9 +233,10 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     }
 
     // ── 4. Black / white levels ───────────────────────────────────────────
-    // DNG keys `BlackLevel` to the ActiveArea origin while rawler shifts the
-    // CFA to the sensor origin; RAF tables are already sensor-origin (#4730).
-    let black_table_origin = if ext.eq_ignore_ascii_case("dng") {
+    // DNG anchors `BlackLevel` at the ActiveArea origin while rawler's DNG
+    // decoder re-anchors only the CFA by `CFA::shift(left, top)`, which the
+    // X-Trans table keying undoes; RAF tables share the CFA origin (#4730).
+    let black_table_cfa_shift = if ext.eq_ignore_ascii_case("dng") {
         raw.active_area
             .as_ref()
             .map_or((0, 0), |area| (area.p.x as u32, area.p.y as u32))
@@ -248,7 +249,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         raw.blacklevel.width,
         raw.blacklevel.height,
         cfa,
-        black_table_origin,
+        black_table_cfa_shift,
     );
 
     let wl = raw.whitelevel.as_bayer_array();

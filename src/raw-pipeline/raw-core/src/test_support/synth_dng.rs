@@ -46,6 +46,10 @@ pub(crate) const TAG_LINEARIZATION_TABLE: u16 = 50712;
 // `pipeline::pano::opcodes` for the binary layout and the reader.
 pub(crate) const TAG_OPCODE_LIST_3: u16 = 51022;
 
+// DNG ActiveArea (tag 50829): [top, left, bottom, right]. CFAPattern and
+// BlackLevel are both anchored at its origin per the DNG spec.
+pub(crate) const TAG_ACTIVE_AREA: u16 = 50829;
+
 // CFA-photometric value
 const PHOTOMETRIC_CFA: u16 = 32803;
 
@@ -101,7 +105,7 @@ pub struct SyntheticGreyDng {
     pub encoded_value_override: Option<u16>,
     /// Raw big-endian `OpcodeList3` blob (tag 51022) — see
     /// [`fix_vignette_radial_opcode_list3`] to build one. No `ActiveArea`
-    /// tag is written by this struct, so the opcode's coordinate system
+    /// tag is written unless `active_area` is set, so the opcode's coordinate system
     /// always resolves to the full frame (`ActiveAreaRect::full`, DNG
     /// default — see `pipeline::pano::opcodes::read_opcode_list3`).
     pub opcode_list3: Option<Vec<u8>>,
@@ -115,6 +119,11 @@ pub struct SyntheticGreyDng {
     /// emits the table with a matching `BlackLevelRepeatDim` and the strip
     /// encodes `linear_value` above each site's own black (#4730).
     pub black_level_table: Option<Vec<u16>>,
+    /// DNG `ActiveArea` `[top, left, bottom, right]`. Rawler re-anchors the
+    /// decoded CFA to the sensor origin by `CFA::shift(left, top)` while the
+    /// `BlackLevel` table stays ActiveArea-relative, which is the case the
+    /// X-Trans black-table keying has to undo (#4730).
+    pub active_area: Option<[u16; 4]>,
 }
 
 impl Default for SyntheticGreyDng {
@@ -140,6 +149,7 @@ impl Default for SyntheticGreyDng {
             opcode_list3: None,
             black_level_repeat_dim: None,
             black_level_table: None,
+            active_area: None,
         }
     }
 }
@@ -319,6 +329,10 @@ impl SyntheticGreyDng {
             // `Value::Short(points)` and panics on any other type — so we
             // must use the SHORT path here, not BYTE / LONG.
             ifd.add_shorts(TAG_LINEARIZATION_TABLE, table.clone());
+        }
+
+        if let Some(area) = self.active_area {
+            ifd.add_shorts(TAG_ACTIVE_AREA, area.to_vec());
         }
 
         if let Some(blob) = &self.opcode_list3 {

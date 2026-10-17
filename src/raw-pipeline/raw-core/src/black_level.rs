@@ -16,16 +16,20 @@
 
 use crate::image::CfaPattern;
 
-/// `table_origin` is the sensor coordinate of the table's first cell —
-/// `(0, 0)` unless the container keys the table to a cropped origin (DNG
-/// keys `BlackLevel` to `ActiveArea`).
+/// `cfa_shift` is the `(left, top)` rawler applied to re-anchor the decoded
+/// CFA from the table's origin to the sensor origin — `(0, 0)` unless the
+/// container anchors both at a cropped origin (DNG anchors `CFAPattern` and
+/// `BlackLevel` at `ActiveArea`, and rawler's DNG decoder then applies
+/// `CFA::shift(left, top)`, i.e. `shifted(r, c) = original(r + top, c + left)`,
+/// to the CFA alone). The table cell `(row, col)` therefore belongs to
+/// `original(row, col) = shifted(row - top, col - left)`.
 pub fn reduce_black_levels(
     levels: &[f32],
     cpp: usize,
     width: usize,
     height: usize,
     cfa: CfaPattern,
-    table_origin: (u32, u32),
+    cfa_shift: (u32, u32),
 ) -> [u32; 4] {
     let site_count = width * height;
     if levels.is_empty() || levels.len() != site_count * cpp {
@@ -37,9 +41,10 @@ pub fn reduce_black_levels(
             per_colour([channel_mean(0), channel_mean(1), channel_mean(2)])
         }
         (CfaPattern::XTrans(_), 1, 6, 6) => {
+            let (unshift_x, unshift_y) = (6 - cfa_shift.0 % 6, 6 - cfa_shift.1 % 6);
             let colour_of = |i: usize| {
                 let (row, col) = ((i / 6) as u32, (i % 6) as u32);
-                cfa.color_at(table_origin.0 + col, table_origin.1 + row) as usize
+                cfa.color_at((col + unshift_x) % 6, (row + unshift_y) % 6) as usize
             };
             let colour_mean = |c: usize| {
                 mean(
@@ -155,18 +160,30 @@ mod tests {
     }
 
     #[test]
-    fn xtrans_table_origin_shifts_the_colour_keying() {
-        let shifted = CfaPattern::XTrans(XTRANS_PATTERN);
-        let levels: Vec<f32> = (0..36)
-            .map(|i| {
-                let (row, col) = ((i / 6) as u32, (i % 6) as u32);
-                [1000.0, 1100.0, 1200.0][shifted.color_at(col + 2, row + 1) as usize]
-            })
-            .collect();
-        assert_eq!(
-            reduce_black_levels(&levels, 1, 6, 6, shifted, (2, 1)),
-            [1000, 1100, 1200, 1200]
-        );
+    /// The table is built from the ORIGINAL (ActiveArea-anchored) pattern and
+    /// the CFA handed in is rawler's shifted copy, `shifted(r, c) =
+    /// original(r + top, c + left)` — independently of the lookup under test,
+    /// so a keying that adds the shift instead of undoing it fails here.
+    #[test]
+    fn xtrans_keying_undoes_rawler_cfa_shift() {
+        for (left, top) in [(1u32, 0u32), (2, 1), (5, 4)] {
+            let levels: Vec<f32> = XTRANS_PATTERN
+                .iter()
+                .map(|&c| [1000.0, 1100.0, 1200.0][c as usize])
+                .collect();
+            let mut shifted = [0u8; 36];
+            for row in 0..6 {
+                for col in 0..6 {
+                    shifted[row * 6 + col] =
+                        XTRANS_PATTERN[((row + top as usize) % 6) * 6 + (col + left as usize) % 6];
+                }
+            }
+            assert_eq!(
+                reduce_black_levels(&levels, 1, 6, 6, CfaPattern::XTrans(shifted), (left, top)),
+                [1000, 1100, 1200, 1200],
+                "shift ({left}, {top})"
+            );
+        }
     }
 
     #[test]
