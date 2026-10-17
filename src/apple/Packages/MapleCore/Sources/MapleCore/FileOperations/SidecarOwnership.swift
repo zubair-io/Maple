@@ -10,13 +10,29 @@ import Foundation
 
 enum SidecarOwnership {
 
-  /// Lowercased, NFC-normalised sidecar stem: the full name for a video
-  /// (full-name sidecars, `clip.mov.xmp`), the name minus its extension for
-  /// everything else.
-  static func stem(of filename: String) -> String {
+  /// NFC-normalised sidecar stem: the full name for a video (full-name
+  /// sidecars, `clip.mov.xmp`), the name minus its extension for everything
+  /// else. Lowercased only where the volume folds case: on a case-sensitive
+  /// one `IMG.CR3` and `img.JPG` read different sidecars.
+  static func stem(of filename: String, foldsCase: Bool = true) -> String {
     let url = URL(fileURLWithPath: filename)
     let base = SidecarPath.isVideo(url) ? filename : url.deletingPathExtension().lastPathComponent
-    return base.precomposedStringWithCanonicalMapping.lowercased()
+    let normalized = base.precomposedStringWithCanonicalMapping
+    return foldsCase ? normalized.lowercased() : normalized
+  }
+
+  /// An in-flight staging copy (`<name>.tmp.<pid>-<hex>` from the Apple
+  /// engines, `.tmp.<pid>-<hex>` / `.tmp.<pid>.<hex>` from the API) is not a
+  /// sibling photo. A real name such as `IMG.tmp.JPG` is.
+  static func isStagingName(_ name: String) -> Bool {
+    name.range(of: #"\.tmp\.[0-9]+[-.][0-9A-Fa-f]+$"#, options: .regularExpression) != nil
+  }
+
+  /// Whether names on `directory`'s volume compare case-insensitively. An
+  /// unknown answer counts as folding: the over-inclusive side of the rule.
+  static func localVolumeFoldsCase(_ directory: URL) -> Bool {
+    let values = try? directory.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])
+    return values?.volumeSupportsCaseSensitiveNames.map { !$0 } ?? true
   }
 
   /// True when a file named in `siblingNames` (the non-directory entries of
@@ -25,32 +41,36 @@ enum SidecarOwnership {
   /// harmless duplicate sidecar behind, a false negative carries away another
   /// photo's edits.
   static func stemClaimedBySibling(
-    primaryPath: String, siblingNames: [String], excluding: [String] = []
+    primaryPath: String, siblingNames: [String], excluding: [String] = [], foldsCase: Bool = true
   ) -> Bool {
     let dir = (primaryPath as NSString).deletingLastPathComponent
     let skipped = Set(([primaryPath] + excluding).map(exact))
-    let primaryStem = stem(of: (primaryPath as NSString).lastPathComponent)
+    let primaryStem = stem(of: (primaryPath as NSString).lastPathComponent, foldsCase: foldsCase)
     return siblingNames.contains { name in
-      !name.hasPrefix(".") && !name.contains(".tmp.")
+      !name.hasPrefix(".") && !isStagingName(name)
         && (name as NSString).pathExtension.lowercased() != "xmp"
         && !skipped.contains(exact((dir as NSString).appendingPathComponent(name)))
-        && stem(of: name) == primaryStem
+        && stem(of: name, foldsCase: foldsCase) == primaryStem
     }
   }
 
   /// An unlistable folder counts as claimed: copying is always safe, taking is not.
   static func localStemClaimedBySibling(_ primaryURL: URL, excluding: [URL] = []) -> Bool {
+    let directory = primaryURL.deletingLastPathComponent()
     guard
       let entries = try? FileManager.default.contentsOfDirectory(
-        at: primaryURL.deletingLastPathComponent(), includingPropertiesForKeys: [.isDirectoryKey])
+        at: directory, includingPropertiesForKeys: [.isDirectoryKey])
     else { return true }
     let names = entries.filter {
       (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true
     }.map(\.lastPathComponent)
     return stemClaimedBySibling(
-      primaryPath: primaryURL.path, siblingNames: names, excluding: excluding.map(\.path))
+      primaryPath: primaryURL.path, siblingNames: names, excluding: excluding.map(\.path),
+      foldsCase: localVolumeFoldsCase(directory))
   }
 
+  /// The SMB transport reports no per-share case sensitivity, so stems fold
+  /// case here — the over-inclusive side, matching SMB's usual semantics.
   static func smbStemClaimedBySibling(
     _ primaryPath: String, excluding: [String] = [], transport: SMBFileTransport
   ) async -> Bool {
