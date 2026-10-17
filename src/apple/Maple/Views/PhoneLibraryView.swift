@@ -159,6 +159,7 @@
                 Task { await onPrimeSession(sibling) }
                 libraryPath = LibraryDestination.replacingAsset(in: libraryPath, with: sibling)
               },
+              onPrimeSession: onPrimeSession,
               sessions: $sessions
             )
             .id(ref.id)
