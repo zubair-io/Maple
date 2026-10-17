@@ -12,7 +12,7 @@ import type { ObjectId } from '../../db/object-id.ts';
 import { listRecordedInDirectory } from '../../db/repos/assets.discover.sweep.ts';
 import * as fs from '../../fs/mirrored.ts';
 import { classifySameFile } from '../../fs/relocate-case-only-rename.ts';
-import { isWithinRoot, resolveRealPath, safeWriteAllowed } from '../../fs/root.ts';
+import { isWithinRoot, resolveRealPath } from '../../fs/root.ts';
 import {
   serializeSidecarWrite,
   SidecarWritePathDeniedError,
@@ -38,6 +38,10 @@ function isErrno(err: unknown, code: string): boolean {
  * when the destination file does not exist yet, and rejecting dangling symlinks). */
 async function resolveCanonicalSidecarPath(sidecarPath: string): Promise<string> {
   const lexical = path.resolve(sidecarPath);
+  const name = path.basename(lexical);
+  if (name === '.' || name === '..') {
+    throw new SidecarWritePathDeniedError('Sidecar destination must name a file');
+  }
   try {
     return await resolveRealPath(lexical);
   } catch (err) {
@@ -50,22 +54,23 @@ async function resolveCanonicalSidecarPath(sidecarPath: string): Promise<string>
       throw new SidecarWritePathDeniedError(`Dangling symlink sidecar path denied: "${lexical}"`);
     }
     const parent = await resolveRealPath(path.dirname(lexical));
-    return path.join(parent, path.basename(lexical));
+    return path.join(parent, name);
   }
 }
 
 async function authorizeSidecarWrite(sidecarPath: string, root: string): Promise<string> {
-  const allowed = await safeWriteAllowed(sidecarPath);
-  if (!allowed.ok || !allowed.data) {
-    throw new SidecarWritePathDeniedError(allowed.error ?? 'Sidecar write path not allowed');
-  }
   const [canonicalPath, canonicalRoot] = await Promise.all([
-    resolveCanonicalSidecarPath(allowed.data),
+    resolveCanonicalSidecarPath(sidecarPath),
     resolveRealPath(path.resolve(root)).catch(() => path.resolve(root)),
   ]);
   if (!isWithinRoot(canonicalRoot, canonicalPath)) {
     throw new SidecarWritePathDeniedError(
       `Sidecar path "${canonicalPath}" escapes library root "${canonicalRoot}"`,
+    );
+  }
+  if (path.extname(canonicalPath).toLowerCase() !== '.xmp') {
+    throw new SidecarWritePathDeniedError(
+      `Sidecar path "${canonicalPath}" must resolve to an .xmp file`,
     );
   }
   return canonicalPath;
@@ -91,23 +96,36 @@ async function withBothSidecarWriteLocks<T>(
   const oldKey = comparablePath(canonicalOld);
   const newKey = comparablePath(canonicalNew);
   if (oldKey === newKey) {
-    return serializeSidecarWrite(canonicalOld, (resolved) => fn(resolved, canonicalNew), {
-      admissionScope: root,
-      resolveDestination: () => authorizeSidecarRead(canonicalOld, root),
-    });
+    return serializeSidecarWrite(
+      canonicalOld,
+      async (resolvedOld) => {
+        const resolvedNew = await authorizeSidecarWrite(newSidecar, root);
+        return fn(resolvedOld, resolvedNew);
+      },
+      {
+        admissionScope: root,
+        resolveDestination: () => authorizeSidecarRead(oldSidecar, root),
+      },
+    );
   }
-  const [first, second] =
-    oldKey < newKey ? [canonicalOld, canonicalNew] : [canonicalNew, canonicalOld];
+  const oldFirst = oldKey < newKey;
+  const [first, second] = oldFirst ? [canonicalOld, canonicalNew] : [canonicalNew, canonicalOld];
+  const [rawFirst, rawSecond] = oldFirst ? [oldSidecar, newSidecar] : [newSidecar, oldSidecar];
   return serializeSidecarWrite(
     first,
-    () =>
-      serializeSidecarWrite(second, () => fn(canonicalOld, canonicalNew), {
-        admissionScope: root,
-        resolveDestination: () => authorizeSidecarWrite(second, root),
-      }),
+    (resolvedFirst) =>
+      serializeSidecarWrite(
+        second,
+        (resolvedSecond) =>
+          oldFirst ? fn(resolvedFirst, resolvedSecond) : fn(resolvedSecond, resolvedFirst),
+        {
+          admissionScope: root,
+          resolveDestination: () => authorizeSidecarWrite(rawSecond, root),
+        },
+      ),
     {
       admissionScope: root,
-      resolveDestination: () => authorizeSidecarWrite(first, root),
+      resolveDestination: () => authorizeSidecarWrite(rawFirst, root),
     },
   );
 }
@@ -233,8 +251,8 @@ async function publishSidecarExclusive(
     return result;
   }
   const tmp = `${authorizedDst}.tmp.${process.pid}-${crypto.randomUUID()}`;
-  await fs.copyFile(authorizedSrc, tmp);
   try {
+    await fs.copyFile(authorizedSrc, tmp);
     return await linkExclusive(tmp, authorizedDst);
   } finally {
     await fs.unlink(tmp).catch(() => {});
@@ -279,13 +297,7 @@ export async function moveSidecarIfPresent(
         const classification = await classifySameFile(resolvedOld, resolvedNew);
         if (classification === 'identical') return true;
         if (classification === 'case-only-rename') {
-          if (!keepSource) {
-            const [src, dst] = await Promise.all([
-              authorizeSidecarRead(resolvedOld, root),
-              authorizeSidecarWrite(resolvedNew, root),
-            ]);
-            await fs.rename(src, dst);
-          }
+          if (!keepSource) await fs.rename(resolvedOld, resolvedNew);
           return true;
         }
 

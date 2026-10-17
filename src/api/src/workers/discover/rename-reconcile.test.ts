@@ -502,9 +502,10 @@ describe('rename reconciliation (#2655)', () => {
       library.folderId,
     );
 
-    while (onlyLocation(library, docId).filename !== 'new-lock.dng') {
+    for (let i = 0; i < 200 && onlyLocation(library, docId).filename !== 'new-lock.dng'; i++) {
       await new Promise((r) => setTimeout(r, 5));
     }
+    await new Promise((r) => setTimeout(r, 10));
 
     sourceGate.resolve();
     await inFlightSource;
