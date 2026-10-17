@@ -69,6 +69,42 @@ justify camera-specific constants. A replacement still needs a validated
 population-based model, CPU/GPU parity, frame-time qualification and the full
 physical corpus at unchanged numerical limits. Auto remains the default.
 
+## Hold the population fixed; change its arrangement
+
+Three further charts preserve the full input histogram and central ramp exactly.
+The surrounding population is half 0.005 and half 0.7. Bright samples occupy
+the nearest half of the surround, the farthest half, or a one-pixel checkerboard.
+All nine Adobe renders pass settings and source-integrity checks.
+
+Moving the bright population from near to far leaves baseline interior pixels
+identical and changes either contrast extreme by at most one code value.
+The checkerboard also has identical baseline interior pixels, but changes
+minimum/maximum contrast by up to 13/18 values. An unsmoothed histogram alone
+therefore does not explain the response.
+
+Eight additional charts vary checker block size and phase while retaining the
+same input histogram and ramp. All 24 Adobe renders pass settings verification.
+
+| Checker arrangement              | Minimum-contrast crossing | Maximum-contrast crossing |
+| -------------------------------- | ------------------------: | ------------------------: |
+| One pixel, either phase          |                   0.61961 |                   0.61569 |
+| Two pixels                       |                   0.61961 |                   0.61569 |
+| Four, eight, 16, 32 or 64 pixels |                   0.50588 |                   0.50980 |
+
+The one-pixel phase reversal and two-pixel pattern produce identical interior
+pixels for all three contrast settings. Four-pixel and larger blocks differ
+from the one-pixel control by at most one baseline code value, versus 14/20
+at minimum/maximum contrast. This supports investigating spatial reduction
+before population measurement; it does not establish a reduction kernel or
+justify adding a local contrast filter. Native resolution and offset controls
+are still needed before choosing a model.
+
+The replayable analysis reproduces the original output hashes and interior
+pixel comparisons exactly. Its equivalent float64 luma reduction differs from
+the initial calculation by at most `2.22e-16`. Two-parameter logit fits are
+retained as diagnostics only: their errors reach 11.41 code values, so they
+are not accepted as a rendering model.
+
 The first chart attempt omitted `NewSubFileType` and produced zero renders.
 The DNG SDK rejects that missing tag in `dng_ifd::IsValidDNG`; adding the explicit
 main-image value zero fixes the generated format without changing its samples.
@@ -86,6 +122,8 @@ The evidence root is `/Volumes/Projects/maple-color-gate-20261015/`:
 - `contrast-context-chart/`: rejected first format attempt; no color evidence.
 - `contrast-context-chart-v2/`: corrected DNGs, source generator, sidecars,
   Adobe driver, metadata checks, output hashes and per-column responses.
+- `contrast-context-layout/`: identical-population near/far/checker controls.
+- `contrast-context-frequency/`: checker frequency and phase controls.
 
 These controls clear zero canonical physical failures. They narrow the next
 implementation work; the broader color gate remains incomplete.
