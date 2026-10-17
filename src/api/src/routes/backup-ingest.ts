@@ -128,7 +128,11 @@ async function placeUploadOnDisk(args: {
     if (!claimedByOther && (await filesIdentical(finalPath, args.tmpFile))) {
       await removeTmpQuietly(args.tmpFile);
       log.debug(
-        { phid: args.phid, mapleId: args.mapleId, targetRelPath: resolvedRelPath },
+        {
+          phid: args.phid,
+          mapleId: args.mapleId,
+          targetRelPath: resolvedRelPath,
+        },
         'ingest recovery (matching bytes already on disk) — adopting',
       );
       return { relPath: resolvedRelPath };
@@ -215,7 +219,12 @@ export const backupIngestRoutes = new Elysia().post(
     // Compute the destination relative path.
     let targetRelPath: string;
     try {
-      targetRelPath = formatBackupPath({ captureDate, location, filename, isScreenshot });
+      targetRelPath = formatBackupPath({
+        captureDate,
+        location,
+        filename,
+        isScreenshot,
+      });
     } catch (e: any) {
       set.status = 400;
       return { error: e?.message ?? 'invalid filename' };
@@ -251,6 +260,10 @@ export const backupIngestRoutes = new Elysia().post(
             phassetLocalId: phid,
           })
         : null;
+      if (completedTarget?.purgeAdmitted) {
+        set.status = 409;
+        return { error: 'asset has a durable purge intent' };
+      }
       const completedRelPath = completedTarget?.liveRelPathInLibrary;
       const stillPresent =
         completedRelPath != null && (await hasFileOnDisk(folder.path, completedRelPath));
@@ -323,6 +336,12 @@ export const backupIngestRoutes = new Elysia().post(
     };
 
     if (existing) {
+      if (existing.purgeAdmitted) {
+        await removeTmpQuietly(tmpFile);
+        await uploadSessions.resetForRestart(session._id);
+        set.status = 409;
+        return { error: 'asset has a durable purge intent' };
+      }
       // Same content already stored somewhere. Whether we can pure-dedup
       // (no second copy on disk) depends on which library that copy lives in
       // and whether the file is actually still on disk (#4700).
@@ -402,6 +421,7 @@ export const backupIngestRoutes = new Elysia().post(
         libraryId,
         link: existing.alreadyLinked ? null : link,
         ownerId,
+        replacedRelPath: liveRelPath ?? existing.missingRelPathInLibrary,
       });
 
       await uploadSessions.complete({
