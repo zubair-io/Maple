@@ -150,7 +150,9 @@
 /// - 26 — external film LUTs cannot contaminate the RAW-keyed Auto fit (#4640).
 /// - 27 — common AgX highlights roll toward the neutral shoulder while
 ///   retaining the ratio response below diffuse white (#4635).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 27;
+/// - 28 — Robertson inverse tint measures displacement from the interpolated
+///   locus, correcting legacy white-balance sidecar normalization (#4630).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 28;
 
 #[cfg(test)]
 mod tests {
