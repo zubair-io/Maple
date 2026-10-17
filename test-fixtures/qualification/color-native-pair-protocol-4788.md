@@ -71,6 +71,14 @@ of native/preferred metadata has been established. The test helper imports
 the authoring tool once. Review/merge-policy wording has been replaced with
 factual qualification results and remaining integration state.
 
+All three physical controls were replayed at
+`9de6cb0d43d9bf95d4613b98b433a193f937f8e6` after this update. Every metric is
+exactly equal to the previous qualified run: 10,668,000 pixels for each reduced
+control and 100,663,296 for full detail. All 15 physical input hashes and the
+comparator source hashes remain unchanged during the replay. Code generation
+and its repeat produce no drift. The new artifacts use `review-cleanup-*` in
+the evidence directory.
+
 - Main `d0689ff4cea06b320910cc703a90fd8241c24808` rejects the new protocol
   argument. The saved before-control records that failure.
 - All **15 comparator tests** pass, including explicit opt-in, unchanged
