@@ -60,8 +60,7 @@ ml-static = ["dep:ort", "ort/std", "dep:sha2", "dep:toml"]
 # keypoints + gradient-histogram descriptors + ratio-test matching, pure
 # CPU, no ONNX Runtime. Builds the full stitch pipeline without `ort`;
 # alongside `ml` it is selectable per run via `StitchOptions::feature_engine`.
-# `sha2` is the stitch sidecar's filename-hash key (`stitch/io.rs`), not ML.
-classical-features = ["dep:sha2"]
+classical-features = []
 
 [[bin]]
 name = "pano-gt-render"
