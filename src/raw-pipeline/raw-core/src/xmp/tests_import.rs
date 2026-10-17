@@ -157,3 +157,57 @@ fn malformed_opaque_xml_is_rejected_without_importing_partial_adjustments() {
         );
     }
 }
+
+const SPATIAL_RADIAL: &str =
+    include_str!("../../../../../test-fixtures/local-adjustments/spatial-radial.xmp");
+
+#[test]
+fn foreign_mask_component_drops_the_group_in_both_readers() {
+    let xml =
+        include_str!("../../../../../test-fixtures/local-adjustments/lightroom-group-subtract.xmp")
+            .replacen(
+                "<rdf:li\n         crs:What=\"Mask/Gradient\"",
+                "<f:li xmlns:f=\"urn:foreign\"\n         crs:What=\"Mask/Gradient\"",
+                1,
+            );
+    assert!(xml.contains("<f:li"));
+    let expected = parse(&xml).unwrap();
+    assert!(expected.local_adjustments.is_empty());
+    assert_eq!(parse_namespaced(&xml).unwrap(), expected);
+    assert_eq!(parse_namespaced(&aliases(&xml)).unwrap(), expected);
+}
+
+#[test]
+fn foreign_mask_component_attributes_and_children_stay_opaque() {
+    let expected = parse(SPATIAL_RADIAL).unwrap();
+    assert_eq!(expected.local_adjustments.len(), 1);
+    let with_foreign_sibling = SPATIAL_RADIAL.replacen(
+        "</rdf:Seq>",
+        r#"<f:li xmlns:f="urn:foreign" crs:What="Mask/CircularGradient" crs:MaskValue="1" crs:LocalExposure2012="4"><rdf:Description crs:Exposure2012="-4" crs:LocalExposure2012="4"/>text</f:li></rdf:Seq>"#,
+        1,
+    );
+    assert!(with_foreign_sibling.contains("<f:li"));
+    assert_eq!(parse(&with_foreign_sibling).unwrap(), expected);
+    assert_eq!(parse_namespaced(&with_foreign_sibling).unwrap(), expected);
+}
+
+#[test]
+fn legacy_maple_namespace_uri_owns_local_attributes_in_both_readers() {
+    let vibrant = SPATIAL_RADIAL.replacen(
+        r#"crs:LocalExposure2012="0.35""#,
+        r#"crs:LocalExposure2012="0.35" papp:LocalVibrance="-10""#,
+        1,
+    );
+    let expected = parse(&vibrant).unwrap();
+    assert_eq!(
+        expected.local_adjustments[0].adjustments.vibrance,
+        Some(-10.0)
+    );
+    let legacy = vibrant.replace(
+        r#"xmlns:papp="http://ns.justmaple.app/1.0/""#,
+        r#"xmlns:papp="https://maple.app/ns/1.0/""#,
+    );
+    assert_ne!(legacy, vibrant);
+    assert_eq!(parse(&legacy).unwrap(), expected);
+    assert_eq!(parse_namespaced(&legacy).unwrap(), expected);
+}

@@ -22,14 +22,16 @@ fn prefix(uri: &[u8]) -> Option<&'static str> {
     }
 }
 
-fn canonical_name(resolved: ResolveResult<'_>, local: LocalName<'_>) -> Result<Option<String>> {
+fn prefixed_name(prefix: &str, local: &LocalName<'_>) -> Result<String> {
+    std::str::from_utf8(local.as_ref())
+        .map(|local| format!("{prefix}:{local}"))
+        .map_err(|error| Error::Xmp(error.to_string()))
+}
+
+fn canonical_name(resolved: ResolveResult<'_>, local: &LocalName<'_>) -> Result<Option<String>> {
     match resolved {
         ResolveResult::Bound(uri) => prefix(uri.as_ref())
-            .map(|prefix| {
-                std::str::from_utf8(local.as_ref())
-                    .map(|local| format!("{prefix}:{local}"))
-                    .map_err(|error| Error::Xmp(error.to_string()))
-            })
+            .map(|prefix| prefixed_name(prefix, local))
             .transpose(),
         ResolveResult::Unbound => Ok(None),
         ResolveResult::Unknown(_) => Err(Error::Xmp("Undeclared XML namespace prefix".into())),
@@ -68,6 +70,7 @@ enum Scope {
     Outside,
     Description,
     Develop,
+    Unowned,
     Opaque,
 }
 struct Frame {
@@ -104,32 +107,46 @@ impl<'a> Import<'a> {
             }
         }
         let (resolved, local) = self.reader.resolve_element(source.name());
-        let name = canonical_name(resolved, local)?;
+        let foreign = matches!(resolved, ResolveResult::Bound(_));
+        let owned_name = canonical_name(resolved, &local)?;
         let parent = self.frames.last();
         let parent_scope = parent.map_or(Scope::Outside, |frame| frame.scope);
-        let description = name.as_deref() == Some("rdf:Description")
+        let description = owned_name.as_deref() == Some("rdf:Description")
             && parent_scope != Scope::Opaque
             && parent.is_none_or(|frame| frame.name.as_deref() == Some("rdf:RDF"));
-        let scope = if parent_scope == Scope::Opaque {
+        let in_mask_list = self
+            .frames
+            .iter()
+            .any(|frame| frame.name.as_deref() == Some("crs:CorrectionMasks"));
+        let scope = if matches!(parent_scope, Scope::Opaque | Scope::Unowned) {
             Scope::Opaque
         } else if description {
             Scope::Description
         } else if parent_scope == Scope::Description {
-            if name.as_deref().is_some_and(container) {
+            if owned_name.as_deref().is_some_and(container) {
                 Scope::Develop
             } else {
                 Scope::Opaque
             }
         } else if parent_scope == Scope::Develop {
-            if name.is_some() && name.as_deref() != Some("papp:Workflow") {
+            if owned_name.is_some() && owned_name.as_deref() != Some("papp:Workflow") {
                 Scope::Develop
+            } else if owned_name.is_none() && foreign && in_mask_list {
+                // The walker drops a mask group on `unowned:li`, exactly as the
+                // fragment reader surfaces a foreign component (#4691).
+                Scope::Unowned
             } else {
                 Scope::Opaque
             }
         } else {
             Scope::Outside
         };
-        let emit = matches!(scope, Scope::Description | Scope::Develop);
+        let name = if scope == Scope::Unowned {
+            Some(prefixed_name("unowned", &local)?)
+        } else {
+            owned_name
+        };
+        let emit = matches!(scope, Scope::Description | Scope::Develop | Scope::Unowned);
         let mut normalized = BytesStart::new(name.clone().unwrap_or_default());
         if scope == Scope::Description
             && self
@@ -153,9 +170,14 @@ impl<'a> Import<'a> {
                 continue;
             }
             let (resolved, local) = self.reader.resolve_attribute(attribute.key);
-            if let Some(key) = canonical_name(resolved, local)? {
+            if let Some(key) = canonical_name(resolved, &local)? {
                 let owned = key.starts_with("crs:") || key.starts_with("papp:");
-                if emit && owned && (scope == Scope::Develop || flat_key(&key)) {
+                let applies = match scope {
+                    Scope::Develop => true,
+                    Scope::Description => flat_key(&key),
+                    Scope::Outside | Scope::Unowned | Scope::Opaque => false,
+                };
+                if owned && applies {
                     // Values remain escaped and borrowed until this small element
                     // is consumed. Opaque metadata never becomes a duplicate string.
                     normalized.push_attribute((key.as_bytes(), attribute.value.as_ref()));
@@ -198,7 +220,10 @@ impl<'a> Import<'a> {
                         .frames
                         .pop()
                         .ok_or_else(|| Error::Xmp("Unexpected XML close".into()))?;
-                    if matches!(frame.scope, Scope::Description | Scope::Develop) {
+                    if matches!(
+                        frame.scope,
+                        Scope::Description | Scope::Develop | Scope::Unowned
+                    ) {
                         return Ok(Some(Event::End(BytesEnd::new(frame.name.unwrap()))));
                     }
                 }
