@@ -644,37 +644,47 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // Stream the raw bytes of a file addressed by its library-relative path.
   // Used by the File Provider to materialize non-indexed files (which have
   // no AssetDoc, so the `/api/assets/:id/raw` route can't reach them).
-  .get('/:id/file', async ({ params, query }) => {
-    const file = await folderFileOrError(params.id, query.path);
-    if (file instanceof Response) return file;
-    const { real, stat: st } = file;
-    return new Response(Bun.file(real).stream(), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'Content-Length': String(st.size),
-        'Last-Modified': new Date(st.mtimeMs).toUTCString(),
-      },
-    });
-  })
+  // File-access gated (#4746): streams any library file by path.
+  .get(
+    '/:id/file',
+    async ({ params, query }) => {
+      const file = await folderFileOrError(params.id, query.path);
+      if (file instanceof Response) return file;
+      const { real, stat: st } = file;
+      return new Response(Bun.file(real).stream(), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(st.size),
+          'Last-Modified': new Date(st.mtimeMs).toUTCString(),
+        },
+      });
+    },
+    { beforeHandle: requireFileAccessBeforeHandle },
+  )
 
   // Stat a file addressed by its library-relative path. Lets the File
   // Provider resolve a bare `.file(folderID, relativePath)` identifier to an
   // item (size + mtime) without downloading the bytes.
-  .get('/:id/file-meta', async ({ params, query }) => {
-    const file = await folderFileOrError(params.id, query.path);
-    if (file instanceof Response) return file;
-    const { real, stat: st } = file;
-    const name = nodePath.basename(real);
-    const dot = name.lastIndexOf('.');
-    return {
-      name,
-      path: real,
-      size: st.size,
-      mtime: new Date(st.mtimeMs).toISOString(),
-      ext: dot >= 0 ? name.slice(dot + 1).toLowerCase() : '',
-    };
-  })
+  // File-access gated (#4746): returns the absolute server path.
+  .get(
+    '/:id/file-meta',
+    async ({ params, query }) => {
+      const file = await folderFileOrError(params.id, query.path);
+      if (file instanceof Response) return file;
+      const { real, stat: st } = file;
+      const name = nodePath.basename(real);
+      const dot = name.lastIndexOf('.');
+      return {
+        name,
+        path: real,
+        size: st.size,
+        mtime: new Date(st.mtimeMs).toISOString(),
+        ext: dot >= 0 ? name.slice(dot + 1).toLowerCase() : '',
+      };
+    },
+    { beforeHandle: requireFileAccessBeforeHandle },
+  )
 
   // Create a subdirectory under a library root. Target path in the
   // `X-Maple-Target-Path` header (URL-encoded), same validation rules
