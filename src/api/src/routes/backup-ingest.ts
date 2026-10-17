@@ -138,7 +138,21 @@ export const backupIngestRoutes = new Elysia().post(
     // the same bytes is wasted work, and the client's downstream steps
     // (sidecar PUT, rendered POST) only need `maple_id` + `target_rel_path`
     // to proceed. Skip chunk processing entirely.
-    if (alreadyComplete) {
+    const completedPath = containedJoin(
+      folder.path,
+      session.resolved_rel_path ?? session.target_rel_path,
+    );
+    const completedCopyPresent =
+      alreadyComplete && completedPath !== null
+        ? await fs
+            .stat(completedPath)
+            .then((stat) => stat.isFile())
+            .catch((e) => {
+              if (e?.code === 'ENOENT') return false;
+              throw e;
+            })
+        : false;
+    if (alreadyComplete && completedCopyPresent) {
       log.debug(
         {
           phid,
@@ -158,6 +172,8 @@ export const backupIngestRoutes = new Elysia().post(
       };
     }
 
+    if (alreadyComplete) await uploadSessions.resetForRestart(session._id);
+
     // Use the stored target_rel_path as the source of truth (not the freshly
     // computed value) — prevents a client from redirecting an in-progress
     // upload by sending different metadata on resume. May be reassigned below
@@ -165,8 +181,8 @@ export const backupIngestRoutes = new Elysia().post(
     let resolvedTargetRelPath = session.target_rel_path;
 
     const chunkResult = await takeChunk({
-      session,
-      didReset,
+      session: alreadyComplete ? { ...session, received_bytes: 0 } : session,
+      didReset: didReset || alreadyComplete,
       start,
       end,
       rangeTotal,
@@ -214,7 +230,19 @@ export const backupIngestRoutes = new Elysia().post(
       // referencing Y.
       const liveRelPath = existing.liveRelPathInLibrary;
 
-      if (liveRelPath !== null) {
+      const livePath = liveRelPath === null ? null : containedJoin(folder.path, liveRelPath);
+      const liveCopyPresent =
+        livePath !== null
+          ? await fs
+              .stat(livePath)
+              .then((stat) => stat.isFile())
+              .catch((e) => {
+                if (e?.code === 'ENOENT') return false;
+                throw e;
+              })
+          : false;
+
+      if (liveRelPath !== null && liveCopyPresent) {
         // Content already on disk in THIS library — true dedup. Drop the tmp
         // bytes; the canonical copy already lives at this library's location.
         // Linking this device to the existing row is idempotent on retry.
@@ -247,7 +275,27 @@ export const backupIngestRoutes = new Elysia().post(
         };
       }
 
-      // Content exists, but NOT in this library — materialize a copy here so
+      // Restore the existing location, even if the device's current layout
+      // computes a different path. Otherwise materialize a cross-library copy.
+      const restoreRelPath = liveRelPath ?? existing.missingRelPathInLibrary;
+      resolvedTargetRelPath = restoreRelPath ?? resolvedTargetRelPath;
+      const restorePath =
+        restoreRelPath === null ? null : containedJoin(folder.path, restoreRelPath);
+      if (restoreRelPath !== null && restorePath !== null) {
+        try {
+          await fs.stat(restorePath);
+          if (!(await filesIdentical(restorePath, tmpFile))) {
+            // A different original may now occupy the lost copy's old path.
+            // Preserve it and materialize this upload at a free sibling.
+            resolvedTargetRelPath = (await firstFreeSiblingPath(folder.path, restoreRelPath))
+              .relPath;
+          }
+        } catch (e: unknown) {
+          if ((e as NodeJS.ErrnoException)?.code !== 'ENOENT') throw e;
+        }
+      }
+
+      // Content exists, but this library has no usable copy — materialize it so
       // this library gets its own location (and the folder-scoped sidecar /
       // rendered lookups succeed). We still avoid re-deriving the id or
       // re-running enrichment: this is the same content-addressed row, we only
@@ -269,12 +317,23 @@ export const backupIngestRoutes = new Elysia().post(
       try {
         const destStat = await fs.stat(finalPath);
         const tmpStat = await fs.stat(tmpFile);
-        needMove = destStat.size !== tmpStat.size;
+        needMove =
+          restoreRelPath === null
+            ? destStat.size !== tmpStat.size
+            : !(await filesIdentical(finalPath, tmpFile));
       } catch (e: any) {
         if (e?.code !== 'ENOENT') throw e;
       }
       if (needMove) {
-        await atomicMove(tmpFile, finalPath);
+        if (restoreRelPath === null) {
+          await atomicMove(tmpFile, finalPath);
+        } else if (!(await moveNoClobber(tmpFile, finalPath))) {
+          // Another writer claimed the repair path after our collision check.
+          await fs.unlink(tmpFile);
+          await uploadSessions.resetForRestart(session._id);
+          set.status = 409;
+          return { error: 'repair path became occupied — restart required', expected_offset: 0 };
+        }
       } else {
         try {
           await fs.unlink(tmpFile);

@@ -135,7 +135,8 @@ export const uploadSessions = {
   async resetForRestart(sessionId: ObjectId, dbOverride?: SqliteDb): Promise<void> {
     const [updatedAt, expiresAt] = stamps();
     await sqliteDb(dbOverride).write(
-      `UPDATE upload_sessions SET received_bytes = 0, updated_at = ?, expires_at = ?
+      `UPDATE upload_sessions SET state = 'open', received_bytes = 0,
+          maple_id = NULL, resolved_rel_path = NULL, updated_at = ?, expires_at = ?
         WHERE id = ?`,
       [updatedAt, expiresAt, toHex(sessionId)],
     );

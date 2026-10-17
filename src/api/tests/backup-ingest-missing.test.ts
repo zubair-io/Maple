@@ -1,0 +1,115 @@
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { authedHandle } from './helpers/authed-handle.ts';
+import { readLocations, seedBackupAsset } from './helpers/sqlite-fixtures.ts';
+import { makeIngestRequest, setupBackupIngestSuite } from './backup-ingest-helpers.ts';
+import {
+  findIngestDedupTarget,
+  findMapleIdsPresentInLibrary,
+  listBackupState,
+} from '../src/db/repos/backup.repo.ts';
+
+const suite = setupBackupIngestSuite();
+const { handle } = suite;
+const ingest = makeIngestRequest(handle);
+const mapleId = '02e759ceff3390dab8d6cd1425d1e196';
+const bytes = Buffer.from('original photo bytes for missing-copy recovery');
+const deviceId = 'missing-copy-device';
+const phassetLocalId = 'missing-copy-photo';
+const relPath = 'previous-layout/photo.HEIC';
+
+function upload() {
+  return authedHandle(
+    ingest(bytes, {
+      'X-Maple-Device-Id': deviceId,
+      'X-Maple-Phasset-Id': phassetLocalId,
+      'X-Maple-Capture-Date': '2024-07-04T12:00:00Z',
+      'X-Maple-Filename': 'photo.HEIC',
+      'X-Maple-Total-Bytes': String(bytes.length),
+      'X-Maple-Maple-Id': mapleId,
+      'Content-Range': `bytes 0-${bytes.length - 1}/${bytes.length}`,
+    }),
+  );
+}
+
+function seedMissing(markMissing: boolean) {
+  const id = seedBackupAsset(handle.db, {
+    mapleId,
+    size: bytes.length,
+    locations: [{ libraryId: handle.libId, relPath }],
+    links: [{ deviceId, phassetLocalId }],
+  });
+  if (markMissing)
+    handle.db.run(
+      `UPDATE asset_locations SET missing_since = '2026-01-01T00:00:00Z',
+      missing_reason = 'watcher' WHERE asset_id = ?`,
+      [id.toHexString()],
+    );
+  return id;
+}
+
+describe('backup missing-copy recovery', () => {
+  beforeEach(suite.setup);
+  afterEach(suite.teardown);
+
+  test('missing locations are absent from dedup probes and reconciliation', async () => {
+    seedMissing(true);
+    expect(await findMapleIdsPresentInLibrary([mapleId], handle.libId)).toEqual(new Set());
+    expect(await listBackupState(handle.libId, deviceId, new Date(0))).toEqual([]);
+    const target = await findIngestDedupTarget({
+      mapleId,
+      libraryId: handle.libId,
+      deviceId,
+      phassetLocalId,
+    });
+    expect(target?.liveRelPathInLibrary).toBeNull();
+  });
+
+  for (const markedMissing of [true, false]) {
+    test(`repair restores the original path (watcher marked missing: ${markedMissing})`, async () => {
+      const id = seedMissing(markedMissing);
+      const res = await upload();
+      expect(res.status).toBe(200);
+      expect((await res.json()).target_rel_path).toBe(relPath);
+      expect(await fs.readFile(path.join(handle.tmpLib, relPath))).toEqual(bytes);
+      const locations = readLocations(handle.db, id);
+      expect(locations).toHaveLength(1);
+      expect(locations[0]?.missing_since).toBeNull();
+      expect(locations[0]?.missing_reason).toBeNull();
+      expect(await findMapleIdsPresentInLibrary([mapleId], handle.libId)).toEqual(
+        new Set([mapleId]),
+      );
+      expect(await listBackupState(handle.libId, deviceId, new Date(0))).toHaveLength(1);
+    });
+  }
+
+  test('repair preserves different bytes now occupying the missing path', async () => {
+    const id = seedMissing(true);
+    const replacement = Buffer.alloc(bytes.length, 0x7a);
+    const oldPath = path.join(handle.tmpLib, relPath);
+    await fs.mkdir(path.dirname(oldPath), { recursive: true });
+    await fs.writeFile(oldPath, replacement);
+    const res = await upload();
+    expect(res.status).toBe(200);
+    const repairedPath = (await res.json()).target_rel_path;
+    expect(repairedPath).not.toBe(relPath);
+    expect(await fs.readFile(oldPath)).toEqual(replacement);
+    expect(await fs.readFile(path.join(handle.tmpLib, repairedPath))).toEqual(bytes);
+    expect(readLocations(handle.db, id)).toHaveLength(2);
+    expect(await findMapleIdsPresentInLibrary([mapleId], handle.libId)).toEqual(new Set([mapleId]));
+  });
+
+  test('a completed upload session cannot conceal a subsequently lost copy', async () => {
+    const first = await upload();
+    expect(first.status).toBe(200);
+    const originalPath = (await first.json()).target_rel_path;
+    await fs.unlink(path.join(handle.tmpLib, originalPath));
+    handle.db.run(`UPDATE asset_locations SET missing_since = '2026-01-01T00:00:00Z'`);
+    const retry = await upload();
+    expect(retry.status).toBe(200);
+    expect((await retry.json()).target_rel_path).toBe(originalPath);
+    expect(await fs.readFile(path.join(handle.tmpLib, originalPath))).toEqual(bytes);
+    expect(await findMapleIdsPresentInLibrary([mapleId], handle.libId)).toEqual(new Set([mapleId]));
+  });
+});
