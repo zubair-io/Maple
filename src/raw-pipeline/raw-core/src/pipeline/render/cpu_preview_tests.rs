@@ -363,6 +363,88 @@ fn replacement_source_rebuilds_before_detail_reuse() {
 }
 
 #[test]
+#[ignore = "requires physical RAW; explicit invocation fails if absent"]
+fn real_default_auto_film_hot_repeat_matches_first_render() {
+    let path = crate::test_support::fixtures::require_raw("test_0017.dng");
+    let bytes = std::fs::read(&path).unwrap();
+    let original_hash = blake3::hash(&bytes);
+    let raw = crate::decode::decode_bytes(&bytes, "dng").unwrap();
+    let source = RawInput::Bytes {
+        bytes: &bytes,
+        ext: "dng",
+    };
+    // A high-key look exercises the identity curve's shoulder above 0.95.
+    let film = FilmLut {
+        size: 3,
+        data: crate::view::auto_profile::lut::ColorLut::identity(3)
+            .data
+            .into_iter()
+            .map(|value| 0.96 + 0.04 * value)
+            .collect(),
+    };
+    let model = AdjustmentModel::default();
+    let (mut resident, w, h, first, fit) = CpuPreview::open(
+        &raw,
+        source,
+        model.clone(),
+        RenderQuality::Preview,
+        128,
+        Some(&film),
+    )
+    .unwrap();
+    assert_eq!(fit, Some(true), "the real embedded-JPEG fit must engage");
+    assert!(resident.context.profile_curve.is_some());
+    assert!(resident.context.profile_lut.is_some());
+    let prefix = resident.prefix.pixels.as_ptr();
+    let working = resident.working.pixels.as_ptr();
+    for amount in [40., 0., 150., 40.] {
+        let edited = AdjustmentModel {
+            sharpen_amount: amount,
+            ..model.clone()
+        };
+        let actual = resident
+            .render(
+                &raw,
+                source,
+                edited.clone(),
+                RenderQuality::Preview,
+                128,
+                Some(&film),
+                CancelToken::never(),
+            )
+            .unwrap();
+        let direct = super::super::render_from_raw_with_auto_fit(
+            &raw,
+            &edited,
+            RenderQuality::Preview,
+            Some(source),
+            Some(128),
+            Some(&film),
+        )
+        .unwrap();
+        assert_eq!((actual.0, actual.1, actual.3), (w, h, fit));
+        assert_eq!((direct.0, direct.1, direct.3), (w, h, fit));
+        assert_eq!(actual.2.len(), direct.2.len());
+        let differing = actual
+            .2
+            .iter()
+            .zip(&direct.2)
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(
+            differing, 0,
+            "retained/direct channel mismatches, amount {amount}"
+        );
+        if amount == model.sharpen_amount {
+            assert!(actual.2 == first, "default tick differs from first frame");
+        }
+        assert_eq!(prefix, resident.prefix.pixels.as_ptr());
+        assert_eq!(working, resident.working.pixels.as_ptr());
+    }
+    assert_eq!(blake3::hash(&std::fs::read(path).unwrap()), original_hash);
+}
+
+#[test]
 #[cfg(feature = "fixtures")]
 fn real_default_auto_hot_repeat_and_edited_replay_match_legacy() {
     let path = crate::test_support::fixtures::require_raw("test_0017.dng");
