@@ -167,3 +167,25 @@ fn legacy_avif_display_bridge_preserves_decoded_pixels_and_rejects_oversize() {
     assert!(!destination.exists());
     std::fs::remove_dir_all(folder).unwrap();
 }
+
+#[test]
+fn full_size_shared_files_are_rejected_from_their_headers() {
+    let folder =
+        std::env::temp_dir().join(format!("maple-shared-cache-probe-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let path = folder.join("probe.avif");
+    let oversized =
+        raw_core::export::encode_avif_with_speed(1281, 1, &vec![80; 1281 * 3], 55, 10).unwrap();
+    for header in [oversized, b"corrupt".to_vec()] {
+        std::fs::write(&path, &header).unwrap();
+        // A sparse tail at the 32 MiB cap: only the header is ever read before rejection.
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(32 * 1024 * 1024)
+            .unwrap();
+        assert!(!valid(&path, 1280, "avif").unwrap_or(false));
+    }
+    std::fs::remove_dir_all(folder).unwrap();
+}

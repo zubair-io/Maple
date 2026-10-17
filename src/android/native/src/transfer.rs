@@ -86,15 +86,45 @@ pub fn cache_png(fd: i32, destination: &str) -> Result<(), String> {
     std::fs::write(destination, bytes).map_err(|e| e.to_string())
 }
 
-/// Positional reads through the caller's descriptor leave its offset untouched; a
-/// shared-storage document may not be reopenable by path.
+/// Reads at its own position over a shared descriptor, so the caller's offset never moves.
+struct PositionalReader<'a> {
+    file: &'a std::fs::File,
+    position: u64,
+    length: u64,
+}
+
+impl std::io::Read for PositionalReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        use std::os::unix::fs::FileExt;
+        let count = self.file.read_at(buffer, self.position)?;
+        self.position += count as u64;
+        Ok(count)
+    }
+}
+
+impl std::io::Seek for PositionalReader<'_> {
+    fn seek(&mut self, target: std::io::SeekFrom) -> std::io::Result<u64> {
+        use std::io::SeekFrom;
+        let next = match target {
+            SeekFrom::Start(offset) => Some(offset),
+            SeekFrom::End(delta) => self.length.checked_add_signed(delta),
+            SeekFrom::Current(delta) => self.position.checked_add_signed(delta),
+        }
+        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+        self.position = next;
+        Ok(next)
+    }
+}
+
+/// A shared-storage document may not be reopenable by path, so this reads through the
+/// caller's descriptor. Headers are probed before any payload is buffered.
 fn cache_raster(
     fd: i32,
     edge: u32,
     format: &str,
 ) -> Result<Option<raw_core::raster::RasterImage>, String> {
+    use std::io::{BufReader, Read, Seek, SeekFrom};
     use std::os::fd::BorrowedFd;
-    use std::os::unix::fs::FileExt;
     const MAX_BYTES: u64 = 32 * 1024 * 1024;
     if fd < 0 {
         return Err("Invalid descriptor".into());
@@ -108,19 +138,27 @@ fn cache_raster(
     if length == 0 || length > MAX_BYTES {
         return Ok(None);
     }
-    let mut bytes = vec![0u8; length as usize];
-    if file.read_exact_at(&mut bytes, 0).is_err()
-        || file.metadata().map_err(|e| e.to_string())?.len() != length
-    {
-        return Ok(None);
-    }
-    let probe = raw_core::raster::probe_raster_metadata_reader(&mut std::io::Cursor::new(&bytes))
-        .map_err(|e| e.to_string())?;
+    let mut input = BufReader::new(PositionalReader {
+        file: &file,
+        position: 0,
+        length,
+    });
+    let probe =
+        raw_core::raster::probe_raster_metadata_reader(&mut input).map_err(|e| e.to_string())?;
     if probe.format != format
         || probe.width == 0
         || probe.height == 0
         || probe.width.max(probe.height) > edge
     {
+        return Ok(None);
+    }
+    input.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    input
+        .take(MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 != length {
         return Ok(None);
     }
     let decoded =
