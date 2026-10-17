@@ -24,7 +24,7 @@ fn scene(fx: f32, fy: f32) -> f32 {
 /// Build a Bayer RGGB mosaic whose red plane is displaced radially by
 /// `k_red · r` pixels and whose blue plane by `k_blue · r`, with per-channel
 /// gains so the estimator's per-block gain fit is exercised too.
-fn synthetic_mosaic(k_red: f32, k_blue: f32) -> Image {
+pub(super) fn synthetic_mosaic(k_red: f32, k_blue: f32) -> Image {
     let frame = RadialFrame::new(W, H);
     let pixels = (0..W * H)
         .map(|i| {

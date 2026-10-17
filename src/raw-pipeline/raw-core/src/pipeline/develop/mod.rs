@@ -27,15 +27,13 @@
 use crate::{
     cancel::CancelToken,
     color::dcp,
-    demosaic,
     error::{Error, Result},
     image::RawImage,
-    linearize,
     stages::{
         auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, defringe, dehaze,
-        highlight_recovery, highlight_recovery_oklab, hot_pixel, hsl, local_adjustments,
-        noise_reduction, retouch, saturation, scene_tone_controls, sharpen, texture, tone_curves,
-        vibrance, vignette, wb_camera, white_balance,
+        highlight_recovery, highlight_recovery_oklab, hsl, local_adjustments, noise_reduction,
+        retouch, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
+        vignette, wb_camera, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -45,6 +43,7 @@ use super::{
     RenderQuality,
 };
 
+mod camera;
 mod geometry;
 
 pub(super) use geometry::{
@@ -84,68 +83,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     }
     let (frame_w, frame_h) = crate::pipeline::native_render_dims(raw);
     let model = &*crate::types::with_brush_rasters(model, frame_w, frame_h);
-    let mut camera_rgb = match raw.cfa {
-        crate::image::CfaPattern::LinearRgb => {
-            // LinearRaw DNG: data is already 3-channel RGB. Skip the
-            // mosaic path entirely. See ticket #07.
-            stage("linearraw_decode", || {
-                linearize::linearraw_to_camera_rgb(raw)
-            })?
-        }
-        crate::image::CfaPattern::XTrans(_) => {
-            // Fuji X-Trans (6×6 CFA): the Bayer kernels above are all
-            // hard-coded for 2×2 phase and produce garbage on the
-            // X-Trans tile. Route all three RenderQuality variants to
-            // the X-Trans demosaicers: bilinear for Preview (the buffer
-            // is half-res-equivalent after downsample), Markesteijn for
-            // Full/AMaZE. See tickets #420 / #417.
-            //
-            // Note: there is no half-res *preview* path for X-Trans on
-            // day one — the `xtrans_bilinear` kernel runs at full
-            // resolution and the surrounding pipeline downsamples
-            // later via `develop_sized`. A true half-res X-Trans
-            // preview is a follow-up.
-            let mut mosaic = stage("linearize", || linearize::sensor_linearize(raw));
-            // Hot/dead-pixel suppression (#1106) — pre-demosaic, raw-domain.
-            // No-op (bit-identical) at the default Off.
-            stage("hot_pixel", || {
-                hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
-            });
-            geometry::lateral_ca(&mut mosaic, raw, model, cancel)?; // #3411
-            stage("demosaic_xtrans", || match quality {
-                RenderQuality::Preview => demosaic::xtrans_bilinear(&mosaic, raw.cfa),
-                RenderQuality::Full | RenderQuality::Amaze | RenderQuality::Auto => {
-                    demosaic::markesteijn(&mosaic, raw.cfa)
-                }
-            })
-        }
-        _ => {
-            let mut mosaic = stage("linearize", || linearize::sensor_linearize(raw));
-            // Hot/dead-pixel suppression (#1106) — pre-demosaic, raw-domain.
-            // No-op (bit-identical) at the default Off.
-            stage("hot_pixel", || {
-                hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
-            });
-            // #3411 — raw-domain, so BEFORE whichever kernel is picked below.
-            geometry::lateral_ca(&mut mosaic, raw, model, cancel)?;
-            // Which kernel is `bayer_kernel`'s call (#3413): the quality
-            // level's own default, overridden by the model's `demosaic`
-            // field, and noise-adaptive at `Auto`. Kernels with a
-            // cancellable entry unwind per band/row; the rest are not on
-            // the cold-open interactive path, and the post-demosaic check
-            // below bails before any downstream stage runs either way.
-            stage("demosaic", || {
-                let algo = crate::pipeline::bayer_kernel(quality, model, raw);
-                demosaic::demosaic_camera_cancellable(
-                    algo,
-                    &mosaic,
-                    raw.cfa,
-                    raw.as_shot_neutral,
-                    cancel,
-                )
-            })
-        }
-    };
+    let (mut camera_rgb, sensor_gains) = camera::prepare(raw, model, quality, cancel)?;
     // Post-demosaic bail: catches every demosaic path (incl. X-Trans / AMaZE)
     // and a cancel that landed during the Bayer kernel's partial fill.
     if cancel.is_cancelled() {
@@ -201,7 +139,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
         raw.as_shot_neutral
     };
     stage("highlight_recovery", || {
-        highlight_recovery::apply_in_region(
+        highlight_recovery::apply_calibrated_in_region(
             &mut camera_rgb,
             model.highlight_recovery,
             hr_neutral,
@@ -210,6 +148,8 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
                 raw,
                 effective_quality_divisor(quality, raw.cfa),
             ),
+            None,
+            sensor_gains.map(|g| g.at_resolution(effective_quality_divisor(quality, raw.cfa))),
         )
     });
     dump_after("00b_highlight_recovery", &camera_rgb);

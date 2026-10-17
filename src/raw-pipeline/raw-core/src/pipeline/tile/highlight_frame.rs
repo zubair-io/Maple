@@ -125,6 +125,7 @@ pub(super) fn scene_prior(
     let divisor = crate::pipeline::develop::effective_quality_divisor(quality, raw.cfa);
     let (aa, w, h) = active_area(raw, quality);
     let mut samples = SceneSamples::new(raw.as_shot_neutral, raw.baseline_exposure);
+    let calibration = crate::linearize::sensor_gains::SensorGains::for_raw(raw, (0, 0), divisor);
     let right = aa.x.saturating_add(aa.w).min(w);
     let bottom = aa.y.saturating_add(aa.h).min(h);
     let mut y = aa.y.min(h);
@@ -153,7 +154,10 @@ pub(super) fn scene_prior(
         while y < bottom.min(band + 128) {
             let mut x = aa.x.min(w);
             while x < right {
-                samples.push(camera.pixels[((y - start) * camera.width + x) as usize]);
+                samples.push_with_gain(
+                    camera.pixels[((y - start) * camera.width + x) as usize],
+                    calibration.map_or([1.0; 3], |g| g.rgb(x, y)),
+                );
                 x += 8;
             }
             y += 8;

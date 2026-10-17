@@ -657,12 +657,28 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
 
     let opcode_list3 = crate::pipeline::pano::opcodes::read_opcode_list3(bytes, ext, width, height);
 
+    let sensor_gain_maps = if cfa.is_bayer_2x2() {
+        decoder
+            .as_ref()
+            .and_then(|dec| dec.ifd(WellKnownIFD::Raw).ok().flatten())
+            .map(|ifd| crate::linearize::GainMaps::from_ifd(ifd.as_ref()))
+            .transpose()
+            .map_err(|reason| Error::Decode {
+                path: std::path::PathBuf::from(&hint_path),
+                reason,
+            })?
+            .flatten()
+    } else {
+        None
+    };
+
     // Assemble first with a placeholder BE, then resolve the bundled-profile
     // contribution against the fully-populated RawImage (§ 1b compose chain).
     // `lookup_profile` gates on `raw.plt`, `raw.color_matrices`, and the
     // bundle's matrix-match check — so it must see the final struct, not a
     // partial. Cheap: BE is a single f32 mutation post-construction.
     let mut image = RawImage {
+        sensor_gain_maps,
         width,
         height,
         cfa,

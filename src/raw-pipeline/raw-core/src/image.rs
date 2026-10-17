@@ -182,6 +182,8 @@ impl CfaPattern {
 
 #[derive(Clone, Debug)]
 pub struct RawImage {
+    /// Required Bayer sensor calibration after black normalization (#4647).
+    pub sensor_gain_maps: Option<crate::linearize::GainMaps>,
     pub width: u32,
     pub height: u32,
     pub cfa: CfaPattern,

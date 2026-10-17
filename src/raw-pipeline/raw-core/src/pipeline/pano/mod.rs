@@ -261,11 +261,7 @@ fn develop_scene_linear_for_pano(
         _ => {
             let mosaic = stage("pano_linearize", || linearize::sensor_linearize(raw));
             // hot_pixel: default Off is a bit-identical no-op — skipped.
-            // Routed through the same selector the canonical chain uses
-            // (#3413) with the default model, so this mirror follows any
-            // future change to what `Full` means rather than pinning a
-            // kernel name. `matches_develop_with_display_stages_zeroed` is
-            // the gate that keeps it honest.
+            // Share Full-quality selection with the default develop model.
             stage("pano_demosaic", || {
                 let algo = crate::pipeline::bayer_kernel(
                     quality,
@@ -307,13 +303,19 @@ fn develop_scene_linear_for_pano(
         raw.as_shot_neutral
     };
     stage("pano_highlight_recovery", || {
-        highlight_recovery::apply_in_region(
+        highlight_recovery::apply_calibrated_in_region(
             &mut camera_rgb,
             HighlightRecoveryMode::default(),
             hr_neutral,
             raw.baseline_exposure,
             crate::pipeline::develop::highlight_active_area(
                 raw,
+                effective_quality_divisor(quality, raw.cfa),
+            ),
+            None,
+            crate::linearize::sensor_gains::SensorGains::for_raw(
+                raw,
+                (0, 0),
                 effective_quality_divisor(quality, raw.cfa),
             ),
         )

@@ -303,3 +303,6 @@ mod bayer_kernel_tests {
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) use develop_sized::prepare_camera as develop_camera_sized_from_raw;

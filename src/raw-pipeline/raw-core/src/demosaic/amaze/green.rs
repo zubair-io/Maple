@@ -38,9 +38,8 @@ pub(super) fn interpolate_green_diffs(
     s: &mut Scratch,
     t: &Tile,
     pattern: CfaPattern,
-    clip_point: f32,
+    clip_points: super::ClipPoints<'_>,
 ) {
-    let clip_pt8 = 0.8 * clip_point;
     for rr in 4..t.rr1 - 4 {
         for cc in 4..t.cc1 - 4 {
             let i = rr * TS + cc;
@@ -108,7 +107,10 @@ pub(super) fn interpolate_green_diffs(
             let mut hcd_v = hcd_main;
 
             // Highlight clip fallback (engine 517–525).
-            if cf > clip_pt8 || g_int_v_ha > clip_pt8 || g_int_h_ha > clip_pt8 {
+            if cf > 0.8 * clip_points.at(i)
+                || g_int_v_ha > 0.8 * clip_points.at(i)
+                || g_int_h_ha > 0.8 * clip_points.at(i)
+            {
                 guar = guha;
                 gdar = gdha;
                 glar = glha;
@@ -158,7 +160,12 @@ pub(super) fn refine_by_variance(s: &mut Scratch, t: &Tile) {
 /// 619–682) and emit `cddiffsq = (vcd − hcd)²` at R/B sites (the Nyquist
 /// texture term; every tap of the Nyquist gaussian lands on an R/B site, so
 /// G cells are never read).
-pub(super) fn median_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern, clip_point: f32) {
+pub(super) fn median_bound(
+    s: &mut Scratch,
+    t: &Tile,
+    pattern: CfaPattern,
+    clip_points: super::ClipPoints<'_>,
+) {
     use super::scratch::median3;
     for rr in 4..t.rr1 - 4 {
         for cc in 4..t.cc1 - 4 {
@@ -187,10 +194,10 @@ pub(super) fn median_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern, clip_
                             + (1.0 - vwt) * (median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) - v);
                     }
                 }
-                if g_int_h > clip_point {
+                if g_int_h > clip_points.at(i) {
                     s.hcd[i] = median3(g_int_h, s.cfa[i - 1], s.cfa[i + 1]) - v;
                 }
-                if g_int_v > clip_point {
+                if g_int_v > clip_points.at(i) {
                     s.vcd[i] = median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) - v;
                 }
                 s.cddiffsq[i] = (s.vcd[i] - s.hcd[i]).powi(2);
@@ -216,10 +223,10 @@ pub(super) fn median_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern, clip_
                             + (1.0 - vwt) * (-median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) + v);
                     }
                 }
-                if g_int_h > clip_point {
+                if g_int_h > clip_points.at(i) {
                     s.hcd[i] = -median3(g_int_h, s.cfa[i - 1], s.cfa[i + 1]) + v;
                 }
-                if g_int_v > clip_point {
+                if g_int_v > clip_points.at(i) {
                     s.vcd[i] = -median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) + v;
                 }
             }

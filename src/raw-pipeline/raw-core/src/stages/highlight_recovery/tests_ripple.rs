@@ -91,3 +91,106 @@ fn near_ceiling_channel_above_another_stays_scene_evidence() {
 }
 
 const NEUTRAL: [f32; 3] = [1.0, 1.0, 1.0];
+
+#[test]
+fn calibrated_mask_preserves_scalar_rules() {
+    // Exhaust channel-order, clip and near-clip combinations, including
+    // signed scene values and nonfinite input. The scalar oracle expresses
+    // the pre-optimization mask rule without either fast-rejection branch.
+    let values = [
+        f32::NEG_INFINITY,
+        -0.1,
+        0.0,
+        0.6,
+        0.969,
+        0.97,
+        0.985,
+        0.995,
+        1.0,
+        1.4,
+        f32::INFINITY,
+        f32::NAN,
+    ];
+    let mut img = Image::new(48, 36, ColorSpace::CameraNativeLinearRgb);
+    img.pixels = values
+        .iter()
+        .flat_map(|&r| values.iter().flat_map(move |&g| values.map(|b| [r, g, b])))
+        .collect();
+    use crate::linearize::{
+        gain_map_tests::{calibrated_raw, list, payload},
+        GainMaps,
+    };
+    let mut raw = calibrated_raw(img.width, img.height);
+    raw.sensor_gain_maps = GainMaps::parse(&list(&[(
+        9,
+        0,
+        payload(
+            [0; 4],
+            [1; 2],
+            [2; 2],
+            [1.; 2],
+            [0.; 2],
+            &[0.7, 1.3, 1.8, 0.9],
+        ),
+    )]))
+    .unwrap();
+    for calibration in [None, SensorGains::for_raw(&raw, (0, 0), 1)] {
+        let levels = |v, i: usize| {
+            calibration.map_or(v, |g| {
+                g.scale(v, i as u32 % img.width, i as u32 / img.width)
+            })
+        };
+        for thresholds in [[0.995; 3], [0.8, 1.0, 1.3]] {
+            let floors = thresholds.map(|v| v - 0.025);
+            let hard: Vec<_> = img
+                .pixels
+                .iter()
+                .enumerate()
+                .map(|(i, p)| channels_at_or_above(p, levels(thresholds, i)))
+                .collect();
+            assert_eq!(
+                mask::any_clipped(&img, thresholds, calibration),
+                hard.iter().any(|&h| h != 0)
+            );
+            for (left, top, right, bottom) in [(0, 0, 48, 36), (3, 5, 43, 31), (8, 9, 8, 9)] {
+                let expected: Vec<_> = img
+                    .pixels
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        let h = hard[i];
+                        let band =
+                            channels_at_or_above(p, levels(floors, i)) & lowest_channels(p) & !h;
+                        let (x, y) = (i as i32 % 48, i as i32 / 48);
+                        if band == 0 || x < left || x >= right || y < top || y >= bottom {
+                            return h;
+                        }
+                        let mut near = 0;
+                        for ny in (y - 2).max(top)..(y + 3).min(bottom) {
+                            for nx in (x - 2).max(left)..(x + 3).min(right) {
+                                near |= hard[(ny * 48 + nx) as usize];
+                            }
+                        }
+                        h | (band & near)
+                    })
+                    .collect();
+                if calibration.is_none() {
+                    assert_eq!(
+                        clip_mask_with_ripple(&img, thresholds, floors, (left, top, right, bottom)),
+                        expected
+                    );
+                }
+                assert_eq!(
+                    clip_mask_calibrated(
+                        &img,
+                        thresholds,
+                        floors,
+                        (left, top, right, bottom),
+                        calibration
+                    ),
+                    expected
+                );
+            }
+        }
+    }
+}

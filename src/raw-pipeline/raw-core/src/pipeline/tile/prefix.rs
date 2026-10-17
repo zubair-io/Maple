@@ -15,7 +15,14 @@ pub(super) fn from_window(
     let (x, y, w, h) = rect;
     let mut mosaic = crate::linearize::sensor_linearize_region(raw, x, y, w, h);
     hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression);
-    from_mosaic(&mosaic, raw, model, quality, crate::CancelToken::never())
+    from_mosaic(
+        &mosaic,
+        raw,
+        model,
+        quality,
+        (x, y),
+        crate::CancelToken::never(),
+    )
 }
 
 pub(super) fn from_mosaic(
@@ -23,14 +30,16 @@ pub(super) fn from_mosaic(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
+    origin: (u32, u32),
     cancel: crate::CancelToken<'_>,
 ) -> Image {
     let mut camera = stage("tile_demosaic", || {
-        crate::demosaic::demosaic_camera_cancellable(
+        crate::demosaic::demosaic_calibrated_cancellable(
             crate::pipeline::bayer_kernel(quality, model, raw),
             mosaic,
             raw.cfa,
             raw.as_shot_neutral,
+            crate::linearize::sensor_gains::SensorGains::for_raw(raw, origin, 1),
             cancel,
         )
     });

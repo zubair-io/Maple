@@ -393,6 +393,7 @@ pub(super) fn chroma_weight(
 /// finite, non-negative region pixels below their ripple `floors`. `None` when the region holds no usable
 /// scene evidence (a fully blown frame), in which case the fallback degrades
 /// to the pre-#1690 neutral exactly.
+#[cfg(test)]
 pub(super) fn scene_median(
     img: &Image,
     clip_mask: &[u8],
@@ -401,6 +402,19 @@ pub(super) fn scene_median(
     top: i32,
     right: i32,
     bottom: i32,
+) -> Option<[f32; 3]> {
+    scene_median_calibrated(img, clip_mask, floors, left, top, right, bottom, None)
+}
+
+pub(super) fn scene_median_calibrated(
+    img: &Image,
+    clip_mask: &[u8],
+    floors: [f32; 3],
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+    calibration: Option<crate::linearize::sensor_gains::SensorGains<'_>>,
 ) -> Option<[f32; 3]> {
     let w = img.width as i32;
     let step = SCENE_SAMPLE_STRIDE as usize;
@@ -413,7 +427,10 @@ pub(super) fn scene_median(
             (left..right).step_by(step).filter_map(move |x| {
                 let idx = (y * w + x) as usize;
                 let p = img.pixels[idx];
-                let usable = (0..3).all(|c| p[c].is_finite() && p[c] >= 0.0 && p[c] < floors[c]);
+                let local_floors =
+                    calibration.map_or(floors, |g| g.scale(floors, x as u32, y as u32));
+                let usable =
+                    (0..3).all(|c| p[c].is_finite() && p[c] >= 0.0 && p[c] < local_floors[c]);
                 (clip_mask[idx] == 0 && usable).then_some(p)
             })
         })
