@@ -4,7 +4,7 @@
  * sidecar is never replaced here — sidecars are written through the XMP routes
  * with their preconditions, so the raw upload answers 409 instead. */
 import * as path from 'node:path';
-import { open, rename, stat, unlink, utimes } from '../fs/mirrored.ts';
+import { flushPendingMirrorOps, open, rename, stat, unlink, utimes } from '../fs/mirrored.ts';
 import {
   RAW_EXTENSIONS,
   BITMAP_EXTENSIONS,
@@ -128,8 +128,13 @@ async function trashExistingUpload(input: UploadTarget): Promise<TrashedReplacem
       directory,
       filename,
     );
-    if (moved.kind === 'ok')
+    if (moved.kind === 'ok') {
+      // The Trash move's mirror rename is scheduled, not awaited; let it land
+      // before the replacement's own rename is scheduled for the same path,
+      // or a slow mirror can file the new bytes under the old name in Trash.
+      await flushPendingMirrorOps();
       return existing ? { docId: existing._id, newAbsPath: moved.newAbsPath } : undefined;
+    }
     // Another actor may have completed the move; it owns the Trash update.
     if (await sourceExists(absPath)) throw new Error(moved.error);
   } catch (error) {
@@ -209,7 +214,11 @@ export async function finalizeUploadedFile(input: UploadTarget) {
     const info = await stat(input.absPath);
     await preserveUploadMtime(input.absPath, input.mtimeHeader);
     await discardRedundantTrash(input, trashed);
-    const assetId = input.isMedia ? await indexUploadedMedia(input, info.size, info.mtimeMs) : null;
+    // A replaced asset the indexer had catalogued (e.g. a video) is re-indexed
+    // even when the extension is outside the direct-upload set, so the
+    // replacement does not vanish from the catalog until the next sweep.
+    const catalogued = input.isMedia || trashed !== undefined;
+    const assetId = catalogued ? await indexUploadedMedia(input, info.size, info.mtimeMs) : null;
     await announceUploadedFile(input, assetId);
     return {
       ...(assetId ? { asset_id: assetId.toHexString() } : {}),
