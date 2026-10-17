@@ -336,4 +336,62 @@ fn foreign_subject_descriptions_are_ignored_in_both_readers() {
     assert_eq!(parse_namespaced(two_anonymous).unwrap(), parsed_anon);
     assert!((parsed_anon.exposure - 0.60).abs() < 1e-6);
     assert_eq!(parsed_anon.contrast, 0.0);
+
+    let shared_node_id = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:nodeID="node1"
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Exposure2012="+0.45"/>
+    <rdf:Description rdf:nodeID="node1"
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Contrast2012="+22"/>
+    <rdf:Description rdf:nodeID="node2"
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Highlights2012="-40"/>
+  </rdf:RDF>
+</x:xmpmeta>"#;
+    let parsed_node_id = parse(shared_node_id).unwrap();
+    assert_eq!(parse_namespaced(shared_node_id).unwrap(), parsed_node_id);
+    assert!((parsed_node_id.exposure - 0.45).abs() < 1e-6);
+    assert!((parsed_node_id.contrast - 22.0).abs() < 1e-6);
+    assert_eq!(parsed_node_id.highlights, 0.0);
+
+    let foreign_about_attr = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:v="https://vendor.test/ns/"
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      v:about="foreign"
+      crs:Exposure2012="+0.55"/>
+    <rdf:Description rdf:about="foreign"
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Contrast2012="+35"/>
+  </rdf:RDF>
+</x:xmpmeta>"#;
+    let parsed_foreign_attr = parse(foreign_about_attr).unwrap();
+    assert_eq!(
+        parse_namespaced(foreign_about_attr).unwrap(),
+        parsed_foreign_attr
+    );
+    assert!((parsed_foreign_attr.exposure - 0.55).abs() < 1e-6);
+    assert_eq!(parsed_foreign_attr.contrast, 0.0);
+
+    let anon_vs_named = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about="urn:foreign:subject"
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Exposure2012="+2.00"
+      crs:Contrast2012="+50"/>
+    <rdf:Description
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Exposure2012="+0.65"/>
+  </rdf:RDF>
+</x:xmpmeta>"#;
+    let parsed_anon_vs_named = parse(anon_vs_named).unwrap();
+    assert_eq!(
+        parse_namespaced(anon_vs_named).unwrap(),
+        parsed_anon_vs_named
+    );
+    assert!((parsed_anon_vs_named.exposure - 0.65).abs() < 1e-6);
+    assert_eq!(parsed_anon_vs_named.contrast, 0.0);
 }
