@@ -65,6 +65,15 @@ failing banding metrics. Auto 2 and all synthetic slider ramps pass.
 
 ### Physical comparisons
 
+The full unchanged-main control has now completed all 806 comparisons:
+606 standard cases contain 71 numerical breaches, 180 native detail cases
+contain 41, and all 20 Auto baselines pass. That is **112 numerical failures**
+under the frozen reference protocol. Inputs, comparator sources and the
+executable remain unchanged. The renderer tree is identical to main
+`95681410fc66635dfac680266eb18befce51952f`. The 18 NR authoring gaps require
+their qualified overlay for final canonical qualification; this control
+does not certify those historical metadata packets.
+
 The first matched physical control clears `test_0000/contrast_min`:
 
 | Metric | Main | Candidate | Ceiling |
