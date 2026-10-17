@@ -45,9 +45,36 @@ All other gated metrics pass in these three comparisons. The lens candidate
 repairs the introduced contrast breach and clears the original-main exposure
 failure. The combined GainMap repair separately clears `whites_min`, giving
 two confirmed main failures cleared in this targeted evidence, with one new
-native sharpening breach still blocking acceptance. The 88-case affected-camera
-and 806-case combined-control runs remain pending; this is not a full-corpus
-pass or a confirmed global count of remaining failures.
+native sharpening breach still blocking acceptance. The 806-case combined-control
+run remains pending; this is not a full-corpus pass or a confirmed global count
+of remaining failures.
+
+## Completed affected-camera comparison
+
+The frozen lens candidate completed all **88 comparisons: 85 pass, 3 fail**.
+These comprise 66 standard comparisons (64 pass), two Auto comparisons (both
+pass), and 20 native detail comparisons (19 pass). There are no missing RAWs,
+candidates, or errors. The standard pass deliberately defers its 20 native
+detail entries to the native pass; those entries were all compared there.
+
+The remaining failures are `test_0000/contrast_min` and
+`test_0000/dehaze_max` (also failures on main), plus the new Pixel
+`test_0015/sharpen_amount_max` maximum breach recorded above. The later,
+separately qualified dark-halo correction at `c95d1a7de9` reduces that Pixel
+maximum to 45.204288, but it does not retroactively make this frozen lens
+candidate pass.
+
+An interruption ended the original process. The resumed run verified and reused
+the 88 complete renders and the two completed comparison passes, then completed
+the native pass with per-case metric checkpoints. The terminal identity is
+`physical/resumed/identity.json`; original inputs, comparison sources and the
+candidate binary all retain their initial hashes.
+
+This run uses the frozen historical native-pair protocol. The later complete
+CRS-authoring audit found 18 corpus-wide `nr_luminance_max` references whose
+active subcontrols were not explicitly authored. Their reference migration is
+tracked by #3678; these measurements remain diagnostic until that qualification
+gap is closed. This does not change or waive any rendering budget.
 
 A full native pixel scan finds the lens sharpening maximum at (1108,1591):
 Maple RGB 40/44/46 versus Adobe 210/212/212; main gives 122/120/122 there.
