@@ -8,7 +8,11 @@ import { isVideoFilename } from '../indexer/media-types';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { child as childLogger } from '../log.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
-import { settleCarriedSidecar, sidecarStemClaimedBySibling } from './sidecar-ownership.ts';
+import {
+  requireSidecarBytes,
+  settleCarriedSidecar,
+  sidecarStemClaimedBySibling,
+} from './sidecar-ownership.ts';
 
 const log = childLogger('fs/trash-restore');
 
@@ -61,7 +65,7 @@ async function stage(entry: StagedFile): Promise<Buffer | null> {
     throw new Error(`restore: copy verification failed: ${entry.source}`);
   }
   return serializeSidecarWrite(entry.source, async () => {
-    const snapshot = await fs.readFile(entry.source);
+    const snapshot = await requireSidecarBytes(entry.source);
     await fs.writeFile(entry.temporary, snapshot);
     if (snapshot.equals(await fs.readFile(entry.temporary))) return snapshot;
     throw new Error(`restore: copy verification failed: ${entry.source}`);
