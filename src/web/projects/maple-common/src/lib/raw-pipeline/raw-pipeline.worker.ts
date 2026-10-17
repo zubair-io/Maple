@@ -86,11 +86,7 @@ import {
   console.error = forward('error', console.error.bind(console));
 }
 
-// Kick off init eagerly so the status message is delivered without waiting
-// for the first decode request. `ensureReady` (and the `setDeepDenoiseProgress`
-// bridge it installs) live in raw-pipeline.worker-handlers.ts — hoisted there
-// so raw-pipeline.session-handler.ts can await the same init gate without an
-// import cycle back through this file (file-size budget, #2683).
+// Kick off init eagerly; `ensureReady` lives in worker-handlers so session-handler can share the gate without an import cycle (#2683).
 void ensureReady();
 
 const enqueueMessage = createSerialMessageQueue();
@@ -99,19 +95,14 @@ addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
   if (req.type === 'lens-profile-restored') return lensProfileRestored(req.id);
   if (req.type === 'close-native-detail') return closeNativeDetail();
-  if (req.type === 'native-detail') {
-    const dispatchedEpoch = nativeDetailEpoch();
-    return enqueueMessage(() => handleMessage(req, dispatchedEpoch));
-  }
+  if (req.type === 'native-detail')
+    return enqueueMessage(() => handleMessage(req, nativeDetailEpoch()));
   enqueueMessage(() => handleMessage(req));
 });
 
 // One case per request kind; the dispatch's complexity is the kind count.
 // fallow-ignore-next-line complexity
-async function handleMessage(
-  req: WorkerRequest,
-  nativeDetailDispatchedEpoch?: number,
-): Promise<void> {
+async function handleMessage(req: WorkerRequest, dispatchedEpoch?: number): Promise<void> {
   releaseRetainedCpuBefore(req);
   if (req.type === 'import-lens-profile') {
     await importLensProfile(req);
@@ -122,7 +113,7 @@ async function handleMessage(
   if ('xmp' in req) await restoreLensProfile(req.xmp ?? null);
   switch (req.type) {
     case 'native-detail':
-      await handleNativeDetail(req, nativeDetailDispatchedEpoch);
+      await handleNativeDetail(req, dispatchedEpoch);
       return;
     case 'decode':
       await handleLegacyDecode(req);
