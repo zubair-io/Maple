@@ -681,7 +681,7 @@ struct AppShell: View {
         },
         onSignedIn: { url, tokens, _ in
           Task { @MainActor in
-            try? TokenStore.save(tokens, server: url)
+            try? await TokenStore.saveAsync(tokens, server: url)
             CloudServerRegistry.shared.register(url)
             // Refresh the per-server AuthSession cache so the
             // sidebar sees the user as signed in immediately.

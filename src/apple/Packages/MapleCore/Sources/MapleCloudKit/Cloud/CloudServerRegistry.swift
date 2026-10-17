@@ -85,11 +85,13 @@ public final class CloudServerRegistry {
       if let host = url.host {
         modes[host] = CloudViewMode.load(host: host, defaults: defaults)
         if let name = defaults.string(forKey: Self.nameKey(host: host)),
-           !name.isEmpty {
+          !name.isEmpty
+        {
           names[host] = name
         }
         if let libraryID = defaults.string(forKey: Self.selectedLibraryIDKey(host: host)),
-           !libraryID.isEmpty {
+          !libraryID.isEmpty
+        {
           libraryIDs[host] = libraryID
         }
       }
@@ -111,7 +113,9 @@ public final class CloudServerRegistry {
   public func remove(_ url: URL) {
     servers.removeAll { $0 == url }
     Self.saveList(servers, to: defaults)
-    TokenStore.clear(server: url)
+    if !TokenStore.tryClearWithoutBlocking(server: url) {
+      Task { await TokenStore.clearAsync(server: url) }
+    }
     if let host = url.host {
       defaults.removeObject(forKey: "cloud.\(host).viewMode")
       defaults.removeObject(forKey: Self.nameKey(host: host))
@@ -195,7 +199,7 @@ public final class CloudServerRegistry {
 
   private static func loadList(from defaults: UserDefaults) -> [URL] {
     guard let data = defaults.data(forKey: listKey),
-          let strings = try? JSONDecoder().decode([String].self, from: data)
+      let strings = try? JSONDecoder().decode([String].self, from: data)
     else { return [] }
     return strings.compactMap { URL(string: $0) }
   }
