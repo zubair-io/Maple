@@ -178,25 +178,57 @@ describe('backup missing-copy recovery', () => {
     const old = path.join(handle.tmpLib, relPath);
     await fs.mkdir(path.dirname(old), { recursive: true });
     await fs.writeFile(old, Buffer.alloc(bytes.length, 0x7a));
-    for (const stage of ['thumb', 'preview', 'describe'])
+    for (const stage of ['thumb', 'preview', 'describe', 'exif'])
       insertStageState(handle.db, id.toHexString(), stage, {
         version: 7,
-        dead: true,
+        dead: stage !== 'exif',
       });
     const res = await upload();
     expect(res.status).toBe(200);
     const repairedPath = (await res.json()).target_rel_path;
-    for (const stage of ['thumb', 'preview', 'describe'])
+    for (const stage of ['thumb', 'preview', 'describe', 'exif'])
       expect(
         handle.db
           .query('SELECT version, dead FROM stage_state WHERE asset_id = ? AND stage = ?')
           .get(id.toHexString(), stage),
       ).toEqual({
-        version: stage === 'describe' ? 7 : 0,
+        version: stage === 'describe' || stage === 'exif' ? 7 : 0,
         dead: stage === 'describe' ? 1 : 0,
       });
     expect(repairedPath).not.toBe(relPath);
   });
+
+  for (const existingSibling of [false, true]) {
+    test(`repair reconciles siblings and dead EXIF (existing sibling: ${existingSibling})`, async () => {
+      const id = seedMissing(true);
+      if (existingSibling)
+        insertLocation(handle.db, {
+          assetId: id.toHexString(),
+          libraryId: handle.libId.toHexString(),
+          ordinal: 1,
+          path: 'previous-layout',
+          filename: 'photo-1.HEIC',
+        });
+      handle.db.run(
+        "UPDATE asset_locations SET missing_since = '2026-01-01T00:00:00Z' WHERE asset_id = ?",
+        [id.toHexString()],
+      );
+      insertStageState(handle.db, id.toHexString(), 'exif', { version: 7, dead: true });
+      const old = path.join(handle.tmpLib, relPath);
+      await fs.mkdir(path.dirname(old), { recursive: true });
+      await fs.writeFile(old, Buffer.alloc(bytes.length, 0x7a));
+      const res = await upload();
+      expect(res.status).toBe(200);
+      expect((await res.json()).target_rel_path).toBe('previous-layout/photo-1.HEIC');
+      expect(readLocations(handle.db, id)).toHaveLength(1);
+      expect(readLocations(handle.db, id)[0]?.ordinal).toBe(0);
+      expect(
+        handle.db
+          .query("SELECT version, dead FROM stage_state WHERE asset_id = ? AND stage = 'exif'")
+          .get(id.toHexString()),
+      ).toEqual({ version: 0, dead: 0 });
+    });
+  }
 
   for (const reaped of [true, false]) {
     test(`repair revives only reaped assets (reaped: ${reaped})`, async () => {

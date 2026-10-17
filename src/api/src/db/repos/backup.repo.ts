@@ -365,6 +365,25 @@ export async function appendBackupLocation(
       ? []
       : [
           {
+            // Coalesce an already-cataloged sibling before preserving the old ordinal.
+            sql: `DELETE FROM asset_locations WHERE asset_id = ? AND library_id = ?
+              AND path = ? AND filename = ? AND NOT (path = ? AND filename = ?)
+              AND EXISTS (SELECT 1 FROM asset_locations old WHERE old.asset_id = ?
+                AND old.library_id = ? AND old.path = ? AND old.filename = ?)`,
+            params: [
+              hex,
+              libHex,
+              dir,
+              filename,
+              replaced.dir,
+              replaced.filename,
+              hex,
+              libHex,
+              replaced.dir,
+              replaced.filename,
+            ],
+          },
+          {
             sql: `UPDATE asset_locations SET path = ?, filename = ?
             WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?`,
             params: [dir, filename, hex, libHex, replaced.dir, replaced.filename],
@@ -388,6 +407,13 @@ export async function appendBackupLocation(
       params: [hex, hex, libHex, dir, filename, hex, libHex, dir, filename],
     },
     ...(replaced === null ? [] : relocateCacheRearmStatements(hex)),
+    {
+      // Match missing-reaper recovery: successful EXIF is still valid.
+      sql: `UPDATE stage_state SET version = 0, attempts = 0, last_error = NULL,
+              processed_at = NULL, dead = 0, next_attempt_at = NULL, claim_token = NULL
+            WHERE asset_id = ? AND stage = 'exif' AND dead = 1`,
+      params: [hex],
+    },
     ...(input.link === null ? [] : [linkStatement(hex, input.link)]),
     ...(input.ownerId
       ? [
