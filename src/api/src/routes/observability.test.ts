@@ -138,6 +138,17 @@ describe('saved key never leaves for a foreign endpoint (#4744)', () => {
     expect(sent?.get('signoz-access-token')).toBeNull();
   });
 
+  it('a key saved while the endpoint was blank never follows a later endpoint', async () => {
+    await appAs('owner').handle(
+      json('PUT', '/config', { endpoint: null, ingestion_key: 'early-key' }),
+    );
+    await appAs('owner').handle(
+      json('PUT', '/config', { endpoint: 'http://later.example:4318', enabled: false }),
+    );
+    const { sent } = await probeHeaders('owner', { endpoint: 'http://later.example:4318' });
+    expect(sent?.get('signoz-access-token')).toBeNull();
+  });
+
   it('re-saving a key without an endpoint binds it to the saved endpoint', async () => {
     await appAs('owner').handle(json('PUT', '/config', { ingestion_key: 'rotated-key' }));
     const { sent } = await probeHeaders('owner', { endpoint: SAVED_ENDPOINT });
