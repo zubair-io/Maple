@@ -71,7 +71,8 @@ import type { VideoDescriptionMeta } from '../../db/schema.ts';
 import { STAGE_STATE_VIDEO_NARROWING } from '../../db/sqlite/ddl/stage-state.ts';
 import { videoDescriptionStatements } from '../../db/repos/assets.stage-patches.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { loadLibraryRootsForAsset } from '../../indexer/libraries.cache.ts';
+import { noResolvableLocation } from './no-resolvable-location.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
@@ -220,8 +221,9 @@ export async function videoDescribeHandler(
     return { skip: 'not-video' };
   }
 
-  const absolutePath = assetAbsPath(image, await loadLibraryRoots());
-  if (!absolutePath) return { skip: 'no-resolvable-location' };
+  const libs = await loadLibraryRootsForAsset(image);
+  const absolutePath = assetAbsPath(image, libs);
+  if (!absolutePath) return noResolvableLocation(image, libs);
 
   const deps = await getDeps();
 

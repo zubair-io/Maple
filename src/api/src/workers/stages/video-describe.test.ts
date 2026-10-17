@@ -1,3 +1,4 @@
+import { createLiveTestDatabase } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { ObjectId } from '../../db/object-id.ts';
 import { RemoteError } from '../../enrichment/describe-providers/index.ts';
@@ -142,11 +143,13 @@ describe('video-describe handler', () => {
     expect(result).toEqual({ skip: 'not-video' });
   });
 
-  it('skips when the library root cannot be resolved', async () => {
+  it('defers when the library is not registered in this process yet', async () => {
+    using live = await createLiveTestDatabase();
+    void live;
     inject();
-    setLibraryRootsForTests(new Map()); // library no longer registered
+    setLibraryRootsForTests(new Map());
     const result = await videoDescribeHandler(asset('clip.mp4') as never, {} as never);
-    expect(result).toEqual({ skip: 'no-resolvable-location' });
+    expect(result).toMatchObject({ defer: { reason: 'library-not-registered' } });
   });
 
   it('forwards a terminal sampling failure as the matching skip reason', async () => {
