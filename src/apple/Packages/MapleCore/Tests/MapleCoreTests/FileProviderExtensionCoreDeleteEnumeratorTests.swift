@@ -419,6 +419,39 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
         XCTAssertEqual((received.error as NSError?)?.code, NSFileProviderError.noSuchItem.rawValue)
     }
 
+    /// `fetchContents` is reachable BEFORE `item(for:)` validates a cached
+    /// child (the user opens it), so it must apply the same trashed check
+    /// rather than materialising the RAW and re-homing it under
+    /// `.maple/trash`.
+    func testFetchContentsRejectsATrashedAsset() {
+        let folderID = "650a1b2c3d4e5f6071829305"
+        let meta = #"{"id": "\#(validAssetID)", "folder_id": "\#(folderID)", "filename": "IMG_1.dng", "#
+            + #""abs_path": "/lib/.maple/trash/2024/IMG_1.dng", "size": 3, "mtime": 1700000000000, "rating": 0}"#
+        let catalog = FPCoreTestSupport.makeCatalog { req in
+            if req.url?.path == "/api/assets/\(self.validAssetID)" {
+                return (200, Data(meta.utf8), ["Content-Type": "application/json"])
+            }
+            return (200, Data("RAW".utf8), ["Content-Type": "application/octet-stream"])
+        }
+        let roots = [LibraryRoot(id: folderID, path: "/lib", label: "Lib", fileCount: 1)]
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, roots: roots, test: self)
+        let done = expectation(description: "fetchContents completed")
+        var received: (url: URL?, item: NSFileProviderItem?, error: Error?) = (nil, nil, nil)
+
+        _ = core.fetchContents(
+            for: NSFileProviderItemIdentifier(FileProviderIdentifier.asset(validAssetID).rawValue),
+            version: nil, request: NSFileProviderRequest()
+        ) { url, item, error in
+            received = (url, item, error)
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 10)
+
+        XCTAssertNil(received.item, "a trashed asset must not be materialised as a Finder item")
+        XCTAssertNil(received.url)
+        XCTAssertEqual((received.error as NSError?)?.code, NSFileProviderError.noSuchItem.rawValue)
+    }
+
     // MARK: - enumerator(for:) dispatch
 
     func testFolderIdentifierReturnsDeferredFolderEnumerator() throws {
