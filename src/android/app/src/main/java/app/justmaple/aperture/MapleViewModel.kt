@@ -120,7 +120,7 @@ internal constructor(
             // save there must not hold the disconnect hostage (#4765).
             if (!flush()) {
                 if (state.value.selected?.uri?.host != source.uri.host) return@launch
-                discardUnsavedEdits()
+                discardUnsavedEditsNow()
             }
             val active = state.value.folder?.uri?.host == source.uri.host
             if (active) {
@@ -458,20 +458,24 @@ internal constructor(
     /** Drops unsaved edits without touching storage, so a photo whose sidecar
      * can no longer be written stops blocking navigation (#4765). */
     fun discardUnsavedEdits() {
-        viewModelScope.launch {
-            saveJob?.cancel()
-            saveJob = null
-            saveLock.lock()
-            try {
-                val snapshot = state.value
-                if (snapshot.selected == null || !snapshot.dirty) return@launch
-                val saved = runCatching { XmpDocument(baseline ?: XmpDocument.EMPTY) }.getOrDefault(XmpDocument())
-                replaceDocument(LoadedSidecar(saved, baseline))
-            } catch (failure: Exception) {
-                fail(failure, "Could not discard edits")
-            } finally {
-                saveLock.unlock()
-            }
+        viewModelScope.launch { discardUnsavedEditsNow() }
+    }
+
+    /** Completes before returning, so a caller that goes on to clear the
+     * selection (disconnecting the server) never races the discard. */
+    private suspend fun discardUnsavedEditsNow() {
+        saveJob?.cancel()
+        saveJob = null
+        saveLock.lock()
+        try {
+            val snapshot = state.value
+            if (snapshot.selected == null || !snapshot.dirty) return
+            val saved = runCatching { XmpDocument(baseline ?: XmpDocument.EMPTY) }.getOrDefault(XmpDocument())
+            replaceDocument(LoadedSidecar(saved, baseline))
+        } catch (failure: Exception) {
+            fail(failure, "Could not discard edits")
+        } finally {
+            saveLock.unlock()
         }
     }
 
