@@ -155,6 +155,7 @@ export interface BackupAssetLocation {
   /** Library-relative path, e.g. `2024/Tokyo/IMG.HEIC` or just `a.heic`. */
   relPath: string;
   deletedAt?: string | null;
+  missingSince?: string | null;
 }
 
 /**
@@ -200,14 +201,16 @@ export function seedBackupAsset(
     const slash = location.relPath.lastIndexOf('/');
     run(
       db,
-      `INSERT INTO asset_locations (asset_id, ordinal, library_id, path, filename, deleted_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO asset_locations
+         (asset_id, ordinal, library_id, path, filename, deleted_at, missing_since)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       id,
       ordinal,
       location.libraryId.toHexString(),
       slash === -1 ? '' : location.relPath.slice(0, slash),
       slash === -1 ? location.relPath : location.relPath.slice(slash + 1),
       location.deletedAt ?? null,
+      location.missingSince ?? null,
     );
   });
   for (const link of opts.links ?? []) {

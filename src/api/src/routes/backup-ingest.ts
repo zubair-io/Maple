@@ -49,6 +49,17 @@ import path from 'node:path';
 
 const log = childLogger('backup-ingest');
 
+async function hasFileOnDisk(libraryRoot: string, relPath: string): Promise<boolean> {
+  const fullPath = containedJoin(libraryRoot, relPath);
+  if (!fullPath) return false;
+  try {
+    const stat = await fs.stat(fullPath);
+    return stat.isFile();
+  } catch {
+    return false;
+  }
+}
+
 export const backupIngestRoutes = new Elysia().post(
   '/api/libraries/:libraryId/backup/ingest',
   // fallow-ignore-next-line complexity
@@ -130,32 +141,56 @@ export const backupIngestRoutes = new Elysia().post(
       phassetCloudId: phCloudId,
     });
     if (opened instanceof Response) return opened;
-    const { session, didReset, alreadyComplete } = opened;
+    let { didReset } = opened;
+    const { session, alreadyComplete } = opened;
 
-    // Short-circuit when the upload already finished server-side. The device
-    // is retrying because something AFTER the original ingest (sidecar /
-    // rendered / live video) failed and re-enqueued the task — re-uploading
-    // the same bytes is wasted work, and the client's downstream steps
-    // (sidecar PUT, rendered POST) only need `maple_id` + `target_rel_path`
-    // to proceed. Skip chunk processing entirely.
+    // Short-circuit when the upload already finished server-side and the
+    // stored copy is still live on disk (#4700). The device is retrying
+    // because something AFTER the original ingest (sidecar / rendered / live
+    // video) failed and re-enqueued the task — re-uploading the same bytes is
+    // wasted work, and the client's downstream steps (sidecar PUT, rendered
+    // POST) only need `maple_id` + `target_rel_path` to proceed. If the asset
+    // was marked missing or its file vanished since completion, reopen the
+    // session and accept the repair upload instead.
     if (alreadyComplete) {
-      log.debug(
-        {
-          phid,
-          mapleId: session.maple_id,
-          targetRelPath: session.target_rel_path,
-        },
-        'ingest short-circuit (already complete)',
-      );
-      set.status = 200;
-      return {
-        maple_id: session.maple_id,
-        // Hand back where the bytes actually landed: a disambiguated collision
-        // stores its real path in `resolved_rel_path` while `target_rel_path`
-        // stays the device-computed key. Companions (sidecar / rendered) must
-        // be written next to the real file, not the path that collided.
-        target_rel_path: session.resolved_rel_path ?? session.target_rel_path,
-      };
+      const completedRelPath = session.resolved_rel_path ?? session.target_rel_path;
+      const completedTarget = session.maple_id
+        ? await findIngestDedupTarget({
+            mapleId: session.maple_id,
+            libraryId,
+            deviceId,
+            phassetLocalId: phid,
+          })
+        : null;
+      const stillPresent =
+        completedTarget?.liveRelPathInLibrary !== null &&
+        completedTarget?.liveRelPathInLibrary !== undefined &&
+        (await hasFileOnDisk(folder.path, completedRelPath));
+
+      if (stillPresent) {
+        log.debug(
+          {
+            phid,
+            mapleId: session.maple_id,
+            targetRelPath: session.target_rel_path,
+          },
+          'ingest short-circuit (already complete)',
+        );
+        set.status = 200;
+        return {
+          maple_id: session.maple_id,
+          // Hand back where the bytes actually landed: a disambiguated collision
+          // stores its real path in `resolved_rel_path` while `target_rel_path`
+          // stays the device-computed key. Companions (sidecar / rendered) must
+          // be written next to the real file, not the path that collided.
+          target_rel_path: completedRelPath,
+        };
+      }
+
+      await uploadSessions.resetForRestart(session._id);
+      session.state = 'open';
+      session.received_bytes = 0;
+      didReset = true;
     }
 
     // Use the stored target_rel_path as the source of truth (not the freshly
@@ -201,7 +236,8 @@ export const backupIngestRoutes = new Elysia().post(
 
     if (existing) {
       // Same content already stored somewhere. Whether we can pure-dedup
-      // (no second copy on disk) depends on which library that copy lives in.
+      // (no second copy on disk) depends on which library that copy lives in
+      // and whether the file is actually still on disk (#4700).
       //
       // maple_id is a GLOBAL content hash — not scoped to a library. The
       // matched row may carry locations only for some OTHER library (e.g. the
@@ -213,8 +249,9 @@ export const backupIngestRoutes = new Elysia().post(
       // backing a photo up to library Y must leave a usable location
       // referencing Y.
       const liveRelPath = existing.liveRelPathInLibrary;
+      const liveOnDisk = liveRelPath !== null && (await hasFileOnDisk(folder.path, liveRelPath));
 
-      if (liveRelPath !== null) {
+      if (liveRelPath !== null && liveOnDisk) {
         // Content already on disk in THIS library — true dedup. Drop the tmp
         // bytes; the canonical copy already lives at this library's location.
         // Linking this device to the existing row is idempotent on retry.
@@ -247,11 +284,14 @@ export const backupIngestRoutes = new Elysia().post(
         };
       }
 
-      // Content exists, but NOT in this library — materialize a copy here so
-      // this library gets its own location (and the folder-scoped sidecar /
-      // rendered lookups succeed). We still avoid re-deriving the id or
-      // re-running enrichment: this is the same content-addressed row, we only
-      // add a location.
+      // Content exists, but either NOT in this library or its copy in this
+      // library is missing on disk (#4700) — materialize a copy here so this
+      // library has a live file and location (and the folder-scoped sidecar /
+      // rendered lookups succeed). When restoring a missing/vanished location
+      // in this library, place the bytes back at that location's path so
+      // `appendBackupLocation` re-activates the existing row in place.
+      resolvedTargetRelPath =
+        liveRelPath ?? existing.missingRelPathInLibrary ?? resolvedTargetRelPath;
       const finalPath = containedJoin(folder.path, resolvedTargetRelPath);
       if (!finalPath) {
         set.status = 400;

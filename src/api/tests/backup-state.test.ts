@@ -110,4 +110,16 @@ describe('GET /api/libraries/:id/backup/state', () => {
     const body = await res.json();
     expect(body.assets.map((a: any) => a.phasset_local_id).sort()).toEqual(['P1', 'P2']);
   });
+
+  test('an asset whose only location in this library is marked missing_since is left out', async () => {
+    seedBackupAsset(live.db, {
+      mapleId: 'hash-d',
+      locations: [{ libraryId: libId, relPath: 'd.heic', missingSince: '2026-05-12T00:00:00Z' }],
+      links: [{ deviceId, phassetLocalId: 'P4', firstSeen: new Date('2026-05-11T02:00:00Z') }],
+    });
+    const url = `http://localhost/api/libraries/${libId.toHexString()}/backup/state?device_id=${deviceId}`;
+    const res = await authedHandle(new Request(url));
+    const body = (await res.json()) as { assets: Array<{ phasset_local_id: string }> };
+    expect(body.assets.map((a) => a.phasset_local_id).sort()).toEqual(['P1', 'P2']);
+  });
 });

@@ -110,6 +110,27 @@ describe('POST /api/libraries/:libraryId/backup/exists', () => {
     expect(body.missing).toEqual(['0246d5e6e1bfbc9b96c0d5e6c8a2f931']);
   });
 
+  it('reports a location marked missing_since as missing so the photo is re-uploaded', async () => {
+    seedBackupAsset(live.db, {
+      mapleId: '0277d5e6e1bfbc9b96c0d5e6c8a2f931',
+      size: 4,
+      locations: [
+        {
+          libraryId,
+          relPath: '0277d5e6e1bfbc9b96c0d5e6c8a2f931.dng',
+          missingSince: '2026-05-12T00:00:00Z',
+        },
+      ],
+    });
+
+    const res = await post(libraryId.toHexString(), {
+      maple_ids: ['0277d5e6e1bfbc9b96c0d5e6c8a2f931'],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { missing: string[] };
+    expect(body.missing).toEqual(['0277d5e6e1bfbc9b96c0d5e6c8a2f931']);
+  });
+
   it('de-duplicates input ids and preserves first-seen order', async () => {
     seedAsset(libraryId, '02193c45b5281908d2d9c814ba73be69');
 
