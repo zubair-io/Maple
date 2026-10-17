@@ -21,6 +21,9 @@ public final class BrowseViewModel {
   /// SelfHosted).
   public var subfolders: [URL] = []
   public var selectedID: AssetRef.ID? = nil
+  /// Bumps whenever a load publishes a different listing (never on a page
+  /// append), so grids know to return to the top.
+  public internal(set) var listingGeneration: UInt64 = 0
   public var sortOrder: SortOrder = .nameAscending
 
   // MARK: - Multi-select (M1 — #1236 / #1234)
@@ -122,6 +125,7 @@ public final class BrowseViewModel {
       currentSource = source
       loadError = nil
       photosAuthNeeded = false
+      listingGeneration &+= 1
     } catch {
       guard gen == loadGeneration else { return }
       loadError = error
@@ -193,6 +197,7 @@ public final class BrowseViewModel {
       currentSource = source
       loadError = nil
       photosAuthNeeded = false
+      listingGeneration &+= 1
     } catch {
       guard gen == loadGeneration else { return }
       loadError = error
@@ -224,6 +229,7 @@ public final class BrowseViewModel {
       currentSource = source
       loadError = nil
       photosAuthNeeded = false
+      listingGeneration &+= 1
     } catch {
       guard gen == loadGeneration else { return }
       loadError = error
@@ -285,6 +291,7 @@ public final class BrowseViewModel {
     subfolders = []
     loadError = nil
     photosAuthNeeded = false
+    listingGeneration &+= 1
   }
 
   /// Drop merged state and return to plain-source mode.
@@ -474,6 +481,7 @@ public final class BrowseViewModel {
       currentSource = source
       loadError = nil
       photosAuthNeeded = false
+      listingGeneration &+= 1
     } catch {
       guard gen == loadGeneration else { return }
       loadError = error

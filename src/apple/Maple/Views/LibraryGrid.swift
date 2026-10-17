@@ -200,6 +200,7 @@
         }
         .coordinateSpace(.named(Self.scrollSpace))
         .scrollPosition($scrollPosition)
+        .onChange(of: vm.listingGeneration) { scrollPosition.scrollTo(edge: .top) }
         .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { _, geometry in
           scroll.geometry = geometry
         }

@@ -139,6 +139,8 @@ struct BrowseGrid: View {
   /// mode then falls back to `localProvider`.
   @State private var mergedProvider: ThumbnailProvider?
 
+  private static let topAnchorID = "browse-grid-top"
+
   var body: some View {
     VStack(spacing: 0) {
       ZStack(alignment: .top) {
@@ -148,21 +150,24 @@ struct BrowseGrid: View {
         // loaded at all.
         ScrollViewReader { proxy in
           ScrollView {
-            Group {
-              if vm.isMerged {
-                mergedGrid
-              } else {
-                normalGrid
+            VStack(spacing: 0) {
+              Color.clear.frame(height: 0).id(Self.topAnchorID)
+              Group {
+                if vm.isMerged {
+                  mergedGrid
+                } else {
+                  normalGrid
+                }
               }
+              // UITest sentinel — the harness uses
+              // `app.otherElements["browse-grid"]` to confirm browse
+              // mode is active before driving thumbnail selection.
+              .accessibilityIdentifier("browse-grid")
+              .padding(8)
+              // Bottom padding so the last row isn't hidden under
+              // the selection bar when it's shown.
+              .padding(.bottom, vm.isSelecting ? 60 : 0)
             }
-            // UITest sentinel — the harness uses
-            // `app.otherElements["browse-grid"]` to confirm browse
-            // mode is active before driving thumbnail selection.
-            .accessibilityIdentifier("browse-grid")
-            .padding(8)
-            // Bottom padding so the last row isn't hidden under
-            // the selection bar when it's shown.
-            .padding(.bottom, vm.isSelecting ? 60 : 0)
           }
           .accessibilityIdentifier("browse-scroll")
           .background(MapleTokens.bg)
@@ -192,6 +197,7 @@ struct BrowseGrid: View {
             // enough to expose it.
             if let id = newID { proxy.scrollTo(id, anchor: nil) }
           }
+          .onChange(of: vm.listingGeneration) { proxy.scrollTo(Self.topAnchorID, anchor: .top) }
         }
 
         // Error banner at the top of the grid.
