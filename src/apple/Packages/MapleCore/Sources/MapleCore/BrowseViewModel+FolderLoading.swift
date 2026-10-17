@@ -90,6 +90,7 @@ extension BrowseViewModel {
       selectedID = nil
       loadError = nil
       photosAuthNeeded = false  // a folder is never the Photos-permission state (#3536)
+      listingGeneration &+= 1
     } catch {
       guard !(error is CancellationError), !Task.isCancelled, gen == loadGeneration else { return }
       loadError = error
