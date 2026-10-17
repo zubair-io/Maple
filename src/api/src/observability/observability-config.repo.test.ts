@@ -114,6 +114,34 @@ describe('resolveObservabilityConfig', () => {
     expect(resolved.source.sample_ratio).toBe('db');
   });
 
+  // #4744 — the key is bound to the endpoint it was saved for.
+  it('drops a key bound to a different endpoint', () => {
+    const resolved = resolveObservabilityConfig({
+      endpoint: 'https://replacement.internal',
+      ingestion_key: 'secret-key',
+      ingestion_key_endpoint: 'https://signoz.internal',
+    });
+    expect(resolved.ingestion_key).toBeNull();
+    expect(resolved.source.ingestion_key).toBe('unset');
+  });
+
+  it('keeps a key bound to the current endpoint', () => {
+    const resolved = resolveObservabilityConfig({
+      endpoint: 'https://signoz.internal/',
+      ingestion_key: 'secret-key',
+      ingestion_key_endpoint: 'https://signoz.internal',
+    });
+    expect(resolved.ingestion_key).toBe('secret-key');
+  });
+
+  it('keeps a legacy key saved before bindings existed', () => {
+    const resolved = resolveObservabilityConfig({
+      endpoint: 'https://signoz.internal',
+      ingestion_key: 'secret-key',
+    });
+    expect(resolved.ingestion_key).toBe('secret-key');
+  });
+
   it('normalises the endpoint and handles invalid values', () => {
     const r1 = resolveObservabilityConfig({ endpoint: ' https://signoz.internal/ ' });
     expect(r1.endpoint).toBe('https://signoz.internal');

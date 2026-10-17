@@ -26,7 +26,11 @@ let live: LiveTestDatabase;
 
 beforeEach(async () => {
   live = await createLiveTestDatabase();
-  await saveObservabilityConfig({ endpoint: SAVED_ENDPOINT, ingestion_key: SAVED_KEY });
+  await saveObservabilityConfig({
+    endpoint: SAVED_ENDPOINT,
+    ingestion_key: SAVED_KEY,
+    ingestion_key_endpoint: SAVED_ENDPOINT,
+  });
 });
 
 afterEach(() => {
@@ -106,14 +110,38 @@ describe('saved key never leaves for a foreign endpoint (#4744)', () => {
     expect(sent?.get('signoz-access-token')).toBe(SAVED_KEY);
   });
 
-  it('changing the endpoint without a new key clears the saved key', async () => {
+  it('changing the endpoint without a new key leaves the key unusable for it', async () => {
     const res = await appAs('owner').handle(
       json('PUT', '/config', { endpoint: 'http://replacement.example:4318', enabled: false }),
     );
     expect(res.status).toBe(200);
-    expect((await loadObservabilityConfig())?.ingestion_key).toBeNull();
+    expect(((await res.json()) as { ingestion_key_set: boolean }).ingestion_key_set).toBe(false);
     const { sent } = await probeHeaders('owner', { endpoint: 'http://replacement.example:4318' });
     expect(sent?.get('signoz-access-token')).toBeNull();
+  });
+
+  it('a key saved with endpoint B never follows a stale write of endpoint A', async () => {
+    // Two overlapping owner saves: one moves to B with a fresh key, the other
+    // (which read endpoint A earlier) re-saves A without a key. Whatever order
+    // they land in, the B key must not become usable for A.
+    await appAs('owner').handle(
+      json('PUT', '/config', {
+        endpoint: 'http://replacement.example:4318',
+        ingestion_key: 'key-for-b',
+        enabled: false,
+      }),
+    );
+    await appAs('owner').handle(
+      json('PUT', '/config', { endpoint: SAVED_ENDPOINT, enabled: false }),
+    );
+    const { sent } = await probeHeaders('owner', { endpoint: SAVED_ENDPOINT });
+    expect(sent?.get('signoz-access-token')).toBeNull();
+  });
+
+  it('re-saving a key without an endpoint binds it to the saved endpoint', async () => {
+    await appAs('owner').handle(json('PUT', '/config', { ingestion_key: 'rotated-key' }));
+    const { sent } = await probeHeaders('owner', { endpoint: SAVED_ENDPOINT });
+    expect(sent?.get('signoz-access-token')).toBe('rotated-key');
   });
 
   it('changing the endpoint together with a new key keeps that key', async () => {

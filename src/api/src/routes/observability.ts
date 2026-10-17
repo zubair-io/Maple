@@ -32,6 +32,7 @@ import {
   resolveObservabilityConfig,
   saveObservabilityConfig,
   validateHttpUrl,
+  type ObservabilityConfig,
   type ResolvedObservabilityConfig,
 } from '../observability/observability-config.repo.ts';
 import { applyOtelConfig } from '../otel.ts';
@@ -168,19 +169,33 @@ function interpretProbeResponse(res: Response, portHint: string | null) {
 
 /** Normalise the write-only `ingestion_key` field of a PUT into a save patch.
  * `undefined`/blank leaves the saved key alone, `null` clears it, a non-empty
- * string sets it. The key is bound to the endpoint it was saved for (#4744):
- * moving `endpoint` without typing a new key clears the old one rather than
- * silently re-binding it to the replacement service. */
+ * string sets it. A key is persisted together with the endpoint it is for
+ * (#4744), in the same write, so no interleaving of two saves can leave a key
+ * bound to an endpoint it was not typed for: the resolver drops a key whose
+ * binding no longer matches. A legacy key with no binding is pinned to the
+ * endpoint it is being moved away from. */
 async function resolveIngestionKeyPatch(
   typed: string | null | undefined,
   endpoint: string | null | undefined,
-): Promise<{ ingestion_key?: string | null }> {
-  if (typed === null) return { ingestion_key: null };
-  const trimmed = typeof typed === 'string' ? typed.trim() : '';
-  if (trimmed.length > 0) return { ingestion_key: trimmed };
-  if (endpoint === undefined) return {};
-  const savedEndpoint = resolveObservabilityConfig(await loadObservabilityConfig()).endpoint;
-  return endpoint === savedEndpoint ? {} : { ingestion_key: null };
+): Promise<Pick<ObservabilityConfig, 'ingestion_key' | 'ingestion_key_endpoint'>> {
+  if (typed === null) return { ingestion_key: null, ingestion_key_endpoint: null };
+  const saved = await loadObservabilityConfig();
+  const savedEndpoint = resolveObservabilityConfig(saved).endpoint;
+  const trimmed = typed?.trim() ?? '';
+  return trimmed.length > 0
+    ? { ingestion_key: trimmed, ingestion_key_endpoint: endpoint ?? savedEndpoint }
+    : legacyBindingPatch(saved, endpoint, savedEndpoint);
+}
+
+/** A key saved before bindings existed is pinned to the endpoint it is being
+ * moved away from, so the move cannot carry it to the new service. */
+function legacyBindingPatch(
+  saved: ObservabilityConfig | null,
+  endpoint: string | null | undefined,
+  savedEndpoint: string | null,
+): Pick<ObservabilityConfig, 'ingestion_key_endpoint'> {
+  const legacyUnbound = saved?.ingestion_key_endpoint === undefined && !!saved?.ingestion_key;
+  return endpoint !== undefined && legacyUnbound ? { ingestion_key_endpoint: savedEndpoint } : {};
 }
 
 /** The key a `/test` probe may carry: the typed one as given, else the saved
