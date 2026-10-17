@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 import compare_images as ci
+from compare_images_metadata import CRS, camera_raw_settings, verify_authoring_settings
 from PIL import Image, PngImagePlugin
 
 sys.path.insert(0, str(Path(__file__).parent / "acr-reference"))
@@ -55,6 +56,13 @@ class AuthoringMetadataTests(unittest.TestCase):
             case_label="local_gradient",
             reference_xmp=str(self.sidecar),
             reference_protocol="native-pair-lanczos-v1",
+        )
+
+    def verify_authoring(self, authored, captured):
+        self.sidecar.write_text(authored)
+        verify_authoring_settings(
+            camera_raw_settings(self.sidecar.read_bytes()),
+            camera_raw_settings(captured),
         )
 
     def test_capture_cannot_add_local_adjustment(self):
@@ -175,15 +183,36 @@ class AuthoringMetadataTests(unittest.TestCase):
                 self.compare(self.authored, self.with_property(changed))
 
     def test_active_noise_controls_must_be_authored(self):
-        authored = self.authored.replace(
+        active = self.authored.replace(
             'crs:LuminanceSmoothing="0"', 'crs:LuminanceSmoothing="100"'
         )
+        authored = active.replace(' crs:LuminanceNoiseReductionDetail="50"', "")
+        settings = camera_raw_settings(authored)
+        self.assertEqual(settings[CRS + "LuminanceSmoothing"], 100)
+        self.assertNotIn(CRS + "LuminanceNoiseReductionDetail", settings)
         captured = authored.replace(
             "</rdf:Description>",
             "<crs:LuminanceNoiseReductionDetail>50</crs:LuminanceNoiseReductionDetail></rdf:Description>",
         )
         with self.assertRaisesRegex(ValueError, "LuminanceNoiseReductionDetail"):
-            self.compare(authored, captured)
+            self.verify_authoring(authored, captured)
+
+    def test_dormant_noise_default_and_equal_duplicate_are_accepted(self):
+        authored = self.authored.replace(' crs:LuminanceNoiseReductionDetail="50"', "")
+        settings = camera_raw_settings(authored)
+        self.assertEqual(settings[CRS + "LuminanceSmoothing"], 0)
+        self.assertNotIn(CRS + "LuminanceNoiseReductionDetail", settings)
+        captured = authored.replace(
+            "</rdf:Description>",
+            "<crs:LuminanceNoiseReductionDetail>50</crs:LuminanceNoiseReductionDetail></rdf:Description>",
+        )
+        self.verify_authoring(authored, captured)
+        self.verify_authoring(
+            self.authored,
+            self.with_property(
+                "<crs:LuminanceNoiseReductionDetail>50</crs:LuminanceNoiseReductionDetail>"
+            ),
+        )
 
     def test_unknown_conflicting_duplicates_and_nonfinite_values_fail(self):
         for payload in (
