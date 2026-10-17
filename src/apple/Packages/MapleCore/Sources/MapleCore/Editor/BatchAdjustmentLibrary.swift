@@ -2,8 +2,11 @@ import Foundation
 
 extension AssetRef {
   /// Session UUIDs change on reload. Ledger identity must come from the source.
+  /// SMB copies share a content id, so their identity is the listed path (#4705).
   public var adjustmentTransferID: String? {
-    primaryURL?.standardizedFileURL.absoluteString ?? stableID
+    primaryURL?.standardizedFileURL.absoluteString
+      ?? smbPath.map { BatchAdjustmentTarget.smbIDPrefix + $0 }
+      ?? stableID
   }
 
   public var adjustmentTransferTarget: BatchAdjustmentTarget? {

@@ -46,7 +46,7 @@ extension SMBSource {
     /// `SMBAsset`-keyed `writeSidecar` so there is exactly one retry
     /// implementation.
     public func writeSidecarData(_ data: Data, for ref: ImageRef) async throws {
-        try await writeSidecar(data, for: SMBAsset(path: path(for: ref)))
+        try await writeSidecar(data, for: SMBAsset(path: try mutationPath(for: ref)))
     }
 
     /// Raw-bytes sidecar read keyed by `ImageRef` (#2674) — the read-side
