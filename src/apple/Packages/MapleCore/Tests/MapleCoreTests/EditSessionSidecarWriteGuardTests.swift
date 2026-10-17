@@ -185,4 +185,56 @@ final class EditSessionSidecarWriteGuardTests: EditorTestCase {
     XCTAssertEqual(model.vibrance, 30, accuracy: 1e-9)
     XCTAssertEqual(culling.stars, 2)
   }
+
+  func testASlowFailedLoadCannotPauseASessionAnotherLoadHydrated() async throws {
+    var saved = AdjustmentModel.default
+    saved.exposure = 1.5
+    let store = FirstLoadFailsLateStore(model: saved)
+    let asset = AssetRef(displayName: "remote.dng", hintExtension: "dng", bytesProvider: { Data() })
+    let session = EditSession(asset: asset, remoteSidecarStore: store)
+
+    let slow = Task { await session.loadSidecar() }
+    await store.waitUntilFirstLoadStarts()
+    await session.loadSidecar()
+    XCTAssertTrue(session.hasLoadedSidecar)
+    await store.failFirstLoad()
+    await slow.value
+
+    XCTAssertFalse(session.sidecarLoadFailed, "a stale failure must not pause a loaded session")
+    XCTAssertNil(session.sidecarError)
+    XCTAssertEqual(session.model.exposure, 1.5, accuracy: 1e-9)
+  }
+}
+
+/// The first read suspends until released, then fails; later reads succeed.
+/// Stands in for browse priming and the editor racing two Cloud reads.
+private actor FirstLoadFailsLateStore: SidecarStoreProtocol {
+  private let value: (AdjustmentModel, CullingState)
+  private var reads = 0
+  private var firstRead: CheckedContinuation<Void, Never>?
+
+  init(model: AdjustmentModel) { value = (model, CullingState()) }
+
+  func load() async throws -> (AdjustmentModel, CullingState) { value }
+
+  func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
+    reads += 1
+    guard reads == 1 else { return value }
+    await withCheckedContinuation { firstRead = $0 }
+    throw URLError(.timedOut)
+  }
+
+  func waitUntilFirstLoadStarts() async {
+    while firstRead == nil { await Task.yield() }
+  }
+
+  func failFirstLoad() {
+    firstRead?.resume()
+    firstRead = nil
+  }
+
+  func update(model: AdjustmentModel, culling: CullingState) {}
+  func flush() async {}
+  func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {}
+  func errors() -> AsyncStream<Error> { AsyncStream { $0.finish() } }
 }
