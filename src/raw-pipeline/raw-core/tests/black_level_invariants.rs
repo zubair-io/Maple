@@ -114,6 +114,34 @@ fn xtrans_six_by_six_black_table_reduces_to_per_colour_means() {
     assert_eq!(raw.black_level, [1000, 1100, 1200, 1200]);
 }
 
+/// DNG anchors both `CFAPattern` and `BlackLevel` at the `ActiveArea` origin.
+/// rawler re-anchors the CFA to the sensor origin (`CFA::shift(left, top)`,
+/// `S(r, c) = O(r + top, c + left)`) but leaves the table ActiveArea-relative,
+/// so the table must be grouped by the unshifted pattern. An origin that is
+/// not a multiple of 3 is where adding the origin instead of undoing it keys
+/// cells to the wrong colour on a 6×6 tile.
+#[test]
+fn xtrans_black_table_is_grouped_by_the_unshifted_pattern_under_active_area() {
+    for area in [[0u16, 1, 48, 48], [1, 2, 48, 48], [4, 5, 48, 48]] {
+        let dng = SyntheticGreyDng {
+            width: 48,
+            height: 48,
+            cfa: CfaPattern::XTrans(XTRANS_PATTERN),
+            black_level_table: Some(xtrans_black_table()),
+            active_area: Some(area),
+            ..Default::default()
+        };
+        let raw =
+            raw_core::decode::decode_bytes(&dng.write_to_bytes(), "dng").expect("X-Trans decodes");
+        assert_eq!(
+            raw.black_level,
+            [1000, 1100, 1200, 1200],
+            "ActiveArea {:?}: table cells grouped to the wrong colour",
+            area
+        );
+    }
+}
+
 #[test]
 fn xtrans_frame_at_per_colour_black_linearizes_to_zero() {
     let dng = SyntheticGreyDng {
