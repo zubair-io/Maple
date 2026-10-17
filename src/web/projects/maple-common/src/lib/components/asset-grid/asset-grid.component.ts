@@ -309,9 +309,16 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
   // capability → always `false` on Hosted); `dragDataFor` still has to
   // exist unconditionally because `cdkDrag`'s `[cdkDragData]` binding is
   // evaluated regardless of `[cdkDragDisabled]`.
+  //
+  // Touch-primary devices never get drag: an enabled `cdkDrag` sets
+  // `touch-action: none` on its tile, which hijacks a finger swipe as a
+  // drag and makes the grid unscrollable on phones and tablets.
+
+  private readonly hasFinePointer =
+    typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches;
 
   dragEnabled(): boolean {
-    return this.dragMove.available();
+    return this.hasFinePointer && this.dragMove.available();
   }
 
   isDraggable(item: GridItem): boolean {

@@ -23,6 +23,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { AssetGridComponent } from './asset-grid.component';
 import { LibraryStateService } from '../../state/library-state.service';
 import { TRASH_CAPABILITY } from '../../trash/trash-capability';
+import { DRAG_MOVE_CAPABILITY } from '../../drag-move/drag-move-capability';
 import type { Asset, AssetId } from '../../models/asset';
 
 function makeAsset(id: string): Asset {
@@ -416,5 +417,38 @@ describe('AssetGridComponent — Delete/Backspace sends selection to Trash (#275
     selectedSourceId = undefined;
     component.onGridKeydown(keydown('Delete'));
     expect(trashAssets).not.toHaveBeenCalled();
+  });
+});
+
+describe('AssetGridComponent — touch devices keep native scroll (drag-move)', () => {
+  const imageItem = { kind: 'image', asset: makeAsset('a1') } as Parameters<
+    AssetGridComponent['isDraggable']
+  >[0];
+
+  function build(finePointer: boolean): AssetGridComponent {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(pointer: fine)' && finePointer,
+    }));
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: LibraryStateService, useValue: {} },
+        { provide: Router, useValue: { navigate: vi.fn() } },
+        { provide: DRAG_MOVE_CAPABILITY, useValue: { available: () => true } },
+      ],
+    });
+    return TestBed.runInInjectionContext(() => new AssetGridComponent());
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    TestBed.resetTestingModule();
+  });
+
+  it('disables tile drag on a coarse (touch) pointer so swipes scroll the grid', () => {
+    expect(build(false).isDraggable(imageItem)).toBe(false);
+  });
+
+  it('keeps tile drag on a fine (mouse/trackpad) pointer', () => {
+    expect(build(true).isDraggable(imageItem)).toBe(true);
   });
 });
