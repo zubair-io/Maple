@@ -45,6 +45,8 @@ struct MapleBackupAgentEntryPoint {
     try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
     let stateURL = appSupport.appendingPathComponent(s.stateDatabaseFilename)
     let state = try BackupStateStore(databaseURL: stateURL)
+    try await state.acquireEngineOwnership()
+    guard !BackupSettings.isStoppedByUser, BackupSettings.load() == s else { return }
 
     let queue = InProcessBackupQueue()
     // Rehydrate pending tasks from the shared state DB so we resume the

@@ -66,6 +66,7 @@ public final class EngineHost {
   public private(set) var usesLocalAddress = false
 
   private var runnerTask: Task<Void, Never>?
+  private var ownershipTask: Task<Void, Error>?
 
   /// Long-running task that triggers a safety walk every 7 days.
   /// On iOS this is supplemented by the BGProcessingTask handler;
@@ -128,6 +129,15 @@ public final class EngineHost {
         root: try AppSupportSidecarStore.defaultRoot())
       let state = try BackupStateStore(
         databaseURL: appSupport.appendingPathComponent(settings.stateDatabaseFilename))
+      let ownership = Task { try await state.acquireEngineOwnership() }
+      ownershipTask = ownership
+      try await withTaskCancellationHandler {
+        try await ownership.value
+      } onCancel: {
+        ownership.cancel()
+      }
+      guard generation == self.generation, !Task.isCancelled else { return }
+      ownershipTask = nil
 
       // Fresh queue per start — settings may have changed (different library).
       let queue = InProcessBackupQueue()
@@ -196,6 +206,8 @@ public final class EngineHost {
         retryFailed: retryFailed)
       log.info("start ok engine running, state initialized")
     } catch {
+      guard generation == self.generation else { return }
+      ownershipTask = nil
       // The most likely failures are filesystem permission issues or
       // SQLite open errors. Capture into `lastStartError` so the
       // BackupStatusPanel can show the user what went wrong instead
@@ -212,6 +224,10 @@ public final class EngineHost {
   /// Cancel discovery, active reads/uploads, and retries; pending work stays durable.
   public func stop() async {
     generation = UUID()
+    let ownership = ownershipTask
+    ownership?.cancel()
+    ownershipTask = nil
+    _ = await ownership?.result
     ChangeObserverWiring.stop()
     let runner = runnerTask
     runner?.cancel()
@@ -227,6 +243,7 @@ public final class EngineHost {
     if let engine { await engine.stop() }
     runnerTask = nil
     engine = nil
+    state = nil
     periodicWalkTask?.cancel()
     periodicWalkTask = nil
     // Stop the progress VM so it detaches from the now-discarded queue.
