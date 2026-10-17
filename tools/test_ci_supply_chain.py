@@ -8,9 +8,45 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+# Verified in dtolnay/rust-toolchain master history with GitHub's compare API.
+RUST_TOOLCHAIN_MASTER_SHA = "683b588c487a69d01f6c6ddf40f036ff682cc2c8"
 
 
 class SupplyChainTests(unittest.TestCase):
+    def test_privileged_rust_action_uses_retained_pin_and_explicit_toolchain(self):
+        native = tomllib.loads(
+            (ROOT / "src/raw-pipeline/rust-toolchain.toml").read_text()
+        )["toolchain"]["channel"]
+        wasm = tomllib.loads(
+            (ROOT / "src/raw-pipeline/raw-wasm/rust-toolchain.toml").read_text()
+        )["toolchain"]["channel"]
+        expected = {
+            "android-distribution": (1, native),
+            "release": (1, native),
+            "publish-package": (3, native),
+            "deploy-hosted": (1, wasm),
+        }
+        for name, (count, toolchain) in expected.items():
+            config = yaml.safe_load(
+                (ROOT / f".github/workflows/{name}.yml").read_text()
+            )
+            steps = (
+                step for job in config["jobs"].values() for step in job.get("steps", [])
+            )
+            rust_steps = [
+                step
+                for step in steps
+                if step.get("uses", "").startswith("dtolnay/rust-toolchain@")
+            ]
+            self.assertEqual(len(rust_steps), count, name)
+            for step in rust_steps:
+                with self.subTest(workflow=name, step=step.get("name")):
+                    self.assertEqual(
+                        step["uses"],
+                        f"dtolnay/rust-toolchain@{RUST_TOOLCHAIN_MASTER_SHA}",
+                    )
+                    self.assertEqual(step["with"]["toolchain"], toolchain)
+
     def test_privileged_workflow_actions_are_immutable(self):
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             config = yaml.safe_load(path.read_text())
