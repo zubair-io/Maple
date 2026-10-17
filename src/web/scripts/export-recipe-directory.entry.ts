@@ -113,7 +113,13 @@ export async function directoryPolicies(): Promise<void> {
   const value = await record();
   const dir = value.directoryHandle!;
   await write(dir, 'output.jpg', 'existing delivery');
-  value.createdOutputs = ['output.jpg'];
+  const existingDigest = Array.from(
+    new Uint8Array(
+      await crypto.subtle.digest('SHA-256', new TextEncoder().encode('existing delivery')),
+    ),
+    (b) => b.toString(16).padStart(2, '0'),
+  ).join('');
+  value.createdOutputs = { 'output.jpg': existingDigest };
   await runBrowserRecipe(value, context());
   check(value.entries[0].status === 'failed', 'Error policy must report collisions');
   check(

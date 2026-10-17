@@ -48,6 +48,15 @@ async function startScenario(
   const { folder, put, targets, a } = fixture;
   if (scenario === 'unrelated') {
     await put('3.jpg', 'previous-unrelated-output');
+    const digest = Array.from(
+      new Uint8Array(
+        await crypto.subtle.digest(
+          'SHA-256',
+          new TextEncoder().encode('previous-unrelated-output'),
+        ),
+      ),
+      (b) => b.toString(16).padStart(2, '0'),
+    ).join('');
     targets.splice(1);
     await saveExportQueue({
       id: 'previous',
@@ -57,7 +66,7 @@ async function startScenario(
       cancelled: false,
       serverJobId: null,
       directoryHandle: folder,
-      createdOutputs: ['3.jpg'],
+      createdOutputs: { '3.jpg': digest },
     });
   }
   if (scenario === 'legacy-filtered') targets.splice(1);

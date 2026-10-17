@@ -110,22 +110,60 @@ async function exportPaths(
   return { source, directory, outputPath };
 }
 
+const canonicalRootsCache = new WeakMap<
+  ReadonlyMap<string, string>,
+  Promise<readonly (readonly [string, string])[]>
+>();
+
+function libraryRootEntries(
+  roots: ReadonlyMap<string, string>,
+): Promise<readonly (readonly [string, string])[]> {
+  let cached = canonicalRootsCache.get(roots);
+  if (!cached) {
+    cached = (async () => {
+      const entries: [string, string][] = [];
+      for (const [id, root] of roots) {
+        const resolved = resolve(root);
+        entries.push([id, resolved]);
+        const canonical = await realpath(resolved).catch(() => null);
+        if (canonical && canonical !== resolved) entries.push([id, canonical]);
+      }
+      return entries;
+    })();
+    canonicalRootsCache.set(roots, cached);
+  }
+  return cached;
+}
+
 async function isCatalogAssetOrSidecar(candidate: string): Promise<boolean> {
   if (extname(candidate).toLowerCase() === '.xmp') return true;
-  const roots = await loadLibraryRoots();
-  const entries: [string, string][] = [];
-  for (const [id, root] of roots) {
-    const resolved = resolve(root);
-    entries.push([id, resolved]);
-    const canonical = await realpath(resolved).catch(() => null);
-    if (canonical && canonical !== resolved) entries.push([id, canonical]);
-  }
+  const entries = await libraryRootEntries(await loadLibraryRoots());
   const match = mostSpecificRoot(candidate, entries);
   if (!match || !match.relPath) return false;
   const slash = match.relPath.lastIndexOf('/');
   const dir = slash === -1 ? '' : match.relPath.slice(0, slash);
   const filename = slash === -1 ? match.relPath : match.relPath.slice(slash + 1);
   return hasLiveAssetAtAddress(new ObjectId(match.key), dir, filename);
+}
+
+async function isDestinationOriginal(
+  resolvedOutput: string,
+  canonicalOutput: string | null,
+  source: string,
+  originalPaths: ExportOriginals,
+): Promise<boolean> {
+  if (
+    originalPaths.paths.has(resolvedOutput) ||
+    originalPaths.paths.has(canonicalOutput ?? '') ||
+    canonicalOutput === source ||
+    (await isCatalogAssetOrSidecar(resolvedOutput))
+  )
+    return true;
+  return (
+    canonicalOutput !== null &&
+    canonicalOutput !== resolvedOutput &&
+    (await isCatalogAssetOrSidecar(canonicalOutput))
+  );
 }
 
 async function guardOriginal(
@@ -136,15 +174,7 @@ async function guardOriginal(
 ) {
   const resolvedOutput = resolve(outputPath);
   const canonicalOutput = await realpath(outputPath).catch(() => null);
-  if (
-    originalPaths.paths.has(resolvedOutput) ||
-    originalPaths.paths.has(canonicalOutput ?? '') ||
-    canonicalOutput === source ||
-    (await isCatalogAssetOrSidecar(resolvedOutput)) ||
-    (canonicalOutput !== null &&
-      canonicalOutput !== resolvedOutput &&
-      (await isCatalogAssetOrSidecar(canonicalOutput)))
-  )
+  if (await isDestinationOriginal(resolvedOutput, canonicalOutput, source, originalPaths))
     throw new Error('Destination is the original. Choose another directory or naming template.');
   if (
     !originalPaths.complete &&

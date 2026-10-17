@@ -32,8 +32,8 @@ export interface RecipeQueueRecord {
   directoryHandle?: FileSystemDirectoryHandle;
   /** All initial originals survive failed-item filtering and queue reloads (#4107). */
   protectedOriginals?: (FileSystemFileHandle | null)[];
-  /** Destination filenames created by export, distinguishing prior outputs from originals (#4697). */
-  createdOutputs?: string[];
+  /** Lowercased destination filename -> SHA-256 digest written by export (#4697). */
+  createdOutputs?: Record<string, string>;
 }
 
 async function db(): Promise<IDBDatabase> {
