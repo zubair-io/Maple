@@ -89,10 +89,12 @@ export async function readExportQueue(): Promise<RecipeQueueRecord | null> {
   parseExportRecipe(value.recipe);
   return value;
 }
+let directoryOutputsChain: Promise<void> = Promise.resolve();
 export async function readDirectoryCreatedOutputs(
   directoryHandle: FileSystemDirectoryHandle,
 ): Promise<Record<string, string> | undefined> {
   if (typeof indexedDB === 'undefined') return undefined;
+  await directoryOutputsChain;
   const list =
     (await transaction<DirectoryOutputsEntry[] | undefined>('queue', 'readonly', (store) =>
       store.get('created-outputs'),
@@ -102,26 +104,28 @@ export async function readDirectoryCreatedOutputs(
   }
   return undefined;
 }
-async function saveDirectoryCreatedOutputs(
+function saveDirectoryCreatedOutputs(
   directoryHandle: FileSystemDirectoryHandle,
   outputs: Record<string, string>,
 ): Promise<void> {
-  if (typeof indexedDB === 'undefined' || !Object.keys(outputs).length) return;
-  const list =
-    (await transaction<DirectoryOutputsEntry[] | undefined>('queue', 'readonly', (store) =>
-      store.get('created-outputs'),
-    )) ?? [];
-  const next: DirectoryOutputsEntry[] = [];
-  let merged = { ...outputs };
-  for (const item of list) {
-    if (await directoryHandle.isSameEntry(item.directoryHandle))
-      merged = { ...item.outputs, ...outputs };
-    else next.push(item);
-  }
-  next.unshift({ directoryHandle, outputs: merged });
-  await transaction('queue', 'readwrite', (store) =>
-    store.put(next.slice(0, 32), 'created-outputs'),
-  );
+  if (typeof indexedDB === 'undefined' || !Object.keys(outputs).length) return Promise.resolve();
+  const operation = directoryOutputsChain.then(async () => {
+    const list =
+      (await transaction<DirectoryOutputsEntry[] | undefined>('queue', 'readonly', (store) =>
+        store.get('created-outputs'),
+      )) ?? [];
+    const next: DirectoryOutputsEntry[] = [];
+    let merged = { ...outputs };
+    for (const item of list) {
+      if (await directoryHandle.isSameEntry(item.directoryHandle))
+        merged = { ...item.outputs, ...outputs };
+      else next.push(item);
+    }
+    next.unshift({ directoryHandle, outputs: merged });
+    await transaction('queue', 'readwrite', (store) => store.put(next, 'created-outputs'));
+  });
+  directoryOutputsChain = operation.catch(() => undefined);
+  return operation;
 }
 export async function saveExportQueue(value: RecipeQueueRecord): Promise<void> {
   await transaction('queue', 'readwrite', (store) => store.put(value, 'active'));

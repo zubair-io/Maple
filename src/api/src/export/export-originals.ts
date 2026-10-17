@@ -1,7 +1,7 @@
 /** Retained original paths are authorized before any filesystem query (#4111). */
 import { resolve } from 'node:path';
+import { sqliteDb } from '../db/repos/db-handle.ts';
 import { realpath } from '../fs/mirrored.ts';
-import { listJobs } from '../job-runner/jobs.repo.ts';
 import { resolveAndAuthorizePath } from '../routes/xmp-path-auth.ts';
 import { parseExportPayload, type ExportPayload } from './export-payload.ts';
 
@@ -33,14 +33,26 @@ function recordEntryDigest(
   hashes.add(afterHash);
 }
 
-async function loadServerExportOutputs(): Promise<ReadonlyMap<string, ReadonlySet<string>>> {
-  const [recipeJobs, jpegJobs] = await Promise.all([
-    listJobs({ kind: 'batch_recipe_export', limit: 200 }),
-    listJobs({ kind: 'batch_jpeg_export', limit: 200 }),
-  ]);
+async function loadServerExportOutputs(
+  directory: string | null,
+): Promise<ReadonlyMap<string, ReadonlySet<string>>> {
   const outputs = new Map<string, Set<string>>();
-  for (const job of [...recipeJobs, ...jpegJobs]) {
-    const entries = job.checkpoint?.['entries'];
+  if (!directory) return outputs;
+  const resolvedDir = resolve(directory);
+  const canonicalDir = (await realpath(resolvedDir).catch(() => null)) ?? resolvedDir;
+  const resolvedNeedle = JSON.stringify(resolvedDir).slice(1, -1).toLowerCase();
+  const canonicalNeedle = JSON.stringify(canonicalDir).slice(1, -1).toLowerCase();
+  const rows = await sqliteDb().read<{ ledger: string }>(
+    `SELECT ledger
+       FROM jobs
+      WHERE kind IN ('batch_recipe_export', 'batch_jpeg_export')
+        AND ledger IS NOT NULL
+        AND (instr(lower(ledger), ?) > 0 OR instr(lower(ledger), ?) > 0)`,
+    [resolvedNeedle, canonicalNeedle],
+  );
+  for (const row of rows) {
+    const parsed = JSON.parse(row.ledger) as Record<string, unknown> | null;
+    const entries = parsed?.['entries'];
     if (!Array.isArray(entries)) continue;
     for (const entry of entries) {
       if (entry && typeof entry === 'object')
@@ -76,7 +88,7 @@ export async function exportOriginals(
   return {
     paths,
     complete: validated !== undefined,
-    serverOutputs: await loadServerExportOutputs(),
+    serverOutputs: await loadServerExportOutputs(payload.recipe.directory),
   };
 }
 
