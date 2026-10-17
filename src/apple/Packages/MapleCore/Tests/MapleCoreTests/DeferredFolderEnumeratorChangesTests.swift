@@ -164,12 +164,15 @@ final class DeferredFolderEnumeratorChangesTests: XCTestCase {
         MapleThumbCacheKey.thumbFilename(forRawBasename: "three.dng"),
         "three.dng.avif",
       ])
-    let preview = observer.updated.first {
-      $0.filename == "one.dng.avif"
-    }
+    // Thumb and preview share `<filename>.avif` (#4793); their parents differ.
+    let oneDerivatives = observer.updated.filter { $0.filename == "one.dng.avif" }
     XCTAssertEqual(
-      preview?.parentItemIdentifier.rawValue,
-      FileProviderIdentifier.maplePreviewsDir(folderID: "F1", parentRelativePath: "d").rawValue)
+      oneDerivatives.map(\.parentItemIdentifier.rawValue),
+      [
+        FileProviderIdentifier.mapleThumbsDir(folderID: "F1", parentRelativePath: "d").rawValue,
+        FileProviderIdentifier.maplePreviewsDir(folderID: "F1", parentRelativePath: "d").rawValue,
+      ])
+    let preview = oneDerivatives.last
     XCTAssertEqual(preview?.contentModificationDate, Date(timeIntervalSince1970: 1_700_000_123))
     let sidecar = observer.updated.first { $0.filename == "one.xmp" } as? MapleItem
     XCTAssertEqual(
