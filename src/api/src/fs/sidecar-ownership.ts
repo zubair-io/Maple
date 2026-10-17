@@ -123,8 +123,11 @@ export async function requireSidecarBytes(sidecar: string): Promise<Buffer> {
 }
 
 /** Both save barriers, always taken in the same order so two operations
- * touching the same pair from opposite ends cannot deadlock. */
-function withSidecarBarriers<T>(a: string, b: string, run: () => Promise<T>): Promise<T> {
+ * touching the same pair from opposite ends cannot deadlock. Aliases of one
+ * file share a barrier key, so they take it once rather than wait on
+ * themselves. */
+async function withSidecarBarriers<T>(a: string, b: string, run: () => Promise<T>): Promise<T> {
+  if (await sameSidecarFile(a, b)) return serializeSidecarWrite(a, run);
   const [first, second] = [path.resolve(a), path.resolve(b)].sort();
   return serializeSidecarWrite(first!, () => serializeSidecarWrite(second!, run));
 }
