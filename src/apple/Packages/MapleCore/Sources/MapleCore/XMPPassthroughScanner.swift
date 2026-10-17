@@ -128,6 +128,7 @@ enum XMPChildElementScanner {
     isPassthroughChild: (Child) -> Bool,
     unownedGroupSources: [String: String]
   ) -> String {
+    guard sharesPrimaryContext else { return source }
     let bytes = Array(source.utf8)
     guard !bytes.isEmpty else { return source }
     let openTag = readTag(bytes, from: 0)
@@ -137,7 +138,7 @@ enum XMPChildElementScanner {
     .filter { XMPKnownFields.isModeledDescriptionAttribute($0.name) }
     .map { (range: $0.range, replacement: "") }
 
-    if sharesPrimaryContext && !openTag.selfClosing {
+    if !openTag.selfClosing {
       for child in elementChildren(in: source, rootLocalName: "Description") {
         if !isPassthroughChild(child) {
           var start = child.byteRange.lowerBound

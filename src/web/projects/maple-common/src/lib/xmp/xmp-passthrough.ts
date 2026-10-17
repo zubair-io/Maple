@@ -225,11 +225,15 @@ export function collectXmpPassthrough(
   const retouchSpots = retouchSpotsFrom(descriptions);
   if (retouchSpots.length > 0) model.retouchSpots = retouchSpots;
 
+  const seenCurves = new Set<string>();
   for (const current of descriptions) {
     for (const child of Array.from(current.children)) {
       const curveKey = toneCurveElementKey(child);
       if (curveKey) {
-        model[curveKey] = parseToneCurveElement(child);
+        if (!seenCurves.has(curveKey)) {
+          seenCurves.add(curveKey);
+          model[curveKey] = parseToneCurveElement(child);
+        }
         continue;
       }
       // Local adjustments (#358): both containers are modeled, so they hydrate
