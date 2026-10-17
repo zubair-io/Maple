@@ -35,12 +35,33 @@ The frozen algorithm revision is
   the existing `1e-4` parity ceiling. Cancelled full/sized requests return
   cancellation.
 - The release CLI is built and frozen with source and binary hashes.
-  Broader core, Metal and binding suites are still running. Their runner
-  rejects any source change during qualification.
+  Source hashes remained unchanged through every completed qualification.
 - The physical cohort is running **82 comparisons**: 52 Neutral comparisons,
   20 Auto baselines and ten native-detail comparisons. It includes every
   camera baseline and all 43 cases from `test_0000`. Original inputs are
   hashed before and after; no reference or budget is changed.
+
+| Broader check | Passed | Ignored |
+| --- | ---: | ---: |
+| Debug core with GPU/test-support | 2,812 | 100 |
+| Metal GPU library parity | 287 | 4 |
+| FFI library with GPU bindings | 301 | 6 |
+| Native-host WASM library with GPU bindings | 74 | 7 |
+
+Native-host WASM tests do not establish browser-WebGPU execution.
+
+Two early completed physical outputs improve against the same references:
+
+| Case | Main mean / p95 / max ΔE2000 | Balanced AMaZE mean / p95 / max |
+| --- | --- | --- |
+| `test_0000/baseline` | 5.745425 / 9.419729 / 35.753290 | 5.686716 / 9.284647 / 30.987473 |
+| `test_0000/blacks_min` | 10.465620 / 21.865708 / 37.487601 | 10.435178 / 21.845582 / 31.868900 |
+
+Both cases remain within every unchanged budget, including RGB bias. Each
+comparison covers 10,668,000 pixels, and every source/reference/candidate hash
+remains unchanged after comparison. These are passing controls, so this
+two-case diagnostic clears zero previously failing cases. It does not replace
+the complete cohort or whole-corpus qualification.
 
 The control renderer matches the current main Rust source tree. Comparisons
 use the same frozen float64/native-pair protocol and budgets as the ongoing
