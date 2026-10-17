@@ -25,6 +25,7 @@ import {
   MuiListRowComponent,
   folderUnreadableError,
   persistFile,
+  snapshotDrop,
 } from '@maple-common';
 import type { MuiCommandItem } from '@maple-common';
 import { resolveSingleFileSelection } from './single-file-selection';
@@ -146,16 +147,16 @@ export class LandingComponent {
     const transfer = event.dataTransfer;
     if (!transfer) return;
 
+    const drop = snapshotDrop(transfer);
     try {
-      const folder = await this.fs.openDroppedFolder(transfer);
+      const folder = await this.fs.openDroppedFolder(drop);
       if (folder) {
         await this.openFolderHandle(folder);
         return;
       }
 
-      const files = Array.from(transfer.files);
-      if (files.length > 0) {
-        await this.openFiles(files);
+      if (drop.files.length > 0) {
+        await this.openFiles(drop.files);
         return;
       }
       this.errorMessage.set('Drop a supported RAW, image, or folder.');

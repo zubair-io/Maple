@@ -90,6 +90,7 @@ export * from './lib/components/library-picker-modal/library-picker-modal.compon
 export * from './lib/folder-access/folder-access.types';
 export * from './lib/folder-access/folder-access.error';
 export * from './lib/folder-access/folder-access.service';
+export * from './lib/folder-access/drop-snapshot';
 export * from './lib/folder-access/file-cache';
 export * from './lib/maple-cache/maple-cache.types';
 export * from './lib/maple-cache/maple-cache.service';

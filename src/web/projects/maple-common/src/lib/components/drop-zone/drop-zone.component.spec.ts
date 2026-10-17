@@ -92,7 +92,7 @@ describe('DropZoneComponent drop routing', () => {
     });
     state.selectedSourceId.set('f-vacation');
 
-    await drop({});
+    await drop({ items: [] as unknown as DataTransferItemList, files: [] as unknown as FileList });
 
     expect(state.openFolder).toHaveBeenCalledWith(folder);
     expect(component.dropStatus()).toMatchObject({
@@ -113,7 +113,7 @@ describe('DropZoneComponent drop routing', () => {
       alreadyOpen: true,
     });
 
-    await drop({});
+    await drop({ items: [] as unknown as DataTransferItemList, files: [] as unknown as FileList });
 
     expect(state.openFolder).not.toHaveBeenCalled();
     expect(state.selectAsset).toHaveBeenCalledWith('l:a.dng');
@@ -135,7 +135,7 @@ describe('DropZoneComponent drop routing', () => {
       alreadyOpen: false,
     });
 
-    await drop({});
+    await drop({ items: [] as unknown as DataTransferItemList, files: [] as unknown as FileList });
 
     expect(state.openFolder).toHaveBeenCalledWith(folder);
     expect(state.selectMany).toHaveBeenCalledWith(['l:a.dng', 'l:b.dng']);
@@ -150,7 +150,7 @@ describe('DropZoneComponent drop routing', () => {
     });
     state.addImportedAsset.mockReturnValue('imported:a.dng');
 
-    await drop({});
+    await drop({ items: [] as unknown as DataTransferItemList, files: [] as unknown as FileList });
 
     expect(state.addImportedAsset).toHaveBeenCalled();
     expect(state.openFolder).not.toHaveBeenCalled();
@@ -166,7 +166,7 @@ describe('DropZoneComponent drop routing', () => {
   it('does nothing when the user cancels the confirmation picker', async () => {
     folderAccess.resolveDrop.mockResolvedValue({ kind: 'cancelled' });
 
-    await drop({});
+    await drop({ items: [] as unknown as DataTransferItemList, files: [] as unknown as FileList });
 
     expect(state.openFolder).not.toHaveBeenCalled();
     expect(state.addImportedAsset).not.toHaveBeenCalled();
@@ -176,7 +176,7 @@ describe('DropZoneComponent drop routing', () => {
   it('surfaces access-denied as an actionable error rather than a generic failure, without touching state', async () => {
     folderAccess.resolveDrop.mockResolvedValue({ kind: 'access-denied', name: 'Archive' });
 
-    await drop({});
+    await drop({ items: [] as unknown as DataTransferItemList, files: [] as unknown as FileList });
 
     expect(component.openError()).toContain('Archive');
     expect(component.openError()).toContain('re-grant');
@@ -193,7 +193,7 @@ describe('DropZoneComponent drop routing', () => {
       return { kind: 'cancelled' };
     });
 
-    await drop({});
+    await drop({ items: [] as unknown as DataTransferItemList, files: [] as unknown as FileList });
 
     expect(statusWhilePickerOpen).toMatchObject({ kind: 'pending' });
     // Cancellation clears the pending line rather than leaving it stuck.
@@ -210,7 +210,7 @@ describe('DropZoneComponent drop routing', () => {
       return { kind: 'cancelled' };
     });
 
-    await drop({});
+    await drop({ items: [] as unknown as DataTransferItemList, files: [] as unknown as FileList });
 
     expect(order).toEqual(['ready', 'resolve']);
   });
