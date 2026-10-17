@@ -91,7 +91,9 @@ extension EditSession {
         }
       } catch {
         // A failed Cloud read is not an absent sidecar (#3357). Nothing is
-        // persisted until a later load succeeds (#4708).
+        // persisted until a later load succeeds (#4708) — unless an
+        // overlapping load already did, in which case this failure is stale.
+        guard !hasLoadedSidecar else { return }
         sidecarError = error
         sidecarLoadFailed = true
         return

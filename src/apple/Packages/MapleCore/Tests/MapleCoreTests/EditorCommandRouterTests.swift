@@ -4,8 +4,9 @@ import XCTest
 
 @MainActor
 final class EditorCommandRouterTests: EditorTestCase {
-  private func makeRouter() -> EditorCommandRouter {
+  private func makeRouter() async -> EditorCommandRouter {
     let session = EditSession.preview()
+    await session.loadSidecar()
     session.nativeImageSize = CGSize(width: 4000, height: 3000)
     let state = EditorState(session: session)
     state.zoom.viewportChanged(points: CGSize(width: 800, height: 600), displayScale: 1)
@@ -17,8 +18,31 @@ final class EditorCommandRouterTests: EditorTestCase {
     XCTAssertTrue(router.perform(command, assetID: router.state.session.asset.id))
   }
 
-  func testUndoRedoAndResetUseTheExistingTransactionRing() {
-    let router = makeRouter()
+  /// #4708: keyboard and menu edits route through `perform`; until the
+  /// sidecar loads they would mutate defaults that hydration then replaces.
+  func testEditCommandsWaitForTheSidecarToLoad() async {
+    let session = EditSession.preview()
+    session.nativeImageSize = CGSize(width: 4000, height: 3000)
+    let state = EditorState(session: session)
+    state.zoom.viewportChanged(points: CGSize(width: 800, height: 600), displayScale: 1)
+    addTeardownBlock { await session.renderActor.cancelAll() }
+    let router = EditorCommandRouter(state: state)
+    let id = session.asset.id
+    let before = session.model
+
+    XCTAssertFalse(router.perform(.nudge(1), assetID: id))
+    XCTAssertFalse(router.perform(.resetGroup, assetID: id))
+    XCTAssertFalse(router.perform(.undo, assetID: id))
+    XCTAssertFalse(router.perform(.redo, assetID: id))
+    XCTAssertEqual(session.model, before)
+    XCTAssertTrue(router.perform(.fit, assetID: id), "view commands don't touch the model")
+
+    await session.loadSidecar()
+    XCTAssertTrue(router.perform(.nudge(1), assetID: id))
+  }
+
+  func testUndoRedoAndResetUseTheExistingTransactionRing() async {
+    let router = await makeRouter()
     let state = router.state
     state.beginSliderInteraction(tool: .exposure)
     state.setArmedDisplayValue(0.5)
@@ -36,8 +60,8 @@ final class EditorCommandRouterTests: EditorTestCase {
     XCTAssertEqual(state.session.model.exposure, 1)
   }
 
-  func testHeldGlobalNudgeRecordsOneUndoOnRelease() {
-    let router = makeRouter()
+  func testHeldGlobalNudgeRecordsOneUndoOnRelease() async {
+    let router = await makeRouter()
     let session = router.state.session
     for _ in 0..<5 { run(.nudge(1), router) }
     let after = session.model.exposure
@@ -54,8 +78,8 @@ final class EditorCommandRouterTests: EditorTestCase {
     XCTAssertEqual(session.undoHistory.count, 2)
   }
 
-  func testUnownedArrowReleaseIsIgnoredBeforeAndAfterAHeldNudge() {
-    let router = makeRouter()
+  func testUnownedArrowReleaseIsIgnoredBeforeAndAfterAHeldNudge() async {
+    let router = await makeRouter()
     let assetID = router.state.session.asset.id
     XCTAssertFalse(router.perform(.nudgeRelease, assetID: assetID))
     XCTAssertTrue(router.state.session.undoHistory.isEmpty)
@@ -69,8 +93,8 @@ final class EditorCommandRouterTests: EditorTestCase {
     XCTAssertEqual(router.state.session.undoHistory.count, 2)
   }
 
-  func testHeldGlobalNudgeDefersDecodeProductUntilRelease() {
-    let router = makeRouter()
+  func testHeldGlobalNudgeDefersDecodeProductUntilRelease() async {
+    let router = await makeRouter()
     let state = router.state
     let deep = Tool.noise.subParams.first { $0.commitsOnRelease }!
     state.arm(tool: .noise)
@@ -86,8 +110,8 @@ final class EditorCommandRouterTests: EditorTestCase {
     XCTAssertEqual(state.session.model, before)
   }
 
-  func testClampOnlyNudgeDoesNotClearRedoOrOpenAnUndoEntry() {
-    let router = makeRouter()
+  func testClampOnlyNudgeDoesNotClearRedoOrOpenAnUndoEntry() async {
+    let router = await makeRouter()
     for _ in 0..<20 { run(.nudge(-1), router) }
     run(.nudgeRelease, router)
     run(.nudge(1), router)
@@ -100,7 +124,7 @@ final class EditorCommandRouterTests: EditorTestCase {
     XCTAssertEqual(router.state.session.undoHistory.count, count)
   }
 
-  func testModifiedStyleIgnoresOnlyFloatingPointResidue() {
+  func testModifiedStyleIgnoresOnlyFloatingPointResidue() async {
     let range = AdjustmentModel.exposureRange
     XCTAssertFalse(
       LivingSliderMath.isModified(value: 0.1 + 0.2 - 0.3, defaultValue: 0, range: range))
@@ -111,8 +135,8 @@ final class EditorCommandRouterTests: EditorTestCase {
         range: AdjustmentModel.temperatureRange))
   }
 
-  func testZoomStepsAreBoundedAndKeepTheCenterAnchor() {
-    let router = makeRouter()
+  func testZoomStepsAreBoundedAndKeepTheCenterAnchor() async {
+    let router = await makeRouter()
     let zoom = router.state.zoom
     run(.actualSize, router)
     run(.pan(x: 100, y: 80), router)
@@ -137,7 +161,7 @@ final class EditorCommandRouterTests: EditorTestCase {
   }
 
   func testCompareTapHoldAndCancellationPreserveGeometryAndEdits() async throws {
-    let router = makeRouter()
+    let router = await makeRouter()
     let session = router.state.session
     run(.actualSize, router)
     run(.pan(x: 80, y: 40), router)
@@ -161,8 +185,8 @@ final class EditorCommandRouterTests: EditorTestCase {
     XCTAssertFalse(session.canUndo)
   }
 
-  func testOldAssetAndRemovedEditorCommandsAreRejected() {
-    let router = makeRouter()
+  func testOldAssetAndRemovedEditorCommandsAreRejected() async {
+    let router = await makeRouter()
     XCTAssertFalse(router.perform(.nudge(1), assetID: UUID()))
     run(.comparePress, router)
     router.deactivate()
@@ -172,8 +196,8 @@ final class EditorCommandRouterTests: EditorTestCase {
     XCTAssertEqual(router.state.session.model.exposure, 0)
   }
 
-  func testNavigationDiscardsDeferredValueOnItsOriginalSession() {
-    let router = makeRouter()
+  func testNavigationDiscardsDeferredValueOnItsOriginalSession() async {
+    let router = await makeRouter()
     let state = router.state
     let deep = Tool.noise.subParams.first { $0.commitsOnRelease }!
     state.beginSliderInteraction(tool: .noise, subParamID: deep.id)
@@ -186,14 +210,14 @@ final class EditorCommandRouterTests: EditorTestCase {
     XCTAssertFalse(state.canUndo)
   }
 
-  func testKeyboardPrecisionMatchesTheGeneratedRangeContract() {
+  func testKeyboardPrecisionMatchesTheGeneratedRangeContract() async {
     XCTAssertEqual(LivingSliderMath.keyboardStep(range: AdjustmentModel.exposureRange), 0.01)
     XCTAssertEqual(LivingSliderMath.keyboardStep(range: AdjustmentModel.temperatureRange), 50)
     XCTAssertEqual(LivingSliderMath.keyboardStep(range: AdjustmentModel.contrastRange), 1)
   }
 
-  func testUnarmedSliderStartsTheDisplayedPrimaryFieldBeforeItsFirstWrite() {
-    let router = makeRouter()
+  func testUnarmedSliderStartsTheDisplayedPrimaryFieldBeforeItsFirstWrite() async {
+    let router = await makeRouter()
     let state = router.state
     state.arm(tool: .sharpen)
     state.arm(subParamId: "radius")
@@ -208,8 +232,8 @@ final class EditorCommandRouterTests: EditorTestCase {
     XCTAssertEqual(state.session.model.sharpenAmount, 40)
   }
 
-  func testNoOpGroupResetPreservesRedo() {
-    let router = makeRouter()
+  func testNoOpGroupResetPreservesRedo() async {
+    let router = await makeRouter()
     let state = router.state
     state.beginSliderInteraction(tool: .exposure)
     state.setArmedDisplayValue(1)

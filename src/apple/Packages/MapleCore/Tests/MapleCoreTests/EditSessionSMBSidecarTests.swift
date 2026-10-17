@@ -102,106 +102,50 @@ final class EditSessionSMBSidecarTests: XCTestCase {
                 + "or every edit to an SMB-sourced photo is silently lost on session teardown")
     }
 
-    /// A model edit (exposure slider) made through `EditSession.model` —
-    /// exactly what a real slider drag does — must reach the wired
-    /// `SMBSidecarStore` and attempt a real SMB write. Proven here by the
-    /// write's deterministic failure (`SMBError.notConnected`, the source
-    /// was never connected) surfacing through `session.sidecarError` — the
-    /// same propagation path #1412 wired for every other adapter. Before
-    /// #2674 there was no store to attempt anything with, so this error
-    /// could never have appeared; its appearance IS the proof the edit is
-    /// no longer silently dropped.
-    func testModelEditRoutesThroughSMBSidecarStoreAndAttemptsARealWrite() async throws {
+    /// A model edit on an SMB-sourced session must reach the wired
+    /// `SMBSidecarStore` rather than vanish (#2674). The store's share is
+    /// never connected here, so the session's read of the sidecar fails with
+    /// `SMBError.notConnected` — proof the real store was reached — and the
+    /// session stays read-only (#4708): the edit is refused, not written over
+    /// a sidecar it could not read.
+    func testEditOnAnUnreachableShareIsRefusedNotSilentlyDropped() async throws {
         let stableID = "smb-share/Photos/IMG_2674-b.dng"
         let asset = smbAssetRef(stableID: stableID)
         let store = smbSidecarStore(stableID: stableID)
         let session = EditSession(asset: asset, remoteSidecarStore: store)
 
-        var edited = session.model
-        edited.exposure = 1.75
-        session.model = edited
-
-        // `model`'s didSet spawns a detached Task calling `store.update(...)`
-        // — yield so it actually runs before we flush (mirrors
-        // EditSessionPhotoKitSidecarTests / EditSessionTests conventions).
-        for _ in 0..<5 { await Task.yield() }
+        await session.loadSidecar()
+        session.model.exposure = 1.75
         await session.flushPendingSidecarWrite()
 
-        // Poll for the error to hop from the actor onto MainActor — mirrors
-        // EditSessionTests.testSidecarWriteErrorPropagatesFromStoreThroughSession.
-        let deadline = Date().addingTimeInterval(2.0)
-        while Date() < deadline {
-            if session.sidecarError != nil { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-
-        let received = try XCTUnwrap(
-            session.sidecarError,
-            "the slider edit never reached a real SMB write attempt — "
-                + "it was silently dropped, reproducing #2674")
+        XCTAssertTrue(session.sidecarLoadFailed)
+        XCTAssertFalse(session.hasLoadedSidecar)
+        let received = try XCTUnwrap(session.sidecarError)
         guard case .notConnected = received as? SMBError else {
             return XCTFail("expected SMBError.notConnected, got \(received)")
         }
     }
 
-    /// Distinguishes an explicit `flushPendingSidecarWrite()` from the
-    /// 750ms debounce timer firing on its own. `testModelEditRoutesThrough-
-    /// SMBSidecarStoreAndAttemptsARealWrite` above polls for up to 2s —
-    /// longer than `SMBSidecarStore.debounceInterval` — so it passes
-    /// whether or not the explicit flush does anything: the debounce timer
-    /// alone would eventually fire and write within that window. That's
-    /// exactly the gap `EditSession+Lifecycle.swift`'s `flushPending-
-    /// SidecarWrite()` fell into: its `as?` typecast chain covered
-    /// `XMPSidecarStore`/`PhotoKitSidecarStore`/`CloudSidecarStore` but not
-    /// `SMBSidecarStore`, so for SMB sessions the "explicit flush" was a
-    /// silent no-op and every edit made within the debounce window before
-    /// tearing the editor down was dropped — the exact class of bug #2674
-    /// exists to fix, resurfacing at teardown.
-    ///
-    /// This test polls only up to 300ms — well under the 750ms debounce —
-    /// immediately after calling `flushPendingSidecarWrite()`. `SMBSource`'s
-    /// `.notConnected` guard (`guard let client else { throw
-    /// SMBError.notConnected }`) is a synchronous check with no network
-    /// round trip, so if the explicit flush actually reaches
-    /// `SMBSidecarStore.flush()` the error surfaces almost instantly; if the
-    /// flush silently no-ops, nothing appears within 300ms and only the
-    /// (untested-here) 750ms timer would eventually produce it. A window
-    /// shorter than the debounce interval is the only way to tell "the
-    /// explicit flush worked" apart from "the timer happened to fire on its
-    /// own" — which is what makes this test able to actually fail against
-    /// the unfixed `as?` chain.
-    func testFlushPendingSidecarWriteForcesImmediateWriteBeforeDebounceFires() async throws {
+    /// `flushPendingSidecarWrite()` must reach the SMB store immediately,
+    /// not wait on the 750ms debounce — the gap an old `as?` typecast chain
+    /// left for SMB sessions (#2674 review). A rating queued before the
+    /// sidecar loaded makes the flush hydrate through the store first, so
+    /// the unconnected share's `.notConnected` must surface well inside a
+    /// window shorter than the debounce.
+    func testFlushReachesTheSMBStoreBeforeDebounceFires() async throws {
         let stableID = "smb-share/Photos/IMG_2674-c.dng"
         let asset = smbAssetRef(stableID: stableID)
         let store = smbSidecarStore(stableID: stableID)
         let session = EditSession(asset: asset, remoteSidecarStore: store)
 
-        var edited = session.model
-        edited.exposure = 1.75
-        session.model = edited
-
-        // `model`'s didSet spawns a detached Task calling `store.update(...)`
-        // — yield so it actually runs before we flush (mirrors
-        // EditSessionPhotoKitSidecarTests / EditSessionTests conventions).
-        for _ in 0..<5 { await Task.yield() }
+        session.culling.stars = 4
+        let started = Date()
         await session.flushPendingSidecarWrite()
 
-        // Poll for a window strictly shorter than SMBSidecarStore's 750ms
-        // debounce interval. Unlike the 2s poll above, this window cannot
-        // be satisfied by the debounce timer firing on its own — only an
-        // explicit flush that actually reaches the store can land here.
-        let deadline = Date().addingTimeInterval(0.3)
-        while Date() < deadline {
-            if session.sidecarError != nil { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-
+        XCTAssertLessThan(Date().timeIntervalSince(started), 0.3)
         let received = try XCTUnwrap(
             session.sidecarError,
-            "flushPendingSidecarWrite() did not force an immediate SMB write "
-                + "attempt within a window shorter than the 750ms debounce — "
-                + "the SMB store is being silently skipped by the flush's "
-                + "as? typecast chain")
+            "flushPendingSidecarWrite() never reached the SMB store")
         guard case .notConnected = received as? SMBError else {
             return XCTFail("expected SMBError.notConnected, got \(received)")
         }
