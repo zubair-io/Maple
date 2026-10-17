@@ -21,6 +21,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     private let workingSet: WorkingSet
     private let cursorStore: ChangeCursorStore
     private let workingSetListCache: WorkingSetListCache?
+    private let forYouDeletionsDirectory: URL?
+    private let serverHostKey: String?
     /// Long-lived SSE consumer. Started in init when not dormant; stopped
     /// on `invalidate()`, OR earlier once APNs push-to-signal is confirmed
     /// active for this device (#1025) — see the APNs-confirmation `Task`
@@ -141,7 +143,9 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
          metaStore: FileProviderMetaStore?,
          workingSet: WorkingSet,
          cursorStore: ChangeCursorStore,
-         workingSetListCache: WorkingSetListCache?) {
+         workingSetListCache: WorkingSetListCache?,
+         forYouDeletionsDirectory: URL? = nil,
+         serverHostKey: String? = nil) {
         self.domain = domain
         self.dormant = dormant
         self.catalog = catalog
@@ -151,6 +155,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         self.workingSet = workingSet
         self.cursorStore = cursorStore
         self.workingSetListCache = workingSetListCache
+        self.forYouDeletionsDirectory = forYouDeletionsDirectory
+        self.serverHostKey = serverHostKey
         super.init()
     }
 
@@ -220,7 +226,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                   metaStore: resolvedMetaStore,
                   workingSet: resolvedWorkingSet,
                   cursorStore: resolvedCursorStore,
-                  workingSetListCache: WorkingSetListCache(catalog: catalog))
+                  workingSetListCache: WorkingSetListCache(catalog: catalog),
+                  serverHostKey: cfg.serverURL.cacheHostKey)
         // Wire up the SSE client after self.init (which itself calls
         // super.init()) so we can capture self.
         // Tokens are read on every reconnect — they're refreshed by the
@@ -1942,7 +1949,12 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                       code: NSFileProviderError.filenameCollision.rawValue))
                             return
                         }
-                        completionHandler(try await self.trashAsset(assetID))
+                        let absPath = await Self.resolveAbsolutePath(
+                            folderID: folderID,
+                            relativePath: relativePath,
+                            rootCache: self.rootCache
+                        ) ?? ""
+                        completionHandler(try await self.trashAsset(assetID, absPath: absPath))
                     }
                 case .folder(let folderID, let relativePath):
                     // #3010: real subfolders route through the server's
@@ -1959,12 +1971,25 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     }
                     let summary = try await catalog.trashFolder(folderID: folderID,
                                                                 relativePath: relativePath)
+                    let hostKey: String
+                    if let configuredHostKey = self.serverHostKey {
+                        hostKey = configuredHostKey
+                    } else {
+                        hostKey = await catalog.server.cacheHostKey
+                    }
                     guard summary.failed == 0 else {
                         // Partial failure: some assets could not be
                         // trashed, so the directory was not fully
                         // cleared. Surfacing an error makes the OS keep
                         // the item and retry rather than believing the
                         // folder is gone while server files remain.
+                        for item in summary.items where item.ok {
+                            ForYouCache.recordDeletedAsset(
+                                host: hostKey,
+                                assetID: item.assetId,
+                                directory: self.forYouDeletionsDirectory
+                            )
+                        }
                         self.log.error("trash-folder partial failure: \(summary.failed, privacy: .public)/\(summary.total, privacy: .public) items")
                         completionHandler(NSError(
                             domain: NSFileProviderErrorDomain,
@@ -1973,6 +1998,17 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                 "Could not move \(summary.failed) of \(summary.total) items to the Maple trash"]))
                         return
                     }
+                    let folderPath = await Self.resolveAbsolutePath(
+                        folderID: folderID,
+                        relativePath: relativePath,
+                        rootCache: self.rootCache
+                    ) ?? relativePath
+                    ForYouCache.recordDeletedFolder(
+                        host: hostKey,
+                        libraryFolderID: folderID,
+                        folderPath: folderPath,
+                        directory: self.forYouDeletionsDirectory
+                    )
                     completionHandler(nil)
                 case .mapleDir, .mapleThumbsDir, .thumb, .maplePreviewsDir, .preview:
                     // Synthetic `.maple/` items + thumbs are read-only —
@@ -1994,10 +2030,22 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     /// of an asset trashed elsewhere, would purge the original. With
     /// `intent: .trash` the server answers 409 `trashed` instead, which is
     /// success-shaped for Finder: the item is in the trash either way.
-    private func trashAsset(_ assetID: String) async throws -> Error? {
+    private func trashAsset(_ assetID: String, absPath: String = "") async throws -> Error? {
         guard let catalog else { return notAuthenticatedError() }
         switch try await catalog.deleteAsset(assetID: assetID, intent: .trash) {
         case .ok, .stateMismatch(state: "trashed"):
+            let hostKey: String
+            if let configuredHostKey = self.serverHostKey {
+                hostKey = configuredHostKey
+            } else {
+                hostKey = await catalog.server.cacheHostKey
+            }
+            ForYouCache.recordDeletedAsset(
+                host: hostKey,
+                assetID: assetID,
+                absPath: absPath,
+                directory: self.forYouDeletionsDirectory
+            )
             return nil
         case .stateMismatch(let state):
             self.log.error("trash asset state mismatch: \(state, privacy: .public)")

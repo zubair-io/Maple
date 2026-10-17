@@ -13,7 +13,7 @@ import XCTest
 
 @MainActor
 final class GeneratedSearchCollectionsCacheTests: XCTestCase {
-  private var directory: URL!
+  var directory: URL!
 
   override func setUp() async throws {
     directory = FileManager.default.temporaryDirectory
@@ -406,10 +406,10 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
 
   // MARK: - Helpers
 
-  private static let library = "lib-cache"
-  private static let host = "stub.test"
+  static let library = "lib-cache"
+  static let host = "stub.test"
 
-  private static func snapshot(
+  static func snapshot(
     _ covers: [String: String], savedAt: Date = Date()
   ) -> ForYouSnapshot {
     let ids = covers.keys.sorted()
@@ -436,7 +436,7 @@ final class GeneratedSearchCollectionsCacheTests: XCTestCase {
     XCTAssertTrue(condition(), "timed out waiting")
   }
 
-  private func makeVM(
+  func makeVM(
     _ stub: CachedCardsStub, cache: ForYouCache, warmer: CoverWarmerProbe? = nil,
     store: ForYouSessionOrder = ForYouSessionOrder(), now: Date = Date()
   ) -> GeneratedSearchCollectionsViewModel {
