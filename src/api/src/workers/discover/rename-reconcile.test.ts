@@ -13,7 +13,8 @@
  * than attaching one photo's history to another.
  */
 import { describe, expect, it, spyOn } from 'bun:test';
-import { writeFile, rm, readFile, stat } from 'node:fs/promises';
+import { writeFile, rm, readFile, stat, symlink, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { ObjectId } from '../../db/object-id.ts';
 import * as path from 'node:path';
 import { newObjectIdHex } from '../../db/object-id.ts';
@@ -453,7 +454,6 @@ describe('rename reconciliation (#2655)', () => {
     using library = await createDiscoverLibrary('maple-rename-barrier-');
     const bytes = makeExifTiff({ captureDate: '2024:10:10 10:10:10', serial: 'CAM-LOCK-1' });
     const exif = { captured_at: '2024-10-10T10:10:10.000Z', camera_serial: 'CAM-LOCK-1' };
-
     const docId = seedAsset(library.db, {
       id: newObjectIdHex(),
       mapleId: 'lock-1',
@@ -474,55 +474,93 @@ describe('rename reconciliation (#2655)', () => {
     await writeFile(oldSidecar, '<xmp>initial</xmp>');
 
     const events: string[] = [];
-    let releaseSourceWrite!: () => void;
-    const sourceGate = new Promise<void>((resolve) => {
-      releaseSourceWrite = resolve;
-    });
-    let releaseDestWrite!: () => void;
-    const destGate = new Promise<void>((resolve) => {
-      releaseDestWrite = resolve;
-    });
-
+    const sourceGate = Promise.withResolvers<void>();
+    const destGate = Promise.withResolvers<void>();
     const inFlightSource = serializeSidecarWrite(oldSidecar, async () => {
-      await sourceGate;
+      await sourceGate.promise;
       await writeFile(oldSidecar, '<xmp>saved-before-move</xmp>');
       events.push('source-saved');
     });
     const inFlightDest = serializeSidecarWrite(newSidecar, async () => {
-      await destGate;
+      await destGate.promise;
       await expect(stat(newSidecar)).rejects.toThrow();
       events.push('dest-released');
     });
 
+    const missing: MissingFileCandidate = {
+      docId: new ObjectId(docId),
+      fileinfo: { library_id: library.folderId, path: '', filename: 'old-lock.dng' },
+      filename: 'old-lock.dng',
+      absPath: oldAbsPath,
+      size: bytes.length,
+      exif: exif as never,
+    };
     const reconcilePromise = reconcileRenamesInDirectory(
       [{ filename: 'new-lock.dng', absPath: newAbsPath }],
-      [
-        {
-          docId: new ObjectId(docId),
-          fileinfo: { library_id: library.folderId, path: '', filename: 'old-lock.dng' },
-          filename: 'old-lock.dng',
-          absPath: oldAbsPath,
-          size: bytes.length,
-          exif: exif as never,
-        },
-      ],
+      [missing],
       library.root,
       library.folderId,
     );
 
-    // Wait until `repointLocation` has landed and `moveSidecarIfPresent` has
-    // been entered, while both sidecar write barriers are still held.
     while (onlyLocation(library, docId).filename !== 'new-lock.dng') {
       await new Promise((r) => setTimeout(r, 5));
     }
 
-    releaseSourceWrite();
+    sourceGate.resolve();
     await inFlightSource;
-    releaseDestWrite();
+    destGate.resolve();
     await inFlightDest;
     await reconcilePromise;
 
     expect(events).toEqual(['source-saved', 'dest-released']);
     expect(await readFile(newSidecar, 'utf8')).toBe('<xmp>saved-before-move</xmp>');
+  });
+
+  it('rejects a symlink sidecar escaping the library root and rolls back repoint (#4702)', async () => {
+    using library = await createDiscoverLibrary('maple-rename-jail-');
+    const outsideRoot = await mkdtemp(path.join(tmpdir(), 'maple-rename-outside-'));
+    try {
+      const bytes = makeExifTiff({ captureDate: '2024:11:11 11:11:11', serial: 'CAM-JAIL-1' });
+      const exif = { captured_at: '2024-11-11T11:11:11.000Z', camera_serial: 'CAM-JAIL-1' };
+      const docId = seedAsset(library.db, {
+        id: newObjectIdHex(),
+        mapleId: 'jail-1',
+        size: bytes.length,
+        exif,
+      });
+      seedLocation(library.db, {
+        assetId: docId,
+        libraryId: library.folderId.toHexString(),
+        filename: 'old-jail.dng',
+      });
+
+      const outsideSecret = path.join(outsideRoot, 'secret.xmp');
+      await writeFile(outsideSecret, '<xmp>outside-secret</xmp>');
+      await symlink(outsideSecret, path.join(library.root, 'old-jail.xmp'));
+      const newAbsPath = path.join(library.root, 'new-jail.dng');
+      await writeFile(newAbsPath, bytes);
+
+      const res = await reconcileRenamesInDirectory(
+        [{ filename: 'new-jail.dng', absPath: newAbsPath }],
+        [
+          {
+            docId: new ObjectId(docId),
+            fileinfo: { library_id: library.folderId, path: '', filename: 'old-jail.dng' },
+            filename: 'old-jail.dng',
+            absPath: path.join(library.root, 'old-jail.dng'),
+            size: bytes.length,
+            exif: exif as never,
+          },
+        ],
+        library.root,
+        library.folderId,
+      );
+
+      expect(res.reconciledMissingFilenames.size).toBe(0);
+      expect(onlyLocation(library, docId).filename).toBe('old-jail.dng');
+      expect(await readFile(outsideSecret, 'utf8')).toBe('<xmp>outside-secret</xmp>');
+    } finally {
+      await rm(outsideRoot, { recursive: true, force: true });
+    }
   });
 });
