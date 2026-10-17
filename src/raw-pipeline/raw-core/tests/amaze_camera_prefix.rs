@@ -8,7 +8,8 @@ use raw_core::{
         develop_scene_linear_from_raw_with_quality,
         develop_scene_linear_from_raw_with_quality_cancellable,
         develop_scene_linear_sized_from_raw_with_quality,
-        develop_scene_linear_sized_from_raw_with_quality_cancellable, RenderQuality,
+        develop_scene_linear_sized_from_raw_with_quality_cancellable,
+        render_scene_linear_tile_from_raw_with_quality_f32, RenderQuality, TileRect,
     },
     test_support::synth_dng::SyntheticGreyDng,
     xmp::{AdjustmentModel, AutoExposureMode, DemosaicChoice, HighlightRecoveryMode, Profile},
@@ -72,6 +73,36 @@ fn full_and_sized_camera_prefixes_match() {
                 (sized.width, sized.height, sized.space)
             );
             assert_eq!(full.pixels, sized.pixels, "{cfa:?} {demosaic:?}");
+            // This interior tile's padding spans the small synthetic frame,
+            // so it must use exactly the same balanced camera reconstruction.
+            let rect = TileRect {
+                src_x: 32,
+                src_y: 24,
+                src_w: 32,
+                src_h: 32,
+                out_w: 32,
+                out_h: 32,
+            };
+            let (w, h, tile) = render_scene_linear_tile_from_raw_with_quality_f32(
+                &raw,
+                &model,
+                rect,
+                RenderQuality::Amaze,
+            )
+            .unwrap();
+            assert_eq!((w, h), (32, 32));
+            for y in 0..32 {
+                for x in 0..32 {
+                    let actual = &tile[4 * (y * 32 + x)..4 * (y * 32 + x) + 3];
+                    let expected = full.pixels[(y + 24) * 96 + x + 32];
+                    for c in 0..3 {
+                        assert!(
+                            (actual[c] - expected[c]).abs() < 1e-4,
+                            "tile {cfa:?} {demosaic:?} ({x},{y}): {actual:?} vs {expected:?}"
+                        );
+                    }
+                }
+            }
             let flag = std::sync::atomic::AtomicBool::new(true);
             let cancelled = CancelToken::new(&flag);
             assert!(matches!(
