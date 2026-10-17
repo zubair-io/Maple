@@ -229,7 +229,7 @@ struct SelfHostedSettingsTab: View {
             // server rebuild), which surfaces as "bad signature"
             // 401s with no obvious cause.
             do {
-              try TokenStore.save(tokens, server: url)
+              try await TokenStore.saveAsync(tokens, server: url)
             } catch {
               selfHostedSettingsLog.error(
                 "failed to persist tokens for \(url.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public)"

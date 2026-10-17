@@ -10,8 +10,8 @@
 // need them; this file imports MapleCloudKit to keep using them.
 import Foundation
 import MapleCloudKit
-import Observation
 import OSLog
+import Observation
 
 @MainActor @Observable
 public final class AuthSession {
@@ -57,9 +57,10 @@ public final class AuthSession {
     // previous `try?` collapsed both into nil and unconditionally
     // wiped the cache.
     let loaded: AuthTokens?
-    do { loaded = try TokenStore.load(server: server) }
-    catch {
-      authLogger.error("TokenStore.load failed transiently: \(error.localizedDescription, privacy: .public) — preserving cached state")
+    do { loaded = try TokenStore.load(server: server) } catch {
+      authLogger.error(
+        "TokenStore.load failed transiently: \(error.localizedDescription, privacy: .public) — preserving cached state"
+      )
       return
     }
     guard let tokens = loaded else {
@@ -107,7 +108,7 @@ public final class AuthSession {
     // subsequent /me failure can't lose the rotation (which would
     // leave us holding a stale refresh token and force sign-in on
     // the next bootstrap).
-    try? TokenStore.save(newTokens, server: server)
+    try? await TokenStore.saveAsync(newTokens, server: server)
     hasCredentials = true
     await FileProviderDomainController().mirrorTokens(serverURL: server)
 
@@ -150,12 +151,17 @@ public final class AuthSession {
   }
 
   public func setSignedIn(user: AuthUser, tokens: AuthTokens) throws {
-    try TokenStore.save(tokens, server: server)
+    let savedImmediately = try TokenStore.trySaveWithoutBlocking(tokens, server: server)
     AuthUserCache.save(user, server: server)
     self.user = user
     self.hasCredentials = true
     let server = self.server
-    Task { await FileProviderDomainController().mirrorTokens(serverURL: server) }
+    Task {
+      if !savedImmediately {
+        try? await TokenStore.saveAsync(tokens, server: server)
+      }
+      await FileProviderDomainController().mirrorTokens(serverURL: server)
+    }
   }
 
   private func apply(user: AuthUser) {
@@ -165,7 +171,7 @@ public final class AuthSession {
   }
 
   private func clearLocalCredentials() async {
-    TokenStore.clear(server: server)
+    await TokenStore.clearAsync(server: server)
     AuthUserCache.clear(server: server)
     user = nil
     hasCredentials = false

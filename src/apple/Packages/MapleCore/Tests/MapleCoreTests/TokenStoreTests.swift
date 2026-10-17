@@ -176,4 +176,61 @@ final class TokenStoreTests: XCTestCase {
     }
     XCTAssertTrue(innerCompleted)
   }
+
+  #if canImport(Darwin)
+    func testClearFallbackWhenLockDescriptorCannotBeOpened() async throws {
+      let server = URL(string: "https://lock-broken-\(UUID().uuidString).test")!
+      let lockDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("AuthLocks", isDirectory: true)
+        .appendingPathComponent("\(TokenStore.stableServerHash(server)).lock", isDirectory: true)
+      try FileManager.default.createDirectory(at: lockDir, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: lockDir) }
+
+      // `save` refuses to proceed when the lock file cannot be opened (EISDIR).
+      XCTAssertThrowsError(
+        try TokenStore.save(AuthTokens(access: "A", refresh: "R"), server: server))
+      // `clear`, `clearAsync`, and `tryClearWithoutBlocking` must still execute
+      // `clearUnlocked` rather than swallowing the lock error and skipping deletion.
+      XCTAssertTrue(TokenStore.tryClearWithoutBlocking(server: server))
+      TokenStore.clear(server: server)
+      await TokenStore.clearAsync(server: server)
+    }
+
+    func testAsyncWritersYieldMainActorWhileWaitingForLock() async throws {
+      let server = URL(string: "https://lock-mainactor-\(UUID().uuidString).test")!
+      let lockHeld = expectation(description: "lock held")
+      let asyncWaiterStarted = expectation(description: "async waiter started on MainActor")
+      let mainActorProbeRan = expectation(description: "MainActor remained responsive")
+
+      let holder = Task.detached {
+        try await TokenStore.withRefreshLock(server: server) {
+          lockHeld.fulfill()
+          await self.fulfillment(of: [mainActorProbeRan], timeout: 2.0)
+        }
+      }
+
+      await fulfillment(of: [lockHeld], timeout: 2.0)
+
+      // Non-blocking helpers must return false immediately while the lock is held.
+      XCTAssertFalse(
+        try TokenStore.trySaveWithoutBlocking(AuthTokens(access: "A", refresh: "R"), server: server)
+      )
+      XCTAssertFalse(TokenStore.tryClearWithoutBlocking(server: server))
+
+      let waiter = Task { @MainActor in
+        asyncWaiterStarted.fulfill()
+        await TokenStore.clearAsync(server: server)
+      }
+
+      await fulfillment(of: [asyncWaiterStarted], timeout: 2.0)
+
+      let probe = Task { @MainActor in
+        mainActorProbeRan.fulfill()
+      }
+      await probe.value
+
+      try await holder.value
+      await waiter.value
+    }
+  #endif
 }

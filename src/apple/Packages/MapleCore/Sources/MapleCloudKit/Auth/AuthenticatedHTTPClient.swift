@@ -324,7 +324,8 @@ public actor AuthenticatedHTTPClient {
     var r = req
     guard Self.mayCarryCredentials(to: req.url, identity: server) else {
       cloudHTTPLogger.error(
-        "refusing to send a bearer for an HTTPS identity over cleartext to \(req.url?.host ?? "?", privacy: .public)")
+        "refusing to send a bearer for an HTTPS identity over cleartext to \(req.url?.host ?? "?", privacy: .public)"
+      )
       // A caller may hand back a request it already had signed; the
       // invariant holds for the request we actually send, not just the
       // header we would have added.

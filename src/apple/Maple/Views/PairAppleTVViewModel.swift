@@ -13,9 +13,9 @@
 // from an abandoned attempt can't clobber a later retry's state.
 
 import Foundation
-import Observation
-import OSLog
 import MapleCore
+import OSLog
+import Observation
 
 private let pairAppleTVLog = Logger(subsystem: "app.justmaple.aperture", category: "PairAppleTV")
 
@@ -182,9 +182,11 @@ final class PairAppleTVViewModel {
         // logged so a silently-stale Keychain entry isn't a total mystery
         // later.
         do {
-          try TokenStore.save(refreshed, server: server)
+          try await TokenStore.saveAsync(refreshed, server: server)
         } catch {
-          pairAppleTVLog.error("failed to persist refreshed tokens for \(server.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public)")
+          pairAppleTVLog.error(
+            "failed to persist refreshed tokens for \(server.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public)"
+          )
         }
 
         // The just-rotated refresh token is this device's live primary

@@ -79,36 +79,49 @@ public enum TokenStore {
   /// the file.
   public static func save(_ tokens: AuthTokens, server: URL) throws {
     try withAcquiredLockIfNeeded(server: server) {
-      let data = try JSONEncoder().encode(tokens)
-      let base = baseQuery(server: server)
-      let updated = SecItemUpdate(
-        base as CFDictionary,
-        [kSecValueData as String: data] as CFDictionary
-      )
-      guard updated == errSecItemNotFound else {
-        guard updated == errSecSuccess else {
-          throw NSError(domain: "TokenStore", code: Int(updated))
-        }
-        return
+      try saveUnlocked(tokens, server: server)
+    }
+  }
+
+  /// Async credential writer that awaits the per-server cross-process refresh
+  /// lock via `Task.sleep` rather than blocking the caller's thread (#4873).
+  /// Call from `@MainActor` / async contexts (`AuthSession`, pairing flows).
+  public static func saveAsync(_ tokens: AuthTokens, server: URL) async throws {
+    try await withRefreshLock(server: server) {
+      try saveUnlocked(tokens, server: server)
+    }
+  }
+
+  private static func saveUnlocked(_ tokens: AuthTokens, server: URL) throws {
+    let data = try JSONEncoder().encode(tokens)
+    let base = baseQuery(server: server)
+    let updated = SecItemUpdate(
+      base as CFDictionary,
+      [kSecValueData as String: data] as CFDictionary
+    )
+    guard updated == errSecItemNotFound else {
+      guard updated == errSecSuccess else {
+        throw NSError(domain: "TokenStore", code: Int(updated))
       }
-      var add = base
-      add[kSecValueData as String] = data
-      add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-      let added = SecItemAdd(add as CFDictionary, nil)
-      if added == errSecSuccess { return }
-      // Two processes can both see "not found" and race the add; the loser
-      // must still land its rotation (the server already consumed the
-      // predecessor token), so update the winner's item instead of failing.
-      guard added == errSecDuplicateItem else {
-        throw NSError(domain: "TokenStore", code: Int(added))
-      }
-      let retried = SecItemUpdate(
-        base as CFDictionary,
-        [kSecValueData as String: data] as CFDictionary
-      )
-      guard retried == errSecSuccess else {
-        throw NSError(domain: "TokenStore", code: Int(retried))
-      }
+      return
+    }
+    var add = base
+    add[kSecValueData as String] = data
+    add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    let added = SecItemAdd(add as CFDictionary, nil)
+    if added == errSecSuccess { return }
+    // Two processes can both see "not found" and race the add; the loser
+    // must still land its rotation (the server already consumed the
+    // predecessor token), so update the winner's item instead of failing.
+    guard added == errSecDuplicateItem else {
+      throw NSError(domain: "TokenStore", code: Int(added))
+    }
+    let retried = SecItemUpdate(
+      base as CFDictionary,
+      [kSecValueData as String: data] as CFDictionary
+    )
+    guard retried == errSecSuccess else {
+      throw NSError(domain: "TokenStore", code: Int(retried))
     }
   }
 
@@ -126,9 +139,31 @@ public enum TokenStore {
   }
 
   public static func clear(server: URL) {
-    try? withAcquiredLockIfNeeded(server: server) {
-      _ = SecItemDelete(baseQuery(server: server) as CFDictionary)
+    do {
+      try withAcquiredLockIfNeeded(server: server) {
+        clearUnlocked(server: server)
+      }
+    } catch {
+      // Never leave credentials in the Keychain if the lock file could not be
+      // opened or lock acquisition timed out.
+      clearUnlocked(server: server)
     }
+  }
+
+  /// Async credential clear that awaits the per-server cross-process refresh
+  /// lock via `Task.sleep` rather than blocking the caller's thread (#4873).
+  public static func clearAsync(server: URL) async {
+    do {
+      try await withRefreshLock(server: server) {
+        clearUnlocked(server: server)
+      }
+    } catch {
+      clearUnlocked(server: server)
+    }
+  }
+
+  private static func clearUnlocked(server: URL) {
+    _ = SecItemDelete(baseQuery(server: server) as CFDictionary)
   }
 
   // MARK: - Cross-process credential lock (#4873)
@@ -137,7 +172,7 @@ public enum TokenStore {
   /// lock, marking `server` as held in task-local storage so nested
   /// `TokenStore.save` / `TokenStore.clear` calls inside `operation` (such as
   /// `onTokensRefreshed`) execute re-entrantly without re-acquiring the lock.
-  static func withRefreshLock<T>(
+  public static func withRefreshLock<T>(
     server: URL,
     _ operation: () async throws -> T
   ) async throws -> T {
@@ -215,6 +250,72 @@ public enum TokenStore {
     #endif
   }
 
+  /// Attempts to acquire the per-server refresh lock without sleeping and
+  /// persist `tokens`. Returns `true` if the save completed immediately, or
+  /// `false` when another refresh holds the lock (so a `@MainActor` caller can
+  /// hand off to `saveAsync` without blocking the UI thread).
+  public static func trySaveWithoutBlocking(_ tokens: AuthTokens, server: URL) throws -> Bool {
+    if heldLockServers.contains(server) {
+      try saveUnlocked(tokens, server: server)
+      return true
+    }
+    #if canImport(Darwin)
+      let descriptor = try openRefreshLockDescriptor(server: server)
+      guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+        let lockErrno = errno
+        Darwin.close(descriptor)
+        if lockErrno == EWOULDBLOCK { return false }
+        throw NSError(domain: "TokenStore", code: Int(lockErrno))
+      }
+      defer { releaseRefreshLock(descriptor) }
+      var held = heldLockServers
+      held.insert(server)
+      try $heldLockServers.withValue(held) {
+        try saveUnlocked(tokens, server: server)
+      }
+      return true
+    #else
+      try saveUnlocked(tokens, server: server)
+      return true
+    #endif
+  }
+
+  /// Attempts to acquire the per-server refresh lock without sleeping and
+  /// clear the Keychain item. Returns `true` if the clear completed
+  /// immediately, or `false` when another refresh holds the lock (so a
+  /// `@MainActor` caller can hand off to `clearAsync` without blocking the UI
+  /// thread). If the lock file cannot be opened at all, clears immediately and
+  /// returns `true`.
+  public static func tryClearWithoutBlocking(server: URL) -> Bool {
+    if heldLockServers.contains(server) {
+      clearUnlocked(server: server)
+      return true
+    }
+    #if canImport(Darwin)
+      guard let descriptor = try? openRefreshLockDescriptor(server: server) else {
+        clearUnlocked(server: server)
+        return true
+      }
+      guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+        let lockErrno = errno
+        Darwin.close(descriptor)
+        if lockErrno == EWOULDBLOCK { return false }
+        clearUnlocked(server: server)
+        return true
+      }
+      defer { releaseRefreshLock(descriptor) }
+      var held = heldLockServers
+      held.insert(server)
+      $heldLockServers.withValue(held) {
+        clearUnlocked(server: server)
+      }
+      return true
+    #else
+      clearUnlocked(server: server)
+      return true
+    #endif
+  }
+
   static func releaseRefreshLock(_ descriptor: Int32) {
     #if canImport(Darwin)
       guard descriptor >= 0 else { return }
@@ -285,7 +386,7 @@ public enum TokenStore {
       return descriptor
     }
 
-    private static func stableServerHash(_ server: URL) -> String {
+    static func stableServerHash(_ server: URL) -> String {
       var hash: UInt64 = 14_695_981_039_346_656_037
       for byte in server.absoluteString.utf8 {
         hash ^= UInt64(byte)
