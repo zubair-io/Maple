@@ -21,7 +21,8 @@ import { deriveId } from '../../indexer/id.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { findMapleIdHolder, mergeIntoSurvivor } from '../../db/repos/assets.merge.ts';
 import { exifPatchStatements } from '../../db/repos/assets.stage-patches.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { loadLibraryRootsForAsset } from '../../indexer/libraries.cache.ts';
+import { noResolvableLocation } from './no-resolvable-location.ts';
 import type { AssetExif } from '../../db/schema.ts';
 import { recordAndPublishAssetChange } from '../../db/repos/changes.repo.ts';
 import type { ImageDoc, StageResult } from '../run-stage.ts';
@@ -80,10 +81,10 @@ const exifStage = defineStage({
     // gone) — is the genuinely-orphaned one: the runner stamps
     // `missing_since` on that skip instead of marking the stage done, so the
     // missing-reaper sees it. See run-stage.ts.
-    const libs = await loadLibraryRoots();
+    const libs = await loadLibraryRootsForAsset(image);
     const absPath = assetAbsPath(image, libs);
     if (!absPath) {
-      return { skip: 'no-resolvable-location' };
+      return noResolvableLocation(image, libs);
     }
 
     // Stat the file first — throws ENOENT when it doesn't exist, satisfying

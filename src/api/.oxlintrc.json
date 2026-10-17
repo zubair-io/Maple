@@ -59,6 +59,8 @@
         "src/routes/xmp.workflow.test.ts",
         // #4616: cancellation regressions use only disposable workflow fixtures under os.tmpdir().
         "src/routes/xmp.workflow-cancel.test.ts",
+        // #4722: stages disposable JPEG fixtures under os.tmpdir(), never library files.
+        "src/workers/stages/exif.library-reload.test.ts",
         "tests/coverage.instrument.ts",
         "tests/coverage.preload.ts",
         "tests/coverage.preload.test.ts",

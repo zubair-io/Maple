@@ -10,6 +10,8 @@
  * The cache lives at module scope (process-local) and is rebuilt lazily on
  * the first read after invalidation. There is no TTL — clients that need
  * fresh data after mutating folders must call `invalidateLibraryRoots()`.
+ * The worker process is never told about those calls, so asset-resolving
+ * stages use `loadLibraryRootsForAsset`, which re-reads on an unknown library.
  *
  * That rule currently costs nothing, and it is worth knowing why before
  * changing the table. Everything cached here — `path`, `slug`, `label` — is
@@ -28,7 +30,7 @@
  * slug → { libraryId, root, label } map so `resolveAddress` can resolve a
  * slug to a library root with zero additional DB round-trips.
  */
-import type { ObjectId } from '../db/object-id.ts';
+import { ObjectId } from '../db/object-id.ts';
 import { listLibraryRoots } from '../db/repos/folders.repo.ts';
 
 /** Resolved library info keyed by slug. */
@@ -46,6 +48,9 @@ interface LibraryCache {
 }
 
 let cached: LibraryCache | null = null;
+let cachedAtMs = 0;
+
+export const UNKNOWN_LIBRARY_RELOAD_MIN_INTERVAL_MS = 5_000;
 
 async function loadCache(): Promise<LibraryCache> {
   if (cached) return cached;
@@ -61,11 +66,52 @@ async function loadCache(): Promise<LibraryCache> {
     bySlug.set(root.slug, { libraryId: root.id, root: root.path, label: root.label });
   }
   cached = { byId, bySlug };
+  cachedAtMs = Date.now();
   return cached;
 }
 
 export async function loadLibraryRoots(): Promise<ReadonlyMap<string, string>> {
   return (await loadCache()).byId;
+}
+
+interface AssetLibraryRefs {
+  fileinfo?: readonly { library_id: ObjectId | string; deleted_at?: string | null }[];
+}
+
+function liveLibraryIds(asset: AssetLibraryRefs): string[] {
+  return (asset.fileinfo ?? [])
+    .filter((entry) => !entry.deleted_at)
+    .map((entry) =>
+      typeof entry.library_id === 'string'
+        ? new ObjectId(entry.library_id).toHexString()
+        : entry.library_id.toHexString(),
+    );
+}
+
+/**
+ * `loadLibraryRoots()` for a caller resolving one asset's on-disk location.
+ * The worker process is never told when the API process registers a library,
+ * so a live location pointing at an id the cache has not seen triggers one
+ * re-read of the folders table (at most once per interval, so an asset whose
+ * library is genuinely gone cannot turn every claim into a query).
+ */
+export async function loadLibraryRootsForAsset(
+  asset: AssetLibraryRefs,
+): Promise<ReadonlyMap<string, string>> {
+  const known = await loadLibraryRoots();
+  const hasUnknown = liveLibraryIds(asset).some((id) => !known.has(id));
+  if (!hasUnknown || Date.now() - cachedAtMs < UNKNOWN_LIBRARY_RELOAD_MIN_INTERVAL_MS) {
+    return known;
+  }
+  invalidateLibraryRoots();
+  return loadLibraryRoots();
+}
+
+export function hasUnregisteredLibrary(
+  asset: AssetLibraryRefs,
+  libs: ReadonlyMap<string, string>,
+): boolean {
+  return liveLibraryIds(asset).some((id) => !libs.has(id));
 }
 
 /**
@@ -79,6 +125,7 @@ export async function getLibraryBySlug(slug: string): Promise<LibraryBySlug | nu
 
 export function invalidateLibraryRoots(): void {
   cached = null;
+  cachedAtMs = 0;
 }
 
 /**
@@ -104,11 +151,8 @@ export async function loadLibraryIdToSlug(): Promise<ReadonlyMap<string, string>
  * Pass `null` to revert to the lazy-load behaviour.
  */
 export function setLibraryRootsForTests(map: ReadonlyMap<string, string> | null): void {
-  if (map === null) {
-    cached = null;
-  } else {
-    cached = { byId: map, bySlug: new Map() };
-  }
+  cachedAtMs = 0;
+  cached = map === null ? null : { byId: map, bySlug: new Map() };
 }
 
 /**

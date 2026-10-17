@@ -34,7 +34,8 @@ import { readFile } from 'node:fs/promises';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { loadLibraryRootsForAsset } from '../../indexer/libraries.cache.ts';
+import { noResolvableLocation } from './no-resolvable-location.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-types.ts';
 import { relocateBackupScreenshot } from '../migration/refile-backups.ts';
@@ -238,11 +239,11 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // handles the transient case. Reserve `skip` for the genuine case:
   // libraries loaded fine, but the asset has no fileinfo[0] or its library
   // is unregistered.
-  const libs = await loadLibraryRoots();
+  const libs = await loadLibraryRootsForAsset(image as never);
 
   const previewPath = cachePathForAsset(image as never, libs, 'previews', PREVIEW_CACHE_SUFFIX);
   if (!previewPath) {
-    return { skip: 'no-resolvable-location' };
+    return noResolvableLocation(image as never, libs);
   }
   let avifBytes: Buffer;
   try {

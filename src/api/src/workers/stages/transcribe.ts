@@ -12,7 +12,8 @@ import type { TranscriptDoc } from '../../db/schema.ts';
 import { loadEnrichmentConfig } from '../../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../../enrichment/enrichment-config.resolve.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { loadLibraryRootsForAsset } from '../../indexer/libraries.cache.ts';
+import { noResolvableLocation } from './no-resolvable-location.ts';
 import { isAudioFilename, isVideoFilename } from '../../indexer/media-types.ts';
 import {
   defineStage,
@@ -154,8 +155,9 @@ const transcribeStage = defineStage({
     if (!isTranscribableFilename(primary?.filename)) {
       return { skip: 'not-media' };
     }
-    const absolutePath = assetAbsPath(image, await loadLibraryRoots());
-    if (!absolutePath) return { skip: 'no-resolvable-location' };
+    const libs = await loadLibraryRootsForAsset(image);
+    const absolutePath = assetAbsPath(image, libs);
+    if (!absolutePath) return noResolvableLocation(image, libs);
 
     const deps = await dependencies();
     await deps.assertReadable(absolutePath);

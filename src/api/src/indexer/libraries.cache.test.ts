@@ -12,14 +12,21 @@
  * starts from an invalidated one.
  */
 
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from 'bun:test';
 import { ObjectId } from '../db/object-id.ts';
 import {
   createLiveTestDatabase,
   insertFolder,
   run,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { getLibraryBySlug, invalidateLibraryRoots, loadLibraryRoots } from './libraries.cache.ts';
+import {
+  UNKNOWN_LIBRARY_RELOAD_MIN_INTERVAL_MS,
+  getLibraryBySlug,
+  hasUnregisteredLibrary,
+  invalidateLibraryRoots,
+  loadLibraryRoots,
+  loadLibraryRootsForAsset,
+} from './libraries.cache.ts';
 
 beforeEach(() => {
   invalidateLibraryRoots();
@@ -108,5 +115,63 @@ describe('getLibraryBySlug', () => {
     const result = await getLibraryBySlug('fresh-library');
     expect(result).not.toBeNull();
     expect(result!.root).toBe('/srv/fresh');
+  });
+});
+
+describe('loadLibraryRootsForAsset', () => {
+  const assetIn = (libraryId: string) => ({
+    fileinfo: [{ library_id: new ObjectId(libraryId), deleted_at: null }],
+  });
+
+  afterEach(() => {
+    setSystemTime();
+  });
+
+  test('re-reads once when a live location points at a library added after the cache filled', async () => {
+    using live = await createLiveTestDatabase();
+    insertFolder(live.db, { path: '/srv/original' });
+    await loadLibraryRoots();
+    setSystemTime(new Date(Date.now() + UNKNOWN_LIBRARY_RELOAD_MIN_INTERVAL_MS + 1));
+
+    const addedLater = insertFolder(live.db, { path: '/srv/added-later' });
+    const libs = await loadLibraryRootsForAsset(assetIn(addedLater));
+
+    expect(libs.get(addedLater)).toBe('/srv/added-later');
+  });
+
+  test('does not re-read for a library the cache already knows', async () => {
+    using live = await createLiveTestDatabase();
+    const known = insertFolder(live.db, { path: '/srv/known' });
+    const first = await loadLibraryRoots();
+    setSystemTime(new Date(Date.now() + UNKNOWN_LIBRARY_RELOAD_MIN_INTERVAL_MS + 1));
+    insertFolder(live.db, { path: '/srv/unseen' });
+
+    expect(await loadLibraryRootsForAsset(assetIn(known))).toBe(first);
+  });
+
+  test('ignores soft-deleted locations when deciding whether to re-read', async () => {
+    using live = await createLiveTestDatabase();
+    insertFolder(live.db, { path: '/srv/original' });
+    const first = await loadLibraryRoots();
+    setSystemTime(new Date(Date.now() + UNKNOWN_LIBRARY_RELOAD_MIN_INTERVAL_MS + 1));
+    const addedLater = insertFolder(live.db, { path: '/srv/added-later' });
+
+    const libs = await loadLibraryRootsForAsset({
+      fileinfo: [{ library_id: new ObjectId(addedLater), deleted_at: '2026-01-01T00:00:00Z' }],
+    });
+
+    expect(libs).toBe(first);
+  });
+
+  test('rate-limits re-reads for a library that stays unknown', async () => {
+    using live = await createLiveTestDatabase();
+    insertFolder(live.db, { path: '/srv/original' });
+    await loadLibraryRoots();
+    const addedLater = insertFolder(live.db, { path: '/srv/added-later' });
+
+    const libs = await loadLibraryRootsForAsset(assetIn(addedLater));
+
+    expect(libs.has(addedLater)).toBe(false);
+    expect(hasUnregisteredLibrary(assetIn(addedLater), libs)).toBe(true);
   });
 });
