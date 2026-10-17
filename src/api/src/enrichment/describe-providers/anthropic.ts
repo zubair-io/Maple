@@ -18,7 +18,7 @@ import {
 const ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_MAX_TOKENS = 256;
+const MAX_OUTPUT_TOKENS = 2048;
 
 /**
  * Per-million-token USD pricing. Keep this in sync with
@@ -49,6 +49,7 @@ export interface AnthropicProviderConfig {
 
 interface AnthropicMessagesResponse {
   content?: unknown;
+  stop_reason?: unknown;
   model?: unknown;
   usage?: { input_tokens?: unknown; output_tokens?: unknown };
 }
@@ -86,7 +87,7 @@ export class AnthropicProvider implements DescribeProvider {
     requireFrames(jpegFrames);
     const body = JSON.stringify({
       model: opts.model,
-      max_tokens: DEFAULT_MAX_TOKENS,
+      max_tokens: MAX_OUTPUT_TOKENS,
       messages: [
         {
           role: 'user',
@@ -119,6 +120,12 @@ export class AnthropicProvider implements DescribeProvider {
       throw new RemoteError(`Malformed Anthropic JSON: ${msg}`, false);
     }
 
+    if (parsed.stop_reason === 'max_tokens') {
+      throw new RemoteError(
+        `Anthropic stopped generating before it finished (stop_reason=max_tokens, max_tokens=${MAX_OUTPUT_TOKENS})`,
+        false,
+      );
+    }
     const text = extractText(parsed.content);
     if (text.length === 0) {
       throw new RemoteError('Anthropic returned empty content', false);
