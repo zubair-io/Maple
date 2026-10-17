@@ -2,7 +2,9 @@
 
 ## Isolated repair on main
 
-This branch starts at `d0689ff4cea06b320910cc703a90fd8241c24808` and includes
+This branch was qualified at `d0689ff4cea06b320910cc703a90fd8241c24808`, then
+rebased onto `676c40a7db1121179b5fe08dd2332e7da8a1834a` with an unchanged Rust
+pipeline tree. It includes
 only the film-cache repair, its regression, and derived-output invalidation.
 It does not include the other accumulated color-pipeline repairs.
 
@@ -94,9 +96,3 @@ This repairs a deterministic cache-order defect. It does not claim to clear a
 case in the 806-comparison Adobe corpus or to pass that entire gate. No physical
 color budget, reference, RAW or authored XMP changes.
 
-## Authorized merge exception
-
-The requester explicitly allowed this session's documented color failures
-already present on main. That permits this isolated fix to land after fresh
-CI and review pass, with no new color regressions. It does not change numerical
-budgets or the goal of a fully passing physical corpus.
