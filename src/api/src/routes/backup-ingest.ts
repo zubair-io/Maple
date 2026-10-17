@@ -186,7 +186,10 @@ export const backupIngestRoutes = new Elysia().post(
       };
     }
 
-    if (alreadyComplete) await uploadSessions.resetForRestart(session._id);
+    // A failed final transaction can leave all bytes received but no completed
+    // session. Restart assembly before adopting its already-published file.
+    const restartAssembly = alreadyComplete || session.received_bytes === totalBytes;
+    if (restartAssembly) await uploadSessions.resetForRestart(session._id);
 
     // Use the stored target_rel_path as the source of truth (not the freshly
     // computed value) — prevents a client from redirecting an in-progress
@@ -195,8 +198,8 @@ export const backupIngestRoutes = new Elysia().post(
     let resolvedTargetRelPath = session.target_rel_path;
 
     const chunkResult = await takeChunk({
-      session: alreadyComplete ? { ...session, received_bytes: 0 } : session,
-      didReset: didReset || alreadyComplete,
+      session: restartAssembly ? { ...session, received_bytes: 0 } : session,
+      didReset: didReset || restartAssembly,
       start,
       end,
       rangeTotal,
@@ -303,6 +306,7 @@ export const backupIngestRoutes = new Elysia().post(
                 folder.path,
                 restoreRelPath,
                 async (candidate) => (await findBackupPathOwner(libraryId, candidate)) !== null,
+                tmpFile,
               )
             ).relPath;
           }

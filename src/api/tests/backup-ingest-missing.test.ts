@@ -133,6 +133,33 @@ describe('backup missing-copy recovery', () => {
     });
   }
 
+  test('retry adopts a repair sibling published before its location transaction failed', async () => {
+    const id = seedMissing(true);
+    const oldPath = path.join(handle.tmpLib, relPath);
+    const unrelated = Buffer.alloc(bytes.length, 0x6b);
+    await fs.mkdir(path.dirname(oldPath), { recursive: true });
+    await fs.writeFile(oldPath, unrelated);
+    handle.db.run(`CREATE TRIGGER fail_repair BEFORE UPDATE OF path, filename ON asset_locations
+      WHEN OLD.asset_id = '${id.toHexString()}'
+      BEGIN SELECT RAISE(ABORT, 'injected location transaction failure'); END`);
+    expect((await upload()).status).toBe(500);
+    const publishedPath = 'previous-layout/photo-1.HEIC';
+    expect(await fs.readFile(path.join(handle.tmpLib, publishedPath))).toEqual(bytes);
+    expect(readLocations(handle.db, id)[0]?.filename).toBe('photo.HEIC');
+    handle.db.run('DROP TRIGGER fail_repair');
+    const retry = await upload();
+    expect(retry.status).toBe(200);
+    expect((await retry.json()).target_rel_path).toBe(publishedPath);
+    await expectStored(publishedPath);
+    expect(await fs.readFile(oldPath)).toEqual(unrelated);
+    expect((await fs.readdir(path.dirname(oldPath))).toSorted()).toEqual([
+      'photo-1.HEIC',
+      'photo.HEIC',
+    ]);
+    expect(readLocations(handle.db, id)).toHaveLength(1);
+    expect(readLocations(handle.db, id)[0]?.ordinal).toBe(0);
+  });
+
   for (const occupied of [false, true]) {
     test(`completed retry restores a lost copy (old path occupied: ${occupied})`, async () => {
       const first = await upload();

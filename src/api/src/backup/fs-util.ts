@@ -119,11 +119,13 @@ export async function fileMatchesBytes(file: string, bytes: Uint8Array): Promise
  * asset already occupies the computed path (two photos that share a capture
  * date + filename and resolve to the same — or, on a cold geocode cache, no —
  * location). Returns the POSIX-separated rel path plus its absolute path. Caps
- * attempts so a pathological directory can't spin forever. */
+ * attempts so a pathological directory can't spin forever. `reuseSource`
+ * also permits a byte-identical unreserved sibling from an interrupted publish. */
 export async function firstFreeSiblingPath(
   libRoot: string,
   relPath: string,
   isReserved?: (candidate: string) => Promise<boolean>,
+  reuseSource?: string,
 ): Promise<{ relPath: string; absPath: string }> {
   const dir = path.posix.dirname(relPath);
   const ext = path.posix.extname(relPath);
@@ -134,7 +136,10 @@ export async function firstFreeSiblingPath(
     if (isReserved && (await isReserved(candidateRel))) continue;
     const candidateAbs = path.join(libRoot, ...candidateRel.split('/'));
     try {
-      await fs.stat(candidateAbs);
+      const stat = await fs.stat(candidateAbs);
+      if (reuseSource && stat.isFile() && (await filesIdentical(candidateAbs, reuseSource))) {
+        return { relPath: candidateRel, absPath: candidateAbs };
+      }
     } catch (e: any) {
       if (e?.code === 'ENOENT') return { relPath: candidateRel, absPath: candidateAbs };
       throw e;
