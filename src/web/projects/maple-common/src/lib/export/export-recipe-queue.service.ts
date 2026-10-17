@@ -7,6 +7,7 @@ import { parseExportRecipe, exportRecipeProblem } from '../generated/export-reci
 import { ExportRecipeRenderService } from './export-recipe-render.service';
 import { EXPORT_RECIPE_SERVER, type ExportJobView } from './export-recipe-server';
 import {
+  readDirectoryCreatedOutputs,
   readExportQueue,
   saveExportQueue,
   recoverBrowserQueue,
@@ -21,15 +22,18 @@ async function attachBrowserDirectory(
   latest: RecipeQueueRecord | null,
   directories: RecipeDirectoryAccessService,
 ): Promise<void> {
-  record.directoryHandle = await directories.resolve(record.recipe.directory!);
+  const handle = await directories.resolve(record.recipe.directory!);
+  record.directoryHandle = handle;
   await directories.captureSources(record.targets);
   record.protectedOriginals = record.targets.map((target) => target.sourceHandle ?? null);
-  if (
+  const stored = await readDirectoryCreatedOutputs(handle);
+  const fromLatest =
     latest?.createdOutputs &&
     latest.directoryHandle &&
-    (await record.directoryHandle.isSameEntry(latest.directoryHandle))
-  )
-    record.createdOutputs = { ...latest.createdOutputs };
+    (await handle.isSameEntry(latest.directoryHandle))
+      ? latest.createdOutputs
+      : undefined;
+  if (stored || fromLatest) record.createdOutputs = { ...stored, ...fromLatest };
 }
 
 @Injectable({ providedIn: 'root' })

@@ -77,6 +77,10 @@ export async function saveRecipe(value: unknown): Promise<void> {
 export async function deleteRecipe(name: string): Promise<void> {
   await transaction('recipes', 'readwrite', (store) => store.delete(name));
 }
+interface DirectoryOutputsEntry {
+  directoryHandle: FileSystemDirectoryHandle;
+  outputs: Record<string, string>;
+}
 export async function readExportQueue(): Promise<RecipeQueueRecord | null> {
   const value: RecipeQueueRecord | undefined = await transaction('queue', 'readonly', (store) =>
     store.get('active'),
@@ -85,8 +89,44 @@ export async function readExportQueue(): Promise<RecipeQueueRecord | null> {
   parseExportRecipe(value.recipe);
   return value;
 }
+export async function readDirectoryCreatedOutputs(
+  directoryHandle: FileSystemDirectoryHandle,
+): Promise<Record<string, string> | undefined> {
+  if (typeof indexedDB === 'undefined') return undefined;
+  const list =
+    (await transaction<DirectoryOutputsEntry[] | undefined>('queue', 'readonly', (store) =>
+      store.get('created-outputs'),
+    )) ?? [];
+  for (const item of list) {
+    if (await directoryHandle.isSameEntry(item.directoryHandle)) return { ...item.outputs };
+  }
+  return undefined;
+}
+async function saveDirectoryCreatedOutputs(
+  directoryHandle: FileSystemDirectoryHandle,
+  outputs: Record<string, string>,
+): Promise<void> {
+  if (typeof indexedDB === 'undefined' || !Object.keys(outputs).length) return;
+  const list =
+    (await transaction<DirectoryOutputsEntry[] | undefined>('queue', 'readonly', (store) =>
+      store.get('created-outputs'),
+    )) ?? [];
+  const next: DirectoryOutputsEntry[] = [];
+  let merged = { ...outputs };
+  for (const item of list) {
+    if (await directoryHandle.isSameEntry(item.directoryHandle))
+      merged = { ...item.outputs, ...outputs };
+    else next.push(item);
+  }
+  next.unshift({ directoryHandle, outputs: merged });
+  await transaction('queue', 'readwrite', (store) =>
+    store.put(next.slice(0, 32), 'created-outputs'),
+  );
+}
 export async function saveExportQueue(value: RecipeQueueRecord): Promise<void> {
   await transaction('queue', 'readwrite', (store) => store.put(value, 'active'));
+  if (value.directoryHandle && value.createdOutputs)
+    await saveDirectoryCreatedOutputs(value.directoryHandle, value.createdOutputs);
 }
 /** A browser recipe stores an opaque handle key, never a guessed operating-system path. */
 export async function saveRecipeDirectory(handle: FileSystemDirectoryHandle): Promise<string> {

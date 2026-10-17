@@ -118,6 +118,7 @@ async function guardOriginal(
 ): Promise<void> {
   if (!handle) return;
   await guardSelectedOriginals(handle, record.protectedOriginals);
+  if (record.recipe.overwritePolicy !== 'replace') return;
   const actualName = handle.name || filename;
   const ext = extensionOf(actualName);
   if (
@@ -133,10 +134,10 @@ export async function prepareDirectoryEntry(
   filename: string,
 ): Promise<RecipeEntry> {
   const handle = await existing(record.directoryHandle!, filename);
-  const beforeHash = await fileHash(handle);
-  await guardOriginal(handle, record, filename, beforeHash);
   if (handle && record.recipe.overwritePolicy === 'skip')
     return { id, filename, status: 'skipped' };
+  const beforeHash = await fileHash(handle);
+  await guardOriginal(handle, record, filename, beforeHash);
   if (handle && record.recipe.overwritePolicy === 'error')
     throw new Error(`Output already exists: ${filename}. Choose another name, skip, or replace.`);
   return { id, filename, status: 'rendering', beforeHash };

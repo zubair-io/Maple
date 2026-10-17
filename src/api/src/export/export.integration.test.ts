@@ -344,6 +344,7 @@ integration('export recovery boundaries', () => {
     };
     const job = await claimed(value);
     const result = await batchRecipeExportHandler.run(job.payload, await context(job._id));
+    await jobs.completeJob(job._id, result.result);
     expect(result.result.applied).toEqual([]);
     expect(result.result.failed).toEqual([
       expect.objectContaining({ id: raw.id, reason: expect.stringContaining('original') }),
@@ -354,6 +355,61 @@ integration('export recovery boundaries', () => {
     ]);
     expect(await readFile(siblingPath, 'utf8')).toBe('unselected camera sibling jpeg');
     expect(await readFile(sidecarPath, 'utf8')).toBe(xml);
+
+    const skipJob = await claimed({
+      ...value,
+      targets: [raw],
+      originalPaths: [raw.path],
+      recipe: { ...value.recipe, overwritePolicy: 'skip' },
+    });
+    const skipped = await batchRecipeExportHandler.run(skipJob.payload, await context(skipJob._id));
+    await jobs.completeJob(skipJob._id, skipped.result);
+    expect(skipped.result.skipped).toEqual([raw.id]);
+    expect(skipped.result.failed).toEqual([]);
+
+    const repeatRecipe = { ...value.recipe, namingTemplate: '{original}_out.{ext}' };
+    const firstExport = await claimed({
+      targets: [raw],
+      originalPaths: [raw.path],
+      recipe: repeatRecipe,
+    });
+    const firstDone = await batchRecipeExportHandler.run(
+      firstExport.payload,
+      await context(firstExport._id),
+    );
+    await jobs.completeJob(firstExport._id, firstDone.result);
+    expect(firstDone.result.applied).toEqual([raw.id]);
+    insertLocation(live!.db, {
+      assetId: insertAsset(live!.db),
+      libraryId,
+      path: '',
+      filename: 'IMG_1_out.jpg',
+    });
+    const secondExport = await claimed({
+      targets: [raw],
+      originalPaths: [raw.path],
+      recipe: repeatRecipe,
+    });
+    const secondDone = await batchRecipeExportHandler.run(
+      secondExport.payload,
+      await context(secondExport._id),
+    );
+    await jobs.completeJob(secondExport._id, secondDone.result);
+    expect(secondDone.result.applied).toEqual([raw.id]);
+    await writeFile(join(root, 'IMG_1_out.jpg'), 'user-original-jpeg');
+    const blockedExport = await claimed({
+      targets: [raw],
+      originalPaths: [raw.path],
+      recipe: repeatRecipe,
+    });
+    const blockedDone = await batchRecipeExportHandler.run(
+      blockedExport.payload,
+      await context(blockedExport._id),
+    );
+    expect(blockedDone.result.failed).toEqual([
+      expect.objectContaining({ id: raw.id, reason: expect.stringContaining('original') }),
+    ]);
+    expect(await readFile(join(root, 'IMG_1_out.jpg'), 'utf8')).toBe('user-original-jpeg');
   }, 60000);
 
   it('retries only failed photos over HTTP with the same XMP and stable sequence', async () => {
