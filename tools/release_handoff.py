@@ -124,3 +124,22 @@ def allowed_pr(pr, main, handoff, tagged):
         and pr["head"]["sha"] == handoff
         and git("rev-parse", f"{handoff}^") == main
     )
+
+
+def allowed_group(main, group, handoff):
+    # The queue rebuilds the candidate commit; its SHA differs from the PR head.
+    # Compare the entire committed tree with the approved version-only handoff.
+    if (
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", main, group], check=False
+        ).returncode
+        != 0
+    ):
+        return False
+    try:
+        validate_bump(main, group)
+        return git("rev-parse", f"{group}^{{tree}}") == git(
+            "rev-parse", f"{handoff}^{{tree}}"
+        )
+    except (ValueError, subprocess.CalledProcessError):
+        return False

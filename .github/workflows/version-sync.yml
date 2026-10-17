@@ -15,6 +15,8 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -22,7 +24,7 @@ permissions:
 jobs:
   release-readiness:
     name: Release readiness
-    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/next-v')
+    if: (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/next-v')) || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -32,25 +34,37 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      GROUP_SHA: ${{ github.event.merge_group.head_sha }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: main
           persist-credentials: false
       - name: Wait for the complete release CI suite
         run: |
           set -euo pipefail
 
-          if ! [[ "$HEAD_BRANCH" =~ ^release/next-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && ! [[ "$HEAD_BRANCH" =~ ^release/next-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Not a stable release PR; release readiness does not apply."
             exit 0
+          fi
+
+          if [ "$GITHUB_EVENT_NAME" = merge_group ]; then
+            if [ -z "$GROUP_SHA" ] || [ "$GROUP_SHA" != "$GITHUB_SHA" ]; then
+              echo "::error::Merge-group head must match the workflow commit."
+              exit 1
+            fi
+            candidate_sha="$GROUP_SHA"
+          else
+            candidate_sha="$HEAD_SHA"
           fi
 
           deadline=$((SECONDS + 7200))
 
           while (( SECONDS < deadline )); do
             runs="$(gh api --paginate --slurp \
-              "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100")"
-            if python3 tools/release_ci.py <<<"$runs"; then
+              "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$candidate_sha&event=$GITHUB_EVENT_NAME&per_page=100")"
+            if python3 tools/release_ci.py "$GITHUB_EVENT_NAME" "$candidate_sha" <<<"$runs"; then
               exit 0
             else
               result=$?
@@ -59,7 +73,7 @@ jobs:
             sleep 30
           done
 
-          echo "::error::Timed out waiting for release workflows for $HEAD_SHA."
+          echo "::error::Timed out waiting for release workflows for $candidate_sha."
           exit 1
 
   validate-apple:

@@ -190,6 +190,40 @@ class VersionTests(GitFixture):
 
 
 class GateTests(GitFixture):
+    def test_group_status_is_on_group_sha_and_only_exact_bump_passes(self):
+        bump = self.handoff()
+        self.git("checkout", "--detach", self.main)
+        self.git("merge", "--no-ff", "--no-edit", bump)
+        group = self.git("rev-parse", "HEAD")
+        self.prs = [self.pr(self.main)]
+        control.refresh_gate("owner/repo", group_sha=group)
+        self.assertEqual(self.statuses[-1][0], group)
+        self.assertEqual(self.statuses[-1][1]["state"], "success")
+        self.write("extra.txt", "Other source change\n")
+        changed = self.commit("Extra group change")
+        control.refresh_gate("owner/repo", group_sha=changed)
+        self.assertEqual(self.statuses[-1][0], changed)
+        self.assertEqual(self.statuses[-1][1]["state"], "pending")
+
+    def test_group_with_active_handoff_blocks_other_change(self):
+        self.handoff()
+        self.git("checkout", "--detach", self.main)
+        self.write("feature.txt", "Unrelated PR\n")
+        group = self.commit("Group candidate")
+        control.refresh_gate("owner/repo", group_sha=group)
+        self.assertEqual(self.statuses[-1][1]["state"], "pending")
+
+    def test_group_without_handoff_passes_and_untagged_bump_blocks(self):
+        self.git("checkout", "--detach", self.main)
+        self.write("feature.txt", "Ordinary PR\n")
+        group = self.commit("Group candidate")
+        control.refresh_gate("owner/repo", group_sha=group)
+        self.assertEqual(self.statuses[-1][1]["state"], "success")
+        self.git("checkout", "--detach", self.main)
+        bump = self.handoff(tagged=False)
+        control.refresh_gate("owner/repo", group_sha=bump)
+        self.assertEqual(self.statuses[-1][1]["state"], "pending")
+
     def test_unchanged_status_is_not_posted_again(self):
         self.prs = [self.pr(self.main)]
         control.refresh_gate("owner/repo")
