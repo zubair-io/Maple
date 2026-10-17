@@ -11,7 +11,7 @@ import {
   run,
   type LiveTestDatabase,
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
-import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { invalidateLibraryRoots, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { panoStitchHandler } from './pano-stitch.ts';
 
 const TINY_PNG_B64 =
@@ -186,6 +186,22 @@ describe('panoStitchHandler feature engine (#4555)', () => {
     } finally {
       await fs.unlink(aliasDir);
     }
+  });
+
+  it('sees a library registered after its root cache warmed, before spawning', async () => {
+    const lateLib = path.join(tmpDir, 'late-lib');
+    await fs.mkdir(lateLib, { recursive: true });
+    const planted = path.join(lateLib, 'late-cli');
+    await fs.copyFile(fakeCli, planted);
+    // Warm this process's root cache with the original library only, as a
+    // long-lived worker would have, then register the new library elsewhere.
+    await loadLibraryRoots();
+    insertFolder(live.db, { path: lateLib, slug: 'pano-late-lib' });
+    await fs.rm(argsLog, { force: true });
+    await expect(
+      panoStitchHandler.run({ ...basePayload(), mapleCli: planted }, handlerContext()),
+    ).rejects.toThrow('library root');
+    await expect(fs.stat(argsLog)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('refuses an ML run whose ONNX Runtime path is missing', async () => {
