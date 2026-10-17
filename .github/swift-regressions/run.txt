@@ -24,6 +24,7 @@ GpuExitPreviewCacheTests
 GpuPresentationOutcomeTests
 GpuSessionReplacementTests
 LocalAdjustmentXMPTests
+LookProfileXMPTests
 LocalAdjustmentBrushTests
 LocalAdjustmentBrushSessionTests
 LocalAdjustmentOrderTests

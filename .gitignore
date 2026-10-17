@@ -52,6 +52,9 @@ test-fixtures/*
 # Lightroom sidecar and Apple's resave of it, read by MapleCore's
 # XMPPassthroughNamespaceTests and the web xmp-namespaces spec. No RAWs.
 !test-fixtures/xmp-namespaces/
+# Exception: Lightroom profile-look sidecars (#4685) — two small XMPs shared
+# by the raw-core, MapleCore and maple-common reader/passthrough tests.
+!test-fixtures/look-profiles/
 # Exception: the committed per-device perf-table rows (#3421) ARE committed —
 # small hand-reviewed JSON, one file per device under test-fixtures/perf/,
 # rendered into docs/performance.md by tools/perf-table.py and gated locally

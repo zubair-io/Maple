@@ -237,6 +237,13 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     let depth = namespaceScopes.count
     let canonicalName = XMPChildElementScanner.canonicalQualifiedName(
       qualified, namespaces: namespaces)
+    // #4685: Lightroom's `crs:Look` nests the profile's own PV2012 curves and
+    // grayscale flag under `crs:Parameters` — the profile's recipe, not the
+    // user's edit — so the subtree is skipped whole and survives as passthrough.
+    if qualified == "crs:Look" || canonicalName == "crs:Look" {
+      workflowDepth = 1
+      return
+    }
     if !sawRdfEnvelope, depth <= 1, canonicalName == "rdf:RDF" {
       sawRdfEnvelope = true
       rdfEnvelopeDepth = depth + 1
