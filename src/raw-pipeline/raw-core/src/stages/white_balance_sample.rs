@@ -27,7 +27,8 @@ use crate::xmp::AdjustmentModel;
 
 /// Version of the neutral → slider-pair derivation shared by the sampler
 /// and AUTO's white balance (#2247's clip-aware, frame-consistent solve).
-pub const WB_ALGORITHM_VERSION: u32 = 2;
+/// Version 3 uses the interpolated Robertson locus for inverse tint (#4630).
+pub const WB_ALGORITHM_VERSION: u32 = 3;
 
 /// Half-width of the averaged neighbourhood: 2 → a 5×5 window.
 pub const SAMPLE_RADIUS: u32 = 2;
