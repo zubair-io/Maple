@@ -1,25 +1,23 @@
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 // library-cache.thumb-path-parity.spec.ts — "the path the writer writes ==
 // the path the reader reads", for Web-local Hosted thumbs (#2254).
 //
 // `LibraryCache` has two independent call sites that each derive the on-disk
 // thumb location for the SAME asset:
-//   - `_loadHostedThumb` (write): `sha256Prefix16(asset.filename)` then
-//     `MapleCacheService.writeThumb(folder, sha, blob, format)`.
-//   - `_tryReadCachedThumb` (read): `sha256Prefix16(asset.filename)` then
-//     `MapleCacheService.readThumb(folder, sha)`.
-// Nothing stops a future edit to only one of these (e.g. hashing
+//   - `_loadHostedThumb` (write):
+//     `MapleCacheService.writeThumb(folder, asset.filename, blob, format)`.
+//   - `_tryReadCachedThumb` (read):
+//     `MapleCacheService.readThumb(folder, asset.filename)`.
+// Nothing stops a future edit to only one of these (e.g. keying on
 // `asset.id`/`asset.mapleId` instead of `asset.filename`, or reading before
-// `.maple/thumbs/` is created) from passing `sha.spec.ts`'s pinned-vector
-// test while silently breaking cross-session/cross-layer thumb reuse — the
-// exact shape of the #1999 regression (API `thumb` stage moved its write
-// destination; the pinned-hash-function test stayed green for months).
+// `.maple/thumbs/` is created) from silently breaking cross-session/cross-layer
+// thumb reuse — the exact shape of the #1999 regression (API `thumb` stage
+// moved its write destination while its own tests stayed green for months).
+// Thumbs are `.maple/thumbs/<filename.ext>.avif` since #4793.
 //
-// This test reproduces the write call site's real, two-primitive path
-// computation (`sha256Prefix16` + the real `MapleCacheService.writeThumb`
-// it hands off to — the canvas/pipeline-decode steps upstream of that pair
-// only produce blob bytes, not the destination path, so skipping them here
-// doesn't weaken the assertion) and then drives the UNMODIFIED, real
+// This test reproduces the write call site's real `MapleCacheService.writeThumb`
+// hand-off (the canvas/pipeline-decode steps upstream only produce blob bytes,
+// not the destination path, so skipping them here doesn't weaken the
+// assertion) and then drives the UNMODIFIED, real
 // `_tryReadCachedThumb` read call site through the public `ensureThumbnailUrl`
 // entry point, against a real `MapleCacheService` backed by an in-memory
 // `FolderAccessService` fake. A `HostedPreviewResolver.resolve` spy is the
@@ -42,7 +40,6 @@ import { LibrarySelection } from './library-selection.service';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
 import { FilesystemBrowseService } from '../api/filesystem-browse.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
-import { sha256Prefix16 } from '../maple-cache/sha';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { LIBRARY_SOURCE } from '../addressing/library-source';
 import { FolderAccessService } from '../folder-access/folder-access.service';
@@ -50,9 +47,7 @@ import { HostedPreviewResolver } from './hosted-preview-resolver.service';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import type { Asset, AssetId } from '../models/asset';
 
-/** Same pinned vector `sha.spec.ts` and the Apple/API siblings assert. */
 const FILENAME = 'IMG_1234.dng';
-const PINNED_SHA = '7ad25b268a071d01';
 const ASSET_ID = 'lib:2026/IMG_1234.dng';
 
 function setup() {
@@ -144,20 +139,17 @@ const settle = async (until: () => boolean, label: string, timeoutMs = 1000): Pr
 };
 
 describe('LibraryCache Hosted thumbs — writer destination === reader source (#2254)', () => {
-  it('composes the pinned <folder>/.maple/thumbs/<sha256Prefix16(filename)>.avif path', async () => {
+  it('composes the <folder>/.maple/thumbs/<filename.ext>.avif path', async () => {
     const { cache, files, folder, restore } = setup();
     try {
-      const sha = await sha256Prefix16(FILENAME); // identical call the write call site makes
-      expect(sha).toBe(PINNED_SHA);
-
       const payload = new Uint8Array([
         0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66,
       ]);
-      await cache.writeThumb(folder, sha, new Blob([payload], { type: 'image/avif' }), 'avif');
+      await cache.writeThumb(folder, FILENAME, new Blob([payload], { type: 'image/avif' }), 'avif');
 
-      // Pin the DIRECTORY convention alongside the stem — a future change to
+      // Pin the DIRECTORY convention alongside the name — a future change to
       // either component then fails here rather than silently diverging.
-      expect(files.has(`.maple/thumbs/${PINNED_SHA}.v${PIPELINE_OUTPUT_VERSION}.avif`)).toBe(true);
+      expect([...files.keys()]).toEqual([`.maple/thumbs/${FILENAME}.avif`]);
     } finally {
       restore();
     }
@@ -166,15 +158,13 @@ describe('LibraryCache Hosted thumbs — writer destination === reader source (#
   it('the real read call site (_tryReadCachedThumb, via ensureThumbnailUrl) finds exactly what the write primitive wrote — no fallback to network/decode', async () => {
     const { svc, cache, files, folder, bytesForAsset, restore } = setup();
     try {
-      // Reproduce the write call site's real path computation: the same two
-      // primitives (`sha256Prefix16` + `MapleCacheService.writeThumb`)
-      // `_loadHostedThumb` composes, in the same order.
-      const sha = await sha256Prefix16(FILENAME);
+      // Reproduce the write call site's real hand-off to
+      // `MapleCacheService.writeThumb`, keyed exactly as `_loadHostedThumb` keys it.
       const payload = new Uint8Array([
         0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66,
       ]);
-      await cache.writeThumb(folder, sha, new Blob([payload], { type: 'image/avif' }), 'avif');
-      expect(files.has(`.maple/thumbs/${sha}.v${PIPELINE_OUTPUT_VERSION}.avif`)).toBe(true);
+      await cache.writeThumb(folder, FILENAME, new Blob([payload], { type: 'image/avif' }), 'avif');
+      expect(files.has(`.maple/thumbs/${FILENAME}.avif`)).toBe(true);
 
       const asset = { id: ASSET_ID, filename: FILENAME } as unknown as Asset;
       svc.ensureThumbnailUrl(asset);
@@ -185,9 +175,8 @@ describe('LibraryCache Hosted thumbs — writer destination === reader source (#
 
       // The UNMODIFIED production read path found the thumb the write
       // primitive stored — never falling through to the network/decode path.
-      // A divergence (e.g. the read site hashing something other than
-      // `asset.filename`, or looking under a different directory) would
-      // leave `thumbnailUrlFor` undefined and force a `bytesForAsset` call.
+      // A divergence (e.g. the read site keying on something other than
+      // `asset.filename`, or looking under a different directory) would leave `thumbnailUrlFor` undefined and force a `bytesForAsset` call.
       expect(svc.thumbnailUrlFor(asset.id as AssetId)).toBe('blob:hosted-thumb');
       expect(bytesForAsset).not.toHaveBeenCalled();
     } finally {
@@ -199,9 +188,8 @@ describe('LibraryCache Hosted thumbs — writer destination === reader source (#
     const { svc, files, resolvePreview, restore } = setup();
     try {
       // Simulate the #1999 failure mode directly: a thumb landed at the
-      // right stem but the wrong location (root instead of `.maple/thumbs/`).
-      const sha = await sha256Prefix16(FILENAME);
-      files.set(`${sha}.avif`, new Uint8Array([1, 2, 3, 4]));
+      // right name but the wrong location (root instead of `.maple/thumbs/`).
+      files.set(`${FILENAME}.avif`, new Uint8Array([1, 2, 3, 4]));
 
       const asset = { id: ASSET_ID, filename: FILENAME } as unknown as Asset;
       svc.ensureThumbnailUrl(asset);

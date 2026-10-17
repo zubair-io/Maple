@@ -1,9 +1,15 @@
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 import {
   isPreviewCacheFormat,
   PREVIEW_CACHE_FORMATS,
   type PreviewCacheFormat,
 } from './cache-image-format';
+
+/** Shared derivatives are unversioned (#4793). The only other layout a client
+ * ever probes is this one frozen name segment, written for a short window as
+ * `<name>.v25.<ext>`; it must never track `PIPELINE_OUTPUT_VERSION`. */
+export const LEGACY_DERIVATIVE_SEGMENT = '.v25';
+
+export type DerivativeNaming = '' | typeof LEGACY_DERIVATIVE_SEGMENT;
 
 export interface PreviewSourceIdentity {
   size: number;
@@ -28,16 +34,25 @@ export function previewArtifactPath(
   relDir: string,
   filename: string,
   format: PreviewCacheFormat,
+  naming: DerivativeNaming = '',
 ): string {
-  return `${previewCacheDir(relDir)}/${filename}.v${PIPELINE_OUTPUT_VERSION}.${PREVIEW_CACHE_FORMATS[format].extension}`;
+  return `${previewCacheDir(relDir)}/${filename}${naming}.${PREVIEW_CACHE_FORMATS[format].extension}`;
 }
 
-export function previewIdentityPath(relDir: string, filename: string): string {
-  return `${previewArtifactPath(relDir, filename, 'avif')}.source.json`;
+export function previewIdentityPath(
+  relDir: string,
+  filename: string,
+  naming: DerivativeNaming = '',
+): string {
+  return `${previewArtifactPath(relDir, filename, 'avif', naming)}.source.json`;
 }
 
-export function previewDescriptorPath(relDir: string, filename: string): string {
-  return `${previewCacheDir(relDir)}/${filename}.v${PIPELINE_OUTPUT_VERSION}.preview.json`;
+export function previewDescriptorPath(
+  relDir: string,
+  filename: string,
+  naming: DerivativeNaming = '',
+): string {
+  return `${previewCacheDir(relDir)}/${filename}${naming}.preview.json`;
 }
 
 export function validPreviewSource(

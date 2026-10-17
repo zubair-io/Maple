@@ -17,9 +17,10 @@ export interface IndexedAsset {
   filename: string; // primary RAW filename (e.g. "IMG_0001.CR3")
   size: number; // bytes
   mtime: number; // unix seconds (0 when unknown in fallback mode)
-  /** First 16 hex chars of sha256(filename) — the cache-key stem. */
+  /** First 16 hex chars of sha256(filename). Kept for index.json interop; thumbs
+   * are no longer keyed by it (#4793). */
   sha256Prefix: string;
-  thumbPath?: string; // './thumbs/<sha>.avif' if present (cache-only; not consulted for lookup)
+  thumbPath?: string; // './thumbs/<filename>.avif' if present (cache-only; not consulted for lookup)
   previewPath?: string; // './previews/<sha>.jpg' if present
   culling?: CullingState;
 }

@@ -1384,7 +1384,7 @@ export class LibraryFetch {
    * Update the in-memory index entry with the sha + thumb path for an asset.
    * Called after writing a thumbnail.
    */
-  async updateIndexThumb(assetId: AssetId, sha: string): Promise<void> {
+  async updateIndexThumb(assetId: AssetId): Promise<void> {
     if (!this.store.folderIndex) return;
     const asset = this.store.findAsset(assetId);
     if (!asset) return;
@@ -1392,8 +1392,8 @@ export class LibraryFetch {
       filename: asset.filename,
       size: 0,
       mtime: 0,
-      sha256Prefix: sha,
-      thumbPath: `./thumbs/${sha}.avif`,
+      sha256Prefix: await sha256Prefix16(asset.filename),
+      thumbPath: `./thumbs/${asset.filename}.avif`,
     };
     this.store.folderIndex = this.mapleCache.patchAssetInIndex(this.store.folderIndex, patch);
   }

@@ -189,6 +189,13 @@ export async function fallbackWriteFile(
   await fallbackWriteBlob(folder.name, path, data);
 }
 
+export async function fallbackRemoveFile(folder: MapleFolderHandle, path: string): Promise<void> {
+  const db = await openBlobDb();
+  const tx = db.transaction(IDB_STORE, 'readwrite');
+  tx.objectStore(IDB_STORE).delete(`${folder.name}/${path}`);
+  await txDone(tx).finally(() => db.close());
+}
+
 // ── Ensure subdirectory (no-op in fallback) ───────────────────────────────────
 
 export async function fallbackEnsureSubdirectory(

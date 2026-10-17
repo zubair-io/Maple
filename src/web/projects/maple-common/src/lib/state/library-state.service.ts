@@ -312,7 +312,7 @@ export class LibraryStateService {
   }
 
   ensureThumbnailUrl(asset: Asset): void {
-    this.cache_.ensureThumbnailUrl(asset, (id, sha) => this.fetch_.updateIndexThumb(id, sha));
+    this.cache_.ensureThumbnailUrl(asset, (id) => this.fetch_.updateIndexThumb(id));
   }
 
   /** Drop `id`'s queued thumbnail load when a tile unmounts; see LibraryCache. */
@@ -432,8 +432,8 @@ export class LibraryStateService {
   }
 
   // ── Index write helper (called by AssetGridComponent post-write) ──────────
-  updateIndexThumb(assetId: AssetId, sha: string): Promise<void> {
-    return this.fetch_.updateIndexThumb(assetId, sha);
+  updateIndexThumb(assetId: AssetId): Promise<void> {
+    return this.fetch_.updateIndexThumb(assetId);
   }
 
   // ── Selection ──────────────────────────────────────────────────────────────

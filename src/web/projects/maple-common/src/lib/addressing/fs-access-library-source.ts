@@ -2,9 +2,8 @@
 //
 // Resolves addresses by walking FileSystemDirectoryHandles registered in
 // LibrarySlugRegistry. thumbUrl returns a blob: URL from the local thumb
-// cache (.maple/thumbs/<sha>.avif, or .jpg for legacy/pre-AVIF-migration
-// entries — see MapleCacheService); content-key alignment with the
-// Self-Hosted system is deferred to M3.
+// cache (.maple/thumbs/<filename>.avif, or .jpg for a browser JPEG
+// fallback — see MapleCacheService).
 
 import { Injectable, inject } from '@angular/core';
 import { childAddress, formatAddress, parentAddress } from './maple-address';
@@ -14,7 +13,6 @@ import type { DownloadProgress } from '../api/filesystem-browse.service';
 import { LibrarySlugRegistry } from './library-slug-registry';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
-import { sha256Prefix16 } from '../maple-cache/sha';
 import { HostedMapleIdService } from './hosted-maple-id.service';
 
 /** Filesystem entry shape for unit-testable pure helpers. */
@@ -160,11 +158,7 @@ export class FsAccessLibrarySource implements LibrarySource {
     if (!rootHandle) {
       throw new Error(`No registered library for slug: ${a.slug}`);
     }
-    // Content-key alignment with Self-Hosted (mapleId-keyed) is M3.
-    // For now, use the filename sha as the local cache key (matches the
-    // existing maple-cache.service.ts pattern).
     const { filename } = splitRelPath(a.relPath);
-    const sha = await sha256Prefix16(filename);
     // Wrap the raw FileSystemDirectoryHandle into a MapleFolderHandle so
     // MapleCacheService.readThumb receives the type it expects (it reads the
     // `.maple/thumbs/` subdirectory via FolderAccessService, which needs the
@@ -178,7 +172,7 @@ export class FsAccessLibrarySource implements LibrarySource {
     // null on a cache miss — the caller (LibraryCache.ensureThumbnailUrl) checks
     // for null and falls through to its WASM-decode generation path. (Throwing
     // here would unwind to the outer catch and skip that fallback.)
-    return (await this.cache.readThumb(folderHandle, sha)) ?? null;
+    return (await this.cache.readThumb(folderHandle, filename)) ?? null;
   }
 
   async previewBlob(a: MapleAddress): Promise<Blob | null> {
