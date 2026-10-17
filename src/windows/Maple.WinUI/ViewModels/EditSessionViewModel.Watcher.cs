@@ -117,10 +117,11 @@ namespace Maple.WinUI.ViewModels
         /// close. Sidecar move + in-place identity update run here instead.
         ///
         /// Old-path cache cleanup (#2710/#3083): the shared thumbnail cache
-        /// is keyed by basename (`.maple\thumbs\&lt;sha256_prefix16(name)&gt;.avif`),
-        /// so the OS-observed rename provably orphaned the old name's entry
-        /// — reclaim it here, the same best-effort delete the in-app rename
-        /// flow gets from `LocalFileOperations.FinalizeRelocate`.
+        /// is keyed by filename (`.maple\thumbs\&lt;name&gt;.avif`), so the
+        /// OS-observed rename provably orphaned the old name's entry and any
+        /// legacy hashed `.v25` file — reclaim them here, the same
+        /// best-effort cleanup the in-app rename flow gets from
+        /// `LocalFileOperations.FinalizeRelocate`.
         /// </summary>
         private void ApplyLiveRenames(IReadOnlyList<(string OldPath, string NewPath)> pairs)
         {
@@ -129,8 +130,7 @@ namespace Maple.WinUI.ViewModels
                 .Where(p => string.Equals(Path.GetDirectoryName(p.OldPath), folder, StringComparison.OrdinalIgnoreCase))
                 .Select(p =>
                 {
-                    LocalFileOperations.TryDelete(ThumbCachePaths.SharedThumbPathFor(p.OldPath));
-                    LocalFileOperations.TryDelete(ThumbCachePaths.LegacySharedThumbPathFor(p.OldPath));
+                    LocalFileOperations.ReclaimSharedThumbs(p.OldPath, p.NewPath);
                     try
                     {
                         RenameSidecarIfPresent(p.OldPath, p.NewPath);
