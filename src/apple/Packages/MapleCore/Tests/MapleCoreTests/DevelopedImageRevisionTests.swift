@@ -55,6 +55,7 @@ final class DevelopedImageRevisionTests: XCTestCase {
       .cloudOnly(ImageRef(id: id, displayName: "shared.dng")), host: server.cacheHostKey)
     let asset = AssetRef(
       displayName: "shared.dng", hintExtension: "dng", stableID: id,
+      thumbnailProvenance: .cloud(server: URL(string: "http://localhost:3002")!),
       catalog: CatalogRef(
         serverID: server, folderID: "photos", absPath: "/photos/shared.dng", address: nil),
       bytesProvider: { throw ImageSourceError.notFound("No bytes needed for identity") })
@@ -66,6 +67,38 @@ final class DevelopedImageRevisionTests: XCTestCase {
       revisions.decodedKey(
         for: id, source: .cloud(absPath: "/photos/shared.dng", host: "localhost:3002")))
     XCTAssertNotEqual(key, revisions.decodedKey(for: id, source: .photoKit(localID: id)))
+  }
+
+  func testTimelineProvenanceWithoutCatalogSharesGridKeysAndSeparatesHostBitmaps() async throws {
+    let revisions = DevelopedImageRevision()
+    let id = "fs:/photos/\(UUID().uuidString).dng"
+    let firstServer = URL(string: "http://localhost:3001")!
+    let secondServer = URL(string: "http://localhost:3002")!
+    let firstBytes = try encodedImage(size: 8)
+    let secondBytes = try encodedImage(size: 8, color: .blue)
+    // The unified Timeline's cloudAssetRef carries only provenance, not a catalog.
+    let firstAsset = AssetRef(
+      displayName: "shared.dng", hintExtension: "dng", stableID: id,
+      thumbnailProvenance: .cloud(server: firstServer), bytesProvider: { firstBytes })
+    let secondAsset = AssetRef(
+      displayName: "shared.dng", hintExtension: "dng", stableID: id,
+      thumbnailProvenance: .cloud(server: secondServer), bytesProvider: { secondBytes })
+    XCTAssertNil(firstAsset.catalog)
+    XCTAssertNil(secondAsset.catalog)
+    let firstKey = revisions.decodedKey(for: id, source: .local(firstAsset, source: nil))
+    let secondKey = revisions.decodedKey(for: id, source: .local(secondAsset, source: nil))
+    let gridKey = revisions.decodedKey(
+      for: id, source: .cloud(absPath: String(id.dropFirst(3)), host: firstServer.cacheHostKey))
+    XCTAssertEqual(firstKey, gridKey)
+    XCTAssertNotEqual(firstKey, secondKey)
+    let grid = await ThumbnailDecoder.image(for: firstBytes, key: gridKey)
+    let firstImage = await ThumbnailDecoder.image(for: firstBytes, key: firstKey)
+    let secondImage = await ThumbnailDecoder.image(for: secondBytes, key: secondKey)
+    let first = try XCTUnwrap(firstImage)
+    let second = try XCTUnwrap(secondImage)
+    XCTAssertTrue(grid === first)
+    XCTAssertFalse(first === second)
+    XCTAssertNotEqual(first.dataProvider?.data as Data?, second.dataProvider?.data as Data?)
   }
 
   func testSourceAwareKeysRetainLocalRevisionsAndPhotoKitIdentity() {
