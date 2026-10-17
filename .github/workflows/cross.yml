@@ -37,6 +37,8 @@
 name: cross
 
 on:
+  # #4951 validates combined CI only; #4952 adds required release contexts on
+  # group SHAs before #4614 enables the Main merge queue.
   merge_group:
     types: [checks_requested]
   push:
