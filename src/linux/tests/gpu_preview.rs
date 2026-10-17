@@ -81,5 +81,27 @@ fn slider_reuses_upload_and_cancel_does_not_present() {
         .render(&gpu, &raw, &bytes, "dng", &upstream, &CancelToken::new())
         .unwrap());
     assert_eq!(preview.upload_count(), 2);
+    for (profile, expected_uploads) in [
+        (raw_core::types::Profile::Neutral, 3),
+        (raw_core::types::Profile::Auto, 4),
+    ] {
+        let changed = AdjustmentModel {
+            profile,
+            ..Default::default()
+        };
+        assert!(preview
+            .render(&gpu, &raw, &bytes, "dng", &changed, &CancelToken::new())
+            .unwrap());
+        assert_eq!(preview.upload_count(), expected_uploads);
+        assert!(preview
+            .render(&gpu, &raw, &bytes, "dng", &changed, &CancelToken::new())
+            .unwrap());
+        assert_eq!(
+            preview.upload_count(),
+            expected_uploads,
+            "steady profile must reuse its prefix"
+        );
+    }
+
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
 }

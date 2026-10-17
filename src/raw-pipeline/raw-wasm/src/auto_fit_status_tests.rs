@@ -12,6 +12,41 @@ fn actual_gpu_fit_status_physical_4096() {
         let (curve_flat, lut_size, lut_data, status) =
             crate::gpu_render::fit_profile_artifacts_with_status(&raw, &bytes, "dng", &auto);
         assert_eq!(status, Some(expected), "{name}");
+        let mut resident = raw_core::gpu_host::live_profile::LiveProfile::new(
+            &raw, &bytes, "dng", &auto, None, 0, 0.0,
+        );
+        assert_eq!(resident.auto_fit, status);
+        assert_eq!(
+            resident.effective_ae(&auto),
+            raw_core::gpu_host::prepare::effective_ae_mode(&auto, &bytes, "dng")
+        );
+        assert_eq!(
+            resident.inputs.profile_curve_flat.as_ref(),
+            curve_flat.as_slice()
+        );
+        assert_eq!(
+            resident.inputs.residual_lut_data.as_ref(),
+            lut_data.as_slice()
+        );
+        let curve_ptr = resident.inputs.profile_curve_flat.as_ptr();
+        let lut_ptr = resident.inputs.residual_lut_data.as_ptr();
+        for exposure in [-1.0, 1.0, 0.0] {
+            resident.update(&AdjustmentModel {
+                exposure,
+                ..auto.clone()
+            });
+            assert_eq!(resident.auto_fit, Some(expected));
+            assert_eq!(resident.inputs.profile_curve_flat.as_ptr(), curve_ptr);
+            assert_eq!(resident.inputs.residual_lut_data.as_ptr(), lut_ptr);
+            assert_eq!(
+                resident.inputs.profile_curve_flat.as_ref(),
+                curve_flat.as_slice()
+            );
+            assert_eq!(
+                resident.inputs.residual_lut_data.as_ref(),
+                lut_data.as_slice()
+            );
+        }
 
         // Regression test (#4092): WebGPU helper must return the exact same physical Auto
         // artifacts (curve and residual LUT) as the browser CPU / export AMaZE route.
