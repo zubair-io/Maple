@@ -75,7 +75,16 @@ public enum TokenStore {
     add[kSecValueData as String] = data
     add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     let added = SecItemAdd(add as CFDictionary, nil)
-    guard added == errSecSuccess else { throw NSError(domain: "TokenStore", code: Int(added)) }
+    if added == errSecSuccess { return }
+    // Two processes can both see "not found" and race the add; the loser
+    // must still land its rotation (the server already consumed the
+    // predecessor token), so update the winner's item instead of failing.
+    guard added == errSecDuplicateItem else { throw NSError(domain: "TokenStore", code: Int(added)) }
+    let retried = SecItemUpdate(
+      base as CFDictionary,
+      [kSecValueData as String: data] as CFDictionary
+    )
+    guard retried == errSecSuccess else { throw NSError(domain: "TokenStore", code: Int(retried)) }
   }
 
   public static func load(server: URL) throws -> AuthTokens? {
