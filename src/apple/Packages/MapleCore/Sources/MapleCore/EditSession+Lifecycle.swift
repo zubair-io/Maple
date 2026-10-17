@@ -11,7 +11,12 @@ extension EditSession {
   /// path. The tail also gives exit a real completion barrier, instead of
   /// hoping an unstructured update reaches the store before `flush()`.
   func scheduleSidecarUpdate(model: AdjustmentModel, culling: CullingState) {
-    guard !workflow.isApplying, let store = sidecarStore else { return }
+    guard !workflow.isApplying else { return }
+    if sidecarWritesDisabled {
+      sidecarDirtyWhileDisabled = true
+      return
+    }
+    guard let store = sidecarStore else { return }
     let previous = sidecarUpdateTask
     sidecarUpdateTask = Task {
       await previous?.value
@@ -58,12 +63,11 @@ extension EditSession {
   /// method never reached the store at all. Reviewed in #2556 for the
   /// same reason.
   public func flushPendingSidecarWrite() async {
-    guard !sidecarWritesDisabled else { return }
     await workflow.task?.value
     // A flush is a commit boundary (#2432): close the open transaction
     // so the sidecar describes a recorded action, not a half-gesture.
     endEdit()
-    guard let store = sidecarStore else { return }
+    guard !sidecarWritesDisabled, let store = sidecarStore else { return }
     while let task = sidecarUpdateTask {
       sidecarUpdateTask = nil
       await task.value
@@ -75,10 +79,20 @@ extension EditSession {
   /// Call after `flushPendingSidecarWrite()` and before renaming the asset so
   /// any in-flight sidecar or preview write finishes before the file moves and
   /// no late debounce timer or editor-exit teardown can resurrect the old path;
-  /// re-enable if the rename fails.
+  /// re-enable if the rename fails, replaying any edit made while disabled.
   public func setSidecarWritesEnabled(_ enabled: Bool) async {
     sidecarWritesDisabled = !enabled
-    guard !enabled else { return }
+    if enabled {
+      guard sidecarDirtyWhileDisabled else { return }
+      sidecarDirtyWhileDisabled = false
+      let previousTask = sidecarUpdateTask
+      endEdit()
+      if sidecarUpdateTask == previousTask {
+        scheduleSidecarUpdate(model: model, culling: culling)
+      }
+      return
+    }
+    sidecarDirtyWhileDisabled = false
     let store = workflow.selectedStore ?? primarySidecarStore
     while let task = sidecarUpdateTask {
       sidecarUpdateTask = nil
@@ -88,5 +102,22 @@ extension EditSession {
     await store?.flush()
     previewPersistence.discardPendingImage()
     await previewPersistence.cancelAndJoin()
+  }
+
+  /// Carry over any edits made on `departing` while its sidecar writes were
+  /// disabled during an in-flight rename (#4711).
+  public func adoptInFlightRenameEdits(from departing: EditSession) {
+    departing.endEdit()
+    guard departing.sidecarDirtyWhileDisabled else { return }
+    departing.sidecarDirtyWhileDisabled = false
+    isHydratingInitialState = true
+    originalModel = departing.originalModel
+    asShotCCT = departing.asShotCCT
+    asShotTint = departing.asShotTint
+    culling = departing.culling
+    model = departing.model
+    isHydratingInitialState = false
+    hasLoadedSidecar = true
+    scheduleSidecarUpdate(model: model, culling: culling)
   }
 }
