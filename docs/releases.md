@@ -46,6 +46,14 @@ handoff, so absent runs are allowed; any present run must succeed. The main
 controller also rejects unsuccessful additional push workflows, except its own
 release-handoff run.
 
+In a rebase merge queue, both required contexts evaluate the queue's exact
+merge-group commit. Release readiness waits for all twelve CI workflows that
+run on `merge_group`; missing, running, stale-head, and unsuccessful runs hold
+the group. It excludes itself and `release-handoff` from that wait. The handoff
+controller reads trusted main code and inspects the group commit as Git data.
+During an active handoff, only a group whose complete tree matches the approved
+version-only bump may pass. The queue must be configured for one PR per group.
+
 ## One-time rollout
 
 The workflow and controller must land on main before requiring their status.
