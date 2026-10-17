@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from matrix import CASES
 from PIL import Image, PngImagePlugin
 from run import recorded_as_shot, recorded_camera_profile
 from verify_settings import verify_manifest, verify_png
@@ -308,6 +309,65 @@ class ReferenceSettingsTests(unittest.TestCase):
             settings = reference_settings(Path(case["acr_xmp"]).read_bytes())
             self.assertEqual(settings["Temperature"], "4875")
             self.assertEqual(settings["Tint"], "-150")
+
+    def test_standalone_copy_requires_fixture_baseline_before_writing_any_case(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source, target = root / "canonical", root / "adobe"
+            source.mkdir()
+            for case in CASES:
+                data = MINIMAL
+                if case.name in ("tint_min", "tint_max"):
+                    tint = "-150" if case.name == "tint_min" else "150"
+                    data = MINIMAL.replace(
+                        b"crs:Unknown=",
+                        f'crs:WhiteBalance="Custom" crs:Tint="{tint}" crs:Unknown='.encode(),
+                    )
+                (source / f"{case.name}.xmp").write_bytes(data)
+            originals = {path: path.read_bytes() for path in source.glob("*.xmp")}
+            command = [
+                sys.executable,
+                str(Path(__file__).with_name("write_xmp.py")),
+                "--canonical",
+                str(source),
+                "--target",
+                str(target),
+            ]
+            missing = subprocess.run(command, check=False, capture_output=True)
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn(b"recorded As Shot", missing.stderr)
+            self.assertFalse(target.exists())
+
+            # An invalid baseline must also preserve an existing target.
+            target.mkdir()
+            sentinel = target / "existing.xmp"
+            sentinel.write_bytes(b"keep existing output")
+            baseline = root / "baseline.png"
+            command += ["--as-shot-baseline", str(baseline)]
+            for mode in ("Custom", "As Shot"):
+                info = PngImagePlugin.PngInfo()
+                info.add_itxt(
+                    "XML:com.adobe.xmp",
+                    MINIMAL.replace(
+                        b"crs:Unknown=",
+                        f'crs:WhiteBalance="{mode}" crs:Temperature="4875" crs:Tint="9" crs:Unknown='.encode(),
+                    ).decode(),
+                )
+                Image.new("RGB", (2, 2)).save(baseline, pnginfo=info)
+                result = subprocess.run(command, check=False, capture_output=True)
+                if mode == "Custom":
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(list(target.iterdir()), [sentinel])
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertEqual(sentinel.read_bytes(), b"keep existing output")
+            self.assertEqual(len(list(target.glob("*.xmp"))), len(CASES) + 1)
+            for name, tint in (("tint_min", "-150"), ("tint_max", "150")):
+                settings = reference_settings((target / f"{name}.xmp").read_bytes())
+                self.assertEqual(settings["Temperature"], "4875")
+                self.assertEqual(settings["Tint"], tint)
+            for path, data in originals.items():
+                self.assertEqual(path.read_bytes(), data)
 
 
 if __name__ == "__main__":
