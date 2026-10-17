@@ -2,7 +2,7 @@
 
 ## Isolated repair on main
 
-This branch starts at `4b519ca7898ebeccb4bcc15ca78183a16bf6bbbd` and includes
+This branch starts at `d0689ff4cea06b320910cc703a90fd8241c24808` and includes
 only the film-cache repair, its regression, and derived-output invalidation.
 It does not include the other accumulated color-pipeline repairs.
 
@@ -69,13 +69,34 @@ capability summaries were regenerated twice with no drift. Production source,
 physical references and budgets were unchanged during these runs. Existing
 physical color, Apple and Metal evidence retains its original version; this
 refresh does not promote those records to current qualification. Logs, records
-and source identities are archived under `qualification-refresh/` in the
+and source identities are archived under `qualification-refresh-d068/` in the
 directory below.
+
+After rebasing onto that main revision, the physical regression and all five
+recorded suites were rerun, and the five suites independently checked again.
+Their tested revision is `161117c9bad8eb77ff53b9ba92f0dc62c5584f94`, retained on
+the remote branch `codex/qualification-film-auto-fit-161117c9`. That branch
+preserves the source named by the records when the PR branch is rebased or
+deleted after merge. The Rust pipeline tree is unchanged from the revision
+used for the broader library qualification above.
+
+All 776 canonical corpus XMP inputs were parsed; none has a nonempty film-look
+selection. The CLI therefore passes `None`, and the added guard preserves the
+existing Auto-fit branch for those cases. The input audit and hashes are in
+`qualification-refresh-d068/corpus-film-input-audit.json`. This is evidence
+that the changed film-only condition does not affect the corpus; it is not a
+new full-corpus result.
 
 The original failure log, fixed results, exact source patch and RAW identity
 are saved in `/Volumes/Projects/maple-color-gate-20261015/film-auto-fit-current-main/`.
 
 This repairs a deterministic cache-order defect. It does not claim to clear a
 case in the 806-comparison Adobe corpus or to pass that entire gate. No physical
-color budget, reference, RAW or authored XMP changes, and no merge exception is
-included in this qualification.
+color budget, reference, RAW or authored XMP changes.
+
+## Authorized merge exception
+
+The requester explicitly allowed this session's documented color failures
+already present on main. That permits this isolated fix to land after fresh
+CI and review pass, with no new color regressions. It does not change numerical
+budgets or the goal of a fully passing physical corpus.

@@ -749,8 +749,8 @@
         "executed_cases": 41,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "0e931f4e2c38777a38ee8f3e3f15cb086c86302d",
-        "recorded_at": "2026-10-16T22:37:30Z",
+        "git_sha": "161117c9bad8eb77ff53b9ba92f0dc62c5584f94",
+        "recorded_at": "2026-10-17T02:43:59Z",
         "command": "bash src/scripts/test_grey_adjustments.sh"
       }
     },
@@ -772,8 +772,8 @@
         "executed_cases": 6,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "0e931f4e2c38777a38ee8f3e3f15cb086c86302d",
-        "recorded_at": "2026-10-16T22:37:18Z",
+        "git_sha": "161117c9bad8eb77ff53b9ba92f0dc62c5584f94",
+        "recorded_at": "2026-10-17T02:43:47Z",
         "command": "bash src/scripts/test_synthetic_grey.sh"
       }
     },
@@ -795,8 +795,8 @@
         "executed_cases": 5,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "0e931f4e2c38777a38ee8f3e3f15cb086c86302d",
-        "recorded_at": "2026-10-16T22:37:32Z",
+        "git_sha": "161117c9bad8eb77ff53b9ba92f0dc62c5584f94",
+        "recorded_at": "2026-10-17T02:44:01Z",
         "command": "bash src/scripts/test_grey_dcp.sh"
       }
     },
@@ -818,8 +818,8 @@
         "executed_cases": 7,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "0e931f4e2c38777a38ee8f3e3f15cb086c86302d",
-        "recorded_at": "2026-10-16T22:37:20Z",
+        "git_sha": "161117c9bad8eb77ff53b9ba92f0dc62c5584f94",
+        "recorded_at": "2026-10-17T02:43:50Z",
         "command": "bash src/scripts/test_synthetic_color_chart.sh"
       }
     },
@@ -900,8 +900,8 @@
         "executed_cases": 3,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "0e931f4e2c38777a38ee8f3e3f15cb086c86302d",
-        "recorded_at": "2026-10-16T22:37:32Z",
+        "git_sha": "161117c9bad8eb77ff53b9ba92f0dc62c5584f94",
+        "recorded_at": "2026-10-17T02:44:02Z",
         "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts\\ --timeout\\ 30000"
       }
     },

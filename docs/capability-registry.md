@@ -260,7 +260,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 41
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_adjustments.rs`, `src/raw-pipeline/raw-core/tests/grey_adjustments_display.rs`, `src/raw-pipeline/raw-core/tests/grey_adjustments_wb.rs`, `src/raw-pipeline/raw-core/tests/whites_anchor_develop.rs`
-- Record: satisfied — 41 of 41 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v26, schema v5, commit `0e931f4e2c38777a38ee8f3e3f15cb086c86302d`, recorded 2026-10-16T22:37:30Z
+- Record: satisfied — 41 of 41 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v26, schema v5, commit `161117c9bad8eb77ff53b9ba92f0dc62c5584f94`, recorded 2026-10-17T02:43:59Z
 
 ### `synthetic_grey`
 
@@ -269,7 +269,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 6
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_invariants.rs`
-- Record: satisfied — 6 of 6 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v26, schema v5, commit `0e931f4e2c38777a38ee8f3e3f15cb086c86302d`, recorded 2026-10-16T22:37:18Z
+- Record: satisfied — 6 of 6 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v26, schema v5, commit `161117c9bad8eb77ff53b9ba92f0dc62c5584f94`, recorded 2026-10-17T02:43:47Z
 
 ### `grey_dcp`
 
@@ -278,7 +278,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 5
 - Corpus: `src/raw-pipeline/raw-core/tests/grey_dcp_phase1.rs`
-- Record: satisfied — 5 of 5 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v26, schema v5, commit `0e931f4e2c38777a38ee8f3e3f15cb086c86302d`, recorded 2026-10-16T22:37:32Z
+- Record: satisfied — 5 of 5 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v26, schema v5, commit `161117c9bad8eb77ff53b9ba92f0dc62c5584f94`, recorded 2026-10-17T02:44:01Z
 
 ### `color_chart`
 
@@ -287,7 +287,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `cpu-reference`
 - Expected cases: 7
 - Corpus: `src/raw-pipeline/raw-core/tests/color_chart_invariants.rs`
-- Record: satisfied — 7 of 7 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v26, schema v5, commit `0e931f4e2c38777a38ee8f3e3f15cb086c86302d`, recorded 2026-10-16T22:37:20Z
+- Record: satisfied — 7 of 7 executed, 0 failed, 0 skipped, on `cpu-reference`, pipeline v26, schema v5, commit `161117c9bad8eb77ff53b9ba92f0dc62c5584f94`, recorded 2026-10-17T02:43:50Z
 
 ### `color_harness`
 
@@ -314,7 +314,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `bun`
 - Expected cases: 3
 - Corpus: `src/api/src/routes/xmp.sidecar-contract.test.ts`
-- Record: satisfied — 3 of 3 executed, 0 failed, 0 skipped, on `bun`, pipeline v26, schema v5, commit `0e931f4e2c38777a38ee8f3e3f15cb086c86302d`, recorded 2026-10-16T22:37:32Z
+- Record: satisfied — 3 of 3 executed, 0 failed, 0 skipped, on `bun`, pipeline v26, schema v5, commit `161117c9bad8eb77ff53b9ba92f0dc62c5584f94`, recorded 2026-10-17T02:44:02Z
 
 ### `gpu_chain_parity_lavapipe`
 
