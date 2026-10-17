@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 // Temp-only symlink fixtures intentionally bypass durable mirrored product I/O.
 import {
   mkdir,
@@ -21,6 +21,7 @@ import {
   unregisterRoot,
 } from './root.ts';
 import { createLiveTestDatabase, insertFolder } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import type { SqlParams, SqlRow } from '../db/sqlite/protocol.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { clearMirrorRoots, setMirrorRoots } from './mirror-registry.ts';
 
@@ -93,6 +94,46 @@ test('an empty registered library remains usable for first-run setup', async () 
     ).count,
   ).toBe(0);
   expect((await checkAllowed(fixture)).ok).toBe(true);
+});
+
+test('a pre-registration empty lookup cannot reopen the jail after library registration', async () => {
+  using live = await createLiveTestDatabase();
+  const fixture = await mkdtemp(join(tmpdir(), 'maple-root-registration-race-'));
+  temporaryRoots.push(fixture);
+  const library = join(fixture, 'library');
+  const outside = join(fixture, 'outside.xmp');
+  await mkdir(library);
+  await writeFile(outside, '<xmpmeta/>');
+  delete process.env.MAPLE_ROOTS;
+
+  let signalRead!: () => void;
+  let releaseRead!: () => void;
+  const readStarted = new Promise<void>((resolve) => (signalRead = resolve));
+  const readReleased = new Promise<void>((resolve) => (releaseRead = resolve));
+  const actualRead = live.handle.read.bind(live.handle);
+  const delayedRead = spyOn(live.handle, 'read').mockImplementation(
+    async <T = SqlRow>(sql: string, params?: SqlParams): Promise<T[]> => {
+      const rows = await actualRead<T>(sql, params);
+      if (sql.includes('SELECT id, path, slug, label FROM folders')) {
+        signalRead();
+        await readReleased;
+      }
+      return rows;
+    },
+  );
+  try {
+    const pending = checkAllowed(outside);
+    await readStarted;
+    insertFolder(live.db, { path: library });
+    invalidateLibraryRoots();
+    releaseRead();
+
+    expect((await pending).ok).toBe(false);
+    expect((await checkAllowed(outside)).ok).toBe(false);
+  } finally {
+    releaseRead();
+    delayedRead.mockRestore();
+  }
 });
 
 describe('safeWriteAllowed', () => {
