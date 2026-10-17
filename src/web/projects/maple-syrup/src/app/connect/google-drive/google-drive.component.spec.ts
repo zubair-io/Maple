@@ -3,6 +3,7 @@ import { of } from 'rxjs';
 import { ConnectionService } from '../connection.service';
 import { GoogleDriveComponent } from './google-drive.component';
 import { captureConnectionFragment } from '../connection-fragment';
+import { liveBrowserUrl } from '../live-location.testing';
 
 describe('GoogleDriveComponent', () => {
   it('shows standalone setup instructions without requesting any instance', async () => {
@@ -92,16 +93,13 @@ it.each([
     .spyOn(GoogleDriveComponent.prototype, 'continue')
     .mockImplementation(() => {});
   try {
-    captureConnectionFragment(
-      {
-        pathname: '/connect/google-drive',
-        hash:
-          '#' +
-          btoa(JSON.stringify({ ticket: 'signed.ticket', authorizationUrl })).replace(/=/g, ''),
-        search: callback ? '?callback=' + encodeURIComponent(callback) : '',
-      },
-      { replaceState: vi.fn() },
+    const browser = liveBrowserUrl(
+      '/connect/google-drive' +
+        (callback ? '?callback=' + encodeURIComponent(callback) : '') +
+        '#' +
+        btoa(JSON.stringify({ ticket: 'signed.ticket', authorizationUrl })).replace(/=/g, ''),
     );
+    captureConnectionFragment(browser.location, browser.history);
     await TestBed.configureTestingModule({
       imports: [GoogleDriveComponent],
       providers: [{ provide: ConnectionService, useValue: { validate: () => of(ticket) } }],

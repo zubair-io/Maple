@@ -4,6 +4,7 @@ import {
   validatedAuthorizationUrl,
 } from './connection.service';
 import { captureConnectionFragment, takeConnectionFragment } from './connection-fragment';
+import { liveBrowserUrl } from './live-location.testing';
 
 const ticket = {
   version: 1 as const,
@@ -109,6 +110,23 @@ describe('Hosted Google connection boundary', () => {
     } finally {
       decodeSpy.mockRestore();
     }
+  });
+  it('retains the relay callback query that replaceState strips from the live URL', () => {
+    const callback = 'https://photos.lan:3443/api/cloud-backup/google/callback';
+    const browser = liveBrowserUrl(
+      '/connect/google-drive?ngsw-bypass=true&callback=' +
+        encodeURIComponent(callback) +
+        '#' +
+        encoded({ ticket: 'signed.ticket', authorizationUrl: authUrl() }),
+    );
+    captureConnectionFragment(browser.location, browser.history);
+    expect(browser.location.search).toBe('?ngsw-bypass=true');
+    expect(browser.location.hash).toBe('');
+    expect(takeConnectionFragment()).toEqual({
+      ticket: 'signed.ticket',
+      authorizationUrl: authUrl(),
+      callback,
+    });
   });
   it('does not change editor navigation fragments', () => {
     const replaceState = vi.fn();
