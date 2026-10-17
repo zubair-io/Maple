@@ -23,5 +23,6 @@ export {
   issueNativeCode,
   pkceS256,
   redeemNativeCode,
+  type ClaimNativeCodeOptions,
   type RedeemedNativeCode,
 } from '../db/repos/auth.codes.repo.ts';

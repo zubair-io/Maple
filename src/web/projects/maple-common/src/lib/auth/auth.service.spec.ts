@@ -200,6 +200,34 @@ describe('AuthService resumes the native handoff for an already-signed-in sessio
 
     expect(navigated).toEqual([]);
   });
+
+  it('dismissNativeHandoff clears pendingNativeHandoff and scrubs the URL without issuing a code (#4673)', () => {
+    makeService(`${nativeUrl()}&platform=Windows&device_label=Surface`);
+    expect(auth.pendingNativeHandoff()).toMatchObject({
+      platform: 'Windows',
+      device: 'Surface',
+      explicitDeviceLabel: 'Surface',
+    });
+
+    auth.dismissNativeHandoff();
+
+    expect(auth.pendingNativeHandoff()).toBeNull();
+    expect(window.location.search).toBe('');
+    expect(navigated).toEqual([]);
+  });
+
+  it('redeemLanHandoff does not auto-issue a native code when native_callback is also in the URL (#4673)', async () => {
+    makeService(`${nativeUrl()}&lan_handoff=LAN123`);
+    const p = auth.redeemLanHandoff('LAN123');
+    ctrl.expectOne('/api/auth/lan-handoff/redeem').flush({
+      access_token: 'AT-lan',
+      user: signedInUser,
+    });
+    expect(await p).toBe(true);
+    // ctrl.verify() in afterEach asserts /api/auth/native-code was NOT called.
+    expect(navigated).toEqual([]);
+    expect(auth.pendingNativeHandoff()).not.toBeNull();
+  });
 });
 
 describe('AuthService ignores an unknown native_callback scheme (#856)', () => {
