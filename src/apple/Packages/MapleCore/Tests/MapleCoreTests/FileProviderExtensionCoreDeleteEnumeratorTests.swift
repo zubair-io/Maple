@@ -363,6 +363,36 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
         XCTAssertEqual(ns?.code, NSFileProviderError.noSuchItem.rawValue)
     }
 
+    /// The old container's CHILDREN were cached as ordinary `asset/<id>`
+    /// items. `GET /api/assets/:id` still answers for a trashed asset
+    /// (its path repointed into `.maple/trash/`), so without this guard
+    /// the OS would re-home the cached child under a hidden `.maple/trash`
+    /// folder instead of evicting it.
+    func testTrashedAssetResolvesToNoSuchItemInsteadOfAHiddenTrashFolder() {
+        let folderID = "650a1b2c3d4e5f6071829305"
+        let body = #"{"id": "\#(validAssetID)", "folder_id": "\#(folderID)", "filename": "IMG_1.dng", "#
+            + #""abs_path": "/lib/.maple/trash/2024/IMG_1.dng", "size": 100, "mtime": 1700000000000, "rating": 0}"#
+        let catalog = FPCoreTestSupport.makeCatalog { _ in
+            (200, Data(body.utf8), ["Content-Type": "application/json"])
+        }
+        let roots = [LibraryRoot(id: folderID, path: "/lib", label: "Lib", fileCount: 1)]
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, roots: roots, test: self)
+        let done = expectation(description: "item(for:) completed")
+        var received: (item: NSFileProviderItem?, error: Error?) = (nil, nil)
+
+        _ = core.item(for: NSFileProviderItemIdentifier(FileProviderIdentifier.asset(validAssetID).rawValue),
+                      request: NSFileProviderRequest()) { item, error in
+            received = (item, error)
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 5)
+
+        XCTAssertNil(received.item, "a trashed asset must not surface as a Finder item")
+        let ns = received.error as NSError?
+        XCTAssertEqual(ns?.domain, NSFileProviderErrorDomain)
+        XCTAssertEqual(ns?.code, NSFileProviderError.noSuchItem.rawValue)
+    }
+
     // MARK: - enumerator(for:) dispatch
 
     func testFolderIdentifierReturnsDeferredFolderEnumerator() throws {

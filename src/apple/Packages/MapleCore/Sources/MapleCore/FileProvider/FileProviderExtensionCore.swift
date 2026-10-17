@@ -633,7 +633,11 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // a placeholder filename and never get the real
                     // bytes. Returns nil on 404; we map to noSuchItem.
                     do {
-                        guard let meta = try await catalog.getAsset(assetID: assetID) else {
+                        // A trashed asset is gone as far as Finder is concerned
+                        // (#4706): without this the OS would re-home a cached
+                        // child of the removed Trash container under a hidden
+                        // `.maple/trash` folder instead of evicting it.
+                        guard let meta = try await catalog.getAsset(assetID: assetID), !meta.isTrashed else {
                             completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
                                                            code: NSFileProviderError.noSuchItem.rawValue))
                             return

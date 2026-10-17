@@ -297,6 +297,15 @@ public struct AssetMetadata: Codable, Sendable, Equatable {
         self.hasXMP = hasXMP
     }
 
+    /// The server soft-deletes by repointing the asset's path into the
+    /// library's `.maple/trash/` (see `routes/assets/trash.ts`); the detail
+    /// DTO carries no `deleted_at`, so the path is the extension's only
+    /// signal that an asset is in the trash.
+    public var isTrashed: Bool {
+        let parts = (absPath as NSString).pathComponents
+        return zip(parts, parts.dropFirst()).contains { $0 == ".maple" && $1 == "trash" }
+    }
+
     /// Sidecar mtime as a `Date`; `nil` when there is no sidecar.
     public var xmpMtime: Date? {
         xmpMtimeSeconds.map { Date(timeIntervalSince1970: $0) }
