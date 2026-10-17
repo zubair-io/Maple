@@ -89,9 +89,14 @@ public actor AuthenticatedHTTPClient {
     if (resp as? HTTPURLResponse)?.statusCode != 401 { return (data, resp) }
 
     cloudHTTPLogger.info("401 — attempting token refresh")
-    guard let current = tokensProvider() else { onSignOut(); return (data, resp) }
+    // Refresh from the tokens that signed THIS request, never from a
+    // re-read of the provider: another process's `TokenStore.save` can
+    // leave the Keychain item momentarily absent, and treating that nil
+    // as "signed out" signed the user out everywhere (#4716). The only
+    // sign-out here is a terminal refresh rejection, taken under the
+    // cross-process refresh lock.
     let fresh: AuthTokens
-    do { fresh = try await refresh(refresh: current.refresh) }
+    do { fresh = try await refresh(refresh: tokens.refresh) }
     catch let e as URLError {
       // Transport-level failure during refresh — the user went offline
       // mid-flight. Surface the URLError to the caller so it can fall
@@ -392,14 +397,14 @@ public actor AuthenticatedHTTPClient {
     _ block: (URLRequest) async throws -> (T, URLResponse)
   ) async throws -> (T, URLResponse) {
     Self.logRequest(request, attempt: 1)
-    var injected = inject(request, tokens: try await requiredTokensForRequest())
+    let tokens = try await requiredTokensForRequest()
+    var injected = inject(request, tokens: tokens)
     var (payload, resp) = try await block(injected)
     if (resp as? HTTPURLResponse)?.statusCode != 401 { return (payload, resp) }
 
     cloudHTTPLogger.info("401 — attempting token refresh (download path)")
-    guard let current = tokensProvider() else { onSignOut(); return (payload, resp) }
     let fresh: AuthTokens
-    do { fresh = try await refresh(refresh: current.refresh) }
+    do { fresh = try await refresh(refresh: tokens.refresh) }
     catch let e as URLError {
       cloudHTTPLogger.error("token refresh network error: \(e.localizedDescription, privacy: .public)")
       throw e
@@ -429,16 +434,16 @@ public actor AuthenticatedHTTPClient {
   /// extension's drag-in upload path.
   public func upload(for request: URLRequest, fromFile fileURL: URL) async throws -> (Data, URLResponse) {
     Self.logRequest(request, attempt: 1)
-    let signed = inject(request, tokens: try await requiredTokensForRequest())
+    let tokens = try await requiredTokensForRequest()
+    let signed = inject(request, tokens: tokens)
     let (data, resp) = try await urlSession.upload(for: signed, fromFile: fileURL)
     Self.logResponse(resp, data: data, request: request)
 
     if (resp as? HTTPURLResponse)?.statusCode != 401 { return (data, resp) }
 
     cloudHTTPLogger.info("401 — attempting token refresh (upload)")
-    guard let current = tokensProvider() else { onSignOut(); return (data, resp) }
     let fresh: AuthTokens
-    do { fresh = try await refresh(refresh: current.refresh) }
+    do { fresh = try await refresh(refresh: tokens.refresh) }
     catch let e as URLError {
       cloudHTTPLogger.error("token refresh network error: \(e.localizedDescription, privacy: .public)")
       throw e
