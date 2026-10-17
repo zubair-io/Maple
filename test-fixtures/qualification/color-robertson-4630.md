@@ -67,6 +67,16 @@ the physical renderer qualification below remains applicable. Logs and TRX
 results are archived under `robertson-current-main/windows-review/` and
 `robertson-current-main/windows-xmp-review.log`.
 
+## Derivation provenance and documentation review
+
+The corrected inverse also changes newly derived Auto and sampled white-balance
+pairs. Both estimator provenance constants advance from 2 to 3; generated
+Swift, TypeScript and C# Auto-WB constants are regenerated from raw-core.
+Existing sidecars retain their stored pair and provenance. Pipeline output
+remains 26, with thumb/preview target 30, and the hand-maintained cache/version
+documentation now describes those values. Fresh provenance/domain validation
+is recorded separately from the previously completed pixel comparisons.
+
 ## Physical qualification
 
 ### Physical legacy-sidecar control
