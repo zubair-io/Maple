@@ -83,19 +83,39 @@ public enum SMBFileOperations {
     // exists (moving into an existing folder); a genuinely-missing one
     // surfaces for real on the `copyItem` call that follows.
     try? await transport.createDirectory(atPath: destinationDir)
-    let (resolvedTargetPath, renamed) = try await resolveCollision(
-      at: targetPath, collision: collision, transport: transport)
-
     let sourceSidecarPath = sidecarPath(for: sourcePrimaryPath)
+    let hasSourceSidecar = await exists(sourceSidecarPath, transport: transport)
+    let (resolvedTargetPath, renamed) = try await resolveCollision(
+      at: targetPath, collision: collision,
+      ownSidecar: hasSourceSidecar ? sourceSidecarPath : nil, transport: transport)
     let sidecarTargetPath = sidecarPath(for: resolvedTargetPath)
-    var resolvedSourceSidecarPath: String?
-    var finalSidecarPath: String?
+
+    // The shared-sidecar ownership rule (#4707, docs/xmp-canonical-format.md
+    // § "Moving, renaming and trashing a photo"), decided before any byte moves.
+    let sidecarMapsOntoItself = await SidecarOwnership.sameSMBFile(
+      sourceSidecarPath, sidecarTargetPath, transport: transport)
+    let destinationSidecarOccupied =
+      sidecarMapsOntoItself ? false : await exists(sidecarTargetPath, transport: transport)
+    let joinsCarriedSidecar =
+      hasSourceSidecar && destinationSidecarOccupied
+      ? await SidecarOwnership.smbSidecarAlreadyCarried(
+        sourceSidecarPath, at: sidecarTargetPath, transport: transport)
+      : false
+    let destinationClaimed = await SidecarOwnership.smbStemClaimedBySibling(
+      resolvedTargetPath, excluding: [sourcePrimaryPath], transport: transport)
+    if hasSourceSidecar, destinationSidecarOccupied, !joinsCarriedSidecar,
+      collision != .replace || destinationClaimed
+    {
+      throw FileOperationError.destinationExists(sidecarTargetPath)
+    }
+    let sourceClaimed = await SidecarOwnership.smbStemClaimedBySibling(
+      sourcePrimaryPath, excluding: [resolvedTargetPath], transport: transport)
+    let copiesSidecar = hasSourceSidecar && !sidecarMapsOntoItself && !joinsCarriedSidecar
     var sidecarTmp: String?
 
     let primaryTmp = try await stageVerifiedCopy(
       from: sourcePrimaryPath, to: resolvedTargetPath, transport: transport)
-    if await exists(sourceSidecarPath, transport: transport) {
-      resolvedSourceSidecarPath = sourceSidecarPath
+    if copiesSidecar {
       do {
         sidecarTmp = try await stageVerifiedCopy(
           from: sourceSidecarPath, to: sidecarTargetPath, transport: transport)
@@ -140,8 +160,7 @@ public enum SMBFileOperations {
           )
       }
       createdPaths.append(sidecarTargetPath)
-      finalSidecarPath = sidecarTargetPath
-    } else if collision == .replace {
+    } else if !hasSourceSidecar, collision == .replace, !destinationClaimed {
       let staleSidecarPath = sidecarPath(for: resolvedTargetPath)
       if let attrs = try? await transport.attributesOfItem(atPath: staleSidecarPath),
         !isDirectory(attrs)
@@ -155,9 +174,11 @@ public enum SMBFileOperations {
 
     return RelocatePlan(
       mode: mode, sourcePrimaryPath: sourcePrimaryPath,
-      sourceSidecarPath: resolvedSourceSidecarPath,
-      finalPrimaryPath: resolvedTargetPath, finalSidecarPath: finalSidecarPath,
-      renamedDueToCollision: renamed, createdPaths: createdPaths)
+      sourceSidecarPath: hasSourceSidecar ? sourceSidecarPath : nil,
+      finalPrimaryPath: resolvedTargetPath,
+      finalSidecarPath: hasSourceSidecar ? sidecarTargetPath : nil,
+      renamedDueToCollision: renamed, createdPaths: createdPaths,
+      retainsSourceSidecar: sidecarMapsOntoItself || sourceClaimed)
   }
 
   /// Delete the sources (`mode == .move` only) and clear the OLD
@@ -193,7 +214,7 @@ public enum SMBFileOperations {
         "finalizeRelocate: source primary remove failed after a verified copy — a duplicate is left on the share (\(plan.sourcePrimaryPath, privacy: .public)): \(error.localizedDescription, privacy: .public)"
       )
     }
-    if let sourceSidecarPath = plan.sourceSidecarPath {
+    if let sourceSidecarPath = plan.sourceSidecarPath, !plan.retainsSourceSidecar {
       do {
         try await transport.removeItem(atPath: sourceSidecarPath)
       } catch {
@@ -455,11 +476,14 @@ public enum SMBFileOperations {
   /// (possibly suffixed) final path and whether a suffix was applied.
   /// Mirrors `LocalFileOperations.resolveCollision`.
   private static func resolveCollision(
-    at targetPath: String, collision: CollisionPolicy, transport: SMBFileTransport
+    at targetPath: String, collision: CollisionPolicy, ownSidecar: String?,
+    transport: SMBFileTransport
   ) async throws -> (path: String, renamed: Bool) {
-    guard let attrs = try? await transport.attributesOfItem(atPath: targetPath) else {
-      return (targetPath, false)
+    let occupied = { (candidate: String) in
+      await assetDestinationOccupied(candidate, ownSidecar: ownSidecar, transport: transport)
     }
+    guard await occupied(targetPath) else { return (targetPath, false) }
+    let attrs = (try? await transport.attributesOfItem(atPath: targetPath)) ?? [:]
     switch collision {
     case .fail:
       throw FileOperationError.destinationExists(targetPath)
@@ -473,11 +497,24 @@ public enum SMBFileOperations {
       // deleted up front (#4703).
       return (targetPath, false)
     case .autoSuffix:
-      let free = try await CollisionResolver.pickFreePath(targetPath) { candidate in
-        await exists(candidate, transport: transport)
-      }
-      return (free, true)
+      return (try await CollisionResolver.pickFreePath(targetPath, exists: occupied), true)
     }
+  }
+
+  /// Occupied for a whole asset (#4707): the primary name itself, or its
+  /// derived sidecar name unless that is the moving asset's own sidecar or
+  /// already holds exactly its bytes.
+  private static func assetDestinationOccupied(
+    _ path: String, ownSidecar: String?, transport: SMBFileTransport
+  ) async -> Bool {
+    guard await !exists(path, transport: transport) else { return true }
+    let sidecar = sidecarPath(for: path)
+    guard await exists(sidecar, transport: transport) else { return false }
+    guard let own = ownSidecar else { return true }
+    guard await !SidecarOwnership.sameSMBFile(own, sidecar, transport: transport) else {
+      return false
+    }
+    return await !SidecarOwnership.smbSidecarAlreadyCarried(own, at: sidecar, transport: transport)
   }
 
   static func exists(_ path: String, transport: SMBFileTransport) async -> Bool {

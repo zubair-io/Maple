@@ -736,7 +736,7 @@
       "name": "shared_sidecar_raw_jpeg_move_copies_not_moves",
       "kind": "relocate",
       "description": "#4692 shared-sidecar ownership rule (docs/xmp-canonical-format.md \u00a7 Moving, renaming and trashing a photo). IMG_1.CR3 and IMG_1.JPG share IMG_1.xmp. Moving only the CR3 copies the sidecar to the destination and leaves the source sidecar for the JPG that still uses it.",
-      "platforms": ["api", "windows"],
+      "platforms": ["api", "windows", "apple"],
       "requires": [],
       "setup": {
         "files": [
@@ -788,7 +788,7 @@
       "name": "shared_sidecar_raw_jpeg_rename_copies_not_moves",
       "kind": "relocate",
       "description": "#4692 shared-sidecar ownership rule (docs/xmp-canonical-format.md \u00a7 Moving, renaming and trashing a photo). Renaming IMG_1.CR3 to IMG_2.CR3 beside IMG_1.JPG gives IMG_2 its own copy of the sidecar; IMG_1.xmp stays for the JPG.",
-      "platforms": ["api", "windows"],
+      "platforms": ["api", "windows", "apple"],
       "requires": [],
       "setup": {
         "files": [
@@ -841,7 +841,7 @@
       "name": "extension_only_rename_keeps_the_sole_sidecar",
       "kind": "relocate",
       "description": "#4692 shared-sidecar ownership rule (docs/xmp-canonical-format.md \u00a7 Moving, renaming and trashing a photo). X.CR3 -> X.DNG in the same folder maps the sidecar onto itself (X.xmp -> X.xmp). It must be neither copied nor unlinked.",
-      "platforms": ["api", "windows"],
+      "platforms": ["api", "windows", "apple"],
       "requires": [],
       "setup": {
         "files": [
@@ -882,7 +882,7 @@
       "name": "destination_sibling_sidecar_forces_auto_suffix",
       "kind": "relocate",
       "description": "#4692 shared-sidecar ownership rule (docs/xmp-canonical-format.md \u00a7 Moving, renaming and trashing a photo). The destination photo name is free but its sidecar name belongs to Album/IMG_1.JPG. That is a collision for the whole asset: auto-suffix picks IMG_1.1 and the sibling's sidecar is byte-identical afterwards.",
-      "platforms": ["api", "windows"],
+      "platforms": ["api", "windows", "apple"],
       "requires": [],
       "setup": {
         "files": [
@@ -938,7 +938,7 @@
       "name": "destination_orphan_sidecar_forces_auto_suffix_without_own_sidecar",
       "kind": "relocate",
       "description": "#4692 shared-sidecar ownership rule (docs/xmp-canonical-format.md \u00a7 Moving, renaming and trashing a photo). An unedited photo landing next to an orphan IMG_1.xmp would silently adopt its edits, so the occupied sidecar name is a collision even when the incoming asset has no sidecar.",
-      "platforms": ["api", "windows"],
+      "platforms": ["api", "windows", "apple"],
       "requires": [],
       "setup": {
         "files": [
@@ -978,7 +978,7 @@
       "name": "replace_refuses_a_sidecar_owned_by_a_destination_sibling",
       "kind": "relocate",
       "description": "#4692 shared-sidecar ownership rule (docs/xmp-canonical-format.md \u00a7 Moving, renaming and trashing a photo). Replace may remove the destination sidecar only when no other same-stem photo there owns it. Album/IMG_1.JPG still uses Album/IMG_1.xmp, so replacing IMG_1.CR3 with an asset that brings its own sidecar fails and changes nothing.",
-      "platforms": ["api", "windows"],
+      "platforms": ["api", "windows", "apple"],
       "requires": [],
       "setup": {
         "files": [
@@ -1040,7 +1040,7 @@
       "name": "replace_keeps_a_sibling_owned_sidecar_when_incoming_has_none",
       "kind": "relocate",
       "description": "#4692 shared-sidecar ownership rule (docs/xmp-canonical-format.md \u00a7 Moving, renaming and trashing a photo). Replace with an incoming asset that has no sidecar normally removes the stale destination sidecar, but not one Album/IMG_1.JPG still uses.",
-      "platforms": ["api", "windows"],
+      "platforms": ["api", "windows", "apple"],
       "requires": [],
       "setup": {
         "files": [
@@ -1092,7 +1092,7 @@
       "name": "destination_identical_sidecar_is_joined_not_a_collision",
       "kind": "relocate",
       "description": "#4692 shared-sidecar ownership rule (docs/xmp-canonical-format.md \u00a7 Moving, renaming and trashing a photo). The second half of a RAW+JPEG pair moved after the first finds the sidecar the first one carried. Its bytes equal the incoming sidecar, so the photo joins it on the same stem instead of auto-suffixing.",
-      "platforms": ["api", "windows"],
+      "platforms": ["api", "windows", "apple"],
       "requires": [],
       "setup": {
         "files": [
@@ -1174,6 +1174,60 @@
       },
       "expected": {
         "outcome": "skipped",
+        "tree": [
+          {
+            "path": "Album/IMG_1.JPG",
+            "content": "jpg"
+          },
+          {
+            "path": "Album/IMG_1.xmp",
+            "content": "<sibling/>"
+          },
+          {
+            "path": "Source/IMG_1.CR3",
+            "content": "new"
+          },
+          {
+            "path": "Source/IMG_1.xmp",
+            "content": "<new/>"
+          }
+        ]
+      }
+    },
+    {
+      "name": "destination_sibling_sidecar_fail_declines",
+      "kind": "relocate",
+      "description": "#4692 shared-sidecar ownership rule (docs/xmp-canonical-format.md \u00a7 Moving, renaming and trashing a photo). fail treats an occupied destination sidecar like an occupied photo: the relocate errors and nothing changes.",
+      "platforms": ["apple"],
+      "requires": [],
+      "setup": {
+        "files": [
+          {
+            "path": "Source/IMG_1.CR3",
+            "content": "new"
+          },
+          {
+            "path": "Source/IMG_1.xmp",
+            "content": "<new/>"
+          },
+          {
+            "path": "Album/IMG_1.JPG",
+            "content": "jpg"
+          },
+          {
+            "path": "Album/IMG_1.xmp",
+            "content": "<sibling/>"
+          }
+        ]
+      },
+      "operation": {
+        "source": "Source/IMG_1.CR3",
+        "destDir": "Album",
+        "mode": "move",
+        "collision": "fail"
+      },
+      "expected": {
+        "outcome": "error",
         "tree": [
           {
             "path": "Album/IMG_1.JPG",
