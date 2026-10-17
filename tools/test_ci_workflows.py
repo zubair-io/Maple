@@ -68,10 +68,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(sign["needs"], ["windows-build"])
         self.assertEqual(set(sign["strategy"]["matrix"]["arch"]), {"x64", "arm64"})
         uploads = [
-            s for s in build["steps"] if s.get("uses") == "actions/upload-artifact@v4"
+            s
+            for s in build["steps"]
+            if s.get("uses", "").startswith("actions/upload-artifact@")
         ]
         downloads = [
-            s for s in sign["steps"] if s.get("uses") == "actions/download-artifact@v4"
+            s
+            for s in sign["steps"]
+            if s.get("uses", "").startswith("actions/download-artifact@")
         ]
         self.assertEqual(uploads[0]["with"]["name"], downloads[0]["with"]["name"])
         self.assertEqual(downloads[0]["with"]["path"], "publish")
