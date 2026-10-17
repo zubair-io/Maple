@@ -1,11 +1,10 @@
 //! AgX view transform — a P2 view-transform WGSL port (epic #925 / #990).
 //!
-//! Ports `raw_core::view::agx::apply` (post-#435, plus the whites
-//! white-point remap): the per-pixel AgX chain
+//! Ports `raw_core::view::agx::apply`, including Whites and the common
+//! highlight shoulder (#4635): the per-pixel AgX chain
 //!   inset matrix
-//!     -> ratio-preserving sigmoid (whites white-point remap, THEN contrast
-//!        slope, both inside the sigmoid; sigmoid the max channel, scale RGB
-//!        by sigmoid(n)/n — hue invariant)
+//!     -> ratio sigmoid below common diffuse white, endpoint compression
+//!        above it; Whites remap precedes contrast inside the sigmoid
 //!     -> outset matrix
 //!     -> Oklab hue-preserving gamut compression to [0, 1]^3
 //! with the sigmoid evaluated by sampling the SAME baked 512-entry LUT
@@ -31,7 +30,7 @@
 //!    branch), at BOTH contrast 0 and a nonzero contrast, AND at nonzero
 //!    whites (both signs, alone and combined with nonzero contrast) — so
 //!    neither modulation is a contrast/whites-0-only false green. The full
-//!    #435 transform — ratio sigmoid + outset + Oklab hue restoration — is
+//!    transform — common-highlight sigmoid + outset + Oklab hue restoration — is
 //!    the gated path.
 
 use crate::chain::Pass;
