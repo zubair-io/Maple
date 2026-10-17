@@ -100,32 +100,24 @@ function copyrightStatusFromMarked(
 // ---------------------------------------------------------------------------
 
 /**
- * Extract all `name="value"` pairs from the opening `<rdf:Description …>` tag.
- * Returns a Map of attribute name → raw string value (XML-unescaped by
- * `unescapeXml`).
+ * Extract every attribute of the opening `<rdf:Description …>` tag, in either
+ * quote style, as a Map of attribute name → XML-unescaped value.
  *
- * The regex matches both namespaced (`ns:Local`) and unqualified names.
- * It intentionally does NOT traverse the full DOM — we only need the
- * rdf:Description attributes and a handful of nested elements.
+ * Only the opening tag is read: the match ends at the first `>` outside a
+ * quoted value, so child elements and text that merely look like `key="value"`
+ * are never mistaken for description attributes (#4684).
  */
 function extractAttributes(xml: string): Map<string, string> {
-  // Find the rdf:Description opening tag (or the root element if no wrapper).
-  // The tag may span multiple lines due to pretty-printing.
   const descMatch =
-    /<rdf:Description([^>]*(?:>[^<]*<[^>]+>[^>]*)*)?>/.exec(xml) ??
-    /<Description([^>]*)>/.exec(xml);
-  const attrStr = descMatch ? (descMatch[1] ?? '') : xml;
-
-  const attrs = new Map<string, string>();
-  // Match name="value" pairs; value may contain escaped entities but not unescaped quotes.
-  const attrRe = /([\w:.-]+)="([^"]*)"/g;
-  let m: RegExpExecArray | null;
-  while ((m = attrRe.exec(attrStr)) !== null) {
-    if (!m[1].startsWith('xmlns')) {
-      attrs.set(m[1], unescapeXml(m[2]));
-    }
-  }
-  return attrs;
+    /<rdf:Description((?:[^>"']|"[^"]*"|'[^']*')*)>/.exec(xml) ??
+    /<Description((?:[^>"']|"[^"]*"|'[^']*')*)>/.exec(xml);
+  const attrStr = descMatch ? descMatch[1] : xml;
+  const attrRe = /([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+  return new Map(
+    [...attrStr.matchAll(attrRe)]
+      .filter((m) => !m[1].startsWith('xmlns'))
+      .map((m) => [m[1], unescapeXml(m[2] ?? m[3] ?? '')]),
+  );
 }
 
 /** Unescape minimal XML entities used in attribute values and text content. */
