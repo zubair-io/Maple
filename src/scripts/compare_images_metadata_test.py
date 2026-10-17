@@ -175,15 +175,30 @@ class AuthoringMetadataTests(unittest.TestCase):
                 self.compare(self.authored, self.with_property(changed))
 
     def test_active_noise_controls_must_be_authored(self):
-        authored = self.authored.replace(
+        # explicit_reference_defaults pins the NR subcontrols (#4949), so unauthor it here.
+        active = self.authored.replace(
             'crs:LuminanceSmoothing="0"', 'crs:LuminanceSmoothing="100"'
         )
-        captured = authored.replace(
+        detail = 'crs:LuminanceNoiseReductionDetail="50"'
+        self.assertIn(detail, active)
+        unauthored = active.replace(detail, "")
+        captured = unauthored.replace(
             "</rdf:Description>",
             "<crs:LuminanceNoiseReductionDetail>50</crs:LuminanceNoiseReductionDetail></rdf:Description>",
         )
-        with self.assertRaisesRegex(ValueError, "LuminanceNoiseReductionDetail"):
-            self.compare(authored, captured)
+        for authored, capture, reason in (
+            (unauthored, captured, "explicitly author all neutral"),
+            (
+                active,
+                active.replace(detail, 'crs:LuminanceNoiseReductionDetail="40"'),
+                "LuminanceNoiseReductionDetail",
+            ),
+        ):
+            with (
+                self.subTest(reason=reason),
+                self.assertRaisesRegex(ValueError, reason),
+            ):
+                self.compare(authored, capture)
 
     def test_unknown_conflicting_duplicates_and_nonfinite_values_fail(self):
         for payload in (
