@@ -25,7 +25,8 @@ namespace Maple.WinUI.Services.Cloud
             CloudHealth? health;
             try
             {
-                health = await GetJsonAsync<CloudHealth>("api/health", ct, authenticated: false);
+                health = await GetJsonAsync<CloudHealth>(
+                    "api/health", ct, authenticated: false, reportTransportFailureAsNull: false);
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or UriFormatException)
             {

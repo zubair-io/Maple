@@ -159,7 +159,6 @@ namespace Maple.WinUI.ViewModels
                 return;
             }
             var client = _cloud;
-            _signInPollCts?.Cancel();
 
             var (ok, message) = await CloudSignInCallback.RedeemAsync(client, pending, code);
             if (_pendingSignIn != pending || _cloud != client)
@@ -168,6 +167,7 @@ namespace Maple.WinUI.ViewModels
             if (!ok)
                 return;
             _pendingSignIn = null;
+            _signInPollCts?.Cancel();
             PersistCloudSession(pending.ServerUrl, client.RefreshToken);
             await FinishConnectAsync();
         }
