@@ -25,6 +25,7 @@ import {
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import { clearMirrorRoots, setMirrorRoots } from '../fs/mirror-registry.ts';
 import { savePanoConfig } from '../pano/pano-config.repo.ts';
 
 const app = new Elysia().use(fakeAuth()).use(panoRoutes);
@@ -60,6 +61,7 @@ beforeEach(async () => {
 afterEach(() => {
   live.close();
   invalidateLibraryRoots();
+  clearMirrorRoots();
 });
 
 function getReq(url: string): Promise<Response> {
@@ -142,6 +144,33 @@ describe('PUT /api/pano/config — owner gate and executable jail (#4743)', () =
     } finally {
       await fs.unlink(alias);
     }
+  });
+
+  it('saves the canonical path, not the symlink it was typed through', async () => {
+    const aliasDir = path.join(tmpDir, 'alias-outside');
+    await fs.symlink(tmpDir, aliasDir);
+    try {
+      const typed = path.join(aliasDir, 'fake-maple-cli');
+      const body = (await (
+        await putJson('/api/pano/config', { maple_cli_path: typed })
+      ).json()) as {
+        maple_cli_path: string | null;
+      };
+      expect(body.maple_cli_path).toBe(await fs.realpath(fakeCli));
+    } finally {
+      await fs.unlink(aliasDir);
+    }
+  });
+
+  it("refuses an executable inside a library's mirror root", async () => {
+    const mirror = path.join(tmpDir, 'mirror');
+    await fs.mkdir(mirror, { recursive: true });
+    setMirrorRoots({ [path.join(tmpDir, 'lib')]: [mirror] });
+    const planted = path.join(mirror, 'mirrored-cli');
+    await fs.copyFile(fakeCli, planted);
+    const res = await putJson('/api/pano/config', { maple_cli_path: planted });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain('mirror');
   });
 
   it('neutralises a previously stored library-root path instead of probing it', async () => {

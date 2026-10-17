@@ -15,7 +15,7 @@ import { ObjectId } from '../../db/object-id.ts';
 import { loadAssetLocationViews } from '../../db/repos/assets.locations.repo.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import { rejectExecutablePathsInsideLibraries } from '../../pano/pano-config-paths.ts';
+import { jailExecutablePaths } from '../../pano/pano-config-paths.ts';
 import type { JobHandlerContext } from './index.ts';
 import type { PanoStitchPayload } from './pano-stitch.ts';
 
@@ -135,13 +135,18 @@ export async function runPanoCli(
   // The payload was validated when the job was created; roots can have been
   // registered since, and legacy payloads predate the guard (#4743), so the
   // executables are re-checked against the current roots right before spawn.
-  const rejected = await rejectExecutablePathsInsideLibraries({
+  const jailed = await jailExecutablePaths({
     maple_cli_path: payload.mapleCli,
     ort_dylib_path: payload.ortDylibPath,
   });
-  if (rejected !== null) throw new Error(`pano: refusing to spawn — ${rejected}`);
-  const proc = Bun.spawn([payload.mapleCli, ...args], {
-    env: panoEnv(payload),
+  if (!jailed.ok) throw new Error(`pano: refusing to spawn — ${jailed.error}`);
+  const executables = {
+    ...payload,
+    mapleCli: jailed.canonical.maple_cli_path ?? payload.mapleCli,
+    ortDylibPath: jailed.canonical.ort_dylib_path ?? payload.ortDylibPath,
+  };
+  const proc = Bun.spawn([executables.mapleCli, ...args], {
+    env: panoEnv(executables),
     stdout: 'pipe',
     stderr: 'pipe',
   });

@@ -62,7 +62,7 @@ const TINY_PNG_B64 =
 
 beforeAll(async () => {
   // Create fake maple-cli.
-  tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-pano-test-'));
+  tmpDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'maple-pano-test-')));
   fakeCli = path.join(tmpDir, 'fake-maple-cli');
   await fs.writeFile(
     fakeCli,
