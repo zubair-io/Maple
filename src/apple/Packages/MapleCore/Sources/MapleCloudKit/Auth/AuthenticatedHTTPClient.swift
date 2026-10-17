@@ -115,6 +115,9 @@ public actor AuthenticatedHTTPClient {
     } catch RefreshFailure.terminal {
       cloudHTTPLogger.error("token refresh terminally rejected")
       onSignOut(); return (data, resp)
+    } catch RefreshFailure.cancelled {
+      cloudHTTPLogger.notice("token refresh cancelled — credentials were cleared in flight")
+      return (data, resp)
     } catch {
       cloudHTTPLogger.error("token refresh failed: \(error.localizedDescription, privacy: .public)")
       throw AuthenticationError.temporarilyUnavailable
@@ -132,6 +135,8 @@ public actor AuthenticatedHTTPClient {
   private enum RefreshFailure: Error {
     case terminal
     case transient
+    /// Credentials vanished under the refresh lock — already signed out.
+    case cancelled
   }
 
   /// Hits `/api/auth/refresh` directly through `urlSession`, NOT through
@@ -161,8 +166,14 @@ public actor AuthenticatedHTTPClient {
         // A different Apple process may have rotated while this process waited
         // for the App Group lock. Adopt that generation instead of replaying the
         // predecessor refresh token.
+        // A nil read HERE, under the lock and after #4716 made `save`
+        // update-in-place, is not a rotation window: the credentials were
+        // deliberately cleared (sign-out, server removed) while this
+        // request was in flight. Refreshing the captured token would
+        // re-persist them, so stop instead.
+        guard let latest = tokensProvider() else { throw RefreshFailure.cancelled }
         var effectiveRefreshToken = refreshToken
-        if let latest = tokensProvider(), latest.refresh != refreshToken {
+        if latest.refresh != refreshToken {
           if !Self.accessTokenIsExpired(latest.access, skew: 0) {
             return latest
           }
@@ -248,6 +259,8 @@ public actor AuthenticatedHTTPClient {
       throw AuthenticationError.temporarilyUnavailable
     } catch RefreshFailure.terminal {
       onSignOut()
+      throw AuthenticationError.notAuthenticated
+    } catch RefreshFailure.cancelled {
       throw AuthenticationError.notAuthenticated
     } catch {
       cloudHTTPLogger.error("proactive refresh rejected: \(error.localizedDescription, privacy: .public)")
@@ -414,6 +427,9 @@ public actor AuthenticatedHTTPClient {
     } catch RefreshFailure.terminal {
       cloudHTTPLogger.error("token refresh terminally rejected")
       onSignOut(); return (payload, resp)
+    } catch RefreshFailure.cancelled {
+      cloudHTTPLogger.notice("token refresh cancelled — credentials were cleared in flight")
+      return (payload, resp)
     } catch {
       cloudHTTPLogger.error("token refresh failed: \(error.localizedDescription, privacy: .public)")
       throw AuthenticationError.temporarilyUnavailable
@@ -453,6 +469,9 @@ public actor AuthenticatedHTTPClient {
     } catch RefreshFailure.terminal {
       cloudHTTPLogger.error("token refresh terminally rejected")
       onSignOut(); return (data, resp)
+    } catch RefreshFailure.cancelled {
+      cloudHTTPLogger.notice("token refresh cancelled — credentials were cleared in flight")
+      return (data, resp)
     } catch {
       cloudHTTPLogger.error("token refresh failed: \(error.localizedDescription, privacy: .public)")
       throw AuthenticationError.temporarilyUnavailable
