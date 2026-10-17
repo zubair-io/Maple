@@ -4,6 +4,26 @@ use raw_core::{
     pipeline::{ExportDepth, ExportPixels},
     view::encode::TargetPrimaries,
 };
+use std::io::{Seek, SeekFrom};
+use std::os::fd::AsRawFd;
+use std::path::Path;
+
+/// Calls through an open descriptor, as the app does, and pins that its offset is untouched.
+fn through_descriptor<T>(path: &Path, call: impl FnOnce(i32) -> T) -> T {
+    let mut file = std::fs::File::open(path).unwrap();
+    file.seek(SeekFrom::Start(3)).unwrap();
+    let result = call(file.as_raw_fd());
+    assert_eq!(file.stream_position().unwrap(), 3);
+    result
+}
+
+fn valid(path: &Path, edge: u32, format: &str) -> Result<bool, String> {
+    through_descriptor(path, |fd| cache_valid(fd, edge, format))
+}
+
+fn png(source: &Path, destination: &Path) -> Result<(), String> {
+    through_descriptor(source, |fd| cache_png(fd, destination.to_str().unwrap()))
+}
 
 #[test]
 fn shared_avif_tiers_match_the_api_parameters_and_reject_invalid_artifacts() {
@@ -30,9 +50,9 @@ fn shared_avif_tiers_match_the_api_parameters_and_reject_invalid_artifacts() {
             preview,
         )
         .unwrap();
-        assert!(cache_valid(destination.to_str().unwrap(), edge, "avif").unwrap());
-        assert!(!cache_valid(destination.to_str().unwrap(), edge - 1, "avif").unwrap());
-        assert!(!cache_valid(destination.to_str().unwrap(), edge, "jpeg").unwrap());
+        assert!(valid(&destination, edge, "avif").unwrap());
+        assert!(!valid(&destination, edge - 1, "avif").unwrap());
+        assert!(!valid(&destination, edge, "jpeg").unwrap());
         let (w, h, pixels) = raw_core::pipeline::render_export_raster(
             &original,
             &Default::default(),
@@ -54,7 +74,7 @@ fn shared_avif_tiers_match_the_api_parameters_and_reject_invalid_artifacts() {
         .unwrap();
         assert_eq!(std::fs::read(&destination).unwrap(), expected);
         std::fs::write(&destination, &expected[..expected.len() / 2]).unwrap();
-        assert!(!cache_valid(destination.to_str().unwrap(), edge, "avif").unwrap_or(false));
+        assert!(!valid(&destination, edge, "avif").unwrap_or(false));
     }
     assert_eq!(original, std::fs::read(source).unwrap());
     std::fs::remove_dir_all(folder).unwrap();
@@ -123,7 +143,7 @@ fn legacy_avif_display_bridge_preserves_decoded_pixels_and_rejects_oversize() {
         )
         .unwrap();
         std::fs::write(&source, &original).unwrap();
-        cache_png(source.to_str().unwrap(), destination.to_str().unwrap()).unwrap();
+        png(&source, &destination).unwrap();
         let expected = raw_core::raster::decode_raster(&original, Some("avif")).unwrap();
         let png = std::fs::read(&destination).unwrap();
         let decoded = raw_core::raster::decode_raster(&png, Some("png")).unwrap();
@@ -140,10 +160,10 @@ fn legacy_avif_display_bridge_preserves_decoded_pixels_and_rejects_oversize() {
     let oversized =
         raw_core::export::encode_avif_with_speed(1281, 1, &vec![80; 1281 * 3], 55, 10).unwrap();
     std::fs::write(&source, oversized).unwrap();
-    assert!(cache_png(source.to_str().unwrap(), destination.to_str().unwrap()).is_err());
+    assert!(png(&source, &destination).is_err());
     assert!(!destination.exists());
     std::fs::write(&source, b"corrupt").unwrap();
-    assert!(cache_png(source.to_str().unwrap(), destination.to_str().unwrap()).is_err());
+    assert!(png(&source, &destination).is_err());
     assert!(!destination.exists());
     std::fs::remove_dir_all(folder).unwrap();
 }
