@@ -116,6 +116,11 @@ describe('batch moves', () => {
     });
   });
 
+  test('a join of a sidecar with itself takes one barrier instead of waiting on itself', async () => {
+    const sidecar = await write('a/IMG_1.xmp', '<shared/>');
+    expect((await joinCarriedSidecar(sidecar, sidecar)).toString()).toBe('<shared/>');
+  });
+
   test('a join whose destination changed under its barrier becomes a collision', async () => {
     const source = await write('a/IMG_1.xmp', '<shared/>');
     const dest = await write('b/IMG_1.xmp', '<edited-since/>');
