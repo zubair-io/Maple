@@ -360,7 +360,10 @@
             heroPhase = .opening
             hero = PreviewHeroSubject(
               asset: entry,
-              image: ThumbnailDecoder.cachedImage(forKey: entry.stableID ?? entry.id.uuidString))
+              image: ThumbnailDecoder.cachedImage(
+                forKey: DevelopedImageRevision.shared.decodedKey(
+                  for: entry.stableID ?? entry.id.uuidString,
+                  source: .local(entry, source: nil))))
           }
         }
 
@@ -477,7 +480,10 @@
           // than closing on the grey 1×1 placeholder.
           hero = PreviewHeroSubject(
             asset: asset,
-            image: ThumbnailDecoder.cachedImage(forKey: asset.stableID ?? asset.id.uuidString)
+            image: ThumbnailDecoder.cachedImage(
+              forKey: DevelopedImageRevision.shared.decodedKey(
+                for: asset.stableID ?? asset.id.uuidString,
+                source: .local(asset, source: nil)))
               ?? hero?.image)
           // Prime the real session the moment a lazily-built sibling
           // becomes the shown asset, so a later Edit tap reuses it
