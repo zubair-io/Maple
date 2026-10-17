@@ -90,7 +90,9 @@ jobs:
           version: 0.13.0
 
       - name: Install cargo-zigbuild
-        run: pipx install cargo-zigbuild==0.23.4 --pip-args=--no-deps
+        run: |
+          printf 'ziglang==0.13.0\n' > "$RUNNER_TEMP/cargo-zigbuild-constraints.txt"
+          pipx install cargo-zigbuild==0.23.4 --pip-args="--constraint $RUNNER_TEMP/cargo-zigbuild-constraints.txt"
 
       - name: Setup Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
