@@ -158,8 +158,8 @@ fn render_path_with_primaries(
 }
 
 /// Shell helper: write a buffer to disk.
-fn write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    std::fs::write(path, bytes)
+fn write_bytes(path: &Path, inputs: &[&Path], bytes: &[u8]) -> std::io::Result<()> {
+    raw_core::output_file::write_derived(path, inputs, bytes)
 }
 
 pub(super) fn infer_format(out: &Path) -> OutputFormat {
@@ -187,6 +187,8 @@ pub fn run(
     target_primaries: PrimariesChoice,
     lens: &render_lens::LensProfileArgs,
 ) -> Result<i32, Box<dyn std::error::Error>> {
+    let inputs: Vec<&Path> = std::iter::once(raw).chain(params).collect();
+    raw_core::output_file::validate_destination(out, &inputs)?;
     let mut model = match params {
         Some(p) => xmp::parse(&std::fs::read_to_string(p)?)?,
         None => xmp::AdjustmentModel::default(),
@@ -247,7 +249,7 @@ pub fn run(
         OutputFormat::Jpeg => raw_core::jpeg::encode(w, h, &bytes, quality)?,
         OutputFormat::Tiff => raw_core::tiff::encode_from_u8(w, h, &bytes)?,
     };
-    write_bytes(out, &encoded)?;
+    write_bytes(out, &inputs, &encoded)?;
     Ok(0)
 }
 
