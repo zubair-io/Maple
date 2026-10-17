@@ -68,7 +68,7 @@ extension AppShell {
                 // (where the user is browsing the backup destination), not
                 // here. Keep mergedCloudSource nil for consistency.
                 mergedCloudSource = nil
-                await browseVM.loadPhotoKitSource(source)
+                await browseVM.loadPhotoKitSource(source, location: "photokit:\(filter)")
                 // The filter just replaced the visible asset list wholesale —
                 // drop any session left over from whatever was open before (#2038).
                 pruneSessionsForNewAssetList()
@@ -169,7 +169,8 @@ extension AppShell {
             let source = SMBSource()
             do {
                 try await source.connect(credentials: credentials, remotePath: "/")
-                await browseVM.loadSource(source)
+                await browseVM.loadSource(
+                    source, location: "smb:\(credentials.host)/\(credentials.share)")
                 // Same reasoning as loadFolder / loadPhotos — the connect just
                 // replaced the visible asset list (#2038).
                 pruneSessionsForNewAssetList()

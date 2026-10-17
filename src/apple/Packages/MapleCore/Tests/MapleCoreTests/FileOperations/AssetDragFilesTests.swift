@@ -116,7 +116,7 @@ final class AssetDragFilesTests: XCTestCase {
     let sidecar = fixture.share.appendingPathComponent("photo.xmp")
     let edits = try Data(contentsOf: sidecar)
     let browse = BrowseViewModel()
-    await browse.loadSource(fixture.source)
+    await browse.loadSource(fixture.source, location: "fixture")
     XCTAssertNil(browse.loadError)
     let asset = try XCTUnwrap(browse.assets.first)
     XCTAssertNotNil(asset.originalFileWriter)

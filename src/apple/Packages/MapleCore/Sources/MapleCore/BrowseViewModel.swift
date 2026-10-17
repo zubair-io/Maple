@@ -21,9 +21,11 @@ public final class BrowseViewModel {
   /// SelfHosted).
   public var subfolders: [URL] = []
   public var selectedID: AssetRef.ID? = nil
-  /// Bumps whenever a load publishes a different listing (never on a page
-  /// append), so grids know to return to the top.
-  public internal(set) var listingGeneration: UInt64 = 0
+  /// Bumps whenever a load lands on a different location than the one on
+  /// screen — never on a page append or a same-location refresh — so grids
+  /// know to return to the top.
+  public private(set) var listingGeneration: UInt64 = 0
+  @ObservationIgnored private var listingLocation: String?
   public var sortOrder: SortOrder = .nameAscending
 
   // MARK: - Multi-select (M1 — #1236 / #1234)
@@ -125,7 +127,7 @@ public final class BrowseViewModel {
       currentSource = source
       loadError = nil
       photosAuthNeeded = false
-      listingGeneration &+= 1
+      publishListing(at: Self.folderLocation(folderURL))
     } catch {
       guard gen == loadGeneration else { return }
       loadError = error
@@ -137,7 +139,7 @@ public final class BrowseViewModel {
   /// `AssetRef` when the source is file-shaped; sources without a URL
   /// (PhotoKit, SelfHosted) build a bytes-provider-backed AssetRef that
   /// calls `source.rawBytes(for:)` on demand — no synthetic URL kludge.
-  public func loadSource(_ source: any ImageSource) async {
+  public func loadSource(_ source: any ImageSource, location: String) async {
     loadGeneration &+= 1
     let gen = loadGeneration
     isLoading = true
@@ -197,7 +199,7 @@ public final class BrowseViewModel {
       currentSource = source
       loadError = nil
       photosAuthNeeded = false
-      listingGeneration &+= 1
+      publishListing(at: location)
     } catch {
       guard gen == loadGeneration else { return }
       loadError = error
@@ -206,7 +208,7 @@ public final class BrowseViewModel {
 
   /// Publish two phone screens immediately, then retain PhotoKit's lazy
   /// fetch result as the backing store for scroll-driven paging.
-  public func loadPhotoKitSource(_ source: PhotoKitSource) async {
+  public func loadPhotoKitSource(_ source: PhotoKitSource, location: String) async {
     loadGeneration &+= 1
     let gen = loadGeneration
     isLoading = true
@@ -229,7 +231,7 @@ public final class BrowseViewModel {
       currentSource = source
       loadError = nil
       photosAuthNeeded = false
-      listingGeneration &+= 1
+      publishListing(at: location)
     } catch {
       guard gen == loadGeneration else { return }
       loadError = error
@@ -291,7 +293,7 @@ public final class BrowseViewModel {
     subfolders = []
     loadError = nil
     photosAuthNeeded = false
-    listingGeneration &+= 1
+    publishListing(at: "merged")
   }
 
   /// Drop merged state and return to plain-source mode.
@@ -306,6 +308,7 @@ public final class BrowseViewModel {
   /// wires up the native timeline view).
   public func clear() {
     loadGeneration &+= 1
+    listingLocation = nil
     assets = []
     subfolders = []
     selectedID = nil
@@ -333,6 +336,7 @@ public final class BrowseViewModel {
   /// leftover cloud folder listing hid the Connect button (#3386).
   public func setPhotosAuthNeeded(canRequest: Bool) {
     loadGeneration &+= 1
+    listingLocation = nil
     assets = []
     subfolders = []
     mergedCells = []
@@ -353,6 +357,7 @@ public final class BrowseViewModel {
   /// stale folder-load that's still resolving from a previous click.
   public func beginLoadingPhotosFilter() {
     loadGeneration &+= 1
+    listingLocation = nil
     assets = []
     subfolders = []
     selectedID = nil
@@ -375,6 +380,7 @@ public final class BrowseViewModel {
   /// the canvas can't decode (#1589).
   public func loadSingleAsset(url: URL, scopeParentURL: URL? = nil) {
     loadGeneration &+= 1
+    listingLocation = nil
     let ref = AssetRef(
       url: url, scopeParentURL: scopeParentURL ?? url.deletingLastPathComponent())
     assets = [ref]
@@ -400,6 +406,7 @@ public final class BrowseViewModel {
   /// exists to avoid. Kept optional so non-cloud callers are unaffected.
   public func loadSingleCloudAsset(_ ref: AssetRef, source: (any ImageSource)? = nil) {
     loadGeneration &+= 1
+    listingLocation = nil
     assets = [ref]
     subfolders = []
     selectedID = ref.id
@@ -481,11 +488,21 @@ public final class BrowseViewModel {
       currentSource = source
       loadError = nil
       photosAuthNeeded = false
-      listingGeneration &+= 1
+      publishListing(at: "cloud:\(source.server.absoluteString)\(absPath)")
     } catch {
       guard gen == loadGeneration else { return }
       loadError = error
     }
+  }
+
+  func publishListing(at location: String) {
+    guard location != listingLocation else { return }
+    listingLocation = location
+    listingGeneration &+= 1
+  }
+
+  static func folderLocation(_ url: URL) -> String {
+    "file:\(url.standardizedFileURL.path)"
   }
 
   // MARK: - Preview
