@@ -350,8 +350,13 @@ async function copyWithCollisionRetry(
 ): Promise<(SidecarCopyResult & { finalDest: string }) | null> {
   const ext = path.extname(req.destAbsPath);
   const stem = ext ? req.destAbsPath.slice(0, -ext.length) : req.destAbsPath;
-  for (let attempt = 0; attempt <= 1000; attempt++) {
-    const finalDest = attempt === 0 ? initialDest : `${stem}.${attempt}${ext}`;
+  const initialSuffix =
+    initialDest === req.destAbsPath
+      ? 0
+      : Number(initialDest.slice(stem.length + 1, ext ? -ext.length : undefined));
+  for (let suffix = initialSuffix; suffix <= 1000; suffix++) {
+    const finalDest = suffix === initialSuffix ? initialDest : `${stem}.${suffix}${ext}`;
+    if (suffix !== initialSuffix && (await pathExists(finalDest))) continue;
     try {
       await req.onDestinationPrepared?.(finalDest);
       const copied = await copyPrimaryAndSidecars(

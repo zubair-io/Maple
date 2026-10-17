@@ -155,26 +155,51 @@ test('catalog and response use the name actually published after a race', async 
   expect(await fs.readFile(abs('dst/photo.1.jpg'), 'utf8')).toBe('source rendered');
 });
 
-for (const occupied of [false, true]) {
-  test(`EXDEV fallback uses exclusive copy (occupied: ${occupied})`, async () => {
-    await write('src/photo.dng', 'source pixels');
-    spyOn(fs, 'link').mockImplementation(async () => {
-      throw Object.assign(new Error('cross device'), { code: 'EXDEV' });
+for (const code of ['EXDEV', 'EPERM', 'EOPNOTSUPP', 'ENOSYS']) {
+  for (const occupied of [false, true]) {
+    test(`${code} fallback uses exclusive copy (occupied: ${occupied})`, async () => {
+      await write('src/photo.dng', 'source pixels');
+      spyOn(fs, 'link').mockImplementation(async () => {
+        throw Object.assign(new Error('cross device'), { code });
+      });
+      const result = await relocateFile({
+        sourceAbsPath: abs('src/photo.dng'),
+        destAbsPath: abs('dst/photo.dng'),
+        mode: 'copy',
+        collision: 'skip',
+        onDestinationPrepared: async () => {
+          if (occupied) await write('dst/photo.dng', 'competing pixels');
+        },
+      });
+      expect(result.kind).toBe(occupied ? 'skipped' : 'relocated');
+      expect(await fs.readFile(abs('dst/photo.dng'), 'utf8')).toBe(
+        occupied ? 'competing pixels' : 'source pixels',
+      );
+      expect(await fs.readFile(abs('src/photo.dng'), 'utf8')).toBe('source pixels');
+      expect(await fs.readdir(abs('dst'))).toEqual(['photo.dng']);
     });
-    const result = await relocateFile({
-      sourceAbsPath: abs('src/photo.dng'),
-      destAbsPath: abs('dst/photo.dng'),
-      mode: 'copy',
-      collision: 'skip',
-      onDestinationPrepared: async () => {
-        if (occupied) await write('dst/photo.dng', 'competing pixels');
-      },
-    });
-    expect(result.kind).toBe(occupied ? 'skipped' : 'relocated');
-    expect(await fs.readFile(abs('dst/photo.dng'), 'utf8')).toBe(
-      occupied ? 'competing pixels' : 'source pixels',
-    );
-    expect(await fs.readFile(abs('src/photo.dng'), 'utf8')).toBe('source pixels');
-    expect(await fs.readdir(abs('dst'))).toEqual(['photo.dng']);
-  });
+  }
 }
+
+test('late collision resumes after the initially chosen suffix', async () => {
+  await write('src/photo.dng', 'source pixels');
+  for (const suffix of ['', '.1', '.2', '.3', '.4'])
+    await write(`dst/photo${suffix}.dng`, 'occupied');
+  const prepared: string[] = [];
+  const originalCopy = fs.copyFile;
+  const copy = spyOn(fs, 'copyFile').mockImplementation(originalCopy);
+  const result = await relocateFile({
+    sourceAbsPath: abs('src/photo.dng'),
+    destAbsPath: abs('dst/photo.dng'),
+    mode: 'move',
+    collision: 'keep-both',
+    onDestinationPrepared: async (destination) => {
+      prepared.push(destination);
+      if (prepared.length === 1) await write('dst/photo.5.dng', 'competing pixels');
+    },
+  });
+  expect(result).toMatchObject({ kind: 'relocated', newAbsPath: abs('dst/photo.6.dng') });
+  expect(prepared).toEqual([abs('dst/photo.5.dng'), abs('dst/photo.6.dng')]);
+  expect(copy).toHaveBeenCalledTimes(2);
+  expect(await fs.readFile(abs('dst/photo.5.dng'), 'utf8')).toBe('competing pixels');
+});

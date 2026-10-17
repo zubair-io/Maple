@@ -31,7 +31,14 @@ export async function copyVerifiedIntoPlace(
       try {
         await fs.link(tmp, destination);
       } catch (error) {
-        if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EXDEV')) {
+        if (
+          !(
+            error &&
+            typeof error === 'object' &&
+            'code' in error &&
+            ['EXDEV', 'EPERM', 'EOPNOTSUPP', 'ENOTSUP', 'ENOSYS'].includes(String(error.code))
+          )
+        ) {
           throw error;
         }
         await fs.copyFile(tmp, destination, fs.constants.COPYFILE_EXCL);
