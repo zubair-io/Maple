@@ -71,6 +71,29 @@ fn links_and_planted_fixed_temp_preserve_original_bytes() {
     );
 }
 
+#[cfg(windows)]
+#[test]
+fn hard_links_to_original_and_sidecar_are_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("original.dng");
+    let sidecar = dir.path().join("original.xmp");
+    fs::write(&source, b"original").unwrap();
+    fs::write(&sidecar, b"<x:xmpmeta xmlns:x='adobe:ns:meta/'/>").unwrap();
+    for target in [&source, &sidecar] {
+        let out = dir.path().join("alias.png");
+        fs::hard_link(target, &out).unwrap();
+        assert!(validate_destination(&out, &[&source, &sidecar]).is_err());
+        assert!(write_derived(&out, &[&source, &sidecar], b"pixels").is_err());
+        fs::remove_file(out).unwrap();
+    }
+    assert_eq!(fs::read(source).unwrap(), b"original");
+    assert_eq!(
+        fs::read(sidecar).unwrap(),
+        b"<x:xmpmeta xmlns:x='adobe:ns:meta/'/>"
+    );
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+}
+
 #[test]
 fn concurrent_publications_are_complete_and_leave_no_staging_files() {
     let dir = tempfile::tempdir().unwrap();
