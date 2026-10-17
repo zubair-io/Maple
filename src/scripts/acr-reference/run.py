@@ -34,7 +34,7 @@ import sys
 from pathlib import Path
 
 from matrix import CASES
-from write_xmp import copy_case_xmp, reference_settings
+from write_xmp import as_shot_from_png, copy_case_xmp, reference_settings
 
 # The Cowork sandbox mounts the host workspace under /sessions/.../mnt/_Maple/
 # (or whatever the selected folder's basename is). Photoshop runs on the host
@@ -154,17 +154,12 @@ def recorded_camera_profile(raw_ref_dir: Path) -> str | None:
 
 def recorded_as_shot(raw_ref_dir: Path) -> dict | None:
     """Read effective WB axes; an As Shot authoring sidecar has no such values."""
-    from PIL import Image
-
     for tier in ("down", "full"):
         baseline = raw_ref_dir / tier / "baseline.png"
         if baseline.is_file():
-            with Image.open(baseline) as image:
-                metadata = image.info.get("XML:com.adobe.xmp") or image.info.get("xmp")
-            if metadata:
-                settings = reference_settings(metadata)
-                if settings.get("WhiteBalance", "").casefold() == "as shot":
-                    return settings
+            settings = as_shot_from_png(baseline)
+            if settings is not None:
+                return settings
     return None
 
 

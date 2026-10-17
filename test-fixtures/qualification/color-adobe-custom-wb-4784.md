@@ -21,7 +21,7 @@ XMP is copied to an Adobe sidecar without Temperature. The verifier accepts a
 PNG containing that incomplete expected pair. The assertion requiring both
 axes fails. The original temporary sidecar remains byte-identical.
 
-With the repair, all **11 reference-settings tests** pass. They cover omitted
+With the repair, all **12 reference-settings tests** pass. They cover omitted
 and authored controls, complete and partial white balance, invalid/missing
 recorded settings, unchanged source bytes, effective PNG metadata, manifest
 preparation, and rejecting an incomplete expected pair. The existing **12
@@ -40,6 +40,22 @@ in the frozen manifest, including Sony's separate capture directory. The first
 audit attempt assumed a single capture root and correctly failed on Sony's
 missing baseline; correcting the audit's input lookup required no production
 code change.
+
+## Standalone copier review regression
+
+Review identified the second caller of the preparation helper:
+`write_xmp.py --canonical/--target`. On the first PR revision, a canonical
+tint-only case fails after **21 files** have already been written. The
+standalone command now accepts `--as-shot-baseline` for the destination photo,
+and validates every prepared sidecar before writing any file. The same PNG
+metadata reader serves both this command and the orchestrator.
+
+The regression runs the real CLI over the full 43-case matrix. Missing or
+invalid As Shot settings leave both new and existing destinations untouched;
+a valid baseline completes the batch, preserves authored tint and source
+bytes, and retains existing unrelated output. The 12 reference tests, all
+12 comparator tests and the 776-sidecar physical settings audit pass again
+after the fix. Generation introduces no changes.
 
 The command logs, original failing control, per-case source hashes, complete
 settings comparison and replay scripts are preserved in

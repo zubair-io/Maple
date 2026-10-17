@@ -35,6 +35,23 @@ python3 src/scripts/acr-reference/run.py \
 Expected Photoshop runtime: ~4–5 minutes per RAW → **~75–90 minutes total** for
 all 18 RAWs. Expected disk: **~38 GB** of PNGs (`down/` ≈ 2.7 GB + `full/` ≈ 35 GB).
 
+## Standalone Adobe sidecar preparation
+
+When using the canonical matrix for another photo, pass that destination
+photo's recorded As Shot baseline PNG. Its effective temperature and tint
+complete partial Custom pairs; the source photo's settings are not reused.
+
+```bash
+python3 src/scripts/acr-reference/write_xmp.py \
+  --canonical test-fixtures/references/test_0000/xmp \
+  --target /tmp/test_0006-adobe-xmp \
+  --as-shot-baseline test-fixtures/references/test_0006/down/baseline.png
+```
+
+All inputs are prepared and validated before any destination is written.
+A partial Custom pair without valid recorded As Shot settings fails with the
+target untouched. Authored axes and canonical source files are preserved.
+
 ## Design notes
 
 ### Authored inputs and explicit Adobe render settings
@@ -62,8 +79,9 @@ For #3633, effective PNG metadata revealed inherited lens/CA settings in five
 fixtures and Whites/Blacks/Clarity in test_0015, despite their omission from the
 paired XMP. `render.sh` now verifies every saved PNG against the explicit Adobe
 sidecar and fails on missing metadata or mismatched effective settings. Explicitly
-authored Temperature and Tint are also checked, including partial pairs; As Shot
-cases do not acquire invented temperature/tint defaults (#4078). Old
+authored Temperature and Tint are also checked. Partial Custom pairs are
+completed from the same fixture's recorded As Shot baseline before rendering
+(#4784); As Shot cases do not acquire invented temperature/tint defaults (#4078). Old
 manifests must be regenerated before rendering. Reference replacements still
 require geometry and perceptual checks; existing budgets cannot increase.
 

@@ -219,10 +219,30 @@ def copy_case_xmp(
 ) -> None:
     # Read first: source == destination is safe and makes canonical self-runs
     # explicit too. No normalization or changes to authored controls.
-    data = complete_custom_white_balance(
+    data = prepare_case_xmp(source, camera_profile, as_shot=as_shot)
+    destination.write_bytes(data)
+
+
+def prepare_case_xmp(
+    source: Path, camera_profile: str | None = None, *, as_shot: dict | None = None
+) -> bytes:
+    return complete_custom_white_balance(
         explicit_reference_defaults(source.read_bytes(), camera_profile), as_shot
     )
-    destination.write_bytes(data)
+
+
+def as_shot_from_png(path: Path) -> dict | None:
+    """Read effective As Shot settings from a fixture's recorded baseline."""
+    from PIL import Image
+
+    with Image.open(path) as image:
+        metadata = image.info.get("XML:com.adobe.xmp") or image.info.get("xmp")
+    if not metadata:
+        return None
+    settings = reference_settings(metadata)
+    return (
+        settings if settings.get("WhiteBalance", "").casefold() == "as shot" else None
+    )
 
 
 def complete_custom_white_balance(data: bytes, as_shot: dict | None) -> bytes:
@@ -259,8 +279,10 @@ def complete_custom_white_balance(data: bytes, as_shot: dict | None) -> bytes:
     return data[:end] + attributes + data[end:]
 
 
-def copy_canonical_xmps(canonical_dir: Path, target_dir: Path) -> list[Path]:
-    """Copy every canonical XMP into ``target_dir``, overwriting on conflict.
+def copy_canonical_xmps(
+    canonical_dir: Path, target_dir: Path, *, as_shot: dict | None = None
+) -> list[Path]:
+    """Prepare every Adobe XMP before writing the batch into ``target_dir``.
 
     Parameters
     ----------
@@ -269,6 +291,9 @@ def copy_canonical_xmps(canonical_dir: Path, target_dir: Path) -> list[Path]:
         In practice this is ``test-fixtures/references/test_0000/xmp/``.
     target_dir
         Destination. Created if missing.
+    as_shot
+        Effective As Shot settings for the destination photo. Required when
+        any canonical case has an incomplete Custom white-balance pair.
 
     Returns
     -------
@@ -280,25 +305,31 @@ def copy_canonical_xmps(canonical_dir: Path, target_dir: Path) -> list[Path]:
     FileNotFoundError
         If any canonical XMP is missing.
     """
-    target_dir.mkdir(parents=True, exist_ok=True)
-    written: list[Path] = []
-    missing: list[str] = []
-
-    for case in CASES:
-        src = canonical_dir / f"{case.name}.xmp"
-        if not src.is_file():
-            missing.append(case.name)
-            continue
-        dst = target_dir / f"{case.name}.xmp"
-        copy_case_xmp(src, dst)
-        written.append(dst)
-
+    missing = [
+        case.name
+        for case in CASES
+        if not (canonical_dir / f"{case.name}.xmp").is_file()
+    ]
     if missing:
         raise FileNotFoundError(
             f"Canonical XMPs missing from {canonical_dir}: {', '.join(missing)}"
         )
 
-    return written
+    prepared = [
+        (
+            target_dir / f"{case.name}.xmp",
+            prepare_case_xmp(
+                canonical_dir / f"{case.name}.xmp",
+                (as_shot or {}).get("CameraProfile"),
+                as_shot=as_shot,
+            ),
+        )
+        for case in CASES
+    ]
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for path, data in prepared:
+        path.write_bytes(data)
+    return [path for path, _ in prepared]
 
 
 if __name__ == "__main__":
@@ -318,10 +349,18 @@ if __name__ == "__main__":
         required=True,
         help="Destination directory for the copied XMPs",
     )
+    ap.add_argument(
+        "--as-shot-baseline",
+        type=Path,
+        help="The destination photo's recorded As Shot baseline PNG (required for partial Custom WB)",
+    )
     args = ap.parse_args()
 
     try:
-        written = copy_canonical_xmps(args.canonical, args.target)
+        as_shot = (
+            as_shot_from_png(args.as_shot_baseline) if args.as_shot_baseline else None
+        )
+        written = copy_canonical_xmps(args.canonical, args.target, as_shot=as_shot)
     except (FileNotFoundError, ValueError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
