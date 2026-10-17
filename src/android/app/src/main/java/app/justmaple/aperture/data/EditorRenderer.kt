@@ -64,7 +64,12 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
         }
 
     private var modelXml = ""
+    @Volatile private var modelStale = false
     private var values = emptyMap<String, Float>()
+
+    override fun invalidateModel() {
+        modelStale = true
+    }
 
     override suspend fun open(
         path: String,
@@ -78,6 +83,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
             if (renderer == 0L) renderer = NativeBridge.createRenderer()
             handle = NativeBridge.open(path, document, edge, renderer)
             modelXml = document
+            modelStale = false
             values = readValues()
             appliedRevision = revision
             applySurface(currentSurface)
@@ -148,27 +154,17 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
     ) =
         withContext(dispatcher) {
             if (handle == 0L || expectedRevision != revision) return@withContext
-            if (xml != modelXml) {
+            if (EditorDrawPlan.needsReload(xml, modelXml, modelStale, values, next)) {
                 NativeBridge.setModel(handle, xml)
                 modelXml = xml
+                modelStale = false
                 values = readValues()
             }
-            if (values["temperature"] != next["temperature"] || values["tint"] != next["tint"]) {
-                for (name in listOf("temperature", "tint")) {
-                    next[name]?.let {
-                        NativeBridge.setField(
-                            handle,
-                            AdjustmentFields.byName.getValue(name).index,
-                            it,
-                        )
-                    }
-                }
-            }
-            for (field in AdjustmentFields.all) {
-                if (field.name == "temperature" || field.name == "tint") continue
-                val value = next[field.name] ?: continue
-                if (values[field.name] != value) NativeBridge.setField(handle, field.index, value)
-            }
+            // White balance first: its setter marks the model Manual, which the
+            // remaining fields must not undo.
+            val ordered = AdjustmentFields.all.sortedBy { it.name != "temperature" && it.name != "tint" }
+            for (field in EditorDrawPlan.fieldsToApply(values, next, ordered))
+                NativeBridge.setField(handle, field.index, next.getValue(field.name))
             values = next
             appliedRevision = expectedRevision
             renderCurrent(expectedRevision)
