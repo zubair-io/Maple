@@ -8,7 +8,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import * as fs from 'node:fs/promises';
+import * as fs from '../fs/mirrored.ts';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { mergeMetadataIntoXmp } from './metadata-serializer.ts';
