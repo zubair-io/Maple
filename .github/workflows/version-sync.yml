@@ -33,6 +33,9 @@ jobs:
       HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Wait for the complete release CI suite
         run: |
           set -euo pipefail
@@ -42,55 +45,17 @@ jobs:
             exit 0
           fi
 
-          expected_workflows=(
-            "API tests"
-            "apple"
-            "cross"
-            "Jules PR Review"
-            "Maple package types"
-            "publish-package"
-            "web"
-            "windows"
-          )
           deadline=$((SECONDS + 7200))
 
           while (( SECONDS < deadline )); do
             runs="$(gh api --paginate --slurp \
               "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100")"
-            waiting=()
-
-            for workflow in "${expected_workflows[@]}"; do
-              run="$(jq -c --arg workflow "$workflow" \
-                '[.[].workflow_runs[] | select(.name == $workflow)] | first // empty' <<<"$runs")"
-              if [ -z "$run" ]; then
-                waiting+=("$workflow (not started)")
-                continue
-              fi
-
-              status="$(jq -r '.status' <<<"$run")"
-              conclusion="$(jq -r '.conclusion // ""' <<<"$run")"
-              url="$(jq -r '.html_url' <<<"$run")"
-              if [ "$status" != "completed" ]; then
-                waiting+=("$workflow ($status)")
-                continue
-              fi
-
-              case "$conclusion" in
-                success|neutral|skipped)
-                  ;;
-                *)
-                  echo "::error::$workflow completed with $conclusion: $url"
-                  exit 1
-                  ;;
-              esac
-            done
-
-            if [ "${#waiting[@]}" -eq 0 ]; then
-              echo "All release workflows completed successfully for $HEAD_SHA."
+            if python3 tools/release_ci.py <<<"$runs"; then
               exit 0
+            else
+              result=$?
+              if [ "$result" -ne 2 ]; then exit "$result"; fi
             fi
-
-            printf 'Waiting for: %s\n' "${waiting[*]}"
             sleep 30
           done
 
