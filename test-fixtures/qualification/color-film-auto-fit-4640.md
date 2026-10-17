@@ -36,6 +36,28 @@ with zero ignored cases. It proves:
 
 ## Local qualification
 
+### Retained CPU preview review correction
+
+The direct film render uses the side-fit route and applies its returned curve.
+The retained CPU preview still classified a default model with an external
+film LUT as the uncurved fast route. Its next default-detail tick therefore
+omitted the curve, whose identity form still compresses values above 0.95.
+The real test_0017 RAW with a high-key LUT reproduces **371 differing channel
+samples** between the retained tick and direct render before correction.
+
+`CpuPreview::open` now requires film absence for the uncurved route, matching
+the direct-render condition. This decision is made once at session open and
+adds no per-tick allocation. The physical regression now preserves exact
+bytes against direct renders at sharpening amounts 40, 0, 150 and 40, matches
+the first frame on returning to the default amount, retains both image-buffer
+allocations and preserves the original RAW hash. The no-film repeat control
+also passes. Broader retained-preview and platform checks are in progress;
+the table below records the earlier isolated-repair qualification.
+
+This route is used by the WASM CPU fallback. The CLI corpus does not call
+`CpuPreview`; the existing one-shot render and GPU fit paths are unchanged by
+this review correction. Evidence uses the `retained-film-*` prefix below.
+
 | Check | Passed | Existing ignored cases |
 | --- | ---: | ---: |
 | Explicit physical regression, release | 1 | 0 |
