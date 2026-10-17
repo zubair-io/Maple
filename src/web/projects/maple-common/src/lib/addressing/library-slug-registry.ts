@@ -84,7 +84,10 @@ export class LibrarySlugRegistry {
       if (candidate === handle) return entry.slug;
       if (typeof candidate.isSameEntry !== 'function') continue;
       try {
-        if (await candidate.isSameEntry(handle)) return entry.slug;
+        if (await candidate.isSameEntry(handle)) {
+          this.sessionHandles.set(entry.slug, handle);
+          return entry.slug;
+        }
       } catch {
         // A revoked or otherwise inaccessible prior handle is not proof that
         // the newly selected folder is the same entry. Keep checking and mint
@@ -139,6 +142,14 @@ export class LibrarySlugRegistry {
   }
 
   /** Retrieve a previously-registered handle by slug, or null. */
+  /** The slug this session minted or recovered for `folder`, if it was registered here. */
+  slugFor(folder: MapleFolderHandle): string | undefined {
+    const byFallback = this.fallbackSlugs.get(folder);
+    if (byFallback) return byFallback;
+    for (const [slug, handle] of this.sessionHandles) if (handle === folder.native) return slug;
+    return undefined;
+  }
+
   async getHandle(slug: string): Promise<FileSystemDirectoryHandle | null> {
     const session = this.sessionHandles.get(slug);
     if (session) return session;

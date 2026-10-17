@@ -15,6 +15,7 @@ import {
 } from '../../folder-access/fs-access-backend';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LibraryStore } from '../../state/library-store.service';
+import { LibrarySlugRegistry } from '../../addressing/library-slug-registry';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import { XmpParserService } from '../../xmp/xmp-parser.service';
 import { defaultAdjustmentModel } from '../../models/adjustment-model';
@@ -86,13 +87,15 @@ describe('persistent batch through real sidecar files', () => {
         }) satisfies Asset,
     );
     store.assets.set(assets);
-    store.currentFolder.set({
+    const folder = {
       name: 'photos',
       read: true,
       write: true,
       persistedKey: photos,
       native: new DiskDirectory(photos) as unknown as FileSystemDirectoryHandle,
-    });
+    };
+    await TestBed.inject(LibrarySlugRegistry).register(folder.native);
+    store.currentFolder.set(folder);
     for (const asset of assets) {
       await fs.writeFile(join(photos, asset.filename), image);
       const xml = serializer.serialize(
