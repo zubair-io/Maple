@@ -33,8 +33,9 @@ pub(super) const FALSE_COLOUR_SUPPRESS_STRENGTH: f32 = 5.0;
 const MAX_COLLAPSED_RATIO_SPREAD: f32 = 0.15;
 
 /// `green` is the final reconstructed green plane; `cfa_flat` the flattened
-/// mosaic (raw sensor sample per site). Operates in place on the
-/// camera-native RGB.
+/// mosaic (sensor sample per site). Both planes use the same demosaic working
+/// domain, including its optional camera balance. Operates in place on RGB.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn suppress_false_colour(
     out: &mut Image,
     cfa_flat: &[f32],
@@ -43,6 +44,7 @@ pub(super) fn suppress_false_colour(
     h: usize,
     pattern: CfaPattern,
     strength: f32,
+    balanced: bool,
 ) {
     if strength <= 0.0 || w < 9 || h < 9 {
         out.pixels
@@ -119,6 +121,48 @@ pub(super) fn suppress_false_colour(
         let mean = 0.25 * (gl + gr + gu + gd);
         let mag = gc.abs() + mean.abs() + EPS;
         ((gc - mean).abs() / mag).min(1.0)
+    };
+
+    // Absolute neighbouring values can carry a bright surface into a darker
+    // centre even when the positive hue estimate was already valid (#4627).
+    // Bound that blend by the nearest measured target/green ratios transported
+    // to the centre, extending the interval to retain the original estimate.
+    // This limits the correction, not scene range or the sampled channels.
+    let bounded_positive_blend = |x: usize, y: usize, target: usize, hue: f32, blended: f32| {
+        let centre = green[y * w + x];
+        if hue <= 0.0 || centre <= 0.0 || !centre.is_finite() {
+            return blended;
+        }
+        let mut low = f32::INFINITY;
+        let mut high = f32::NEG_INFINITY;
+        for (dx, dy) in [
+            (-1_isize, 0_isize),
+            (1, 0),
+            (0, -1),
+            (0, 1),
+            (-1, -1),
+            (1, -1),
+            (-1, 1),
+            (1, 1),
+        ] {
+            let (nx, ny) = ((x as isize + dx) as usize, (y as isize + dy) as usize);
+            if color_at(nx, ny) != target {
+                continue;
+            }
+            let i = ny * w + nx;
+            let (sample, guide) = (cfa_flat[i], green[i]);
+            if sample < 0.0 || guide <= 0.0 || !sample.is_finite() || !guide.is_finite() {
+                return blended;
+            }
+            let ratio = sample / guide;
+            low = low.min(ratio);
+            high = high.max(ratio);
+        }
+        if low.is_finite() && high.is_finite() {
+            blended.clamp((centre * low).min(hue), (centre * high).max(hue))
+        } else {
+            blended
+        }
     };
 
     // A negative opposite chroma at an R/B site means AMaZE's directional
@@ -258,6 +302,11 @@ pub(super) fn suppress_false_colour(
                     // BOTH fire.
                     let alpha = (strength * ghf * disagree).clamp(0.0, 1.0);
                     let blended = ((1.0 - alpha) * c_hue + alpha * c_val).max(0.0);
+                    let blended = if balanced {
+                        bounded_positive_blend(x, y, t, px[t], blended)
+                    } else {
+                        blended
+                    };
                     px[t] = if px[t] < 0.0 {
                         supported_chroma_ceiling(x, y, w, cfa_flat, green)
                             .map_or(blended, |ceiling| blended.min(ceiling))

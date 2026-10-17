@@ -37,6 +37,16 @@ fn suppress(
     collapse: impl Fn(usize) -> bool,
     fill: f32,
 ) -> Image {
+    suppress_in_domain(pattern, truth, collapse, fill, false)
+}
+
+fn suppress_in_domain(
+    pattern: CfaPattern,
+    truth: &[[f32; 3]],
+    collapse: impl Fn(usize) -> bool,
+    fill: f32,
+    balanced: bool,
+) -> Image {
     let cfa_flat: Vec<f32> = truth
         .iter()
         .enumerate()
@@ -66,6 +76,7 @@ fn suppress(
         SIDE,
         pattern,
         fcs::FALSE_COLOUR_SUPPRESS_STRENGTH,
+        balanced,
     );
     image
 }
@@ -79,6 +90,38 @@ fn within(direction: usize, i: usize, reach: usize) -> bool {
 
 fn near_edge(direction: usize, i: usize) -> bool {
     within(direction, i, 2)
+}
+
+#[test]
+fn positive_chroma_at_a_luminance_edge_retains_the_surface_hue() {
+    for pattern in PATTERNS {
+        for direction in 0..3 {
+            for exposure in [0.01_f32, 1.0, 16.0] {
+                for chroma in [CHROMA, [0.12, 1.0, 0.85]] {
+                    let truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
+                        .map(|i| {
+                            let level = if edge_side(direction, i % SIDE, i / SIDE) {
+                                0.75
+                            } else {
+                                0.045
+                            };
+                            chroma.map(|k| k * level * exposure)
+                        })
+                        .collect();
+                    // The original positive estimate is correct everywhere.
+                    // A high green gradient alone must not change its hue by
+                    // importing the opposite side's absolute sensor values.
+                    let out = suppress_in_domain(pattern, &truth, |_| false, 0.0, true);
+                    for (i, (actual, expected)) in out.pixels.iter().zip(&truth).enumerate() {
+                        for t in 0..3 {
+                            assert!((actual[t] - expected[t]).abs() <= 1e-5 * expected[t],
+                                "{pattern:?} direction={direction} exposure={exposure} pixel {i} channel {t}: {actual:?} != {expected:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -291,6 +334,7 @@ fn disabled_suppression_and_frame_ring_only_clamp_signed_opposite_chroma() {
                 H,
                 pattern,
                 strength,
+                false,
             );
             image
         };

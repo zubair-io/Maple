@@ -97,6 +97,25 @@ pub fn demosaic_cancellable(
     }
 }
 
+/// Camera-aware dispatch for develop prefixes. AMaZE interpolates balanced
+/// samples internally, then returns the same camera-native domain as the other
+/// kernels. The model's white-balance adjustment still runs downstream.
+pub fn demosaic_camera_cancellable(
+    algo: DemosaicAlgorithm,
+    mosaic: &Image,
+    cfa: CfaPattern,
+    neutral: [f32; 3],
+    cancel: crate::cancel::CancelToken<'_>,
+) -> Image {
+    match algo {
+        DemosaicAlgorithm::Amaze => amaze::amaze_camera(mosaic, cfa, neutral),
+        DemosaicAlgorithm::DualAmazeVng4 => {
+            dual::dual_amaze_vng4_camera(mosaic, cfa, neutral, cancel)
+        }
+        _ => demosaic_cancellable(algo, mosaic, cfa, cancel),
+    }
+}
+
 /// Flatten the sparse 3-channel mosaic to a single float per CFA position.
 ///
 /// `sensor_linearize` populates exactly one of `[r, g, b]` per pixel — the

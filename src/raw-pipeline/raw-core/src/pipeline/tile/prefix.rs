@@ -26,10 +26,11 @@ pub(super) fn from_mosaic(
     cancel: crate::CancelToken<'_>,
 ) -> Image {
     let mut camera = stage("tile_demosaic", || {
-        crate::demosaic::demosaic_cancellable(
+        crate::demosaic::demosaic_camera_cancellable(
             crate::pipeline::bayer_kernel(quality, model, raw),
             mosaic,
             raw.cfa,
+            raw.as_shot_neutral,
             cancel,
         )
     });

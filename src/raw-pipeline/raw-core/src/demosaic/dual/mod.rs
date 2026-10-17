@@ -74,6 +74,18 @@ pub fn dual_amaze_vng4(mosaic: &Image, cfa: CfaPattern) -> Image {
     blend_vng4_into(detailed, mosaic, cfa, CancelToken::never())
 }
 
+/// Balance only AMaZE's interpolation. Both reconstructions and the contrast
+/// mask meet in the original camera domain before the existing dual blend.
+pub(super) fn dual_amaze_vng4_camera(
+    mosaic: &Image,
+    cfa: CfaPattern,
+    neutral: [f32; 3],
+    cancel: CancelToken<'_>,
+) -> Image {
+    let detailed = super::amaze::amaze_camera(mosaic, cfa, neutral);
+    blend_vng4_into(detailed, mosaic, cfa, cancel)
+}
+
 /// RCD in detailed regions, VNG4 in flat ones — the faster dual, for paths
 /// that cannot afford AMaZE.
 #[inline]
