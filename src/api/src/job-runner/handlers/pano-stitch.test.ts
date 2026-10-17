@@ -13,6 +13,7 @@ import {
 } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { panoStitchHandler } from './pano-stitch.ts';
+import { replaceFolderDestinations } from '../../cloud-backup/local-mirror-bridge.ts';
 
 const TINY_PNG_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -201,6 +202,19 @@ describe('panoStitchHandler feature engine (#4555)', () => {
     await expect(
       panoStitchHandler.run({ ...basePayload(), mapleCli: planted }, handlerContext()),
     ).rejects.toThrow('library root');
+    await expect(fs.stat(argsLog)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('sees a mirror configured after the job was queued, before spawning', async () => {
+    const mirror = path.join(tmpDir, 'late-mirror');
+    await fs.mkdir(mirror, { recursive: true });
+    const planted = path.join(mirror, 'late-mirror-cli');
+    await fs.copyFile(fakeCli, planted);
+    await replaceFolderDestinations(folderId, [{ path: mirror, enabled: true }]);
+    await fs.rm(argsLog, { force: true });
+    await expect(
+      panoStitchHandler.run({ ...basePayload(), mapleCli: planted }, handlerContext()),
+    ).rejects.toThrow('mirror');
     await expect(fs.stat(argsLog)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 

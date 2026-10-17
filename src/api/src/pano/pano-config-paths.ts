@@ -14,7 +14,7 @@
 import path from 'node:path';
 import { isWithinRoot, resolveRealPath } from '../fs/root.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { snapshotMirrorRoots } from '../fs/mirror-registry.ts';
+import { BackupRepository } from '../cloud-backup/repository.ts';
 import { child as childLogger } from '../log.ts';
 import {
   loadPanoConfig,
@@ -45,17 +45,24 @@ async function canonical(absPath: string): Promise<string> {
 }
 
 /** Every root a member's bytes can reach: the registered libraries and each
- * enabled mirror, which receives the same relative writes (`fs/mirrored.ts`). */
+ * folder mirror destination, read fresh from the database on every check. A
+ * paused mirror counts too — it still holds bytes replicated while it was
+ * enabled — and reading persisted state (not this process's registry snapshot)
+ * means a mirror enabled, repointed or disabled from the API process is seen
+ * by the worker before it spawns. */
 async function memberWritableRoots(): Promise<{ root: string; via: string }[]> {
-  const libraries = [...(await loadLibraryRoots()).values()].map((root) => ({
-    root,
-    via: 'library root',
-  }));
-  const mirrors = Object.values(snapshotMirrorRoots())
-    .flat()
-    .map((root) => ({ root, via: 'library mirror root' }));
+  const [libraries, destinations] = await Promise.all([
+    loadLibraryRoots(),
+    new BackupRepository().destinations(),
+  ]);
+  const candidates = [
+    ...[...libraries.values()].map((root) => ({ root, via: 'library root' })),
+    ...destinations
+      .filter((d) => d.kind === 'folder' && typeof d.path === 'string' && d.path.length > 0)
+      .map((d) => ({ root: d.path as string, via: 'library mirror root' })),
+  ];
   return Promise.all(
-    [...libraries, ...mirrors].map(async ({ root, via }) => ({ root: await canonical(root), via })),
+    candidates.map(async ({ root, via }) => ({ root: await canonical(root), via })),
   );
 }
 
