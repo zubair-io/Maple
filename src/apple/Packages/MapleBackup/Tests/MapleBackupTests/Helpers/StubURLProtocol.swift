@@ -31,6 +31,15 @@ internal final class StubURLProtocol: URLProtocol {
     private nonisolated(unsafe) static var _stub: Stub?
     private nonisolated(unsafe) static var _recordedRequests: [URLRequest] = []
     private nonisolated(unsafe) static var _sequenceIndex = 0
+    private nonisolated(unsafe) static var _onRequest: (@Sendable (URLRequest) -> Void)?
+
+    /// Runs before each stubbed response — lets a test act while a request
+    /// is in flight (e.g. save a newer edit mid-upload). Cleared by
+    /// `clearRecording()`.
+    static var onRequest: (@Sendable (URLRequest) -> Void)? {
+        get { lock.lock(); defer { lock.unlock() }; return _onRequest }
+        set { lock.lock(); defer { lock.unlock() }; _onRequest = newValue }
+    }
 
     /// Per-test stub. Cleared in `setUp` for isolation.
     static var stub: Stub? {
@@ -49,6 +58,7 @@ internal final class StubURLProtocol: URLProtocol {
         lock.lock(); defer { lock.unlock() }
         _recordedRequests = []
         _sequenceIndex = 0
+        _onRequest = nil
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -75,6 +85,7 @@ internal final class StubURLProtocol: URLProtocol {
         Self._recordedRequests.append(recorded)
         Self.lock.unlock()
 
+        Self.onRequest?(recorded)
         let effectiveStub = Self.resolveStub()
         apply(stub: effectiveStub)
     }

@@ -423,10 +423,11 @@ public actor BackupEngine {
           targetRelPath: result.targetRelPath,
           xmp: localEditXmp,
           mapleId: read.mapleId)
-        // Delete the local-edit XMP only after the sidecar actually lands on
-        // the server, so a failed attempt re-derives correctly on retry and
-        // a crash before delivery leaves the user's edit on disk.
-        try? sidecars.delete(phassetLocalId: task.id.phassetLocalId)
+        // The App Support XMP is the editor's canonical PhotoKit edit, so it
+        // is never deleted here; record which revision landed instead. Re-
+        // uploading a newer local edit is tracked by #4719 — it waits on a
+        // server conflict policy, since /backup/sidecar never overwrites.
+        try await state.recordUploadedSidecar(task.id, digest: Self.digest(of: localEditXmp))
       }
     }
 

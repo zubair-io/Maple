@@ -6,9 +6,16 @@
 // bytes: the photo is done when its bytes land, but the progress VM needs to
 // distinguish "uploaded" from "uploaded, companions still pending".
 
+import CryptoKit
 import Foundation
 
 extension BackupEngine {
+    /// SHA-256 of an uploaded local-edit XMP — the revision recorded in the
+    /// backup state store so a newer local edit is distinguishable (#4719).
+    static func digest(of xmp: String) -> String {
+        SHA256.hash(data: Data(xmp.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
     // MARK: - Outstanding-companion accounting (#702)
 
     /// Record that one more companion for `taskId` has entered its bounded
