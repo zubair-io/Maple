@@ -27,10 +27,12 @@
 //!   onto it), keeping saturated gradients smooth. Mirrors #471
 //!   (OklabChromaReduction) but at the view-transform step.
 //!
-//! Sobotka's "rotate post-sigmoid toward per-channel sigmoid weighted by
-//! chroma" is a documented future refinement (more nuanced, but harder
-//! to verify and slower); the norm-based path is the simplest hue-
-//! preserving form and lands the #435 acceptance criterion (no magenta).
+//! `sigmoid_hue_range` adds common-highlight roll-off to that ratio response
+//! (#4635). Only when the minimum inset channel exceeds diffuse white does
+//! it blend that endpoint toward its own sigmoid value. The middle channel
+//! retains its fraction between the extrema. This preserves RGB hue while
+//! allowing finite bright colours to approach the neutral shoulder, with no
+//! scene-specific threshold or change to the shadow/midtone ratio response.
 
 use crate::color::oklab::{oklab_to_rec2020, rec2020_to_oklab};
 use crate::color::oklab_gamut::compress_to_unit_cube_oklab;
@@ -77,6 +79,48 @@ pub fn norm_sigmoid_ratio<F: Fn(f32) -> f32>(inset_rgb: [f32; 3], sigmoid_fn: F)
     let sn = sigmoid_fn(n);
     let ratio = sn / n;
     [r * ratio, g * ratio, b * ratio]
+}
+
+/// Blend only the common scene component above diffuse white (1.0) toward
+/// the endpoint curve. Its support reaches one at the existing AgX shoulder;
+/// the Hermite ramp has zero endpoint slopes. There is no fitted knee/amount.
+#[inline]
+pub(crate) fn common_highlight_minimum(lo: f32, hi: f32, high_out: f32, curve_low: f32) -> f32 {
+    let ratio_low = lo * high_out / hi;
+    if lo <= 1.0 {
+        return ratio_low;
+    }
+    let shoulder_log = super::AGX_MAX_EV + super::AGX_MID_GRAY.log2();
+    let t = (lo.log2() / shoulder_log).clamp(0.0, 1.0);
+    let weight = t * t * (3.0 - 2.0 * t);
+    ratio_low + weight * (curve_low.max(ratio_low) - ratio_low)
+}
+
+/// Retain the ratio response below common diffuse white; above it, blend the
+/// minimum toward its own tone-curve value and interpolate the middle channel
+/// at its original fraction between the extrema. RGB hue (channel-difference
+/// ratios) is preserved as finite bright colours approach the neutral shoulder.
+#[inline]
+pub fn sigmoid_hue_range<F: Fn(f32) -> f32>(rgb: [f32; 3], sigmoid_fn: F) -> [f32; 3] {
+    let hi = rgb[0].max(rgb[1]).max(rgb[2]);
+    if hi <= RATIO_FLOOR {
+        return [sigmoid_fn(RATIO_FLOOR); 3];
+    }
+    let lo = rgb[0].min(rgb[1]).min(rgb[2]);
+    // Preserve the established arithmetic and one curve sample until every
+    // inset channel exceeds diffuse white. Signed and saturated inputs keep
+    // the existing ratio response; only common highlight energy rolls off.
+    if lo <= 1.0 {
+        return norm_sigmoid_ratio(rgb, sigmoid_fn);
+    }
+    let high_out = sigmoid_fn(hi);
+    let span = hi - lo;
+    if span <= RATIO_FLOOR * hi {
+        return [high_out; 3];
+    }
+    let low_out = common_highlight_minimum(lo, hi, high_out, sigmoid_fn(lo));
+    let gain = (high_out - low_out) / span;
+    rgb.map(|v| low_out + (v - lo) * gain)
 }
 
 /// Hue-preserving **soft** gamut compression toward the `[0, 1]^3` display box
