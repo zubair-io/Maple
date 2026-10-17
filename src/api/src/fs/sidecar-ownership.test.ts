@@ -263,6 +263,20 @@ describe('duplicates mover', () => {
     expect(Object.values(files).filter((c) => c === '<shared/>')).toHaveLength(2);
   });
 
+  test('quarantining both halves of a RAW+JPEG pair keeps them on one stem with one sidecar', async () => {
+    const raw = await write('lib/IMG_1.CR3', 'raw');
+    const jpg = await write('lib/IMG_1.JPG', 'jpg');
+    await write('lib/IMG_1.xmp', '<shared/>');
+    const first = await moveToDuplicates(raw, abs('lib'));
+    const second = await moveToDuplicates(jpg, abs('lib'));
+    expect(first.kind).toBe('ok');
+    expect(second.kind).toBe('ok');
+    const quarantine = path.dirname((first as { newAbsPath: string }).newAbsPath);
+    expect(path.basename((second as { newAbsPath: string }).newAbsPath)).toBe('IMG_1.JPG');
+    expect((await fs.readdir(quarantine)).sort()).toEqual(['IMG_1.CR3', 'IMG_1.JPG', 'IMG_1.xmp']);
+    expect(await fs.exists(abs('lib/IMG_1.xmp'))).toBe(false);
+  });
+
   test('an orphan sidecar in the quarantine folder suffixes the asset rather than being replaced', async () => {
     const raw = await write('lib/IMG_1.CR3', 'raw');
     await write('lib/IMG_1.xmp', '<mine/>');
