@@ -16,6 +16,8 @@
 //   darkening = sharpened.a (full-strength attenuation, #4112)
 //   Above default amount, approach the darker of default output and local luma
 //   with a positive reciprocal gain; preserve legacy otherwise (#4112).
+//   Brightening above default approaches the brighter of default output and
+//   local luma using the same stable harmonic continuation as CPU (#4837).
 //   otherwise out.rgb = observed.rgb + (sharpened.rgb - observed.rgb) * mix
 //   out.a = observed.a
 //
@@ -80,7 +82,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let mix = params.overall_mix * edge;
     let o = observed_buf[idx];
     let s = sharpened_buf[idx];
-    if (mix > SHARPEN_PRESERVED_DARKENING && s.a > 0.0) {
+    if (mix > SHARPEN_PRESERVED_AMOUNT && s.a > 0.0) {
         let li = luma_buf[idx];
         var local_min = li;
         for (var dy = -1; dy <= 1; dy += 1) {
@@ -88,13 +90,32 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
                 local_min = min(local_min, luma_at(x + dx, y + dy, w, h));
             }
         }
-        let join = 1.0 - SHARPEN_PRESERVED_DARKENING * s.a;
+        let join = 1.0 - SHARPEN_PRESERVED_AMOUNT * s.a;
         let floor = min(max(local_min / max(li, 1e-4), 0.0), join);
         let remaining = join - floor;
-        let excess = (mix - SHARPEN_PRESERVED_DARKENING) * s.a;
+        let excess = (mix - SHARPEN_PRESERVED_AMOUNT) * s.a;
         let gain = floor + remaining * remaining / (remaining + excess);
-        let at_join = o.rgb + (s.rgb - o.rgb) * SHARPEN_PRESERVED_DARKENING;
+        let at_join = o.rgb + (s.rgb - o.rgb) * SHARPEN_PRESERVED_AMOUNT;
         output_buf[idx] = vec4<f32>(at_join + o.rgb * (gain - join), o.a);
+    } else if (mix > SHARPEN_PRESERVED_AMOUNT && s.a < 0.0) {
+        let li = luma_buf[idx];
+        var local_max = li;
+        for (var dy = -1; dy <= 1; dy += 1) {
+            for (var dx = -1; dx <= 1; dx += 1) {
+                local_max = max(local_max, luma_at(x + dx, y + dy, w, h));
+            }
+        }
+        let brightening = -s.a;
+        let join = 1.0 + SHARPEN_PRESERVED_AMOUNT * brightening;
+        let ceiling = max(local_max / max(li, 1e-4), join);
+        let remaining = ceiling - join;
+        let excess = (mix - SHARPEN_PRESERVED_AMOUNT) * brightening;
+        var extension = 0.0;
+        if (remaining > 0.0) {
+            extension = excess / (1.0 + excess / remaining);
+        }
+        let at_join = o.rgb + (s.rgb - o.rgb) * SHARPEN_PRESERVED_AMOUNT;
+        output_buf[idx] = vec4<f32>(at_join + o.rgb * extension, o.a);
     } else {
         output_buf[idx] = vec4<f32>(o.rgb + (s.rgb - o.rgb) * mix, o.a);
     }

@@ -65,21 +65,42 @@ fn apply_two_sweep_reference(img: &mut Image, amount: f32, radius: f32, detail: 
             let mix = overall_mix * edge;
             let (o, s) = (observed[i], sharpened[i]);
             let darkening = 1.0 - full_strength_scales[i];
-            img.pixels[i] = if mix > PRESERVED_DARKENING && darkening > 0.0 {
+            img.pixels[i] = if mix > PRESERVED_AMOUNT && darkening > 0.0 {
                 let mut local_min = luma[i];
                 for ny in (y - 1).max(0)..=(y + 1).min(h - 1) {
                     for nx in (x - 1).max(0)..=(x + 1).min(w - 1) {
                         local_min = local_min.min(luma[(ny * w + nx) as usize]);
                     }
                 }
-                let join = 1.0 - PRESERVED_DARKENING * darkening;
+                let join = 1.0 - PRESERVED_AMOUNT * darkening;
                 let floor = (local_min / luma[i].max(SHADOW_EPSILON)).max(0.0).min(join);
                 let remaining = join - floor;
-                let excess = (mix - PRESERVED_DARKENING) * darkening;
+                let excess = (mix - PRESERVED_AMOUNT) * darkening;
                 let gain = floor + remaining * remaining / (remaining + excess);
                 std::array::from_fn(|c| {
-                    let at_join = o[c] + (s[c] - o[c]) * PRESERVED_DARKENING;
+                    let at_join = o[c] + (s[c] - o[c]) * PRESERVED_AMOUNT;
                     at_join + o[c] * (gain - join)
+                })
+            } else if mix > PRESERVED_AMOUNT && darkening < 0.0 {
+                let mut local_max = luma[i];
+                for ny in (y - 1).max(0)..=(y + 1).min(h - 1) {
+                    for nx in (x - 1).max(0)..=(x + 1).min(w - 1) {
+                        local_max = local_max.max(luma[(ny * w + nx) as usize]);
+                    }
+                }
+                let brightening = -darkening;
+                let join = 1.0 + PRESERVED_AMOUNT * brightening;
+                let ceiling = (local_max / luma[i].max(SHADOW_EPSILON)).max(join);
+                let remaining = ceiling - join;
+                let excess = (mix - PRESERVED_AMOUNT) * brightening;
+                let extension = if remaining > 0.0 {
+                    excess / (1.0 + excess / remaining)
+                } else {
+                    0.0
+                };
+                std::array::from_fn(|c| {
+                    let at_join = o[c] + (s[c] - o[c]) * PRESERVED_AMOUNT;
+                    at_join + o[c] * extension
                 })
             } else {
                 [

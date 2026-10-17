@@ -34,9 +34,10 @@ fn high_amount_does_not_invert_positive_light_beside_a_bright_neighbor() {
 }
 
 #[test]
-fn brightening_keeps_original_usm_gain_and_unbounded_hdr() {
+fn brightening_through_default_keeps_original_usm_gain_and_unbounded_hdr() {
     for exposure in [0.1, 1.0, 10.0] {
-        for amount in [40.0, 100.0, 150.0] {
+        // #4837 separately qualifies the above-default bright-halo correction.
+        for amount in [10.0, 25.0, 40.0] {
             let mut image = Image::new(9, 9, ColorSpace::SceneLinearRec2020);
             image.pixels.fill([exposure; 3]);
             let original = [2.0 * exposure, 3.0 * exposure, 4.0 * exposure];

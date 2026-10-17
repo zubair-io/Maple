@@ -40,8 +40,9 @@
 //! Darkening keeps the original blend through the import-default amount. Above
 //! it, a reciprocal continuation approaches the darker of the observed 3×3
 //! neighborhood and the default result (#4112). Strong sharpening cannot create
-//! a new dark halo below that envelope. Brightening keeps the original USM blend;
-//! both preserve RGB ratios and unbounded scene range.
+//! a new dark halo below that envelope. Brightening above the same default
+//! approaches the brighter of the observed neighborhood and default result
+//! (#4837). Both preserve RGB ratios and unbounded scene range.
 
 use crate::{
     cancel::CancelToken,
@@ -58,9 +59,9 @@ const SHADOW_BAND: f32 = 4.0;
 const MAX_SCALE: f32 = 4.0;
 const MIN_SCALE: f32 = 0.0;
 
-/// Preserve the whole attenuation range reachable at the existing import default.
+/// Preserve the whole sharpening range reachable at the existing import default.
 /// Emitted unchanged into the existing generated WGSL coefficient header.
-pub const PRESERVED_DARKENING: f32 =
+pub const PRESERVED_AMOUNT: f32 =
     crate::types::adjustment::defaults::DEFAULT_SHARPEN_AMOUNT / 100.0;
 
 /// Apply luminance-only USM sharpening on a scene-linear Rec.2020 image.
@@ -241,7 +242,7 @@ pub fn apply_cancellable(
                 };
                 let mix = overall_mix * edge;
                 let darkening = 1.0 - scale;
-                *px = if mix > PRESERVED_DARKENING && darkening > 0.0 {
+                *px = if mix > PRESERVED_AMOUNT && darkening > 0.0 {
                     // Only overdrive reads the immutable neighborhood: no new
                     // scratch plane, allocation, or work at the default amount.
                     let local_min = (y.saturating_sub(1)..=(y + 1).min(h_usize - 1))
@@ -252,16 +253,41 @@ pub fn apply_cancellable(
                                 .copied()
                         })
                         .fold(li, f32::min);
-                    let join = 1.0 - PRESERVED_DARKENING * darkening;
+                    let join = 1.0 - PRESERVED_AMOUNT * darkening;
                     let floor = (local_min / safe_luma).max(0.0).min(join);
                     let remaining = join - floor;
-                    let excess = (mix - PRESERVED_DARKENING) * darkening;
+                    let excess = (mix - PRESERVED_AMOUNT) * darkening;
                     // Positive rational gain; no scene/display-range clipping.
                     let gain = floor + remaining * remaining / (remaining + excess);
                     // Retain the default blend's rounding at a flat envelope.
                     std::array::from_fn(|c| {
-                        let at_join = o[c] + (s[c] - o[c]) * PRESERVED_DARKENING;
+                        let at_join = o[c] + (s[c] - o[c]) * PRESERVED_AMOUNT;
                         at_join + o[c] * (gain - join)
+                    })
+                } else if mix > PRESERVED_AMOUNT && darkening < 0.0 {
+                    let local_max = (y.saturating_sub(1)..=(y + 1).min(h_usize - 1))
+                        .flat_map(|ny| {
+                            luma[ny * w_usize + x.saturating_sub(1)
+                                ..=ny * w_usize + (x + 1).min(w_usize - 1)]
+                                .iter()
+                                .copied()
+                        })
+                        .fold(li, f32::max);
+                    let brightening = -darkening;
+                    let join = 1.0 + PRESERVED_AMOUNT * brightening;
+                    let ceiling = (local_max / safe_luma).max(join);
+                    let remaining = ceiling - join;
+                    let excess = (mix - PRESERVED_AMOUNT) * brightening;
+                    // Stable harmonic continuation: finite room approaches the
+                    // observed ceiling; an isolated peak keeps its default gain.
+                    let extension = if remaining > 0.0 {
+                        excess / (1.0 + excess / remaining)
+                    } else {
+                        0.0
+                    };
+                    std::array::from_fn(|c| {
+                        let at_join = o[c] + (s[c] - o[c]) * PRESERVED_AMOUNT;
+                        at_join + o[c] * extension
                     })
                 } else {
                     [
@@ -298,3 +324,7 @@ mod tests_sampling;
 #[cfg(test)]
 #[path = "sharpen/tests_undershoot.rs"]
 mod tests_undershoot;
+
+#[cfg(test)]
+#[path = "sharpen/tests_bright_halos.rs"]
+mod tests_bright_halos;

@@ -26,6 +26,9 @@ use crate::chain::ChainRunner;
 use crate::context::GpuContext;
 use crate::image::GpuImage;
 
+#[path = "tests_bright_halos.rs"]
+mod bright_halos;
+
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 /// A `w×h` RGBA image with a sharp VERTICAL step edge down the middle (left vs
