@@ -2,8 +2,9 @@ import { describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { createLiveTestDatabase } from '../workers/derivative-audit/test-support.ts';
 import { derivativeAuditRoutes } from './derivative-audit.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
-const app = new Elysia().use(derivativeAuditRoutes);
+const app = new Elysia().use(fakeAuth()).use(derivativeAuditRoutes);
 
 describe('derivative-audit routes', () => {
   it('GET /status returns config + progress', async () => {

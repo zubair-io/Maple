@@ -32,8 +32,9 @@ import {
   createLiveTestDatabase,
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
-const app = new Elysia().use(mapConfigRoutes);
+const app = new Elysia().use(fakeAuth()).use(mapConfigRoutes);
 
 let live: LiveTestDatabase;
 

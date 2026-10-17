@@ -19,6 +19,7 @@ import {
   createLiveTestDatabase,
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 let live: LiveTestDatabase;
 const savedEnv: Record<string, string | undefined> = {};
@@ -48,7 +49,7 @@ afterEach(() => {
 });
 
 function app() {
-  return new Elysia().use(apnsConfigRoutes);
+  return new Elysia().use(fakeAuth()).use(apnsConfigRoutes);
 }
 
 async function getConfig(): Promise<{ enabled: boolean; credentials_configured: boolean }> {
