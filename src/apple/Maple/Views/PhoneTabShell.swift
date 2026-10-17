@@ -472,10 +472,13 @@
         onSelectionChanged: { asset in
           browseVM.selectedID = asset.id
           // Follow the page so the hero's subject (and the tile it hides
-          // on close) is the photo actually on screen (#4714).
+          // on close) is the photo actually on screen (#4714). A sibling
+          // whose thumbnail is not cached keeps the previous still rather
+          // than closing on the grey 1×1 placeholder.
           hero = PreviewHeroSubject(
             asset: asset,
-            image: ThumbnailDecoder.cachedImage(forKey: asset.stableID ?? asset.id.uuidString))
+            image: ThumbnailDecoder.cachedImage(forKey: asset.stableID ?? asset.id.uuidString)
+              ?? hero?.image)
           // Prime the real session the moment a lazily-built sibling
           // becomes the shown asset, so a later Edit tap reuses it
           // (idempotent, matches `onPrimeSession`'s BrowseGrid contract).
