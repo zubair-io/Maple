@@ -236,15 +236,14 @@ fn warp_per_plane_sets_act_per_channel() {
     };
     apply_warp_rectilinear(&mut img, &warp, ActiveAreaRect::full(w, h), 1.0, 1.0);
     // Column 4 (center 16.5): R sampled at 16.5 + (4-16.5)*0.9 =
-    // 5.25. The A=-0.75 cubic weights at phase 0.25 are
-    // [-27, 225, 67, -9]/256 over columns [4, 5, 6, 7], giving
-    // 5.296875 (this kernel does not reproduce linear ramps exactly).
+    // 5.25. Catmull–Rom weights at phase 0.25 are [-9,111,29,-3]/128
+    // over columns [4,5,6,7], reproducing the affine field exactly.
     // G/B remain at their integer identity positions, column 4.
     let px = img.pixels[4 * w as usize + 4];
     assert!((px[1] - 4.0).abs() < 1e-5, "G identity, got {}", px[1]);
     assert!((px[2] - 4.0).abs() < 1e-5, "B identity, got {}", px[2]);
     assert!(
-        (px[0] - 5.296875).abs() < 1e-4,
+        (px[0] - 5.25).abs() < 1e-4,
         "R from the 0.9 set, got {}",
         px[0]
     );
