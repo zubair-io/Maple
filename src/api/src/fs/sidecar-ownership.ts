@@ -34,7 +34,7 @@ function comparable(p: string): string {
   return path.resolve(p).normalize('NFC').toLowerCase();
 }
 
-export function sameSidecarPath(a: string, b: string): boolean {
+function sameSidecarPath(a: string, b: string): boolean {
   return comparable(a) === comparable(b);
 }
 
@@ -117,21 +117,28 @@ export async function assetDestinationOccupied(
   }
 }
 
+const LINK_UNSUPPORTED = new Set(['ENOTSUP', 'EPERM', 'EXDEV']);
+
+function errnoCode(err: unknown): string | undefined {
+  return (err as NodeJS.ErrnoException)?.code;
+}
+
 async function linkExclusive(tmp: string, dest: string): Promise<void> {
   try {
     await fs.link(tmp, dest);
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException)?.code;
-    if (code === 'EEXIST') throw new SidecarCollisionError(dest);
-    if (code !== 'ENOTSUP' && code !== 'EPERM' && code !== 'EXDEV') throw err;
-    try {
-      await fs.copyFile(tmp, dest, fs.constants.COPYFILE_EXCL);
-    } catch (copyErr) {
-      if ((copyErr as NodeJS.ErrnoException)?.code === 'EEXIST') {
-        throw new SidecarCollisionError(dest);
-      }
-      throw copyErr;
-    }
+    if (errnoCode(err) === 'EEXIST') throw new SidecarCollisionError(dest);
+    if (!LINK_UNSUPPORTED.has(errnoCode(err) ?? '')) throw err;
+    await copyExclusive(tmp, dest);
+  }
+}
+
+/** Fallback for volumes that cannot hard-link (SMB, exFAT). */
+async function copyExclusive(tmp: string, dest: string): Promise<void> {
+  try {
+    await fs.copyFile(tmp, dest, fs.constants.COPYFILE_EXCL);
+  } catch (err) {
+    throw errnoCode(err) === 'EEXIST' ? new SidecarCollisionError(dest) : err;
   }
 }
 

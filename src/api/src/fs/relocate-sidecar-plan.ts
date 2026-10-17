@@ -1,6 +1,7 @@
 import * as fs from './mirrored.ts';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { child as childLogger } from '../log.ts';
+import { listPairedSidecars } from './xmp-conflict.ts';
 import {
   SidecarCollisionError,
   publishSidecarSnapshot,
@@ -140,4 +141,20 @@ export async function carryPlannedSidecars(
     carried.push({ source: entry.source, dest: entry.dest, snapshot });
   }
   return { copiedSidecars, carried };
+}
+
+/** An incoming asset with no sidecar under `'replace'` means "the destination
+ * now reflects EXACTLY the incoming asset" — a stale sidecar left over from
+ * the PREVIOUS occupant must not silently survive and get misattributed to
+ * this one (#2633 parity harness). A sidecar another same-stem photo there
+ * still uses is not stale (#4692). Only runs AFTER the new primary published. */
+export async function removeStaleDestinationSidecars(
+  finalDest: string,
+  plan: SidecarPlan,
+  replacesWithoutSidecar: boolean,
+): Promise<void> {
+  if (!replacesWithoutSidecar || plan.destinationClaimedBySibling) return;
+  for (const stale of await listPairedSidecars(finalDest)) {
+    await fs.unlink(stale).catch(() => {});
+  }
 }

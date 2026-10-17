@@ -33,7 +33,7 @@ export const DUPLICATES_DIR_NAME = '_duplicates';
  * copy (and every other kept copy) instead of being collapsed to one — see
  * `FileInfo.keep` and `processAsset` in `workers/dedupe.ts`. A dotfile, so the
  * discover sweeper already skips it when listing a directory. */
-export const KEEP_FILENAME = '.keep';
+const KEEP_FILENAME = '.keep';
 
 /**
  * True when `dir` contains a `.keep` marker file. Best-effort: any error
