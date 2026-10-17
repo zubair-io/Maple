@@ -393,6 +393,32 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
         XCTAssertEqual(ns?.code, NSFileProviderError.noSuchItem.rawValue)
     }
 
+    /// A Windows-hosted Maple server composes `abs_path` with
+    /// backslashes (`src/api/src/fs/root-match.ts`); the trash check must
+    /// not depend on the client's own separator.
+    func testTrashedAssetOnAWindowsHostedServerAlsoResolvesToNoSuchItem() {
+        let folderID = "650a1b2c3d4e5f6071829305"
+        let body = #"{"id": "\#(validAssetID)", "folder_id": "\#(folderID)", "filename": "IMG_1.dng", "#
+            + #""abs_path": "C:\\photos\\.maple\\trash\\2024\\IMG_1.dng", "size": 100, "mtime": 1700000000000, "rating": 0}"#
+        let catalog = FPCoreTestSupport.makeCatalog { _ in
+            (200, Data(body.utf8), ["Content-Type": "application/json"])
+        }
+        let roots = [LibraryRoot(id: folderID, path: "C:\\photos", label: "Lib", fileCount: 1)]
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, roots: roots, test: self)
+        let done = expectation(description: "item(for:) completed")
+        var received: (item: NSFileProviderItem?, error: Error?) = (nil, nil)
+
+        _ = core.item(for: NSFileProviderItemIdentifier(FileProviderIdentifier.asset(validAssetID).rawValue),
+                      request: NSFileProviderRequest()) { item, error in
+            received = (item, error)
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 5)
+
+        XCTAssertNil(received.item)
+        XCTAssertEqual((received.error as NSError?)?.code, NSFileProviderError.noSuchItem.rawValue)
+    }
+
     // MARK: - enumerator(for:) dispatch
 
     func testFolderIdentifierReturnsDeferredFolderEnumerator() throws {
