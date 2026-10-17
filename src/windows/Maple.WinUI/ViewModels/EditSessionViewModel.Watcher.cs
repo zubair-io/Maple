@@ -130,6 +130,7 @@ namespace Maple.WinUI.ViewModels
                 .Select(p =>
                 {
                     LocalFileOperations.TryDelete(ThumbCachePaths.SharedThumbPathFor(p.OldPath));
+                    LocalFileOperations.TryDelete(ThumbCachePaths.LegacySharedThumbPathFor(p.OldPath));
                     try
                     {
                         RenameSidecarIfPresent(p.OldPath, p.NewPath);

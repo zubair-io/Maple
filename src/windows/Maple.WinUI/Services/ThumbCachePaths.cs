@@ -1,7 +1,11 @@
 // ThumbCachePaths.cs — the shared `.maple/thumbs/` cache path derivation
 // (#3083), the Windows port of the cross-platform contract:
 //
-//     <RAW parent>/.maple/thumbs/<sha256_prefix16(basename)>.v<N>.avif
+//     <RAW parent>/.maple/thumbs/<sha256_prefix16(basename)>.avif
+//
+// Unversioned by contract (#4793): a pipeline bump never invalidates a
+// shared thumbnail. Folders written while the name carried `.v25` migrate by
+// rename on a read miss (AdoptLegacySharedThumb), never by re-render.
 //
 // The hash input is the asset's filename (basename WITH extension), NOT the
 // absolute path — so `.maple/` travels with the photos when the folder is
@@ -56,7 +60,41 @@ namespace Maple.WinUI.Services
         {
             var parent = Path.GetDirectoryName(assetPath) ?? string.Empty;
             var basename = Path.GetFileName(assetPath);
-            return Path.Combine(SharedThumbDirFor(parent), $"{Sha256Prefix16(basename)}.v{Generated.CapabilityRegistry.PipelineOutputVersion}.avif");
+            return Path.Combine(SharedThumbDirFor(parent), $"{Sha256Prefix16(basename)}.avif");
+        }
+
+        /// <summary>The frozen pre-#4793 name, `&lt;sha16&gt;.v25.avif` — the
+        /// only versioned spelling any shipped Windows build wrote.</summary>
+        public static string LegacySharedThumbPathFor(string assetPath)
+        {
+            var parent = Path.GetDirectoryName(assetPath) ?? string.Empty;
+            var basename = Path.GetFileName(assetPath);
+            return Path.Combine(SharedThumbDirFor(parent), $"{Sha256Prefix16(basename)}.v25.avif");
+        }
+
+        /// <summary>Call on a miss for the unversioned name: renames a
+        /// legacy `.v25` entry into place (one extra lookup). Returns the
+        /// unversioned path once adopted, the legacy path itself when the
+        /// folder refuses the rename (read-only share), and null when no
+        /// legacy entry exists.</summary>
+        public static string? AdoptLegacySharedThumb(string assetPath)
+        {
+            var legacyPath = LegacySharedThumbPathFor(assetPath);
+            if (!File.Exists(legacyPath)) return null;
+            var sharedPath = SharedThumbPathFor(assetPath);
+            try
+            {
+                File.Move(legacyPath, sharedPath, overwrite: false);
+                return sharedPath;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A concurrent reader may have won the rename; otherwise the
+                // folder is read-only and the legacy bytes serve in place.
+                return File.Exists(sharedPath) ? sharedPath
+                    : File.Exists(legacyPath) ? legacyPath
+                    : null;
+            }
         }
     }
 }

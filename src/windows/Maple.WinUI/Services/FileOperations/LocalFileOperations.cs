@@ -177,7 +177,10 @@ namespace Maple.WinUI.Services.FileOperations
             var oldThumbPath = ThumbCachePaths.SharedThumbPathFor(plan.SourcePrimaryPath);
             if (!string.Equals(oldThumbPath, ThumbCachePaths.SharedThumbPathFor(plan.FinalPrimaryPath),
                     StringComparison.OrdinalIgnoreCase))
+            {
                 TryDelete(oldThumbPath);
+                TryDelete(ThumbCachePaths.LegacySharedThumbPathFor(plan.SourcePrimaryPath));
+            }
 
             if (plan.IsNoop) return outcome;
 
