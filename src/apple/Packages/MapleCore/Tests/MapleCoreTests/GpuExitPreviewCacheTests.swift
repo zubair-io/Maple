@@ -121,6 +121,7 @@ final class GpuExitPreviewCacheTests: XCTestCase {
     await RenderedPreviewCache.shared.configure(folderURL: directory)
     await ThumbnailDiskCache.shared.configure(folderURL: directory)
     let session = EditSession(asset: AssetRef(url: url), model: model)
+    await session.loadSidecar()
     let layer = CAMetalLayer()
     layer.bounds = CGRect(x: 0, y: 0, width: 32, height: 32)
     let driver = GpuLiveDriver()

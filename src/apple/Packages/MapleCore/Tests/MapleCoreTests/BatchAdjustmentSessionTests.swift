@@ -68,7 +68,9 @@ final class BatchAdjustmentSessionTests: XCTestCase {
     await session.flushPendingSidecarWrite()
   }
 
-  func testLateInitialHydrationCannotReplayOverAnEditOnRetry() async throws {
+  /// #4708: an edit made on unloaded defaults must not survive as the
+  /// session's state — that state would be written over the saved sidecar.
+  func testLateInitialHydrationRestoresTheSavedStateOverAnEarlyEdit() async throws {
     var persisted = AdjustmentModel.default
     persisted.exposure = -1.5
     let store = SuspendedHydrationStore(model: persisted)
@@ -84,15 +86,19 @@ final class BatchAdjustmentSessionTests: XCTestCase {
     await store.releaseLoad()
     await load.value
 
-    XCTAssertEqual(session.model.exposure, 2.25)
+    XCTAssertEqual(session.model.exposure, -1.5)
     XCTAssertTrue(session.hasLoadedSidecar)
+    XCTAssertFalse(session.canUndo, "the dropped early edit leaves no undo entry")
+    session.beginEdit(description: "Exposure")
+    session.model.exposure = 2.25
+    session.endEdit()
     await session.loadSidecar()
     XCTAssertEqual(
       session.model.exposure, 2.25,
-      "A retry must not replay the stale persisted snapshot over the winning edit")
+      "A retry must not replay the persisted snapshot over an edit made after loading")
   }
 
-  func testMaskRestorationDoesNotPublishOrOverwritePartialHydration() async throws {
+  func testMaskRestorationDoesNotPublishPartialHydration() async throws {
     let gate = SuspendedBytesProvider()
     let recipe = BitmapRecipe(
       person: 0, facialSkin: true, bodySkin: true,
@@ -121,8 +127,9 @@ final class BatchAdjustmentSessionTests: XCTestCase {
     await gate.release()
     await load.value
 
-    XCTAssertEqual(session.model.exposure, 2.25)
-    XCTAssertNotEqual(session.model.vibrance, persisted.vibrance)
+    XCTAssertEqual(session.model.exposure, 0)
+    XCTAssertEqual(session.model.vibrance, persisted.vibrance)
+    XCTAssertEqual(session.model.localAdjustments.count, 1)
     XCTAssertTrue(session.hasLoadedSidecar)
   }
 

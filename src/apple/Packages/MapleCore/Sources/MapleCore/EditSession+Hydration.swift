@@ -40,8 +40,6 @@ extension EditSession {
     guard !hasLoadedSidecar else { return }
     // Asset/profile changes own Auto-fit invalidation. Unchanged hydration
     // schedules no replacement frame, so it must retain the achieved outcome.
-    let startingModel = model
-    let startingCulling = culling
     let startingTransaction = transactions.nextID
     // (1) As-shot white balance — needed by Browse so the WB chip
     // shows the correct value without opening the editor. CIRAWFilter
@@ -92,21 +90,16 @@ extension EditSession {
           loadedCulling = c
         }
       } catch {
-        // A failed Cloud read is not an absent sidecar (#3357).
+        // A failed Cloud read is not an absent sidecar (#3357). Nothing is
+        // persisted until a later load succeeds (#4708).
         sidecarError = error
+        sidecarLoadFailed = true
         return
       }
     }
 
-    // An edit or another completed load owns the current state. In particular,
-    // a confirmed batch paste must not be overwritten by a late browse hydrate.
+    // A concurrent load (e.g. a confirmed batch paste) already owns the state.
     guard !hasLoadedSidecar else { return }
-    guard model == startingModel, culling == startingCulling,
-      transactions.nextID == startingTransaction
-    else {
-      hasLoadedSidecar = true
-      return
-    }
 
     // (3/4) Build the initial model. As-shot seeding only applies when
     // no sidecar was loaded — once the user has saved edits, their
@@ -125,9 +118,7 @@ extension EditSession {
       wbResolved = try await ImportedWhiteBalanceResolver.resolve(asset: asset, model: seeded)
       partialWhiteBalanceImportError = nil
     } catch {
-      guard !Task.isCancelled, model == startingModel,
-        transactions.nextID == startingTransaction
-      else { return }
+      guard !Task.isCancelled else { return }
       partialWhiteBalanceImportError = error
       renderError = error
       // Preserve every parsed field for unrelated edits; block unresolved live pixels.
@@ -143,26 +134,32 @@ extension EditSession {
       registeredRasterIds.forEach(MaskRasterRegistry.release)
       return
     }
-    guard model == startingModel, culling == startingCulling,
-      transactions.nextID == startingTransaction
-    else {
-      registeredRasterIds.forEach(MaskRasterRegistry.release)
-      hasLoadedSidecar = true
-      return
-    }
     // Publish completion only once the fully restored model is ready. Batch
     // transfers that arrive during raster restoration must still be able to
     // hydrate the persisted fields they are not replacing.
     hasLoadedSidecar = true
+    sidecarLoadFailed = false
+    sidecarError = nil
 
+    // The saved sidecar wins over anything edited before it loaded (#4708):
+    // develop edits made on unloaded defaults are dropped with their undo
+    // entries, while early culling changes merge field by field.
+    if transactions.nextID != startingTransaction || !transactions.undoStack.isEmpty {
+      transactions = EditTransactionRing(nextID: transactions.nextID &+ 1)
+      lastCommittedTransaction = nil
+    }
+    let earlyCulling = queuedCullingPatch
+    queuedCullingPatch = nil
+    let savedCulling = loadedCulling ?? culling
     let previousModel = model
     isHydratingInitialState = true
-    if let loadedCulling {
-      culling = loadedCulling
-    }
+    culling = earlyCulling?.applied(to: savedCulling) ?? savedCulling
     originalModel = base
     model = base
     isHydratingInitialState = false
+    if earlyCulling != nil, culling != loadedCulling {
+      scheduleSidecarUpdate(model: model, culling: culling)
+    }
 
     // Record what a fresh (sidecar-less) model was seeded with — the
     // placeholder pair, or the defaults when no placeholder was

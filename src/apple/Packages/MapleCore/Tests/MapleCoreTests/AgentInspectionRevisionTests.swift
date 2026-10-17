@@ -107,6 +107,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
     let originalBytes = try Data(contentsOf: original)
     let session = EditSession(
       asset: AssetRef(url: original), model: .default, culling: CullingState())
+    await session.loadSidecar()
     var validations = 0
     do {
       _ = try await AgentMaskService.createMask(["kind": "person_skin"], in: session) {
@@ -149,6 +150,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
     let originalBytes = try Data(contentsOf: original)
     let session = EditSession(
       asset: AssetRef(url: original), model: .default, culling: CullingState())
+    await session.loadSidecar()
     let service = AgentEditService()
     service.activate(session)
     let response = await service.handle(
@@ -246,6 +248,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
     try FileManager.default.copyItem(at: fixture, to: original)
     let originalBytes = try Data(contentsOf: original)
     let session = EditSession(asset: AssetRef(url: original))
+    await session.loadSidecar()
     session.previewSize = CGSize(width: 256, height: 256)
     await session.openAssetPipelineAsync()
     if selectedMask {
@@ -342,6 +345,7 @@ final class AgentInspectionRevisionTests: XCTestCase {
     try FileManager.default.copyItem(at: fixture, to: original)
     let originalBytes = try Data(contentsOf: original)
     let session = EditSession(asset: AssetRef(url: original))
+    await session.loadSidecar()
     session.previewSize = CGSize(width: 256, height: 256)
     await session.openAssetPipelineAsync()
     if tool == "maple_render_mask_overlay" { session.createWholeImageSkinMask() }
