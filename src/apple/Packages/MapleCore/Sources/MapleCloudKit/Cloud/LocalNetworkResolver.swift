@@ -101,7 +101,8 @@ public enum LocalNetworkResolving {
     // is a TLS-validated endpoint, so a cleartext candidate is never used —
     // the bearer and photo bytes stay under TLS (#4720). An HTTP identity
     // has nothing to downgrade from and keeps the legacy ip:port path.
-    let candidates = report.candidates.filter { identity.scheme != "https" || $0.scheme == "https" }
+    let identityIsHTTPS = identity.scheme?.lowercased() == "https"
+    let candidates = report.candidates.filter { !identityIsHTTPS || $0.scheme.lowercased() == "https" }
     for endpoint in candidates {
       guard let candidate = endpoint.url else { continue }
       // Hostname TLS is validated normally by URLSession; a hostname's
