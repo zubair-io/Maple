@@ -456,7 +456,9 @@ public struct XMPSerializer {
       extraNamespaces: _conditionalNamespaces(
         needed: culling.keywords.isEmpty ? [] : ["dc"], passthrough: passthrough),
       attributes: attrs,
-      children: children)
+      children: children,
+      rdfNodes: passthrough.unknownRdfNodes,
+      xmpmetaNodes: passthrough.unknownXmpmetaNodes)
   }
 
   /// The develop child blocks every serialize overload emits after the

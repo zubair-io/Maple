@@ -105,6 +105,16 @@ const isModeledAttribute = (attribute: Attr): boolean => {
   return name !== null && name !== 'rdf:about' && KNOWN_ATTRIBUTES.has(name);
 };
 
+const eligibleDescriptions = (primary: Element): Element[] =>
+  primary.parentElement
+    ? Array.from(primary.parentElement.children).filter(
+        (child) =>
+          child.namespaceURI === RDF_NAMESPACE &&
+          child.localName === 'Description' &&
+          sharesMaskGroupContext(child, primary),
+      )
+    : [primary];
+
 const withoutModeledFields = (source: Element, primary: Element): Element => {
   const clone = source.cloneNode(true) as Element;
   for (const attribute of Array.from(source.attributes)) {
@@ -113,10 +123,9 @@ const withoutModeledFields = (source: Element, primary: Element): Element => {
       clone.removeAttributeNS(attribute.namespaceURI, attribute.localName);
     else clone.removeAttribute(attribute.name);
   }
+  if (!sharesMaskGroupContext(source, primary)) return clone;
   const clonedChildren = Array.from(clone.children);
   Array.from(source.children).forEach((child, index) => {
-    if (localAdjustmentContainerKind(child) === 'group' && !sharesMaskGroupContext(source, primary))
-      return;
     if (toneCurveElementKey(child) || localAdjustmentContainerKind(child) || isManagedChild(child))
       clonedChildren[index]?.remove();
   });
@@ -149,32 +158,36 @@ const preservedStructure = (
 };
 
 /**
- * Every repair spot `description` carries (#3409). The struct
+ * Every repair spot `descriptions` carry (#3409). The struct
  * `crs:RetouchAreas` container wins whenever it produced one; the legacy
  * `crs:RetouchInfo` strings are the fallback for a document that only has
  * those.
  */
-function retouchSpotsFrom(description: Element): RetouchSpot[] {
+function retouchSpotsFrom(descriptions: readonly Element[]): RetouchSpot[] {
   const areas: RetouchSpot[] = [];
   const legacy: RetouchSpot[] = [];
-  for (const child of Array.from(description.children)) {
-    const kind = retouchContainerKind(child);
-    if (kind === 'areas') areas.push(...parseRetouchAreasContainer(child));
-    else if (kind === 'legacy') legacy.push(...parseRetouchInfoContainer(child));
+  for (const description of descriptions) {
+    for (const child of Array.from(description.children)) {
+      const kind = retouchContainerKind(child);
+      if (kind === 'areas') areas.push(...parseRetouchAreasContainer(child));
+      else if (kind === 'legacy') legacy.push(...parseRetouchInfoContainer(child));
+    }
   }
   return areas.length > 0 ? areas : legacy;
 }
 
 /** Layer-order keys of a brush container kept verbatim because it could not be modeled. */
-const verbatimBrushLayerOrders = (description: Element): number[] =>
-  Array.from(description.children)
-    .filter(
-      (child) =>
-        !localAdjustmentContainerKind(child) &&
-        !isManagedChild(child) &&
-        managedXmpName(child) === 'papp:BrushCorrections',
-    )
-    .flatMap(verbatimLayerOrders);
+const verbatimBrushLayerOrders = (descriptions: readonly Element[]): number[] =>
+  descriptions.flatMap((description) =>
+    Array.from(description.children)
+      .filter(
+        (child) =>
+          !localAdjustmentContainerKind(child) &&
+          !isManagedChild(child) &&
+          managedXmpName(child) === 'papp:BrushCorrections',
+      )
+      .flatMap(verbatimLayerOrders),
+  );
 
 /**
  * Capture fields Maple does not model and hydrate Maple-owned point curves.
@@ -205,37 +218,40 @@ export function collectXmpPassthrough(
     });
   const unknownNodes: string[] = [];
   const passthroughPrefixes = new Set<string>();
+  const descriptions = eligibleDescriptions(description);
   // Repair spots (#3409) are collected in one pass of their own so the
   // child loop below keeps a single skip branch for them rather than the
   // two-container-plus-precedence logic `retouchSpotsFrom` owns.
-  const retouchSpots = retouchSpotsFrom(description);
+  const retouchSpots = retouchSpotsFrom(descriptions);
   if (retouchSpots.length > 0) model.retouchSpots = retouchSpots;
 
-  for (const child of Array.from(description.children)) {
-    const curveKey = toneCurveElementKey(child);
-    if (curveKey) {
-      model[curveKey] = parseToneCurveElement(child);
-      continue;
+  for (const current of descriptions) {
+    for (const child of Array.from(current.children)) {
+      const curveKey = toneCurveElementKey(child);
+      if (curveKey) {
+        model[curveKey] = parseToneCurveElement(child);
+        continue;
+      }
+      // Local adjustments (#358): both containers are modeled, so they hydrate
+      // the model — in document order, linear and radial alike — and never
+      // reach the passthrough bucket, or the writer would emit them twice.
+      const containerKind = localAdjustmentContainerKind(child);
+      if (containerKind === 'group') continue;
+      if (containerKind) {
+        model.localAdjustments = [
+          ...(model.localAdjustments ?? []),
+          ...parseLocalAdjustmentsContainer(child, containerKind),
+        ];
+        continue;
+      }
+      // `isManagedChild` covers both repair containers (#3409), hydrated above.
+      if (isManagedChild(child)) continue;
+      if (current === description) unknownNodes.push(selfContainedXml(child));
     }
-    // Local adjustments (#358): both containers are modeled, so they hydrate
-    // the model — in document order, linear and radial alike — and never
-    // reach the passthrough bucket, or the writer would emit them twice.
-    const containerKind = localAdjustmentContainerKind(child);
-    if (containerKind === 'group') continue;
-    if (containerKind) {
-      model.localAdjustments = [
-        ...(model.localAdjustments ?? []),
-        ...parseLocalAdjustmentsContainer(child, containerKind),
-      ];
-      continue;
-    }
-    // `isManagedChild` covers both repair containers (#3409), hydrated above.
-    if (isManagedChild(child)) continue;
-    unknownNodes.push(selfContainedXml(child));
   }
 
   const { verbatim: groupKeys, ...maskGroups } = collectMaskGroups(description, model);
-  const verbatimLayerOrderKeys = [...verbatimBrushLayerOrders(description), ...groupKeys];
+  const verbatimLayerOrderKeys = [...verbatimBrushLayerOrders(descriptions), ...groupKeys];
   orderLocalAdjustments(model, verbatimLayerOrderKeys);
 
   for (const attr of unknownAttributes) {

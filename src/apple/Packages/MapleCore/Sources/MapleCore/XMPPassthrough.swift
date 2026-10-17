@@ -64,6 +64,11 @@ public struct XMPPassthrough: Sendable, Equatable {
   /// in document order.
   public var unknownNodes: [String]
   public var maskGroups: [XMPMaskGroupTemplate]
+  /// Sibling `rdf:Description` elements (with modelled attributes/children
+  /// stripped) and non-`rdf:Description` children of `rdf:RDF` (#4690).
+  public var unknownRdfNodes: [String]
+  /// Non-`rdf:RDF` children of `x:xmpmeta` (#4690).
+  public var unknownXmpmetaNodes: [String]
 
   /// `xmp:Rating` and `xmp:Label` exactly as the source authored them, plus
   /// the colour label the source resolved to. The serializer re-emits them
@@ -78,17 +83,21 @@ public struct XMPPassthrough: Sendable, Equatable {
 
   public var isEmpty: Bool {
     unknownAttributes.isEmpty && unknownNodes.isEmpty && maskGroups.isEmpty
+      && unknownRdfNodes.isEmpty && unknownXmpmetaNodes.isEmpty
   }
 
   public init(
     unknownAttributes: [Attribute] = [], unknownNodes: [String] = [],
     maskGroups: [XMPMaskGroupTemplate] = [],
+    unknownRdfNodes: [String] = [], unknownXmpmetaNodes: [String] = [],
     authoredRating: String? = nil, authoredLabel: String? = nil,
     authoredColorLabel: ColorLabel? = nil
   ) {
     self.unknownAttributes = unknownAttributes
     self.unknownNodes = unknownNodes
     self.maskGroups = maskGroups
+    self.unknownRdfNodes = unknownRdfNodes
+    self.unknownXmpmetaNodes = unknownXmpmetaNodes
     self.authoredRating = authoredRating
     self.authoredLabel = authoredLabel
     self.authoredColorLabel = authoredColorLabel
@@ -248,5 +257,12 @@ enum XMPKnownFields {
     if name == "xmlns" { return true }
     guard name.hasPrefix("xmlns:") else { return false }
     return selfDeclaredNamespacePrefixes.contains(String(name.dropFirst("xmlns:".count)))
+  }
+
+  /// True when `name` is an attribute on a sibling `rdf:Description` that
+  /// Maple models on the primary `rdf:Description`. Keeps `rdf:about` and
+  /// `xmlns:` declarations intact on the preserved sibling.
+  static func isModeledDescriptionAttribute(_ name: String) -> Bool {
+    name != "rdf:about" && !name.hasSuffix(":about") && attributes.contains(name)
   }
 }

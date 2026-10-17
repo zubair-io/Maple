@@ -43,14 +43,161 @@ enum XMPChildElementScanner {
   private static let doubleQuote = UInt8(ascii: "\"")
   private static let singleQuote = UInt8(ascii: "'")
 
-  /// Scan `xml` and return every direct child element of the first
-  /// `rdf:Description`, in document order.
-  ///
-  /// Returns an empty list for a self-closing or absent `rdf:Description` —
-  /// the shape every sidecar Maple has written to date takes when the model
-  /// carries no keywords and no tone curves.
+  /// Scan `xml` and return every direct child element of same-subject
+  /// top-level `rdf:Description` elements, in document order (#4690).
   static func descriptionChildren(in xml: String) -> [Child] {
-    elementChildren(in: xml, rootLocalName: "Description")
+    let descriptions = elementChildren(in: xml, rootLocalName: "RDF")
+      .filter { isLocalName($0.qName, "Description") }
+    guard let first = descriptions.first else {
+      return elementChildren(in: xml, rootLocalName: "Description")
+    }
+    return
+      descriptions
+      .filter { sharesContext($0.source, with: first.source) }
+      .flatMap { elementChildren(in: $0.source, rootLocalName: "Description") }
+  }
+
+  /// Direct child elements of the first `rdf:Description` only.
+  static func firstDescriptionChildren(in xml: String) -> [Child] {
+    let descriptions = elementChildren(in: xml, rootLocalName: "RDF")
+      .filter { isLocalName($0.qName, "Description") }
+    guard let first = descriptions.first else {
+      return elementChildren(in: xml, rootLocalName: "Description")
+    }
+    return elementChildren(in: first.source, rootLocalName: "Description")
+  }
+
+  /// True when two `rdf:Description` elements share `rdf:about`, `xml:lang`,
+  /// and `xml:base` context.
+  static func sharesContext(_ source: String, with primary: String) -> Bool {
+    let lhs = XMPMaskGroupSources.rootAttributes(source)
+    let rhs = XMPMaskGroupSources.rootAttributes(primary)
+    let about: ([String: String]) -> String = { attrs in
+      attrs["rdf:about"]
+        ?? attrs.first { $0.key == "about" || $0.key.hasSuffix(":about") }?.value
+        ?? ""
+    }
+    return about(lhs) == about(rhs)
+      && (lhs["xml:lang"] ?? "") == (rhs["xml:lang"] ?? "")
+      && (lhs["xml:base"] ?? "") == (rhs["xml:base"] ?? "")
+  }
+
+  /// Sibling children of `rdf:RDF` (including secondary `rdf:Description`
+  /// elements with modelled attributes/children stripped) and non-`rdf:RDF`
+  /// children of `x:xmpmeta` (#4690).
+  static func preservedDocumentNodes(
+    in xml: String,
+    groups: XMPMaskGroupSources.Collection,
+    isPassthroughChild: (Child) -> Bool
+  ) -> (rdfNodes: [String], xmpmetaNodes: [String]) {
+    let xmpmetaChildren = elementChildren(in: xml, rootLocalName: "xmpmeta")
+    let xmpmetaNamespaces = XMPMaskGroupSources.scope(
+      [:], attributes: XMPMaskGroupSources.rootAttributes(xml)
+    ).filter { $0.key != "x" }
+    let rdfElement = xmpmetaChildren.first { isLocalName($0.qName, "RDF") }
+    let rdfSource = rdfElement?.source ?? xml
+    let rdfNamespaces = XMPMaskGroupSources.scope(
+      xmpmetaNamespaces, attributes: XMPMaskGroupSources.rootAttributes(rdfSource)
+    ).filter { $0.key != "rdf" && $0.key != "x" }
+    let rdfChildren = elementChildren(in: xml, rootLocalName: "RDF")
+    let firstDescription = rdfChildren.first { isLocalName($0.qName, "Description") }
+    let rdfNodes =
+      rdfChildren
+      .filter { $0.byteRange != firstDescription?.byteRange }
+      .map { child -> String in
+        if isLocalName(child.qName, "Description"), let primary = firstDescription {
+          let stripped = withoutModeledFields(
+            child.source,
+            sharesPrimaryContext: sharesContext(child.source, with: primary.source),
+            isPassthroughChild: isPassthroughChild,
+            unownedGroupSources: groups.unownedGroupSources)
+          return XMPMaskGroupSources.explicitNamespaces(stripped, namespaces: rdfNamespaces)
+        }
+        return XMPMaskGroupSources.explicitNamespaces(child.source, namespaces: rdfNamespaces)
+      }
+    let xmpmetaNodes =
+      xmpmetaChildren
+      .filter { !isLocalName($0.qName, "RDF") }
+      .map { XMPMaskGroupSources.explicitNamespaces($0.source, namespaces: xmpmetaNamespaces) }
+    return (rdfNodes, xmpmetaNodes)
+  }
+
+  private static func withoutModeledFields(
+    _ source: String,
+    sharesPrimaryContext: Bool,
+    isPassthroughChild: (Child) -> Bool,
+    unownedGroupSources: [String: String]
+  ) -> String {
+    let bytes = Array(source.utf8)
+    guard !bytes.isEmpty else { return source }
+    let openTag = readTag(bytes, from: 0)
+    var edits: [(range: Range<Int>, replacement: String)] = rootAttributeRanges(
+      bytes, openTagEnd: openTag.end
+    )
+    .filter { XMPKnownFields.isModeledDescriptionAttribute($0.name) }
+    .map { (range: $0.range, replacement: "") }
+
+    if sharesPrimaryContext && !openTag.selfClosing {
+      for child in elementChildren(in: source, rootLocalName: "Description") {
+        if !isPassthroughChild(child) {
+          var start = child.byteRange.lowerBound
+          while start > openTag.end && (bytes[start - 1] == 0x20 || bytes[start - 1] == 0x09) {
+            start -= 1
+          }
+          if start > openTag.end && bytes[start - 1] == 0x0A {
+            start -= 1
+            if start > openTag.end && bytes[start - 1] == 0x0D { start -= 1 }
+          } else {
+            start = child.byteRange.lowerBound
+          }
+          edits.append((range: start..<child.byteRange.upperBound, replacement: ""))
+        } else if let replacement = unownedGroupSources[child.source] {
+          edits.append((range: child.byteRange, replacement: replacement))
+        }
+      }
+    }
+    guard !edits.isEmpty else { return source }
+    var result = ""
+    var cursor = 0
+    for edit in edits {
+      result += String(decoding: bytes[cursor..<edit.range.lowerBound], as: UTF8.self)
+      result += edit.replacement
+      cursor = edit.range.upperBound
+    }
+    result += String(decoding: bytes[cursor..<bytes.count], as: UTF8.self)
+    return result
+  }
+
+  private static func rootAttributeRanges(
+    _ bytes: [UInt8], openTagEnd: Int
+  ) -> [(name: String, range: Range<Int>)] {
+    var i = 1
+    while i < openTagEnd, !isNameTerminator(bytes[i]) { i += 1 }
+    var spans: [(name: String, range: Range<Int>)] = []
+    let eq = UInt8(ascii: "=")
+    while i < openTagEnd {
+      let wsStart = i
+      while i < openTagEnd, isWhitespace(bytes[i]) { i += 1 }
+      if i >= openTagEnd || bytes[i] == gt || bytes[i] == slash { break }
+      let nameStart = i
+      while i < openTagEnd, !isWhitespace(bytes[i]), bytes[i] != eq, bytes[i] != gt,
+        bytes[i] != slash
+      {
+        i += 1
+      }
+      let name = String(decoding: bytes[nameStart..<i], as: UTF8.self)
+      while i < openTagEnd, isWhitespace(bytes[i]) { i += 1 }
+      guard i < openTagEnd, bytes[i] == eq else { break }
+      i += 1
+      while i < openTagEnd, isWhitespace(bytes[i]) { i += 1 }
+      guard i < openTagEnd, bytes[i] == doubleQuote || bytes[i] == singleQuote else { break }
+      let quote = bytes[i]
+      i += 1
+      while i < openTagEnd, bytes[i] != quote { i += 1 }
+      if i < openTagEnd { i += 1 }
+      spans.append((name: name, range: wsStart..<i))
+    }
+    return spans
   }
 
   /// Used by the mask-group reader to capture direct entries and foreign

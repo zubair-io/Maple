@@ -9,18 +9,19 @@
 // exercises the debounced write path that used to do the destroying.
 
 import XCTest
+
 @testable import MapleCore
 
 final class XMPPassthroughTests: XCTestCase {
 
-    // MARK: - Fixtures
+  // MARK: - Fixtures
 
-    /// A Lightroom Classic sidecar in Adobe's own layout: single-space
-    /// indentation, `x:xmptk`, a foreign `xmpMM:` / `stEvt:` namespace pair
-    /// declared on `rdf:Description`, a display-referred PV2012 curve, a mask
-    /// group, a snapshot stack and an edit history — everything the ticket
-    /// names as a casualty of the pre-#2233 writer.
-    static let lightroomSidecar = """
+  /// A Lightroom Classic sidecar in Adobe's own layout: single-space
+  /// indentation, `x:xmptk`, a foreign `xmpMM:` / `stEvt:` namespace pair
+  /// declared on `rdf:Description`, a display-referred PV2012 curve, a mask
+  /// group, a snapshot stack and an edit history — everything the ticket
+  /// names as a casualty of the pre-#2233 writer.
+  static let lightroomSidecar = """
     <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
     <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 9.0-c001 79.b0f8be9">
      <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -79,431 +80,492 @@ final class XMPPassthroughTests: XCTestCase {
     <?xpacket end="w"?>
     """
 
-    /// The four child elements above, in document order. `crs:ToneCurvePV2012`
-    /// is no longer "unknown" (#2232 gives it a structural model field,
-    /// `displayToneCurveLuma`), so it re-serializes canonically rather than
-    /// verbatim — the other three stay true passthrough and must appear
-    /// byte-for-byte in anything Maple writes back.
-    static let lightroomNodeNames = [
-        "crs:ToneCurvePV2012",
-        "crs:MaskGroupBasedCorrections",
-        "crs:Snapshots",
-        "xmpMM:History",
-    ]
+  /// The four child elements above, in document order. `crs:ToneCurvePV2012`
+  /// is no longer "unknown" (#2232 gives it a structural model field,
+  /// `displayToneCurveLuma`), so it re-serializes canonically rather than
+  /// verbatim — the other three stay true passthrough and must appear
+  /// byte-for-byte in anything Maple writes back.
+  static let lightroomNodeNames = [
+    "crs:ToneCurvePV2012",
+    "crs:MaskGroupBasedCorrections",
+    "crs:Snapshots",
+    "xmpMM:History",
+  ]
 
-    /// The subset of `lightroomNodeNames` that are STILL genuinely unknown
-    /// after #2232 and #3274 — everything except the now-structural PV2012
-    /// curve and MaskGroupBasedCorrections container.
-    static let lightroomPassthroughNodeNames = [
-        "crs:Snapshots",
-        "xmpMM:History",
-    ]
+  /// The subset of `lightroomNodeNames` that are STILL genuinely unknown
+  /// after #2232 and #3274 — everything except the now-structural PV2012
+  /// curve and MaskGroupBasedCorrections container.
+  static let lightroomPassthroughNodeNames = [
+    "crs:Snapshots",
+    "xmpMM:History",
+  ]
 
-    /// `canonicalFixtureModel` plus every field that fixture leaves at its
-    /// default — the omit-on-default attributes a sidecar only carries once
-    /// the user touches the control, which is exactly where a gap in
-    /// `XMPKnownFields` hides (#4686: `papp:FilmLook` / `papp:FilmStrength`
-    /// were emitted and parsed but never claimed, so the second save wrote
-    /// each twice).
-    static func fullyNonDefaultModel() -> AdjustmentModel {
-        var m = XMPCanonicalFormatTests.canonicalFixtureModel()
-        m.look = .neutral
-        m.filmLook = "slide_fuji_velvia_50"
-        m.filmStrength = 65
-        m.lensProfile = "lcp1:0123456789abcdef"
-        m.demosaic = .rcd
-        m.wbSource = .sampled
-        m.wbSampleX = 0.25
-        m.wbSampleY = 0.75
-        m.wbAlgorithmVersion = 2
-        m.lensProfileEnable = .off
-        m.lensCorrectionDistortion = 80
-        m.lensCorrectionCa = 60
-        m.lensCorrectionVignetting = 40
-        m.autoLateralCa = .on
-        m.defringePurpleAmount = 5
-        m.defringePurpleHueLo = 20
-        m.defringePurpleHueHi = 80
-        m.defringeGreenAmount = 7
-        m.defringeGreenHueLo = 35
-        m.defringeGreenHueHi = 65
-        return m
+  /// `canonicalFixtureModel` plus every field that fixture leaves at its
+  /// default — the omit-on-default attributes a sidecar only carries once
+  /// the user touches the control, which is exactly where a gap in
+  /// `XMPKnownFields` hides (#4686: `papp:FilmLook` / `papp:FilmStrength`
+  /// were emitted and parsed but never claimed, so the second save wrote
+  /// each twice).
+  static func fullyNonDefaultModel() -> AdjustmentModel {
+    var m = XMPCanonicalFormatTests.canonicalFixtureModel()
+    m.look = .neutral
+    m.filmLook = "slide_fuji_velvia_50"
+    m.filmStrength = 65
+    m.lensProfile = "lcp1:0123456789abcdef"
+    m.demosaic = .rcd
+    m.wbSource = .sampled
+    m.wbSampleX = 0.25
+    m.wbSampleY = 0.75
+    m.wbAlgorithmVersion = 2
+    m.lensProfileEnable = .off
+    m.lensCorrectionDistortion = 80
+    m.lensCorrectionCa = 60
+    m.lensCorrectionVignetting = 40
+    m.autoLateralCa = .on
+    m.defringePurpleAmount = 5
+    m.defringePurpleHueLo = 20
+    m.defringePurpleHueHi = 80
+    m.defringeGreenAmount = 7
+    m.defringeGreenHueLo = 35
+    m.defringeGreenHueHi = 65
+    return m
+  }
+
+  static func fullyNonDefaultCulling() -> CullingState {
+    var c = XMPCanonicalFormatTests.canonicalFixtureCulling()
+    c.hidden = true
+    return c
+  }
+
+  private func makeTempDirectory() throws -> URL {
+    let dir = FileManager.default.temporaryDirectory
+      .appendingPathComponent("maple-xmp-2233-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+    return dir
+  }
+
+  /// The attribute names on the document's `rdf:Description` open tag, in
+  /// emitted order, excluding namespace declarations.
+  ///
+  /// Scoped to the open tag rather than the whole file: a preserved mask
+  /// group carries `crs:` attributes of its own, and those are not part of
+  /// the canonical ordering under test.
+  private func attributeNames(in document: String) -> [String] {
+    let lines = document.split(separator: "\n", omittingEmptySubsequences: false)
+    guard let start = lines.firstIndex(where: { $0.contains("<rdf:Description ") }) else {
+      return []
     }
-
-    static func fullyNonDefaultCulling() -> CullingState {
-        var c = XMPCanonicalFormatTests.canonicalFixtureCulling()
-        c.hidden = true
-        return c
-    }
-
-    private func makeTempDirectory() throws -> URL {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("maple-xmp-2233-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
-        return dir
-    }
-
-    /// The attribute names on the document's `rdf:Description` open tag, in
-    /// emitted order, excluding namespace declarations.
-    ///
-    /// Scoped to the open tag rather than the whole file: a preserved mask
-    /// group carries `crs:` attributes of its own, and those are not part of
-    /// the canonical ordering under test.
-    private func attributeNames(in document: String) -> [String] {
-        let lines = document.split(separator: "\n", omittingEmptySubsequences: false)
-        guard let start = lines.firstIndex(where: { $0.contains("<rdf:Description ") }) else {
-            return []
+    return lines[lines.index(after: start)...]
+      .prefix { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("<") }
+      .compactMap { line -> String? in
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard let equals = trimmed.firstIndex(of: "="), !trimmed.hasPrefix("xmlns") else {
+          return nil
         }
-        return lines[lines.index(after: start)...]
-            .prefix { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("<") }
-            .compactMap { line -> String? in
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard let equals = trimmed.firstIndex(of: "="), !trimmed.hasPrefix("xmlns") else {
-                    return nil
-                }
-                return String(trimmed[trimmed.startIndex..<equals])
-            }
+        return String(trimmed[trimmed.startIndex..<equals])
+      }
+  }
+
+  /// Canonical namespace rank — 500 for anything outside the eight prefixes
+  /// the format pins (`docs/xmp-canonical-format.md` § "Attribute ordering").
+  private func namespaceRank(of name: String) -> Int {
+    let known = ["xmp", "crs", "papp", "dc", "exif", "photoshop", "Iptc4xmpCore", "xmpRights"]
+    guard let colon = name.firstIndex(of: ":") else { return 500 }
+    return known.firstIndex(of: String(name[name.startIndex..<colon])) ?? 500
+  }
+
+  // MARK: - The load → edit → save contract
+
+  /// A real Lightroom sidecar opened through the on-disk store, edited by one
+  /// slider and flushed, keeps every unmodelled region byte-for-byte.
+  func testLightroomSidecarSurvivesLoadEditSave() async throws {
+    let dir = try makeTempDirectory()
+    let rawURL = dir.appendingPathComponent("DSCF1234.dng")
+    let sidecarURL = SidecarPath.sidecarURL(for: rawURL)
+    try Self.lightroomSidecar.write(to: sidecarURL, atomically: true, encoding: .utf8)
+
+    let store = XMPSidecarStore(rawURL: rawURL)
+    let (model, culling) = try await store.load()
+    XCTAssertEqual(model.exposure, 0.35, accuracy: 1e-9, "the Lightroom exposure must load")
+    XCTAssertEqual(culling.stars, 3)
+
+    var edited = model
+    edited.exposure = 1.25
+    await store.update(model: edited, culling: culling)
+    await store.flush()
+
+    let written = try String(contentsOf: sidecarURL, encoding: .utf8)
+    XCTAssertTrue(written.contains("crs:Exposure2012=\"1.25\""), "the edit must land")
+
+    // Every genuinely-unknown child element survives byte-for-byte.
+    let sourceNodes = XMPChildElementScanner.descriptionChildren(in: Self.lightroomSidecar)
+    XCTAssertEqual(sourceNodes.map(\.qName), Self.lightroomNodeNames)
+    for node in sourceNodes
+    where node.qName != "crs:ToneCurvePV2012" && node.qName != "crs:MaskGroupBasedCorrections" {
+      XCTAssertTrue(
+        written.contains(node.source),
+        "\(node.qName) must be re-emitted verbatim")
     }
+    // The PV2012 curve (#2232) is now a MODELED field — it round-trips
+    // through the structural writer, canonically re-formatted, not
+    // verbatim. Its VALUES must still survive.
+    XCTAssertEqual(edited.displayToneCurveLuma.points.count, 3)
+    XCTAssertTrue(
+      written.contains("<crs:ToneCurvePV2012>"),
+      "the curve's structural block must still be present")
+    // MaskGroupBasedCorrections (#3274) is also now a MODELED field, but
+    // unlike the curve this fixture's content is NOT a shape Maple's
+    // local-adjustments reader recognizes: `Mask/Gradient` is the shape
+    // real Lightroom writes inside `crs:GradientBasedCorrections`, not
+    // inside `crs:MaskGroupBasedCorrections` (which real Lightroom only
+    // ever populates with `Mask/Image` AI masks). Recognized-container,
+    // unrecognized-mask corrections are dropped, matching raw-core's own
+    // already-shipped local-adjustments reader (#3271) — so this
+    // fixture's correction has no surviving form at all, structural or
+    // otherwise, and `model.localAdjustments` is correctly empty for it.
+    XCTAssertTrue(
+      edited.localAdjustments.isEmpty,
+      "an unrecognized mask-group correction is dropped, not invented")
 
-    /// Canonical namespace rank — 500 for anything outside the eight prefixes
-    /// the format pins (`docs/xmp-canonical-format.md` § "Attribute ordering").
-    private func namespaceRank(of name: String) -> Int {
-        let known = ["xmp", "crs", "papp", "dc", "exif", "photoshop", "Iptc4xmpCore", "xmpRights"]
-        guard let colon = name.firstIndex(of: ":") else { return 500 }
-        return known.firstIndex(of: String(name[name.startIndex..<colon])) ?? 500
+    // …and so do the unknown attributes, including the namespace
+    // declarations the preserved subtrees depend on.
+    for attribute in [
+      "xmpMM:DocumentID=\"xmp.did:9a5f1b40-2c1b-4a2f-9d3d-1f0b2c4d5e6f\"",
+      "xmpMM:InstanceID=\"xmp.iid:0e3a7c21-91d5-4b0c-8a44-2f7c1e8d9a10\"",
+      "crs:RawFileName=\"DSCF1234.RAF\"",
+      "crs:CameraProfile=\"Adobe Standard &amp; Neutral\"",
+      "xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\"",
+      "xmlns:stEvt=\"http://ns.adobe.com/xap/1.0/sType/ResourceEvent#\"",
+    ] {
+      XCTAssertTrue(written.contains(attribute), "expected preserved attribute: \(attribute)")
     }
+  }
 
-    // MARK: - The load → edit → save contract
+  /// The unknown nodes keep their source order — masks, history and
+  /// snapshots are ordered stacks, so a re-ordering is a corruption.
+  func testUnknownNodeOrderIsPreserved() {
+    let passthrough = XMPParser.parsePassthrough(Self.lightroomSidecar)
+    // 2, not 4 — `crs:ToneCurvePV2012` moved off this bucket in #2232 and
+    // `crs:MaskGroupBasedCorrections` in #3274 (see
+    // `lightroomPassthroughNodeNames`).
+    XCTAssertEqual(passthrough.unknownNodes.count, 2)
+    let written = XMPSerializer.serialize(
+      model: .default, culling: CullingState(), passthrough: passthrough)
+    let positions = passthrough.unknownNodes.compactMap { written.range(of: $0)?.lowerBound }
+    XCTAssertEqual(positions.count, 2, "every node must appear in the output")
+    XCTAssertEqual(positions, positions.sorted(), "node order must match the source")
+  }
 
-    /// A real Lightroom sidecar opened through the on-disk store, edited by one
-    /// slider and flushed, keeps every unmodelled region byte-for-byte.
-    func testLightroomSidecarSurvivesLoadEditSave() async throws {
-        let dir = try makeTempDirectory()
-        let rawURL = dir.appendingPathComponent("DSCF1234.dng")
-        let sidecarURL = SidecarPath.sidecarURL(for: rawURL)
-        try Self.lightroomSidecar.write(to: sidecarURL, atomically: true, encoding: .utf8)
+  /// A second save is a fixed point: the document Maple writes parses back
+  /// into the same model plus the same bucket and re-serializes identically.
+  /// Without this, every slider tick would churn the preserved regions.
+  func testResaveIsAFixedPoint() async throws {
+    let dir = try makeTempDirectory()
+    let rawURL = dir.appendingPathComponent("DSCF1234.dng")
+    let sidecarURL = SidecarPath.sidecarURL(for: rawURL)
+    try Self.lightroomSidecar.write(to: sidecarURL, atomically: true, encoding: .utf8)
 
-        let store = XMPSidecarStore(rawURL: rawURL)
-        let (model, culling) = try await store.load()
-        XCTAssertEqual(model.exposure, 0.35, accuracy: 1e-9, "the Lightroom exposure must load")
-        XCTAssertEqual(culling.stars, 3)
+    let store = XMPSidecarStore(rawURL: rawURL)
+    let (model, culling) = try await store.load()
+    var edited = model
+    edited.exposure = 1.25
+    await store.update(model: edited, culling: culling)
+    await store.flush()
+    let first = try String(contentsOf: sidecarURL, encoding: .utf8)
 
-        var edited = model
-        edited.exposure = 1.25
-        await store.update(model: edited, culling: culling)
-        await store.flush()
+    let reopened = XMPSidecarStore(rawURL: rawURL)
+    let (reloaded, reloadedCulling) = try await reopened.load()
+    await reopened.update(model: reloaded, culling: reloadedCulling)
+    await reopened.flush()
+    let second = try String(contentsOf: sidecarURL, encoding: .utf8)
 
-        let written = try String(contentsOf: sidecarURL, encoding: .utf8)
-        XCTAssertTrue(written.contains("crs:Exposure2012=\"1.25\""), "the edit must land")
+    XCTAssertEqual(second, first, "write → parse → write must be a fixed point")
+  }
 
-        // Every genuinely-unknown child element survives byte-for-byte.
-        let sourceNodes = XMPChildElementScanner.descriptionChildren(in: Self.lightroomSidecar)
-        XCTAssertEqual(sourceNodes.map(\.qName), Self.lightroomNodeNames)
-        for node in sourceNodes
-        where node.qName != "crs:ToneCurvePV2012" && node.qName != "crs:MaskGroupBasedCorrections" {
-            XCTAssertTrue(written.contains(node.source),
-                          "\(node.qName) must be re-emitted verbatim")
-        }
-        // The PV2012 curve (#2232) is now a MODELED field — it round-trips
-        // through the structural writer, canonically re-formatted, not
-        // verbatim. Its VALUES must still survive.
-        XCTAssertEqual(edited.displayToneCurveLuma.points.count, 3)
-        XCTAssertTrue(written.contains("<crs:ToneCurvePV2012>"),
-                      "the curve's structural block must still be present")
-        // MaskGroupBasedCorrections (#3274) is also now a MODELED field, but
-        // unlike the curve this fixture's content is NOT a shape Maple's
-        // local-adjustments reader recognizes: `Mask/Gradient` is the shape
-        // real Lightroom writes inside `crs:GradientBasedCorrections`, not
-        // inside `crs:MaskGroupBasedCorrections` (which real Lightroom only
-        // ever populates with `Mask/Image` AI masks). Recognized-container,
-        // unrecognized-mask corrections are dropped, matching raw-core's own
-        // already-shipped local-adjustments reader (#3271) — so this
-        // fixture's correction has no surviving form at all, structural or
-        // otherwise, and `model.localAdjustments` is correctly empty for it.
-        XCTAssertTrue(edited.localAdjustments.isEmpty, "an unrecognized mask-group correction is dropped, not invented")
+  /// The fixed point must hold with EVERY omit-on-default field set, not
+  /// just the ones `canonicalFixtureModel` happens to touch: an attribute
+  /// the writer emits but the known set does not claim parses into the
+  /// model AND the passthrough bucket, and the next save writes it twice.
+  /// Real file, real store, no mocks (#4686).
+  func testFullyNonDefaultResaveIsAFixedPoint() async throws {
+    let dir = try makeTempDirectory()
+    let rawURL = dir.appendingPathComponent("DSCF1234.dng")
+    let sidecarURL = SidecarPath.sidecarURL(for: rawURL)
+    let first = XMPSerializer.serialize(
+      model: Self.fullyNonDefaultModel(), culling: Self.fullyNonDefaultCulling())
+    try first.write(to: sidecarURL, atomically: true, encoding: .utf8)
 
-        // …and so do the unknown attributes, including the namespace
-        // declarations the preserved subtrees depend on.
-        for attribute in [
-            "xmpMM:DocumentID=\"xmp.did:9a5f1b40-2c1b-4a2f-9d3d-1f0b2c4d5e6f\"",
-            "xmpMM:InstanceID=\"xmp.iid:0e3a7c21-91d5-4b0c-8a44-2f7c1e8d9a10\"",
-            "crs:RawFileName=\"DSCF1234.RAF\"",
-            "crs:CameraProfile=\"Adobe Standard &amp; Neutral\"",
-            "xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\"",
-            "xmlns:stEvt=\"http://ns.adobe.com/xap/1.0/sType/ResourceEvent#\"",
-        ] {
-            XCTAssertTrue(written.contains(attribute), "expected preserved attribute: \(attribute)")
-        }
+    let store = XMPSidecarStore(rawURL: rawURL)
+    let (reloaded, reloadedCulling) = try await store.load()
+    XCTAssertEqual(reloaded.filmLook, "slide_fuji_velvia_50")
+    XCTAssertEqual(reloaded.filmStrength, 65)
+    XCTAssertEqual(reloaded.demosaic, .rcd)
+    await store.update(model: reloaded, culling: reloadedCulling)
+    await store.flush()
+    let second = try String(contentsOf: sidecarURL, encoding: .utf8)
+
+    for attribute in ["papp:FilmLook=", "papp:FilmStrength=", "papp:Demosaic="] {
+      XCTAssertEqual(
+        second.components(separatedBy: attribute).count - 1, 1,
+        "\(attribute) must be written exactly once")
     }
+    XCTAssertEqual(second, first, "write → parse → write must be a fixed point")
+  }
 
-    /// The unknown nodes keep their source order — masks, history and
-    /// snapshots are ordered stacks, so a re-ordering is a corruption.
-    func testUnknownNodeOrderIsPreserved() {
-        let passthrough = XMPParser.parsePassthrough(Self.lightroomSidecar)
-        // 2, not 4 — `crs:ToneCurvePV2012` moved off this bucket in #2232 and
-        // `crs:MaskGroupBasedCorrections` in #3274 (see
-        // `lightroomPassthroughNodeNames`).
-        XCTAssertEqual(passthrough.unknownNodes.count, 2)
-        let written = XMPSerializer.serialize(
-            model: .default, culling: CullingState(), passthrough: passthrough)
-        let positions = passthrough.unknownNodes.compactMap { written.range(of: $0)?.lowerBound }
-        XCTAssertEqual(positions.count, 2, "every node must appear in the output")
-        XCTAssertEqual(positions, positions.sorted(), "node order must match the source")
+  // MARK: - No double emission
+
+  /// Children the serializer builds from the model must not ALSO ride the
+  /// passthrough pipe. The keyword bag, all eight point curves (the four
+  /// scene-linear ones and, since #2232, the four display-referred
+  /// `crs:ToneCurvePV2012*` ones) and the metadata blocks are the managed
+  /// set.
+  func testManagedChildrenAreNotDuplicated() {
+    let source = XMPSerializer.serialize(
+      model: XMPCanonicalFormatTests.canonicalFixtureModel(),
+      culling: XMPCanonicalFormatTests.canonicalFixtureCulling())
+    let passthrough = XMPParser.parsePassthrough(source)
+    XCTAssertTrue(
+      passthrough.unknownNodes.isEmpty,
+      "a Maple-authored sidecar has nothing foreign in it")
+    XCTAssertTrue(
+      passthrough.unknownAttributes.isEmpty,
+      "…and no unknown attributes either: \(passthrough.unknownAttributes)")
+
+    let rewritten = XMPSerializer.serialize(
+      model: XMPCanonicalFormatTests.canonicalFixtureModel(),
+      culling: XMPCanonicalFormatTests.canonicalFixtureCulling(),
+      passthrough: passthrough)
+    XCTAssertEqual(rewritten, source, "an empty bucket must not change a single byte")
+  }
+
+  /// The guard behind the whole known-set design: anything the serializer
+  /// emits must be in `XMPKnownFields.attributes`, or the parser would file
+  /// it as passthrough and the next save would emit it twice. The model is
+  /// `fullyNonDefaultModel` so every omit-on-default attribute is actually
+  /// emitted and checked — the canonical fixture alone left
+  /// `papp:FilmLook` / `papp:FilmStrength` unexercised (#4686).
+  func testEverySerializedAttributeIsKnown() {
+    var metadata = XmpMetadata()
+    metadata.gpsLatitude = 51.5
+    metadata.gpsLongitude = -0.12
+    metadata.gpsAltitude = 35
+    metadata.dateTimeOriginal = "2026-01-04T10:11:12-05:00"
+    metadata.timeZone = "-05:00"
+    metadata.sublocation = "Southbank"
+    metadata.city = "London"
+    metadata.state = "England"
+    metadata.country = "United Kingdom"
+    metadata.countryCode = "GBR"
+    metadata.title = "Title"
+    metadata.caption = "Caption"
+    metadata.headline = "Headline"
+    metadata.instructions = "Instructions"
+    metadata.creator = "Creator"
+    metadata.creatorJobTitle = "Photographer"
+    metadata.copyrightNotice = "© 2026"
+    metadata.copyrightStatus = .copyrighted
+    metadata.usageTerms = "All rights reserved"
+    metadata.credit = "Credit"
+    metadata.source = "Source"
+    let document = XMPSerializer.serialize(
+      model: Self.fullyNonDefaultModel(),
+      culling: Self.fullyNonDefaultCulling(),
+      metadata: metadata)
+    let emitted = attributeNames(in: document)
+    XCTAssertFalse(emitted.isEmpty)
+    for name in ["papp:FilmLook", "papp:FilmStrength", "papp:Demosaic", "papp:Hidden"] {
+      XCTAssertTrue(emitted.contains(name), "the fixture must actually emit \(name)")
     }
-
-    /// A second save is a fixed point: the document Maple writes parses back
-    /// into the same model plus the same bucket and re-serializes identically.
-    /// Without this, every slider tick would churn the preserved regions.
-    func testResaveIsAFixedPoint() async throws {
-        let dir = try makeTempDirectory()
-        let rawURL = dir.appendingPathComponent("DSCF1234.dng")
-        let sidecarURL = SidecarPath.sidecarURL(for: rawURL)
-        try Self.lightroomSidecar.write(to: sidecarURL, atomically: true, encoding: .utf8)
-
-        let store = XMPSidecarStore(rawURL: rawURL)
-        let (model, culling) = try await store.load()
-        var edited = model
-        edited.exposure = 1.25
-        await store.update(model: edited, culling: culling)
-        await store.flush()
-        let first = try String(contentsOf: sidecarURL, encoding: .utf8)
-
-        let reopened = XMPSidecarStore(rawURL: rawURL)
-        let (reloaded, reloadedCulling) = try await reopened.load()
-        await reopened.update(model: reloaded, culling: reloadedCulling)
-        await reopened.flush()
-        let second = try String(contentsOf: sidecarURL, encoding: .utf8)
-
-        XCTAssertEqual(second, first, "write → parse → write must be a fixed point")
+    for name in emitted {
+      XCTAssertTrue(
+        XMPKnownFields.isKnownAttribute(name),
+        "\(name) is written by the serializer but missing from the known set — "
+          + "it would be re-emitted a second time through passthrough")
     }
+  }
 
-    /// The fixed point must hold with EVERY omit-on-default field set, not
-    /// just the ones `canonicalFixtureModel` happens to touch: an attribute
-    /// the writer emits but the known set does not claim parses into the
-    /// model AND the passthrough bucket, and the next save writes it twice.
-    /// Real file, real store, no mocks (#4686).
-    func testFullyNonDefaultResaveIsAFixedPoint() async throws {
-        let dir = try makeTempDirectory()
-        let rawURL = dir.appendingPathComponent("DSCF1234.dng")
-        let sidecarURL = SidecarPath.sidecarURL(for: rawURL)
-        let first = XMPSerializer.serialize(
-            model: Self.fullyNonDefaultModel(), culling: Self.fullyNonDefaultCulling())
-        try first.write(to: sidecarURL, atomically: true, encoding: .utf8)
+  // MARK: - Canonical ordering
 
-        let store = XMPSidecarStore(rawURL: rawURL)
-        let (reloaded, reloadedCulling) = try await store.load()
-        XCTAssertEqual(reloaded.filmLook, "slide_fuji_velvia_50")
-        XCTAssertEqual(reloaded.filmStrength, 65)
-        XCTAssertEqual(reloaded.demosaic, .rcd)
-        await store.update(model: reloaded, culling: reloadedCulling)
-        await store.flush()
-        let second = try String(contentsOf: sidecarURL, encoding: .utf8)
+  /// Passthrough attributes slot into the canonical order rather than being
+  /// appended raw: unknown-NAMESPACE attributes land after every known
+  /// namespace, while an unknown attribute in a known namespace
+  /// (`crs:RawFileName`) sorts alphabetically inside that namespace's block —
+  /// the rule `docs/xmp-canonical-format.md` § "Attribute ordering" states
+  /// and the web writer already follows.
+  func testPassthroughAttributesTakeTheirCanonicalPositions() {
+    let passthrough = XMPParser.parsePassthrough(Self.lightroomSidecar)
+    let document = XMPSerializer.serialize(
+      model: .default, culling: CullingState(), passthrough: passthrough)
+    let emitted = attributeNames(in: document)
+    XCTAssertTrue(emitted.contains("xmpMM:DocumentID"))
+    XCTAssertTrue(emitted.contains("crs:RawFileName"))
 
-        for attribute in ["papp:FilmLook=", "papp:FilmStrength=", "papp:Demosaic="] {
-            XCTAssertEqual(second.components(separatedBy: attribute).count - 1, 1,
-                           "\(attribute) must be written exactly once")
-        }
-        XCTAssertEqual(second, first, "write → parse → write must be a fixed point")
+    let ranks = emitted.map(namespaceRank)
+    XCTAssertEqual(ranks, ranks.sorted(), "namespace priority must be non-decreasing")
+    for block in Dictionary(grouping: emitted, by: namespaceRank).values {
+      XCTAssertEqual(
+        block, block.sorted(),
+        "names sort alphabetically inside a namespace block")
     }
-
-    // MARK: - No double emission
-
-    /// Children the serializer builds from the model must not ALSO ride the
-    /// passthrough pipe. The keyword bag, all eight point curves (the four
-    /// scene-linear ones and, since #2232, the four display-referred
-    /// `crs:ToneCurvePV2012*` ones) and the metadata blocks are the managed
-    /// set.
-    func testManagedChildrenAreNotDuplicated() {
-        let source = XMPSerializer.serialize(
-            model: XMPCanonicalFormatTests.canonicalFixtureModel(),
-            culling: XMPCanonicalFormatTests.canonicalFixtureCulling())
-        let passthrough = XMPParser.parsePassthrough(source)
-        XCTAssertTrue(passthrough.unknownNodes.isEmpty,
-                      "a Maple-authored sidecar has nothing foreign in it")
-        XCTAssertTrue(passthrough.unknownAttributes.isEmpty,
-                      "…and no unknown attributes either: \(passthrough.unknownAttributes)")
-
-        let rewritten = XMPSerializer.serialize(
-            model: XMPCanonicalFormatTests.canonicalFixtureModel(),
-            culling: XMPCanonicalFormatTests.canonicalFixtureCulling(),
-            passthrough: passthrough)
-        XCTAssertEqual(rewritten, source, "an empty bucket must not change a single byte")
+    guard let camera = emitted.firstIndex(of: "crs:CameraProfile"),
+      let clarity = emitted.firstIndex(of: "crs:Clarity2012"),
+      let documentID = emitted.firstIndex(of: "xmpMM:DocumentID"),
+      let wbScale = emitted.firstIndex(of: "papp:WbScaleVersion")
+    else {
+      return XCTFail("expected attributes missing from the document")
     }
+    XCTAssertLessThan(camera, clarity, "an unknown crs: name interleaves alphabetically")
+    XCTAssertLessThan(wbScale, documentID, "an unknown namespace sorts after every known one")
+  }
 
-    /// The guard behind the whole known-set design: anything the serializer
-    /// emits must be in `XMPKnownFields.attributes`, or the parser would file
-    /// it as passthrough and the next save would emit it twice. The model is
-    /// `fullyNonDefaultModel` so every omit-on-default attribute is actually
-    /// emitted and checked — the canonical fixture alone left
-    /// `papp:FilmLook` / `papp:FilmStrength` unexercised (#4686).
-    func testEverySerializedAttributeIsKnown() {
-        var metadata = XmpMetadata()
-        metadata.gpsLatitude = 51.5
-        metadata.gpsLongitude = -0.12
-        metadata.gpsAltitude = 35
-        metadata.dateTimeOriginal = "2026-01-04T10:11:12-05:00"
-        metadata.timeZone = "-05:00"
-        metadata.sublocation = "Southbank"
-        metadata.city = "London"
-        metadata.state = "England"
-        metadata.country = "United Kingdom"
-        metadata.countryCode = "GBR"
-        metadata.title = "Title"
-        metadata.caption = "Caption"
-        metadata.headline = "Headline"
-        metadata.instructions = "Instructions"
-        metadata.creator = "Creator"
-        metadata.creatorJobTitle = "Photographer"
-        metadata.copyrightNotice = "© 2026"
-        metadata.copyrightStatus = .copyrighted
-        metadata.usageTerms = "All rights reserved"
-        metadata.credit = "Credit"
-        metadata.source = "Source"
-        let document = XMPSerializer.serialize(
-            model: Self.fullyNonDefaultModel(),
-            culling: Self.fullyNonDefaultCulling(),
-            metadata: metadata)
-        let emitted = attributeNames(in: document)
-        XCTAssertFalse(emitted.isEmpty)
-        for name in ["papp:FilmLook", "papp:FilmStrength", "papp:Demosaic", "papp:Hidden"] {
-            XCTAssertTrue(emitted.contains(name), "the fixture must actually emit \(name)")
-        }
-        for name in emitted {
-            XCTAssertTrue(XMPKnownFields.isKnownAttribute(name),
-                          "\(name) is written by the serializer but missing from the known set — "
-                            + "it would be re-emitted a second time through passthrough")
-        }
+  // MARK: - Cross-platform
+
+  /// A sidecar written by the web serializer — canonical envelope, a
+  /// `crs:ToneCurvePV2012` curve already at the six-space child indent —
+  /// round-trips through Apple's structural PV2012 parser (#2232) with the
+  /// SAME bytes, because the curve was already canonically formatted.
+  func testWebWrittenSidecarKeepsWhatWebPreserved() throws {
+    let webAuthored = """
+      <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
+      <x:xmpmeta xmlns:x="adobe:ns:meta/">
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+          <rdf:Description rdf:about=""
+            xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+            xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+            xmlns:papp="http://ns.justmaple.app/photo/1.0/"
+            crs:Version="11.0"
+            crs:ProcessVersion="11.0"
+            crs:HasSettings="True"
+            crs:Exposure2012="0.4"
+            crs:RawFileName="DSCF1234.RAF">
+            <crs:ToneCurvePV2012>
+              <rdf:Seq>
+                <rdf:li>0, 0</rdf:li>
+                <rdf:li>128, 140</rdf:li>
+              </rdf:Seq>
+            </crs:ToneCurvePV2012>
+          </rdf:Description>
+        </rdf:RDF>
+      </x:xmpmeta>
+      <?xpacket end="w"?>
+      """
+    let dir = try makeTempDirectory()
+    let url = dir.appendingPathComponent("web.xmp")
+    try webAuthored.write(to: url, atomically: true, encoding: .utf8)
+
+    let source = try String(contentsOf: url, encoding: .utf8)
+    let (model, culling) = try XMPParser.parse(source)
+    let passthrough = XMPParser.parsePassthrough(source)
+    let rewritten = XMPSerializer.serialize(
+      model: model, culling: culling, passthrough: passthrough)
+
+    // The curve is no longer unknown (#2232) — nothing left in the bucket.
+    XCTAssertTrue(passthrough.unknownNodes.isEmpty)
+    XCTAssertEqual(model.displayToneCurveLuma.points.count, 2)
+    XCTAssertTrue(rewritten.contains("crs:RawFileName=\"DSCF1234.RAF\""))
+    // The source curve was already at the canonical six-space child
+    // indent, so the structurally-re-serialized block is byte-identical
+    // to what the web writer produced.
+    XCTAssertTrue(rewritten.contains("      <crs:ToneCurvePV2012>\n        <rdf:Seq>"))
+    XCTAssertTrue(rewritten.contains("<rdf:li>128, 140</rdf:li>"))
+  }
+
+  // MARK: - Scanner edge cases
+
+  /// The scanner must not mistake markup inside comments, CDATA or attribute
+  /// values for structure — a Lightroom history string routinely contains a
+  /// bare `>`.
+  func testScannerSkipsCommentsCdataAndQuotedMarkup() {
+    let xml = """
+      <?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+      <x:xmpmeta xmlns:x="adobe:ns:meta/">
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+          <!-- <crs:NotAChild/> -->
+          <rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
+            <crs:Alpha note="a &gt; b &lt;/crs:Alpha&gt;">
+              <![CDATA[ </crs:Alpha> <crs:Fake/> ]]>
+            </crs:Alpha>
+            <crs:Beta/>
+            <!-- <crs:Gamma/> -->
+            <crs:Delta><crs:Alpha/></crs:Delta>
+          </rdf:Description>
+        </rdf:RDF>
+      </x:xmpmeta>
+      <?xpacket end="w"?>
+      """
+    let children = XMPChildElementScanner.descriptionChildren(in: xml)
+    XCTAssertEqual(children.map(\.qName), ["crs:Alpha", "crs:Beta", "crs:Delta"])
+    XCTAssertTrue(children[0].source.hasSuffix("</crs:Alpha>"))
+    XCTAssertTrue(children[0].source.contains("CDATA"))
+    XCTAssertEqual(children[1].source, "<crs:Beta/>")
+    XCTAssertEqual(children[2].source, "<crs:Delta><crs:Alpha/></crs:Delta>")
+  }
+
+  /// A self-closing `rdf:Description` — what every Maple sidecar without
+  /// keywords or curves looks like — has no children and no passthrough.
+  func testSelfClosingDescriptionHasNoChildren() {
+    let document = XMPSerializer.serialize(model: .default, culling: CullingState())
+    XCTAssertTrue(document.contains("/>"), "the fixture must exercise the self-closing form")
+    XCTAssertTrue(XMPChildElementScanner.descriptionChildren(in: document).isEmpty)
+    XCTAssertEqual(XMPParser.parsePassthrough(document), .empty)
+  }
+
+  /// Malformed input is not carried forward: there are no trustworthy bytes
+  /// in it, and the store is about to replace the file either way.
+  func testMalformedDocumentYieldsEmptyBucket() {
+    XCTAssertEqual(XMPParser.parsePassthrough("<not xml"), .empty)
+    XCTAssertEqual(XMPParser.parsePassthrough(""), .empty)
+  }
+
+  /// Multi-Description sidecar (#4690): self-closing first Description plus sibling Description
+  /// carrying curves, local adjustments, repair spots, foreign history, and `x:xmpmeta` sibling.
+  func testMultiDescriptionSidecarSurvivesStoreRoundTrip() async throws {
+    let multi = """
+      <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/">
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+          <rdf:Description rdf:about="" xmlns:tiff="http://ns.adobe.com/tiff/1.0/" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" tiff:Make="Fujifilm" xmp:Rating="4" crs:Exposure2012="+0.35"/>
+          <rdf:Description rdf:about="" xmlns:aux="http://ns.adobe.com/exif/1.0/aux/" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/" xmlns:stEvt="http://ns.adobe.com/xap/1.0/sType/ResourceEvent#" aux:Lens="XF35mmF1.4 R" crs:Contrast2012="+15">
+            <crs:ToneCurvePV2012><rdf:Seq><rdf:li>0, 0</rdf:li><rdf:li>128, 140</rdf:li><rdf:li>255, 255</rdf:li></rdf:Seq></crs:ToneCurvePV2012>
+            <crs:GradientBasedCorrections><rdf:Seq><rdf:li><rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="True" crs:LocalExposure2012="0.5"><crs:CorrectionMasks><rdf:Seq><rdf:li crs:What="Mask/Gradient" crs:MaskValue="1" crs:ZeroX="0.2" crs:ZeroY="0.3" crs:FullX="0.8" crs:FullY="0.7"/></rdf:Seq></crs:CorrectionMasks></rdf:Description></rdf:li></rdf:Seq></crs:GradientBasedCorrections>
+            <crs:RetouchAreas><rdf:Seq><rdf:li><rdf:Description crs:SpotType="heal" crs:SourceState="sourceSetExplicitly" crs:Method="circle" crs:SourceX="0.400000" crs:SourceY="0.500000" crs:Opacity="1.000000" crs:Feather="0.250000" crs:Seed="0"><crs:Masks><rdf:Seq><rdf:li crs:What="Mask/CircularGradient" crs:MaskValue="1" crs:X="0.200000" crs:Y="0.300000" crs:Radius="0.020000" crs:Flow="1" crs:CenterWeight="0"/></rdf:Seq></crs:Masks></rdf:Description></rdf:li></rdf:Seq></crs:RetouchAreas>
+            <xmpMM:History><rdf:Seq><rdf:li stEvt:action="saved"/></rdf:Seq></xmpMM:History>
+          </rdf:Description>
+        </rdf:RDF>
+        <vendor:Audit xmlns:vendor="https://vendor.test/" vendor:Step="ingest"/>
+      </x:xmpmeta><?xpacket end="w"?>
+      """
+    let rawURL = try makeTempDirectory().appendingPathComponent("DSCF4690.dng")
+    let sidecarURL = SidecarPath.sidecarURL(for: rawURL)
+    try multi.write(to: sidecarURL, atomically: true, encoding: .utf8)
+    let store = XMPSidecarStore(rawURL: rawURL)
+    var (model, culling) = try await store.load()
+    XCTAssertEqual([model.exposure, model.contrast], [0.35, 15])
+    XCTAssertEqual(
+      [
+        model.displayToneCurveLuma.points.count, model.localAdjustments.count,
+        model.retouchSpots.count,
+      ],
+      [3, 1, 1])
+    model.exposure = 1.25
+    await store.update(model: model, culling: culling)
+    await store.flush()
+    let first = try String(contentsOf: sidecarURL, encoding: .utf8)
+    for token in [
+      "tiff:Make=\"Fujifilm\"", "aux:Lens=\"XF35mmF1.4 R\"", "<xmpMM:History>", "<vendor:Audit",
+    ] {
+      XCTAssertTrue(first.contains(token), "missing \(token)")
     }
-
-    // MARK: - Canonical ordering
-
-    /// Passthrough attributes slot into the canonical order rather than being
-    /// appended raw: unknown-NAMESPACE attributes land after every known
-    /// namespace, while an unknown attribute in a known namespace
-    /// (`crs:RawFileName`) sorts alphabetically inside that namespace's block —
-    /// the rule `docs/xmp-canonical-format.md` § "Attribute ordering" states
-    /// and the web writer already follows.
-    func testPassthroughAttributesTakeTheirCanonicalPositions() {
-        let passthrough = XMPParser.parsePassthrough(Self.lightroomSidecar)
-        let document = XMPSerializer.serialize(
-            model: .default, culling: CullingState(), passthrough: passthrough)
-        let emitted = attributeNames(in: document)
-        XCTAssertTrue(emitted.contains("xmpMM:DocumentID"))
-        XCTAssertTrue(emitted.contains("crs:RawFileName"))
-
-        let ranks = emitted.map(namespaceRank)
-        XCTAssertEqual(ranks, ranks.sorted(), "namespace priority must be non-decreasing")
-        for block in Dictionary(grouping: emitted, by: namespaceRank).values {
-            XCTAssertEqual(block, block.sorted(),
-                           "names sort alphabetically inside a namespace block")
-        }
-        guard let camera = emitted.firstIndex(of: "crs:CameraProfile"),
-              let clarity = emitted.firstIndex(of: "crs:Clarity2012"),
-              let documentID = emitted.firstIndex(of: "xmpMM:DocumentID"),
-              let wbScale = emitted.firstIndex(of: "papp:WbScaleVersion") else {
-            return XCTFail("expected attributes missing from the document")
-        }
-        XCTAssertLessThan(camera, clarity, "an unknown crs: name interleaves alphabetically")
-        XCTAssertLessThan(wbScale, documentID, "an unknown namespace sorts after every known one")
+    for token in [
+      "crs:Contrast2012=", "<crs:ToneCurvePV2012>", "<crs:GradientBasedCorrections>",
+      "<crs:RetouchAreas>",
+    ] {
+      XCTAssertEqual(first.components(separatedBy: token).count - 1, 1, "\(token) must appear once")
     }
-
-    // MARK: - Cross-platform
-
-    /// A sidecar written by the web serializer — canonical envelope, a
-    /// `crs:ToneCurvePV2012` curve already at the six-space child indent —
-    /// round-trips through Apple's structural PV2012 parser (#2232) with the
-    /// SAME bytes, because the curve was already canonically formatted.
-    func testWebWrittenSidecarKeepsWhatWebPreserved() throws {
-        let webAuthored = """
-        <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
-        <x:xmpmeta xmlns:x="adobe:ns:meta/">
-          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-            <rdf:Description rdf:about=""
-              xmlns:xmp="http://ns.adobe.com/xap/1.0/"
-              xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
-              xmlns:papp="http://ns.justmaple.app/photo/1.0/"
-              crs:Version="11.0"
-              crs:ProcessVersion="11.0"
-              crs:HasSettings="True"
-              crs:Exposure2012="0.4"
-              crs:RawFileName="DSCF1234.RAF">
-              <crs:ToneCurvePV2012>
-                <rdf:Seq>
-                  <rdf:li>0, 0</rdf:li>
-                  <rdf:li>128, 140</rdf:li>
-                </rdf:Seq>
-              </crs:ToneCurvePV2012>
-            </rdf:Description>
-          </rdf:RDF>
-        </x:xmpmeta>
-        <?xpacket end="w"?>
-        """
-        let dir = try makeTempDirectory()
-        let url = dir.appendingPathComponent("web.xmp")
-        try webAuthored.write(to: url, atomically: true, encoding: .utf8)
-
-        let source = try String(contentsOf: url, encoding: .utf8)
-        let (model, culling) = try XMPParser.parse(source)
-        let passthrough = XMPParser.parsePassthrough(source)
-        let rewritten = XMPSerializer.serialize(
-            model: model, culling: culling, passthrough: passthrough)
-
-        // The curve is no longer unknown (#2232) — nothing left in the bucket.
-        XCTAssertTrue(passthrough.unknownNodes.isEmpty)
-        XCTAssertEqual(model.displayToneCurveLuma.points.count, 2)
-        XCTAssertTrue(rewritten.contains("crs:RawFileName=\"DSCF1234.RAF\""))
-        // The source curve was already at the canonical six-space child
-        // indent, so the structurally-re-serialized block is byte-identical
-        // to what the web writer produced.
-        XCTAssertTrue(rewritten.contains("      <crs:ToneCurvePV2012>\n        <rdf:Seq>"))
-        XCTAssertTrue(rewritten.contains("<rdf:li>128, 140</rdf:li>"))
-    }
-
-    // MARK: - Scanner edge cases
-
-    /// The scanner must not mistake markup inside comments, CDATA or attribute
-    /// values for structure — a Lightroom history string routinely contains a
-    /// bare `>`.
-    func testScannerSkipsCommentsCdataAndQuotedMarkup() {
-        let xml = """
-        <?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
-        <x:xmpmeta xmlns:x="adobe:ns:meta/">
-          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-            <!-- <crs:NotAChild/> -->
-            <rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
-              <crs:Alpha note="a &gt; b &lt;/crs:Alpha&gt;">
-                <![CDATA[ </crs:Alpha> <crs:Fake/> ]]>
-              </crs:Alpha>
-              <crs:Beta/>
-              <!-- <crs:Gamma/> -->
-              <crs:Delta><crs:Alpha/></crs:Delta>
-            </rdf:Description>
-          </rdf:RDF>
-        </x:xmpmeta>
-        <?xpacket end="w"?>
-        """
-        let children = XMPChildElementScanner.descriptionChildren(in: xml)
-        XCTAssertEqual(children.map(\.qName), ["crs:Alpha", "crs:Beta", "crs:Delta"])
-        XCTAssertTrue(children[0].source.hasSuffix("</crs:Alpha>"))
-        XCTAssertTrue(children[0].source.contains("CDATA"))
-        XCTAssertEqual(children[1].source, "<crs:Beta/>")
-        XCTAssertEqual(children[2].source, "<crs:Delta><crs:Alpha/></crs:Delta>")
-    }
-
-    /// A self-closing `rdf:Description` — what every Maple sidecar without
-    /// keywords or curves looks like — has no children and no passthrough.
-    func testSelfClosingDescriptionHasNoChildren() {
-        let document = XMPSerializer.serialize(model: .default, culling: CullingState())
-        XCTAssertTrue(document.contains("/>"), "the fixture must exercise the self-closing form")
-        XCTAssertTrue(XMPChildElementScanner.descriptionChildren(in: document).isEmpty)
-        XCTAssertEqual(XMPParser.parsePassthrough(document), .empty)
-    }
-
-    /// Malformed input is not carried forward: there are no trustworthy bytes
-    /// in it, and the store is about to replace the file either way.
-    func testMalformedDocumentYieldsEmptyBucket() {
-        XCTAssertEqual(XMPParser.parsePassthrough("<not xml"), .empty)
-        XCTAssertEqual(XMPParser.parsePassthrough(""), .empty)
-    }
+    let reopened = XMPSidecarStore(rawURL: rawURL)
+    let (reloaded, reloadedCulling) = try await reopened.load()
+    await reopened.update(model: reloaded, culling: reloadedCulling)
+    await reopened.flush()
+    XCTAssertEqual(try String(contentsOf: sidecarURL, encoding: .utf8), first)
+  }
 }
