@@ -25,22 +25,51 @@
  *     single filesystem operation, so two concurrent create-only writers
  *     for the same path can never both "win".
  *
- * All three jail-check the destination through `safeWriteAllowed` first, and
- * all three go through the mirror-aware fs drop-in, so a published sidecar
- * replicates to the library's backup and a deleted one is deleted there too.
+ * All three jail-check the destination through `safeWriteAllowed` first and
+ * additionally require the path to RESOLVE to an `.xmp` file (#4749): a
+ * `<stem>.xmp` that is a symlink to the original would otherwise be written
+ * over or unlinked in its place. Reads apply the same rule via
+ * `authorizeSidecarRead`. All three go through the mirror-aware fs drop-in,
+ * so a published sidecar replicates to the library's backup and a deleted one
+ * is deleted there too.
  */
 
 import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 // Mirror-aware drop-in — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
-import { safeWriteAllowed } from './root.ts';
+import { checkAllowed, safeWriteAllowed } from './root.ts';
 import type { OpResult } from './root.ts';
 import { waitForAbortable } from './sidecar-write-order.ts';
 
+const SIDECAR_EXTENSION = '.xmp';
+
+function requireSidecarResolution(requested: string, allowed: OpResult<string>): OpResult<string> {
+  if (!allowed.ok) return allowed;
+  const resolved = allowed.data ?? requested;
+  return path.extname(resolved).toLowerCase() === SIDECAR_EXTENSION
+    ? { ok: true, data: resolved }
+    : {
+        ok: false,
+        error: `Sidecar path "${requested}" resolves to "${resolved}", which is not an .xmp file`,
+      };
+}
+
+/** Jail check for a sidecar about to be written or deleted; resolves symlinks
+ * and refuses any target that is not itself an `.xmp` file (#4749). */
+export async function authorizeSidecarWrite(destPath: string): Promise<OpResult<string>> {
+  return requireSidecarResolution(destPath, await safeWriteAllowed(destPath));
+}
+
+/** Jail check for a sidecar about to be read — same `.xmp`-only rule as writes,
+ * so a sidecar symlink cannot disclose an original or an out-of-root file. */
+export async function authorizeSidecarRead(sidecar: string): Promise<OpResult<string>> {
+  return requireSidecarResolution(sidecar, await checkAllowed(sidecar));
+}
+
 export async function authorizeUnlessAborted(destPath: string, signal?: AbortSignal) {
   try {
-    return await waitForAbortable(safeWriteAllowed(destPath), signal);
+    return await waitForAbortable(authorizeSidecarWrite(destPath), signal);
   } catch (error) {
     if (!signal?.aborted) throw error;
     return {

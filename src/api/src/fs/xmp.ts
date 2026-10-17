@@ -11,6 +11,8 @@ import * as path from 'node:path';
 import * as fs from './mirrored.ts';
 import { readFileWithFailover } from './mirror-read.ts';
 import {
+  authorizeSidecarRead,
+  authorizeSidecarWrite,
   authorizeUnlessAborted,
   deleteSidecar,
   writeSidecarAtomic,
@@ -21,7 +23,7 @@ import {
 // own module; the precondition write below is their only producer here.
 import { pickFreeConflictPath } from './xmp-conflict.ts';
 import { createHash } from 'node:crypto';
-import { safeWriteAllowed, type OpResult } from './root.ts';
+import type { OpResult } from './root.ts';
 import type { AssetDoc } from '../db/schema.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
@@ -68,6 +70,8 @@ export function xmpSidecarPath(rawAbsPath: string): string {
  */
 export async function readXmp(rawAbsPath: string): Promise<OpResult<string>> {
   const sidecar = xmpSidecarPath(rawAbsPath);
+  const allowed = await authorizeSidecarRead(sidecar);
+  if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
   return readFileWithFailover(sidecar).then(
     (content) => ({ ok: true, data: content }),
     (error: unknown) => ({
@@ -108,7 +112,7 @@ export async function primarySidecarDestination(
   rawAbsPath: string,
 ): Promise<{ ok: true; data: string } | { ok: false; error: string }> {
   const sidecar = xmpSidecarPath(rawAbsPath);
-  const allowed = await safeWriteAllowed(sidecar);
+  const allowed = await authorizeSidecarWrite(sidecar);
   return allowed.ok
     ? { ok: true, data: allowed.data ?? sidecar }
     : { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
