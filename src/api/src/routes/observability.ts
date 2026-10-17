@@ -183,7 +183,12 @@ async function resolveIngestionKeyPatch(
   const savedEndpoint = resolveObservabilityConfig(saved).endpoint;
   const trimmed = typed?.trim() ?? '';
   return trimmed.length > 0
-    ? { ingestion_key: trimmed, ingestion_key_endpoint: endpoint ?? savedEndpoint }
+    ? {
+        ingestion_key: trimmed,
+        // Omitted endpoint = keep the saved one; an explicit null clears it and
+        // the key must stay bound to "no endpoint", not to the one being cleared.
+        ingestion_key_endpoint: endpoint === undefined ? savedEndpoint : endpoint,
+      }
     : legacyBindingPatch(saved, endpoint, savedEndpoint);
 }
 

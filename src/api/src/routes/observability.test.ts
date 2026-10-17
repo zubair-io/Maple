@@ -149,6 +149,17 @@ describe('saved key never leaves for a foreign endpoint (#4744)', () => {
     expect(sent?.get('signoz-access-token')).toBeNull();
   });
 
+  it('a key saved while clearing the endpoint stays bound to no endpoint', async () => {
+    await appAs('owner').handle(
+      json('PUT', '/config', { endpoint: null, ingestion_key: 'cleared-key' }),
+    );
+    await appAs('owner').handle(
+      json('PUT', '/config', { endpoint: SAVED_ENDPOINT, enabled: false }),
+    );
+    const { sent } = await probeHeaders('owner', { endpoint: SAVED_ENDPOINT });
+    expect(sent?.get('signoz-access-token')).toBeNull();
+  });
+
   it('re-saving a key without an endpoint binds it to the saved endpoint', async () => {
     await appAs('owner').handle(json('PUT', '/config', { ingestion_key: 'rotated-key' }));
     const { sent } = await probeHeaders('owner', { endpoint: SAVED_ENDPOINT });
