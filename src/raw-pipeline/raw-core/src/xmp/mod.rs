@@ -14,6 +14,7 @@ mod import_validation;
 pub use import::parse_namespaced;
 mod local_adjustments;
 mod retouch;
+mod subject;
 mod tone_curves;
 use fields::set_field;
 pub use local_adjustments::serialize_local_adjustments;

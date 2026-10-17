@@ -9,7 +9,7 @@ use quick_xml::{
     NsReader,
 };
 
-fn prefix(uri: &[u8]) -> Option<&'static str> {
+pub(super) fn prefix(uri: &[u8]) -> Option<&'static str> {
     let text = std::str::from_utf8(uri).ok()?;
     let decoded = quick_xml::escape::unescape(text).ok()?;
     match decoded.as_bytes() {
@@ -28,7 +28,10 @@ fn prefixed_name(prefix: &str, local: &LocalName<'_>) -> Result<String> {
         .map_err(|error| Error::Xmp(error.to_string()))
 }
 
-fn canonical_name(resolved: ResolveResult<'_>, local: &LocalName<'_>) -> Result<Option<String>> {
+pub(super) fn canonical_name(
+    resolved: ResolveResult<'_>,
+    local: &LocalName<'_>,
+) -> Result<Option<String>> {
     match resolved {
         ResolveResult::Bound(uri) => prefix(uri.as_ref())
             .map(|prefix| prefixed_name(prefix, local))
@@ -38,7 +41,7 @@ fn canonical_name(resolved: ResolveResult<'_>, local: &LocalName<'_>) -> Result<
     }
 }
 
-fn flat_key(key: &str) -> bool {
+pub(super) fn flat_key(key: &str) -> bool {
     TRANSFER_XMP_ATTRIBUTES
         .iter()
         .any(|(_, keys)| keys.contains(&key))
@@ -52,7 +55,7 @@ fn flat_key(key: &str) -> bool {
         )
 }
 
-fn container(name: &str) -> bool {
+pub(super) fn container(name: &str) -> bool {
     TRANSFER_XMP_ELEMENTS.iter().any(|(_, key)| *key == name)
         || matches!(
             name,
@@ -81,6 +84,8 @@ struct Frame {
 struct Import<'a> {
     reader: NsReader<&'a [u8]>,
     frames: Vec<Frame>,
+    eligible: Vec<bool>,
+    desc_index: usize,
     roots: usize,
     finished: bool,
 }
@@ -93,6 +98,8 @@ impl<'a> Import<'a> {
         Self {
             reader,
             frames: Vec::new(),
+            eligible: super::subject::eligible_descriptions(xml, true),
+            desc_index: 0,
             roots: 0,
             finished: false,
         }
@@ -112,8 +119,15 @@ impl<'a> Import<'a> {
         let parent = self.frames.last();
         let parent_scope = parent.map_or(Scope::Outside, |frame| frame.scope);
         let description = owned_name.as_deref() == Some("rdf:Description")
-            && parent_scope != Scope::Opaque
+            && parent_scope == Scope::Outside
             && parent.is_none_or(|frame| frame.name.as_deref() == Some("rdf:RDF"));
+        let eligible_desc = if description {
+            let keep = self.eligible.get(self.desc_index).copied().unwrap_or(true);
+            self.desc_index += 1;
+            keep
+        } else {
+            false
+        };
         let in_mask_list = self
             .frames
             .iter()
@@ -121,7 +135,11 @@ impl<'a> Import<'a> {
         let scope = if matches!(parent_scope, Scope::Opaque | Scope::Unowned) {
             Scope::Opaque
         } else if description {
-            Scope::Description
+            if eligible_desc {
+                Scope::Description
+            } else {
+                Scope::Opaque
+            }
         } else if parent_scope == Scope::Description {
             if owned_name.as_deref().is_some_and(container) {
                 Scope::Develop
@@ -313,5 +331,5 @@ pub fn parse_namespaced(xml: &str) -> Result<AdjustmentModel> {
     if xml.is_empty() {
         return Ok(AdjustmentModel::default());
     }
-    parse_events(Import::new(xml))
+    parse_events(Import::new(xml), None)
 }
