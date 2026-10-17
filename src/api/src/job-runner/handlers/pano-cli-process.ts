@@ -14,7 +14,7 @@ import path from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
 import { loadAssetLocationViews } from '../../db/repos/assets.locations.repo.ts';
 import { assetAbsPath } from '../../indexer/images.repo.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { invalidateLibraryRoots, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { jailExecutablePaths } from '../../pano/pano-config-paths.ts';
 import type { JobHandlerContext } from './index.ts';
 import type { PanoStitchPayload } from './pano-stitch.ts';
@@ -134,7 +134,10 @@ export async function runPanoCli(
 ): Promise<PanoCliRun> {
   // The payload was validated when the job was created; roots can have been
   // registered since, and legacy payloads predate the guard (#4743), so the
-  // executables are re-checked against the current roots right before spawn.
+  // executables are re-checked right before spawn against roots read fresh
+  // from the database — this worker's cache is never invalidated by the API
+  // process that registers libraries.
+  invalidateLibraryRoots();
   const jailed = await jailExecutablePaths({
     maple_cli_path: payload.mapleCli,
     ort_dylib_path: payload.ortDylibPath,
