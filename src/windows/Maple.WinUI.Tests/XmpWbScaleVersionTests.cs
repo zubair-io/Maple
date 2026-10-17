@@ -117,7 +117,7 @@ namespace Maple.WinUI.Tests
             Assert.NotNull(doc);
             Assert.Equal(5, doc!.WbScaleVersion);
             AssertClose(5697.007, doc.Adjustments.Temperature, 0.05);
-            AssertClose(11.083624, doc.Adjustments.Tint, 0.005);
+            AssertClose(9.9615898, doc.Adjustments.Tint, 0.005);
         }
 
         [Fact]
@@ -131,7 +131,7 @@ namespace Maple.WinUI.Tests
             Assert.NotNull(doc);
             Assert.Equal(5, doc!.WbScaleVersion);
             AssertClose(5696.3936, doc.Adjustments.Temperature, 0.05);
-            AssertClose(-3.9181564, doc.Adjustments.Tint, 0.005);
+            AssertClose(-5.037506103515625, doc.Adjustments.Tint, 0.005);
         }
 
         [Fact]
@@ -144,7 +144,7 @@ namespace Maple.WinUI.Tests
             Assert.NotNull(doc);
             Assert.Equal(5, doc!.WbScaleVersion);
             AssertClose(5526.068, doc.Adjustments.Temperature, 0.05);
-            AssertClose(-32.580647, doc.Adjustments.Tint, 0.005);
+            AssertClose(-33.04674530029297, doc.Adjustments.Tint, 0.005);
         }
 
         [Fact]
@@ -160,7 +160,7 @@ namespace Maple.WinUI.Tests
             Assert.NotNull(doc);
             Assert.Equal(5, doc!.WbScaleVersion);
             AssertClose(5526.5674, doc.Adjustments.Temperature, 0.05);
-            AssertClose(-42.379494, doc.Adjustments.Tint, 0.005);
+            AssertClose(-42.84722137451172, doc.Adjustments.Tint, 0.005);
         }
 
         [Fact]
@@ -217,6 +217,41 @@ namespace Maple.WinUI.Tests
             // converted number, not a re-conversion or the raw legacy one.
             AssertClose(doc!.Adjustments.Temperature, reparsed.Adjustments.Temperature, 0.01);
             AssertClose(doc.Adjustments.Tint, reparsed.Adjustments.Tint, 0.01);
+        }
+
+        // The same Rust reference vectors used by the Swift/TypeScript ports.
+        // Keep their existing 0.05 K / 0.005 tint tolerances.
+        [Theory]
+        [InlineData(1, 6500.0, 0.0, 6454.1572265625, 9.982888221740723)]
+        [InlineData(1, 5000.0, 10.0, 5024.43603515625, 12.819326400756836)]
+        [InlineData(1, 3200.0, -44.0, 3240.382568359375, -8.740213394165039)]
+        [InlineData(1, 5700.0, 50.0, 5697.5654296875, 24.960861206054688)]
+        [InlineData(1, 5520.0, -144.0, 5526.06787109375, -33.04674530029297)]
+        [InlineData(1, 5520.0, -53.0, 5524.8505859375, -5.745927333831787)]
+        [InlineData(2, 6500.0, 0.0, 6454.1572265625, 9.982888221740723)]
+        [InlineData(2, 5000.0, 10.0, 5026.10302734375, 6.82279634475708)]
+        [InlineData(2, 3200.0, -44.0, 3221.401611328125, 17.607929229736328)]
+        [InlineData(2, 5700.0, 50.0, 5696.3935546875, -5.037506103515625)]
+        [InlineData(2, 5520.0, -144.0, 5522.8603515625, 53.35565948486328)]
+        [InlineData(2, 5520.0, -53.0, 5523.68798828125, 26.055063247680664)]
+        [InlineData(3, 6500.0, 0.0, 6454.1572265625, 9.982888221740723)]
+        [InlineData(3, 5000.0, 10.0, 5024.43603515625, 12.819326400756836)]
+        [InlineData(3, 3200.0, -44.0, 3240.382568359375, -8.740213394165039)]
+        [InlineData(3, 5700.0, 50.0, 5697.5654296875, 24.960861206054688)]
+        [InlineData(3, 5520.0, -144.0, 5526.06787109375, -33.04674530029297)]
+        [InlineData(3, 5520.0, -53.0, 5524.8505859375, -5.745927333831787)]
+        [InlineData(4, 6500.0, 0.0, 6454.1572265625, 9.982888221740723)]
+        [InlineData(4, 5000.0, 10.0, 5022.5712890625, 19.8153076171875)]
+        [InlineData(4, 3200.0, -44.0, 3266.525146484375, -39.48410415649414)]
+        [InlineData(4, 5700.0, 50.0, 5698.6875, 59.95922088623047)]
+        [InlineData(4, 5520.0, -144.0, 5534.02294921875, -133.85308837890625)]
+        [InlineData(4, 5520.0, -53.0, 5526.5673828125, -42.84722137451172)]
+        public void LegacyMappingMatchesSharedCoreVectors(
+            int version, double temperature, double tint, double expectedTemperature, double expectedTint)
+        {
+            var actual = XmpWbScale.AuthoredPairToV5(temperature, tint, version);
+            AssertClose(expectedTemperature, actual.Temperature, 0.05);
+            AssertClose(expectedTint, actual.Tint, 0.005);
         }
 
         [Fact]
