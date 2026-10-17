@@ -117,7 +117,7 @@ else
 fi
 
 # ----- workspace -----------------------------------------------------------
-WORKDIR="$(mktemp -d -t maple-calibrate-XXXXXX)"
+WORKDIR="$(mktemp -d "${TMPDIR:-$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || printf /tmp)}/maple-calibrate.XXXXXX")"
 if [[ -z "${KEEP_TMP:-}" ]]; then
 	trap 'rm -rf "$WORKDIR"' EXIT
 else
