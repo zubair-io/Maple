@@ -359,13 +359,15 @@ export async function appendBackupLocation(
     {
       sql: `INSERT INTO asset_locations (asset_id, ordinal, library_id, path, filename)
             SELECT ?,
-                   (SELECT COALESCE(MAX(ordinal), -1) + 1 FROM asset_locations WHERE asset_id = ?),
+                   (SELECT COALESCE(MAX(ordinal), -1) + 1 FROM (
+                     SELECT ordinal FROM asset_locations WHERE asset_id = ? UNION ALL
+                     SELECT ordinal FROM backup_entries WHERE asset_id = ?)),
                    ?, ?, ?
              WHERE NOT EXISTS (
                SELECT 1 FROM asset_locations
                 WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?
              )`,
-      params: [hex, hex, libHex, dir, filename, hex, libHex, dir, filename],
+      params: [hex, hex, hex, libHex, dir, filename, hex, libHex, dir, filename],
     },
     ...(input.link === null ? [] : [linkStatement(hex, input.link)]),
     ...(input.ownerId
