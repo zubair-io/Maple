@@ -29,6 +29,42 @@ translated-window and analytic ringing checks, plus existing constant,
 integer, signed/HDR, border, warp and gain-map tests. This does not yet
 establish a physical improvement on the current integration base.
 
+## Targeted physical result
+
+The three Pixel outliers were rerendered with the frozen candidate executable
+and compared against their unchanged Adobe references using the same native-pair
+protocol and budgets. All input and binary hashes remain unchanged.
+
+| Case | Frozen main maximum ΔE2000 | GainMap control | Lens candidate | Ceiling |
+| --- | ---: | ---: | ---: | ---: |
+| `contrast_min` | 29.992821 | 32.634240 | 31.412438 | 31.5 |
+| `exposure_max` | 45.303858 | 50.456601 | 29.463274 | 34.0 |
+| native `sharpen_amount_max` | 60.420009 | 65.771927 | 66.770884 | 64.7 |
+
+All other gated metrics pass in these three comparisons. The lens candidate
+repairs the introduced contrast breach and clears the original-main exposure
+failure. The combined GainMap repair separately clears `whites_min`, giving
+two confirmed main failures cleared in this targeted evidence, with one new
+native sharpening breach still blocking acceptance. The 88-case affected-camera
+and 806-case combined-control runs remain pending; this is not a full-corpus
+pass or a confirmed global count of remaining failures.
+
+A full native pixel scan finds the lens sharpening maximum at (1108,1591):
+Maple RGB 40/44/46 versus Adobe 210/212/212; main gives 122/120/122 there.
+One of 12,419,584 pixels exceeds the unchanged maximum budget. The full pixel
+population remains in the gate. The preceding AMaZE-only and GainMap renders
+each have two pixels above that budget. This localizes the remaining regression
+without changing its threshold or excluding any pixels.
+
+## Sampling cost probe
+
+A standalone release benchmark compiles the exact control and candidate sampler
+sources. After two warmups it alternates 16 pairs over 3,145,728 three-channel
+samples, with buffers preallocated outside the timed calls. Median times are
+45.536 ms control and 47.435 ms candidate (ratio 1.0417). Other qualification
+workloads were active, so this is a preliminary throughput observation, not a
+controlled performance-ratchet result or a slider/frame-time claim.
+
 ## Qualification required
 
 Run the analytic opcode tests, fresh Pixel and all affected camera cases,
