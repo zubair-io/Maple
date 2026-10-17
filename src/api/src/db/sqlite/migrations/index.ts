@@ -52,6 +52,7 @@ import { peopleFlagIndexesMigration } from './0027-people-flag-indexes.ts';
 import { vectorTextChangedMigration } from './0028-vector-text-changed.ts';
 import { backupEntryErrorKindMigration } from './0029-backup-entry-error-kind.ts';
 import { seedMissingStageStateMigration } from './0030-seed-missing-stage-state.ts';
+import { rearmUnresolvedLocationSkipsMigration } from './0031-rearm-unresolved-location-skips.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -84,4 +85,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   vectorTextChangedMigration,
   backupEntryErrorKindMigration,
   seedMissingStageStateMigration,
+  rearmUnresolvedLocationSkipsMigration,
 ];
