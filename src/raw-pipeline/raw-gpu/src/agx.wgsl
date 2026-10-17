@@ -1,17 +1,9 @@
 // agx.wgsl — AgX view transform (scene-linear Rec.2020 -> display-linear
 // Rec.2020). A P2 view-transform stage (epic #925 / #990).
 //
-// Line-for-line WGSL port of `raw_core::view::agx::apply` -> `agx_pixel`
-// (post-#435: inset -> log encode -> whites white-point remap -> ratio-
-// preserving sigmoid -> outset -> Oklab hue-preserving gamut compression).
-// Mirrors the GLSL shader at
-// src/web/projects/maple-common/src/lib/webgl/shaders/agx-view-transform.ts,
-// but matches raw-core's runtime path exactly by sampling the SAME baked
-// 512-entry LUT (agx_lut.bin) raw-core's `sample_lut` reads, uploaded to a
-// storage buffer — NOT the closed-form sigmoid the GLSL recomputes. That
-// keeps the GPU on the same numerical path the parity oracle uses (closed-
-// form vs LUT differ ~1e-4, which the ratio scale + outset would amplify
-// past the gate).
+// Mirrors raw-core's inset, Whites/contrast sigmoid, common-highlight
+// compression, outset and Oklab gamut compression. Sampling the same baked
+// 512-entry LUT avoids closed-form differences that exceed the parity gate.
 //
 // Two `#include`-free concats are prepended at module creation (WGSL has no
 // `#include`):
@@ -32,7 +24,10 @@
 //   * contrast: slope = 1 + (contrast/100)*0.5; pivot the normalized-log
 //     value around AGX_MID_NORM BEFORE sampling the LUT.
 //   * ratio sigmoid: n = max(R,G,B); if n <= 1e-6 (RATIO_FLOOR) sigmoid the
-//     floor once and return that neutral; else scale RGB by sigmoid(n)/n.
+//     floor once and return that neutral; below common diffuse white scale
+//     RGB by sigmoid(n)/n. Above it, blend the minimum toward its own curve
+//     value with the common-highlight Hermite weight and preserve the middle
+//     channel fraction between extrema.
 //   * oklab_gamut_compress (#1621 soft-knee): below the knee (chroma <=
 //     THRESHOLD*hull, EPS_HI=1+1e-5, EPS_LO=-1e-5) passes through; else find
 //     the hull (bracket + 24-iter bisection) and apply the Reinhard soft-knee
