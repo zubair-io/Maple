@@ -12,7 +12,7 @@ pub(super) struct CloudState {
     worker: worker::Worker,
     pub downloading: bool,
     pub edit_error: Option<String>,
-    pub ready: Option<(crate::library::Photo, CloudEntry)>,
+    pub ready: Option<(crate::library::Photo, CloudEntry, bool)>,
     pub reloaded: Option<(u64, crate::library::Photo)>,
     pub synchronized: std::collections::VecDeque<(u64, Result<(), String>)>,
     pub edit_request: Option<CloudEntry>,
@@ -107,10 +107,10 @@ impl CloudState {
     pub fn poll(&mut self, context: &egui::Context) {
         while let Ok(event) = self.worker.events.try_recv() {
             match event {
-                Event::EditReady(epoch, photo, entry) => {
+                Event::EditReady(epoch, photo, entry, pending_recovery) => {
                     self.downloading = false;
                     if epoch == self.epoch {
-                        self.ready = Some((photo, entry));
+                        self.ready = Some((photo, entry, pending_recovery));
                     }
                 }
                 Event::Reloaded(id, photo) => {

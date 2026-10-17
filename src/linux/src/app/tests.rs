@@ -276,3 +276,47 @@ fn an_edit_made_while_a_save_is_in_flight_survives_the_deferred_navigation() {
     let (_, saved) = crate::sidecar::SidecarStore::open(&path).unwrap();
     assert_eq!(saved.model.exposure, 2.0);
 }
+
+#[test]
+fn pending_cloud_handoff_exposes_recovery_without_a_new_save_failure() {
+    let (_directory, path) = fixture();
+    let (mut store, mut document) = crate::sidecar::SidecarStore::open(&path).unwrap();
+    Control::Exposure.set(&mut document.model, 1.5).unwrap();
+    store.save(&document).unwrap();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut app = MapleApp::from_context(context.clone());
+    let photo = crate::library::Folder::scan(path.parent().unwrap())
+        .unwrap()
+        .photos[0]
+        .clone();
+    let entry = crate::cloud::CloudEntry {
+        name: "grey.dng".into(),
+        address: "library:grey.dng".into(),
+        path: "/library/grey.dng".into(),
+        ext: "dng".into(),
+        id: None,
+        size: photo.size,
+        mtime: "2026-10-06T00:00:00Z".into(),
+        is_video: false,
+        is_audio: false,
+        is_stub: false,
+    };
+    app.cloud.ready = Some((photo, entry, true));
+    pump(&mut app, |app| app.document.is_some());
+    assert!(
+        app.save_failed,
+        "a held journal must expose recovery immediately"
+    );
+    assert_eq!(app.document.as_ref().unwrap().model.exposure, 1.5);
+    assert!(app.dirty.is_none());
+    let nodes = super::film_tests::frame(&mut app, &context, Vec::new());
+    assert!(nodes
+        .iter()
+        .any(|(_, node)| node.label() == Some("Reload XMP (discard edits)")));
+    app.navigate(Navigation::CloudBrowse);
+    assert!(
+        app.cloud_editor.is_some(),
+        "pending edits still guard navigation"
+    );
+}

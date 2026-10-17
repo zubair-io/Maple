@@ -7,9 +7,6 @@ use std::path::Path;
 pub struct Resumed {
     pub synchronized: Vec<String>,
     pub unsynchronized: Vec<String>,
-    /// The first journal still pending, held so the editor cannot move to
-    /// another photograph until it is synchronized or reloaded.
-    pub held: Option<EditJournal>,
 }
 
 pub fn resume_pending(base: &Path, client: &mut CloudClient) -> Result<Resumed, CloudError> {
@@ -19,12 +16,9 @@ pub fn resume_pending(base: &Path, client: &mut CloudClient) -> Result<Resumed, 
         match resume(base, &server, &entry, client) {
             Ok(None) => {}
             Ok(Some(Ok(()))) => resumed.synchronized.push(entry.name),
-            Ok(Some(Err((journal, error)))) => {
-                resumed
-                    .unsynchronized
-                    .push(format!("{}: {error}", entry.name));
-                resumed.held = resumed.held.or(Some(journal));
-            }
+            Ok(Some(Err(error))) => resumed
+                .unsynchronized
+                .push(format!("{}: {error}", entry.name)),
             Err(error) => resumed
                 .unsynchronized
                 .push(format!("{}: {error}", entry.name)),
@@ -33,7 +27,7 @@ pub fn resume_pending(base: &Path, client: &mut CloudClient) -> Result<Resumed, 
     Ok(resumed)
 }
 
-type Outcome = Option<Result<(), (EditJournal, CloudError)>>;
+type Outcome = Option<Result<(), CloudError>>;
 
 fn resume(
     base: &Path,
@@ -45,11 +39,8 @@ fn resume(
     if !journal.pending()? {
         return Ok(None);
     }
+    journal.validate_original(&client.stat_entry(entry)?)?;
     let (_, document) = SidecarStore::open(&journal.path()?)
         .map_err(|error| CloudError::Protocol(error.to_string()))?;
-    Ok(Some(
-        journal
-            .synchronize(client, &document)
-            .map_err(|error| (journal, error)),
-    ))
+    Ok(Some(journal.synchronize(client, &document)))
 }

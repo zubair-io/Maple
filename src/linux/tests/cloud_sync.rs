@@ -172,13 +172,17 @@ fn a_lost_response_whose_attempt_the_server_stored_with_its_own_records_is_not_a
 #[test]
 fn edits_left_pending_by_a_quit_are_synchronized_on_the_next_connection() {
     let base = tempfile::tempdir().unwrap();
-    let (url, server) = serve(vec![conditional_save("e1", "e2")]);
+    let (url, server) = serve(vec![
+        libraries(),
+        metadata(false),
+        conditional_save("e1", "e2"),
+    ]);
     let mut connection = client(&url);
     drop(pending_edit(base.path(), connection.server_url()));
     let resumed = resume_pending(base.path(), &mut connection).unwrap();
     server.join().unwrap();
     assert_eq!(resumed.synchronized, ["photo.dng"]);
-    assert!(resumed.unsynchronized.is_empty() && resumed.held.is_none());
+    assert!(resumed.unsynchronized.is_empty());
     let reopened = EditJournal::open(base.path(), connection.server_url(), &entry()).unwrap();
     assert!(!reopened.pending().unwrap());
     let (url, server) = serve(Vec::new());
@@ -190,17 +194,85 @@ fn edits_left_pending_by_a_quit_are_synchronized_on_the_next_connection() {
 }
 
 #[test]
-fn an_edit_that_cannot_be_resumed_stays_pending_and_holds_the_editor() {
+fn an_edit_that_cannot_be_resumed_stays_pending_without_blocking_other_photos() {
     let base = tempfile::tempdir().unwrap();
-    let (url, server) = serve(vec![conditional_save("someone-else", "e2")]);
+    let (url, server) = serve(vec![
+        libraries(),
+        metadata(false),
+        conditional_save("someone-else", "e2"),
+        Box::new(|head, _| {
+            assert!(head.starts_with("get /api/xmp?"), "{head}");
+            Some((200, versioned("e2"), BASELINE.into()))
+        }),
+    ]);
     let mut connection = client(&url);
     drop(pending_edit(base.path(), connection.server_url()));
+    let resumed = resume_pending(base.path(), &mut connection).unwrap();
+    assert!(resumed.synchronized.is_empty());
+    assert_eq!(resumed.unsynchronized.len(), 1);
+    assert!(resumed.unsynchronized[0].starts_with("photo.dng: "));
+    let mut reopened = EditJournal::open(base.path(), connection.server_url(), &entry()).unwrap();
+    assert!(reopened.pending().unwrap());
+    let other = CloudEntry {
+        address: "library:other.dng".into(),
+        ..entry()
+    };
+    assert!(EditJournal::open(base.path(), connection.server_url(), &other).is_ok());
+    reopened.reload(&mut connection).unwrap();
+    server.join().unwrap();
+    assert!(!reopened.pending().unwrap());
+    assert_eq!(
+        SidecarStore::open(&reopened.path().unwrap())
+            .unwrap()
+            .1
+            .model
+            .exposure,
+        0.25
+    );
+    assert_eq!(fs::read(reopened.path().unwrap()).unwrap(), FIXTURE);
+}
+
+fn libraries() -> Handler {
+    Box::new(|head, _| {
+        assert!(head.starts_with("get /api/folders "), "{head}");
+        Some((
+            200,
+            vec![],
+            r#"[{"id":"library-id","slug":"library","path":"/library"}]"#.into(),
+        ))
+    })
+}
+
+fn metadata(changed: bool) -> Handler {
+    Box::new(move |head, _| {
+        assert!(
+            head.starts_with("get /api/folders/library-id/file-meta?path=photo.dng "),
+            "{head}"
+        );
+        let mut remote = entry();
+        if changed {
+            remote.size += 1;
+        }
+        Some((200, vec![], serde_json::to_string(&remote).unwrap()))
+    })
+}
+
+#[test]
+fn startup_never_pushes_pending_edits_onto_a_replaced_original() {
+    let base = tempfile::tempdir().unwrap();
+    let (url, server) = serve(vec![libraries(), metadata(true)]);
+    let mut connection = client(&url);
+    let (journal, _) = pending_edit(base.path(), connection.server_url());
+    let path = journal.path().unwrap();
+    let xml = fs::read(path.with_extension("xmp")).unwrap();
+    let record = fs::read(journal.directory().join("remote.json")).unwrap();
+    let directory = journal.directory().to_owned();
+    drop(journal);
     let resumed = resume_pending(base.path(), &mut connection).unwrap();
     server.join().unwrap();
     assert!(resumed.synchronized.is_empty());
     assert_eq!(resumed.unsynchronized.len(), 1);
-    assert!(resumed.unsynchronized[0].starts_with("photo.dng: "));
-    let held = resumed.held.expect("the pending journal is held");
-    assert!(held.pending().unwrap());
-    assert!(EditJournal::open(base.path(), connection.server_url(), &entry()).is_err());
+    assert!(resumed.unsynchronized[0].contains("remote original changed"));
+    assert_eq!(fs::read(path.with_extension("xmp")).unwrap(), xml);
+    assert_eq!(fs::read(directory.join("remote.json")).unwrap(), record);
 }
