@@ -3,7 +3,8 @@
 This branch isolates the retained shoulder correction from the larger color
 repair branch onto main `95681410fc66635dfac680266eb18befce51952f`.
 It does not include the pending demosaic, GainMap, lens, sharpening or local
-highlight-recovery changes. Current-main physical qualification is in progress.
+highlight-recovery changes. The full historical comparison has completed;
+current-main integration is recorded separately below.
 
 ## Reproduced defect
 
@@ -29,8 +30,9 @@ boundary, monotonicity and inverse round trips. A separate Metal test covers
 all six channel orders across the onset and shoulder at contrast/whites
 extremes, including exact alpha preservation.
 
-Pipeline output changes from 25 to 26, AgX from 8 to 9, and Auto fit-model
-identity from 2 to 3. Generated consumers and cache documentation are updated.
+The isolated run used output version 26 and Auto fit-model version 3.
+After integrating the landed film fix, this change raises pipeline output
+from 26 to 27, AgX from 8 to 9, and Auto fit-model identity from 3 to 4. Generated consumers and cache documentation are updated.
 The sigmoid LUT, original RAWs, sidecars, Adobe reference pixels and numerical
 budgets are unchanged by this correction.
 
@@ -93,13 +95,45 @@ maximum sharpening on test_0004 and test_0014. The four cleared cases are
 test_0000/contrast_min and test_0007/tint_max, wb_auto and wb_tungsten. All 20
 Auto baselines pass. Source, input and executable hashes remain unchanged.
 
-The candidate is **not qualified to land**: test_0014/sharpen_amount_max gains
-a green-channel bias breach, from main `0.16156593811047731` to candidate
-`0.16167013038482758`, above the unchanged `0.1616` ceiling. Its red and blue
-channels already fail on main; grouping the three channels together would hide
-this new regression. No previously passing whole case becomes failing, but
-the added metric breach still requires repair. The full 806-comparison run
-continues to identify the complete effect. Budgets remain unchanged.
+### Complete matrix and authorized residuals
+
+The full candidate run completed all **806 comparisons: 707 pass, 99 fail**.
+Against the matched historical main control (112 failures), **14 cases clear
+and one previously passing case fails**, a net reduction of 13. Standard
+cases account for 58 failures; native detail has 41; all 20 Auto baselines
+pass. Every physical input, comparator source and frozen executable hash is
+unchanged. The full run uses all 18 qualified Adobe NR authoring overlays;
+the installed canonical-manifest migration remains tracked by #3678.
+
+There are three new metric/channel breaches, even though two of those cases
+already fail other metrics on main:
+
+| Case | Metric | Candidate | Unchanged limit |
+| --- | --- | ---: | ---: |
+| test_0003 / highlights_max / Neutral | red bias | 0.012389324234270775 | 0.0112 |
+| test_0011 / wb_daylight / Neutral | green bias | 0.0331464444110469 | 0.0323 |
+| test_0014 / sharpen_amount_max / native detail | green bias | 0.16167013038482758 | 0.1616 |
+
+The Nikon green bias is 0.16156593811047731 on the matched main control.
+The first row is the newly failing whole case. Sixteen individual metric
+breaches clear. Exact case/channel classifications are retained in
+`physical-full/matched-main-classification.json` alongside the full metrics.
+
+On 2026-10-17 the repository owner instructed this session to merge after
+being told the 14 cleared / one new case and three new metric breaches.
+This explicitly accepts these measured residuals for this change, in addition
+to the existing session exception for failures already on main. **The physical
+gate still fails; no threshold is increased and no pass is claimed.** Follow-up
+#4914 tracks repairing all three added breaches without losing the gains.
+
+### Integration on current main
+
+Rebased onto main `1b273fb87851d3d608bebdba8ee6621cf2b62a16` after #4770.
+The common-highlight algorithm is unchanged. The film fix stays in place;
+new cache identities prevent reuse of fits made with the previous AgX tail.
+Fresh platform and selected physical integration checks are required before
+merge. The 112-to-99 full-corpus result above belongs to its frozen historical
+source revisions and is not relabeled as a new current-main measurement.
 
 For test_0000 luminance NR, the selection uses the separately qualified Adobe
 authoring overlay from #4851 on both sides. Replaying main against that same
