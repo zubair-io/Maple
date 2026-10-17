@@ -15,21 +15,22 @@ public partial class EditSessionViewModel
         set => _cloudSlot.Adopt(value);
     }
 
-    private async Task ReleaseCloudSessionAsync()
+    private async Task<string?> ReleaseCloudSessionAsync()
     {
-        _sidecarTimer?.Dispose();
-        FlushSidecarNow();
-        PublishPendingCloudPreview();
         try
         {
-            await _cloudMetadataWrites.DrainAsync(retryFailed: true);
+            do await PrepareCloseAsync();
+            while (_sidecarDirty);
         }
         catch (Exception ex)
         {
             DiagLog.Write($"[cloud] pending saves failed while switching servers: {ex.Message}");
+            var message = $"Pending changes could not be saved to the current server: {ex.Message}";
+            CloudStatus = message;
+            return message;
         }
         if (_selectedCloudFolder == null && !_isCloudTimeline && _openPhoto?.IsCloud != true)
-            return;
+            return null;
         _libraryCts?.Cancel();
         BeginBrowse();
         IsLibraryLoading = false;
@@ -39,5 +40,6 @@ public partial class EditSessionViewModel
         _cloudDoc = null;
         _cloudSidecarLoad = Task.CompletedTask;
         _cloudPreviewPending = null;
+        return null;
     }
 }
