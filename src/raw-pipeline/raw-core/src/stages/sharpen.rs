@@ -37,10 +37,11 @@
 //!   * `MAX_SCALE`      — 4.0 (per-pixel amplification cap).
 //!   * `MIN_SCALE`      — 0.0 (floor of the full-strength USM buffer).
 //!
-//! Darkening keeps the original blend up to the import-default attenuation and
-//! continues its tangent as a positive inverse gain above it, so high amounts
-//! can no longer drive positive light to zero or below (#4112). Brightening
-//! keeps the original USM blend. Both preserve RGB ratios and HDR range.
+//! Darkening keeps the original blend through the import-default amount. Above
+//! it, a reciprocal continuation approaches the darker of the observed 3×3
+//! neighborhood and the default result (#4112). Strong sharpening cannot create
+//! a new dark halo below that envelope. Brightening keeps the original USM blend;
+//! both preserve RGB ratios and unbounded scene range.
 
 use crate::{
     cancel::CancelToken,
@@ -239,13 +240,29 @@ pub fn apply_cancellable(
                     1.0 // masking=0 → mix everywhere equally
                 };
                 let mix = overall_mix * edge;
-                let attenuation = mix * (1.0 - scale);
-                *px = if attenuation > PRESERVED_DARKENING {
-                    // C1 join with the legacy 1-u gain; stays positive past u=1 (#4112).
-                    let gain_at_join = 1.0 - PRESERVED_DARKENING;
-                    let gain = gain_at_join * gain_at_join
-                        / (gain_at_join + (attenuation - PRESERVED_DARKENING));
-                    [o[0] * gain, o[1] * gain, o[2] * gain]
+                let darkening = 1.0 - scale;
+                *px = if mix > PRESERVED_DARKENING && darkening > 0.0 {
+                    // Only overdrive reads the immutable neighborhood: no new
+                    // scratch plane, allocation, or work at the default amount.
+                    let local_min = (y.saturating_sub(1)..=(y + 1).min(h_usize - 1))
+                        .flat_map(|ny| {
+                            luma[ny * w_usize + x.saturating_sub(1)
+                                ..=ny * w_usize + (x + 1).min(w_usize - 1)]
+                                .iter()
+                                .copied()
+                        })
+                        .fold(li, f32::min);
+                    let join = 1.0 - PRESERVED_DARKENING * darkening;
+                    let floor = (local_min / safe_luma).max(0.0).min(join);
+                    let remaining = join - floor;
+                    let excess = (mix - PRESERVED_DARKENING) * darkening;
+                    // Positive rational gain; no scene/display-range clipping.
+                    let gain = floor + remaining * remaining / (remaining + excess);
+                    // Retain the default blend's rounding at a flat envelope.
+                    std::array::from_fn(|c| {
+                        let at_join = o[c] + (s[c] - o[c]) * PRESERVED_DARKENING;
+                        at_join + o[c] * (gain - join)
+                    })
                 } else {
                     [
                         o[0] + (s[0] - o[0]) * mix,

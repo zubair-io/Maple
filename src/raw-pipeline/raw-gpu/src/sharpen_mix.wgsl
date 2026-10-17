@@ -14,8 +14,8 @@
 //       edge   = 1.0
 //   mix = overall_mix * edge
 //   darkening = sharpened.a (full-strength attenuation, #4112)
-//   u = mix * darkening; a = canonical default maximum attenuation
-//   gain = (1-a)^2 / ((1-a)+(u-a)) when u > a; preserve legacy otherwise
+//   Above default amount, approach the darker of default output and local luma
+//   with a positive reciprocal gain; preserve legacy otherwise (#4112).
 //   otherwise out.rgb = observed.rgb + (sharpened.rgb - observed.rgb) * mix
 //   out.a = observed.a
 //
@@ -80,11 +80,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let mix = params.overall_mix * edge;
     let o = observed_buf[idx];
     let s = sharpened_buf[idx];
-    let attenuation = mix * s.a;
-    if (attenuation > SHARPEN_PRESERVED_DARKENING) {
-        let join = 1.0 - SHARPEN_PRESERVED_DARKENING;
-        let gain = join * join / (join + (attenuation - SHARPEN_PRESERVED_DARKENING));
-        output_buf[idx] = vec4<f32>(o.rgb * gain, o.a);
+    if (mix > SHARPEN_PRESERVED_DARKENING && s.a > 0.0) {
+        let li = luma_buf[idx];
+        var local_min = li;
+        for (var dy = -1; dy <= 1; dy += 1) {
+            for (var dx = -1; dx <= 1; dx += 1) {
+                local_min = min(local_min, luma_at(x + dx, y + dy, w, h));
+            }
+        }
+        let join = 1.0 - SHARPEN_PRESERVED_DARKENING * s.a;
+        let floor = min(max(local_min / max(li, 1e-4), 0.0), join);
+        let remaining = join - floor;
+        let excess = (mix - SHARPEN_PRESERVED_DARKENING) * s.a;
+        let gain = floor + remaining * remaining / (remaining + excess);
+        let at_join = o.rgb + (s.rgb - o.rgb) * SHARPEN_PRESERVED_DARKENING;
+        output_buf[idx] = vec4<f32>(at_join + o.rgb * (gain - join), o.a);
     } else {
         output_buf[idx] = vec4<f32>(o.rgb + (s.rgb - o.rgb) * mix, o.a);
     }

@@ -134,9 +134,59 @@ fn overdrive_remains_monotonic_without_preserving_legacy_zero_at_100() {
         apply(&mut image, amount, 1.0, 25.0, 0.0);
         let actual = image.pixels[40][0];
         assert!(actual > 0.0 && actual <= previous);
-        if amount == 100.0 {
-            assert!((actual - 0.03).abs() < 1e-7);
+        if amount >= 40.0 {
+            // The center is already the local minimum: preserve the default
+            // 0.06 result instead of making a deeper artificial dark hole.
+            assert!((actual - 0.06).abs() < 1e-7);
         }
+        previous = actual;
+    }
+}
+
+/// A stronger amount must not create a new dark halo below both the observed
+/// neighborhood and the supported default-strength result (#4112).
+#[test]
+fn overdrive_respects_local_dark_envelope() {
+    for radius in [0.5, 1.0, 3.0] {
+        for exposure in [0.1, 1.0, 10.0] {
+            let mut source = Image::new(17, 17, ColorSpace::SceneLinearRec2020);
+            for y in 0..17 {
+                for x in 0..17 {
+                    let light = if x < 8 { 0.3 } else { 2.0 } * exposure;
+                    source.pixels[y * 17 + x] = [light * 0.8, light, light * 1.2];
+                }
+            }
+            let mut default = source.clone();
+            apply(&mut default, 40.0, radius, 25.0, 0.0);
+            let mut strong = source.clone();
+            apply(&mut strong, 150.0, radius, 25.0, 0.0);
+            let i = 8 * 17 + 7;
+            for c in 0..3 {
+                assert!(strong.pixels[i][c] >= default.pixels[i][c] - 2e-6 * exposure,
+                    "new dark halo: radius={radius}, exposure={exposure}, default={:?}, strong={:?}",
+                    default.pixels[i], strong.pixels[i]);
+            }
+        }
+    }
+}
+
+/// Independent closed-form control with headroom between the default result
+/// and a darker neighbor. The bounded continuation must still respond to amount.
+#[test]
+fn overdrive_continues_toward_darker_neighbor_without_reaching_it() {
+    let mut previous = 0.18_f32;
+    for amount in [60.0_f32, 100.0, 150.0] {
+        let mut image = Image::new(9, 9, ColorSpace::SceneLinearRec2020);
+        image.pixels.fill([2.0; 3]);
+        image.pixels[40] = [0.3; 3];
+        image.pixels[39] = [0.1; 3];
+        apply(&mut image, amount, 1.0, 25.0, 0.0);
+        // The bright surround makes the bounded full-strength target zero.
+        // In luminance units: default=0.18, floor=0.1, remaining=0.08.
+        let expected = 0.1 + 0.08 * 0.08 / (0.08 + 0.3 * (amount / 100.0 - 0.4));
+        let actual = image.pixels[40][1];
+        assert!((actual - expected).abs() < 1e-7);
+        assert!(actual > 0.1 && actual < previous);
         previous = actual;
     }
 }

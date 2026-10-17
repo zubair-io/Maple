@@ -446,3 +446,48 @@ fn sharpen_preserves_scene_headroom() {
         "sharpen produced non-finite output"
     );
 }
+
+/// #4112: overdrive reads the original 3×3 luma envelope on both platforms.
+/// Include borders, signed chroma and unbounded HDR without a reference image.
+#[test]
+fn sharpen_local_dark_envelope_matches_cpu() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (17, 17);
+    for exposure in [0.1, 1.0, 10.0] {
+        let input: Vec<f32> = (0..w * h)
+            .flat_map(|i| {
+                let light = if i % w < 8 { 0.3 } else { 2.0 } * exposure;
+                [light * -0.1, light, light * 1.2, 0.75]
+            })
+            .collect();
+        for radius in [0.5, 1.0, 3.0] {
+            let settings = SharpenSettings {
+                width: w,
+                height: h,
+                amount: 150.0,
+                radius,
+                detail: 25.0,
+                masking: 0.0,
+            };
+            let cpu = raw_core_sharpen(&input, w, h, settings);
+            let gpu = sharpen_gpu(&ctx, &input, w, h, settings);
+            let default = raw_core_sharpen(
+                &input,
+                w,
+                h,
+                SharpenSettings {
+                    amount: 40.0,
+                    ..settings
+                },
+            );
+            assert!(max_diff_at(&cpu, &gpu).0 < 1e-4);
+            for y in [0, 8, 16] {
+                let i = (y * w as usize + 7) * 4;
+                assert!(gpu[i + 1] >= default[i + 1] - 2e-6 * exposure);
+                assert!(gpu[i] < 0.0);
+                assert_eq!(gpu[i + 3], 0.75);
+                assert!(gpu[i + 1] < input[i + 1]);
+            }
+        }
+    }
+}
