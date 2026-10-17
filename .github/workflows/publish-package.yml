@@ -206,7 +206,8 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.12.15'
+          # Latest 3.12 build published by actions/python-versions on macOS/Windows.
+          python-version: '3.12.10'
 
       # Only ordinary PRs reuse final binaries; release validation compiles both crates.
       - name: Fingerprint native package binaries
@@ -298,7 +299,8 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.12.15'
+          # Latest 3.12 build published by actions/python-versions on macOS/Windows.
+          python-version: '3.12.10'
 
       # Only ordinary PRs reuse final binaries; release validation compiles both crates.
       - name: Fingerprint native package binaries
