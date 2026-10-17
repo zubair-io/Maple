@@ -402,13 +402,24 @@ extension AppShell {
         ref: ImageRef(id: assetID, displayName: asset.displayName))
     case nil:
       // No explicit provenance — only the Timeline sibling builder
-      // and the PhotoKit/SMB construction sites set it. Fall back
-      // to the pre-#2299 ambient-selection gate: cloud-backed
-      // asset routes XMP through CloudSidecarStore so edits
-      // round-trip via PUT /api/assets/<id>/xmp; local files keep
-      // using XMPSidecarStore via EditSession's primaryURL branch.
-      // Cloud refs carry the upstream asset id in stableID (set by
-      // BrowseViewModel.loadSource).
+      // and the PhotoKit/SMB construction sites set it. A search
+      // result (`prepareCloudSession`) still knows its owning server
+      // through `catalog`; honour that first, because the ambient
+      // selection can have moved to another server while the Search
+      // tab keeps its preview path, and a store keyed on the wrong
+      // server would PUT XMP to the same asset id elsewhere. Then
+      // fall back to the pre-#2299 ambient-selection gate:
+      // cloud-backed asset routes XMP through CloudSidecarStore so
+      // edits round-trip via PUT /api/assets/<id>/xmp; local files
+      // keep using XMPSidecarStore via EditSession's primaryURL
+      // branch. Cloud refs carry the upstream asset id in stableID
+      // (set by BrowseViewModel.loadSource).
+      if let server = asset.catalog?.serverID {
+        return CloudSidecarStore(
+          server: LocalNetworkResolver.shared.effectiveURL(for: server),
+          assetID: assetID,
+          httpClient: makeAuthenticatedHTTPClient(server: server))
+      }
       guard case .cloudLibrary(let serverID, _) = librarySelection
       else { return nil }
       return CloudSidecarStore(
