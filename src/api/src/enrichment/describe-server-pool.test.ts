@@ -9,7 +9,11 @@
 
 import { describe, expect, it } from 'bun:test';
 import { DescribeServerPool } from './describe-server-pool.ts';
-import { RemoteError, type DescribeProvider } from './describe-providers/index.ts';
+import {
+  RemoteError,
+  TruncatedOutputError,
+  type DescribeProvider,
+} from './describe-providers/index.ts';
 
 /** Minimal provider stand-in: the pool only ever calls what the caller's
  * `fn` calls, plus `health()`. */
@@ -162,6 +166,30 @@ describe('DescribeServerPool', () => {
  * the stage keeps claiming backlog through that window and every claim
  * spends one of the asset's attempts on a box that cannot answer.
  */
+describe('DescribeServerPool — truncated output', () => {
+  it('fails over to the next server without tripping the breaker', async () => {
+    const pool = poolOf();
+    const tried: string[] = [];
+    const result = await pool.run(async (_provider, server) => {
+      tried.push(server.url);
+      if (server.url === servers[0]!.url) throw new TruncatedOutputError('cut off');
+      return 'ok';
+    });
+    expect(result).toBe('ok');
+    expect(tried).toEqual(servers.map((s) => s.url));
+  });
+
+  it('rejects with the truncation error once every server was tried', async () => {
+    const pool = poolOf();
+    const error = await pool
+      .run(async () => {
+        throw new TruncatedOutputError('cut off');
+      })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(TruncatedOutputError);
+  });
+});
+
 describe('DescribeServerPool — circuit breaker', () => {
   const serverFault = (url: string) => new RemoteError(`down: ${url}`, true, 500);
 

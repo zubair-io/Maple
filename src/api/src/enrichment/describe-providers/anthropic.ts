@@ -10,6 +10,7 @@
 
 import {
   RemoteError,
+  TruncatedOutputError,
   type DescribeOptions,
   type DescribeProvider,
   type DescribeResult,
@@ -121,9 +122,8 @@ export class AnthropicProvider implements DescribeProvider {
     }
 
     if (parsed.stop_reason === 'max_tokens') {
-      throw new RemoteError(
+      throw new TruncatedOutputError(
         `Anthropic stopped generating before it finished (stop_reason=max_tokens, max_tokens=${MAX_OUTPUT_TOKENS})`,
-        false,
       );
     }
     const text = extractText(parsed.content);
