@@ -22,6 +22,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 
 import { panoRoutes } from './pano.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import {
   createLiveTestDatabase,
   insertAsset,
@@ -32,7 +33,7 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 
-const app = new Elysia().use(panoRoutes);
+const app = new Elysia().use(fakeAuth()).use(panoRoutes);
 
 let live: LiveTestDatabase;
 

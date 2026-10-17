@@ -25,8 +25,9 @@ import {
 import { newPreviewDir, PREVIEW_FILES } from '../pano/pano-previews.ts';
 import { panoPreviewRoutes } from './pano-preview.ts';
 import { panoRoutes } from './pano.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
-const app = new Elysia().use(panoRoutes).use(panoPreviewRoutes);
+const app = new Elysia().use(fakeAuth()).use(panoRoutes).use(panoPreviewRoutes);
 
 let live: LiveTestDatabase;
 let tmpDir = '';
