@@ -7,7 +7,8 @@
 //! For each partial clip, normalize each fully known 7×7 witness by the mean
 //! of the target's surviving channels, using the SAME channel mask throughout.
 //! Reject negative or non-finite witnesses without changing their pixels.
-//! Average the missing-channel ratios and multiply by the target's known
+//! Weight the missing-channel ratios by surviving-channel chromaticity, using
+//! the existing wider-gather rule (#4628), then multiply by the target's known
 //! mean. Blend this estimate with the existing brightest-known neutral fallback
 //! at count/49 confidence (<4 witnesses means zero confidence). This treats channel permutations equally
 //! and avoids both a preferred green denominator and ratios of averaged ratios.
@@ -24,8 +25,8 @@
 //! The neighborhood scan runs only on clipped pixels; a scene without clips
 //! returns before allocating the mask.
 //!
-//! Guided extension (#1690): the 7×7 pass above is tier 1 and is bit-identical
-//! to the pre-#1690 behavior whenever it finds ≥4 witnesses. Pixels it cannot
+//! Guided extension (#1690): the 7×7 pass above is tier 1; #4628 applies the
+//! wider gather's chromaticity weighting locally. Pixels it cannot
 //! support (fewer than 4 witnesses — interiors of clipped regions wider than
 //! 7 px, where the old code collapsed to a neutral fallback) are deferred to
 //! two further tiers in `highlight_recovery/guided.rs`. Tier 2 estimates the
@@ -385,6 +386,7 @@ fn apply_chromatic_adaptation(
                 skip_grid = Some(SkipGrid::build(&clip_mask, img.width, img.height));
             }
             let mut sum_ratio = [0.0f32; 3];
+            let mut weight_sum = 0.0f32;
             let mut count = 0u32;
             let scan = skip_grid
                 .as_ref()
@@ -413,18 +415,30 @@ fn apply_chromatic_adaptation(
                         }
                         let witness_level = known_mean(np);
                         if witness_level > denominator_floor {
+                            // Surviving-channel hue, rather than brightness,
+                            // identifies evidence from the same surface (#4628).
+                            let weight = guided::chroma_weight(
+                                np,
+                                witness_level,
+                                p_in,
+                                known_level,
+                                m,
+                                3 - clipped_count,
+                            );
                             for c in 0..3 {
                                 if (m >> c) & 1 == 1 {
-                                    sum_ratio[c] += np[c] / witness_level;
+                                    sum_ratio[c] += weight * (np[c] / witness_level);
                                 }
                             }
+                            weight_sum += weight;
                             count += 1;
                         }
                     }
                 }
             }
-            if count >= 4 {
-                // Tier 1 has solid support: the pre-#1690 formula, unchanged.
+            if count >= 4 && weight_sum > 0.0 {
+                // Weights select the ratio; observation count retains the
+                // existing confidence. Common weight scaling must cancel.
                 let neutral_level = (0..3)
                     .filter(|c| (m >> c) & 1 == 0)
                     .map(|c| p_in[c])
@@ -433,7 +447,7 @@ fn apply_chromatic_adaptation(
                 let mut p_out = p_in;
                 for c in 0..3 {
                     if (m >> c) & 1 == 1 {
-                        let ratio = sum_ratio[c] / count as f32;
+                        let ratio = sum_ratio[c] / weight_sum;
                         p_out[c] =
                             neutral_level + confidence * (known_level * ratio - neutral_level);
                     }
@@ -501,3 +515,7 @@ mod tests_guided;
 #[cfg(test)]
 #[path = "highlight_recovery/tests_ripple.rs"]
 mod tests_ripple;
+
+#[cfg(test)]
+#[path = "highlight_recovery/tests_local_chroma.rs"]
+mod tests_local_chroma;

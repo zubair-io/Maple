@@ -361,7 +361,7 @@ pub(super) fn resolve_deferred(
     }
 }
 
-/// Bilateral range weight for a tier-2 gather cell: 1 when the cell's
+/// Bilateral range weight for a local witness or wider gather cell: 1 when its
 /// known-channel chromaticity matches the target's, decaying as the squared
 /// inverse with sharpness [`BILATERAL_K`]. Chromaticity — not level — is the
 /// comparator, so a bright highlight draws on its dimmer same-surface
