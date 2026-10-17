@@ -56,6 +56,25 @@ class SupplyChainTests(unittest.TestCase):
         self.assertIn("rust-src", wasm["components"])
         self.assertIn("wasm32-unknown-unknown", wasm["targets"])
 
+    def test_zigbuild_installs_its_pinned_dependency_metadata(self):
+        config = yaml.safe_load(
+            (ROOT / ".github/workflows/publish-package.yml").read_text()
+        )
+        steps = config["jobs"]["build-linux"]["steps"]
+        zig = next(
+            step["with"]["version"]
+            for step in steps
+            if step.get("name") == "Install Zig"
+        )
+        install = next(
+            step["run"]
+            for step in steps
+            if step.get("name") == "Install cargo-zigbuild"
+        )
+        self.assertNotIn("--no-deps", install)
+        self.assertIn(f"ziglang=={zig}", install)
+        self.assertIn("--constraint", install)
+
     def test_privileged_build_tools_are_exact_versions(self):
         package = (ROOT / ".github/workflows/publish-package.yml").read_text()
         self.assertRegex(package, r"pipx install cargo-zigbuild==\d+\.\d+\.\d+")
