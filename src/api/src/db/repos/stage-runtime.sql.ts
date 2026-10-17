@@ -449,6 +449,17 @@ export const SEED_STAGE_ROW_SQL = `
   ON CONFLICT (asset_id, stage) DO NOTHING`;
 
 /**
+ * Seed every listed stage for the asset that holds a `maple_id`, whichever row
+ * that turns out to be — for writers that upsert by content identity and so do
+ * not know whether the asset is new. Binds the stage names as a JSON array,
+ * then the `maple_id`.
+ */
+export const SEED_STAGE_ROWS_BY_MAPLE_ID_SQL = `
+  INSERT INTO stage_state (asset_id, stage)
+  SELECT a.id, s.value FROM assets a, json_each(?) s WHERE a.maple_id = ?
+  ON CONFLICT (asset_id, stage) DO NOTHING`;
+
+/**
  * Register a stage across every existing asset — the one statement that
  * replaces two index definitions and a rebuild on the next boot.
  *

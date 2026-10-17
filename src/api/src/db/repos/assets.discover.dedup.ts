@@ -26,6 +26,7 @@ import { newObjectIdHex } from '../object-id.ts';
 import type { SqlStatement, SqlValue } from '../sqlite/protocol.ts';
 import type { LocationKey } from './assets.discover.ts';
 import { searchRearmStatements } from './assets.stage-rearm.ts';
+import { ALL_STAGE_NAMES } from '../../workers/stages/stage-names.ts';
 import { seedStageRowStatements } from './stage-state.repo.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toHex, toObjectId } from './values.ts';
@@ -179,6 +180,7 @@ export async function appendOrRefreshLocation(
         params: [id, ...locationParams(entry), entry.keep ? 1 : 0, id],
       },
       refreshAssetStatement(id, refresh),
+      ...seedStageRowStatements(id, ALL_STAGE_NAMES),
       ...revive,
     ]);
     return 'append';

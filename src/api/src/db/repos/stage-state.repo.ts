@@ -69,6 +69,7 @@ import {
 } from './stage-backlog.sql.ts';
 import {
   REGISTER_STAGE_SQL,
+  SEED_STAGE_ROWS_BY_MAPLE_ID_SQL,
   SEED_STAGE_ROW_SQL,
   STAGE_INVALIDATE_SQL,
   STAGE_OFF_CLAIM_SUCCESS_SQL,
@@ -86,6 +87,14 @@ import {
  */
 export function seedStageRowStatements(assetId: string, stages: readonly string[]): SqlStatement[] {
   return stages.map((stage) => ({ sql: SEED_STAGE_ROW_SQL, params: [assetId, stage] }));
+}
+
+/** {@link seedStageRowStatements} for an asset known only by its content id. */
+export function seedStageRowsByMapleIdStatement(
+  mapleId: string,
+  stages: readonly string[],
+): SqlStatement {
+  return { sql: SEED_STAGE_ROWS_BY_MAPLE_ID_SQL, params: [JSON.stringify(stages), mapleId] };
 }
 
 /** Seed one asset's stage rows on their own. Idempotent. */
