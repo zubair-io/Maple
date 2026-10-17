@@ -94,6 +94,26 @@ export async function filesIdentical(a: string, b: string): Promise<boolean> {
   }
 }
 
+/** Compare a complete retry body with the stored file using bounded reads. */
+export async function fileMatchesBytes(file: string, bytes: Uint8Array): Promise<boolean> {
+  const fd = await fs.open(file, 'r');
+  try {
+    const stat = await fd.stat();
+    if (!stat.isFile() || stat.size !== bytes.byteLength) return false;
+    const chunk = Buffer.allocUnsafe(64 * 1024);
+    for (let pos = 0; pos < bytes.byteLength; ) {
+      const length = Math.min(chunk.length, bytes.byteLength - pos);
+      const { bytesRead } = await fd.read(chunk, 0, length, pos);
+      if (bytesRead === 0) return false;
+      if (!chunk.subarray(0, bytesRead).equals(bytes.subarray(pos, pos + bytesRead))) return false;
+      pos += bytesRead;
+    }
+    return true;
+  } finally {
+    await fd.close();
+  }
+}
+
 /** Find the first free destination for `relPath` under `libRoot` by inserting
  * a `-1`, `-2`, … suffix before the extension. Used when a genuinely different
  * asset already occupies the computed path (two photos that share a capture

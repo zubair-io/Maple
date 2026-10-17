@@ -37,6 +37,7 @@ import { containedJoin } from '../backup/path-safety.ts';
 import {
   atomicMove,
   filesIdentical,
+  fileMatchesBytes,
   firstFreeSiblingPath,
   moveNoClobber,
 } from '../backup/fs-util.ts';
@@ -137,20 +138,21 @@ export const backupIngestRoutes = new Elysia().post(
     // rendered / live video) failed and re-enqueued the task — re-uploading
     // the same bytes is wasted work, and the client's downstream steps
     // (sidecar PUT, rendered POST) only need `maple_id` + `target_rel_path`
-    // to proceed. Skip chunk processing entirely.
+    // to proceed. Skip chunk processing only when a complete retry body
+    // verifies the stored bytes; partial retries must assemble from offset 0.
     const completedPath = containedJoin(
       folder.path,
       session.resolved_rel_path ?? session.target_rel_path,
     );
     const completedCopyPresent =
-      alreadyComplete && completedPath !== null
-        ? await fs
-            .stat(completedPath)
-            .then((stat) => stat.isFile())
-            .catch((e) => {
-              if (e?.code === 'ENOENT') return false;
-              throw e;
-            })
+      alreadyComplete && completedPath !== null && start === 0 && end + 1 === rangeTotal
+        ? await fileMatchesBytes(
+            completedPath,
+            body instanceof Uint8Array ? body : new Uint8Array(body as ArrayBuffer),
+          ).catch((e) => {
+            if (e?.code === 'ENOENT') return false;
+            throw e;
+          })
         : false;
     if (alreadyComplete && completedCopyPresent) {
       log.debug(
@@ -233,13 +235,10 @@ export const backupIngestRoutes = new Elysia().post(
       const livePath = liveRelPath === null ? null : containedJoin(folder.path, liveRelPath);
       const liveCopyPresent =
         livePath !== null
-          ? await fs
-              .stat(livePath)
-              .then((stat) => stat.isFile())
-              .catch((e) => {
-                if (e?.code === 'ENOENT') return false;
-                throw e;
-              })
+          ? await filesIdentical(livePath, tmpFile).catch((e) => {
+              if (e?.code === 'ENOENT') return false;
+              throw e;
+            })
           : false;
 
       if (liveRelPath !== null && liveCopyPresent) {
@@ -347,6 +346,7 @@ export const backupIngestRoutes = new Elysia().post(
         libraryId,
         link: existing.alreadyLinked ? null : link,
         ownerId,
+        replacedRelPath: restoreRelPath !== resolvedTargetRelPath ? restoreRelPath : null,
       });
 
       await uploadSessions.complete({

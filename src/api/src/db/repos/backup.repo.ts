@@ -294,6 +294,8 @@ export interface AppendBackupLocationInput {
   /** The device link to record alongside it, or `null` when already linked. */
   link: PhassetLink | null;
   ownerId?: ObjectId | string | null;
+  /** Retire a path now occupied by different content after sibling repair. */
+  replacedRelPath?: string | null;
 }
 
 /**
@@ -314,7 +316,17 @@ export async function appendBackupLocation(
   const hex = toHex(assetId);
   const { dir, filename } = splitRelPath(input.relPath);
   const library = toHex(input.libraryId);
+  const replaced = input.replacedRelPath ? splitRelPath(input.replacedRelPath) : null;
   await db.transaction([
+    ...(replaced === null
+      ? []
+      : [
+          {
+            sql: `DELETE FROM asset_locations WHERE asset_id = ? AND library_id = ?
+              AND path = ? AND filename = ? AND deleted_at IS NULL`,
+            params: [hex, library, replaced.dir, replaced.filename],
+          },
+        ]),
     {
       sql: `UPDATE asset_locations SET missing_since = NULL, missing_reason = NULL
             WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?
