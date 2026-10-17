@@ -47,6 +47,7 @@ import {
   handleReleaseMaskRaster,
 } from './raw-pipeline.mask-raster-handler';
 import { handleNativeDetail, closeNativeDetail } from './raw-pipeline.native-detail-handler';
+import { createSerialMessageQueue } from './raw-pipeline.message-queue';
 import {
   handleOpenSession,
   handleRenderSession,
@@ -90,16 +91,22 @@ void ensureReady();
 
 // One case per request kind; the dispatch's complexity is the kind count.
 // fallow-ignore-next-line complexity
-addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
+const enqueueMessage = createSerialMessageQueue();
+// Every message runs on one serial queue (#4676) so a close/set-film-lut
+// cannot overtake an in-flight open still awaiting its lens restore.
+// `lens-profile-restored` bypasses it: a queued restore waits on that reply,
+// so queueing the reply behind the restore would deadlock.
+addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
-  releaseRetainedCpuBefore(req);
-  // Imported lens profiles (#3479): the import handshake, the main thread's
-  // fetch acknowledgement, and — for every request that carries a sidecar —
-  // registering the profile it names BEFORE the render that needs it.
   if (req.type === 'lens-profile-restored') {
     lensProfileRestored(req.id);
     return;
   }
+  enqueueMessage(() => handleMessage(req));
+});
+
+async function handleMessage(req: WorkerRequest): Promise<void> {
+  releaseRetainedCpuBefore(req);
   if (req.type === 'import-lens-profile') {
     await importLensProfile(req);
     return;
@@ -176,7 +183,7 @@ addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
       // Unknown request type — silently ignore (matches the prior early-return).
       return;
   }
-});
+}
 
 /**
  * The gpu-gated GPU live-render entry (`render_bytes_gpu`, #1029) — present only
