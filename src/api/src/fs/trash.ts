@@ -27,7 +27,7 @@ import {
   publishSidecarSnapshot,
   sameSidecarFile,
   sidecarStemClaimedBySibling,
-  unlinkMovedSidecar,
+  settleCarriedSidecar,
 } from './sidecar-ownership.ts';
 
 import { TRASH_RESTORE_COLLISION_SUFFIX } from '../generated/filename-vocabulary.generated.ts';
@@ -60,7 +60,7 @@ export async function moveSidecarsAlongside(oldAbsPath: string, newAbsPath: stri
     if (!destPath || (await sameSidecarFile(sidecar, destPath))) continue;
     try {
       const snapshot = await publishSidecarSnapshot(sidecar, destPath);
-      if (!claimedBySibling) await unlinkMovedSidecar(sidecar, destPath, snapshot);
+      await settleCarriedSidecar(sidecar, destPath, snapshot, claimedBySibling);
     } catch (err) {
       log.warn(
         { sidecar, destPath, err: err instanceof Error ? err.message : err },

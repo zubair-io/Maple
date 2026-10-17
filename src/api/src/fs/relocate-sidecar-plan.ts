@@ -19,6 +19,13 @@ export interface SidecarPlan {
   destinationClaimedBySibling: boolean;
 }
 
+export interface MovedSidecar {
+  source: string;
+  dest: string;
+  snapshot: Buffer;
+  keepSource: boolean;
+}
+
 export interface SidecarPlanRequest {
   sourceAbsPath: string;
   finalDest: string;
@@ -58,4 +65,18 @@ export async function planSidecars(req: SidecarPlanRequest): Promise<SidecarPlan
     entries.push({ source, dest, samePath, replacesOccupant: occupied });
   }
   return { entries, sourceClaimedBySibling, destinationClaimedBySibling };
+}
+
+/** A companion that failed to copy still sits at the source and still claims
+ * the stem, so ownership is re-checked against what actually moved. */
+export async function sourceSidecarStays(
+  sourceAbsPath: string,
+  finalDest: string,
+  plan: SidecarPlan,
+  requestedCompanions: readonly string[],
+  movedCompanions: readonly string[],
+): Promise<boolean> {
+  if (plan.sourceClaimedBySibling) return true;
+  if (movedCompanions.length === requestedCompanions.length) return false;
+  return sidecarStemClaimedBySibling(sourceAbsPath, [finalDest, ...movedCompanions]);
 }
