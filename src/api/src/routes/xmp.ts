@@ -44,10 +44,14 @@ import {
   SidecarWritePathDeniedError,
   waitForAbortable,
 } from '../fs/sidecar-write-order';
-import { safeWriteAllowed } from '../fs/root';
 import { writeSidecarAtomic } from '../fs/sidecar-io';
 import { xmpVariantRoutes } from './xmp-variants';
-import { authorizeSidecarRead, isMissingSidecar, readSidecarNoFollow } from '../fs/sidecar-io';
+import {
+  authorizeSidecarRead,
+  authorizeSidecarWrite,
+  isMissingSidecar,
+  readSidecarNoFollow,
+} from '../fs/sidecar-io';
 import { writeXmpIfUnchanged } from '../fs/xmp-conditional';
 import { computeBodyETag } from '../runtime/http-etag';
 
@@ -120,7 +124,7 @@ export const xmpPathRoutes = new Elysia()
             admissionScope: writeScope,
             signal: request.signal,
             resolveDestination: async () => {
-              const allowed = await safeWriteAllowed(sidecar);
+              const allowed = await authorizeSidecarWrite(sidecar);
               if (!allowed.ok)
                 throw new SidecarWritePathDeniedError(allowed.error ?? 'Sidecar path not allowed');
               return allowed.data ?? sidecar;
