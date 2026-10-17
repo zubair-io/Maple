@@ -48,7 +48,9 @@ math and LinearRaw transfer behavior remain those of this branch's base.
 - Rust formatting, whitespace and file-headroom checks pass.
 - The full debug core suite passes **2,825 tests**, with 103 explicitly
   ignored tests (including the three physical tests executed separately).
-  Metal parity passes **287 tests**, with four existing ignores.
+  Metal parity passes **287 tests**, with four existing ignores. FFI passes
+  **301 tests**, with six ignores; native-host WASM passes **74 tests**, with
+  seven ignores. All source hashes remain unchanged during these runs.
 
 ## First physical comparison
 
@@ -64,15 +66,28 @@ The control contains the same balanced-AMaZE change but no sensor GainMaps.
 
 All three pass this baseline's existing mean/p95/max/bias budgets. The
 original files and reference hashes are unchanged. This is one improved
-passing control, **zero failing cases cleared**, and does not establish
-acceptance for the remaining 43 comparisons. Exact metrics, input hashes and
+passing control, **zero failing cases cleared**, and does not by itself establish acceptance for the remaining comparisons. Exact metrics, input hashes and
 the replay script are saved as `baseline-three-way.json` and
 `compare-isolated-pixel-baseline.py` in the evidence directory below.
 
 The first candidate launch failed the external-volume executable check before
-producing any renders. Its log is retained. The running comparison uses a
+producing any renders. Its log is retained. The completed comparison uses a
 SHA-identical executable copy in the local temporary directory; the archived
 binary and all physical inputs remain unchanged.
+
+## Complete Pixel cohort
+
+The candidate completes **44 comparisons: 41 pass, 3 fail**. The balanced-AMaZE
+control completes the same cohort with **40 pass, 4 fail**. Both include all
+43 authored cases and the Auto baseline, with native-resolution detail
+comparisons. No RAWs, candidates, references or unique comparisons are missing;
+all original inputs, frozen executables and comparison sources remain unchanged.
+
+The candidate clears the control's `dehaze_max` failure, but that failure is
+new in the AMaZE prerequisite, as the three-way comparison below establishes.
+The remaining candidate failures are `exposure_max`, `whites_min`, and native
+`detail_sharpen_amount_max`. No original-main failure is claimed cleared by
+this result. Full806 comparison and the lens-resampling follow-up continue.
 
 ### Dehaze interaction with the AMaZE prerequisite
 
@@ -101,9 +116,9 @@ continues as the control for further repairs.
 ## Qualification still required
 
 This is a saved implementation checkpoint, not a ready PR or a claim that
-the physical Pixel failures are cleared. Complete the full core/GPU and
-binding suites, and paired Pixel renders against the balanced-AMaZE
-control. Complete the whole-corpus regression and performance checks before
+the physical Pixel failures are cleared. The core/GPU and binding
+suites and paired Pixel cohort are complete. Complete the whole-corpus
+regression and performance checks before
 merging; preserve every input and numerical budget.
 
 Integrate the then-current pipeline output and Auto fit-model versions and
