@@ -13,6 +13,7 @@ RenderRequestIdentityTests
 RenderActivityTests
 NativeDetailCancellationTests
 DecodedCacheAutosaveTests
+DecodedCacheLiveModelTests
 RenderedPreviewCacheWriteTests
 RawRenderSourceTests
 EditSessionNativeSizeSeedTests
