@@ -38,31 +38,72 @@ import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 // Mirror-aware drop-in — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
-import { checkAllowed, safeWriteAllowed } from './root.ts';
+import {
+  checkAllowed,
+  getRegisteredRoots,
+  isWithinRoot,
+  resolveRealPath,
+  safeWriteAllowed,
+} from './root.ts';
+import { parseRootList } from './root-list.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import type { OpResult } from './root.ts';
 import { waitForAbortable } from './sidecar-write-order.ts';
 
 const SIDECAR_EXTENSION = '.xmp';
 
-function requireSidecarResolution(requested: string, allowed: OpResult<string>): OpResult<string> {
+async function canonicalRoot(root: string): Promise<string> {
+  try {
+    return await resolveRealPath(root);
+  } catch {
+    return path.resolve(root);
+  }
+}
+
+/** Every root a sidecar may resolve into: `MAPLE_ROOTS`, roots registered at
+ * runtime, and the database libraries. The fs jail alone allows everything
+ * when the first two are empty — the documented default deployment, which
+ * never calls `registerRoot` for its libraries (#4819) — so the sidecar jail
+ * consults the libraries itself. Empty only when no library exists at all. */
+async function sidecarRoots(): Promise<string[]> {
+  const libraries = await loadLibraryRoots().then(
+    (roots) => [...roots.values()],
+    () => [],
+  );
+  const declared = [...parseRootList(process.env.MAPLE_ROOTS), ...getRegisteredRoots()];
+  return Promise.all([...declared, ...libraries].map(canonicalRoot));
+}
+
+async function requireSidecarResolution(
+  requested: string,
+  allowed: OpResult<string>,
+): Promise<OpResult<string>> {
   if (!allowed.ok) return allowed;
   const resolved = allowed.data ?? requested;
-  return path.extname(resolved).toLowerCase() === SIDECAR_EXTENSION
+  if (path.extname(resolved).toLowerCase() !== SIDECAR_EXTENSION) {
+    return {
+      ok: false,
+      error: `Sidecar path "${requested}" resolves to "${resolved}", which is not an .xmp file`,
+    };
+  }
+  const roots = await sidecarRoots();
+  return roots.length === 0 || roots.some((root) => isWithinRoot(root, resolved))
     ? { ok: true, data: resolved }
     : {
         ok: false,
-        error: `Sidecar path "${requested}" resolves to "${resolved}", which is not an .xmp file`,
+        error: `Sidecar path "${requested}" resolves to "${resolved}", outside every library root`,
       };
 }
 
 /** Jail check for a sidecar about to be written or deleted; resolves symlinks
- * and refuses any target that is not itself an `.xmp` file (#4749). */
+ * and refuses any target that is not itself an `.xmp` file inside a library
+ * root (#4749). */
 export async function authorizeSidecarWrite(destPath: string): Promise<OpResult<string>> {
   return requireSidecarResolution(destPath, await safeWriteAllowed(destPath));
 }
 
-/** Jail check for a sidecar about to be read — same `.xmp`-only rule as writes,
- * so a sidecar symlink cannot disclose an original or an out-of-root file. */
+/** Jail check for a sidecar about to be read — same rules as writes, so a
+ * sidecar symlink cannot disclose an original or an out-of-root file. */
 export async function authorizeSidecarRead(sidecar: string): Promise<OpResult<string>> {
   return requireSidecarResolution(sidecar, await checkAllowed(sidecar));
 }
