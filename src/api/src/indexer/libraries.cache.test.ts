@@ -57,6 +57,18 @@ describe('loadLibraryRoots', () => {
 
     expect((await loadLibraryRoots()).size).toBe(0);
   });
+
+  test('a read in flight across an invalidation is not cached (#4747)', async () => {
+    using live = await createLiveTestDatabase();
+    insertFolder(live.db, { path: '/x' });
+
+    const inFlight = loadLibraryRoots();
+    run(live.db, `DELETE FROM folders`);
+    invalidateLibraryRoots();
+    await inFlight;
+
+    expect((await loadLibraryRoots()).size).toBe(0);
+  });
 });
 
 describe('getLibraryBySlug', () => {

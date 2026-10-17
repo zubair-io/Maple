@@ -444,7 +444,7 @@ impl EvidenceSource {
             EvidenceSource::ColorChart => 7,
             EvidenceSource::ColorHarness => 796,
             EvidenceSource::SidecarContractApple => 12,
-            EvidenceSource::SidecarContractApi => 3,
+            EvidenceSource::SidecarContractApi => 4,
             // 19: the high-amount sharpen undershoot case (#4112) joins the 18
             // raw-wasm gpu_render parity cases; the Auto-fit regressions (#4171)
             // now run with the shared gpu_host in raw-core.
