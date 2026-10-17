@@ -18,6 +18,65 @@ def workflow(name):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_combined_group_events_and_cross_gates(self):
+        names = (
+            "android",
+            "api",
+            "apple",
+            "cloudflare",
+            "cross",
+            "face-clustering",
+            "linux",
+            "maple-types",
+            "publish-package",
+            "raw-pipeline",
+            "web",
+            "windows",
+        )
+        for name in names:
+            with self.subTest(workflow=name):
+                events = workflow(name)[True]
+                self.assertEqual(events["merge_group"]["types"], ["checks_requested"])
+                self.assertNotIn("paths", events["merge_group"])
+        selector = workflow("ci-changes")["jobs"]["select"]["steps"][-1]
+        self.assertIn("tools/ci_changes.py", selector["run"])
+        cross = workflow("cross")["jobs"]
+        for job_id in (
+            "format-check",
+            "budget-headroom",
+            "budgets-ratchet-shrinks-only",
+            "gitleaks",
+        ):
+            with self.subTest(job=job_id):
+                job = cross[job_id]
+                self.assertIn("github.event.merge_group.base_sha", str(job))
+                self.assertIn("merge_group", str(job))
+        self.assertIn("merge_group", cross["budget-headroom"]["if"])
+        self.assertIn(
+            "merge_group", cross["budgets-ratchet-shrinks-only"]["steps"][-1]["if"]
+        )
+        steps = {
+            job_id: "\n".join(step.get("run", "") for step in cross[job_id]["steps"])
+            for job_id in (
+                "format-check",
+                "budget-headroom",
+                "budgets-ratchet-shrinks-only",
+                "gitleaks",
+            )
+        }
+        self.assertIn(
+            'git diff --name-only --diff-filter=ACMR "$GROUP_BASE" "$GROUP_HEAD"',
+            steps["format-check"],
+        )
+        self.assertIn(
+            'bash tools/check-budget-headroom.sh "$GROUP_BASE"',
+            steps["budget-headroom"],
+        )
+        self.assertIn(
+            'merge_base="$GROUP_BASE"', steps["budgets-ratchet-shrinks-only"]
+        )
+        self.assertIn('RANGE="${GROUP_BASE}..${GROUP_HEAD}"', steps["gitleaks"])
+
     def test_raw_pipeline_watches_its_comparison_regressions(self):
         events = workflow("raw-pipeline")[True]
         for event in ("push", "pull_request"):
@@ -129,10 +188,16 @@ class WorkflowTests(unittest.TestCase):
                         self.assertEqual(
                             jobs[job]["if"], "github.event_name == 'pull_request'"
                         )
+                    elif component == "pr-or-group":
+                        self.assertEqual(
+                            jobs[job]["if"],
+                            "github.event_name == 'pull_request' || "
+                            "github.event_name == 'merge_group'",
+                        )
                     else:
                         self.assertEqual(component, "always")
                         self.assertNotIn("if", jobs[job])
-                for event in ("push", "pull_request"):
+                for event in ("push", "pull_request", "merge_group"):
                     for selected in (True, False):
                         needs = {
                             "changes": {
@@ -144,10 +209,14 @@ class WorkflowTests(unittest.TestCase):
                             }
                         }
                         for job, component in rules.items():
-                            enabled = component == "always" or (
-                                event == "pull_request"
-                                if component == "pr"
-                                else selected
+                            enabled = (
+                                component == "always"
+                                or (component == "pr" and event == "pull_request")
+                                or (
+                                    component == "pr-or-group"
+                                    and event in ("pull_request", "merge_group")
+                                )
+                                or (component in CONSUMERS and selected)
                             )
                             needs[job] = {"result": "success" if enabled else "skipped"}
                         validate(needs, rules, event)

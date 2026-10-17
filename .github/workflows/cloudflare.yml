@@ -41,6 +41,8 @@
 name: cloudflare
 
 on:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
     paths: ['src/cloudflare/**', '.github/workflows/cloudflare.yml']
