@@ -37,12 +37,49 @@ extension AppShell {
   /// the pushed ref).
   func timelinePreviewAssets() -> [AssetRef] {
     if let vm = allSourcesTimelineVM {
-      return timelinePreviewAssets(fromAllSources: vm)
+      return timelinePreviewSiblingCache.assets(for: Self.siblingKey(vm)) {
+        timelinePreviewAssets(fromAllSources: vm)
+      }
     }
     if let vm = cloudTimelineVM {
-      return timelinePreviewAssets(fromCloudTimeline: vm)
+      return timelinePreviewSiblingCache.assets(for: Self.siblingKey(vm)) {
+        timelinePreviewAssets(fromCloudTimeline: vm)
+      }
     }
     return []
+  }
+
+  /// Fingerprint of exactly the Timeline content the sibling list is built
+  /// from (the VM instance, its bucket order, and each bucket's cells), so
+  /// the memo survives redraws and refreshes only when a load lands.
+  private static func siblingKey(_ vm: AllSourcesTimelineViewModel)
+    -> TimelinePreviewSiblingCache.Key
+  {
+    var hasher = Hasher()
+    hasher.combine(ObjectIdentifier(vm))
+    for bucket in vm.buckets {
+      let key = AllSourcesTimelineViewModel.BucketKey(year: bucket.year, month: bucket.month)
+      hasher.combine(bucket.year)
+      hasher.combine(bucket.month)
+      hasher.combine(vm.mergedPagesByBucket[key])
+      hasher.combine(vm.pagesByBucket[key]?.map(\.id))
+    }
+    return .init(fingerprint: hasher.finalize())
+  }
+
+  private static func siblingKey(_ vm: CloudTimelineViewModel)
+    -> TimelinePreviewSiblingCache.Key
+  {
+    var hasher = Hasher()
+    hasher.combine(ObjectIdentifier(vm))
+    for bucket in vm.buckets {
+      let key = CloudTimelineViewModel.BucketKey(year: bucket.year, month: bucket.month)
+      hasher.combine(bucket.year)
+      hasher.combine(bucket.month)
+      hasher.combine(vm.mergedPagesByBucket[key])
+      hasher.combine(vm.pagesByBucket[key]?.map(\.id))
+    }
+    return .init(fingerprint: hasher.finalize())
   }
 
   /// Splice the asset the user actually TAPPED into its own sibling list.

@@ -272,6 +272,9 @@ struct AppShell: View {
   /// `CloudThumbClient` to hand the center column, so there's no
   /// `allSourcesTimelineThumbClient` counterpart to `cloudTimelineThumbClient`.
   @State var allSourcesTimelineVM: AllSourcesTimelineViewModel?
+  /// Stable Timeline sibling refs across redraws (#4714); a class in
+  /// `@State` so the memo can be filled from a body-evaluated helper.
+  @State var timelinePreviewSiblingCache = TimelinePreviewSiblingCache()
   /// Shared disk cache for the all-sources timeline's thumbs. One
   /// instance for the VM's lifetime, same rationale as
   /// `cloudTimelineThumbCache` — `CloudThumbCache` is host-keyed, so one
