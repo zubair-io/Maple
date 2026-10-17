@@ -412,3 +412,7 @@ ThumbnailDiskCacheKeyTests
 # Server URL parsing and the sign-in prefill round trip (#5033): pure string
 # work; was mis-tagged as talking to a host service in excluded.txt.
 CloudHostTests
+
+# Shared-sidecar ownership rule (#4707): real temp dirs + in-memory SMB transport.
+LocalSidecarOwnershipTests
+SMBSidecarOwnershipTests

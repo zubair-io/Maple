@@ -34,7 +34,8 @@ public enum CollisionPolicy: Sendable, Equatable {
     /// hasn't asked the user yet.
     case fail
     /// Overwrite the existing destination (primary + its sidecar, if any) —
-    /// the user explicitly chose Replace.
+    /// the user explicitly chose Replace. A destination sidecar another
+    /// same-stem photo there still uses is never overwritten (#4707).
     case replace
 }
 
@@ -68,11 +69,15 @@ public struct RelocatePlan: Sendable, Equatable {
     /// `sourcePrimaryPath` when this is true: on such a filesystem that
     /// path now resolves to the very file that was just renamed.
     public let sourceAlreadyRelocated: Bool
+    /// True when finalize must leave `sourceSidecarPath` in place: another
+    /// same-stem photo still uses it, or it maps onto itself (an
+    /// extension-only rename) — #4707.
+    public let retainsSourceSidecar: Bool
 
     public init(mode: RelocateMode, sourcePrimaryPath: String, sourceSidecarPath: String?,
                 finalPrimaryPath: String, finalSidecarPath: String?,
                 renamedDueToCollision: Bool, createdPaths: [String],
-                sourceAlreadyRelocated: Bool = false) {
+                sourceAlreadyRelocated: Bool = false, retainsSourceSidecar: Bool = false) {
         self.mode = mode
         self.sourcePrimaryPath = sourcePrimaryPath
         self.sourceSidecarPath = sourceSidecarPath
@@ -81,6 +86,7 @@ public struct RelocatePlan: Sendable, Equatable {
         self.renamedDueToCollision = renamedDueToCollision
         self.createdPaths = createdPaths
         self.sourceAlreadyRelocated = sourceAlreadyRelocated
+        self.retainsSourceSidecar = retainsSourceSidecar
     }
 
     /// True when `finalize` has nothing left to do — either a case-only

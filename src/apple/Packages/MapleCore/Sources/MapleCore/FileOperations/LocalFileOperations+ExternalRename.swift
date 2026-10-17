@@ -87,6 +87,9 @@ extension LocalFileOperations {
                 }
                 sourceSidecarPath = oldSidecarURL.path
                 finalSidecarPath = newSidecarURL.path
+            } else if SidecarOwnership.sameLocalFile(oldSidecarURL.path, newSidecarURL.path) {
+                sourceSidecarPath = oldSidecarURL.path
+                finalSidecarPath = newSidecarURL.path
             } else {
                 guard !fm.fileExists(atPath: newSidecarURL.path) else {
                     // The newly-arrived file already owns a sidecar of its
@@ -98,10 +101,15 @@ extension LocalFileOperations {
                     return false
                 }
                 do {
-                    try fm.moveItem(at: oldSidecarURL, to: newSidecarURL)
+                    // A sidecar another same-stem photo still uses is copied, never taken (#4707).
+                    if SidecarOwnership.localStemClaimedBySibling(oldURL, excluding: [newURL]) {
+                        try fm.copyItem(at: oldSidecarURL, to: newSidecarURL)
+                    } else {
+                        try fm.moveItem(at: oldSidecarURL, to: newSidecarURL)
+                    }
                 } catch {
                     externalRenameLog.error(
-                        "applyExternalRename: sidecar moveItem failed (\(oldSidecarURL.path, privacy: .public)): \(error.localizedDescription, privacy: .public)")
+                        "applyExternalRename: sidecar follow failed (\(oldSidecarURL.path, privacy: .public)): \(error.localizedDescription, privacy: .public)")
                     return false
                 }
                 sourceSidecarPath = oldSidecarURL.path
