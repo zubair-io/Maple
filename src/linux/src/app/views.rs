@@ -191,83 +191,87 @@ impl MapleApp {
                     if let Some(folder) = &self.folder {
                         let columns = (ui.available_width() / 160.0).floor().max(1.0) as usize;
                         let rows = folder.photos.len().div_ceil(columns);
-                        egui::ScrollArea::vertical().show_rows(ui, 155.0, rows, |ui, range| {
-                            for row in range {
-                                ui.horizontal(|ui| {
-                                    for photo in
-                                        folder.photos.iter().skip(row * columns).take(columns)
-                                    {
-                                        ui.allocate_ui_with_layout(
-                                            egui::vec2(150.0, 145.0),
-                                            egui::Layout::top_down(egui::Align::Center),
-                                            |ui| {
-                                                let response = match self
-                                                    .thumbnail_cache
-                                                    .get(&photo.path)
-                                                {
-                                                    Some(Ok(texture)) => ui.add(
-                                                        egui::Image::new(texture)
-                                                            .fit_to_exact_size(
-                                                                texture.size_vec2()
-                                                                    * (140.0
-                                                                        / texture.size_vec2().x)
-                                                                        .min(
-                                                                            110.0
-                                                                                / texture
-                                                                                    .size_vec2()
-                                                                                    .y,
-                                                                        ),
+                        egui::ScrollArea::vertical()
+                            .id_salt(self.listing)
+                            .show_rows(ui, 155.0, rows, |ui, range| {
+                                for row in range {
+                                    ui.horizontal(|ui| {
+                                        for photo in
+                                            folder.photos.iter().skip(row * columns).take(columns)
+                                        {
+                                            ui.allocate_ui_with_layout(
+                                                egui::vec2(150.0, 145.0),
+                                                egui::Layout::top_down(egui::Align::Center),
+                                                |ui| {
+                                                    let response = match self
+                                                        .thumbnail_cache
+                                                        .get(&photo.path)
+                                                    {
+                                                        Some(Ok(texture)) => ui.add(
+                                                            egui::Image::new(texture)
+                                                                .fit_to_exact_size(
+                                                                    texture.size_vec2()
+                                                                        * (140.0
+                                                                            / texture
+                                                                                .size_vec2()
+                                                                                .x)
+                                                                            .min(
+                                                                                110.0
+                                                                                    / texture
+                                                                                        .size_vec2()
+                                                                                        .y,
+                                                                            ),
+                                                                )
+                                                                .sense(egui::Sense::click()),
+                                                        ),
+                                                        Some(Err(error)) => ui
+                                                            .add_sized(
+                                                                [140.0, 110.0],
+                                                                egui::Button::new(
+                                                                    "Preview unavailable",
+                                                                ),
                                                             )
-                                                            .sense(egui::Sense::click()),
-                                                    ),
-                                                    Some(Err(error)) => ui
-                                                        .add_sized(
-                                                            [140.0, 110.0],
-                                                            egui::Button::new(
-                                                                "Preview unavailable",
-                                                            ),
-                                                        )
-                                                        .on_hover_text(error),
-                                                    None => {
-                                                        if !self
-                                                            .thumbnail_pending
-                                                            .contains(&photo.path)
-                                                            && self.thumbnails.request(
-                                                                self.thumbnail_epoch,
-                                                                photo.clone(),
+                                                            .on_hover_text(error),
+                                                        None => {
+                                                            if !self
+                                                                .thumbnail_pending
+                                                                .contains(&photo.path)
+                                                                && self.thumbnails.request(
+                                                                    self.thumbnail_epoch,
+                                                                    photo.clone(),
+                                                                )
+                                                            {
+                                                                self.thumbnail_pending
+                                                                    .insert(photo.path.clone());
+                                                            }
+                                                            ui.add_sized(
+                                                                [140.0, 110.0],
+                                                                egui::Button::new("Loading…"),
                                                             )
-                                                        {
-                                                            self.thumbnail_pending
-                                                                .insert(photo.path.clone());
                                                         }
-                                                        ui.add_sized(
-                                                            [140.0, 110.0],
-                                                            egui::Button::new("Loading…"),
+                                                    };
+                                                    let name = photo
+                                                        .path
+                                                        .file_name()
+                                                        .unwrap_or_default()
+                                                        .to_string_lossy();
+                                                    response.widget_info(|| {
+                                                        egui::WidgetInfo::labeled(
+                                                            egui::WidgetType::Button,
+                                                            response.enabled(),
+                                                            format!("Open {name}"),
                                                         )
+                                                    });
+                                                    if response.clicked() {
+                                                        selected = Some(photo.clone());
                                                     }
-                                                };
-                                                let name = photo
-                                                    .path
-                                                    .file_name()
-                                                    .unwrap_or_default()
-                                                    .to_string_lossy();
-                                                response.widget_info(|| {
-                                                    egui::WidgetInfo::labeled(
-                                                        egui::WidgetType::Button,
-                                                        response.enabled(),
-                                                        format!("Open {name}"),
-                                                    )
-                                                });
-                                                if response.clicked() {
-                                                    selected = Some(photo.clone());
-                                                }
-                                                ui.label(name);
-                                            },
-                                        );
-                                    }
-                                });
-                            }
-                        });
+                                                    ui.label(name);
+                                                },
+                                            );
+                                        }
+                                    });
+                                }
+                            });
                     } else {
                         ui.centered_and_justified(|ui| {
                             ui.label("Choose a folder to browse your photographs.");
