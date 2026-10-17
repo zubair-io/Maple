@@ -464,10 +464,12 @@ public actor GpuLiveSession {
                 p.noise_profile_len = UInt32(np.count)
               }
               p.iso = iso
-              return withFilmLutBound(p) { pp in
-                withScopeBound(pp) { ppp in
-                  withLocalAdjustmentsBound(ppp, model) { pppp in
-                    withAutoProfileBound(pppp, body)
+              return Self.withDisplayCurvesBound(p, model) { p in
+                withFilmLutBound(p) { pp in
+                  withScopeBound(pp) { ppp in
+                    withLocalAdjustmentsBound(ppp, model) { pppp in
+                      withAutoProfileBound(pppp, body)
+                    }
                   }
                 }
               }

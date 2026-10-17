@@ -1378,6 +1378,9 @@ extension PipelineRenderer {
     params.temperature = Float(wb.temperature)
     params.tint = Float(wb.tint)
     params.nr_sampling_scale = nrSamplingScale
+    // #4738: the CPU chain honours the model's WB method like the live
+    // chain does (0 = CAT16, 1 = diagonal Rec.2020).
+    params.wb_method = model.wbMethod == .diagonalRec2020 ? 1 : 0
     params.exposure = Float(model.exposure)
     params.contrast = Float(model.contrast)
     params.highlights = Float(model.highlights)

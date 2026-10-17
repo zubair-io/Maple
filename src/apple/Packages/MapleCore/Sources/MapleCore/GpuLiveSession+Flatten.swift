@@ -72,3 +72,34 @@ extension GpuLiveSession {
     }
   }
 }
+
+extension GpuLiveSession {
+  /// Bind the display-referred curves (`crs:ToneCurvePV2012*`) into a
+  /// copy of `params` for the duration of `body` (#4738). The live path
+  /// never bound these, so an imported ACR curve rendered on export and
+  /// refine but never on the canvas.
+  static func withDisplayCurvesBound<R>(
+    _ params: MapleGpuLiveParams,
+    _ model: AdjustmentModel,
+    _ body: (MapleGpuLiveParams) -> R
+  ) -> R {
+    let luma = flattened(model.displayToneCurveLuma)
+    let red = flattened(model.displayToneCurveRed)
+    let green = flattened(model.displayToneCurveGreen)
+    let blue = flattened(model.displayToneCurveBlue)
+    return luma.withUnsafeBufferPointer { lu in
+      red.withUnsafeBufferPointer { r in
+        green.withUnsafeBufferPointer { g in
+          blue.withUnsafeBufferPointer { b in
+            var p = params
+            bind(lu, to: &p.display_tone_curve_luma_ptr, len: &p.display_tone_curve_luma_len)
+            bind(r, to: &p.display_tone_curve_red_ptr, len: &p.display_tone_curve_red_len)
+            bind(g, to: &p.display_tone_curve_green_ptr, len: &p.display_tone_curve_green_len)
+            bind(b, to: &p.display_tone_curve_blue_ptr, len: &p.display_tone_curve_blue_len)
+            return body(p)
+          }
+        }
+      }
+    }
+  }
+}
