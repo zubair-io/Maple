@@ -33,8 +33,9 @@ namespace Maple.WinUI.ViewModels
         /// CompleteAuthCallbackAsync. Returns (ok, message, devLoginEnabled).</summary>
         public async Task<(bool Ok, string Message, bool DevLoginEnabled)> StartBrowserSignInAsync(string serverUrl)
         {
+            if (await ReleaseCloudSessionAsync() is { } blocked)
+                return (false, blocked, false);
             _signInPollCts?.Cancel();
-            await ReleaseCloudSessionAsync();
             _cloud?.Dispose();
             _cloud = new CloudClient(serverUrl);
             HookTokenRotation(_cloud);
@@ -176,8 +177,9 @@ namespace Maple.WinUI.ViewModels
         /// no email, no browser. Probes first when needed.</summary>
         public async Task<(bool Ok, string Message)> DevSignInAsync(string serverUrl)
         {
+            if (await ReleaseCloudSessionAsync() is { } blocked)
+                return (false, blocked);
             _signInPollCts?.Cancel();
-            await ReleaseCloudSessionAsync();
             _cloud?.Dispose();
             _cloud = new CloudClient(serverUrl);
             HookTokenRotation(_cloud);
@@ -218,7 +220,8 @@ namespace Maple.WinUI.ViewModels
                 return;
             }
             CloudStatus = $"Reconnecting to {settings.CloudServerUrl}…";
-            await ReleaseCloudSessionAsync();
+            if (await ReleaseCloudSessionAsync() is not null)
+                return;
             _cloud?.Dispose();
             _cloud = new CloudClient(settings.CloudServerUrl!);
             HookTokenRotation(_cloud);
