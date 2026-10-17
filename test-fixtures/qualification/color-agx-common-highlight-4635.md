@@ -126,14 +126,46 @@ to the existing session exception for failures already on main. **The physical
 gate still fails; no threshold is increased and no pass is claimed.** Follow-up
 #4914 tracks repairing all three added breaches without losing the gains.
 
-### Integration on current main
+### Completed integration on current main
 
-Rebased onto main `1b273fb87851d3d608bebdba8ee6621cf2b62a16` after #4770.
-The common-highlight algorithm is unchanged. The film fix stays in place;
-new cache identities prevent reuse of fits made with the previous AgX tail.
-Fresh platform and selected physical integration checks are required before
-merge. The 112-to-99 full-corpus result above belongs to its frozen historical
-source revisions and is not relabeled as a new current-main measurement.
+The final integration base is main
+`aa6f492c088a2cf54a762a27b9f0b0929fb8f9e7`, including #4770, the Apple/FFI
+curve-wiring changes and the File Provider cache fix. The common-highlight
+algorithm is unchanged. Output version 27 and Auto fit-model version 4 keep
+the new transform distinct from the landed film fix's cache identities.
+
+| Current integration suite | Passed | Failed | Ignored |
+| --- | ---: | ---: | ---: |
+| Rust core library | 2,819 | 0 | 103 |
+| Real Metal GPU | 289 | 0 | 4 |
+| FFI including current-main curve/perspective entries | 314 | 0 | 6 |
+| Native-host GPU-enabled WASM bindings | 75 | 0 | 7 |
+| Total | 3,497 | 0 | 120 |
+
+The 220 focused view tests and 10 AgX Metal tests also pass; they overlap the
+suite totals. All 776 parsed XMP adjustment models match the historical
+candidate byte for byte. Code generation and repeat generation completed on
+the same generator/core sources, with no budget changes.
+
+All **19 full-resolution physical replays are byte-identical** to the frozen
+AgX candidate: the 14 cleared cases, all three accepted metric regressions,
+and Canon/Fuji Auto baselines. This preserves their exact measured metrics,
+including the accepted failures. Original RAWs/XMP, source hashes and frozen
+binaries remain unchanged. It does not claim a new full 806-case measurement.
+
+The core/GPU/CLI/resource trees tested at
+`c7476cc75c8fe8cd9c802a1bfbf541600596d205` exactly match the final integration.
+The changed FFI tree was separately tested at
+`7f3d46c8b326e0b9d0bf4e494b00c0f727368669`; the subsequent cache-only rebase
+leaves the entire Rust workspace unchanged. These are explicit source-tree
+identity checks, not relabelled runs. The 112-to-99 full-corpus result above
+belongs to its historical frozen revisions.
+
+Evidence is retained separately in `agx-common-highlight-current-main/`:
+`core-identity.json`, `integration.json`, `physical-replay/identity.json`,
+`xmp-model-equivalence.json` and the individual suite logs. Required CI and
+review remain merge-time checks; the physical-gate exception is documented
+above and its added residuals remain tracked by #4914.
 
 For test_0000 luminance NR, the selection uses the separately qualified Adobe
 authoring overlay from #4851 on both sides. Replaying main against that same
