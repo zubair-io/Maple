@@ -27,6 +27,10 @@ extension LocalFileOperations {
     let sidecars = try RestoreSidecarPairing.matchedNames(names, primary: source.path).map {
       source.deletingLastPathComponent().appendingPathComponent($0)
     }
+    // A sidecar another trashed same-stem photo still uses stays in the trash (#4707).
+    let sidecarClaimedInTrash = SidecarOwnership.stemClaimedBySibling(
+      primaryPath: source.path, siblingNames: names,
+      foldsCase: SidecarOwnership.localVolumeFoldsCase(source.deletingLastPathComponent()))
     let originals = try (sidecars + [source]).map { try RestoreLocalFile.capture($0) }
     let anchor = try RestoreDirectoryAnchor.establish(directory, under: root)
     let stageName = ".maple-restore.tmp." + UUID().uuidString
@@ -118,7 +122,7 @@ extension LocalFileOperations {
       // The trash originals go only while the destination still resolves
       // to the anchored directory — never after a redirection.
       try anchor.assertSame(directory)
-      for member in members {
+      for member in members where member.source == source || !sidecarClaimedInTrash {
         try member.original.removeIfUnchanged(member.source, beforeRemoval: beforeRemoval)
       }
       let canonical = SidecarPath.sidecarURL(for: target)
