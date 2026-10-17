@@ -16,6 +16,7 @@ import * as fs from './mirrored.ts';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { listPairedSidecars } from './xmp-conflict.ts';
+import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
 import { isVideoFilename } from '../indexer/media-types';
 import { child as childLogger } from '../log.ts';
@@ -77,18 +78,42 @@ export async function sidecarStemClaimedBySibling(
   );
 }
 
+/** True when `dest` already holds exactly `source`'s bytes — the sidecar an
+ * earlier same-stem photo of the same batch carried there. Landing on it
+ * neither overwrites nor adopts different edits, so it is not a collision. */
+export async function sidecarAlreadyCarried(source: string, dest: string): Promise<boolean> {
+  const [a, b] = await Promise.all([
+    fs.readFile(source).catch(() => null),
+    fs.readFile(dest).catch(() => null),
+  ]);
+  return a !== null && b !== null && a.equals(b);
+}
+
 /** Destination occupancy for a whole asset: the primary path itself, or any
- * sidecar paired to it that is not one of the moving asset's own sidecars. */
+ * sidecar paired to it that is neither one of the moving asset's own sidecars
+ * nor an identical copy of the one that would land there. */
 export async function assetDestinationOccupied(
   candidate: string,
   ownSidecars: readonly string[],
+  sourceAbsPath?: string,
 ): Promise<boolean> {
   try {
     await fs.lstat(candidate);
     return true;
   } catch {
     const paired = await listPairedSidecars(candidate);
-    return paired.some((sidecar) => !ownSidecars.some((own) => sameSidecarPath(own, sidecar)));
+    for (const sidecar of paired) {
+      if (ownSidecars.some((own) => sameSidecarPath(own, sidecar))) continue;
+      const incoming = sourceAbsPath
+        ? ownSidecars.find((own) => {
+            const target = sidecarRenameTarget(sourceAbsPath, candidate, own);
+            return target !== null && sameSidecarPath(target, sidecar);
+          })
+        : undefined;
+      if (incoming && (await sidecarAlreadyCarried(incoming, sidecar))) continue;
+      return true;
+    }
+    return false;
   }
 }
 

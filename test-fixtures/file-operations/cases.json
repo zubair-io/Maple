@@ -1089,6 +1089,58 @@
       }
     },
     {
+      "name": "destination_identical_sidecar_is_joined_not_a_collision",
+      "kind": "relocate",
+      "description": "#4692 shared-sidecar ownership rule (docs/xmp-canonical-format.md \u00a7 Moving, renaming and trashing a photo). The second half of a RAW+JPEG pair moved after the first finds the sidecar the first one carried. Its bytes equal the incoming sidecar, so the photo joins it on the same stem instead of auto-suffixing.",
+      "platforms": ["api"],
+      "requires": [],
+      "setup": {
+        "files": [
+          {
+            "path": "Source/IMG_1.JPG",
+            "content": "jpg"
+          },
+          {
+            "path": "Source/IMG_1.xmp",
+            "content": "<shared/>"
+          },
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "raw"
+          },
+          {
+            "path": "Album/IMG_1.xmp",
+            "content": "<shared/>"
+          }
+        ]
+      },
+      "operation": {
+        "source": "Source/IMG_1.JPG",
+        "destDir": "Album",
+        "mode": "move",
+        "collision": "auto-suffix"
+      },
+      "expected": {
+        "outcome": "relocated",
+        "sidecarFollowed": true,
+        "renamedOnCollision": false,
+        "tree": [
+          {
+            "path": "Album/IMG_1.CR3",
+            "content": "raw"
+          },
+          {
+            "path": "Album/IMG_1.JPG",
+            "content": "jpg"
+          },
+          {
+            "path": "Album/IMG_1.xmp",
+            "content": "<shared/>"
+          }
+        ]
+      }
+    },
+    {
       "name": "destination_sibling_sidecar_skip_declines",
       "kind": "relocate",
       "description": "#4692 shared-sidecar ownership rule (docs/xmp-canonical-format.md \u00a7 Moving, renaming and trashing a photo). skip (API-only policy) treats an occupied destination sidecar like an occupied photo: nothing changes.",
