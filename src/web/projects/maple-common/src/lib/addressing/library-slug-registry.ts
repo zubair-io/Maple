@@ -141,7 +141,6 @@ export class LibrarySlugRegistry {
     return slug;
   }
 
-  /** Retrieve a previously-registered handle by slug, or null. */
   /** The slug this session minted or recovered for `folder`, if it was registered here. */
   slugFor(folder: MapleFolderHandle): string | undefined {
     const byFallback = this.fallbackSlugs.get(folder);
@@ -150,6 +149,7 @@ export class LibrarySlugRegistry {
     return undefined;
   }
 
+  /** Retrieve a previously-registered handle by slug, or null. */
   async getHandle(slug: string): Promise<FileSystemDirectoryHandle | null> {
     const session = this.sessionHandles.get(slug);
     if (session) return session;
