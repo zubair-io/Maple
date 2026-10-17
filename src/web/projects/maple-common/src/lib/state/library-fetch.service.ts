@@ -307,6 +307,8 @@ export class LibraryFetch {
 
     // 3. Ensure the folder appears in the sidebar tree.
     this.store.ensureFolder(folderId, folder.name);
+    // A different folder drops the stale focus a rating key would otherwise hit (#4683).
+    if (this.selection.selectedSourceId() !== folderId) this.selection.resetForSourceChange();
     this.selection.selectedSourceId.set(folderId);
   }
 
@@ -1097,6 +1099,21 @@ export class LibraryFetch {
     const folder = this.store.currentFolder();
     if (!folder?.write) {
       this.singleFileXmp.markEdited(id);
+      return;
+    }
+    // The sidecar name comes from the asset but the directory from the open
+    // folder, so an asset another folder owns would overwrite that folder's
+    // same-basename sidecar with a foreign model (#4683).
+    const folderSlug = this.slugRegistry.slugFor(folder);
+    if (!folderSlug || `f-${folderSlug}` !== asset.folderId) {
+      const revision = this.sidecarSave.queued(id);
+      this.sidecarSave.failed(
+        id,
+        revision,
+        new Error(
+          `Sidecar for ${asset.filename} belongs to ${asset.folderId}, not the open folder`,
+        ),
+      );
       return;
     }
     this.xmpStore.scheduleWrite(id, folder, asset.filename, fullModel, culling);
