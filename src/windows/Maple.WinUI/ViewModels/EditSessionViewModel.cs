@@ -207,6 +207,7 @@ namespace Maple.WinUI.ViewModels
             HasSidecarLoadError = false;
             SidecarLoadError = string.Empty;
             _openPhoto = photo;
+            _openCloudGeneration = _cloudSlot.Generation;
             _asShotTemperature = 6500f;
             _asShotTint = 0;
             _sidecarDirty = false;

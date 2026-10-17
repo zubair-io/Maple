@@ -19,7 +19,6 @@ namespace Maple.WinUI.ViewModels
         [ObservableProperty] private string _cloudStatus = "Not connected";
         [ObservableProperty] private bool _cloudConnected;
 
-        private CloudClient? _cloud;
         private CloudPkcePending? _pendingSignIn;
         private CancellationTokenSource? _signInPollCts;
 
@@ -35,6 +34,7 @@ namespace Maple.WinUI.ViewModels
         public async Task<(bool Ok, string Message, bool DevLoginEnabled)> StartBrowserSignInAsync(string serverUrl)
         {
             _signInPollCts?.Cancel();
+            await ReleaseCloudSessionAsync();
             _cloud?.Dispose();
             _cloud = new CloudClient(serverUrl);
             HookTokenRotation(_cloud);
@@ -177,6 +177,7 @@ namespace Maple.WinUI.ViewModels
         public async Task<(bool Ok, string Message)> DevSignInAsync(string serverUrl)
         {
             _signInPollCts?.Cancel();
+            await ReleaseCloudSessionAsync();
             _cloud?.Dispose();
             _cloud = new CloudClient(serverUrl);
             HookTokenRotation(_cloud);
@@ -217,6 +218,7 @@ namespace Maple.WinUI.ViewModels
                 return;
             }
             CloudStatus = $"Reconnecting to {settings.CloudServerUrl}…";
+            await ReleaseCloudSessionAsync();
             _cloud?.Dispose();
             _cloud = new CloudClient(settings.CloudServerUrl!);
             HookTokenRotation(_cloud);
@@ -338,7 +340,8 @@ namespace Maple.WinUI.ViewModels
         /// sidecar. Also arms the developed-preview re-publish.</summary>
         private void PushCloudSidecar(PhotoItem photo)
         {
-            if (_cloud == null)
+            var client = _cloudSlot.Resolve(_openCloudGeneration);
+            if (client == null)
                 return;
             var doc = _cloudDoc ?? new Services.Xmp.XmpSidecarDocument();
             doc.Adjustments = Adjustments.Clone();
@@ -354,7 +357,6 @@ namespace Maple.WinUI.ViewModels
             doc.Flag = photo.FlagStatus;
             doc.ColorLabel = photo.ColorLabel;
             _cloudDoc = doc;
-            var client = _cloud;
             var snapshot = doc.Adjustments.Clone();
             var version = _photoOpenVersion;
             var serverPath = photo.FilePath;
