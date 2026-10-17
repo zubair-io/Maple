@@ -564,8 +564,17 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                code: NSFileProviderError.noSuchItem.rawValue))
                 return
             }
+            // An identifier this build no longer recognises (a `trash/<id>`
+            // container persisted by a pre-#4706 domain, or anything else
+            // stale) is gone, not malformed: `noSuchItem` makes the OS drop
+            // it, whereas a decode error makes it retry validation forever
+            // (see `WorkingSetContainerItem`).
+            guard let parsed = try? FileProviderIdentifier(rawValue: identifier.rawValue) else {
+                completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
+                                               code: NSFileProviderError.noSuchItem.rawValue))
+                return
+            }
             do {
-                let parsed = try FileProviderIdentifier(rawValue: identifier.rawValue)
                 switch parsed {
                 case .folder(let folderID, let relativePath):
                     if relativePath.isEmpty {
@@ -1071,7 +1080,10 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         if containerItemIdentifier == .trashContainer {
             return EmptyEnumerator()
         }
-        let parsed = try FileProviderIdentifier(rawValue: containerItemIdentifier.rawValue)
+        guard let parsed = try? FileProviderIdentifier(rawValue: containerItemIdentifier.rawValue) else {
+            throw NSError(domain: NSFileProviderErrorDomain,
+                          code: NSFileProviderError.noSuchItem.rawValue)
+        }
         switch parsed {
         case .folder(let folderID, let relativePath):
             return DeferredFolderEnumerator(catalog: catalog,

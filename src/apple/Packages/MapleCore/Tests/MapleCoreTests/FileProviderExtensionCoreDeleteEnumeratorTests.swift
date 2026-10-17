@@ -325,13 +325,42 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
         }
     }
 
+    /// A domain that existed before this change still holds the old
+    /// `trash/<id>` container in the OS's database. Answering its
+    /// validation with a decode error makes the OS retry forever (the
+    /// `WorkingSetContainerItem` note records that loop); `noSuchItem`
+    /// is what makes it drop the ghost.
     func testStaleTrashContainerIdentifierHasNoEnumerator() {
         let catalog = FPCoreTestSupport.makeCatalog { _ in (500, Data(), [:]) }
         let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
 
         XCTAssertThrowsError(
             try core.enumerator(for: NSFileProviderItemIdentifier("trash/650a1b2c3d4e5f6071829305"),
-                                request: NSFileProviderRequest()))
+                                request: NSFileProviderRequest())
+        ) { error in
+            let ns = error as NSError
+            XCTAssertEqual(ns.domain, NSFileProviderErrorDomain)
+            XCTAssertEqual(ns.code, NSFileProviderError.noSuchItem.rawValue)
+        }
+    }
+
+    func testStaleTrashContainerIdentifierResolvesToNoSuchItem() {
+        let catalog = FPCoreTestSupport.makeCatalog { _ in (500, Data(), [:]) }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let done = expectation(description: "item(for:) completed")
+        var received: (item: NSFileProviderItem?, error: Error?) = (nil, nil)
+
+        _ = core.item(for: NSFileProviderItemIdentifier("trash/650a1b2c3d4e5f6071829305"),
+                      request: NSFileProviderRequest()) { item, error in
+            received = (item, error)
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 5)
+
+        XCTAssertNil(received.item)
+        let ns = received.error as NSError?
+        XCTAssertEqual(ns?.domain, NSFileProviderErrorDomain)
+        XCTAssertEqual(ns?.code, NSFileProviderError.noSuchItem.rawValue)
     }
 
     // MARK: - enumerator(for:) dispatch
