@@ -33,6 +33,9 @@ class FakeMapHandle implements MapLibreMapHandle {
   zoom = 10;
 
   onError(): void {}
+  whenStyleReady(): Promise<void> {
+    return Promise.resolve();
+  }
   onMoveEnd(handler: () => void): void {
     this.moveEndHandler = handler;
   }
