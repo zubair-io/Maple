@@ -77,7 +77,6 @@ export class WorkerEventsService {
         return;
       }
       socket.onopen = () => {
-        attempts = 0;
         // #863: authenticate via a post-connect frame — the token is no longer
         // in the URL (it leaked into proxy/access logs). The server keeps the
         // socket silent until this frame validates, then starts streaming.
@@ -87,10 +86,28 @@ export class WorkerEventsService {
           /* socket already closing */
         }
       };
-      socket.onmessage = (ev) => this.handleMessage(ev, subscriber);
-      socket.onclose = () => {
+      socket.onmessage = (ev) => {
+        // The server stays silent until auth validates, so its first frame — not `onopen` — proves the token was accepted (#4678).
+        attempts = 0;
+        this.handleMessage(ev, subscriber);
+      };
+      socket.onclose = (ev) => {
         socket = null;
-        scheduleReconnect();
+        if (closedByUs) return;
+        if (ev?.code !== 4401) {
+          scheduleReconnect();
+          return;
+        }
+        void (async () => {
+          let outcome: string;
+          try {
+            outcome = await this.auth.refresh();
+          } catch {
+            outcome = 'transient';
+          }
+          if (closedByUs || outcome === 'rejected') return;
+          scheduleReconnect();
+        })();
       };
       socket.onerror = () => {
         // `onclose` fires after `onerror`; let it drive the reconnect so we
