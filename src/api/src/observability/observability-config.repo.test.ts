@@ -134,6 +134,15 @@ describe('resolveObservabilityConfig', () => {
     expect(resolved.ingestion_key).toBe('secret-key');
   });
 
+  it('does not treat a key saved with no endpoint as valid for a later endpoint', () => {
+    const resolved = resolveObservabilityConfig({
+      endpoint: 'https://signoz.internal',
+      ingestion_key: 'secret-key',
+      ingestion_key_endpoint: null,
+    });
+    expect(resolved.ingestion_key).toBeNull();
+  });
+
   it('keeps a legacy key saved before bindings existed', () => {
     const resolved = resolveObservabilityConfig({
       endpoint: 'https://signoz.internal',

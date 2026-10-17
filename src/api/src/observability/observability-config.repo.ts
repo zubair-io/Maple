@@ -209,7 +209,11 @@ function resolveBoundIngestionKey(
   endpoint: string | null,
 ): ReturnType<typeof resolveStr> {
   const bound = db?.ingestion_key_endpoint;
-  const stillBound = bound === undefined || bound === null || validateHttpUrl(bound) === endpoint;
+  // `undefined` = legacy row, bound to whatever endpoint is set; `null` = the
+  // key was saved while no endpoint was set, so it matches only "no endpoint".
+  const stillBound =
+    bound === undefined ||
+    (bound === null ? endpoint === null : validateHttpUrl(bound) === endpoint);
   return stillBound ? resolveStr(db?.ingestion_key) : { value: null, source: 'unset' };
 }
 
