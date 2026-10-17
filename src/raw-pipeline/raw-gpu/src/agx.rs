@@ -368,9 +368,23 @@ fn agx_pixel(scene: [f32; 3], slope: f32, whites: f32) -> [f32; 3] {
         let v = sigmoid_curve(AGX_RATIO_FLOOR);
         [v, v, v]
     } else {
-        let sn = sigmoid_curve(n);
-        let ratio = sn / n;
-        [inset[0] * ratio, inset[1] * ratio, inset[2] * ratio]
+        let lo = inset[0].min(inset[1]).min(inset[2]);
+        let high_out = sigmoid_curve(n);
+        let span = n - lo;
+        if lo <= 1.0 {
+            let ratio = high_out / n;
+            inset.map(|v| v * ratio)
+        } else if span <= AGX_RATIO_FLOOR * n {
+            [high_out; 3]
+        } else {
+            let ratio_low = lo * high_out / n;
+            let shoulder_log = AGX_MAX_EV + AGX_MID_GRAY.log2();
+            let t = (lo.log2() / shoulder_log).clamp(0.0, 1.0);
+            let weight = t * t * (3.0 - 2.0 * t);
+            let low_out = ratio_low + weight * (sigmoid_curve(lo).max(ratio_low) - ratio_low);
+            let gain = (high_out - low_out) / span;
+            inset.map(|v| low_out + (v - lo) * gain)
+        }
     };
 
     let out = mul3(&AGX_OUTSET_MATRIX, sig);
