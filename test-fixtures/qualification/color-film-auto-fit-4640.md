@@ -13,7 +13,9 @@ path previously reused the current display pixels whenever that model matched
 the pinned default model, even when the external LUT had modified those pixels.
 The resulting fit shared a RAW/quality/render-size cache key with no-film renders.
 
-The fast path now also requires the external LUT to be absent. Film renders use
+The fast path now requires the external LUT to be inactive (absent or at
+nonpositive strength), and ignores inert film metadata in its model comparison.
+Engaged film renders use
 the existing pinned, no-film develop for fitting and retain cache reuse. The
 film continues to affect the rendered image. No new cache, shader math or
 per-slider work is added. GPU fit entries already use the pinned helper.
@@ -45,14 +47,15 @@ omitted the curve, whose identity form still compresses values above 0.95.
 The real test_0017 RAW with a high-key LUT reproduces **371 differing channel
 samples** between the retained tick and direct render before correction.
 
-`CpuPreview::open` now requires film absence for the uncurved route, matching
-the direct-render condition. This decision is made once at session open and
+`CpuPreview::open` uses the same effective-film condition as the direct
+render for the uncurved route. This decision is made once at session open and
 adds no per-tick allocation. The physical regression now preserves exact
 bytes against direct renders at sharpening amounts 40, 0, 150 and 40, matches
 the first frame on returning to the default amount, retains both image-buffer
 allocations and preserves the original RAW hash. The no-film repeat control
-also passes. Broader retained-preview and platform checks are in progress;
-the table below records the earlier isolated-repair qualification.
+also passes. All six retained-preview tests passed at revision `386bcf479c`. The table
+below records the earlier isolated-repair qualification; it is not the
+current review-fix qualification.
 
 This route is used by the WASM CPU fallback. The CLI corpus does not call
 `CpuPreview`; the existing one-shot render and GPU fit paths are unchanged by
@@ -71,6 +74,40 @@ core suite's ignored count and is run separately above. The native WASM suite
 has its real RAW fixture present, including both sized film entry tests.
 This is native binding execution, not a new browser or Apple UI qualification.
 Generation and its repeat, file headroom and whitespace checks pass.
+
+### Inactive film review correction
+
+A physical Canon `test_0007.DNG` render at 768px reproduced **18 changed
+channel samples** at zero film strength versus deselecting the look. The
+original 128px `test_0017` probe passed before the fix; it did not exercise
+the highlight shoulder and is not claimed as reproduction evidence.
+
+Both direct and retained rendering now share the route predicate. It matches
+`film_look::apply`'s nonpositive-strength no-op and ignores the film identifier
+and strength only when no film operation can affect the input. The fit model
+itself remains pinned to defaults. Positive film strength still requires the
+separate no-film fit, and other user edits still prevent direct-buffer fitting.
+
+The new physical regression and route-unit matrix pass (2 tests). The physical
+test requires a real embedded-JPEG fit and verifies exact direct, first-frame
+and retained-repeat output for zero strength with a loaded LUT, zero strength
+without a LUT, and a named but unresolved look at full strength. The original
+RAW hash remains unchanged. The unit matrix covers empty/named look identifiers,
+negative/zero/tiny-positive/full strength and an independent exposure edit.
+
+All 776 canonical sidecars were audited again: FilmLook is empty/absent and
+FilmStrength is 100/absent. The new predicate preserves every corpus route
+comparison. This input/source audit is not a new full physical corpus pass.
+Evidence: `inactive-film-0007-before.log`, `inactive-film-after-visible.log`
+and `inactive-film-corpus-audit.json` in the archive below. All seven retained
+preview tests and the original cold/warm film-cache regression also pass on
+this source, with zero ignored tests in those explicit runs.
+
+The preceding platform run at `386bcf479c` passed core (2,805), GPU (287) and
+native GPU-enabled WASM (74), but FFI had 300 passes and one failure in the
+unchanged nonblocking scope-poll test. Its three isolated repeats passed.
+That parallel run remains recorded as failed; final-source qualification
+runs the complete FFI library serially and must finish before merge.
 
 ### Fresh CI evidence records
 

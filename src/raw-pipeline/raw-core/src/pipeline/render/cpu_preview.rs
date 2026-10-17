@@ -44,13 +44,16 @@ impl CpuPreview {
             true,
         )?;
         // Auto2's canonical pinned-default route applies only its baked LUT;
-        // edited models and film LUTs replay the curve, including identity rounding.
+        // edited models and engaged film LUTs replay the curve, including identity rounding.
         // Derive this route once, without constructing default models per tick.
         let pinned = super::auto_fit::fit_develop_model(&model);
         let pinned_amounts = (pinned.sharpen_amount, pinned.nr_luminance, pinned.nr_color);
         let uncurved_details = (!auto_profile::apply_pipeline::auto1_enabled_by_env()
-            && film.is_none()
-            && upstream_key(context.active_model.clone()) == upstream_key(pinned))
+            && super::auto_fit::uses_pinned_fit_pixels(
+                &upstream_key(context.active_model.clone()),
+                upstream_key(pinned),
+                film,
+            ))
         .then_some(pinned_amounts);
         let mut session = Self {
             prefix: prefix.expect("capture requested"),
@@ -168,6 +171,10 @@ fn with_amounts(model: AdjustmentModel, amounts: (f32, f32, f32)) -> AdjustmentM
 #[cfg(all(test, feature = "test-support"))]
 #[path = "cpu_preview_tests.rs"]
 mod tests;
+
+#[cfg(all(test, feature = "test-support"))]
+#[path = "cpu_preview_film_tests.rs"]
+mod film_tests;
 
 // Source bytes and decoded metadata are immutable in the owning WASM session.
 // These identities reject accidentally borrowing another decoded source; no

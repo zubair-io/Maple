@@ -20,7 +20,7 @@ use crate::pipeline::develop::develop_scene_linear_from_raw_with_quality;
 use crate::pipeline::develop_sized::develop_scene_linear_sized_from_raw_with_quality;
 use crate::pipeline::{stage, RenderQuality};
 use crate::stages::{color_grade, grain};
-use crate::types::adjustment::{AutoExposureMode, Profile};
+use crate::types::adjustment::Profile;
 use crate::view::auto_profile::cache::{CacheKey, FitOrigin};
 use crate::view::auto_profile::curve::ProfileCurve;
 use crate::view::auto_profile::lut::ColorLut;
@@ -30,40 +30,9 @@ use crate::xmp::AdjustmentModel;
 
 use super::RawInput;
 
-/// Build the [`AdjustmentModel`] the fit develop runs with: the DEFAULT model
-/// with `auto_exposure: Off` pinned and the caller's `profile` carried —
-/// nothing else from the caller survives (#1085).
-///
-/// `auto_exposure: Off` is the existing #871/#550 split: the fitted tail owns
-/// the whole scene→JPEG brightness mapping, so AE is disabled for the fit
-/// develop. `profile` is the one field the fit genuinely needs from the
-/// caller — it is what makes this a `Profile::Auto` fit at all (the entry
-/// guards check it; the develop chain itself never reads it). Every other
-/// field is pinned to [`AdjustmentModel::default()`] so the fit input — and
-/// therefore the fitted curve/LUT under the RAW-identity cache key — cannot
-/// depend on the caller's live edits.
-///
-/// This REPLACES the #972 variant, which cloned the caller's model and zeroed
-/// the four high-frequency fields (`nr_color`, `nr_luminance`,
-/// `sharpen_amount`, `capture_sharpening_amount`). Two reasons:
-/// * Pinning to the default model is what makes the fit model-independent;
-///   a caller clone (even a partially-zeroed one) keeps every other slider
-///   leaking into the fit (#1085's bug).
-/// * The CPU render path fits from a default-model develop — which runs the
-///   DEFAULT `nr_color`@25 / `sharpen`@40 — and that path is what the
-///   bit-exact color-pipeline harness gates. Keeping the GPU fit zeroed would
-///   preserve #972's admitted (and harness-invisible) CPU↔GPU fit divergence;
-///   pinning both to the same default model removes it. The cost is that the
-///   GPU hosts' cold fit develop pays the default NR/sharpen again
-///   (~9 s on the 100 MP reference frame — the #972 saving), traded for one
-///   unified, deterministic fit definition across every path.
-pub(super) fn fit_develop_model(model: &AdjustmentModel) -> AdjustmentModel {
-    AdjustmentModel {
-        auto_exposure: AutoExposureMode::Off,
-        profile: model.profile,
-        ..AdjustmentModel::default()
-    }
-}
+#[path = "auto_fit_model.rs"]
+mod fit_model;
+pub(super) use fit_model::{fit_develop_model, uses_pinned_fit_pixels};
 
 /// Develop a RAW through the EXACT (pinned) Auto Profile fit prefix and return
 /// the `DisplayEncodedSrgb` buffer the curve / residual LUT fits sample
@@ -453,11 +422,11 @@ pub fn cached_auto_profile_fit(
 /// * **Render buffer IS the pinned fit buffer** — when the AE-pinned render
 ///   model equals [`fit_develop_model`] (i.e. the caller's model differs from
 ///   the default in nothing but possibly `auto_exposure`) and no external
-///   film LUT was supplied, the buffer this
+///   film LUT is engaged, ignoring inactive film metadata, the buffer this
 ///   render just developed is bit-identical to the pinned fit develop, so the
 ///   fit samples it directly — no second develop. This is the cold-open
 ///   default-model case, and byte-for-byte the pre-#1085 behaviour for it.
-/// * **Edited model or external film LUT** — fit from a SEPARATE pinned develop
+/// * **Edited model or engaged external film LUT** — fit from a SEPARATE pinned develop
 ///   ([`fit_artifacts_from_pinned_develop`]); only the APPLY touches the
 ///   caller's render. Pre-#1085 this case fit from the edited buffer,
 ///   mapping the user's edits back onto the unchanged JPEG targets —
@@ -478,7 +447,7 @@ pub(super) fn run_auto_profile_stage(
 ) -> (Option<ProfileCurve>, Option<ColorLut>) {
     scene.assert_space(ColorSpace::DisplayEncodedSrgb);
     let (w, h) = (scene.width as usize, scene.height as usize);
-    if film_lut.is_none() && *active_model == fit_develop_model(model) {
+    if uses_pinned_fit_pixels(active_model, fit_develop_model(model), film_lut) {
         let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
         let artifacts = auto_profile::apply_pipeline::fit_auto_profile_artifacts(
             pixels,
