@@ -45,10 +45,13 @@ def verify_png(path: Path, expected: dict) -> None:
         if equivalent("LuminanceSmoothing", expected.get("LuminanceSmoothing"), "0")
         else set()
     )
-    required = REFERENCE_KEYS - dormant_luminance_keys
-    if not required <= set(expected) <= REFERENCE_KEYS | OPTIONAL_REFERENCE_KEYS:
+    missing = sorted(REFERENCE_KEYS - dormant_luminance_keys - set(expected))
+    unexpected = sorted(set(expected) - REFERENCE_KEYS - OPTIONAL_REFERENCE_KEYS)
+    if missing or unexpected:
         raise ValueError(
             "reference XMP must explicitly author all neutral tone/lens controls"
+            f" (missing: {', '.join(missing) or 'none'};"
+            f" unexpected: {', '.join(unexpected) or 'none'})"
         )
     if (
         expected.get("WhiteBalance", "").casefold() == "custom"
