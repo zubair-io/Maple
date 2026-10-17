@@ -47,6 +47,7 @@ import tempfile
 import colour
 import numpy as np
 from compare_images_chunks import perceptual_difference
+from compare_images_metadata import camera_raw_settings, verify_authoring_settings
 from compare_images_metadata import reference_crs as _reference_crs
 from PIL import Image
 
@@ -311,7 +312,8 @@ def diff_manifest_case(
         from write_xmp import reference_settings
 
         with open(reference_xmp, "rb") as sidecar:
-            expected = reference_settings(sidecar.read())
+            authoring_packet = sidecar.read()
+        expected = reference_settings(authoring_packet)
         verify_png(native, expected)
         verify_png(preferred, expected)
     with Image.open(preferred) as image:
@@ -322,6 +324,10 @@ def diff_manifest_case(
         native_settings = _reference_crs(image)
     if preferred_settings != native_settings:
         raise ValueError("native/down Camera Raw settings differ")
+    if reference_xmp is not None:
+        authored_settings = camera_raw_settings(authoring_packet)
+        verify_authoring_settings(authored_settings, preferred_settings)
+        verify_authoring_settings(authored_settings, native_settings)
     with Image.open(cand_path) as image:
         if image.size != native_size:
             raise ValueError(
