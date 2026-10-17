@@ -43,6 +43,20 @@ describe('MuiListRowComponent', () => {
     expect(pressed.length).toBe(3);
   });
 
+  it('Enter/Space bubbling from a nested control does not press the row or get default-prevented', () => {
+    const fixture = render();
+    const pressed: void[] = [];
+    fixture.componentInstance.pressed.subscribe(() => pressed.push(undefined));
+    const row = fixture.nativeElement.querySelector('.mui-list-row') as HTMLElement;
+    const nested = document.createElement('button');
+    row.appendChild(nested);
+
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    nested.dispatchEvent(event);
+    expect(pressed.length).toBe(0);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it('active uses surface_alt + left border, never a full primary fill, and exposes aria-current', () => {
     const fixture = render();
     fixture.componentRef.setInput('active', true);
