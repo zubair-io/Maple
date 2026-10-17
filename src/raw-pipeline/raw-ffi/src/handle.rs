@@ -539,12 +539,14 @@ unsafe fn render_handle_scene_linear_tile_f32_impl(
 /// this on cache eviction or asset switch.
 #[no_mangle]
 pub unsafe extern "C" fn maple_close_raw_handle(handle: *mut MapleRawHandle) {
-    if handle.is_null() {
-        return;
-    }
-    let h = Box::from_raw(handle);
-    if !h.inner.is_null() {
-        let inner = h.inner as *mut MapleRawHandleInner;
-        drop(Box::from_raw(inner));
-    }
+    crate::error::catch_panic("maple_close_raw_handle", (), || {
+        if handle.is_null() {
+            return;
+        }
+        let h = Box::from_raw(handle);
+        if !h.inner.is_null() {
+            let inner = h.inner as *mut MapleRawHandleInner;
+            drop(Box::from_raw(inner));
+        }
+    })
 }

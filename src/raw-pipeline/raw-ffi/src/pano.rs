@@ -338,18 +338,20 @@ unsafe impl Send for SendProgressCallback {}
 #[cfg(all(feature = "pano-ios", target_os = "ios"))]
 #[no_mangle]
 pub extern "C" fn maple_pano_ort_selftest() -> i32 {
-    use maple_pano::models::OrtRuntime;
-    match OrtRuntime::preflight(None) {
-        Ok(rt) => {
-            // Expected: rt.version == "static" for the ml-static path.
-            let _ = rt;
-            0
+    crate::error::catch_panic_rc("maple_pano_ort_selftest", || {
+        use maple_pano::models::OrtRuntime;
+        match OrtRuntime::preflight(None) {
+            Ok(rt) => {
+                // Expected: rt.version == "static" for the ml-static path.
+                let _ = rt;
+                0
+            }
+            Err(e) => {
+                set_last_error(format!("maple_pano_ort_selftest: ORT init failed: {e}"));
+                -1
+            }
         }
-        Err(e) => {
-            set_last_error(format!("maple_pano_ort_selftest: ORT init failed: {e}"));
-            -1
-        }
-    }
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

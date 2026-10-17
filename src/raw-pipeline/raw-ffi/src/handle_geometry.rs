@@ -20,18 +20,20 @@ pub unsafe extern "C" fn maple_raw_handle_geometry(
     handle: *const MapleRawHandle,
     out: *mut MapleRawGeometry,
 ) -> i32 {
-    if out.is_null() {
-        set_last_error("null geometry output".into());
-        return 1;
-    }
-    *out = MapleRawGeometry::default();
-    if handle.is_null() || (*handle).inner.is_null() {
-        set_last_error("null RAW handle".into());
-        return 1;
-    }
-    let raw = &(*((*handle).inner as *const MapleRawHandleInner)).raw;
-    *out = oriented_geometry(raw.width, raw.height, raw.crop_rect, raw.orientation);
-    0
+    crate::error::catch_panic_rc("maple_raw_handle_geometry", || {
+        if out.is_null() {
+            set_last_error("null geometry output".into());
+            return 1;
+        }
+        *out = MapleRawGeometry::default();
+        if handle.is_null() || (*handle).inner.is_null() {
+            set_last_error("null RAW handle".into());
+            return 1;
+        }
+        let raw = &(*((*handle).inner as *const MapleRawHandleInner)).raw;
+        *out = oriented_geometry(raw.width, raw.height, raw.crop_rect, raw.orientation);
+        0
+    })
 }
 
 fn oriented_geometry(
@@ -77,12 +79,14 @@ fn oriented_geometry(
 /// Zero means an invalid handle; valid values are the TIFF codes 1 through 8.
 #[no_mangle]
 pub unsafe extern "C" fn maple_raw_handle_orientation(handle: *const MapleRawHandle) -> u32 {
-    if handle.is_null() || (*handle).inner.is_null() {
-        set_last_error("null RAW handle".into());
-        return 0;
-    }
-    let raw = &(*((*handle).inner as *const MapleRawHandleInner)).raw;
-    raw.orientation.exif_tag()
+    crate::error::catch_panic("maple_raw_handle_orientation", 0, || {
+        if handle.is_null() || (*handle).inner.is_null() {
+            set_last_error("null RAW handle".into());
+            return 0;
+        }
+        let raw = &(*((*handle).inner as *const MapleRawHandleInner)).raw;
+        raw.orientation.exif_tag()
+    })
 }
 
 #[cfg(test)]

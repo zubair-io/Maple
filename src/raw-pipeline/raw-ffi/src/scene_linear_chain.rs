@@ -346,67 +346,69 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     params: *const MapleAdjustmentParams,
     out_ptr: *mut u16,
 ) -> i32 {
-    if in_ptr.is_null() || params.is_null() || out_ptr.is_null() {
-        set_last_error("apply_scene_linear_chain: null pointer".into());
-        return 1;
-    }
-    if width == 0 || height == 0 {
-        set_last_error(format!(
-            "apply_scene_linear_chain: zero dimension width={} height={}",
-            width, height
-        ));
-        return 2;
-    }
-    // checked_mul (not saturating_mul) — on overflow we want to bail with
-    // an error rc, not return usize::MAX and feed that to from_raw_parts
-    // (UB). The RGBA byte product `width * height * 4` reaches ~2^66 at
-    // max u32 inputs, which DOES overflow a 64-bit usize (max 2^64-1) —
-    // so the checked_mul guards are required, not defensive padding. The
-    // earlier `width == 0 || height == 0` short-circuit already returned
-    // before we get here, so the lanes computation can only land on a
-    // strictly positive value or `None` (overflow).
-    let lanes = match (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|p| p.checked_mul(4))
-    {
-        Some(n) => n,
-        None => {
+    crate::error::catch_panic_rc("maple_apply_scene_linear_chain", || {
+        if in_ptr.is_null() || params.is_null() || out_ptr.is_null() {
+            set_last_error("apply_scene_linear_chain: null pointer".into());
+            return 1;
+        }
+        if width == 0 || height == 0 {
             set_last_error(format!(
-                "apply_scene_linear_chain: pixel-count overflow width={} height={}",
+                "apply_scene_linear_chain: zero dimension width={} height={}",
                 width, height
             ));
-            return 3;
+            return 2;
         }
-    };
-    let p = &*params;
+        // checked_mul (not saturating_mul) — on overflow we want to bail with
+        // an error rc, not return usize::MAX and feed that to from_raw_parts
+        // (UB). The RGBA byte product `width * height * 4` reaches ~2^66 at
+        // max u32 inputs, which DOES overflow a 64-bit usize (max 2^64-1) —
+        // so the checked_mul guards are required, not defensive padding. The
+        // earlier `width == 0 || height == 0` short-circuit already returned
+        // before we get here, so the lanes computation can only land on a
+        // strictly positive value or `None` (overflow).
+        let lanes = match (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|p| p.checked_mul(4))
+        {
+            Some(n) => n,
+            None => {
+                set_last_error(format!(
+                    "apply_scene_linear_chain: pixel-count overflow width={} height={}",
+                    width, height
+                ));
+                return 3;
+            }
+        };
+        let p = &*params;
 
-    // Slider -> model + chain-input mapping is shared with the f32 entry and
-    // the `_with_patches` siblings (#1486); see `scene_linear_chain_inputs.rs`.
-    let ci = chain_inputs_from_params(p);
-    let opts = ci.options(p.skip_agx != 0);
+        // Slider -> model + chain-input mapping is shared with the f32 entry and
+        // the `_with_patches` siblings (#1486); see `scene_linear_chain_inputs.rs`.
+        let ci = chain_inputs_from_params(p);
+        let opts = ci.options(p.skip_agx != 0);
 
-    let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
-    let out_vec = match raw_core::pipeline::apply_scene_linear_chain(
-        in_slice, width, height, &ci.model, &opts,
-    ) {
-        Ok(v) => v,
-        Err(e) => {
-            set_last_error(format!("apply_scene_linear_chain: {}", e));
-            return 8;
+        let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
+        let out_vec = match raw_core::pipeline::apply_scene_linear_chain(
+            in_slice, width, height, &ci.model, &opts,
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                set_last_error(format!("apply_scene_linear_chain: {}", e));
+                return 8;
+            }
+        };
+        if out_vec.len() != lanes {
+            set_last_error(format!(
+                "apply_scene_linear_chain: chain returned {} lanes, expected {}",
+                out_vec.len(),
+                lanes
+            ));
+            return 9;
         }
-    };
-    if out_vec.len() != lanes {
-        set_last_error(format!(
-            "apply_scene_linear_chain: chain returned {} lanes, expected {}",
-            out_vec.len(),
-            lanes
-        ));
-        return 9;
-    }
 
-    let out_slice = std::slice::from_raw_parts_mut(out_ptr, lanes);
-    out_slice.copy_from_slice(&out_vec);
-    0
+        let out_slice = std::slice::from_raw_parts_mut(out_ptr, lanes);
+        out_slice.copy_from_slice(&out_vec);
+        0
+    })
 }
 
 /// f32 sibling of [`maple_apply_scene_linear_chain`]. Identical semantics

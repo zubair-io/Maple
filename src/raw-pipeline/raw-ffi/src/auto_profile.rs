@@ -54,54 +54,56 @@ pub unsafe extern "C" fn maple_compute_profile_lut(
     n: u32,
     out: *mut f32,
 ) -> i32 {
-    use raw_core::view::auto_profile::{
-        bake_profile_lut, ProfileCurve, MAX_LUT_SIZE, PROFILE_CURVE_FLAT_LEN,
-    };
-    if curve.is_null() || out.is_null() {
-        return -1;
-    }
-    // `out` is written as `*mut f32` via `copy_nonoverlapping`, which is UB if
-    // `out` is not f32-aligned. Public C ABI — validate alignment rather than
-    // trust the caller (mirrors the histogram guard in render.rs).
-    if (out as usize) % std::mem::align_of::<f32>() != 0 {
-        return -1;
-    }
-    if curve_len != PROFILE_CURVE_FLAT_LEN {
-        return -1;
-    }
-    let n = n as usize;
-    // Reject the degenerate and oversized `n` BEFORE calling `bake_profile_lut`
-    // — bake panics on those, and a panic across `extern "C"` aborts the host
-    // process. `MAX_LUT_SIZE` is the shared core constant, so FFI / WASM / core
-    // agree on the accepted range.
-    if n < 2 || n > MAX_LUT_SIZE {
-        return -1;
-    }
-    // Guard the output sizing arithmetic before allocating / writing.
-    let out_len = match n
-        .checked_mul(n)
-        .and_then(|nn| nn.checked_mul(n))
-        .and_then(|nnn| nnn.checked_mul(3))
-    {
-        Some(l) => l,
-        None => return -1,
-    };
-    let flat = std::slice::from_raw_parts(curve, curve_len);
-    let parsed = match ProfileCurve::from_flat(flat) {
-        Some(c) => c,
-        None => return -1,
-    };
-    let lut = bake_profile_lut(&parsed, n);
-    // Runtime length check that survives release builds: `bake_profile_lut`
-    // always returns exactly `n³ * 3` for an accepted `n`, so this never fires
-    // in practice, but guarding it (rather than `debug_assert_eq!`, which
-    // compiles out in release) prevents any OOB read in the unsafe copy below
-    // if that invariant were ever broken.
-    if lut.len() != out_len {
-        return -1;
-    }
-    std::ptr::copy_nonoverlapping(lut.as_ptr(), out, out_len);
-    0
+    crate::error::catch_panic_rc("maple_compute_profile_lut", || {
+        use raw_core::view::auto_profile::{
+            bake_profile_lut, ProfileCurve, MAX_LUT_SIZE, PROFILE_CURVE_FLAT_LEN,
+        };
+        if curve.is_null() || out.is_null() {
+            return -1;
+        }
+        // `out` is written as `*mut f32` via `copy_nonoverlapping`, which is UB if
+        // `out` is not f32-aligned. Public C ABI — validate alignment rather than
+        // trust the caller (mirrors the histogram guard in render.rs).
+        if (out as usize) % std::mem::align_of::<f32>() != 0 {
+            return -1;
+        }
+        if curve_len != PROFILE_CURVE_FLAT_LEN {
+            return -1;
+        }
+        let n = n as usize;
+        // Reject the degenerate and oversized `n` BEFORE calling `bake_profile_lut`
+        // — bake panics on those, and a panic across `extern "C"` aborts the host
+        // process. `MAX_LUT_SIZE` is the shared core constant, so FFI / WASM / core
+        // agree on the accepted range.
+        if n < 2 || n > MAX_LUT_SIZE {
+            return -1;
+        }
+        // Guard the output sizing arithmetic before allocating / writing.
+        let out_len = match n
+            .checked_mul(n)
+            .and_then(|nn| nn.checked_mul(n))
+            .and_then(|nnn| nnn.checked_mul(3))
+        {
+            Some(l) => l,
+            None => return -1,
+        };
+        let flat = std::slice::from_raw_parts(curve, curve_len);
+        let parsed = match ProfileCurve::from_flat(flat) {
+            Some(c) => c,
+            None => return -1,
+        };
+        let lut = bake_profile_lut(&parsed, n);
+        // Runtime length check that survives release builds: `bake_profile_lut`
+        // always returns exactly `n³ * 3` for an accepted `n`, so this never fires
+        // in practice, but guarding it (rather than `debug_assert_eq!`, which
+        // compiles out in release) prevents any OOB read in the unsafe copy below
+        // if that invariant were ever broken.
+        if lut.len() != out_len {
+            return -1;
+        }
+        std::ptr::copy_nonoverlapping(lut.as_ptr(), out, out_len);
+        0
+    })
 }
 
 /// Fit the per-image Auto Profile curve (#812) for a RAW file + XMP sidecar

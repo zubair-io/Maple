@@ -34,34 +34,60 @@ pub(crate) fn with_large_stack<F>(work: F) -> i32
 where
     F: FnOnce() -> i32 + Send + 'static,
 {
-    let handle = std::thread::Builder::new()
-        .stack_size(WORKER_STACK_BYTES)
-        .name("maple-ffi-decode".to_string())
-        .spawn(move || {
-            let rc = work();
-            // Ferry the worker's thread-local last error out to the caller
-            // thread so `maple_last_error` still reports useful messages.
-            let err = LAST_ERROR.with(|e| e.borrow().clone());
-            (rc, err)
-        });
-    match handle {
-        Ok(h) => match h.join() {
-            Ok((rc, err)) => {
-                if let Some(cstr) = err {
-                    LAST_ERROR.with(|e| *e.borrow_mut() = Some(cstr));
-                }
-                rc
-            }
-            Err(_) => {
-                set_last_error("render worker panicked".into());
-                99
-            }
-        },
-        Err(e) => {
-            set_last_error(format!("spawn worker failed: {}", e));
-            98
+    run_on_large_stack_worker(work)
+}
+
+/// [`with_large_stack`] for a body that reads the caller's raw pointers in
+/// place (#4734) instead of first copying every input into owned, `Send`
+/// values. Sound because the calling thread blocks in the scoped join until
+/// the worker returns, so no pointer outlives the call and only one thread
+/// touches them at a time.
+pub(crate) fn with_large_stack_borrowed<F: FnOnce() -> i32>(work: F) -> i32 {
+    struct CallerBlocksUntilJoin<F>(F);
+    unsafe impl<F> Send for CallerBlocksUntilJoin<F> {}
+    impl<F: FnOnce() -> i32> CallerBlocksUntilJoin<F> {
+        fn run(self) -> i32 {
+            (self.0)()
         }
     }
+    let work = CallerBlocksUntilJoin(work);
+    run_on_large_stack_worker(move || work.run())
+}
+
+fn run_on_large_stack_worker<F: FnOnce() -> i32 + Send>(work: F) -> i32 {
+    std::thread::scope(|scope| {
+        let handle = std::thread::Builder::new()
+            .stack_size(WORKER_STACK_BYTES)
+            .name("maple-ffi-decode".to_string())
+            .spawn_scoped(scope, move || {
+                let rc = work();
+                // Ferry the worker's thread-local last error out to the caller
+                // thread so `maple_last_error` still reports useful messages.
+                let err = LAST_ERROR.with(|e| e.borrow().clone());
+                (rc, err)
+            });
+        match handle {
+            Ok(h) => match h.join() {
+                Ok((rc, err)) => {
+                    if let Some(cstr) = err {
+                        LAST_ERROR.with(|e| *e.borrow_mut() = Some(cstr));
+                    }
+                    rc
+                }
+                Err(payload) => {
+                    set_last_error(format!(
+                        "render worker panicked: {}",
+                        panic_message(payload.as_ref())
+                    ));
+                    RC_PANICKED
+                }
+            },
+            Err(e) => {
+                set_last_error(format!("spawn worker failed: {}", e));
+                98
+            }
+        }
+    })
 }
 
 /// Return code for "the FFI body panicked" — mirrors [`with_large_stack`]'s
@@ -88,26 +114,39 @@ pub(crate) const RC_PANICKED: i32 = 99;
 /// can panic on an invariant violation in a hostile input — an unwind out of
 /// an `extern "C"` frame aborts the host process.
 pub(crate) fn catch_panic_rc<F: FnOnce() -> i32>(entry: &str, body: F) -> i32 {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
-        Ok(rc) => rc,
-        Err(payload) => {
-            let msg = payload
-                .downcast_ref::<&str>()
-                .map(|s| (*s).to_string())
-                .or_else(|| payload.downcast_ref::<String>().cloned())
-                .unwrap_or_else(|| "unknown panic payload".to_string());
-            set_last_error(format!("{entry}: panicked: {msg}"));
-            RC_PANICKED
-        }
-    }
+    catch_panic(entry, RC_PANICKED, body)
+}
+
+/// [`catch_panic_rc`] for an entry whose C return type is not an `i32` rc —
+/// a pointer, a struct, or nothing. `on_panic` is what the host receives
+/// instead (null, an error struct, `()`); the message still lands in
+/// `LAST_ERROR`.
+pub(crate) fn catch_panic<T, F: FnOnce() -> T>(entry: &str, on_panic: T, body: F) -> T {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)).unwrap_or_else(|payload| {
+        set_last_error(format!(
+            "{entry}: panicked: {}",
+            panic_message(payload.as_ref())
+        ));
+        on_panic
+    })
+}
+
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "unknown panic payload".to_string())
 }
 
 /// Returns the most recent error message for the current thread, or null.
 /// The returned pointer remains valid until the next FFI call on this thread.
 #[no_mangle]
 pub unsafe extern "C" fn maple_last_error() -> *const c_char {
-    LAST_ERROR.with(|e| match &*e.borrow() {
-        Some(cstr) => cstr.as_ptr(),
-        None => std::ptr::null(),
+    crate::error::catch_panic("maple_last_error", std::ptr::null(), || {
+        LAST_ERROR.with(|e| match &*e.borrow() {
+            Some(cstr) => cstr.as_ptr(),
+            None => std::ptr::null(),
+        })
     })
 }

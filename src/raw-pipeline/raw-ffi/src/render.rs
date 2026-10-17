@@ -493,42 +493,44 @@ pub unsafe extern "C" fn maple_histogram_bytes(
 /// on success and is not touched on error.
 #[no_mangle]
 pub unsafe extern "C" fn maple_compute_look_lut(look_mode: u8, out: *mut u8) -> i32 {
-    if out.is_null() {
-        return -1;
-    }
-    // Reject unknown modes BEFORE materialising the slice — the caller
-    // gets an unambiguous error rather than a silent fall-through to the
-    // default LUT.
-    if look_mode > 1 {
-        return -1;
-    }
-    let slice = std::slice::from_raw_parts_mut(out, 768);
-    match look_mode {
-        0 => {
-            // Neutral / identity LUT — channel-major `[0, 1, …, 255]`
-            // repeated three times. Hosts uploading this still get a
-            // working sampler-with-LUT pipeline (no shader fork between
-            // "LUT enabled" / "LUT disabled") at the cost of one tiny
-            // texture upload.
-            for c in 0..3 {
-                let base = c * 256;
-                for i in 0..256 {
-                    slice[base + i] = i as u8;
+    crate::error::catch_panic_rc("maple_compute_look_lut", || {
+        if out.is_null() {
+            return -1;
+        }
+        // Reject unknown modes BEFORE materialising the slice — the caller
+        // gets an unambiguous error rather than a silent fall-through to the
+        // default LUT.
+        if look_mode > 1 {
+            return -1;
+        }
+        let slice = std::slice::from_raw_parts_mut(out, 768);
+        match look_mode {
+            0 => {
+                // Neutral / identity LUT — channel-major `[0, 1, …, 255]`
+                // repeated three times. Hosts uploading this still get a
+                // working sampler-with-LUT pipeline (no shader fork between
+                // "LUT enabled" / "LUT disabled") at the cost of one tiny
+                // texture upload.
+                for c in 0..3 {
+                    let base = c * 256;
+                    for i in 0..256 {
+                        slice[base + i] = i as u8;
+                    }
                 }
+                0
             }
-            0
+            1 => {
+                // Empirical DisplayLookCurve — the bytes derived from the 14
+                // training fixtures at #371. Source of truth lives in
+                // `raw_core::view::look::LUT_{R,G,B}` so the CPU path
+                // (`pipeline::render` → `view::look::apply`) and the GPU
+                // path here cannot drift.
+                slice[0..256].copy_from_slice(&raw_core::view::look::LUT_R);
+                slice[256..512].copy_from_slice(&raw_core::view::look::LUT_G);
+                slice[512..768].copy_from_slice(&raw_core::view::look::LUT_B);
+                0
+            }
+            _ => -1,
         }
-        1 => {
-            // Empirical DisplayLookCurve — the bytes derived from the 14
-            // training fixtures at #371. Source of truth lives in
-            // `raw_core::view::look::LUT_{R,G,B}` so the CPU path
-            // (`pipeline::render` → `view::look::apply`) and the GPU
-            // path here cannot drift.
-            slice[0..256].copy_from_slice(&raw_core::view::look::LUT_R);
-            slice[256..512].copy_from_slice(&raw_core::view::look::LUT_G);
-            slice[512..768].copy_from_slice(&raw_core::view::look::LUT_B);
-            0
-        }
-        _ => -1,
-    }
+    })
 }

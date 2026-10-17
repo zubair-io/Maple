@@ -415,22 +415,24 @@ pub unsafe extern "C" fn maple_abi_layout(
     out_cap: usize,
     out_len: *mut usize,
 ) -> i32 {
-    if struct_name.is_null() || out_buf.is_null() || out_len.is_null() {
-        return -1;
-    }
-    let Ok(name) = CStr::from_ptr(struct_name).to_str() else {
-        return -1;
-    };
-    let Some(text) = describe(name) else {
-        *out_len = 0;
-        return 1;
-    };
-    *out_len = text.len();
-    if text.len() > out_cap {
-        return 2;
-    }
-    std::ptr::copy_nonoverlapping(text.as_ptr(), out_buf, text.len());
-    0
+    crate::error::catch_panic_rc("maple_abi_layout", || {
+        if struct_name.is_null() || out_buf.is_null() || out_len.is_null() {
+            return -1;
+        }
+        let Ok(name) = CStr::from_ptr(struct_name).to_str() else {
+            return -1;
+        };
+        let Some(text) = describe(name) else {
+            *out_len = 0;
+            return 1;
+        };
+        *out_len = text.len();
+        if text.len() > out_cap {
+            return 2;
+        }
+        std::ptr::copy_nonoverlapping(text.as_ptr(), out_buf, text.len());
+        0
+    })
 }
 
 #[cfg(test)]

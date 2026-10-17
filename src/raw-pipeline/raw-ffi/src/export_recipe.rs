@@ -112,16 +112,18 @@ pub unsafe extern "C" fn maple_export_recipe_to_file(
 /// `recipe_json` must point to a NUL-terminated UTF-8 string, or be null (rejected).
 #[no_mangle]
 pub unsafe extern "C" fn maple_validate_export_recipe(recipe_json: *const c_char) -> i32 {
-    let result = text(recipe_json)
-        .and_then(|json| ExportRecipe::parse(&json))
-        .and_then(|recipe| recipe.validate());
-    match result {
-        Ok(()) => 0,
-        Err(error) => {
-            set_last_error(error);
-            1
+    crate::error::catch_panic_rc("maple_validate_export_recipe", || {
+        let result = text(recipe_json)
+            .and_then(|json| ExportRecipe::parse(&json))
+            .and_then(|recipe| recipe.validate());
+        match result {
+            Ok(()) => 0,
+            Err(error) => {
+                set_last_error(error);
+                1
+            }
         }
-    }
+    })
 }
 
 /// Render the validated recipe's output name using the shared format extension and sequence.
@@ -139,35 +141,37 @@ pub unsafe extern "C" fn maple_export_recipe_filename_buf(
     out_cap: usize,
     out_len: *mut usize,
 ) -> i32 {
-    if out_len.is_null() || out_buf.is_null() {
-        set_last_error("missing filename output buffer".into());
-        return 1;
-    }
-    *out_len = 0;
-    let result = (|| -> Result<(), String> {
-        let recipe = ExportRecipe::parse(&text(recipe_json)?)?;
-        recipe.validate()?;
-        let stem = text(original_stem)?;
-        let date = if captured_at.is_null() {
-            None
-        } else {
-            Some(text(captured_at)?)
-        };
-        let name = recipe.filename(&stem, date.as_deref(), sequence_index)?;
-        if name.len() > out_cap {
-            return Err("filename output buffer is too small".into());
+    crate::error::catch_panic_rc("maple_export_recipe_filename_buf", || {
+        if out_len.is_null() || out_buf.is_null() {
+            set_last_error("missing filename output buffer".into());
+            return 1;
         }
-        std::ptr::copy_nonoverlapping(name.as_ptr(), out_buf, name.len());
-        *out_len = name.len();
-        Ok(())
-    })();
-    match result {
-        Ok(()) => 0,
-        Err(error) => {
-            set_last_error(error);
-            1
+        *out_len = 0;
+        let result = (|| -> Result<(), String> {
+            let recipe = ExportRecipe::parse(&text(recipe_json)?)?;
+            recipe.validate()?;
+            let stem = text(original_stem)?;
+            let date = if captured_at.is_null() {
+                None
+            } else {
+                Some(text(captured_at)?)
+            };
+            let name = recipe.filename(&stem, date.as_deref(), sequence_index)?;
+            if name.len() > out_cap {
+                return Err("filename output buffer is too small".into());
+            }
+            std::ptr::copy_nonoverlapping(name.as_ptr(), out_buf, name.len());
+            *out_len = name.len();
+            Ok(())
+        })();
+        match result {
+            Ok(()) => 0,
+            Err(error) => {
+                set_last_error(error);
+                1
+            }
         }
-    }
+    })
 }
 
 #[cfg(test)]
