@@ -245,16 +245,9 @@ namespace Maple.WinUI.Services.CloudFiles
         private void OnFetchPlaceholders(IntPtr infoPtr, IntPtr paramsPtr)
         {
             var info = Marshal.PtrToStructure<CfApi.CF_CALLBACK_INFO>(infoPtr);
-            List<Entry> entries;
-            try
-            {
-                entries = ListEntriesAsync(ReadIdentity(info)).GetAwaiter().GetResult();
-            }
-            catch (Exception ex)
-            {
-                DiagLog.Write($"[cloudfiles] fetch-placeholders failed: {ex.Message}");
-                entries = new List<Entry>();
-            }
+            var listing = ListEntriesAsync(ReadIdentity(info)).GetAwaiter().GetResult();
+            var entries = listing.Entries;
+            var completion = CloudFilesListing.Completion(listing);
 
             var pins = new List<GCHandle>();
             var infos = new CfApi.CF_PLACEHOLDER_CREATE_INFO[Math.Max(1, entries.Count)];
@@ -299,8 +292,8 @@ namespace Maple.WinUI.Services.CloudFiles
                 var opParams = new CfApi.CF_OPERATION_PARAMETERS_TRANSFER_PLACEHOLDERS
                 {
                     ParamSize = (uint)Marshal.SizeOf<CfApi.CF_OPERATION_PARAMETERS_TRANSFER_PLACEHOLDERS>(),
-                    Flags = CfApi.CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION,
-                    CompletionStatus = CfApi.STATUS_SUCCESS,
+                    Flags = completion.Flags,
+                    CompletionStatus = completion.Status,
                     PlaceholderTotalCount = entries.Count,
                     PlaceholderArray = entries.Count == 0 ? IntPtr.Zero : arrayHandle.AddrOfPinnedObject(),
                     PlaceholderCount = (uint)entries.Count,
@@ -316,52 +309,46 @@ namespace Maple.WinUI.Services.CloudFiles
             }
         }
 
-        private sealed record Entry(string Name, string ServerPath, bool IsDirectory, long Size, DateTime MtimeUtc);
-
         /// <summary>Directory listing behind a placeholder identity: the sync
         /// root itself (empty identity) lists the registered libraries; any
         /// other identity is an absolute server directory path listed via
         /// /api/fs/dir, cursor-paged to completion (the only listing that
         /// reports the size and mtime a placeholder is stamped with).</summary>
-        private async Task<List<Entry>> ListEntriesAsync(string identity)
+        private async Task<PlaceholderListing> ListEntriesAsync(string identity)
         {
-            var entries = new List<Entry>();
             var client = _client();
             if (client is not { IsAuthenticated: true })
-                return entries;
+                return CloudFilesListing.Failed;
 
             if (identity.Length == 0)
-            {
-                var folders = await client.GetFoldersAsync(CancellationToken.None).ConfigureAwait(false);
-                foreach (var folder in folders ?? Array.Empty<CloudFolder>())
-                    entries.Add(new Entry(
-                        SanitizeName(folder.DisplayName), folder.Path, true, 0, DateTime.UtcNow));
-                return entries;
-            }
+                return await CloudFilesListing.PageAllAsync(async _ =>
+                {
+                    var folders = await client.GetFoldersAsync(CancellationToken.None).ConfigureAwait(false);
+                    return folders == null
+                        ? null
+                        : new PlaceholderPage(
+                            folders.Select(folder => new PlaceholderEntry(
+                                SanitizeName(folder.DisplayName), folder.Path, true, 0, DateTime.UtcNow)).ToList(),
+                            null);
+                }).ConfigureAwait(false);
 
-            string? cursor = null;
-            do
+            return await CloudFilesListing.PageAllAsync(async cursor =>
             {
                 var page = await client.ListDirAsync(identity, cursor, 500, CancellationToken.None)
                     .ConfigureAwait(false);
                 if (page == null)
-                    break;
-                foreach (var dir in page.Dirs)
-                {
-                    // The server hides its own bookkeeping dirs, but be
-                    // defensive: a `.maple` placeholder would invite Explorer
-                    // into the trash/previews store.
-                    if (dir.Name.StartsWith('.'))
-                        continue;
-                    entries.Add(new Entry(
+                    return null;
+                // The server hides its own bookkeeping dirs, but be
+                // defensive: a `.maple` placeholder would invite Explorer
+                // into the trash/previews store.
+                var dirs = page.Dirs
+                    .Where(dir => !dir.Name.StartsWith('.'))
+                    .Select(dir => new PlaceholderEntry(
                         SanitizeName(dir.Name), dir.Path, true, 0, ParseMtime(dir.Mtime)));
-                }
-                foreach (var img in page.Images)
-                    entries.Add(new Entry(
-                        SanitizeName(img.Name), img.Path, false, img.Size, ParseMtime(img.Mtime)));
-                cursor = page.NextCursor;
-            } while (!string.IsNullOrEmpty(cursor));
-            return entries;
+                var images = page.Images.Select(img => new PlaceholderEntry(
+                    SanitizeName(img.Name), img.Path, false, img.Size, ParseMtime(img.Mtime)));
+                return new PlaceholderPage(dirs.Concat(images).ToList(), page.NextCursor);
+            }).ConfigureAwait(false);
         }
 
         // --- FETCH_DATA ---
