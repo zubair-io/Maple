@@ -451,40 +451,40 @@ public struct XMPSerializer {
       _buildAttrs(model: model, culling: culling, omitWhiteBalance: omitWhiteBalance)
       + _ratingAndLabelAttrs(culling: culling, passthrough: passthrough)
       + _passthroughAttrs(passthrough)
-    let keywordsBlock = _buildKeywordsBlock(culling: culling)
-    // Point tone curves (#365) — the second nested child block. Children
-    // of `rdf:Description` sit at six spaces in this document shape (see
-    // `docs/xmp-canonical-format.md` § "Indentation"). Identity curves
-    // emit nothing, so a model with no authored curve keeps the
-    // pre-#365 bytes exactly.
-    let toneCurvesBlock = _buildToneCurvesBlock(
-      model: model, indent: XMPCanonical.childIndent)
-    // Local adjustments (#358) — the canonical mask containers, after
-    // the curves and before the passthrough nodes, the slot the
-    // TypeScript and C# writers use too.
-    let localAdjustmentsBlock = _buildLocalAdjustmentsBlockWithPassthrough(
-      LocalAdjustmentOrder.keyed(model.localAdjustments, around: passthrough),
-      indent: XMPCanonical.childIndent, templates: passthrough.maskGroups)
-    // Repair spots (#3409) — the `crs:RetouchAreas` container, after the
-    // mask containers and before the passthrough nodes, the same slot the
-    // TypeScript writer gives it.
-    let retouchBlock = _buildRetouchAreasBlock(
-      model: model, indent: XMPCanonical.childIndent)
-    // Unknown nested nodes sit last, the slot the TypeScript serializer
-    // gives them, so Maple's own children stay grouped ahead of whatever
-    // the source document carried.
-    let passthroughBlock = _passthroughNodesBlock(
-      passthrough, indent: XMPCanonical.childIndent)
-    let children = [
-      keywordsBlock, toneCurvesBlock, localAdjustmentsBlock, retouchBlock, passthroughBlock,
-    ]
-    .filter { !$0.isEmpty }
-    .joined(separator: "\n")
+    let developChildren = _developChildren(model: model, passthrough: passthrough)
+    let children = ([_buildKeywordsBlock(culling: culling)] + developChildren)
+      .filter { !$0.isEmpty }
+      .joined(separator: "\n")
 
     return XMPCanonical.document(
       extraNamespaces: culling.keywords.isEmpty ? [] : [dcNamespace],
       attributes: attrs,
       children: children)
+  }
+
+  /// The develop child blocks every serialize overload emits after the
+  /// keyword bag (and, for the metadata overload, after the rights blocks),
+  /// in the canonical slot order the TypeScript and C# writers use too: point
+  /// tone curves (#365), the local-adjustment containers with the opaque
+  /// mask-group templates spliced in (#358, #3274), the `crs:RetouchAreas`
+  /// container (#3409), then the preserved unknown nodes last (#2233).
+  /// Children of `rdf:Description` sit at six spaces (see
+  /// `docs/xmp-canonical-format.md` § "Indentation"); empty blocks are
+  /// returned as empty strings for the caller to drop. One list, shared, so
+  /// a metadata-carrying save can never again omit a block the base save
+  /// writes (#4687).
+  static func _developChildren(
+    model: AdjustmentModel, passthrough: XMPPassthrough
+  ) -> [String] {
+    let indent = XMPCanonical.childIndent
+    return [
+      _buildToneCurvesBlock(model: model, indent: indent),
+      _buildLocalAdjustmentsBlockWithPassthrough(
+        LocalAdjustmentOrder.keyed(model.localAdjustments, around: passthrough),
+        indent: indent, templates: passthrough.maskGroups),
+      _buildRetouchAreasBlock(model: model, indent: indent),
+      _passthroughNodesBlock(passthrough, indent: indent),
+    ]
   }
 
   // serialize(model:culling:metadata:) + escapeXMLAttr live in
