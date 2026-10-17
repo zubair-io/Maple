@@ -20,7 +20,7 @@ test('backup deferral remains pending without spending attempts and cannot relea
   const lease = '2026-10-05T01:00:00Z';
   const retryAt = new Date('2026-10-05T02:00:00Z');
   const assetId = seedClaimableAsset(handle.db, {
-    stages: { 'cloud-backup': { attempts: 5, nextAttemptAt: lease } },
+    stages: { 'cloud-backup': { attempts: 5, nextAttemptAt: lease, claimToken: lease } },
   });
   const attempt = {
     target: { assetId, stage: 'cloud-backup', targetVersion: 1, lease },
@@ -37,7 +37,7 @@ test('backup deferral remains pending without spending attempts and cannot relea
     dead: 0,
     next_attempt_at: retryAt.toISOString(),
   });
-  await db.write('UPDATE stage_state SET next_attempt_at=? WHERE asset_id=? AND stage=?', [
+  await db.write('UPDATE stage_state SET claim_token=? WHERE asset_id=? AND stage=?', [
     'new-worker-lease',
     assetId,
     'cloud-backup',
@@ -45,7 +45,7 @@ test('backup deferral remains pending without spending attempts and cannot relea
   await db.transaction(
     stageResultStatements(attempt, { defer: { reason: 'stale worker', retryAt } }),
   );
-  expect(stageRow(handle.db, assetId, 'cloud-backup')!.next_attempt_at).toBe('new-worker-lease');
+  expect(stageRow(handle.db, assetId, 'cloud-backup')!.claim_token).toBe('new-worker-lease');
 });
 test('only backup can admit indexed Trash and damaged originals; missing locations remain unavailable', async () => {
   using handle = await createTestDatabase();
