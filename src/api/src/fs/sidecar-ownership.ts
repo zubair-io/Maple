@@ -30,6 +30,11 @@ export class SidecarCollisionError extends Error {
   }
 }
 
+/** The temp names relocate, restore and the XMP writers stage under —
+ * `<name>.tmp.<pid>-<hex>` or `<name>.tmp.<pid>.<hex>`. A real photo whose
+ * name merely contains `.tmp.` (`IMG.tmp.JPG`) still claims its stem. */
+const STAGING_NAME = /\.tmp\.\d+[-.][0-9a-f]+$/;
+
 function comparable(p: string): string {
   return path.resolve(p).normalize('NFC').toLowerCase();
 }
@@ -72,7 +77,7 @@ export async function sidecarStemClaimedBySibling(
     (entry) =>
       !entry.isDirectory() &&
       !entry.name.startsWith('.') &&
-      !entry.name.includes('.tmp.') &&
+      !STAGING_NAME.test(entry.name) &&
       path.extname(entry.name).toLowerCase() !== '.xmp' &&
       !skip.has(exact(path.join(dir, entry.name))) &&
       stemOf(entry.name) === stem,
@@ -90,11 +95,55 @@ async function isOwnSidecar(ownSidecars: readonly string[], sidecar: string): Pr
  * earlier same-stem photo of the same batch carried there. Landing on it
  * neither overwrites nor adopts different edits, so it is not a collision. */
 export async function sidecarAlreadyCarried(source: string, dest: string): Promise<boolean> {
-  const [a, b] = await Promise.all([
-    fs.readFile(source).catch(() => null),
-    fs.readFile(dest).catch(() => null),
+  const [a, b] = await Promise.all([readSidecarBytes(source), readSidecarBytes(dest)]).catch(() => [
+    null,
+    null,
   ]);
   return a !== null && b !== null && a.equals(b);
+}
+
+/** Read that refuses a final-component symlink (#4749), so a sidecar link to
+ * an original is never copied into a destination `.xmp`. Callers have already
+ * jailed the asset's folder; the DB-backed sidecar jail is not consulted here
+ * because a refusal would move the photo without its edits. */
+async function readSidecarBytes(sidecar: string): Promise<Buffer | null> {
+  const handle = await fs
+    .open(sidecar, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW)
+    .catch((err: unknown) => {
+      if (errnoCode(err) === 'ENOENT') return null;
+      throw err;
+    });
+  if (handle === null) return null;
+  try {
+    return await handle.readFile();
+  } finally {
+    await handle.close();
+  }
+}
+
+export async function requireSidecarBytes(sidecar: string): Promise<Buffer> {
+  const bytes = await readSidecarBytes(sidecar);
+  if (bytes === null) throw new Error(`relocate: sidecar vanished: ${sidecar}`);
+  return bytes;
+}
+
+/** The form `serializeSidecarWrite` keys on: the parent resolved through
+ * symlinks plus the case-folded name, so two aliases of one sidecar order the
+ * same way and compare equal. */
+async function barrierKey(p: string): Promise<string> {
+  const parent = await fs.realpath(path.dirname(p)).catch(() => path.dirname(p));
+  return comparable(path.join(parent, path.basename(p)));
+}
+
+/** Both save barriers, always taken in canonical order so two operations
+ * touching the same pair — even through different symlinked parents —
+ * cannot deadlock. Two names sharing one barrier key take it once rather
+ * than wait on themselves. */
+async function withSidecarBarriers<T>(a: string, b: string, run: () => Promise<T>): Promise<T> {
+  const [keyA, keyB] = await Promise.all([barrierKey(a), barrierKey(b)]);
+  if (keyA === keyB || (await sameSidecarFile(a, b))) return serializeSidecarWrite(a, run);
+  const [first, second] = keyA < keyB ? [a, b] : [b, a];
+  return serializeSidecarWrite(first, () => serializeSidecarWrite(second, run));
 }
 
 /** Destination occupancy for a whole asset: the primary path itself, or any
@@ -160,16 +209,15 @@ async function writeVerifiedTemp(dest: string, bytes: Buffer): Promise<string> {
   return tmp;
 }
 
-/** Join an identical sidecar already at `dest`: snapshot `source` under its
- * save barrier and confirm `dest` still matches under its own. A save that
- * changed `dest` in between turns the join back into a collision. */
+/** Join an identical sidecar already at `dest`: snapshot `source` and confirm
+ * `dest` still matches, under both save barriers. A save that changed `dest`
+ * turns the join back into a collision. */
 export async function joinCarriedSidecar(source: string, dest: string): Promise<Buffer> {
-  return serializeSidecarWrite(source, async () => {
-    const snapshot = await fs.readFile(source);
-    const matches = await serializeSidecarWrite(dest, async () =>
-      snapshot.equals(await fs.readFile(dest).catch(() => Buffer.alloc(0))),
-    );
-    if (!matches) throw new SidecarCollisionError(dest);
+  return withSidecarBarriers(source, dest, async () => {
+    const snapshot = await requireSidecarBytes(source);
+    if (!snapshot.equals((await readSidecarBytes(dest)) ?? Buffer.alloc(0))) {
+      throw new SidecarCollisionError(dest);
+    }
     return snapshot;
   });
 }
@@ -179,7 +227,7 @@ export async function joinCarriedSidecar(source: string, dest: string): Promise<
  * source unlink can tell whether a save landed in between. */
 export async function publishSidecarSnapshot(source: string, dest: string): Promise<Buffer> {
   return serializeSidecarWrite(source, async () => {
-    const snapshot = await fs.readFile(source);
+    const snapshot = await requireSidecarBytes(source);
     const tmp = await writeVerifiedTemp(dest, snapshot);
     try {
       await linkExclusive(tmp, dest);
@@ -190,7 +238,7 @@ export async function publishSidecarSnapshot(source: string, dest: string): Prom
   });
 }
 
-/** Settle a carried sidecar's source inside its save barrier. A save that
+/** Settle a carried sidecar's source under both save barriers. A save that
  * landed after the snapshot is carried to `dest` when `dest` still holds the
  * snapshot. The source is then removed unless a sibling still claims it
  * (`keepSource`); when both ends changed it is kept so neither save is lost. */
@@ -200,25 +248,24 @@ export async function settleCarriedSidecar(
   snapshot: Buffer,
   keepSource: boolean,
 ): Promise<void> {
-  await serializeSidecarWrite(source, async () => {
-    const current = await fs.readFile(source).catch(() => null);
+  await withSidecarBarriers(source, dest, async () => {
+    const current = await readSidecarBytes(source);
     if (current === null) return;
-    if (!current.equals(snapshot)) {
-      const carried = await serializeSidecarWrite(dest, async () => {
-        const atDest = await fs.readFile(dest).catch(() => null);
-        if (atDest === null || !atDest.equals(snapshot)) return false;
-        const tmp = await writeVerifiedTemp(dest, current);
-        await fs.rename(tmp, dest);
-        return true;
-      });
-      if (!carried) {
-        log.warn(
-          { source, dest },
-          'relocate: sidecar changed at both ends during the move — source kept so neither save is lost',
-        );
-        return;
-      }
+    if (!current.equals(snapshot) && !(await carryLateSave(current, dest, snapshot))) {
+      log.warn(
+        { source, dest },
+        'relocate: sidecar changed at both ends during the move — source kept so neither save is lost',
+      );
+      return;
     }
     if (!keepSource) await fs.unlink(source);
   });
+}
+
+async function carryLateSave(current: Buffer, dest: string, snapshot: Buffer): Promise<boolean> {
+  const atDest = await readSidecarBytes(dest);
+  if (atDest === null || !atDest.equals(snapshot)) return false;
+  const tmp = await writeVerifiedTemp(dest, current);
+  await fs.rename(tmp, dest);
+  return true;
 }
