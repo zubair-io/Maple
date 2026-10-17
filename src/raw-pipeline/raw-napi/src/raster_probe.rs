@@ -26,7 +26,7 @@ use raw_core::raster::{
     RasterMetadata as CoreMetadata,
 };
 
-use crate::error::error_message;
+use crate::error::{error_message, guarded_compute};
 
 /// Mirrors the `metadata` shape both `rasterProbeMetadata` and
 /// `rasterProbeMetadataBuf` return in `src/maple/src/native.ts` (lines
@@ -89,22 +89,24 @@ impl Task for RasterProbeTask {
     type JsValue = RasterProbeResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let file = match std::fs::File::open(&self.path) {
-            Ok(b) => b,
-            Err(e) => {
-                return Ok(RasterProbeResult {
-                    ok: false,
-                    metadata: None,
-                    error: Some(error_message(
-                        &format!("failed to read file {}", self.path),
-                        e,
-                    )),
-                });
-            }
-        };
-        Ok(probe_result(probe_raster_metadata_reader(
-            &mut std::io::BufReader::new(file),
-        )))
+        guarded_compute("RasterProbeTask", || {
+            let file = match std::fs::File::open(&self.path) {
+                Ok(b) => b,
+                Err(e) => {
+                    return Ok(RasterProbeResult {
+                        ok: false,
+                        metadata: None,
+                        error: Some(error_message(
+                            &format!("failed to read file {}", self.path),
+                            e,
+                        )),
+                    });
+                }
+            };
+            Ok(probe_result(probe_raster_metadata_reader(
+                &mut std::io::BufReader::new(file),
+            )))
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -131,7 +133,9 @@ impl Task for RasterProbeBufTask {
     type JsValue = RasterProbeResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(probe_result(probe_raster_metadata(&self.bytes)))
+        guarded_compute("RasterProbeBufTask", || {
+            Ok(probe_result(probe_raster_metadata(&self.bytes)))
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -181,28 +185,30 @@ impl Task for RasterDecodeTask {
     type JsValue = RasterDecodeResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        let mut raster = match decode_raster(&self.bytes, None) {
-            Ok(r) => r,
-            Err(e) => {
-                return Ok(RasterDecodeResult {
-                    ok: false,
-                    buffer: None,
-                    width: None,
-                    height: None,
-                    error: Some(error_message("failed to decode raster", e)),
-                });
+        guarded_compute("RasterDecodeTask", || {
+            let mut raster = match decode_raster(&self.bytes, None) {
+                Ok(r) => r,
+                Err(e) => {
+                    return Ok(RasterDecodeResult {
+                        ok: false,
+                        buffer: None,
+                        width: None,
+                        height: None,
+                        error: Some(error_message("failed to decode raster", e)),
+                    });
+                }
+            };
+            if self.auto_orient {
+                raster.auto_orient();
             }
-        };
-        if self.auto_orient {
-            raster.auto_orient();
-        }
-        let rgb = raster.into_rgb8();
-        Ok(RasterDecodeResult {
-            ok: true,
-            buffer: Some(rgb.data.into()),
-            width: Some(rgb.width),
-            height: Some(rgb.height),
-            error: None,
+            let rgb = raster.into_rgb8();
+            Ok(RasterDecodeResult {
+                ok: true,
+                buffer: Some(rgb.data.into()),
+                width: Some(rgb.width),
+                height: Some(rgb.height),
+                error: None,
+            })
         })
     }
 

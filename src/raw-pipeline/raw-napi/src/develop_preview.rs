@@ -27,6 +27,7 @@ use raw_core::pipeline::{render_from_raw_with_quality_and_source, RawInput, Rend
 use std::path::Path;
 
 use crate::develop_common::{atomic_write, load_xmp_model, run_on_large_stack};
+use crate::error::guarded_compute;
 use crate::raster_resize::RasterFileResult;
 
 // ---------------------------------------------------------------------
@@ -105,26 +106,28 @@ impl Task for RenderThumbnailAvifToFileTask {
     type JsValue = RasterFileResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(
-            match render_thumbnail_to_file(
-                &self.raw_path,
-                &self.out_path,
-                self.max_px,
-                self.quality,
-                55,
-                raw_core::avif::encode,
-                "avif",
-            ) {
-                Ok(()) => RasterFileResult {
-                    ok: true,
-                    error: None,
+        guarded_compute("RenderThumbnailAvifToFileTask", || {
+            Ok(
+                match render_thumbnail_to_file(
+                    &self.raw_path,
+                    &self.out_path,
+                    self.max_px,
+                    self.quality,
+                    55,
+                    raw_core::avif::encode,
+                    "avif",
+                ) {
+                    Ok(()) => RasterFileResult {
+                        ok: true,
+                        error: None,
+                    },
+                    Err(e) => RasterFileResult {
+                        ok: false,
+                        error: Some(e),
+                    },
                 },
-                Err(e) => RasterFileResult {
-                    ok: false,
-                    error: Some(e),
-                },
-            },
-        )
+            )
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -169,26 +172,28 @@ impl Task for RenderThumbnailPreviewJpegToFileTask {
     type JsValue = RasterFileResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(
-            match render_thumbnail_to_file(
-                &self.raw_path,
-                &self.out_path,
-                self.max_px,
-                self.quality,
-                85,
-                raw_core::jpeg::encode,
-                "jpeg",
-            ) {
-                Ok(()) => RasterFileResult {
-                    ok: true,
-                    error: None,
+        guarded_compute("RenderThumbnailPreviewJpegToFileTask", || {
+            Ok(
+                match render_thumbnail_to_file(
+                    &self.raw_path,
+                    &self.out_path,
+                    self.max_px,
+                    self.quality,
+                    85,
+                    raw_core::jpeg::encode,
+                    "jpeg",
+                ) {
+                    Ok(()) => RasterFileResult {
+                        ok: true,
+                        error: None,
+                    },
+                    Err(e) => RasterFileResult {
+                        ok: false,
+                        error: Some(e),
+                    },
                 },
-                Err(e) => RasterFileResult {
-                    ok: false,
-                    error: Some(e),
-                },
-            },
-        )
+            )
+        })
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -236,15 +241,17 @@ impl Task for RenderDevelopJpegToFileTask {
     type JsValue = RasterFileResult;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        Ok(match self.run() {
-            Ok(()) => RasterFileResult {
-                ok: true,
-                error: None,
-            },
-            Err(e) => RasterFileResult {
-                ok: false,
-                error: Some(e),
-            },
+        guarded_compute("RenderDevelopJpegToFileTask", || {
+            Ok(match self.run() {
+                Ok(()) => RasterFileResult {
+                    ok: true,
+                    error: None,
+                },
+                Err(e) => RasterFileResult {
+                    ok: false,
+                    error: Some(e),
+                },
+            })
         })
     }
 
