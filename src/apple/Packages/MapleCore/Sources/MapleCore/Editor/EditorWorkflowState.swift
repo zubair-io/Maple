@@ -16,6 +16,8 @@ public final class EditorWorkflowState {
   public private(set) var record: SidecarWorkflow?
   public private(set) var pendingRestoreLabel: String?
   var isApplying = false
+  @TaskLocal private static var currentOperationID: UUID?
+  @ObservationIgnored private var activeOperationID: UUID?
   @ObservationIgnored var task: Task<Void, Never>?
   @ObservationIgnored var generation: UInt64 = 0
   @ObservationIgnored private var pending: WorkflowPublication?
@@ -28,17 +30,30 @@ public final class EditorWorkflowState {
     session.sidecarStore is any WorkflowSidecarStoreProtocol
   }
 
+  var hasExternalOperationInFlight: Bool {
+    guard isBusy || task != nil else { return false }
+    if let current = Self.currentOperationID, current == activeOperationID {
+      return false
+    }
+    return true
+  }
+
   func runTracked(_ body: @MainActor @escaping () async -> Void) async {
+    let opID = UUID()
+    activeOperationID = opID
     let op = Task { @MainActor in
-      await body()
+      await Self.$currentOperationID.withValue(opID) {
+        await body()
+      }
     }
     task = op
     await op.value
     if task == op { task = nil }
+    if activeOperationID == opID { activeOperationID = nil }
   }
 
   func waitForIdle() async {
-    while let op = task {
+    while hasExternalOperationInFlight, let op = task {
       await op.value
       if task == op { task = nil }
     }
@@ -225,11 +240,16 @@ public final class EditorWorkflowState {
     guard !isBusy, !session.sidecarWritesDisabled else { return }
     isBusy = true
     let current = generation
+    let opID = UUID()
+    activeOperationID = opID
     var op: Task<Void, Never>?
     op = Task { @MainActor in
-      await self.replayCheckpoint(
-        session: session, transaction: transaction, undo: undo, generation: current)
+      await Self.$currentOperationID.withValue(opID) {
+        await self.replayCheckpoint(
+          session: session, transaction: transaction, undo: undo, generation: current)
+      }
       if self.task == op { self.task = nil }
+      if self.activeOperationID == opID { self.activeOperationID = nil }
     }
     task = op
   }

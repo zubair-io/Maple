@@ -82,7 +82,7 @@ extension EditSession {
           sidecarUpdateTask = nil
         }
       }
-      if workflow.isBusy || workflow.task != nil { continue }
+      if workflow.hasExternalOperationInFlight { continue }
       if hasUnconfirmedSidecarUpdate {
         let generation = sidecarUpdateGeneration
         do {
@@ -99,8 +99,8 @@ extension EditSession {
       } else {
         await store.flush()
       }
-      if sidecarUpdateTask == nil, !hasUnconfirmedSidecarUpdate, !workflow.isBusy,
-        workflow.task == nil
+      if sidecarUpdateTask == nil, !hasUnconfirmedSidecarUpdate,
+        !workflow.hasExternalOperationInFlight
       {
         break
       }
