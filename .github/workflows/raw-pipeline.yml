@@ -643,6 +643,8 @@ jobs:
         run: python3 src/scripts/stage_diff_test.py
       - name: Test image comparator and native reference pairing
         run: python3 src/scripts/compare_images_test.py
+      - name: Test native detail reference failures in the color harness
+        run: python3 src/scripts/color_pipeline_test.py
 
   color-pipeline:
     name: color-pipeline (test_color_pipeline.sh)
