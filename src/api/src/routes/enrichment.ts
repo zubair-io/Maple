@@ -340,7 +340,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
       // Strip the secret key before returning.
       return await toPublicConfig(resolved);
     },
-    // #2353 — owner-only; scoped to just this handler so GET/test stay member-accessible.
+    // #2353 — owner-only; scoped to just this handler so GET stays member-accessible.
     {
       body: ConfigBody,
       beforeHandle: [requireOwnerBeforeHandle, rejectLegacyAiWrite],
@@ -369,7 +369,8 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         return { ok: false, error: msg, status };
       }
     },
-    { body: TestBody },
+    // #4745: probes a caller-supplied URL from the server — owner-only.
+    { body: TestBody, beforeHandle: requireOwnerBeforeHandle },
   )
 
   // POST /api/enrichment/test-describe — health-check the configured
@@ -406,5 +407,5 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         return { ok: false, error: msg, status };
       }
     },
-    { body: TestDescribeBody },
+    { body: TestDescribeBody, beforeHandle: requireOwnerBeforeHandle },
   );
