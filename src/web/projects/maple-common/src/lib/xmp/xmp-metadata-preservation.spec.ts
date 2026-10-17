@@ -142,6 +142,12 @@ describe('metadata survives ordinary sidecar edits', () => {
       <crs:RetouchAreas><rdf:Seq><rdf:li><rdf:Description crs:SpotType="heal" crs:SourceState="sourceSetExplicitly" crs:Method="circle" crs:SourceX="0.400000" crs:SourceY="0.500000" crs:Opacity="1.000000" crs:Feather="0.250000" crs:Seed="0"><crs:Masks><rdf:Seq><rdf:li crs:What="Mask/CircularGradient" crs:MaskValue="1" crs:X="0.200000" crs:Y="0.300000" crs:Radius="0.020000" crs:Flow="1" crs:CenterWeight="0"/></rdf:Seq></crs:Masks></rdf:Description></rdf:li></rdf:Seq></crs:RetouchAreas>
       <xmpMM:History><rdf:Seq><rdf:li stEvt:action="saved"/></rdf:Seq></xmpMM:History>
     </rdf:Description>
+    <rdf:Description xmlns:crs="${crs}" crs:Shadows2012="+77">
+      <crs:ToneCurvePV2012Green><rdf:Seq><rdf:li>0, 200</rdf:li></rdf:Seq></crs:ToneCurvePV2012Green>
+    </rdf:Description>
+    <rdf:Description rdf:about="" rdf:nodeID="blank1" xmlns:crs="${crs}" crs:Highlights2012="-66">
+      <crs:ToneCurvePV2012Blue><rdf:Seq><rdf:li>0, 180</rdf:li></rdf:Seq></crs:ToneCurvePV2012Blue>
+    </rdf:Description>
     <rdf:Description rdf:about="other-subject" xmlns:crs="${crs}">
       <crs:ToneCurvePV2012Red><rdf:Seq><rdf:li>0, 255</rdf:li></rdf:Seq></crs:ToneCurvePV2012Red>
     </rdf:Description>
@@ -153,8 +159,13 @@ describe('metadata survives ordinary sidecar edits', () => {
     const first = await fs.readFile(sidecar, 'utf8');
     const reparsed = parser.parseAdjustmentModel(first);
     expect(reparsed.model).toMatchObject({ exposure: 2, contrast: 15 });
+    expect([reparsed.model.shadows, reparsed.model.highlights]).toEqual([undefined, undefined]);
     expect(reparsed.model.displayToneCurveLuma?.points.length).toBe(3);
-    expect(reparsed.model.displayToneCurveRed).toBeUndefined();
+    expect([
+      reparsed.model.displayToneCurveRed,
+      reparsed.model.displayToneCurveGreen,
+      reparsed.model.displayToneCurveBlue,
+    ]).toEqual([undefined, undefined, undefined]);
     expect(reparsed.model.localAdjustments?.length).toBe(1);
     expect(reparsed.model.retouchSpots?.length).toBe(1);
     for (const token of [
@@ -162,6 +173,11 @@ describe('metadata survives ordinary sidecar edits', () => {
       'aux:Lens="XF35mmF1.4 R"',
       'xmpMM:History',
       'vendor:Audit',
+      'crs:Shadows2012="+77"',
+      'ToneCurvePV2012Green',
+      'rdf:nodeID="blank1"',
+      'crs:Highlights2012="-66"',
+      'ToneCurvePV2012Blue',
       'ToneCurvePV2012Red',
     ]) {
       expect(first).toContain(token);

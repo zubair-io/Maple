@@ -3,7 +3,7 @@
 // Templates are compiled once on read; saving never reparses foreign XML.
 import type { AdjustmentModel, LocalAdjustment } from '../models/adjustment-model';
 import type { MaskGroupTemplate, PassthroughBucket } from './xmp.types';
-import { managedXmpName } from './xmp-dom-utils';
+import { managedXmpName, sharesMaskGroupContext } from './xmp-dom-utils';
 import { selfContainedXml } from './xmp-foreign-xml';
 import {
   localAdjustmentBlocks,
@@ -13,6 +13,8 @@ import {
 } from './xmp-local-adjustments';
 import { layerOrderOf, type LayerOrderOf } from './xmp-local-adjustment-order';
 import { verbatimLayerOrders } from './xmp-verbatim-layer-order';
+
+export { sharesMaskGroupContext } from './xmp-dom-utils';
 
 const childrenNamed = (element: Element, name: string): Element[] =>
   Array.from(element.children).filter((child) => managedXmpName(child) === name);
@@ -95,19 +97,6 @@ function collectGroup(
   }
   const parts = seq ? templateParts(clone, slots, seq) : [clone.outerHTML];
   return { template: { parts }, opaque, keys: verbatimLayerOrders(clone) };
-}
-
-/** Moving a group must retain its RDF subject and inherited XML context. */
-export function sharesMaskGroupContext(description: Element, primary: Element): boolean {
-  return [
-    ['http://www.w3.org/1999/02/22-rdf-syntax-ns#', 'about'],
-    ['http://www.w3.org/XML/1998/namespace', 'lang'],
-    ['http://www.w3.org/XML/1998/namespace', 'base'],
-  ].every(
-    ([namespace, name]) =>
-      (description.getAttributeNS(namespace, name) ?? '') ===
-      (primary.getAttributeNS(namespace, name) ?? ''),
-  );
 }
 
 const hasForeignWrapperData = (element: Element, managedChild: Element | undefined): boolean =>

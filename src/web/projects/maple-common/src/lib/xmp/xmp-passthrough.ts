@@ -117,13 +117,13 @@ const eligibleDescriptions = (primary: Element): Element[] =>
 
 const withoutModeledFields = (source: Element, primary: Element): Element => {
   const clone = source.cloneNode(true) as Element;
+  if (!sharesMaskGroupContext(source, primary)) return clone;
   for (const attribute of Array.from(source.attributes)) {
     if (!isModeledAttribute(attribute)) continue;
     if (attribute.namespaceURI)
       clone.removeAttributeNS(attribute.namespaceURI, attribute.localName);
     else clone.removeAttribute(attribute.name);
   }
-  if (!sharesMaskGroupContext(source, primary)) return clone;
   const clonedChildren = Array.from(clone.children);
   Array.from(source.children).forEach((child, index) => {
     if (toneCurveElementKey(child) || localAdjustmentContainerKind(child) || isManagedChild(child))

@@ -145,26 +145,42 @@ enum XMPChildElementScanner {
     )
   }
 
-  /// True when two `rdf:Description` elements share `rdf:about`, `xml:lang`,
-  /// and `xml:base` context.
+  struct DescriptionContext: Equatable {
+    let about: String?
+    let nodeID: String?
+    let lang: String
+    let base: String
+  }
+
+  static func descriptionContext(
+    attributes: [String: String], namespaces: [String: String]
+  ) -> DescriptionContext {
+    let rdfAttr: (String) -> String? = { local in
+      attributes[local]
+        ?? attributes.first {
+          canonicalQualifiedName($0.key, namespaces: namespaces) == "rdf:" + local
+        }?.value
+    }
+    return DescriptionContext(
+      about: rdfAttr("about"),
+      nodeID: rdfAttr("nodeID"),
+      lang: attributes["xml:lang"] ?? "",
+      base: attributes["xml:base"] ?? "")
+  }
+
+  /// True when two `rdf:Description` elements share `rdf:about`, `rdf:nodeID`,
+  /// `xml:lang`, and `xml:base` context.
   static func sharesContext(
-    _ source: String, with primary: String, inherited: [String: String] = [:]
+    _ source: String,
+    with primary: String,
+    inherited: [String: String] = ["rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#"]
   ) -> Bool {
     let lhs = XMPMaskGroupSources.rootAttributes(source)
     let rhs = XMPMaskGroupSources.rootAttributes(primary)
     let lhsScope = XMPMaskGroupSources.scope(inherited, attributes: lhs)
     let rhsScope = XMPMaskGroupSources.scope(inherited, attributes: rhs)
-    let about: ([String: String], [String: String]) -> String = { attrs, scope in
-      attrs["rdf:about"]
-        ?? attrs.first {
-          $0.key == "about"
-            || canonicalQualifiedName($0.key, namespaces: scope) == "rdf:about"
-        }?.value
-        ?? ""
-    }
-    return about(lhs, lhsScope) == about(rhs, rhsScope)
-      && (lhs["xml:lang"] ?? "") == (rhs["xml:lang"] ?? "")
-      && (lhs["xml:base"] ?? "") == (rhs["xml:base"] ?? "")
+    return descriptionContext(attributes: lhs, namespaces: lhsScope)
+      == descriptionContext(attributes: rhs, namespaces: rhsScope)
   }
 
   /// Sibling children of `rdf:RDF` (including secondary `rdf:Description`

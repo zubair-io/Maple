@@ -151,6 +151,7 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
   var sawMapleNamespaceURI: Bool = false
   private var workflowDepth = 0
   private var namespaceScopes: [[String: String]] = []
+  private var primaryDescriptionContext: XMPChildElementScanner.DescriptionContext?
 
   /// `dc:subject` is the only XMP element that isn't an attribute on
   /// `rdf:Description` — it's a nested bag of `rdf:li` children:
@@ -212,7 +213,9 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         key == "xmlns"
           ? ("", value) : (key.hasPrefix("xmlns:") ? (String(key.dropFirst(6)), value) : nil)
       })
-    let namespaces = (namespaceScopes.last ?? [:]).merging(declarations) { _, current in current }
+    let namespaces =
+      (namespaceScopes.last ?? ["rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#"])
+      .merging(declarations) { _, current in current }
     let qualified = qName ?? elementName
     let parts = qualified.split(separator: ":", maxSplits: 1).map(String.init)
     let prefix = parts.count == 2 ? parts[0] : ""
@@ -220,6 +223,21 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     if local == "Workflow", namespaces[prefix] == XMPCanonical.pappNamespaceURI {
       workflowDepth = 1
       return
+    }
+    if namespaceScopes.count <= 2,
+      XMPChildElementScanner.canonicalQualifiedName(qualified, namespaces: namespaces)
+        == "rdf:Description"
+    {
+      let context = XMPChildElementScanner.descriptionContext(
+        attributes: attributeDict, namespaces: namespaces)
+      if let primary = primaryDescriptionContext {
+        if context != primary {
+          workflowDepth = 1
+          return
+        }
+      } else {
+        primaryDescriptionContext = context
+      }
     }
     namespaceScopes.append(namespaces)
     // dc:subject — nested keyword bag. Enter the subtree on the opening
