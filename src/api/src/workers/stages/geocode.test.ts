@@ -27,7 +27,10 @@ function resetsBackupLayout(result: StageResult): boolean {
   return result.patch.some((statement) => statement.sql.includes('backup_layout_version = ?'));
 }
 
-function fakeDoc(gps: { lat: number; lng: number } | null = { lat: 42.65, lng: -73.75 }): ImageDoc {
+function fakeDoc(
+  gps: { lat: number; lng: number } | null = { lat: 42.65, lng: -73.75 },
+  overrideGps?: { lat: number; lng: number } | null,
+): ImageDoc {
   return {
     _id: new ObjectId(),
     folder_id: new ObjectId(),
@@ -57,6 +60,9 @@ function fakeDoc(gps: { lat: number; lng: number } | null = { lat: 42.65, lng: -
     description: null,
     place: null,
     stages: {},
+    ...(overrideGps === undefined
+      ? {}
+      : { metadata_override: { touched_fields: ['gps'], gps: overrideGps } }),
   } as ImageDoc;
 }
 
@@ -144,6 +150,45 @@ describe('geocodeHandler — happy path', () => {
     setGeocodeDepsForTests({ client: fakeNominatim(MUSEUM_RESPONSE), cache: freshCache() });
     const result = await geocodeHandler(doc, fakeCtx);
     expect((result as { skip: string }).skip).toBeTruthy();
+  });
+});
+
+describe('geocodeHandler — user-edited GPS override (#4724)', () => {
+  it('geocodes the override when the file has no EXIF GPS', async () => {
+    using _live = await createLiveTestDatabase();
+    const doc = fakeDoc(null, { lat: 48.8584, lng: 2.2945 });
+    setGeocodeDepsForTests({ client: fakeNominatim(MUSEUM_RESPONSE), cache: freshCache() });
+    const place = patchedPlace(await geocodeHandler(doc, fakeCtx));
+    expect(place.lat).toBe(48.8584);
+    expect(place.lon).toBe(2.2945);
+  });
+
+  it('prefers the override over differing EXIF coordinates', async () => {
+    using _live = await createLiveTestDatabase();
+    const doc = fakeDoc({ lat: 42.65, lng: -73.75 }, { lat: 35.6801, lng: 139.6901 });
+    setGeocodeDepsForTests({ client: fakeNominatim(MUSEUM_RESPONSE), cache: freshCache() });
+    const place = patchedPlace(await geocodeHandler(doc, fakeCtx));
+    expect(place.lat).toBe(35.6801);
+    expect(place.lon).toBe(139.6901);
+  });
+
+  it('falls back to EXIF when the override gps is null', async () => {
+    using _live = await createLiveTestDatabase();
+    const doc = fakeDoc({ lat: 42.65, lng: -73.75 }, null);
+    setGeocodeDepsForTests({ client: fakeNominatim(MUSEUM_RESPONSE), cache: freshCache() });
+    const place = patchedPlace(await geocodeHandler(doc, fakeCtx));
+    expect(place.lat).toBe(42.65);
+  });
+
+  it('still skips when neither override nor EXIF has GPS', async () => {
+    using _live = await createLiveTestDatabase();
+    setGeocodeDepsForTests({ client: fakeNominatim(MUSEUM_RESPONSE), cache: freshCache() });
+    const result = await geocodeHandler(fakeDoc(null, null), fakeCtx);
+    expect((result as { skip: string }).skip).toBe('no-gps');
+  });
+
+  it('targetVersion is 3 so assets skipped as no-gps despite an override re-run', () => {
+    expect(geocodeStage.targetVersion).toBe(3);
   });
 });
 
