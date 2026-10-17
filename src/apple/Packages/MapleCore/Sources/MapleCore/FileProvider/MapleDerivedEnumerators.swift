@@ -64,7 +64,7 @@ public final class MapleDirEnumerator: NSObject, NSFileProviderEnumerator {
 
 /// Which derived cache under `.maple/` an enumerator or item stands for.
 public enum MapleDerivedKind: Sendable, Equatable {
-    /// `.maple/thumbs/<sha256_prefix16(filename)>.avif`, 512 px grid thumb.
+    /// `.maple/thumbs/<filename>.avif`, 512 px grid thumb.
     case thumbs
     /// `.maple/previews/<filename>.avif`, the developed 1280 px preview (#3571).
     case previews
@@ -100,7 +100,7 @@ public enum MapleDerivedKind: Sendable, Equatable {
 /// folder's image listing (same `catalog.listDir(...)` call the
 /// `FolderEnumerator` uses) and surfaces one `.thumb(assetID:)` per
 /// indexed image, named with the server's on-disk filename convention
-/// (`<sha256_prefix16(image basename)>.avif`).
+/// (`<image filename>.avif`).
 ///
 /// Empty parent → empty enumeration, NOT an error: a brand-new library
 /// with no synced thumbs still has a valid (just-empty) `.maple/thumbs/`

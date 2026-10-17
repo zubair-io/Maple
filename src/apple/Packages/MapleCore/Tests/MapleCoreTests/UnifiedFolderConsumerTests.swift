@@ -146,7 +146,7 @@ import XCTest
       XCTAssertTrue(
         previews.allSatisfy {
           $0.path
-            == "/maple/api/preview/photos/My%20Album%20%23%3F/photo.dng?pv=\(MaplePipelineVersion.value)"
+            == "/maple/api/preview/photos/My%20Album%20%23%3F/photo.dng"
         })
       XCTAssertNotNil(previews.last?.etag)
       XCTAssertTrue(records.allSatisfy { $0.authorization == "Bearer folder-token" })

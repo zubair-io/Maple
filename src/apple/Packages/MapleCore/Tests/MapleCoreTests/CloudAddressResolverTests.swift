@@ -122,7 +122,7 @@ final class CloudAddressResolverTests: XCTestCase {
     let url = try await resolver.url(route: "thumb", absPath: "/srv/photos/a.dng")
     XCTAssertEqual(
       url.absoluteString,
-      "https://x/api/thumb/my%20library/a.dng?pv=\(AdjustmentModel.pipelineOutputVersion)")
+      "https://x/api/thumb/my%20library/a.dng")
   }
 
   // MARK: - Actor: one shared /api/folders load

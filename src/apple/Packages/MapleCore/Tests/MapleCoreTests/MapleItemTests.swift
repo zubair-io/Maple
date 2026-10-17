@@ -210,7 +210,7 @@ final class MapleItemTests: XCTestCase {
       previewForAsset: "aaaaaaaaaaaaaaaaaaaaaaaa",
       displayFilename: MapleItem.previewFilename(forRawBasename: "IMG_1.dng"),
       modified: seed, parentIdentifier: parent)
-    XCTAssertEqual(item.filename, "IMG_1.dng.v\(AdjustmentModel.pipelineOutputVersion).avif")
+    XCTAssertEqual(item.filename, "IMG_1.dng.avif")
     XCTAssertEqual(item.itemIdentifier.rawValue, "preview/aaaaaaaaaaaaaaaaaaaaaaaa")
     XCTAssertEqual(item.parentItemIdentifier, parent)
     XCTAssertEqual(item.capabilities, [.allowsReading])

@@ -185,10 +185,12 @@ extension ThumbnailLoader {
     // `<key>_1600.jpg` scheme lives at a different path this reader never
     // consults, so there is nothing stale to gate out here.
     let fm = FileManager.default
+    let legacyURL = MapleSidecarPaths.legacyPreviewURL(for: assetURL)
     guard
-      let previewMtime = (try? fm.attributesOfItem(atPath: previewURL.path))?[
-        .modificationDate
-      ] as? Date
+      let previewMtime = modificationDate(of: previewURL, fm)
+        ?? (MapleSidecarPaths.adoptLegacyDerivative(
+          at: previewURL, legacy: legacyURL, fileManager: fm)
+          ? modificationDate(of: previewURL, fm) : nil)
     else { return nil }
     let assetMtime =
       (try? fm.attributesOfItem(atPath: assetURL.path))?[
@@ -214,6 +216,10 @@ extension ThumbnailLoader {
       return nil
     }
     return data
+  }
+
+  private nonisolated static func modificationDate(of url: URL, _ fm: FileManager) -> Date? {
+    (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
   }
 
   /// True when a sidecar exists next to `assetURL` and parses to a model

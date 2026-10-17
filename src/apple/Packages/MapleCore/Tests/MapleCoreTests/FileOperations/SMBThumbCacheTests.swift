@@ -13,7 +13,7 @@ import XCTest
 
 final class SMBThumbCacheTests: XCTestCase {
 
-    /// `<dir>/.maple/thumbs/<sha256Prefix16(basename)>.avif` — spelled out
+    /// `<dir>/.maple/thumbs/<basename>.avif` — spelled out
     /// against share-relative string paths, matching
     /// `SMBFileOperationsCacheInvalidationTests`'s identical helper (its own
     /// production dependency, `MapleSidecarPaths.thumbURL`, is exactly what
@@ -80,6 +80,41 @@ final class SMBThumbCacheTests: XCTestCase {
         let finalPath = thumbPath(dir: "/Photos", basename: "IMG_0002.dng")
         let landedAtFinalPath = await t.fileExists(at: finalPath)
         XCTAssertTrue(landedAtFinalPath)
+    }
+
+    // MARK: - Legacy `.v25` adoption (#4793)
+
+    func testMissRenamesTheLegacyV25EntryIntoPlace() async {
+        let t = FakeSMBTransport()
+        let current = thumbPath(dir: "/Photos", basename: "IMG_0004.dng")
+        let legacy = MapleSidecarPaths.legacyThumbURL(
+            for: URL(fileURLWithPath: "/Photos/IMG_0004.dng")).path
+        XCTAssertTrue(legacy.hasSuffix(".v25.avif"))
+        await t.seed("legacy", at: legacy)
+
+        let got = await SMBThumbCache(transport: t).read(forAssetPath: "/Photos/IMG_0004.dng")
+
+        XCTAssertEqual(got, Data("legacy".utf8))
+        let legacyRemains = await t.fileExists(at: legacy)
+        let currentExists = await t.fileExists(at: current)
+        XCTAssertFalse(legacyRemains)
+        XCTAssertTrue(currentExists)
+    }
+
+    func testHitNeverAttemptsTheLegacyRename() async {
+        let t = FakeSMBTransport()
+        let current = thumbPath(dir: "/Photos", basename: "IMG_0005.dng")
+        await t.seed("current", at: current)
+        await t.seed(
+            "legacy",
+            at: MapleSidecarPaths.legacyThumbURL(
+                for: URL(fileURLWithPath: "/Photos/IMG_0005.dng")).path)
+
+        let got = await SMBThumbCache(transport: t).read(forAssetPath: "/Photos/IMG_0005.dng")
+
+        XCTAssertEqual(got, Data("current".utf8))
+        let consumed = await t.consumedPaths
+        XCTAssertEqual(consumed, [], "a hit must stay one read, with no rename attempt")
     }
 
     // MARK: - Write failure degrades silently

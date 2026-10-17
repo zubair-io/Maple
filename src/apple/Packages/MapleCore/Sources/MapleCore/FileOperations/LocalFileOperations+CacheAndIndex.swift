@@ -37,9 +37,12 @@ extension LocalFileOperations {
     /// swallowed the same way the two `removeItem`s already are.
     static func invalidateDerivedCaches(forOldPrimaryPath oldPrimaryPath: String) async {
         let oldURL = URL(fileURLWithPath: oldPrimaryPath)
-        let fm = FileManager.default
-        try? fm.removeItem(at: MapleSidecarPaths.thumbURL(for: oldURL))
-        try? fm.removeItem(at: MapleSidecarPaths.previewURL(for: oldURL))
+        MapleSidecarPaths.removeDerivative(
+            at: MapleSidecarPaths.thumbURL(for: oldURL),
+            legacy: MapleSidecarPaths.legacyThumbURL(for: oldURL))
+        MapleSidecarPaths.removeDerivative(
+            at: MapleSidecarPaths.previewURL(for: oldURL),
+            legacy: MapleSidecarPaths.legacyPreviewURL(for: oldURL))
         await RenderedPreviewCache.shared.invalidate(assetURL: oldURL)
     }
 

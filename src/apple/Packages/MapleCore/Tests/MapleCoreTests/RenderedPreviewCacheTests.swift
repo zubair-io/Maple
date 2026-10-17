@@ -149,39 +149,14 @@ final class RenderedPreviewCacheTests: XCTestCase {
         XCTAssertNotNil(hit, "handleMemoryPressure must not delete the on-disk preview")
     }
 
-    // MARK: - #1926: the single-sourced pipeline-output version is in the key
+    // MARK: - #4793: no version participates in the key
 
-    /// The `variantToken` that seeds the cache key carries the codegen-sourced
-    /// `AdjustmentModel.pipelineOutputVersion`, so a raw-core pipeline-output
-    /// change (which bumps that constant) participates in the key.
-    func testPipelineOutputVersionIsFoldedIntoKey() {
-        let token = RenderedPreviewCache.variantToken(
-            primaryMtime: "1000",
-            sidecarMtime: "0",
-            screenWidth: 800,
-            viewTransformVersion: 7,
-            pipelineOutputVersion: AdjustmentModel.pipelineOutputVersion)
-        XCTAssertTrue(
-            token.contains("_pv\(AdjustmentModel.pipelineOutputVersion)"),
-            "the variant token must carry the single-sourced pipelineOutputVersion (#1926)")
-    }
-
-    /// Bumping `pipelineOutputVersion` changes the variant token — and thus the
-    /// hashed key — so previews rendered under an older pipeline version can no
-    /// longer be served. This is the invalidation guarantee the single source
-    /// exists to provide.
-    func testBumpingPipelineOutputVersionChangesTheKey() {
-        func token(_ pv: UInt32) -> String {
+    /// A pipeline bump must never invalidate a preview, so the variant token
+    /// is built from the asset's own state alone.
+    func testVariantTokenCarriesNoVersion() {
+        XCTAssertEqual(
             RenderedPreviewCache.variantToken(
-                primaryMtime: "1000",
-                sidecarMtime: "0",
-                screenWidth: 800,
-                viewTransformVersion: 7,
-                pipelineOutputVersion: pv)
-        }
-        let current = AdjustmentModel.pipelineOutputVersion
-        XCTAssertNotEqual(
-            token(current), token(current + 1),
-            "a pipelineOutputVersion bump must change the cache key (#1926)")
+                primaryMtime: "1000", sidecarMtime: "0", screenWidth: 800),
+            "1000_0_800")
     }
 }

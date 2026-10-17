@@ -344,7 +344,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
   /// Synthetic `.maple/thumbs/` directory — the only child of a
   /// `.mapleDir`. Children are one `.thumb(assetID:)` per indexed
   /// image in `parentRelativePath`, named with the server's
-  /// `sha256_prefix16(basename).avif` convention.
+  /// `<filename>.avif` convention.
   public init(
     mapleThumbsDir folderID: String,
     parentRelativePath: String,
@@ -363,7 +363,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
   }
 
   /// Pre-rendered thumbnail AVIF. `displayFilename` is the server's
-  /// on-disk name (`<sha256_prefix16(basename)>.avif`), derived by the
+  /// on-disk name (`<filename>.avif`), derived by the
   /// enumerator from the paired RAW's filename. Identifier carries
   /// only the assetID — the OS reaches `fetchContents` with the
   /// `.thumb(assetID:)` shape and the extension hits

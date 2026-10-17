@@ -160,7 +160,7 @@ public enum SMBFileOperations {
     // MARK: - Derived-cache invalidation
 
     /// Delete the OLD location's on-share derived thumb + preview entries
-    /// (`.maple/thumbs/<sha256Prefix16(basename)>.avif` and
+    /// (`.maple/thumbs/<filename.ext>.avif` and
     /// `.maple/previews/<basename>.avif`, via `MapleSidecarPaths`). These
     /// are NOT an Apple-local cache this client would have written: they're
     /// the cross-layer, path-keyed, travels-with-the-photos derivative
@@ -182,8 +182,13 @@ public enum SMBFileOperations {
         // Same pure-lexical URL wrapping as `sidecarPath(for:)` below —
         // no filesystem access, just shared path math.
         let oldURL = URL(fileURLWithPath: oldPrimaryPath)
-        try? await transport.removeItem(atPath: MapleSidecarPaths.thumbURL(for: oldURL).path)
-        try? await transport.removeItem(atPath: MapleSidecarPaths.previewURL(for: oldURL).path)
+        let derivatives = [
+            MapleSidecarPaths.thumbURL(for: oldURL), MapleSidecarPaths.legacyThumbURL(for: oldURL),
+            MapleSidecarPaths.previewURL(for: oldURL), MapleSidecarPaths.legacyPreviewURL(for: oldURL),
+        ]
+        for derivative in derivatives {
+            try? await transport.removeItem(atPath: derivative.path)
+        }
         // #2946: the two removes above only clear the on-SHARE, cross-layer
         // thumb/preview entries. `RenderedPreviewCache` is a SEPARATE,
         // per-device cold-open cache (docs/caching.md § 3) keyed on a hash
