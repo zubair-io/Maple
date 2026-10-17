@@ -98,23 +98,46 @@ for (const collision of ['skip', 'auto-suffix', 'keep-both'] satisfies Collision
   }
 }
 
-test('rollback preserves a published path subsequently replaced by another writer', async () => {
-  await write('src/photo.dng', 'source pixels');
-  const outcome = await relocateFile({
-    sourceAbsPath: abs('src/photo.dng'),
-    destAbsPath: abs('dst/photo.dng'),
-    mode: 'move',
-    collision: 'keep-both',
-    onVerified: async ({ newAbsPath }) => {
-      await write('replacement', 'replacement');
-      await fs.rename(abs('replacement'), newAbsPath);
-      throw new Error('repoint refused');
-    },
+for (const fallback of [false, true]) {
+  test(`rollback preserves a replacement file (fallback: ${fallback})`, async () => {
+    await write('src/photo.dng', 'source pixels');
+    await write('replacement', 'competing pixels');
+    const destination = abs('dst/photo.dng');
+    const replace = async () => {
+      if (await fs.stat(abs('replacement')).catch(() => null))
+        await fs.rename(abs('replacement'), destination);
+    };
+    if (fallback) {
+      spyOn(fs, 'link').mockRejectedValue(
+        Object.assign(new Error('unsupported'), { code: 'EPERM' }),
+      );
+      const copy = fs.copyFile;
+      spyOn(fs, 'copyFile').mockImplementation(async (source, target, flags) => {
+        await copy(source, target, flags);
+        if (target === destination) await replace();
+      });
+      const open = fs.open;
+      spyOn(fs, 'open').mockImplementation(async (target, flags, mode) => {
+        const handle = await open(target, flags, mode);
+        if (target === destination) await replace();
+        return handle;
+      });
+    }
+    const outcome = await relocateFile({
+      sourceAbsPath: abs('src/photo.dng'),
+      destAbsPath: destination,
+      mode: 'move',
+      collision: 'keep-both',
+      onVerified: async () => {
+        await replace();
+        throw new Error('catalog repoint refused');
+      },
+    });
+    expect(outcome.kind).toBe('error');
+    expect(await fs.readFile(destination, 'utf8')).toBe('competing pixels');
+    expect(await fs.readFile(abs('src/photo.dng'), 'utf8')).toBe('source pixels');
   });
-  expect(outcome.kind).toBe('error');
-  expect(await fs.readFile(abs('dst/photo.dng'), 'utf8')).toBe('replacement');
-  expect(await fs.readFile(abs('src/photo.dng'), 'utf8')).toBe('source pixels');
-});
+}
 
 test('catalog and response use the name actually published after a race', async () => {
   using live = await createLiveTestDatabase();

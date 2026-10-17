@@ -41,9 +41,8 @@ export async function copyVerifiedIntoPlace(
         ) {
           throw error;
         }
-        await fs.copyFile(tmp, destination, fs.constants.COPYFILE_EXCL);
-        const copiedIdentity = await fs.lstat(destination);
-        publications.push({ path: destination, dev: copiedIdentity.dev, ino: copiedIdentity.ino });
+        publications.push(await copyExclusive(tmp, destination));
+        fs.replicatePath(destination);
         return;
       }
     }
@@ -60,5 +59,27 @@ export async function revertCreated(publications: RelocatePublication[]): Promis
     if (identity?.dev === publication.dev && identity.ino === publication.ino) {
       await fs.unlink(publication.path).catch(() => {});
     }
+  }
+}
+
+async function copyExclusive(source: string, destination: string): Promise<RelocatePublication> {
+  const target = await fs.open(destination, 'wx');
+  try {
+    const identity = await target.stat();
+    const publication = { path: destination, dev: identity.dev, ino: identity.ino };
+    try {
+      const input = await fs.open(source, 'r');
+      try {
+        await target.writeFile(input.createReadStream({ autoClose: false }));
+      } finally {
+        await input.close();
+      }
+      return publication;
+    } catch (error) {
+      await revertCreated([publication]);
+      throw error;
+    }
+  } finally {
+    await target.close();
   }
 }
