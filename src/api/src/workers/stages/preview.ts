@@ -24,7 +24,8 @@ import { cachePathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isUndecodableFilename, isVideoFilename } from '../../indexer/media-types.ts';
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
-import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { loadLibraryRootsForAsset } from '../../indexer/libraries.cache.ts';
+import { noResolvableLocation } from './no-resolvable-location.ts';
 import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
 const previewStage = defineStage({
@@ -83,11 +84,11 @@ const previewStage = defineStage({
     // genuinely-orphaned one: the runner stamps `missing_since` on that skip
     // instead of marking the stage done, so the missing-reaper sees it. See
     // run-stage.ts.
-    const libs = await loadLibraryRoots();
+    const libs = await loadLibraryRootsForAsset(image as never);
     const previewPath = cachePathForAsset(image as never, libs, 'previews', PREVIEW_CACHE_SUFFIX);
     const absPath = assetAbsPath(image as never, libs);
     if (!previewPath || !absPath) {
-      return { skip: 'no-resolvable-location' };
+      return noResolvableLocation(image as never, libs);
     }
     // An ENOENT here (original gone) is tagged `missing_since` by the runner
     // — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
