@@ -183,6 +183,18 @@
 			membershipExceptions = ("MapleTV-Info.plist", );
 			target = E31E79A0300C6A7D00617367 /* Maple TV */;
 		};
+		A4868000000000000000A1F0 /* Exceptions for "MapleUITests" folder in "MapleUITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Goldens/.calibration/bias-cancellation/a.png",
+				"Goldens/.calibration/bias-cancellation/b.png",
+				"Goldens/.calibration/bias-cancellation/expected.json",
+				"Goldens/.calibration/bias-repetition/a.png",
+				"Goldens/.calibration/bias-repetition/b.png",
+				"Goldens/.calibration/bias-repetition/expected.json",
+			);
+			target = A1F0006500000000000000A1 /* MapleUITests */;
+		};
 		E3EC0CF03047DFFD006325AD /* Exceptions for "MapleTopShelf" folder in "MapleTopShelf" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -200,6 +212,9 @@
 		};
 		A1F0006100000000000000A1 /* MapleUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A4868000000000000000A1F0 /* Exceptions for "MapleUITests" folder in "MapleUITests" target */,
+			);
 			path = MapleUITests;
 			sourceTree = "<group>";
 		};
