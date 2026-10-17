@@ -1,6 +1,13 @@
 import Foundation
 
 extension AssetRef {
+  /// The reference SMB mutations (trash, move, rename, sidecar writes) hand
+  /// to `SMBSource`, carrying the listed location so a byte-identical copy
+  /// elsewhere on the share is never the one touched (#4705).
+  public var smbMutationRef: ImageRef? {
+    stableID.map { ImageRef(id: $0, displayName: displayName, smbPath: smbPath) }
+  }
+
   /// Bind original delivery to the rename engine's confirmed share-relative
   /// path, including when its caller supplied a legacy ID-only reference.
   public func renamedSMB(to filename: String, at path: String, source: SMBSource) throws -> AssetRef
@@ -12,6 +19,7 @@ extension AssetRef {
       displayName: filename, hintExtension: ext.isEmpty ? nil : ext,
       stableID: stableID, captureDate: captureDate, explicitIsRaw: explicitIsRaw,
       thumbnailProvenance: thumbnailProvenance, displayPreviewProvider: displayPreviewProvider,
+      smbPath: path,
       originalFileWriter: { try await source.writeOriginal(for: ref, to: $0) },
       bytesProvider: bytesProvider)
   }

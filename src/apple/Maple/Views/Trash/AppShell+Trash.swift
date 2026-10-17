@@ -102,10 +102,9 @@ extension AppShell {
     // MARK: - SMB
 
     private func performSMBTrash(_ asset: AssetRef) async -> AssetTrashItemResult.Outcome {
-        guard let source = browseVM.currentSource as? SMBSource, let mapleID = asset.stableID else {
+        guard let source = browseVM.currentSource as? SMBSource, let ref = asset.smbMutationRef else {
             return .failed("SMB share is not connected")
         }
-        let ref = ImageRef(id: mapleID, displayName: asset.displayName, url: nil)
         do {
             _ = try await source.trashAsset(ref)
             return .trashed(destination: .mapleTrash)

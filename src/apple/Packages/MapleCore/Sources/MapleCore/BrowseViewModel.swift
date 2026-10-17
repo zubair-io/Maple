@@ -179,6 +179,7 @@ public final class BrowseViewModel {
           stableID: capturedRef.id,
           captureDate: capturedRef.captureDate,
           thumbnailProvenance: provenance,
+          smbPath: capturedRef.smbPath,
           originalFileWriter: (capturedSource as? SMBSource).map { smb in
             { @Sendable destination in
               try await smb.writeOriginal(for: capturedRef, to: destination)

@@ -125,13 +125,12 @@ extension BatchRenameViewModel {
                 continue
             }
             let newName = candidateName
-            guard let mapleID = asset.stableID else {
+            guard let ref = asset.smbMutationRef else {
                 results.append(BatchRenameApplyResult(
                     id: asset.id, oldFilename: item.oldFilename,
                     outcome: .failed("Missing SMB asset id.")))
                 continue
             }
-            let ref = ImageRef(id: mapleID, displayName: asset.displayName, url: nil)
             do {
                 let newPath = try await smbSource.renameAsset(
                     ref, to: newName, collision: collision.localPolicy)

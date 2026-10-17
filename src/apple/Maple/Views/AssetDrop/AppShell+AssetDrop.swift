@@ -208,10 +208,9 @@ extension AppShell {
         guard case .smbShare(let currentShare) = librarySelection, currentShare == share else {
             return .failed("Dragging between different SMB shares isn't supported yet.")
         }
-        guard let source = browseVM.currentSource as? SMBSource, let mapleID = asset.stableID else {
+        guard let source = browseVM.currentSource as? SMBSource, let ref = asset.smbMutationRef else {
             return .failed("SMB share is not connected")
         }
-        let ref = ImageRef(id: mapleID, displayName: asset.displayName, url: nil)
         do {
             return try await runSMBRelocate(source: source, ref: ref, mode: mode, collision: .fail)
         } catch FileOperationError.destinationExists {

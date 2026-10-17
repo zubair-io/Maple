@@ -83,8 +83,10 @@ public actor SMBSource {
   /// from a prior `images()` call (SMB has no other id-issuing entry
   /// point: `search()` returns `nil`), so the map is always populated by
   /// the time a caller round-trips a ref back into `rawBytes`/`writeXMP`.
-  private var pathByMapleId: [String: String] = [:]
-  private var relocatedPaths: [ImageRef: String] = [:]
+  private(set) var pathByMapleId: [String: String] = [:]
+  /// maple_ids listed at more than one path: byte-identical copies (#4705).
+  private(set) var ambiguousMapleIds: Set<String> = []
+  private(set) var relocatedPaths: [ImageRef: String] = [:]
 
   /// First 64 KB of a file — the bound the primary-form head hash reads.
   /// Matches `raw_core::SHA1_HEAD_BYTES` (`id.rs`) and
@@ -135,6 +137,7 @@ public actor SMBSource {
     client = nil
     idCache = nil
     pathByMapleId = [:]
+    ambiguousMapleIds = []
     try? await retiringClient?.disconnectShare(gracefully: true)
   }
 
@@ -160,18 +163,15 @@ public actor SMBSource {
   /// instead — `collision` is caller-supplied so this one method serves
   /// both callers rather than each hard-coding its own policy.
   ///
-  /// Updates `pathByMapleId` and the matching `_assets` entry so the
-  /// asset's ALREADY-CAPTURED `bytesProvider` closure (built once in
-  /// `BrowseViewModel.loadSource` and never rebuilt by the rename caller)
-  /// keeps resolving to the right file — it calls `rawBytes(for:)` →
-  /// `path(for:)` → `pathByMapleId[ref.id]` at read time, not at capture
-  /// time — and so the next `images()` call reflects the new name without
-  /// a full reconnect/re-list.
+  /// Records the relocation and updates the matching `_assets` entry so the
+  /// asset's ALREADY-CAPTURED `bytesProvider` closure keeps resolving to the
+  /// right file (`path(for:)` is evaluated at read time), and the next
+  /// `images()` call reflects the new name without a full re-list.
   public func renameAsset(
     _ ref: ImageRef, to newFilename: String, collision: CollisionPolicy = .fail
   ) async throws -> String {
     guard let client else { throw SMBError.notConnected }
-    let sourcePath = path(for: ref)
+    let sourcePath = try mutationPath(for: ref)
     let destinationDir = (sourcePath as NSString).deletingLastPathComponent
     let outcome = try await SMBFileOperations.relocate(
       sourcePath, to: destinationDir, newBasename: newFilename,
@@ -195,7 +195,7 @@ public actor SMBSource {
     _ ref: ImageRef, to destinationDir: String, mode: RelocateMode, collision: CollisionPolicy
   ) async throws -> RelocateOutcome {
     guard let client else { throw SMBError.notConnected }
-    let sourcePath = path(for: ref)
+    let sourcePath = try mutationPath(for: ref)
     let outcome = try await SMBFileOperations.relocate(
       sourcePath, to: destinationDir, mode: mode, collision: collision, transport: client)
     guard mode == .move else { return outcome }
@@ -215,7 +215,7 @@ public actor SMBSource {
   /// `relocateAsset`'s move branch.
   public func trashAsset(_ ref: ImageRef) async throws -> RelocateOutcome {
     guard let client else { throw SMBError.notConnected }
-    let sourcePath = path(for: ref)
+    let sourcePath = try mutationPath(for: ref)
     let outcome = try await SMBFileOperations.trash(sourcePath, transport: client)
     recordRelocation(ref, from: sourcePath, to: outcome.primaryPath)
     _assets.removeAll { $0.path == sourcePath }
@@ -500,12 +500,15 @@ extension SMBSource: ImageSource {
     var refs: [ImageRef] = []
     refs.reserveCapacity(_assets.count)
     var freshPathByMapleId: [String: String] = [:]
+    var freshAmbiguousIds: Set<String> = []
     for a in _assets {
       let id = await mapleId(for: a) ?? a.path
+      if freshPathByMapleId[id] != nil { freshAmbiguousIds.insert(id) }
       freshPathByMapleId[id] = a.path
       refs.append(ImageRef(id: id, displayName: a.name, smbPath: a.path))
     }
     pathByMapleId = freshPathByMapleId
+    ambiguousMapleIds = freshAmbiguousIds
     return refs
   }
 
@@ -525,7 +528,7 @@ extension SMBSource: ImageSource {
     guard let data = xml.data(using: .utf8) else {
       throw XMPStoreError.encodingError
     }
-    let sidecarPath = (path(for: ref) as NSString)
+    let sidecarPath = (try mutationPath(for: ref) as NSString)
       .deletingPathExtension
       .appending(".xmp")
     try await writeWithRetry(data: data, to: sidecarPath, client: client)
@@ -537,13 +540,7 @@ extension SMBSource: ImageSource {
     pathByMapleId[ref.id] = newPath
   }
 
-  /// Listed locations keep identical RAW copies' sidecars independent (#4085).
-  /// Relocations retain captured references, including across reconnects.
-  /// ID lookup remains a fallback for legacy references without a location.
-  /// Also used by SMBSource+Thumbs.swift.
-  func path(for ref: ImageRef) -> String {
-    relocatedPaths[ref] ?? ref.smbPath ?? pathByMapleId[ref.id] ?? ref.id
-  }
+  // path(for:) / mutationPath(for:) live in SMBSource+Paths.swift.
 
   /// SMB shares have no server-side index.
   public func search(_ query: SearchQuery) async throws -> [ImageRef]? { nil }
@@ -555,12 +552,15 @@ public enum SMBError: Error, LocalizedError {
   case invalidServerURL(String)
   case notConnected
   case writeFailedAfterRetries
+  case ambiguousLocation(String)
 
   public var errorDescription: String? {
     switch self {
     case .invalidServerURL(let h): return "Invalid SMB server URL: \(h)"
     case .notConnected: return "Not connected to SMB share"
     case .writeFailedAfterRetries: return "SMB sidecar write failed after retries"
+    case .ambiguousLocation(let name):
+      return "\(name) has identical copies on this share. Reopen the folder and try again."
     }
   }
 }
