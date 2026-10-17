@@ -157,6 +157,37 @@ final class AuthenticatedHTTPClientTests: XCTestCase {
     XCTAssertEqual((resp as! HTTPURLResponse).statusCode, 401)
   }
 
+  /// A sign-out followed by a NEW pairing can also complete inside the
+  /// refresh round trip. The stored generation is then non-nil but not the
+  /// one this refresh was minted from; it must win, not the stale rotation.
+  func testRepairedDuringRefreshRequestKeepsTheNewPairing() async throws {
+    StubURLProtocol.register()
+    defer { StubURLProtocol.reset() }
+    var persisted: AuthTokens?
+    var stored: AuthTokens? = AuthTokens(access: "A1", refresh: "R1")
+    let repaired = AuthTokens(access: "NEW-A", refresh: "NEW-R")
+    StubURLProtocol.handler = { req in
+      if req.url!.path == "/api/auth/refresh" {
+        stored = repaired
+        return (200, Data(#"{"access_token":"A2","refresh_token":"R2"}"#.utf8), [:])
+      }
+      let auth = req.value(forHTTPHeaderField: "Authorization")
+      if auth == "Bearer A1" { return (401, Data("{}".utf8), [:]) }
+      return (200, Data("{}".utf8), [:])
+    }
+    let client = AuthenticatedHTTPClient(
+      server: URL(string: "https://x.test")!, urlSession: TestURLSession.make(),
+      tokensProvider: { stored },
+      onTokensRefreshed: { persisted = $0 },
+      onSignOut: {}
+    )
+
+    _ = try await client.data(for: URLRequest(url: URL(string: "https://x.test/api/folders")!))
+
+    XCTAssertNil(persisted, "the stale rotation must not overwrite the new pairing")
+    XCTAssertEqual(stored, repaired)
+  }
+
   func testProactivelyRefreshesExpiredAccessTokenBeforeRequest() async throws {
     // The access token is already past its exp. The client should refresh
     // BEFORE dispatching the request — so the request carries a fresh token
