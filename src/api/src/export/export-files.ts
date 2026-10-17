@@ -2,11 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { open, realpath, lstat, stat, link, rename, rm } from '../fs/mirrored.ts';
-import { ObjectId } from '../db/object-id.ts';
-import { hasLiveAssetAtAddress } from '../db/repos/assets.address.ts';
-import { mostSpecificRoot } from '../fs/root-match.ts';
 import { safeWriteAllowed } from '../fs/root.ts';
-import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { resolveAndAuthorizePath } from '../routes/xmp-path-auth.ts';
 import { tryGetRawFfi } from '../ffi/raw_ffi.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
@@ -15,7 +11,11 @@ import { renderFilenameTemplate } from 'maple';
 import { EXPORT_ENCODERS } from '../generated/export-recipe.generated.ts';
 import type { ExportRecipe } from '../generated/export-recipe.generated.ts';
 import type { ExportTarget } from './export-payload.ts';
-import { isPriorServerExport, type ExportOriginals } from './export-originals.ts';
+import {
+  isCatalogAssetOrSidecar,
+  isPriorServerExport,
+  type ExportOriginals,
+} from './export-originals.ts';
 
 export interface ExportEntry {
   id: string;
@@ -105,44 +105,6 @@ async function exportPaths(target: ExportTarget, recipe: ExportRecipe): Promise<
   return { source, directory, outputPath };
 }
 
-// loadLibraryRoots() returns a process-cached ReadonlyMap singleton until invalidateLibraryRoots().
-let cachedRootEntries: {
-  roots: ReadonlyMap<string, string>;
-  entries: Promise<readonly (readonly [string, string])[]>;
-} | null = null;
-
-function libraryRootEntries(
-  roots: ReadonlyMap<string, string>,
-): Promise<readonly (readonly [string, string])[]> {
-  if (cachedRootEntries?.roots !== roots) {
-    cachedRootEntries = {
-      roots,
-      entries: (async () => {
-        const entries: [string, string][] = [];
-        for (const [id, root] of roots) {
-          const resolved = resolve(root);
-          entries.push([id, resolved]);
-          const canonical = await realpath(resolved).catch(() => null);
-          if (canonical && canonical !== resolved) entries.push([id, canonical]);
-        }
-        return entries;
-      })(),
-    };
-  }
-  return cachedRootEntries.entries;
-}
-
-async function isCatalogAssetOrSidecar(candidate: string): Promise<boolean> {
-  const entries = await libraryRootEntries(await loadLibraryRoots());
-  const match = mostSpecificRoot(candidate, entries);
-  if (!match || !match.relPath) return false;
-  if (extname(candidate).toLowerCase() === '.xmp') return true;
-  const slash = match.relPath.lastIndexOf('/');
-  const dir = slash === -1 ? '' : match.relPath.slice(0, slash);
-  const filename = slash === -1 ? match.relPath : match.relPath.slice(slash + 1);
-  return hasLiveAssetAtAddress(new ObjectId(match.key), dir, filename);
-}
-
 async function isUnselectedCatalogOriginal(
   resolvedOutput: string,
   canonicalOutput: string | null,
@@ -150,12 +112,13 @@ async function isUnselectedCatalogOriginal(
   currentHash: string | null,
 ): Promise<boolean> {
   const catalogMatch =
-    (await isCatalogAssetOrSidecar(resolvedOutput)) ||
-    (canonicalOutput !== null &&
-      canonicalOutput !== resolvedOutput &&
-      (await isCatalogAssetOrSidecar(canonicalOutput)));
+    (await isCatalogAssetOrSidecar(resolvedOutput)) ??
+    (canonicalOutput !== null && canonicalOutput !== resolvedOutput
+      ? await isCatalogAssetOrSidecar(canonicalOutput)
+      : null);
   if (!catalogMatch) return false;
-  return !isPriorServerExport(originalPaths, resolvedOutput, canonicalOutput, currentHash);
+  const effectiveHash = currentHash ?? (await fileHash(catalogMatch));
+  return !isPriorServerExport(originalPaths, resolvedOutput, canonicalOutput, effectiveHash);
 }
 
 async function isDestinationOriginal(
