@@ -226,6 +226,16 @@ public final class AgentEditService {
         code: "no_active_photo",
         message: "No photo is open in Maple's editor. Ask the photographer to open one.")
     }
+    // Until its sidecar loads, a session holds defaults, not the photo's edits (#4710).
+    guard activeSession.hasLoadedSidecar else {
+      throw activeSession.sidecarLoadFailed
+        ? AgentError(
+          code: "sidecar_unavailable",
+          message:
+            "Maple couldn't read this photo's saved edits (\(activeSession.sidecarError?.localizedDescription ?? "read failed")). Nothing can be changed until it reloads.")
+        : AgentError(
+          code: "not_ready", message: "The photo's saved edits are still loading. Retry shortly.")
+    }
     return activeSession
   }
 

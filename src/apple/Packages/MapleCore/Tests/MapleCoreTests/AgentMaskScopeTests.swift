@@ -129,6 +129,7 @@ final class AgentMaskScopeTests: XCTestCase {
     let bytes = try Data(contentsOf: original)
     let session = EditSession(asset: AssetRef(url: original))
     let service = AgentEditService()
+    await session.loadSidecar()
     service.activate(session)
     let initial = session.model
     let initialRevision = try await revision(service)
@@ -254,6 +255,7 @@ final class AgentMaskScopeTests: XCTestCase {
   func testUnsafePersonIndexIsRejectedBeforeVisionWithoutMutatingMasks() async throws {
     let service = AgentEditService()
     let session = makeSession()
+    await session.loadSidecar()
     service.activate(session)
     let initialRevision = try await revision(service)
     for invalid in ["1e100", "-1e100", "9223372036854775808", "1.5", "null", "true", "\"5\"", "-1"]
@@ -282,6 +284,7 @@ final class AgentMaskScopeTests: XCTestCase {
   func testCreateGeometricLinearAndRadialMasks() async throws {
     let service = AgentEditService()
     let session = makeSession()
+    await session.loadSidecar()
     service.activate(session)
 
     // Linear mask
@@ -338,6 +341,7 @@ final class AgentMaskScopeTests: XCTestCase {
   func testCreateWholeImageSkinMask() async throws {
     let service = AgentEditService()
     let session = makeSession()
+    await session.loadSidecar()
     service.activate(session)
 
     let result = try await call(
@@ -360,6 +364,7 @@ final class AgentMaskScopeTests: XCTestCase {
   func testAdjustMaskLocally() async throws {
     let service = AgentEditService()
     let session = makeSession()
+    await session.loadSidecar()
     service.activate(session)
 
     // Create a mask first
@@ -423,6 +428,7 @@ final class AgentMaskScopeTests: XCTestCase {
     await session.openAssetPipelineAsync()
     _ = await session.latestRenderSchedule?.value
     await session.renderActor.awaitCurrentRenderIfInFlight()
+    await session.loadSidecar()
     service.activate(session)
 
     // Create radial mask
@@ -491,6 +497,7 @@ final class AgentMaskScopeTests: XCTestCase {
     session.previewSize = CGSize(width: 200, height: 200)
     await session.openAssetPipelineAsync()
     _ = await session.latestRenderSchedule?.value
+    await session.loadSidecar()
     service.activate(session)
 
     // Create a whole-image skin mask
