@@ -71,6 +71,19 @@ producing any renders. Its log is retained. The running comparison uses a
 SHA-identical executable copy in the local temporary directory; the archived
 binary and all physical inputs remain unchanged.
 
+### Dehaze interaction with the AMaZE prerequisite
+
+The targeted `test_0015/dehaze_max` comparison exposes a regression in the
+balanced-AMaZE control: blue bias is -0.073930924, beyond the unchanged
+absolute ceiling 0.0734. Frozen main passes this case. Applying the required
+GainMaps brings blue bias to -0.040073069, and every budget passes again.
+All three renders use the same references/protocol and unchanged inputs.
+
+This clears a regression introduced by the prerequisite, **not an existing
+main failure**. The two changes need qualification together against main;
+the AMaZE-only branch cannot land on the strength of its passing baseline
+controls. Exact metrics and hashes are in `dehaze_max-three-way.json`.
+
 ## Qualification still required
 
 This is a saved implementation checkpoint, not a ready PR or a claim that
