@@ -129,3 +129,25 @@ fn accessible_film_picker_is_undoable_and_saves_a_real_sidecar() {
     assert_eq!(saved.model.film_strength, 50.0);
     assert_eq!(std::fs::read(path).unwrap(), bytes);
 }
+
+#[test]
+fn filmstrip_does_not_request_a_thumbnail_it_already_cached() {
+    let (directory, path) = super::tests::fixture();
+    let context = egui::Context::default();
+    context.enable_accesskit();
+    let mut app = MapleApp::from_context(context.clone());
+    app.open_folder(directory.path().into());
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !app.thumbnail_cache.contains_key(&path) {
+        assert!(Instant::now() < deadline, "thumbnail did not load");
+        frame(&mut app, &context, Vec::new());
+        if app.folder.is_some() && app.selected.is_none() {
+            app.select(app.folder.as_ref().unwrap().photos[0].clone());
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    for _ in 0..3 {
+        frame(&mut app, &context, Vec::new());
+        assert!(app.thumbnail_pending.is_empty());
+    }
+}

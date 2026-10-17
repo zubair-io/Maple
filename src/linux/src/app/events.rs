@@ -64,6 +64,7 @@ impl MapleApp {
                 )
             });
             self.thumbnail_cache.insert(path.clone(), texture);
+            self.thumbnail_order.retain(|queued| queued != &path);
             self.thumbnail_order.push_back(path);
             while self.thumbnail_order.len() > 128 {
                 if let Some(path) = self.thumbnail_order.pop_front() {
