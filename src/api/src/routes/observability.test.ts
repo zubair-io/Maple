@@ -106,6 +106,35 @@ describe('saved key never leaves for a foreign endpoint (#4744)', () => {
     expect(sent?.get('signoz-access-token')).toBe(SAVED_KEY);
   });
 
+  it('changing the endpoint without a new key clears the saved key', async () => {
+    const res = await appAs('owner').handle(
+      json('PUT', '/config', { endpoint: 'http://replacement.example:4318', enabled: false }),
+    );
+    expect(res.status).toBe(200);
+    expect((await loadObservabilityConfig())?.ingestion_key).toBeNull();
+    const { sent } = await probeHeaders('owner', { endpoint: 'http://replacement.example:4318' });
+    expect(sent?.get('signoz-access-token')).toBeNull();
+  });
+
+  it('changing the endpoint together with a new key keeps that key', async () => {
+    const res = await appAs('owner').handle(
+      json('PUT', '/config', {
+        endpoint: 'http://replacement.example:4318',
+        ingestion_key: 'replacement-key',
+        enabled: false,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect((await loadObservabilityConfig())?.ingestion_key).toBe('replacement-key');
+  });
+
+  it('re-saving the same endpoint keeps the saved key', async () => {
+    await appAs('owner').handle(
+      json('PUT', '/config', { endpoint: `${SAVED_ENDPOINT}/`, enabled: false }),
+    );
+    expect((await loadObservabilityConfig())?.ingestion_key).toBe(SAVED_KEY);
+  });
+
   it('a typed key is sent as given, whatever the endpoint', async () => {
     const { sent } = await probeHeaders('owner', {
       endpoint: 'http://elsewhere.example:4318',

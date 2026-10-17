@@ -1,7 +1,8 @@
 /**
  * /api/observability/* route tests. Exercises the route directly via
- * `app.handle` (no auth — we mount the route without `requireAuth` for tests,
- * mirroring the enrichment-route + search-route patterns).
+ * `app.handle` behind the `fakeAuth()` owner stub — the module embeds
+ * `requireAuth` and its writes are owner-only (#4744), mirroring the
+ * enrichment-route + search-route patterns.
  *
  * Real SQLite, installed as the process-wide handle for the length of each
  * test, because the route reaches `sqliteDb()` with no override. A fresh
@@ -22,10 +23,11 @@
 import { describe, it, expect, afterAll, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
 import { observabilityRoutes } from '../src/routes/observability.ts';
+import { fakeAuth } from './helpers/test-auth.ts';
 import { patchAppSettings, readAppSettings } from '../src/db/repos/app-settings.repo.ts';
 import { createLiveTestDatabase } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
 
-const app = new Elysia().use(observabilityRoutes);
+const app = new Elysia().use(fakeAuth()).use(observabilityRoutes);
 
 const realFetch = globalThis.fetch;
 
