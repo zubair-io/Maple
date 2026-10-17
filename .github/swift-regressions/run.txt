@@ -416,3 +416,4 @@ CloudHostTests
 # Shared-sidecar ownership rule (#4707): real temp dirs + in-memory SMB transport.
 LocalSidecarOwnershipTests
 SMBSidecarOwnershipTests
+SidecarStemRuleTests
