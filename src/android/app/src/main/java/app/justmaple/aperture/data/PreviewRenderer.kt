@@ -10,6 +10,9 @@ interface PreviewRenderer : Closeable {
 
     fun invalidateDraws(): Int
 
+    /** The next draw must reload the model from its XML even if the string is unchanged (#4766). */
+    fun invalidateModel()
+
     suspend fun open(path: String, document: String, edge: Int, generation: Int): Map<String, Float>
 
     fun recordSurface(

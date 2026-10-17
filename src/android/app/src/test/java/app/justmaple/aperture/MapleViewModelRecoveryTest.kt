@@ -37,6 +37,7 @@ class MapleViewModelRecoveryTest {
         override val hasPresented = false
         override var revision = 0
         override fun invalidateDraws() = ++revision
+        override fun invalidateModel() {}
         override suspend fun open(path: String, document: String, edge: Int, generation: Int) = emptyMap<String, Float>()
         override fun recordSurface(next: Surface?, w: Int, h: Int, wideColor: Boolean) =
             EditorRenderer.SurfaceBinding(next, w, h, wideColor)

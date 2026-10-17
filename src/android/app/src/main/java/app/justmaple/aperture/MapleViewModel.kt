@@ -379,6 +379,9 @@ internal constructor(
     private fun restore(value: EditSnapshot) {
         mutable.update { it.copy(values = value.values, document = value.document, dirty = true) }
         renderXml = value.document.serialize()
+        // Field pushes drifted the native model (wb_source = Manual); an
+        // identical XML string must still reload it (#4766).
+        renderer.invalidateModel()
         queueDraw(value.values)
         historyState()
         scheduleSave()
