@@ -175,9 +175,12 @@ class AuthoringMetadataTests(unittest.TestCase):
                 self.compare(self.authored, self.with_property(changed))
 
     def test_active_noise_controls_must_be_authored(self):
-        authored = self.authored.replace(
+        active = self.authored.replace(
             'crs:LuminanceSmoothing="0"', 'crs:LuminanceSmoothing="100"'
         )
+        authored = active.replace(' crs:LuminanceNoiseReductionDetail="50"', "")
+        self.assertNotEqual(active, self.authored)
+        self.assertNotEqual(authored, active)
         captured = authored.replace(
             "</rdf:Description>",
             "<crs:LuminanceNoiseReductionDetail>50</crs:LuminanceNoiseReductionDetail></rdf:Description>",
