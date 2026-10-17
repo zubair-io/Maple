@@ -270,3 +270,34 @@ fn markesteijn_no_nan_on_zero_input() {
         assert!(p[2].abs() < 1e-3);
     }
 }
+
+#[test]
+fn tiny_xtrans_mosaics_are_safe() {
+    for (w, h) in [(2, 2), (2, 8), (8, 2), (1, 1), (1, 8), (8, 1)] {
+        let (mosaic, cfa) = xtrans_uniform(w, h, 0.2, 0.3, 0.4);
+        for out in [xtrans_bilinear(&mosaic, cfa), markesteijn(&mosaic, cfa)] {
+            assert_eq!((out.width, out.height), (w, h));
+            assert_eq!(out.space, ColorSpace::CameraNativeLinearRgb);
+            assert_eq!(out.pixels.len(), (w * h) as usize);
+            for (i, p) in out.pixels.iter().enumerate() {
+                let c = cfa.color_at(i as u32 % w, i as u32 / w) as usize;
+                assert_eq!(p[c], mosaic.pixels[i][c]);
+                assert!(p
+                    .iter()
+                    .all(|v| v.is_finite() && *v >= 0.0 && *v <= 0.4 + 1e-6));
+            }
+        }
+    }
+}
+
+#[test]
+fn empty_xtrans_mosaics_are_safe() {
+    for (w, h) in [(0, 0), (0, 8), (8, 0)] {
+        let (mosaic, cfa) = xtrans_uniform(w, h, 0.2, 0.3, 0.4);
+        for out in [xtrans_bilinear(&mosaic, cfa), markesteijn(&mosaic, cfa)] {
+            assert_eq!((out.width, out.height), (w, h));
+            assert_eq!(out.space, ColorSpace::CameraNativeLinearRgb);
+            assert!(out.pixels.is_empty());
+        }
+    }
+}

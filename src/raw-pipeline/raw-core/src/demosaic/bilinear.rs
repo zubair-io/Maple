@@ -82,7 +82,10 @@ pub(super) fn bilinear_pixel(mosaic: &Image, cfa: CfaPattern, x: i32, y: i32) ->
         } else {
             y
         };
-        mosaic.pixels[(my as usize) * w_usize + (mx as usize)][channel]
+        // A one-pixel axis has no reflected neighbour. Use its sole sample.
+        let mx = mx.clamp(0, w - 1) as usize;
+        let my = my.clamp(0, h - 1) as usize;
+        mosaic.pixels[my * w_usize + mx][channel]
     };
 
     let color = cfa.color_at(x as u32, y as u32) as usize;
@@ -154,6 +157,37 @@ mod tests {
         let out = bilinear(&mosaic, CfaPattern::Rggb);
         assert_eq!((out.width, out.height), (0, 4));
         assert!(out.pixels.is_empty());
+    }
+
+    #[test]
+    fn one_pixel_axes_are_safe_for_direct_callers() {
+        for cfa in [
+            CfaPattern::Rggb,
+            CfaPattern::Bggr,
+            CfaPattern::Grbg,
+            CfaPattern::Gbrg,
+        ] {
+            for (w, h) in [(1, 1), (1, 8), (8, 1)] {
+                let mut mosaic = Image::new(w, h, ColorSpace::CameraNativeMosaic);
+                for y in 0..h {
+                    for x in 0..w {
+                        let c = cfa.color_at(x, y) as usize;
+                        mosaic.pixels[(y * w + x) as usize][c] = (x + y + 1) as f32;
+                    }
+                }
+                let out = bilinear(&mosaic, cfa);
+                assert_eq!((out.width, out.height), (w, h));
+                for (i, p) in out.pixels.iter().enumerate() {
+                    let c = cfa.color_at(i as u32 % w, i as u32 / w) as usize;
+                    assert_eq!(p[c], mosaic.pixels[i][c]);
+                    assert!(p.iter().all(|v| v.is_finite() && *v >= 0.0));
+                    assert_eq!(
+                        *p,
+                        bilinear_pixel(&mosaic, cfa, i as i32 % w as i32, i as i32 / w as i32)
+                    );
+                }
+            }
+        }
     }
 
     #[test]
