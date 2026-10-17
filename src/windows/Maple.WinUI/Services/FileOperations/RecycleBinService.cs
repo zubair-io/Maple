@@ -17,7 +17,6 @@
 // sweet spot.
 
 using System;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace Maple.WinUI.Services.FileOperations
@@ -79,7 +78,7 @@ namespace Maple.WinUI.Services.FileOperations
             {
                 var op = new SHFILEOPSTRUCTW
                 {
-                    hwnd = Process.GetCurrentProcess().MainWindowHandle,
+                    hwnd = IntPtr.Zero,
                     wFunc = FoDelete,
                     pFrom = string.Join('\0', paths) + "\0",
                     pTo = null,
