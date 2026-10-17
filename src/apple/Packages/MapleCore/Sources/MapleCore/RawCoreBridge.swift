@@ -278,6 +278,46 @@ public enum RawCoreBridge {
     m.nrColor = 0
     // Sharpen (the chain handles it — see the nrColor note above).
     m.sharpenAmount = 0
+    // Everything below is neutralised by Rust's `prefix_policy!`
+    // (`raw-core/src/gpu_host/prefix.rs`) and was missing here (#4737).
+    // None of it is applied by the scene-linear decode — these are
+    // post-AgX, display-side or Metal-only — so there is no pixel
+    // double-apply; but the stripped model IS the decoded-image cache key
+    // (`RenderActor.bakedModel`, `RenderActor+Export`), and any of these
+    // left in it turned a grain / split-tone / colour-grade / film /
+    // sharpen-radius / display-curve edit into a full RAW re-decode on the
+    // next refine or sized export. Keep this block in step with the Rust
+    // `neutral { … }` list.
+    m.parametricShadowSplit = d.parametricShadowSplit
+    m.parametricMidtoneSplit = d.parametricMidtoneSplit
+    m.parametricHighlightSplit = d.parametricHighlightSplit
+    m.toneCurveMode = d.toneCurveMode
+    m.displayToneCurveLuma = d.displayToneCurveLuma
+    m.displayToneCurveRed = d.displayToneCurveRed
+    m.displayToneCurveGreen = d.displayToneCurveGreen
+    m.displayToneCurveBlue = d.displayToneCurveBlue
+    m.splitToneShadowHue = d.splitToneShadowHue
+    m.splitToneShadowSaturation = d.splitToneShadowSaturation
+    m.splitToneHighlightHue = d.splitToneHighlightHue
+    m.splitToneHighlightSaturation = d.splitToneHighlightSaturation
+    m.splitToneBalance = d.splitToneBalance
+    m.colorGradeShadowLuminance = d.colorGradeShadowLuminance
+    m.colorGradeMidtoneHue = d.colorGradeMidtoneHue
+    m.colorGradeMidtoneSaturation = d.colorGradeMidtoneSaturation
+    m.colorGradeMidtoneLuminance = d.colorGradeMidtoneLuminance
+    m.colorGradeHighlightLuminance = d.colorGradeHighlightLuminance
+    m.colorGradeGlobalHue = d.colorGradeGlobalHue
+    m.colorGradeGlobalSaturation = d.colorGradeGlobalSaturation
+    m.colorGradeGlobalLuminance = d.colorGradeGlobalLuminance
+    m.grainAmount = d.grainAmount
+    m.grainSize = d.grainSize
+    m.grainRoughness = d.grainRoughness
+    m.filmLook = d.filmLook
+    m.filmStrength = d.filmStrength
+    m.sharpenRadius = d.sharpenRadius
+    m.sharpenDetail = d.sharpenDetail
+    m.sharpenMasking = d.sharpenMasking
+    m.wbMethod = d.wbMethod
     // Local adjustments (#3369) — the chain owns the mask stack on both
     // paths (GPU `LocalAdjustmentsPass`, CPU `apply_scene_linear_chain_f32`
     // via `local_adjustments_ptr`). Left in the temp XMP, raw-core's own

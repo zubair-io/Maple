@@ -243,7 +243,7 @@ final class EditSessionDecodedCacheTests: XCTestCase {
   /// (`sharpenRadius`) invalidates while its STRIPPED sibling
   /// (`sharpenAmount`) does not — the two live on the same tool but split
   /// across the strip boundary (`RawCoreBridge` header).
-  func testSharpenRadiusKeptButAmountStripped() async throws {
+  func testCaptureSharpeningKeptButSharpenFieldsStripped() async throws {
     let (asset, dir) = try makeAsset()
     defer { try? FileManager.default.removeItem(at: dir) }
     guard let sidecarURL = asset.sidecarURL else {
@@ -270,8 +270,23 @@ final class EditSessionDecodedCacheTests: XCTestCase {
       freshAfterAmount,
       "sharpenAmount is stripped → no invalidation (#950)")
 
-    // sharpenRadius (kept) → stale. Re-seed against the current sidecar
-    // first so we isolate the radius change.
+    // sharpenRadius is stripped too since #4737 (Rust's prefix policy
+    // neutralises it; the decode never reads it) → still fresh.
+    try writeSidecar(
+      at: sidecarURL,
+      model: {
+        var m = AdjustmentModel()
+        m.sharpenAmount = 120
+        m.sharpenRadius = 2.5
+        return m
+      }())
+    let freshAfterRadius = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+    XCTAssertTrue(
+      freshAfterRadius,
+      "sharpenRadius is stripped → no invalidation (#4737)")
+
+    // captureSharpeningAmount (kept — it runs inside the decode) → stale.
+    // Re-seed against the current sidecar first so we isolate that change.
     await session.renderActor._testSeedDecodedCache(
       asset: asset, decoded: makeDecoded(),
       rawResolution: CGSize(width: 100, height: 100))
@@ -281,12 +296,13 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         var m = AdjustmentModel()
         m.sharpenAmount = 120
         m.sharpenRadius = 2.5
+        m.captureSharpeningAmount = 90
         return m
       }())
-    let staleAfterRadius = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+    let staleAfterKept = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
     XCTAssertFalse(
-      staleAfterRadius,
-      "sharpenRadius is KEPT → must invalidate (#950)")
+      staleAfterKept,
+      "captureSharpeningAmount is KEPT → must invalidate (#950)")
   }
 
   /// `profile` must be normalised OUT of the baked-model freshness key:
