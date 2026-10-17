@@ -156,4 +156,79 @@ final class XMPAuthoredCullingTests: XCTestCase {
     XCTAssertEqual(XMPParser.ratingValue("nope"), 0)
     XCTAssertEqual(XMPParser.ratingValue("6"), 0)
   }
+
+  func testPrecedingForeignSubjectDoesNotHijackPrimaryDescription() async throws {
+    let source = """
+      <?xpacket begin="\u{feff}" id="W5M0MpCehiHzreSzNTczkc9d"?>
+      <x:xmpmeta xmlns:x="adobe:ns:meta/">
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+          <rdf:Description rdf:about="urn:aux:lens"
+            xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+            xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+            crs:Exposure2012="-2.50"
+            xmp:Rating="-1"
+            xmp:Label="Green"/>
+          <rdf:Description rdf:about=""
+            xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+            xmlns:tiff="http://ns.adobe.com/tiff/1.0/"
+            tiff:Make="Fujifilm"
+            crs:Exposure2012="+0.50"
+            crs:Contrast2012="+15"/>
+        </rdf:RDF>
+      </x:xmpmeta>
+      <?xpacket end="w"?>
+      """
+    let xml = try await saved(from: source) { model, culling in
+      XCTAssertEqual(model.exposure, 0.5, accuracy: 1e-6)
+      XCTAssertEqual(model.contrast, 15, accuracy: 1e-6)
+      XCTAssertEqual(culling.stars, 0)
+      XCTAssertNil(culling.colorLabel)
+      model.exposure = 1.25
+    }
+    let (reparsed, reparsedCulling) = try XMPParser.parse(xml)
+    XCTAssertEqual(reparsed.exposure, 1.25, accuracy: 1e-6)
+    XCTAssertEqual(reparsed.contrast, 15, accuracy: 1e-6)
+    XCTAssertNil(reparsedCulling.colorLabel)
+    XCTAssertTrue(xml.contains(#"rdf:about="urn:aux:lens""#), xml)
+    XCTAssertTrue(xml.contains(#"crs:Exposure2012="-2.50""#), xml)
+    XCTAssertTrue(xml.contains(#"tiff:Make="Fujifilm""#), xml)
+    XCTAssertEqual(xml.components(separatedBy: #"xmp:Rating="-1""#).count, 2, xml)
+    XCTAssertEqual(xml.components(separatedBy: #"xmp:Label="Green""#).count, 2, xml)
+  }
+
+  func testAnonymousDescriptionsRemainDistinctSubjects() async throws {
+    let source = """
+      <?xpacket begin="\u{feff}" id="W5M0MpCehiHzreSzNTczkc9d"?>
+      <x:xmpmeta xmlns:x="adobe:ns:meta/">
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+          <rdf:Description
+            xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+            crs:Exposure2012="+0.50"
+            crs:Contrast2012="+10"/>
+          <rdf:Description
+            xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+            crs:Shadows2012="+77">
+            <crs:ToneCurvePV2012Green>
+              <rdf:Seq><rdf:li>0, 200</rdf:li></rdf:Seq>
+            </crs:ToneCurvePV2012Green>
+          </rdf:Description>
+        </rdf:RDF>
+      </x:xmpmeta>
+      <?xpacket end="w"?>
+      """
+    let xml = try await saved(from: source) { model, _ in
+      XCTAssertEqual(model.exposure, 0.5, accuracy: 1e-6)
+      XCTAssertEqual(model.contrast, 10, accuracy: 1e-6)
+      XCTAssertEqual(model.shadows, 0, accuracy: 1e-6)
+      XCTAssertTrue(model.displayToneCurveGreen.isIdentity)
+      model.exposure = 1.0
+    }
+    let (reparsed, _) = try XMPParser.parse(xml)
+    XCTAssertEqual(reparsed.exposure, 1.0, accuracy: 1e-6)
+    XCTAssertEqual(reparsed.contrast, 10, accuracy: 1e-6)
+    XCTAssertEqual(reparsed.shadows, 0, accuracy: 1e-6)
+    XCTAssertTrue(reparsed.displayToneCurveGreen.isIdentity)
+    XCTAssertTrue(xml.contains(#"crs:Shadows2012="+77""#), xml)
+    XCTAssertTrue(xml.contains("ToneCurvePV2012Green"), xml)
+  }
 }

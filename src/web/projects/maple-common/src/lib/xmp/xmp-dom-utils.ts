@@ -60,9 +60,13 @@ const subjectTier = (element: Element): number => {
 
 /** Moving or merging a description must retain its RDF subject and inherited XML context. */
 export function sharesMaskGroupContext(description: Element, primary: Element): boolean {
+  if (description === primary) return true;
+  const about = rdfSubjectAttr(primary, 'about');
+  const nodeId = rdfSubjectAttr(primary, 'nodeID');
   return (
-    rdfSubjectAttr(description, 'about') === rdfSubjectAttr(primary, 'about') &&
-    rdfSubjectAttr(description, 'nodeID') === rdfSubjectAttr(primary, 'nodeID') &&
+    (about !== null || nodeId !== null) &&
+    rdfSubjectAttr(description, 'about') === about &&
+    rdfSubjectAttr(description, 'nodeID') === nodeId &&
     ['lang', 'base'].every(
       (name) =>
         (description.getAttributeNS('http://www.w3.org/XML/1998/namespace', name) ?? '') ===

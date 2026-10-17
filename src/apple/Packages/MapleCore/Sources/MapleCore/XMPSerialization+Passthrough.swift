@@ -22,7 +22,8 @@ extension XMPParser {
   /// (`XMPSidecarStore`) is about to replace it either way.
   public static func parsePassthrough(_ xml: String) -> XMPPassthrough {
     let parser = XMLParser(data: Data(xml.utf8))
-    let delegate = _XMPPassthroughDelegate()
+    let delegate = _XMPPassthroughDelegate(
+      primaryDescription: XMPChildElementScanner.primaryDescription(in: xml))
     parser.delegate = delegate
     guard parser.parse() else { return .empty }
 
@@ -144,13 +145,12 @@ extension XMPSerializer {
 
 // MARK: - Attribute capture
 
-/// Captures the unknown attributes of the first `rdf:Description`.
+/// Captures the unknown attributes of the primary `rdf:Description`.
 ///
 /// Only that element matters: every Maple field is an attribute on it, and an
 /// unknown attribute deeper in the tree already rides along inside its
 /// enclosing passthrough node's source text. The authored `xmp:Rating` /
-/// `xmp:Label` are the exception: the parser reads them from any description,
-/// so they are captured from the first description that carries them.
+/// `xmp:Label` are captured from any same-subject top-level description.
 final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
   private(set) var unknownAttributes: [XMPPassthrough.Attribute] = []
   private(set) var authoredRating: String?
@@ -161,7 +161,13 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
   /// rides along on `rdf:Description` instead.
   private var ancestorDeclarations: [String: String] = [:]
   private var namespaceScopes: [[String: String]] = []
+  private let primaryDescription: XMPChildElementScanner.PrimaryDescription?
+  private var topLevelDescriptionIndex = 0
   private var primaryDescriptionContext: XMPChildElementScanner.DescriptionContext?
+
+  init(primaryDescription: XMPChildElementScanner.PrimaryDescription? = nil) {
+    self.primaryDescription = primaryDescription
+  }
 
   func parser(
     _ parser: XMLParser,
@@ -185,20 +191,31 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
       XMPChildElementScanner.canonicalQualifiedName(qual, namespaces: namespaces)
         == "rdf:Description"
     else {
-      if !captured {
+      if !captured, depth < 2 {
         ancestorDeclarations.merge(
           attributeDict.filter { $0.key.hasPrefix("xmlns:") }
         ) { _, nearer in nearer }
       }
       return
     }
+    let currentIndex = topLevelDescriptionIndex
+    topLevelDescriptionIndex += 1
     let context = XMPChildElementScanner.descriptionContext(
       attributes: attributeDict, namespaces: namespaces)
-    if let primary = primaryDescriptionContext {
-      guard context == primary else { return }
+    let matchesPrimary: Bool
+    let isPrimaryElement: Bool
+    if let primary = primaryDescription {
+      matchesPrimary = primary.matches(index: currentIndex, context: context)
+      isPrimaryElement = currentIndex == primary.index
+    } else if let primary = primaryDescriptionContext {
+      matchesPrimary = primary.hasExplicitSubject && context == primary
+      isPrimaryElement = false
     } else {
       primaryDescriptionContext = context
+      matchesPrimary = true
+      isPrimaryElement = true
     }
+    guard matchesPrimary else { return }
     let xmpAttr: (String) -> String? = { local in
       attributeDict.first {
         XMPChildElementScanner.canonicalQualifiedName($0.key, namespaces: namespaces)
@@ -207,7 +224,7 @@ final class _XMPPassthroughDelegate: NSObject, XMLParserDelegate {
     }
     authoredRating = authoredRating ?? xmpAttr("Rating")
     authoredLabel = authoredLabel ?? xmpAttr("Label")
-    guard !captured else { return }
+    guard isPrimaryElement, !captured else { return }
     captured = true
     // `attributeDict` is unordered, so source order is unrecoverable here.
     // That is fine — the canonical attribute sort reorders every attribute

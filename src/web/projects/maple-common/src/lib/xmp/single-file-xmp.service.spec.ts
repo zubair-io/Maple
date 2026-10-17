@@ -247,8 +247,8 @@ describe('SingleFileXmpService', () => {
         <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
           xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
           xmlns:xmp="http://ns.adobe.com/xap/1.0/">
-          <rdf:Description crs:Exposure2012="1" v:First="keep" />
-          <rdf:Description crs:Exposure2012="9" crs:Vibrance="22"
+          <rdf:Description rdf:about="" crs:Exposure2012="1" v:First="keep" />
+          <rdf:Description rdf:about="" crs:Exposure2012="9" crs:Vibrance="22"
             xmp:Rating="4" v:Second="keep-too" />
         </rdf:RDF>
       </x:xmpmeta>`;

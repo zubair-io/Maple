@@ -39,7 +39,9 @@ public struct XMPParser {
     var m = AdjustmentModel()
     var c = CullingState()
     let parser = XMLParser(data: Data(xml.utf8))
-    let delegate = _XMPParserDelegate(model: m, culling: c)
+    let delegate = _XMPParserDelegate(
+      model: m, culling: c,
+      primaryDescription: XMPChildElementScanner.primaryDescription(in: xml))
     parser.delegate = delegate
     guard parser.parse() else {
       let err = parser.parserError?.localizedDescription ?? "unknown XML error"
@@ -151,6 +153,8 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
   var sawMapleNamespaceURI: Bool = false
   private var workflowDepth = 0
   private var namespaceScopes: [[String: String]] = []
+  private let primaryDescription: XMPChildElementScanner.PrimaryDescription?
+  private var topLevelDescriptionIndex = 0
   private var primaryDescriptionContext: XMPChildElementScanner.DescriptionContext?
 
   /// `dc:subject` is the only XMP element that isn't an attribute on
@@ -188,9 +192,13 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
   /// walk lives in `XMPSerialization+Retouch.swift`.
   var retouch = RetouchWalker()
 
-  init(model: AdjustmentModel, culling: CullingState) {
+  init(
+    model: AdjustmentModel, culling: CullingState,
+    primaryDescription: XMPChildElementScanner.PrimaryDescription? = nil
+  ) {
     self.model = model
     self.culling = culling
+    self.primaryDescription = primaryDescription
   }
 
   func parser(
@@ -228,10 +236,17 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
       XMPChildElementScanner.canonicalQualifiedName(qualified, namespaces: namespaces)
         == "rdf:Description"
     {
+      let currentIndex = topLevelDescriptionIndex
+      topLevelDescriptionIndex += 1
       let context = XMPChildElementScanner.descriptionContext(
         attributes: attributeDict, namespaces: namespaces)
-      if let primary = primaryDescriptionContext {
-        if context != primary {
+      if let primary = primaryDescription {
+        if !primary.matches(index: currentIndex, context: context) {
+          workflowDepth = 1
+          return
+        }
+      } else if let primary = primaryDescriptionContext {
+        if !primary.hasExplicitSubject || context != primary {
           workflowDepth = 1
           return
         }
