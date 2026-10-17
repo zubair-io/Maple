@@ -76,6 +76,12 @@ Existing sidecars retain their stored pair and provenance. Pipeline output
 remains 26, with thumb/preview target 30, and the hand-maintained cache/version
 documentation now describes those values. Fresh provenance/domain validation
 is recorded separately from the previously completed pixel comparisons.
+The mapping, white-balance provenance and Auto-derivation tests pass at
+`46dabcc30f6fc02a0259c1886df2eb5ce1d6710e`. All five domain/API suites were
+recorded and independently rechecked at that revision: 62 cases pass in each
+pass, with zero failures or skips. Generation and its repeat pass without
+drift, all monitored sources remain unchanged, and the original RAW hash is
+unchanged. The complete record is in `qualification-provenance3/`.
 
 ## Physical qualification
 
@@ -139,7 +145,7 @@ claiming that all 806 comparisons were rerun for this branch.
 Pipeline output **26** invalidates derived images made with the old legacy
 conversion. Auto fit-model version remains **2**: its pinned fitting input
 does not depend on an imported legacy temperature/tint pair. The branch is
-based on main `676c40a7db1121179b5fe08dd2332e7da8a1834a`. A preceding output
+based on main `1f26feb6d2b312272012e803c53be581a93c464c`. A preceding output
 version change on main requires the next version when this branch is rebased.
 
 All five CI-recorded suites were executed and independently rechecked at
@@ -149,9 +155,12 @@ or skips in either pass. The nine Rust mapping tests also pass at this
 version. Generation and its repeat have no drift; source/reference hashes
 and the monitored RAW remain unchanged.
 
-These records name `bd2f3387d8aa40bd3677f51986fc43c6a82943bd`, retained on
-`codex/qualification-robertson-bd2f3387`. Logs, source identities and generated
-evidence are under `qualification-version26/` in the evidence directory.
+The earlier version-26 records named `bd2f3387d8aa40bd3677f51986fc43c6a82943bd`,
+retained on `codex/qualification-robertson-bd2f3387`. Their logs, source identities
+and generated evidence remain under `qualification-version26/`. The current
+records name `46dabcc30f6fc02a0259c1886df2eb5ce1d6710e`, retained on
+`codex/qualification-robertson-46dabcc3`, with evidence under
+`qualification-provenance3/` in the same directory.
 Prior physical-color evidence keeps its original version and status; the
 220-case diagnostic does not promote a full-corpus qualification record.
 
