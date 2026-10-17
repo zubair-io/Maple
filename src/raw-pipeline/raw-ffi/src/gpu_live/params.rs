@@ -52,25 +52,7 @@ unsafe fn read_floats(ptr: *const f32, len: usize) -> Vec<f32> {
     std::slice::from_raw_parts(ptr, len).to_vec()
 }
 
-/// The three split fields read as a group: ALL THREE exactly `0.0` ⇒ absent
-/// (a stale host that predates the fields' append, or a zero-initialized
-/// caller, always leaves every one of them at the struct's zero default) ⇒
-/// substitute ACR's documented 25/50/75. Otherwise every field passes
-/// through UNCHANGED, including a genuine `0.0` in one of the three — `0.0`
-/// is an in-range axis position (the documented range is `[0, 100]`), so
-/// gating per-field would make it impossible for a live host to ever set
-/// `parametric_shadow_split` to exactly 0 (Copilot review on #3219: gating
-/// each field independently did exactly that). See the
-/// `parametric_{shadow,midtone,highlight}_split` doc comment on
-/// [`MapleGpuLiveParams`] for why this trio, unlike most tail fields, can't
-/// use `0.0` as its own per-field identity value.
-fn parametric_split_or_defaults(shadow: f32, midtone: f32, highlight: f32) -> [f32; 3] {
-    if shadow == 0.0 && midtone == 0.0 && highlight == 0.0 {
-        [25.0, 50.0, 75.0]
-    } else {
-        [shadow, midtone, highlight]
-    }
-}
+use crate::scene_linear_chain::parametric_split_or_defaults;
 
 /// The manual-geometry homography for the present shader (#3410), built from
 /// the C params against the presented image's own `width`/`height`.

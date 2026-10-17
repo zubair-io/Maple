@@ -291,6 +291,10 @@ pub struct MapleAdjustmentParams {
     pub whites_anchor_ev: f32,
     /// Output pixels per developed full-frame pixel. Nonpositive/nonfinite means native.
     pub nr_sampling_scale: f32,
+    /// White-balance adaptation method (#4738): `0` = CAT16 (the model
+    /// default, also what a zero-initialised or older host sends), `1` =
+    /// legacy diagonal Rec.2020 gains. Unknown values fall back to CAT16.
+    pub wb_method: u32,
 }
 
 /// Decode the local-adjustment layer stack (#1698) out of the C params, and

@@ -99,6 +99,10 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
     model.split_tone_highlight_hue = p.split_tone_highlight_hue;
     model.split_tone_highlight_saturation = p.split_tone_highlight_saturation;
     model.split_tone_balance = p.split_tone_balance;
+    model.wb_method = match p.wb_method {
+        1 => raw_core::types::WbMethod::DiagonalRec2020,
+        _ => raw_core::types::WbMethod::Cat16,
+    };
     // HSL 8-band adjustments (#1112)
     model.hue_adjustment_red = p.hsl_hue_red;
     model.hue_adjustment_orange = p.hsl_hue_orange;
@@ -272,5 +276,20 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
         iso,
         whites_anchor_ev: p.whites_anchor_ev,
         nr_sampling_scale: p.nr_sampling_scale,
+    }
+}
+
+/// The three parametric split fields read as a group: ALL THREE exactly
+/// `0.0` ⇒ absent (a zero-initialised caller, or a host that predates the
+/// fields) ⇒ ACR's documented 25/50/75. Otherwise every field passes through
+/// unchanged, including a genuine `0.0` in one of them — `0.0` is an
+/// in-range axis position, so gating per field would make it impossible to
+/// ever set a split to exactly 0 (Copilot review on #3219). Shared by the
+/// GPU-live params and the curves-aware CPU chain entry (#4738).
+pub(crate) fn parametric_split_or_defaults(shadow: f32, midtone: f32, highlight: f32) -> [f32; 3] {
+    if shadow == 0.0 && midtone == 0.0 && highlight == 0.0 {
+        [25.0, 50.0, 75.0]
+    } else {
+        [shadow, midtone, highlight]
     }
 }

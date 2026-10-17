@@ -83,6 +83,7 @@ fn gpu_params_nonraw(
 fn cpu_params_nonraw() -> MapleAdjustmentParams {
     MapleAdjustmentParams {
         nr_sampling_scale: 1.0,
+        wb_method: 0,
         whites_anchor_ev: f32::NAN,
         temperature: LIVE_TEMP,
         tint: LIVE_TINT,

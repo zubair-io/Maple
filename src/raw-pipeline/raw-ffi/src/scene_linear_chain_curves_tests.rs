@@ -296,6 +296,13 @@ unsafe fn windows_path_png(
         display_green_len: d_green.len(),
         display_blue_ptr: d_blue.as_ptr(),
         display_blue_len: d_blue.len(),
+        parametric_highlights: 0.0,
+        parametric_lights: 0.0,
+        parametric_darks: 0.0,
+        parametric_shadows: 0.0,
+        parametric_shadow_split: 0.0,
+        parametric_midtone_split: 0.0,
+        parametric_highlight_split: 0.0,
     };
     let mut output = vec![0f32; lanes];
     let rc = maple_apply_chain_and_encode_display_curves_f32(
