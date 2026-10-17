@@ -107,19 +107,28 @@ namespace Maple.WinUI
             if (result == ContentDialogResult.None || serverUrl.Length == 0)
                 return;
 
-            if (result == ContentDialogResult.Primary)
+            try
             {
-                var (ok, message, _) = await ViewModel.StartBrowserSignInAsync(serverUrl);
-                if (!ok)
-                    await ShowMessageAsync("Maple Cloud", message);
-                // Success continues in HandleAuthCallback when the browser
-                // redirects maple-app://auth-success.
+                if (result == ContentDialogResult.Primary)
+                {
+                    var (ok, message, _) = await ViewModel.StartBrowserSignInAsync(serverUrl);
+                    if (!ok)
+                        await ShowMessageAsync("Maple Cloud", message);
+                    // Success continues in HandleAuthCallback when the browser
+                    // redirects maple-app://auth-success.
+                }
+                else
+                {
+                    var (ok, message) = await ViewModel.DevSignInAsync(serverUrl);
+                    if (!ok)
+                        await ShowMessageAsync("Maple Cloud", message);
+                }
             }
-            else
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                var (ok, message) = await ViewModel.DevSignInAsync(serverUrl);
-                if (!ok)
-                    await ShowMessageAsync("Maple Cloud", message);
+                DiagLog.Write($"[cloud] connect failed: {ex}");
+                ViewModel.CloudStatus = $"Connection failed: {ex.Message}";
+                await ShowMessageAsync("Maple Cloud", ex.Message);
             }
         }
 
@@ -128,7 +137,15 @@ namespace Maple.WinUI
         public async void HandleAuthCallback(Uri uri)
         {
             this.Activate();  // bring the app back in front of the browser
-            await ViewModel.CompleteAuthCallbackAsync(uri);
+            try
+            {
+                await ViewModel.CompleteAuthCallbackAsync(uri);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                DiagLog.Write($"[cloud] sign-in callback failed: {ex}");
+                ViewModel.CloudStatus = $"Sign-in failed: {ex.Message}";
+            }
         }
 
         /// <summary>Open a server directory in the browse grid. Mirrors

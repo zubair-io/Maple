@@ -152,23 +152,22 @@ namespace Maple.WinUI.ViewModels
                 CloudStatus = "Unexpected sign-in callback (no sign-in in progress).";
                 return;
             }
-            var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
-            var code = query["code"];
-            var state = query["state"];
-            if (string.IsNullOrEmpty(code) || state != pending.State)
+            if (!CloudSignInCallback.MatchesPending(uri, pending, out var code))
             {
                 CloudStatus = "Sign-in callback rejected (state mismatch).";
                 return;
             }
-            _pendingSignIn = null;
+            var client = _cloud;
             _signInPollCts?.Cancel();
 
-            var (ok, message) = await _cloud.RedeemNativeCodeAsync(
-                code!, pending.Verifier, CancellationToken.None);
+            var (ok, message) = await CloudSignInCallback.RedeemAsync(client, pending, code);
+            if (_pendingSignIn != pending || _cloud != client)
+                return;
             CloudStatus = ok ? message : $"Sign-in failed: {message}";
             if (!ok)
                 return;
-            PersistCloudSession(pending.ServerUrl, _cloud.RefreshToken);
+            _pendingSignIn = null;
+            PersistCloudSession(pending.ServerUrl, client.RefreshToken);
             await FinishConnectAsync();
         }
 
