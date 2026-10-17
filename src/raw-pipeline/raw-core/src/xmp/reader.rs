@@ -13,19 +13,24 @@ use quick_xml::reader::Reader;
 /// serialized without the other four crop edges — spec § 01 invariant 3).
 /// The parser does two passes per element so attribute order is irrelevant.
 pub fn parse(xml: &str) -> Result<AdjustmentModel> {
+    let eligible = subject::eligible_descriptions(xml, false);
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
-    parse_events(std::iter::from_fn(move || {
-        Some(
-            reader
-                .read_event()
-                .map_err(|error| Error::Xmp(error.to_string())),
-        )
-    }))
+    parse_events(
+        std::iter::from_fn(move || {
+            Some(
+                reader
+                    .read_event()
+                    .map_err(|error| Error::Xmp(error.to_string())),
+            )
+        }),
+        Some(&eligible),
+    )
 }
 
 pub(super) fn parse_events<'a>(
     events: impl Iterator<Item = Result<Event<'a>>>,
+    eligible: Option<&[bool]>,
 ) -> Result<AdjustmentModel> {
     let mut model = AdjustmentModel::default();
 
@@ -47,6 +52,9 @@ pub(super) fn parse_events<'a>(
     // Persisted authoring records are never current development attributes.
     // Their scoped namespace must not reclassify foreign WB as legacy Maple.
     let mut workflow_depth = 0usize;
+    let mut stack: Vec<String> = Vec::new();
+    let mut top_desc_depth: Option<usize> = None;
+    let mut desc_index = 0usize;
     // Point tone curves (#365) are the one part of the schema that is not a
     // flat attribute — they are nested `rdf:Seq` / `rdf:li` content under the
     // four `papp:SceneLinearToneCurve*` parents. The walker owns that subtree;
@@ -69,6 +77,21 @@ pub(super) fn parse_events<'a>(
                     workflow_depth += 1;
                     continue;
                 }
+                if let Some(flags) = eligible {
+                    if top_desc_depth.is_none()
+                        && stack.last().is_none_or(|p| subject::is_rdf_name(p))
+                        && subject::is_description_name(&name)
+                    {
+                        let keep = flags.get(desc_index).copied().unwrap_or(true);
+                        desc_index += 1;
+                        if !keep {
+                            workflow_depth = 1;
+                            continue;
+                        }
+                        top_desc_depth = Some(stack.len());
+                    }
+                }
+                stack.push(name.clone());
                 // Inside a tone-curve or local-adjustments subtree there are
                 // no flat Maple attributes to read, so the attribute walk is
                 // skipped entirely for elements either walker claims.
@@ -82,6 +105,18 @@ pub(super) fn parse_events<'a>(
                 let name = element_name(&e)?.to_string();
                 if workflow_depth > 0 || name == "papp:Workflow" {
                     continue;
+                }
+                if let Some(flags) = eligible {
+                    if top_desc_depth.is_none()
+                        && stack.last().is_none_or(|p| subject::is_rdf_name(p))
+                        && subject::is_description_name(&name)
+                    {
+                        let keep = flags.get(desc_index).copied().unwrap_or(true);
+                        desc_index += 1;
+                        if !keep {
+                            continue;
+                        }
+                    }
                 }
                 if !local_adj.empty(&name, &e)? && !retouch.empty(&name, &e)? {
                     apply_attributes(&e, &mut model, &mut papp_seen, &mut stamp)?;
@@ -99,6 +134,10 @@ pub(super) fn parse_events<'a>(
                 if workflow_depth > 0 {
                     workflow_depth -= 1;
                     continue;
+                }
+                stack.pop();
+                if top_desc_depth == Some(stack.len()) {
+                    top_desc_depth = None;
                 }
                 let name = std::str::from_utf8(e.name().as_ref())
                     .map_err(|e| Error::Xmp(e.to_string()))?

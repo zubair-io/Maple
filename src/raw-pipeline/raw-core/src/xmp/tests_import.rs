@@ -271,3 +271,69 @@ fn multi_description_sidecar_hydrates_curves_gradients_and_retouch_across_siblin
     assert_eq!(parsed.local_adjustments.len(), 1);
     assert_eq!(parsed.retouch_spots.len(), 1);
 }
+
+#[test]
+fn foreign_subject_descriptions_are_ignored_in_both_readers() {
+    let sibling_foreign = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Exposure2012="+0.50"/>
+    <rdf:Description rdf:about="other-subject"
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Exposure2012="+2.25"
+      crs:Contrast2012="+40">
+      <crs:ToneCurvePV2012>
+        <rdf:Seq><rdf:li>0, 0</rdf:li><rdf:li>128, 160</rdf:li><rdf:li>255, 255</rdf:li></rdf:Seq>
+      </crs:ToneCurvePV2012>
+    </rdf:Description>
+    <rdf:Description rdf:nodeID="blank1"
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Highlights2012="-55"/>
+    <rdf:Description
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Shadows2012="+65"/>
+  </rdf:RDF>
+</x:xmpmeta>"#;
+    let parsed = parse(sibling_foreign).unwrap();
+    assert_eq!(parse_namespaced(sibling_foreign).unwrap(), parsed);
+    assert!((parsed.exposure - 0.50).abs() < 1e-6);
+    assert_eq!(parsed.contrast, 0.0);
+    assert_eq!(parsed.highlights, 0.0);
+    assert_eq!(parsed.shadows, 0.0);
+    assert!(parsed.display_tone_curve_luma.points.is_empty());
+
+    let preceding_foreign = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about="other-subject"
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Exposure2012="+2.25"
+      crs:Contrast2012="+40"/>
+    <rdf:Description rdf:about=""
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Exposure2012="+0.75"/>
+  </rdf:RDF>
+</x:xmpmeta>"#;
+    let parsed_preceding = parse(preceding_foreign).unwrap();
+    assert_eq!(
+        parse_namespaced(preceding_foreign).unwrap(),
+        parsed_preceding
+    );
+    assert!((parsed_preceding.exposure - 0.75).abs() < 1e-6);
+    assert_eq!(parsed_preceding.contrast, 0.0);
+
+    let two_anonymous = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Exposure2012="+0.60"/>
+    <rdf:Description
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Contrast2012="+30"/>
+  </rdf:RDF>
+</x:xmpmeta>"#;
+    let parsed_anon = parse(two_anonymous).unwrap();
+    assert_eq!(parse_namespaced(two_anonymous).unwrap(), parsed_anon);
+    assert!((parsed_anon.exposure - 0.60).abs() < 1e-6);
+    assert_eq!(parsed_anon.contrast, 0.0);
+}
