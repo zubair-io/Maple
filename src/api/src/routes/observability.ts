@@ -13,16 +13,17 @@
  *                                    `${endpoint}/v1/traces` to verify reach +
  *                                    auth without saving.
  *
- * All routes are mounted behind `requireAuth` — see `src/index.ts`. The
- * ingestion key is echoed on GET (unlike the provider API keys, which are
- * write-only) BECAUSE the client transport posts straight to SigNoz with it;
- * the gate is the bearer-auth wrapper, not field-level redaction. Write
- * semantics still mirror the provider API keys (non-empty sets, null clears to
- * env, ""/omitted leaves unchanged) so a blank field in the UI never wipes a
- * key the operator typed once.
+ * All routes are mounted behind `requireAuth` (also embedded here so the module
+ * is self-gating). `PUT /config` and `POST /test` are owner-only (#4744): the
+ * first redirects every client's telemetry, the second can carry the saved
+ * ingestion key — and it only ever does so to the saved endpoint, never to a
+ * caller-chosen URL. Write semantics mirror the provider API keys (non-empty
+ * sets, null clears to env, ""/omitted leaves unchanged) so a blank field in
+ * the UI never wipes a key the operator typed once.
  */
 
 import { Elysia, t } from 'elysia';
+import { requireAuth, requireOwnerBeforeHandle } from '../auth/middleware.ts';
 import { child as childLogger } from '../log.ts';
 import {
   MAX_SAMPLE_RATIO,
@@ -110,6 +111,18 @@ const ConfigBody = t.Object({
   sample_ratio: t.Optional(t.Union([t.Number(), t.Null()])),
 });
 
+/** The key a `/test` probe may carry: the typed one as given, else the saved
+ * one only for the saved endpoint, else none. */
+async function resolveProbeKey(
+  typed: string | null | undefined,
+  endpoint: string,
+): Promise<string | null> {
+  if (typeof typed === 'string' && typed.trim().length > 0) return typed.trim();
+  const saved = resolveObservabilityConfig(await loadObservabilityConfig());
+  const savedKey = saved.ingestion_key?.trim() ?? '';
+  return savedKey.length > 0 && saved.endpoint === endpoint ? savedKey : null;
+}
+
 const TestBody = t.Object({
   endpoint: t.String({ minLength: 1 }),
   /** Optional write-only key to probe with a not-yet-saved value. When omitted
@@ -118,6 +131,7 @@ const TestBody = t.Object({
 });
 
 export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
+  .use(requireAuth)
   .get('/config', async () => {
     // The ingestion key is NEVER returned — clients send telemetry through the
     // `/otlp/*` proxy below, which injects the key server-side. We expose only
@@ -202,7 +216,7 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
 
       return toPublicConfig(resolved);
     },
-    { body: ConfigBody },
+    { body: ConfigBody, beforeHandle: requireOwnerBeforeHandle },
   )
 
   .post(
@@ -222,18 +236,11 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
       // key (if any) authenticates.
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       // Auth header precedence, matching the form's "blank keeps the saved key"
-      // semantics: a typed key wins; otherwise fall back to the saved DB key so
-      // testing a saved-key deployment with a blank field still authenticates.
-      // The field is write-only, so the UI can't echo the key back to send it.
-      let probeKey: string | null = null;
-      if (typeof body.ingestion_key === 'string' && body.ingestion_key.trim().length > 0) {
-        probeKey = body.ingestion_key.trim();
-      } else {
-        const saved = await loadObservabilityConfig();
-        if (typeof saved?.ingestion_key === 'string' && saved.ingestion_key.trim().length > 0) {
-          probeKey = saved.ingestion_key.trim();
-        }
-      }
+      // semantics: a typed key wins; otherwise the saved DB key is used — but
+      // ONLY when the probe targets the endpoint that key was saved for
+      // (#4744). The field is write-only, so this is the one path the saved
+      // secret can leave the server on; it must never follow a caller URL.
+      const probeKey = await resolveProbeKey(body.ingestion_key, validated);
       if (probeKey) {
         headers['signoz-access-token'] = probeKey;
       }
@@ -279,7 +286,7 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
         };
       }
     },
-    { body: TestBody },
+    { body: TestBody, beforeHandle: requireOwnerBeforeHandle },
   )
 
   // ── OTLP proxy ────────────────────────────────────────────────────────────
