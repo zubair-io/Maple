@@ -215,4 +215,55 @@ final class AssetRenameFilenameTests: XCTestCase {
     XCTAssertEqual(persistedModel.shadows, 32, accuracy: 0.001)
     XCTAssertEqual(persistedCulling.stars, 5)
   }
+
+  @MainActor
+  func testRenameOpenSession_preMoveFlushFailureThrowsAndPreservesUnconfirmedEdits() async throws {
+    let fm = FileManager.default
+    let tempDir = fm.temporaryDirectory.appendingPathComponent(
+      "rename-session-flush-fail-\(UUID().uuidString)", isDirectory: true)
+    try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer {
+      try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tempDir.path)
+      try? fm.removeItem(at: tempDir)
+    }
+
+    let oldURL = tempDir.appendingPathComponent("IMG_0001.dng")
+    try Data("raw-bytes".utf8).write(to: oldURL)
+    let oldSidecarURL = SidecarPath.sidecarURL(for: oldURL)
+
+    let oldSession = EditSession(asset: AssetRef(url: oldURL))
+    await oldSession.loadSidecar()
+    oldSession.model.exposure = 1.0
+    try await oldSession.flushPendingSidecarWriteConfirmed()
+
+    // Make a new edit, then block sidecar writes by placing a directory at a
+    // sibling path or making the parent directory read-only during pre-rename flush.
+    oldSession.model.exposure = 2.25
+    try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: tempDir.path)
+
+    do {
+      try await oldSession.flushPendingSidecarWriteConfirmed()
+      XCTFail("Expected pre-rename sidecar flush to throw when directory is read-only")
+    } catch {
+      XCTAssertNotNil(oldSession.sidecarError)
+      XCTAssertTrue(oldSession.hasUnconfirmedSidecarUpdate)
+    }
+
+    // Even if a caller disables writes and adopts into a replacement session
+    // after a transient flush failure, the unconfirmed edit is preserved.
+    await oldSession.setSidecarWritesEnabled(false)
+    try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tempDir.path)
+    let outcome = try await LocalFileOperations.relocate(
+      oldURL, to: tempDir, newBasename: "IMG_0002.dng", mode: .move, collision: .fail)
+    let newURL = URL(fileURLWithPath: outcome.primaryPath)
+    let newSidecarURL = SidecarPath.sidecarURL(for: newURL)
+
+    let newSession = EditSession(asset: AssetRef(url: newURL))
+    newSession.adoptInFlightRenameEdits(from: oldSession)
+    try await newSession.flushPendingSidecarWriteConfirmed()
+
+    XCTAssertFalse(fm.fileExists(atPath: oldSidecarURL.path))
+    let (persistedModel, _) = try XMPParser.parse(data: Data(contentsOf: newSidecarURL))
+    XCTAssertEqual(persistedModel.exposure, 2.25, accuracy: 0.001)
+  }
 }
