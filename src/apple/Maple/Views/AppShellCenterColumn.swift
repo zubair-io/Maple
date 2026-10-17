@@ -177,7 +177,13 @@ struct AppShellCenterColumn: View {
             sessions: $sessions,
             onDismiss: onPreviewDismiss,
             onEdit: onPreviewEdit,
-            onSelectAsset: { asset in browseVM.selectedID = asset.id }
+            // Prime the sibling's session as iPhone's Preview does, so
+            // Edit (and the Info pane) land on a source-aware session
+            // instead of a session-local fallback (#4713).
+            onSelectAsset: { asset in
+              browseVM.selectedID = asset.id
+              Task { await onPrimeSession(asset) }
+            }
           )
         } else {
           Color.clear.onAppear { onFullImageFallback() }
@@ -200,9 +206,14 @@ struct AppShellCenterColumn: View {
           onSelectAsset: onEditorSelectAsset
         )
       } else {
-        // Fallback — if the session vanished while editing,
-        // drop back to browse.
-        Color.clear.onAppear { onFullImageFallback() }
+        // The session is missing while editing: prime it through the
+        // shell's source-aware factory and let `selectedSession` mount
+        // the editor on the next pass (#4713). Only a selection with no
+        // asset at all drops back to browse.
+        Color.clear.task {
+          guard let asset = browseVM.selectedAsset else { return onFullImageFallback() }
+          await onPrimeSession(asset)
+        }
       }
     } else if isSearchActive,
       let svm = searchVM,

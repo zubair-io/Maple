@@ -964,11 +964,15 @@ struct AppShell: View {
       // through `openEditor(for:)` landed on `imageOpenMode` = `.preview`.)
       onEditorSelectAsset: { asset in selectFilmstripSibling(asset) },
       // Fast Preview §1: Preview's Edit button flips the pane shell into
-      // the S5 editor for the same asset. The asset is already selected
-      // (`browseVM.selectedID`), and `ensureSession` primed a session on
-      // grid appear, so the editor mounts against the warm session.
+      // the S5 editor for the same asset. The grid primed a session on
+      // cell appear, but a sibling reached by arrowing inside Preview
+      // never went through a cell, and the selection-change prune
+      // (`pruneInactiveSessions`) dropped everything else — so without
+      // `ensureSession` here `selectedSession` was nil and the editor's
+      // fallback ejected the user to the grid (#4713).
       onPreviewEdit: { asset in
         browseVM.selectedID = asset.id
+        ensureSession(for: asset)
         mode = .editing
       },
       // Fast Preview §1: Preview's back returns to the browse grid.
