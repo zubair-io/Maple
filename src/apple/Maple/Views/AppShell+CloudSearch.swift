@@ -102,6 +102,7 @@ extension AppShell {
       let httpClient = makeAuthenticatedHTTPClient(server: serverID)
       let source = CloudSource(
         server: LocalNetworkResolver.shared.effectiveURL(for: serverID),
+        identity: serverID,
         folderID: folderID,
         libraryPath: path,
         httpClient: httpClient)

@@ -182,6 +182,7 @@ extension AppShell {
           server: effectiveServer, httpClient: httpClient)
         let source = CloudSource(
           server: effectiveServer,
+          identity: serverID,
           folderID: folderID,
           libraryPath: libraryPath,
           httpClient: httpClient)
@@ -353,6 +354,7 @@ extension AppShell {
     let parentPath = (asset.abs_path as NSString).deletingLastPathComponent
     let source = CloudSource(
       server: effectiveServer,
+      identity: server,
       folderID: asset.folder_id,
       libraryPath: parentPath,
       httpClient: httpClient)

@@ -20,7 +20,14 @@ import Foundation
 import MapleCloudKit
 
 public actor CloudSource {
+  /// The URL requests actually go to — the local-network-resolved
+  /// effective URL when a LAN mapping is active.
   public let server: URL
+  /// Canonical registry-key URL the auth session and `CatalogRef.serverID`
+  /// are keyed on. Equal to `server` unless the caller resolved a LAN
+  /// mapping first; carried so refs built from a listing never leak the
+  /// effective URL into identity-keyed consumers (#4712).
+  public let identity: URL
   public let folderID: String
   public let libraryPath: String
   /// Absolute path being browsed at the moment. Defaults to the
@@ -36,11 +43,13 @@ public actor CloudSource {
 
   public init(
     server: URL,
+    identity: URL? = nil,
     folderID: String,
     libraryPath: String,
     httpClient: AuthenticatedHTTPClient
   ) {
     self.server = server
+    self.identity = identity ?? server
     self.folderID = folderID
     self.libraryPath = libraryPath
     self.currentPath = libraryPath
