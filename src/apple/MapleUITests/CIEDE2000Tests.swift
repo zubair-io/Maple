@@ -4,9 +4,8 @@
 //
 // The fixtures live at
 // `src/apple/MapleUITests/Goldens/.calibration/{a,b,expected.json}`
-// (this directory is auto-tracked by the MapleUITests
-// PBXFileSystemSynchronizedRootGroup, so adding new fixtures requires
-// no pbxproj edits):
+// (Goldens is copied as a folder by the MapleUITests synchronized group,
+// preserving the independent calibration cases without flattening their names):
 //   - a.png + b.png are tiny (64×64) sRGB PNGs.
 //   - expected.json is the output of `compare_images.py a.png b.png`,
 //     committed alongside so this test runs without invoking Python at
@@ -41,13 +40,6 @@ final class CIEDE2000Tests: XCTestCase {
     let aURL = calibrationDir.appendingPathComponent("a.png")
     let bURL = calibrationDir.appendingPathComponent("b.png")
     let expectedURL = calibrationDir.appendingPathComponent("expected.json")
-
-    guard FileManager.default.fileExists(atPath: aURL.path),
-      FileManager.default.fileExists(atPath: bURL.path),
-      FileManager.default.fileExists(atPath: expectedURL.path)
-    else {
-      throw XCTSkip("Calibration fixtures missing at \(calibrationDir.path).")
-    }
 
     let (aRGBA, aWidth, aHeight) = try Self.loadRGBA(url: aURL)
     let (bRGBA, bWidth, bHeight) = try Self.loadRGBA(url: bURL)
@@ -103,6 +95,17 @@ final class CIEDE2000Tests: XCTestCase {
     try assertLargeBiasFixture("bias-cancellation", compareSinglePixel: false)
   }
 
+  func testBundledCalibrationHierarchyContainsAllCases() throws {
+    let root = try Self.bundledCalibrationDirectory()
+    for name in ["", "bias-repetition", "bias-cancellation"] {
+      let directory = name.isEmpty ? root : root.appendingPathComponent(name)
+      for filename in ["a.png", "b.png", "expected.json"] {
+        let data = try Data(contentsOf: directory.appendingPathComponent(filename))
+        XCTAssertFalse(data.isEmpty, "Missing bundled calibration data: \(name)/\(filename)")
+      }
+    }
+  }
+
   private func assertLargeBiasFixture(_ name: String, compareSinglePixel: Bool) throws {
     let directory = try Self.calibrationDirectory().appendingPathComponent(name)
     let (candidate, width, height) = try Self.loadRGBA(
@@ -147,37 +150,21 @@ final class CIEDE2000Tests: XCTestCase {
 
   // MARK: - Helpers
 
-  /// Walks up from the test runner's cwd to find the repo's
-  /// `src/apple/MapleUITests/Goldens/.calibration` directory.
-  /// Resolves at runtime since the test bundle layout differs between
-  /// `xcodebuild test` and `swift test` invocations.
+  /// Preserve explicit fixture overrides, ignoring Xcode's unexpanded simulator
+  /// default just as UITestFixtureRoot does. Committed calibration data travels
+  /// with the test bundle, so it does not depend on the runner's working directory.
   private static func calibrationDirectory() throws -> URL {
-    // `MAPLE_UITEST_GOLDENS_ROOT` (matches GoldenStore.swift) wins when
-    // set. Otherwise walk up from the current directory looking for
-    // `src/apple/MapleUITests/Goldens/.calibration`.
     if let root = ProcessInfo.processInfo.environment["MAPLE_UITEST_GOLDENS_ROOT"],
-      !root.isEmpty
+      !root.isEmpty, !root.contains("$(")
     {
       return URL(fileURLWithPath: root).appendingPathComponent(".calibration")
     }
-    let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    // Try a few candidate paths; CI / xcodebuild cwd is usually the
-    // src/apple dir, while local invocation starts at the repo root.
-    let candidates = [
-      cwd.appendingPathComponent("src/apple/MapleUITests/Goldens/.calibration"),
-      cwd.appendingPathComponent("MapleUITests/Goldens/.calibration"),
-      cwd.appendingPathComponent("../../src/apple/MapleUITests/Goldens/.calibration"),
-    ]
-    for candidate in candidates {
-      if FileManager.default.fileExists(atPath: candidate.path) {
-        return candidate.standardizedFileURL
-      }
-    }
-    throw XCTSkip(
-      "Could not locate src/apple/MapleUITests/Goldens/.calibration "
-        + "(tried: \(candidates.map(\.path).joined(separator: ", "))). "
-        + "Set MAPLE_UITEST_GOLDENS_ROOT to override."
-    )
+    return try bundledCalibrationDirectory()
+  }
+
+  private static func bundledCalibrationDirectory() throws -> URL {
+    let resources = try XCTUnwrap(Bundle(for: CIEDE2000Tests.self).resourceURL)
+    return resources.appendingPathComponent("Goldens/.calibration", isDirectory: true)
   }
 
   /// PNG → RGBA8 buffer. `CGContext` decodes through the device color
