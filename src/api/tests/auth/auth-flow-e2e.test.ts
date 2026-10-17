@@ -195,7 +195,8 @@ describe('auth lifecycle e2e (#852 stack)', () => {
     const verifier = 'v'.repeat(64);
     const challenge = pkceS256(verifier);
 
-    // Issue requires a bearer (the wrapped, self-gating sub-app).
+    // Issue requires a bearer (the wrapped, self-gating sub-app) AND
+    // persistent-login proof (#4673).
     expect(
       (
         await post(
@@ -205,11 +206,23 @@ describe('auth lifecycle e2e (#852 stack)', () => {
         )
       ).status,
     ).toBe(401);
+    expect(
+      (
+        await post(
+          '/api/auth/native-code',
+          { code_challenge: challenge, state: 'state-abcdef' },
+          { ip, bearer },
+        )
+      ).status,
+    ).toBe(403);
+
+    const { issueRefreshToken } = await import('../../src/auth/refresh_store.ts');
+    const primaryRefresh = await issueRefreshToken(userId, 'browser');
 
     const issueRes = await post(
       '/api/auth/native-code',
       { code_challenge: challenge, state: 'state-abcdef' },
-      { ip, bearer },
+      { ip, bearer, cookie: primaryRefresh.raw },
     );
     expect(issueRes.status).toBe(200);
     const { code } = (await issueRes.json()) as { code: string };
@@ -248,11 +261,14 @@ describe('auth lifecycle e2e (#852 stack)', () => {
     // browser, so the first rotation after the handoff wiped the session and
     // the next page reload found no cookie at all.
     const ip = '198.51.100.5';
-    const { body } = await claim(ip, 'laptop');
+    const { body, cookie: primaryCookie } = await claim(ip, 'laptop');
     const bearer = body.access_token!;
 
-    // Public HTTPS-domain page issues a one-time handoff code.
-    const issueRes = await post('/api/auth/lan-handoff', {}, { ip, bearer });
+    // Access-only JWT without refresh proof is rejected (#4673).
+    expect((await post('/api/auth/lan-handoff', {}, { ip, bearer })).status).toBe(403);
+
+    // Public HTTPS-domain page issues a one-time handoff code with its refresh cookie.
+    const issueRes = await post('/api/auth/lan-handoff', {}, { ip, bearer, cookie: primaryCookie });
     expect(issueRes.status).toBe(200);
     const { code } = (await issueRes.json()) as { code: string };
 

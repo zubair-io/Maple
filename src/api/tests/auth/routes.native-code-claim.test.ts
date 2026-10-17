@@ -14,6 +14,7 @@ import { Elysia } from 'elysia';
 import type { ObjectId } from '../../src/db/object-id.ts';
 import { nativeCodeIssueRoutes, nativeCodeClaimRoutes } from '../../src/routes/auth-native-code.ts';
 import { signAccessToken } from '../../src/auth/tokens.ts';
+import { issueRefreshToken } from '../../src/auth/refresh_store.ts';
 import { pkceS256 } from '../../src/auth/native_code_store.ts';
 import {
   createLiveTestDatabase,
@@ -33,6 +34,7 @@ const app = new Elysia()
 let live: LiveTestDatabase;
 let userId: ObjectId;
 let bearer: string;
+let refreshCookie: string;
 
 beforeEach(async () => {
   live = await createLiveTestDatabase();
@@ -41,6 +43,8 @@ beforeEach(async () => {
     { file_access: true, sub: userId.toHexString(), email: 'owner@maple.local', role: 'owner' },
     JWT_SECRET,
   );
+  const primary = await issueRefreshToken(userId, 'browser');
+  refreshCookie = `maple_refresh=${primary.raw}`;
 });
 
 afterEach(() => {
@@ -55,22 +59,31 @@ function refreshTokenCount(): number {
   return row.n;
 }
 
-const issue = (challenge: string, state: string) =>
+const issue = (challenge: string, state: string, ip = '203.0.113.77') =>
   app.handle(
     new Request('http://localhost/api/auth/native-code', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${bearer}` },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${bearer}`,
+        cookie: refreshCookie,
+        'x-forwarded-for': ip,
+      },
       body: JSON.stringify({ code_challenge: challenge, state }),
     }),
   );
 
-const claim = (state: string, verifier: string, ip = '203.0.113.77') =>
+const claim = (state: string, verifier: string, ip = '203.0.113.77', code?: string) =>
   app.handle(
     new Request('http://localhost/api/auth/native-code/claim', {
       method: 'POST',
       // Distinct IP so these (rate-limited) claims use their own bucket.
       headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
-      body: JSON.stringify({ state, code_verifier: verifier }),
+      body: JSON.stringify(
+        code === undefined
+          ? { state, code_verifier: verifier }
+          : { state, code_verifier: verifier, code },
+      ),
     }),
   );
 
@@ -83,7 +96,7 @@ describe('native code claim (#3063)', () => {
     const early = await claim(state, verifier);
     expect(early.status).toBe(404);
 
-    // Signed-in web app mints the code (the #2964 bootstrap path).
+    // Signed-in web app mints the code after user consent.
     const issued = await issue(pkceS256(verifier), state);
     expect(issued.status).toBe(200);
 
@@ -101,12 +114,40 @@ describe('native code claim (#3063)', () => {
     expect(body.user.id).toBe(userId.toHexString());
     expect(body.state).toBe(state);
 
-    // Device-scoped refresh token minted for the claim.
-    expect(refreshTokenCount()).toBe(1);
+    // Device-scoped refresh token minted for the claim alongside the browser's primary token.
+    expect(refreshTokenCount()).toBe(2);
 
     // Single-use: the row is consumed — a replayed claim fails.
     const replay = await claim(state, verifier);
     expect(replay.status).toBe(404);
+  });
+
+  it('rejects a code-less claim from a different IP without burning the pending code (#4673)', async () => {
+    const verifier = 'poll-verifier-ip-binding-12345-abcdefghijklmn';
+    const state = 'state-poll-ip-bound';
+    const issued = await issue(pkceS256(verifier), state, '203.0.113.77');
+    expect(issued.status).toBe(200);
+
+    // Remote attacker on another IP cannot claim using state + verifier alone.
+    const remoteAttempt = await claim(state, verifier, '198.51.100.88');
+    expect(remoteAttempt.status).toBe(404);
+    expect(refreshTokenCount()).toBe(1);
+
+    // Legitimate caller on the issuing IP still succeeds.
+    const legitimate = await claim(state, verifier, '203.0.113.77');
+    expect(legitimate.status).toBe(200);
+    expect(refreshTokenCount()).toBe(2);
+  });
+
+  it('allows claiming from another IP when the redirect-bound code is presented (#4673)', async () => {
+    const verifier = 'poll-verifier-code-binding-123-abcdefghijklmn';
+    const state = 'state-poll-code-bound';
+    const issued = await issue(pkceS256(verifier), state, '203.0.113.77');
+    const { code } = (await issued.json()) as { code: string };
+
+    const withCode = await claim(state, verifier, '198.51.100.89', code);
+    expect(withCode.status).toBe(200);
+    expect(refreshTokenCount()).toBe(2);
   });
 
   it('rejects a claim whose verifier does not hash to the stored challenge', async () => {
@@ -131,6 +172,16 @@ describe('native code claim (#3063)', () => {
       (await claim('x'.repeat(257), 'ok-verifier-abcdefghijklmnopqrstuvwxyz-01234')).status,
     ).toBe(400);
     expect((await claim('short', 'ok-verifier-abcdefghijklmnopqrstuvwxyz-01234')).status).toBe(400);
+    expect(
+      (
+        await claim(
+          'state-shape-ok',
+          'ok-verifier-abcdefghijklmnopqrstuvwxyz-01234',
+          '203.0.113.77',
+          'short',
+        )
+      ).status,
+    ).toBe(400);
   });
 
   it('consumes the row on claim, so the redirect-delivered code is dead afterwards', async () => {

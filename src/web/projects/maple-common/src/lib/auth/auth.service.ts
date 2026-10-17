@@ -2,11 +2,11 @@ import { Injectable, signal, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, firstValueFrom, map } from 'rxjs';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
-
-/// Custom URL schemes we will hand a one-time auth code to. The Apple shell
-/// registers `maple-app://`; we honor ONLY known schemes, so a page loaded with
-/// an attacker-supplied `?native_callback=…` is ignored (#856).
-const NATIVE_SCHEME_ALLOWLIST = new Set(['maple-app']);
+import {
+  NativeHandoffRequest,
+  parseNativeHandoffSearch,
+  scrubNativeHandoffUrl,
+} from './native-handoff';
 
 export interface AuthUser {
   id: string;
@@ -124,42 +124,18 @@ export class AuthService {
     });
   }
 
-  /// Custom URL scheme to redirect to after auth success, when a native shell
-  /// (Apple, via an `ASWebAuthenticationSession`; Windows, via the user's
-  /// default browser) opened this page to collect a code. Read once at service
-  /// construction; preserved across in-app navigations — the redirect is
-  /// captured by scheme, not by the path the user navigates through.
-  ///
-  /// `null` in a plain browser tab nobody handed a callback to.
-  private readonly _nativeCallbackScheme: string | null = (() => {
-    try {
-      const cb = new URLSearchParams(window.location.search).get('native_callback');
-      // Allowlist — not just format. An attacker-named scheme is ignored, so a
-      // malicious page can't make us redirect a code anywhere but the app (#856).
-      if (cb && NATIVE_SCHEME_ALLOWLIST.has(cb.toLowerCase())) return cb.toLowerCase();
-    } catch {
-      /* SSR / non-browser contexts */
-    }
-    return null;
-  })();
+  /// Parsed native handoff request from the initial URL (#856, #4673). Read
+  /// once at service construction and preserved across in-app navigations.
+  private readonly _initialNativeHandoff = parseNativeHandoffSearch(
+    typeof window !== 'undefined' ? window.location.search : '',
+  );
+  private readonly _nativeCallbackScheme: string | null = this._initialNativeHandoff.scheme;
+  private readonly _nativeHandoff = signal<NativeHandoffRequest | null>(
+    this._initialNativeHandoff.request,
+  );
 
-  /// PKCE challenge + opaque CSRF state the Apple shell passed on the initial
-  /// URL. The shell keeps the verifier private; we only forward the challenge to
-  /// the server and echo the state back in the redirect (#856).
-  private readonly _nativePkce: { codeChallenge: string; state: string } | null = (() => {
-    try {
-      const p = new URLSearchParams(window.location.search);
-      const codeChallenge = p.get('code_challenge') ?? '';
-      const state = p.get('state') ?? '';
-      // base64url S256 challenge (43 chars) + a bounded opaque state.
-      if (/^[A-Za-z0-9_-]{43,128}$/.test(codeChallenge) && /^[A-Za-z0-9_-]{8,256}$/.test(state)) {
-        return { codeChallenge, state };
-      }
-    } catch {
-      /* SSR / non-browser contexts */
-    }
-    return null;
-  })();
+  /** Pending native sign-in handoff awaiting explicit user consent (#4673). */
+  readonly pendingNativeHandoff = this._nativeHandoff.asReadonly();
 
   get bearer(): string | null {
     return this.accessToken;
@@ -263,7 +239,10 @@ export class AuthService {
   async redeemLanHandoff(code: string): Promise<boolean> {
     try {
       const r = await firstValueFrom(this.http.post<any>('/api/auth/lan-handoff/redeem', { code }));
-      this.acceptTokens(r);
+      // Apply the LAN session without auto-triggering a native handoff (#4673):
+      // a URL combining `lan_handoff` and `native_callback` must still require
+      // explicit consent in `NativeHandoffConsentComponent`.
+      this.applySession(r);
       return true;
     } catch {
       return false;
@@ -466,68 +445,71 @@ export class AuthService {
     );
   }
 
-  private acceptTokens(r: any): void {
+  private applySession(r: any): void {
     this.refreshRejected = false;
     this.accessToken = r.access_token;
     this.user.set(r.user);
     // Let peer tabs adopt the new session without their own ceremony.
     this.broadcast({ type: 'token', access_token: r.access_token });
-    // Inside the Apple shell, hand the app a one-time code (never the tokens).
-    // Fire-and-forget: the redirect happens once the server issues the code.
+  }
+
+  private acceptTokens(r: any): void {
+    this.applySession(r);
+    // After an explicit sign-in / passkey ceremony inside the native shell,
+    // hand the app a one-time code (never the tokens).
     void this.postNativeAuthSuccess();
   }
 
   /// Returns true when a native app opened this page to collect an auth code,
   /// detected via the `?native_callback=<scheme>` query parameter that app put
-  /// on the initial URL. Two shells do this and the difference matters:
-  /// the Apple shell hosts the page in an `ASWebAuthenticationSession`, while
-  /// the Windows shell hands the URL to the user's DEFAULT browser — so a live
-  /// session is normal here, not the exception (see `resumeNativeHandoff`).
+  /// on the initial URL.
   get isNativeShell(): boolean {
     return this._nativeCallbackScheme !== null;
   }
 
   /// Hand a session that is ALREADY established to a native app waiting on the
-  /// `native_callback` redirect (#2963).
-  ///
-  /// The other caller of the handoff is `acceptTokens()`, which only runs after
-  /// a fresh ceremony. When the browser still holds a valid refresh cookie from
-  /// an earlier sign-in there is no ceremony to hook: the page hydrates, the
-  /// router lands on the library, and the app that opened this URL never gets
-  /// its code. That is the whole bug — the Windows shell opens the sign-in URL
-  /// in the user's DEFAULT browser, which is exactly where a live session lives.
-  /// (The Apple shell's `ASWebAuthenticationSession` is ephemeral, so it
-  /// normally forces a fresh ceremony and takes the `acceptTokens` path.)
+  /// `native_callback` redirect (#2963), called ONLY after explicit user
+  /// consent in `NativeHandoffConsentComponent` (#4673).
   ///
   /// No-op in a normal browser tab, and no-op while signed out — the sign-in
   /// ceremony owns that case.
-  async resumeNativeHandoff(): Promise<void> {
-    if (!this.isNativeShell || !this.isSignedIn) return;
-    await this.postNativeAuthSuccess();
+  async resumeNativeHandoff(): Promise<boolean> {
+    if (!this.isNativeShell || !this.isSignedIn) return false;
+    return await this.postNativeAuthSuccess();
   }
 
-  /// After a successful ceremony inside the Apple shell, hand the app a
-  /// short-lived one-time CODE (never tokens). The shell redeems the code with
-  /// its private PKCE verifier at `/api/auth/native-code/redeem`. The redirect
-  /// is captured privately by the host `ASWebAuthenticationSession`.
-  private async postNativeAuthSuccess(): Promise<void> {
-    const scheme = this._nativeCallbackScheme;
-    const pkce = this._nativePkce;
-    // No scheme → a normal browser tab. Missing/invalid PKCE → an Apple shell
-    // that predates the code flow; we do NOT fall back to putting tokens in the
-    // redirect URL, so its sign-in simply won't complete until it's updated.
-    if (!scheme || !pkce) return;
+  /// Dismiss a pending native sign-in handoff without issuing a code (#4673).
+  dismissNativeHandoff(): void {
+    this._nativeHandoff.set(null);
+    scrubNativeHandoffUrl();
+  }
+
+  /// After a successful ceremony or explicit consent click, hand the native app
+  /// a short-lived one-time CODE (never tokens). The shell redeems the code
+  /// with its private PKCE verifier at `/api/auth/native-code/redeem` (or
+  /// `/claim`).
+  private async postNativeAuthSuccess(): Promise<boolean> {
+    const handoff = this._nativeHandoff();
+    if (!handoff) return false;
     try {
+      const body: Record<string, string> = {
+        code_challenge: handoff.codeChallenge,
+        state: handoff.state,
+      };
+      if (handoff.explicitDeviceLabel) {
+        body['device_label'] = handoff.explicitDeviceLabel;
+      }
       const { code } = await firstValueFrom(
-        this.http.post<{ code: string }>('/api/auth/native-code', {
-          code_challenge: pkce.codeChallenge,
-          state: pkce.state,
-        }),
+        this.http.post<{ code: string }>('/api/auth/native-code', body),
       );
-      const params = new URLSearchParams({ code, state: pkce.state });
-      this.navigateTo(`${scheme}://auth-success?${params.toString()}`);
+      this._nativeHandoff.set(null);
+      scrubNativeHandoffUrl();
+      const params = new URLSearchParams({ code, state: handoff.state });
+      this.navigateTo(`${handoff.scheme}://auth-success?${params.toString()}`);
+      return true;
     } catch {
       /* code issuance failed — do not leak tokens via a fallback redirect */
+      return false;
     }
   }
 
