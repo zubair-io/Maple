@@ -36,9 +36,86 @@ budgets are unchanged by this correction.
 
 ## Qualification state
 
-The before-change convergence control is complete and fails as expected.
-Current-source view, Metal, full platform, domain, physical and performance
-results will be recorded here as they complete. The old broad-branch results
-are retained separately; they are not qualification of this isolated branch.
+The before-change convergence control fails as expected. Qualification below
+uses isolated runtime `7716f09afa2daa2f758d4e3e1e1363bd2535fa7b`.
+
+### Platform and domain controls
+
+| Suite | Passed | Failed | Ignored |
+| --- | ---: | ---: | ---: |
+| raw-core library | 2,813 | 0 | 100 |
+| Metal GPU | 288 | 0 | 4 |
+| C FFI | 301 | 0 | 6 |
+| native-host WASM bindings | 74 | 0 | 7 |
+| Total | 3,476 | 0 | 117 |
+
+The focused subsets also pass: 220 view tests and 10 AgX Metal tests. Their
+largest reported CPU/Metal absolute error is `4.9471855e-6`, below `1e-4`.
+These subsets are included in the platform totals above. Hue/chart tests
+(18), synthetic grey (6), grey adjustments (41), and DCP (5) all pass.
+Code generation and repeat generation produce no drift.
+
+The banding gate compares all 90 ramps on both the candidate and a main
+control with the same renderer tree as current main
+`95681410fc66635dfac680266eb18befce51952f`. Both pass 89 and fail the same
+Auto 1 neutral-tail ramp. Its second-difference maximum is exactly
+`0.004709126531853625` on both, above the unchanged `0.004007` ceiling.
+Spike ratio and flat-run metrics also match exactly. There are no newly
+failing banding metrics. Auto 2 and all synthetic slider ramps pass.
+
+### Physical comparisons
+
+The first matched physical control clears `test_0000/contrast_min`:
+
+| Metric | Main | Candidate | Ceiling |
+| --- | ---: | ---: | ---: |
+| mean ΔE2000 | 5.947019 | 5.941143 | 6.5 |
+| p95 ΔE2000 | 10.284551 | 10.284513 | 11.3 |
+| max ΔE2000 | 39.316267 | 37.767686 | 39.0 |
+
+Every candidate RGB bias channel also passes. Both comparisons use the same
+10,668,000 pixels, original RAW, sidecar and reference; hashes are unchanged.
+This is one failure cleared on the candidate, not a whole-corpus result.
+
+The 87-comparison selection (67 Neutral cases and all 20 Auto baselines) is
+still running. It includes the historical AgX cohort, every Neutral baseline,
+all test_0000 native detail controls and maximum sharpening on test_0004 and
+test_0014. Main and candidate are classified per metric and per bias channel.
+Whole-corpus integration remains outstanding.
+
+For test_0000 luminance NR, the selection uses the separately qualified Adobe
+authoring overlay from #4851 on both sides. Replaying main against that same
+reference leaves its maximum exactly `53.99387847200087`, still above `50.9`.
+The reference correction therefore does not clear that rendering failure.
+
+### Warm GPU timing
+
+Four alternating main/candidate rounds use the existing Whites harness:
+60 ticks each at Whites 0, +100 and -100, on a 1732px viewport derived from
+the 100MP test_0000 RAW. Completion includes GPU work without pixel readback.
+
+| Measurement | Main | Candidate |
+| --- | ---: | ---: |
+| median of per-run medians, ms | 1.819219 | 1.802281 |
+| per-run p95 range, ms | 3.068833–3.775333 | 3.374417–7.591833 |
+| maximum observed tick, ms | 34.607708 | 39.861833 |
+| warm GPU pool allocations | 0 | 0 |
+
+All per-run p95 values are below the 16ms target and observed maxima are below
+the 50ms hard limit. This measures the Neutral GPU chain with zero NR and
+sharpening; it does not qualify every app slider configuration. Concurrent
+system work may affect timing tails. Source and RAW hashes are unchanged.
+
+### Evidence recovery
+
+A network-share disconnect interrupted result recording and physical work.
+The platform audit revalidated every frozen source hash and repeated the
+native WASM suite locally before completing the platform record. The
+interrupted physical attempt produced zero comparisons and is recorded as
+interrupted, despite its shell exit status. Its 23 valid rendered PNGs were
+CRC-checked and retained; the resumed run renders only missing outputs.
+The original interrupted identities and all recovery records are preserved.
+
+The old broad-branch results remain separate from this isolated qualification.
 
 Evidence: `/Volumes/Projects/maple-color-gate-20261015/agx-common-highlight-isolated/`.
