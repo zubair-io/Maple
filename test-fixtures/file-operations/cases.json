@@ -1092,7 +1092,7 @@
       "name": "destination_identical_sidecar_is_joined_not_a_collision",
       "kind": "relocate",
       "description": "#4692 shared-sidecar ownership rule (docs/xmp-canonical-format.md \u00a7 Moving, renaming and trashing a photo). The second half of a RAW+JPEG pair moved after the first finds the sidecar the first one carried. Its bytes equal the incoming sidecar, so the photo joins it on the same stem instead of auto-suffixing.",
-      "platforms": ["api"],
+      "platforms": ["api", "windows"],
       "requires": [],
       "setup": {
         "files": [

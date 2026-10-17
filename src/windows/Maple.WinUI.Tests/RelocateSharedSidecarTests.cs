@@ -6,6 +6,7 @@
 
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Maple.WinUI.Services.FileOperations;
 using Maple.WinUI.Tests.Support;
@@ -190,6 +191,69 @@ namespace Maple.WinUI.Tests
             Assert.Equal("<only/>", File.ReadAllText(sidecar));
             AssertContent("pixels", to);
             Assert.False(File.Exists(source));
+        }
+
+        [Fact]
+        public async Task RawJpegPairMovedOneAfterTheOther_JoinsOneSidecarOnTheSameStem()
+        {
+            var raw = Write("raw", "src", "IMG_1.CR3");
+            var jpg = Write("jpg", "src", "IMG_1.JPG");
+            Write("<shared/>", "src", "IMG_1.xmp");
+
+            var first = await LocalFileOperations.RelocateAsync(
+                raw, P("album"), null, RelocateMode.Move, CollisionPolicy.Fail);
+            var second = await LocalFileOperations.RelocateAsync(
+                jpg, P("album"), null, RelocateMode.Move, CollisionPolicy.Fail);
+
+            Assert.False(first.RenamedDueToCollision);
+            Assert.False(second.RenamedDueToCollision);
+            Assert.Equal(P("album", "IMG_1.JPG"), second.PrimaryPath);
+            Assert.Equal(P("album", "IMG_1.xmp"), second.SidecarPath);
+            Assert.Equal(
+                new[] { "IMG_1.CR3", "IMG_1.JPG", "IMG_1.xmp" },
+                Directory.GetFiles(P("album")).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal));
+            AssertContent("<shared/>", "album", "IMG_1.xmp");
+            Assert.Empty(Directory.GetFiles(P("src")));
+        }
+
+        [Fact]
+        public async Task DragBatchWithBothHalvesOfAPair_KeepsThePairOnOneStem()
+        {
+            Write("raw", "src", "IMG_1.CR3");
+            Write("jpg", "src", "IMG_1.JPG");
+            Write("<shared/>", "src", "IMG_1.xmp");
+            var items = new[] { "IMG_1.CR3", "IMG_1.JPG" }
+                .Select(n => new DragMoveSourceItem(n, P("src"), n, P("src", n)))
+                .ToArray();
+
+            var outcomes = await DragMoveLogic.ApplySequentialAsync(
+                items, P("album"), RelocateMode.Move, Array.Empty<string>(), DragMoveCollisionChoice.KeepBoth);
+
+            Assert.All(outcomes, o => Assert.Equal(DragMoveOutcomeKind.Relocated, o.Kind));
+            Assert.Equal(new[] { P("album", "IMG_1.CR3"), P("album", "IMG_1.JPG") }, outcomes.Select(o => o.NewPath));
+            AssertContent("<shared/>", "album", "IMG_1.xmp");
+            Assert.False(File.Exists(P("album", "IMG_1.1.xmp")));
+            Assert.Empty(Directory.GetFiles(P("src")));
+        }
+
+        [Fact]
+        public async Task AutoSuffix_SkipsACandidateWhoseSidecarBelongsToAnotherFile()
+        {
+            // #4823: photo.1.dng is free, but photo.1.xmp is photo.1.jpg's.
+            var raw = Write("new", "src", "photo.dng");
+            Write("<new/>", "src", "photo.xmp");
+            Write("old", "album", "photo.dng");
+            Write("<old/>", "album", "photo.xmp");
+            Write("jpg", "album", "photo.1.jpg");
+            Write("<batch-member/>", "album", "photo.1.xmp");
+
+            var outcome = await LocalFileOperations.RelocateAsync(
+                raw, P("album"), null, RelocateMode.Move, CollisionPolicy.AutoSuffix);
+
+            Assert.Equal(P("album", "photo.2.dng"), outcome.PrimaryPath);
+            AssertContent("<new/>", "album", "photo.2.xmp");
+            AssertContent("<batch-member/>", "album", "photo.1.xmp");
+            AssertContent("<old/>", "album", "photo.xmp");
         }
 
         [Fact]
