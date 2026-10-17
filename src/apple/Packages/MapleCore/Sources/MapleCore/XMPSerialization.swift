@@ -156,6 +156,8 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
   private let primaryDescription: XMPChildElementScanner.PrimaryDescription?
   private var topLevelDescriptionIndex = 0
   private var primaryDescriptionContext: XMPChildElementScanner.DescriptionContext?
+  private var sawRdfEnvelope = false
+  private var rdfEnvelopeDepth: Int?
 
   /// `dc:subject` is the only XMP element that isn't an attribute on
   /// `rdf:Description` — it's a nested bag of `rdf:li` children:
@@ -232,9 +234,18 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
       workflowDepth = 1
       return
     }
-    if namespaceScopes.count <= 2,
-      XMPChildElementScanner.canonicalQualifiedName(qualified, namespaces: namespaces)
-        == "rdf:Description"
+    let depth = namespaceScopes.count
+    let canonicalName = XMPChildElementScanner.canonicalQualifiedName(
+      qualified, namespaces: namespaces)
+    if !sawRdfEnvelope, depth <= 1, canonicalName == "rdf:RDF" {
+      sawRdfEnvelope = true
+      rdfEnvelopeDepth = depth + 1
+    } else if depth == 1, rdfEnvelopeDepth == nil, primaryDescription != nil {
+      workflowDepth = 1
+      return
+    }
+    if rdfEnvelopeDepth == depth || (depth == 0 && primaryDescription == nil),
+      canonicalName == "rdf:Description"
     {
       let currentIndex = topLevelDescriptionIndex
       topLevelDescriptionIndex += 1
@@ -376,6 +387,9 @@ final class _XMPParserDelegate: NSObject, XMLParserDelegate {
       return
     }
     _ = namespaceScopes.popLast()
+    if let envDepth = rdfEnvelopeDepth, namespaceScopes.count < envDepth {
+      rdfEnvelopeDepth = nil
+    }
     let qual = qName ?? elementName
     localAdjustments.end(qual)
     retouch.end(qual)

@@ -394,4 +394,36 @@ fn foreign_subject_descriptions_are_ignored_in_both_readers() {
     );
     assert!((parsed_anon_vs_named.exposure - 0.65).abs() < 1e-6);
     assert_eq!(parsed_anon_vs_named.contrast, 0.0);
+
+    let stray_xmpmeta_desc = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+    crs:Exposure2012="-2.25"
+    crs:Contrast2012="+45"/>
+  <rdf:RDF>
+    <rdf:Description
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Exposure2012="+0.75"/>
+  </rdf:RDF>
+</x:xmpmeta>"#;
+    let parsed_stray = parse(stray_xmpmeta_desc).unwrap();
+    assert_eq!(parse_namespaced(stray_xmpmeta_desc).unwrap(), parsed_stray);
+    assert!((parsed_stray.exposure - 0.75).abs() < 1e-6);
+    assert_eq!(parsed_stray.contrast, 0.0);
+
+    let vendor_rdf = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <v:RDF xmlns:v="https://vendor.test/rdf#">
+    <v:Description about=""
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Exposure2012="-1.50"/>
+  </v:RDF>
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about="asset"
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:Exposure2012="+0.85"/>
+  </rdf:RDF>
+</x:xmpmeta>"#;
+    let parsed_vendor_rdf = parse(vendor_rdf).unwrap();
+    assert_eq!(parse_namespaced(vendor_rdf).unwrap(), parsed_vendor_rdf);
+    assert!((parsed_vendor_rdf.exposure - 0.85).abs() < 1e-6);
 }

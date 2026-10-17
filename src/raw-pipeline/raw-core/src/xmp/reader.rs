@@ -77,6 +77,13 @@ pub(super) fn parse_events<'a>(
                     workflow_depth += 1;
                     continue;
                 }
+                if stack.len() == 1
+                    && subject::is_xmpmeta_name(&stack[0])
+                    && !subject::is_rdf_name(&name)
+                {
+                    workflow_depth = 1;
+                    continue;
+                }
                 if let Some(flags) = eligible {
                     if top_desc_depth.is_none()
                         && stack.last().is_none_or(|p| subject::is_rdf_name(p))
@@ -104,6 +111,12 @@ pub(super) fn parse_events<'a>(
             Ok(Event::Empty(e)) => {
                 let name = element_name(&e)?.to_string();
                 if workflow_depth > 0 || name == "papp:Workflow" {
+                    continue;
+                }
+                if stack.len() == 1
+                    && subject::is_xmpmeta_name(&stack[0])
+                    && !subject::is_rdf_name(&name)
+                {
                     continue;
                 }
                 if let Some(flags) = eligible {
