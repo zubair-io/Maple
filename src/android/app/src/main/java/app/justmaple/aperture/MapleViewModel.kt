@@ -19,13 +19,12 @@ class MapleViewModel
 internal constructor(
     application: Application,
     val library: PhotoLibrary,
-    sidecarsOverride: SidecarStore?,
     rendererOverride: PreviewRenderer?,
 ) : AndroidViewModel(application) {
-    constructor(application: Application) : this(application, PhotoLibrary(application), null, null)
+    constructor(application: Application) : this(application, PhotoLibrary(application), null)
 
-    // The seams the recovery tests (#4765) substitute; production uses the library and the JNI renderer.
-    private val sidecars: SidecarStore = sidecarsOverride ?: library
+    // The one seam the recovery tests (#4765) substitute — the JNI renderer;
+    // the sidecar layer is always the real one (CLAUDE.md: no mocks there).
     val renderer: PreviewRenderer = rendererOverride ?: EditorRenderer(::framePresented)
     private val preferences = application.getSharedPreferences("maple-ui", 0)
     private val mutable =
@@ -236,7 +235,7 @@ internal constructor(
         history.clear()
         try {
             renderer.shutdown()
-            val loaded = sidecars.loadSidecar(photo)
+            val loaded = library.loadSidecar(photo)
             if (token != generation) return
             baseline = loaded.baseline
             mutable.update {
@@ -441,7 +440,7 @@ internal constructor(
                 // used to leave `dirty` set with nothing that could persist it.
                 val loaded =
                     try {
-                        sidecars.loadSidecar(photo)
+                        library.loadSidecar(photo)
                     } catch (failure: Exception) {
                         if (failure is CancellationException) throw failure
                         fail(failure, "Could not reload saved edits")
@@ -573,7 +572,7 @@ internal constructor(
             check(snapshot.documentLoaded) { "Reload the photo before saving edits" }
             mutable.update { it.copy(saving = true) }
             withContext(NonCancellable) {
-                val result = sidecars.save(photo, snapshot.document, baseline)
+                val result = library.save(photo, snapshot.document, baseline)
                 baseline = result.baseline
                 mutable.update { current ->
                     if (current.selected == photo)
