@@ -13,6 +13,15 @@ describe('sourceFilenameForPreviewCacheName', () => {
     expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.avif')).toBe('IMG_0001.dng');
     expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.full.jpg')).toBe('IMG_0001.dng');
     expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.histogram.json')).toBe('IMG_0001.dng');
+    // Hosted fallback encodings, descriptor and source identity (#4793).
+    expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.webp')).toBe('IMG_0001.dng');
+    expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.preview.json')).toBe('IMG_0001.dng');
+    expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.avif.source.json')).toBe('IMG_0001.dng');
+  });
+
+  test('retired pipeline-versioned names recover the same source (#4793)', () => {
+    expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.v25.avif')).toBe('IMG_0001.dng');
+    expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.v25.preview.json')).toBe('IMG_0001.dng');
   });
 
   // Migration (#2017): pre-KISS files (`<filename>.1280.avif` from the size-
@@ -22,13 +31,12 @@ describe('sourceFilenameForPreviewCacheName', () => {
   // they simply orphan out via cache-gc's not-live check.
   test('old size/version-keyed files recover to a non-live source (they orphan out)', () => {
     expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.1280.avif')).toBe('IMG_0001.dng.1280');
-    // `.dev_5.jpg` is no longer a recognized suffix at all → null → orphan.
-    expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.dev_5.jpg')).toBeNull();
+    expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.dev_5.jpg')).toBe('IMG_0001.dng.dev_5');
   });
 
   test('returns null for an unrecognized suffix shape (legacy/orphan)', () => {
-    expect(sourceFilenameForPreviewCacheName('a1b2c3d4e5f6a7b8_1280.jpg')).toBeNull();
     expect(sourceFilenameForPreviewCacheName('IMG_0001.dng')).toBeNull();
+    expect(sourceFilenameForPreviewCacheName('IMG_0001.dng.tiff')).toBeNull();
   });
 
   // Regression for jules's PR #2006 review: `image.jpg` is a strict string
