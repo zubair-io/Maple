@@ -85,6 +85,7 @@ AssetRefVideoTests
 AssetRenameFilenameTests
 BatchAdjustmentSessionTests
 BatchAdjustmentTransferTests
+BatchMetadataSessionSafetyTests
 BatchMetadataViewModelTests
 BatchRenameViewModelTests
 BoundedAsyncSemaphoreTests
