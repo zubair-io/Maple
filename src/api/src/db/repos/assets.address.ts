@@ -107,21 +107,45 @@ export async function findLiveAssetIdAtAddress(
   return id === undefined ? null : toObjectId(id);
 }
 
-/** Case-insensitive live-entry check so export Replace never clobbers a sibling (e.g. `IMG_1.JPG` vs `IMG_1.jpg`). */
+/** Unicode-aware case-insensitive live-entry check so export Replace never clobbers a sibling (`IMG_1.JPG` or `Ä.JPG` vs `ä.jpg`). */
 export async function hasLiveAssetAtAddress(
   libraryId: ObjectId,
   relPath: string,
   filename: string,
   dbOverride?: SqliteDb,
 ): Promise<boolean> {
-  const rows = await sqliteDb(dbOverride).read<{ asset_id: string }>(
+  const db = sqliteDb(dbOverride);
+  const libId = libraryId.toHexString();
+  const exact = await db.read<{ asset_id: string }>(
     `SELECT l.asset_id AS asset_id
        FROM asset_locations l
       WHERE l.library_id = ? AND l.path = ? AND l.filename = ? COLLATE NOCASE AND ${LIVE_ENTRY}
       LIMIT 1`,
-    [libraryId.toHexString(), relPath, filename],
+    [libId, relPath, filename],
   );
-  return rows.length > 0;
+  if (exact.length > 0) return true;
+  const targetName = filename.normalize('NFC').toLowerCase();
+  const inFolder = await db.read<{ filename: string }>(
+    `SELECT l.filename AS filename
+       FROM asset_locations l
+      WHERE l.library_id = ? AND l.path = ? AND ${LIVE_ENTRY}`,
+    [libId, relPath],
+  );
+  if (inFolder.some((row) => row.filename.normalize('NFC').toLowerCase() === targetName))
+    return true;
+  if (!relPath) return false;
+  const targetPath = relPath.normalize('NFC').toLowerCase();
+  const inLibrary = await db.read<{ path: string; filename: string }>(
+    `SELECT l.path AS path, l.filename AS filename
+       FROM asset_locations l
+      WHERE l.library_id = ? AND l.path != '' AND ${LIVE_ENTRY}`,
+    [libId],
+  );
+  return inLibrary.some(
+    (row) =>
+      row.path.normalize('NFC').toLowerCase() === targetPath &&
+      row.filename.normalize('NFC').toLowerCase() === targetName,
+  );
 }
 
 /** The row an upload needs before it moves the file it is about to overwrite. */

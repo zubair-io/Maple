@@ -329,9 +329,16 @@ integration('export recovery boundaries', () => {
     const sidecarPath = join(root, 'IMG_SIDECAR.xmp');
     await writeFile(sidecarPath, xml);
     await symlink(sidecarPath, join(root, 'IMG_SIDECAR.jpg'));
+    const unicodeRaw = await target('ä_1', 2);
+    insertLocation(live!.db, {
+      assetId: insertAsset(live!.db),
+      libraryId,
+      path: '',
+      filename: 'Ä_1.JPG',
+    });
     const value = {
-      targets: [raw, sidecarTarget],
-      originalPaths: [raw.path, sidecarTarget.path],
+      targets: [raw, sidecarTarget, unicodeRaw],
+      originalPaths: [raw.path, sidecarTarget.path, unicodeRaw.path],
       recipe: {
         ...DEFAULT_EXPORT_RECIPE,
         format: 'jpeg',
@@ -352,6 +359,7 @@ integration('export recovery boundaries', () => {
         id: sidecarTarget.id,
         reason: expect.stringContaining('original'),
       }),
+      expect.objectContaining({ id: unicodeRaw.id, reason: expect.stringContaining('original') }),
     ]);
     expect(await readFile(siblingPath, 'utf8')).toBe('unselected camera sibling jpeg');
     expect(await readFile(sidecarPath, 'utf8')).toBe(xml);
