@@ -209,11 +209,13 @@ export class WorkersComponent implements OnInit, OnDestroy {
     if (this.destroyed) return;
     this.statusSub = this.events.workersStatus$.subscribe({
       next: ({ status, counted }) => {
+        if (this.destroyed) return;
         if (counted) this.gotWsFrame = true;
         this.status.set(status);
         this.error.set(null);
       },
       error: (err) => {
+        if (this.destroyed) return;
         this.error.set(errorMessage(err) ?? 'Failed to load worker status.');
       },
     });
@@ -221,7 +223,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
 
   private fetchStatusFallback(): void {
     if (this.destroyed) return;
-    this.statusSub = this.api.getStatus().subscribe({
+    this.fallbackSub = this.api.getStatus().subscribe({
       next: (data) => {
         if (this.gotWsFrame || this.destroyed) return;
         this.status.set(data);
