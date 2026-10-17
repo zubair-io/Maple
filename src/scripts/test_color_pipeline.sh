@@ -291,7 +291,14 @@ for case in sorted(cases, key=lambda c: c["name"]):
         continue
 
     ref = pick_reference(case.get("outputs", []))
-    if ref is None:
+    # Native-only detail cases are qualified by the mandatory full-detail pass.
+    # A declared down entry that is missing on disk must still fail here.
+    native_only_detail = (
+        preferred_res == "down" and case_label_base.startswith(("sharpen", "nr_"))
+        and case.get("reference_protocol") == "native-pair-lanczos-v1"
+        and not any(o["resolution"] == "down" for o in case.get("outputs", []))
+    )
+    if ref is None and (case.get("reference_protocol") is None or native_only_detail):
         skipped_no_ref += 1
         case_records.append({
             "fixture": fixture,
@@ -566,7 +573,7 @@ for case in sorted(cases, key=lambda c: c["name"]):
         continue
 
     ref = pick_reference(case.get("outputs", []))
-    if ref is None:
+    if ref is None and case.get("reference_protocol") is None:
         skipped_no_ref += 1
         case_records.append({
             "fixture": fixture,

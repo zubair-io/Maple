@@ -83,6 +83,22 @@ The evidence directory records these checks under `missing-native-*`.
 
 ### Further review checks
 
+The same missing-preferred-reference bypass also existed in the Neutral and
+Auto passes. Both now send explicitly declared protocols through the comparator
+when a down entry or PNG is absent. Native-only sharpening/NR cases remain
+deferred to the mandatory full-detail pass; a declared down PNG missing on disk
+and an unknown protocol still fail immediately. Six rejection scenarios failed
+before this correction. All nine harness tests pass across the three passes, including valid pairs
+and legacy skip accounting. Code generation and a repeat leave outputs unchanged.
+
+Both workflow path filters now watch the harness and metadata regression files.
+Four event/path assertions failed before the update; all six workflow tests
+pass afterward. The existing 15 comparator and 19 metadata tests also pass.
+Replaying the two physical down comparisons through the actual Neutral pass
+preserves every previous metric and all 10,668,000 pixels per comparison.
+Both pass their unchanged budgets with zero skips or errors. Input and source
+hashes are unchanged during the replay. Evidence uses `missing-down-*`.
+
 Camera Raw packets now reject DTD declarations before the subset verifier
 parses either an authoring sidecar or a captured PNG. Empty, internal and
 external declarations are covered on both sides; ordinary XML character

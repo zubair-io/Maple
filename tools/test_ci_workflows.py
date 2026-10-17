@@ -17,6 +17,16 @@ def workflow(name):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_raw_pipeline_watches_its_comparison_regressions(self):
+        events = workflow("raw-pipeline")[True]
+        for event in ("push", "pull_request"):
+            for path in (
+                "src/scripts/color_pipeline_test.py",
+                "src/scripts/compare_images_metadata_test.py",
+            ):
+                with self.subTest(event=event, path=path):
+                    self.assertIn(path, events[event]["paths"])
+
     def test_windows_architectures_are_native_and_release_artifacts_do_not_collide(
         self,
     ):

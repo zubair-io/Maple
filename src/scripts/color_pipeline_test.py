@@ -1,4 +1,4 @@
-"""Exercise the canonical harness's detail comparison pass with real PNG/XMP files."""
+"""Exercise canonical comparison passes with real PNG/XMP files."""
 
 import json
 import os
@@ -15,27 +15,37 @@ SCRIPTS = Path(__file__).resolve().parent
 
 
 class DetailReferenceTests(unittest.TestCase):
-    def run_detail_pass(self, label, protocol, reference_state):
+    def run_detail_pass(self, label, protocol, reference_state, marker="PY_DETAIL"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            full, _down, sidecar, _outputs = _qualified_native_pair(root)
+            full, down, sidecar, _outputs = _qualified_native_pair(root)
+            resolution = "full" if marker == "PY_DETAIL" else "down"
+            suffix = "_auto" if marker == "PY_AUTO" else ""
+            control_label = (
+                "sharpen_detail_max" if marker == "PY_DETAIL" else "baseline"
+            )
             native = {"resolution": "full", "png": str(full)}
-            broken = {"resolution": "full", "png": str(root / "missing.png")}
+            preferred = {
+                "resolution": resolution,
+                "png": str(full if resolution == "full" else down),
+            }
+            broken = {"resolution": resolution, "png": str(root / "missing.png")}
+            counterpart = [] if resolution == "full" else [native]
             selected = {
-                "present": [native],
-                "missing_file": [broken],
-                "missing_entry": [],
+                "present": [*counterpart, preferred],
+                "missing_file": [*counterpart, broken],
+                "missing_entry": counterpart,
             }[reference_state]
             cases = [
                 {
-                    "name": "test_0000/sharpen_detail_max",
+                    "name": f"test_0000/{control_label}",
                     "raw": str(full),
                     "acr_xmp": str(sidecar),
                     "reference_protocol": "native-pair-lanczos-v1",
-                    "outputs": [native],
+                    "outputs": [*counterpart, preferred],
                 },
                 {
-                    "name": f"test_0000/{label}",
+                    "name": f"test_0001/{label}",
                     "raw": str(full),
                     "acr_xmp": str(sidecar),
                     "outputs": selected,
@@ -53,22 +63,23 @@ class DetailReferenceTests(unittest.TestCase):
                 json.dumps(
                     {
                         "fixtures": {
-                            "test_0000": {
-                                name: {
+                            fixture: {
+                                name + suffix: {
                                     "mean": 0.01,
                                     "p95": 0.01,
                                     "max": 0.01,
                                     "bias": 0.01,
                                 }
-                                for name in ("sharpen_detail_max", label)
+                                for name in (control_label, label)
                             }
+                            for fixture in ("test_0000", "test_0001")
                         }
                     }
                 )
             )
             harness = (SCRIPTS / "test_color_pipeline.sh").read_text()
-            body = harness.split("<<'PY_DETAIL'", 1)[1].split("\n", 1)[1]
-            body = body.split("\nPY_DETAIL", 1)[0]
+            body = harness.split(f"<<'{marker}'", 1)[1].split("\n", 1)[1]
+            body = body.split(f"\n{marker}", 1)[0]
             result = subprocess.run(
                 [
                     sys.executable,
@@ -76,13 +87,13 @@ class DetailReferenceTests(unittest.TestCase):
                     str(manifest),
                     str(root),
                     str(SCRIPTS / "compare_images.py"),
-                    "full",
+                    resolution,
                     "",
                     str(budgets),
                     "",
                     "",
                     "12",
-                    "",
+                    suffix,
                 ],
                 input=body,
                 check=False,
@@ -130,6 +141,68 @@ class DetailReferenceTests(unittest.TestCase):
         self.assertEqual(summary["compared"], 1)
         self.assertEqual(summary["errors"], 0)
         self.assertEqual(summary["skipped_no_reference"], 1)
+
+    def test_missing_down_reference_fails_in_neutral_and_auto(self):
+        for marker, label in (("PY", "exposure_min"), ("PY_AUTO", "baseline")):
+            for state in ("missing_file", "missing_entry"):
+                with self.subTest(marker=marker, state=state):
+                    result, summary = self.run_detail_pass(
+                        label, "native-pair-lanczos-v1", state, marker
+                    )
+                    self.assertEqual(result.returncode, 1, result.stdout)
+                    self.assertEqual(summary["compared"], 1)
+                    self.assertEqual(summary["errors"], 1)
+                    self.assertEqual(summary["skipped_no_reference"], 0)
+
+    def test_down_pass_controls(self):
+        for marker, label in (("PY", "exposure_min"), ("PY_AUTO", "baseline")):
+            for state, protocol, compared, skipped in (
+                ("present", "native-pair-lanczos-v1", 2, 0),
+                ("missing_file", None, 1, 1),
+            ):
+                with self.subTest(marker=marker, state=state):
+                    result, summary = self.run_detail_pass(
+                        label, protocol, state, marker
+                    )
+                    self.assertEqual(
+                        result.returncode, 0, result.stdout + result.stderr
+                    )
+                    self.assertEqual(summary["compared"], compared)
+                    self.assertEqual(summary["errors"], 0)
+                    self.assertEqual(summary["skipped_no_reference"], skipped)
+
+    def test_unknown_down_protocol_cannot_hide_behind_missing_reference(self):
+        for marker, label in (("PY", "exposure_min"), ("PY_AUTO", "baseline")):
+            with self.subTest(marker=marker):
+                result, summary = self.run_detail_pass(
+                    label, "unknown-v1", "missing_entry", marker
+                )
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertEqual(summary["errors"], 1)
+                self.assertIn("unknown reference protocol", result.stderr)
+
+    def test_neutral_defers_native_only_details_to_full_pass(self):
+        for label in ("sharpen_amount_max", "nr_luminance_max"):
+            with self.subTest(label=label):
+                result, summary = self.run_detail_pass(
+                    label, "native-pair-lanczos-v1", "missing_entry", "PY"
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(summary["compared"], 1)
+                self.assertEqual(summary["skipped_no_reference"], 1)
+
+    def test_detail_deferral_does_not_hide_a_broken_down_entry_or_protocol(self):
+        for protocol, state in (
+            ("native-pair-lanczos-v1", "missing_file"),
+            ("unknown-v1", "missing_entry"),
+        ):
+            with self.subTest(protocol=protocol, state=state):
+                result, summary = self.run_detail_pass(
+                    "sharpen_amount_max", protocol, state, "PY"
+                )
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertEqual(summary["errors"], 1)
+                self.assertEqual(summary["skipped_no_reference"], 0)
 
 
 if __name__ == "__main__":
