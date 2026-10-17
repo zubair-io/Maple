@@ -53,28 +53,39 @@ const TINT_UV_SCALE = 1.0 / 3000.0;
  * via Hernández-Andrés et al. 1999. Valid range 1667K–25000K; clamped to
  * [2000K, 25000K] — mirrors raw-core's `cct_to_xy`.
  */
+// Legacy migration must reproduce raw-core's f32 operations. Its finite
+// difference amplifies unrounded Double arithmetic by >0.1 K (#4630).
+const f32 = Math.fround;
 function cctToXy(cctIn: number): [number, number] {
-  const t = Math.min(Math.max(cctIn, 2000.0), 25000.0);
+  const t = f32(Math.min(Math.max(f32(cctIn), 2000.0), 25000.0));
+  const t2 = f32(t * t);
+  const t3 = f32(t2 * t);
   const x =
     t <= 4000.0
-      ? 0.17991 + 877.6956 / t - 234358.9 / (t * t) - 266123900.0 / (t * t * t)
-      : 0.24039 + 222.6347 / t + 2107037.9 / (t * t) - 3025846900.0 / (t * t * t);
-  const y = -3.0 * x * x + 2.87 * x - 0.275;
+      ? f32(
+          f32(f32(f32(0.17991) + f32(f32(877.6956) / t)) - f32(f32(234358.9) / t2)) -
+            f32(f32(266123900.0) / t3),
+        )
+      : f32(
+          f32(f32(f32(0.24039) + f32(f32(222.6347) / t)) + f32(f32(2107037.9) / t2)) -
+            f32(f32(3025846900.0) / t3),
+        );
+  const y = f32(f32(f32(f32(-3.0 * x) * x) + f32(f32(2.87) * x)) - f32(0.275));
   return [x, y];
 }
 
 /** CIE xy → CIE 1960 UCS (u, v), the legacy map's metric — mirrors
  * raw-core's `white_balance::xy_to_uv`. */
 function legacyXyToUv(x: number, y: number): [number, number] {
-  const denom = -2.0 * x + 12.0 * y + 3.0;
-  return [(4.0 * x) / denom, (6.0 * y) / denom];
+  const denom = f32(f32(f32(-2.0 * x) + f32(12.0 * y)) + 3.0);
+  return [f32(f32(4.0 * x) / denom), f32(f32(6.0 * y) / denom)];
 }
 
 /** CIE 1960 UCS (u, v) → CIE xy — exact inverse of `legacyXyToUv`,
  * mirrors raw-core's `white_balance::uv_to_xy`. */
 function legacyUvToXy(u: number, v: number): [number, number] {
-  const denom = 2.0 * u - 8.0 * v + 4.0;
-  return [(3.0 * u) / denom, (2.0 * v) / denom];
+  const denom = f32(f32(f32(2.0 * u) - f32(8.0 * v)) + 4.0);
+  return [f32(f32(3.0 * u) / denom), f32(f32(2.0 * v) / denom)];
 }
 
 /**
@@ -84,15 +95,15 @@ function legacyUvToXy(u: number, v: number): [number, number] {
  */
 function locusTangentUv(cct: number): [number, number] {
   const deltaK = 50.0;
-  const center = Math.min(Math.max(cct, 2000.0), 25000.0);
-  const [xp, yp] = cctToXy(Math.min(center + deltaK, 25000.0));
-  const [xm, ym] = cctToXy(Math.max(center - deltaK, 2000.0));
+  const center = Math.min(Math.max(f32(cct), 2000.0), 25000.0);
+  const [xp, yp] = cctToXy(Math.min(f32(center + deltaK), 25000.0));
+  const [xm, ym] = cctToXy(Math.max(f32(center - deltaK), 2000.0));
   const [up, vp] = legacyXyToUv(xp, yp);
   const [um, vm] = legacyXyToUv(xm, ym);
-  const rawDu = up - um;
-  const rawDv = vp - vm;
-  const len = Math.max(Math.sqrt(rawDu * rawDu + rawDv * rawDv), 1e-10);
-  return [rawDu / len, rawDv / len];
+  const rawDu = f32(up - um);
+  const rawDv = f32(vp - vm);
+  const len = Math.max(f32(Math.sqrt(f32(f32(rawDu * rawDu) + f32(rawDv * rawDv)))), f32(1e-10));
+  return [f32(rawDu / len), f32(rawDv / len)];
 }
 
 /**
@@ -119,8 +130,8 @@ function applyTintPerpendicular(
 ): [number, number] {
   const [perpU, perpV] = tintPerpendicularAxis(cct, tintSignPositiveV);
   const [u0, v0] = legacyXyToUv(x, y);
-  const displacement = tint * TINT_UV_SCALE;
-  return legacyUvToXy(u0 + displacement * perpU, v0 + displacement * perpV);
+  const displacement = f32(f32(tint) * f32(TINT_UV_SCALE));
+  return legacyUvToXy(f32(u0 + f32(displacement * perpU)), f32(v0 + f32(displacement * perpV)));
 }
 
 /**
@@ -141,10 +152,10 @@ function legacySliderSourceXy(temperature: number, tint: number): [number, numbe
  * `authored_pair_to_v5` (V5 is handled by the caller, not here).
  */
 function legacyTintForVersion(tint: number, version: number): number {
-  if (version === 2) return -tint * TINT_SCALE_V3_TO_V4;
-  if (version === 4) return tint;
+  if (version === 2) return f32(-f32(tint) * f32(TINT_SCALE_V3_TO_V4));
+  if (version === 4) return f32(tint);
   // V1 | V3
-  return tint * TINT_SCALE_V3_TO_V4;
+  return f32(f32(tint) * f32(TINT_SCALE_V3_TO_V4));
 }
 
 /**
