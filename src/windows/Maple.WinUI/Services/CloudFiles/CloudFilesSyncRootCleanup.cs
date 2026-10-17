@@ -20,7 +20,9 @@ namespace Maple.WinUI.Services.CloudFiles
         /// <summary>Walks <paramref name="root"/> bottom-up, deleting each
         /// file <paramref name="isUnmodifiedPlaceholder"/> approves and each
         /// directory left empty afterwards, the root included. A probe that
-        /// throws counts as "not a placeholder": uncertainty keeps the file.</summary>
+        /// throws counts as "not a placeholder": uncertainty keeps the file.
+        /// Directory reparse points (junctions, symlinks) are kept and not
+        /// entered.</summary>
         internal static CleanupResult Sweep(string root, Func<string, bool> isUnmodifiedPlaceholder)
         {
             if (!Directory.Exists(root))
@@ -37,6 +39,14 @@ namespace Maple.WinUI.Services.CloudFiles
             var preserved = 0;
             foreach (var child in Directory.EnumerateDirectories(directory))
             {
+                // A junction or symlink resolves to somewhere outside this
+                // tree — another provider's sync root would even pass the
+                // placeholder probe. Keep it, never look through it.
+                if (File.GetAttributes(child).HasFlag(FileAttributes.ReparsePoint))
+                {
+                    preserved++;
+                    continue;
+                }
                 var nested = SweepDirectory(child, isUnmodifiedPlaceholder);
                 removed += nested.Removed;
                 preserved += nested.Preserved;

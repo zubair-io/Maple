@@ -110,6 +110,39 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public void DirectoryReparsePoint_IsKeptAndNotEntered()
+        {
+            // A junction/symlink inside Maple Cloud resolves elsewhere; its
+            // target may even be another provider's sync root whose in-sync
+            // placeholders would pass the probe. Nothing behind it may go.
+            var outside = Path.Combine(_root + "-outside");
+            Directory.CreateDirectory(outside);
+            var outsideFile = Path.Combine(outside, "theirs.jpg");
+            File.WriteAllText(outsideFile, "theirs");
+            Directory.CreateDirectory(_root);
+            var link = Path.Combine(_root, "Linked");
+            Directory.CreateSymbolicLink(link, outside);
+            // The probe approves it however it is reached — through the
+            // link is the path a sweep that wrongly descends would see.
+            _placeholders.Add(Path.GetFullPath(outsideFile));
+            _placeholders.Add(Path.GetFullPath(Path.Combine(link, "theirs.jpg")));
+            try
+            {
+                var result = CloudFilesSyncRootCleanup.Sweep(_root, IsUnmodifiedPlaceholder);
+
+                Assert.True(File.Exists(outsideFile));
+                Assert.True(Directory.Exists(link));
+                Assert.True(Directory.Exists(_root));
+                Assert.Equal(0, result.Removed);
+                Assert.Equal(1, result.Preserved);
+            }
+            finally
+            {
+                Directory.Delete(outside, recursive: true);
+            }
+        }
+
+        [Fact]
         public void MissingRoot_IsANoOp()
         {
             var result = CloudFilesSyncRootCleanup.Sweep(_root, IsUnmodifiedPlaceholder);
