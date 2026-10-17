@@ -426,7 +426,7 @@ describe('the device reconciliation feed', () => {
     expect(await listBackupState(lib, DEVICE, new Date(0), db)).toEqual([]);
   });
 
-  test('an asset whose location here is marked missing_since is left out', async () => {
+  test('an asset whose location here is marked missing_since is left out, or reports its live ordinal when another location is live', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const lib = library(handle.db);
@@ -436,6 +436,16 @@ describe('the device reconciliation feed', () => {
       id.toHexString(),
     ]);
     expect(await listBackupState(lib, DEVICE, new Date(0), db)).toEqual([]);
+
+    // When a repair lands at a disambiguated sibling (ordinal 1) while ordinal 0
+    // remains missing_since, the feed reports the live ordinal-1 path.
+    await appendBackupLocation(
+      id,
+      { relPath: '2024/Tokyo/IMG_0001-1.HEIC', libraryId: lib, link: null },
+      db,
+    );
+    const rows = await listBackupState(lib, DEVICE, new Date(0), db);
+    expect(rows.map((r) => r.rel_path)).toEqual(['2024/Tokyo/IMG_0001-1.HEIC']);
   });
 });
 
