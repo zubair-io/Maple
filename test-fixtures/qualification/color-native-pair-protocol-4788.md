@@ -99,6 +99,17 @@ preserves every previous metric and all 10,668,000 pixels per comparison.
 Both pass their unchanged budgets with zero skips or errors. Input and source
 hashes are unchanged during the replay. Evidence uses `missing-down-*`.
 
+A subsequent review found the same bypass before reference selection when a
+rendered candidate was absent. Missing RAWs shared that path. All three passes
+now record missing RAWs or candidates as errors for explicitly declared
+protocols, with a per-case diagnostic; undeclared legacy omissions retain their
+skip counts. A second valid case can no longer make those omissions pass.
+All six rejection scenarios fail before the correction. The expanded **11
+harness tests pass**, including the legacy controls. Replaying the two real
+down comparisons preserves every metric and all 10,668,000 pixels per case,
+with unchanged source/input hashes and no skips or errors. These artifacts use
+the `missing-input-*` prefix.
+
 Camera Raw packets now reject DTD declarations before the subset verifier
 parses either an authoring sidecar or a captured PNG. Empty, internal and
 external declarations are covered on both sides; ordinary XML character
