@@ -130,6 +130,12 @@ final class AssetRenameFilenameTests: XCTestCase {
     newSession.model.contrast = 18
     newSession.endEdit()
     await newSession.flushPendingSidecarWrite()
+    newSession.renderRequested = true
+    await newSession.workflow.createVariant(name: "Branch", session: newSession)
+    XCTAssertFalse(newSession.workflow.isBusy)
+    await newSession.workflow.selectVariant(
+      WorkflowContract.primaryVariantID, session: newSession)
+    XCTAssertFalse(newSession.workflow.isBusy)
 
     XCTAssertFalse(
       fm.fileExists(atPath: oldSidecarURL.path),
