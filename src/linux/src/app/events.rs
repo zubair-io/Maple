@@ -154,6 +154,7 @@ impl MapleApp {
                             self.error =
                                 (!folder.errors.is_empty()).then(|| folder.errors.join("\n"));
                             self.folder = Some(folder);
+                            self.listing += 1;
                             self.browse = true;
                         }
                         Err(error) => self.error = Some(error),

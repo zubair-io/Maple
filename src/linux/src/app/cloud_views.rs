@@ -83,7 +83,7 @@ impl CloudState {
             if *browse {
                 if let Some(folder) = &self.folder {
                     let columns = (ui.available_width() / 160.0).floor().max(1.0) as usize;
-                    egui::ScrollArea::vertical().show_rows(
+                    egui::ScrollArea::vertical().id_salt(self.epoch).show_rows(
                         ui,
                         155.0,
                         folder.images.len().div_ceil(columns),
