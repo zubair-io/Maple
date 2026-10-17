@@ -1,0 +1,72 @@
+name: Deploy thumbnail-cache Worker
+
+# Deploys src/cloudflare (maple-thumb-cache) whenever main changes it, so the
+# edge never lags the origin's derivative contract (#4929). wrangler.jsonc is
+# gitignored per-operator config; this job renders it from the committed
+# template plus repository variables, and never touches the ssr/ or
+# drive-connect/ Workers (drive-connect has its own dispatched workflow).
+#
+# Repository secrets: CLOUDFLARE_API_TOKEN (Workers Scripts:Edit, Workers
+# Routes:Edit on the zone, Workers R2 Storage:Read), CLOUDFLARE_ACCOUNT_ID.
+# Repository variables: THUMB_CACHE_ORIGIN_URL, THUMB_CACHE_ROUTE
+# (e.g. maple.example.com/api/thumb/*). JWT_SECRET stays a Worker secret set
+# once with `wrangler secret put`; deploys keep it.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/cloudflare/src/**'
+      - 'src/cloudflare/package.json'
+      - 'src/cloudflare/package-lock.json'
+      - 'src/cloudflare/scripts/**'
+      - 'src/cloudflare/wrangler.jsonc.example'
+      - '.github/workflows/deploy-thumb-cache.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-thumb-cache
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/cloudflare
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ORIGIN_URL: ${{ vars.THUMB_CACHE_ORIGIN_URL }}
+      ROUTE: ${{ vars.THUMB_CACHE_ROUTE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Require deploy credentials and settings
+        run: |
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID ORIGIN_URL ROUTE; do
+            if [ -z "${!name}" ]; then echo "::error::$name is not configured"; exit 1; fi
+          done
+
+      - run: npm ci
+
+      - name: Render wrangler.jsonc from the committed template
+        run: cp wrangler.jsonc.example wrangler.jsonc
+
+      - name: Generate Worker types
+        run: npx wrangler types
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - name: Deploy
+        run: npx wrangler deploy --var "ORIGIN_API_BASE_URL:$ORIGIN_URL" --routes "$ROUTE"
