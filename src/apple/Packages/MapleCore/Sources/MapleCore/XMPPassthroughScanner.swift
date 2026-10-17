@@ -176,10 +176,9 @@ enum XMPChildElementScanner {
     attributes: [String: String], namespaces: [String: String]
   ) -> DescriptionContext {
     let rdfAttr: (String) -> String? = { local in
-      attributes[local]
-        ?? attributes.first {
-          canonicalQualifiedName($0.key, namespaces: namespaces) == "rdf:" + local
-        }?.value
+      attributes.first {
+        canonicalQualifiedName($0.key, namespaces: namespaces) == "rdf:" + local
+      }?.value ?? attributes[local]
     }
     return DescriptionContext(
       about: rdfAttr("about"),

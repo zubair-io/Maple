@@ -9,7 +9,7 @@ use quick_xml::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Subject {
     About(String),
-    NodeId(usize),
+    NodeId(String),
     Anonymous(usize),
 }
 
@@ -28,11 +28,12 @@ impl DescCandidate {
     ) -> Self {
         let (subject, tier) = match (about, node_id) {
             (Some(a), None) => {
-                let tier = if a.is_empty() { 2 } else { 1 };
+                let tier = if a.is_empty() { 2 } else { 0 };
                 (Subject::About(a), tier)
             }
-            (None, None) => (Subject::Anonymous(idx), 0),
-            (_, Some(_)) => (Subject::NodeId(idx), 0),
+            (None, None) => (Subject::Anonymous(idx), 1),
+            (None, Some(n)) => (Subject::NodeId(n), 0),
+            (Some(_), Some(_)) => (Subject::Anonymous(idx), 0),
         };
         Self {
             subject,
@@ -81,15 +82,16 @@ fn inspect_strict_desc(reader: &NsReader<&[u8]>, e: &BytesStart<'_>, idx: usize)
             continue;
         }
         let (res, loc) = reader.resolve_attribute(attr.key);
-        let rdf_or_unbound = matches!(res, ResolveResult::Unbound)
-            || matches!(res, ResolveResult::Bound(uri) if prefix(uri.as_ref()) == Some("rdf"));
-        if rdf_or_unbound && loc.as_ref() == b"about" {
+        let is_rdf =
+            matches!(res, ResolveResult::Bound(uri) if prefix(uri.as_ref()) == Some("rdf"));
+        let is_unbound = matches!(res, ResolveResult::Unbound);
+        if (is_rdf || (is_unbound && about.is_none())) && loc.as_ref() == b"about" {
             about = Some(
                 attr.unescape_value()
                     .map(|s| s.into_owned())
                     .unwrap_or_default(),
             );
-        } else if rdf_or_unbound && loc.as_ref() == b"nodeID" {
+        } else if (is_rdf || (is_unbound && node_id.is_none())) && loc.as_ref() == b"nodeID" {
             node_id = Some(
                 attr.unescape_value()
                     .map(|s| s.into_owned())
@@ -167,13 +169,13 @@ fn inspect_lenient_desc(e: &BytesStart<'_>, idx: usize) -> DescCandidate {
         if key == "xmlns" || key.starts_with("xmlns:") {
             continue;
         }
-        if key == "rdf:about" || key == "about" || key.ends_with(":about") {
+        if key == "rdf:about" || (key == "about" && about.is_none()) {
             about = Some(
                 attr.unescape_value()
                     .map(|s| s.into_owned())
                     .unwrap_or_default(),
             );
-        } else if key == "rdf:nodeID" || key == "nodeID" || key.ends_with(":nodeID") {
+        } else if key == "rdf:nodeID" || (key == "nodeID" && node_id.is_none()) {
             node_id = Some(
                 attr.unescape_value()
                     .map(|s| s.into_owned())
