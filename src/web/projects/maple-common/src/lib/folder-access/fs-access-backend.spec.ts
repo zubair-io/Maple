@@ -2,6 +2,7 @@ import {
   fsAccessOpenDroppedFolder,
   fsAccessOpenFolder,
   fsAccessPickContainingFolder,
+  fsAccessRemoveFile,
   fsAccessReopenHandle,
   fsAccessResolveCommonParent,
 } from './fs-access-backend';
@@ -197,5 +198,32 @@ describe('fsAccessPickContainingFolder', () => {
       expect.objectContaining({ id: 'maple-drop-seed', startIn }),
     );
     expect(showDirectoryPicker.mock.calls[0][0].id).not.toBe('maple-folder');
+  });
+});
+
+describe('fsAccessRemoveFile', () => {
+  it('walks to the parent directory without creating it and removes the named entry', async () => {
+    const thumbs = { removeEntry: vi.fn().mockResolvedValue(undefined) };
+    const maple = { getDirectoryHandle: vi.fn().mockResolvedValue(thumbs) };
+    const native = {
+      getDirectoryHandle: vi.fn().mockResolvedValue(maple),
+    } as unknown as FileSystemDirectoryHandle;
+
+    await fsAccessRemoveFile(
+      { name: 'lib', read: true, write: true, native },
+      '.maple/thumbs/7ad25b268a071d01.v25.avif',
+    );
+
+    expect(native.getDirectoryHandle).toHaveBeenCalledWith('.maple');
+    expect(maple.getDirectoryHandle).toHaveBeenCalledWith('thumbs');
+    expect(thumbs.removeEntry).toHaveBeenCalledWith('7ad25b268a071d01.v25.avif');
+  });
+
+  it('refuses to remove from a read-only folder', async () => {
+    const native = { getDirectoryHandle: vi.fn() } as unknown as FileSystemDirectoryHandle;
+    await expect(
+      fsAccessRemoveFile({ name: 'lib', read: true, write: false, native }, '.maple/thumbs/a.avif'),
+    ).rejects.toThrow('no write permission');
+    expect(native.getDirectoryHandle).not.toHaveBeenCalled();
   });
 });

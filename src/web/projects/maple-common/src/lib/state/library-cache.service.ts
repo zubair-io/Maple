@@ -11,7 +11,6 @@ import { FolderEntry, MapleFolderHandle } from '../folder-access/folder-access.t
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { resizeBitmapToCanvas, canvasToBlob } from '../raw-pipeline/image-utils';
-import { sha256Prefix16 } from '../maple-cache/sha';
 import { LibraryStore } from './library-store.service';
 import { LibrarySelection } from './library-selection.service';
 import { LIBRARY_SOURCE, type LibrarySource } from '../addressing/library-source';
@@ -389,15 +388,12 @@ export class LibraryCache {
    * loader bookkeeping, never rendering state; tiles repaint through their
    * `subscribeThumbUrl` callback, so nothing here should make a caller reactive.
    * See `library-cache.thumb-reactivity.spec.ts`. */
-  ensureThumbnailUrl(asset: Asset, onThumbWritten?: (id: AssetId, sha: string) => void): void {
+  ensureThumbnailUrl(asset: Asset, onThumbWritten?: (id: AssetId) => void): void {
     if (!asset) return;
     untracked(() => this._ensureThumbnailUrlUntracked(asset, onThumbWritten));
   }
 
-  private _ensureThumbnailUrlUntracked(
-    asset: Asset,
-    onThumbWritten?: (id: AssetId, sha: string) => void,
-  ): void {
+  private _ensureThumbnailUrlUntracked(asset: Asset, onThumbWritten?: (id: AssetId) => void): void {
     if (this.thumbnailUrls().has(asset.id) || this.thumbFails.has(asset.id)) return;
     if (this.thumbLoadingTokens.has(asset.id)) return;
 
@@ -454,8 +450,7 @@ export class LibraryCache {
 
   private async _tryReadCachedThumb(folder: MapleFolderHandle, asset: Asset): Promise<boolean> {
     try {
-      const sha = await sha256Prefix16(asset.filename);
-      const cached = await this.cache.readThumb(folder, sha);
+      const cached = await this.cache.readThumb(folder, asset.filename);
       if (cached) {
         this.cacheThumbnailUrl(asset.id, URL.createObjectURL(cached));
         return true;
@@ -468,7 +463,7 @@ export class LibraryCache {
 
   private async _ensureThumbnailUrlInternal(
     asset: Asset,
-    onThumbWritten?: (id: AssetId, sha: string) => void,
+    onThumbWritten?: (id: AssetId) => void,
   ): Promise<void> {
     // 1. Hosted: try the .maple/thumbs/ on-disk cache first (local IndexedDB lookup, no network).
     if (this.store.backend !== 'self-hosted') {
@@ -484,7 +479,7 @@ export class LibraryCache {
 
   private _enqueueThumbNetworkLoad(
     asset: Asset,
-    onThumbWritten?: (id: AssetId, sha: string) => void,
+    onThumbWritten?: (id: AssetId) => void,
   ): Promise<void> {
     return this.thumbQueue.enqueue(asset.id, () => this._loadThumbInternal(asset, onThumbWritten));
   }
@@ -527,7 +522,7 @@ export class LibraryCache {
 
   private async _loadHostedThumb(
     asset: Asset,
-    onThumbWritten?: (id: AssetId, sha: string) => void,
+    onThumbWritten?: (id: AssetId) => void,
   ): Promise<void> {
     const folder = this.store.currentFolder();
     const bitmap = await decodeHostedThumb(asset, {
@@ -544,16 +539,15 @@ export class LibraryCache {
     const { blob, format } = await canvasToBlob(canvas);
     this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
     if (folder?.write) {
-      const sha = await sha256Prefix16(asset.filename);
       void this.cache
-        .writeThumb(folder, sha, blob, format)
-        .then(() => onThumbWritten?.(asset.id, sha));
+        .writeThumb(folder, asset.filename, blob, format)
+        .then(() => onThumbWritten?.(asset.id));
     }
   }
 
   private async _loadThumbInternal(
     asset: Asset,
-    onThumbWritten?: (id: AssetId, sha: string) => void,
+    onThumbWritten?: (id: AssetId) => void,
   ): Promise<void> {
     try {
       if (this.store.backend === 'self-hosted') {

@@ -1,5 +1,4 @@
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { Request } from '@playwright/test';
 import { test, expect } from '../support/production-test';
@@ -51,16 +50,13 @@ test('Self Hosted persists adjustments and culling in a real sibling XMP', async
   );
 
   const warmThumb = await readFile(
-    join(manifest.populatedFolder, '.maple', 'thumbs', '5170a2440f3250ea.avif'),
+    join(manifest.populatedFolder, '.maple', 'thumbs', 'test_0017.dng.avif'),
   );
   const thumbDir = join(manifest.writableFolder, '.maple', 'thumbs');
   await mkdir(thumbDir, { recursive: true });
   await Promise.all(
     ['test_0006.DNG', 'test_0008.RAF'].map((filename) =>
-      writeFile(
-        join(thumbDir, `${createHash('sha256').update(filename).digest('hex').slice(0, 16)}.avif`),
-        warmThumb,
-      ),
+      writeFile(join(thumbDir, `${filename}.avif`), warmThumb),
     ),
   );
 

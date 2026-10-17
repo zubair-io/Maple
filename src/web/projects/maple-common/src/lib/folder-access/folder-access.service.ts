@@ -24,6 +24,7 @@ import {
   fsAccessReadFile,
   fsAccessFileMetadata,
   fsAccessWriteFile,
+  fsAccessRemoveFile,
   fsAccessEnsureSubdirectory,
   fsAccessResolveCommonParent,
   fsAccessPickContainingFolder,
@@ -37,6 +38,7 @@ import {
   fallbackReadFile,
   fallbackFileMetadata,
   fallbackWriteFile,
+  fallbackRemoveFile,
   fallbackEnsureSubdirectory,
 } from './fallback-backend';
 import { FolderAccessError } from './folder-access.error';
@@ -398,6 +400,15 @@ export class FolderAccessService {
       return fsAccessWriteFile(folder, path, data);
     }
     return fallbackWriteFile(folder, path, data);
+  }
+
+  /** Delete the file at `path` relative to `folder`. Throws on not-found or
+   * permission errors (FS Access); drops the IndexedDB entry in fallback mode. */
+  async removeFile(folder: MapleFolderHandle, path: string): Promise<void> {
+    if (this.backend === 'fs-access') {
+      return fsAccessRemoveFile(folder, path);
+    }
+    return fallbackRemoveFile(folder, path);
   }
 
   /**

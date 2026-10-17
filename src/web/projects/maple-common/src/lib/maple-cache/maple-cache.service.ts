@@ -10,14 +10,15 @@ import { Injectable, inject } from '@angular/core';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex, IndexedAsset } from './maple-cache.types';
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 import { ThumbFormat } from '../raw-pipeline/image-utils';
+import { sha256Prefix16 } from './sha';
 import {
   hasCacheImageSignature,
   PREVIEW_CACHE_FORMATS,
   previewFormatForMime,
 } from './cache-image-format';
 import {
+  LEGACY_DERIVATIVE_SEGMENT,
   parsePreviewDescriptor,
   previewArtifactPath,
   previewCacheDir,
@@ -25,6 +26,7 @@ import {
   previewIdentityPath,
   samePreviewSource,
   validPreviewSource,
+  type DerivativeNaming,
   type PreviewCacheDescriptor,
   type PreviewSourceIdentity,
 } from './preview-cache-protocol';
@@ -116,32 +118,44 @@ export class MapleCacheService {
     { ext: 'jpg', mime: 'image/jpeg' },
   ];
 
-  async readThumb(folder: MapleFolderHandle, sha: string): Promise<Blob | null> {
-    for (const { ext, mime } of MapleCacheService.THUMB_READ_ORDER) {
-      let bytes: Uint8Array;
-      try {
-        bytes = await this.fs.readFile(
-          folder,
-          `.maple/thumbs/${sha}.v${PIPELINE_OUTPUT_VERSION}.${ext}`,
-        );
-      } catch {
-        continue; // not cached in this format — try the next
-      }
-      const format: ThumbFormat = ext === 'avif' ? 'avif' : 'jpeg';
-      if (!hasCacheImageSignature(bytes, format)) {
-        continue; // corrupt or mislabeled entry — try the other real format
-      }
-      // Copy into a fresh plain ArrayBuffer (readFile returns Uint8Array whose
-      // .buffer may be typed as ArrayBufferLike; Blob requires ArrayBuffer).
-      const ab = new ArrayBuffer(bytes.byteLength);
-      new Uint8Array(ab).set(bytes);
-      return new Blob([ab], { type: mime });
+  private static thumbPath(filename: string, ext: string): string {
+    return `.maple/thumbs/${filename}.${ext}`;
+  }
+
+  private static legacyThumbPath(sha: string, ext: string): string {
+    return `.maple/thumbs/${sha}${LEGACY_DERIVATIVE_SEGMENT}.${ext}`;
+  }
+
+  /** Read `.maple/thumbs/<filename.ext>.<avif|jpg>`. Thumbs are unversioned
+   * and keyed by the photo's own filename (#4793): a pipeline bump never
+   * invalidates one. Only when no entry exists under that name is the frozen
+   * legacy `<sha256Prefix16(filename)>.v25` name tried, and a hit there is
+   * renamed into place rather than regenerated. */
+  async readThumb(folder: MapleFolderHandle, filename: string): Promise<Blob | null> {
+    const current = await this._readThumbAt(folder, (ext) =>
+      MapleCacheService.thumbPath(filename, ext),
+    );
+    if (current !== 'absent') return current === 'rejected' ? null : current.blob;
+
+    const sha = await sha256Prefix16(filename);
+    const legacy = await this._readThumbAt(folder, (ext) =>
+      MapleCacheService.legacyThumbPath(sha, ext),
+    );
+    if (legacy === 'absent' || legacy === 'rejected') return null;
+    if (folder.write) {
+      await this._moveFiles(folder, [
+        {
+          from: MapleCacheService.legacyThumbPath(sha, legacy.ext),
+          to: MapleCacheService.thumbPath(filename, legacy.ext),
+          bytes: async () => legacy.bytes,
+        },
+      ]);
     }
-    return null;
+    return legacy.blob;
   }
 
   /**
-   * Write a thumbnail blob under the current pipeline version.
+   * Write a thumbnail blob at `.maple/thumbs/<filename.ext>.<avif|jpg>`.
    * Creates `.maple/thumbs/` if necessary.
    * Silently skips if the folder is read-only.
    *
@@ -151,7 +165,7 @@ export class MapleCacheService {
    */
   async writeThumb(
     folder: MapleFolderHandle,
-    sha: string,
+    filename: string,
     blob: Blob,
     format: ThumbFormat = 'jpeg',
   ): Promise<void> {
@@ -160,18 +174,30 @@ export class MapleCacheService {
     try {
       const bytes = new Uint8Array(await blob.arrayBuffer());
       if (!hasCacheImageSignature(bytes, format)) {
-        console.warn(`MapleCacheService: refused mislabeled ${format} thumb ${sha}`);
+        console.warn(`MapleCacheService: refused mislabeled ${format} thumb ${filename}`);
         return;
       }
       await this.fs.ensureSubdirectory(folder, '.maple/thumbs');
-      await this.fs.writeFile(
-        folder,
-        `.maple/thumbs/${sha}.v${PIPELINE_OUTPUT_VERSION}.${ext}`,
-        bytes,
-      );
+      await this.fs.writeFile(folder, MapleCacheService.thumbPath(filename, ext), bytes);
     } catch (err) {
-      console.warn(`MapleCacheService: failed to write thumb ${sha}`, err);
+      console.warn(`MapleCacheService: failed to write thumb ${filename}`, err);
     }
+  }
+
+  private async _readThumbAt(
+    folder: MapleFolderHandle,
+    pathFor: (ext: string) => string,
+  ): Promise<{ blob: Blob; ext: string; bytes: Uint8Array } | NamedRead> {
+    let sawEntry = false;
+    for (const { ext, mime } of MapleCacheService.THUMB_READ_ORDER) {
+      const bytes = await this._readOptional(folder, pathFor(ext));
+      if (bytes === null) continue;
+      sawEntry = true;
+      // A corrupt or mislabeled entry falls through to the other real format.
+      if (!hasCacheImageSignature(bytes, ext === 'avif' ? 'avif' : 'jpeg')) continue;
+      return { blob: new Blob([copyToArrayBuffer(bytes)], { type: mime }), ext, bytes };
+    }
+    return sawEntry ? 'rejected' : 'absent';
   }
 
   // ── Previews (unedited embedded-RAW-preview tier, #2010 / epic #1993) ──────
@@ -180,7 +206,9 @@ export class MapleCacheService {
    * New entries may be AVIF, JPEG, WebP, or PNG, but the descriptor's closed
    * format/MIME mapping, source identity, and byte signature must all agree.
    * A present malformed descriptor fails closed. When no descriptor exists,
-   * the legacy cross-platform `<filename>.avif` contract remains readable. */
+   * the cross-platform `<filename>.avif` contract remains readable. Names are
+   * unversioned; the frozen legacy `.v25` names are consulted only when no
+   * unversioned descriptor or AVIF exists, and renamed into place on a hit. */
   async readPreview(
     folder: MapleFolderHandle,
     relDir: string,
@@ -188,33 +216,9 @@ export class MapleCacheService {
     source: PreviewSourceIdentity,
   ): Promise<Blob | null> {
     try {
-      const descriptor = await this._readPreviewDescriptor(folder, relDir, filename);
-      if (descriptor === 'absent') {
-        return await this._readCanonicalAvifPreview(folder, relDir, filename, source);
-      }
-      if (!descriptor || !samePreviewSource(descriptor.source, source)) return null;
-
-      // Apple and the Self-Hosted API intentionally keep writing the portable
-      // fixed-name AVIF without this Hosted-only descriptor. Do not let an
-      // older local JPEG/WebP/PNG descriptor permanently shadow a newer
-      // cross-platform develop. This adds one metadata lookup only for the
-      // browser-native formats; the normal artifact read remains unchanged.
-      if (descriptor.format !== 'avif') {
-        const canonical = await this._readNewerCanonicalAvif(
-          folder,
-          relDir,
-          filename,
-          descriptor.artifactLastModified,
-        );
-        if (canonical) return canonical;
-      }
-
-      const bytes = await this.fs.readFile(
-        folder,
-        previewArtifactPath(relDir, filename, descriptor.format),
+      return await this._readWithLegacyFallback(folder, (naming) =>
+        this._readPreviewNamed(folder, relDir, filename, source, naming),
       );
-      if (!hasCacheImageSignature(bytes, descriptor.format)) return null;
-      return new Blob([bytes as unknown as BlobPart], { type: descriptor.mimeType });
     } catch {
       return null;
     }
@@ -258,25 +262,68 @@ export class MapleCacheService {
       await this.fs.writeFile(
         folder,
         previewDescriptorPath(relDir, filename),
-        new TextEncoder().encode(JSON.stringify(descriptor)),
+        encodeDescriptor(descriptor),
       );
     } catch (err) {
       console.warn(`MapleCacheService: failed to write preview ${relDir}/${filename}`, err);
     }
   }
 
-  private async _readPreviewDescriptor(
+  private async _readPreviewNamed(
     folder: MapleFolderHandle,
     relDir: string,
     filename: string,
-  ): Promise<PreviewCacheDescriptor | 'absent' | null> {
-    let bytes: Uint8Array;
-    try {
-      bytes = await this.fs.readFile(folder, previewDescriptorPath(relDir, filename));
-    } catch {
-      return 'absent';
+    source: PreviewSourceIdentity,
+    naming: DerivativeNaming,
+  ): Promise<CacheHit | NamedRead> {
+    const descriptorBytes = await this._readOptional(
+      folder,
+      previewDescriptorPath(relDir, filename, naming),
+    );
+    if (descriptorBytes === null) {
+      return this._readCanonicalAvifPreview(folder, relDir, filename, source, naming);
     }
-    return parsePreviewDescriptor(bytes);
+    const descriptor = parsePreviewDescriptor(descriptorBytes);
+    if (!descriptor || !samePreviewSource(descriptor.source, source)) return 'rejected';
+
+    // Apple and the Self-Hosted API intentionally keep writing the portable
+    // fixed-name AVIF without this Hosted-only descriptor. Do not let an
+    // older local JPEG/WebP/PNG descriptor permanently shadow a newer
+    // cross-platform develop. This adds one metadata lookup only for the
+    // browser-native formats; the normal artifact read remains unchanged.
+    const canonical =
+      descriptor.format === 'avif'
+        ? null
+        : await this._readNewerCanonicalAvif(
+            folder,
+            relDir,
+            filename,
+            naming,
+            descriptor.artifactLastModified,
+          );
+    if (canonical) return canonical;
+
+    const artifactPath = (n: DerivativeNaming) =>
+      previewArtifactPath(relDir, filename, descriptor.format, n);
+    const bytes = await this.fs.readFile(folder, artifactPath(naming));
+    if (!hasCacheImageSignature(bytes, descriptor.format)) return 'rejected';
+    return {
+      blob: new Blob([bytes as unknown as BlobPart], { type: descriptor.mimeType }),
+      files: [
+        { path: artifactPath, bytes: async () => bytes },
+        {
+          path: (n) => previewDescriptorPath(relDir, filename, n),
+          // A rename may not preserve mtime, so the moved descriptor is
+          // re-stamped against the moved artifact to keep the same precedence.
+          bytes: async () =>
+            encodeDescriptor({
+              ...descriptor,
+              artifactLastModified: (await this.fs.fileMetadata(folder, artifactPath('')))
+                .lastModified,
+            }),
+        },
+      ],
+    };
   }
 
   private async _readCanonicalAvifPreview(
@@ -284,51 +331,140 @@ export class MapleCacheService {
     relDir: string,
     filename: string,
     source: PreviewSourceIdentity,
-  ): Promise<Blob | null> {
-    const path = previewArtifactPath(relDir, filename, 'avif');
-    const bytes = await this.fs.readFile(folder, path);
-    if (!hasCacheImageSignature(bytes, 'avif')) return null;
+    naming: DerivativeNaming,
+  ): Promise<CacheHit | NamedRead> {
+    const artifactPath = (n: DerivativeNaming) => previewArtifactPath(relDir, filename, 'avif', n);
+    const identityPath = (n: DerivativeNaming) => previewIdentityPath(relDir, filename, n);
+    const bytes = await this._readOptional(folder, artifactPath(naming));
+    if (bytes === null) return 'absent';
+    if (!hasCacheImageSignature(bytes, 'avif')) return 'rejected';
 
-    let matches: boolean;
-    try {
-      const identityBytes = await this.fs.readFile(folder, previewIdentityPath(relDir, filename));
-      try {
-        const recorded = JSON.parse(
-          new TextDecoder().decode(identityBytes),
-        ) as PreviewSourceIdentity;
-        matches = validPreviewSource(recorded) && samePreviewSource(recorded, source);
-      } catch {
-        return null;
-      }
-    } catch {
-      const metadata = await this.fs.fileMetadata(folder, path);
-      matches = metadata.lastModified >= source.lastModified;
-    }
-    if (!matches) return null;
-    return new Blob([bytes as unknown as BlobPart], { type: 'image/avif' });
+    const identityBytes = await this._readOptional(folder, identityPath(naming));
+    const matches =
+      identityBytes === null
+        ? (await this.fs.fileMetadata(folder, artifactPath(naming))).lastModified >=
+          source.lastModified
+        : recordedIdentityMatches(identityBytes, source);
+    if (!matches) return 'rejected';
+
+    const artifact: LegacyFile = { path: artifactPath, bytes: async () => bytes };
+    return {
+      blob: new Blob([bytes as unknown as BlobPart], { type: 'image/avif' }),
+      files:
+        identityBytes === null
+          ? [artifact]
+          : [artifact, { path: identityPath, bytes: async () => identityBytes }],
+    };
   }
 
   private async _readNewerCanonicalAvif(
     folder: MapleFolderHandle,
     relDir: string,
     filename: string,
+    naming: DerivativeNaming,
     describedArtifactMtime: number,
-  ): Promise<Blob | null> {
-    const path = previewArtifactPath(relDir, filename, 'avif');
+  ): Promise<CacheHit | null> {
+    const artifactPath = (n: DerivativeNaming) => previewArtifactPath(relDir, filename, 'avif', n);
     let canonicalMtime: number;
     try {
-      canonicalMtime = (await this.fs.fileMetadata(folder, path)).lastModified;
+      canonicalMtime = (await this.fs.fileMetadata(folder, artifactPath(naming))).lastModified;
     } catch {
       return null;
     }
     if (canonicalMtime <= describedArtifactMtime) return null;
 
+    const bytes = await this._readOptional(folder, artifactPath(naming));
+    if (bytes === null || !hasCacheImageSignature(bytes, 'avif')) return null;
+    return {
+      blob: new Blob([bytes as unknown as BlobPart], { type: 'image/avif' }),
+      files: [{ path: artifactPath, bytes: async () => bytes }],
+    };
+  }
+
+  // ── Legacy `.v25` adoption (#4793) ──────────────────────────────────────────
+
+  private async _readWithLegacyFallback(
+    folder: MapleFolderHandle,
+    read: (naming: DerivativeNaming) => Promise<CacheHit | NamedRead>,
+  ): Promise<Blob | null> {
+    const current = await read('');
+    if (current !== 'absent') return current === 'rejected' ? null : current.blob;
+    const legacy = await read(LEGACY_DERIVATIVE_SEGMENT);
+    if (legacy === 'absent' || legacy === 'rejected') return null;
+    if (folder.write) {
+      await this._moveFiles(
+        folder,
+        legacy.files.map((file) => ({
+          from: file.path(LEGACY_DERIVATIVE_SEGMENT),
+          to: file.path(''),
+          bytes: file.bytes,
+        })),
+      );
+    }
+    return legacy.blob;
+  }
+
+  /** Move each legacy file to its new name: every write lands before any
+   * legacy name is removed, so a failure part-way leaves the legacy set intact
+   * and readable on the next miss. */
+  private async _moveFiles(folder: MapleFolderHandle, moves: readonly FileMove[]): Promise<void> {
     try {
-      const bytes = await this.fs.readFile(folder, path);
-      if (!hasCacheImageSignature(bytes, 'avif')) return null;
-      return new Blob([bytes as unknown as BlobPart], { type: 'image/avif' });
+      for (const move of moves) {
+        await this.fs.writeFile(folder, move.to, await move.bytes());
+      }
+      for (const move of moves) {
+        await this.fs.removeFile(folder, move.from);
+      }
+    } catch (err) {
+      console.warn('MapleCacheService: failed to rename a legacy .v25 derivative', err);
+    }
+  }
+
+  private async _readOptional(folder: MapleFolderHandle, path: string): Promise<Uint8Array | null> {
+    try {
+      return await this.fs.readFile(folder, path);
     } catch {
       return null;
     }
+  }
+}
+
+/** `absent` — no file at this naming at all (the only state that consults the
+ * legacy name); `rejected` — present but unusable (stale, corrupt, mismatched). */
+type NamedRead = 'absent' | 'rejected';
+
+interface LegacyFile {
+  readonly path: (naming: DerivativeNaming) => string;
+  readonly bytes: () => Promise<Uint8Array>;
+}
+
+interface FileMove {
+  readonly from: string;
+  readonly to: string;
+  readonly bytes: () => Promise<Uint8Array>;
+}
+
+interface CacheHit {
+  readonly blob: Blob;
+  readonly files: readonly LegacyFile[];
+}
+
+// Blob requires an ArrayBuffer; readFile's Uint8Array is typed ArrayBufferLike.
+function copyToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
+function encodeDescriptor(descriptor: PreviewCacheDescriptor): Uint8Array {
+  return new TextEncoder().encode(JSON.stringify(descriptor));
+}
+
+function recordedIdentityMatches(bytes: Uint8Array, source: PreviewSourceIdentity): boolean {
+  try {
+    const recorded = JSON.parse(new TextDecoder().decode(bytes)) as PreviewSourceIdentity;
+    return validPreviewSource(recorded) && samePreviewSource(recorded, source);
+  } catch {
+    return false;
   }
 }

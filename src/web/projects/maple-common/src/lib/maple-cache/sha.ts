@@ -1,5 +1,5 @@
 // SHA-256 helper using browser-native crypto.subtle.
-// Used to derive the stable filename-based cache key for the .maple/ protocol.
+// Derives the filename hash stem of the legacy .maple/ thumb name.
 // Key derivation: sha256(filename)[:16] as hex.
 
 /**
@@ -16,9 +16,10 @@ export async function sha256Hex(text: string): Promise<string> {
 
 /**
  * Returns the first 16 hex characters of sha256(text).
- * This is the cache-key stem used in `.maple/thumbs/<sha>.avif` (or `.jpg`
- * for legacy/pre-AVIF-migration cached entries — see `MapleCacheService`).
- * Same derivation is used by Maple Self Hosted and Maple native — do not change.
+ * Thumbs are now `.maple/thumbs/<filename>.avif` (#4793); this stem survives
+ * only to find the frozen legacy `<sha>.v25.<ext>` thumb and for the
+ * `sha256Prefix` field of index.json. Same derivation as Maple Self Hosted and
+ * Maple native — do not change.
  */
 export async function sha256Prefix16(text: string): Promise<string> {
   return (await sha256Hex(text)).slice(0, 16);
