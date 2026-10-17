@@ -30,6 +30,20 @@ final class AuthenticatedHTTPClientInjectTests: XCTestCase {
     XCTAssertNil(signed.value(forHTTPHeaderField: "Authorization"))
   }
 
+  func testInjectStripsAPreexistingBearerOnPlainHTTPRequestForHTTPSIdentity() async throws {
+    let client = AuthenticatedHTTPClient(
+      server: URL(string: "https://public.example.com")!,
+      urlSession: TestURLSession.make(),
+      tokensProvider: { AuthTokens(access: "A1", refresh: "R1") },
+      onTokensRefreshed: { _ in }, onSignOut: {})
+    var presigned = URLRequest(url: URL(string: "http://192.168.1.42:3000/api/folders")!)
+    presigned.setValue("Bearer STALE", forHTTPHeaderField: "Authorization")
+
+    let signed = try await client.inject(presigned)
+
+    XCTAssertNil(signed.value(forHTTPHeaderField: "Authorization"))
+  }
+
   func testInjectKeepsBearerOnHTTPSRequestToAnotherHost() async throws {
     let client = AuthenticatedHTTPClient(
       server: URL(string: "https://public.example.com")!,

@@ -400,12 +400,16 @@ public actor AuthenticatedHTTPClient {
 
   private func inject(_ req: URLRequest, tokens: AuthTokens?) -> URLRequest {
     var r = req
-    guard let t = tokens else { return r }
     guard Self.mayCarryCredentials(to: req.url, identity: server) else {
       cloudHTTPLogger.error(
         "refusing to send a bearer for an HTTPS identity over cleartext to \(req.url?.host ?? "?", privacy: .public)")
+      // A caller may hand back a request it already had signed; the
+      // invariant holds for the request we actually send, not just the
+      // header we would have added.
+      r.setValue(nil, forHTTPHeaderField: "Authorization")
       return r
     }
+    guard let t = tokens else { return r }
     r.setValue("Bearer \(t.access)", forHTTPHeaderField: "Authorization")
     return r
   }
