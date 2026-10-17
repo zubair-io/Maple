@@ -23,6 +23,7 @@ public actor BackupStateStore {
   }
 
   /// Readers stay available; only the engine owner may rehydrate and process the queue.
+  /// Shared app/helper storage paths land separately in #4717; this lease protects one database.
   public func acquireEngineOwnership() async throws {
     guard engineOwnership == nil else { return }
     let fd = open(engineLockURL.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
