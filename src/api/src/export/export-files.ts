@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { open, realpath, lstat, stat, link, rename, rm } from '../fs/mirrored.ts';
 import { ObjectId } from '../db/object-id.ts';
-import { hasLiveAssetAtAddress, hasServerExportOutput } from '../db/repos/assets.address.ts';
+import { hasLiveAssetAtAddress } from '../db/repos/assets.address.ts';
 import { mostSpecificRoot } from '../fs/root-match.ts';
 import { safeWriteAllowed } from '../fs/root.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
@@ -15,7 +15,7 @@ import { renderFilenameTemplate } from 'maple';
 import { EXPORT_ENCODERS } from '../generated/export-recipe.generated.ts';
 import type { ExportRecipe } from '../generated/export-recipe.generated.ts';
 import type { ExportTarget } from './export-payload.ts';
-import type { ExportOriginals } from './export-originals.ts';
+import { isPriorServerExport, type ExportOriginals } from './export-originals.ts';
 
 export interface ExportEntry {
   id: string;
@@ -131,10 +131,10 @@ function libraryRootEntries(
 }
 
 async function isCatalogAssetOrSidecar(candidate: string): Promise<boolean> {
-  if (extname(candidate).toLowerCase() === '.xmp') return true;
   const entries = await libraryRootEntries(await loadLibraryRoots());
   const match = mostSpecificRoot(candidate, entries);
   if (!match || !match.relPath) return false;
+  if (extname(candidate).toLowerCase() === '.xmp') return true;
   const slash = match.relPath.lastIndexOf('/');
   const dir = slash === -1 ? '' : match.relPath.slice(0, slash);
   const filename = slash === -1 ? match.relPath : match.relPath.slice(slash + 1);
@@ -144,6 +144,7 @@ async function isCatalogAssetOrSidecar(candidate: string): Promise<boolean> {
 async function isUnselectedCatalogOriginal(
   resolvedOutput: string,
   canonicalOutput: string | null,
+  originalPaths: ExportOriginals,
   currentHash: string | null,
 ): Promise<boolean> {
   const catalogMatch =
@@ -152,12 +153,7 @@ async function isUnselectedCatalogOriginal(
       canonicalOutput !== resolvedOutput &&
       (await isCatalogAssetOrSidecar(canonicalOutput)));
   if (!catalogMatch) return false;
-  if (
-    extname(resolvedOutput).toLowerCase() === '.xmp' ||
-    extname(canonicalOutput ?? '').toLowerCase() === '.xmp'
-  )
-    return true;
-  return !(await hasServerExportOutput(resolvedOutput, canonicalOutput, currentHash));
+  return !isPriorServerExport(originalPaths, resolvedOutput, canonicalOutput, currentHash);
 }
 
 async function isDestinationOriginal(
@@ -175,7 +171,7 @@ async function isDestinationOriginal(
   )
     return true;
   if (overwritePolicy !== 'replace') return false;
-  return isUnselectedCatalogOriginal(resolvedOutput, canonicalOutput, currentHash);
+  return isUnselectedCatalogOriginal(resolvedOutput, canonicalOutput, originalPaths, currentHash);
 }
 
 async function guardOriginal(
@@ -340,7 +336,10 @@ export async function prepareExport(
     return recoverPrepared(previous, paths.outputPath, currentHash);
   if (previous?.status === 'rendering')
     await recoverRendering(previous, paths.outputPath, currentHash);
-  if (currentHash !== null && recipe.overwritePolicy === 'skip')
+  if (
+    recipe.overwritePolicy === 'skip' &&
+    (currentHash !== null || (await isCatalogAssetOrSidecar(resolve(paths.outputPath))))
+  )
     return { id: target.id, status: 'skipped', outputPath: paths.outputPath };
   if (currentHash !== null && recipe.overwritePolicy === 'error')
     throw new Error(

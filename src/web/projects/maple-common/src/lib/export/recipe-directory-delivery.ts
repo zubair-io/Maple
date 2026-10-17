@@ -5,6 +5,7 @@ import type { RecipeEntry, RecipeQueueRecord } from './export-recipe-store';
 
 const PROTECTED_ORIGINAL_EXTENSIONS = new Set([
   ...SUPPORTED_RAW_EXTENSIONS,
+  'xmp',
   'jpg',
   'jpeg',
   'png',
@@ -122,9 +123,8 @@ async function guardOriginal(
   const actualName = handle.name || filename;
   const ext = extensionOf(actualName);
   if (
-    ext === 'xmp' ||
-    (PROTECTED_ORIGINAL_EXTENSIONS.has(ext) &&
-      !isCreatedByExport(record, filename, actualName, currentHash))
+    PROTECTED_ORIGINAL_EXTENSIONS.has(ext) &&
+    !isCreatedByExport(record, filename, actualName, currentHash)
   )
     throw new Error('Destination is an original photo. Choose another folder or naming template.');
 }
@@ -157,8 +157,8 @@ export async function deliverDirectoryEntry(
   if (currentBefore !== entry.beforeHash)
     throw new Error('Output changed while rendering. Review the destination before retrying.');
   const afterHash = await digest(blob);
-  const previousCreated = record.createdOutputs;
-  record.createdOutputs = { ...previousCreated, [filename.toLowerCase()]: afterHash };
+  const previousCreated = record.createdOutputs ? { ...record.createdOutputs } : undefined;
+  record.createdOutputs = { ...(record.createdOutputs ?? {}), [filename.toLowerCase()]: afterHash };
   const writing: RecipeEntry = { ...entry, status: 'writing', afterHash };
   // This marker MUST commit before createWritable or its final close can change any output.
   try {
