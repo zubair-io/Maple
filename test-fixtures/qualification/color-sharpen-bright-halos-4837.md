@@ -73,6 +73,11 @@ The unchanged-budget classification is per channel. All candidate and original
 input hashes are preserved. These failures remain under investigation; the
 new Nikon green breach alone already prevents acceptance.
 
+The completed frozen-main control also identifies `test_0004` p95 as a new
+breach: main is 10.414319, while this candidate is 11.027237 against 11.0.
+The candidate therefore has at least two newly failing metric/channel
+dimensions, even though its Nikon and Pixel maximum errors improve.
+
 ## Local spatial reference and platform checks
 
 The first complete platform run passed 2,832 core tests, 289 Metal tests,
@@ -89,12 +94,14 @@ synthetic golden was inspected, and all four spatial tests now pass with the
 same tolerance. This is a Maple-generated algebra reference, not an Adobe
 color reference. No runtime math changed during this test correction.
 
-The complete core suite still requires a repeat after that test-only update.
+The complete core repeat at `6dd41e1972015205c2031ca1364e36856e6d705a`
+passes **2,834 tests, zero failures, 103 ignored**. Source, resources and the
+synthetic fixture retain their recorded hashes throughout the run.
 
 ## Still required
 
-Resolving the physical regressions, the complete core repeat,
-current-main/cache integration, performance acceptance and PR review remain
+Resolving the physical regressions, current-main/cache integration,
+performance acceptance and PR review remain
 outstanding. Original RAWs, XMPs,
 Adobe reference pixels and numerical budgets must remain unchanged.
 
