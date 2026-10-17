@@ -111,10 +111,18 @@ does not depend on an imported legacy temperature/tint pair. The branch is
 based on main `676c40a7db1121179b5fe08dd2332e7da8a1834a`. A preceding output
 version change on main requires the next version when this branch is rebased.
 
-The five CI-recorded evidence suites and generated platform summaries are
-being refreshed for this output version. Prior physical-color evidence keeps
-its original version and status; the 220-case diagnostic cannot promote a
-full-corpus qualification record.
+All five CI-recorded suites were executed and independently rechecked at
+version 26: synthetic grey (6), color chart (7), grey adjustments (41), grey
+DCP (5), and API sidecar contract (3). All **62 cases pass**, with no failures
+or skips in either pass. The nine Rust mapping tests also pass at this
+version. Generation and its repeat have no drift; source/reference hashes
+and the monitored RAW remain unchanged.
+
+These records name `bd2f3387d8aa40bd3677f51986fc43c6a82943bd`, retained on
+`codex/qualification-robertson-bd2f3387`. Logs, source identities and generated
+evidence are under `qualification-version26/` in the evidence directory.
+Prior physical-color evidence keeps its original version and status; the
+220-case diagnostic does not promote a full-corpus qualification record.
 
 Evidence, commands, frozen SDK source, source identities and the selected
 manifest are preserved under
