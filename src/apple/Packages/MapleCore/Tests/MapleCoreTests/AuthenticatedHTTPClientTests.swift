@@ -123,6 +123,40 @@ final class AuthenticatedHTTPClientTests: XCTestCase {
     XCTAssertNil(stored, "a refresh must never resurrect cleared credentials")
   }
 
+  /// The clear can also land AFTER the under-lock check, while the refresh
+  /// request itself is in flight. The rotated tokens must then be dropped,
+  /// not persisted over the user's sign-out.
+  func testCredentialsClearedDuringRefreshRequestAreNotPersisted() async throws {
+    StubURLProtocol.register()
+    defer { StubURLProtocol.reset() }
+    var signedOut = false
+    var persisted: AuthTokens?
+    var stored: AuthTokens? = AuthTokens(access: "A1", refresh: "R1")
+    StubURLProtocol.handler = { req in
+      if req.url!.path == "/api/auth/refresh" {
+        // Sign-out races the refresh round trip.
+        stored = nil
+        return (200, Data(#"{"access_token":"A2","refresh_token":"R2"}"#.utf8), [:])
+      }
+      let auth = req.value(forHTTPHeaderField: "Authorization")
+      if auth == "Bearer A1" { return (401, Data("{}".utf8), [:]) }
+      return (200, Data("{}".utf8), [:])
+    }
+    let session = TestURLSession.make()
+    let client = AuthenticatedHTTPClient(
+      server: URL(string: "https://x.test")!, urlSession: session,
+      tokensProvider: { stored },
+      onTokensRefreshed: { persisted = $0 },
+      onSignOut: { signedOut = true }
+    )
+
+    let (_, resp) = try await client.data(for: URLRequest(url: URL(string: "https://x.test/api/folders")!))
+
+    XCTAssertNil(persisted, "a rotation completed after sign-out must not be written back")
+    XCTAssertFalse(signedOut)
+    XCTAssertEqual((resp as! HTTPURLResponse).statusCode, 401)
+  }
+
   func testProactivelyRefreshesExpiredAccessTokenBeforeRequest() async throws {
     // The access token is already past its exp. The client should refresh
     // BEFORE dispatching the request — so the request carries a fresh token
