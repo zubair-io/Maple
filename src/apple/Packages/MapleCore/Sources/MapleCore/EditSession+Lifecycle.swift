@@ -83,6 +83,7 @@ extension EditSession {
   public func setSidecarWritesEnabled(_ enabled: Bool) async {
     sidecarWritesDisabled = !enabled
     if enabled {
+      previewPersistence.rearmIfPending()
       guard sidecarDirtyWhileDisabled else { return }
       sidecarDirtyWhileDisabled = false
       let previousTask = sidecarUpdateTask
@@ -100,13 +101,15 @@ extension EditSession {
       await task.value
     }
     await store?.flush()
-    previewPersistence.discardPendingImage()
     await previewPersistence.cancelAndJoin()
   }
 
   /// Carry over any edits made on `departing` while its sidecar writes were
   /// disabled during an in-flight rename (#4711).
   public func adoptInFlightRenameEdits(from departing: EditSession) {
+    if let pendingPreview = departing.previewPersistence.takePendingImage() {
+      scheduleDisplayPreviewPersist(pendingPreview)
+    }
     departing.endEdit()
     guard departing.sidecarDirtyWhileDisabled || departing.sidecarUpdateTask != nil else {
       return

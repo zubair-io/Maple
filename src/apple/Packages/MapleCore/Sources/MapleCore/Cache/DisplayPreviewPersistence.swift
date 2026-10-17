@@ -60,6 +60,23 @@ final class DisplayPreviewPersistence {
     pendingImage = nil
   }
 
+  func stagePending(_ image: CIImage) {
+    guard sink != nil else { return }
+    pendingImage = image
+  }
+
+  func rearmIfPending() {
+    guard let image = pendingImage else { return }
+    schedule(image)
+  }
+
+  func takePendingImage() -> CIImage? {
+    idleTask?.cancel()
+    idleTask = nil
+    defer { pendingImage = nil }
+    return pendingImage
+  }
+
   /// The caller has accepted the GPU readback. Drain CPU work once more after
   /// cache/thumbnail awaits so an older encode cannot overwrite this frame.
   func persistFinal(_ image: CIImage, while isCurrent: @escaping @MainActor @Sendable () -> Bool)

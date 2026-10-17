@@ -23,9 +23,11 @@ extension EditSession {
   }
 
   public func scheduleDisplayPreviewPersist(_ rendered: CIImage) {
-    guard !sidecarWritesDisabled,
-      workflow.selectedVariantId == WorkflowContract.primaryVariantID
-    else { return }
+    guard workflow.selectedVariantId == WorkflowContract.primaryVariantID else { return }
+    if sidecarWritesDisabled {
+      previewPersistence.stagePending(rendered)
+      return
+    }
     previewPersistence.schedule(rendered)
   }
 
