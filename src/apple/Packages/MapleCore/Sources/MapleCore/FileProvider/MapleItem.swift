@@ -187,61 +187,6 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     self.filename = file.name
   }
 
-  /// Synthetic Trash container shown at the root of each library.
-  /// The identifier is `trash/<folderID>` so the extension can route
-  /// `enumerator(for:)` to a `TrashEnumerator` and decide capabilities.
-  public init(trashContainer folderID: String, displayName: String) {
-    self.identifier = .trash(folderID: folderID)
-    self.displayName = displayName
-    self.isDirectory = true
-    self.size = nil
-    self.modified = nil
-    self.utType = .folder
-    // Trash itself is read-only as a container — items inside it
-    // can be moved out (restore) or deleted (permanent purge).
-    // `.allowsContentEnumerating` is required for Finder to call
-    // `enumerator(for:)` on it (which routes to TrashEnumerator).
-    // We deliberately do NOT include `.allowsAddingSubItems` —
-    // uploads into Trash are not supported.
-    self.writeCapabilities = [.allowsReading, .allowsContentEnumerating]
-    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-    self.parentItemIdentifier = .rootContainer
-    self.filename = displayName
-  }
-
-  /// Trashed asset surfaced inside the Trash container. Keeps the same
-  /// `asset/<id>` identifier as the live item so identity is stable
-  /// across delete/restore (per spec — server-side identifiers).
-  ///
-  /// Capabilities allow reading (lazy materialization still works on
-  /// trashed files), reparenting (drag back out of Trash to restore),
-  /// and deleting. `.allowsDeleting` — not `.allowsTrashing` — is
-  /// correct here (#2549): Apple's own doc comment for `deleteItem`
-  /// (the `NSFileProviderReplicatedExtension` method this capability
-  /// gates) reads "This is called when the user deletes an item that
-  /// was already in the Trash" — i.e. permanent purge, which is
-  /// exactly what `RemoteCatalog.deleteAsset`'s dual-mode DELETE does
-  /// for an already-trashed asset (see its doc comment). There is no
-  /// "trash the trash" concept to reach for `.allowsTrashing` here.
-  ///
-  /// Returns nil when `item.assetID` is nil — a trashed row that isn't
-  /// an indexed image (#2546: `TrashItem.assetID` is now optional, to
-  /// stop one such row from failing the whole Trash listing's decode).
-  /// `TrashEnumerator` filters these out via `compactMap` and logs the
-  /// count, rather than surfacing a non-addressable item to Finder.
-  public init?(trashed item: TrashItem, parentTrashIdentifier: NSFileProviderItemIdentifier) {
-    guard let assetID = item.assetID, !assetID.isEmpty else { return nil }
-    self.identifier = .asset(assetID)
-    self.displayName = item.filename
-    self.isDirectory = false
-    self.size = NSNumber(value: item.size)
-    self.modified = item.deletedAt
-    self.utType = UTType(filenameExtension: (item.filename as NSString).pathExtension) ?? .data
-    self.writeCapabilities = [.allowsReading, .allowsReparenting, .allowsDeleting]
-    self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
-    self.parentItemIdentifier = parentTrashIdentifier
-    self.filename = item.filename
-  }
 
   /// Writable XMP sidecar. `parentImageBase` is the paired image's
   /// filename without its extension (e.g. "IMG_1" for "IMG_1.ARW");
