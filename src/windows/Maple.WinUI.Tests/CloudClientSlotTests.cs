@@ -41,9 +41,11 @@ public sealed class CloudClientSlotTests : IDisposable
         slot.Adopt(clientB);
 
         Assert.Null(slot.Resolve(stampedWhenPhotoOpened));
-        if (slot.Resolve(stampedWhenPhotoOpened) is { } target)
-            await target.UpdateDevelopSidecarAsync("/shared/path.dng", new AdjustmentState { Exposure = 2 });
+        await (slot.Resolve(stampedWhenPhotoOpened)?.UpdateDevelopSidecarAsync(
+            "/shared/path.dng", new AdjustmentState { Exposure = 2 }) ?? Task.CompletedTask);
         Assert.Empty(handlerB.Requests);
+        await slot.Resolve(slot.Generation)!.UpdateDevelopSidecarAsync("/shared/path.dng", new AdjustmentState());
+        Assert.NotEmpty(handlerB.Requests);
         Assert.Same(clientB, slot.Resolve(slot.Generation));
     }
 
