@@ -34,7 +34,7 @@ export function cropStraightenTransform(cropActive: boolean, angle: number): str
  *  stored full-frame dims — drive `computeEffectivePx`; otherwise a cropped
  *  result would be stretched into the full-frame destination rect (#638 review).
  *  Falls back to the asset dims before the first paint. */
-export function displayDims(
+function displayDims(
   painted: { w: number; h: number } | null,
   assetW: number | undefined,
   assetH: number | undefined,
