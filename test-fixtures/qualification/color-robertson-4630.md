@@ -27,6 +27,9 @@ Maple's existing table and addresses the interpolation origin only.
 | Canonical debug core suite with GPU/test-support features | 2,806 | 100 |
 | TypeScript mapping, legacy/partial WB and presets | 143 | 0 |
 | Isolated Swift package with exact production mapping source | 5 | 0 |
+| Metal GPU library parity suite | 287 | 4 |
+| FFI library with GPU bindings | 301 | 6 |
+| Native-host WASM library with GPU bindings | 74 | 7 |
 
 No source changed during qualification. The Swift run is a pure mapping test,
 not a full MapleCore or Apple renderer qualification. Existing CI executes both
@@ -36,6 +39,10 @@ An initial full-library invocation used release mode: 2,803 tests passed and
 three tests that expect debug color-space assertions failed because release
 builds disable those assertions. The documented debug invocation above passes
 all three without changing their assertions. Both logs are preserved.
+
+The GPU and binding runs use the same committed algorithm revision
+`afdc8ffb4f429c1899f27882244f5f6b8104d739`; source hashes remain unchanged.
+Native-host WASM tests do not claim browser-WebGPU execution.
 
 ## Remaining integration qualification
 
@@ -50,6 +57,11 @@ baselines, and all 180 canonical temperature/tint and WB cases, for **220
 comparisons**. It uses the same frozen native-pair comparator and numerical
 budgets as the ongoing main run. Main's verified outputs will supply controls;
 no full main run is restarted. No physical failure is claimed as cleared yet.
+
+An early read-only comparison of the first three completed fixtures covers
+33 neutral baseline/WB cases. All 33 candidate PNG pixel arrays are exactly
+equal to main. This is a partial diagnostic, not the completed 220-comparison
+qualification; final whole-input audits remain pending with both runners.
 
 Evidence, commands, frozen SDK source, source identities and the selected
 manifest are preserved under
