@@ -266,7 +266,7 @@ def git(repo, *args):
 
 
 def select(event_name, event, repo="."):
-    if event_name not in ("pull_request", "push"):
+    if event_name not in ("pull_request", "push", "merge_group"):
         return selection(
             ALL, "Manual, reusable, or unknown event; running all consumers."
         )
@@ -279,11 +279,16 @@ def select(event_name, event, repo="."):
             if head_ref.startswith("release/next-v"):
                 return selection(ALL, "Release PR override; running all consumers.")
             base, head = valid_sha(pr["base"]["sha"]), valid_sha(pr["head"]["sha"])
+        elif event_name == "merge_group":
+            group = event["merge_group"]
+            base, head = valid_sha(group["base_sha"]), valid_sha(group["head_sha"])
         else:
             base, head = valid_sha(event["before"]), valid_sha(event["after"])
         for sha in (base, head):
             if git(repo, "cat-file", "-t", sha).strip() != b"commit":
                 raise ValueError("Event SHA is not a commit")
+        if event_name == "merge_group":
+            git(repo, "merge-base", "--is-ancestor", base, head)
         start = (
             valid_sha(git(repo, "merge-base", "--all", base, head).decode().strip())
             if event_name == "pull_request"
