@@ -1370,6 +1370,7 @@ struct AppShell: View {
         onNavigateFolder: { url in navigateFolder(url) },
         onOpenEditor: { asset in openEditor(for: asset) },
         onPrimeSession: { asset in await primeBrowseSession(for: asset) },
+        makeEditSession: { asset in browseSession(for: asset) },
         onFullImageFallback: { mode = .browse },
         timelinePreviewSiblingAssets: { ref in timelinePreviewSiblingAssets(for: ref) },
         searchPreviewSiblingAssets: { ref, server in
