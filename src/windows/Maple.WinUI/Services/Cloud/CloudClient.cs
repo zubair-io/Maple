@@ -93,9 +93,10 @@ namespace Maple.WinUI.Services.Cloud
         }
 
         private async Task<T?> GetJsonAsync<T>(
-            string route, CancellationToken ct, bool authenticated = true) where T : class
+            string route, CancellationToken ct, bool authenticated = true,
+            bool reportTransportFailureAsNull = true) where T : class
         {
-            using var response = await GetResponseAsync(route, ct, authenticated);
+            using var response = await GetResponseAsync(route, ct, authenticated, reportTransportFailureAsNull);
             if (response == null)
                 return null;
             if (!response.IsSuccessStatusCode)
@@ -106,7 +107,8 @@ namespace Maple.WinUI.Services.Cloud
             return await ReadJsonAsync<T>(response, ct);
         }
 
-        private async Task<HttpResponseMessage?> GetResponseAsync(string route, CancellationToken ct, bool authenticated)
+        private async Task<HttpResponseMessage?> GetResponseAsync(
+            string route, CancellationToken ct, bool authenticated, bool reportTransportFailureAsNull)
         {
             try
             {
@@ -114,8 +116,8 @@ namespace Maple.WinUI.Services.Cloud
                     ? await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, route), ct)
                     : await _http.GetAsync(route, ct);
             }
-            catch (Exception ex) when (
-                ex is HttpRequestException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
+            catch (Exception ex) when (reportTransportFailureAsNull && (
+                ex is HttpRequestException || (ex is TaskCanceledException && !ct.IsCancellationRequested)))
             {
                 DiagLog.Write($"[cloud] GET {route} unreachable: {ex.Message}");
                 return null;
