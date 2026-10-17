@@ -41,6 +41,37 @@ public actor BackupStateStore {
       if !columns.contains("captured_at") {
         try db.execute(sql: "ALTER TABLE tasks ADD COLUMN captured_at DOUBLE")
       }
+      // The local-edit revision each asset's sidecar upload last delivered
+      // (#4719). The edit itself stays in AppSupportSidecarStore; this row is
+      // what tells a newer local edit apart from the one already uploaded.
+      try db.create(table: "uploaded_sidecars", ifNotExists: true) { t in
+        t.column("device_id", .text).notNull()
+        t.column("phasset_local_id", .text).notNull()
+        t.column("digest", .text).notNull()
+        t.column("uploaded_at", .double).notNull()
+        t.primaryKey(["device_id", "phasset_local_id"])
+      }
+    }
+  }
+
+  public func recordUploadedSidecar(_ id: BackupTaskID, digest: String) throws {
+    try dbQueue.write { db in
+      try db.execute(
+        literal: """
+          INSERT INTO uploaded_sidecars (device_id, phasset_local_id, digest, uploaded_at)
+          VALUES (\(id.deviceId), \(id.phassetLocalId), \(digest), \(Date().timeIntervalSince1970))
+          ON CONFLICT(device_id, phasset_local_id)
+          DO UPDATE SET digest = excluded.digest, uploaded_at = excluded.uploaded_at
+          """)
+    }
+  }
+
+  public func uploadedSidecarDigest(_ id: BackupTaskID) throws -> String? {
+    try dbQueue.read { db in
+      try String.fetchOne(
+        db,
+        sql: "SELECT digest FROM uploaded_sidecars WHERE device_id = ? AND phasset_local_id = ?",
+        arguments: [id.deviceId, id.phassetLocalId])
     }
   }
 

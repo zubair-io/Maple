@@ -4,10 +4,11 @@
 // `XMPSidecarStore` in MapleCore — just keyed by `phassetLocalId` instead of
 // by raw file URL. Atomic writes via temp + `replaceItemAt`.
 //
-// This store holds Maple edits for PhotoKit-backed photos whose bytes
-// haven't been uploaded yet. Once the BackupEngine uploads the bytes,
-// the sidecar is copied to the cloud library as a normal `<file>.xmp`
-// next to the asset, then the local row is deleted.
+// This store holds the canonical Maple edits for PhotoKit-backed photos
+// (`PhotoKitSidecarStore` reads and writes it). When the BackupEngine
+// uploads a photo's bytes, the sidecar is copied to the cloud library as a
+// normal `<file>.xmp` next to the asset; the local file is kept, because it
+// is still the editor's source of truth (#4719).
 //
 // Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §11.
 

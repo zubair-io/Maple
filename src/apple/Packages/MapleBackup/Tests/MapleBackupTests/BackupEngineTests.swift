@@ -35,7 +35,9 @@ final class BackupEngineTests: XCTestCase {
         XCTAssertEqual(row?.state, .uploaded)
     }
 
-    func testProcessOneDeletesAppSupportSidecarOnSuccess() async throws {
+    /// #4719: the App Support XMP is the editor's canonical PhotoKit edit;
+    /// uploading a copy must never delete it.
+    func testProcessOneKeepsAppSupportSidecarOnSuccess() async throws {
         StubURLProtocol.stub = ingestAndSidecarStub()
         let (engine, queue, state, sidecars, _, tmpRoot) = try freshHarness()
         defer { try? FileManager.default.removeItem(at: tmpRoot) }
@@ -51,7 +53,7 @@ final class BackupEngineTests: XCTestCase {
         try await engine.processOne()
 
         let after = try sidecars.read(phassetLocalId: "P1")
-        XCTAssertNil(after)
+        XCTAssertEqual(after, "<x/>")
     }
 
     func testProcessOnePersistsUploadingThenUploaded() async throws {
@@ -276,8 +278,7 @@ final class BackupEngineTests: XCTestCase {
         let engineRef = engine
         defer { Task { await engineRef.stop() } }
 
-        // Seed a local-edit sidecar so the durability-critical path is exercised
-        // and we can assert delete-only-after-it-lands.
+        // Seed a local-edit sidecar so the durability-critical path is exercised.
         try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit/>")
 
         let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
@@ -302,10 +303,17 @@ final class BackupEngineTests: XCTestCase {
         XCTAssertEqual(requestCount(containing: "backup/ingest"), 1,
             "a companion failure must NOT re-upload the photo bytes")
 
-        // The local-edit sidecar is deleted only after the retry succeeds.
-        await wait { (try? sidecars.read(phassetLocalId: "P1")) == nil }
-        XCTAssertNil(try sidecars.read(phassetLocalId: "P1"),
-            "local sidecar should be deleted once the sidecar upload finally lands")
+        // Once the retry lands the uploaded revision is recorded, and the
+        // canonical local edit is still on disk (#4719).
+        await wait { self.requestCount(containing: "backup/sidecar") >= 2 }
+        let deadline = Date().addingTimeInterval(2)
+        while try await state.uploadedSidecarDigest(id) == nil, Date() < deadline {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let recorded = try await state.uploadedSidecarDigest(id)
+        XCTAssertNotNil(recorded)
+        XCTAssertNotNil(try sidecars.read(phassetLocalId: "P1"),
+            "the local edit must survive its upload")
     }
 
     /// Sidecar-idempotency invariant: while the sidecar upload is still failing,
