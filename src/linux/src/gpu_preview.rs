@@ -2,11 +2,10 @@
 //! Owned by one render worker on the native UI's shared device.
 use raw_core::{
     gpu_host::{
-        model::{prefix_matches, update_chain_inputs},
-        prepare::{auto_will_fit, chain_inputs_with_status, develop_prefix_rgba_cancellable},
+        live_profile::LiveProfile, model::prefix_matches, prepare::develop_prefix_rgba_cancellable,
         GpuWhiteBalance,
     },
-    types::adjustment::{AdjustmentModel, AutoExposureMode, Profile},
+    types::adjustment::AdjustmentModel,
     ExifOrientation, RawImage,
 };
 use raw_gpu::{CancelToken, GpuContext, LiveSession, PresentGeometry, PresentTexture};
@@ -16,8 +15,7 @@ pub struct GpuPreview {
     target: PresentTexture,
     prefix: AdjustmentModel,
     white_balance: GpuWhiteBalance,
-    inputs: raw_gpu::FullChainInputs<'static>,
-    auto_fit: bool,
+    profile: LiveProfile,
     sampling_scale: f32,
     long_edge: u32,
     uploads: u64,
@@ -93,7 +91,7 @@ impl GpuPreview {
             display_dims.1,
         );
         let target = PresentTexture::new(ctx, crop.dims)?;
-        let (inputs, _) = chain_inputs_with_status(
+        let profile = LiveProfile::new(
             raw,
             bytes,
             ext,
@@ -107,8 +105,7 @@ impl GpuPreview {
             target,
             prefix,
             white_balance: GpuWhiteBalance::resolve(raw)?,
-            inputs,
-            auto_fit: auto_will_fit(model, bytes, ext),
+            profile,
             sampling_scale,
             long_edge,
             uploads: 1,
@@ -175,11 +172,7 @@ impl GpuPreview {
             return Ok(false);
         }
         Self::validate(model)?;
-        let ae = if self.auto_fit && model.profile == Profile::Auto {
-            AutoExposureMode::Off
-        } else {
-            model.auto_exposure
-        };
+        let ae = self.profile.effective_ae(model);
         if !prefix_matches(model, &self.prefix, ae) {
             // Prepare replacement resources before dropping the last valid frame.
             let Some(replacement) =
@@ -191,24 +184,25 @@ impl GpuPreview {
             *self = replacement;
             self.uploads = uploads;
         }
+        self.profile.update(model);
         let film = crate::film::resolve(&model.film_look)?;
         let key = film.as_ref().map_or(0, |film| film.key);
-        if self.inputs.film_lut_key != key {
-            self.inputs.film_lut_key = key;
-            self.inputs.film_lut_size = film.as_ref().map_or(0, |film| film.lut.size as u32);
+        if self.profile.inputs.film_lut_key != key {
+            self.profile.inputs.film_lut_key = key;
+            self.profile.inputs.film_lut_size =
+                film.as_ref().map_or(0, |film| film.lut.size as u32);
             // Embedded, immutable lattices have a static lifetime. A look switch
             // updates the binding without cloning the lattice or RAW prefix.
-            self.inputs.film_lut_data = std::borrow::Cow::Borrowed(
+            self.profile.inputs.film_lut_data = std::borrow::Cow::Borrowed(
                 film.as_ref().map_or(&[], |film| film.lut.data.as_slice()),
             );
         }
-        update_chain_inputs(model, &mut self.inputs);
-        self.white_balance.apply(model, &mut self.inputs);
-        self.inputs.nr_sampling_scale = self.sampling_scale;
-        self.inputs.target_primaries = 0; // Native UNORM texture carries sRGB display bytes.
+        self.white_balance.apply(model, &mut self.profile.inputs);
+        self.profile.inputs.nr_sampling_scale = self.sampling_scale;
+        self.profile.inputs.target_primaries = 0; // Native UNORM texture carries sRGB display bytes.
         let Some(index) = self
             .session
-            .render_chain_to_f32(ctx, &self.inputs, cancel)?
+            .render_chain_to_f32(ctx, &self.profile.inputs, cancel)?
         else {
             return Ok(false);
         };

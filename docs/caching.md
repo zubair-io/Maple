@@ -169,6 +169,18 @@ Twelve IndexedDB databases go through one hand-rolled helper (`util/idb.ts`) tha
 | `maple-lens-profiles` (#3479)              | `profiles`            | BLAKE3 digest of the `.lcp`     | LCP XML text             | Nothing — content-addressed; the core re-verifies the digest on every restore |
 | `maple-subject-masks` (#3300)              | `rasters-by-digest`   | recipe digest (FNV-1a 64)       | subject-mask PNG bytes   | Nothing — content-addressed; a corrupt PNG falls through to the server fetch  |
 
+### Resident GPU Auto profile (#4735)
+
+Web `WebLiveSession` and Linux `GpuPreview` retain one shared `gpu_host::LiveProfile`
+per uploaded RAW prefix. It owns the flattened curve, residual LUT, achieved Auto
+outcome (including curve-only and unavailable fits), source preview capability,
+and reusable chain-input storage. Scalar ticks borrow the prefix and update
+controls in place without hashing RAW bytes, extracting previews, cloning fit
+artifacts or developing. Profile or prefix changes replace the entry; closing or
+replacing the image drops it. Film key/size changes replace only the downstream
+film grid; clearing the look empties it, and unchanged looks reuse its allocation.
+This memory-only cache changes no stored pixels or derivative versions.
+
 ### Resident CPU editor preview (#4352 / #4112)
 
 The Web worker retains one immutable RAW source and decoded `RawImage` for sized
