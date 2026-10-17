@@ -70,30 +70,40 @@ extension EditSession {
   /// Flush any pending sidecar write and throw if an unconfirmed edit cannot
   /// be durably persisted (#4711).
   public func flushPendingSidecarWriteConfirmed() async throws {
-    await workflow.task?.value
-    // A flush is a commit boundary (#2432): close the open transaction
-    // so the sidecar describes a recorded action, not a half-gesture.
-    endEdit()
-    guard !sidecarWritesDisabled, let store = sidecarStore else { return }
-    while let task = sidecarUpdateTask {
-      sidecarUpdateTask = nil
-      await task.value
-    }
-    if hasUnconfirmedSidecarUpdate {
-      let generation = sidecarUpdateGeneration
-      do {
-        try await store.writeConfirmed(model: model, culling: culling)
-        if sidecarUpdateGeneration == generation {
-          confirmedSidecarGeneration = generation
-          sidecarError = nil
+    while true {
+      await workflow.waitForIdle()
+      // A flush is a commit boundary (#2432): close the open transaction
+      // so the sidecar describes a recorded action, not a half-gesture.
+      endEdit()
+      guard !sidecarWritesDisabled, let store = sidecarStore else { return }
+      while let task = sidecarUpdateTask {
+        await task.value
+        if sidecarUpdateTask == task {
+          sidecarUpdateTask = nil
         }
-      } catch {
-        sidecarDirtyWhileDisabled = true
-        sidecarError = error
-        throw error
       }
-    } else {
-      await store.flush()
+      if workflow.isBusy || workflow.task != nil { continue }
+      if hasUnconfirmedSidecarUpdate {
+        let generation = sidecarUpdateGeneration
+        do {
+          try await store.writeConfirmed(model: model, culling: culling)
+          if sidecarUpdateGeneration == generation {
+            confirmedSidecarGeneration = generation
+            sidecarError = nil
+          }
+        } catch {
+          sidecarDirtyWhileDisabled = true
+          sidecarError = error
+          throw error
+        }
+      } else {
+        await store.flush()
+      }
+      if sidecarUpdateTask == nil, !hasUnconfirmedSidecarUpdate, !workflow.isBusy,
+        workflow.task == nil
+      {
+        break
+      }
     }
   }
 
@@ -115,13 +125,16 @@ extension EditSession {
       }
       return
     }
+    await workflow.waitForIdle()
     sidecarDirtyWhileDisabled =
       sidecarDirtyWhileDisabled || hasUnconfirmedSidecarUpdate || sidecarUpdateTask != nil
     let store = workflow.selectedStore ?? primarySidecarStore
     while let task = sidecarUpdateTask {
-      sidecarUpdateTask = nil
       task.cancel()
       await task.value
+      if sidecarUpdateTask == task {
+        sidecarUpdateTask = nil
+      }
     }
     await store?.flush()
     await previewPersistence.cancelAndJoin()

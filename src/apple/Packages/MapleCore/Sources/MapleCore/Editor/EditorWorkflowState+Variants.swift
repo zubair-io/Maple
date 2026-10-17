@@ -10,7 +10,7 @@ struct WorkflowVariantCreation {
 @MainActor
 extension EditorWorkflowState {
   public func createVariant(name: String, session: EditSession) async {
-    guard !isBusy else { return }
+    guard !isBusy, !session.sidecarWritesDisabled else { return }
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else {
       errorText = "Enter a variant name."
@@ -19,61 +19,71 @@ extension EditorWorkflowState {
     session.endEdit()
     isBusy = true
     let current = generation
-    defer { if generation == current { isBusy = false } }
-    do {
-      await session.loadSidecar()
-      await session.sidecarUpdateTask?.value
-      let root = try variantStore(session)
-      guard let source = session.sidecarStore as? any WorkflowSidecarStoreProtocol else {
-        throw WorkflowSidecarError(message: "This source has no writable sidecar.")
-      }
-      let command: WorkflowVariantCreation
-      if let pendingVariant, pendingVariant.record.variantName == trimmed,
-        pendingVariant.sourceVariantId == selectedVariantId
-      {
-        command = pendingVariant
-      } else {
-        if try await source.readWorkflowXML() == nil {
-          try await source.writeConfirmed(model: session.model, culling: session.culling)
-        }
-        guard let xml = try await source.readWorkflowXML(), generation == current else { return }
-        let record = SidecarWorkflow(
-          schemaVersion: 1, variantId: UUID().uuidString.lowercased(),
-          variantName: trimmed, snapshots: [], history: [])
-        command = WorkflowVariantCreation(
-          record: record, sourceVariantId: selectedVariantId,
-          checkpoint: try WorkflowSidecarCore.checkpoint(
-            xmp: WorkflowSidecarCore.embed(record, in: xml)))
-        pendingVariant = command
-      }
+    await runTracked {
+      defer { if self.generation == current { self.isBusy = false } }
       do {
-        try await root.createWorkflowVariant(
-          command.record, sourceVariantId: command.sourceVariantId)
-      } catch {
-        // A lost acknowledgement reuses its UUID only for the identical saved branch.
-        guard let binding = try? await root.bindWorkflowVariant(command.record.variantId),
-          let xml = try? await binding.writer.readWorkflowXML(),
-          try WorkflowSidecarCore.read(xmp: xml) == command.record,
-          try WorkflowSidecarCore.checkpoint(xmp: xml) == command.checkpoint
-        else { throw error }
-      }
-      guard generation == current else { return }
-      try await select(session: session, variantId: command.record.variantId, generation: current)
-      pendingVariant = nil
-      errorText = nil
-    } catch { if generation == current { errorText = error.localizedDescription } }
+        await session.loadSidecar()
+        await session.sidecarUpdateTask?.value
+        let root = try self.variantStore(session)
+        guard let source = session.sidecarStore as? any WorkflowSidecarStoreProtocol else {
+          throw WorkflowSidecarError(message: "This source has no writable sidecar.")
+        }
+        let command: WorkflowVariantCreation
+        if let pendingVariant = self.pendingVariant,
+          pendingVariant.record.variantName == trimmed,
+          pendingVariant.sourceVariantId == self.selectedVariantId
+        {
+          command = pendingVariant
+        } else {
+          if try await source.readWorkflowXML() == nil {
+            guard self.generation == current, !session.sidecarWritesDisabled else { return }
+            try await source.writeConfirmed(model: session.model, culling: session.culling)
+          }
+          guard let xml = try await source.readWorkflowXML(), self.generation == current,
+            !session.sidecarWritesDisabled
+          else { return }
+          let record = SidecarWorkflow(
+            schemaVersion: 1, variantId: UUID().uuidString.lowercased(),
+            variantName: trimmed, snapshots: [], history: [])
+          command = WorkflowVariantCreation(
+            record: record, sourceVariantId: self.selectedVariantId,
+            checkpoint: try WorkflowSidecarCore.checkpoint(
+              xmp: WorkflowSidecarCore.embed(record, in: xml)))
+          self.pendingVariant = command
+        }
+        guard self.generation == current, !session.sidecarWritesDisabled else { return }
+        do {
+          try await root.createWorkflowVariant(
+            command.record, sourceVariantId: command.sourceVariantId)
+        } catch {
+          // A lost acknowledgement reuses its UUID only for the identical saved branch.
+          guard let binding = try? await root.bindWorkflowVariant(command.record.variantId),
+            let xml = try? await binding.writer.readWorkflowXML(),
+            try WorkflowSidecarCore.read(xmp: xml) == command.record,
+            try WorkflowSidecarCore.checkpoint(xmp: xml) == command.checkpoint
+          else { throw error }
+        }
+        guard self.generation == current, !session.sidecarWritesDisabled else { return }
+        try await self.select(
+          session: session, variantId: command.record.variantId, generation: current)
+        self.pendingVariant = nil
+        self.errorText = nil
+      } catch { if self.generation == current { self.errorText = error.localizedDescription } }
+    }
   }
 
   public func selectVariant(_ variantId: String, session: EditSession) async {
-    guard !isBusy, selectedVariantId != variantId else { return }
+    guard !isBusy, !session.sidecarWritesDisabled, selectedVariantId != variantId else { return }
     session.endEdit()
     isBusy = true
     let current = generation
-    defer { if generation == current { isBusy = false } }
-    do {
-      try await select(session: session, variantId: variantId, generation: current)
-      errorText = nil
-    } catch { if generation == current { errorText = error.localizedDescription } }
+    await runTracked {
+      defer { if self.generation == current { self.isBusy = false } }
+      do {
+        try await self.select(session: session, variantId: variantId, generation: current)
+        self.errorText = nil
+      } catch { if self.generation == current { self.errorText = error.localizedDescription } }
+    }
   }
 
   private func select(session: EditSession, variantId: String, generation current: UInt64)
@@ -98,6 +108,7 @@ extension EditorWorkflowState {
           width: Int(session.previewSize.width))
       }
     }
+    guard generation == current, !session.sidecarWritesDisabled else { return }
     let binding = try await root.bindWorkflowVariant(variantId)
     let xml = try await binding.writer.readWorkflowXML()
     if let xml { _ = try WorkflowSidecarCore.variantWorkflow(xmp: xml, variantId: variantId) }
@@ -112,14 +123,15 @@ extension EditorWorkflowState {
       )
     }
     let listed = try await root.listWorkflowVariants()
-    guard generation == current, session.model == oldModel, session.transactions.nextID == editID
+    guard generation == current, !session.sidecarWritesDisabled, session.model == oldModel,
+      session.transactions.nextID == editID
     else {
       releaseRasters(restored.0)
       return
     }
     await session.previewPersistence.cancelAndJoin()
     await session.renderActor.cancelAll()
-    guard generation == current, session.model == oldModel,
+    guard generation == current, !session.sidecarWritesDisabled, session.model == oldModel,
       session.transactions.nextID == editID
     else {
       releaseRasters(restored.0)
@@ -141,11 +153,11 @@ extension EditorWorkflowState {
       let image = await RenderedPreviewCache.shared.preview(
         for: raw,
         screenWidth: Int(session.previewSize.width), sidecarURL: binding.sidecarURL),
-      generation == current
+      generation == current, !session.sidecarWritesDisabled
     {
       session.renderedPreview = image
     }
-    guard generation == current else { return }
+    guard generation == current, !session.sidecarWritesDisabled else { return }
     if session.renderRequested { session._scheduleRender(phase: .fast) }
     session.announcer.announce(
       variantId == WorkflowContract.primaryVariantID
@@ -155,7 +167,9 @@ extension EditorWorkflowState {
   private func variantStore(_ session: EditSession) throws
     -> any WorkflowVariantSidecarStoreProtocol
   {
-    guard let root = session.primarySidecarStore as? any WorkflowVariantSidecarStoreProtocol else {
+    guard !session.sidecarWritesDisabled,
+      let root = session.primarySidecarStore as? any WorkflowVariantSidecarStoreProtocol
+    else {
       throw WorkflowSidecarError(
         message: "Variants need a writable local, Photos or server source.")
     }
