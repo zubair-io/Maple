@@ -98,6 +98,8 @@ struct MapleBackupAgentEntryPoint {
     let engine = BackupEngine(
       queue: queue, state: state, upload: upload,
       sidecars: sidecars, reader: reader)
+    await engine.recoverPendingSidecars()
+    if Task.isCancelled { return }
     await engine.run()
   }
 }
