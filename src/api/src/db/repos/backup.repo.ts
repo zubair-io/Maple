@@ -35,7 +35,13 @@ import path from 'node:path';
 import { ObjectId } from '../object-id.ts';
 import { newObjectIdHex } from '../object-id.ts';
 import { classifyMediaType, mediaKindOfFilenames } from '../../indexer/media-types.ts';
-import { sqliteDb, updateOutcome, type SqliteDb, type UpdateOutcome } from './db-handle.ts';
+import {
+  matchedOne,
+  sqliteDb,
+  updateOutcome,
+  type SqliteDb,
+  type UpdateOutcome,
+} from './db-handle.ts';
 import { ALL_STAGE_NAMES } from '../../workers/stages/stage-names.ts';
 import { seedStageRowStatements } from './stage-state.repo.ts';
 import { nowIso, placeholders, toHex } from './values.ts';
@@ -418,5 +424,5 @@ export async function setAppleRenderedPath(
                    LIMIT 1)`,
     [relPath, mapleId, toHex(libraryId)],
   );
-  return updateOutcome(result.changes);
+  return updateOutcome(matchedOne(result.changes));
 }
