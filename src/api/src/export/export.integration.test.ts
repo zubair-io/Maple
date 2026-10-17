@@ -330,15 +330,23 @@ integration('export recovery boundaries', () => {
     await writeFile(sidecarPath, xml);
     await symlink(sidecarPath, join(root, 'IMG_SIDECAR.jpg'));
     const unicodeRaw = await target('ä_1', 2);
+    await writeFile(join(root, 'Ä_1.JPG'), 'unselected unicode sibling');
     insertLocation(live!.db, {
       assetId: insertAsset(live!.db),
       libraryId,
       path: '',
       filename: 'Ä_1.JPG',
     });
+    const staleRaw = await target('stale_catalog', 3);
+    insertLocation(live!.db, {
+      assetId: insertAsset(live!.db),
+      libraryId,
+      path: '',
+      filename: 'STALE_CATALOG.JPG',
+    });
     const value = {
-      targets: [raw, sidecarTarget, unicodeRaw],
-      originalPaths: [raw.path, sidecarTarget.path, unicodeRaw.path],
+      targets: [raw, sidecarTarget, unicodeRaw, staleRaw],
+      originalPaths: [raw.path, sidecarTarget.path, unicodeRaw.path, staleRaw.path],
       recipe: {
         ...DEFAULT_EXPORT_RECIPE,
         format: 'jpeg',
@@ -352,7 +360,7 @@ integration('export recovery boundaries', () => {
     const job = await claimed(value);
     const result = await batchRecipeExportHandler.run(job.payload, await context(job._id));
     await jobs.completeJob(job._id, result.result);
-    expect(result.result.applied).toEqual([]);
+    expect(result.result.applied).toEqual([staleRaw.id]);
     expect(result.result.failed).toEqual([
       expect.objectContaining({ id: raw.id, reason: expect.stringContaining('original') }),
       expect.objectContaining({
@@ -363,16 +371,18 @@ integration('export recovery boundaries', () => {
     ]);
     expect(await readFile(siblingPath, 'utf8')).toBe('unselected camera sibling jpeg');
     expect(await readFile(sidecarPath, 'utf8')).toBe(xml);
+    await rm(join(root, 'stale_catalog.jpg'));
 
     const skipJob = await claimed({
       ...value,
-      targets: [raw],
-      originalPaths: [raw.path],
+      targets: [raw, staleRaw],
+      originalPaths: [raw.path, staleRaw.path],
       recipe: { ...value.recipe, overwritePolicy: 'skip' },
     });
     const skipped = await batchRecipeExportHandler.run(skipJob.payload, await context(skipJob._id));
     await jobs.completeJob(skipJob._id, skipped.result);
     expect(skipped.result.skipped).toEqual([raw.id]);
+    expect(skipped.result.applied).toEqual([staleRaw.id]);
     expect(skipped.result.failed).toEqual([]);
 
     const repeatRecipe = { ...value.recipe, namingTemplate: '{original}_out.{ext}' };

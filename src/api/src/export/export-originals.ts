@@ -1,7 +1,11 @@
 /** Retained original paths are authorized before any filesystem query (#4111). */
-import { resolve } from 'node:path';
+import { basename, dirname, extname, join, resolve } from 'node:path';
+import { ObjectId } from '../db/object-id.ts';
+import { hasLiveAssetAtAddress } from '../db/repos/assets.address.ts';
 import { sqliteDb } from '../db/repos/db-handle.ts';
-import { realpath } from '../fs/mirrored.ts';
+import { lstat, readdir, realpath } from '../fs/mirrored.ts';
+import { mostSpecificRoot } from '../fs/root-match.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { resolveAndAuthorizePath } from '../routes/xmp-path-auth.ts';
 import { parseExportPayload, type ExportPayload } from './export-payload.ts';
 
@@ -13,6 +17,64 @@ export interface ExportOriginals {
 
 function foldPath(path: string): string {
   return path.normalize('NFC').toLowerCase();
+}
+
+async function findOnDiskCaseSibling(candidate: string): Promise<string | null> {
+  const exact = await lstat(candidate).catch((error) => {
+    if ((error as NodeJS.ErrnoException | null | undefined)?.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (exact) return candidate;
+  const dir = dirname(candidate);
+  const target = foldPath(basename(candidate));
+  const names = await readdir(dir).catch((error) => {
+    if ((error as NodeJS.ErrnoException | null | undefined)?.code === 'ENOENT') return [];
+    throw error;
+  });
+  const match = names.find((name) => foldPath(name) === target);
+  return match ? join(dir, match) : null;
+}
+
+// loadLibraryRoots() returns a process-cached ReadonlyMap singleton until invalidateLibraryRoots().
+let cachedRootEntries: {
+  roots: ReadonlyMap<string, string>;
+  entries: Promise<readonly (readonly [string, string])[]>;
+} | null = null;
+
+function libraryRootEntries(
+  roots: ReadonlyMap<string, string>,
+): Promise<readonly (readonly [string, string])[]> {
+  if (cachedRootEntries?.roots !== roots) {
+    cachedRootEntries = {
+      roots,
+      entries: (async () => {
+        const entries: [string, string][] = [];
+        for (const [id, root] of roots) {
+          const resolved = resolve(root);
+          entries.push([id, resolved]);
+          const canonical = await realpath(resolved).catch(() => null);
+          if (canonical && canonical !== resolved) entries.push([id, canonical]);
+        }
+        return entries;
+      })(),
+    };
+  }
+  return cachedRootEntries.entries;
+}
+
+export async function isCatalogAssetOrSidecar(candidate: string): Promise<string | null> {
+  const entries = await libraryRootEntries(await loadLibraryRoots());
+  const match = mostSpecificRoot(candidate, entries);
+  if (!match || !match.relPath) return null;
+  const existingPath = await findOnDiskCaseSibling(candidate);
+  if (!existingPath) return null;
+  if (extname(existingPath).toLowerCase() === '.xmp') return existingPath;
+  const slash = match.relPath.lastIndexOf('/');
+  const dir = slash === -1 ? '' : match.relPath.slice(0, slash);
+  const filename = slash === -1 ? match.relPath : match.relPath.slice(slash + 1);
+  return (await hasLiveAssetAtAddress(new ObjectId(match.key), dir, filename))
+    ? existingPath
+    : null;
 }
 
 function recordEntryDigest(
