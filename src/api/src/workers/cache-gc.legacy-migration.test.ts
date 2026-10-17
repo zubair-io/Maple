@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, spyOn } from 'bun:test';
+import * as mirrored from '../fs/mirrored.ts';
 import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from '../fs/mirrored.ts';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -105,6 +106,39 @@ describe('cache-gc legacy derivative migration (#4793)', () => {
       expect(await listing(root, 'thumbs')).toEqual(['photo.dng.avif']);
       expect(await listing(root, 'previews')).toEqual(['photo.dng.avif']);
     } finally {
+      invalidateLibraryRoots();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('never overwrites a derivative published after the directory was listed', async () => {
+    using live = await createLiveTestDatabase();
+    const root = await mkdtemp(join(tmpdir(), 'maple-legacy-gc-'));
+    const listDir = mirrored.readdir;
+    const fresh: Record<string, string> = {
+      thumbs: join(root, '.maple/thumbs/photo.dng.avif'),
+      previews: join(root, '.maple/previews/photo.dng.avif'),
+    };
+    const spy = spyOn(mirrored, 'readdir').mockImplementation((async (
+      ...args: Parameters<typeof listDir>
+    ) => {
+      const entries = await listDir(...args);
+      const tier = String(args[0]).split('/').at(-1) ?? '';
+      if (fresh[tier]) await writeFile(fresh[tier], `fresh ${tier}`);
+      return entries;
+    }) as typeof listDir);
+    try {
+      registerPhoto(live.db, root);
+      await seed(root, [`thumbs/${hash}.v25.avif`, 'previews/photo.dng.v25.avif']);
+
+      await sweepOrphanedCaches(root);
+
+      expect(await readFile(fresh.thumbs, 'utf8')).toBe('fresh thumbs');
+      expect(await readFile(fresh.previews, 'utf8')).toBe('fresh previews');
+      expect(await listing(root, 'thumbs')).toEqual(['photo.dng.avif']);
+      expect(await listing(root, 'previews')).toEqual(['photo.dng.avif']);
+    } finally {
+      spy.mockRestore();
       invalidateLibraryRoots();
       await rm(root, { recursive: true, force: true });
     }

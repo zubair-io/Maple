@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from './mirr
 import {
   adoptLegacyDerivative,
   legacyDerivativePath,
+  moveNoClobber,
   parseVersionedDerivativeName,
   readDerivative,
 } from './legacy-derivative.ts';
@@ -71,19 +72,42 @@ describe('adoptLegacyDerivative', () => {
     expect(await readdir(join(root, '.maple', 'thumbs'))).toEqual(['photo.dng.avif']);
   });
 
-  it('never overwrites an existing unversioned file', async () => {
+  it('never overwrites an existing unversioned file, and leaves the legacy file for cache-gc', async () => {
     const target = join(root, '.maple', 'previews', 'photo.dng.avif');
     await writeFile(target, 'current');
     await writeFile(legacyDerivativePath(target)!, 'legacy');
 
-    expect(await adoptLegacyDerivative(target)).toBe(false);
+    expect(await adoptLegacyDerivative(target)).toBe(true);
     expect(await readFile(target, 'utf8')).toBe('current');
+    expect(await readFile(legacyDerivativePath(target)!, 'utf8')).toBe('legacy');
   });
 
   it('is a plain miss when there is no legacy file', async () => {
     expect(await adoptLegacyDerivative(join(root, '.maple', 'previews', 'none.dng.avif'))).toBe(
       false,
     );
+  });
+});
+
+describe('moveNoClobber', () => {
+  it('moves when the destination is free', async () => {
+    const from = join(root, '.maple', 'previews', 'a.v25.avif');
+    const to = join(root, '.maple', 'previews', 'a.avif');
+    await writeFile(from, 'legacy');
+
+    expect(await moveNoClobber(from, to)).toBe('moved');
+    expect(await readdir(join(root, '.maple', 'previews'))).toEqual(['a.avif']);
+  });
+
+  it('reports an existing destination and leaves both files untouched', async () => {
+    const from = join(root, '.maple', 'previews', 'a.v25.avif');
+    const to = join(root, '.maple', 'previews', 'a.avif');
+    await writeFile(from, 'legacy');
+    await writeFile(to, 'fresh');
+
+    expect(await moveNoClobber(from, to)).toBe('exists');
+    expect(await readFile(to, 'utf8')).toBe('fresh');
+    expect(await readFile(from, 'utf8')).toBe('legacy');
   });
 });
 

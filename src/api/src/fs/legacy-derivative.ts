@@ -41,20 +41,50 @@ export function legacyDerivativePath(cachePath: string): string | null {
   return path.join(dir, `${legacyStem}.v${LEGACY_DERIVATIVE_VERSION}.avif`);
 }
 
+export type NoClobberMove = 'moved' | 'exists' | 'failed';
+
+const LINK_UNSUPPORTED = new Set(['ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'EXDEV', 'ENOSYS']);
+
 /**
- * On a cache miss for `cachePath`, rename its frozen legacy sibling into place.
- * Resolves `true` when a legacy file was adopted. Never overwrites an existing
- * unversioned file, and never throws — a failed adoption is just a miss.
+ * Move `from` to `to` without ever replacing `to`. A plain `rename` would
+ * overwrite a fresh derivative a stage published after the caller looked, so
+ * this publishes with `link` (fails with EEXIST) and then drops `from`.
+ * Filesystems without hard links fall back to check-then-rename. Never throws.
+ */
+export async function moveNoClobber(from: string, to: string): Promise<NoClobberMove> {
+  const linkError = await fs.link(from, to).then(
+    () => null,
+    (err: NodeJS.ErrnoException) => err.code ?? 'UNKNOWN',
+  );
+  if (linkError === null) {
+    await fs.unlink(from).catch(() => {});
+    return 'moved';
+  }
+  if (linkError === 'EEXIST') return 'exists';
+  if (!LINK_UNSUPPORTED.has(linkError)) return 'failed';
+  if (
+    await fs.lstat(to).then(
+      () => true,
+      () => false,
+    )
+  )
+    return 'exists';
+  return fs.rename(from, to).then(
+    () => 'moved',
+    () => 'failed',
+  );
+}
+
+/**
+ * On a cache miss for `cachePath`, move its frozen legacy sibling into place.
+ * Resolves `true` when `cachePath` now exists — adopted here, or published by
+ * someone else first, in which case it is kept and the legacy file is left for
+ * cache-gc. Never overwrites, never throws — a failed adoption is just a miss.
  */
 export async function adoptLegacyDerivative(cachePath: string): Promise<boolean> {
   const legacy = legacyDerivativePath(cachePath);
   if (legacy === null) return false;
-  const existing = await fs.lstat(cachePath).catch(() => null);
-  if (existing) return false;
-  return fs.rename(legacy, cachePath).then(
-    () => true,
-    () => false,
-  );
+  return (await moveNoClobber(legacy, cachePath)) !== 'failed';
 }
 
 /** `readFile` that adopts the frozen legacy name on a miss before giving up. */

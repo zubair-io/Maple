@@ -56,7 +56,11 @@ import * as path from 'node:path';
 import { liveLocationsByDirectory } from '../db/repos/assets.sweeps.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { sourceFilenameForPreviewCacheName } from '../fs/preview-cache-cleanup.ts';
-import { parseVersionedDerivativeName } from '../fs/legacy-derivative.ts';
+import {
+  moveNoClobber,
+  parseVersionedDerivativeName,
+  type NoClobberMove,
+} from '../fs/legacy-derivative.ts';
 import { sha256Prefix16 } from '../fs/xmp.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -295,20 +299,18 @@ async function deleteUnlessRecent(ctx: SweepContext, fullPath: string): Promise<
   await unlinkSafe(ctx, `${fullPath}.v`);
 }
 
-async function renameQuiet(ctx: SweepContext, cacheDir: string, from: string, to: string) {
-  return fs.rename(path.join(cacheDir, from), path.join(cacheDir, to)).then(
-    () => {
-      ctx.counters.renamed += 1;
-      return true;
-    },
-    (err: unknown) => {
-      log.warn(
-        { cacheDir, from, to, err: err instanceof Error ? err.message : err },
-        'rename of legacy derivative failed',
-      );
-      return false;
-    },
-  );
+/** Move a legacy file onto its new name, never replacing a file a stage
+ * published after this directory was listed. */
+async function adoptQuiet(
+  ctx: SweepContext,
+  cacheDir: string,
+  from: string,
+  to: string,
+): Promise<NoClobberMove> {
+  const outcome = await moveNoClobber(path.join(cacheDir, from), path.join(cacheDir, to));
+  if (outcome === 'moved') ctx.counters.renamed += 1;
+  if (outcome === 'failed') log.warn({ cacheDir, from, to }, 'adopting legacy derivative failed');
+  return outcome;
 }
 
 /** Group a directory's `<name>.v<N>.<kind>` files by their unversioned name,
@@ -346,9 +348,11 @@ async function migrateVersionedNames(
   const present = new Set(names.filter((name) => parseVersionedDerivativeName(name) === null));
   for (const [unversioned, [highest, ...older]] of versionedSiblings(names)) {
     const alreadyPresent = present.has(unversioned);
-    const adopted = !alreadyPresent && (await renameQuiet(ctx, cacheDir, highest, unversioned));
-    if (adopted) present.add(unversioned);
-    const stale = alreadyPresent ? [highest, ...older] : adopted ? older : [];
+    const outcome = alreadyPresent
+      ? 'exists'
+      : await adoptQuiet(ctx, cacheDir, highest, unversioned);
+    if (outcome !== 'failed') present.add(unversioned);
+    const stale = outcome === 'exists' ? [highest, ...older] : outcome === 'moved' ? older : [];
     ctx.counters.scanned += stale.length;
     for (const name of stale) await deleteUnlessRecent(ctx, path.join(cacheDir, name));
   }
@@ -385,8 +389,10 @@ async function migrateHashedGroup(
 ): Promise<void> {
   const newest = files.filter((file) => file.avif).toSorted((a, b) => b.version - a.version)[0];
   const attempt = target !== null && newest !== undefined && !present.has(target);
-  if (attempt && (await renameQuiet(ctx, cacheDir, newest.name, target))) present.add(target);
-  const stale = files.filter((file) => file !== newest || !attempt);
+  const outcome = attempt ? await adoptQuiet(ctx, cacheDir, newest.name, target) : null;
+  if (target !== null && (outcome === 'moved' || outcome === 'exists')) present.add(target);
+  const keep = outcome === 'moved' || outcome === 'failed' ? newest : undefined;
+  const stale = files.filter((file) => file !== keep);
   ctx.counters.scanned += stale.length;
   for (const file of stale) await deleteUnlessRecent(ctx, path.join(cacheDir, file.name));
 }
