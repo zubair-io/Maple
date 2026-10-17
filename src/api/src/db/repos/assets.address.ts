@@ -107,6 +107,23 @@ export async function findLiveAssetIdAtAddress(
   return id === undefined ? null : toObjectId(id);
 }
 
+/** Case-insensitive live-entry check so export Replace never clobbers a sibling (e.g. `IMG_1.JPG` vs `IMG_1.jpg`). */
+export async function hasLiveAssetAtAddress(
+  libraryId: ObjectId,
+  relPath: string,
+  filename: string,
+  dbOverride?: SqliteDb,
+): Promise<boolean> {
+  const rows = await sqliteDb(dbOverride).read<{ asset_id: string }>(
+    `SELECT l.asset_id AS asset_id
+       FROM asset_locations l
+      WHERE l.library_id = ? AND l.path = ? AND l.filename = ? COLLATE NOCASE AND ${LIVE_ENTRY}
+      LIMIT 1`,
+    [libraryId.toHexString(), relPath, filename],
+  );
+  return rows.length > 0;
+}
+
 /** The row an upload needs before it moves the file it is about to overwrite. */
 export interface ReplaceableAsset {
   _id: ObjectId;

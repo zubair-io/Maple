@@ -2,7 +2,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { open, realpath, lstat, stat, link, rename, rm } from '../fs/mirrored.ts';
+import { ObjectId } from '../db/object-id.ts';
+import { hasLiveAssetAtAddress } from '../db/repos/assets.address.ts';
+import { mostSpecificRoot } from '../fs/root-match.ts';
 import { safeWriteAllowed } from '../fs/root.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { resolveAndAuthorizePath } from '../routes/xmp-path-auth.ts';
 import { tryGetRawFfi } from '../ffi/raw_ffi.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
@@ -106,17 +110,40 @@ async function exportPaths(
   return { source, directory, outputPath };
 }
 
+async function isCatalogAssetOrSidecar(candidate: string): Promise<boolean> {
+  if (extname(candidate).toLowerCase() === '.xmp') return true;
+  const roots = await loadLibraryRoots();
+  const entries: [string, string][] = [];
+  for (const [id, root] of roots) {
+    const resolved = resolve(root);
+    entries.push([id, resolved]);
+    const canonical = await realpath(resolved).catch(() => null);
+    if (canonical && canonical !== resolved) entries.push([id, canonical]);
+  }
+  const match = mostSpecificRoot(candidate, entries);
+  if (!match || !match.relPath) return false;
+  const slash = match.relPath.lastIndexOf('/');
+  const dir = slash === -1 ? '' : match.relPath.slice(0, slash);
+  const filename = slash === -1 ? match.relPath : match.relPath.slice(slash + 1);
+  return hasLiveAssetAtAddress(new ObjectId(match.key), dir, filename);
+}
+
 async function guardOriginal(
   outputPath: string,
   source: string,
   originalPaths: ExportOriginals,
   fresh = false,
 ) {
+  const resolvedOutput = resolve(outputPath);
   const canonicalOutput = await realpath(outputPath).catch(() => null);
   if (
-    originalPaths.paths.has(resolve(outputPath)) ||
+    originalPaths.paths.has(resolvedOutput) ||
     originalPaths.paths.has(canonicalOutput ?? '') ||
-    canonicalOutput === source
+    canonicalOutput === source ||
+    (await isCatalogAssetOrSidecar(resolvedOutput)) ||
+    (canonicalOutput !== null &&
+      canonicalOutput !== resolvedOutput &&
+      (await isCatalogAssetOrSidecar(canonicalOutput)))
   )
     throw new Error('Destination is the original. Choose another directory or naming template.');
   if (

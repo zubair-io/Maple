@@ -139,4 +139,119 @@ describe('export recipe contract and recovery', () => {
     }));
     expect(recipeSummary(record).failed).toHaveLength(2000);
   });
+  it('refuses replacing an unselected sibling JPEG under {original}.{ext} + replace unless the export created it', async () => {
+    const files = new Map<string, string>([
+      ['IMG_1.CR3', 'raw-bytes'],
+      ['IMG_1.JPG', 'camera-sibling-jpeg'],
+    ]);
+    const blobFor = (content: string): Blob => {
+      const bytes = new TextEncoder().encode(content);
+      return {
+        size: bytes.byteLength,
+        text: async () => content,
+        stream: () =>
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(bytes);
+              controller.close();
+            },
+          }),
+      } as unknown as Blob;
+    };
+    const handleFor = (name: string): FileSystemFileHandle =>
+      ({
+        kind: 'file',
+        name,
+        isSameEntry: async (other: FileSystemHandle) => other.name === name,
+        getFile: async () => blobFor(files.get(name) ?? '') as unknown as File,
+        createWritable: async () => {
+          let next = '';
+          return {
+            write: async (blob: Blob) => {
+              next = await blob.text();
+            },
+            close: async () => {
+              files.set(name, next);
+            },
+            abort: async () => {},
+          } as unknown as FileSystemWritableFileStream;
+        },
+      }) as unknown as FileSystemFileHandle;
+    const directoryHandle = {
+      kind: 'directory',
+      name: 'source',
+      isSameEntry: async () => true,
+      values: async function* () {
+        for (const name of files.keys()) yield handleFor(name);
+      },
+      getFileHandle: async (name: string, options?: { create?: boolean }) => {
+        if (!files.has(name)) {
+          if (!options?.create) throw new DOMException('Missing', 'NotFoundError');
+          files.set(name, '');
+        }
+        return handleFor(name);
+      },
+    } as unknown as FileSystemDirectoryHandle;
+    const sourceHandle = handleFor('IMG_1.CR3');
+    const record: RecipeQueueRecord = {
+      id: 'sibling-guard',
+      serverJobId: null,
+      cancelled: false,
+      directoryHandle,
+      protectedOriginals: [sourceHandle],
+      recipe: {
+        ...DEFAULT_EXPORT_RECIPE,
+        destination: 'directory',
+        directory: 'source',
+        namingTemplate: '{original}.{ext}',
+        overwritePolicy: 'replace',
+      },
+      targets: [
+        {
+          id: 'raw-1',
+          filename: 'IMG_1.CR3',
+          sourceHandle,
+          path: null,
+          xmp: '',
+          filmLook: '',
+          capturedAt: null,
+          index: 0,
+        },
+      ],
+      entries: [{ id: 'raw-1', status: 'pending' }],
+    };
+    let renderCalls = 0;
+    const run = (outputName: string, body: string) =>
+      runBrowserRecipe(record, {
+        filename: async () => outputName,
+        render: async () => {
+          renderCalls++;
+          return { blob: blobFor(body), width: 1, height: 1, extension: 'jpg' };
+        },
+        save: async () => {},
+        cancelled: () => false,
+        progress: () => {},
+      });
+    await run('IMG_1.jpg', 'overwritten');
+    expect(record.entries[0]).toEqual(
+      expect.objectContaining({
+        id: 'raw-1',
+        status: 'failed',
+        reason: expect.stringContaining('original photo'),
+      }),
+    );
+    expect(renderCalls).toBe(0);
+    expect(files.get('IMG_1.JPG')).toBe('camera-sibling-jpeg');
+
+    record.entries = [{ id: 'raw-1', status: 'pending' }];
+    await run('IMG_1_export.jpg', 'first-export');
+    expect(record.entries[0].status).toBe('applied');
+    expect(record.createdOutputs).toEqual(['IMG_1_export.jpg']);
+    expect(files.get('IMG_1_export.jpg')).toBe('first-export');
+
+    record.entries = [{ id: 'raw-1', status: 'pending' }];
+    await run('IMG_1_export.jpg', 'second-export');
+    expect(record.entries[0].status).toBe('applied');
+    expect(files.get('IMG_1_export.jpg')).toBe('second-export');
+  });
 });

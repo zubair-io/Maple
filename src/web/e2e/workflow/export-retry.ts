@@ -49,6 +49,16 @@ async function startScenario(
   if (scenario === 'unrelated') {
     await put('3.jpg', 'previous-unrelated-output');
     targets.splice(1);
+    await saveExportQueue({
+      id: 'previous',
+      recipe,
+      targets: [],
+      entries: [],
+      cancelled: false,
+      serverJobId: null,
+      directoryHandle: folder,
+      createdOutputs: ['3.jpg'],
+    });
   }
   if (scenario === 'legacy-filtered') targets.splice(1);
   if (scenario === 'legacy' || scenario === 'legacy-filtered' || scenario === 'missing') {

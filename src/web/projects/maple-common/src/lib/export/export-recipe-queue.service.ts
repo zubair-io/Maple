@@ -82,6 +82,12 @@ export class ExportRecipeQueueService {
         record.directoryHandle = await this.directories.resolve(recipe.directory!);
         await this.directories.captureSources(targets);
         record.protectedOriginals = targets.map((target) => target.sourceHandle ?? null);
+        if (
+          latest?.createdOutputs?.length &&
+          latest.directoryHandle &&
+          (await record.directoryHandle.isSameEntry(latest.directoryHandle))
+        )
+          record.createdOutputs = [...latest.createdOutputs];
       }
       await this.execute(record);
     });

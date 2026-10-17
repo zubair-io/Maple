@@ -1,6 +1,40 @@
 /** Browser folder writes use a durable hash journal and the browser's atomic writable stream. */
 import { sha256 } from '@noble/hashes/sha2.js';
+import { SUPPORTED_RAW_EXTENSIONS } from '../state/raw-extensions';
 import type { RecipeEntry, RecipeQueueRecord } from './export-recipe-store';
+
+const PROTECTED_ORIGINAL_EXTENSIONS = new Set([
+  ...SUPPORTED_RAW_EXTENSIONS,
+  'jpg',
+  'jpeg',
+  'png',
+  'webp',
+  'gif',
+  'tif',
+  'tiff',
+  'heic',
+  'heif',
+  'avif',
+  'bmp',
+  'psd',
+  'psb',
+  'hdr',
+]);
+
+function isCreatedByExport(
+  record: RecipeQueueRecord,
+  filename: string,
+  actualName: string,
+): boolean {
+  const lower = filename.toLowerCase();
+  const actualLower = actualName.toLowerCase();
+  return (
+    record.createdOutputs?.some((entry) => {
+      const candidate = entry.toLowerCase();
+      return candidate === lower || candidate === actualLower;
+    }) ?? false
+  );
+}
 
 async function digest(blob: Blob): Promise<string> {
   const hash = sha256.create();
@@ -23,8 +57,15 @@ async function existing(
   try {
     return await directory.getFileHandle(name);
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'NotFoundError') return null;
-    throw error;
+    if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
+    const iterable = directory as Partial<Record<'values', () => AsyncIterable<FileSystemHandle>>>;
+    if (typeof iterable.values !== 'function') return null;
+    const lower = name.toLowerCase();
+    for await (const entry of iterable.values()) {
+      if (entry.kind === 'file' && entry.name.toLowerCase() === lower)
+        return entry as FileSystemFileHandle;
+    }
+    return null;
   }
 }
 async function fileHash(handle: FileSystemFileHandle | null): Promise<string | null> {
@@ -33,6 +74,7 @@ async function fileHash(handle: FileSystemFileHandle | null): Promise<string | n
 async function guardOriginal(
   handle: FileSystemFileHandle | null,
   record: RecipeQueueRecord,
+  filename: string,
 ): Promise<void> {
   if (!handle) return;
   const originals = record.protectedOriginals;
@@ -48,6 +90,13 @@ async function guardOriginal(
         'Destination is an original photo. Choose another folder or naming template.',
       );
   }
+  const actualName = handle.name || filename;
+  const ext = actualName.includes('.') ? (actualName.split('.').pop()?.toLowerCase() ?? '') : '';
+  if (
+    ext === 'xmp' ||
+    (PROTECTED_ORIGINAL_EXTENSIONS.has(ext) && !isCreatedByExport(record, filename, actualName))
+  )
+    throw new Error('Destination is an original photo. Choose another folder or naming template.');
 }
 export async function prepareDirectoryEntry(
   record: RecipeQueueRecord,
@@ -55,7 +104,7 @@ export async function prepareDirectoryEntry(
   filename: string,
 ): Promise<RecipeEntry> {
   const handle = await existing(record.directoryHandle!, filename);
-  await guardOriginal(handle, record);
+  await guardOriginal(handle, record, filename);
   const beforeHash = await fileHash(handle);
   if (handle && record.recipe.overwritePolicy === 'skip')
     return { id, filename, status: 'skipped' };
@@ -73,12 +122,20 @@ export async function deliverDirectoryEntry(
   const directory = record.directoryHandle!;
   const filename = entry.filename!;
   let handle = await existing(directory, filename);
-  await guardOriginal(handle, record);
+  await guardOriginal(handle, record, filename);
   if ((await fileHash(handle)) !== entry.beforeHash)
     throw new Error('Output changed while rendering. Review the destination before retrying.');
+  const previousCreated = record.createdOutputs;
+  if (!handle && entry.beforeHash === null && !isCreatedByExport(record, filename, filename))
+    record.createdOutputs = [...(previousCreated ?? []), filename];
   const writing: RecipeEntry = { ...entry, status: 'writing', afterHash: await digest(blob) };
   // This marker MUST commit before createWritable or its final close can change any output.
-  await save(writing);
+  try {
+    await save(writing);
+  } catch (error) {
+    record.createdOutputs = previousCreated;
+    throw error;
+  }
   // Existing entries were identity-checked above. A new entry remains empty until close.
   handle ??= await directory.getFileHandle(filename, { create: true });
   const writer = await handle.createWritable();
@@ -107,8 +164,11 @@ export async function recoverDirectoryWrites(
     if (entry.status !== 'writing' || !entry.filename) continue;
     const handle = await existing(record.directoryHandle, entry.filename);
     const current = await fileHash(handle);
-    if (current === entry.afterHash) record.entries[index] = { ...entry, status: 'applied' };
-    else if (current === entry.beforeHash)
+    if (current === entry.afterHash) {
+      if (entry.beforeHash === null && !isCreatedByExport(record, entry.filename, entry.filename))
+        record.createdOutputs = [...(record.createdOutputs ?? []), entry.filename];
+      record.entries[index] = { ...entry, status: 'applied' };
+    } else if (current === entry.beforeHash)
       record.entries[index] = { id: entry.id, status: 'pending' };
     else
       record.entries[index] = {

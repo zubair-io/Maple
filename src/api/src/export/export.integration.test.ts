@@ -1,6 +1,15 @@
 /** Real SQLite ledger, child-process encoder and temporary synthetic RAWs. */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, mkdir, readFile, writeFile, rm, stat, realpath } from '../fs/mirrored.ts';
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  writeFile,
+  rm,
+  stat,
+  realpath,
+  symlink,
+} from '../fs/mirrored.ts';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { ObjectId } from '../db/object-id.ts';
@@ -304,6 +313,47 @@ integration('export recovery boundaries', () => {
     expect((result.result.failed as { reason: string }[])[0].reason).toContain('original');
     expect(await readFile(first.path)).toEqual(original);
     expect(await readFile(second.path)).toEqual(original);
+  }, 60000);
+
+  it('protects an unselected catalog sibling JPEG and sidecar when exporting {original}.{ext} with replace', async () => {
+    const raw = await target('IMG_1');
+    const siblingPath = join(root, 'IMG_1.JPG');
+    await writeFile(siblingPath, 'unselected camera sibling jpeg');
+    insertLocation(live!.db, {
+      assetId: insertAsset(live!.db),
+      libraryId,
+      path: '',
+      filename: 'IMG_1.JPG',
+    });
+    const sidecarTarget = await target('IMG_SIDECAR', 1);
+    const sidecarPath = join(root, 'IMG_SIDECAR.xmp');
+    await writeFile(sidecarPath, xml);
+    await symlink(sidecarPath, join(root, 'IMG_SIDECAR.jpg'));
+    const value = {
+      targets: [raw, sidecarTarget],
+      originalPaths: [raw.path, sidecarTarget.path],
+      recipe: {
+        ...DEFAULT_EXPORT_RECIPE,
+        format: 'jpeg',
+        quality: 90,
+        destination: 'directory',
+        directory: root,
+        overwritePolicy: 'replace',
+        namingTemplate: '{original}.{ext}',
+      },
+    };
+    const job = await claimed(value);
+    const result = await batchRecipeExportHandler.run(job.payload, await context(job._id));
+    expect(result.result.applied).toEqual([]);
+    expect(result.result.failed).toEqual([
+      expect.objectContaining({ id: raw.id, reason: expect.stringContaining('original') }),
+      expect.objectContaining({
+        id: sidecarTarget.id,
+        reason: expect.stringContaining('original'),
+      }),
+    ]);
+    expect(await readFile(siblingPath, 'utf8')).toBe('unselected camera sibling jpeg');
+    expect(await readFile(sidecarPath, 'utf8')).toBe(xml);
   }, 60000);
 
   it('retries only failed photos over HTTP with the same XMP and stable sequence', async () => {
