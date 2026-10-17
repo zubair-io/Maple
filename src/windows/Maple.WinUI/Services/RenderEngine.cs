@@ -241,20 +241,9 @@ namespace Maple.WinUI.Services
             ApplyWbFrame(ref p, image.WbFrame);
             p.skip_agx = image.IsRaster ? 1u : 0u;
 
-            // Point tone curves (#2576) ride a sibling struct — the scalar
-            // params ABI can't carry variable-length knot lists.
-            var curveLuma = FlattenCurve(model.ToneCurveLuma);
-            var curveRed = FlattenCurve(model.ToneCurveRed);
-            var curveGreen = FlattenCurve(model.ToneCurveGreen);
-            var curveBlue = FlattenCurve(model.ToneCurveBlue);
-            // Display-referred point curves (#2232) — same flat wire shape,
-            // riding the same sibling struct's appended tail fields. This
-            // fused CPU entry has no GPU live session on Windows, so it is
-            // where the per-tick chain picks up the new stage.
-            var displayCurveLuma = FlattenCurve(model.DisplayToneCurveLuma);
-            var displayCurveRed = FlattenCurve(model.DisplayToneCurveRed);
-            var displayCurveGreen = FlattenCurve(model.DisplayToneCurveGreen);
-            var displayCurveBlue = FlattenCurve(model.DisplayToneCurveBlue);
+            // Point (#2576) and display-referred (#2232) curves ride a
+            // sibling struct — the scalar params ABI can't carry knot lists.
+            var flat = FlatToneCurves.From(model);
             // Local adjustments (#3406): flat f32 layer stack, the variable-
             // length sibling of every other pointer field below. Empty when
             // the model has no layers, which both FFI chains read as "no
@@ -264,14 +253,14 @@ namespace Maple.WinUI.Services
             fixed (float* inPtr = image.Pixels)
             fixed (float* outPtr = chainScratch)
             fixed (float* noisePtr = image.NoiseProfile)
-            fixed (float* lumaPtr = curveLuma)
-            fixed (float* redPtr = curveRed)
-            fixed (float* greenPtr = curveGreen)
-            fixed (float* bluePtr = curveBlue)
-            fixed (float* displayLumaPtr = displayCurveLuma)
-            fixed (float* displayRedPtr = displayCurveRed)
-            fixed (float* displayGreenPtr = displayCurveGreen)
-            fixed (float* displayBluePtr = displayCurveBlue)
+            fixed (float* lumaPtr = flat.Luma)
+            fixed (float* redPtr = flat.Red)
+            fixed (float* greenPtr = flat.Green)
+            fixed (float* bluePtr = flat.Blue)
+            fixed (float* displayLumaPtr = flat.DisplayLuma)
+            fixed (float* displayRedPtr = flat.DisplayRed)
+            fixed (float* displayGreenPtr = flat.DisplayGreen)
+            fixed (float* displayBluePtr = flat.DisplayBlue)
             fixed (float* localPtr = localFlat)
             {
                 if (image.NoiseProfile.Length > 0)
@@ -284,26 +273,23 @@ namespace Maple.WinUI.Services
                     p.local_adjustments_ptr = localPtr;
                     p.local_adjustments_len = (nuint)localFlat.Length;
                 }
-                var curves = new MapleToneCurves
-                {
-                    luma_ptr = lumaPtr,
-                    luma_len = (nuint)curveLuma.Length,
-                    red_ptr = redPtr,
-                    red_len = (nuint)curveRed.Length,
-                    green_ptr = greenPtr,
-                    green_len = (nuint)curveGreen.Length,
-                    blue_ptr = bluePtr,
-                    blue_len = (nuint)curveBlue.Length,
-                    mode = model.ToneCurveMode == ToneCurveMode.RatioPreserving ? 1u : 0u,
-                    display_luma_ptr = displayLumaPtr,
-                    display_luma_len = (nuint)displayCurveLuma.Length,
-                    display_red_ptr = displayRedPtr,
-                    display_red_len = (nuint)displayCurveRed.Length,
-                    display_green_ptr = displayGreenPtr,
-                    display_green_len = (nuint)displayCurveGreen.Length,
-                    display_blue_ptr = displayBluePtr,
-                    display_blue_len = (nuint)displayCurveBlue.Length,
-                };
+                var curves = ToneCurvesFrom(model);
+                curves.luma_ptr = lumaPtr;
+                curves.luma_len = (nuint)flat.Luma.Length;
+                curves.red_ptr = redPtr;
+                curves.red_len = (nuint)flat.Red.Length;
+                curves.green_ptr = greenPtr;
+                curves.green_len = (nuint)flat.Green.Length;
+                curves.blue_ptr = bluePtr;
+                curves.blue_len = (nuint)flat.Blue.Length;
+                curves.display_luma_ptr = displayLumaPtr;
+                curves.display_luma_len = (nuint)flat.DisplayLuma.Length;
+                curves.display_red_ptr = displayRedPtr;
+                curves.display_red_len = (nuint)flat.DisplayRed.Length;
+                curves.display_green_ptr = displayGreenPtr;
+                curves.display_green_len = (nuint)flat.DisplayGreen.Length;
+                curves.display_blue_ptr = displayBluePtr;
+                curves.display_blue_len = (nuint)flat.DisplayBlue.Length;
                 int rc;
                 if (window is { } detailWindow)
                     rc = string.IsNullOrEmpty(model.FilmLook)
@@ -336,6 +322,21 @@ namespace Maple.WinUI.Services
                 bgraOut[o + 3] = 255;
             }
         }
+
+        /// <summary>The pointer-free part of <see cref="MapleToneCurves"/>:
+        /// curve mode plus the parametric regions and splits (#4740). The
+        /// knot pointers are pinned by the caller for the FFI call.</summary>
+        public static MapleToneCurves ToneCurvesFrom(AdjustmentState model) => new()
+        {
+            mode = model.ToneCurveMode == ToneCurveMode.RatioPreserving ? 1u : 0u,
+            parametric_highlights = (float)model.ParametricHighlights,
+            parametric_lights = (float)model.ParametricLights,
+            parametric_darks = (float)model.ParametricDarks,
+            parametric_shadows = (float)model.ParametricShadows,
+            parametric_shadow_split = (float)model.ParametricShadowSplit,
+            parametric_midtone_split = (float)model.ParametricMidtoneSplit,
+            parametric_highlight_split = (float)model.ParametricHighlightSplit,
+        };
 
         /// <summary>Flatten a knot list to the FFI wire form: [x0,y0,x1,y1,...]
         /// f32 pairs. Empty list (the identity) flattens to an empty array,
