@@ -169,7 +169,10 @@ export function xyToTempTint(x: number, y: number): [number, number] {
       const uu3 = uu3Raw / len3;
       const vv3 = vv3Raw / len3;
 
-      const tint = (uu * uu3 + vv * vv3) * TINT_SCALE;
+      // Match raw-core / SDK: tint starts at the interpolated locus (#4630).
+      const locusU = TEMP_TABLE[index - 1].u * f + TEMP_TABLE[index].u * (1.0 - f);
+      const locusV = TEMP_TABLE[index - 1].v * f + TEMP_TABLE[index].v * (1.0 - f);
+      const tint = ((u - locusU) * uu3 + (v - locusV) * vv3) * TINT_SCALE;
 
       return [temperature, tint];
     }
