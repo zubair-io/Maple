@@ -41,7 +41,7 @@ The counter reaches every shared derivative reader and writer through generated 
 
 - **Apple's `RenderedPreviewCache`** includes it in its local key (`pv<N>`).
 - **Shared thumb and preview filenames** include `.v<N>` before the actual format extension. Web's JPEG/WebP/PNG fallback artifacts and their preview descriptors and source identities carry the same version. The old `.v` text markers are retired; their presence cannot make an old artifact current.
-- **HTTP clients** request `?pv=<N>`. The origin rejects an explicitly incompatible version with `409`, includes `X-Maple-Pipeline-Version` on successful derivative responses, and versions thumbnail ETags. Preview uploads require the same version header before any cache publication.
+- **HTTP clients** request `?pv=<N>`. Derivative reads serve the current artifact to an older client (a shipped app always lags the server by some pipeline bumps) and reject only a version newer than the server, or a malformed one, with `409`; the origin includes `X-Maple-Pipeline-Version` on successful derivative responses, and versions thumbnail ETags. Preview uploads require the same version header before any cache publication.
 - **Server stages and derivative audit** share `THUMB_TARGET_VERSION` and `PREVIEW_TARGET_VERSION`, each `4 + PIPELINE_OUTPUT_VERSION` (currently 29). A pipeline bump re-arms generation and edge synchronization.
 
 The cache sweep retires legacy and older-version derivatives, including their markers, while preserving current and newer versions for live originals. Keeping newer files prevents an older app from destroying a newer client's cache. Exact-source cleanup on removal reclaims all recognized versions without matching another filename that shares a prefix.

@@ -20,6 +20,7 @@ import { resolveThumbPath } from '../../fs/xmp.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { registerLibrary, seedRouteAsset } from '../../../tests/helpers/assets-route-fixtures.ts';
 import { newObjectIdHex } from '../../db/object-id.ts';
+import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
@@ -81,6 +82,34 @@ describe('GET /thumb/:slug/*', () => {
     expect(res.headers.get('Cache-Control')).toContain('must-revalidate');
     expect(res.headers.get('Cache-Control')).not.toContain('immutable');
     expect(res.headers.get('ETag') ?? '').toMatch(/^"[0-9a-f]+"$/);
+  });
+
+  test('serves the current thumb to a client built on an older pipeline version', async () => {
+    const src = path.join(tmpDir, 'older-client.jpg');
+    await writeFile(src, 'fake-source');
+    const thumbPath = resolveThumbPath(src);
+    await mkdir(path.dirname(thumbPath), { recursive: true });
+    await writeFile(thumbPath, 'thumb-bytes');
+
+    const res = await app.handle(
+      new Request(
+        `http://localhost/thumb/thumblib/older-client.jpg?pv=${PIPELINE_OUTPUT_VERSION - 1}`,
+      ),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Maple-Pipeline-Version')).toBe(String(PIPELINE_OUTPUT_VERSION));
+  });
+
+  test('rejects a client built on a newer pipeline version than the server', async () => {
+    const res = await app.handle(
+      new Request(`http://localhost/thumb/thumblib/a.jpg?pv=${PIPELINE_OUTPUT_VERSION + 1}`),
+    );
+    expect(res.status).toBe(409);
+  });
+
+  test('rejects a malformed pipeline version', async () => {
+    const res = await app.handle(new Request('http://localhost/thumb/thumblib/a.jpg?pv=24abc'));
+    expect(res.status).toBe(409);
   });
 
   test('on-the-fly thumb honours If-None-Match with a 304', async () => {

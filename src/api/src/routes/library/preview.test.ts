@@ -68,6 +68,20 @@ describe('GET /preview/:slug/*', () => {
     expect(res.status).toBe(404);
   });
 
+  test('answers a client built on an older pipeline version instead of rejecting it', async () => {
+    const res = await app.handle(
+      new Request(`http://localhost/preview/prevlib/ghost.jpg?pv=${PIPELINE_OUTPUT_VERSION - 1}`),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  test('rejects a client built on a newer pipeline version than the server', async () => {
+    const res = await app.handle(
+      new Request(`http://localhost/preview/prevlib/ghost.jpg?pv=${PIPELINE_OUTPUT_VERSION + 1}`),
+    );
+    expect(res.status).toBe(409);
+  });
+
   test('returns 202 with Retry-After when file exists on disk but is not indexed', async () => {
     await writeFile(path.join(tmpDir, 'pending.jpg'), 'fake-jpeg');
     const res = await app.handle(new Request('http://localhost/preview/prevlib/pending.jpg'));

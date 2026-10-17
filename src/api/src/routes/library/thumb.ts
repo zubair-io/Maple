@@ -1,4 +1,4 @@
-import { incompatiblePipelineVersion } from '../../runtime/http-pipeline-version.ts';
+import { unservablePipelineVersion } from '../../runtime/http-pipeline-version.ts';
 import { Elysia, type Context } from 'elysia';
 import { child as childLogger } from '../../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../../runtime/http-etag.ts';
@@ -87,7 +87,7 @@ async function serveThumb(
 export const thumbRoutes = new Elysia().get(
   '/thumb/:slug/*',
   async ({ params, headers, query, set }) => {
-    const versionError = incompatiblePipelineVersion(query.pv, set);
+    const versionError = unservablePipelineVersion(query.pv, set);
     if (versionError) return versionError;
     const segments = parseWildcardSegments((params as Record<string, string>)['*'] ?? '');
     const filename = segments.at(-1) ?? '';

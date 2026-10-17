@@ -11,7 +11,7 @@
  * Database access lives in `src/db/assets.repo.ts`.
  */
 
-import { incompatiblePipelineVersion } from '../../runtime/http-pipeline-version.ts';
+import { unservablePipelineVersion } from '../../runtime/http-pipeline-version.ts';
 import { Elysia } from 'elysia';
 import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import { ObjectId } from '../../db/object-id.ts';
@@ -245,7 +245,7 @@ export const metadataRoutes = new Elysia()
 
   // Serve thumbnail from .maple/ cache
   .get('/:id/thumb', async ({ params, headers, query, set }) => {
-    const versionError = incompatiblePipelineVersion(query.pv, set);
+    const versionError = unservablePipelineVersion(query.pv, set);
     if (versionError) return versionError;
     const resolved = await resolveAssetInfoOrRespond(params.id, set);
     if ('error' in resolved) return resolved;
