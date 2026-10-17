@@ -46,7 +46,11 @@ import {
   handleRegisterMaskRaster,
   handleReleaseMaskRaster,
 } from './raw-pipeline.mask-raster-handler';
-import { handleNativeDetail, closeNativeDetail } from './raw-pipeline.native-detail-handler';
+import {
+  handleNativeDetail,
+  closeNativeDetail,
+  nativeDetailEpoch,
+} from './raw-pipeline.native-detail-handler';
 import { createSerialMessageQueue } from './raw-pipeline.message-queue';
 import {
   handleOpenSession,
@@ -90,16 +94,24 @@ import {
 void ensureReady();
 
 const enqueueMessage = createSerialMessageQueue();
-// Serial queue (#4676): close/set-film-lut must not overtake an in-flight open; `lens-profile-restored` bypasses it or its own restore deadlocks.
+// Serial queue (#4676): close/set-film-lut must not overtake an in-flight open; `lens-profile-restored` bypasses it or its own restore deadlocks, and `close-native-detail` bypasses it so the epoch bump cancels a queued or in-flight render instead of landing behind it.
 addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
   if (req.type === 'lens-profile-restored') return lensProfileRestored(req.id);
+  if (req.type === 'close-native-detail') return closeNativeDetail();
+  if (req.type === 'native-detail') {
+    const dispatchedEpoch = nativeDetailEpoch();
+    return enqueueMessage(() => handleMessage(req, dispatchedEpoch));
+  }
   enqueueMessage(() => handleMessage(req));
 });
 
 // One case per request kind; the dispatch's complexity is the kind count.
 // fallow-ignore-next-line complexity
-async function handleMessage(req: WorkerRequest): Promise<void> {
+async function handleMessage(
+  req: WorkerRequest,
+  nativeDetailDispatchedEpoch?: number,
+): Promise<void> {
   releaseRetainedCpuBefore(req);
   if (req.type === 'import-lens-profile') {
     await importLensProfile(req);
@@ -110,10 +122,7 @@ async function handleMessage(req: WorkerRequest): Promise<void> {
   if ('xmp' in req) await restoreLensProfile(req.xmp ?? null);
   switch (req.type) {
     case 'native-detail':
-      await handleNativeDetail(req);
-      return;
-    case 'close-native-detail':
-      closeNativeDetail();
+      await handleNativeDetail(req, nativeDetailDispatchedEpoch);
       return;
     case 'decode':
       await handleLegacyDecode(req);
