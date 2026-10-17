@@ -1,6 +1,7 @@
 // AssetRenameFilenameTests.swift — AssetRef.fullFilename and
 // AssetRenameFilename.extensionChanged (#2842).
 
+import CoreImage
 import XCTest
 
 @testable import MapleCore
@@ -145,9 +146,12 @@ final class AssetRenameFilenameTests: XCTestCase {
 
     let session = EditSession(asset: AssetRef(url: oldURL))
     await session.loadSidecar()
+    session.scheduleDisplayPreviewPersist(
+      CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 64, height: 64)))
 
     await session.flushPendingSidecarWrite()
     await session.setSidecarWritesEnabled(false)
+    XCTAssertTrue(session.previewPersistence.hasPendingImage)
     // Simulate a gesture completed while the rename I/O is in flight; when the
     // rename fails and writes are re-enabled, this edit must still be persisted.
     session.beginEdit(kind: .adjustment, description: "Exposure")
@@ -162,8 +166,10 @@ final class AssetRenameFilenameTests: XCTestCase {
     }
 
     await session.flushPendingSidecarWrite()
+    await session.flushDisplayPreviewPersist()
     let (persistedModel, _) = try XMPParser.parse(data: Data(contentsOf: oldSidecarURL))
     XCTAssertEqual(persistedModel.exposure, 0.75, accuracy: 0.001)
+    XCTAssertFalse(session.previewPersistence.hasPendingImage)
   }
 
   @MainActor
