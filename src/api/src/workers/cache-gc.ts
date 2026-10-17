@@ -27,16 +27,11 @@
  * `targetVersion` bump re-renders each asset at the path-keyed name, and this
  * sweep reclaims what the old name left behind.
  *
- * Retired names (#4793) are migrated by RENAME, never regeneration, before
- * orphans are judged:
- *   - previews were briefly `<filename>.v<N>.<kind>`: the highest-N file
- *     becomes `<filename>.<kind>` when that name is missing, and every other
- *     versioned sibling is deleted.
- *   - thumbs were `<sha256_prefix16(filename)>[.v<N>].avif`: each live
- *     filename in the directory is hashed, its newest hashed AVIF becomes
- *     `<filename>.avif` when that name is missing, and every other hashed file
- *     — including one whose hash matches no live filename — is deleted.
- * A renamed file then goes through the normal orphan check under its new name.
+ * The names retired by #4793 — hashed thumbs `<sha256_prefix16(filename)>
+ * [.v<N>].<avif|jpg>` and versioned `<filename>.v<N>.<kind>` — are skipped
+ * entirely: never renamed, never deleted. Readers adopt the frozen `.v25` name
+ * by rename on a miss (`fs/legacy-derivative.ts`); the sweep itself no longer
+ * migrates anything (#4928).
  *
  * No migration sentinel:
  *   The set of orphans changes continuously (a re-render at a new size, a
@@ -56,12 +51,7 @@ import * as path from 'node:path';
 import { liveLocationsByDirectory } from '../db/repos/assets.sweeps.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { sourceFilenameForPreviewCacheName } from '../fs/preview-cache-cleanup.ts';
-import {
-  moveNoClobber,
-  parseVersionedDerivativeName,
-  type NoClobberMove,
-} from '../fs/legacy-derivative.ts';
-import { sha256Prefix16 } from '../fs/xmp.ts';
+import { parseVersionedDerivativeName } from '../fs/legacy-derivative.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('cache-gc');
@@ -90,7 +80,7 @@ const RECENT_THRESHOLD_MS = 60 * 1000;
 const FAIL_THRESHOLD = 3;
 
 /** A retired hashed thumb: `<sha256_prefix16(filename)>[.v<N>].<avif|jpg>`. */
-const HASHED_THUMB_RE = /^([0-9a-f]{16})(?:\.v([1-9][0-9]*))?\.(avif|jpg)$/;
+const RETIRED_HASHED_THUMB_RE = /^[0-9a-f]{16}(?:\.v[1-9][0-9]*)?\.(?:avif|jpg)$/;
 
 /** A retired content-addressed `<maple_id>` thumb (module doc). */
 const MAPLE_ID_THUMB_RE = /^[0-9a-f]{32}\.(?:avif|jpg)$/;
@@ -127,7 +117,6 @@ interface SweepCounters {
   skippedRecent: number;
   recentFailErrno: string | null;
   recentFailCount: number;
-  renamed: number;
 }
 
 /** Per-pass, read-mostly context threaded through `walk`/`sweepThumbsDir`/
@@ -237,10 +226,6 @@ async function unlinkSafe(ctx: SweepContext, p: string): Promise<boolean> {
   }
 }
 
-/** Shared readdir → filter-by-extension → TOCTOU-recency-guard → per-entry
- * orphan decision. Thumbs and previews differ only in which extensions they
- * accept and how they judge one entry orphaned — everything else about
- * walking a cache directory is identical between them. */
 /**
  * LEGACY state cleanup: reap `.meta` sidecars whose artefact is gone.
  *
@@ -299,137 +284,19 @@ async function deleteUnlessRecent(ctx: SweepContext, fullPath: string): Promise<
   await unlinkSafe(ctx, `${fullPath}.v`);
 }
 
-/** Move a legacy file onto its new name, never replacing a file a stage
- * published after this directory was listed. */
-async function adoptQuiet(
-  ctx: SweepContext,
-  cacheDir: string,
-  from: string,
-  to: string,
-): Promise<NoClobberMove> {
-  const outcome = await moveNoClobber(path.join(cacheDir, from), path.join(cacheDir, to));
-  if (outcome === 'moved') ctx.counters.renamed += 1;
-  if (outcome === 'failed') log.warn({ cacheDir, from, to }, 'adopting legacy derivative failed');
-  return outcome;
+/** A #4793-retired derivative name the sweep leaves untouched (module doc). */
+function isRetiredDerivativeName(name: string): boolean {
+  return RETIRED_HASHED_THUMB_RE.test(name) || parseVersionedDerivativeName(name) !== null;
 }
 
-/** Group a directory's `<name>.v<N>.<kind>` files by their unversioned name,
- * highest N first. */
-function versionedSiblings(names: readonly string[]): Map<string, string[]> {
-  const groups = new Map<string, { name: string; version: number }[]>();
-  for (const name of names) {
-    const parsed = parseVersionedDerivativeName(name);
-    if (!parsed) continue;
-    groups.set(parsed.unversioned, [
-      ...(groups.get(parsed.unversioned) ?? []),
-      { name, version: parsed.version },
-    ]);
-  }
-  return new Map(
-    [...groups].map(([unversioned, files]) => [
-      unversioned,
-      files.toSorted((a, b) => b.version - a.version).map((file) => file.name),
-    ]),
-  );
-}
-
-/**
- * Migrate the retired pipeline-versioned names in one cache directory (module
- * doc) and return the unversioned file names left for the orphan check. A
- * versioned file whose rename or delete didn't happen is never handed to the
- * orphan check, so a failed migration can't turn into a deletion of the only
- * copy of a derivative.
- */
-async function migrateVersionedNames(
-  ctx: SweepContext,
-  cacheDir: string,
-  names: readonly string[],
-): Promise<string[]> {
-  const present = new Set(names.filter((name) => parseVersionedDerivativeName(name) === null));
-  for (const [unversioned, [highest, ...older]] of versionedSiblings(names)) {
-    const alreadyPresent = present.has(unversioned);
-    const outcome = alreadyPresent
-      ? 'exists'
-      : await adoptQuiet(ctx, cacheDir, highest, unversioned);
-    if (outcome !== 'failed') present.add(unversioned);
-    const stale = outcome === 'exists' ? [highest, ...older] : outcome === 'moved' ? older : [];
-    ctx.counters.scanned += stale.length;
-    for (const name of stale) await deleteUnlessRecent(ctx, path.join(cacheDir, name));
-  }
-  return [...present];
-}
-
-interface HashedThumb {
-  name: string;
-  version: number;
-  avif: boolean;
-}
-
-/** Group a directory's retired hashed thumbs by their 16-hex key. */
-function hashedThumbGroups(names: readonly string[]): Map<string, HashedThumb[]> {
-  const groups = new Map<string, HashedThumb[]>();
-  for (const name of names) {
-    const match = HASHED_THUMB_RE.exec(name);
-    if (!match) continue;
-    const file = { name, version: Number(match[2] ?? 0), avif: match[3] === 'avif' };
-    groups.set(match[1], [...(groups.get(match[1]) ?? []), file]);
-  }
-  return groups;
-}
-
-/** Rename one key's newest hashed AVIF to `target` when `target` is missing,
- * then delete every other file in the group. With no live `target` the whole
- * group is stale. A file whose rename failed is kept. */
-async function migrateHashedGroup(
-  ctx: SweepContext,
-  cacheDir: string,
-  files: readonly HashedThumb[],
-  target: string | null,
-  present: Set<string>,
-): Promise<void> {
-  const newest = files.filter((file) => file.avif).toSorted((a, b) => b.version - a.version)[0];
-  const attempt = target !== null && newest !== undefined && !present.has(target);
-  const outcome = attempt ? await adoptQuiet(ctx, cacheDir, newest.name, target) : null;
-  if (target !== null && (outcome === 'moved' || outcome === 'exists')) present.add(target);
-  const keep = outcome === 'moved' || outcome === 'failed' ? newest : undefined;
-  const stale = files.filter((file) => file !== keep);
-  ctx.counters.scanned += stale.length;
-  for (const file of stale) await deleteUnlessRecent(ctx, path.join(cacheDir, file.name));
-}
-
-/**
- * Migrate the retired hashed thumb names in one directory (module doc) and
- * return the file names left for the orphan check. Without a resolvable
- * library there is no live set to map hashes back to filenames, so nothing is
- * renamed or deleted. A hashed file whose rename failed is never handed on.
- */
-async function migrateHashedThumbs(
-  ctx: SweepContext,
-  cacheDir: string,
-  names: readonly string[],
-  liveNames: ReadonlySet<string>,
-): Promise<string[]> {
-  if (ctx.libraryId === null) return [...names];
-  const present = new Set(names.filter((name) => !HASHED_THUMB_RE.test(name)));
-  const liveByHash = new Map([...liveNames].map((live) => [sha256Prefix16(live), live]));
-  for (const [hash, files] of hashedThumbGroups(names)) {
-    const live = liveByHash.get(hash);
-    await migrateHashedGroup(
-      ctx,
-      cacheDir,
-      files,
-      live === undefined ? null : `${live}.avif`,
-      present,
-    );
-  }
-  return [...present];
-}
-
+/** Shared readdir → filter-by-extension → TOCTOU-recency-guard → per-entry
+ * orphan decision. Thumbs and previews differ only in which extensions they
+ * accept and how they judge one entry orphaned — everything else about
+ * walking a cache directory is identical between them. */
 async function sweepCacheDir(
   ctx: SweepContext,
   cacheDir: string,
   allowedExts: ReadonlySet<string>,
-  migrate: (names: readonly string[]) => Promise<string[]>,
   isOrphan: (entryName: string) => boolean,
 ): Promise<void> {
   let entries: Dirent[];
@@ -440,8 +307,9 @@ async function sweepCacheDir(
   }
   const cacheFiles = entries
     .filter((entry) => entry.isFile() && allowedExts.has(path.extname(entry.name)))
-    .map((entry) => entry.name);
-  for (const name of await migrate(cacheFiles)) {
+    .map((entry) => entry.name)
+    .filter((name) => !isRetiredDerivativeName(name));
+  for (const name of cacheFiles) {
     ctx.counters.scanned += 1;
     // Check the in-memory orphan verdict BEFORE touching the filesystem
     // again — a known/live file (the common case) never needs a stat call
@@ -458,12 +326,8 @@ async function sweepThumbsDir(ctx: SweepContext, cacheDir: string, relDir: strin
   // `knownPreviewFilenames` is really just "live filenames per directory" —
   // the live set for thumbs too, not previews specifically.
   const liveNames = ctx.knownPreviewFilenames.get(relDir) ?? new Set<string>();
-  await sweepCacheDir(
-    ctx,
-    cacheDir,
-    THUMB_EXTS,
-    (names) => migrateHashedThumbs(ctx, cacheDir, names, liveNames),
-    (name) => isOrphanThumb(ctx.libraryId, liveNames, name),
+  await sweepCacheDir(ctx, cacheDir, THUMB_EXTS, (name) =>
+    isOrphanThumb(ctx.libraryId, liveNames, name),
   );
 }
 
@@ -476,12 +340,8 @@ async function sweepPreviewsDir(
   relDir: string,
 ): Promise<void> {
   const liveNames = ctx.knownPreviewFilenames.get(relDir) ?? new Set<string>();
-  await sweepCacheDir(
-    ctx,
-    cacheDir,
-    PREVIEW_EXTS,
-    (names) => migrateVersionedNames(ctx, cacheDir, names),
-    (name) => isOrphanPreview(ctx.libraryId, liveNames, name),
+  await sweepCacheDir(ctx, cacheDir, PREVIEW_EXTS, (name) =>
+    isOrphanPreview(ctx.libraryId, liveNames, name),
   );
 }
 
@@ -531,7 +391,6 @@ export async function sweepOrphanedCaches(libraryRoot: string): Promise<SweepRes
       skippedRecent: 0,
       recentFailErrno: null,
       recentFailCount: 0,
-      renamed: 0,
     },
     now: Date.now(),
     knownPreviewFilenames,
@@ -547,12 +406,6 @@ export async function sweepOrphanedCaches(libraryRoot: string): Promise<SweepRes
     log.error(
       { err: err instanceof Error ? err.message : err, ...ctx.counters },
       'cache-gc sweep aborted with partial result',
-    );
-  }
-  if (ctx.counters.renamed > 0) {
-    log.info(
-      { libraryRoot, renamed: ctx.counters.renamed },
-      'cache-gc renamed versioned derivatives',
     );
   }
   return {

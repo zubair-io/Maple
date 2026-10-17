@@ -65,7 +65,7 @@ describe('cache-gc → mirror', () => {
       insertLiveAsset(live.db, libraryId, 'live.dng');
 
       const liveRel = path.join('.maple', 'thumbs', 'live.dng.avif');
-      const orphanRel = path.join('.maple', 'thumbs', `${'0'.repeat(16)}.avif`);
+      const orphanRel = path.join('.maple', 'thumbs', 'gone.dng.avif');
 
       for (const rel of [liveRel, orphanRel]) {
         await writeAged(path.join(primary, rel), 'avif-bytes');
