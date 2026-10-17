@@ -110,6 +110,25 @@ export async function resolveRealPath(filePath: string): Promise<string> {
   return sameFile ? real : real.slice(0, -UNLINKED_INODE_SUFFIX.length);
 }
 
+/** Real path of `filePath`, resolving through the deepest existing ancestor when
+ * the leaf (or more) does not exist yet, so a not-yet-written file under a
+ * symlinked directory still canonicalises to where it will really land. */
+export async function resolveRealPathThroughAncestors(filePath: string): Promise<string> {
+  const resolved = path.resolve(filePath);
+  const missing: string[] = [];
+  let probe = resolved;
+  while (true) {
+    try {
+      return path.join(await resolveRealPath(probe), ...missing.reverse());
+    } catch {
+      const parent = path.dirname(probe);
+      if (parent === probe) return resolved;
+      missing.push(path.basename(probe));
+      probe = parent;
+    }
+  }
+}
+
 /**
  * Check whether `filePath` is under one of the registered roots (or any
  * MAPLE_ROOTS env entries). Returns the real (resolved) path on success.

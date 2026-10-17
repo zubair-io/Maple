@@ -1,4 +1,4 @@
-import { expect, spyOn, test } from 'bun:test';
+import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
 import * as nativeFs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -8,6 +8,17 @@ import * as mirroredFs from './mirrored.ts';
 import { deleteSidecar, writeSidecarAtomic, writeSidecarCreateOnly } from './sidecar-io.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
 import { preparePrimarySidecarWrite } from './xmp.ts';
+
+// The sidecar jail consults MAPLE_ROOTS / the library list (#4749); this suite
+// mocks the fs authorizer and has no database, so declare the temp dir as a root.
+const previousRoots = process.env.MAPLE_ROOTS;
+beforeAll(() => {
+  process.env.MAPLE_ROOTS = os.tmpdir();
+});
+afterAll(() => {
+  if (previousRoots === undefined) delete process.env.MAPLE_ROOTS;
+  else process.env.MAPLE_ROOTS = previousRoots;
+});
 
 test('cancellation releases sidecar writes while filesystem authorization is still pending', async () => {
   const destinations = ['atomic.xmp', 'create-only.xmp', 'delete.xmp', 'prepare.xmp'].map((name) =>
