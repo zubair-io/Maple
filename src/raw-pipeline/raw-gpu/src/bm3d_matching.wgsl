@@ -12,7 +12,7 @@ var<workgroup> accepted: array<u32, CANDIDATES>;
 
 @compute @workgroup_size(PATCH)
 fn main(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocation_index) lane: u32) {
-    let reference = vec2<u32>(min(group.x * BM3D_STRIDE, params.width - BM3D_BLOCK), params.reference_y);
+    let reference = min(vec2<u32>((group.x % params.columns) * BM3D_STRIDE, params.reference_y + (group.x / params.columns) * BM3D_STRIDE), vec2<u32>(params.width, params.height) - vec2<u32>(BM3D_BLOCK));
     let location = reference + vec2<u32>(lane % BM3D_BLOCK, lane / BM3D_BLOCK);
     let value = luma[location.y * params.width + location.x];
     reference_patch[lane] = value;

@@ -28,10 +28,14 @@ pub struct GpuBm3dMatchRow {
 
 impl GpuBm3dMatchRow {
     pub(crate) fn new(ctx: &GpuContext, width: u32) -> Self {
+        Self::new_batch(ctx, width, 1)
+    }
+
+    pub(crate) fn new_batch(ctx: &GpuContext, width: u32, rows: u32) -> Self {
         assert!(width >= BLOCK as u32);
         let columns = (width - BLOCK as u32).div_ceil(STRIDE as u32) + 1;
         let words = std::mem::size_of::<GpuBm3dMatches>() as u32 / 4;
-        let buffer = alloc_plane(ctx, columns * words, 1, "bm3d-match-row");
+        let buffer = alloc_plane(ctx, columns * rows * words, 1, "bm3d-match-rows");
         Self { buffer, columns }
     }
     /// Qualification readback only; the resident stage consumes the buffer.
@@ -70,6 +74,19 @@ pub(crate) fn encode_into(
     reference_y: u32,
     row: &GpuBm3dMatchRow,
 ) {
+    encode_batch_into(ctx, encoder, luma, threshold, dims, reference_y, 1, row);
+}
+
+pub(crate) fn encode_batch_into(
+    ctx: &GpuContext,
+    encoder: &mut wgpu::CommandEncoder,
+    luma: &wgpu::Buffer,
+    threshold: &wgpu::Buffer,
+    dims: (u32, u32),
+    reference_y: u32,
+    rows: u32,
+    row: &GpuBm3dMatchRow,
+) {
     assert!(dims.0 >= BLOCK as u32 && dims.1 >= BLOCK as u32);
     assert!(reference_y <= dims.1 - BLOCK as u32);
     let columns = row.columns;
@@ -92,7 +109,7 @@ pub(crate) fn encode_into(
     let mut pass = encoder.begin_compute_pass(&Default::default());
     pass.set_pipeline(pipeline);
     pass.set_bind_group(0, resources.bind_group.as_ref(), &[]);
-    pass.dispatch_workgroups(columns, 1, 1);
+    pass.dispatch_workgroups(columns * rows, 1, 1);
 }
 
 #[cfg(test)]

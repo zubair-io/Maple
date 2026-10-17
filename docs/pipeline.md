@@ -265,8 +265,11 @@ See `test-fixtures/qualification/color-gpu-bm3d-filtering-4629.md`. The complete
 high-frequency reinjection and RGB reconstruction, with constants generated from
 the CPU. Its full RGB output passes direct CPU and physical-camera comparisons;
 see `test-fixtures/qualification/color-gpu-bm3d-rgb-4629.md`. It remains staged:
-the warm 512px release diagnostic takes about 135ms, including final readback,
-so performance repair and live-prefix qualification remain before host adoption.
+eight-row batching reduces the warm 512px release diagnostic from about 135ms
+to 43ms, including final readback. The 2048px probe still takes about 708ms, so
+performance repair and live-prefix qualification remain before host adoption.
+Batch scratch respects device limits and retains exact CPU accumulation order;
+see `test-fixtures/qualification/color-gpu-bm3d-batching-4629.md`.
 
 ### Ordered local mask groups (#3408)
 

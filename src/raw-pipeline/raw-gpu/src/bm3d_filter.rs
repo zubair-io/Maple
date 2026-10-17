@@ -17,9 +17,13 @@ impl GpuBm3dFilteredRow {
     pub const RECORD_WORDS: usize = 4 + GROUP_MAX * BLOCK * BLOCK;
 
     pub(crate) fn new(ctx: &GpuContext, columns: u32) -> Self {
+        Self::new_batch(ctx, columns, 1)
+    }
+
+    pub(crate) fn new_batch(ctx: &GpuContext, columns: u32, rows: u32) -> Self {
         let buffer = alloc_plane(
             ctx,
-            columns * 3 * Self::RECORD_WORDS as u32,
+            columns * rows * 3 * Self::RECORD_WORDS as u32,
             1,
             "bm3d-filter-row",
         );
@@ -63,6 +67,19 @@ pub(crate) fn encode_into(
     dims: (u32, u32),
     row: &GpuBm3dFilteredRow,
 ) {
+    encode_batch_into(ctx, encoder, noisy, guide, matches, dims, 1, row);
+}
+
+pub(crate) fn encode_batch_into(
+    ctx: &GpuContext,
+    encoder: &mut wgpu::CommandEncoder,
+    noisy: &wgpu::Buffer,
+    guide: Option<&wgpu::Buffer>,
+    matches: &GpuBm3dMatchRow,
+    dims: (u32, u32),
+    rows: u32,
+    row: &GpuBm3dFilteredRow,
+) {
     assert_eq!(matches.columns, row.columns);
     let pipeline = ctx.bm3d_filter_pipeline.get_or_init(|| {
         let source = format!(
@@ -83,5 +100,5 @@ pub(crate) fn encode_into(
     let mut pass = encoder.begin_compute_pass(&Default::default());
     pass.set_pipeline(pipeline);
     pass.set_bind_group(0, resources.bind_group.as_ref(), &[]);
-    pass.dispatch_workgroups(matches.columns, 3, 1);
+    pass.dispatch_workgroups(matches.columns * rows, 3, 1);
 }

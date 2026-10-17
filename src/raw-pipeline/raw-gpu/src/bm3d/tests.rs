@@ -2,10 +2,50 @@ use super::*;
 use crate::{ChainRunner, GpuImage};
 
 #[test]
+#[ignore = "local GPU encode/submit/wait diagnostic"]
+fn full_stage_phase_timing() {
+    let ctx = GpuContext::new_blocking().expect("required GPU adapter");
+    let size = 512;
+    let values: Vec<f32> = (0..size * size)
+        .flat_map(|i| [0.18 + ((i * 31) % 127) as f32 / 1000., 0.22, 0.07, 0.37])
+        .collect();
+    let source = GpuImage::upload(&ctx, &values, size, size);
+    let output = GpuImage::upload(&ctx, &vec![0.; values.len()], size, size);
+    for iteration in 0..6 {
+        ctx.frame_pool.borrow_mut().begin_frame(4629);
+        let start = std::time::Instant::now();
+        let mut encoder = ctx.device.create_command_encoder(&Default::default());
+        Bm3dPass { strength: 25. }.encode(
+            &ctx,
+            &mut encoder,
+            &source.buffer,
+            &output.buffer,
+            source.dims(),
+        );
+        let encoded = start.elapsed();
+        ctx.queue.submit(Some(encoder.finish()));
+        let submitted = start.elapsed();
+        ctx.device.poll(wgpu::Maintain::Wait);
+        let finished = start.elapsed();
+        let result = output.read_back_blocking(&ctx);
+        let read = start.elapsed();
+        ctx.frame_pool.borrow_mut().end_frame();
+        assert!(result.iter().all(|v| v.is_finite()));
+        eprintln!(
+            "BM3D phase iteration{iteration}: encode_ms={} submit_ms={} wait_ms={} readback_ms={}",
+            encoded.as_secs_f64() * 1000.,
+            (submitted - encoded).as_secs_f64() * 1000.,
+            (finished - submitted).as_secs_f64() * 1000.,
+            (read - finished).as_secs_f64() * 1000.
+        );
+    }
+}
+
+#[test]
 #[ignore = "local GPU timing diagnostic, not a live-frame performance gate"]
 fn full_stage_warm_timing() {
     let ctx = GpuContext::new_blocking().expect("required GPU adapter");
-    for size in [64, 128, 256, 512] {
+    for size in [64, 128, 256, 512, 1024, 2048] {
         let values: Vec<f32> = (0..size * size)
             .flat_map(|i| [0.18 + ((i * 31) % 127) as f32 / 1000., 0.22, 0.07, 0.37])
             .collect();

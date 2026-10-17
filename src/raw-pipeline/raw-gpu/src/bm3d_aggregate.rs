@@ -3,7 +3,7 @@
 //! column/member contributions in the same order, without float atomics.
 
 use crate::{
-    bm3d_matching::constants::{BLOCK, SEARCH_HALF},
+    bm3d_matching::constants::{BLOCK, SEARCH_HALF, STRIDE},
     context_pipelines_helpers::compile_source_entry,
     spatial::{alloc_rgba, encode_simple, Plane},
     GpuBm3dFilteredRow, GpuBm3dMatchRow, GpuContext,
@@ -33,18 +33,20 @@ impl GpuBm3dAccumulator {
     }
 }
 
-pub(crate) fn encode_bm3d_aggregate_row(
+pub(crate) fn encode_bm3d_aggregate_rows(
     ctx: &GpuContext,
     encoder: &mut wgpu::CommandEncoder,
     matches: &GpuBm3dMatchRow,
     filtered: &GpuBm3dFilteredRow,
     accumulator: &GpuBm3dAccumulator,
     reference_y: u32,
+    rows: u32,
 ) {
     assert_eq!(matches.columns, filtered.columns);
     let (width, height) = accumulator.dims;
     let first_y = reference_y.saturating_sub(SEARCH_HALF as u32);
-    let last_y = (reference_y + SEARCH_HALF as u32 + BLOCK as u32).min(height);
+    let last_reference = (reference_y + (rows - 1) * STRIDE as u32).min(height - BLOCK as u32);
+    let last_y = (last_reference + SEARCH_HALF as u32 + BLOCK as u32).min(height);
     let count = width * (last_y - first_y);
     let pipeline = ctx.bm3d_aggregate_pipeline.get_or_init(|| {
         let source = format!(
@@ -59,7 +61,16 @@ pub(crate) fn encode_bm3d_aggregate_row(
         ctx,
         encoder,
         pipeline,
-        bytemuck::cast_slice(&[width, count, first_y, matches.columns]),
+        bytemuck::cast_slice(&[
+            width,
+            count,
+            first_y,
+            matches.columns,
+            reference_y,
+            rows,
+            height,
+            0,
+        ]),
         &[
             &matches.buffer,
             &filtered.buffer,

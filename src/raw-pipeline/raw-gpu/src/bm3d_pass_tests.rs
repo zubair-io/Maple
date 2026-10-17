@@ -2,6 +2,109 @@ use super::*;
 use crate::{pool_data_storage, GpuImage};
 
 #[test]
+fn batch_rows_respect_storage_and_dispatch_limits() {
+    let width = 512;
+    let columns = (width - BLOCK as u32).div_ceil(STRIDE as u32) + 1;
+    let bytes = columns * 3 * GpuBm3dFilteredRow::RECORD_WORDS as u32 * 4;
+    let limits = wgpu::Limits::downlevel_defaults();
+    assert_eq!(rows_per_batch(width, &limits), 8);
+    assert_eq!(
+        rows_per_batch(
+            width,
+            &wgpu::Limits {
+                max_storage_buffer_binding_size: bytes * 3,
+                ..limits.clone()
+            }
+        ),
+        3
+    );
+    assert_eq!(
+        rows_per_batch(
+            width,
+            &wgpu::Limits {
+                max_compute_workgroups_per_dimension: columns * 2,
+                ..limits.clone()
+            }
+        ),
+        2
+    );
+    assert_eq!(
+        rows_per_batch(
+            width,
+            &wgpu::Limits {
+                max_storage_buffer_binding_size: bytes,
+                ..limits
+            }
+        ),
+        1
+    );
+}
+
+#[test]
+fn reference_row_batches_are_bit_identical_to_single_row_accumulation() {
+    let ctx = GpuContext::new_blocking().expect("required GPU adapter");
+    for (w, h) in [(8, 8), (23, 19), (29, 47), (41, 59), (73, 83)] {
+        let values: Vec<f32> = (0..w * h)
+            .flat_map(|i| {
+                [
+                    0.18 + ((i * 31) % 127) as f32 / 1000.,
+                    i as f32 / 10000.,
+                    -0.07,
+                    0.37,
+                ]
+            })
+            .collect();
+        let source = GpuImage::upload(&ctx, &values, w, h);
+        let basic = GpuImage::upload(&ctx, &vec![0.; values.len()], w, h);
+        let output = GpuImage::upload(&ctx, &vec![0.; values.len()], w, h);
+        let run = |rows| {
+            ctx.frame_pool.borrow_mut().begin_frame(4629);
+            let parameters = pool_data_storage(
+                &ctx,
+                bytemuck::cast_slice(&[f32::INFINITY, 0.2, 0.36, 0.36]),
+                "bm3d-batch-parameters",
+            );
+            let mut encoder = ctx.device.create_command_encoder(&Default::default());
+            encode_with_rows(
+                &ctx,
+                &mut encoder,
+                &source.buffer,
+                None,
+                &parameters,
+                &basic.buffer,
+                (w, h),
+                rows,
+            );
+            encode_with_rows(
+                &ctx,
+                &mut encoder,
+                &source.buffer,
+                Some(&basic.buffer),
+                &parameters,
+                &output.buffer,
+                (w, h),
+                rows,
+            );
+            ctx.queue.submit(Some(encoder.finish()));
+            let results = [
+                basic.read_back_blocking(&ctx),
+                output.read_back_blocking(&ctx),
+            ];
+            ctx.frame_pool.borrow_mut().end_frame();
+            results.map(|values| values.into_iter().map(f32::to_bits).collect::<Vec<_>>())
+        };
+        let single = run(1);
+        for rows in [2, 3, 8] {
+            assert_eq!(single, run(rows), "{w}x{h} batch{rows}");
+            eprintln!(
+                "BM3D batch exact {w}x{h} rows{rows}: {} channels including alpha",
+                w * h * 4 * 2
+            );
+        }
+    }
+}
+
+#[test]
 fn warm_two_pass_denoise_reuses_resources_and_clears_its_accumulators() {
     let ctx = GpuContext::new_blocking().expect("required GPU adapter");
     let values: Vec<f32> = (0..23 * 19)
