@@ -24,9 +24,10 @@
 //! `test-fixtures/references/manifest.json` alongside it.
 //!
 //! #4112 updates only this synthetic golden for the fixture's local
-//! sharpness 55: positive darkening continues past the unchanged amount-40
-//! gain. The old golden was reproduced exactly before the independently
-//! derived update; the tolerance and all ACR references stay unchanged.
+//! sharpness 55: above-default darkening approaches the local dark envelope.
+//! The previous golden passed on the unchanged parent. An independent f64
+//! gain oracle checks the composed result and every zero-mask pixel; the
+//! tolerance and all ACR references stay unchanged.
 //!
 //! # Tolerance
 //!
@@ -248,4 +249,89 @@ fn the_fixture_correction_is_confined_to_its_mask_and_is_not_vacuous() {
         delta > 0.05,
         "the mask centre moved by only {delta}; the golden would be vacuous"
     );
+}
+
+/// #4112: independently evaluate the gain law inside the composed local
+/// fixture before updating its synthetic golden. Gaussian convolution uses
+/// the existing, separately tested blur; the envelope and gain are f64 here.
+#[test]
+fn local_sharpness_matches_independent_envelope_oracle() {
+    use crate::stages::{blur, clarity, defringe, dehaze, noise_reduction, texture};
+    let layers = layers();
+    let a = &layers[0].adjustments;
+    assert_eq!(a.sharpness, Some(55.0));
+    let mut actual = synthetic_scene();
+    let weights = super::apply_with_scope(&mut actual, &layers, &[], Some(0)).unwrap();
+    let mut point_layers = layers.clone();
+    let point = &mut point_layers[0].adjustments;
+    point.texture = None;
+    point.clarity = None;
+    point.dehaze = None;
+    point.sharpness = None;
+    point.luminance_noise = None;
+    point.defringe = None;
+    let mut base = synthetic_scene();
+    super::apply(&mut base, &point_layers, &[]);
+    let mut expected = base.clone();
+    texture::apply(&mut expected, a.texture.unwrap());
+    clarity::apply(&mut expected, a.clarity.unwrap());
+    dehaze::apply(&mut expected, a.dehaze.unwrap());
+    let luma: Vec<f32> = expected
+        .pixels
+        .iter()
+        .map(|p| 0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2])
+        .collect();
+    let blurred = blur::gaussian_blur_plane_sigma(&luma, W as usize, H as usize, 1.0);
+    for y in 0..H as usize {
+        for x in 0..W as usize {
+            let i = y * W as usize + x;
+            let li = luma[i] as f64;
+            let t = ((li - 0.0001) / 0.0003).clamp(0.0, 1.0);
+            let scale = 1.0
+                + t * t
+                    * (3.0 - 2.0 * t)
+                    * (((2.0 * li - blurred[i] as f64) / li.max(0.0001)).clamp(0.0, 4.0) - 1.0);
+            let gain = if scale >= 1.0 {
+                1.0 + 0.55 * (scale - 1.0)
+            } else {
+                let min = (y.saturating_sub(1)..=(y + 1).min(H as usize - 1))
+                    .flat_map(|ny| {
+                        luma[ny * W as usize + x.saturating_sub(1)
+                            ..=ny * W as usize + (x + 1).min(W as usize - 1)]
+                            .iter()
+                    })
+                    .copied()
+                    .fold(luma[i], f32::min) as f64;
+                let default = 1.0 - 0.4 * (1.0 - scale);
+                let floor = (min / li.max(0.0001)).max(0.0).min(default);
+                let headroom = default - floor;
+                floor + headroom * headroom / (headroom + 0.15 * (1.0 - scale))
+            };
+            expected.pixels[i] = expected.pixels[i].map(|v| (v as f64 * gain) as f32);
+        }
+    }
+    noise_reduction::apply_luminance(&mut expected, a.luminance_noise.unwrap(), None, 0);
+    defringe::apply(&mut expected, a.defringe.unwrap());
+    let mut zero_weights = 0;
+    for (i, &weight) in weights.iter().enumerate() {
+        if weight == 0.0 {
+            zero_weights += 1;
+            assert_eq!(actual.pixels[i], base.pixels[i]);
+            expected.pixels[i] = base.pixels[i];
+        } else {
+            for c in 0..3 {
+                expected.pixels[i][c] =
+                    base.pixels[i][c] + weight * (expected.pixels[i][c] - base.pixels[i][c]);
+            }
+        }
+    }
+    assert!(zero_weights > 2000);
+    let error = to_u16(&actual)
+        .iter()
+        .zip(to_u16(&expected))
+        .map(|(&a, b)| (i32::from(a) - i32::from(b)).abs())
+        .max()
+        .unwrap();
+    eprintln!("Independent envelope oracle: {error} counts; {zero_weights} exact unmasked pixels");
+    assert!(error <= 2);
 }

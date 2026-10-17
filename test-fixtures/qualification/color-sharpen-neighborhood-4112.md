@@ -47,10 +47,29 @@ stack; current main already passes this case at maximum ΔE2000 60.420009.
 This result repairs that regression, not an additional original-main failure.
 Original inputs and the frozen executable hashes are unchanged after comparison.
 
-All 18 full-resolution high-amount cases are being compared using the frozen
-corrected native-pair protocol. No full-corpus pass is claimed. The underlying
+All 18 full-resolution high-amount cases completed using the frozen corrected
+native-pair protocol: 14 pass and four retain failures (bias on test_0005,
+test_0011 and test_0012; max and bias on test_0014). Exact current-main
+comparisons for those four are running; no no-regression claim is made yet.
+No full-corpus pass is claimed. The underlying
 AMaZE candidate also has separately confirmed new `test_0007` Neutral/Auto
 baseline failures, so the combined stack remains unready to merge.
 
 Evidence, exact source patch, executable identity and replay script are in
 `/Volumes/Projects/maple-color-gate-20261015/sharpen-neighborhood-isolated/`.
+
+## Synthetic local-golden follow-up
+
+The complete core suite reported 2,829 passing tests, 103 declared ignores and
+one failure: the synthetic local spatial golden at authored sharpness 55.
+Its maximum 4,335-count difference is an intentional consequence of the new
+above-default gain. The committed parent golden is archived unchanged and
+passed the parent's complete 2,828-test core suite.
+
+An independent f64 envelope calculation, composed with the unchanged texture,
+clarity, dehaze, noise and defringe stages, agrees with the candidate within
+one 16-bit count. All 2,372 zero-mask pixels remain exactly unchanged.
+Only this Maple-generated synthetic golden was re-recorded; the existing
+128-count tolerance, all original sidecars and Adobe reference images stay
+unchanged. The four local-golden tests now pass, including the independent
+oracle. Complete platform suites are rerun on this follow-up.
