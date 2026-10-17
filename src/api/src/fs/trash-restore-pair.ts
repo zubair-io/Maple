@@ -68,6 +68,63 @@ async function stage(entry: StagedFile): Promise<Buffer | null> {
   });
 }
 
+function planPair(source: string, destination: string, sidecars: string[]): StagedFile[] {
+  const pairs = [
+    { source, destination, isSidecar: false },
+    ...sidecars.map((sidecar) => {
+      const target = sidecarRenameTarget(source, destination, sidecar);
+      if (!target) throw new Error(`restore: cannot pair sidecar ${sidecar}`);
+      return { source: sidecar, destination: target, isSidecar: true };
+    }),
+  ];
+  return pairs.map((pair) => ({
+    ...pair,
+    temporary: `${pair.destination}.tmp.${process.pid}-${randomBytes(8).toString('hex')}`,
+  }));
+}
+
+/** Claim every staged file exclusively, recording each published path. A
+ * losing claim, or an orphan sidecar appearing at the stem, returns false. */
+async function publishPair(
+  staged: StagedFile[],
+  destination: string,
+  published: string[],
+): Promise<boolean> {
+  // Recheck orphan sidecars after the potentially long RAW copy. Each
+  // publish is still exclusive, so the check is never overwrite permission.
+  if (await restoreDestinationOccupied(destination)) return false;
+  for (const [index, entry] of staged.entries()) {
+    if (!(await moveNoClobber(entry.temporary, entry.destination))) return false;
+    published.push(entry.destination);
+    if (index === 0 && (await listPairedSidecars(destination)).length > 0) return false;
+  }
+  return true;
+}
+
+/** After any source was removed, retain published copies even if a later
+ * ownership check fails: rollback would discard the only remaining bytes. A
+ * sidecar another trashed same-stem photo still uses stays in the trash. */
+async function removeSources(
+  staged: StagedFile[],
+  snapshots: Map<StagedFile, Buffer>,
+  sidecarClaimedInTrash: boolean,
+  beforeSourceDelete?: () => Promise<void>,
+): Promise<void> {
+  for (const entry of staged) {
+    await beforeSourceDelete?.();
+    const snapshot = snapshots.get(entry);
+    const removal = snapshot
+      ? settleCarriedSidecar(entry.source, entry.destination, snapshot, sidecarClaimedInTrash)
+      : fs.unlink(entry.source);
+    await removal.catch((error) => {
+      log.warn(
+        { source: entry.source, error: String(error) },
+        'restore: source delete failed after verified publication — duplicate retained',
+      );
+    });
+  }
+}
+
 /** Copy and verify the complete pair before publishing any of it. Claim the
  * primary with the existing no-clobber primitive, then claim every sidecar.
  * A losing claim rolls back only this attempt's files and retains ALL sources
@@ -79,21 +136,8 @@ export async function restoreFilePair(
   beforeSourceDelete?: () => Promise<void>,
   onVerified?: (destination: string) => Promise<void>,
 ): Promise<boolean> {
-  const sidecars = await listPairedSidecars(source);
-  const pairs = [
-    { source, destination, isSidecar: false },
-    ...sidecars.map((sidecar) => {
-      const target = sidecarRenameTarget(source, destination, sidecar);
-      if (!target) throw new Error(`restore: cannot pair sidecar ${sidecar}`);
-      return { source: sidecar, destination: target, isSidecar: true };
-    }),
-  ];
-  // A sidecar another trashed same-stem photo still uses stays in the trash.
+  const staged = planPair(source, destination, await listPairedSidecars(source));
   const sidecarClaimedInTrash = await sidecarStemClaimedBySibling(source);
-  const staged: StagedFile[] = pairs.map((pair) => ({
-    ...pair,
-    temporary: `${pair.destination}.tmp.${process.pid}-${randomBytes(8).toString('hex')}`,
-  }));
   const published: string[] = [];
   const snapshots = new Map<StagedFile, Buffer>();
   let committed = false;
@@ -103,34 +147,13 @@ export async function restoreFilePair(
       const snapshot = await stage(entry);
       if (snapshot) snapshots.set(entry, snapshot);
     }
-    // Recheck orphan sidecars after the potentially long RAW copy. Each
-    // publish is still exclusive, so the check is never overwrite permission.
-    if (await restoreDestinationOccupied(destination)) return false;
-    for (const [index, entry] of staged.entries()) {
-      if (!(await moveNoClobber(entry.temporary, entry.destination))) return false;
-      published.push(entry.destination);
-      if (index === 0 && (await listPairedSidecars(destination)).length > 0) return false;
-    }
+    if (!(await publishPair(staged, destination, published))) return false;
     await beforeSourceDelete?.();
     await onVerified?.(destination);
     committed = onVerified !== undefined;
     await beforeSourceDelete?.();
     committed = true;
-    for (const entry of staged) {
-      // After any source was removed, retain published copies even if a later
-      // ownership check fails: rollback would discard the only remaining bytes.
-      await beforeSourceDelete?.();
-      const snapshot = snapshots.get(entry);
-      const removal = snapshot
-        ? settleCarriedSidecar(entry.source, entry.destination, snapshot, sidecarClaimedInTrash)
-        : fs.unlink(entry.source);
-      await removal.catch((error) => {
-        log.warn(
-          { source: entry.source, error: String(error) },
-          'restore: source delete failed after verified publication — duplicate retained',
-        );
-      });
-    }
+    await removeSources(staged, snapshots, sidecarClaimedInTrash, beforeSourceDelete);
     return true;
   } finally {
     if (!committed) {
