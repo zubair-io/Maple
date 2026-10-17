@@ -627,7 +627,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         set.status = 201;
         return result;
       } catch (error) {
-        set.status = error instanceof UploadConflictError ? error.status : 500;
+        set.status = error instanceof UploadConflictError ? 409 : 500;
         return { error: error instanceof Error ? error.message : String(error) };
       }
     },
