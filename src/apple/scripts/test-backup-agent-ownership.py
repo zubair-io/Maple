@@ -1,4 +1,4 @@
-"""Test a built helper after Stop/destination changes during an ownership wait.
+"""Test a built helper with unchanged, stopped, and changed settings after a lock wait.
 
 Usage: python3 test-backup-agent-ownership.py HELPER BackupSettings.swift
 """
@@ -83,10 +83,17 @@ def run_case(helper, writer_template, directory, mode):
                 deadline = time.monotonic() + 2
                 while time.monotonic() < deadline:
                     if select.select([server], [], [], 0.01)[0]:
-                        raise AssertionError(
+                        assert mode == "unchanged", (
                             f"{mode}: stale helper continued into network resolution"
                         )
+                        print(
+                            "PASS unchanged: current helper continued after ownership"
+                        )
+                        return
                     if process.poll() is not None:
+                        assert mode != "unchanged", (
+                            "current helper exited without resuming"
+                        )
                         assert process.returncode == 0, process.communicate()[
                             1
                         ].decode()
@@ -116,7 +123,7 @@ def main():
             ["xcrun", "swiftc", str(source), str(swift), "-o", str(writer)], check=True
         )
         failures = []
-        for mode in ["stop", "change"]:
+        for mode in ["stop", "change", "unchanged"]:
             directory = root / mode
             directory.mkdir()
             try:
