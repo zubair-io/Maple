@@ -48,7 +48,7 @@ import {
 import { safeWriteAllowed } from '../fs/root';
 import { writeSidecarAtomic } from '../fs/sidecar-io';
 import { xmpVariantRoutes } from './xmp-variants';
-import { isMissingSidecar } from '../fs/sidecar-io';
+import { authorizeSidecarRead, isMissingSidecar } from '../fs/sidecar-io';
 import { writeXmpIfUnchanged } from '../fs/xmp-conditional';
 import { computeBodyETag } from '../runtime/http-etag';
 
@@ -149,8 +149,14 @@ export const xmpPathRoutes = new Elysia()
     '/api/xmp',
     async ({ sidecar, set }) => {
       set.headers['X-Maple-Xmp-Preconditions'] = 'content-etag-v1';
+      // The RAW path was authorized lexically; the sidecar itself must also
+      // resolve to an .xmp inside the roots, and is read from that resolved
+      // path so a symlink to the original or outside the jail cannot be
+      // followed (#4749).
+      const allowed = await authorizeSidecarRead(sidecar);
+      if (!allowed.ok) return status(403, { error: allowed.error ?? 'Sidecar path not allowed' });
       try {
-        const body = await fs.readFile(sidecar, 'utf-8');
+        const body = await fs.readFile(allowed.data ?? sidecar, 'utf-8');
         set.headers['Content-Type'] = 'application/xml';
         set.headers['ETag'] = computeBodyETag(body);
         return body;
