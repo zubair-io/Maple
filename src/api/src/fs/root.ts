@@ -139,9 +139,11 @@ export async function checkAllowed(filePath: string): Promise<OpResult<string>> 
     // Resolve symlinks to prevent directory traversal.
     real = await resolveRealPath(filePath);
   } catch {
-    // File might not exist yet (e.g., XMP to be written).
-    // Use path.resolve on the raw path.
-    real = path.resolve(filePath);
+    // Not written yet (a new XMP, a folder about to be created). A text-only
+    // resolve would miss a directory symlink higher up and authorize a write
+    // that lands outside the root (#4748), so canonicalise the deepest
+    // ancestor that does exist and append the missing tail to it.
+    real = await resolveRealPathThroughAncestors(filePath);
   }
 
   // Env-level roots take precedence.

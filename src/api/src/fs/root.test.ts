@@ -12,7 +12,13 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join, parse, sep } from 'node:path';
-import { getRegisteredRoots, registerRoot, safeWriteAllowed, unregisterRoot } from './root.ts';
+import {
+  checkAllowed,
+  getRegisteredRoots,
+  registerRoot,
+  safeWriteAllowed,
+  unregisterRoot,
+} from './root.ts';
 
 let originalRoots: string | undefined;
 const temporaryRoots: string[] = [];
@@ -134,6 +140,35 @@ describe('safeWriteAllowed', () => {
     const result = await safeWriteAllowed(join(allowedRoot, 'photo.xmp'));
     expect(result.ok).toBe(false);
     expect(result.data).toBeUndefined();
+  });
+
+  test('rejects a write whose missing parent sits under an escaping directory symlink (#4748)', async () => {
+    const fixture = await realpath(await mkdtemp(join(tmpdir(), 'maple-root-missing-escape-')));
+    temporaryRoots.push(fixture);
+    const allowedRoot = join(fixture, 'allowed');
+    const outside = join(fixture, 'outside');
+    await mkdir(allowedRoot);
+    await mkdir(outside);
+    await symlink(outside, join(allowedRoot, 'escape'));
+    process.env.MAPLE_ROOTS = allowedRoot;
+
+    const target = join(allowedRoot, 'escape', 'new-dir', 'photo.xmp');
+    expect((await safeWriteAllowed(target)).ok).toBe(false);
+    const direct = await checkAllowed(join(allowedRoot, 'escape', 'new-dir'));
+    expect(direct.ok).toBe(false);
+  });
+
+  test('resolves a missing path through an in-root directory symlink to its real location (#4748)', async () => {
+    const fixture = await realpath(await mkdtemp(join(tmpdir(), 'maple-root-missing-inside-')));
+    temporaryRoots.push(fixture);
+    await mkdir(join(fixture, 'real'));
+    await symlink(join(fixture, 'real'), join(fixture, 'alias'));
+    process.env.MAPLE_ROOTS = fixture;
+
+    expect(await checkAllowed(join(fixture, 'alias', 'new-dir', 'photo.xmp'))).toEqual({
+      ok: true,
+      data: join(fixture, 'real', 'new-dir', 'photo.xmp'),
+    });
   });
 
   test('resolves a permitted sidecar symlink to its target', async () => {
