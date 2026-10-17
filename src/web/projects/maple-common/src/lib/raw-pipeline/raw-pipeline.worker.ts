@@ -92,16 +92,10 @@ void ensureReady();
 // One case per request kind; the dispatch's complexity is the kind count.
 // fallow-ignore-next-line complexity
 const enqueueMessage = createSerialMessageQueue();
-// Every message runs on one serial queue (#4676) so a close/set-film-lut
-// cannot overtake an in-flight open still awaiting its lens restore.
-// `lens-profile-restored` bypasses it: a queued restore waits on that reply,
-// so queueing the reply behind the restore would deadlock.
+// Serial queue (#4676): close/set-film-lut must not overtake an in-flight open; `lens-profile-restored` bypasses it or its own restore deadlocks.
 addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
   const req = event.data;
-  if (req.type === 'lens-profile-restored') {
-    lensProfileRestored(req.id);
-    return;
-  }
+  if (req.type === 'lens-profile-restored') return lensProfileRestored(req.id);
   enqueueMessage(() => handleMessage(req));
 });
 
