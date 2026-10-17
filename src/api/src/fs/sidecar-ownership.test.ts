@@ -204,6 +204,22 @@ describe('trash', () => {
   });
 });
 
+describe('symlinked sidecars', () => {
+  test('a sidecar that is a symlink to the original is never copied into the destination', async () => {
+    const raw = await write('a/IMG_1.CR3', 'raw-bytes');
+    await fs.symlink(raw, abs('a/IMG_1.xmp'));
+    const outcome = await relocateFile({
+      sourceAbsPath: raw,
+      destAbsPath: abs('b/IMG_1.CR3'),
+      mode: 'move',
+      collision: 'auto-suffix',
+    });
+    expect(outcome.kind).toBe('relocated');
+    expect(await fs.exists(abs('b/IMG_1.xmp'))).toBe(false);
+    expect((await fs.lstat(abs('a/IMG_1.xmp'))).isSymbolicLink()).toBe(true);
+  });
+});
+
 describe('companions', () => {
   test('a same-stem companion that fails to copy keeps its claim on the source sidecar', async () => {
     const raw = await write('src/IMG_1.dng', 'pixels');
