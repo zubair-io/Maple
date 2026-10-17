@@ -42,6 +42,8 @@ all three without changing their assertions. Both logs are preserved.
 
 The GPU and binding runs use the same committed algorithm revision
 `afdc8ffb4f429c1899f27882244f5f6b8104d739`; source hashes remain unchanged.
+That revision is retained as `codex/qualification-robertson-afdc8ffb` for
+reproduction after the working branch is rebased.
 Native-host WASM tests do not claim browser-WebGPU execution.
 
 ## Remaining integration qualification
@@ -85,10 +87,17 @@ comparisons**. It uses the same frozen native-pair comparator and numerical
 budgets as the ongoing main run. Main's verified outputs will supply controls;
 no full main run is restarted. No physical failure is claimed as cleared yet.
 
-An early read-only comparison of the first three completed fixtures covers
-33 neutral baseline/WB cases. All 33 candidate PNG pixel arrays are exactly
-equal to main. This is a partial diagnostic, not the completed 220-comparison
-qualification; final whole-input audits remain pending with both runners.
+All **220 candidate PNG files** now have SHA-256 hashes identical to the
+corresponding frozen main outputs, proving identical pixels and metadata
+across the entire selected cohort. Each file's size and modification time
+remained stable during the audit. The frozen main renderer's source tree is
+also identical to current main `676c40a7db1121179b5fe08dd2332e7da8a1834a`.
+The per-file hashes and replay command are retained in
+`physical/current-main-png-identity.json` and
+`compare-robertson-main-outputs.py` in the evidence directory. This supersedes
+the earlier 33-case diagnostic. Budget comparisons and final whole-input
+audits remain pending with both runners; this does not claim a passing
+whole-corpus gate or any canonical failure cleared.
 
 Evidence, commands, frozen SDK source, source identities and the selected
 manifest are preserved under
