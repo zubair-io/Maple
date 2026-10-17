@@ -31,6 +31,7 @@ extension EditSession {
     let previous = sidecarUpdateTask
     sidecarUpdateTask = Task {
       await previous?.value
+      guard !self.sidecarWritesDisabled, !Task.isCancelled else { return }
       do {
         try await semantic.commitSemantic(
           model: model, culling: culling, action: action, label: label)

@@ -89,7 +89,7 @@ extension AppShell {
     Task { @MainActor in
       if let existingSession = sessions[asset.id] {
         await existingSession.flushPendingSidecarWrite()
-        existingSession.setSidecarWritesEnabled(false)
+        await existingSession.setSidecarWritesEnabled(false)
       }
       do {
         let newAsset = try await performRename(asset: asset, to: newFilename)
@@ -97,7 +97,7 @@ extension AppShell {
         renamingAssetID = nil
         renameError = nil
       } catch {
-        sessions[asset.id]?.setSidecarWritesEnabled(true)
+        await sessions[asset.id]?.setSidecarWritesEnabled(true)
         renameError = error.localizedDescription
       }
     }
@@ -197,8 +197,9 @@ extension AppShell {
       browseVM.selectedIDs.remove(oldID)
       browseVM.selectedIDs.insert(newAsset.id)
     }
-    sessions[oldID]?.setSidecarWritesEnabled(false)
-    sessions.removeValue(forKey: oldID)
+    if let departing = sessions.removeValue(forKey: oldID) {
+      Task { await departing.setSidecarWritesEnabled(false) }
+    }
     ensureSession(for: newAsset)
     if wasSelected {
       browseVM.selectedID = newAsset.id

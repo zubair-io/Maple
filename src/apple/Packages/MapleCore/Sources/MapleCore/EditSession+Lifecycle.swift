@@ -15,6 +15,7 @@ extension EditSession {
     let previous = sidecarUpdateTask
     sidecarUpdateTask = Task {
       await previous?.value
+      guard !self.sidecarWritesDisabled, !Task.isCancelled else { return }
       await store.update(model: model, culling: culling)
     }
   }
@@ -63,20 +64,29 @@ extension EditSession {
     // so the sidecar describes a recorded action, not a half-gesture.
     endEdit()
     guard let store = sidecarStore else { return }
-    await sidecarUpdateTask?.value
+    while let task = sidecarUpdateTask {
+      sidecarUpdateTask = nil
+      await task.value
+    }
     await store.flush()
   }
 
   /// Enable or disable sidecar/preview writes on this session (#4711).
   /// Call after `flushPendingSidecarWrite()` and before renaming the asset so
-  /// a late debounce timer or editor-exit teardown cannot resurrect the old
-  /// `<old-name>.xmp` on disk; re-enable if the rename fails.
-  public func setSidecarWritesEnabled(_ enabled: Bool) {
+  /// any in-flight sidecar or preview write finishes before the file moves and
+  /// no late debounce timer or editor-exit teardown can resurrect the old path;
+  /// re-enable if the rename fails.
+  public func setSidecarWritesEnabled(_ enabled: Bool) async {
     sidecarWritesDisabled = !enabled
-    if !enabled {
-      sidecarUpdateTask?.cancel()
+    guard !enabled else { return }
+    let store = workflow.selectedStore ?? primarySidecarStore
+    while let task = sidecarUpdateTask {
       sidecarUpdateTask = nil
-      previewPersistence.discardPendingImage()
+      task.cancel()
+      await task.value
     }
+    await store?.flush()
+    previewPersistence.discardPendingImage()
+    await previewPersistence.cancelAndJoin()
   }
 }

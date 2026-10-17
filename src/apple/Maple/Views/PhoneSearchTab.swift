@@ -172,10 +172,13 @@
       // while this tab is already alive — `.task(id:)` won't re-run since
       // `sessionKey` hasn't changed.
       .onChange(of: pendingSeed) { _, _ in applySeedIfNeeded() }
-      .onChange(of: Array(sessions.keys)) { _, _ in
-        guard let current = path.last?.asset, sessions[current.id] == nil,
+      .onChange(of: Set(sessions.keys)) { oldKeys, newKeys in
+        guard let current = path.last?.asset, !newKeys.contains(current.id),
           let stableID = current.stableID,
-          let renamed = sessions.values.first(where: { $0.asset.stableID == stableID })?.asset
+          let addedID = newKeys.subtracting(oldKeys).first(where: {
+            sessions[$0]?.asset.stableID == stableID
+          }),
+          let renamed = sessions[addedID]?.asset
         else { return }
         if let idx = previewAssets.firstIndex(where: { $0.id == current.id }) {
           previewAssets[idx] = renamed
