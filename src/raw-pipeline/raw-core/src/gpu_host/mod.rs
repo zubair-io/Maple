@@ -9,3 +9,5 @@ pub mod prefix;
 pub mod prepare;
 #[cfg(test)]
 mod prepare_tests;
+#[cfg(test)]
+mod sensor_gain_tests;

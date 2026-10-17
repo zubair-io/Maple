@@ -33,14 +33,19 @@ math and LinearRaw transfer behavior remain those of this branch's base.
   post-demosaic opcode implementation.
 - `cargo check` passes for all targets of `raw-core`, `raw-ffi`, `raw-wasm`
   and `maple-cli`, with GPU bindings and core test support enabled.
+- All three physical Pixel tests pass on the original `test_0015.dng`:
+  required-map decoding and saturation counts, native tile/vendor-warp
+  agreement, and the shared GPU upload prefix. The prefix equals the CPU
+  preparation exactly, differs when calibration is removed, and stays
+  unchanged when hot exposure, white-balance and saturation controls change.
+  This checks GPU host preparation, not end-to-end Metal shader parity.
 - Rust formatting, whitespace and file-headroom checks pass.
 
 ## Qualification still required
 
 This is a saved implementation checkpoint, not a ready PR or a claim that
-the physical Pixel failures are cleared. Run the two ignored tests on the
-original Pixel RAW, the independent saturation-mask oracle, full core/GPU
-and binding suites, and paired Pixel renders against the balanced-AMaZE
+the physical Pixel failures are cleared. Run the independent saturation-mask
+oracle, full core/GPU and binding suites, and paired Pixel renders against the balanced-AMaZE
 control. Complete the whole-corpus regression and performance checks before
 merging; preserve every input and numerical budget.
 
