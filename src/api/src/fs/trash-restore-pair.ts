@@ -7,6 +7,8 @@ import { workflowSidecarBase } from './workflow-sidecar-pairing';
 import { isVideoFilename } from '../indexer/media-types';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { child as childLogger } from '../log.ts';
+import { serializeSidecarWrite } from './sidecar-write-order.ts';
+import { sidecarStemClaimedBySibling, unlinkMovedSidecar } from './sidecar-ownership.ts';
 
 const log = childLogger('fs/trash-restore');
 
@@ -47,6 +49,23 @@ interface StagedFile {
   source: string;
   destination: string;
   temporary: string;
+  isSidecar: boolean;
+}
+
+/** Sidecars are read inside their save barrier so the later source unlink
+ * can tell whether a save landed after the snapshot (#4692). */
+async function stage(entry: StagedFile): Promise<Buffer | null> {
+  if (!entry.isSidecar) {
+    await fs.copyFile(entry.source, entry.temporary);
+    if (await filesIdentical(entry.source, entry.temporary)) return null;
+    throw new Error(`restore: copy verification failed: ${entry.source}`);
+  }
+  return serializeSidecarWrite(entry.source, async () => {
+    const snapshot = await fs.readFile(entry.source);
+    await fs.writeFile(entry.temporary, snapshot);
+    if (snapshot.equals(await fs.readFile(entry.temporary))) return snapshot;
+    throw new Error(`restore: copy verification failed: ${entry.source}`);
+  });
 }
 
 /** Copy and verify the complete pair before publishing any of it. Claim the
@@ -62,26 +81,27 @@ export async function restoreFilePair(
 ): Promise<boolean> {
   const sidecars = await listPairedSidecars(source);
   const pairs = [
-    { source, destination },
+    { source, destination, isSidecar: false },
     ...sidecars.map((sidecar) => {
       const target = sidecarRenameTarget(source, destination, sidecar);
       if (!target) throw new Error(`restore: cannot pair sidecar ${sidecar}`);
-      return { source: sidecar, destination: target };
+      return { source: sidecar, destination: target, isSidecar: true };
     }),
   ];
+  // A sidecar another trashed same-stem photo still uses stays in the trash.
+  const sidecarClaimedInTrash = await sidecarStemClaimedBySibling(source);
   const staged: StagedFile[] = pairs.map((pair) => ({
     ...pair,
     temporary: `${pair.destination}.tmp.${process.pid}-${randomBytes(8).toString('hex')}`,
   }));
   const published: string[] = [];
+  const snapshots = new Map<StagedFile, Buffer>();
   let committed = false;
   await fs.mkdir(path.dirname(destination), { recursive: true });
   try {
     for (const entry of staged) {
-      await fs.copyFile(entry.source, entry.temporary);
-      if (!(await filesIdentical(entry.source, entry.temporary))) {
-        throw new Error(`restore: copy verification failed: ${entry.source}`);
-      }
+      const snapshot = await stage(entry);
+      if (snapshot) snapshots.set(entry, snapshot);
     }
     // Recheck orphan sidecars after the potentially long RAW copy. Each
     // publish is still exclusive, so the check is never overwrite permission.
@@ -99,8 +119,13 @@ export async function restoreFilePair(
     for (const entry of staged) {
       // After any source was removed, retain published copies even if a later
       // ownership check fails: rollback would discard the only remaining bytes.
+      if (entry.isSidecar && sidecarClaimedInTrash) continue;
       await beforeSourceDelete?.();
-      await fs.unlink(entry.source).catch((error) => {
+      const snapshot = snapshots.get(entry);
+      const removal = snapshot
+        ? unlinkMovedSidecar(entry.source, entry.destination, snapshot)
+        : fs.unlink(entry.source);
+      await removal.catch((error) => {
         log.warn(
           { source: entry.source, error: String(error) },
           'restore: source delete failed after verified publication — duplicate retained',

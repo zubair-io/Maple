@@ -15,6 +15,17 @@ The split exists for Apple Live Photos, which store the still and the motion cli
 
 Writes are atomic — temp file then rename — so a partial write is never visible. On Apple, `XMPSidecarStore` (`src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarStore.swift`) debounces saves by 750 ms and offers a `flush()` for close; on the server, `writeSidecarAtomic` in `src/api/src/fs/sidecar-io.ts` does the rename.
 
+### Moving, renaming and trashing a photo
+
+Because images swap the extension, one `<stem>.xmp` can belong to more than one photo: `IMG_1.CR3` and `IMG_1.JPG` shot as a RAW+JPEG pair both read `IMG_1.xmp`. Every file operation that carries a sidecar with its photo — move, rename, drag to a folder, trash, restore, the duplicates mover — follows the same four rules on every stack (#4692 API, #4707 Apple, #4758 Windows):
+
+1. **A shared sidecar is copied, never taken.** If another photo in the source folder still has the same stem, the sidecar is copied to the destination and the source copy stays where it is. Moving, renaming or trashing `IMG_1.CR3` must not strip `IMG_1.JPG` of its edits.
+2. **An occupied destination sidecar is a collision for the whole photo.** If `<stem>.xmp` already exists at the destination — another photo's sidecar, or an orphan whose photo is gone — the photo collides even when its own file name is free, and the normal Fail / Auto-suffix / Keep Both / Replace policy decides. Auto-suffix moves `IMG_1.CR3` into a folder holding `IMG_1.JPG` + `IMG_1.xmp` as `IMG_1.1.CR3` + `IMG_1.1.xmp`. Under Replace, the destination sidecar is removed only when no other same-stem photo there still uses it; if one does and the incoming photo brings its own sidecar, the operation fails and nothing changes.
+3. **A sidecar that maps onto itself is left alone.** An extension-only rename (`X.CR3` → `X.DNG`, or `photo.jpg` → `photo.jpeg`) resolves source and target sidecar to the same `X.xmp`. Paths are compared case-insensitively; when they match, the sidecar is not copied, not pre-removed and not deleted.
+4. **API only — no lost saves.** Sidecars are published exclusively (a hard link that fails if the name is taken, never a rename over it), and both the snapshot copy and the source delete run inside the same per-sidecar save barrier the XMP writers use (`serializeSidecarWrite`). A save that lands after the snapshot is carried to the destination; if both ends were saved mid-move, the source is kept rather than deleted.
+
+The shared parity corpus `test-fixtures/file-operations/cases.json` holds the cases (`shared_sidecar_*`, `extension_only_rename_*`, `destination_*_sidecar_*`, `replace_*_sibling_*`) that each stack's relocate runner replays.
+
 ## The four implementations
 
 | Language     | Reads | Writes        | Entry points                                                                                                                                                                              |

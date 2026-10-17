@@ -22,9 +22,10 @@
  *      publish it via `rename` into its final place.
  *   4. Carry every paired `.xmp` sidecar alongside, same base-swap naming
  *      `moveSidecarsAlongside` (`fs/trash.ts`) uses — reused here via
- *      `sidecarRenameTarget`. Best-effort: a sidecar that fails to copy is
- *      logged and left at its original location; it never blocks or
- *      reverts the primary relocate.
+ *      `sidecarRenameTarget` — under the shared-sidecar ownership rule
+ *      (#4692, `fs/sidecar-ownership.ts`). A sidecar that fails to copy is
+ *      logged and left at its original location; an occupied destination
+ *      sidecar is a collision for the whole asset.
  *   5. Identity repoint: the optional `onVerified` hook runs here, between
  *      the verified copy and the delete-of-original — asset-aware callers
  *      (`library/relocate-asset.ts`) use it to repoint the asset's `fileinfo`
@@ -52,6 +53,13 @@ import { filesIdentical } from '../backup/fs-util.ts';
 import { child as childLogger } from '../log.ts';
 import { sidecarRenameTarget, companionRenameTarget } from './sidecar-rename.ts';
 import { classifySameFile, performCaseOnlyRename } from './relocate-case-only-rename.ts';
+import {
+  SidecarCollisionError,
+  assetDestinationOccupied,
+  publishSidecarSnapshot,
+  unlinkMovedSidecar,
+} from './sidecar-ownership.ts';
+import { planSidecars, type SidecarPlan } from './relocate-sidecar-plan.ts';
 
 export { sidecarRenameTarget };
 
@@ -150,19 +158,17 @@ export type RelocateOutcome =
  * would produce `.1` (a root-level dotfile), losing the basename entirely.
  * Guard the slice on a non-empty ext so an extensionless input simply gets
  * the suffix appended (`/x/foo` → `/x/foo.1`). */
-export async function pickFreePath(basePath: string, caller?: string): Promise<string> {
-  try {
-    await fs.stat(basePath);
-  } catch {
-    return basePath; // path is free — no collision, no log
-  }
+export async function pickFreePath(
+  basePath: string,
+  caller?: string,
+  occupied: (candidate: string) => Promise<boolean> = pathExists,
+): Promise<string> {
+  if (!(await occupied(basePath))) return basePath;
   const ext = path.extname(basePath);
   const stem = ext ? basePath.slice(0, -ext.length) : basePath;
   for (let n = 1; n <= 1000; n++) {
     const cand = `${stem}.${n}${ext}`;
-    try {
-      await fs.stat(cand);
-    } catch {
+    if (!(await occupied(cand))) {
       log.warn(
         { caller: caller ?? 'unknown', collision: basePath, chosen: cand },
         'pickFreePath: destination occupied — suffixed path chosen (this creates a .N. filename)',
@@ -228,12 +234,19 @@ type DestinationResolution = { kind: 'proceed'; finalDest: string } | { kind: 's
  * `'skip'` declines outright when the destination is occupied; `'replace'`
  * (and a `'skip'` that finds nothing occupying the destination) proceeds
  * with `destAbsPath` exactly as given. */
-async function resolveDestination(req: RelocateRequest): Promise<DestinationResolution> {
-  if (req.collision === 'auto-suffix' || req.collision === 'keep-both') {
-    const finalDest = await pickFreePath(req.destAbsPath, req.callerTag ?? 'relocate');
+async function resolveDestination(
+  req: RelocateRequest,
+  ownSidecars: readonly string[],
+): Promise<DestinationResolution> {
+  const occupied = (candidate: string) =>
+    req.carrySidecars === false
+      ? pathExists(candidate)
+      : assetDestinationOccupied(candidate, ownSidecars);
+  if (isSuffixing(req.collision)) {
+    const finalDest = await pickFreePath(req.destAbsPath, req.callerTag ?? 'relocate', occupied);
     return { kind: 'proceed', finalDest };
   }
-  if (req.collision === 'skip' && (await pathExists(req.destAbsPath))) {
+  if (req.collision === 'skip' && (await occupied(req.destAbsPath))) {
     return { kind: 'skip' };
   }
   return { kind: 'proceed', finalDest: req.destAbsPath };
@@ -243,16 +256,16 @@ async function resolveDestination(req: RelocateRequest): Promise<DestinationReso
  * throwing, so one bad sidecar never blocks or reverts the primary relocate
  * (matches `moveSidecarsAlongside`'s "RAW moved, sidecar left in place"
  * contract). */
-async function tryCopySidecar(sidecar: string, dest: string): Promise<boolean> {
+async function tryCopySidecar(sidecar: string, dest: string): Promise<Buffer | null> {
   try {
-    await copyVerifiedIntoPlace(sidecar, dest);
-    return true;
+    return await publishSidecarSnapshot(sidecar, dest);
   } catch (err) {
+    if (err instanceof SidecarCollisionError) throw err;
     log.warn(
       { sidecar, dest, err: err instanceof Error ? err.message : err },
       'relocate: sidecar copy failed — original left in place',
     );
-    return false;
+    return null;
   }
 }
 
@@ -271,72 +284,61 @@ async function tryCopyCompanion(companion: string, dest: string): Promise<boolea
   }
 }
 
+interface MovedSidecar {
+  source: string;
+  dest: string;
+  snapshot: Buffer;
+}
+
 interface SidecarCopyResult {
   copiedSidecars: string[];
-  movedSidecarSources: string[];
+  movedSidecars: MovedSidecar[];
   companionPaths: string[];
   movedCompanionSources: string[];
 }
 
-/** Best-effort copy of every paired sidecar next to the relocated primary,
- * recording each created path as it lands. */
-async function copySidecarsAlongside(
-  sourceAbsPath: string,
+/** Steps 2-4: copy + verify + publish the primary, then carry every planned
+ * sidecar and extra companion (#2667) alongside. Pushes every path it creates
+ * onto the caller's `createdPaths` accumulator as it goes (not just on
+ * success) so a mid-loop throw still leaves the caller able to revert exactly
+ * what exists on disk. Throws for a PRIMARY copy failure or a sidecar
+ * collision — other sidecar/companion failures are logged and skipped. */
+async function copyPrimaryAndSidecars(
+  req: RelocateRequest,
   finalDest: string,
   sourceSidecars: readonly string[],
+  plan: SidecarPlan,
   createdPaths: string[],
-): Promise<Pick<SidecarCopyResult, 'copiedSidecars' | 'movedSidecarSources'>> {
-  const copiedSidecars: string[] = [];
-  const movedSidecarSources: string[] = [];
-  for (const sidecar of sourceSidecars) {
-    const dest = sidecarRenameTarget(sourceAbsPath, finalDest, sidecar);
-    if (!dest) continue; // defensive — mirrors moveSidecarsAlongside
-    if (!(await tryCopySidecar(sidecar, dest))) continue;
-    createdPaths.push(dest);
-    copiedSidecars.push(dest);
-    movedSidecarSources.push(sidecar);
-  }
-  return { copiedSidecars, movedSidecarSources };
-}
-
-/** Steps 2-4: copy + verify + publish the primary, then best-effort carry
- * every paired sidecar and extra companion (#2667) alongside. Pushes every
- * path it creates onto the caller's `createdPaths` accumulator as it goes
- * (not just on success) so a mid-loop throw still leaves the caller able to
- * revert exactly what exists on disk. Throws only for a PRIMARY copy
- * failure — sidecar/companion failures are swallowed by `tryCopySidecar` /
- * `tryCopyCompanion`. */
-async function copyPrimaryAndSidecars(
-  sourceAbsPath: string,
-  finalDest: string,
-  collision: CollisionPolicy,
-  extraCompanionAbsPaths: string[],
-  createdPaths: string[],
-  carrySidecars: boolean,
 ): Promise<SidecarCopyResult> {
-  await copyVerifiedIntoPlace(sourceAbsPath, finalDest);
+  await copyVerifiedIntoPlace(req.sourceAbsPath, finalDest);
   createdPaths.push(finalDest);
 
-  const sourceSidecars = carrySidecars ? await listPairedSidecars(sourceAbsPath) : [];
-  const { copiedSidecars, movedSidecarSources } = await copySidecarsAlongside(
-    sourceAbsPath,
-    finalDest,
-    sourceSidecars,
-    createdPaths,
-  );
+  const copiedSidecars: string[] = [];
+  const movedSidecars: MovedSidecar[] = [];
+  for (const entry of plan.entries) {
+    if (entry.samePath) {
+      copiedSidecars.push(entry.dest);
+      continue;
+    }
+    if (entry.replacesOccupant) await fs.unlink(entry.dest).catch(() => {});
+    const snapshot = await tryCopySidecar(entry.source, entry.dest);
+    if (!snapshot) continue;
+    createdPaths.push(entry.dest);
+    copiedSidecars.push(entry.dest);
+    if (!plan.sourceClaimedBySibling) {
+      movedSidecars.push({ source: entry.source, dest: entry.dest, snapshot });
+    }
+  }
 
   const companionPaths: string[] = [];
   const movedCompanionSources: string[] = [];
-  for (const companion of extraCompanionAbsPaths) {
-    const candidateDest = companionRenameTarget(sourceAbsPath, finalDest, companion);
+  for (const companion of req.extraCompanionAbsPaths ?? []) {
+    const candidateDest = companionRenameTarget(req.sourceAbsPath, finalDest, companion);
     // Never silently overwrite an unrelated file sitting at the companion's
-    // computed name — `copyVerifiedIntoPlace`'s publish step (`fs.rename`)
-    // overwrites unconditionally, and unlike the primary above, a
-    // companion's destination is never collision-resolved by the caller
-    // (review on #2667: a real, unrelated `.jpg` could already occupy the
-    // base-swapped name). Matches `workers/migration/restructure-fs.ts`'s
-    // `planAndPlace`, which ALSO resolves its rendered companion through
-    // `pickFreePath` rather than trusting the base-swapped name is free.
+    // computed name — a companion's destination is never collision-resolved
+    // by the caller (review on #2667: a real, unrelated `.jpg` could already
+    // occupy the base-swapped name). Matches
+    // `workers/migration/restructure-fs.ts`'s `planAndPlace`.
     const dest = await pickFreePath(candidateDest, 'relocate:companion');
     if (!(await tryCopyCompanion(companion, dest))) continue;
     createdPaths.push(dest);
@@ -344,24 +346,25 @@ async function copyPrimaryAndSidecars(
     movedCompanionSources.push(companion);
   }
 
-  if (sourceSidecars.length === 0 && collision === 'replace') {
+  if (
+    sourceSidecars.length === 0 &&
+    req.carrySidecars !== false &&
+    req.collision === 'replace' &&
+    !plan.destinationClaimedBySibling
+  ) {
     // The incoming asset has no sidecar of its own, but `'replace'` means
     // "the destination now reflects EXACTLY the incoming asset" — a stale
     // sidecar left over from the PREVIOUS occupant must not silently
-    // survive and get misattributed to this one (found by the #2633
-    // cross-platform parity harness — the Swift twin already avoids this,
-    // see `LocalFileOperations.swift`'s matching comment in `planRelocate`).
-    // Safe here, unlike a pre-copy delete would be: this only runs AFTER
-    // `copyVerifiedIntoPlace` above has already published the new primary
-    // successfully, so a copy failure can never reach this point.
-    // Best-effort, matching every other sidecar-cleanup path in this file.
+    // survive and get misattributed to this one (#2633 parity harness).
+    // A sidecar another same-stem photo there still uses is not stale
+    // (#4692). Only runs AFTER the new primary published successfully.
     const staleDests = await listPairedSidecars(finalDest);
     for (const stale of staleDests) {
       await fs.unlink(stale).catch(() => {});
     }
   }
 
-  return { copiedSidecars, movedSidecarSources, companionPaths, movedCompanionSources };
+  return { copiedSidecars, movedSidecars, companionPaths, movedCompanionSources };
 }
 
 /** Step 5: run the caller's identity-repoint hook (if any) between the
@@ -390,7 +393,7 @@ async function runIdentityRepoint(
  * direction, never data loss, so it's logged rather than thrown. */
 async function deleteOriginals(
   sourceAbsPath: string,
-  movedSidecarSources: string[],
+  movedSidecars: MovedSidecar[],
   movedCompanionSources: string[],
   beforeSourceDelete?: () => Promise<void>,
 ): Promise<void> {
@@ -401,10 +404,17 @@ async function deleteOriginals(
       'relocate: source primary unlink failed after a verified copy — a duplicate is left on disk (acceptable failure direction, never data loss)',
     );
   });
-  for (const src of [...movedSidecarSources, ...movedCompanionSources]) {
+  const removals = [
+    ...movedSidecars.map((moved) => ({
+      src: moved.source,
+      remove: () => unlinkMovedSidecar(moved.source, moved.dest, moved.snapshot),
+    })),
+    ...movedCompanionSources.map((src) => ({ src, remove: () => fs.unlink(src) })),
+  ];
+  for (const { src, remove } of removals) {
     await (async () => {
       await beforeSourceDelete?.();
-      await fs.unlink(src);
+      await remove();
     })().catch((err) => {
       log.warn(
         { src, err: err instanceof Error ? err.message : err },
@@ -451,12 +461,48 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
     return performCaseOnlyRename(req);
   }
 
+  const ownSidecars =
+    req.carrySidecars === false ? [] : await listPairedSidecars(req.sourceAbsPath);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await relocateOnce(req, ownSidecars);
+    } catch (err) {
+      const retry = err instanceof SidecarCollisionError && isSuffixing(req.collision);
+      if (retry && attempt < MAX_SIDECAR_COLLISION_RETRIES) continue;
+      if (err instanceof SidecarCollisionError && req.collision === 'skip') {
+        return { kind: 'skipped', reason: 'collision' };
+      }
+      return { kind: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+}
+
+const MAX_SIDECAR_COLLISION_RETRIES = 8;
+
+function isSuffixing(collision: CollisionPolicy): boolean {
+  return collision === 'auto-suffix' || collision === 'keep-both';
+}
+
+/** One resolution + copy + delete pass. Throws `SidecarCollisionError`
+ * (after reverting its own copies) when a destination sidecar is occupied,
+ * so suffixing policies can retry the next free name. */
+async function relocateOnce(
+  req: RelocateRequest,
+  ownSidecars: readonly string[],
+): Promise<RelocateOutcome> {
   // 1. Resolve the destination per the caller's collision policy.
-  const resolution = await resolveDestination(req);
+  const resolution = await resolveDestination(req, ownSidecars);
   if (resolution.kind === 'skip') {
     return { kind: 'skipped', reason: 'collision' };
   }
   const { finalDest } = resolution;
+  const plan = await planSidecars({
+    sourceAbsPath: req.sourceAbsPath,
+    finalDest,
+    leavingWithPrimary: req.extraCompanionAbsPaths ?? [],
+    replace: req.collision === 'replace',
+    sourceSidecars: ownSidecars,
+  });
 
   await fs.mkdir(path.dirname(finalDest), { recursive: true });
 
@@ -466,15 +512,8 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
     await req.onDestinationPrepared?.(finalDest);
     // 2-4. Copy + verify the primary, then carry the sidecars + any extra
     // companions (#2667) alongside.
-    const { copiedSidecars, movedSidecarSources, companionPaths, movedCompanionSources } =
-      await copyPrimaryAndSidecars(
-        req.sourceAbsPath,
-        finalDest,
-        req.collision,
-        req.extraCompanionAbsPaths ?? [],
-        createdPaths,
-        req.carrySidecars ?? true,
-      );
+    const { copiedSidecars, movedSidecars, companionPaths, movedCompanionSources } =
+      await copyPrimaryAndSidecars(req, finalDest, ownSidecars, plan, createdPaths);
 
     // 5. Identity repoint, between verify and delete.
     await req.beforeSourceDelete?.();
@@ -492,7 +531,7 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
     if (req.mode === 'move') {
       await deleteOriginals(
         req.sourceAbsPath,
-        movedSidecarSources,
+        movedSidecars,
         movedCompanionSources,
         req.beforeSourceDelete,
       );
@@ -507,6 +546,7 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
     };
   } catch (err) {
     if (!repointed) await revertCreated(createdPaths);
+    if (err instanceof SidecarCollisionError && !repointed) throw err;
     return {
       kind: 'error',
       error: err instanceof Error ? err.message : String(err),

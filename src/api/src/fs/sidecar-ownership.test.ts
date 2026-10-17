@@ -1,0 +1,230 @@
+/**
+ * Shared-sidecar ownership rule (#4692) against real temp directories. The
+ * relocate cases shared with Apple and Windows live in the parity corpus
+ * (`test-fixtures/file-operations/cases.json`); this file covers the API-only
+ * surfaces — trash, restore, the duplicates mover, and saves that land while
+ * a move is in flight.
+ */
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import * as fs from './mirrored.ts';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { relocateFile } from './relocate.ts';
+import { moveToTrash, moveOutOfTrash } from './trash.ts';
+import { moveToDuplicates } from './duplicates.ts';
+import { serializeSidecarWrite } from './sidecar-write-order.ts';
+import { sidecarStemClaimedBySibling, assetDestinationOccupied } from './sidecar-ownership.ts';
+
+let root: string;
+
+beforeEach(async () => {
+  root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'sidecar-ownership-')));
+});
+afterEach(async () => {
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+const abs = (rel: string) => path.join(root, ...rel.split('/'));
+
+async function write(rel: string, content: string): Promise<string> {
+  await fs.mkdir(path.dirname(abs(rel)), { recursive: true });
+  await fs.writeFile(abs(rel), content);
+  return abs(rel);
+}
+
+async function tree(): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  async function walk(dir: string): Promise<void> {
+    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else
+        out[path.relative(root, full).split(path.sep).join('/')] = await fs.readFile(full, 'utf8');
+    }
+  }
+  await walk(root);
+  return out;
+}
+
+/** The same barrier `writeXmpAtomic` / `updateXmpAtomic` publish under. */
+function save(sidecar: string, xml: string): Promise<void> {
+  return serializeSidecarWrite(sidecar, (destination) => fs.writeFile(destination, xml));
+}
+
+describe('sidecarStemClaimedBySibling', () => {
+  test('a same-stem photo claims the stem; sidecars, temps, dotfiles and departing files do not', async () => {
+    const raw = await write('a/IMG_1.CR3', 'raw');
+    await write('a/IMG_1.xmp', '<x/>');
+    await write('a/IMG_1.xmp.tmp.1-ab', 'tmp');
+    await write('a/.IMG_1.CR3', 'apple-double');
+    expect(await sidecarStemClaimedBySibling(raw)).toBe(false);
+    const jpg = await write('a/img_1.JPG', 'jpg');
+    expect(await sidecarStemClaimedBySibling(raw)).toBe(true);
+    expect(await sidecarStemClaimedBySibling(raw, [jpg])).toBe(false);
+  });
+
+  test('videos keep their full name, so a same-stem photo is not a sibling', async () => {
+    const mov = await write('a/IMG_1.MOV', 'mov');
+    await write('a/IMG_1.HEIC', 'heic');
+    expect(await sidecarStemClaimedBySibling(mov)).toBe(false);
+  });
+});
+
+describe('assetDestinationOccupied', () => {
+  test("an orphan sidecar occupies the name, the moving asset's own sidecar does not", async () => {
+    const own = await write('a/X.xmp', '<own/>');
+    expect(await assetDestinationOccupied(abs('a/X.DNG'), [own])).toBe(false);
+    expect(await assetDestinationOccupied(abs('a/X.DNG'), [])).toBe(true);
+  });
+});
+
+describe('trash', () => {
+  test('trashing the RAW of a RAW+JPEG pair copies the shared sidecar and leaves it for the JPG', async () => {
+    const raw = await write('lib/IMG_1.CR3', 'raw');
+    await write('lib/IMG_1.JPG', 'jpg');
+    await write('lib/IMG_1.xmp', '<shared/>');
+    const result = await moveToTrash(raw, abs('lib'));
+    expect(result).toEqual({ kind: 'ok', newAbsPath: abs('lib/.maple/trash/IMG_1.CR3') });
+    expect(await tree()).toEqual({
+      'lib/IMG_1.JPG': 'jpg',
+      'lib/IMG_1.xmp': '<shared/>',
+      'lib/.maple/trash/IMG_1.CR3': 'raw',
+      'lib/.maple/trash/IMG_1.xmp': '<shared/>',
+    });
+  });
+
+  test('a sidecar already in the trash for that stem suffixes the whole asset instead of overwriting it', async () => {
+    await write('lib/.maple/trash/IMG_1.xmp', '<earlier-trash/>');
+    const raw = await write('lib/IMG_1.CR3', 'raw');
+    await write('lib/IMG_1.xmp', '<mine/>');
+    const result = await moveToTrash(raw, abs('lib'));
+    expect(result).toEqual({ kind: 'ok', newAbsPath: abs('lib/.maple/trash/IMG_1.1.CR3') });
+    expect(await tree()).toEqual({
+      'lib/.maple/trash/IMG_1.xmp': '<earlier-trash/>',
+      'lib/.maple/trash/IMG_1.1.CR3': 'raw',
+      'lib/.maple/trash/IMG_1.1.xmp': '<mine/>',
+    });
+  });
+
+  test('restoring one of two trashed same-stem photos leaves the shared sidecar for the other', async () => {
+    const trashedRaw = await write('lib/.maple/trash/IMG_1.CR3', 'raw');
+    await write('lib/.maple/trash/IMG_1.JPG', 'jpg');
+    await write('lib/.maple/trash/IMG_1.xmp', '<shared/>');
+    const result = await moveOutOfTrash(trashedRaw, abs('lib/IMG_1.CR3'));
+    expect(result).toEqual({ kind: 'ok', newAbsPath: abs('lib/IMG_1.CR3') });
+    expect(await tree()).toEqual({
+      'lib/IMG_1.CR3': 'raw',
+      'lib/IMG_1.xmp': '<shared/>',
+      'lib/.maple/trash/IMG_1.JPG': 'jpg',
+      'lib/.maple/trash/IMG_1.xmp': '<shared/>',
+    });
+  });
+});
+
+describe('duplicates mover', () => {
+  test('quarantining the RAW of a RAW+JPEG pair copies the shared sidecar', async () => {
+    const raw = await write('lib/IMG_1.CR3', 'raw');
+    await write('lib/IMG_1.JPG', 'jpg');
+    await write('lib/IMG_1.xmp', '<shared/>');
+    const result = await moveToDuplicates(raw, abs('lib'));
+    expect(result.kind).toBe('ok');
+    const files = await tree();
+    expect(files['lib/IMG_1.xmp']).toBe('<shared/>');
+    expect(files['lib/IMG_1.JPG']).toBe('jpg');
+    expect(Object.values(files).filter((c) => c === '<shared/>')).toHaveLength(2);
+  });
+
+  test('an orphan sidecar in the quarantine folder suffixes the asset rather than being replaced', async () => {
+    const raw = await write('lib/IMG_1.CR3', 'raw');
+    await write('lib/IMG_1.xmp', '<mine/>');
+    const result = await moveToDuplicates(raw, abs('lib'));
+    expect(result.kind).toBe('ok');
+    const quarantined = (result as { newAbsPath: string }).newAbsPath;
+    await write('lib/IMG_2.CR3', 'raw2');
+    await write('lib/IMG_2.xmp', '<second/>');
+    const occupant = path.join(path.dirname(quarantined), 'IMG_2.xmp');
+    await fs.writeFile(occupant, '<orphan/>');
+    const second = await moveToDuplicates(abs('lib/IMG_2.CR3'), abs('lib'));
+    expect(second.kind).toBe('ok');
+    expect(path.basename((second as { newAbsPath: string }).newAbsPath)).toBe('IMG_2.1.CR3');
+    expect(await fs.readFile(occupant, 'utf8')).toBe('<orphan/>');
+    expect(await fs.readFile(path.join(path.dirname(occupant), 'IMG_2.1.xmp'), 'utf8')).toBe(
+      '<second/>',
+    );
+  });
+});
+
+describe('saves landing during a move', () => {
+  test('an acknowledged save between the sidecar copy and the source delete reaches the destination', async () => {
+    const raw = await write('a/IMG_1.CR3', 'raw');
+    const sidecar = await write('a/IMG_1.xmp', '<before/>');
+    const outcome = await relocateFile({
+      sourceAbsPath: raw,
+      destAbsPath: abs('b/IMG_1.CR3'),
+      mode: 'move',
+      collision: 'auto-suffix',
+      onVerified: () => save(sidecar, '<saved-mid-move/>'),
+    });
+    expect(outcome.kind).toBe('relocated');
+    expect(await tree()).toEqual({ 'b/IMG_1.CR3': 'raw', 'b/IMG_1.xmp': '<saved-mid-move/>' });
+  });
+
+  test('an in-flight save is waited for before the source sidecar is removed', async () => {
+    const raw = await write('a/IMG_1.CR3', 'raw');
+    const sidecar = await write('a/IMG_1.xmp', '<before/>');
+    let inFlight: Promise<void> | undefined;
+    const outcome = await relocateFile({
+      sourceAbsPath: raw,
+      destAbsPath: abs('b/IMG_1.CR3'),
+      mode: 'move',
+      collision: 'auto-suffix',
+      onVerified: async () => {
+        inFlight = serializeSidecarWrite(sidecar, async (destination) => {
+          await Bun.sleep(30);
+          await fs.writeFile(destination, '<slow-save/>');
+        });
+      },
+    });
+    await inFlight;
+    expect(outcome.kind).toBe('relocated');
+    expect(await tree()).toEqual({ 'b/IMG_1.CR3': 'raw', 'b/IMG_1.xmp': '<slow-save/>' });
+  });
+
+  test('when both ends were saved mid-move, the source is kept so neither save is lost', async () => {
+    const raw = await write('a/IMG_1.CR3', 'raw');
+    const sidecar = await write('a/IMG_1.xmp', '<before/>');
+    const outcome = await relocateFile({
+      sourceAbsPath: raw,
+      destAbsPath: abs('b/IMG_1.CR3'),
+      mode: 'move',
+      collision: 'auto-suffix',
+      onVerified: async (info) => {
+        await save(sidecar, '<old-path-save/>');
+        await save(info.sidecarPaths[0]!, '<new-path-save/>');
+      },
+    });
+    expect(outcome.kind).toBe('relocated');
+    expect(await tree()).toEqual({
+      'a/IMG_1.xmp': '<old-path-save/>',
+      'b/IMG_1.CR3': 'raw',
+      'b/IMG_1.xmp': '<new-path-save/>',
+    });
+  });
+
+  test('a save during trash restore reaches the restored sidecar', async () => {
+    const trashedRaw = await write('lib/.maple/trash/IMG_1.CR3', 'raw');
+    const trashedSidecar = await write('lib/.maple/trash/IMG_1.xmp', '<before/>');
+    const result = await moveOutOfTrash(
+      trashedRaw,
+      abs('lib/IMG_1.CR3'),
+      undefined,
+      undefined,
+      () => save(trashedSidecar, '<saved-mid-restore/>'),
+    );
+    expect(result.kind).toBe('ok');
+    expect(await tree()).toEqual({
+      'lib/IMG_1.CR3': 'raw',
+      'lib/IMG_1.xmp': '<saved-mid-restore/>',
+    });
+  });
+});
