@@ -124,30 +124,6 @@ export async function hasLiveAssetAtAddress(
   return rows.length > 0;
 }
 
-/** Whether the file at `outputPath` matches a recorded server export output digest. */
-export async function hasServerExportOutput(
-  outputPath: string,
-  canonicalOutput: string | null,
-  currentHash: string | null,
-  dbOverride?: SqliteDb,
-): Promise<boolean> {
-  if (!currentHash) return false;
-  const rows = await sqliteDb(dbOverride).read<{ matched: number }>(
-    `SELECT 1 AS matched
-       FROM jobs, json_each(json_extract(jobs.ledger, '$.entries')) AS entry
-      WHERE jobs.kind IN ('batch_recipe_export', 'batch_jpeg_export')
-        AND json_extract(entry.value, '$.status') IN ('applied', 'prepared')
-        AND (
-          json_extract(entry.value, '$.outputPath') = ? COLLATE NOCASE
-          OR json_extract(entry.value, '$.outputPath') = ? COLLATE NOCASE
-        )
-        AND json_extract(entry.value, '$.afterHash') = ?
-      LIMIT 1`,
-    [outputPath, canonicalOutput ?? outputPath, currentHash],
-  );
-  return rows.length > 0;
-}
-
 /** The row an upload needs before it moves the file it is about to overwrite. */
 export interface ReplaceableAsset {
   _id: ObjectId;
