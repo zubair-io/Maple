@@ -31,6 +31,10 @@ const directoryFileCache = new WeakMap<
   Promise<Map<string, FileSystemFileHandle>>
 >();
 
+function foldName(name: string): string {
+  return name.normalize('NFC').toLowerCase();
+}
+
 function directoryFileIndex(
   directory: FileSystemDirectoryHandle,
 ): Promise<Map<string, FileSystemFileHandle>> {
@@ -43,7 +47,7 @@ function directoryFileIndex(
       >;
       if (typeof iterable.values !== 'function') return map;
       for await (const entry of iterable.values()) {
-        if (entry.kind === 'file') map.set(entry.name.toLowerCase(), entry as FileSystemFileHandle);
+        if (entry.kind === 'file') map.set(foldName(entry.name), entry as FileSystemFileHandle);
       }
       return map;
     })();
@@ -61,12 +65,11 @@ function isCreatedByExport(
   if (!currentHash || !record.createdOutputs) return false;
   if (actualName in record.createdOutputs) return record.createdOutputs[actualName] === currentHash;
   if (filename in record.createdOutputs) return record.createdOutputs[filename] === currentHash;
-  const lowerActual = actualName.toLowerCase();
-  const lowerFile = filename.toLowerCase();
+  const lowerActual = foldName(actualName);
+  const lowerFile = foldName(filename);
   return Object.entries(record.createdOutputs).some(
     ([name, hash]) =>
-      hash === currentHash &&
-      (name.toLowerCase() === lowerActual || name.toLowerCase() === lowerFile),
+      hash === currentHash && (foldName(name) === lowerActual || foldName(name) === lowerFile),
   );
 }
 
@@ -98,7 +101,7 @@ async function existing(
     return await directory.getFileHandle(name);
   } catch (error) {
     if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
-    const sibling = (await directoryFileIndex(directory)).get(name.toLowerCase()) ?? null;
+    const sibling = (await directoryFileIndex(directory)).get(foldName(name)) ?? null;
     if (!sibling) return null;
     const siblingHash = await fileHash(sibling);
     if (isCreatedByExport(record, sibling.name, sibling.name, siblingHash)) return null;
@@ -194,7 +197,7 @@ export async function deliverDirectoryEntry(
   const actualName = handle.name || filename;
   const published = { [actualName]: afterHash };
   record.createdOutputs = { ...(record.createdOutputs ?? {}), ...published };
-  await saveDirectoryCreatedOutputs(directory, published);
+  await saveDirectoryCreatedOutputs(directory, published).catch(() => undefined);
   return { ...writing, status: 'applied' };
 }
 
@@ -229,6 +232,8 @@ export async function recoverDirectoryWrites(
       };
   }
   if (Object.keys(recoveredOutputs).length)
-    await saveDirectoryCreatedOutputs(record.directoryHandle, recoveredOutputs);
+    await saveDirectoryCreatedOutputs(record.directoryHandle, recoveredOutputs).catch(
+      () => undefined,
+    );
   return record;
 }

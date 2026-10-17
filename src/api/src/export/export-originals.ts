@@ -11,6 +11,10 @@ export interface ExportOriginals {
   serverOutputs: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
+function foldPath(path: string): string {
+  return path.normalize('NFC').toLowerCase();
+}
+
 function recordEntryDigest(
   outputs: Map<string, Set<string>>,
   entry: Record<string, unknown>,
@@ -24,7 +28,7 @@ function recordEntryDigest(
     typeof afterHash !== 'string'
   )
     return;
-  const key = resolve(outputPath).toLowerCase();
+  const key = foldPath(resolve(outputPath));
   let hashes = outputs.get(key);
   if (!hashes) {
     hashes = new Set<string>();
@@ -40,15 +44,22 @@ async function loadServerExportOutputs(
   if (!directory) return outputs;
   const resolvedDir = resolve(directory);
   const canonicalDir = (await realpath(resolvedDir).catch(() => null)) ?? resolvedDir;
-  const resolvedNeedle = JSON.stringify(resolvedDir).slice(1, -1).toLowerCase();
-  const canonicalNeedle = JSON.stringify(canonicalDir).slice(1, -1).toLowerCase();
+  const rawResolved = JSON.stringify(resolvedDir).slice(1, -1);
+  const rawCanonical = JSON.stringify(canonicalDir).slice(1, -1);
+  const resolvedNeedle = rawResolved.toLowerCase();
+  const canonicalNeedle = rawCanonical.toLowerCase();
   const rows = await sqliteDb().read<{ ledger: string }>(
     `SELECT ledger
        FROM jobs
       WHERE kind IN ('batch_recipe_export', 'batch_jpeg_export')
         AND ledger IS NOT NULL
-        AND (instr(lower(ledger), ?) > 0 OR instr(lower(ledger), ?) > 0)`,
-    [resolvedNeedle, canonicalNeedle],
+        AND (
+          instr(ledger, ?) > 0
+          OR instr(ledger, ?) > 0
+          OR instr(lower(ledger), ?) > 0
+          OR instr(lower(ledger), ?) > 0
+        )`,
+    [rawResolved, rawCanonical, resolvedNeedle, canonicalNeedle],
   );
   for (const row of rows) {
     const parsed = JSON.parse(row.ledger) as Record<string, unknown> | null;
@@ -99,8 +110,8 @@ export function isPriorServerExport(
   currentHash: string | null,
 ): boolean {
   if (!currentHash) return false;
-  const byResolved = originalPaths.serverOutputs.get(resolvedOutput.toLowerCase());
+  const byResolved = originalPaths.serverOutputs.get(foldPath(resolvedOutput));
   if (byResolved?.has(currentHash)) return true;
   if (!canonicalOutput) return false;
-  return originalPaths.serverOutputs.get(canonicalOutput.toLowerCase())?.has(currentHash) ?? false;
+  return originalPaths.serverOutputs.get(foldPath(canonicalOutput))?.has(currentHash) ?? false;
 }
