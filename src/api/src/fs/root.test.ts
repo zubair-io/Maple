@@ -58,7 +58,6 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
   await symlink(join(outside, 'photo.xmp'), join(library, 'escaped.xmp'));
   delete process.env.MAPLE_ROOTS;
   const libraryId = insertFolder(live.db, { path: library });
-  insertFolder(live.db, { path: retained });
   invalidateLibraryRoots();
 
   expect((await checkAllowed(join(library, 'photo.xmp'))).ok).toBe(true);
@@ -74,6 +73,8 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
   clearMirrorRoots();
   expect((await checkAllowed(join(mirror, 'photo.xmp'))).ok).toBe(false);
 
+  insertFolder(live.db, { path: retained });
+  invalidateLibraryRoots();
   live.db.query('DELETE FROM folders WHERE id = ?').run(libraryId);
   invalidateLibraryRoots();
   expect((await checkAllowed(join(library, 'photo.xmp'))).ok).toBe(false);
