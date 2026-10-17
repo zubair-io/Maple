@@ -240,8 +240,8 @@ public enum UploadOutcome: Equatable, Sendable {
 }
 
 /// Explicit intent for `RemoteCatalog.deleteAsset` (#2749) — see that
-/// method's doc comment for why omitting this (legacy dual-mode) is only
-/// correct for the File Provider extension, never a UI-driven call.
+/// method's doc comment for why omitting this (legacy dual-mode) is never
+/// correct for a caller that may hold stale state, Finder included (#4706).
 public enum DeleteAssetIntent: String, Sendable {
   case trash
   case purge
@@ -1369,10 +1369,11 @@ public actor RemoteCatalog {
   /// stale copy of — a stale grid listing could silently purge instead of
   /// trash, or a stale Trash panel could "permanently delete" an asset
   /// someone restored, quietly re-trashing a live photo instead. `nil`
-  /// preserves the legacy dual-mode contract byte-for-byte — the File
-  /// Provider extension (`FileProviderExtensionCore.swift`) depends on it
-  /// and cannot be flag-dayed; every UI-driven call (grid trash, Trash
-  /// browser) should pass an explicit `intent`.
+  /// preserves the legacy dual-mode contract byte-for-byte for callers
+  /// that still rely on it; no in-tree caller does any more — the File
+  /// Provider extension passes `.trash` since #4706 (an OS-retried Finder
+  /// delete used to purge), and every UI-driven call (grid trash, Trash
+  /// browser) passes an explicit `intent` too.
   @discardableResult
   public func deleteAsset(assetID: String, intent: DeleteAssetIntent? = nil) async throws
     -> DeleteAssetResult

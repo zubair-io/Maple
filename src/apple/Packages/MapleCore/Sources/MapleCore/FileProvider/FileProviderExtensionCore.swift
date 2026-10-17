@@ -1955,10 +1955,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     try await catalog.deleteXMP(assetID: assetID, conflictBasename: conflictBasename)
                     completionHandler(nil)
                 case .asset(let assetID):
-                    // Server distinguishes trash-vs-purge based on the current
-                    // doc state; we just call DELETE. Idempotent.
-                    try await catalog.deleteAsset(assetID: assetID)
-                    completionHandler(nil)
+                    completionHandler(try await self.trashAsset(assetID))
                 case .file(let folderID, let relativePath):
                     // #2535: path-addressed trash for a non-indexed file.
                     let result = try await catalog.deleteFile(folderID: folderID, relativePath: relativePath)
@@ -1976,8 +1973,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                       code: NSFileProviderError.filenameCollision.rawValue))
                             return
                         }
-                        try await catalog.deleteAsset(assetID: assetID)
-                        completionHandler(nil)
+                        completionHandler(try await self.trashAsset(assetID))
                     }
                 case .folder(let folderID, let relativePath):
                     // #3010: real subfolders route through the server's
@@ -2020,6 +2016,27 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             }
         }
         return progress
+    }
+
+    /// A Finder delete is a TRASH gesture, so say so (#4706). The legacy
+    /// no-intent DELETE means "trash" for a live asset and "permanently
+    /// purge" for an already-trashed one, decided by server state — so an
+    /// OS-retried delete whose first response was lost, or a stale listing
+    /// of an asset trashed elsewhere, would purge the original. With
+    /// `intent: .trash` the server answers 409 `trashed` instead, which is
+    /// success-shaped for Finder: the item is in the trash either way.
+    private func trashAsset(_ assetID: String) async throws -> Error? {
+        guard let catalog else { return notAuthenticatedError() }
+        switch try await catalog.deleteAsset(assetID: assetID, intent: .trash) {
+        case .ok, .stateMismatch(state: "trashed"):
+            return nil
+        case .stateMismatch(let state):
+            self.log.error("trash asset state mismatch: \(state, privacy: .public)")
+            return NSError(domain: NSFileProviderErrorDomain,
+                           code: NSFileProviderError.serverUnreachable.rawValue,
+                           userInfo: [NSLocalizedDescriptionKey:
+                               "Could not move the item to the Maple trash (server reports it is \(state))"])
+        }
     }
 
     // MARK: - Sidecar helpers

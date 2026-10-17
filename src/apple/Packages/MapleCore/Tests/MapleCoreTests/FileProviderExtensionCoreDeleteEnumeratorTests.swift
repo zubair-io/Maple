@@ -63,7 +63,7 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
         XCTAssertEqual(log.requests.first?.path, "/api/assets/\(validAssetID)/xmp")
     }
 
-    func testDeleteAssetCallsDeleteAssetAndSucceeds() {
+    func testDeleteAssetSendsExplicitTrashIntent() {
         let log = FPCoreTestSupport.RequestLog()
         let catalog = FPCoreTestSupport.makeCatalog { req in
             log.record(req)
@@ -78,6 +78,93 @@ final class FileProviderExtensionCoreDeleteEnumeratorTests: XCTestCase {
         XCTAssertEqual(log.requests.count, 1)
         XCTAssertEqual(log.requests.first?.method, "DELETE")
         XCTAssertEqual(log.requests.first?.path, "/api/assets/\(validAssetID)")
+        // #4706: the legacy no-intent DELETE means "trash" for a live asset
+        // and "PERMANENTLY purge" for an already-trashed one. A Finder
+        // delete is a trash gesture, so the extension must say so.
+        XCTAssertEqual(log.requests.first?.query, "intent=trash")
+    }
+
+    /// #4706 — a Finder delete whose response was lost is retried by the
+    /// OS. The retry reaches a server that already trashed the asset; it
+    /// must land as "already trashed, fine" and never as a purge.
+    func testRetriedDeleteOfTrashedAssetSucceedsWithoutPurge() {
+        let server = FakeTrashServer()
+        let catalog = FPCoreTestSupport.makeCatalog { server.handle($0) }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let identifier = NSFileProviderItemIdentifier(FileProviderIdentifier.asset(validAssetID).rawValue)
+
+        XCTAssertNil(runDeleteItem(core: core, identifier: identifier))
+        XCTAssertTrue(server.trashed.contains(validAssetID))
+
+        XCTAssertNil(runDeleteItem(core: core, identifier: identifier),
+                     "a retried delete of an already-trashed asset is success-shaped")
+        XCTAssertEqual(server.purged, [], "no retry may escalate a trash into a purge")
+        XCTAssertEqual(server.deleteCount, 2)
+    }
+
+    /// #4706 — any 409 other than "already trashed" is a real state
+    /// mismatch and must surface, not be swallowed as success.
+    func testDeleteAssetUnexpectedStateMismatchSurfacesError() {
+        let catalog = FPCoreTestSupport.makeCatalog { _ in
+            (409, Data(#"{"error": "nope", "state": "live"}"#.utf8),
+             ["Content-Type": "application/json"])
+        }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let identifier = NSFileProviderItemIdentifier(FileProviderIdentifier.asset(validAssetID).rawValue)
+
+        XCTAssertNotNil(runDeleteItem(core: core, identifier: identifier))
+    }
+
+    /// #4706 — the `.file` → indexed-asset self-heal retry (#2535) is the
+    /// second `deleteAsset` call site; it must carry the same intent.
+    func testIndexedFileRetryDeletesAssetWithTrashIntent() {
+        let folderID = "650a1b2c3d4e5f6071829305"
+        let log = FPCoreTestSupport.RequestLog()
+        let catalog = FPCoreTestSupport.makeCatalog { req in
+            log.record(req)
+            if req.url?.path.hasSuffix("/file") == true {
+                return (409, Data(#"{"error": "indexed", "asset_id": "\#(self.validAssetID)"}"#.utf8),
+                        ["Content-Type": "application/json"])
+            }
+            return (204, Data(), [:])
+        }
+        let core = FPCoreTestSupport.makeCore(catalog: catalog, test: self)
+        let identifier = NSFileProviderItemIdentifier(
+            FileProviderIdentifier.file(folderID: folderID, relativePath: "2024/IMG_0001.dng").rawValue
+        )
+
+        XCTAssertNil(runDeleteItem(core: core, identifier: identifier))
+        XCTAssertEqual(log.requests.count, 2)
+        XCTAssertEqual(log.requests.last?.path, "/api/assets/\(validAssetID)")
+        XCTAssertEqual(log.requests.last?.query, "intent=trash")
+    }
+
+    /// Models `DELETE /api/assets/:id` as the server implements it
+    /// (`src/api/src/routes/assets/trash.ts`): no `intent` + live → trash,
+    /// no `intent` + already trashed → PURGE, `intent=trash` + already
+    /// trashed → 409 `{state: "trashed"}`.
+    private final class FakeTrashServer {
+        private(set) var trashed: Set<String> = []
+        private(set) var purged: [String] = []
+        private(set) var deleteCount = 0
+
+        func handle(_ req: URLRequest) -> (Int, Data, [String: String]) {
+            deleteCount += 1
+            let assetID = req.url?.lastPathComponent ?? ""
+            let intent = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "intent" }?.value
+            if trashed.contains(assetID) {
+                if intent == "trash" {
+                    return (409, Data(#"{"error": "Asset is already trashed", "state": "trashed"}"#.utf8),
+                            ["Content-Type": "application/json"])
+                }
+                purged.append(assetID)
+                trashed.remove(assetID)
+                return (204, Data(), [:])
+            }
+            trashed.insert(assetID)
+            return (204, Data(), [:])
+        }
     }
 
     /// Synthetic/read-only kinds must reject with featureUnsupported and
