@@ -389,18 +389,26 @@ describe('GET /api/enrichment/config — rate limit projection', () => {
 describe('POST /api/enrichment/test', () => {
   it('returns ok:true on successful health-check', async () => {
     stubFetch(() => ({ status: 200 }));
-    const r = await post('/api/enrichment/test', {
-      nominatim_url: 'http://nominatim.test',
-    });
+    const r = await post(
+      '/api/enrichment/test',
+      {
+        nominatim_url: 'http://nominatim.test',
+      },
+      ownerJwt,
+    );
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ ok: true, url: 'http://nominatim.test' });
   });
 
   it('returns ok:false with detail on 5xx', async () => {
     stubFetch(() => ({ status: 500 }));
-    const r = await post('/api/enrichment/test', {
-      nominatim_url: 'http://nominatim.test',
-    });
+    const r = await post(
+      '/api/enrichment/test',
+      {
+        nominatim_url: 'http://nominatim.test',
+      },
+      ownerJwt,
+    );
     expect(r.status).toBe(200);
     const body = r.body as { ok: boolean; status: number };
     expect(body.ok).toBe(false);
@@ -408,16 +416,21 @@ describe('POST /api/enrichment/test', () => {
   });
 
   it('returns 400 for invalid URL', async () => {
-    const r = await post('/api/enrichment/test', {
-      nominatim_url: 'not-a-url',
-    });
+    const r = await post(
+      '/api/enrichment/test',
+      {
+        nominatim_url: 'not-a-url',
+      },
+      ownerJwt,
+    );
     expect(r.status).toBe(400);
   });
 });
 
 // #2353 — PUT /config can repoint provider URLs and their API-key bearers at an
-// attacker-controlled host, so it must reject anyone but the owner. GET/test stay
-// member-readable — no state change, no secrets in the response.
+// attacker-controlled host, so it must reject anyone but the owner. GET stays
+// member-readable — no state change, no secrets in the response. POST /test
+// fetches a caller-supplied URL from the server, so it is owner-only too (#4745).
 describe('PUT /api/enrichment/config — owner gate (#2353)', () => {
   const body = { nominatim_url: null, geocode_worker_enabled: false };
 
@@ -452,9 +465,9 @@ describe('PUT /api/enrichment/config — owner gate (#2353)', () => {
     expect(r.status).toBe(200);
   });
 
-  it('POST /test stays member-accessible', async () => {
+  it('POST /test rejects a member (#4745)', async () => {
     stubFetch(() => ({ status: 200 }));
     const r = await post('/api/enrichment/test', { nominatim_url: 'http://n.test' }, memberJwt);
-    expect(r.status).toBe(200);
+    expect(r.status).toBe(403);
   });
 });

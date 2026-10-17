@@ -13,6 +13,7 @@
  */
 
 import { Elysia, t } from 'elysia';
+import { requireOwnerBeforeHandle } from '../auth/middleware.ts';
 import {
   loadMapConfig,
   resolveMapConfig,
@@ -41,5 +42,5 @@ export const mapConfigRoutes = new Elysia({ prefix: '/api/map' })
       const resolved = resolveMapConfig(await loadMapConfig());
       return { ok: true, ...resolved };
     },
-    { body: MapConfigBody },
+    { body: MapConfigBody, beforeHandle: requireOwnerBeforeHandle },
   );

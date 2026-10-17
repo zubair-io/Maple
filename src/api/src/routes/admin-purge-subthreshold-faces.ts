@@ -36,6 +36,7 @@
  */
 
 import { Elysia, t } from 'elysia';
+import { requireOwnerBeforeHandle } from '../auth/middleware.ts';
 import { auditSubthresholdFaces, purgeSubthresholdFaces } from '../db/repos/faces.purge.ts';
 import { loadEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
@@ -195,5 +196,6 @@ export const purgeSubthresholdFacesRoutes = new Elysia({
     log.info(summary, 'purge-subthreshold-faces complete');
     return summary;
   },
-  { query: QuerySchema },
+  // #4745: permanently deletes face rows, including assigned ones.
+  { query: QuerySchema, beforeHandle: requireOwnerBeforeHandle },
 );

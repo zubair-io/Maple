@@ -8,6 +8,7 @@
  * Mounted behind `requireAuth` in `src/index.ts`, beside `mirrorRoutes`.
  */
 import { Elysia, t } from 'elysia';
+import { requireOwnerBeforeHandle } from '../auth/middleware.ts';
 import {
   loadDerivativeAuditConfig,
   saveDerivativeAuditConfig,
@@ -27,6 +28,7 @@ export const derivativeAuditRoutes = new Elysia()
       return { ok: true, config: await loadDerivativeAuditConfig() };
     },
     {
+      beforeHandle: requireOwnerBeforeHandle,
       body: t.Object({
         enabled: t.Optional(t.Boolean()),
         interval_ms: t.Optional(t.Integer({ minimum: 60_000 })),
@@ -38,4 +40,6 @@ export const derivativeAuditRoutes = new Elysia()
   )
   // Kick a pass now. Shares the worker's single-flight lock, so this can never
   // start a second pass concurrent with a scheduled/boot run.
-  .post('/api/derivative-audit/run', () => startAuditPass());
+  .post('/api/derivative-audit/run', () => startAuditPass(), {
+    beforeHandle: requireOwnerBeforeHandle,
+  });
