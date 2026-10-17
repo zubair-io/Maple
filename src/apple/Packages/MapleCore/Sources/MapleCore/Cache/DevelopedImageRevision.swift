@@ -23,6 +23,19 @@ public final class DevelopedImageRevision {
     return revision == 0 ? id : "\(id):developed:\(revision)"
   }
 
+  /// Cloud asset IDs name paths within a server, not globally unique images.
+  /// Cells, warmers and retained preview seeds must share this same namespace.
+  public func decodedKey(for id: String, source: ThumbnailSource) -> String {
+    let host: String?
+    switch source.resolvedBackend() {
+    case .cloudThumb(_, let cloudHost): host = cloudHost
+    case .thumbnailLoader(let asset, _): host = asset.catalog?.serverID.cacheHostKey
+    case .photoKit: host = nil
+    }
+    let identity = host.map { "cloud:\($0.utf8.count):\($0):\(id)" } ?? id
+    return decodedKey(for: identity, url: source.localAssetURL)
+  }
+
   /// Publish only after both derived-image writes have completed, so a reload
   /// cannot fetch the old display preview over a freshly edited thumbnail.
   public func didPersist(for url: URL) {

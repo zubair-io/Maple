@@ -88,7 +88,7 @@
       -> Bool
     {
       let item = PhotoGridItem(cloud: cover, host: host, style: .phone)
-      let key = DevelopedImageRevision.shared.decodedKey(for: item.id, url: nil)
+      let key = DevelopedImageRevision.shared.decodedKey(for: item.id, source: item.thumbnailSource)
       guard ThumbnailDecoder.cachedImage(forKey: key) == nil else { return true }
       let bytes = await provider.thumbnail(for: item.thumbnailSource)
       return await ThumbnailDecoder.image(for: bytes, key: key) != nil

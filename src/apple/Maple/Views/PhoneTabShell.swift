@@ -360,7 +360,10 @@
             if hero == nil { heroPhase = .opening }
             hero = PreviewHeroSubject(
               asset: entry,
-              image: ThumbnailDecoder.cachedImage(forKey: entry.stableID ?? entry.id.uuidString))
+              image: ThumbnailDecoder.cachedImage(
+                forKey: DevelopedImageRevision.shared.decodedKey(
+                  for: entry.stableID ?? entry.id.uuidString,
+                  source: .local(entry, source: nil))))
           }
         }
 
