@@ -133,12 +133,11 @@ extension AppShell {
 
   private func renameSMBAsset(_ asset: AssetRef, to newFilename: String) async throws -> AssetRef {
     guard let source = browseVM.currentSource as? SMBSource,
-      let mapleID = asset.stableID,
+      let ref = asset.smbMutationRef,
       asset.bytesProvider != nil
     else {
       throw FileOperationError.sourceMissing("SMB share is not connected")
     }
-    let ref = ImageRef(id: mapleID, displayName: asset.displayName, url: nil)
     let path = try await source.renameAsset(ref, to: newFilename)
     // Keep decode routing and bind drag-out to the confirmed new path.
     return try asset.renamedSMB(to: newFilename, at: path, source: source)

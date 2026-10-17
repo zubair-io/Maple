@@ -3,7 +3,7 @@ import Foundation
 
 extension SMBSource {
   func workflowSidecarPath(for ref: ImageRef, variantId: String) throws -> String {
-    let primary = (path(for: ref) as NSString).deletingPathExtension + ".xmp"
+    let primary = (try mutationPath(for: ref) as NSString).deletingPathExtension + ".xmp"
     let name = try WorkflowSidecarCore.variantFilename(
       primaryName: (primary as NSString).lastPathComponent, variantId: variantId)
     return ((primary as NSString).deletingLastPathComponent as NSString)
