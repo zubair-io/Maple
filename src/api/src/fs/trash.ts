@@ -24,7 +24,9 @@ import { relocateFile, pickFreePath, sidecarRenameTarget } from './relocate.ts';
 import { classifySameFile } from './relocate-case-only-rename.ts';
 import { restoreDestinationOccupied, restoreFilePair } from './trash-restore-pair.ts';
 import {
+  joinCarriedSidecar,
   publishSidecarSnapshot,
+  sidecarAlreadyCarried,
   sameSidecarFile,
   sidecarStemClaimedBySibling,
   settleCarriedSidecar,
@@ -46,7 +48,7 @@ export type MoveResult = { kind: 'ok'; newAbsPath: string } | { kind: 'error'; e
  *
  * Follows the shared-sidecar ownership rule (#4692): a sidecar another
  * same-stem photo still uses is copied, never moved; an occupied destination
- * is never replaced. Best-effort: a sidecar that fails to move is logged and
+ * is never replaced, but an identical one is joined. Best-effort: a sidecar that fails to move is logged and
  * left in place. Used by the DeDuplicate worker's `moveToDuplicates`.
  */
 export async function moveSidecarsAlongside(oldAbsPath: string, newAbsPath: string): Promise<void> {
@@ -59,7 +61,9 @@ export async function moveSidecarsAlongside(oldAbsPath: string, newAbsPath: stri
     const destPath = sidecarRenameTarget(oldAbsPath, newAbsPath, sidecar);
     if (!destPath || (await sameSidecarFile(sidecar, destPath))) continue;
     try {
-      const snapshot = await publishSidecarSnapshot(sidecar, destPath);
+      const snapshot = (await sidecarAlreadyCarried(sidecar, destPath))
+        ? await joinCarriedSidecar(sidecar, destPath)
+        : await publishSidecarSnapshot(sidecar, destPath);
       await settleCarriedSidecar(sidecar, destPath, snapshot, claimedBySibling);
     } catch (err) {
       log.warn(
