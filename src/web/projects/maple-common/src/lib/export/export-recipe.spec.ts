@@ -158,6 +158,7 @@ describe('export recipe contract and recovery', () => {
           }),
       } as unknown as Blob;
     };
+    let failWriteOnce = false;
     const handleFor = (name: string): FileSystemFileHandle =>
       ({
         kind: 'file',
@@ -168,6 +169,10 @@ describe('export recipe contract and recovery', () => {
           let next = '';
           return {
             write: async (blob: Blob) => {
+              if (failWriteOnce) {
+                failWriteOnce = false;
+                throw new Error('Disk full while writing');
+              }
               next = await blob.text();
             },
             close: async () => {
@@ -255,6 +260,20 @@ describe('export recipe contract and recovery', () => {
     await run('IMG_1_export.jpg', 'first-export');
     expect(record.entries[0].status).toBe('applied');
     expect(Object.keys(record.createdOutputs ?? {})).toEqual(['img_1_export.jpg']);
+    expect(files.get('IMG_1_export.jpg')).toBe('first-export');
+    const firstDigest = record.createdOutputs?.['img_1_export.jpg'];
+
+    failWriteOnce = true;
+    record.entries = [{ id: 'raw-1', status: 'pending' }];
+    await run('IMG_1_export.jpg', 'failed-write-export');
+    expect(record.entries[0]).toEqual(
+      expect.objectContaining({
+        id: 'raw-1',
+        status: 'failed',
+        reason: expect.stringContaining('Disk full'),
+      }),
+    );
+    expect(record.createdOutputs?.['img_1_export.jpg']).toBe(firstDigest);
     expect(files.get('IMG_1_export.jpg')).toBe('first-export');
 
     record.entries = [{ id: 'raw-1', status: 'pending' }];
