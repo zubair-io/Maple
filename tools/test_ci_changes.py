@@ -276,6 +276,39 @@ class GitTests(unittest.TestCase):
         head = self.commit("src/web/app.ts")
         self.assert_selected(self.push(self.base, head), {"api", "windows", "web"})
 
+    def test_merge_group_cumulative_range_and_invalid_refs(self):
+        self.git("checkout", "-q", "-b", "first-pr")
+        first = self.commit("src/windows/first.cs")
+        self.git("checkout", "-q", "--detach", self.base)
+        self.git("checkout", "-q", "-b", "second-pr")
+        self.commit("src/web/second.ts")
+        self.git("checkout", "-q", "--detach", self.base)
+        self.git("merge", "-q", "--no-ff", "first-pr", "-m", "merge first PR")
+        self.git("merge", "-q", "--no-ff", "second-pr", "-m", "merge second PR")
+        group_head = self.git("rev-parse", "HEAD")
+        event = {"merge_group": {"base_sha": self.base, "head_sha": group_head}}
+        selected = ci.select("merge_group", event, self.repo)
+        self.assert_selected(selected, {"api", "web", "windows"})
+        self.assertIn(f"{self.base}..{group_head}", selected[1])
+        self.assert_selected(
+            ci.select("merge_group", {"merge_group": {"base_sha": first}}, self.repo),
+            ci.ALL,
+        )
+        for invalid in ("", "0" * 40, "--help", "a" * 39, first + "\n"):
+            with self.subTest(invalid=invalid):
+                event = {"merge_group": {"base_sha": invalid, "head_sha": group_head}}
+                self.assert_selected(ci.select("merge_group", event, self.repo), ci.ALL)
+        self.git("checkout", "-q", "--detach", self.base)
+        unrelated = self.commit("docs/unrelated.md")
+        self.assert_selected(
+            ci.select(
+                "merge_group",
+                {"merge_group": {"base_sha": unrelated, "head_sha": group_head}},
+                self.repo,
+            ),
+            ci.ALL,
+        )
+
     def test_deletion_and_cross_domain_rename(self):
         before = self.commit("src/api/source.ts")
         destination = self.repo / "docs/moved.md"

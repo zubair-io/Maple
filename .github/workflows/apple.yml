@@ -25,6 +25,8 @@
 name: apple
 
 on:
+  merge_group:
+    types: [checks_requested]
   workflow_call:
     outputs:
       validated_sha:
