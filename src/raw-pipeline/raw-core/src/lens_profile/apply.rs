@@ -147,13 +147,14 @@ pub fn reach_px(
     if !warp || area.width == 0 || area.height == 0 {
         return 0;
     }
+    let max_extent = area.width.max(area.height) as usize;
     let (width, height) = (area.width as f64, area.height as f64);
     let mut rect = [0.0, width, 0.0, height];
     let mut bound = [0.0_f64; 2];
     if scales.distortion > 0.0 {
         if let Some(d) = calibration.distortion {
             let Some([dx, dy]) = model_disp_bound(d.frame, d, rect, width, height) else {
-                return 0;
+                return max_extent;
             };
             let s = scales.distortion as f64;
             bound = [s * dx, s * dy];
@@ -166,7 +167,7 @@ pub fn reach_px(
             for rel in ca.relative {
                 let Some([dx, dy]) = model_disp_bound(ca.reference, rel, rect, width, height)
                 else {
-                    return 0;
+                    return max_extent;
                 };
                 ca_bound = [ca_bound[0].max(dx), ca_bound[1].max(dy)];
             }
@@ -174,7 +175,11 @@ pub fn reach_px(
             bound = [bound[0] + s * ca_bound[0], bound[1] + s * ca_bound[1]];
         }
     }
-    bound[0].max(bound[1]).ceil() as usize + 2
+    let peak = bound[0].max(bound[1]);
+    if !peak.is_finite() {
+        return max_extent;
+    }
+    (peak.ceil() as usize).saturating_add(2).min(max_extent)
 }
 
 /// Upper-bounds `|p.frame.pixels(p.normalized(ref_frame.coordinates(pt))) - pt|`
@@ -512,5 +517,10 @@ mod tests {
             bound >= peak.ceil() as usize + 2,
             "bound {bound} < peak {peak} + 2"
         );
+        let huge = Calibration {
+            distortion: Some(lobe(1.0e30, 1.0)),
+            ..calibration()
+        };
+        assert_eq!(reach_px(&huge, rect, LensCorrectionScales::FULL), 200);
     }
 }
