@@ -35,17 +35,25 @@ export class NativeDetailWorker {
 
   close(): void {
     this.epoch++;
+    this.releaseCurrent();
+  }
+
+  epochSnapshot(): number {
+    return this.epoch;
+  }
+
+  private releaseCurrent(): void {
     this.current?.session.free();
     this.current = null;
   }
 
-  async render(req: NativeDetailRequest): Promise<void> {
-    const generation = this.epoch;
+  async render(req: NativeDetailRequest, dispatchedEpoch?: number): Promise<void> {
+    const generation = dispatchedEpoch ?? this.epoch;
     try {
       await this.deps.ready();
       if (generation !== this.epoch) throw new NativeDetailSupersededError();
       if (this.current?.sourceId !== req.sourceId) {
-        this.close();
+        this.releaseCurrent();
         if (!req.bytes) throw new Error('Native-detail session unavailable');
         this.current = {
           sourceId: req.sourceId,
@@ -96,5 +104,8 @@ const worker = new NativeDetailWorker({
 });
 
 export const closeNativeDetail = (): void => worker.close();
-export const handleNativeDetail = (request: NativeDetailRequest): Promise<void> =>
-  worker.render(request);
+export const nativeDetailEpoch = (): number => worker.epochSnapshot();
+export const handleNativeDetail = (
+  request: NativeDetailRequest,
+  dispatchedEpoch?: number,
+): Promise<void> => worker.render(request, dispatchedEpoch);

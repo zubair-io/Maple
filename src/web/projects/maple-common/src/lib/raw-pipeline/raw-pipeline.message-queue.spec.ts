@@ -32,25 +32,6 @@ describe('serial worker message queue (#4676)', () => {
     expect(order).toEqual(['open:start', 'open:done', 'close:free']);
   });
 
-  it('runs close-native-detail after an in-flight native-detail render, so no tile posts after teardown', async () => {
-    const enqueue = createSerialMessageQueue();
-    const order: string[] = [];
-    const restore = deferred();
-    enqueue(async () => {
-      await restore.promise;
-      order.push('native-detail:post');
-    });
-    enqueue(async () => {
-      order.push('close-native-detail:free');
-    });
-    await tick();
-    expect(order).toEqual([]);
-    restore.resolve();
-    await tick();
-    await tick();
-    expect(order).toEqual(['native-detail:post', 'close-native-detail:free']);
-  });
-
   it('runs set-film-lut after an in-flight open-session instead of against the prior session', async () => {
     const enqueue = createSerialMessageQueue();
     const order: string[] = [];
