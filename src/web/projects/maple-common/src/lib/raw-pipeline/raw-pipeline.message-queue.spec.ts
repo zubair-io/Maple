@@ -70,6 +70,28 @@ describe('serial worker message queue (#4676)', () => {
     expect(order).toEqual(['open:done', 'set-film-lut:applied']);
   });
 
+  it('logs a rejected task instead of swallowing it, and still runs later messages', async () => {
+    const enqueue = createSerialMessageQueue();
+    const order: string[] = [];
+    const failure = new Error('boom');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      enqueue(async () => {
+        throw failure;
+      });
+      enqueue(async () => {
+        order.push('next');
+      });
+      await tick();
+      await tick();
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy.mock.calls[0]).toContain(failure);
+      expect(order).toEqual(['next']);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it('keeps processing later messages after a task rejects', async () => {
     const enqueue = createSerialMessageQueue();
     const order: string[] = [];

@@ -89,8 +89,6 @@ import {
 // import cycle back through this file (file-size budget, #2683).
 void ensureReady();
 
-// One case per request kind; the dispatch's complexity is the kind count.
-// fallow-ignore-next-line complexity
 const enqueueMessage = createSerialMessageQueue();
 // Serial queue (#4676): close/set-film-lut must not overtake an in-flight open; `lens-profile-restored` bypasses it or its own restore deadlocks.
 addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
@@ -99,6 +97,8 @@ addEventListener('message', (event: MessageEvent<WorkerRequest>) => {
   enqueueMessage(() => handleMessage(req));
 });
 
+// One case per request kind; the dispatch's complexity is the kind count.
+// fallow-ignore-next-line complexity
 async function handleMessage(req: WorkerRequest): Promise<void> {
   releaseRetainedCpuBefore(req);
   if (req.type === 'import-lens-profile') {
