@@ -54,3 +54,7 @@ internal fun MapleState.failed(failure: Throwable, operation: String): MapleStat
         rendering = false,
         saving = false,
     )
+
+/** A background save that failed leaves the preview exactly as it was: only the save state changes. */
+internal fun MapleState.saveFailed(failure: Throwable): MapleState =
+    copy(error = failure.operationMessage("Could not save edits"), canResetRawOnlySliders = false, saving = false)
