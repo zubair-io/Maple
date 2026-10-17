@@ -51,6 +51,7 @@ final class AgentMaskScopeTests: XCTestCase {
     try FileManager.default.copyItem(at: fixture, to: original)
     let bytes = try Data(contentsOf: original)
     let session = EditSession(asset: AssetRef(url: original))
+    await session.loadSidecar()
     session.previewSize = CGSize(width: 200, height: 200)
     await session.openAssetPipelineAsync()
     _ = await session.latestRenderSchedule?.value
