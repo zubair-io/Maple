@@ -54,8 +54,9 @@ namespace Maple.WinUI.Services.Cloud
         public async Task<(bool Ok, string Message)> RedeemNativeCodeAsync(
             string code, string codeVerifier, CancellationToken ct)
         {
-            using var response = await _http.PostAsync("api/auth/native-code/redeem",
-                JsonContent(new { code, code_verifier = codeVerifier }), ct);
+            using var response = await PostRedeemAsync(code, codeVerifier, ct);
+            if (response == null)
+                return (false, "code redeem could not reach the server — check your connection and try signing in again.");
             if (!response.IsSuccessStatusCode)
                 return (false, $"code redeem failed ({(int)response.StatusCode}) — the code may have expired; try signing in again.");
             var tokens = await ReadJsonAsync<CloudRedeemResponse>(response, ct);
@@ -64,6 +65,21 @@ namespace Maple.WinUI.Services.Cloud
             _accessToken = tokens!.AccessToken;
             RefreshToken = tokens.RefreshToken;
             return (true, $"Signed in as {tokens.User?.Email ?? "user"}.");
+        }
+
+        private async Task<HttpResponseMessage?> PostRedeemAsync(string code, string codeVerifier, CancellationToken ct)
+        {
+            try
+            {
+                return await _http.PostAsync("api/auth/native-code/redeem",
+                    JsonContent(new { code, code_verifier = codeVerifier }), ct);
+            }
+            catch (Exception ex) when (
+                ex is HttpRequestException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
+            {
+                DiagLog.Write($"[cloud] redeem unreachable: {ex.Message}");
+                return null;
+            }
         }
 
         /// <summary>Poll-claim the pending ceremony's code by state + private

@@ -95,15 +95,31 @@ namespace Maple.WinUI.Services.Cloud
         private async Task<T?> GetJsonAsync<T>(
             string route, CancellationToken ct, bool authenticated = true) where T : class
         {
-            using var response = authenticated
-                ? await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, route), ct)
-                : await _http.GetAsync(route, ct);
+            using var response = await GetResponseAsync(route, ct, authenticated);
+            if (response == null)
+                return null;
             if (!response.IsSuccessStatusCode)
             {
                 DiagLog.Write($"[cloud] GET {route} → {(int)response.StatusCode}");
                 return null;
             }
             return await ReadJsonAsync<T>(response, ct);
+        }
+
+        private async Task<HttpResponseMessage?> GetResponseAsync(string route, CancellationToken ct, bool authenticated)
+        {
+            try
+            {
+                return authenticated
+                    ? await SendAsync(() => new HttpRequestMessage(HttpMethod.Get, route), ct)
+                    : await _http.GetAsync(route, ct);
+            }
+            catch (Exception ex) when (
+                ex is HttpRequestException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
+            {
+                DiagLog.Write($"[cloud] GET {route} unreachable: {ex.Message}");
+                return null;
+            }
         }
 
         private static async Task<T?> ReadJsonAsync<T>(
