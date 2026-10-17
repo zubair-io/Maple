@@ -179,6 +179,8 @@ public final class EngineHost {
       self.state = state
       self.sidecars = sidecars
       self.runnerTask = Task.detached(priority: .background) {
+        await engine.recoverPendingSidecars()
+        if Task.isCancelled { return }
         await engine.run(keepAlive: true)
       }
 

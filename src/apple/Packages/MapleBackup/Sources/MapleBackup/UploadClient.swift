@@ -104,6 +104,8 @@ public actor UploadClient {
   private let baseURL: URL
   private let libraryId: String
   private let deviceId: String
+
+  func backupDeviceId() -> String { deviceId }
   /// Authenticated transport. In the app this is
   /// `AuthenticatedHTTPClient.data(for:)` (Bearer + 401-refresh-retry);
   /// required so a construction site can't silently skip auth (#855).

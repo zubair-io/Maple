@@ -1,7 +1,8 @@
 // Sources/MapleBackup/BackupState.swift
 //
-// GRDB-backed persistence for the queue's state machine. One table —
-// `tasks` — keyed by (device_id, phasset_local_id). This is internal queue
+// GRDB-backed persistence for the queue's state machine and unfinished
+// local-edit XMP companions, keyed by (device_id, phasset_local_id).
+// This is internal queue
 // state (counts, retry depth, in-flight chunk offsets), not user data:
 // SQLite is appropriate for the concurrent-update + restart-recovery shape.
 // User-visible sidecars stay as `.xmp` files (see AppSupportSidecarStore).
@@ -12,6 +13,12 @@ import Foundation
 import GRDB
 
 public actor BackupStateStore {
+
+  public struct PendingSidecar: Sendable {
+    public let id: BackupTaskID
+    public let targetRelPath: String
+    public let mapleId: String
+  }
 
   private let dbQueue: DatabaseQueue
 
@@ -41,6 +48,66 @@ public actor BackupStateStore {
       if !columns.contains("captured_at") {
         try db.execute(sql: "ALTER TABLE tasks ADD COLUMN captured_at DOUBLE")
       }
+      try db.create(table: "pending_sidecars", ifNotExists: true) { t in
+        t.column("device_id", .text).notNull()
+        t.column("phasset_local_id", .text).notNull()
+        t.column("target_rel_path", .text).notNull()
+        t.column("maple_id", .text).notNull()
+        t.primaryKey(["device_id", "phasset_local_id"])
+      }
+    }
+  }
+
+  /// Commit the primary receipt and unfinished local edit together. The
+  /// database itself is scoped to one server/library by BackupSettings.
+  public func completeUpload(
+    _ id: BackupTaskID, targetRelPath: String, mapleId: String,
+    hasLocalEdit: Bool
+  ) throws {
+    try dbQueue.write { db in
+      if hasLocalEdit {
+        try db.execute(
+          literal: """
+            INSERT INTO pending_sidecars
+              (device_id, phasset_local_id, target_rel_path, maple_id)
+            VALUES (\(id.deviceId), \(id.phassetLocalId), \(targetRelPath), \(mapleId))
+            ON CONFLICT(device_id, phasset_local_id) DO UPDATE SET
+              target_rel_path=excluded.target_rel_path, maple_id=excluded.maple_id
+            """)
+      }
+      try db.execute(
+        literal: """
+          UPDATE tasks SET state=\(BackupState.uploaded.rawValue), last_error=NULL
+          WHERE device_id=\(id.deviceId) AND phasset_local_id=\(id.phassetLocalId)
+          """)
+    }
+  }
+
+  public func pendingSidecars(deviceId: String) throws -> [PendingSidecar] {
+    try dbQueue.read { db in
+      try Row.fetchAll(
+        db,
+        sql: """
+          SELECT p.* FROM pending_sidecars p
+          JOIN tasks t ON t.device_id = p.device_id
+            AND t.phasset_local_id = p.phasset_local_id
+          WHERE p.device_id = ? AND t.state = 'uploaded'
+          """,
+        arguments: [deviceId]
+      ).map { row in
+        PendingSidecar(
+          id: BackupTaskID(deviceId: row["device_id"], phassetLocalId: row["phasset_local_id"]),
+          targetRelPath: row["target_rel_path"], mapleId: row["maple_id"])
+      }
+    }
+  }
+
+  public func clearPendingSidecar(_ id: BackupTaskID) throws {
+    try dbQueue.write { db in
+      try db.execute(
+        literal:
+          "DELETE FROM pending_sidecars WHERE device_id=\(id.deviceId) AND phasset_local_id=\(id.phassetLocalId)"
+      )
     }
   }
 

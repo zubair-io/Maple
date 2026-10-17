@@ -12,7 +12,7 @@ public actor BackupEngine {
   /// companion (sidecar / rendered / live-mov) is retrying or has exhausted
   /// its bounded budget, so a stranded artifact is visible in Console.app
   /// without failing the (already-uploaded) photo.
-  private static let companionLog = Logger(
+  static let companionLog = Logger(
     subsystem: "app.justmaple.aperture", category: "backup.companion")
 
   public enum EngineError: Error, Equatable, Sendable {
@@ -21,9 +21,9 @@ public actor BackupEngine {
 
   /// `internal` for the same reason as `outstandingCompanions`.
   let queue: any BackupQueue
-  private let state: BackupStateStore
-  private let upload: UploadClient
-  private let sidecars: AppSupportSidecarStore
+  let state: BackupStateStore
+  let upload: UploadClient
+  let sidecars: AppSupportSidecarStore
   private let reader: any AssetReader
   private let reachability: Reachability?
   private let wifiOnly: Bool
@@ -86,7 +86,7 @@ public actor BackupEngine {
   /// companion. Matched to `maxRetries` so an in-session local-edit upload
   /// gets the same number of attempts the whole-task retry loop used to give
   /// it before #700 decoupled companions from the bytes upload.
-  private static let localEditCompanionRetries = 8
+  static let localEditCompanionRetries = 8
 
   /// Bounded retry budget for re-derivable companions (generated sidecar,
   /// Apple-rendered twin, Live Photo .mov). These can be regenerated from
@@ -248,6 +248,7 @@ public actor BackupEngine {
 
     let result: UploadClient.Result
     let read: AssetReadResult
+    let localEditXmp: String?
     do {
       try await state.transition(task.id, to: .uploading)
       let queue = self.queue
@@ -284,7 +285,17 @@ public actor BackupEngine {
 
       // Bytes landed — the photo counts as uploaded. Persist + emit before
       // touching any companion so a companion hiccup can never revert this.
-      try await state.transition(task.id, to: .uploaded, error: nil)
+      do {
+        localEditXmp = try sidecars.read(phassetLocalId: task.id.phassetLocalId)
+      } catch {
+        localEditXmp = nil
+        Self.companionLog.error(
+          "local-edit sidecar read failed, phasset=\(task.id.phassetLocalId, privacy: .private): \(String(describing: error), privacy: .public)"
+        )
+      }
+      try await state.completeUpload(
+        task.id, targetRelPath: result.targetRelPath,
+        mapleId: result.mapleId, hasLocalEdit: localEditXmp != nil)
       await queue.emit(.completed(task.id, mapleId: result.mapleId))
     } catch is CancellationError {
       try? await state.transition(task.id, to: .pending)
@@ -378,7 +389,8 @@ public actor BackupEngine {
     // throw out of here and never emit `.failed` — a companion exhausting
     // its budget would otherwise double-count the photo in the progress VM
     // (already `.completed`) as failed.
-    await uploadCompanionsBestEffort(task: task, read: read, result: result)
+    await uploadCompanionsBestEffort(
+      task: task, read: read, result: result, localEditXmp: localEditXmp)
   }
 
   // MARK: - Best-effort companions (#700)
@@ -390,7 +402,8 @@ public actor BackupEngine {
   private func uploadCompanionsBestEffort(
     task: BackupTask,
     read: AssetReadResult,
-    result: UploadClient.Result
+    result: UploadClient.Result,
+    localEditXmp: String?
   ) async {
     // Sidecar: only uploaded when the user has a genuine local Maple edit
     // for this photo (#2553 — non-destructive invariant: the sidecar is
@@ -403,30 +416,15 @@ public actor BackupEngine {
     // contract says corruption should surface, not be swallowed, since
     // that would quietly drop the user's edit. Logged at error level;
     // the photo upload still succeeds either way (best-effort companion).
-    let localEditXmp: String?
-    do {
-      localEditXmp = try sidecars.read(phassetLocalId: task.id.phassetLocalId)
-    } catch {
-      localEditXmp = nil
-      Self.companionLog.error(
-        "local-edit sidecar read failed, phasset=\(task.id.phassetLocalId, privacy: .private): \(String(describing: error), privacy: .public)"
-      )
-    }
-    if let localEditXmp {
+    if localEditXmp != nil {
+      let receipt = BackupStateStore.PendingSidecar(
+        id: task.id, targetRelPath: result.targetRelPath, mapleId: result.mapleId)
       await runCompanion(
         taskId: task.id,
         label: "sidecar",
         maxAttempts: Self.localEditCompanionRetries
       ) { [self] in
-        try await upload.uploadSidecar(
-          phassetLocalId: task.id.phassetLocalId,
-          targetRelPath: result.targetRelPath,
-          xmp: localEditXmp,
-          mapleId: read.mapleId)
-        // Delete the local-edit XMP only after the sidecar actually lands on
-        // the server, so a failed attempt re-derives correctly on retry and
-        // a crash before delivery leaves the user's edit on disk.
-        try? sidecars.delete(phassetLocalId: task.id.phassetLocalId)
+        try await deliverSidecar(receipt)
       }
     }
 
@@ -471,7 +469,7 @@ public actor BackupEngine {
   /// emits queue events. `busyElsewhere` on a companion is treated like any
   /// other transient failure here — it's coordination on a re-derivable
   /// artifact, not a reason to fail the (already-uploaded) photo.
-  private func runCompanion(
+  func runCompanion(
     taskId: BackupTaskID,
     label: String,
     maxAttempts: Int,
@@ -480,6 +478,7 @@ public actor BackupEngine {
     do {
       try await op()
     } catch {
+      if Task.isCancelled { return }
       Self.companionLog.notice(
         "companion \(label, privacy: .public) first attempt failed, scheduling retry: \(String(describing: error), privacy: .public)"
       )
@@ -527,6 +526,10 @@ public actor BackupEngine {
         // Terminal: the companion landed on this retry. Decrement once.
         await self?.companionResolved(taskId)
       } catch {
+        if Task.isCancelled {
+          await self?.finishRetry(token)
+          return
+        }
         // Bounded recursion via the actor so retryTasks stays consistent.
         // No re-increment: this companion is already counted outstanding.
         await self?.scheduleCompanionRetry(
