@@ -254,6 +254,13 @@ preserve the same WB-dependent stage order within `1e-4`; see
 `test-fixtures/qualification/color-gpu-retouch-4629.md`. Deep denoise and
 persistent-host integration remain required for the full migration.
 
+BM3D joint block matching is staged under the same issue. Its row-bounded GPU
+output matches the CPU's selected patch order exactly, including distance ties
+and power-of-two group sizes; see
+`test-fixtures/qualification/color-gpu-bm3d-matching-4629.md`. Collaborative
+filtering, ordered aggregation and complete deep-denoise qualification remain
+before the persistent prefix can use this stage.
+
 ### Ordered local mask groups (#3408)
 
 One correction may contain ordered Add, Subtract and Intersect components, independent component/group inversion, and final opacity. CPU and WGSL evaluate the same union/product coverage formulas described in `xmp-canonical-format.md`; local controls and scope selection address logical layers, not the group's physical component records. The flat wire retains its 40-float stride: kind 4 is a group header carrying component count, opacity and group inversion, followed by control-free leaf records whose encoded kind carries shape, combine operation and inversion. Layout constants are generated for Rust, WGSL, Swift, TypeScript and C#. Shape changes update the live-chain signature; geometry/opacity changes only update parameters. GPU components share the existing chain and bitmap bindings, without intermediate component planes or new per-tick GPU buffers. Missing any group bitmap makes the entire group inert, even if inverted.

@@ -189,6 +189,8 @@ UI_XAML_OUT="src/windows/Maple.WinUI/Themes/Tokens.xaml"
 
 GPU_WGSL_OUT="src/raw-pipeline/raw-gpu/src/generated/color_matrices.wgsl"
 COLOR_MATRICES_TS_OUT="src/web/projects/maple-common/src/lib/generated/color-matrices.generated.ts"
+"$BIN" --schema bm3d --target rust --out src/raw-pipeline/raw-gpu/src/generated/bm3d.rs
+"$BIN" --schema bm3d --target wgsl --out src/raw-pipeline/raw-gpu/src/generated/bm3d.wgsl
 
 "$BIN" --schema color-matrices --target wgsl --out "$GPU_WGSL_OUT"
 

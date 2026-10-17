@@ -69,6 +69,9 @@ mod transforms;
 #[cfg(test)]
 mod tests;
 
+#[cfg(all(test, feature = "gpu", not(target_arch = "wasm32")))]
+mod gpu_matching_tests;
+
 use std::sync::RwLock;
 
 use rayon::prelude::*;
@@ -78,13 +81,13 @@ use crate::image::{ColorSpace, Image};
 use pipeline::{run_pass, PassKind};
 
 /// Patch edge length.
-pub(crate) const BLOCK: usize = 8;
+pub const BLOCK: usize = 8;
 /// Reference-patch grid stride.
-pub(crate) const STRIDE: usize = 6;
+pub const STRIDE: usize = 6;
 /// Half-extent of the (19×19) block-matching search window.
-pub(crate) const SEARCH_HALF: usize = 9;
+pub const SEARCH_HALF: usize = 9;
 /// Maximum group size (power of two for the group-axis WHT).
-pub(crate) const GROUP_MAX: usize = 16;
+pub const GROUP_MAX: usize = 16;
 /// Hard-threshold multiplier on σ (pass 1).
 pub(crate) const LAMBDA_HT: f32 = 2.7;
 /// Match ceiling: mean-relative per-pixel SSD ≤ `T_MATCH_SQ · σ_Y²`.

@@ -87,6 +87,17 @@ while IFS= read -r kernel; do
 	checked=$((checked + 1))
 	base="$(basename "$kernel")"
 	assembled="$TMP/assembled.wgsl"
+	if [[ "$kernel" == "$WGSL_DIR/bm3d_matching.wgsl" ]]; then
+		cat "$WGSL_DIR/generated/bm3d.wgsl" "$kernel" >"$assembled"
+		if validate "$assembled"; then
+			echo "PASS  $base  (+BM3D constants)"
+		else
+			echo "FAIL  $base — assembled BM3D module does not validate:" >&2
+			sed 's/^/    /' "$TMP/err" >&2
+			fail=$((fail + 1))
+		fi
+		continue
+	fi
 	if [[ "$kernel" == "$WGSL_DIR/retouch/"* ]]; then
 		cat "$WGSL_DIR/retouch/common.wgsl" "$kernel" >"$assembled"
 		if validate "$assembled"; then
