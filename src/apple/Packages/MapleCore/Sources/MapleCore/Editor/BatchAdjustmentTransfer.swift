@@ -6,6 +6,7 @@ public struct BatchAdjustmentTarget: Codable, Sendable, Equatable, Identifiable 
   public let url: URL?
   public let hintExtension: String?
   public let isRaw: Bool?
+  static let smbIDPrefix = "smb:"
 
   public init(id: String, name: String, url: URL?, hintExtension: String? = nil, isRaw: Bool? = nil)
   {
@@ -267,8 +268,11 @@ public actor BatchAdjustmentTransfer {
         target.url
         ?? (target.id.hasPrefix("fs:")
           ? URL(fileURLWithPath: String(target.id.dropFirst(3))) : nil)
+      let smbSidecar =
+        target.id.hasPrefix(BatchAdjustmentTarget.smbIDPrefix)
+        ? (target.id as NSString).deletingPathExtension + ".xmp" : nil
       return original.map { SidecarPath.sidecarURL(for: $0).standardizedFileURL.absoluteString }
-        ?? target.id
+        ?? smbSidecar ?? target.id
     }
     return Set(destinations).count == targets.count
   }
