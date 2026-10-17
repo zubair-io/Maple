@@ -250,3 +250,29 @@ fn comparison_uses_the_open_snapshot_without_editing_history_or_sidecar() {
     pump(&mut app, |app| app.texture.is_some());
     assert_eq!(app.comparison_baseline.as_ref().unwrap().exposure, 1.0);
 }
+
+#[test]
+fn an_edit_made_while_a_save_is_in_flight_survives_the_deferred_navigation() {
+    let (directory, path) = fixture();
+    let mut app = MapleApp::from_context(egui::Context::default());
+    app.open_folder(directory.path().into());
+    pump(&mut app, |app| app.folder.is_some());
+    let photo = app.folder.as_ref().unwrap().photos[0].clone();
+    app.select(photo.clone());
+    pump(&mut app, |app| app.texture.is_some());
+    Control::Exposure
+        .set(&mut app.document.as_mut().unwrap().model, 1.0)
+        .unwrap();
+    app.changed();
+    app.select(photo);
+    assert_eq!(app.saving, 1);
+    Control::Exposure
+        .set(&mut app.document.as_mut().unwrap().model, 2.0)
+        .unwrap();
+    app.changed();
+    pump(&mut app, |app| {
+        app.pending_navigation.is_none() && app.saving == 0
+    });
+    let (_, saved) = crate::sidecar::SidecarStore::open(&path).unwrap();
+    assert_eq!(saved.model.exposure, 2.0);
+}

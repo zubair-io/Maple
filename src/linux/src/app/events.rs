@@ -261,7 +261,10 @@ impl MapleApp {
                 _ => {}
             }
         }
-        if self.saving == 0 {
+        if self.saving == 0 && self.pending_navigation.is_some() {
+            self.flush();
+        }
+        if self.saving == 0 && self.dirty.is_none() {
             if let Some(navigation) = self.pending_navigation.take() {
                 self.apply_navigation(navigation);
             }
