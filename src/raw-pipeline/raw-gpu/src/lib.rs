@@ -269,7 +269,10 @@ mod present_web;
 // OffscreenCanvas` is wgpu-gated on `#[cfg(any(webgpu, webgl))]`. Shares
 // `present_chain.wgsl` + `present_chain_pipeline` with the Apple path.
 mod auto_exposure;
+mod bm3d_aggregate;
+mod bm3d_filter;
 mod bm3d_matching;
+mod bm3d_pass;
 mod camera_post;
 mod color_grade;
 mod dcp_colorimetry;
@@ -300,7 +303,9 @@ pub use auto_exposure::AutoExposurePass;
 pub use auto_profile_curve::{
     apply_auto_profile_curve, AutoProfileCurvePass, PROFILE_CURVE_FLAT_LEN,
 };
+pub use bm3d_filter::{encode_bm3d_filter_row, GpuBm3dFilteredRow};
 pub use bm3d_matching::{encode_bm3d_match_row, GpuBm3dMatchRow, GpuBm3dMatches};
+pub use bm3d_pass::encode_bm3d_pass;
 pub use camera_post::{ChromaPrefilterPass, OklabHighlightRecoveryPass};
 pub use capture_sharpening::{CaptureSharpeningParams, CaptureSharpeningPass};
 pub use chain::{CancelToken, ChainRunner, Pass};

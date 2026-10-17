@@ -53,3 +53,7 @@ hashes are retained in
 These measurements establish local Metal matching parity. They do not establish
 complete BM3D pixel parity, browser/lavapipe execution or an absolute frame-time
 pass.
+
+The subsequent filtering/aggregation checkpoint is documented in
+`color-gpu-bm3d-filtering-4629.md`, including requalification of matching after
+the row layout gained resident noise parameters.

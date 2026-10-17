@@ -14,7 +14,11 @@ fn warm_matching_reuses_resources_and_observes_luma_threshold_and_row_changes() 
     let run = |values: &[f32], tau: f32, row: u32| {
         ctx.frame_pool.borrow_mut().begin_frame(4629);
         let luma = pool_data_storage(&ctx, bytemuck::cast_slice(values), "bm3d-test-luma");
-        let threshold = pool_data_storage(&ctx, &tau.to_ne_bytes(), "bm3d-test-threshold");
+        let threshold = pool_data_storage(
+            &ctx,
+            bytemuck::cast_slice(&[tau, 0., 0., 0.]),
+            "bm3d-test-threshold",
+        );
         let mut encoder = ctx.device.create_command_encoder(&Default::default());
         let matches = encode_bm3d_match_row(&ctx, &mut encoder, &luma, &threshold, (20, 20), row);
         ctx.queue.submit(Some(encoder.finish()));

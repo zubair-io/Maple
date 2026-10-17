@@ -1,8 +1,6 @@
-const PATCH: u32 = BM3D_BLOCK * BM3D_BLOCK;
 const SEARCH_EDGE: u32 = 2u * BM3D_SEARCH_HALF + 1u;
 const CANDIDATES: u32 = SEARCH_EDGE * SEARCH_EDGE;
 struct Params { width: u32, height: u32, reference_y: u32, columns: u32 };
-struct Matches { count: u32, pad: u32, positions: array<vec2<u32>, BM3D_GROUP_MAX> };
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> luma: array<f32>;
 @group(0) @binding(2) var<storage, read> threshold: array<f32>;
@@ -59,7 +57,9 @@ fn main(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocation_index
     workgroupBarrier();
     if lane != 0u { return; }
     output[group.x].positions[0] = reference;
-    output[group.x].pad = 0u;
+    output[group.x].sigma_y = threshold[1];
+    output[group.x].sigma_c1 = threshold[2];
+    output[group.x].sigma_c2 = threshold[3];
     for (var i = 1u; i < BM3D_GROUP_MAX; i++) { output[group.x].positions[i] = vec2<u32>(0u); }
     var count = 1u;
     for (var k = 1u; k < BM3D_GROUP_MAX; k++) {

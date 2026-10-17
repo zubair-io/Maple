@@ -65,12 +65,19 @@
 mod matching;
 mod pipeline;
 mod transforms;
+pub use transforms::dct_basis;
 
 #[cfg(test)]
 mod tests;
 
 #[cfg(all(test, feature = "gpu", not(target_arch = "wasm32")))]
 mod gpu_matching_tests;
+
+#[cfg(all(test, feature = "gpu", not(target_arch = "wasm32")))]
+mod gpu_filter_tests;
+
+#[cfg(all(test, feature = "gpu", not(target_arch = "wasm32")))]
+mod gpu_pass_tests;
 
 use std::sync::RwLock;
 
@@ -89,7 +96,7 @@ pub const SEARCH_HALF: usize = 9;
 /// Maximum group size (power of two for the group-axis WHT).
 pub const GROUP_MAX: usize = 16;
 /// Hard-threshold multiplier on σ (pass 1).
-pub(crate) const LAMBDA_HT: f32 = 2.7;
+pub const LAMBDA_HT: f32 = 2.7;
 /// Match ceiling: mean-relative per-pixel SSD ≤ `T_MATCH_SQ · σ_Y²`.
 /// 2.5² — two flat patches under iid noise differ by ~2σ² per pixel, so
 /// this keeps genuinely similar content while rejecting structure.

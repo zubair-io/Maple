@@ -257,9 +257,12 @@ persistent-host integration remain required for the full migration.
 BM3D joint block matching is staged under the same issue. Its row-bounded GPU
 output matches the CPU's selected patch order exactly, including distance ties
 and power-of-two group sizes; see
-`test-fixtures/qualification/color-gpu-bm3d-matching-4629.md`. Collaborative
-filtering, ordered aggregation and complete deep-denoise qualification remain
-before the persistent prefix can use this stage.
+`test-fixtures/qualification/color-gpu-bm3d-matching-4629.md`. Hard-threshold
+and Wiener filtering plus deterministic overlap aggregation are also staged;
+both passes keep their basic estimate resident and reuse row-sized scratch.
+See `test-fixtures/qualification/color-gpu-bm3d-filtering-4629.md`. GPU noise
+anchoring, RGB conversion/reconstruction and complete deep-denoise qualification
+remain before the persistent prefix can use this stage.
 
 ### Ordered local mask groups (#3408)
 

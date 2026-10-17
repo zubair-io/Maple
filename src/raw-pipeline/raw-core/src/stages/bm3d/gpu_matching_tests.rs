@@ -7,7 +7,7 @@ fn bytes(values: &[f32]) -> Vec<u8> {
 
 fn compare(ctx: &GpuContext, plane: &[f32], width: usize, height: usize, tau_sq: f32) {
     let luma = pool_data_storage(ctx, &bytes(plane), "bm3d-test-luma");
-    let threshold = pool_data_storage(ctx, &tau_sq.to_ne_bytes(), "bm3d-test-threshold");
+    let threshold = pool_data_storage(ctx, &bytes(&[tau_sq, 0., 0., 0.]), "bm3d-test-threshold");
     let xs = matching::ref_coords(width);
     let ys = matching::ref_coords(height);
     let mut count = 0;

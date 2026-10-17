@@ -447,9 +447,10 @@ jobs:
       - name: Retouch shared geometry and GPU parity
         working-directory: src/raw-pipeline
         run: cargo test -p raw-core --features gpu --lib stages::retouch::gpu -- --test-threads=1
-      - name: BM3D block-matching GPU parity
+      - name: BM3D matching and filtering GPU parity
         working-directory: src/raw-pipeline
-        run: cargo test -p raw-core --features gpu --lib stages::bm3d::gpu_matching_tests -- --test-threads=1
+        run: |
+          cargo test -p raw-core --features gpu --lib stages::bm3d:: -- --test-threads=1
       - name: cargo test -p raw-wasm --features gpu (render_bytes_gpu↔CPU parity)
         working-directory: src/raw-pipeline
         run: cargo test -p raw-wasm --features gpu
@@ -539,9 +540,10 @@ jobs:
       - name: Retouch shared geometry and GPU parity (Metal)
         working-directory: src/raw-pipeline
         run: cargo test -p raw-core --features gpu --lib stages::retouch::gpu -- --test-threads=1
-      - name: BM3D block-matching GPU parity (Metal)
+      - name: BM3D matching and filtering GPU parity (Metal)
         working-directory: src/raw-pipeline
-        run: cargo test -p raw-core --features gpu --lib stages::bm3d::gpu_matching_tests -- --test-threads=1
+        run: |
+          cargo test -p raw-core --features gpu --lib stages::bm3d:: -- --test-threads=1
 
   # Fixture-free Rust test gate (#1082). Before this job, NO CI executed
   # `cargo test` anywhere — the ~750 raw-core lib tests ran only on laptops.

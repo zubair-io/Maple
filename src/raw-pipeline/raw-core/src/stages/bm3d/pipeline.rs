@@ -52,7 +52,7 @@ struct RefOut {
 /// per-patch means relative to the reference's. For the Wiener pass,
 /// `guide` carries the SAME quantities computed from the basic estimate.
 /// Returns the channel weight. Spectra/means are filtered in place.
-fn shrink_group(
+pub(super) fn shrink_group(
     patches: &mut [[f32; PATCH]],
     means_delta: &mut [f32],
     guide: Option<(&[[f32; PATCH]], &[f32])>,
@@ -143,7 +143,7 @@ fn shrink_group(
 
 /// Build the mean-relative DCT spectra + means-deltas for `positions` on
 /// one plane. Returns `(spectra, means_delta, ref_mean)`.
-fn group_spectra(
+pub(super) fn group_spectra(
     plane: &[f32],
     w: usize,
     positions: &[(usize, usize)],

@@ -15,7 +15,7 @@ pub const PATCH: usize = BLOCK * BLOCK;
 /// `c(0) = 1/√8`, `c(k>0) = 1/2`. Rows are the basis vectors; the matrix
 /// is orthogonal, so the inverse transform is multiplication by the
 /// transpose.
-fn dct_basis() -> &'static [[f32; BLOCK]; BLOCK] {
+pub fn dct_basis() -> &'static [[f32; BLOCK]; BLOCK] {
     static BASIS: OnceLock<[[f32; BLOCK]; BLOCK]> = OnceLock::new();
     BASIS.get_or_init(|| {
         let mut b = [[0f32; BLOCK]; BLOCK];
