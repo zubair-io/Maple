@@ -46,6 +46,33 @@ Native-host WASM tests do not claim browser-WebGPU execution.
 
 ## Remaining integration qualification
 
+### Physical legacy-sidecar control
+
+A temporary V2 sidecar on the original `test_0001.RAW` authors 5700 K / tint
+50. The legacy forward mapping yields xy `[0.3281915486, 0.3340478241]`.
+The independent Adobe SDK inverse converts that to a V5 pair of
+5696.39338761 K / tint -5.0375062965. A second temporary sidecar authors that
+SDK pair directly. Both frozen renderers render both inputs through AMaZE
+and Neutral with bundled lens matching disabled.
+
+| Renderer | Mean ΔE2000 against its SDK-equivalent V5 render | Maximum ΔE2000 |
+| --- | ---: | ---: |
+| Main | 0.220400 | 25.684632 |
+| Corrected inverse | 0 | 0 |
+
+The corrected legacy render matches all **10,036,224 pixels** exactly.
+The V5 forward control itself is pixel-identical across main and candidate,
+and all input hashes remain unchanged. The first invocation produced no
+renders because the frozen main executable lacked its execute bit; the
+successful run used hash-identical executable copies without modifying the
+archived binaries. Source, SDK oracle, temporary sidecars, commands and metrics
+are preserved in `robertson-current-main/legacy-physical/`.
+
+This verifies a physical legacy import correction. It is not an Adobe-rendered
+reference comparison and does not count as a canonical corpus failure cleared.
+
+### Version and complete-cohort integration
+
 This commit preserves the implementation under #4630 before opening a ready
 PR. It does not yet bump derived-output versions, claim a passing physical
 cohort, or authorize merging this checkpoint. After integrating the current
