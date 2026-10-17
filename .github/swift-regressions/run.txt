@@ -239,6 +239,7 @@ SearchViewModelCollectionTests
 GeneratedSearchCollectionsViewModelTests
 GeneratedSearchCollectionsOrderTests
 GeneratedSearchCollectionsCacheTests
+FolderTrashForYouCacheTests
 SessionPruningTests
 SidecarModifyIdempotencyTests
 SidecarPathTests

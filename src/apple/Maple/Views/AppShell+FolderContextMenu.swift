@@ -356,8 +356,9 @@ extension AppShell {
       do {
         let summary = try await catalog.trashFolder(
           folderID: libraryFolderID, relativePath: relative)
-        await ForYouCache.shared.forgetFolder(
-          host: server.cacheHostKey, libraryFolderID: libraryFolderID, folderPath: absPath)
+        await ForYouCache.shared.forgetFolderTrash(
+          summary, host: server.cacheHostKey, libraryFolderID: libraryFolderID,
+          folderPath: absPath)
         folderRefreshGeneration += 1
         if summary.failed > 0 {
           browseVM.loadError = FileOperationError.underlying(
