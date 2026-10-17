@@ -102,6 +102,8 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
 
   public let id: String
   // swift-format-ignore: AlwaysUseLowerCamelCase
+  public let _id: String?
+  // swift-format-ignore: AlwaysUseLowerCamelCase
   public let folder_id: String
   // swift-format-ignore: AlwaysUseLowerCamelCase
   public let abs_path: String
@@ -167,6 +169,7 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
   /// to `nil` here lets pre-PhotoKit-merge test fixtures keep working.
   public init(
     id: String,
+    _id: String? = nil,
     folder_id: String,
     abs_path: String,
     address: String? = nil,
@@ -191,6 +194,7 @@ public struct SearchAsset: Codable, Equatable, Sendable, Identifiable {
     owner: CloudAssetOwner? = nil
   ) {
     self.id = id
+    self._id = _id
     self.folder_id = folder_id
     self.abs_path = abs_path
     self.address = address
