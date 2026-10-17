@@ -4,10 +4,8 @@
 <dict>
   <key>Label</key>
   <string>app.justmaple.aperture.backup</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/Applications/MapleAperture.app/Contents/Helpers/MapleBackupAgent</string>
-  </array>
+  <key>BundleProgram</key>
+  <string>Contents/MacOS/MapleBackupAgent</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -15,9 +13,5 @@
     <key>SuccessfulExit</key>
     <false/>
   </dict>
-  <key>StandardOutPath</key>
-  <string>/tmp/maple-backup-agent.out.log</string>
-  <key>StandardErrorPath</key>
-  <string>/tmp/maple-backup-agent.err.log</string>
 </dict>
 </plist>
