@@ -259,9 +259,16 @@ describe('export recipe contract and recovery', () => {
     record.entries = [{ id: 'raw-1', status: 'pending' }];
     await run('IMG_1_export.jpg', 'first-export');
     expect(record.entries[0].status).toBe('applied');
-    expect(Object.keys(record.createdOutputs ?? {})).toEqual(['img_1_export.jpg']);
+    expect(Object.keys(record.createdOutputs ?? {})).toEqual(['IMG_1_export.jpg']);
     expect(files.get('IMG_1_export.jpg')).toBe('first-export');
-    const firstDigest = record.createdOutputs?.['img_1_export.jpg'];
+    const firstDigest = record.createdOutputs?.['IMG_1_export.jpg'];
+
+    record.entries = [{ id: 'raw-1', status: 'pending' }];
+    await run('img_1_export.jpg', 'lowercase-export');
+    expect(record.entries[0].status).toBe('applied');
+    expect(files.get('IMG_1_export.jpg')).toBe('first-export');
+    expect(files.get('img_1_export.jpg')).toBe('lowercase-export');
+    expect(record.createdOutputs?.['IMG_1_export.jpg']).toBe(firstDigest);
 
     failWriteOnce = true;
     record.entries = [{ id: 'raw-1', status: 'pending' }];
@@ -273,13 +280,14 @@ describe('export recipe contract and recovery', () => {
         reason: expect.stringContaining('Disk full'),
       }),
     );
-    expect(record.createdOutputs?.['img_1_export.jpg']).toBe(firstDigest);
+    expect(record.createdOutputs?.['IMG_1_export.jpg']).toBe(firstDigest);
     expect(files.get('IMG_1_export.jpg')).toBe('first-export');
 
     record.entries = [{ id: 'raw-1', status: 'pending' }];
     await run('IMG_1_export.jpg', 'second-export');
     expect(record.entries[0].status).toBe('applied');
     expect(files.get('IMG_1_export.jpg')).toBe('second-export');
+    expect(files.get('img_1_export.jpg')).toBe('lowercase-export');
 
     files.set('IMG_1_export.jpg', 'user-moved-original-photo');
     record.entries = [{ id: 'raw-1', status: 'pending' }];
