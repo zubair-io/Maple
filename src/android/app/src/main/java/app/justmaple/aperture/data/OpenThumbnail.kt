@@ -2,10 +2,11 @@ package app.justmaple.aperture.data
 
 import java.io.Closeable
 import java.io.File
+import java.io.FileInputStream
 
 /** The open descriptor keeps bytes readable even when LRU eviction unlinks the path. */
-internal class OpenThumbnail(val file: File) : Closeable {
-    val input = file.inputStream()
+internal class OpenThumbnail(val file: File?, val input: FileInputStream) : Closeable {
+    constructor(file: File) : this(file, file.inputStream())
 
     override fun close() = input.close()
 

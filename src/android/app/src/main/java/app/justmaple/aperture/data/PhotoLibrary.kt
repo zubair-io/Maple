@@ -233,7 +233,7 @@ class PhotoLibrary(private val context: Context) {
     suspend fun <T> withThumbnail(
         photo: Photo,
         edge: Int = 512,
-        action: suspend (File, FileInputStream) -> T,
+        action: suspend (File?, FileInputStream) -> T,
     ): T =
         withContext(Dispatchers.IO) {
             thumbnail(photo, edge).use { action(it.file, it.input) }
@@ -254,7 +254,7 @@ class PhotoLibrary(private val context: Context) {
                     }
                 }
             try {
-                if (result.inserted) trim(folder, 64L * 1024 * 1024, setOf(result.image.file))
+                if (result.inserted) trim(folder, 64L * 1024 * 1024, setOfNotNull(result.image.file))
                 return result.image
             } catch (failure: Throwable) {
                 result.image.close()
@@ -266,7 +266,7 @@ class PhotoLibrary(private val context: Context) {
             if (remote != null) {
                 try {
                     if (remote.inserted)
-                        trim(folder, 64L * 1024 * 1024, setOf(remote.image.file, remote.index))
+                        trim(folder, 64L * 1024 * 1024, setOfNotNull(remote.image.file, remote.index))
                     return remote.image
                 } catch (failure: Throwable) {
                     remote.image.close()

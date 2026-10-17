@@ -65,14 +65,14 @@ pub fn shared_derivative(
 }
 
 /// Probe before decode so an untrusted shared artifact cannot allocate a full RAW-sized bitmap.
-pub fn cache_valid(path: &str, edge: u32, format: &str) -> Result<bool, String> {
-    Ok(cache_raster(path, edge, format)?.is_some())
+pub fn cache_valid(fd: i32, edge: u32, format: &str) -> Result<bool, String> {
+    Ok(cache_raster(fd, edge, format)?.is_some())
 }
 
 /// Android 10/11 cannot display AVIF. Decode the bounded derivative, not the RAW,
 /// into an alpha-preserving, sRGB-tagged private PNG without applying edits again.
-pub fn cache_png(path: &str, destination: &str) -> Result<(), String> {
-    let raster = cache_raster(path, 1280, "avif")?.ok_or("Invalid shared AVIF")?;
+pub fn cache_png(fd: i32, destination: &str) -> Result<(), String> {
+    let raster = cache_raster(fd, 1280, "avif")?.ok_or("Invalid shared AVIF")?;
     let bytes = raw_core::raster_encode::encode_raster_opts(
         &raster,
         &raw_core::raster_encode::RasterEncodeOptions {
@@ -86,35 +86,41 @@ pub fn cache_png(path: &str, destination: &str) -> Result<(), String> {
     std::fs::write(destination, bytes).map_err(|e| e.to_string())
 }
 
+/// Positional reads through the caller's descriptor leave its offset untouched; a
+/// shared-storage document may not be reopenable by path.
 fn cache_raster(
-    path: &str,
+    fd: i32,
     edge: u32,
     format: &str,
 ) -> Result<Option<raw_core::raster::RasterImage>, String> {
-    use std::io::{BufReader, Read, Seek, SeekFrom};
+    use std::os::fd::BorrowedFd;
+    use std::os::unix::fs::FileExt;
     const MAX_BYTES: u64 = 32 * 1024 * 1024;
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    if fd < 0 {
+        return Err("Invalid descriptor".into());
+    }
+    // SAFETY: the caller keeps `fd` open for the whole call; only a clone is owned here.
+    let owned = unsafe { BorrowedFd::borrow_raw(fd) }
+        .try_clone_to_owned()
+        .map_err(|e| e.to_string())?;
+    let file = std::fs::File::from(owned);
     let length = file.metadata().map_err(|e| e.to_string())?.len();
     if length == 0 || length > MAX_BYTES {
         return Ok(None);
     }
-    let mut input = BufReader::new(file);
-    let probe =
-        raw_core::raster::probe_raster_metadata_reader(&mut input).map_err(|e| e.to_string())?;
+    let mut bytes = vec![0u8; length as usize];
+    if file.read_exact_at(&mut bytes, 0).is_err()
+        || file.metadata().map_err(|e| e.to_string())?.len() != length
+    {
+        return Ok(None);
+    }
+    let probe = raw_core::raster::probe_raster_metadata_reader(&mut std::io::Cursor::new(&bytes))
+        .map_err(|e| e.to_string())?;
     if probe.format != format
         || probe.width == 0
         || probe.height == 0
         || probe.width.max(probe.height) > edge
     {
-        return Ok(None);
-    }
-    input.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
-    let mut bytes = Vec::new();
-    input
-        .take(MAX_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| e.to_string())?;
-    if bytes.len() as u64 != length {
         return Ok(None);
     }
     let decoded =

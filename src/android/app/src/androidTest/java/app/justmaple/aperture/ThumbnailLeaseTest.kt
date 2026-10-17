@@ -52,7 +52,8 @@ class ThumbnailLeaseTest {
                     val opened = CompletableDeferred<FileDescriptor>()
                     val reader =
                         async(Dispatchers.IO) {
-                            library.withThumbnail(photo) { file, input ->
+                            library.withThumbnail(photo) { leased, input ->
+                                val file = checkNotNull(leased)
                                 assertEquals(warm, file)
                                 assertTrue(file.setLastModified(1))
                                 assertTrue(index.setLastModified(1))

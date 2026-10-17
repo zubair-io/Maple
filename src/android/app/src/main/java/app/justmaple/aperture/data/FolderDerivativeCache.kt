@@ -2,18 +2,25 @@ package app.justmaple.aperture.data
 
 import android.content.Context
 import android.os.Build
+import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.system.Os
+import android.system.OsConstants
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
 internal data class CachedFolderDerivative(val image: OpenThumbnail, val inserted: Boolean)
 
-/** The folder owns derivatives; private copies are read-through leases and capability fallbacks. */
+private class SharedLease(val image: OpenThumbnail, val format: String, val identity: String)
+
+/** The folder owns derivatives and is read in place; private files are capability fallbacks. */
 internal class FolderDerivativeCache(private val context: Context) {
     private val documents = CacheDocuments(context)
     private val folder = File(context.cacheDir, "thumbnails")
+    private val mirrorsRetired = AtomicBoolean(false)
 
     suspend fun load(
         edge: Int,
@@ -21,6 +28,7 @@ internal class FolderDerivativeCache(private val context: Context) {
         render: suspend (FolderCacheSource, File, SharedCacheTier) -> Unit,
     ): CachedFolderDerivative {
         folder.mkdirs()
+        retireMirrors()
         val tier = SharedCacheTier.forEdge(edge)
         repeat(2) {
             currentCoroutineContext().ensureActive()
@@ -40,9 +48,12 @@ internal class FolderDerivativeCache(private val context: Context) {
                 if (source.canShare)
                     sharedPreviewCandidates(context, documents, source, tier, entries)
                 else emptyList()
-            var shared: CachedFolderDerivative? = null
+            var shared: SharedLease? = null
             for (candidate in candidates) {
-                shared = optional { mirror(source, tier, candidate) }
+                val document = candidate.document
+                shared = optional {
+                    openShared(source, tier, document.uri, document.size, candidate.format)
+                }
                 if (shared != null) break
             }
             if (shared != null) {
@@ -53,20 +64,41 @@ internal class FolderDerivativeCache(private val context: Context) {
                         shared.image.close()
                         throw failure
                     }
-                if (unchanged) return display(shared)
+                if (unchanged) return display(shared.image, false, shared.format, shared.identity)
                 shared.image.close()
             }
             val key = "folder-${source.identity}-${tier.edge}"
             val ready = privateFile(key) { temporary -> render(source, temporary, tier) }
+            val rendered = ready.image.file!!
             try {
                 currentCoroutineContext().ensureActive()
                 if (snapshot() == source) {
-                    optional {
+                    val published = optional {
                         ready.image.input.channel.position(0)
                         documents.publish(source, tier, ready.image.input, entry, snapshot)
                     }
+                    val inPlace =
+                        published?.let { uri ->
+                            optional { openShared(source, tier, uri, rendered.length(), "avif") }
+                        }
+                    if (inPlace != null) {
+                        // The folder now owns these bytes; the private render was only staging.
+                        ready.image.close()
+                        synchronized(OpenThumbnail.lock) { rendered.delete() }
+                        val unchanged =
+                            try {
+                                snapshot() == source
+                            } catch (failure: Throwable) {
+                                inPlace.image.close()
+                                throw failure
+                            }
+                        if (unchanged) return display(inPlace.image, false, "avif", inPlace.identity)
+                        inPlace.image.close()
+                        return@repeat
+                    }
                     ready.image.input.channel.position(0)
-                    if (snapshot() == source) return display(ready)
+                    if (snapshot() == source)
+                        return display(ready.image, ready.inserted, "avif", rendered.nameWithoutExtension)
                 }
             } catch (failure: Throwable) {
                 ready.image.close()
@@ -77,36 +109,58 @@ internal class FolderDerivativeCache(private val context: Context) {
         error("The photo or sidecar changed while loading its preview. Reopen the folder.")
     }
 
-    private suspend fun mirror(
+    /** Reads the shared document through its own descriptor; any change while validating fails closed. */
+    private suspend fun openShared(
         source: FolderCacheSource,
         tier: SharedCacheTier,
-        candidate: SharedCacheCandidate,
-    ): CachedFolderDerivative? {
-        val entry = candidate.document
-        if (entry.size <= 0 || entry.size > MAX_BYTES) return null
-        val key =
-            "shared-${source.identity}-${tier.edge}-${PhotoLibrary.digest("${entry.uri}:${entry.size}:${entry.modified}")}"
-        val extension = if (candidate.format == "jpeg") "jpg" else candidate.format
-        return privateFile(key, extension) { temporary ->
-            context.contentResolver.openInputStream(entry.uri)?.use { input ->
-                temporary.outputStream().use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    var total = 0L
-                    while (true) {
-                        currentCoroutineContext().ensureActive()
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        total += count
-                        check(total <= MAX_BYTES && total <= entry.size) {
-                            "Shared derivative changed while reading"
-                        }
-                        output.write(buffer, 0, count)
-                    }
-                    check(total == entry.size) { "Shared derivative is incomplete" }
-                }
-            } ?: error("Shared derivative is unavailable")
-            check(NativeBridge.cacheValid(temporary.absolutePath, tier.edge, candidate.format)) {
+        uri: Uri,
+        listedSize: Long,
+        format: String,
+    ): SharedLease {
+        check(listedSize in 1..MAX_BYTES) { "Shared derivative size is out of range" }
+        val descriptor =
+            context.contentResolver.openFileDescriptor(uri, "r")
+                ?: error("Shared derivative is unavailable")
+        try {
+            val opened = Os.fstat(descriptor.fileDescriptor)
+            check(OsConstants.S_ISREG(opened.st_mode) && opened.st_size == listedSize) {
+                "Shared derivative changed while reading"
+            }
+            currentCoroutineContext().ensureActive()
+            check(NativeBridge.cacheValid(descriptor.fd, tier.edge, format)) {
                 "Invalid shared derivative"
+            }
+            val validated = Os.fstat(descriptor.fileDescriptor)
+            check(
+                validated.st_dev == opened.st_dev &&
+                    validated.st_ino == opened.st_ino &&
+                    validated.st_size == opened.st_size &&
+                    validated.st_mtim == opened.st_mtim
+            ) {
+                "Shared derivative changed while reading"
+            }
+            Os.lseek(descriptor.fileDescriptor, 0, OsConstants.SEEK_SET)
+            val identity =
+                PhotoLibrary.digest(
+                    "${source.identity}:${tier.edge}:$uri:${opened.st_size}:${opened.st_mtim.tv_sec}:${opened.st_mtim.tv_nsec}"
+                )
+            return SharedLease(
+                OpenThumbnail(null, ParcelFileDescriptor.AutoCloseInputStream(descriptor)),
+                format,
+                identity,
+            )
+        } catch (failure: Throwable) {
+            descriptor.close()
+            throw failure
+        }
+    }
+
+    /** Builds before in-place reads copied every shared file here; drop those duplicates once. */
+    private fun retireMirrors() {
+        if (!mirrorsRetired.compareAndSet(false, true)) return
+        synchronized(OpenThumbnail.lock) {
+            folder.listFiles().orEmpty().filter { it.name.startsWith("shared-") }.forEach {
+                it.delete()
             }
         }
     }
@@ -136,24 +190,25 @@ internal class FolderDerivativeCache(private val context: Context) {
         }
     }
 
-    private suspend fun display(canonical: CachedFolderDerivative): CachedFolderDerivative {
-        if (Build.VERSION.SDK_INT >= 31 || canonical.image.file.extension != "avif")
-            return canonical
+    private suspend fun display(
+        image: OpenThumbnail,
+        inserted: Boolean,
+        format: String,
+        identity: String,
+    ): CachedFolderDerivative {
+        if (Build.VERSION.SDK_INT >= 31 || format != "avif")
+            return CachedFolderDerivative(image, inserted)
         // Android 10/11 use a private PNG decode bridge AFTER shared AVIF publication.
         try {
             val decoded =
-                privateFile("legacy-png-${canonical.image.file.nameWithoutExtension}", "png") {
-                    output ->
-                    ParcelFileDescriptor.dup(canonical.image.input.fd).use { source ->
-                        NativeBridge.cachePng(
-                            "/proc/self/fd/${source.fd}",
-                            output.absolutePath,
-                        )
+                privateFile("legacy-png-$identity", "png") { output ->
+                    ParcelFileDescriptor.dup(image.input.fd).use { pinned ->
+                        NativeBridge.cachePng(pinned.fd, output.absolutePath)
                     }
                 }
-            return decoded.copy(inserted = decoded.inserted || canonical.inserted)
+            return decoded.copy(inserted = decoded.inserted || inserted)
         } finally {
-            canonical.image.close()
+            image.close()
         }
     }
 

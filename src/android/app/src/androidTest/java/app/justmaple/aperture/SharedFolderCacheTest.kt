@@ -43,7 +43,7 @@ class SharedFolderCacheTest {
                     ->
                     // Private LRU eviction may unlink this path while its lease is open.
                     assertTrue(source.delete())
-                    NativeBridge.cachePng("/proc/self/fd/${pinned.fd}", destination.absolutePath)
+                    NativeBridge.cachePng(pinned.fd, destination.absolutePath)
                     ParcelFileDescriptor.AutoCloseInputStream(
                             ParcelFileDescriptor.dup(pinned.fileDescriptor)
                         )
@@ -51,7 +51,7 @@ class SharedFolderCacheTest {
                             assertArrayEquals(original, it.readBytes())
                         }
                 }
-                assertTrue(NativeBridge.cacheValid(destination.absolutePath, 1280, "png"))
+                assertTrue(valid(destination, 1280, "png"))
                 val bitmap = BitmapFactory.decodeFile(destination.absolutePath)
                 assertNotNull("The OS must display the private bridge", bitmap)
                 bitmap!!.recycle()
@@ -150,10 +150,10 @@ class SharedFolderCacheTest {
             val thumbFile = File.createTempFile("shared-contract-", ".avif", context.cacheDir)
             try {
                 thumbFile.writeBytes(editedThumb)
-                assertTrue(NativeBridge.cacheValid(thumbFile.absolutePath, 512, "avif"))
+                assertTrue(valid(thumbFile, 512, "avif"))
                 // The 96px RAW fixture must never be upscaled to fill a cache tier.
-                assertTrue(NativeBridge.cacheValid(thumbFile.absolutePath, 96, "avif"))
-                assertFalse(NativeBridge.cacheValid(thumbFile.absolutePath, 95, "avif"))
+                assertTrue(valid(thumbFile, 96, "avif"))
+                assertFalse(valid(thumbFile, 95, "avif"))
             } finally {
                 thumbFile.delete()
             }
@@ -264,6 +264,11 @@ class SharedFolderCacheTest {
 
     private suspend fun bytes(library: PhotoLibrary, photo: Photo, edge: Int) =
         library.withThumbnail(photo, edge) { _, input -> input.readBytes() }
+
+    private fun valid(file: File, edge: Int, format: String) =
+        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use {
+            NativeBridge.cacheValid(it.fd, edge, format)
+        }
 
     private fun providerCall(method: String, extras: Bundle? = null): Bundle? {
         val values = extras ?: Bundle()
