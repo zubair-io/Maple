@@ -244,6 +244,14 @@ describe('export recipe contract and recovery', () => {
     expect(files.get('IMG_1.JPG')).toBe('camera-sibling-jpeg');
 
     record.entries = [{ id: 'raw-1', status: 'pending' }];
+    record.recipe = { ...record.recipe, overwritePolicy: 'skip' };
+    await run('IMG_1.jpg', 'skipped');
+    expect(record.entries[0].status).toBe('skipped');
+    expect(renderCalls).toBe(0);
+    expect(files.get('IMG_1.JPG')).toBe('camera-sibling-jpeg');
+    record.recipe = { ...record.recipe, overwritePolicy: 'replace' };
+
+    record.entries = [{ id: 'raw-1', status: 'pending' }];
     await run('IMG_1_export.jpg', 'first-export');
     expect(record.entries[0].status).toBe('applied');
     expect(Object.keys(record.createdOutputs ?? {})).toEqual(['img_1_export.jpg']);

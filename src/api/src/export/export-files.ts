@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { open, realpath, lstat, stat, link, rename, rm } from '../fs/mirrored.ts';
 import { ObjectId } from '../db/object-id.ts';
-import { hasLiveAssetAtAddress } from '../db/repos/assets.address.ts';
+import { hasLiveAssetAtAddress, hasServerExportOutput } from '../db/repos/assets.address.ts';
 import { mostSpecificRoot } from '../fs/root-match.ts';
 import { safeWriteAllowed } from '../fs/root.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
@@ -81,11 +81,7 @@ interface ExportPaths {
   outputPath: string;
 }
 
-async function exportPaths(
-  target: ExportTarget,
-  recipe: ExportRecipe,
-  originalPaths: ExportOriginals,
-): Promise<ExportPaths> {
+async function exportPaths(target: ExportTarget, recipe: ExportRecipe): Promise<ExportPaths> {
   const source = await authorize(target.path);
   const directory = await authorize(recipe.directory!);
   if (!(await stat(source)).isFile() || !(await stat(directory)).isDirectory())
@@ -106,7 +102,6 @@ async function exportPaths(
   if (!filename.name.endsWith(`.${encoder.extension}`))
     throw new Error('Naming template must use the selected format extension: {ext}');
   const outputPath = join(directory, filename.name);
-  await guardOriginal(outputPath, source, originalPaths);
   return { source, directory, outputPath };
 }
 
@@ -146,24 +141,41 @@ async function isCatalogAssetOrSidecar(candidate: string): Promise<boolean> {
   return hasLiveAssetAtAddress(new ObjectId(match.key), dir, filename);
 }
 
+async function isUnselectedCatalogOriginal(
+  resolvedOutput: string,
+  canonicalOutput: string | null,
+  currentHash: string | null,
+): Promise<boolean> {
+  const catalogMatch =
+    (await isCatalogAssetOrSidecar(resolvedOutput)) ||
+    (canonicalOutput !== null &&
+      canonicalOutput !== resolvedOutput &&
+      (await isCatalogAssetOrSidecar(canonicalOutput)));
+  if (!catalogMatch) return false;
+  if (
+    extname(resolvedOutput).toLowerCase() === '.xmp' ||
+    extname(canonicalOutput ?? '').toLowerCase() === '.xmp'
+  )
+    return true;
+  return !(await hasServerExportOutput(resolvedOutput, canonicalOutput, currentHash));
+}
+
 async function isDestinationOriginal(
   resolvedOutput: string,
   canonicalOutput: string | null,
   source: string,
   originalPaths: ExportOriginals,
+  overwritePolicy: string,
+  currentHash: string | null,
 ): Promise<boolean> {
   if (
     originalPaths.paths.has(resolvedOutput) ||
     originalPaths.paths.has(canonicalOutput ?? '') ||
-    canonicalOutput === source ||
-    (await isCatalogAssetOrSidecar(resolvedOutput))
+    canonicalOutput === source
   )
     return true;
-  return (
-    canonicalOutput !== null &&
-    canonicalOutput !== resolvedOutput &&
-    (await isCatalogAssetOrSidecar(canonicalOutput))
-  );
+  if (overwritePolicy !== 'replace') return false;
+  return isUnselectedCatalogOriginal(resolvedOutput, canonicalOutput, currentHash);
 }
 
 async function guardOriginal(
@@ -171,12 +183,24 @@ async function guardOriginal(
   source: string,
   originalPaths: ExportOriginals,
   fresh = false,
+  overwritePolicy = 'replace',
+  currentHash: string | null = null,
 ) {
   const resolvedOutput = resolve(outputPath);
   const canonicalOutput = await realpath(outputPath).catch(() => null);
-  if (await isDestinationOriginal(resolvedOutput, canonicalOutput, source, originalPaths))
+  if (
+    await isDestinationOriginal(
+      resolvedOutput,
+      canonicalOutput,
+      source,
+      originalPaths,
+      overwritePolicy,
+      currentHash,
+    )
+  )
     throw new Error('Destination is the original. Choose another directory or naming template.');
   if (
+    overwritePolicy === 'replace' &&
     !originalPaths.complete &&
     !fresh &&
     (await lstat(outputPath).catch((error) => {
@@ -300,8 +324,16 @@ export async function prepareExport(
   originalPaths: ExportOriginals,
   beforeRender: (entry: ExportEntry) => Promise<void>,
 ): Promise<ExportEntry> {
-  const paths = await exportPaths(target, recipe, originalPaths);
+  const paths = await exportPaths(target, recipe);
   const currentHash = await fileHash(paths.outputPath);
+  await guardOriginal(
+    paths.outputPath,
+    paths.source,
+    originalPaths,
+    false,
+    recipe.overwritePolicy,
+    currentHash,
+  );
   if (previous?.status === 'prepared' || previous?.status === 'rendering')
     await validateStagingPath(previous, paths.directory, jobId, originalPaths);
   if (previous?.status === 'prepared')
@@ -341,8 +373,8 @@ export async function publishExport(
   await validateStagingPath(entry, directory, jobId, originals, freshStaging.has(entry));
   if (dirname(entry.outputPath) !== directory)
     throw new Error('Saved output is outside the selected destination');
-  await guardOriginal(entry.outputPath, '', originals);
   const currentHash = await fileHash(entry.outputPath);
+  await guardOriginal(entry.outputPath, '', originals, false, recipe.overwritePolicy, currentHash);
   if (currentHash !== entry.beforeHash) {
     if (currentHash !== null && recipe.overwritePolicy === 'skip') {
       await rm(entry.tempPath, { force: true }).catch(() => undefined);
