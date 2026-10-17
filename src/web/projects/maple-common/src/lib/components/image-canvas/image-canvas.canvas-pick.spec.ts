@@ -2,6 +2,9 @@
 
 import { normalisedImagePoint } from './image-canvas.wb-pick';
 import { CanvasPickService, RANGE_PICK_PROMPT, WB_PICK_PROMPT } from './canvas-pick.service';
+import { resolveCanvasDisplayDims } from './image-canvas.crop';
+import { computeEffectivePx } from './image-canvas.draw2d';
+import { CROP_IDENTITY } from '../../models/adjustment-model';
 
 /** A 400×300 image fitted, unpanned, in an 800×600 viewport. */
 const FITTED = { wrapW: 800, wrapH: 600, canvasW: 400, canvasH: 300, pan: { x: 0, y: 0 } };
@@ -44,6 +47,33 @@ describe('normalisedImagePoint (#2434)', () => {
 
   it('returns null for a degenerate (unpainted) rect instead of dividing by zero', () => {
     expect(normalisedImagePoint(0, 0, { ...FITTED, canvasW: 0, canvasH: 0 })).toBeNull();
+  });
+});
+
+describe('zoomed pick geometry (#4677)', () => {
+  it('agrees with the canvas at pixelScale=1 when the painted buffer is smaller than native', () => {
+    const painted = { w: 1200, h: 800 };
+    const native = { w: 6000, h: 4000 };
+    const dims = resolveCanvasDisplayDims(painted, native, 6000, 4000, CROP_IDENTITY);
+    expect(dims).toEqual(native);
+    const canvas = computeEffectivePx(1, dims.w, dims.h, 800, 600);
+    expect(canvas).toMatchObject({ canvasW: 6000, canvasH: 4000 });
+    const geom = {
+      wrapW: 800,
+      wrapH: 600,
+      canvasW: canvas.canvasW,
+      canvasH: canvas.canvasH,
+      pan: { x: 0, y: 0 },
+    };
+    expect(normalisedImagePoint(400, 300, geom)).toEqual({ nx: 0.5, ny: 0.5 });
+    expect(normalisedImagePoint(1000, 300, geom)?.nx).toBeCloseTo(0.6, 6);
+  });
+
+  it('keeps the painted aspect for an applied crop', () => {
+    const crop = { ...CROP_IDENTITY, right: 0.6 };
+    expect(
+      resolveCanvasDisplayDims({ w: 720, h: 800 }, { w: 6000, h: 4000 }, 6000, 4000, crop),
+    ).toEqual({ w: 720, h: 800 });
   });
 });
 

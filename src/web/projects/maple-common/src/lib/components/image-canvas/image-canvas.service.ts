@@ -33,6 +33,8 @@ export class ImageCanvasService {
    */
   readonly paintedAspect = signal<{ w: number; h: number } | null>(null);
 
+  readonly effectivePx = signal<{ canvasW: number; canvasH: number } | null>(null);
+
   readonly showBeforeAfter = computed(() => this.beforeAfterSplitX() !== null);
 
   // ── Momentary before/after (#2450) ─────────────────────────────────────

@@ -3,7 +3,12 @@
 // kept out of the component to respect the file-size budget — same extraction
 // precedent as image-canvas.draw2d.ts / image-canvas.gpu-present.ts.
 
-import { CROP_IDENTITY, type AdjustmentModel } from '../../models/adjustment-model';
+import {
+  CROP_IDENTITY,
+  isIdentityCrop,
+  type AdjustmentModel,
+  type Crop,
+} from '../../models/adjustment-model';
 
 /** Model handed to the renderer while the crop tool is active: strip the crop so
  *  the live canvas shows the full frame under the interactive overlay. Inactive
@@ -36,4 +41,15 @@ export function displayDims(
 ): { w: number | undefined; h: number | undefined } {
   if (painted) return { w: painted.w, h: painted.h };
   return { w: assetW, h: assetH };
+}
+
+export function resolveCanvasDisplayDims(
+  painted: { w: number; h: number } | null,
+  native: { w: number; h: number } | null,
+  assetW: number | undefined,
+  assetH: number | undefined,
+  crop: Crop | undefined,
+): { w: number | undefined; h: number | undefined } {
+  if (native && crop && isIdentityCrop(crop)) return native;
+  return displayDims(painted, assetW, assetH);
 }

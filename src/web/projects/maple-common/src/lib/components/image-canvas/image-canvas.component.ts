@@ -139,6 +139,7 @@ export class ImageCanvasComponent
   private cleanupDrawEffect?: () => void;
   private cleanupRefineViewEffect?: () => void;
   private cleanupGpuKillSwitchEffect?: () => void; // #2340
+  private cleanupEffectivePxEffect?: () => void;
   // Public for `GpuPresentHost` (the helper's stale guards read it); component-mutated.
   currentAssetId: AssetId | null = null;
 
@@ -364,6 +365,11 @@ export class ImageCanvasComponent
     // flips GpuLiveRenderGate off mid-session. See wireGpuKillSwitchEffect's
     // doc comment for why this can't just wait for the next asset open.
     this.cleanupGpuKillSwitchEffect = wireGpuKillSwitchEffect(this, this.gpuPresent, this.injector);
+
+    const effectivePxEff = effect(() => this.canvasSvc.effectivePx.set(this.effectivePx()), {
+      injector: this.injector,
+    });
+    this.cleanupEffectivePxEffect = () => effectivePxEff.destroy();
   }
 
   ngOnDestroy(): void {
@@ -376,6 +382,7 @@ export class ImageCanvasComponent
     this.cleanupComparison?.();
     this.cleanupRefineViewEffect?.();
     this.cleanupGpuKillSwitchEffect?.();
+    this.cleanupEffectivePxEffect?.();
     this.clearRerenderTimers();
     // Invalidate any in-flight re-render so a late decode can't touch a
     // destroyed component's signals.
