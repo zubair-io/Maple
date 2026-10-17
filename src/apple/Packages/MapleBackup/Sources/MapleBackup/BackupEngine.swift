@@ -196,11 +196,13 @@ public actor BackupEngine {
 
   /// Cancel all pending retry tasks. Called by EngineHost.stop() before
   /// cancelling the runner Task so retries are torn down cleanly.
-  public func stop() {
-    for task in retryTasks.values {
+  public func stop() async {
+    let retries = Array(retryTasks.values)
+    for task in retries {
       task.cancel()
     }
     retryTasks.removeAll()
+    for task in retries { await task.value }
     // Wake a parked runner so it observes teardown promptly. Without this,
     // `run()`'s doc claim that it parks "until a retry re-enqueues (or
     // teardown signals us)" is not actually true: a caller that invokes
@@ -505,6 +507,7 @@ public actor BackupEngine {
     maxAttempts: Int,
     op: @escaping @Sendable () async throws -> Void
   ) {
+    guard !Task.isCancelled else { return }
     guard attempt < maxAttempts else {
       Self.companionLog.error(
         "companion \(label, privacy: .public) exhausted \(maxAttempts) attempts — dropping (re-derivable artifacts can be regenerated on a future walk)"

@@ -8,14 +8,41 @@
 //
 // Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §17.
 
+import Darwin
 import Foundation
 import GRDB
 
 public actor BackupStateStore {
 
   private let dbQueue: DatabaseQueue
+  private let engineLockURL: URL
+  private var engineOwnership: Int32?
+
+  deinit {
+    if let engineOwnership { close(engineOwnership) }
+  }
+
+  /// Readers stay available; only the engine owner may rehydrate and process the queue.
+  public func acquireEngineOwnership() async throws {
+    guard engineOwnership == nil else { return }
+    let fd = open(engineLockURL.path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+    guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+    defer { if engineOwnership != fd { close(fd) } }
+    while engineOwnership == nil {
+      try Task.checkCancellation()
+      if flock(fd, LOCK_EX | LOCK_NB) == 0 {
+        engineOwnership = fd
+        return
+      }
+      guard errno == EWOULDBLOCK else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+      }
+      try await Task.sleep(for: .milliseconds(100))
+    }
+  }
 
   public init(databaseURL: URL) throws {
+    self.engineLockURL = databaseURL.appendingPathExtension("engine.lock")
     self.dbQueue = try DatabaseQueue(path: databaseURL.path)
     try dbQueue.write { db in
       try db.create(table: "tasks", ifNotExists: true) { t in
