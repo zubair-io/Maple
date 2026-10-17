@@ -98,7 +98,10 @@ namespace Maple.WinUI.Services.FileOperations
             var hasSourceSidecar = File.Exists(sourceSidecarPath);
             var sidecarMapsOntoItself = SameSidecarPath(sourceSidecarPath, sidecarTargetPath);
             var destinationSidecarOwned = SidecarStemClaimedBySibling(resolvedTargetPath, sourcePrimaryPath);
-            var replacesDestinationSidecar = !sidecarMapsOntoItself && PathOccupied(sidecarTargetPath);
+            var destinationSidecarOccupied = !sidecarMapsOntoItself && PathOccupied(sidecarTargetPath);
+            var joinsCarriedSidecar = hasSourceSidecar && destinationSidecarOccupied
+                && SidecarAlreadyCarried(sourceSidecarPath, sidecarTargetPath);
+            var replacesDestinationSidecar = destinationSidecarOccupied && !joinsCarriedSidecar;
             if (hasSourceSidecar && replacesDestinationSidecar
                 && (collision != CollisionPolicy.Replace || destinationSidecarOwned))
                 throw new FileOperationException(FileOperationErrorKind.DestinationExists,
@@ -115,7 +118,7 @@ namespace Maple.WinUI.Services.FileOperations
             if (hasSourceSidecar)
             {
                 usedSourceSidecarPath = sourceSidecarPath;
-                if (!sidecarMapsOntoItself)
+                if (!sidecarMapsOntoItself && !joinsCarriedSidecar)
                 {
                     try
                     {

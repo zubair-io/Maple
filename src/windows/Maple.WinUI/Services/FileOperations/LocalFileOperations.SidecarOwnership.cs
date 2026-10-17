@@ -52,14 +52,35 @@ namespace Maple.WinUI.Services.FileOperations
             }
         }
 
+        /// <summary>True when <paramref name="destination"/> already holds
+        /// exactly <paramref name="source"/>'s bytes — the sidecar an earlier
+        /// same-stem photo carried there (both halves of a RAW+JPEG pair moved
+        /// one after the other). Joining it neither overwrites nor adopts
+        /// different edits, so it is not a collision.</summary>
+        internal static bool SidecarAlreadyCarried(string source, string destination)
+        {
+            try
+            {
+                return File.Exists(source) && File.Exists(destination)
+                    && File.ReadAllBytes(source).AsSpan().SequenceEqual(File.ReadAllBytes(destination));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
         /// <summary>The whole asset collides at <paramref name="candidate"/>
         /// when the photo name is taken or its sidecar name is held by any
-        /// file other than the moving asset's own sidecar.</summary>
-        private static bool AssetDestinationOccupied(string candidate, string ownSidecarPath)
+        /// file other than the moving asset's own sidecar or an identical
+        /// copy of it.</summary>
+        internal static bool AssetDestinationOccupied(string candidate, string ownSidecarPath)
         {
             if (PathOccupied(candidate)) return true;
             var sidecar = SidecarStore.SidecarPathFor(candidate);
-            return PathOccupied(sidecar) && !SameSidecarPath(sidecar, ownSidecarPath);
+            return PathOccupied(sidecar)
+                && !SameSidecarPath(sidecar, ownSidecarPath)
+                && !SidecarAlreadyCarried(ownSidecarPath, sidecar);
         }
     }
 }
