@@ -34,7 +34,12 @@ pub fn validate_destination(out: &Path, inputs: &[&Path]) -> io::Result<()> {
         return Err(deny());
     }
     for input in inputs {
-        if resolved == input.canonicalize()? {
+        let source = match input.canonicalize() {
+            Ok(path) => path,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e),
+        };
+        if resolved == source {
             return Err(deny());
         }
         // Canonicalization does not collapse hard links. Atomic replacement
@@ -42,7 +47,7 @@ pub fn validate_destination(out: &Path, inputs: &[&Path]) -> io::Result<()> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
-            let source = input.metadata()?;
+            let source = source.metadata()?;
             let destination = resolved.metadata()?;
             if source.dev() == destination.dev() && source.ino() == destination.ino() {
                 return Err(deny());

@@ -316,11 +316,12 @@ fn decode_png_rgb8_for_test(path: &Path) -> (Vec<u8>, u32, u32) {
 #[test]
 fn output_symlink_never_changes_its_target() {
     let dir = tempfile::tempdir().unwrap();
-    let sidecar = dir.path().join("original.xmp");
-    let original = b"<x:xmpmeta xmlns:x='adobe:ns:meta/'/>";
-    std::fs::write(&sidecar, original).unwrap();
+    let target = dir.path().join("existing.png");
+    let original = b"existing pixels";
+    std::fs::write(&target, original).unwrap();
     let out = dir.path().join("render.png");
-    std::os::unix::fs::symlink(&sidecar, &out).unwrap();
-    let _ = write_bytes(&out, &[], b"rendered pixels");
-    assert_eq!(std::fs::read(sidecar).unwrap(), original);
+    std::os::unix::fs::symlink(&target, &out).unwrap();
+    write_bytes(&out, &[], b"rendered pixels").unwrap();
+    assert_eq!(std::fs::read(target).unwrap(), original);
+    assert_eq!(std::fs::read(out).unwrap(), b"rendered pixels");
 }

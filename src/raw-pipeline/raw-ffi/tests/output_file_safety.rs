@@ -135,3 +135,29 @@ fn all_writers_refuse_protected_destinations_before_decoding() {
     assert_eq!(fs::read(raw).unwrap(), original);
     assert_eq!(fs::read(xmp).unwrap(), xml.as_bytes());
 }
+
+#[test]
+fn missing_inputs_keep_writer_read_error_codes_when_output_exists() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().join("existing.png");
+    fs::write(&output, b"old pixels").unwrap();
+    let missing_raw = dir.path().join("missing.dng");
+    let missing_xmp = dir.path().join("missing.xmp");
+    let xmp = dir.path().join("input.xmp");
+    fs::write(
+        &xmp,
+        raw_core::xmp::serialize(&raw_core::xmp::AdjustmentModel::default()),
+    )
+    .unwrap();
+    for kind in 0..4 {
+        assert_eq!(call(kind, &missing_raw, &xmp, &output, "png"), 6);
+    }
+    let raw = dir.path().join("input.jpg");
+    image::RgbImage::from_pixel(4, 4, image::Rgb([80, 100, 120]))
+        .save(&raw)
+        .unwrap();
+    for kind in 0..2 {
+        assert_eq!(call(kind, &raw, &missing_xmp, &output, "png"), 5);
+    }
+    assert_eq!(fs::read(output).unwrap(), b"old pixels");
+}

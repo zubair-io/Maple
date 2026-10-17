@@ -2,6 +2,17 @@ use raw_core::output_file::*;
 use std::fs;
 
 #[test]
+fn missing_input_preserves_existing_output_validation() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("out.png");
+    fs::write(&out, b"old pixels").unwrap();
+    let missing = dir.path().join("missing.xmp");
+    validate_destination(&out, &[&missing]).unwrap();
+    write_derived(&out, &[&missing], b"new pixels").unwrap();
+    assert_eq!(fs::read(out).unwrap(), b"new pixels");
+}
+
+#[test]
 fn refuses_original_extensions_and_canonical_inputs() {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("input.jpg");
