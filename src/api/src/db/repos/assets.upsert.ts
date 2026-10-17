@@ -33,6 +33,8 @@ import type { SqlValue } from '../sqlite/protocol.ts';
 import type { AssetExif } from '../schema.ts';
 import { newObjectIdHex } from '../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
+import { ALL_STAGE_NAMES } from '../../workers/stages/stage-names.ts';
+import { seedStageRowsByMapleIdStatement } from './stage-state.repo.ts';
 import { toObjectId } from './values.ts';
 
 export interface UpsertAssetInput {
@@ -134,6 +136,7 @@ export async function upsertAssetByMapleId(
       sql: INSERT_PRIMARY_LOCATION_SQL,
       params: [input.libraryId.toHexString(), input.relDir, input.filename, input.mapleId],
     },
+    seedStageRowsByMapleIdStatement(input.mapleId, ALL_STAGE_NAMES),
   ]);
 
   const rows = await db.read<{ id: string }>(`SELECT id FROM assets WHERE maple_id = ?`, [
