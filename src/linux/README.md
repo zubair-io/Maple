@@ -285,8 +285,12 @@ HTTP preconditions. It refuses servers lacking the precondition capability and
 retains local document state when the server rejects a stale version. Pending edits and their remote content baseline persist in a private journal
 under the desktop data directory (`maple/cloud-edits`). Journals exclude concurrent
 editors and resume unsynced edits after restart: on the next connection every pending
-journal for that server is synchronized, and one that cannot be is reported and held
-open until it is synchronized or reloaded. Credentials stay in Secret Service.
+journal for that server is checked against live original metadata before synchronization.
+A failed resume preserves the journal and reports it without blocking other photos.
+Opening its photograph exposes Save XMP and Reload XMP recovery immediately; active
+pending edits still prevent navigation until synchronized or explicitly reloaded.
+Changed remote originals are refused while their pending edits remain on disk.
+Credentials stay in Secret Service.
 
 For cross-process qualification against the actual Maple API XMP routes:
 

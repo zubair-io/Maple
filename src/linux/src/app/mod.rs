@@ -29,7 +29,7 @@ enum Navigation {
     Folder(PathBuf),
     Photo(Photo),
     CloudDownload(crate::cloud::CloudEntry),
-    CloudReady(Photo, crate::cloud::CloudEntry),
+    CloudReady(Photo, crate::cloud::CloudEntry, bool),
     CloudBrowse,
 }
 
@@ -204,9 +204,10 @@ impl MapleApp {
                 self.load_photo(photo);
             }
             Navigation::CloudDownload(entry) => self.cloud.request_edit(entry),
-            Navigation::CloudReady(photo, entry) => {
+            Navigation::CloudReady(photo, entry, pending_recovery) => {
                 self.load_photo(photo);
                 self.cloud_editor = Some(entry);
+                self.save_failed = pending_recovery;
                 self.cloud.active = false;
             }
             Navigation::CloudBrowse => {
