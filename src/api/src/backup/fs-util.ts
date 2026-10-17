@@ -103,6 +103,7 @@ export async function filesIdentical(a: string, b: string): Promise<boolean> {
 export async function firstFreeSiblingPath(
   libRoot: string,
   relPath: string,
+  isTaken?: (candidateRel: string) => Promise<boolean>,
 ): Promise<{ relPath: string; absPath: string }> {
   const dir = path.posix.dirname(relPath);
   const ext = path.posix.extname(relPath);
@@ -114,7 +115,10 @@ export async function firstFreeSiblingPath(
     try {
       await fs.stat(candidateAbs);
     } catch (e: any) {
-      if (e?.code === 'ENOENT') return { relPath: candidateRel, absPath: candidateAbs };
+      if (e?.code === 'ENOENT') {
+        if (await isTaken?.(candidateRel)) continue;
+        return { relPath: candidateRel, absPath: candidateAbs };
+      }
       throw e;
     }
   }

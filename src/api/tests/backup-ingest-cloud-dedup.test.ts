@@ -365,4 +365,49 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     const retryBody = await retry.json();
     expect(retryBody.target_rel_path).toBe(newRelPath);
   });
+
+  test('missing location whose path is now occupied by unrelated bytes disambiguates instead of adopting or overwriting (#4700)', async () => {
+    const missingRelPath = 'indexed/IMG_REUSED.HEIC';
+    const missingAbsPath = path.join(suite.handle.tmpLib, missingRelPath);
+    const repairBytes = Buffer.alloc(256, 0x33);
+    const unrelatedSameSizeBytes = Buffer.alloc(256, 0x99);
+    const capturedAt = '2024-09-05T10:00:00.000Z';
+    const id = deriveId(new Uint8Array(repairBytes), capturedAt, null, null);
+
+    await fs.mkdir(path.dirname(missingAbsPath), { recursive: true });
+    await fs.writeFile(missingAbsPath, unrelatedSameSizeBytes);
+
+    seedBackupAsset(suite.handle.db, {
+      mapleId: id.hex,
+      size: repairBytes.byteLength,
+      locations: [
+        {
+          libraryId: suite.handle.libId,
+          relPath: missingRelPath,
+          missingSince: '2026-06-01T00:00:00.000Z',
+        },
+      ],
+      links: [{ deviceId, phassetLocalId: 'ABC/L0/REUSED-1' }],
+    });
+
+    const res = await authedHandle(
+      ingest(repairBytes, {
+        'X-Maple-Device-Id': deviceId,
+        'X-Maple-Phasset-Id': 'ABC/L0/REUSED-1',
+        'X-Maple-Capture-Date': capturedAt,
+        'X-Maple-Filename': 'IMG_REUSED.HEIC',
+        'X-Maple-Total-Bytes': String(repairBytes.byteLength),
+        'X-Maple-Maple-Id': id.hex,
+        'Content-Range': `bytes 0-${repairBytes.byteLength - 1}/${repairBytes.byteLength}`,
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.target_rel_path).toBe('indexed/IMG_REUSED-1.HEIC');
+
+    // Unrelated occupant at the old missing path is preserved untouched.
+    expect((await fs.readFile(missingAbsPath)).equals(unrelatedSameSizeBytes)).toBe(true);
+    const siblingAbsPath = path.join(suite.handle.tmpLib, 'indexed/IMG_REUSED-1.HEIC');
+    expect((await fs.readFile(siblingAbsPath)).equals(repairBytes)).toBe(true);
+  });
 });
