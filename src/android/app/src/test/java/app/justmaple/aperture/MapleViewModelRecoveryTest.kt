@@ -124,6 +124,30 @@ class MapleViewModelRecoveryTest {
     }
 
     @Test
+    fun failedReloadWithNothingUnsaved_RevertsToUnloadedUntilAReloadSucceeds() {
+        // The contract FailedSidecarLoadTest pins on a device: with no edits
+        // to lose, a failed reload blocks writes from the stale document.
+        model.discardUnsavedEdits()
+        await("edits are discarded") { !it.dirty }
+
+        model.reloadSavedEdits()
+        val failed = await("reload reports its failure") { it.error != null }
+        assertFalse(failed.documentLoaded)
+        assertFalse(failed.canChangeMetadata)
+        model.clearError()
+        model.attribute("xmp:Rating", "5")
+        assertFalse(model.state.value.dirty)
+
+        // Storage comes back.
+        val saved = savedSidecar()
+        assertTrue(saved.delete())
+        saved.writeText(XmpDocument().withAttribute("xmp:Rating", "3").serialize())
+        model.reloadSavedEdits()
+        val loaded = await("reload succeeds") { it.documentLoaded && it.error == null }
+        assertEquals("3", loaded.document.attribute("xmp:Rating"))
+    }
+
+    @Test
     fun discardIsANoOpWithoutUnsavedEdits() {
         model.discardUnsavedEdits()
         await("edits are discarded") { !it.dirty }

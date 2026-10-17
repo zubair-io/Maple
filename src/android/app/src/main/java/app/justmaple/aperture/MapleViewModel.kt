@@ -435,14 +435,20 @@ internal constructor(
             try {
                 val photo = state.value.selected ?: return@launch
                 mutable.update { it.copy(loading = true) }
-                // The in-memory document stays loaded and saveable until the
-                // replacement has actually been read (#4765): a failed read
-                // used to leave `dirty` set with nothing that could persist it.
                 val loaded =
                     try {
                         library.loadSidecar(photo)
                     } catch (failure: Exception) {
                         if (failure is CancellationException) throw failure
+                        // Unsaved edits stay loaded, so they remain saveable or
+                        // discardable instead of wedging every flush (#4765).
+                        // With nothing to lose the photo reverts to unloaded
+                        // until a reload confirms what is on disk, so no write
+                        // can start from a document storage may have replaced.
+                        if (!state.value.dirty) {
+                            baseline = null
+                            mutable.update { it.copy(documentLoaded = false) }
+                        }
                         fail(failure, "Could not reload saved edits")
                         return@launch
                     }
