@@ -113,6 +113,7 @@ export async function directoryPolicies(): Promise<void> {
   const value = await record();
   const dir = value.directoryHandle!;
   await write(dir, 'output.jpg', 'existing delivery');
+  value.createdOutputs = ['output.jpg'];
   await runBrowserRecipe(value, context());
   check(value.entries[0].status === 'failed', 'Error policy must report collisions');
   check(
@@ -139,6 +140,14 @@ export async function directoryPolicies(): Promise<void> {
   check(
     value.entries[0].status === 'failed' && (await text(dir, 'original.dng')) === 'original bytes',
     'Original identity guard failed',
+  );
+  await write(dir, 'original.JPG', 'unselected sibling bytes');
+  value.entries = [{ id: 'source', status: 'pending' }];
+  await runBrowserRecipe(value, context('original.jpg'));
+  check(
+    value.entries[0].status === 'failed' &&
+      (await text(dir, 'original.JPG')) === 'unselected sibling bytes',
+    'Unselected sibling JPEG guard failed',
   );
 }
 async function exists(directory: FileSystemDirectoryHandle, name: string): Promise<boolean> {
