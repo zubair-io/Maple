@@ -42,7 +42,7 @@ import {
   checkAllowed,
   getRegisteredRoots,
   isWithinRoot,
-  resolveRealPath,
+  resolveRealPathThroughAncestors,
   safeWriteAllowed,
 } from './root.ts';
 import { parseRootList } from './root-list.ts';
@@ -52,26 +52,28 @@ import { waitForAbortable } from './sidecar-write-order.ts';
 
 const SIDECAR_EXTENSION = '.xmp';
 
-async function canonicalRoot(root: string): Promise<string> {
-  try {
-    return await resolveRealPath(root);
-  } catch {
-    return path.resolve(root);
-  }
-}
-
 /** Every root a sidecar may resolve into: `MAPLE_ROOTS`, roots registered at
  * runtime, and the database libraries. The fs jail alone allows everything
  * when the first two are empty — the documented default deployment, which
  * never calls `registerRoot` for its libraries (#4819) — so the sidecar jail
- * consults the libraries itself. Empty only when no library exists at all. */
-async function sidecarRoots(): Promise<string[]> {
-  const libraries = await loadLibraryRoots().then(
-    (roots) => [...roots.values()],
-    () => [],
-  );
+ * consults the libraries itself. A failed library lookup with no declared
+ * roots fails closed: only a successful lookup that finds no library at all
+ * reaches the intentional allow-all case. */
+async function sidecarRoots(): Promise<{ roots: string[]; error: string | null }> {
   const declared = [...parseRootList(process.env.MAPLE_ROOTS), ...getRegisteredRoots()];
-  return Promise.all([...declared, ...libraries].map(canonicalRoot));
+  const libraries = await loadLibraryRoots().then(
+    (roots) => ({ roots: [...roots.values()], error: null }),
+    (error: unknown) => ({
+      roots: [],
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  );
+  return {
+    roots: await Promise.all(
+      [...declared, ...libraries.roots].map(resolveRealPathThroughAncestors),
+    ),
+    error: declared.length === 0 ? libraries.error : null,
+  };
 }
 
 async function requireSidecarResolution(
@@ -86,8 +88,17 @@ async function requireSidecarResolution(
       error: `Sidecar path "${requested}" resolves to "${resolved}", which is not an .xmp file`,
     };
   }
-  const roots = await sidecarRoots();
-  return roots.length === 0 || roots.some((root) => isWithinRoot(root, resolved))
+  const [{ roots, error }, canonical] = await Promise.all([
+    sidecarRoots(),
+    resolveRealPathThroughAncestors(resolved),
+  ]);
+  if (error !== null) {
+    return {
+      ok: false,
+      error: `Sidecar path "${requested}" refused: library roots unavailable (${error})`,
+    };
+  }
+  return roots.length === 0 || roots.some((root) => isWithinRoot(root, canonical))
     ? { ok: true, data: resolved }
     : {
         ok: false,

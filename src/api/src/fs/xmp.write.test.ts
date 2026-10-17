@@ -127,6 +127,25 @@ test('with no MAPLE_ROOTS, a sidecar symlinked outside the library roots is refu
   }
 });
 
+test('with no MAPLE_ROOTS and no reachable library list, sidecar access fails closed', async () => {
+  delete process.env.MAPLE_ROOTS;
+  setLibraryRootsForTests(null); // no database in this suite: the lookup rejects
+  try {
+    const rawPath = join(root, 'closed.dng');
+    await writeFile(rawPath, RAW_BYTES);
+    await writeFile(join(root, 'closed.xmp'), '<x:xmpmeta />');
+    const read = await readXmp(rawPath);
+    expect(read.ok).toBe(false);
+    expect(read.error).toContain('library roots');
+    expect(
+      (await writeXmpAtomic(rawPath, '<x:xmpmeta><w /></x:xmpmeta>', undefined, root)).ok,
+    ).toBe(false);
+    expect(await readFile(join(root, 'closed.xmp'), 'utf8')).toBe('<x:xmpmeta />');
+  } finally {
+    process.env.MAPLE_ROOTS = root;
+  }
+});
+
 test('read refuses a sidecar symlinked outside the registered roots', async () => {
   const outside = await mkdtemp(join(tmpdir(), 'maple-xmp-outside-'));
   try {
