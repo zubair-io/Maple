@@ -4,14 +4,15 @@
  * The server only reads/writes under the registered folder roots.
  * Any attempt to escape via ".." or symlinks outside the root is rejected.
  *
- * Additionally, if MAPLE_ROOTS env is set (platform PATH-separated absolute paths),
- * all file access is restricted to those roots. If unset, the restriction is
- * per-folder (registered roots from the DB are the boundary).
+ * MAPLE_ROOTS (platform PATH-separated absolute paths), DB libraries, enabled
+ * local mirrors, and roots registered at runtime form the allowed set.
  */
 
 import { lstat, readFile, realpath, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { parseRootList } from './root-list.ts';
+import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { snapshotMirrorRoots } from './mirror-registry.ts';
 
 export interface OpResult<T = undefined> {
   ok: boolean;
@@ -29,8 +30,8 @@ export function isWithinRoot(root: string, filePath: string): boolean {
 }
 
 /**
- * Registered roots — updated at startup from DB and on folder registration.
- * Using a simple Set for O(1) prefix checks.
+ * Additional runtime roots used by recovery flows. DB libraries are loaded
+ * through the invalidated library cache below.
  */
 const _registeredRoots = new Set<string>();
 let envRootsCache:
@@ -39,6 +40,16 @@ let envRootsCache:
       roots: Promise<string[]>;
     }
   | undefined;
+const libraryRootsCache = new WeakMap<ReadonlyMap<string, string>, Promise<string[]>>();
+
+async function normalizedLibraryRoots(): Promise<string[]> {
+  const libraries = await loadLibraryRoots();
+  const cached = libraryRootsCache.get(libraries);
+  if (cached) return cached;
+  const roots = Promise.all([...libraries.values()].map(resolveRealPathThroughAncestors));
+  libraryRootsCache.set(libraries, roots);
+  return roots;
+}
 
 async function normalizedEnvRoots(): Promise<string[]> {
   const value = process.env.MAPLE_ROOTS;
@@ -130,8 +141,8 @@ export async function resolveRealPathThroughAncestors(filePath: string): Promise
 }
 
 /**
- * Check whether `filePath` is under one of the registered roots (or any
- * MAPLE_ROOTS env entries). Returns the real (resolved) path on success.
+ * Check whether `filePath` is under a registered library, enabled mirror,
+ * runtime root, or MAPLE_ROOTS entry. Returns the resolved path on success.
  */
 export async function checkAllowed(filePath: string): Promise<OpResult<string>> {
   let real: string;
@@ -146,12 +157,26 @@ export async function checkAllowed(filePath: string): Promise<OpResult<string>> 
     real = await resolveRealPathThroughAncestors(filePath);
   }
 
-  // Env-level roots take precedence.
   const envRoots = await normalizedEnvRoots();
-  const allowedRoots = [...envRoots, ..._registeredRoots];
+  const declared = [...envRoots, ..._registeredRoots];
+  let libraries: string[];
+  try {
+    libraries = await normalizedLibraryRoots();
+  } catch (error) {
+    if (declared.length === 0) {
+      return {
+        ok: false,
+        error: `Cannot load registered library roots: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+    libraries = [];
+  }
+  const mirrorRoots = Object.values(snapshotMirrorRoots()).flat();
+  const mirrors = await Promise.all(mirrorRoots.map(resolveRealPathThroughAncestors));
+  const allowedRoots = [...declared, ...libraries, ...mirrors];
 
   if (allowedRoots.length === 0) {
-    // No roots configured — allow all (development convenience).
+    // A successfully loaded, empty library still permits first-run setup.
     return { ok: true, data: real };
   }
 
@@ -214,7 +239,10 @@ export async function safeReadFile(filePath: string): Promise<OpResult<Buffer>> 
 export async function safeWriteAllowed(filePath: string): Promise<OpResult<string>> {
   const name = path.basename(filePath);
   if (name === '.' || name === '..') {
-    return { ok: false, error: 'Write destination must name a file, not a dot component.' };
+    return {
+      ok: false,
+      error: 'Write destination must name a file, not a dot component.',
+    };
   }
   // For writes, the file may not exist yet; check parent dir.
   const parent = path.dirname(filePath);

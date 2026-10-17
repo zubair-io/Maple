@@ -16,9 +16,13 @@ import {
   checkAllowed,
   getRegisteredRoots,
   registerRoot,
+  safeReadFile,
   safeWriteAllowed,
   unregisterRoot,
 } from './root.ts';
+import { createLiveTestDatabase, insertFolder } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import { clearMirrorRoots, setMirrorRoots } from './mirror-registry.ts';
 
 let originalRoots: string | undefined;
 const temporaryRoots: string[] = [];
@@ -31,13 +35,67 @@ afterEach(async () => {
   if (originalRoots === undefined) delete process.env.MAPLE_ROOTS;
   else process.env.MAPLE_ROOTS = originalRoots;
   for (const root of temporaryRoots) unregisterRoot(root);
+  clearMirrorRoots();
   await Promise.all(
     temporaryRoots.splice(0).map((path) => rm(path, { recursive: true, force: true })),
   );
 });
 
+test('DB libraries and enabled mirrors bound the default filesystem jail', async () => {
+  using live = await createLiveTestDatabase('file');
+  const fixture = await mkdtemp(join(tmpdir(), 'maple-root-library-'));
+  temporaryRoots.push(fixture);
+  const library = join(fixture, 'library');
+  const retained = join(fixture, 'retained');
+  const mirror = join(fixture, 'mirror');
+  const outside = join(fixture, 'outside');
+  await Promise.all([mkdir(library), mkdir(retained), mkdir(mirror), mkdir(outside)]);
+  await Promise.all([
+    writeFile(join(library, 'photo.xmp'), '<xmpmeta/>'),
+    writeFile(join(mirror, 'photo.xmp'), '<xmpmeta/>'),
+    writeFile(join(outside, 'photo.xmp'), '<xmpmeta/>'),
+  ]);
+  await symlink(join(outside, 'photo.xmp'), join(library, 'escaped.xmp'));
+  delete process.env.MAPLE_ROOTS;
+  const libraryId = insertFolder(live.db, { path: library });
+  insertFolder(live.db, { path: retained });
+  invalidateLibraryRoots();
+
+  expect((await checkAllowed(join(library, 'photo.xmp'))).ok).toBe(true);
+  expect((await safeReadFile(join(library, 'photo.xmp'))).data?.toString()).toBe('<xmpmeta/>');
+  expect((await safeWriteAllowed(join(library, 'new.xmp'))).ok).toBe(true);
+  expect((await safeReadFile(join(outside, 'photo.xmp'))).ok).toBe(false);
+  expect((await safeWriteAllowed(join(outside, 'new.xmp'))).ok).toBe(false);
+  expect((await safeReadFile(join(library, 'escaped.xmp'))).ok).toBe(false);
+  expect((await checkAllowed(join(mirror, 'photo.xmp'))).ok).toBe(false);
+
+  setMirrorRoots({ [library]: [mirror] });
+  expect((await checkAllowed(join(mirror, 'photo.xmp'))).ok).toBe(true);
+  clearMirrorRoots();
+  expect((await checkAllowed(join(mirror, 'photo.xmp'))).ok).toBe(false);
+
+  live.db.query('DELETE FROM folders WHERE id = ?').run(libraryId);
+  invalidateLibraryRoots();
+  expect((await checkAllowed(join(library, 'photo.xmp'))).ok).toBe(false);
+});
+
+test('an empty registered library remains usable for first-run setup', async () => {
+  using live = await createLiveTestDatabase();
+  const fixture = await mkdtemp(join(tmpdir(), 'maple-root-first-run-'));
+  temporaryRoots.push(fixture);
+  delete process.env.MAPLE_ROOTS;
+  expect(
+    (
+      live.db.query('SELECT COUNT(*) AS count FROM folders').get() as {
+        count: number;
+      }
+    ).count,
+  ).toBe(0);
+  expect((await checkAllowed(fixture)).ok).toBe(true);
+});
+
 describe('safeWriteAllowed', () => {
-  test('handles MAPLE_ROOTS unset before the cache is initialized', async () => {
+  test('fails closed with MAPLE_ROOTS unset before the database is available', async () => {
     const fixture = await mkdtemp(join(tmpdir(), 'maple-root-unconfigured-'));
     temporaryRoots.push(fixture);
     const target = join(fixture, 'photo.xmp');
@@ -61,10 +119,10 @@ describe('safeWriteAllowed', () => {
     ]);
     expect(stderr).toBe('');
     expect(code).toBe(0);
-    expect(JSON.parse(stdout)).toEqual({
-      roots: [],
-      result: { ok: true, data: join(await realpath(fixture), 'photo.xmp') },
-    });
+    const outcome = JSON.parse(stdout);
+    expect(outcome.roots).toEqual([]);
+    expect(outcome.result.ok).toBe(false);
+    expect(outcome.result.error).toContain('Cannot load registered library roots');
   });
 
   test('honors a registered root with MAPLE_ROOTS unset', async () => {
@@ -192,7 +250,10 @@ describe('safeWriteAllowed', () => {
     await writeFile(sidecar, '<xmpmeta/>');
     process.env.MAPLE_ROOTS = fixture;
 
-    expect(await safeWriteAllowed(sidecar)).toEqual({ ok: true, data: sidecar });
+    expect(await safeWriteAllowed(sidecar)).toEqual({
+      ok: true,
+      data: sidecar,
+    });
   });
 
   test('keeps one destination while atomic saves replace the sidecar (#4051)', async () => {
