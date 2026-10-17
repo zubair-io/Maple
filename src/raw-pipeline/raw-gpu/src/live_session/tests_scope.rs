@@ -285,3 +285,54 @@ fn present_path_delivers_a_sample_every_tick_without_a_blocking_readback() {
         );
     }
 }
+
+/// Regression for #4732: 3+ scope-enabled renders without polling or calling
+/// `take_scope_stats` in between (as happens on Windows during a fast slider
+/// drag when the 40ms poll timer skips busy ticks) must unmap the reused
+/// staging slot BEFORE encoding/submitting the new copy, rather than after
+/// `queue.submit`, so wgpu never sees a destination staging buffer still
+/// mapped or pending map at submit time.
+#[test]
+fn unpolled_scope_renders_unmap_staging_before_reusing_slot() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (32u32, 24u32);
+    let input = scene_linear_rgba(w as usize, h as usize);
+    let session = LiveSession::new(&ctx, &input, w, h).expect("session");
+    let mut inputs = scope_test_case().gpu_inputs_for(&input);
+    inputs.scope = ScopeRequest {
+        layer: -1,
+        enabled: true,
+    };
+    let cancel = CancelToken::new();
+
+    for _ in 0..5 {
+        session
+            .render_chain_to_f32(&ctx, &inputs, &cancel)
+            .unwrap()
+            .unwrap();
+    }
+    let prev_stats = session
+        .take_scope_stats(&ctx)
+        .expect("previous slot stats after unpolled burst");
+    assert_eq!(prev_stats.frame, 4);
+    assert!(prev_stats.total > 0);
+
+    ctx.device.poll(wgpu::Maintain::Wait);
+    let newest_stats = session
+        .poll_scope_stats(&ctx)
+        .expect("newest slot stats after unpolled burst");
+    assert_eq!(newest_stats.frame, 5);
+    assert!(newest_stats.total > 0);
+
+    for _ in 0..5 {
+        session
+            .render_to_buffer(&ctx, &inputs, &cancel)
+            .unwrap()
+            .unwrap();
+    }
+    let prev_readback_stats = session
+        .take_scope_stats(&ctx)
+        .expect("previous slot stats after unpolled render_to_buffer burst");
+    assert_eq!(prev_readback_stats.frame, 9);
+    assert!(prev_readback_stats.total > 0);
+}
