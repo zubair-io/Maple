@@ -18,6 +18,12 @@
  * simply owns the handle it was already keeping in a module-level binding.
  */
 
+import {
+  invalidateLibraryRoots,
+  isLibrariesCacheInvalidateMessage,
+  LIBRARIES_CACHE_INVALIDATE_MESSAGE,
+  onInvalidateLibraryRoots,
+} from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';
 import { answerRemoteSearch } from '../search/remote-search.ts';
 import {
@@ -36,6 +42,14 @@ const HEALTHY_UPTIME_MS = 60_000;
 let child: ChildProcessWorker | null = null;
 let respawnMs = RESPAWN_MIN_MS;
 let stopped = false;
+
+onInvalidateLibraryRoots(() => {
+  try {
+    child?.postMessage(LIBRARIES_CACHE_INVALIDATE_MESSAGE);
+  } catch {
+    /* worker not running */
+  }
+});
 
 /**
  * Starts the worker tier, unless the operator has turned it off.
@@ -68,7 +82,13 @@ function spawn(workerEntry: string): void {
       childScriptPath(workerEntry, './workers/worker-main.ts'),
       { nice: DEFAULT_NATIVE_CHILD_NICE, label: 'worker' },
     );
-    worker.addEventListener('message', (event) => answerRemoteSearch(worker, event.data));
+    worker.addEventListener('message', (event) => {
+      if (isLibrariesCacheInvalidateMessage(event.data)) {
+        invalidateLibraryRoots({ localOnly: true });
+        return;
+      }
+      answerRemoteSearch(worker, event.data);
+    });
     worker.addEventListener('error', (event) => {
       const uptimeMs = Date.now() - spawnedAt;
       // Ran healthily then died → one-off, reset the backoff. Died fast → grow it.

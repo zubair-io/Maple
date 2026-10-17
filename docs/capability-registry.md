@@ -312,9 +312,9 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - API sidecar transaction contract (#2431)
 - Covers: `web`
 - Accepted backends: `bun`
-- Expected cases: 3
+- Expected cases: 4
 - Corpus: `src/api/src/routes/xmp.sidecar-contract.test.ts`
-- Record: satisfied — 3 of 3 executed, 0 failed, 0 skipped, on `bun`, pipeline v29, schema v5, commit `6bec635c139b52eded78b93c62270c04b847d942`, recorded 2026-10-18T00:47:18Z
+- Record: satisfied — 4 of 4 executed, 0 failed, 0 skipped, on `bun`, pipeline v29, schema v5, commit `7c06ca6d0eec0b738c4a16f61022dd459e9e0127`, recorded 2026-10-18T18:35:45Z
 
 ### `gpu_chain_parity_lavapipe`
 

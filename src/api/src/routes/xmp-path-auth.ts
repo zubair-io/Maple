@@ -9,9 +9,8 @@
 import * as path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { parseRootList } from '../fs/root-list.ts';
-import { isWithinRoot, resolveRealPath } from '../fs/root.ts';
-import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { safeWriteAllowed } from '../fs/root.ts';
+import { isWithinRoot, resolveRealPath, safeWriteAllowed } from '../fs/root.ts';
+import { loadSharedLibraryRoots } from '../indexer/libraries.cache.ts';
 import { listLibraryRoots } from '../db/repos/folders.repo.ts';
 import type { SqliteDb } from '../db/repos/db-handle.ts';
 
@@ -55,9 +54,7 @@ export async function resolveAndAuthorizePath(
   const normalized = path.resolve(decoded);
 
   const envRoots = parseRootList(process.env.MAPLE_ROOTS).map((root) => path.resolve(root));
-  const libRoots = dbOverride
-    ? (await listLibraryRoots(dbOverride)).map((root) => root.path)
-    : [...(await loadLibraryRoots()).values()];
+  const libRoots = await loadSharedLibraryRoots(dbOverride);
   const normalizedLibRoots = libRoots.map((root) => path.resolve(root));
   // Normalize each root with path.resolve (strips any trailing separator,
   // cross-platform) so the containment check below is separator-correct.

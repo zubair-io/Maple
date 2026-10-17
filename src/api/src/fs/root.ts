@@ -9,8 +9,9 @@
  * per-folder (registered roots from the DB are the boundary).
  */
 
-import { lstat, readFile, realpath, stat } from 'node:fs/promises';
+import { lstat, readFile, readlink, realpath, stat } from 'node:fs/promises';
 import * as path from 'node:path';
+import { loadJailLibraryRoots } from '../indexer/libraries.cache.ts';
 import { parseRootList } from './root-list.ts';
 
 export interface OpResult<T = undefined> {
@@ -29,8 +30,9 @@ export function isWithinRoot(root: string, filePath: string): boolean {
 }
 
 /**
- * Registered roots — updated at startup from DB and on folder registration.
- * Using a simple Set for O(1) prefix checks.
+ * Additional in-memory roots registered via `registerRoot()`. Library roots
+ * from the shared `folders` table come from `loadJailLibraryRoots()`, whose
+ * cache is invalidated across the API and worker processes.
  */
 const _registeredRoots = new Set<string>();
 let envRootsCache:
@@ -56,6 +58,29 @@ async function normalizedEnvRoots(): Promise<string[]> {
   // authorization checks must await the same promise; exposing an interim
   // empty array would turn a configured-root policy into allow-all.
   envRootsCache = { value, roots };
+  return roots;
+}
+
+let libraryRootsCache:
+  | {
+      source: ReadonlyMap<string, string>;
+      roots: Promise<string[]>;
+    }
+  | undefined;
+
+/** Library roots, realpath-normalized once per cache generation (a new map after every invalidation). */
+async function normalizedLibraryRoots(): Promise<string[]> {
+  const source = await loadJailLibraryRoots().catch(() => null);
+  if (!source) return [];
+  if (libraryRootsCache?.source === source) return libraryRootsCache.roots;
+  const roots = Promise.all(
+    [...source.values()].map(async (root) => {
+      const resolved = path.resolve(root);
+      const real = await realpath(resolved).catch(() => resolved);
+      return real === resolved ? [resolved] : [real, resolved];
+    }),
+  ).then((pairs) => pairs.flat());
+  libraryRootsCache = { source, roots };
   return roots;
 }
 
@@ -88,6 +113,7 @@ export function getRegisteredRoots(): string[] {
 }
 
 const UNLINKED_INODE_SUFFIX = ' (deleted)';
+const MAX_SYMLINK_HOPS = 40;
 
 /**
  * Bun's Linux `realpath` opens the file and reads `/proc/self/fd/N`. When an
@@ -110,6 +136,12 @@ export async function resolveRealPath(filePath: string): Promise<string> {
   return sameFile ? real : real.slice(0, -UNLINKED_INODE_SUFFIX.length);
 }
 
+const SEGMENT_SEPARATOR = path.sep === '\\' ? /[\\/]+/ : /\/+/;
+
+function pathSegments(p: string): string[] {
+  return p.slice(path.parse(p).root.length).split(SEGMENT_SEPARATOR).filter(Boolean);
+}
+
 /** Real path of `filePath`, resolving through the deepest existing ancestor when
  * the leaf (or more) does not exist yet, so a not-yet-written file under a
  * symlinked directory still canonicalises to where it will really land. */
@@ -130,41 +162,75 @@ export async function resolveRealPathThroughAncestors(filePath: string): Promise
 }
 
 /**
+ * Where a write to a not-yet-existing `filePath` would land. Symlinks are
+ * followed one component at a time the way the kernel does, so a dangling
+ * link and a link target's `..` (applied only after the prefix before it
+ * resolves) cannot leave a lexical in-library answer for a write that lands
+ * outside it.
+ */
+async function resolveLandingPath(filePath: string): Promise<string> {
+  const resolved = path.resolve(filePath);
+  const pending = pathSegments(resolved).reverse();
+  let current = path.parse(resolved).root;
+  let hops = 0;
+  while (pending.length > 0) {
+    const segment = pending.pop()!;
+    if (segment === '.') continue;
+    if (segment === '..') {
+      current = path.dirname(current);
+      continue;
+    }
+    const next = path.join(current, segment);
+    const stats = await lstat(next).catch(() => null);
+    if (!stats?.isSymbolicLink()) {
+      current = next;
+      continue;
+    }
+    hops += 1;
+    if (hops > MAX_SYMLINK_HOPS) throw new Error(`Too many symbolic links in "${resolved}"`);
+    const target = await readlink(next);
+    if (path.isAbsolute(target)) current = path.parse(path.resolve(target)).root;
+    pending.push(...pathSegments(target).reverse());
+  }
+  return current;
+}
+
+/** The path to operate on (a missing leaf, or a link itself, keeps its own
+ *  name) and where a write through it lands; null when it cannot resolve. */
+async function resolvePathAndLanding(
+  filePath: string,
+): Promise<{ real: string; landing: string } | null> {
+  const existing = await resolveRealPath(filePath).catch(() => null);
+  if (existing !== null) return { real: existing, landing: existing };
+  const [real, landing] = await Promise.all([
+    resolveRealPathThroughAncestors(filePath),
+    resolveLandingPath(filePath).catch(() => null),
+  ]);
+  return landing === null ? null : { real, landing };
+}
+
+/**
  * Check whether `filePath` is under one of the registered roots (or any
  * MAPLE_ROOTS env entries). Returns the real (resolved) path on success.
+ * Fails closed when no roots are known.
  */
 export async function checkAllowed(filePath: string): Promise<OpResult<string>> {
-  let real: string;
-  try {
-    // Resolve symlinks to prevent directory traversal.
-    real = await resolveRealPath(filePath);
-  } catch {
-    // Not written yet (a new XMP, a folder about to be created). A text-only
-    // resolve would miss a directory symlink higher up and authorize a write
-    // that lands outside the root (#4748), so canonicalise the deepest
-    // ancestor that does exist and append the missing tail to it.
-    real = await resolveRealPathThroughAncestors(filePath);
-  }
-
-  // Env-level roots take precedence.
-  const envRoots = await normalizedEnvRoots();
-  const allowedRoots = [...envRoots, ..._registeredRoots];
-
-  if (allowedRoots.length === 0) {
-    // No roots configured — allow all (development convenience).
-    return { ok: true, data: real };
-  }
-
-  for (const root of allowedRoots) {
-    if (isWithinRoot(root, real)) {
-      return { ok: true, data: real };
-    }
-  }
-
+  const resolution = await resolvePathAndLanding(filePath);
+  if (resolution === null) return { ok: false, error: `Cannot resolve "${filePath}".` };
+  const { real, landing } = resolution;
+  const allowedRoots = [
+    ...(await normalizedEnvRoots()),
+    ..._registeredRoots,
+    ...(await normalizedLibraryRoots()),
+  ];
+  const outside = [real, landing].find(
+    (candidate) => !allowedRoots.some((root) => isWithinRoot(root, candidate)),
+  );
+  if (outside === undefined) return { ok: true, data: real };
   return {
     ok: false,
     error:
-      `Path "${real}" is outside all registered roots. ` +
+      `Path "${outside}" is outside all registered roots. ` +
       `Registered: [${allowedRoots.join(', ')}]`,
   };
 }

@@ -11,8 +11,7 @@
  * this guard existed are neutralised when the config is read.
  */
 
-import path from 'node:path';
-import { isWithinRoot, resolveRealPath } from '../fs/root.ts';
+import { isWithinRoot, resolveRealPathThroughAncestors } from '../fs/root.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { BackupRepository } from '../cloud-backup/repository.ts';
 import { child as childLogger } from '../log.ts';
@@ -26,23 +25,6 @@ const log = childLogger('pano:config-paths');
 
 export type ExecutableField = 'maple_cli_path' | 'ort_dylib_path';
 const EXECUTABLE_FIELDS: readonly ExecutableField[] = ['maple_cli_path', 'ort_dylib_path'];
-
-/** Real path of `absPath`, resolving the deepest existing ancestor when the leaf is missing. */
-async function canonical(absPath: string): Promise<string> {
-  const resolved = path.resolve(absPath);
-  const missing: string[] = [];
-  let probe = resolved;
-  while (true) {
-    try {
-      return path.join(await resolveRealPath(probe), ...missing.reverse());
-    } catch {
-      const parent = path.dirname(probe);
-      if (parent === probe) return resolved;
-      missing.push(path.basename(probe));
-      probe = parent;
-    }
-  }
-}
 
 /** Every root a member's bytes can reach: the registered libraries and each
  * folder mirror destination, read fresh from the database on every check. A
@@ -62,7 +44,10 @@ async function memberWritableRoots(): Promise<{ root: string; via: string }[]> {
       .map((d) => ({ root: d.path as string, via: 'library mirror root' })),
   ];
   return Promise.all(
-    candidates.map(async ({ root, via }) => ({ root: await canonical(root), via })),
+    candidates.map(async ({ root, via }) => ({
+      root: await resolveRealPathThroughAncestors(root),
+      via,
+    })),
   );
 }
 
@@ -76,7 +61,10 @@ async function jailExecutablePath(
   field: ExecutableField,
   value: string,
 ): Promise<ExecutableJailVerdict> {
-  const [real, roots] = await Promise.all([canonical(value.trim()), memberWritableRoots()]);
+  const [real, roots] = await Promise.all([
+    resolveRealPathThroughAncestors(value.trim()),
+    memberWritableRoots(),
+  ]);
   const hit = roots.find(({ root }) => isWithinRoot(root, real));
   return hit
     ? {
