@@ -59,13 +59,13 @@ async function memberWritableRoots(): Promise<{ root: string; via: string }[]> {
   );
 }
 
-export type ExecutableJailVerdict = { ok: true; canonical: string } | { ok: false; error: string };
+type ExecutableJailVerdict = { ok: true; canonical: string } | { ok: false; error: string };
 
 /** Canonicalise one executable path and refuse it when it sits under any
  * member-writable root. The canonical path is what callers must save, probe and
  * spawn — never the pathname as typed, whose symlinks a library writer could
  * swing between check and open. */
-export async function jailExecutablePath(
+async function jailExecutablePath(
   field: ExecutableField,
   value: string,
 ): Promise<ExecutableJailVerdict> {
