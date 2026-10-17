@@ -7,14 +7,21 @@ import { XmpParserService } from '../../xmp/xmp-parser.service';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import { XmpAdjustmentRestoreService } from '../../xmp/xmp-adjustment-restore.service';
 import { XmpStoreService } from '../../xmp/xmp-store.service';
+import {
+  primarySidecarFilename,
+  sameSidecar,
+  type HostedSidecarBinding,
+} from '../../xmp/sidecar-binding';
+import type { XmpCulling } from '../../xmp/xmp.types';
+import { PRIMARY_VARIANT_ID } from '../../generated/workflow.generated';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { API_BASE_URL } from '../../api/api-base-url.token';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 import type { MapleFolderHandle } from '../../folder-access/folder-access.types';
-import type { AssetId } from '../../models/asset';
-import type { BatchOperation, PreparedBatchPatch } from './batch-ledger';
+import type { Asset, AssetId } from '../../models/asset';
+import { batchSidecarTarget, type BatchOperation, type PreparedBatchPatch } from './batch-ledger';
 import {
   buildTransferPatch,
   snapWhiteBalanceBaseline,
@@ -81,21 +88,38 @@ export class BatchSyncAssetIO {
     const asset = this.store.findAsset(id);
     const folder = this.library.currentFolder();
     if (!asset || !folder) throw new Error('Open the source photo’s folder to read its settings.');
-    const xml = await this.readSidecar(folder, asset.filename);
+    const xml = await this.readSidecar(folder, primarySidecarFilename(asset.filename));
     return {
       ...defaultAdjustmentModel(),
       ...(xml === undefined ? {} : this.parser.parseAdjustmentModel(xml).model),
     };
   }
 
+  /** The ledger fixed this target's sidecar at creation; the live asset must still be that file (#4682). */
+  private binding(
+    operation: BatchOperation,
+    id: string,
+    folder: MapleFolderHandle,
+    rawFilename: string,
+  ): HostedSidecarBinding {
+    const target = batchSidecarTarget(operation, id);
+    if (
+      target.rawFilename !== rawFilename ||
+      target.variantId !== PRIMARY_VARIANT_ID ||
+      target.filename !== primarySidecarFilename(rawFilename)
+    )
+      throw new Error(
+        'This batch was prepared for a different sidecar. Copy settings again to replace them.',
+      );
+    return { folder, ...target };
+  }
+
   private async readSidecar(
     folder: MapleFolderHandle,
-    filename: string,
+    sidecarName: string,
   ): Promise<string | undefined> {
     try {
-      const xml = new TextDecoder().decode(
-        await this.files.readFile(folder, filename.replace(/\.[^.]+$/, '.xmp')),
-      );
+      const xml = new TextDecoder().decode(await this.files.readFile(folder, sidecarName));
       assertValidSingleFileXmp(xml);
       return xml;
     } catch (error) {
@@ -157,7 +181,11 @@ export class BatchSyncAssetIO {
     const patch = await this.transferPatch(operation, id);
     await this.library.flushPendingXmpWrites();
     const asset = this.store.findAsset(this.assetId(operation, id))!;
-    const xml = await this.readSidecar(this.library.currentFolder()!, asset.filename);
+    const folder = this.library.currentFolder()!;
+    const xml = await this.readSidecar(
+      folder,
+      this.binding(operation, id, folder, asset.filename).filename,
+    );
     const current = {
       ...defaultAdjustmentModel(),
       ...(xml === undefined ? {} : this.parser.parseAdjustmentModel(xml).model),
@@ -209,23 +237,29 @@ export class BatchSyncAssetIO {
     const currentId = this.assetId(operation, id);
     const asset = this.store.findAsset(currentId)!;
     const folder = this.library.currentFolder()!;
+    const binding = this.binding(operation, id, folder, asset.filename);
+    // While the editor holds a sibling variant for this asset, the live model
+    // is that sibling's; the Primary is written without touching it.
+    const live = sameSidecar(this.xmpStore.bindingFor(currentId, folder, asset.filename), binding);
     // Flush any edit the user made while the worker was preparing this item.
     // Then read the authoritative target sidecar, including unknown XML and
     // culling. An unreadable existing sidecar is a recorded failure, never a
     // license to write a default document over it.
     await this.library.flushPendingXmpWrites();
     const beforeRead = structuredClone(this.library.adjustmentFor(currentId)());
-    const xml = await this.readSidecar(folder, asset.filename);
+    const xml = await this.readSidecar(folder, binding.filename);
     const parsed = xml === undefined ? undefined : this.parser.parseAdjustmentModel(xml);
     const model = { ...defaultAdjustmentModel(), ...parsed?.model };
     // A user can keep editing while the filesystem read is in flight. Fold
     // those new fields over the disk base before applying the selected group.
     const afterRead = this.library.adjustmentFor(currentId)();
-    const authoredDuringRead = Object.fromEntries(
-      (Object.keys(afterRead) as (keyof AdjustmentModel)[])
-        .filter((key) => JSON.stringify(beforeRead[key]) !== JSON.stringify(afterRead[key]))
-        .map((key) => [key, structuredClone(afterRead[key])]),
-    );
+    const authoredDuringRead = live
+      ? Object.fromEntries(
+          (Object.keys(afterRead) as (keyof AdjustmentModel)[])
+            .filter((key) => JSON.stringify(beforeRead[key]) !== JSON.stringify(afterRead[key]))
+            .map((key) => [key, structuredClone(afterRead[key])]),
+        )
+      : {};
     const current = { ...model, ...authoredDuringRead };
     const matches = (expected: Partial<AdjustmentModel>) =>
       (Object.keys(prepared.patch) as (keyof AdjustmentModel)[]).every(
@@ -235,15 +269,33 @@ export class BatchSyncAssetIO {
       throw new Error(
         'Selected settings changed after this batch was prepared. Copy settings again to replace them.',
       );
-    this.store.mergePersistedAdjustment(currentId, model, authoredDuringRead);
-    if (xml !== undefined)
-      this.store.mergePersistedCulling(currentId, this.parser.parseCulling(xml));
-    this.xmpStore.replacePassthroughs(
-      [currentId],
-      parsed ? new Map([[currentId, parsed.passthrough]]) : new Map(),
-      parsed ? new Map([[currentId, parsed.metadata]]) : new Map(),
+    const diskCulling = xml === undefined ? undefined : this.parser.parseCulling(xml);
+    if (live) {
+      this.store.mergePersistedAdjustment(currentId, model, authoredDuringRead);
+      if (diskCulling) this.store.mergePersistedCulling(currentId, diskCulling);
+      this.xmpStore.replacePassthroughs(
+        [currentId],
+        parsed ? new Map([[currentId, parsed.passthrough]]) : new Map(),
+        parsed ? new Map([[currentId, parsed.metadata]]) : new Map(),
+      );
+      this.library.updateAdjustment(currentId, prepared.patch);
+    }
+    await this.xmpStore.writeBound(
+      currentId,
+      binding,
+      live ? this.library.adjustmentFor(currentId)() : { ...current, ...prepared.patch },
+      live ? cullingOf(this.store.findAsset(currentId)!) : (diskCulling ?? EMPTY_CULLING),
+      { passthrough: parsed?.passthrough, metadata: parsed?.metadata },
     );
-    this.library.updateAdjustment(currentId, prepared.patch);
-    await this.library.flushSidecarWrite(currentId);
   }
+}
+
+const EMPTY_CULLING: XmpCulling = { rating: 0, flag: 'unflagged', colorLabel: null, keywords: [] };
+function cullingOf(asset: Asset): XmpCulling {
+  return {
+    rating: asset.rating,
+    flag: asset.flag,
+    colorLabel: asset.colorLabel,
+    keywords: asset.keywords ?? [],
+  };
 }

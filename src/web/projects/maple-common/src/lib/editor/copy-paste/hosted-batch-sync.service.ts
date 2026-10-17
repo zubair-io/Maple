@@ -3,7 +3,7 @@ import { LibraryStateService } from '../../state/library-state.service';
 import type { AdjustmentModel } from '../../models/adjustment-model';
 import type { BatchTransferProgress } from '../../generated/batch-transfer.generated';
 import type { AdjustmentTransferRequest } from './adjustment-transfer';
-import type { BatchRecordView } from './batch-ledger';
+import { newBatchOperation, type BatchRecordView } from './batch-ledger';
 import type { BatchProgress, BatchSummary } from './batch-sync';
 import type { PersistedBatchSync } from './persisted-batch-sync';
 import { BatchWorkerClient } from './batch-worker-client';
@@ -87,29 +87,23 @@ export class HostedBatchSyncService implements PersistedBatchSync, OnDestroy {
         if (!asset || asset.isVideo) throw new Error('Choose photos from the current library.');
         return asset;
       });
-      const sidecarNames = assets.map((asset) =>
-        asset.filename.replace(/\.[^.]+$/, '.xmp').toLowerCase(),
+      const request = await this.frozenTransfer(transfer);
+      if (this.cancelled) return null;
+      const operation = newBatchOperation({
+        libraryId: await this.assetIO.identity(folder),
+        directory: folder.native,
+        assets,
+        request,
+        patch,
+      });
+      const sidecarNames = Object.values(operation.targets).map((target) =>
+        target.filename.toLowerCase(),
       );
       if (new Set(sidecarNames).size !== sidecarNames.length)
         throw new Error(
           'Two selected photos share the same XMP sidecar. Select only one of each matching filename.',
         );
-      const request = await this.frozenTransfer(transfer);
-      if (this.cancelled) return null;
-      return this.worker.request({
-        type: 'start',
-        operation: {
-          id: crypto.randomUUID(),
-          createdAt: Date.now(),
-          status: 'ready',
-          libraryId: await this.assetIO.identity(folder),
-          directory: folder.native,
-          assetIds: unique,
-          assetNames: Object.fromEntries(assets.map((a) => [a.id, a.filename])),
-          request,
-          patch: structuredClone(patch),
-        },
-      });
+      return this.worker.request({ type: 'start', operation });
     }, ids.length);
   }
 
