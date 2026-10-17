@@ -49,3 +49,20 @@ test('assets stranded without stage rows are enrolled in every stage, existing p
     .get(stranded) as { v: number };
   expect(fresh.v).toBe(0);
 });
+
+test('an empty stage_state table is still backfilled with every stage', async () => {
+  using handle = createBlankTestDatabase('file');
+  const before = ALL_MIGRATIONS.filter((migration) => migration.id !== ID);
+  await runMigrations(handle.migrationDb, before);
+
+  const libraryId = insertFolder(handle.db, { slug: 'lib', path: '/lib' });
+  const stranded = insertAsset(handle.db);
+  insertLocation(handle.db, { assetId: stranded, libraryId, path: '', filename: 'a.heic' });
+
+  await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+
+  const stages = handle.db
+    .query(`SELECT stage FROM stage_state WHERE asset_id = ? ORDER BY stage`)
+    .all(stranded) as Array<{ stage: string }>;
+  expect(stages.map((row) => row.stage)).toEqual([...ALL_STAGE_NAMES].sort());
+});
