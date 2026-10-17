@@ -55,6 +55,18 @@ pub struct MapleToneCurves {
     pub display_green_len: usize,
     pub display_blue_ptr: *const f32,
     pub display_blue_len: usize,
+    // --- #4738: the parametric tone curve (`tone_curves` stage input) that
+    //     the scalar params never carried. Regions are the four ACR-style
+    //     sliders in `[-100, 100]`; splits are axis positions in `[0, 100]`
+    //     read as a trio — all three `0.0` ⇒ the 25/50/75 defaults (see
+    //     `parametric_split_or_defaults`). Zero-initialised ⇒ identity. ---
+    pub parametric_highlights: f32,
+    pub parametric_lights: f32,
+    pub parametric_darks: f32,
+    pub parametric_shadows: f32,
+    pub parametric_shadow_split: f32,
+    pub parametric_midtone_split: f32,
+    pub parametric_highlight_split: f32,
 }
 
 /// # Safety
@@ -236,6 +248,18 @@ unsafe fn chain_with_film(
         ci.model.display_tone_curve_green =
             curve_from_flat(c.display_green_ptr, c.display_green_len);
         ci.model.display_tone_curve_blue = curve_from_flat(c.display_blue_ptr, c.display_blue_len);
+        ci.model.parametric_highlights = c.parametric_highlights;
+        ci.model.parametric_lights = c.parametric_lights;
+        ci.model.parametric_darks = c.parametric_darks;
+        ci.model.parametric_shadows = c.parametric_shadows;
+        let [shadow, midtone, highlight] = crate::scene_linear_chain::parametric_split_or_defaults(
+            c.parametric_shadow_split,
+            c.parametric_midtone_split,
+            c.parametric_highlight_split,
+        );
+        ci.model.parametric_shadow_split = shadow;
+        ci.model.parametric_midtone_split = midtone;
+        ci.model.parametric_highlight_split = highlight;
     }
     let opts = ci.options(p.skip_agx != 0);
 

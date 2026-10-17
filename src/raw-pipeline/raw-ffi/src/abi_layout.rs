@@ -161,6 +161,7 @@ pub(crate) fn describe(name: &str) -> Option<String> {
                 defringe_green_hue_hi,
                 whites_anchor_ev,
                 nr_sampling_scale,
+                wb_method,
             }))
         }
         "MapleToneCurves" => Some(layout!(crate::scene_linear_chain_curves::MapleToneCurves {
@@ -181,6 +182,13 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             display_green_len,
             display_blue_ptr,
             display_blue_len,
+            parametric_highlights,
+            parametric_lights,
+            parametric_darks,
+            parametric_shadows,
+            parametric_shadow_split,
+            parametric_midtone_split,
+            parametric_highlight_split,
         })),
         "MapleSceneLinearBufferF32" => Some(layout!(crate::buffers::MapleSceneLinearBufferF32 {
             f32_rgba,
@@ -492,10 +500,31 @@ mod tests {
                 "{name}: last field inside the struct"
             );
         }
-        let (size, _) = parse(&describe("MapleAdjustmentParams").unwrap());
+        let (size, fields) = parse(&describe("MapleAdjustmentParams").unwrap());
         assert_eq!(
-            size, 704,
-            "RawFfi.VerifyAbi pins MapleAdjustmentParams at 704 bytes"
+            size, 712,
+            "RawFfi.VerifyAbi pins MapleAdjustmentParams at 712 bytes (#4738 appended wb_method)"
+        );
+        assert_eq!(fields.last().map(|f| f.0.as_str()), Some("wb_method"));
+        let (_, curve_fields) = parse(&describe("MapleToneCurves").unwrap());
+        let tail: Vec<&str> = curve_fields
+            .iter()
+            .rev()
+            .take(7)
+            .map(|f| f.0.as_str())
+            .collect();
+        assert_eq!(
+            tail,
+            [
+                "parametric_highlight_split",
+                "parametric_midtone_split",
+                "parametric_shadow_split",
+                "parametric_shadows",
+                "parametric_darks",
+                "parametric_lights",
+                "parametric_highlights",
+            ],
+            "the parametric regions and splits are the MapleToneCurves tail (#4738)"
         );
     }
 

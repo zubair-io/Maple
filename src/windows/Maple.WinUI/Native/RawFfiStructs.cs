@@ -84,6 +84,16 @@ namespace Maple.WinUI.Native
         public nuint display_green_len;
         public float* display_blue_ptr;
         public nuint display_blue_len;
+        // #4738: parametric tone curve regions + splits (tail, additive).
+        // Zero-initialised = identity regions, and an all-zero split trio
+        // means the 25/50/75 defaults on the Rust side.
+        public float parametric_highlights;
+        public float parametric_lights;
+        public float parametric_darks;
+        public float parametric_shadows;
+        public float parametric_shadow_split;
+        public float parametric_midtone_split;
+        public float parametric_highlight_split;
     }
 
     /// <summary>
