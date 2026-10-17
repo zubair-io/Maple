@@ -174,6 +174,12 @@ It builds `maple-cli` in release (unconditionally — cargo's own fingerprint is
 
 The metric, from [`compare_images.py`](../src/scripts/compare_images.py): mean / p95 / max CIEDE2000 plus per-channel bias (`bias_r`, `bias_g`, `bias_b`). `--zones` adds a shadow/mid/highlight breakdown keyed on the reference's L\*; `--hue-bins N` adds per-hue-angle deltas with low-chroma pixels routed to a neutral bucket. Python deps are pinned in `src/scripts/requirements.txt` (numpy, Pillow, colour-science, scipy, tifffile).
 
+Adobe's `Custom` white balance requires both `Temperature` and `Tint`.
+Reference preparation completes a missing axis only from the same fixture's
+recorded effective `As Shot` baseline PNG (#4784). It preserves authored axes
+and Maple's canonical XMP bytes. A missing baseline or an incomplete Custom pair
+fails preparation or verification; no universal camera white balance is used.
+
 Useful environment overrides: `MAPLE_CLI` (use a prebuilt binary, skipping the build), `MANIFEST`, `BUDGETS`, `KEEP_TMP`, and `ALLOW_MISSING_BUDGET` (by default a case with no budget entry **fails**, which is what forces new cases to be budgeted).
 
 ### The one-way ratchet

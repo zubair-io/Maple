@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -210,12 +211,52 @@ def explicit_reference_defaults(
 
 
 def copy_case_xmp(
-    source: Path, destination: Path, camera_profile: str | None = None
+    source: Path,
+    destination: Path,
+    camera_profile: str | None = None,
+    *,
+    as_shot: dict | None = None,
 ) -> None:
     # Read first: source == destination is safe and makes canonical self-runs
     # explicit too. No normalization or changes to authored controls.
-    data = explicit_reference_defaults(source.read_bytes(), camera_profile)
+    data = complete_custom_white_balance(
+        explicit_reference_defaults(source.read_bytes(), camera_profile), as_shot
+    )
     destination.write_bytes(data)
+
+
+def complete_custom_white_balance(data: bytes, as_shot: dict | None) -> bytes:
+    """Complete Adobe's required WB pair from this fixture's recorded baseline.
+
+    ACR ignores a Custom tint-only sidecar. Supply only its missing axis from
+    effective As Shot PNG metadata; never alter Maple's canonical input or
+    invent a camera-independent temperature/tint default (#2333, #3678).
+    """
+    authored = reference_settings(data)
+    missing = sorted(OPTIONAL_REFERENCE_KEYS - authored.keys())
+    if authored.get("WhiteBalance", "").casefold() != "custom" or not missing:
+        return data
+    if not as_shot or as_shot.get("WhiteBalance", "").casefold() != "as shot":
+        raise ValueError(
+            "partial Custom WB requires recorded As Shot baseline settings"
+        )
+    for key in missing:
+        try:
+            value = Decimal(as_shot[key])
+        except (KeyError, TypeError, InvalidOperation) as error:
+            raise ValueError(
+                f"recorded As Shot baseline is missing valid {key}"
+            ) from error
+        if not value.is_finite() or (key == "Temperature" and value <= 0):
+            raise ValueError(f"recorded As Shot baseline has invalid {key}")
+    description = re.search(rb"<rdf:Description\b[^>]*>", data, re.DOTALL)
+    if description is None:
+        raise ValueError("canonical XMP must declare rdf:Description")
+    end = description.end() - (2 if description.group().endswith(b"/>") else 1)
+    attributes = b"".join(
+        f' crs:{key}="{Decimal(as_shot[key])}"'.encode() for key in missing
+    )
+    return data[:end] + attributes + data[end:]
 
 
 def copy_canonical_xmps(canonical_dir: Path, target_dir: Path) -> list[Path]:

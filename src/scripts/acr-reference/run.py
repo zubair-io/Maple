@@ -152,6 +152,22 @@ def recorded_camera_profile(raw_ref_dir: Path) -> str | None:
     return None
 
 
+def recorded_as_shot(raw_ref_dir: Path) -> dict | None:
+    """Read effective WB axes; an As Shot authoring sidecar has no such values."""
+    from PIL import Image
+
+    for tier in ("down", "full"):
+        baseline = raw_ref_dir / tier / "baseline.png"
+        if baseline.is_file():
+            with Image.open(baseline) as image:
+                metadata = image.info.get("XML:com.adobe.xmp") or image.info.get("xmp")
+            if metadata:
+                settings = reference_settings(metadata)
+                if settings.get("WhiteBalance", "").casefold() == "as shot":
+                    return settings
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -263,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
         # Keep Maple's authored sidecars byte-identical. Adobe's optional lens
         # profile switch is not Maple's embedded DNG opcode switch (#3633).
         camera_profile = recorded_camera_profile(raw_ref_dir)
+        as_shot = recorded_as_shot(raw_ref_dir)
         acr_xmp_dir = raw_ref_dir / "acr-xmp"
         xmp_dir.mkdir(parents=True, exist_ok=True)
         acr_xmp_dir.mkdir(parents=True, exist_ok=True)
@@ -275,7 +292,9 @@ def main(argv: list[str] | None = None) -> int:
             if src.resolve() != dst.resolve():
                 shutil.copyfile(src, dst)
             try:
-                copy_case_xmp(src, acr_xmp_dir / f"{c.name}.xmp", camera_profile)
+                copy_case_xmp(
+                    src, acr_xmp_dir / f"{c.name}.xmp", camera_profile, as_shot=as_shot
+                )
             except ValueError as error:
                 print(f"ERROR: {raw_stem}/{c.name}: {error}", file=sys.stderr)
                 return 2
