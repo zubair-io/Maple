@@ -17,7 +17,9 @@ import numpy as np
 from PIL import Image, PngImagePlugin
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).parent / "acr-reference"))
 import compare_images as ci
+from write_xmp import explicit_reference_defaults
 
 
 def _metadata(exposure="0"):
@@ -242,9 +244,6 @@ def test_nonbaseline_down_only_retains_legacy_comparison():
 
 
 def _qualified_native_pair(directory):
-    sys.path.insert(0, str(Path(__file__).parent / "acr-reference"))
-    from write_xmp import explicit_reference_defaults
-
     authored = explicit_reference_defaults(
         b'<x xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" '
         b'xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'

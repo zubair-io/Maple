@@ -56,6 +56,21 @@ also complete without output drift. Logs and metadata-audit results use the
 
 ## Qualification
 
+### Further review checks
+
+Camera Raw packets now reject DTD declarations before the subset verifier
+parses either an authoring sidecar or a captured PNG. Empty, internal and
+external declarations are covered on both sides; ordinary XML character
+references still work. The old reader fails all six rejection controls. The
+two new tests and all existing tests pass: **19 metadata + 15 comparator**,
+with **28 registry tests** also passing. This uses the existing XML parser's
+doctype callback and adds no dependency.
+
+The duplicate authored/native comparison is removed after complete equality
+of native/preferred metadata has been established. The test helper imports
+the authoring tool once. Review/merge-policy wording has been replaced with
+factual qualification results and remaining integration state.
+
 - Main `d0689ff4cea06b320910cc703a90fd8241c24808` rejects the new protocol
   argument. The saved before-control records that failure.
 - All **15 comparator tests** pass, including explicit opt-in, unchanged
@@ -84,6 +99,6 @@ original inputs are hashed before and after and remain unchanged. Full logs,
 per-case metrics, source controls and replay commands are preserved under
 `/Volumes/Projects/maple-color-gate-20261015/native-pair-protocol-4788/`.
 
-The session exception allows documented existing physical color failures on
-main. Fresh CI, current-main integration and resolved review remain merge
-requirements; this report does not claim a passing whole-corpus gate.
+The whole physical color corpus has existing failures on main. This report
+records scoped protocol qualification; it does not establish a passing
+whole-corpus gate. Current-main integration, CI and review remain pending.

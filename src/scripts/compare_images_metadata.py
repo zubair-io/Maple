@@ -9,6 +9,11 @@ CRS = "{http://ns.adobe.com/camera-raw-settings/1.0/}"
 RDF = "{http://www.w3.org/1999/02/22-rdf-syntax-ns#}"
 
 
+class _XmpTreeBuilder(ET.TreeBuilder):
+    def doctype(self, name, pubid, system):
+        raise ValueError("Camera Raw XMP must not declare a DTD")
+
+
 def _scalar(value, key=""):
     value = (value or "").strip()
     boolean = {"true": "1", "false": "0", "on": "1", "off": "0"}
@@ -67,7 +72,7 @@ def camera_raw_settings(packet: bytes | str) -> dict:
             else:
                 visit(child)
 
-    visit(ET.fromstring(packet))
+    visit(ET.fromstring(packet, parser=ET.XMLParser(target=_XmpTreeBuilder())))
     if not settings:
         raise ValueError("reference has no Camera Raw settings")
     return settings
