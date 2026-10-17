@@ -82,18 +82,34 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
 });
 
 test('an empty registered library remains usable for first-run setup', async () => {
-  using live = await createLiveTestDatabase();
   const fixture = await mkdtemp(join(tmpdir(), 'maple-root-first-run-'));
   temporaryRoots.push(fixture);
-  delete process.env.MAPLE_ROOTS;
-  expect(
-    (
-      live.db.query('SELECT COUNT(*) AS count FROM folders').get() as {
-        count: number;
-      }
-    ).count,
-  ).toBe(0);
-  expect((await checkAllowed(fixture)).ok).toBe(true);
+  const env = { ...process.env };
+  delete env.MAPLE_ROOTS;
+  // Other suites may retain runtime roots; first-run means none exist at all.
+  const script = `
+    import { createLiveTestDatabase } from ${JSON.stringify(new URL('../db/sqlite/test-sqlite.test-helpers.ts', import.meta.url).href)};
+    import { checkAllowed, getRegisteredRoots } from ${JSON.stringify(new URL('./root.ts', import.meta.url).href)};
+    using live = await createLiveTestDatabase();
+    const count = live.db.query('SELECT COUNT(*) AS count FROM folders').get().count;
+    console.log(JSON.stringify({ count, roots: getRegisteredRoots(), result: await checkAllowed(${JSON.stringify(fixture)}) }));
+  `;
+  const child = Bun.spawn([process.execPath, '--eval', script], {
+    env,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  expect(stderr).toBe('');
+  expect(code).toBe(0);
+  const outcome = JSON.parse(stdout);
+  expect(outcome.count).toBe(0);
+  expect(outcome.roots).toEqual([]);
+  expect(outcome.result.ok).toBe(true);
 });
 
 test('a pre-registration empty lookup cannot reopen the jail after library registration', async () => {
