@@ -100,6 +100,11 @@ export interface RelocateRequest {
    * best-effort (a companion that fails to copy is logged and left at its
    * original location, same as a sidecar), deleted on `mode: 'move'`. */
   extraCompanionAbsPaths?: string[];
+  /** Carry the paired `.xmp` sidecars along (default). `false` moves the
+   * primary alone — for a plain file that merely shares its stem with a photo
+   * (`photo.txt` beside `photo.dng` + `photo.xmp`), whose sidecars belong to
+   * the photo and must stay put (#4694). */
+  carrySidecars?: boolean;
   /** Invoked after the primary + sidecars are copied and verified, before
    * any delete. Throwing (or the returned promise rejecting) aborts the
    * whole relocate: every copy made so far is reverted and the source is
@@ -273,6 +278,27 @@ interface SidecarCopyResult {
   movedCompanionSources: string[];
 }
 
+/** Best-effort copy of every paired sidecar next to the relocated primary,
+ * recording each created path as it lands. */
+async function copySidecarsAlongside(
+  sourceAbsPath: string,
+  finalDest: string,
+  sourceSidecars: readonly string[],
+  createdPaths: string[],
+): Promise<Pick<SidecarCopyResult, 'copiedSidecars' | 'movedSidecarSources'>> {
+  const copiedSidecars: string[] = [];
+  const movedSidecarSources: string[] = [];
+  for (const sidecar of sourceSidecars) {
+    const dest = sidecarRenameTarget(sourceAbsPath, finalDest, sidecar);
+    if (!dest) continue; // defensive — mirrors moveSidecarsAlongside
+    if (!(await tryCopySidecar(sidecar, dest))) continue;
+    createdPaths.push(dest);
+    copiedSidecars.push(dest);
+    movedSidecarSources.push(sidecar);
+  }
+  return { copiedSidecars, movedSidecarSources };
+}
+
 /** Steps 2-4: copy + verify + publish the primary, then best-effort carry
  * every paired sidecar and extra companion (#2667) alongside. Pushes every
  * path it creates onto the caller's `createdPaths` accumulator as it goes
@@ -286,21 +312,18 @@ async function copyPrimaryAndSidecars(
   collision: CollisionPolicy,
   extraCompanionAbsPaths: string[],
   createdPaths: string[],
+  carrySidecars: boolean,
 ): Promise<SidecarCopyResult> {
   await copyVerifiedIntoPlace(sourceAbsPath, finalDest);
   createdPaths.push(finalDest);
 
-  const copiedSidecars: string[] = [];
-  const movedSidecarSources: string[] = [];
-  const sourceSidecars = await listPairedSidecars(sourceAbsPath);
-  for (const sidecar of sourceSidecars) {
-    const dest = sidecarRenameTarget(sourceAbsPath, finalDest, sidecar);
-    if (!dest) continue; // defensive — mirrors moveSidecarsAlongside
-    if (!(await tryCopySidecar(sidecar, dest))) continue;
-    createdPaths.push(dest);
-    copiedSidecars.push(dest);
-    movedSidecarSources.push(sidecar);
-  }
+  const sourceSidecars = carrySidecars ? await listPairedSidecars(sourceAbsPath) : [];
+  const { copiedSidecars, movedSidecarSources } = await copySidecarsAlongside(
+    sourceAbsPath,
+    finalDest,
+    sourceSidecars,
+    createdPaths,
+  );
 
   const companionPaths: string[] = [];
   const movedCompanionSources: string[] = [];
@@ -450,6 +473,7 @@ export async function relocateFile(req: RelocateRequest): Promise<RelocateOutcom
         req.collision,
         req.extraCompanionAbsPaths ?? [],
         createdPaths,
+        req.carrySidecars ?? true,
       );
 
     // 5. Identity repoint, between verify and delete.

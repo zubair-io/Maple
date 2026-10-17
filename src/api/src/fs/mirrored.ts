@@ -172,9 +172,18 @@ function targetsFor(p: string): MirrorTarget[] {
 // funnels failures to the sink, so a tracked promise always settles cleanly.
 
 const _pending = new Set<Promise<void>>();
+/** Last scheduled task per primary path, so tasks touching the same path run
+ * in issue order (#4694): a trash move's mirror rename must land before the
+ * replacement's rename of the same live path is replicated, or a slow mirror
+ * files the new bytes under the old name in Trash. Unrelated paths still fan
+ * out concurrently. */
+const _chains = new Map<string, Promise<void>>();
 
-function schedule(work: () => Promise<unknown>): void {
-  const p: Promise<void> = work()
+function schedule(work: () => Promise<unknown>, paths: readonly string[]): void {
+  const keys = paths.map((p) => path.resolve(p));
+  const prior = Promise.all(keys.map((k) => _chains.get(k) ?? Promise.resolve()));
+  const p: Promise<void> = prior
+    .then(work)
     .then(() => undefined)
     .catch((err) => {
       // Defensive — inner ops already catch + report, so this should never
@@ -183,7 +192,9 @@ function schedule(work: () => Promise<unknown>): void {
     })
     .finally(() => {
       _pending.delete(p);
+      for (const k of keys) if (_chains.get(k) === p) _chains.delete(k);
     });
+  for (const k of keys) _chains.set(k, p);
   _pending.add(p);
 }
 
@@ -318,7 +329,7 @@ export async function rename(oldPath: string, newPath: string): Promise<void> {
       // libraries with different mirrors — so remove the now-orphaned copy.
       ...src.filter((t) => !dstRoots.has(t.mirrorRoot)).map((t) => removeMirrorEntry(t)),
     ]);
-  });
+  }, [oldPath, newPath]);
 }
 
 /**
@@ -338,26 +349,29 @@ export async function rename(oldPath: string, newPath: string): Promise<void> {
  */
 export function replicatePath(absPath: string): void {
   const targets = targetsFor(absPath);
-  if (targets.length) schedule(() => Promise.all(targets.map((t) => replicateFile(t, absPath))));
+  if (targets.length)
+    schedule(() => Promise.all(targets.map((t) => replicateFile(t, absPath))), [absPath]);
 }
 
 export async function copyFile(src: string, dest: string, mode?: number): Promise<void> {
   await realFs.copyFile(src, dest, mode);
   const targets = targetsFor(dest);
-  if (targets.length) schedule(() => Promise.all(targets.map((t) => replicateFile(t, dest))));
+  if (targets.length)
+    schedule(() => Promise.all(targets.map((t) => replicateFile(t, dest))), [dest]);
 }
 
 export async function link(existingPath: string, newPath: string): Promise<void> {
   await realFs.link(existingPath, newPath);
   // A hardlink can't span devices/roots — replicate the bytes to the mirror.
   const targets = targetsFor(newPath);
-  if (targets.length) schedule(() => Promise.all(targets.map((t) => replicateFile(t, newPath))));
+  if (targets.length)
+    schedule(() => Promise.all(targets.map((t) => replicateFile(t, newPath))), [newPath]);
 }
 
 export async function unlink(p: string): Promise<void> {
   await realFs.unlink(p);
   const targets = targetsFor(p);
-  if (targets.length) schedule(() => Promise.all(targets.map((t) => removeMirror(t))));
+  if (targets.length) schedule(() => Promise.all(targets.map((t) => removeMirror(t))), [p]);
 }
 
 /** Permanent purge records mirror erasure durably and verifies its byte identity
@@ -372,20 +386,21 @@ export async function mkdir(
 ): Promise<string | undefined> {
   const result = await realFs.mkdir(p, options as never);
   const targets = targetsFor(p);
-  if (targets.length) schedule(() => Promise.all(targets.map((t) => mirrorMkdir(t, options, p))));
+  if (targets.length)
+    schedule(() => Promise.all(targets.map((t) => mirrorMkdir(t, options, p))), [p]);
   return result as string | undefined;
 }
 
 export async function rm(p: string, options?: Parameters<typeof realFs.rm>[1]): Promise<void> {
   await realFs.rm(p, options);
   const targets = targetsFor(p);
-  if (targets.length) schedule(() => Promise.all(targets.map((t) => mirrorRm(t, options, p))));
+  if (targets.length) schedule(() => Promise.all(targets.map((t) => mirrorRm(t, options, p))), [p]);
 }
 
 export async function rmdir(p: string): Promise<void> {
   await realFs.rmdir(p);
   const targets = targetsFor(p);
-  if (targets.length) schedule(() => Promise.all(targets.map((t) => mirrorRmdir(t, p))));
+  if (targets.length) schedule(() => Promise.all(targets.map((t) => mirrorRmdir(t, p))), [p]);
 }
 
 /** Best-effort mirror `utimes`; ENOENT (the mirror copy hasn't landed yet) is
@@ -415,7 +430,7 @@ export async function utimes(
   await realFs.utimes(p, atime, mtime);
   const targets = targetsFor(p);
   if (targets.length)
-    schedule(() => Promise.all(targets.map((t) => mirrorUtimes(t, atime, mtime, p))));
+    schedule(() => Promise.all(targets.map((t) => mirrorUtimes(t, atime, mtime, p))), [p]);
 }
 
 // ---------------------------------------------------------------------------
