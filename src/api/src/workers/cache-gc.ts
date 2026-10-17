@@ -280,10 +280,8 @@ async function reapStrandedSidecars(
 /** Delete a cache file judged dead, plus its legacy attachments, unless it was
  * written inside the recency window. */
 async function deleteUnlessRecent(ctx: SweepContext, fullPath: string): Promise<void> {
-  // TOCTOU defense: the known/live set was snapshotted before this walk
-  // began. A stage may have written this file in the meantime. If the
-  // file's mtime is within the recency window, defer to the next boot's
-  // sweep.
+  // TOCTOU defense: the live set was snapshotted before this walk began, so a
+  // file written inside the recency window waits for the next sweep.
   const stat = await fs.stat(fullPath).catch(() => null);
   if (stat && ctx.now - stat.mtimeMs < RECENT_THRESHOLD_MS) {
     ctx.counters.skippedRecent += 1;
@@ -291,18 +289,8 @@ async function deleteUnlessRecent(ctx: SweepContext, fullPath: string): Promise<
   }
   if (!(await unlinkSafe(ctx, fullPath))) return;
   ctx.counters.deleted += 1;
-  // LEGACY state cleanup: reap the `.meta` freshness sidecar alongside
-  // the artefact it describes, if one exists (see `SIDECAR_SUFFIX`'s
-  // doc comment — nothing writes these any more, but #2252 shipped and
-  // every install running since has one per thumbnail). It CANNOT be
-  // swept as an entry in its own right: `path.extname('<key>.avif.meta')`
-  // is `.meta`, leaving the stem `<key>.avif`, which matches no
-  // live-key shape — so a `.meta` in `allowedExts` would make
-  // `isOrphanThumb` condemn sidecars of perfectly live thumbs (jules
-  // review, PR #2252). Deliberately NOT counted in `deleted`: it was
-  // never `scanned`, and an attachment is not an independent orphan.
-  // `unlinkSafe` treats the ENOENT this hits for every preview (which
-  // never had a sidecar) as an uncounted no-op.
+  // LEGACY attachments (`SIDECAR_SUFFIX` doc, PR #2252): never scanned as
+  // entries, so never counted in `deleted`; ENOENT is an uncounted no-op.
   await unlinkSafe(ctx, `${fullPath}.meta`);
   await unlinkSafe(ctx, `${fullPath}.v`);
 }
@@ -367,6 +355,42 @@ async function migrateVersionedNames(
   return [...present];
 }
 
+interface HashedThumb {
+  name: string;
+  version: number;
+  avif: boolean;
+}
+
+/** Group a directory's retired hashed thumbs by their 16-hex key. */
+function hashedThumbGroups(names: readonly string[]): Map<string, HashedThumb[]> {
+  const groups = new Map<string, HashedThumb[]>();
+  for (const name of names) {
+    const match = HASHED_THUMB_RE.exec(name);
+    if (!match) continue;
+    const file = { name, version: Number(match[2] ?? 0), avif: match[3] === 'avif' };
+    groups.set(match[1], [...(groups.get(match[1]) ?? []), file]);
+  }
+  return groups;
+}
+
+/** Rename one key's newest hashed AVIF to `target` when `target` is missing,
+ * then delete every other file in the group. With no live `target` the whole
+ * group is stale. A file whose rename failed is kept. */
+async function migrateHashedGroup(
+  ctx: SweepContext,
+  cacheDir: string,
+  files: readonly HashedThumb[],
+  target: string | null,
+  present: Set<string>,
+): Promise<void> {
+  const newest = files.filter((file) => file.avif).toSorted((a, b) => b.version - a.version)[0];
+  const attempt = target !== null && newest !== undefined && !present.has(target);
+  if (attempt && (await renameQuiet(ctx, cacheDir, newest.name, target))) present.add(target);
+  const stale = files.filter((file) => file !== newest || !attempt);
+  ctx.counters.scanned += stale.length;
+  for (const file of stale) await deleteUnlessRecent(ctx, path.join(cacheDir, file.name));
+}
+
 /**
  * Migrate the retired hashed thumb names in one directory (module doc) and
  * return the file names left for the orphan check. Without a resolvable
@@ -381,24 +405,16 @@ async function migrateHashedThumbs(
 ): Promise<string[]> {
   if (ctx.libraryId === null) return [...names];
   const present = new Set(names.filter((name) => !HASHED_THUMB_RE.test(name)));
-  const groups = new Map<string, { name: string; version: number; avif: boolean }[]>();
-  for (const name of names) {
-    const match = HASHED_THUMB_RE.exec(name);
-    if (!match) continue;
-    const file = { name, version: Number(match[2] ?? 0), avif: match[3] === 'avif' };
-    groups.set(match[1], [...(groups.get(match[1]) ?? []), file]);
-  }
   const liveByHash = new Map([...liveNames].map((live) => [sha256Prefix16(live), live]));
-  for (const [hash, files] of groups) {
+  for (const [hash, files] of hashedThumbGroups(names)) {
     const live = liveByHash.get(hash);
-    const target = live === undefined ? null : `${live}.avif`;
-    const newest = files.filter((file) => file.avif).toSorted((a, b) => b.version - a.version)[0];
-    const attempt = target !== null && newest !== undefined && !present.has(target);
-    const adopted = attempt && (await renameQuiet(ctx, cacheDir, newest.name, target));
-    if (adopted) present.add(target);
-    const stale = files.filter((file) => file !== newest || !attempt);
-    ctx.counters.scanned += stale.length;
-    for (const file of stale) await deleteUnlessRecent(ctx, path.join(cacheDir, file.name));
+    await migrateHashedGroup(
+      ctx,
+      cacheDir,
+      files,
+      live === undefined ? null : `${live}.avif`,
+      present,
+    );
   }
   return [...present];
 }
