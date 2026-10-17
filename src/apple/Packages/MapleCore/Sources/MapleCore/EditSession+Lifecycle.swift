@@ -92,7 +92,7 @@ extension EditSession {
       }
       return
     }
-    sidecarDirtyWhileDisabled = false
+    sidecarDirtyWhileDisabled = sidecarDirtyWhileDisabled || sidecarUpdateTask != nil
     let store = workflow.selectedStore ?? primarySidecarStore
     while let task = sidecarUpdateTask {
       sidecarUpdateTask = nil
@@ -108,8 +108,12 @@ extension EditSession {
   /// disabled during an in-flight rename (#4711).
   public func adoptInFlightRenameEdits(from departing: EditSession) {
     departing.endEdit()
-    guard departing.sidecarDirtyWhileDisabled else { return }
+    guard departing.sidecarDirtyWhileDisabled || departing.sidecarUpdateTask != nil else {
+      return
+    }
     departing.sidecarDirtyWhileDisabled = false
+    departing.sidecarUpdateTask?.cancel()
+    departing.sidecarUpdateTask = nil
     isHydratingInitialState = true
     originalModel = departing.originalModel
     asShotCCT = departing.asShotCCT
