@@ -41,7 +41,9 @@ impl Namespaces {
         };
         let canonical = match uri.as_str() {
             "http://ns.adobe.com/camera-raw-settings/1.0/" => "crs",
-            "http://ns.justmaple.app/photo/1.0/" | "http://ns.justmaple.app/1.0/" => "papp",
+            "http://ns.justmaple.app/photo/1.0/"
+            | "http://ns.justmaple.app/1.0/"
+            | "https://maple.app/ns/1.0/" => "papp",
             "http://www.w3.org/1999/02/22-rdf-syntax-ns#" => "rdf",
             _ => return format!("unowned:{local}"),
         };
