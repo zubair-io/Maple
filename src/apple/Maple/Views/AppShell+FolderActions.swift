@@ -416,19 +416,17 @@ extension AppShell {
       // sidecar store via the CONNECTED `SMBSource` actor the
       // browse session already holds — `connectSMB` sets
       // `browseVM.currentSource` to the same instance that
-      // enumerated this asset (`images()` populated its
-      // `pathByMapleId` map), so `assetID` (the maple_id) resolves
-      // back to the real share-relative path without a second
-      // connect/re-walk. If the source has since been replaced
+      // enumerated this asset; the ref carries the listed share
+      // path, because byte-identical copies share a maple_id
+      // (#4705). If the source has since been replaced
       // (browsed to a different share/folder before this cell's
       // `.onAppear` fired) there is no live connection to use and
       // the edit stays session-local — same degrade-to-nil
       // contract `PhotoKit`'s `try?` above already accepts on its
       // own rare failure path.
-      guard let smb = browseVM.currentSource as? SMBSource else { return nil }
-      return SMBSidecarStore(
-        source: smb,
-        ref: ImageRef(id: assetID, displayName: asset.displayName))
+      guard let smb = browseVM.currentSource as? SMBSource, let ref = asset.smbMutationRef
+      else { return nil }
+      return SMBSidecarStore(source: smb, ref: ref)
     case nil:
       // No explicit provenance — only the Timeline sibling builder
       // and the PhotoKit/SMB construction sites set it. A search

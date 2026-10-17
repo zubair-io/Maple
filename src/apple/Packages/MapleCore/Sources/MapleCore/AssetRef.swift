@@ -172,6 +172,10 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
   /// row, and the reveal-containing-folder action. See `CatalogRef`.
   public let catalog: CatalogRef?
 
+  /// The listed share-relative SMB location. Content ids are shared by
+  /// byte-identical copies, so SMB mutations must name the file (#4705).
+  public let smbPath: String?
+
   /// The editor's selected sibling; RAW identity and byte providers stay shared (#4063).
   public internal(set) var selectedSidecarURL: URL? = nil
 
@@ -353,6 +357,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.explicitIsRaw = nil
     self.thumbnailProvenance = nil
     self.catalog = nil
+    self.smbPath = nil
   }
 
   /// Construct an `AssetRef` for a source without a filesystem URL
@@ -381,6 +386,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     thumbnailProvenance: ThumbnailProvenance? = nil,
     displayPreviewProvider: DisplayPreviewProvider? = nil,
     catalog: CatalogRef? = nil,
+    smbPath: String? = nil,
     originalFileWriter: OriginalFileWriter? = nil,
     bytesProvider: @escaping BytesProvider
   ) {
@@ -397,6 +403,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.explicitIsRaw = explicitIsRaw
     self.thumbnailProvenance = thumbnailProvenance
     self.catalog = catalog
+    self.smbPath = smbPath
   }
 
   public static func == (lhs: AssetRef, rhs: AssetRef) -> Bool {
