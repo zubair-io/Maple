@@ -12,6 +12,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import type { ImageDoc } from '../run-stage.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
+import { adoptLegacyDerivative } from '../../fs/legacy-derivative.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isUndecodableFilename } from '../../indexer/media-types.ts';
@@ -67,7 +68,7 @@ export async function loadThumbBytes(image: ImageDoc): Promise<ThumbLoad> {
   if (!thumbPath) {
     return { skip: 'no-resolvable-location' };
   }
-  if (!existsSync(thumbPath)) {
+  if (!existsSync(thumbPath) && !(await adoptLegacyDerivative(thumbPath))) {
     return { skip: `${THUMB_MISSING_REASON}: ${thumbPath}` };
   }
   return { bytes: new Uint8Array(await readFile(thumbPath)) };

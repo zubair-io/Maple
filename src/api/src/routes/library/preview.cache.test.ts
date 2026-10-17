@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
 import { mkdtemp, rm, writeFile, realpath, mkdir } from 'node:fs/promises';
@@ -123,12 +122,7 @@ describe('Unified preview — legacy reader regressions', () => {
     seedRouteAsset(live.db, { libraryId, path: '', filename: 'a.jpg' });
 
     const pathKeyed = Buffer.from([0xff, 0xd8, 0xaa, 0xbb, 0xff, 0xd9]);
-    const previewPath = join(
-      tmp,
-      '.maple',
-      'previews',
-      `a.jpg.v${PIPELINE_OUTPUT_VERSION}.${PREVIEW_CACHE_SUFFIX}`,
-    );
+    const previewPath = join(tmp, '.maple', 'previews', `a.jpg.${PREVIEW_CACHE_SUFFIX}`);
     await mkdir(dirname(previewPath), { recursive: true });
     await writeFile(previewPath, pathKeyed);
 

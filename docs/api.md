@@ -140,7 +140,7 @@ Originals are never modified. Everything Maple derives lands in a `.maple/` dire
 | Artefact  | Path                                                                                      | Keyed by                                                                                      |
 | --------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | Sidecar   | `<file>.xmp` for video (`clip.mov.xmp`), stem-swap for images (`IMG_1.ARW` → `IMG_1.xmp`) | Filename. Video keeps its extension so a Live Photo's still and clip don't clobber each other |
-| Thumbnail | `<dir>/.maple/thumbs/<sha256_prefix16(basename)>.avif`                                    | First 16 hex of sha256 of the _basename_, so the cache travels when the folder is copied      |
+| Thumbnail | `<dir>/.maple/thumbs/<basename>.avif`                                                     | The source filename, one unversioned file, so the cache travels when the folder is copied     |
 | Preview   | `<dir>/.maple/previews/<basename>.avif`                                                   | The source filename, one unversioned file overwritten in place. 1280 px long edge             |
 | Histogram | `<dir>/.maple/previews/<basename>.histogram.json`                                         | Same scheme, different suffix                                                                 |
 | Trash     | `<dir>/.maple/trash/<rel>`                                                                | Soft-deleted originals plus their sidecars                                                    |

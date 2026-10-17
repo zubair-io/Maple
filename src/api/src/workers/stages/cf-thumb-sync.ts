@@ -38,11 +38,11 @@
  * than hand-rolling its own retry loop the way the old JobRunner job did.
  */
 
-import { readFile } from 'node:fs/promises';
 import { THUMB_TARGET_VERSION } from '../derivative-versions.ts';
 import { assetPrimaryFileInfo, isEnoentError } from '../../indexer/images.repo.ts';
 import { loadLibraryIdToSlug, loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
+import { readDerivative } from '../../fs/legacy-derivative.ts';
 import {
   isCloudflareConfigComplete,
   loadCloudflareConfig,
@@ -105,7 +105,7 @@ const cfThumbSyncStage = defineStage({
 
     let bytes: Uint8Array;
     try {
-      bytes = await readFile(thumbPath);
+      bytes = await readDerivative(thumbPath);
     } catch (err) {
       // Video assets, and anything else `thumb.ts` marked done without ever
       // writing a file (e.g. its own no-resolvable-location skip) — there's

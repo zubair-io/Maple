@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-fields.generated.ts';
 /**
  * Regression tests for `sweepOrphanedCaches`' recognition of the pano
  * stitcher's pre-seed derivative scheme. Split out of `cache-gc.test.ts` to
@@ -74,19 +73,13 @@ async function agePast(p: string): Promise<void> {
 }
 
 describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
-  test('keeps a pano pre-seed thumb (sha256_prefix16-keyed) matching a live filename', async () => {
+  test('keeps a pano pre-seed thumb (<filename>.avif) matching a live filename', async () => {
     using live = await createLiveTestDatabase();
     const root = await mkTree();
     try {
       const libraryId = registerLibrary(live.db, root);
       insertLiveAsset(live.db, libraryId, '', 'panorama-test.png');
-      const preSeedKey = sha256Prefix16('panorama-test.png');
-      const preSeedThumb = path.join(
-        root,
-        '.maple',
-        'thumbs',
-        `${preSeedKey}.v${PIPELINE_OUTPUT_VERSION}.avif`,
-      );
+      const preSeedThumb = path.join(root, '.maple', 'thumbs', 'panorama-test.png.avif');
       await writeAvif(preSeedThumb);
       await agePast(preSeedThumb);
 
@@ -95,6 +88,32 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
 
       const s = await stat(preSeedThumb);
       expect(s.size).toBeGreaterThan(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('renames a legacy hashed pano pre-seed thumb to <filename>.avif (#4793)', async () => {
+    using live = await createLiveTestDatabase();
+    const root = await mkTree();
+    try {
+      const libraryId = registerLibrary(live.db, root);
+      insertLiveAsset(live.db, libraryId, '', 'panorama-test.png');
+      const hashed = path.join(
+        root,
+        '.maple',
+        'thumbs',
+        `${sha256Prefix16('panorama-test.png')}.avif`,
+      );
+      await writeAvif(hashed);
+      await agePast(hashed);
+
+      const result = await sweepOrphanedCaches(root);
+      expect(result.deleted).toBe(0);
+
+      await expect(stat(hashed)).rejects.toThrow();
+      const renamed = await stat(path.join(root, '.maple', 'thumbs', 'panorama-test.png.avif'));
+      expect(renamed.size).toBeGreaterThan(0);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -111,12 +130,7 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
       // PR #2008 round 2).
       registerLibrary(live.db, path.join(root, 'elsewhere'));
       const preSeedKey = sha256Prefix16('panorama-test.png');
-      const preSeedThumb = path.join(
-        root,
-        '.maple',
-        'thumbs',
-        `${preSeedKey}.v${PIPELINE_OUTPUT_VERSION}.avif`,
-      );
+      const preSeedThumb = path.join(root, '.maple', 'thumbs', `${preSeedKey}.avif`);
       await writeAvif(preSeedThumb);
       await agePast(preSeedThumb);
 
@@ -136,12 +150,7 @@ describe('sweepOrphanedCaches — pano pre-seed derivatives', () => {
     try {
       registerLibrary(live.db, root);
       const preSeedKey = sha256Prefix16('never-indexed.png');
-      const preSeedThumb = path.join(
-        root,
-        '.maple',
-        'thumbs',
-        `${preSeedKey}.v${PIPELINE_OUTPUT_VERSION}.avif`,
-      );
+      const preSeedThumb = path.join(root, '.maple', 'thumbs', `${preSeedKey}.avif`);
       await writeAvif(preSeedThumb);
       await agePast(preSeedThumb);
 

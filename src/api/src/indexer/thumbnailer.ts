@@ -4,7 +4,7 @@
  * For RAW files: develops with an authored XMP sidecar when present; otherwise
  * delegates to `maple_render_thumbnail_avif_to_file` via raw-ffi to extract
  * the embedded preview JPEG, downsample, and write an
- * AVIF directly to `<dir>/.maple/thumbs/<sha256_prefix16>.avif`. No buffer
+ * AVIF directly to `<dir>/.maple/thumbs/<filename>.avif`. No buffer
  * crosses the `bun:ffi` boundary (Bun 1.3.x's `toBuffer`-backed Buffers
  * double-free during JSC GC and segfault the process — the older
  * `renderToRgb` pathway hit this every time the indexer touched its first RAW).

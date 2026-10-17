@@ -11,7 +11,6 @@ import { ffiPool } from '../../ffi/ffi-pool.ts';
 import type { Stats } from 'node:fs';
 import { t, type Context } from 'elysia';
 import { resolveAddress, type ResolvedAddress } from '../../library/address.ts';
-import { PIPELINE_OUTPUT_VERSION } from '../../generated/adjustment-fields.generated.ts';
 import {
   RAW_EXTENSIONS,
   BITMAP_EXTENSIONS,
@@ -178,7 +177,6 @@ export async function serveCachedBytesOr404(
     status: 200,
     headers: {
       'Content-Type': contentType,
-      'X-Maple-Pipeline-Version': String(PIPELINE_OUTPUT_VERSION),
       ETag: etag,
       'Cache-Control': cacheControl,
     },

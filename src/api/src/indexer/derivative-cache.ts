@@ -1,6 +1,7 @@
 import { dirname } from 'node:path';
 import { lstat, stat } from '../fs/mirrored.ts';
 import { xmpSidecarPath } from '../fs/xmp.ts';
+import { adoptLegacyDerivative } from '../fs/legacy-derivative.ts';
 
 export async function assertDerivativeCacheDirectory(cachePath: string): Promise<void> {
   const tier = dirname(cachePath);
@@ -18,7 +19,9 @@ export async function isDerivativeCacheFresh(
   cachePath: string,
   sourcePath: string,
 ): Promise<boolean> {
-  const cached = await lstat(cachePath).catch(() => null);
+  const cached =
+    (await lstat(cachePath).catch(() => null)) ??
+    ((await adoptLegacyDerivative(cachePath)) ? await lstat(cachePath).catch(() => null) : null);
   if (!cached?.isFile() || cached.size === 0) return false;
   const [source, sidecar] = await Promise.all([
     stat(sourcePath).catch((error: NodeJS.ErrnoException) => {

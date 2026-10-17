@@ -1,4 +1,3 @@
-import { PIPELINE_OUTPUT_VERSION } from '../src/generated/adjustment-fields.generated.ts';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { mkdtemp, rm, realpath, writeFile } from 'node:fs/promises';
@@ -29,7 +28,6 @@ const put = (path: string, body: BodyInit | Buffer) =>
     new Request(`http://localhost/api/preview?path=${encodeURIComponent(path)}`, {
       method: 'PUT',
       headers: {
-        'x-maple-pipeline-version': String(PIPELINE_OUTPUT_VERSION),
         'content-type': 'image/avif',
       },
       body: Buffer.isBuffer(body) ? new Uint8Array(body) : body,
@@ -121,8 +119,6 @@ describe('Client preview PUT → unified preview GET with real SQLite addressing
     expect(res.status).toBe(200);
     const served = Buffer.from(await res.arrayBuffer());
     expect(served.equals(uploaded)).toBe(true);
-    expect(expectedPath).toBe(
-      join(tmp, '.maple', 'previews', `a.nef.v${PIPELINE_OUTPUT_VERSION}.avif`),
-    );
+    expect(expectedPath).toBe(join(tmp, '.maple', 'previews', `a.nef.avif`));
   });
 });
