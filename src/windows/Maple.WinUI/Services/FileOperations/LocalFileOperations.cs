@@ -87,62 +87,74 @@ namespace Maple.WinUI.Services.FileOperations
             }
 
             Directory.CreateDirectory(destinationDir);
-            var (resolvedTargetPath, renamed) = await ResolveCollisionAsync(targetPath, collision).ConfigureAwait(false);
+            var sourceSidecarPath = SidecarStore.SidecarPathFor(sourcePrimaryPath);
+            var (resolvedTargetPath, renamed) = await ResolveCollisionAsync(targetPath, collision, sourceSidecarPath)
+                .ConfigureAwait(false);
+
+            // Every sidecar decision is made before any byte moves (#4758,
+            // docs/xmp-canonical-format.md § "Moving, renaming and trashing a
+            // photo"): a refusal must leave nothing on disk to roll back.
+            var sidecarTargetPath = SidecarStore.SidecarPathFor(resolvedTargetPath);
+            var hasSourceSidecar = File.Exists(sourceSidecarPath);
+            var sidecarMapsOntoItself = SameSidecarPath(sourceSidecarPath, sidecarTargetPath);
+            var destinationSidecarOwned = SidecarStemClaimedBySibling(resolvedTargetPath, sourcePrimaryPath);
+            var destinationSidecarOccupied = !sidecarMapsOntoItself && PathOccupied(sidecarTargetPath);
+            var joinsCarriedSidecar = hasSourceSidecar && destinationSidecarOccupied
+                && SidecarAlreadyCarried(sourceSidecarPath, sidecarTargetPath);
+            var replacesDestinationSidecar = destinationSidecarOccupied && !joinsCarriedSidecar;
+            if (hasSourceSidecar && replacesDestinationSidecar
+                && (collision != CollisionPolicy.Replace || destinationSidecarOwned))
+                throw new FileOperationException(FileOperationErrorKind.DestinationExists,
+                    $"destination sidecar belongs to another photo: {sidecarTargetPath}");
+            var sourceSidecarStays = sidecarMapsOntoItself
+                || (hasSourceSidecar && SidecarStemClaimedBySibling(sourcePrimaryPath, resolvedTargetPath));
 
             var createdPaths = new List<string>();
             CopyVerified(sourcePrimaryPath, resolvedTargetPath);
             createdPaths.Add(resolvedTargetPath);
 
-            var sourceSidecarPath = SidecarStore.SidecarPathFor(sourcePrimaryPath);
             string? usedSourceSidecarPath = null;
             string? finalSidecarPath = null;
-            if (File.Exists(sourceSidecarPath))
+            if (hasSourceSidecar)
             {
                 usedSourceSidecarPath = sourceSidecarPath;
-                var sidecarTargetPath = SidecarStore.SidecarPathFor(resolvedTargetPath);
-                try
+                if (!sidecarMapsOntoItself && !joinsCarriedSidecar)
                 {
-                    // No pre-delete of any occupant at `sidecarTargetPath` —
-                    // same "delete-then-hope" hazard `ResolveCollisionAsync`
-                    // documents avoiding for the primary. `CopyVerified`
-                    // publishes via a verified temp-then-atomic-`File.Move`
-                    // (`overwrite: true`), which replaces whatever's there
-                    // (a stale orphan sidecar, or the destination's old
-                    // sidecar under `.Replace`) in one step, only after the
-                    // new sidecar is fully copied and verified.
-                    CopyVerified(sourceSidecarPath, sidecarTargetPath);
+                    try
+                    {
+                        // Overwrites only an occupant Replace was cleared to
+                        // remove above; anything else at this name fails the
+                        // publish instead of being clobbered.
+                        CopyVerified(sourceSidecarPath, sidecarTargetPath, overwrite: replacesDestinationSidecar);
+                    }
+                    catch
+                    {
+                        // A plan either fully succeeds or leaves NO trace — roll
+                        // back the primary copy so a caller that sees this throw
+                        // never has to guess what's on disk.
+                        TryDelete(resolvedTargetPath);
+                        throw;
+                    }
+                    createdPaths.Add(sidecarTargetPath);
                 }
-                catch
-                {
-                    // A plan either fully succeeds or leaves NO trace — roll
-                    // back the primary copy so a caller that sees this throw
-                    // never has to guess what's on disk.
-                    TryDelete(resolvedTargetPath);
-                    throw;
-                }
-                createdPaths.Add(sidecarTargetPath);
                 finalSidecarPath = sidecarTargetPath;
             }
-            else if (collision == CollisionPolicy.Replace)
+            else if (collision == CollisionPolicy.Replace && !destinationSidecarOwned)
             {
                 // The incoming asset has no sidecar of its own, but `.Replace`
                 // means "the destination now reflects EXACTLY the incoming
                 // asset" — the PREVIOUS occupant's sidecar must not survive and
-                // get misattributed to this one, silently handing the new photo
-                // the old photo's edits. Found by the #2633 parity harness on
-                // its first Windows run; the TS and Swift twins already do this
-                // (see `relocate.ts`'s matching comment).
-                //
-                // Safe here, unlike a pre-copy delete: this only runs AFTER the
-                // primary above was verified and published, so a copy failure
-                // can never reach this point. Best-effort, like every other
-                // sidecar cleanup path.
-                TryDelete(SidecarStore.SidecarPathFor(resolvedTargetPath));
+                // get misattributed to this one (#2633 parity harness; the TS
+                // and Swift twins do the same). A sidecar another same-stem
+                // photo there still uses is not stale (#4758). Runs only AFTER
+                // the primary was verified and published. Best-effort.
+                TryDelete(sidecarTargetPath);
             }
 
             return new RelocatePlan(
                 mode, sourcePrimaryPath, usedSourceSidecarPath,
-                resolvedTargetPath, finalSidecarPath, renamed, createdPaths);
+                resolvedTargetPath, finalSidecarPath, renamed, createdPaths,
+                SourceSidecarStays: sourceSidecarStays);
         }
 
         /// <summary>
@@ -178,7 +190,7 @@ namespace Maple.WinUI.Services.FileOperations
             if (plan.IsNoop) return outcome;
 
             TryDeleteLogged(plan.SourcePrimaryPath, "primary");
-            if (plan.SourceSidecarPath != null)
+            if (plan.SourceSidecarPath != null && !plan.SourceSidecarStays)
                 TryDeleteLogged(plan.SourceSidecarPath, "sidecar");
 
             return outcome;
