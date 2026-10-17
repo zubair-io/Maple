@@ -31,7 +31,7 @@ export class Http2ApnsTransport implements ApnsTransport {
     session.on('goaway', drop);
     session.on('close', drop);
     session.on('error', drop);
-    const connectTimer = setTimeout(() => session.destroy(), CONNECT_TIMEOUT_MS);
+    const connectTimer = setTimeout(() => session.destroy(), CONNECT_TIMEOUT_MS).unref();
     session.once('connect', () => clearTimeout(connectTimer));
     session.once('close', () => clearTimeout(connectTimer));
     session.unref();
