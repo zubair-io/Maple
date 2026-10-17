@@ -101,21 +101,29 @@ final class AppShellVMTests: XCTestCase {
   /// it was session-local — gone on the next selection change. The
   /// helper must hand the caller's store to the session it creates, and
   /// an edit must reach that store.
-  func testEnsureSessionRoutesEditsOnANewSessionThroughTheRemoteStore() async {
+  func testEnsureSessionRoutesEditsOnANewSessionThroughTheRemoteStore() async throws {
+    // A real XMP store on a temp path stands in for the remote store: the
+    // sidecar is the contract, so the proof is the `.xmp` on disk, not a
+    // fake's bookkeeping.
+    let dir = FileManager.default.temporaryDirectory
+      .appendingPathComponent("AppShellVMTests-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+    let rawURL = dir.appendingPathComponent("b.dng")
     let asset = cloudRef(path: "/lib/b.dng")
-    let store = RecordingSidecarStore()
     var sessions: [AssetRef.ID: EditSession] = [:]
 
-    let result = AppShellVM.ensureSession(for: asset, in: &sessions, remoteStore: { store })
+    let result = AppShellVM.ensureSession(
+      for: asset, in: &sessions, remoteStore: { XMPSidecarStore(rawURL: rawURL) })
     var edited = result.session.model
     edited.exposure = 1.5
     result.session.model = edited
     for _ in 0..<5 { await Task.yield() }
     await result.session.flushPendingSidecarWrite()
 
-    let written = await store.lastModel
+    let (persisted, _) = try await XMPSidecarStore(rawURL: rawURL).load()
     XCTAssertEqual(
-      written?.exposure, 1.5,
+      persisted.exposure, 1.5,
       "an edit on a sourced sibling must round-trip through its remote sidecar store")
   }
 
@@ -165,18 +173,4 @@ final class AppShellVMTests: XCTestCase {
 
     XCTAssertEqual(spliced.map(\.id), [tapped.id])
   }
-}
-
-/// In-memory `SidecarStoreProtocol` that remembers the last model handed
-/// to it — a round-trip witness for #4712, not a mock of the sidecar
-/// layer (there is no XMP involved in choosing WHICH store a session gets).
-private actor RecordingSidecarStore: SidecarStoreProtocol {
-  private(set) var lastModel: AdjustmentModel?
-
-  func load() async throws -> (AdjustmentModel, CullingState) { (.default, CullingState()) }
-  func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? { nil }
-  func update(model: AdjustmentModel, culling: CullingState) { lastModel = model }
-  func flush() {}
-  func writeConfirmed(model: AdjustmentModel, culling: CullingState) { lastModel = model }
-  func errors() -> AsyncStream<Error> { AsyncStream { _ in } }
 }
