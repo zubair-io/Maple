@@ -372,9 +372,9 @@ public final class EditSession {
   @ObservationIgnored let primarySidecarStore: (any SidecarStoreProtocol)?
   /// Tail of the existing sidecar forwarding tasks, joined by an exit flush.
   @ObservationIgnored var sidecarUpdateTask: Task<Void, Never>?
-  /// Flips on when this session's asset is being renamed (#4711), blocking
-  /// further sidecar/preview writes to the pre-rename path.
+  /// Blocks sidecar/preview writes during asset rename and tracks in-flight edits (#4711).
   @ObservationIgnored var sidecarWritesDisabled = false
+  @ObservationIgnored var sidecarDirtyWhileDisabled = false
   /// Owns pending preview/debounce/write lifetime; session guards remain here.
   @ObservationIgnored let previewPersistence: DisplayPreviewPersistence
   @ObservationIgnored var sidecarErrorTask: Task<Void, Never>?

@@ -197,10 +197,15 @@ extension AppShell {
       browseVM.selectedIDs.remove(oldID)
       browseVM.selectedIDs.insert(newAsset.id)
     }
-    if let departing = sessions.removeValue(forKey: oldID) {
+    let departing = sessions.removeValue(forKey: oldID)
+    let newSession = browseSession(for: newAsset)
+    if let departing {
+      newSession.adoptInFlightRenameEdits(from: departing)
       Task { await departing.setSidecarWritesEnabled(false) }
     }
-    ensureSession(for: newAsset)
+    if !newSession.hasLoadedSidecar {
+      Task { await newSession.loadSidecar() }
+    }
     if wasSelected {
       browseVM.selectedID = newAsset.id
     }

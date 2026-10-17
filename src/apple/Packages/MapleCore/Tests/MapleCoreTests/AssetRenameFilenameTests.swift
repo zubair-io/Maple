@@ -148,6 +148,11 @@ final class AssetRenameFilenameTests: XCTestCase {
 
     await session.flushPendingSidecarWrite()
     await session.setSidecarWritesEnabled(false)
+    // Simulate a gesture completed while the rename I/O is in flight; when the
+    // rename fails and writes are re-enabled, this edit must still be persisted.
+    session.beginEdit(kind: .adjustment, description: "Exposure")
+    session.model.exposure = 0.75
+    session.endEdit()
     do {
       _ = try await LocalFileOperations.relocate(
         oldURL, to: tempDir, newBasename: "IMG_0002.dng", mode: .move, collision: .fail)
@@ -156,9 +161,49 @@ final class AssetRenameFilenameTests: XCTestCase {
       await session.setSidecarWritesEnabled(true)
     }
 
-    session.model.exposure = 0.75
     await session.flushPendingSidecarWrite()
     let (persistedModel, _) = try XMPParser.parse(data: Data(contentsOf: oldSidecarURL))
     XCTAssertEqual(persistedModel.exposure, 0.75, accuracy: 0.001)
+  }
+
+  @MainActor
+  func testRenameOpenSession_adoptsInFlightEditsMadeDuringRename() async throws {
+    let fm = FileManager.default
+    let tempDir = fm.temporaryDirectory.appendingPathComponent(
+      "rename-session-inflight-\(UUID().uuidString)", isDirectory: true)
+    try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: tempDir) }
+
+    let oldURL = tempDir.appendingPathComponent("IMG_0001.dng")
+    try Data("raw-bytes".utf8).write(to: oldURL)
+    let oldSidecarURL = SidecarPath.sidecarURL(for: oldURL)
+
+    let oldSession = EditSession(asset: AssetRef(url: oldURL))
+    await oldSession.loadSidecar()
+    oldSession.model.exposure = 0.5
+    await oldSession.flushPendingSidecarWrite()
+    await oldSession.setSidecarWritesEnabled(false)
+
+    // While relocate is in flight, the user makes another edit in the open editor.
+    oldSession.beginEdit(kind: .adjustment, description: "Shadows")
+    oldSession.model.shadows = 32
+    oldSession.culling.stars = 5
+    oldSession.endEdit()
+
+    let outcome = try await LocalFileOperations.relocate(
+      oldURL, to: tempDir, newBasename: "IMG_0002.dng", mode: .move, collision: .fail)
+    let newURL = URL(fileURLWithPath: outcome.primaryPath)
+    let newSidecarURL = SidecarPath.sidecarURL(for: newURL)
+
+    let newSession = EditSession(asset: AssetRef(url: newURL))
+    newSession.adoptInFlightRenameEdits(from: oldSession)
+    await newSession.flushPendingSidecarWrite()
+
+    XCTAssertFalse(fm.fileExists(atPath: oldSidecarURL.path))
+    let (persistedModel, persistedCulling) = try XMPParser.parse(
+      data: Data(contentsOf: newSidecarURL))
+    XCTAssertEqual(persistedModel.exposure, 0.5, accuracy: 0.001)
+    XCTAssertEqual(persistedModel.shadows, 32, accuracy: 0.001)
+    XCTAssertEqual(persistedCulling.stars, 5)
   }
 }
