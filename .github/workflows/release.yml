@@ -208,6 +208,9 @@ jobs:
     needs: [windows-app]
     runs-on: ubuntu-latest
     timeout-minutes: 210
+    permissions:
+      contents: write
+      actions: read
     env:
       GH_TOKEN: ${{ github.token }}
       REPOSITORY: ${{ github.repository }}
@@ -243,7 +246,11 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          EXPECTED_ASSETS=("Maple-macOS-$VERSION.dmg" "Maple-Android-$VERSION.apk" "Maple-Android-$VERSION.aab" "Maple-Android-SHA256SUMS.txt" "Maple-Android-upload-certificate.pem")
+          EXPECTED_ASSETS=("Maple-macOS-$VERSION.dmg")
+          # Android's canonical product version and distribution are stable-only.
+          if [[ "$VERSION" != *-* ]]; then
+            EXPECTED_ASSETS+=("Maple-Android-$VERSION.apk" "Maple-Android-$VERSION.aab" "Maple-Android-SHA256SUMS.txt" "Maple-Android-upload-certificate.pem")
+          fi
           DEADLINE=$((SECONDS + 10800))
 
           while (( SECONDS < DEADLINE )); do
@@ -255,6 +262,16 @@ jobs:
             if (( ${#MISSING[@]} == 0 )); then
               echo 'All signed platform assets are present.'
               exit 0
+            fi
+            if [[ "$VERSION" != *-* ]]; then
+              CONCLUSION=$(gh run list --repo "$REPOSITORY" \
+                --workflow android-distribution.yml --commit "$GITHUB_SHA" \
+                --branch "$GITHUB_REF_NAME" --event push --limit 1 \
+                --json conclusion --jq '.[0].conclusion // ""')
+              case "$CONCLUSION" in
+                ""|success) ;;
+                *) echo "::error::Android distribution ended with $CONCLUSION. The release remains a draft."; exit 1 ;;
+              esac
             fi
             echo "Waiting for signed assets: ${MISSING[*]}"
             sleep 30

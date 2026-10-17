@@ -66,7 +66,10 @@ job. Existing Play reviews are never automatically cancelled.
 
 Tags `v<product-version>` build signed APK/AAB files and attach them, their
 SHA-256 checksums and the public upload certificate to the coordinated GitHub
-release. The release coordinator waits for Android alongside Mac and Windows.
+release. The release coordinator waits for Android alongside Mac and Windows and fails
+promptly if the tag's Android distribution run fails or is cancelled.
+Prerelease tags (for example `v1.2.3-rc.1`) skip Android signing and assets;
+the coordinator requires only Mac and Windows for those releases.
 Tags do not promote a public Play production release. Manual dispatch on `main` creates
 verified signed artifacts only, including the first bundle needed to create
 the initial Play release in Console.
