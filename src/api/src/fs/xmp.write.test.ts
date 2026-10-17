@@ -17,6 +17,7 @@ import {
   writeXmpWithPrecondition,
 } from './xmp.ts';
 import { readConflictSidecar } from './xmp-conflict.ts';
+import { readSidecarNoFollow } from './sidecar-io.ts';
 
 let oldRoots: string | undefined;
 let root: string;
@@ -114,6 +115,17 @@ test('read refuses a sidecar symlinked outside the registered roots', async () =
   } finally {
     await rm(outside, { recursive: true, force: true });
   }
+});
+
+test('the sidecar reader refuses to follow a symlink in the final component', async () => {
+  const real = join(root, 'nofollow-real.xmp');
+  await writeFile(real, '<x:xmpmeta />');
+  await symlink(real, join(root, 'nofollow-link.xmp'));
+
+  expect(await readSidecarNoFollow(real)).toBe('<x:xmpmeta />');
+  await expect(readSidecarNoFollow(join(root, 'nofollow-link.xmp'))).rejects.toMatchObject({
+    code: 'ELOOP',
+  });
 });
 
 test('read opens the path that passed authorization, not the symlink it was asked for', async () => {

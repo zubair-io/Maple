@@ -291,9 +291,12 @@ async function readMirrorFile(t: MirrorTarget): Promise<string | null> {
  * primary's original error when no replica can serve it, so callers keep their
  * existing error messages.
  */
-export async function readFileWithFailover(absPath: string): Promise<string> {
+export async function readFileWithFailover(
+  absPath: string,
+  readPrimary: (absPath: string) => Promise<string> = (p) => readFile(p, 'utf-8'),
+): Promise<string> {
   try {
-    return await readFile(absPath, 'utf-8');
+    return await readPrimary(absPath);
   } catch (err) {
     const targets = readableTargets(absPath);
     if (targets.length === 0) throw err;

@@ -19,7 +19,12 @@ import * as path from 'node:path';
 // configured backup root(s). Same `fs/promises` surface — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
 import { readFileWithFailover } from './mirror-read.ts';
-import { authorizeSidecarRead, deleteSidecar, writeSidecarAtomic } from './sidecar-io.ts';
+import {
+  authorizeSidecarRead,
+  deleteSidecar,
+  readSidecarNoFollow,
+  writeSidecarAtomic,
+} from './sidecar-io.ts';
 import { waitForAbortable } from './sidecar-write-order.ts';
 import type { OpResult } from './root.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
@@ -149,7 +154,7 @@ export async function readConflictSidecar(
   const allowed = await authorizeSidecarRead(sidecar);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
   try {
-    const content = await readFileWithFailover(allowed.data ?? sidecar);
+    const content = await readFileWithFailover(allowed.data ?? sidecar, readSidecarNoFollow);
     return { ok: true, data: content };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

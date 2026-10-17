@@ -18,6 +18,7 @@ import {
   writeSidecarAtomic,
   writeSidecarCreateOnly,
   isMissingSidecar,
+  readSidecarNoFollow,
 } from './sidecar-io.ts';
 // Conflict-copy sidecars (`<base> (conflict from <device>).xmp`) live in their
 // own module; the precondition write below is their only producer here.
@@ -77,7 +78,7 @@ export async function readXmp(rawAbsPath: string): Promise<OpResult<string>> {
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
   // Open the resolved path that passed the check, so a symlink swapped in
   // between check and read cannot redirect the open (#4749).
-  return readFileWithFailover(allowed.data ?? sidecar).then(
+  return readFileWithFailover(allowed.data ?? sidecar, readSidecarNoFollow).then(
     (content) => ({ ok: true, data: content }),
     (error: unknown) => ({
       ok: false,
@@ -95,7 +96,7 @@ export async function preparePrimarySidecarWrite(
   const allowed = await authorizeUnlessAborted(sidecar, signal);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Sidecar path not allowed' };
   try {
-    const existing = await waitForAbortable(fs.readFile(sidecar, 'utf8'), signal).catch(
+    const existing = await waitForAbortable(readSidecarNoFollow(sidecar), signal).catch(
       (error: unknown) => {
         if (isMissingSidecar(error)) return null;
         throw error;
@@ -181,7 +182,10 @@ export async function updateXmpAtomic(
     return await serializeSidecarWrite(
       xmpSidecarPath(rawAbsPath),
       async (destination) => {
-        const existing = await waitForAbortable(readFileWithFailover(destination), signal).then(
+        const existing = await waitForAbortable(
+          readFileWithFailover(destination, readSidecarNoFollow),
+          signal,
+        ).then(
           (xml): OpResult<string> => ({ ok: true, data: xml }),
           (error: unknown): OpResult<string> =>
             isMissingSidecar(error)
