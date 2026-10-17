@@ -507,7 +507,7 @@ export class ImageCanvasComponent
         // the model. HSL / tone / split-tone / sharpen / NR / profile edits it
         // can't carry leave `params` undefined, so `gpuPresent.render` routes
         // through the full render(xmp) path instead of silently dropping them.
-        if (canUseLiveFastPath(model)) params = buildLiveParams(model);
+        if (canUseLiveFastPath(model, this.gpuPresent.prefixModel)) params = buildLiveParams(model);
       }
       // The helper presents to the OffscreenCanvas + stale-guards on `generation`,
       // returning whether to record the result (see its `render()` doc).

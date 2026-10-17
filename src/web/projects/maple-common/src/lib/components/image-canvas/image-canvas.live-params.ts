@@ -108,11 +108,7 @@ function canUseScalarWhiteBalance(model: AdjustmentModel): boolean {
  * slider added to the schema is covered automatically — it routes to the full path
  * rather than being silently dropped, so this class of bug can't recur.
  */
-export function canUseLiveFastPath(model: AdjustmentModel): boolean {
-  if (!canUseScalarWhiteBalance(model)) return false;
-  // The two prefix-zeroed chain sliders whose defaults are non-zero — the fast path
-  // renders them at 0 regardless, so it's only faithful when the model wants 0.
-  if (model.sharpenAmount !== 0 || model.nrColor !== 0) return false;
+function hasDefaultNonScalarFields(model: AdjustmentModel): boolean {
   // `crop` is a nested object — compare structurally; a non-identity crop can't ride
   // the fast path.
   if (!isIdentityCrop(model.crop)) return false;
@@ -121,13 +117,9 @@ export function canUseLiveFastPath(model: AdjustmentModel): boolean {
   // path, where raw-core parses the masks straight from the sidecar text.
   if (model.localAdjustments.length !== 0) return false;
   // Repair spots (#3409) are baked into the DECODE product, so the resident
-  // session's already-developed base carries them — but the params path
-  // reuses the session's STORED prefix without re-comparing it, so a spot
-  // the user just placed would not appear until some other tick re-parsed
-  // the sidecar. A non-empty list therefore routes to the full
-  // `render(xmp)` path, where the prefix comparison re-develops when (and
-  // only when) the spot list actually moved. Same rule, same reason, as the
-  // local-adjustment stack above.
+  // session's already-developed base carries them — a non-empty list routes
+  // to the full `render(xmp)` path so the prefix comparison re-develops when
+  // the spot list moves.
   if (model.retouchSpots.length !== 0) return false;
   // Point curves (#366) are nested too. An identity (empty) curve is not an edit;
   // an authored one is a prefix field the fast path would freeze, so it routes to
@@ -139,6 +131,27 @@ export function canUseLiveFastPath(model: AdjustmentModel): boolean {
   // Every other non-scalar field must equal its default.
   for (const k of NON_FAST_PATH_KEYS) {
     if (model[k] !== DEFAULT_MODEL[k]) return false;
+  }
+  return true;
+}
+
+export function canUseLiveFastPath(
+  model: AdjustmentModel,
+  prefixModel?: AdjustmentModel | null,
+): boolean {
+  if (!canUseScalarWhiteBalance(model)) return false;
+  // The two prefix-zeroed chain sliders whose defaults are non-zero — the fast path
+  // renders them at 0 regardless, so it's only faithful when the model wants 0.
+  if (model.sharpenAmount !== 0 || model.nrColor !== 0) return false;
+  if (!hasDefaultNonScalarFields(model)) return false;
+  // #4736: when the caller supplies the session's uploaded prefix model, a prefix
+  // field reverted to default must still route through `render(xmp)` until the
+  // session re-develops back to the default prefix.
+  if (
+    prefixModel !== undefined &&
+    (prefixModel === null || !hasDefaultNonScalarFields(prefixModel))
+  ) {
+    return false;
   }
   return true;
 }

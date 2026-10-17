@@ -46,6 +46,7 @@ import type {
   GpuFallbackReason,
 } from '../gpu-fallback-notice/gpu-fallback-notice.service';
 import { coldOpen2d, decodeSupportFrom, type Render2dHost } from './image-canvas.render2d';
+import { canUseLiveFastPath } from './image-canvas.live-params';
 
 /**
  * The slice of `ImageCanvasComponent` the GPU present path reaches back into. Defined
@@ -125,6 +126,7 @@ export class ImageCanvasGpuPresent {
   // Establish a compatible prefix through full XMP before using the fast path.
   private scalarPrefixRevision: number | undefined;
   private scalarPrefixAsset: AssetId | null = null;
+  prefixModel: AdjustmentModel | null = null;
 
   /**
    * Set to `true` once a black-present is detected for this session (#1572). When
@@ -194,6 +196,7 @@ export class ImageCanvasGpuPresent {
    */
   async open(assetId: AssetId, bytes: Uint8Array, ext: string): Promise<boolean> {
     this.scalarPrefixRevision = undefined;
+    this.prefixModel = null;
     if (!this.canOpen()) return false;
 
     // Run the one-time GPU presentation check before opening the session.
@@ -296,6 +299,7 @@ export class ImageCanvasGpuPresent {
   ): void {
     this.colorSpace.set(info.colorSpace);
     this.active.set(true);
+    this.prefixModel = openModel;
     // A GPU session is up — drop any fallback notice from an earlier failed
     // asset/session so the UI doesn't keep reporting a degraded path that's
     // no longer true.
@@ -359,9 +363,12 @@ export class ImageCanvasGpuPresent {
       fitRevision === this.scalarPrefixRevision
         ? params
         : undefined;
-    // Clear before dispatch: a rapid Neutral -> Auto flip must send full XMP
-    // even while the Neutral request is still queued in the worker (#2441).
-    if (!fastParams) this.scalarPrefixRevision = undefined;
+    // Clear before dispatch: a rapid Neutral -> Auto flip (or prefix revert, #4736)
+    // must send full XMP even while the earlier request is still queued (#2441).
+    if (!fastParams) {
+      this.scalarPrefixRevision = undefined;
+      this.prefixModel = null;
+    }
     try {
       const rendered = await this.host.pipeline.renderLiveSession(xmp, fastParams);
       // Stale guard (same intent as the 2D path's generation check): a newer edit
@@ -396,9 +403,11 @@ export class ImageCanvasGpuPresent {
         rendered.autoFit,
         fitRevision,
       );
+    const currentModel = fitAsset ? state.adjustmentFor(fitAsset)() : null;
+    if (!fastParams) this.prefixModel = currentModel;
     this.scalarPrefixAsset = fitAsset;
     this.scalarPrefixRevision =
-      params !== undefined &&
+      (params !== undefined || (currentModel !== null && canUseLiveFastPath(currentModel))) &&
       fitAsset !== null &&
       fitRevision === state.autoFitRevisionFor(fitAsset)
         ? fitRevision
@@ -422,6 +431,7 @@ export class ImageCanvasGpuPresent {
   /** Tear down the GPU live session + remove its canvas element. Idempotent. */
   teardown(): void {
     this.scalarPrefixRevision = undefined;
+    this.prefixModel = null;
     if (this.active() || this.canvasEl) {
       this.host.pipeline.closeLiveSession();
     }
