@@ -62,9 +62,15 @@ pub fn write_derived(out: &Path, inputs: &[&Path], bytes: &[u8]) -> io::Result<(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    let mut staging = tempfile::Builder::new()
-        .prefix(".maple-export-")
-        .tempfile_in(parent)?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".maple-export-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // Match ordinary output creation; the kernel applies the process umask.
+        builder.permissions(std::fs::Permissions::from_mode(0o666));
+    }
+    let mut staging = builder.tempfile_in(parent)?;
     staging.write_all(bytes)?;
     staging.as_file().sync_all()?;
     validate_destination(out, inputs)?;

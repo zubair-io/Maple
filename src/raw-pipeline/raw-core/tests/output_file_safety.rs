@@ -84,3 +84,37 @@ fn failed_publication_cleans_up_owned_staging_file() {
     assert!(write_derived(&out, &[], b"pixels").is_err());
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
 }
+
+#[cfg(unix)]
+#[test]
+fn output_permissions_follow_process_umask() {
+    use std::os::unix::fs::PermissionsExt;
+    const CHILD: &str = "MAPLE_TEST_OUTPUT_PERMISSIONS_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        let dir = tempfile::tempdir().unwrap();
+        let ordinary = dir.path().join("ordinary.png");
+        let derived = dir.path().join("derived.png");
+        fs::write(&ordinary, b"pixels").unwrap();
+        write_derived(&derived, &[], b"pixels").unwrap();
+        assert_eq!(
+            derived.metadata().unwrap().permissions().mode() & 0o777,
+            ordinary.metadata().unwrap().permissions().mode() & 0o777
+        );
+        return;
+    }
+    // Set umask before starting each test process, never in this threaded runner.
+    for mask in ["022", "002", "077"] {
+        let result = std::process::Command::new("sh")
+            .args(["-c", &format!("umask {mask}; exec \"$1\" --exact output_permissions_follow_process_umask --nocapture"), "sh"])
+            .arg(std::env::current_exe().unwrap())
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "umask {mask}: {}{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+}
