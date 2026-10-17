@@ -34,60 +34,37 @@ pub(crate) fn with_large_stack<F>(work: F) -> i32
 where
     F: FnOnce() -> i32 + Send + 'static,
 {
-    run_on_large_stack_worker(work)
-}
-
-/// [`with_large_stack`] for a body that reads the caller's raw pointers in
-/// place (#4734) instead of first copying every input into owned, `Send`
-/// values. Sound because the calling thread blocks in the scoped join until
-/// the worker returns, so no pointer outlives the call and only one thread
-/// touches them at a time.
-pub(crate) fn with_large_stack_borrowed<F: FnOnce() -> i32>(work: F) -> i32 {
-    struct CallerBlocksUntilJoin<F>(F);
-    unsafe impl<F> Send for CallerBlocksUntilJoin<F> {}
-    impl<F: FnOnce() -> i32> CallerBlocksUntilJoin<F> {
-        fn run(self) -> i32 {
-            (self.0)()
+    let handle = std::thread::Builder::new()
+        .stack_size(WORKER_STACK_BYTES)
+        .name("maple-ffi-decode".to_string())
+        .spawn(move || {
+            let rc = work();
+            // Ferry the worker's thread-local last error out to the caller
+            // thread so `maple_last_error` still reports useful messages.
+            let err = LAST_ERROR.with(|e| e.borrow().clone());
+            (rc, err)
+        });
+    match handle {
+        Ok(h) => match h.join() {
+            Ok((rc, err)) => {
+                if let Some(cstr) = err {
+                    LAST_ERROR.with(|e| *e.borrow_mut() = Some(cstr));
+                }
+                rc
+            }
+            Err(payload) => {
+                set_last_error(format!(
+                    "render worker panicked: {}",
+                    panic_message(payload.as_ref())
+                ));
+                RC_PANICKED
+            }
+        },
+        Err(e) => {
+            set_last_error(format!("spawn worker failed: {}", e));
+            98
         }
     }
-    let work = CallerBlocksUntilJoin(work);
-    run_on_large_stack_worker(move || work.run())
-}
-
-fn run_on_large_stack_worker<F: FnOnce() -> i32 + Send>(work: F) -> i32 {
-    std::thread::scope(|scope| {
-        let handle = std::thread::Builder::new()
-            .stack_size(WORKER_STACK_BYTES)
-            .name("maple-ffi-decode".to_string())
-            .spawn_scoped(scope, move || {
-                let rc = work();
-                // Ferry the worker's thread-local last error out to the caller
-                // thread so `maple_last_error` still reports useful messages.
-                let err = LAST_ERROR.with(|e| e.borrow().clone());
-                (rc, err)
-            });
-        match handle {
-            Ok(h) => match h.join() {
-                Ok((rc, err)) => {
-                    if let Some(cstr) = err {
-                        LAST_ERROR.with(|e| *e.borrow_mut() = Some(cstr));
-                    }
-                    rc
-                }
-                Err(payload) => {
-                    set_last_error(format!(
-                        "render worker panicked: {}",
-                        panic_message(payload.as_ref())
-                    ));
-                    RC_PANICKED
-                }
-            },
-            Err(e) => {
-                set_last_error(format!("spawn worker failed: {}", e));
-                98
-            }
-        }
-    })
 }
 
 /// Return code for "the FFI body panicked" — mirrors [`with_large_stack`]'s

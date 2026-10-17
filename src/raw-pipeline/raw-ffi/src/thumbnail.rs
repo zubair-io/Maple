@@ -186,7 +186,7 @@ pub unsafe extern "C" fn maple_render_thumbnail_avif_to_file(
     max_px: u32,
     quality: u8,
 ) -> i32 {
-    crate::error::with_large_stack_borrowed(|| {
+    crate::error::catch_panic_rc("maple_render_thumbnail_avif_to_file", || {
         render_thumbnail_to_file(
             raw_path,
             out_path,
@@ -215,7 +215,7 @@ pub unsafe extern "C" fn maple_render_thumbnail_preview_jpeg_to_file(
     max_px: u32,
     quality: u8,
 ) -> i32 {
-    crate::error::with_large_stack_borrowed(|| {
+    crate::error::catch_panic_rc("maple_render_thumbnail_preview_jpeg_to_file", || {
         render_thumbnail_to_file(
             raw_path,
             out_path,

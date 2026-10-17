@@ -36,7 +36,7 @@ pub unsafe extern "C" fn maple_raster_resize_to_file(
     format_ptr: *const c_char,
     quality: u8,
 ) -> i32 {
-    crate::error::with_large_stack_borrowed(|| {
+    crate::error::catch_panic_rc("maple_raster_resize_to_file", || {
         let in_str = match cstr_to_str(input_path) {
             Some(s) => s,
             None => {
@@ -224,7 +224,7 @@ pub unsafe extern "C" fn maple_raster_extract_tensor_buf(
     out_cap: usize,
     out_len: *mut usize,
 ) -> i32 {
-    crate::error::with_large_stack_borrowed(|| {
+    crate::error::catch_panic_rc("maple_raster_extract_tensor_buf", || {
         if input_bytes.is_null() || input_len == 0 {
             set_last_error("input buffer is null or empty".into());
             return 1;
@@ -331,7 +331,7 @@ pub unsafe extern "C" fn maple_raster_resize_to_buf(
     out_cap: usize,
     out_len: *mut usize,
 ) -> i32 {
-    crate::error::with_large_stack_borrowed(|| {
+    crate::error::catch_panic_rc("maple_raster_resize_to_buf", || {
         if input_bytes.is_null() || input_len == 0 {
             set_last_error("input buffer is null or empty".into());
             return 1;
@@ -429,7 +429,7 @@ pub unsafe extern "C" fn maple_raster_probe_metadata_buf(
     out_format: *mut c_char,
     out_format_cap: usize,
 ) -> i32 {
-    crate::error::with_large_stack_borrowed(|| {
+    crate::error::catch_panic_rc("maple_raster_probe_metadata_buf", || {
         if input_bytes.is_null() || input_len == 0 {
             set_last_error("input buffer is null or empty".into());
             return 1;
