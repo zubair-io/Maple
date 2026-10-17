@@ -96,20 +96,23 @@ fun MapleShell(model: MapleViewModel) {
     val content: @Composable () -> Unit = {
         Column(Modifier.fillMaxSize().background(MapleColors.background).safeDrawingPadding()) {
             state.error?.let { message ->
-                Row(
+                // Message first, actions on their own wrapping row: up to four
+                // buttons must stay readable at phone widths (#4765).
+                Column(
                     Modifier.fillMaxWidth()
                         .background(MapleColors.error.copy(alpha = .12f))
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    Text(message, Modifier.weight(1f), color = MapleColors.error)
-                    if (state.dirty) {
-                        TextButton({ recovery = "reload" }) { Text("Reload saved edits") }
-                        TextButton({ recovery = "discard" }) { Text("Discard unsaved edits") }
+                    Text(message, Modifier.fillMaxWidth(), color = MapleColors.error)
+                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        if (state.dirty) {
+                            TextButton({ recovery = "reload" }) { Text("Reload saved edits") }
+                            TextButton({ recovery = "discard" }) { Text("Discard unsaved edits") }
+                        }
+                        if (state.canResetRawOnlySliders)
+                            TextButton({ recovery = "raster" }) { Text("Reset RAW-only sliders") }
+                        TextButton(onClick = model::clearError) { Text("Dismiss") }
                     }
-                    if (state.canResetRawOnlySliders)
-                        TextButton({ recovery = "raster" }) { Text("Reset RAW-only sliders") }
-                    TextButton(onClick = model::clearError) { Text("Dismiss") }
                 }
             }
             Row(Modifier.weight(1f)) {
