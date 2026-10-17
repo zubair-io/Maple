@@ -1,4 +1,8 @@
-/** Streaming upload steps; replacement always retains durable Trash/purge intent. */
+/** Streaming upload steps. Replacing a same-named file always keeps the previous
+ * bytes: a catalogued asset goes through the leased Trash workflow, anything else
+ * (video, plain file) is moved to `.maple/trash` by path (#4694). An existing
+ * sidecar is never replaced here — sidecars are written through the XMP routes
+ * with their preconditions, so the raw upload answers 409 instead. */
 import * as path from 'node:path';
 import { open, rename, stat, unlink, utimes } from '../fs/mirrored.ts';
 import {
@@ -31,6 +35,12 @@ const mediaExtensions = [
 export function isIndexedUpload(filename: string): boolean {
   const extension = path.extname(filename).slice(1).toLowerCase();
   return mediaExtensions.some((extensions) => extensions.has(extension));
+}
+function isSidecarUpload(filename: string): boolean {
+  return path.extname(filename).toLowerCase() === '.xmp';
+}
+export class UploadConflictError extends Error {
+  readonly status = 409;
 }
 async function removeFailedUpload(filename: string): Promise<void> {
   await unlink(filename).catch(() => {});
@@ -100,10 +110,14 @@ async function sourceExists(filename: string): Promise<boolean> {
   }
 }
 async function trashExistingUpload(input: UploadTarget): Promise<TrashedReplacement | undefined> {
-  if (!input.isMedia) return;
   const { folder, target, absPath, filename } = input;
   try {
     await stat(absPath);
+    if (isSidecarUpload(filename)) {
+      throw new UploadConflictError(
+        `A sidecar already exists at "${target}"; write sidecars through the XMP routes`,
+      );
+    }
     const directory = relativeDirectory(target);
     const existing = await findAssetToReplaceAtAddress(folder._id, directory, filename);
     const moved = await trashUploadReplacement(
@@ -120,6 +134,7 @@ async function trashExistingUpload(input: UploadTarget): Promise<TrashedReplacem
     if (await sourceExists(absPath)) throw new Error(moved.error);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    if (error instanceof UploadConflictError) throw error;
     throw uploadError('pre-trash', error);
   }
 }

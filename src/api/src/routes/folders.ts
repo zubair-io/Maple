@@ -28,7 +28,12 @@ import {
   listFolderTrash,
   resetFolderStages,
 } from '../db/repos/folder-assets.repo.ts';
-import { isIndexedUpload, streamUploadedBody, finalizeUploadedFile } from './folders.upload.ts';
+import {
+  UploadConflictError,
+  isIndexedUpload,
+  streamUploadedBody,
+  finalizeUploadedFile,
+} from './folders.upload.ts';
 import { parseFolderTrashPage, folderTrashItem } from './folders.trash-page.ts';
 import { validateRoot } from '../fs/root.ts';
 import { rootsConnected } from '../fs/root-connectivity.ts';
@@ -622,7 +627,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         set.status = 201;
         return result;
       } catch (error) {
-        set.status = 500;
+        set.status = error instanceof UploadConflictError ? error.status : 500;
         return { error: error instanceof Error ? error.message : String(error) };
       }
     },
