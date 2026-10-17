@@ -17,6 +17,7 @@
 // sweet spot.
 
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace Maple.WinUI.Services.FileOperations
@@ -34,6 +35,13 @@ namespace Maple.WinUI.Services.FileOperations
         private const ushort FofSilent = 0x0004;         // no progress dialog
         private const ushort FofNoErrorUi = 0x0400;       // no error dialog — failures are reported via the return code
         private const ushort FofNoConfirmMkDir = 0x0200;  // irrelevant here (no directory creation), kept for parity with common FOF combos
+        private const ushort FofWantNukeWarning = 0x4000; // ask before a delete the shell cannot recycle; overrides FofNoConfirmation
+
+        internal const ushort OperationFlags =
+            FofAllowUndo | FofNoConfirmation | FofSilent | FofNoErrorUi | FofNoConfirmMkDir | FofWantNukeWarning;
+
+        internal static bool Recycled(int result, bool anyOperationsAborted) =>
+            result == 0 && !anyOperationsAborted;
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         private struct SHFILEOPSTRUCTW
@@ -71,14 +79,14 @@ namespace Maple.WinUI.Services.FileOperations
             {
                 var op = new SHFILEOPSTRUCTW
                 {
-                    hwnd = IntPtr.Zero,
+                    hwnd = Process.GetCurrentProcess().MainWindowHandle,
                     wFunc = FoDelete,
                     pFrom = string.Join('\0', paths) + "\0",
                     pTo = null,
-                    fFlags = (ushort)(FofAllowUndo | FofNoConfirmation | FofSilent | FofNoErrorUi | FofNoConfirmMkDir),
+                    fFlags = OperationFlags,
                 };
                 var result = SHFileOperationW(ref op);
-                return result == 0 && !op.fAnyOperationsAborted;
+                return Recycled(result, op.fAnyOperationsAborted);
             }
             catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or MarshalDirectiveException)
             {
