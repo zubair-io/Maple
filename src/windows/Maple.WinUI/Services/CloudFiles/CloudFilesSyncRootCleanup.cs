@@ -17,10 +17,12 @@ namespace Maple.WinUI.Services.CloudFiles
     internal readonly record struct CleanupResult(int Removed, int Preserved);
 
     /// <summary>What the sweep may delete. <see cref="IsUnmodifiedPlaceholder"/>
-    /// approves a file; <see cref="IsUnpopulatedPlaceholderDirectory"/>
-    /// approves a directory placeholder that was never populated, so it
-    /// holds nothing local and can go without being entered — entering it
-    /// would ask the provider to populate it first.</summary>
+    /// approves a file, or a directory once it is empty — a folder the user
+    /// made in Explorer is not a placeholder and stays even when empty;
+    /// <see cref="IsUnpopulatedPlaceholderDirectory"/> approves a directory
+    /// placeholder that was never populated, so it holds nothing local and
+    /// can go without being entered — entering it would ask the provider to
+    /// populate it first.</summary>
     internal sealed record CleanupProbes(
         Func<string, bool> IsUnmodifiedPlaceholder,
         Func<string, bool> IsUnpopulatedPlaceholderDirectory);
@@ -28,10 +30,11 @@ namespace Maple.WinUI.Services.CloudFiles
     internal static class CloudFilesSyncRootCleanup
     {
         /// <summary>Walks <paramref name="root"/> bottom-up, deleting each
-        /// item the probes approve and each directory left empty
-        /// afterwards, the root included. Any probe or delete failure keeps
-        /// the item and the sweep carries on; directory reparse points
-        /// (junctions, symlinks) are kept and not entered.</summary>
+        /// item the probes approve; a directory goes only once it is empty
+        /// and is itself an approved placeholder, and the root only once
+        /// nothing was preserved beneath it. Any probe or delete failure
+        /// keeps the item and the sweep carries on; directory reparse
+        /// points (junctions, symlinks) are kept and not entered.</summary>
         internal static CleanupResult Sweep(string root, CleanupProbes probes)
         {
             if (!Directory.Exists(root))
@@ -74,8 +77,11 @@ namespace Maple.WinUI.Services.CloudFiles
                 var nested = SweepDirectory(child, probes);
                 removed += nested.Removed;
                 preserved += nested.Preserved;
-                if (nested.Preserved == 0 && !TryDelete(() => Directory.Delete(child)))
-                    preserved++;
+                if (nested.Preserved > 0)
+                    continue;
+                if (Approves(probes.IsUnmodifiedPlaceholder, child) && TryDelete(() => Directory.Delete(child)))
+                    continue;
+                preserved++;
             }
             foreach (var file in files)
             {

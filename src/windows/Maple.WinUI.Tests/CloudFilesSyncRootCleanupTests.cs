@@ -40,6 +40,14 @@ namespace Maple.WinUI.Tests
             return path;
         }
 
+        private string PlaceholderDirectory(string relative)
+        {
+            var path = Path.Combine(_root, Path.Combine(relative.Split('/')));
+            Directory.CreateDirectory(path);
+            _placeholders.Add(Path.GetFullPath(path));
+            return path;
+        }
+
         private bool IsUnmodifiedPlaceholder(string path) => _placeholders.Contains(Path.GetFullPath(path));
 
         private CleanupProbes Probes => new(
@@ -78,9 +86,11 @@ namespace Maple.WinUI.Tests
         [Fact]
         public void OnlyPlaceholders_RemovesTheWholeTreeIncludingRoot()
         {
+            PlaceholderDirectory("Library");
+            PlaceholderDirectory("Library/2024");
+            PlaceholderDirectory("Other");
             Write("Library/a.jpg", placeholder: true);
             Write("Library/2024/b.jpg", placeholder: true);
-            Directory.CreateDirectory(Path.Combine(_root, "Other", "Empty"));
 
             var result = Sweep();
 
@@ -92,6 +102,9 @@ namespace Maple.WinUI.Tests
         [Fact]
         public void PreservedFileKeepsItsAncestorDirectories_SiblingsStillPruned()
         {
+            PlaceholderDirectory("Library");
+            PlaceholderDirectory("Library/2024");
+            PlaceholderDirectory("Library/2023");
             var keep = Write("Library/2024/keep.txt", placeholder: false);
             Write("Library/2024/gone.jpg", placeholder: true);
             Write("Library/2023/gone.jpg", placeholder: true);
@@ -155,6 +168,7 @@ namespace Maple.WinUI.Tests
         {
             // Never opened in Explorer: nothing local beneath it, and
             // enumerating it would cost a FETCH_PLACEHOLDERS round-trip.
+            PlaceholderDirectory("Library");
             var unopened = Path.Combine(_root, "Library", "2019");
             Directory.CreateDirectory(unopened);
             _unpopulatedDirectories.Add(Path.GetFullPath(unopened));
@@ -210,6 +224,40 @@ namespace Maple.WinUI.Tests
                     File.SetUnixFileMode(stuckDir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                 File.SetAttributes(stuck, FileAttributes.Normal);
             }
+        }
+
+        [Fact]
+        public void UserCreatedDirectory_SurvivesEvenWhenEmpty()
+        {
+            // A folder made in Explorer is a namespace change that never
+            // synced; it is not a placeholder, so it is not Maple's to remove.
+            PlaceholderDirectory("Library");
+            Write("Library/cloud.jpg", placeholder: true);
+            var mine = Path.Combine(_root, "Library", "My Picks");
+            Directory.CreateDirectory(mine);
+
+            var result = Sweep();
+
+            Assert.True(Directory.Exists(mine));
+            Assert.True(Directory.Exists(_root));
+            Assert.Equal(1, result.Removed);
+            Assert.Equal(1, result.Preserved);
+        }
+
+        [Fact]
+        public void UserCreatedDirectoryEmptiedBySweep_Survives()
+        {
+            // Placeholders the user dragged into their own folder go; the
+            // folder they made stays.
+            var mine = Path.Combine(_root, "Mine");
+            Directory.CreateDirectory(mine);
+            Write("Mine/moved.jpg", placeholder: true);
+
+            var result = Sweep();
+
+            Assert.True(Directory.Exists(mine));
+            Assert.Equal(1, result.Removed);
+            Assert.Equal(1, result.Preserved);
         }
 
         [Fact]
