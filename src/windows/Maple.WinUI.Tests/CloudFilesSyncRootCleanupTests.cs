@@ -48,11 +48,29 @@ namespace Maple.WinUI.Tests
             return path;
         }
 
-        private bool IsUnmodifiedPlaceholder(string path) => _placeholders.Contains(Path.GetFullPath(path));
+        /// <summary>Stand-in for the handle-bound probe: eligible when the
+        /// test registered the path, removed when the delete succeeds.</summary>
+        private static RemovalOutcome FakeRemove(HashSet<string> eligible, string path)
+        {
+            if (!eligible.Contains(Path.GetFullPath(path)))
+                return RemovalOutcome.NotEligible;
+            try
+            {
+                if (Directory.Exists(path))
+                    Directory.Delete(path);
+                else
+                    File.Delete(path);
+                return RemovalOutcome.Removed;
+            }
+            catch (Exception)
+            {
+                return RemovalOutcome.Failed;
+            }
+        }
 
         private CleanupProbes Probes => new(
-            IsUnmodifiedPlaceholder,
-            path => _unpopulatedDirectories.Contains(Path.GetFullPath(path)));
+            path => FakeRemove(_placeholders, path),
+            path => FakeRemove(_unpopulatedDirectories, path));
 
         private CleanupResult Sweep() => CloudFilesSyncRootCleanup.Sweep(_root, Probes);
 
@@ -124,18 +142,21 @@ namespace Maple.WinUI.Tests
             var path = Write("Library/odd.jpg", placeholder: true);
 
             var result = CloudFilesSyncRootCleanup.Sweep(
-                _root, new CleanupProbes(_ => throw new IOException("probe failed"), _ => false));
+                _root, new CleanupProbes(
+                    _ => throw new IOException("probe failed"), _ => RemovalOutcome.NotEligible));
 
             Assert.True(File.Exists(path));
             Assert.Equal(1, result.Preserved);
         }
 
         [Fact]
-        public void DirectoryReparsePoint_IsKeptAndNotEntered()
+        public void DirectoryLink_IsKeptAndNotEntered()
         {
             // A junction/symlink inside Maple Cloud resolves elsewhere; its
             // target may even be another provider's sync root whose in-sync
             // placeholders would pass the probe. Nothing behind it may go.
+            // (Cloud placeholders are reparse points too, so the sweep must
+            // key on the link target, not the attribute — see IsLink.)
             var outside = Path.Combine(_root + "-outside");
             Directory.CreateDirectory(outside);
             var outsideFile = Path.Combine(outside, "theirs.jpg");
@@ -181,16 +202,18 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
-        public void ApprovedDirectoryThatStillHoldsLocalContent_FallsBackToTheWalk()
+        public void UnpopulatedPlaceholderDirectoryThatCannotBeRemoved_IsKeptWithoutBeingEntered()
         {
-            // The probe can be stale; a directory with anything inside
-            // cannot be removed outright, so it is swept item by item.
-            var keep = Write("Library/2019/mine.txt", placeholder: false);
+            // Removal failing on an unpopulated directory means a lock, not
+            // content; entering it would trigger the population round-trip
+            // the outright removal exists to avoid, so it is kept whole.
+            var inside = Write("Library/2019/inside.jpg", placeholder: true);
             _unpopulatedDirectories.Add(Path.GetFullPath(Path.Combine(_root, "Library", "2019")));
 
             var result = Sweep();
 
-            Assert.True(File.Exists(keep));
+            Assert.True(File.Exists(inside));
+            Assert.Equal(0, result.Removed);
             Assert.Equal(1, result.Preserved);
         }
 
