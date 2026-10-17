@@ -383,6 +383,7 @@ export class ImageCanvasComponent
     this.cleanupRefineViewEffect?.();
     this.cleanupGpuKillSwitchEffect?.();
     this.cleanupEffectivePxEffect?.();
+    this.canvasSvc.effectivePx.set(null);
     this.clearRerenderTimers();
     // Invalidate any in-flight re-render so a late decode can't touch a
     // destroyed component's signals.
