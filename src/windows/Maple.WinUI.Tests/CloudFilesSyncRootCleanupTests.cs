@@ -29,15 +29,17 @@ namespace Maple.WinUI.Tests
 
         private string Write(string relative, bool placeholder)
         {
-            var path = Path.Combine(_root, relative);
+            // The sweep enumerates with the platform separator; the key
+            // must match it on Windows too, so it is built from segments.
+            var path = Path.Combine(_root, Path.Combine(relative.Split('/')));
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, relative);
             if (placeholder)
-                _placeholders.Add(path);
+                _placeholders.Add(Path.GetFullPath(path));
             return path;
         }
 
-        private bool IsUnmodifiedPlaceholder(string path) => _placeholders.Contains(path);
+        private bool IsUnmodifiedPlaceholder(string path) => _placeholders.Contains(Path.GetFullPath(path));
 
         [Fact]
         public void NonPlaceholderFileSurvivesDisable()
