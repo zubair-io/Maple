@@ -42,6 +42,7 @@ final class AgentEditServiceTests: XCTestCase {
     for parameters in invalidParameters {
       let service = AgentEditService()
       let session = makeSession()
+      await session.loadSidecar()
       service.activate(session)
       let before = session.model
       let result = await call(
@@ -70,6 +71,7 @@ final class AgentEditServiceTests: XCTestCase {
   func testActivePhotoDescribesSlidersWithGeneratedRanges() async throws {
     let service = AgentEditService()
     let session = makeSession()
+    await session.loadSidecar()
     service.activate(session)
 
     let state = try await call(service, "maple_get_active_photo").get().result
@@ -88,6 +90,7 @@ final class AgentEditServiceTests: XCTestCase {
   func testSetAdjustmentsIsOneLabelledUndoEntry() async throws {
     let service = AgentEditService()
     let session = makeSession()
+    await session.loadSidecar()
     service.activate(session)
     let before = session.model
 
@@ -113,6 +116,7 @@ final class AgentEditServiceTests: XCTestCase {
   func testStaleRevisionAppliesNothingAndReturnsCurrentState() async throws {
     let service = AgentEditService()
     let session = makeSession()
+    await session.loadSidecar()
     service.activate(session)
     let seen = try await revision(service)
     session.beginEdit(description: "Manual")
@@ -133,9 +137,11 @@ final class AgentEditServiceTests: XCTestCase {
   func testSwitchingPhotosInvalidatesTheRevision() async throws {
     let service = AgentEditService()
     let first = makeSession()
+    await first.loadSidecar()
     service.activate(first)
     let seen = try await revision(service)
     let second = makeSession()
+    await second.loadSidecar()
     service.activate(second)
 
     let outcome = await call(
@@ -150,6 +156,7 @@ final class AgentEditServiceTests: XCTestCase {
   func testOutOfRangeAndUnknownSlidersAreRejectedNotClamped() async throws {
     let service = AgentEditService()
     let session = makeSession()
+    await session.loadSidecar()
     service.activate(session)
 
     let outcome = await call(
@@ -170,6 +177,7 @@ final class AgentEditServiceTests: XCTestCase {
   func testUndoAndResetRequireTheCurrentRevision() async throws {
     let service = AgentEditService()
     let session = makeSession()
+    await session.loadSidecar()
     service.activate(session)
     let edited = try await call(
       service, "maple_set_adjustments",
@@ -199,6 +207,7 @@ final class AgentEditServiceTests: XCTestCase {
   func testTemperatureEditTakesTheAuthoredWhiteBalancePath() async throws {
     let service = AgentEditService()
     let session = makeSession()
+    await session.loadSidecar()
     service.activate(session)
 
     _ = try await call(

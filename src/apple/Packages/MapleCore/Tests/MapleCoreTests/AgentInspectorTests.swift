@@ -128,6 +128,7 @@ final class AgentInspectorTests: XCTestCase {
     let unavailable = EditSession(
       asset: AssetRef(displayName: "unavailable.dng", hintExtension: "dng") { Data() },
       model: .default, culling: CullingState())
+    await unavailable.loadSidecar()
     service.activate(unavailable)
 
     let empty = await service.handle(
@@ -135,6 +136,7 @@ final class AgentInspectorTests: XCTestCase {
     guard case .failure(let error) = empty.outcome else { return XCTFail("expected failure") }
     XCTAssertEqual(error.code, "render_unavailable")
 
+    await session.loadSidecar()
     service.activate(session)
     await session.openAssetPipelineAsync()
     _ = await session.latestRenderSchedule?.value

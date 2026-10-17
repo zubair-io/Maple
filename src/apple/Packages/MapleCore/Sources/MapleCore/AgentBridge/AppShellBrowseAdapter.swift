@@ -72,13 +72,17 @@ public final class AppShellBrowseAdapter: AgentBrowseDelegate {
         code: "asset_not_found", message: "No photo found with ID `\(assetID.uuidString)`.")
     }
     let session = ensureSession(for: asset)
-    if !session.hasLoadedSidecar {
-      await session.loadSidecar()
+    do {
+      try await session.setCulling(mutate)
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      throw AgentError(
+        code: "sidecar_unavailable",
+        message:
+          "Couldn't read the saved edits for \(asset.displayName) (\(error.localizedDescription)). Nothing was changed.")
     }
-    var c = session.culling
-    mutate(&c)
-    session.culling = c
     await session.flushPendingSidecarWrite()
-    return c
+    return session.culling
   }
 }
