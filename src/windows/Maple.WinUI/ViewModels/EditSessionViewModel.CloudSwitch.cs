@@ -15,12 +15,34 @@ public partial class EditSessionViewModel
         set => _cloudSlot.Adopt(value);
     }
 
+    private void DisposeCloudClient()
+    {
+        var previous = _cloud;
+        _cloud = null;
+        previous?.Dispose();
+    }
+
+    private async Task SettleCloudWritesAsync()
+    {
+        if (_openPhoto?.IsCloud == true)
+        {
+            await _cloudSidecarLoad;
+            _sidecarTimer?.Dispose();
+            FlushSidecarNow();
+        }
+        await _cloudMetadataWrites.DrainAsync(retryFailed: true);
+        PublishPendingCloudPreview();
+        await _cloudPreviewPublications.DrainAsync(retryFailed: true);
+    }
+
     private async Task<string?> ReleaseCloudSessionAsync()
     {
         try
         {
-            do await PrepareCloseAsync();
-            while (_sidecarDirty);
+            for (var pass = 0; pass < 2; pass++)
+                await SettleCloudWritesAsync();
+            if (_openPhoto?.IsCloud == true && _sidecarDirty)
+                throw new InvalidOperationException("edits kept arriving while saving");
         }
         catch (Exception ex)
         {

@@ -36,7 +36,7 @@ namespace Maple.WinUI.ViewModels
             if (await ReleaseCloudSessionAsync() is { } blocked)
                 return (false, blocked, false);
             _signInPollCts?.Cancel();
-            _cloud?.Dispose();
+            DisposeCloudClient();
             _cloud = new CloudClient(serverUrl);
             HookTokenRotation(_cloud);
             var (ok, message, devLogin) = await _cloud.ProbeAsync(CancellationToken.None);
@@ -180,7 +180,7 @@ namespace Maple.WinUI.ViewModels
             if (await ReleaseCloudSessionAsync() is { } blocked)
                 return (false, blocked);
             _signInPollCts?.Cancel();
-            _cloud?.Dispose();
+            DisposeCloudClient();
             _cloud = new CloudClient(serverUrl);
             HookTokenRotation(_cloud);
             var (probeOk, probeMessage, devLogin) = await _cloud.ProbeAsync(CancellationToken.None);
@@ -222,7 +222,7 @@ namespace Maple.WinUI.ViewModels
             CloudStatus = $"Reconnecting to {settings.CloudServerUrl}…";
             if (await ReleaseCloudSessionAsync() is not null)
                 return;
-            _cloud?.Dispose();
+            DisposeCloudClient();
             _cloud = new CloudClient(settings.CloudServerUrl!);
             HookTokenRotation(_cloud);
             switch (await _cloud.RestoreSessionAsync(refreshToken, CancellationToken.None))
