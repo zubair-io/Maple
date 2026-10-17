@@ -1178,6 +1178,9 @@ public actor ImageEditPipeline {
           try PipelineRenderer.applyChainAndEncodeDisplayTarget(
             inputBytes: inputBytes, width: w, height: h, params: params,
             targetPrimaries: targetPrimaries.wireValue,
+            // #4738: point / display / parametric curves ride alongside the
+            // scalar params; the live canvas already showed them.
+            curves: PipelineRenderer.ChainToneCurves(model: model),
             noiseProfile: noiseProfile,
             // #3338: the mask stack has to ride every render call — raw-core
             // applies it inside the scene-linear chain.
@@ -1190,6 +1193,21 @@ public actor ImageEditPipeline {
         )
         return nil
       }
+      // #4738: raw-core's `render` warps perspective in `finish` (after
+      // develop, before crop) and the GPU-live present warps per tick; the
+      // FFI chain path never did, so refine and export lost the correction.
+      let warpedBytes: Data
+      do {
+        warpedBytes = try mapleStage("perspective") {
+          try PipelineRenderer.applyPerspective(
+            bytes: outputBytes, width: w, height: h, perspective: model.perspective)
+        }
+      } catch {
+        logger.error(
+          "applyChainAndEncodeViaFusedFFI: perspective error: \(error.localizedDescription, privacy: .public)"
+        )
+        return nil
+      }
 
       // Output is gamma-encoded in `targetPrimaries`' primaries — tag
       // the CIImage to MATCH (#3190), same rule as
@@ -1199,7 +1217,7 @@ public actor ImageEditPipeline {
         ? Self.displayEncodedColorSpaceP3 : Self.displayEncodedColorSpace
       return mapleStage("fused chain+encode CIImage build") {
         CIImage(
-          bitmapData: outputBytes,
+          bitmapData: warpedBytes,
           bytesPerRow: rowBytes,
           size: CGSize(width: w, height: h),
           format: .RGBAf,

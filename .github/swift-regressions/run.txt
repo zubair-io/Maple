@@ -224,6 +224,7 @@ RevealInFileManagerSelectionTests
 RevealTargetTests
 SavedFolderStoreTests
 SceneLinearChainF32BandingTests
+ChainCurvesWiringTests
 SearchAssetAddressTests
 SearchCursorPaginationTests
 SearchRankPinTests
