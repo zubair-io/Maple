@@ -114,20 +114,14 @@ public final class EngineHost {
     progress.setPhase(.starting)
 
     do {
-      let appSupport = try FileManager.default.url(
-        for: .applicationSupportDirectory, in: .userDomainMask,
-        appropriateFor: nil, create: true
-      )
-      .appendingPathComponent("Maple", isDirectory: true)
-      try FileManager.default.createDirectory(
-        at: appSupport, withIntermediateDirectories: true)
-
+      let storageRoot = try BackupStorage.sharedRoot()
       let deviceId = try DeviceIdentity.current(
-        storageURL: try DeviceIdentity.defaultStorageURL())
+        storageURL: DeviceIdentity.storageURL(in: storageRoot))
       let sidecars = AppSupportSidecarStore(
-        root: try AppSupportSidecarStore.defaultRoot())
+        root: try AppSupportSidecarStore.defaultRoot(in: storageRoot))
       let state = try BackupStateStore(
-        databaseURL: appSupport.appendingPathComponent(settings.stateDatabaseFilename))
+        databaseURL: BackupStorage.stateDatabaseURL(
+          in: storageRoot, filename: settings.stateDatabaseFilename))
 
       // Fresh queue per start — settings may have changed (different library).
       let queue = InProcessBackupQueue()
