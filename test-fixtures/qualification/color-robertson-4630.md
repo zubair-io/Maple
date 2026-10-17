@@ -1,6 +1,6 @@
 # Robertson inverse tint correction — #4630
 
-## Saved implementation checkpoint
+## Isolated inverse-tint repair
 
 The inverse temperature/tint conversion measured tint displacement from the
 upper bracketing Robertson table row instead of the interpolated locus point.
@@ -46,7 +46,7 @@ That revision is retained as `codex/qualification-robertson-afdc8ffb` for
 reproduction after the working branch is rebased.
 Native-host WASM tests do not claim browser-WebGPU execution.
 
-## Remaining integration qualification
+## Physical qualification
 
 ### Physical legacy-sidecar control
 
@@ -73,13 +73,7 @@ are preserved in `robertson-current-main/legacy-physical/`.
 This verifies a physical legacy import correction. It is not an Adobe-rendered
 reference comparison and does not count as a canonical corpus failure cleared.
 
-### Version and complete-cohort integration
-
-This commit preserves the implementation under #4630 before opening a ready
-PR. It does not yet bump derived-output versions, claim a passing physical
-cohort, or authorize merging this checkpoint. After integrating the current
-main, complete version invalidation, generated evidence, hardware/binding
-parity and the affected physical comparison before opening the PR.
+### Complete affected cohort
 
 The physical selection completed: 20 neutral baselines, the same 20 Auto
 baselines, and all 180 canonical temperature/tint and WB cases, for **220
@@ -102,6 +96,25 @@ the earlier 33-case diagnostic. Identical candidate/control files and the same
 references, comparator and budgets establish **zero new failures and zero
 canonical failures cleared** in this cohort. The physical comparison and
 final whole-input audit are complete; the full-main runner continues.
+
+All **776 canonical sidecars** were also parsed by the frozen main and
+candidate CLIs. Their complete `AdjustmentModel` outputs are byte-identical,
+and every original sidecar hash is unchanged. The audit is preserved in
+`corpus-sidecars/identity.json`; it supplements the physical cohort without
+claiming that all 806 comparisons were rerun for this branch.
+
+## Cache and generated-evidence integration
+
+Pipeline output **26** invalidates derived images made with the old legacy
+conversion. Auto fit-model version remains **2**: its pinned fitting input
+does not depend on an imported legacy temperature/tint pair. The branch is
+based on main `676c40a7db1121179b5fe08dd2332e7da8a1834a`. A preceding output
+version change on main requires the next version when this branch is rebased.
+
+The five CI-recorded evidence suites and generated platform summaries are
+being refreshed for this output version. Prior physical-color evidence keeps
+its original version and status; the 220-case diagnostic cannot promote a
+full-corpus qualification record.
 
 Evidence, commands, frozen SDK source, source identities and the selected
 manifest are preserved under
