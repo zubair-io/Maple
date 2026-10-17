@@ -37,6 +37,13 @@ public final class EditorCommandRouter {
     else {
       return false
     }
+    // Edits wait for the sidecar (#4708): made on unloaded defaults, they
+    // would be replaced by hydration. View commands stay available.
+    switch command {
+    case .undo, .redo, .resetGroup, .nudge:
+      guard state.session.hasLoadedSidecar else { return false }
+    default: break
+    }
     switch command {
     case .nudge, .nudgeRelease: break
     default: finishNudge()

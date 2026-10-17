@@ -28,6 +28,9 @@ public final class EditSession {
   public internal(set) var autoFitStatus: AutoFitStatus = .pending
   var autoFitRevision: UInt64 = 0
   public internal(set) var hasLoadedSidecar = false
+  /// The last sidecar read failed and no read has succeeded since: nothing
+  /// is persisted until `loadSidecar()` succeeds (#4708).
+  public internal(set) var sidecarLoadFailed = false
 
   /// Byte-download progress for a remote (cloud) asset open (#822). Set by
   /// the caller (`prepareCloudSession`) when the asset's bytes arrive over
@@ -82,7 +85,12 @@ public final class EditSession {
 
   public var culling: CullingState {
     didSet {
-      guard !isHydratingInitialState else { return }
+      guard !isHydratingInitialState, !workflow.isApplying else { return }
+      guard hasLoadedSidecar else {
+        let change = CullingPatch(from: oldValue, to: culling)
+        queuedCullingPatch = queuedCullingPatch?.merging(change) ?? change
+        return
+      }
       scheduleSidecarUpdate(model: model, culling: culling)
     }
   }
@@ -396,6 +404,7 @@ public final class EditSession {
   /// for every session pre-created by the browse grid, and it should not
   /// write sidecars back out while reading them.
   @ObservationIgnored var isHydratingInitialState = false
+  @ObservationIgnored var queuedCullingPatch: CullingPatch?
 
   /// Flips on when a caller actually asks this session for pixels. The app
   /// primes sessions for every folder asset so metadata/culling is ready,

@@ -155,6 +155,7 @@ extension DisplayPreviewPersistTests {
     let rawURL = directory.appendingPathComponent("original.png")
     let original = try SidecarContractIO.makeSyntheticOriginal(at: rawURL)
     var session: EditSession? = EditSession(asset: AssetRef(url: rawURL))
+    await session?.loadSidecar()
     session?.gpuLiveDriver = nil
     session?.beginEdit(description: "Final exposure")
     session?.model.exposure = 1.25
