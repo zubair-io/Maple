@@ -3,6 +3,26 @@
 use std::io::{self, Write};
 use std::path::Path;
 
+#[cfg(windows)]
+fn file_identity(path: &Path) -> io::Result<(u32, u64)> {
+    use std::fs::File;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+
+    let file = File::open(path)?;
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // The live File owns the handle for the duration of this query.
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok((
+        info.dwVolumeSerialNumber,
+        (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+    ))
+}
+
 fn protected(path: &Path) -> bool {
     path.extension()
         .and_then(|s| s.to_str())
@@ -53,6 +73,10 @@ pub fn validate_destination(out: &Path, inputs: &[&Path]) -> io::Result<()> {
             if source.dev() == destination.dev() && source.ino() == destination.ino() {
                 return Err(deny());
             }
+        }
+        #[cfg(windows)]
+        if file_identity(&resolved)? == file_identity(&source)? {
+            return Err(deny());
         }
     }
     Ok(())
