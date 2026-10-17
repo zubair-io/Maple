@@ -152,6 +152,16 @@ mod allocations;
 
 #[test]
 fn auto_scalar_ticks_retain_the_fitted_curve_allocation() {
+    let ctx = gpu_available().then(|| raw_gpu::GpuContext::new_blocking().expect("GPU context"));
+    exercise_auto_ticks(ctx.as_ref());
+}
+
+#[test]
+fn auto_host_ticks_need_no_adapter() {
+    exercise_auto_ticks(None);
+}
+
+fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
     use raw_core::{
         gpu_host::{
             live_profile::LiveProfile, model::prefix_matches, prepare::develop_prefix_rgba,
@@ -160,7 +170,11 @@ fn auto_scalar_ticks_retain_the_fitted_curve_allocation() {
         test_support::synth_dng::SyntheticGreyDng,
         xmp::{AdjustmentModel, Profile},
     };
-    let ctx = raw_gpu::GpuContext::new_blocking().expect("Auto allocation gate requires GPU");
+    if ctx.is_none() {
+        eprintln!(
+            "Auto host allocation/artifact checks run without a GPU; GPU assertions not exercised"
+        );
+    }
     let cancel = raw_gpu::CancelToken::new();
     // Exercise all three actual cache states, including the ambiguous curve-only
     // entry which previously re-entered fitting on every tick.
@@ -183,18 +197,20 @@ fn auto_scalar_ticks_retain_the_fitted_curve_allocation() {
         let mut model = AdjustmentModel::default();
         let (rgba, w, h, prefix, anchor, _) =
             develop_prefix_rgba(&raw, &bytes, "dng", &model, 64).unwrap();
-        let session = raw_gpu::LiveSession::new(&ctx, &rgba, w, h).unwrap();
+        let gpu = ctx.map(|ctx| (ctx, raw_gpu::LiveSession::new(ctx, &rgba, w, h).unwrap()));
         let mut cached = LiveProfile::new(&raw, &bytes, "dng", &model, None, 0, anchor);
         assert_eq!(cached.auto_fit, Some(state > 0));
         let curve = cached.inputs.profile_curve_flat.as_ptr();
         let lut = cached.inputs.residual_lut_data.as_ptr();
         model.exposure = 0.5;
         cached.update(&model);
-        session
-            .render_chain_to_f32(&ctx, &cached.inputs, &cancel)
-            .unwrap()
-            .unwrap();
-        let before = session.pool_alloc_count(&ctx);
+        let before = gpu.as_ref().map(|(ctx, session)| {
+            session
+                .render_chain_to_f32(ctx, &cached.inputs, &cancel)
+                .unwrap()
+                .unwrap();
+            session.pool_alloc_count(ctx)
+        });
         for exposure in [1.0, -1.0, 0.5] {
             model.exposure = exposure;
             let count = allocations::count(|| {
@@ -205,24 +221,30 @@ fn auto_scalar_ticks_retain_the_fitted_curve_allocation() {
             assert_eq!(count, 0, "Auto state {state} allocated on scalar tick");
             assert_eq!(curve, cached.inputs.profile_curve_flat.as_ptr());
             assert_eq!(lut, cached.inputs.residual_lut_data.as_ptr());
-            session
-                .render_chain_to_f32(&ctx, &cached.inputs, &cancel)
-                .unwrap()
-                .unwrap();
+            if let Some((ctx, session)) = &gpu {
+                session
+                    .render_chain_to_f32(ctx, &cached.inputs, &cancel)
+                    .unwrap()
+                    .unwrap();
+            }
         }
-        assert_eq!(session.pool_alloc_count(&ctx), before);
+        if let Some((ctx, session)) = &gpu {
+            assert_eq!(session.pool_alloc_count(ctx), before.unwrap());
+        }
         let (oracle, status) =
             super::chain_inputs_with_status(&raw, &bytes, "dng", &model, None, 0, anchor);
         assert_eq!(cached.auto_fit, status);
         assert_eq!(cached.inputs.profile_curve_flat, oracle.profile_curve_flat);
         assert_eq!(cached.inputs.residual_lut_data, oracle.residual_lut_data);
-        assert_eq!(
-            session
-                .render_to_buffer(&ctx, &cached.inputs, &cancel)
-                .unwrap(),
-            session.render_to_buffer(&ctx, &oracle, &cancel).unwrap(),
-            "cached and one-shot pixels differ for Auto state {state}"
-        );
+        if let Some((ctx, session)) = &gpu {
+            assert_eq!(
+                session
+                    .render_to_buffer(ctx, &cached.inputs, &cancel)
+                    .unwrap(),
+                session.render_to_buffer(ctx, &oracle, &cancel).unwrap(),
+                "cached and one-shot pixels differ for Auto state {state}"
+            );
+        }
         // Film transitions refresh their own grid without re-fitting Auto.
         let film = raw_core::film::FilmLut {
             size: 3,
@@ -237,20 +259,22 @@ fn auto_scalar_ticks_retain_the_fitted_curve_allocation() {
         assert_eq!(cached.inputs.film_lut_data.as_ref(), film.data.as_slice());
         let (film_oracle, _) =
             super::chain_inputs_with_status(&raw, &bytes, "dng", &model, Some(&film), 17, anchor);
-        assert_eq!(
-            session
-                .render_to_buffer(&ctx, &cached.inputs, &cancel)
-                .unwrap(),
-            session
-                .render_to_buffer(&ctx, &film_oracle, &cancel)
-                .unwrap()
-        );
-        assert_ne!(
-            session
-                .render_to_buffer(&ctx, &cached.inputs, &cancel)
-                .unwrap(),
-            session.render_to_buffer(&ctx, &oracle, &cancel).unwrap()
-        );
+        if let Some((ctx, session)) = &gpu {
+            assert_eq!(
+                session
+                    .render_to_buffer(ctx, &cached.inputs, &cancel)
+                    .unwrap(),
+                session
+                    .render_to_buffer(ctx, &film_oracle, &cancel)
+                    .unwrap()
+            );
+            assert_ne!(
+                session
+                    .render_to_buffer(ctx, &cached.inputs, &cancel)
+                    .unwrap(),
+                session.render_to_buffer(ctx, &oracle, &cancel).unwrap()
+            );
+        }
         let film_ptr = cached.inputs.film_lut_data.as_ptr();
         assert_eq!(
             allocations::count(|| {
@@ -263,12 +287,14 @@ fn auto_scalar_ticks_retain_the_fitted_curve_allocation() {
         cached.set_film(None, 0);
         assert!(cached.inputs.film_lut_data.is_empty());
         assert_eq!(cached.inputs.film_lut_key, 0);
-        assert_eq!(
-            session
-                .render_to_buffer(&ctx, &cached.inputs, &cancel)
-                .unwrap(),
-            session.render_to_buffer(&ctx, &oracle, &cancel).unwrap()
-        );
+        if let Some((ctx, session)) = &gpu {
+            assert_eq!(
+                session
+                    .render_to_buffer(ctx, &cached.inputs, &cancel)
+                    .unwrap(),
+                session.render_to_buffer(ctx, &oracle, &cancel).unwrap()
+            );
+        }
         assert_eq!(curve, cached.inputs.profile_curve_flat.as_ptr());
         for changed in [
             AdjustmentModel {
