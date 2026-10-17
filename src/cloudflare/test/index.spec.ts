@@ -97,13 +97,9 @@ describe('thumbnail-cache Worker', () => {
 
 	it('uses bearer authentication with an opaque URL token and converts an R2 hit to JPEG', async () => {
 		const token = await bearerToken();
-		await env.THUMBS_BUCKET.put(
-			`thumbs/main/legacy.avif/v25`,
-			decodeBase64(ONE_PIXEL_AVIF),
-			{
-				httpMetadata: { contentType: 'image/avif' },
-			},
-		);
+		await env.THUMBS_BUCKET.put(`thumbs/main/legacy.avif/v25`, decodeBase64(ONE_PIXEL_AVIF), {
+			httpMetadata: { contentType: 'image/avif' },
+		});
 		const request = new IncomingRequest(
 			`https://example.com/api/thumb/main/legacy.avif?format=jpg&token=${'T'.repeat(43)}`,
 			{ headers: { authorization: `Bearer ${token}` } },
@@ -117,16 +113,12 @@ describe('thumbnail-cache Worker', () => {
 		expect(response.headers.get('content-length')).toBeNull();
 		expect(response.headers.get('etag')).toBeNull();
 		expect([...jpeg.slice(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
-		const cached = await env.THUMBS_BUCKET.get(
-			`thumbs/main/legacy.avif/v25`,
-		);
+		const cached = await env.THUMBS_BUCKET.get(`thumbs/main/legacy.avif/v25`);
 		expect(new Uint8Array(await cached!.arrayBuffer())).toEqual(decodeBase64(ONE_PIXEL_AVIF));
 	});
 
 	it('rejects a request with no Authorization header, without touching R2 or origin', async () => {
-		const request = new IncomingRequest(
-			`https://example.com/api/thumb/main/a.jpg`,
-		);
+		const request = new IncomingRequest(`https://example.com/api/thumb/main/a.jpg`);
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		await waitOnExecutionContext(ctx);
@@ -137,12 +129,9 @@ describe('thumbnail-cache Worker', () => {
 	});
 
 	it('rejects an invalid bearer token', async () => {
-		const request = new IncomingRequest(
-			`https://example.com/api/thumb/main/a.jpg`,
-			{
-				headers: { authorization: 'Bearer not-a-real-jwt' },
-			},
-		);
+		const request = new IncomingRequest(`https://example.com/api/thumb/main/a.jpg`, {
+			headers: { authorization: 'Bearer not-a-real-jwt' },
+		});
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		await waitOnExecutionContext(ctx);
@@ -153,17 +142,11 @@ describe('thumbnail-cache Worker', () => {
 		const token = await bearerToken();
 		// No httpMetadata — exercises the FALLBACK_CONTENT_TYPE path (an object
 		// stored with no recorded content-type falls back to 'image/avif').
-		await env.THUMBS_BUCKET.put(
-			`thumbs/main/hit.jpg/v25`,
-			new Uint8Array([1, 2, 3]),
-		);
+		await env.THUMBS_BUCKET.put(`thumbs/main/hit.jpg/v25`, new Uint8Array([1, 2, 3]));
 
-		const request = new IncomingRequest(
-			`https://example.com/api/thumb/main/hit.jpg`,
-			{
-				headers: { authorization: `Bearer ${token}` },
-			},
-		);
+		const request = new IncomingRequest(`https://example.com/api/thumb/main/hit.jpg`, {
+			headers: { authorization: `Bearer ${token}` },
+		});
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		await waitOnExecutionContext(ctx);
@@ -176,20 +159,13 @@ describe('thumbnail-cache Worker', () => {
 
 	it('serves an R2 hit with the content-type stored on the object, not a hard-coded guess', async () => {
 		const token = await bearerToken();
-		await env.THUMBS_BUCKET.put(
-			`thumbs/main/hit.png/v25`,
-			new Uint8Array([1, 2, 3]),
-			{
-				httpMetadata: { contentType: 'image/png' },
-			},
-		);
+		await env.THUMBS_BUCKET.put(`thumbs/main/hit.png/v25`, new Uint8Array([1, 2, 3]), {
+			httpMetadata: { contentType: 'image/png' },
+		});
 
-		const request = new IncomingRequest(
-			`https://example.com/api/thumb/main/hit.png`,
-			{
-				headers: { authorization: `Bearer ${token}` },
-			},
-		);
+		const request = new IncomingRequest(`https://example.com/api/thumb/main/hit.png`, {
+			headers: { authorization: `Bearer ${token}` },
+		});
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		// Drain the body before the test ends — vitest-pool-workers' isolated
@@ -213,12 +189,9 @@ describe('thumbnail-cache Worker', () => {
 				},
 			});
 
-		const request = new IncomingRequest(
-			`https://example.com/api/thumb/main/miss.jpg`,
-			{
-				headers: { authorization: `Bearer ${token}` },
-			},
-		);
+		const request = new IncomingRequest(`https://example.com/api/thumb/main/miss.jpg`, {
+			headers: { authorization: `Bearer ${token}` },
+		});
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		expect(response.status).toBe(200);
@@ -245,12 +218,9 @@ describe('thumbnail-cache Worker', () => {
 			})
 			.reply(304, '');
 
-		const request = new IncomingRequest(
-			`https://example.com/api/thumb/main/revalidate.jpg`,
-			{
-				headers: { authorization: `Bearer ${token}`, 'if-none-match': '"abc123"' },
-			},
-		);
+		const request = new IncomingRequest(`https://example.com/api/thumb/main/revalidate.jpg`, {
+			headers: { authorization: `Bearer ${token}`, 'if-none-match': '"abc123"' },
+		});
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		await waitOnExecutionContext(ctx);
@@ -269,19 +239,14 @@ describe('thumbnail-cache Worker', () => {
 			})
 			.reply(202, '', { headers: { 'retry-after': '2' } });
 
-		const request = new IncomingRequest(
-			`https://example.com/api/thumb/main/pending.jpg`,
-			{
-				headers: { authorization: `Bearer ${token}` },
-			},
-		);
+		const request = new IncomingRequest(`https://example.com/api/thumb/main/pending.jpg`, {
+			headers: { authorization: `Bearer ${token}` },
+		});
 		const ctx = createExecutionContext();
 		const response = await worker.fetch(request, env, ctx);
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(202);
-		expect(
-			await env.THUMBS_BUCKET.get(`thumbs/main/pending.jpg/v25`),
-		).toBeNull();
+		expect(await env.THUMBS_BUCKET.get(`thumbs/main/pending.jpg/v25`)).toBeNull();
 	});
 });
