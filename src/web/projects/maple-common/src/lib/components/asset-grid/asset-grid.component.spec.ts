@@ -230,6 +230,77 @@ describe('AssetGridComponent — thumbnail size accessibility (#2462)', () => {
   });
 });
 
+describe('AssetGridComponent — scroll resets on folder navigation (#4792)', () => {
+  let fixture: ComponentFixture<AssetGridComponent>;
+  const selectedSourceId = signal('lib:2026');
+  const assetsInSelectedFolder = signal<Asset[]>([]);
+
+  beforeEach(() => {
+    selectedSourceId.set('lib:2026');
+    assetsInSelectedFolder.set([]);
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: LibraryStateService,
+          useValue: {
+            currentFolder: () => undefined,
+            selectedSourceLabel: () => 'lib',
+            thumbSize: () => 140,
+            sort: () => 'date',
+            filter: () => 'all',
+            selectedTotalCount: () => 0,
+            foldersInSelectedFolder: () => [],
+            assetsInSelectedFolder,
+            selectedAssetIds: () => new Set<AssetId>(),
+            selectedFolderIds: () => new Set<string>(),
+            backendLoading: () => false,
+            backendError: () => undefined,
+            selectedSourceId,
+          },
+        },
+        { provide: Router, useValue: { navigate: vi.fn() } },
+      ],
+    });
+
+    fixture = TestBed.createComponent(AssetGridComponent);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  function scrolledGrid(): HTMLElement {
+    const grid = fixture.componentInstance.gridContainerRef.nativeElement;
+    Object.defineProperty(grid, 'scrollTop', { value: 500, writable: true, configurable: true });
+    return grid;
+  }
+
+  it('scrolls back to the top when a different folder is opened', () => {
+    const grid = scrolledGrid();
+
+    selectedSourceId.set('lib:2026/France');
+    fixture.detectChanges();
+
+    expect(grid.scrollTop).toBe(0);
+  });
+
+  it('keeps the scroll offset when the same folder refreshes its contents', () => {
+    const grid = scrolledGrid();
+
+    assetsInSelectedFolder.set([{ ...makeAsset('a1'), aspectRatio: 3 / 2 }]);
+    selectedSourceId.set('lib:2026');
+    fixture.detectChanges();
+
+    expect(grid.scrollTop).toBe(500);
+  });
+});
+
 describe('AssetGridComponent — folder section rows (#3099)', () => {
   function build(folders: { id: string; name: string; parentSourceId: string }[], assets: Asset[]) {
     TestBed.configureTestingModule({

@@ -15,6 +15,7 @@ import {
   OnDestroy,
   ViewChild,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
@@ -99,6 +100,7 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
 
   readonly state = inject(LibraryStateService);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
   protected readonly dragMove = inject(DRAG_MOVE_CAPABILITY);
   private readonly trash = inject(TRASH_CAPABILITY);
   protected readonly assetGridDropListId = ASSET_GRID_DROP_LIST_ID;
@@ -180,11 +182,23 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
 
   ngAfterViewInit(): void {
     if (!this.gridContainerRef) return;
+    const grid = this.gridContainerRef.nativeElement;
     this.ro = new ResizeObserver((entries) => {
       for (const e of entries) this.containerWidth.set(e.contentRect.width);
     });
-    this.ro.observe(this.gridContainerRef.nativeElement);
-    this.containerWidth.set(this.gridContainerRef.nativeElement.clientWidth || 800);
+    this.ro.observe(grid);
+    this.containerWidth.set(grid.clientWidth || 800);
+    this.scrollToTopOnFolderChange(grid);
+  }
+
+  private scrollToTopOnFolderChange(grid: HTMLElement): void {
+    effect(
+      () => {
+        this.state.selectedSourceId();
+        grid.scrollTop = 0;
+      },
+      { injector: this.injector },
+    );
   }
 
   ngOnDestroy(): void {
