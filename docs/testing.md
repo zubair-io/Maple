@@ -182,6 +182,23 @@ fails preparation or verification; no universal camera white balance is used.
 
 Useful environment overrides: `MAPLE_CLI` (use a prebuilt binary, skipping the build), `MANIFEST`, `BUDGETS`, `KEEP_TMP`, and `ALLOW_MISSING_BUDGET` (by default a case with no budget entry **fails**, which is what forces new cases to be budgeted).
 
+### Explicit native-pair comparison
+
+A qualified nonbaseline case can declare
+`"reference_protocol": "native-pair-lanczos-v1"` in its manifest entry (#4788).
+This requires an `acr_xmp` Adobe authoring sidecar with every audited default
+explicit, matching effective settings in the saved PNGs, a native `full`
+reference, native candidate dimensions, and compatible full/down geometry.
+Unknown protocol names, missing native pixels, and ignored Adobe settings fail
+the comparison. Installing a full PNG does not switch an undeclared legacy
+case. Full-resolution detail still compares every native pixel.
+
+The corpus identity includes the protocol declaration, authoring bytes,
+reference bytes, and comparison implementation, including its helper modules.
+Capture qualification and old/new physical measurements remain prerequisites
+for adopting this declaration. Protocol support does not complete the corpus
+migration tracked by #3678 or represent a renderer improvement.
+
 ### The one-way ratchet
 
 `test-fixtures/budgets.json` holds a `{version, fixtures: {<fixture>: {<case>: {mean, p95, max, bias}}}}` table. All four metrics are ceilings, so lower is stricter. **Budgets only go down**, and a budget drops in the same commit that delivers the improvement.

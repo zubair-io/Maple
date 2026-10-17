@@ -135,7 +135,7 @@ mkdir -p "$CANDIDATES_DIR" "$AUTO_CANDIDATES_DIR"
 
 echo "test_color_pipeline: manifest=$MANIFEST"
 echo "test_color_pipeline: preferred_resolution=$PREFERRED_RES"
-echo "test_color_pipeline: reference protocols: baseline = matched native Lanczos; other cases = legacy (#3678)"
+echo "test_color_pipeline: reference protocols: baseline and explicitly migrated cases = matched native Lanczos; unmigrated cases = legacy (#3678)"
 [[ -n "$FILTER" ]] && echo "test_color_pipeline: filter=$FILTER"
 echo ""
 
@@ -304,6 +304,7 @@ for case in sorted(cases, key=lambda c: c["name"]):
     try:
         metrics = compare_images.diff_manifest_case(cand_path, case.get("outputs", []), preferred_res,
                                                     case_label=case_label, reference_xmp=case.get("acr_xmp"),
+                                                    reference_protocol=case.get("reference_protocol"),
                                                     zones=zones_on, hue_bins=hue_bins)
         print(f"# reference protocol {name}: {metrics['reference_protocol']}")
     except Exception as e:
@@ -578,6 +579,7 @@ for case in sorted(cases, key=lambda c: c["name"]):
     try:
         metrics = compare_images.diff_manifest_case(cand_path, case.get("outputs", []), preferred_res,
                                                     case_label=case_label, reference_xmp=case.get("acr_xmp"),
+                                                    reference_protocol=case.get("reference_protocol"),
                                                     zones=zones_on, hue_bins=hue_bins)
         print(f"# reference protocol {name}: {metrics['reference_protocol']}")
     except Exception as e:
@@ -829,6 +831,7 @@ for case in sorted(cases, key=lambda c: c["name"]):
     try:
         metrics = compare_images.diff_manifest_case(cand_path, case.get("outputs", []), preferred_res,
                                                     case_label=case_label, reference_xmp=case.get("acr_xmp"),
+                                                    reference_protocol=case.get("reference_protocol"),
                                                     zones=zones_on, hue_bins=hue_bins)
         print(f"# reference protocol {name}: {metrics['reference_protocol']}")
     except Exception as e:
