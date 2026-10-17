@@ -75,6 +75,11 @@ pub fn xtrans_bilinear(mosaic: &Image, cfa: CfaPattern) -> Image {
         ColorSpace::CameraNativeLinearRgb,
     );
 
+    // Direct callers can supply empty sensors; avoid par_chunks_mut(0).
+    if w == 0 || h == 0 {
+        return out;
+    }
+
     // Mirror border reads: return (mirrored_x, mirrored_y) so callers
     // can pull the CFA color at the *physically present* sample, not
     // the phantom out-of-bounds coords. Using the original coords for
@@ -95,7 +100,9 @@ pub fn xtrans_bilinear(mosaic: &Image, cfa: CfaPattern) -> Image {
         } else {
             y
         };
-        (mx, my)
+        // A single reflection can still escape a 1- or 2-pixel axis
+        // when the fallback window reaches two pixels beyond the border.
+        (mx.clamp(0, w - 1), my.clamp(0, h - 1))
     };
 
     out.pixels
