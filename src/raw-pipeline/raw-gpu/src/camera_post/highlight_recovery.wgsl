@@ -17,9 +17,9 @@ fn to_rec2020(lab: vec3<f32>) -> vec3<f32> {
     return mul_srgb_to_rec2020(mul_lms_to_srgb(lms * lms * lms));
 }
 
-@compute @workgroup_size(256)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let i = id.x;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) groups: vec3<u32>) {
+    let i = id.y * groups.x * 64u + id.x;
     if i >= params.count { return; }
     let pixel = input_buf[i];
     if !sensor_clipped(pixel.rgb) { output_buf[i] = pixel; return; }

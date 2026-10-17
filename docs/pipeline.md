@@ -245,8 +245,14 @@ The post-DCP `OklabHighlightRecoveryPass` and `ChromaPrefilterPass` are also
 staged under #4629. They retain canonical order before capture sharpening and
 auto exposure, with constants generated from the CPU stages. Forty-eight
 physical compositions pass the unchanged `1e-4` ceiling; see
-`test-fixtures/qualification/color-gpu-camera-post-4629.md`. Retouch, deep denoise
-and persistent-host integration remain required for the full migration.
+`test-fixtures/qualification/color-gpu-camera-post-4629.md`.
+
+The staged `RetouchPass` shares CPU spot geometry and Gaussian kernels. It
+gathers both patches before each ordered clone/heal, copies the frame once and
+reuses scratch across spots and warm frames. Twelve physical compositions
+preserve the same WB-dependent stage order within `1e-4`; see
+`test-fixtures/qualification/color-gpu-retouch-4629.md`. Deep denoise and
+persistent-host integration remain required for the full migration.
 
 ### Ordered local mask groups (#3408)
 

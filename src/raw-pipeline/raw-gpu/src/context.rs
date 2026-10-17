@@ -61,6 +61,7 @@ pub struct GpuContext {
     pub(crate) oklab_highlight_recovery_pipeline: OnceCell<wgpu::ComputePipeline>,
     pub(crate) chroma_prefilter_pipeline: OnceCell<wgpu::ComputePipeline>,
     pub(crate) auto_exposure_pipelines: crate::auto_exposure::Pipelines,
+    pub(crate) retouch_pipelines: crate::retouch::Pipelines,
     /// Lazily-compiled scene-tone-controls compute pipeline
     /// (`scene_tone_controls.wgsl`). A P2 scene-linear stage (#990); five
     /// luma-coupled tone steps, no Oklab, so no generated color matrices. Built
@@ -420,6 +421,7 @@ impl GpuContext {
             oklab_highlight_recovery_pipeline: OnceCell::new(),
             chroma_prefilter_pipeline: OnceCell::new(),
             auto_exposure_pipelines: Default::default(),
+            retouch_pipelines: Default::default(),
             scene_tone_controls_pipeline: OnceCell::new(),
             vignette_pipeline: OnceCell::new(),
             local_adjustments_pipeline: OnceCell::new(),

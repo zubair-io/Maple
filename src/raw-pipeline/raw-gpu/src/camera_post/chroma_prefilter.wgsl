@@ -7,9 +7,9 @@ fn luminance(rgb: vec3<f32>) -> f32 {
     return CHROMA_LUMA.x * rgb.x + CHROMA_LUMA.y * rgb.y + CHROMA_LUMA.z * rgb.z;
 }
 
-@compute @workgroup_size(256)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let i = id.x;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_workgroups) groups: vec3<u32>) {
+    let i = id.y * groups.x * 64u + id.x;
     if i >= params.count { return; }
     let pixel = input_buf[i];
     if params.strength < 1e-3 { output_buf[i] = pixel; return; }

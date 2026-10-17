@@ -280,6 +280,7 @@ mod present_chain_web;
 #[cfg(target_arch = "wasm32")]
 mod present_web_colorspace;
 mod residual_lut;
+mod retouch;
 mod saturation;
 mod scene_tone_controls;
 mod scope;
@@ -334,6 +335,7 @@ pub use local_adjustments::{
 pub use local_spatial::{layer_needs_spatial, layer_shape_key, LocalSpatialPass, SpatialControls};
 pub use noise_reduction::{NlmColorPass, NlmLumaPass};
 pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
+pub use retouch::{GpuRetouchSpot, RetouchPass};
 pub use saturation::{apply_saturation, SaturationPass};
 pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass, SceneToneOptions};
 pub use scope::{

@@ -132,3 +132,7 @@ mod camera_prepare_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "camera_post_tests.rs"]
 mod camera_post_tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "camera_retouch_tests.rs"]
+mod camera_retouch_tests;

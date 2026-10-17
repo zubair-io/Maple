@@ -36,6 +36,9 @@
 //! rather than rendered without the repair, matching how the tile path
 //! already refuses dehaze and deep denoise. A tile no spot reaches renders
 //! normally.
+//!
+//! The staged GPU migration in #4629 borrows this same geometry and Gaussian
+//! kernel preparation. Shipping hosts retain the decode-product behavior above.
 
 use crate::cancel::CancelToken;
 use crate::error::{Error, Result};
@@ -44,6 +47,11 @@ use crate::types::retouch::RetouchSpot;
 
 mod geometry;
 mod patch;
+
+#[cfg(feature = "gpu")]
+mod gpu;
+#[cfg(feature = "gpu")]
+pub use gpu::prepare_gpu_spots;
 
 /// Apply every spot to the whole frame. Infallible in practice — the
 /// full-frame window contains every clamped footprint by construction — but

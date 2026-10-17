@@ -52,6 +52,43 @@ fn assert_parity(actual: &[f32], expected: &[f32]) {
 }
 
 #[test]
+fn post_camera_two_row_dispatch_covers_each_pixel_once() {
+    let ctx = GpuContext::new_blocking().expect("required GPU adapter");
+    let rgba = vec![0.18; 320 * 4];
+    let image = GpuImage::upload(&ctx, &rgba, 20, 16);
+    let params = Params {
+        width: 20,
+        height: 16,
+        count: 320,
+        strength: 100.,
+    };
+    for pipeline in [
+        ctx.oklab_highlight_recovery_pipeline(),
+        ctx.chroma_prefilter_pipeline(),
+    ] {
+        let output = GpuImage::upload(&ctx, &vec![0.; 320 * 4], 20, 16);
+        let resources = crate::spatial::prepare_simple_dispatch(
+            &ctx,
+            pipeline,
+            bytemuck::bytes_of(&params),
+            &[&image.buffer, &output.buffer],
+            "two-row-camera-post",
+        );
+        let mut encoder = ctx.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, resources.bind_group.as_ref(), &[]);
+            pass.dispatch_workgroups(1, 2, 1);
+        }
+        ctx.queue.submit(Some(encoder.finish()));
+        let actual = output.read_back_blocking(&ctx);
+        assert_eq!(&actual[..128 * 4], &rgba[..128 * 4]);
+        assert!(actual[128 * 4..].iter().all(|v| *v == 0.));
+    }
+}
+
+#[test]
 fn both_stages_match_actual_cpu_across_borders_hdr_and_strengths() {
     let ctx = GpuContext::new_blocking().expect("required GPU adapter");
     for (width, height) in [(1, 1), (1, 9), (9, 1), (5, 7), (17, 19)] {

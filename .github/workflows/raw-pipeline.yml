@@ -444,6 +444,9 @@ jobs:
       - name: cargo test -p raw-gpu (raw-core↔WGSL parity)
         working-directory: src/raw-pipeline
         run: cargo test -p raw-gpu -- --test-threads=1
+      - name: Retouch shared geometry and GPU parity
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-core --features gpu --lib stages::retouch::gpu -- --test-threads=1
       - name: cargo test -p raw-wasm --features gpu (render_bytes_gpu↔CPU parity)
         working-directory: src/raw-pipeline
         run: cargo test -p raw-wasm --features gpu
@@ -530,6 +533,9 @@ jobs:
       - name: cargo test -p raw-gpu (raw-core↔WGSL parity, Metal)
         working-directory: src/raw-pipeline
         run: cargo test -p raw-gpu -- --test-threads=1 --show-output
+      - name: Retouch shared geometry and GPU parity (Metal)
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-core --features gpu --lib stages::retouch::gpu -- --test-threads=1
 
   # Fixture-free Rust test gate (#1082). Before this job, NO CI executed
   # `cargo test` anywhere — the ~750 raw-core lib tests ran only on laptops.
