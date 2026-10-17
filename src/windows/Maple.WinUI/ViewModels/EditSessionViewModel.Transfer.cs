@@ -76,9 +76,7 @@ public partial class EditSessionViewModel
             if (recordUndo)
             {
                 _undoTimer?.Dispose(); _undoTimer = null;
-                _undoStack.Add(undoBefore!.Clone());
-                if (_undoStack.Count > UndoDepth) _undoStack.RemoveAt(0);
-                _redoStack.Clear();
+                UndoHistoryLogic.Push(_undoStack, _redoStack, undoBefore!.Clone(), UndoDepth);
                 _undoBaseline = doc.Adjustments.Clone();
             }
             if (!changed)

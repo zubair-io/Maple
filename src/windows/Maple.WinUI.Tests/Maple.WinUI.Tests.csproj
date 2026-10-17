@@ -322,6 +322,7 @@
          design — it takes its scheduler as a delegate, so the wheel-burst idle
          flush is testable on a fake clock here. -->
     <Compile Include="..\Maple.WinUI\ViewModels\DeferredCommit.cs" LinkBase="ViewModels" />
+    <Compile Include="..\Maple.WinUI\ViewModels\UndoHistoryLogic.cs" LinkBase="ViewModels" />
     <!-- ShellMode.cs + ViewerFilmstripLogic.cs (#3402): the shell's
          Browse/Preview/Edit enum and the viewer filmstrip rail's
          visibility/activation rules — plain C# (System.Globalization only),
