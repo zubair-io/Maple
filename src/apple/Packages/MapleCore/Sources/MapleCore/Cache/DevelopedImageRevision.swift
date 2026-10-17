@@ -29,7 +29,14 @@ public final class DevelopedImageRevision {
     let host: String?
     switch source.resolvedBackend() {
     case .cloudThumb(_, let cloudHost): host = cloudHost
-    case .thumbnailLoader(let asset, _): host = asset.catalog?.serverID.cacheHostKey
+    case .thumbnailLoader(let asset, _):
+      if let catalog = asset.catalog {
+        host = catalog.serverID.cacheHostKey
+      } else if case .cloud(let server) = asset.thumbnailProvenance {
+        host = server.cacheHostKey
+      } else {
+        host = nil
+      }
     case .photoKit: host = nil
     }
     let identity = host.map { "cloud:\($0.utf8.count):\($0):\(id)" } ?? id
