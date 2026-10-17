@@ -206,10 +206,13 @@ public actor AuthenticatedHTTPClient {
         // otherwise this launch appears healthy while the next launch replays the
         // dead predecessor and forces the user to pair again.
         //
-        // Unless the credentials were cleared while the refresh round trip
-        // was in flight: persisting now would write the rotation back over
-        // the user's sign-out, so drop it instead (#4716).
-        guard tokensProvider() != nil else { throw RefreshFailure.cancelled }
+        // Unless the stored generation moved while the refresh round trip
+        // was in flight — cleared by a sign-out, or replaced by a fresh
+        // pairing: persisting now would write this (now obsolete) rotation
+        // over it, so drop it instead (#4716).
+        guard let stored = tokensProvider(), stored.refresh == effectiveRefreshToken else {
+          throw RefreshFailure.cancelled
+        }
         try onTokensRefreshed(tokens)
         return tokens
       }
