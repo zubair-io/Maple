@@ -46,10 +46,13 @@ interface LibraryCache {
 }
 
 let cached: LibraryCache | null = null;
+let cacheGeneration = 0;
 
 async function loadCache(): Promise<LibraryCache> {
   if (cached) return cached;
+  const generation = cacheGeneration;
   const roots = await listLibraryRoots();
+  if (generation !== cacheGeneration) return loadCache();
   const byId = new Map<string, string>();
   const bySlug = new Map<string, LibraryBySlug>();
   for (const root of roots) {
@@ -78,6 +81,7 @@ export async function getLibraryBySlug(slug: string): Promise<LibraryBySlug | nu
 }
 
 export function invalidateLibraryRoots(): void {
+  cacheGeneration += 1;
   cached = null;
 }
 
@@ -104,9 +108,8 @@ export async function loadLibraryIdToSlug(): Promise<ReadonlyMap<string, string>
  * Pass `null` to revert to the lazy-load behaviour.
  */
 export function setLibraryRootsForTests(map: ReadonlyMap<string, string> | null): void {
-  if (map === null) {
-    cached = null;
-  } else {
+  invalidateLibraryRoots();
+  if (map !== null) {
     cached = { byId: map, bySlug: new Map() };
   }
 }
