@@ -58,6 +58,7 @@ import { relocateGeoAsset } from '../library/relocate-geo.ts';
 import { child as childLogger } from '../log.ts';
 import type { AssetDoc, AssetWithId } from '../db/schema.ts';
 import type { ObjectId } from '../db/object-id.ts';
+import { requireFileAccessBeforeHandle } from '../auth/middleware.ts';
 import {
   findRelocateCandidatesByFilenames,
   type RelocateCandidateRow,
@@ -332,6 +333,7 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
       }
     },
     {
+      beforeHandle: requireFileAccessBeforeHandle,
       body: RelocateBodySchema,
       detail: {
         summary: 'Count assets that would be relocated into their location folder',
@@ -472,6 +474,7 @@ export const libraryRelocateRoutes = new Elysia({ name: 'libraryRelocate' })
       return { results };
     },
     {
+      beforeHandle: requireFileAccessBeforeHandle,
       body: RelocateBodySchema,
       detail: {
         summary: 'Relocate assets into their canonical location folder (year/state/city)',

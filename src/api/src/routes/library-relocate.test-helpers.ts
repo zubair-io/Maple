@@ -31,11 +31,12 @@ import {
   SIDECAR_METADATA_INDEX_VERSION,
 } from '../workers/stages/sidecar-metadata-index.ts';
 import { libraryRelocateRoutes } from './library-relocate.ts';
+import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
 export const SLUG = 'photos';
 
 /** The routes mounted on their own, with no auth middleware in front. */
-export const app = new Elysia().use(libraryRelocateRoutes);
+export const app = new Elysia().use(fakeAuth()).use(libraryRelocateRoutes);
 
 export async function postCount(addresses: string[]): Promise<Response> {
   return app.handle(
