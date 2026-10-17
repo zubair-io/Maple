@@ -241,6 +241,7 @@ impl MapleApp {
         self.comparison_error = None;
         self.auto_pending = None;
         self.document = None;
+        self.dirty = None;
         self.white_balance = None;
         self.texture = None;
         self.gpu_texture = None;
