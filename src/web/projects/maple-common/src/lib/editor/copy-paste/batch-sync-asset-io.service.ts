@@ -240,8 +240,16 @@ export class BatchSyncAssetIO {
     const binding = this.binding(operation, id, folder, asset.filename);
     // While the editor holds a sibling variant for this asset, the live model
     // is that sibling's; the Primary is written without touching it.
-    const live = sameSidecar(this.xmpStore.bindingFor(currentId, folder, asset.filename), binding);
+    const liveNow = () =>
+      sameSidecar(this.xmpStore.bindingFor(currentId, folder, asset.filename), binding);
+    const live = liveNow();
     const target = await this.readTarget(currentId, folder, binding.filename, live);
+    // A variant selected during the read owns the live model from here on; the
+    // Primary document read above must not be merged into it.
+    if (liveNow() !== live)
+      throw new Error(
+        'The selected variant changed while this batch was writing. Copy settings again to replace them.',
+      );
     assertPreparedStillApplies(target.current, prepared);
     if (live) this.mergeLiveTarget(currentId, target, prepared.patch);
     await this.xmpStore.writeBound(

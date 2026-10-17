@@ -138,6 +138,7 @@ describe('batch paste with a sibling variant still bound (#4682)', () => {
   let library: LibraryStateService;
   let xmpStore: XmpStoreService;
   let asset: Asset;
+  let duringRead: (() => Promise<void>) | undefined;
   const parser = new XmpParserService();
   const serializer = new XmpSerializerService();
   const variantFile = `a.v${VARIANT_B}.xmp`;
@@ -156,6 +157,7 @@ describe('batch paste with a sibling variant still bound (#4682)', () => {
   });
 
   beforeEach(async () => {
+    duringRead = undefined;
     root = await fs.mkdtemp(join(tmpdir(), 'maple-batch-variant-'));
     photos = join(root, 'photos');
     await fs.mkdir(photos);
@@ -168,7 +170,13 @@ describe('batch paste with a sibling variant still bound (#4682)', () => {
         {
           provide: FolderAccessService,
           useValue: {
-            readFile: fsAccessReadFile,
+            readFile: async (...args: Parameters<typeof fsAccessReadFile>) => {
+              const result = await fsAccessReadFile(...args);
+              const action = duringRead;
+              duringRead = undefined;
+              if (action) await action();
+              return result;
+            },
             writeFile: fsAccessWriteFile,
             ensureSubdirectory: fsAccessEnsureSubdirectory,
             listEntries: fsAccessListEntries,
@@ -319,6 +327,23 @@ describe('batch paste with a sibling variant still bound (#4682)', () => {
       { id: asset.id, reason: expect.stringContaining('prepared for a different sidecar') },
     ]);
     expect(await Promise.all([read('a.xmp'), read('b.xmp'), read(variantFile)])).toEqual(before);
+  });
+
+  it('refuses the write when a variant is selected while the Primary is being read', async () => {
+    const primaryBefore = await read('a.xmp');
+    const variantBefore = await read(variantFile);
+    const operation = toneBatch();
+    await ledger.create(operation);
+    const prepared = await io.prepare(operation, asset.id);
+    duringRead = () => selectVariantB();
+
+    await expect(io.write(operation, asset.id, prepared)).rejects.toThrow(
+      'selected variant changed while this batch was writing',
+    );
+    await library.flushPendingXmpWrites();
+    expect(await read('a.xmp')).toBe(primaryBefore);
+    expect(await read(variantFile)).toBe(variantBefore);
+    expect(library.adjustmentFor(asset.id)()).toMatchObject({ saturation: 40, exposure: 0 });
   });
 
   it('treats a ledger written before targets existed as Primary-targeted', async () => {
