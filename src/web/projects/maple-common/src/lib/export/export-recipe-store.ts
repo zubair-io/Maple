@@ -104,7 +104,7 @@ export async function readDirectoryCreatedOutputs(
   }
   return undefined;
 }
-function saveDirectoryCreatedOutputs(
+export function saveDirectoryCreatedOutputs(
   directoryHandle: FileSystemDirectoryHandle,
   outputs: Record<string, string>,
 ): Promise<void> {
@@ -129,8 +129,6 @@ function saveDirectoryCreatedOutputs(
 }
 export async function saveExportQueue(value: RecipeQueueRecord): Promise<void> {
   await transaction('queue', 'readwrite', (store) => store.put(value, 'active'));
-  if (value.directoryHandle && value.createdOutputs)
-    await saveDirectoryCreatedOutputs(value.directoryHandle, value.createdOutputs);
 }
 /** A browser recipe stores an opaque handle key, never a guessed operating-system path. */
 export async function saveRecipeDirectory(handle: FileSystemDirectoryHandle): Promise<string> {
