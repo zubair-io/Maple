@@ -44,7 +44,8 @@ import {
   type ResolvedStageDep,
 } from '../db/repos/stage-claim.ts';
 import { loadStageDocuments } from '../db/repos/stage-documents.repo.ts';
-import { StageWritebackBatch } from '../db/repos/stage-writeback.batch.ts';
+import { StageWritebackBatch, type FailedWriteback } from '../db/repos/stage-writeback.batch.ts';
+import type { SqlStatement } from '../db/sqlite/protocol.ts';
 import {
   claimRollbackStatement,
   stageFailureStatements,
@@ -76,7 +77,18 @@ interface TickContext {
   docs: ReadonlyMap<string, ImageDoc>;
   libraries: ReadonlyMap<string, string>;
   batch: StageWritebackBatch;
+  updates: ImageDoc[];
+  dropped: FailedWriteback[];
   throughput?: ThroughputWindow;
+}
+
+/** Retain failures from automatic flushes as well as the tick's final flush. */
+async function recordWriteback(
+  tick: TickContext,
+  statements: readonly SqlStatement[],
+  assetId: string,
+): Promise<void> {
+  tick.dropped.push(...(await tick.batch.record(statements, assetId)));
 }
 
 /**
@@ -133,7 +145,8 @@ async function recordMissingOriginal(
   const primary = assetPrimaryFileInfo(doc);
   const confirmed = primary !== null && (await confirmMissing(primary, tick.libraries));
   const reason = `stage-enoent:${tick.stage.name}`;
-  await tick.batch.record(
+  await recordWriteback(
+    tick,
     confirmed && primary !== null
       ? [
           claimRollbackStatement(target),
@@ -184,7 +197,7 @@ async function recordFailure(
     outcome.dead && tick.stage.tagsDamagedOnDeadLetter === true
       ? [tagDamagedStatement(target.assetId, tick.stage.name, reason)]
       : [];
-  await tick.batch.record([...outcome.statements, ...tag], target.assetId);
+  await recordWriteback(tick, [...outcome.statements, ...tag], target.assetId);
 
   const fields = {
     _id: target.assetId,
@@ -223,7 +236,8 @@ async function runClaimedAsset(tick: TickContext, row: ClaimedStageRow): Promise
   };
   try {
     const result = await tick.stage.handler(doc, { ...tick.ctx, lease: row.claim_token });
-    await tick.batch.record(
+    await recordWriteback(
+      tick,
       stageResultStatements(
         {
           target,
@@ -236,7 +250,7 @@ async function runClaimedAsset(tick: TickContext, row: ClaimedStageRow): Promise
       ),
       row.asset_id,
     );
-    if ('patch' in result || 'wrote' in result) await publishUpdate(doc, tick.libraries);
+    if ('patch' in result || 'wrote' in result) tick.updates.push(doc);
     tick.throughput?.record(new Date());
   } catch (err) {
     if (tick.stage.tagsMissingOnEnoent === true && isEnoentError(err)) {
@@ -298,6 +312,8 @@ export async function runOnce(
     docs,
     libraries,
     batch: new StageWritebackBatch(db),
+    updates: [],
+    dropped: [],
     throughput,
   };
 
@@ -310,7 +326,13 @@ export async function runOnce(
     }
   });
 
-  const dropped = await tick.batch.flush();
+  const dropped = [...tick.dropped, ...(await tick.batch.flush())];
+  const droppedIds = new Set(dropped.map((entry) => entry.label));
+  // Publish only after every writeback has settled: clients may immediately
+  // re-read the asset on either SSE delivery or a journal poll.
+  for (const doc of tick.updates) {
+    if (!droppedIds.has(doc._id.toHexString())) await publishUpdate(doc, tick.libraries);
+  }
   if (dropped.length > 0) {
     log.error(
       { stage: stage.name, dropped: dropped.length },
