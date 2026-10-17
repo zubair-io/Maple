@@ -29,7 +29,8 @@ namespace Maple.WinUI.Services.FileOperations
         {
             recycleBin ??= RecycleBinService.Instance;
             var sidecarPath = SidecarStore.SidecarPathFor(primaryPath);
-            var hasSidecar = File.Exists(sidecarPath);
+            // A sidecar a same-stem sibling still reads stays put (#4758).
+            var hasSidecar = File.Exists(sidecarPath) && !SidecarStemClaimedBySibling(primaryPath);
 
             if (IsOnLocalFixedDrive(primaryPath))
             {
