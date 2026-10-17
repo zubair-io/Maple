@@ -33,7 +33,7 @@ extension EditSession {
   }
 
   func refreshThumbnailFromCurrentGpuFrame(expectedModel capturedModel: AdjustmentModel) async {
-    guard gpuFramePresented, let driver = gpuLiveDriver else { return }
+    guard !sidecarWritesDisabled, gpuFramePresented, let driver = gpuLiveDriver else { return }
     // A crop/baked edit can still be waiting for admission when the editor
     // disappears. Join that work, then validate the actual uploaded pixels.
     _ = await latestRenderSchedule?.value
@@ -42,7 +42,7 @@ extension EditSession {
     let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
     let identity = GpuUploadIdentity(
       decodeGeneration: snapshot.decodeGeneration, crop: capturedModel.crop)
-    guard model == capturedModel, !isFullQualityDecoding, !gpuPresentFailed,
+    guard !sidecarWritesDisabled, model == capturedModel, !isFullQualityDecoding, !gpuPresentFailed,
       snapshot.image != nil, snapshot.isFresh,
       !resolvedIsRaw
         || (snapshot.profile == capturedModel.profile
@@ -61,7 +61,9 @@ extension EditSession {
     } else {
       cacheWrite = nil
     }
-    guard model == capturedModel, liveSession === driver.session else { return }
+    guard !sidecarWritesDisabled, model == capturedModel, liveSession === driver.session else {
+      return
+    }
     // Same WB anchor as the live present; readback reruns that chain.
     let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
     let anchor = wbDeltaAnchor
@@ -75,11 +77,11 @@ extension EditSession {
         wbFrame: liveWbFrame
       )
     else { return }
-    guard model == capturedModel, driver === gpuLiveDriver,
+    guard !sidecarWritesDisabled, model == capturedModel, driver === gpuLiveDriver,
       liveSession === driver.session, !gpuPresentFailed
     else { return }
     let stillCurrent: @MainActor @Sendable () -> Bool = {
-      self.model == capturedModel && driver === self.gpuLiveDriver
+      !self.sidecarWritesDisabled && self.model == capturedModel && driver === self.gpuLiveDriver
         && liveSession === driver.session && !self.gpuPresentFailed
         && self.workflow.selectedVariantId == selectedVariant
     }

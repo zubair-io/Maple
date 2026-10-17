@@ -125,17 +125,19 @@ extension EditSession {
     await previewPersistence.cancelAndJoin()
   }
 
-  /// Carry over any edits made on `departing` while its sidecar writes were
-  /// disabled during an in-flight rename (#4711).
+  /// Carry over undo history and any edits made on `departing` while its
+  /// sidecar writes were disabled during an in-flight rename (#4711).
   public func adoptInFlightRenameEdits(from departing: EditSession) {
     if let pendingPreview = departing.previewPersistence.takePendingImage() {
       scheduleDisplayPreviewPersist(pendingPreview)
     }
     departing.endEdit()
-    guard
+    let hasDirtyEdits =
       departing.sidecarDirtyWhileDisabled || departing.hasUnconfirmedSidecarUpdate
-        || departing.sidecarUpdateTask != nil
-    else {
+      || departing.sidecarUpdateTask != nil
+    let hasHistory =
+      !departing.transactions.undoStack.isEmpty || !departing.transactions.redoStack.isEmpty
+    guard hasDirtyEdits || departing.hasLoadedSidecar || hasHistory else {
       return
     }
     departing.sidecarDirtyWhileDisabled = false
@@ -149,7 +151,11 @@ extension EditSession {
     culling = departing.culling
     model = departing.model
     isHydratingInitialState = false
+    transactions = departing.transactions
+    lastCommittedTransaction = departing.lastCommittedTransaction
     hasLoadedSidecar = true
-    scheduleSidecarUpdate(model: model, culling: culling)
+    if hasDirtyEdits {
+      scheduleSidecarUpdate(model: model, culling: culling)
+    }
   }
 }

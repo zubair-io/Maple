@@ -34,13 +34,17 @@ extension EditSession {
   func flushDisplayPreviewPersist(expectedModel: AdjustmentModel? = nil) async {
     guard await cancelAndJoinDisplayPreviewPersist(expectedModel: expectedModel) else { return }
     let capturedModel = model
-    await previewPersistence.persistPending { self.model == capturedModel }
+    await previewPersistence.persistPending {
+      !self.sidecarWritesDisabled && self.model == capturedModel
+    }
   }
 
   @discardableResult
   func cancelAndJoinDisplayPreviewPersist(expectedModel: AdjustmentModel? = nil) async -> Bool {
+    guard !sidecarWritesDisabled else { return false }
     if let expectedModel, model != expectedModel { return false }
     await previewPersistence.cancelAndJoin()
+    guard !sidecarWritesDisabled else { return false }
     if let expectedModel, model != expectedModel { return false }
     return true
   }
@@ -74,7 +78,7 @@ extension EditSession {
     await flushPendingSidecarWrite()
     _ = await latestRenderSchedule?.value
     await renderActor.awaitCurrentRenderIfInFlight()
-    guard model == exitModel else { return }
+    guard !sidecarWritesDisabled, model == exitModel else { return }
     // Cancellation alone cannot stop an encode/write already in progress.
     // Drain it before the current GPU frame can become the final sink write.
     guard await cancelAndJoinDisplayPreviewPersist(expectedModel: exitModel) else { return }
@@ -86,11 +90,12 @@ extension EditSession {
     {
       await ThumbnailLoader.shared.updateThumbnailFromRender(image, for: url)
     }
+    guard !sidecarWritesDisabled else { return }
     await refreshThumbnailFromCurrentGpuFrame(expectedModel: exitModel)
-    guard model == exitModel else { return }
+    guard !sidecarWritesDisabled, model == exitModel else { return }
     guard workflow.selectedVariantId == WorkflowContract.primaryVariantID else { return }
     await flushDisplayPreviewPersist(expectedModel: exitModel)
-    guard model == exitModel, let url = asset.primaryURL else { return }
+    guard !sidecarWritesDisabled, model == exitModel, let url = asset.primaryURL else { return }
     DevelopedImageRevision.shared.didPersist(for: url)
   }
 
