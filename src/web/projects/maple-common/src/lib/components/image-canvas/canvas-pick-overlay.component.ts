@@ -20,7 +20,7 @@ import { ImageCanvasService } from './image-canvas.service';
 import { CanvasPickService } from './canvas-pick.service';
 import { normalisedImagePoint } from './image-canvas.wb-pick';
 import { computeEffectivePx } from './image-canvas.draw2d';
-import { displayDims } from './image-canvas.crop';
+import { resolveCanvasDisplayDims } from './image-canvas.crop';
 import { LibraryStateService } from '../../state/library-state.service';
 
 @Component({
@@ -66,10 +66,23 @@ export class CanvasPickOverlayComponent {
   private pointFor(e: MouseEvent) {
     const rect = (this.host.nativeElement as HTMLElement).getBoundingClientRect();
     const asset = this.state.focusedAsset();
-    // Same inputs as `ImageCanvasComponent`'s own `effectivePx`: the PAINTED
-    // aspect first (a cropped render is a different aspect than the source),
-    // the asset's stored dims before the first paint.
-    const { w, h } = displayDims(this.canvasSvc.paintedAspect(), asset?.width, asset?.height);
+    const published = this.canvasSvc.effectivePx();
+    if (published) {
+      return normalisedImagePoint(e.clientX - rect.left, e.clientY - rect.top, {
+        wrapW: rect.width,
+        wrapH: rect.height,
+        canvasW: published.canvasW,
+        canvasH: published.canvasH,
+        pan: this.canvasSvc.pan(),
+      });
+    }
+    const { w, h } = resolveCanvasDisplayDims(
+      this.canvasSvc.paintedAspect(),
+      this.canvasSvc.nativeDimensions(),
+      asset?.width,
+      asset?.height,
+      asset ? this.state.adjustmentFor(asset.id)().crop : undefined,
+    );
     const scale = this.canvasSvc.pixelScale();
     const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
     const { canvasW, canvasH } = computeEffectivePx(
