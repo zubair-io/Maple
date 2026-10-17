@@ -478,6 +478,13 @@ def test_swift_calibration_expectations_match_python():
 
 
 def main():
+    import unittest
+
+    import compare_images_metadata_test
+
+    suite = unittest.defaultTestLoader.loadTestsFromModule(compare_images_metadata_test)
+    if not unittest.TextTestRunner().run(suite).wasSuccessful():
+        raise AssertionError("authoring metadata tests failed")
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
             fn()

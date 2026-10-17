@@ -16,8 +16,41 @@ Generated registry documentation lists those inputs, and CI watches them.
 This isolates the executable protocol from the larger repair branch. It does
 not migrate the installed manifest, alter original RAW/XMP/reference bytes,
 change rendering math or loosen budgets. Actual capture qualification and
-corpus migration remain tracked by #3678. Complete Custom-WB validation is
-the separate #4787 change and must land before this chunk is merged.
+corpus migration remain tracked by #3678. Complete Custom-WB validation
+landed separately in #4787.
+
+## Review correction: complete Camera Raw authoring state
+
+The original verifier compared a fixed set of authoring controls, then checked
+the two captured PNGs against each other. It could accept both captures with
+the same added, missing or changed local correction. A new regression suite
+reproduced that failure before the repair.
+
+The verifier now compares every authored CRS property with both captures,
+including unknown properties and complete nested local-adjustment payloads.
+Nested corrections retain their own properties and sequence order; conflicting
+duplicates and nonfinite numbers are rejected. Numeric spelling, boolean case
+and XML attribute order do not change the meaning of a property.
+
+Capture-added application/profile bookkeeping and resolved named-white-balance
+axes are checked between the two captures; explicitly authored values still
+have to match. Inactive subcontrols may be omitted only when their parent
+amount is zero on both sides. Exact inactive export values for Glow, Reshape,
+OverrideLookVignette and empty PointColors/ColorVariance are recognized;
+unknown controls and nonneutral values are rejected.
+
+All **17 new authoring-metadata tests and 15 existing comparator tests pass**,
+as do all **28 registry tests**. A metadata-only audit of the frozen repair
+corpus accepts **758 of 776 cases** and rejects all **18 nr_luminance_max
+cases**: Adobe's active luminance-NR detail/contrast controls were not pinned
+in their authoring sidecars. These cases remain unqualified for migration
+under #3678. This audit neither changes pixels nor clears color failures.
+Original sidecars, references, manifest entries and budgets are unchanged.
+
+The three physical protocol controls below are being replayed after the review
+repair. Their original results remain historical evidence until that replay
+and its input audit finish. Logs and metadata-audit results use the
+`complete-crs-*` prefix in the evidence directory.
 
 ## Qualification
 
