@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import { Elysia } from 'elysia';
-import * as fs from 'node:fs/promises';
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { shutdownMaplePool } from 'maple';
 import { xmpPathRoutes } from './xmp';
 import { setLibraryRootsForTests } from '../indexer/libraries.cache';
+import * as sidecarIo from '../fs/sidecar-io';
 
 const corpus = JSON.parse(
   await readFile(
@@ -75,20 +75,20 @@ const variantQuery = () => 'path=' + encodeURIComponent(join(directory, 'photo.d
 
 test('cancelling a workflow PATCH read releases the sidecar barrier', async () => {
   const destination = join(directory, 'photo.xmp');
-  const realReadFile = fs.readFile.bind(fs);
+  // Sidecar reads go through the no-follow reader (#4749), so that is where
+  // the read is stalled.
+  const realRead = sidecarIo.readSidecarNoFollow;
   const { promise: readStarted, resolve: markReadStarted } = Promise.withResolvers<void>();
   const { promise: releaseRead, resolve: releaseStalledRead } = Promise.withResolvers<void>();
   let stalled = false;
-  const readSpy = spyOn(fs, 'readFile').mockImplementation((async (
-    ...args: Parameters<typeof fs.readFile>
-  ) => {
-    if (!stalled && args[0] === destination) {
+  const readSpy = spyOn(sidecarIo, 'readSidecarNoFollow').mockImplementation(async (target) => {
+    if (!stalled && target === destination) {
       stalled = true;
       markReadStarted();
       await releaseRead;
     }
-    return realReadFile(...args);
-  }) as never);
+    return realRead(target);
+  });
   const controller = new AbortController();
 
   try {
@@ -109,20 +109,18 @@ test('cancelling a selected-variant read releases its write barrier', async () =
   expect((await variantRequest('variants?' + variantQuery(), branch)).status).toBe(201);
   const selected = 'variant?' + variantQuery() + '&variantId=' + branch.variantId;
   const destination = join(directory, `photo.v${branch.variantId}.xmp`);
-  const realReadFile = fs.readFile.bind(fs);
+  const realRead = sidecarIo.readSidecarNoFollow;
   const { promise: readStarted, resolve: markReadStarted } = Promise.withResolvers<void>();
   const { promise: releaseRead, resolve: releaseStalledRead } = Promise.withResolvers<void>();
   let stalled = false;
-  const readSpy = spyOn(fs, 'readFile').mockImplementation((async (
-    ...args: Parameters<typeof fs.readFile>
-  ) => {
-    if (!stalled && args[0] === destination) {
+  const readSpy = spyOn(sidecarIo, 'readSidecarNoFollow').mockImplementation(async (target) => {
+    if (!stalled && target === destination) {
       stalled = true;
       markReadStarted();
       await releaseRead;
     }
-    return realReadFile(...args);
-  }) as never);
+    return realRead(target);
+  });
   const controller = new AbortController();
 
   try {

@@ -36,7 +36,6 @@ import { Elysia, status, t } from 'elysia';
 import { callNativeRetrying } from '../fs/native-call';
 import { parseSidecarWorkflow, PRIMARY_VARIANT_ID } from '../generated/workflow.generated.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
-import * as fs from 'node:fs/promises';
 import { xmpSidecarPath, writeXmpAtomic, deleteXmpSidecar } from '../fs/xmp.ts';
 import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
 import { publishSidecarChange } from './xmp-change';
@@ -48,13 +47,13 @@ import {
 import { safeWriteAllowed } from '../fs/root';
 import { writeSidecarAtomic } from '../fs/sidecar-io';
 import { xmpVariantRoutes } from './xmp-variants';
-import { authorizeSidecarRead, isMissingSidecar } from '../fs/sidecar-io';
+import { authorizeSidecarRead, isMissingSidecar, readSidecarNoFollow } from '../fs/sidecar-io';
 import { writeXmpIfUnchanged } from '../fs/xmp-conditional';
 import { computeBodyETag } from '../runtime/http-etag';
 
-// Note: we deliberately bypass `readXmp` from `../fs/xmp.ts` and call
-// `fs.readFile` directly so we can distinguish "no sidecar" (404) from
-// "filesystem error" (500). The id-keyed route conflates those by
+// Note: we deliberately bypass `readXmp` from `../fs/xmp.ts` and read the
+// authorized sidecar directly (no-follow) so we can distinguish "no sidecar"
+// (404) from "filesystem error" (500). The id-keyed route conflates those by
 // returning an empty XMP stub on ENOENT.
 
 export const xmpPathRoutes = new Elysia()
@@ -87,7 +86,7 @@ export const xmpPathRoutes = new Elysia()
           sidecar,
           async (destination) => {
             const existing = await waitForAbortable(
-              fs.readFile(destination, 'utf8'),
+              readSidecarNoFollow(destination),
               request.signal,
             ).catch((error: unknown) => {
               if (isMissingSidecar(error)) return mergeMetadataIntoXmp('', {});
@@ -156,7 +155,7 @@ export const xmpPathRoutes = new Elysia()
       const allowed = await authorizeSidecarRead(sidecar);
       if (!allowed.ok) return status(403, { error: allowed.error ?? 'Sidecar path not allowed' });
       try {
-        const body = await fs.readFile(allowed.data ?? sidecar, 'utf-8');
+        const body = await readSidecarNoFollow(allowed.data ?? sidecar);
         set.headers['Content-Type'] = 'application/xml';
         set.headers['ETag'] = computeBodyETag(body);
         return body;

@@ -67,6 +67,18 @@ export async function authorizeSidecarRead(sidecar: string): Promise<OpResult<st
   return requireSidecarResolution(sidecar, await checkAllowed(sidecar));
 }
 
+/** Read a sidecar without following a symlink in its final component, so a
+ * directory entry swapped for a link between authorization and open is refused
+ * (`ELOOP`) rather than followed (#4749). Callers pass the authorized path. */
+export async function readSidecarNoFollow(sidecar: string): Promise<string> {
+  const handle = await fs.open(sidecar, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    return await handle.readFile('utf8');
+  } finally {
+    await handle.close();
+  }
+}
+
 export async function authorizeUnlessAborted(destPath: string, signal?: AbortSignal) {
   try {
     return await waitForAbortable(authorizeSidecarWrite(destPath), signal);

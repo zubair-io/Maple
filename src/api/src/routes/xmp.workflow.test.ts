@@ -220,6 +220,18 @@ test('wired API creates portable siblings, reopens and saves one identity withou
   expect(await readFile(join(directory, 'photo.dng'))).toEqual(Buffer.from([1, 0, 255, 42]));
 });
 
+test('a variant sidecar symlinked to the original is refused, not read (#4749)', async () => {
+  const first = corpus[1];
+  expect((await variantRequest('variants?' + variantQuery(), 'POST', first)).status).toBe(201);
+  const filename = join(directory, `photo.v${first.variantId}.xmp`);
+  await unlink(filename);
+  await symlink(join(directory, 'photo.dng'), filename);
+  const selected = 'variant?' + variantQuery() + '&variantId=' + first.variantId;
+  expect((await variantRequest(selected, 'GET')).status).toBe(403);
+  expect((await variantRequest(selected, 'PUT', xml)).status).toBe(403);
+  expect(await readFile(join(directory, 'photo.dng'))).toEqual(Buffer.from([1, 0, 255, 42]));
+});
+
 test('missing, future and mismatched selected variants reject without fallback or publication', async () => {
   const route = 'variants?' + variantQuery();
   const missing = 'variant?' + variantQuery() + '&variantId=' + crypto.randomUUID();
