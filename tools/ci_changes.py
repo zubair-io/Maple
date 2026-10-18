@@ -91,7 +91,7 @@ def is_maple_runtime(path):
 
 def affects_swift_api(path, root=ROOT):
     closure, complete = swift_api_closure(root)
-    return path in closure or (not complete and path.startswith("src/api/"))
+    return not complete or path in closure
 
 
 SWIFT_WEB_INPUTS = frozenset(
