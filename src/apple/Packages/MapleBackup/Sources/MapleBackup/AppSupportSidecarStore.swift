@@ -7,7 +7,7 @@
 // This store holds Maple edits for PhotoKit-backed photos whose bytes
 // haven't been uploaded yet. Once the BackupEngine uploads the bytes,
 // the sidecar is copied to the cloud library as a normal `<file>.xmp`
-// next to the asset, then the local row is deleted.
+// next to the asset, then the acknowledged local row is removed if unchanged.
 //
 // Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §11.
 
@@ -19,11 +19,14 @@ import Foundation
 public enum AppSupportSidecarStoreError: Error, LocalizedError, Sendable {
   /// The sidecar file exists but its bytes are not valid UTF-8.
   case decodeFailed(URL)
+  case coordinationFailed(URL)
 
   public var errorDescription: String? {
     switch self {
     case .decodeFailed(let url):
       return "PhotoKit sidecar at \(url.lastPathComponent) is not valid UTF-8"
+    case .coordinationFailed(let url):
+      return "Unable to coordinate PhotoKit sidecar at \(url.lastPathComponent)"
     }
   }
 }
@@ -89,21 +92,36 @@ public final class AppSupportSidecarStore {
     return s
   }
 
-  /// Atomic write: temp file → `replaceItemAt`. Overwrites any existing
-  /// row at the same key. Leaves no orphan `.tmp` files on success.
+  /// Atomic write: temp file → replace or move into place. Overwrites any
+  /// existing row at the same key. Leaves no orphan `.tmp` files on success.
   public func write(phassetLocalId: String, xmp: String) throws {
     let final = sidecarURL(phassetLocalId: phassetLocalId)
-    let tmp = final.deletingLastPathComponent()
-      .appendingPathComponent(".\(final.lastPathComponent).tmp")
-    try Data(xmp.utf8).write(to: tmp, options: .atomic)
-    do {
-      _ = try FileManager.default.replaceItemAt(final, withItemAt: tmp)
-    } catch {
-      // If replaceItemAt fails, clean up the temp so we don't leave
-      // it behind, then rethrow.
-      try? FileManager.default.removeItem(at: tmp)
-      throw error
+    let coordinator = NSFileCoordinator(filePresenter: nil)
+    var coordinationError: NSError?
+    var result: Result<Void, Error>?
+    coordinator.coordinate(writingItemAt: final, options: [], error: &coordinationError) {
+      coordinatedURL in
+      result = Result {
+        let tmp = coordinatedURL.deletingLastPathComponent()
+          .appendingPathComponent(".\(coordinatedURL.lastPathComponent).tmp")
+        try Data(xmp.utf8).write(to: tmp, options: .atomic)
+        do {
+          if FileManager.default.fileExists(atPath: coordinatedURL.path) {
+            _ = try FileManager.default.replaceItemAt(coordinatedURL, withItemAt: tmp)
+          } else {
+            try FileManager.default.moveItem(at: tmp, to: coordinatedURL)
+          }
+        } catch {
+          // If replaceItemAt fails, clean up the temp so we don't leave
+          // it behind, then rethrow.
+          try? FileManager.default.removeItem(at: tmp)
+          throw error
+        }
+      }
     }
+    if let coordinationError { throw coordinationError }
+    guard let result else { throw AppSupportSidecarStoreError.coordinationFailed(final) }
+    try result.get()
   }
 
   /// Idempotent — a delete on a missing key is a no-op.
@@ -112,6 +130,32 @@ public final class AppSupportSidecarStore {
     if FileManager.default.fileExists(atPath: u.path) {
       try FileManager.default.removeItem(at: u)
     }
+  }
+
+  /// Remove only the exact XMP acknowledged by the backup server. The editor
+  /// uses NSFileCoordinator on this same URL for every publication, so a
+  /// later edit cannot land between this comparison and removal.
+  @discardableResult
+  public func deleteIfUnchanged(phassetLocalId: String, matching acknowledgedXML: String) throws
+    -> Bool
+  {
+    let url = sidecarURL(phassetLocalId: phassetLocalId)
+    let acknowledgedBytes = Data(acknowledgedXML.utf8)
+    let coordinator = NSFileCoordinator(filePresenter: nil)
+    var coordinationError: NSError?
+    var result: Result<Bool, Error>?
+    coordinator.coordinate(writingItemAt: url, options: .forDeleting, error: &coordinationError) {
+      coordinatedURL in
+      result = Result {
+        guard FileManager.default.fileExists(atPath: coordinatedURL.path) else { return false }
+        guard try Data(contentsOf: coordinatedURL) == acknowledgedBytes else { return false }
+        try FileManager.default.removeItem(at: coordinatedURL)
+        return true
+      }
+    }
+    if let coordinationError { throw coordinationError }
+    guard let result else { throw AppSupportSidecarStoreError.coordinationFailed(url) }
+    return try result.get()
   }
 }
 
