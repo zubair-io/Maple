@@ -312,10 +312,12 @@ public final class BatchMetadataViewModel: Identifiable {
             try await applyToPrimary(primary, metadata: merged)
             return
         }
-        let culling = applyingTouchedCulling(to: session.culling)
-        session.culling = culling
+        // Ordered with every other culling edit on this session, and the live
+        // culling re-read after the wait so an edit that landed meanwhile is kept.
+        let touched = touchedMetadata
+        try await session.setCulling { Self.applyTouchedCulling(touched, to: &$0) }
         await session.sidecarUpdateTask?.value
-        await store.update(model: session.model, culling: culling, metadata: merged)
+        await store.update(model: session.model, culling: session.culling, metadata: merged)
         await store.flush()
     }
 
@@ -329,12 +331,18 @@ public final class BatchMetadataViewModel: Identifiable {
     }
 
     private func applyingTouchedCulling(to base: CullingState) -> CullingState {
-        CullingState(
-            stars: touchedMetadata.stars.map { min(max($0, 0), 5) } ?? base.stars,
-            flag: touchedMetadata.flag ?? base.flag,
-            keywords: touchedMetadata.keywords.map { $0 ?? [] } ?? base.keywords,
-            hidden: touchedMetadata.hidden ?? base.hidden,
-            colorLabel: touchedMetadata.colorLabel ?? base.colorLabel)
+        var culling = base
+        Self.applyTouchedCulling(touchedMetadata, to: &culling)
+        return culling
+    }
+
+    private static func applyTouchedCulling(_ t: TouchedMetadata, to culling: inout CullingState) {
+        culling = CullingState(
+            stars: t.stars.map { min(max($0, 0), 5) } ?? culling.stars,
+            flag: t.flag ?? culling.flag,
+            keywords: t.keywords.map { $0 ?? [] } ?? culling.keywords,
+            hidden: t.hidden ?? culling.hidden,
+            colorLabel: t.colorLabel ?? culling.colorLabel)
     }
 
     private static func applyTouched(_ t: TouchedMetadata, into merged: inout XmpMetadata) {
