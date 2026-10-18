@@ -13,6 +13,16 @@ RUST_TOOLCHAIN_MASTER_SHA = "683b588c487a69d01f6c6ddf40f036ff682cc2c8"
 
 
 class SupplyChainTests(unittest.TestCase):
+    def test_hosted_wasm_pack_version_is_published_release_tag(self):
+        config = yaml.safe_load(
+            (ROOT / ".github/workflows/deploy-hosted.yml").read_text()
+        )
+        steps = config["jobs"]["build-and-deploy"]["steps"]
+        action = next(
+            step for step in steps if step.get("uses", "").startswith("jetli/wasm-pack-action@")
+        )
+        self.assertEqual(action["with"]["version"], "v0.15.0")
+
     def test_privileged_rust_action_uses_retained_pin_and_explicit_toolchain(self):
         native = tomllib.loads(
             (ROOT / "src/raw-pipeline/rust-toolchain.toml").read_text()
