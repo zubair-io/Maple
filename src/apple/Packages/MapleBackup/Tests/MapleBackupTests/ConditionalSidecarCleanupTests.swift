@@ -3,12 +3,26 @@ import XCTest
 @testable import MapleBackup
 
 final class ConditionalSidecarCleanupTests: XCTestCase {
+  private actor UploadTrace {
+    private(set) var sidecars: [String] = []
+    private(set) var originalUploads = 0
+
+    func record(_ request: URLRequest) -> Int {
+      guard request.url!.path.contains("backup/sidecar") else {
+        originalUploads += 1
+        return 0
+      }
+      sidecars.append(String(data: request.httpBody!, encoding: .utf8)!)
+      return sidecars.count
+    }
+  }
+
   private actor CompletionFlag {
     private(set) var done = false
     func finish() { done = true }
   }
 
-  func testNewLocalEditDuringUploadSurvivesAcknowledgement() async throws {
+  func testNewLocalEditDuringUploadIsSentWithoutReuploadingOriginal() async throws {
     let root = FileManager.default.temporaryDirectory
       .appendingPathComponent("backup-sidecar-race-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -20,28 +34,43 @@ final class ConditionalSidecarCleanupTests: XCTestCase {
 
     let state = try BackupStateStore(databaseURL: root.appendingPathComponent("state.sqlite"))
     let queue = InProcessBackupQueue()
+    let trace = UploadTrace()
     let upload = UploadClient(
       baseURL: URL(string: "https://server.example")!, libraryId: "lib", deviceId: "d",
       transport: { request in
-        let isSidecar = request.url!.path.contains("backup/sidecar")
-        if isSidecar { try sidecars.write(phassetLocalId: "P1", xmp: newXML) }
+        let sidecarNumber = await trace.record(request)
+        if sidecarNumber == 1 { try sidecars.write(phassetLocalId: "P1", xmp: newXML) }
         let payload =
-          isSidecar
+          sidecarNumber > 0
           ? Data() : Data(#"{"maple_id":"hash-P1","target_rel_path":"IMG.heic"}"#.utf8)
         let response = HTTPURLResponse(
           url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
         return (payload, response)
       })
     let engine = BackupEngine(
-      queue: queue, state: state, upload: upload, sidecars: sidecars, reader: StubAssetReader())
+      queue: queue, state: state, upload: upload, sidecars: sidecars, reader: StubAssetReader(),
+      companionBackoff: { _ in 0 })
     let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
     let task = BackupTask(id: id, state: .pending, priority: .background)
     try await state.upsert(task)
     await queue.enqueue(task, priority: .background)
 
     try await engine.processOne()
-
-    XCTAssertEqual(try sidecars.read(phassetLocalId: "P1"), newXML)
+    for _ in 0..<200 {
+      if await trace.sidecars.count >= 2,
+        try sidecars.read(phassetLocalId: "P1") == nil
+      {
+        break
+      }
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    let sentSidecars = await trace.sidecars
+    let originalUploads = await trace.originalUploads
+    let persistedState = try await state.find(id)?.state
+    XCTAssertEqual(sentSidecars, [oldXML, newXML])
+    XCTAssertEqual(originalUploads, 1)
+    XCTAssertEqual(persistedState, .uploaded)
+    XCTAssertNil(try sidecars.read(phassetLocalId: "P1"))
   }
 
   func testConditionalDeleteComparesExactUTF8Bytes() throws {
