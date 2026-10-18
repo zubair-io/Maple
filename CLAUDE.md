@@ -258,6 +258,34 @@ cargo run --release -p raw-core --example raw-stats -- <DNG>
 
 Fixtures at `test-fixtures/raws/` (repo-root, not under `src/raw-pipeline/`) are gitignored. Reference RAW is a 100MP Hasselblad L3D-100c (DJI Mavic 3 Pro) frame at `test-fixtures/raws/dji-mavic3pro-100mp.dng`.
 
+### Shared Rust builds (sccache) — required on any machine with several worktrees
+
+Every worktree builds its own `src/raw-pipeline/target` (20–27 GB each, release builds take 5–25 minutes), and a few parallel sessions will fill a disk and starve each other of CPU. Compile through `sccache` so identical crate compilations are shared across all worktrees and branches:
+
+```bash
+brew install sccache
+mkdir -p ~/.cargo
+cat >> ~/.cargo/config.toml <<'TOML'
+[build]
+rustc-wrapper = "sccache"
+incremental = false        # sccache cannot cache incremental builds
+
+[env]
+SCCACHE_CACHE_SIZE = "60G"
+TOML
+sccache -s                 # confirm hits after a second build in another worktree
+```
+
+- The cache lives outside the worktrees (`~/Library/Caches/Mozilla.sccache`), so deleting a worktree's `target/` is cheap: the next build is mostly cache hits.
+- `build-xcframework.sh` hardcodes `CARGO_TARGET_DIR`; sccache still applies because it wraps `rustc`, not the target dir. Do not point worktrees at one shared `CARGO_TARGET_DIR`: concurrent builds then serialize on cargo's lock and thrash each other's fingerprints.
+- When a build is finished and you are idle, delete your worktree's `target/`, `.build/` and DerivedData; CI, not a local build, is the merge evidence.
+
+### Parallel agents and shared CI
+
+- **Rebase only when needed.** Every push restarts the whole CI suite. Push once at the end of a fix; force-push a rebase only when GitHub reports a real conflict (merge state `DIRTY`) or the required checks demonstrably need the new base.
+- **One pipeline-version bump at a time.** A change to `PIPELINE_OUTPUT_VERSION` forces re-recording the five CI-gated evidence records (`synthetic_grey`, `color_chart`, `grey_adjustments`, `grey_dcp`, `sidecar_contract_api`). Before bumping, run `gh pr list --state open` and look for any other PR touching `raw-core/src/lib.rs` or the qualification records; if one exists, wait for it to merge and take the next free version.
+- **Heavy local suites one at a time.** Check `uptime` first and wait if the one-minute load is above about 40; never use broad `pkill -f` patterns, stop only the processes you started, by PID.
+
 ## Objective color testing — no eyeballing
 
 Every color-pipeline change must pass the perceptual harness against ACR-rendered references. Screenshot comparisons are not acceptable evidence.
