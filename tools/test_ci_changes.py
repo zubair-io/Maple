@@ -40,6 +40,7 @@ class ClassificationTests(unittest.TestCase):
                 "maple",
                 "web",
                 "codegen",
+                "swift",
             },
             "src/apple/Maple/App.swift": {"codegen", "swift"},
             "src/apple/Packages/MapleCore/Package.swift": {"codegen", "swift"},
@@ -237,7 +238,6 @@ class SwiftSelectionTests(unittest.TestCase):
     def test_api_only_diff_skips_swift(self):
         for path in (
             "src/api/src/routes/assets.ts",
-            "src/api/src/db/schema.ts",
             "src/api/tests/assets-restore.test.ts",
             "src/api/tests/fixtures/other-server.ts",
         ):
@@ -249,6 +249,7 @@ class SwiftSelectionTests(unittest.TestCase):
             "src/api/tests/fixtures/file-provider-restart.ts",
             "src/api/tests/fixtures/unified-folder-server.ts",
             "src/api/tests/browser/workflow-server.ts",
+            "src/api/src/routes/changes.ts",
             "src/api/package.json",
             "src/api/bun.lock",
         ):
@@ -325,6 +326,65 @@ class SwiftSelectionTests(unittest.TestCase):
                 {"pull_request": {"head": {"ref": "release/next-v1.2.3"}}},
             )[0]["swift"]
         )
+
+
+class SwiftApiClosureTests(unittest.TestCase):
+    def test_modules_imported_by_swift_booted_fixtures_select_swift(self):
+        for path in (
+            "src/api/src/routes/changes.ts",
+            "src/api/src/routes/library/folder.ts",
+            "src/api/src/db/repos/changes.repo.ts",
+            "src/api/tests/helpers/test-auth.ts",
+        ):
+            with self.subTest(path=path):
+                self.assertIn("swift", ci.dependencies(path))
+
+    def test_unrelated_api_modules_skip_swift(self):
+        closure, complete = ci.swift_api_closure()
+        self.assertTrue(complete)
+        unrelated = "src/api/src/routes/cloudflare.ts"
+        if not (SCRIPT.parent.parent / unrelated).exists():
+            self.skipTest("fixture module renamed")
+        self.assertNotIn(unrelated, closure)
+        self.assertNotIn("swift", ci.dependencies(unrelated))
+
+    def test_closure_follows_transitive_relative_imports(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            api = root / "src/api"
+            (api / "tests/fixtures").mkdir(parents=True)
+            (api / "src/deep").mkdir(parents=True)
+            (api / "tests/fixtures/file-provider-restart.ts").write_text(
+                "import { a } from '../../src/a.ts';\n"
+            )
+            (api / "src/a.ts").write_text("export * from './deep/index.ts';\n")
+            (api / "src/deep/index.ts").write_text("import './b.js';\n")
+            (api / "src/deep/b.ts").write_text("export const b = 1;\n")
+            (api / "src/lonely.ts").write_text("export const c = 1;\n")
+            for name in ("unified-folder-server.ts",):
+                (api / "tests/fixtures" / name).write_text("")
+            (api / "tests/browser").mkdir()
+            (api / "tests/browser/workflow-server.ts").write_text("")
+            closure, complete = ci.swift_api_closure(root)
+            self.assertTrue(complete)
+            self.assertIn("src/api/src/deep/b.ts", closure)
+            self.assertNotIn("src/api/src/lonely.ts", closure)
+
+    def test_unresolvable_import_is_conservative(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fixtures = root / "src/api/tests/fixtures"
+            fixtures.mkdir(parents=True)
+            (fixtures / "file-provider-restart.ts").write_text(
+                "import { gone } from '../../src/not-there.ts';\n"
+            )
+            closure, complete = ci.swift_api_closure(root)
+            self.assertFalse(complete)
+            self.assertTrue(ci.affects_swift_api("src/api/src/anything.ts", root))
+
+    def test_missing_entry_point_is_conservative(self):
+        with tempfile.TemporaryDirectory() as temp:
+            self.assertFalse(ci.swift_api_closure(Path(temp))[1])
 
 
 class GitTests(unittest.TestCase):

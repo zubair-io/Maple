@@ -21,8 +21,9 @@
 # Swift, hand-written Swift) or changes the raw-ffi surface the header is
 # generated from (src/raw-pipeline/**), plus the shared fixtures, API server
 # entry points and web recipe-interchange inputs the Swift tests read. The
-# live native change-feed restart gate (#3770) boots the API fixtures named in
-# SWIFT_API_INPUTS. Unrelated diffs (e.g. src/api-only) skip the macOS jobs;
+# live native change-feed restart gate (#3770) boots API fixture servers, so
+# any API module they transitively import also selects `swift`
+# (SWIFT_API_ENTRY_POINTS). Unrelated diffs (e.g. src/api-only) skip the macOS jobs;
 # validation-result counts an intentional skip as a pass and a skip of a
 # selected job as a failure. Release and manual runs select everything.
 
