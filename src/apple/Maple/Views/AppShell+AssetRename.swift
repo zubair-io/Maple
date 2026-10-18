@@ -86,13 +86,17 @@ extension AppShell {
       return
     }
     renameError = nil
+    // Bind to the share that listed `asset` before any suspension: a share switch
+    // during the sidecar flush must not retarget the same path on another share.
+    let smbSource = browseVM.currentSource as? SMBSource
     Task { @MainActor in
       do {
         if let existingSession = sessions[asset.id] {
           try await existingSession.flushPendingSidecarWriteConfirmed()
           await existingSession.setSidecarWritesEnabled(false)
         }
-        let newAsset = try await performRename(asset: asset, to: newFilename)
+        let newAsset = try await performRename(
+          asset: asset, to: newFilename, smbSource: smbSource)
         applyRenamed(oldID: asset.id, newAsset: newAsset)
         renamingAssetID = nil
         renameError = nil
@@ -105,15 +109,17 @@ extension AppShell {
 
   // MARK: - Routing
 
-  private func performRename(asset: AssetRef, to newFilename: String) async throws -> AssetRef {
+  private func performRename(
+    asset: AssetRef, to newFilename: String, smbSource: SMBSource?
+  ) async throws -> AssetRef {
     if asset.catalog != nil {
       return try await renameCloudAsset(asset, to: newFilename)
     }
     if let url = asset.primaryURL {
       return try await renameLocalAsset(asset, url: url, to: newFilename)
     }
-    if browseVM.currentSource is SMBSource {
-      return try await renameSMBAsset(asset, to: newFilename)
+    if let smbSource {
+      return try await renameSMBAsset(asset, to: newFilename, source: smbSource)
     }
     throw FileOperationError.unsupportedSource("rename is not available for this asset")
   }
@@ -136,9 +142,10 @@ extension AppShell {
 
   // MARK: - SMB
 
-  private func renameSMBAsset(_ asset: AssetRef, to newFilename: String) async throws -> AssetRef {
-    guard let source = browseVM.currentSource as? SMBSource,
-      let ref = asset.smbMutationRef,
+  private func renameSMBAsset(
+    _ asset: AssetRef, to newFilename: String, source: SMBSource
+  ) async throws -> AssetRef {
+    guard let ref = asset.smbMutationRef,
       asset.bytesProvider != nil
     else {
       throw FileOperationError.sourceMissing("SMB share is not connected")
