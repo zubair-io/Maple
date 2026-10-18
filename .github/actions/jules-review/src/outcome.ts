@@ -66,10 +66,8 @@ export async function settleFailure(
   }
   const reason = error instanceof Error ? error.message : String(error);
   return {
-    state: produced.state,
-    description: truncate(
-      `Review verdict produced but its status could not be written (${reason})`,
-    ),
+    state: outcome.state === 'success' ? 'error' : outcome.state,
+    description: truncate(`Review status could not be written (${reason})`),
     failJob: true,
   };
 }
