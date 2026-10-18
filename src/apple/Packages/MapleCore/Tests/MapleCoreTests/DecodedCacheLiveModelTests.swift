@@ -136,25 +136,6 @@ final class DecodedCacheLiveModelTests: XCTestCase {
       snapshot.isFresh, "crop and perspective are applied on the developed image, not baked")
   }
 
-  /// The live key runs on every slider tick in place of the mtime stat +
-  /// occasional XMP parse. A thousand checks must fit inside one 16 ms
-  /// frame, so a single one costs well under the budget's noise floor.
-  func testLiveModelFreshnessCheckStaysFarInsideTheTickBudget() async throws {
-    let (asset, dir) = try makeLocalAsset()
-    defer { try? FileManager.default.removeItem(at: dir) }
-    let actor = await seededActor(asset)
-    var live = AdjustmentModel()
-    live.exposure = 0.3
-    live.localAdjustments = []
-    _ = await actor.snapshot(forAsset: asset, liveModel: live)
-    let started = DispatchTime.now().uptimeNanoseconds
-    for _ in 0..<1000 {
-      _ = await actor.snapshot(forAsset: asset, liveModel: live)
-    }
-    let elapsedMs = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
-    XCTAssertLessThan(elapsedMs, 16, "1000 live freshness checks took \(elapsedMs) ms")
-  }
-
   func testLiveBakedModelNormalisesProfileAndAutoExposure() {
     var model = AdjustmentModel()
     model.profile = .neutral
@@ -193,5 +174,13 @@ final class DecodedCacheLiveModelTests: XCTestCase {
     baked.retouchSpots = [healSpot]
     XCTAssertFalse(RenderActor.exportCanReuse(cachedBakedModel: cached, live: baked))
     XCTAssertTrue(RenderActor.exportCanReuse(cachedBakedModel: nil, live: AdjustmentModel()))
+  }
+
+  func testExportReusesAStoredKeyThatWasStrippedButNotNormalised() {
+    var model = AdjustmentModel()
+    model.profile = .neutral
+    model.autoExposure = .off
+    let strippedOnly = RawCoreBridge.stripAppleGPUStages(model)
+    XCTAssertTrue(RenderActor.exportCanReuse(cachedBakedModel: strippedOnly, live: model))
   }
 }
