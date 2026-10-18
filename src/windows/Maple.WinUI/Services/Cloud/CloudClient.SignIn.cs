@@ -52,20 +52,21 @@ namespace Maple.WinUI.Services.Cloud
 
         /// <summary>Redeem the one-time code + private PKCE verifier for
         /// device-scoped tokens (POST /api/auth/native-code/redeem).</summary>
-        public async Task<(bool Ok, string Message)> RedeemNativeCodeAsync(
+        public async Task<(bool Ok, string Message, bool Retryable)> RedeemNativeCodeAsync(
             string code, string codeVerifier, CancellationToken ct)
         {
             using var response = await PostRedeemAsync(code, codeVerifier, ct);
             if (response == null)
-                return (false, "code redeem could not reach the server — check your connection and try signing in again.");
+                return (false, "code redeem could not reach the server — check your connection and try signing in again.", true);
             if (!response.IsSuccessStatusCode)
-                return (false, $"code redeem failed ({(int)response.StatusCode}) — the code may have expired; try signing in again.");
+                return (false, $"code redeem failed ({(int)response.StatusCode}) — the code may have expired; try signing in again.",
+                    (int)response.StatusCode == 429 || (int)response.StatusCode >= 500);
             var tokens = await ReadJsonAsync<CloudRedeemResponse>(response, ct);
             if (string.IsNullOrEmpty(tokens?.AccessToken))
-                return (false, "code redeem returned no access token.");
+                return (false, "code redeem returned no access token.", false);
             _accessToken = tokens!.AccessToken;
             RefreshToken = tokens.RefreshToken;
-            return (true, $"Signed in as {tokens.User?.Email ?? "user"}.");
+            return (true, $"Signed in as {tokens.User?.Email ?? "user"}.", false);
         }
 
         private async Task<HttpResponseMessage?> PostRedeemAsync(string code, string codeVerifier, CancellationToken ct)
