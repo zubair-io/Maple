@@ -20,7 +20,7 @@
 //! re-encoded output; ~tens of MB peak on a 100MP DNG).
 //!
 //! File-output only (no bytes-returning sibling): Rust writes the resulting
-//! image directly to `out_path` (atomic via .tmp + rename), so no
+//! image directly to `out_path` (atomic via exclusive staging + rename), so no
 //! Rust-allocated memory crosses the FFI boundary as a buffer. Bun 1.3.x's
 //! `bun:ffi` `toBuffer(ptr, 0, len)` returns a Node Buffer backed by external
 //! memory; when the Buffer becomes unreachable JSC's GC sweep tries to free
@@ -46,7 +46,7 @@ mod raster;
 /// downsample to `max_px` on the long edge, bake in EXIF orientation, encode
 /// via `encode` (either `raw_core::avif::encode` or `raw_core::jpeg::encode`
 /// — same `(width, height, rgb, quality) -> Result<Vec<u8>>` shape), and
-/// atomic-write the result to `out_path` (.tmp + rename).
+/// atomic-write the result to `out_path` (exclusive staging + rename).
 ///
 /// `quality` is on the target codec's own scale, [1, 100]; pass 0 to use
 /// `default_quality`. Values > 100 are rejected (rc 14).
@@ -95,6 +95,11 @@ unsafe fn render_thumbnail_to_file(
 
     let raw_path = std::path::Path::new(&raw_path_str);
     let out_path = std::path::Path::new(&out_path_str);
+    let inputs = [raw_path];
+    if let Err(e) = raw_core::output_file::validate_destination(out_path, &inputs) {
+        set_last_error(format!("output: {e}"));
+        return 12;
+    }
     let raw_bytes = match std::fs::read(raw_path) {
         Ok(b) => b,
         Err(e) => {
@@ -153,26 +158,16 @@ unsafe fn render_thumbnail_to_file(
         }
     };
 
-    // Atomic write: write to .tmp, then rename. The parent dir must exist
-    // (the caller ensures the cache directory is mkdir'd before calling).
-    let mut tmp_path = std::ffi::OsString::from(out_path);
-    tmp_path.push(".tmp");
-    let tmp_path = std::path::PathBuf::from(tmp_path);
-    if let Err(e) = std::fs::write(&tmp_path, &encoded) {
-        set_last_error(format!("tmp write: {}", e));
+    if let Err(e) = raw_core::output_file::write_derived(out_path, &inputs, &encoded) {
+        set_last_error(format!("output write: {e}"));
         return 12;
-    }
-    if let Err(e) = std::fs::rename(&tmp_path, out_path) {
-        let _ = std::fs::remove_file(&tmp_path);
-        set_last_error(format!("rename: {}", e));
-        return 13;
     }
     0
 }
 
 /// Extract an embedded JPEG preview / thumbnail from `raw_path`, downsample
 /// to `max_px` on the long edge if necessary, then AVIF-encode the result to
-/// `out_path` (atomic via .tmp + rename). The 256px grid-thumbnail tier.
+/// `out_path` (atomic via exclusive staging + rename). The 256px grid-thumbnail tier.
 ///
 /// `quality` is AVIF quality in [1, 100] (AVIF's own scale, not JPEG's —
 /// see `raw_core::avif::encode`'s doc comment); pass 0 to use the default
@@ -201,7 +196,7 @@ pub unsafe extern "C" fn maple_render_thumbnail_avif_to_file(
 
 /// Extract an embedded JPEG preview / thumbnail from `raw_path`, downsample
 /// to `max_px` on the long edge if necessary, then JPEG-encode the result to
-/// `out_path` (atomic via .tmp + rename). The 1280px VLM describe/OCR
+/// `out_path` (atomic via exclusive staging + rename). The 1280px VLM describe/OCR
 /// preview tier (`previewer.ts`) — kept JPEG because every describe
 /// provider hardcodes `image/jpeg` as the media type sent upstream.
 ///
