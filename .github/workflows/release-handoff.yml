@@ -9,6 +9,8 @@ on:
     branches: [main, 'release/next-v*']
     tags: ['v*']
   workflow_dispatch:
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -22,6 +24,7 @@ concurrency:
 jobs:
   refresh:
     name: Refresh release handoff statuses
+    if: github.event_name != 'merge_group'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -36,3 +39,25 @@ jobs:
         run: |
           gh auth setup-git
           python3 tools/release_control.py gate
+
+  group:
+    name: Refresh release handoff status for merge group
+    if: github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate and report exact group commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GROUP_REF: ${{ github.event.merge_group.head_ref }}
+          GROUP_SHA: ${{ github.event.merge_group.head_sha }}
+        run: |
+          test -n "$GROUP_SHA" && test "$GROUP_SHA" = "$GITHUB_SHA"
+          gh auth setup-git
+          git fetch origin "$GROUP_REF"
+          python3 tools/release_control.py group-gate --group-sha "$GROUP_SHA"

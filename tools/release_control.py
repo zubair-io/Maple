@@ -10,6 +10,7 @@ from pathlib import Path
 from release_ci import waiting_for
 from release_handoff import (
     CONTEXT,
+    allowed_group,
     allowed_pr,
     branch,
     git,
@@ -114,7 +115,7 @@ def status(repo, pr, state, description):
     api(repo, f"statuses/{sha}", payload)
 
 
-def refresh_gate(repo):
+def refresh_gate(repo, group_sha=None):
     refresh_refs()
     main = git("rev-parse", "origin/main")
     current = version(main)
@@ -140,6 +141,23 @@ def refresh_gate(repo):
             print(f"Invalid handoff (keeping gate closed): {error}")
     # Old already-released main versions also fail closed, requiring a migration bump.
     active = handoff is not None or tagged
+    if group_sha:
+        allowed = (
+            not active
+            and subprocess.run(
+                ["git", "merge-base", "--is-ancestor", main, group_sha], check=False
+            ).returncode
+            == 0
+        ) or (valid and allowed_group(main, group_sha, handoff))
+        status(
+            repo,
+            {"head": {"sha": group_sha}},
+            "success" if allowed else "pending",
+            "Handoff complete or approved version bump"
+            if allowed
+            else f"Waiting for the next-version PR after v{current}",
+        )
+        return
     decisions = {}
     for pr in open_prs(repo):
         allowed = not active or (valid and allowed_pr(pr, main, handoff, tagged))
@@ -392,7 +410,7 @@ def release(repo, requested, advance_only=False, release_sha=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["release", "gate", "advance"])
+    parser.add_argument("command", choices=["release", "gate", "group-gate", "advance"])
     parser.add_argument(
         "--repo",
         default=os.environ.get("GITHUB_REPOSITORY"),
@@ -400,9 +418,16 @@ if __name__ == "__main__":
     )
     parser.add_argument("--next-version", default="")
     parser.add_argument("--release-sha", default=os.environ.get("GITHUB_SHA"))
+    parser.add_argument("--group-sha")
     args = parser.parse_args()
     if args.command == "gate":
         refresh_gate(args.repo)
+    elif args.command == "group-gate":
+        if not args.group_sha or git("rev-parse", "FETCH_HEAD") != args.group_sha:
+            raise ValueError(
+                "Fetched merge-group ref must match the event's exact head SHA"
+            )
+        refresh_gate(args.repo, group_sha=args.group_sha)
     else:
         release(
             args.repo,
