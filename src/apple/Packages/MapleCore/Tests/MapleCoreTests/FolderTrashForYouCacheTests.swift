@@ -74,6 +74,63 @@ final class FolderTrashForYouCacheTests: XCTestCase {
     XCTAssertEqual(after, before + 1, "one folder outcome is one atomic cache invalidation")
   }
 
+  func testPartialTrashPreservesFailedAndOtherLocationOfSameDatabaseAsset() async throws {
+    let cache = ForYouCache(directory: directory)
+    let sharedID = "650a1b2c3d4e5f6071829301"
+    let uniqueID = "650a1b2c3d4e5f6071829302"
+    let card = GeneratedSearchCard(
+      id: "mixed", theme: "t", title: "Mixed", result_count: 3,
+      generated_for: "2026-10-17")
+    let inside = [
+      try locatedAsset(
+        id: "failed-location", databaseID: sharedID, folder: library,
+        path: "/photos/trip/failed.dng"),
+      try locatedAsset(
+        id: "success-location", databaseID: sharedID, folder: library,
+        path: "/photos/trip/success.dng"),
+      try locatedAsset(
+        id: "unique-success", databaseID: uniqueID, folder: library,
+        path: "/photos/trip/unique.dng"),
+    ]
+    let outside = [
+      try locatedAsset(
+        id: "other-library", databaseID: uniqueID, folder: "other-folder",
+        path: "/elsewhere/unique.dng"),
+      try locatedAsset(
+        id: "other-path", databaseID: uniqueID, folder: library,
+        path: "/photos/home/unique.dng"),
+    ]
+    await cache.write(
+      ForYouSnapshot(
+        collections: [card], firstPages: [card.id: .init(results: inside, total: 3)],
+        savedAt: Date()), libraryID: library, host: host)
+    await cache.write(
+      ForYouSnapshot(
+        collections: [card], firstPages: [card.id: .init(results: outside, total: 2)],
+        savedAt: Date()), libraryID: "another-library", host: host)
+    let data = try JSONSerialization.data(withJSONObject: [
+      "total": 3, "succeeded": 2, "failed": 1,
+      "items": [
+        ["assetId": sharedID, "filename": "success.dng", "ok": true],
+        ["assetId": sharedID, "filename": "failed.dng", "ok": false],
+        ["assetId": uniqueID, "filename": "unique.dng", "ok": true],
+      ],
+    ])
+    let summary = try JSONDecoder().decode(FolderTrashSummary.self, from: data)
+
+    await cache.forgetFolderTrash(
+      summary, host: host, libraryFolderID: library, folderPath: "/photos/trip")
+
+    let keptInside = await cache.read(libraryID: library, host: host)
+    let keptOutside = await cache.read(libraryID: "another-library", host: host)
+    XCTAssertEqual(
+      keptInside?.firstPages[card.id]?.results.map(\.id),
+      ["failed-location", "success-location"])
+    XCTAssertEqual(
+      keptOutside?.firstPages[card.id]?.results.map(\.id),
+      ["other-library", "other-path"])
+  }
+
   private func partialSummary(successfulIDs: [String], failedID: String) throws
     -> FolderTrashSummary
   {
@@ -89,6 +146,15 @@ final class FolderTrashForYouCacheTests: XCTestCase {
   private func asset(id: String) throws -> SearchAsset {
     let json = """
       {"id":"\(id)","folder_id":"\(library)","abs_path":"/photos/trip/\(id).dng","filename":"\(id).dng"}
+      """
+    return try JSONDecoder().decode(SearchAsset.self, from: Data(json.utf8))
+  }
+
+  private func locatedAsset(id: String, databaseID: String, folder: String, path: String) throws
+    -> SearchAsset
+  {
+    let json = """
+      {"id":"\(id)","_id":"\(databaseID)","folder_id":"\(folder)","abs_path":"\(path)","filename":"x.dng"}
       """
     return try JSONDecoder().decode(SearchAsset.self, from: Data(json.utf8))
   }

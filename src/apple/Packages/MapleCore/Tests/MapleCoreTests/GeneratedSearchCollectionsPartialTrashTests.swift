@@ -11,7 +11,8 @@ extension GeneratedSearchCollectionsCacheTests {
 
     await vm.load()
     XCTAssertEqual(vm.firstPages["a"]?.results.map(\.id), ["failed", "trashed"])
-    await cache.forgetAssetsPreservingPages(host: Self.host, assetIDs: ["trashed"])
+    await cache.forgetAssetsPreservingPages(
+      host: Self.host, libraryFolderID: "lib", folderPath: "/p", assetIDs: ["trashed"])
     let stored = await cache.read(libraryID: Self.library, host: Self.host)
     XCTAssertEqual(stored?.firstPages["a"]?.results.map(\.id), ["failed"])
 
@@ -24,7 +25,8 @@ extension GeneratedSearchCollectionsCacheTests {
     let cache = ForYouCache(directory: directory)
     await cache.write(Self.mixedPageSnapshot(), libraryID: Self.library, host: Self.host)
     let warmer = CoverWarmerProbe(duringWarm: { _ in
-      await cache.forgetAssetsPreservingPages(host: Self.host, assetIDs: ["trashed"])
+      await cache.forgetAssetsPreservingPages(
+        host: Self.host, libraryFolderID: "lib", folderPath: "/p", assetIDs: ["trashed"])
       StubURLProtocol.responder = { _ in .failure(URLError(.notConnectedToInternet)) }
     })
     let vm = makeVM(CachedCardsStub(covers: ["a": "new"]), cache: cache, warmer: warmer)
