@@ -33,7 +33,7 @@ jobs:
       HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
       - name: Wait for the complete release CI suite
@@ -102,14 +102,14 @@ jobs:
       - name: Require a downstream-triggering token
         run: |
           test -n "$GH_TOKEN" || { echo "::error::VERSION_SYNC_TOKEN or JULES_GH is required"; exit 1; }
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           token: ${{ secrets.VERSION_SYNC_TOKEN || secrets.JULES_GH }}
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: 1.4.2
       - name: Create release handoff
         run: |
           set -euo pipefail
