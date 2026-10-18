@@ -24,12 +24,8 @@ fn refuses_original_extensions_and_canonical_inputs() {
         .iter()
         .chain(["XmP"].iter())
     {
-        assert!(write_derived(
-            &dir.path().join(format!("out.{ext}")),
-            &[&source],
-            b"pixels"
-        )
-        .is_err());
+        let out = dir.path().join(format!("out.{ext}"));
+        assert!(write_derived(&out, &[&source], b"pixels").is_err());
     }
     for out in [&source, &dir.path().join("./input.jpg"), &xmp] {
         assert!(write_derived(out, &[&source, &xmp], b"pixels").is_err());
@@ -40,16 +36,23 @@ fn refuses_original_extensions_and_canonical_inputs() {
 
 #[test]
 fn refuses_extension_only_originals_and_unlisted_sidecars() {
+    #[cfg(target_os = "linux")]
+    use std::os::unix::ffi::OsStringExt;
     let dir = tempfile::tempdir().unwrap();
-    for name in [".xmp", ".XmP", ".dng", ".DnG"] {
-        let out = dir.path().join(name);
+    let names = [".xmp", ".XmP", ".dng", ".DnG"].map(std::ffi::OsString::from);
+    #[cfg(target_os = "linux")]
+    let names = names.into_iter().chain([std::ffi::OsString::from_vec(vec![
+        0xff, b'.', b'x', b'm', b'p',
+    ])]);
+    for name in names {
+        let out = dir.path().join(&name);
         let original = b"existing original or sidecar";
         fs::write(&out, original).unwrap();
         assert!(write_derived(&out, &[], b"derived pixels").is_err());
-        assert_eq!(fs::read(&out).unwrap(), original, "{name}");
+        assert_eq!(fs::read(&out).unwrap(), original, "{name:?}");
         fs::remove_file(&out).unwrap();
         assert!(write_derived(&out, &[], b"derived pixels").is_err());
-        assert!(!out.exists(), "{name}");
+        assert!(!out.exists(), "{name:?}");
     }
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
 }
@@ -98,18 +101,28 @@ fn links_and_planted_fixed_temp_preserve_original_bytes() {
 #[cfg(windows)]
 #[test]
 fn win32_trimmed_names_cannot_create_or_replace_protected_files() {
+    use std::os::windows::ffi::OsStringExt;
     let dir = tempfile::tempdir().unwrap();
-    for (name, canonical) in [("out.xmp.", "out.xmp"), ("out.dng ", "out.dng")] {
-        let out = dir.path().join(name);
-        let original = dir.path().join(canonical);
-        assert!(write_derived(&out, &[], b"derived").is_err(), "{name}");
-        assert!(!original.exists(), "{name}");
-        fs::write(&original, b"original").unwrap();
-        assert!(write_derived(&out, &[], b"derived").is_err(), "{name}");
-        assert_eq!(fs::read(&original).unwrap(), b"original", "{name}");
-        fs::remove_file(original).unwrap();
+    let non_unicode = dir.path().join(std::ffi::OsString::from_wide(&[0xd800]));
+    fs::create_dir(&non_unicode).unwrap();
+    for (parent, names) in [
+        (dir.path(), ["out.xmp.", "out.dng "]),
+        (non_unicode.as_path(), ["out.xmp", "out.dng"]),
+    ] {
+        for name in names {
+            let out = parent.join(name);
+            let original = parent.join(name.trim_end_matches(['.', ' ']));
+            assert!(write_derived(&out, &[], b"derived").is_err(), "{name}");
+            assert!(!original.exists(), "{name}");
+            fs::write(&original, b"original").unwrap();
+            assert!(write_derived(&out, &[], b"derived").is_err(), "{name}");
+            assert_eq!(fs::read(&original).unwrap(), b"original", "{name}");
+        }
+        assert_eq!(
+            fs::read_dir(parent).unwrap().count(),
+            2 + usize::from(parent == dir.path())
+        );
     }
-    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
 }
 
 #[test]
