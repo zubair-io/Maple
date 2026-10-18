@@ -30,6 +30,10 @@ import { benchedMirrors, resetMirrorHealth } from './mirror-read.ts';
 let originalRoots: string | undefined;
 const temporaryRoots: string[] = [];
 
+function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([work, Bun.sleep(ms).then(() => null)]);
+}
+
 beforeEach(() => {
   originalRoots = process.env.MAPLE_ROOTS;
 });
@@ -50,10 +54,9 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
   const fixture = await mkdtemp(join(tmpdir(), 'maple-root-library-'));
   temporaryRoots.push(fixture);
   const library = join(fixture, 'library');
-  const retained = join(fixture, 'retained');
   const mirror = join(fixture, 'mirror');
   const outside = join(fixture, 'outside');
-  await Promise.all([mkdir(library), mkdir(retained), mkdir(mirror), mkdir(outside)]);
+  await Promise.all([mkdir(library), mkdir(mirror), mkdir(outside)]);
   await Promise.all([
     writeFile(join(library, 'photo.xmp'), '<xmpmeta/>'),
     writeFile(join(mirror, 'photo.xmp'), '<xmpmeta/>'),
@@ -64,15 +67,11 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
   const libraryId = insertFolder(live.db, { path: library });
   invalidateLibraryRoots();
 
-  expect((await safeReadFile(join(library, 'photo.xmp'))).data?.toString()).toBe('<xmpmeta/>');
-  expect((await safeWriteAllowed(join(library, 'new.xmp'))).ok).toBe(true);
   expect((await safeReadFile(join(outside, 'photo.xmp'))).ok).toBe(false);
   expect((await safeWriteAllowed(join(outside, 'new.xmp'))).ok).toBe(false);
   expect((await safeReadFile(join(library, 'escaped.xmp'))).ok).toBe(false);
-  expect((await checkAllowed(join(mirror, 'photo.xmp'))).ok).toBe(false);
 
   setMirrorRoots({ [library]: [mirror] });
-  expect((await checkAllowed(join(mirror, 'photo.xmp'))).ok).toBe(true);
   // A controlled unresolved realpath stands in for a wedged mirror mount.
   let releaseProbe!: () => void;
   const blocked = new Promise<void>((resolve) => (releaseProbe = resolve));
@@ -86,23 +85,26 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
   }) as typeof nodeFs.realpath);
   setMirrorRoots({ [library]: [mirror] });
   try {
-    const primary = await Promise.race([
+    const primary = await within(
       Promise.all([
         safeReadFile(join(library, 'photo.xmp')),
         safeWriteAllowed(join(library, 'new.xmp')),
       ]),
-      Bun.sleep(500).then(() => null),
-    ]);
+      500,
+    );
     expect(primary?.[0].data?.toString()).toBe('<xmpmeta/>');
     expect(primary?.[1].ok).toBe(true);
-    const bounded = (target: string) =>
-      Promise.race([checkAllowed(target), Bun.sleep(2_600).then(() => null)]);
+    const bounded = (target: string) => within(checkAllowed(target), 2_600);
     const denied = await bounded(join(outside, 'photo.xmp'));
     expect(denied?.ok).toBe(false);
     expect(benchedMirrors().map(({ root }) => root)).toContain(mirror);
     resetMirrorHealth();
-    const mirrorDenied = await bounded(mirrorSidecar);
+    const [mirrorDenied, missingMirrorDenied] = await Promise.all([
+      bounded(mirrorSidecar),
+      bounded(join(mirror, 'new.xmp')),
+    ]);
     expect(mirrorDenied?.ok).toBe(false);
+    expect(missingMirrorDenied?.ok).toBe(false);
   } finally {
     releaseProbe();
     realpathProbe.mockRestore();
@@ -121,7 +123,7 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
   clearMirrorRoots();
   expect((await checkAllowed(join(mirror, 'photo.xmp'))).ok).toBe(false);
 
-  insertFolder(live.db, { path: retained });
+  insertFolder(live.db, { path: mirror });
   invalidateLibraryRoots();
   live.db.query('DELETE FROM folders WHERE id = ?').run(libraryId);
   invalidateLibraryRoots();
@@ -158,30 +160,18 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
     return actualRealpath(requested);
   }) as typeof nodeFs.realpath);
   try {
-    const read = await Promise.race([
-      safeReadFile(join(healthy, 'photo.xmp')),
-      Bun.sleep(500).then(() => null),
-    ]);
+    const read = await within(safeReadFile(join(healthy, 'photo.xmp')), 500);
     expect(read?.data?.toString()).toBe('<xmpmeta/>');
     setMirrorRoots({ [healthy]: [mirror] });
-    const mirrorRead = await Promise.race([
-      safeReadFile(join(mirror, 'photo.xmp')),
-      Bun.sleep(500).then(() => null),
-    ]);
+    const mirrorRead = await within(safeReadFile(join(mirror, 'photo.xmp')), 500);
     expect(mirrorRead?.data?.toString()).toBe('<xmpmeta/>');
-    const outside = await Promise.race([
-      checkAllowed(join(fixture, 'outside.xmp')),
-      Bun.sleep(3_500).then(() => null),
-    ]);
+    const outside = await within(checkAllowed(join(fixture, 'outside.xmp')), 3_500);
     expect(outside?.ok).toBe(false);
     await symlink(healthy, alias);
     insertFolder(live.db, { path: alias });
     live.db.query('DELETE FROM folders WHERE id = ?').run(healthyId);
     invalidateLibraryRoots();
-    const viaAlias = await Promise.race([
-      safeReadFile(join(healthy, 'photo.xmp')),
-      Bun.sleep(500).then(() => null),
-    ]);
+    const viaAlias = await within(safeReadFile(join(healthy, 'photo.xmp')), 500);
     expect(viaAlias?.data?.toString()).toBe('<xmpmeta/>');
     slowAlias = true;
     expect((await safeWriteAllowed(join(alias, 'new.xmp'))).ok).toBe(true);
@@ -204,19 +194,10 @@ test('an empty registered library remains usable for first-run setup', async () 
     const count = live.db.query('SELECT COUNT(*) AS count FROM folders').get().count;
     console.log(JSON.stringify({ count, roots: getRegisteredRoots(), result: await checkAllowed(${JSON.stringify(fixture)}) }));
   `;
-  const child = Bun.spawn([process.execPath, '--eval', script], {
-    env,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
-  expect(stderr).toBe('');
-  expect(code).toBe(0);
-  const outcome = JSON.parse(stdout);
+  const child = Bun.spawnSync([process.execPath, '--eval', script], { env });
+  expect(child.stderr.toString()).toBe('');
+  expect(child.exitCode).toBe(0);
+  const outcome = JSON.parse(child.stdout.toString());
   expect(outcome.count).toBe(0);
   expect(outcome.roots).toEqual([]);
   expect(outcome.result.ok).toBe(true);

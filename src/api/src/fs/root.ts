@@ -4,8 +4,7 @@
  * The server only reads/writes under the registered folder roots.
  * Any attempt to escape via ".." or symlinks outside the root is rejected.
  *
- * MAPLE_ROOTS (platform PATH-separated absolute paths), DB libraries, enabled
- * local mirrors, and roots registered at runtime form the allowed set.
+ * MAPLE_ROOTS, DB libraries, enabled mirrors, and runtime roots form the allowed set.
  */
 
 import { lstat, readFile, realpath, stat } from 'node:fs/promises';
@@ -36,8 +35,7 @@ export function isWithinRoot(root: string, filePath: string): boolean {
 }
 
 /**
- * Additional runtime roots used by recovery flows. DB libraries are loaded
- * through the invalidated library cache below.
+ * Runtime roots used by recovery; DB libraries use the invalidated cache below.
  */
 const _registeredRoots = new Set<string>();
 let envRootsCache:
@@ -72,21 +70,17 @@ async function normalizedMirrorRoots(source: readonly string[]): Promise<string[
 }
 
 async function normalizedLibraryRoots(requested: string, real: string): Promise<string[]> {
-  const libraries = await loadLibraryRoots();
-  const configured = [...libraries.values()].map((root) => path.resolve(root));
+  const configured = [...(await loadLibraryRoots()).values()].map((root) => path.resolve(root));
   if (configured.some((root) => isWithinRoot(root, real))) return configured;
   const lexical = configured.filter((root) => isWithinRoot(root, requested));
-  const probes = lexical.length ? lexical : configured;
   const matchingRoot = Promise.any(
-    probes.map(async (root) => {
-      const resolution = resolveRealPathThroughAncestors(root);
-      const canonical = await resolution;
+    (lexical.length ? lexical : configured).map(async (root) => {
+      const canonical = await resolveRealPathThroughAncestors(root);
       if (!isWithinRoot(canonical, real)) throw new Error('Library root does not contain path');
       return canonical;
     }),
   ).catch(() => null);
-  // Unknown paths must fail closed in finite time if an unrelated mount wedges.
-  // Lexical library candidates remain unbounded, as primary I/O can be slow.
+  // Bound unknown aliases; lexical primary probes may need longer to finish.
   let timer: ReturnType<typeof setTimeout> | undefined;
   const match = lexical.length
     ? await matchingRoot
@@ -197,31 +191,32 @@ async function resolveForJail(
   const candidates = mirrors.filter(
     (root) =>
       isWithinRoot(root, requested) ||
-      cached.some(([configured, canonical]) =>
-        configured === root ? isWithinRoot(canonical, requested) : false,
+      cached.some(
+        ([configured, canonical]) => configured === root && isWithinRoot(canonical, requested),
       ),
   );
   try {
-    const resolution = resolveRealPath(filePath);
+    // Canonicalize a missing XMP's ancestors under the same mirror deadline (#4748).
+    const resolution = resolveRealPath(filePath).catch(() =>
+      resolveRealPathThroughAncestors(filePath),
+    );
     return await (candidates.length ? withMirrorTimeout(resolution) : resolution);
   } catch (error) {
     if (error instanceof MirrorIoTimeoutError) {
       for (const mirror of candidates) markMirrorUnhealthy(mirror);
       return null;
     }
-    // A new XMP leaf may not exist yet. Canonicalize its existing ancestor
-    // so a directory symlink cannot escape the jail (#4748).
-    return resolveRealPathThroughAncestors(filePath);
+    throw error;
   }
 }
 
 async function mirrorAllowed(
   filePath: string,
   real: string,
-  mirrorRoots: readonly string[],
+  roots: readonly string[],
 ): Promise<boolean> {
-  if (!mirrorRoots.some((root) => isWithinRoot(root, path.resolve(filePath)))) return false;
-  return (await normalizedMirrorRoots(mirrorRoots)).some((root) => isWithinRoot(root, real));
+  if (!roots.some((root) => isWithinRoot(root, path.resolve(filePath)))) return false;
+  return (await normalizedMirrorRoots(roots)).some((root) => isWithinRoot(root, real));
 }
 
 /**
