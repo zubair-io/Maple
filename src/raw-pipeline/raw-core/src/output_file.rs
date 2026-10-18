@@ -13,7 +13,6 @@ fn file_identity(path: &Path) -> io::Result<(u32, u64)> {
 
     let file = File::open(path)?;
     let mut info = BY_HANDLE_FILE_INFORMATION::default();
-    // The live File owns the handle for the duration of this query.
     if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
         return Err(io::Error::last_os_error());
     }
@@ -24,25 +23,18 @@ fn file_identity(path: &Path) -> io::Result<(u32, u64)> {
 }
 
 fn protected(path: &Path) -> bool {
+    // Lossy conversion only affects the basename; ASCII dots and suffixes survive.
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
     #[cfg(windows)]
-    let path = Path::new(
-        path.to_str()
-            .unwrap_or_default()
-            .trim_end_matches(['.', ' ']),
-    );
-    path.extension()
-        .and_then(|s| s.to_str())
-        .or_else(|| path.file_name()?.to_str()?.strip_prefix('.'))
-        .is_some_and(|ext| {
-            ext.eq_ignore_ascii_case("xmp")
-                || rawler::decoders::supported_extensions()
-                    .iter()
-                    .any(|raw| ext.eq_ignore_ascii_case(raw))
-        })
+    let name = name.trim_end_matches(['.', ' ']);
+    let ext = name.rsplit_once('.').map_or("", |pair| pair.1);
+    ext.eq_ignore_ascii_case("xmp")
+        || rawler::decoders::supported_extensions()
+            .iter()
+            .any(|raw| ext.eq_ignore_ascii_case(raw))
 }
 
-/// Validate before decoding and again immediately before publication. Inputs
-/// include the image and any explicitly supplied sidecar, regardless of suffix.
+/// Reject output aliases of the image or any explicitly supplied sidecar.
 pub fn validate_destination(out: &Path, inputs: &[&Path]) -> io::Result<()> {
     let deny = || {
         io::Error::new(
@@ -70,8 +62,7 @@ pub fn validate_destination(out: &Path, inputs: &[&Path]) -> io::Result<()> {
         if resolved == source {
             return Err(deny());
         }
-        // Canonicalization does not collapse hard links. Atomic replacement
-        // would preserve the other link's bytes, but reject source aliases too.
+        // Canonicalization misses hard links; reject source aliases too.
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
@@ -89,14 +80,10 @@ pub fn validate_destination(out: &Path, inputs: &[&Path]) -> io::Result<()> {
     Ok(())
 }
 
-/// Stage bytes in an exclusively created, random sibling, then atomically
-/// replace the destination entry. Never open an existing output or fixed .tmp
-/// name for writing, including when either is a symlink or hard link.
-/// As with the native host queues, the containing directory must be trusted.
+/// Atomically replace the destination from a random same-directory temp file.
+/// The containing directory must be trusted.
 pub fn write_derived(out: &Path, inputs: &[&Path], bytes: &[u8]) -> io::Result<()> {
-    // Windows can briefly deny a rename while another publisher is replacing
-    // the same entry. Retry the whole guarded publication so every attempt
-    // rechecks aliases and owns a fresh staging file.
+    // Retry Windows rename contention with fresh staging and alias checks.
     #[cfg(windows)]
     for attempt in 0..20 {
         match write_derived_once(out, inputs, bytes) {
