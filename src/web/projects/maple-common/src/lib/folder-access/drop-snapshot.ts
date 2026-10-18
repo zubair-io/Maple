@@ -18,7 +18,7 @@ export function snapshotDrop(dataTransfer: DataTransfer): DropSnapshot {
   const files = Array.from(dataTransfer.files);
   const handles = Promise.all(
     Array.from(dataTransfer.items)
-      .filter((item) => item.kind === 'file')
+      .filter((item) => item.kind !== 'string')
       .map((item) => {
         const pending = (item as DataTransferItemWithHandle).getAsFileSystemHandle?.();
         return pending ? pending.catch(() => null) : Promise.resolve(null);
