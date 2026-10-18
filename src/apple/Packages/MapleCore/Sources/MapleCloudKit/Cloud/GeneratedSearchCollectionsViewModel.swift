@@ -182,10 +182,11 @@ public final class GeneratedSearchCollectionsViewModel {
       return
     }
     // A photo was trashed while this refresh was in flight, so what it
-    // fetched may show it. Keep only pages the pruned cache still holds.
+    // fetched may show it. Use the pruned cache pages for covers already on
+    // screen: a partial trash can change a page without removing its cover.
     let surviving = await cache.read(libraryID: libraryID, host: cacheHost)?.firstPages ?? [:]
     guard g == generation else { return }
-    firstPages = firstPages.filter { surviving[$0.key] == $0.value }
+    firstPages = surviving.filter { firstPages[$0.key] != nil }
     await load()
   }
 
@@ -198,7 +199,7 @@ public final class GeneratedSearchCollectionsViewModel {
     let current = await cache.epoch(host: cacheHost)
     guard let seenEpoch, current != seenEpoch else { return }
     let surviving = await cache.read(libraryID: libraryID, host: cacheHost)?.firstPages ?? [:]
-    firstPages = firstPages.filter { surviving[$0.key] == $0.value }
+    firstPages = surviving.filter { firstPages[$0.key] != nil }
     self.seenEpoch = current
     await load()
   }
