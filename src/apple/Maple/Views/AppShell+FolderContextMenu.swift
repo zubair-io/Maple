@@ -21,348 +21,366 @@
 // `deleteFolder`. Reachable on any saved share, not only the currently
 // open one — same reasoning `createSMBFolder` below already documents.
 
-import SwiftUI
 import MapleCore
+import SwiftUI
 
 @MainActor
 extension AppShell {
 
-    // MARK: - Local Filesystem
+  // MARK: - Local Filesystem
 
-    /// Create `name` inside `parentURL`. `rootBookmark` is the nearest saved
-    /// ancestor's security-scope bookmark (same value `FolderTreeRow` already
-    /// threads to every depth for enumeration).
-    func createLocalFolder(name: String, in parentURL: URL, rootBookmark: Data) {
-        withLocalFolderScope(rootBookmark) { _ in
-            _ = try LocalFileOperations.createFolder(named: name, in: parentURL)
-        }
+  /// Create `name` inside `parentURL`. `rootBookmark` is the nearest saved
+  /// ancestor's security-scope bookmark (same value `FolderTreeRow` already
+  /// threads to every depth for enumeration).
+  func createLocalFolder(name: String, in parentURL: URL, rootBookmark: Data) {
+    withLocalFolderScope(rootBookmark) { _ in
+      _ = try LocalFileOperations.createFolder(named: name, in: parentURL)
     }
+  }
 
-    /// Rename `folderURL` in place. Updates `SavedFolderStore` when the
-    /// renamed folder is itself a top-level saved folder (its `id` — the
-    /// path — no longer matches after the move, so a plain in-place edit
-    /// isn't possible; the old entry is dropped and a fresh one inserted
-    /// with a freshly-minted bookmark for the new path).
-    func renameLocalFolder(_ folderURL: URL, to newName: String, rootBookmark: Data) {
-        withLocalFolderScope(rootBookmark) { root in
-            let renamed = try LocalFileOperations.renameFolder(folderURL, to: newName)
-            reconcileSavedFolder(oldPath: folderURL.path, newURL: renamed, root: root)
-            if librarySelection == .folder(path: folderURL.path) {
-                librarySelection = .folder(path: renamed.path)
-                libraryTitle = renamed.lastPathComponent
-            } else if let descendantSuffix = selectionPath(under: folderURL) {
-                // The grid was showing a DESCENDANT of the renamed folder
-                // (review finding, jules) — an exact-path check alone misses
-                // this, leaving `librarySelection` pointing at a path that
-                // no longer exists once the ancestor moved. Rewrite it onto
-                // the same relative descendant under the new location.
-                let newDescendant = renamed.appendingPathComponent(descendantSuffix)
-                librarySelection = .folder(path: newDescendant.path)
-            }
-        }
+  /// Rename `folderURL` in place. Updates `SavedFolderStore` when the
+  /// renamed folder is itself a top-level saved folder (its `id` — the
+  /// path — no longer matches after the move, so a plain in-place edit
+  /// isn't possible; the old entry is dropped and a fresh one inserted
+  /// with a freshly-minted bookmark for the new path).
+  func renameLocalFolder(_ folderURL: URL, to newName: String, rootBookmark: Data) {
+    withLocalFolderScope(rootBookmark) { root in
+      let renamed = try LocalFileOperations.renameFolder(folderURL, to: newName)
+      reconcileSavedFolder(oldPath: folderURL.path, newURL: renamed, root: root)
+      if librarySelection == .folder(path: folderURL.path) {
+        librarySelection = .folder(path: renamed.path)
+        libraryTitle = renamed.lastPathComponent
+      } else if let descendantSuffix = selectionPath(under: folderURL) {
+        // The grid was showing a DESCENDANT of the renamed folder
+        // (review finding, jules) — an exact-path check alone misses
+        // this, leaving `librarySelection` pointing at a path that
+        // no longer exists once the ancestor moved. Rewrite it onto
+        // the same relative descendant under the new location.
+        let newDescendant = renamed.appendingPathComponent(descendantSuffix)
+        librarySelection = .folder(path: newDescendant.path)
+      }
     }
+  }
 
-    /// Move `folderURL` to Trash — the real OS Trash on macOS, `.maple/trash`
-    /// on iOS/iPadOS (see `LocalFileOperations.deleteFolder`'s `#if os`
-    /// split). Recursive: the whole subtree moves as one directory move.
-    func trashLocalFolder(_ folderURL: URL, rootBookmark: Data) {
-        withLocalFolderScope(rootBookmark) { root in
-            _ = try LocalFileOperations.deleteFolder(folderURL, libraryRoot: root)
-            if SavedFolderStore.load().contains(where: { $0.path == folderURL.path }) {
-                SavedFolderStore.remove(path: folderURL.path)
-            }
-            // Trashing the exact selected folder, OR any of its ancestors
-            // (review finding, jules — the exact-path check alone left a
-            // descendant selection dangling on a now-deleted path), leaves
-            // nothing left to show. Fall back to the same cold-start pick
-            // the app uses when a saved selection turns out to be gone.
-            if librarySelection == .folder(path: folderURL.path) || selectionPath(under: folderURL) != nil {
-                Task { @MainActor in await autoPickInitialSource() }
-            }
-        }
+  /// Move `folderURL` to Trash — the real OS Trash on macOS, `.maple/trash`
+  /// on iOS/iPadOS (see `LocalFileOperations.deleteFolder`'s `#if os`
+  /// split). Recursive: the whole subtree moves as one directory move.
+  func trashLocalFolder(_ folderURL: URL, rootBookmark: Data) {
+    withLocalFolderScope(rootBookmark) { root in
+      _ = try LocalFileOperations.deleteFolder(folderURL, libraryRoot: root)
+      if SavedFolderStore.load().contains(where: { $0.path == folderURL.path }) {
+        SavedFolderStore.remove(path: folderURL.path)
+      }
+      // Trashing the exact selected folder, OR any of its ancestors
+      // (review finding, jules — the exact-path check alone left a
+      // descendant selection dangling on a now-deleted path), leaves
+      // nothing left to show. Fall back to the same cold-start pick
+      // the app uses when a saved selection turns out to be gone.
+      if librarySelection == .folder(path: folderURL.path) || selectionPath(under: folderURL) != nil
+      {
+        Task { @MainActor in await autoPickInitialSource() }
+      }
     }
+  }
 
-    /// If `librarySelection` is a folder strictly inside `ancestorURL`,
-    /// returns its path relative to `ancestorURL` (e.g. selection
-    /// `/A/B/C`, `ancestorURL` `/A` → `"B/C"`). `nil` when the selection
-    /// isn't a folder, or isn't under `ancestorURL` at all. Shared with
-    /// `AppShell+FolderMove.swift` (#2847).
-    func selectionPath(under ancestorURL: URL) -> String? {
-        guard case .folder(let selectedPath) = librarySelection, selectedPath != ancestorURL.path else {
-            return nil
-        }
-        let prefix = ancestorURL.path.hasSuffix("/") ? ancestorURL.path : ancestorURL.path + "/"
-        guard selectedPath.hasPrefix(prefix) else { return nil }
-        return String(selectedPath.dropFirst(prefix.count))
+  /// If `librarySelection` is a folder strictly inside `ancestorURL`,
+  /// returns its path relative to `ancestorURL` (e.g. selection
+  /// `/A/B/C`, `ancestorURL` `/A` → `"B/C"`). `nil` when the selection
+  /// isn't a folder, or isn't under `ancestorURL` at all. Shared with
+  /// `AppShell+FolderMove.swift` (#2847).
+  func selectionPath(under ancestorURL: URL) -> String? {
+    guard case .folder(let selectedPath) = librarySelection, selectedPath != ancestorURL.path else {
+      return nil
     }
+    let prefix = ancestorURL.path.hasSuffix("/") ? ancestorURL.path : ancestorURL.path + "/"
+    guard selectedPath.hasPrefix(prefix) else { return nil }
+    return String(selectedPath.dropFirst(prefix.count))
+  }
 
-    /// Resolves a saved folder's security-scope bookmark to its URL —
-    /// `nil` (with the shell's error banner set) when it no longer
-    /// resolves. Shared with `AppShell+FolderMove.swift` (#2847).
-    func resolveFolderBookmark(_ rootBookmark: Data) -> URL? {
-        var isStale = false
-        #if os(macOS)
-        let root = try? URL(resolvingBookmarkData: rootBookmark, options: .withSecurityScope,
-                            relativeTo: nil, bookmarkDataIsStale: &isStale)
-        #else
-        let root = try? URL(resolvingBookmarkData: rootBookmark, options: [],
-                            relativeTo: nil, bookmarkDataIsStale: &isStale)
-        #endif
-        if root == nil {
-            browseVM.loadError = FileOperationError.sourceMissing("folder's saved bookmark could not be resolved")
-        }
-        return root
+  /// Resolves a saved folder's security-scope bookmark to its URL —
+  /// `nil` (with the shell's error banner set) when it no longer
+  /// resolves. Shared with `AppShell+FolderMove.swift` (#2847).
+  func resolveFolderBookmark(_ rootBookmark: Data) -> URL? {
+    var isStale = false
+    #if os(macOS)
+      let root = try? URL(
+        resolvingBookmarkData: rootBookmark, options: .withSecurityScope,
+        relativeTo: nil, bookmarkDataIsStale: &isStale)
+    #else
+      let root = try? URL(
+        resolvingBookmarkData: rootBookmark, options: [],
+        relativeTo: nil, bookmarkDataIsStale: &isStale)
+    #endif
+    if root == nil {
+      browseVM.loadError = FileOperationError.sourceMissing(
+        "folder's saved bookmark could not be resolved")
     }
+    return root
+  }
 
-    /// Resolves `rootBookmark`, claims security scope for the duration of
-    /// `body`, runs it, releases scope, and bumps `folderRefreshGeneration`
-    /// on success so the sidebar re-enumerates. Errors surface through the
-    /// same `browseVM.loadError` banner the rest of the shell uses.
-    func withLocalFolderScope(_ rootBookmark: Data, _ body: (URL) throws -> Void) {
-        guard let root = resolveFolderBookmark(rootBookmark) else { return }
-        let accessing = root.startAccessingSecurityScopedResource()
-        defer { if accessing { root.stopAccessingSecurityScopedResource() } }
-        do {
-            try body(root)
-            folderRefreshGeneration += 1
-        } catch {
-            browseVM.loadError = error
-        }
+  /// Resolves `rootBookmark`, claims security scope for the duration of
+  /// `body`, runs it, releases scope, and bumps `folderRefreshGeneration`
+  /// on success so the sidebar re-enumerates. Errors surface through the
+  /// same `browseVM.loadError` banner the rest of the shell uses.
+  func withLocalFolderScope(_ rootBookmark: Data, _ body: (URL) throws -> Void) {
+    guard let root = resolveFolderBookmark(rootBookmark) else { return }
+    let accessing = root.startAccessingSecurityScopedResource()
+    defer { if accessing { root.stopAccessingSecurityScopedResource() } }
+    do {
+      try body(root)
+      folderRefreshGeneration += 1
+    } catch {
+      browseVM.loadError = error
     }
+  }
 
-    /// Drop the saved entry at `oldPath` and, if it was a top-level saved
-    /// folder, insert a fresh one at `newURL` with a newly-minted bookmark
-    /// (the old bookmark is bound to the old path and won't resolve).
-    /// No-op for a descendant rename — only top-level folders live in
-    /// `SavedFolderStore`.
-    private func reconcileSavedFolder(oldPath: String, newURL: URL, root: URL) {
-        guard let existing = SavedFolderStore.load().first(where: { $0.path == oldPath }) else { return }
-        #if os(macOS)
-        let bookmark = try? newURL.bookmarkData(options: .withSecurityScope,
-                                                includingResourceValuesForKeys: nil, relativeTo: nil)
-        #else
-        let bookmark = try? newURL.bookmarkData(includingResourceValuesForKeys: nil, relativeTo: nil)
-        #endif
-        // Bail BEFORE removing the old entry (review finding, jules): if
-        // minting a bookmark for the renamed URL fails, the old entry must
-        // stay in place rather than the folder silently vanishing from the
-        // sidebar. Better a stale path than a dropped folder.
-        guard let bookmark else { return }
-        SavedFolderStore.remove(path: oldPath)
-        SavedFolderStore.upsert(SavedFolder(
-            path: newURL.path,
-            displayName: newURL.lastPathComponent,
-            bookmark: bookmark,
-            lastOpened: existing.lastOpened
-        ))
+  /// Drop the saved entry at `oldPath` and, if it was a top-level saved
+  /// folder, insert a fresh one at `newURL` with a newly-minted bookmark
+  /// (the old bookmark is bound to the old path and won't resolve).
+  /// No-op for a descendant rename — only top-level folders live in
+  /// `SavedFolderStore`.
+  private func reconcileSavedFolder(oldPath: String, newURL: URL, root: URL) {
+    guard let existing = SavedFolderStore.load().first(where: { $0.path == oldPath }) else {
+      return
     }
+    #if os(macOS)
+      let bookmark = try? newURL.bookmarkData(
+        options: .withSecurityScope,
+        includingResourceValuesForKeys: nil, relativeTo: nil)
+    #else
+      let bookmark = try? newURL.bookmarkData(includingResourceValuesForKeys: nil, relativeTo: nil)
+    #endif
+    // Bail BEFORE removing the old entry (review finding, jules): if
+    // minting a bookmark for the renamed URL fails, the old entry must
+    // stay in place rather than the folder silently vanishing from the
+    // sidebar. Better a stale path than a dropped folder.
+    guard let bookmark else { return }
+    SavedFolderStore.remove(path: oldPath)
+    SavedFolderStore.upsert(
+      SavedFolder(
+        path: newURL.path,
+        displayName: newURL.lastPathComponent,
+        bookmark: bookmark,
+        lastOpened: existing.lastOpened
+      ))
+  }
 
-    // MARK: - SMB
+  // MARK: - SMB
 
-    /// New Folder inside `parentPath` (share-relative — `"/"` for the share
-    /// root, or a subfolder path from the tree, #2697).
-    func createSMBFolder(name: String, share: SMBCredentialStore.SavedShare, parentPath: String = "/") {
-        Task { @MainActor in
-            guard let creds = await SMBCredentialStore.shared.credentials(for: share) else {
-                browseVM.loadError = FileOperationError.sourceMissing(
-                    "SMB credentials for \(share.host)/\(share.share) — reconnect from the sidebar first")
-                return
-            }
-            do {
-                _ = try await SMBSource.createFolder(named: name, in: parentPath, credentials: creds)
-                folderRefreshGeneration += 1
-                // If this share is the one currently open, refresh the grid
-                // so the new folder is visible without a manual reconnect —
-                // the SMB source itself has no change-watcher to pick it up.
-                if case .smbShare(let current) = librarySelection, current == share {
-                    connectSavedSMB(share)
-                }
-            } catch {
-                browseVM.loadError = error
-            }
+  /// New Folder inside `parentPath` (share-relative — `"/"` for the share
+  /// root, or a subfolder path from the tree, #2697).
+  func createSMBFolder(name: String, share: SMBCredentialStore.SavedShare, parentPath: String = "/")
+  {
+    Task { @MainActor in
+      guard let creds = await SMBCredentialStore.shared.credentials(for: share) else {
+        browseVM.loadError = FileOperationError.sourceMissing(
+          "SMB credentials for \(share.host)/\(share.share) — reconnect from the sidebar first")
+        return
+      }
+      do {
+        _ = try await SMBSource.createFolder(named: name, in: parentPath, credentials: creds)
+        folderRefreshGeneration += 1
+        // If this share is the one currently open, refresh the grid
+        // so the new folder is visible without a manual reconnect —
+        // the SMB source itself has no change-watcher to pick it up.
+        if case .smbShare(let current) = librarySelection, current == share {
+          connectSavedSMB(share)
         }
+      } catch {
+        browseVM.loadError = error
+      }
     }
+  }
 
-    /// Rename an SMB subfolder in place (#2697).
-    func renameSMBFolder(_ path: String, to newName: String, share: SMBCredentialStore.SavedShare) {
-        guard FilenameValidation.isValidPathComponent(newName) else {
-            browseVM.loadError = FileOperationError.invalidName(newName)
-            return
-        }
-        Task { @MainActor in
-            guard let creds = await SMBCredentialStore.shared.credentials(for: share) else {
-                browseVM.loadError = FileOperationError.sourceMissing(
-                    "SMB credentials for \(share.host)/\(share.share) — reconnect from the sidebar first")
-                return
-            }
-            do {
-                _ = try await SMBSource.renameFolder(path, to: newName, credentials: creds)
-                folderRefreshGeneration += 1
-                if case .smbShare(let current) = librarySelection, current == share {
-                    connectSavedSMB(share)
-                }
-            } catch {
-                browseVM.loadError = error
-            }
-        }
+  /// Rename an SMB subfolder in place (#2697).
+  func renameSMBFolder(_ path: String, to newName: String, share: SMBCredentialStore.SavedShare) {
+    guard FilenameValidation.isValidPathComponent(newName) else {
+      browseVM.loadError = FileOperationError.invalidName(newName)
+      return
     }
-
-    /// Recursively move an SMB subfolder into `.maple/trash` (#2697).
-    func trashSMBFolder(_ path: String, share: SMBCredentialStore.SavedShare) {
-        Task { @MainActor in
-            guard let creds = await SMBCredentialStore.shared.credentials(for: share) else {
-                browseVM.loadError = FileOperationError.sourceMissing(
-                    "SMB credentials for \(share.host)/\(share.share) — reconnect from the sidebar first")
-                return
-            }
-            do {
-                _ = try await SMBSource.trashFolder(path, credentials: creds)
-                folderRefreshGeneration += 1
-                if case .smbShare(let current) = librarySelection, current == share {
-                    connectSavedSMB(share)
-                }
-            } catch {
-                browseVM.loadError = error
-            }
+    Task { @MainActor in
+      guard let creds = await SMBCredentialStore.shared.credentials(for: share) else {
+        browseVM.loadError = FileOperationError.sourceMissing(
+          "SMB credentials for \(share.host)/\(share.share) — reconnect from the sidebar first")
+        return
+      }
+      do {
+        _ = try await SMBSource.renameFolder(path, to: newName, credentials: creds)
+        folderRefreshGeneration += 1
+        if case .smbShare(let current) = librarySelection, current == share {
+          connectSavedSMB(share)
         }
+      } catch {
+        browseVM.loadError = error
+      }
     }
+  }
 
-    /// Lazy-load one SMB tree row's subfolder children (#2697), for a
-    /// share the app may not currently have open — backs
-    /// `SMBFolderTreeRow`'s `onListDir`. Returns `nil` (rather than
-    /// throwing) on any failure so the row shows its "couldn't load"
-    /// state instead of crashing, mirroring `CloudFolderTreeRow`'s
-    /// `onListDir` contract.
-    func listSMBSubdirectories(
-        share: SMBCredentialStore.SavedShare, path: String
-    ) async -> [SMBFileOperations.DirEntry]? {
-        guard let creds = await SMBCredentialStore.shared.credentials(for: share) else { return nil }
-        return try? await SMBSource.listSubdirectories(at: path, credentials: creds)
+  /// Recursively move an SMB subfolder into `.maple/trash` (#2697).
+  func trashSMBFolder(_ path: String, share: SMBCredentialStore.SavedShare) {
+    Task { @MainActor in
+      guard let creds = await SMBCredentialStore.shared.credentials(for: share) else {
+        browseVM.loadError = FileOperationError.sourceMissing(
+          "SMB credentials for \(share.host)/\(share.share) — reconnect from the sidebar first")
+        return
+      }
+      do {
+        _ = try await SMBSource.trashFolder(path, credentials: creds)
+        folderRefreshGeneration += 1
+        if case .smbShare(let current) = librarySelection, current == share {
+          connectSavedSMB(share)
+        }
+      } catch {
+        browseVM.loadError = error
+      }
     }
+  }
 
-    // MARK: - Cloud
+  /// Lazy-load one SMB tree row's subfolder children (#2697), for a
+  /// share the app may not currently have open — backs
+  /// `SMBFolderTreeRow`'s `onListDir`. Returns `nil` (rather than
+  /// throwing) on any failure so the row shows its "couldn't load"
+  /// state instead of crashing, mirroring `CloudFolderTreeRow`'s
+  /// `onListDir` contract.
+  func listSMBSubdirectories(
+    share: SMBCredentialStore.SavedShare, path: String
+  ) async -> [SMBFileOperations.DirEntry]? {
+    guard let creds = await SMBCredentialStore.shared.credentials(for: share) else { return nil }
+    return try? await SMBSource.listSubdirectories(at: path, credentials: creds)
+  }
 
-    /// `POST /api/folders/<id>/mkdir` via `RemoteCatalog`. `parentAbsPath` and
-    /// `libraryRootPath` are both server-absolute; the relative path the API
-    /// expects is derived by stripping the library root prefix.
-    func createCloudFolder(server: URL, libraryFolderID: String, libraryRootPath: String,
-                           parentAbsPath: String, name: String) {
-        // The UI already disables Create for an invalid name; re-checked
-        // here (#2645 review) as defense in depth — `RemoteCatalog.makeDir`
-        // is shared with the FileProvider extension, which sources its
-        // names from the OS (already validated), so it doesn't itself
-        // enforce `FilenameValidation`'s rules.
-        guard FilenameValidation.isValidPathComponent(name) else {
-            browseVM.loadError = FileOperationError.invalidName(name)
-            return
-        }
-        let targetAbsPath = (parentAbsPath as NSString).appendingPathComponent(name)
-        guard let relative = cloudRelativePath(targetAbsPath, under: libraryRootPath) else {
-            browseVM.loadError = FileOperationError.invalidDestination(
-                "\(targetAbsPath) is not under library root \(libraryRootPath)")
-            return
-        }
-        Task { @MainActor in
-            // `makeCloudCatalog` (`AppShell+Trash.swift`) — routes through
-            // `LocalNetworkResolver.shared.effectiveURL(for:)` so a server
-            // reachable on the local network doesn't take the WAN path
-            // (#2753: this call previously built a raw `RemoteCatalog(...)`
-            // from the unresolved server URL, skipping that entirely).
-            let catalog = makeCloudCatalog(server: server)
-            do {
-                _ = try await catalog.makeDir(folderID: libraryFolderID, targetRelativePath: relative)
-                folderRefreshGeneration += 1
-            } catch {
-                browseVM.loadError = error
-            }
-        }
+  // MARK: - Cloud
+
+  /// `POST /api/folders/<id>/mkdir` via `RemoteCatalog`. `parentAbsPath` and
+  /// `libraryRootPath` are both server-absolute; the relative path the API
+  /// expects is derived by stripping the library root prefix.
+  func createCloudFolder(
+    server: URL, libraryFolderID: String, libraryRootPath: String,
+    parentAbsPath: String, name: String
+  ) {
+    // The UI already disables Create for an invalid name; re-checked
+    // here (#2645 review) as defense in depth — `RemoteCatalog.makeDir`
+    // is shared with the FileProvider extension, which sources its
+    // names from the OS (already validated), so it doesn't itself
+    // enforce `FilenameValidation`'s rules.
+    guard FilenameValidation.isValidPathComponent(name) else {
+      browseVM.loadError = FileOperationError.invalidName(name)
+      return
     }
-
-    /// `POST /api/folders/<id>/move` via `RemoteCatalog`, source and target
-    /// both computed relative to `libraryRootPath`.
-    func renameCloudFolder(server: URL, libraryFolderID: String, libraryRootPath: String,
-                           absPath: String, newName: String) {
-        guard FilenameValidation.isValidPathComponent(newName) else {
-            browseVM.loadError = FileOperationError.invalidName(newName)
-            return
-        }
-        // Component join, not string-appending (#2645 review): the prior
-        // `.deletingLastPathComponent.appending("/\(newName)")` could form a
-        // double slash if the parent path already ended in one.
-        let parentAbsPath = (absPath as NSString).deletingLastPathComponent
-        let targetAbsPath = (parentAbsPath as NSString).appendingPathComponent(newName)
-        guard let sourceRel = cloudRelativePath(absPath, under: libraryRootPath),
-              let targetRel = cloudRelativePath(targetAbsPath, under: libraryRootPath) else {
-            browseVM.loadError = FileOperationError.invalidDestination(
-                "\(absPath) is not under library root \(libraryRootPath)")
-            return
-        }
-        Task { @MainActor in
-            // `makeCloudCatalog` (`AppShell+Trash.swift`) — see the
-            // matching comment on `createCloudFolder` above (#2753).
-            let catalog = makeCloudCatalog(server: server)
-            do {
-                let result = try await catalog.moveFolder(
-                    folderID: libraryFolderID, sourceRelativePath: sourceRel, targetRelativePath: targetRel)
-                switch result {
-                case .ok:
-                    folderRefreshGeneration += 1
-                case .conflict:
-                    browseVM.loadError = FileOperationError.destinationExists(targetAbsPath)
-                }
-            } catch {
-                browseVM.loadError = error
-            }
-        }
+    let targetAbsPath = (parentAbsPath as NSString).appendingPathComponent(name)
+    guard let relative = cloudRelativePath(targetAbsPath, under: libraryRootPath) else {
+      browseVM.loadError = FileOperationError.invalidDestination(
+        "\(targetAbsPath) is not under library root \(libraryRootPath)")
+      return
     }
-
-    /// `POST /api/folders/<id>/trash-folder` via `RemoteCatalog` (#2696).
-    /// Recursive — every asset under `absPath` is trashed server-side.
-    /// Partial failure (some assets trashed, others not) surfaces as a
-    /// single error banner naming the failure count rather than a per-item
-    /// report: unlike the grid's multi-select trash, a folder trash has no
-    /// natural "list of items" the user picked one-by-one to show outcomes
-    /// against.
-    func trashCloudFolder(server: URL, libraryFolderID: String, libraryRootPath: String, absPath: String) {
-        guard let relative = cloudRelativePath(absPath, under: libraryRootPath), !relative.isEmpty else {
-            browseVM.loadError = FileOperationError.invalidDestination(
-                "\(absPath) is not under library root \(libraryRootPath)")
-            return
-        }
-        Task { @MainActor in
-            // `makeCloudCatalog` (`AppShell+Trash.swift`) — routes through
-            // `LocalNetworkResolver.shared.effectiveURL(for:)` so a server
-            // reachable on the local network doesn't take the WAN path
-            // (review finding, jules: a raw `RemoteCatalog(server:
-            // server)` construction here skipped that entirely).
-            let catalog = makeCloudCatalog(server: server)
-            do {
-                let summary = try await catalog.trashFolder(folderID: libraryFolderID, relativePath: relative)
-                await ForYouCache.shared.forgetFolder(
-                    host: server.cacheHostKey, libraryFolderID: libraryFolderID, folderPath: absPath)
-                folderRefreshGeneration += 1
-                if summary.failed > 0 {
-                    browseVM.loadError = FileOperationError.underlying(
-                        "\(summary.failed) of \(summary.total) items in this folder could not be trashed")
-                }
-            } catch {
-                browseVM.loadError = error
-            }
-        }
+    Task { @MainActor in
+      // `makeCloudCatalog` (`AppShell+Trash.swift`) — routes through
+      // `LocalNetworkResolver.shared.effectiveURL(for:)` so a server
+      // reachable on the local network doesn't take the WAN path
+      // (#2753: this call previously built a raw `RemoteCatalog(...)`
+      // from the unresolved server URL, skipping that entirely).
+      let catalog = makeCloudCatalog(server: server)
+      do {
+        _ = try await catalog.makeDir(folderID: libraryFolderID, targetRelativePath: relative)
+        folderRefreshGeneration += 1
+      } catch {
+        browseVM.loadError = error
+      }
     }
+  }
 
-    /// Strips `libraryRootPath` off the front of `absPath`, POSIX-style.
-    /// Returns `nil` when `absPath` isn't actually under the root (shouldn't
-    /// happen given the sidebar only ever passes paths from its own tree,
-    /// but the API rejects `..`/leading-`/` the same way `encodeTargetPath`
-    /// does, so this fails closed rather than sending a malformed request).
-    /// Not `private`: `AppShell+AssetDrop.swift` (#2646) reuses this same
-    /// abs-path → library-relative-path derivation for the Cloud drop
-    /// target's `destination_path`.
-    func cloudRelativePath(_ absPath: String, under libraryRootPath: String) -> String? {
-        let root = libraryRootPath.hasSuffix("/") ? String(libraryRootPath.dropLast()) : libraryRootPath
-        guard absPath == root || absPath.hasPrefix(root + "/") else { return nil }
-        guard absPath != root else { return "" }
-        return String(absPath.dropFirst(root.count + 1))
+  /// `POST /api/folders/<id>/move` via `RemoteCatalog`, source and target
+  /// both computed relative to `libraryRootPath`.
+  func renameCloudFolder(
+    server: URL, libraryFolderID: String, libraryRootPath: String,
+    absPath: String, newName: String
+  ) {
+    guard FilenameValidation.isValidPathComponent(newName) else {
+      browseVM.loadError = FileOperationError.invalidName(newName)
+      return
     }
+    // Component join, not string-appending (#2645 review): the prior
+    // `.deletingLastPathComponent.appending("/\(newName)")` could form a
+    // double slash if the parent path already ended in one.
+    let parentAbsPath = (absPath as NSString).deletingLastPathComponent
+    let targetAbsPath = (parentAbsPath as NSString).appendingPathComponent(newName)
+    guard let sourceRel = cloudRelativePath(absPath, under: libraryRootPath),
+      let targetRel = cloudRelativePath(targetAbsPath, under: libraryRootPath)
+    else {
+      browseVM.loadError = FileOperationError.invalidDestination(
+        "\(absPath) is not under library root \(libraryRootPath)")
+      return
+    }
+    Task { @MainActor in
+      // `makeCloudCatalog` (`AppShell+Trash.swift`) — see the
+      // matching comment on `createCloudFolder` above (#2753).
+      let catalog = makeCloudCatalog(server: server)
+      do {
+        let result = try await catalog.moveFolder(
+          folderID: libraryFolderID, sourceRelativePath: sourceRel, targetRelativePath: targetRel)
+        switch result {
+        case .ok:
+          folderRefreshGeneration += 1
+        case .conflict:
+          browseVM.loadError = FileOperationError.destinationExists(targetAbsPath)
+        }
+      } catch {
+        browseVM.loadError = error
+      }
+    }
+  }
+
+  /// `POST /api/folders/<id>/trash-folder` via `RemoteCatalog` (#2696).
+  /// Recursive — every asset under `absPath` is trashed server-side.
+  /// Partial failure (some assets trashed, others not) surfaces as a
+  /// single error banner naming the failure count rather than a per-item
+  /// report: unlike the grid's multi-select trash, a folder trash has no
+  /// natural "list of items" the user picked one-by-one to show outcomes
+  /// against.
+  func trashCloudFolder(
+    server: URL, libraryFolderID: String, libraryRootPath: String, absPath: String
+  ) {
+    guard let relative = cloudRelativePath(absPath, under: libraryRootPath), !relative.isEmpty
+    else {
+      browseVM.loadError = FileOperationError.invalidDestination(
+        "\(absPath) is not under library root \(libraryRootPath)")
+      return
+    }
+    Task { @MainActor in
+      // `makeCloudCatalog` (`AppShell+Trash.swift`) — routes through
+      // `LocalNetworkResolver.shared.effectiveURL(for:)` so a server
+      // reachable on the local network doesn't take the WAN path
+      // (review finding, jules: a raw `RemoteCatalog(server:
+      // server)` construction here skipped that entirely).
+      let catalog = makeCloudCatalog(server: server)
+      do {
+        let summary = try await catalog.trashFolder(
+          folderID: libraryFolderID, relativePath: relative)
+        await ForYouCache.shared.forgetFolder(
+          host: server.cacheHostKey, libraryFolderID: libraryFolderID, folderPath: absPath)
+        folderRefreshGeneration += 1
+        if summary.failed > 0 {
+          browseVM.loadError = FileOperationError.underlying(
+            "\(summary.failed) of \(summary.total) items in this folder could not be trashed")
+        }
+      } catch {
+        browseVM.loadError = error
+      }
+    }
+  }
+
+  /// Strips `libraryRootPath` off the front of `absPath`, POSIX-style.
+  /// Returns `nil` when `absPath` isn't actually under the root (shouldn't
+  /// happen given the sidebar only ever passes paths from its own tree,
+  /// but the API rejects `..`/leading-`/` the same way `encodeTargetPath`
+  /// does, so this fails closed rather than sending a malformed request).
+  /// Not `private`: `AppShell+AssetDrop.swift` (#2646) reuses this same
+  /// abs-path → library-relative-path derivation for the Cloud drop
+  /// target's `destination_path`.
+  func cloudRelativePath(_ absPath: String, under libraryRootPath: String) -> String? {
+    let root = libraryRootPath.hasSuffix("/") ? String(libraryRootPath.dropLast()) : libraryRootPath
+    guard absPath == root || absPath.hasPrefix(root + "/") else { return nil }
+    guard absPath != root else { return "" }
+    return String(absPath.dropFirst(root.count + 1))
+  }
 }
