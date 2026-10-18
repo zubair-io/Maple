@@ -53,12 +53,11 @@ import { waitForAbortable } from './sidecar-write-order.ts';
 const SIDECAR_EXTENSION = '.xmp';
 
 /** Every root a sidecar may resolve into: `MAPLE_ROOTS`, roots registered at
- * runtime, and the database libraries. The fs jail alone allows everything
- * when the first two are empty — the documented default deployment, which
- * never calls `registerRoot` for its libraries (#4819) — so the sidecar jail
- * consults the libraries itself. A failed library lookup with no declared
- * roots fails closed: only a successful lookup that finds no library at all
- * reaches the intentional allow-all case. */
+ * runtime, and the database libraries. This sidecar-specific check also
+ * requires the resolved target to remain inside those roots after the general
+ * fs jail (#4819). A failed library lookup with no declared roots fails
+ * closed: only a successful lookup that finds no library at all reaches the
+ * intentional allow-all case. */
 async function sidecarRoots(): Promise<{ roots: string[]; error: string | null }> {
   const declared = [...parseRootList(process.env.MAPLE_ROOTS), ...getRegisteredRoots()];
   const libraries = await loadLibraryRoots().then(
