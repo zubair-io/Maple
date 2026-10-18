@@ -77,6 +77,7 @@ export async function publishExclusive(
   tmp: string,
   destination: string,
 ): Promise<RelocatePublication> {
+  const identity = await fs.lstat(tmp);
   try {
     await fs.link(tmp, destination);
   } catch (err) {
@@ -84,7 +85,6 @@ export async function publishExclusive(
     if (!LINK_UNSUPPORTED.has(errnoCode(err) ?? '')) throw err;
     return copyExclusive(tmp, destination);
   }
-  const identity = await fs.lstat(tmp);
   return { path: destination, dev: identity.dev, ino: identity.ino };
 }
 
@@ -95,10 +95,7 @@ async function copyExclusive(source: string, destination: string): Promise<Reloc
   const target = await fs.open(destination, 'wx').catch((err: unknown) => {
     throw errnoCode(err) === 'EEXIST' ? new PublishCollisionError(destination) : err;
   });
-  const identity = await target.stat().catch(async (err: unknown) => {
-    await target.close();
-    throw err;
-  });
+  const identity = await handleIdentity(target, destination);
   const publication = { path: destination, dev: identity.dev, ino: identity.ino };
   try {
     try {
@@ -113,6 +110,22 @@ async function copyExclusive(source: string, destination: string): Promise<Reloc
   }
   fs.replicatePath(destination);
   return publication;
+}
+
+/** The handle's inode, read twice before giving up. Without it the created
+ * name cannot be tied to this move by inode, so ownership is proven through
+ * the handle instead (`withdrawUnidentified`) before anything is removed. */
+async function handleIdentity(
+  target: fs.FileHandle,
+  destination: string,
+): Promise<{ dev: number; ino: number }> {
+  try {
+    return await target.stat().catch(() => target.stat());
+  } catch (err) {
+    await withdrawUnidentified(target, destination);
+    await target.close().catch(() => {});
+    throw err;
+  }
 }
 
 /** Only an inode that genuinely differs is a collision; an `lstat` error
@@ -162,32 +175,90 @@ export async function revertCreated(publications: RelocatePublication[]): Promis
   for (const publication of publications.splice(0)) await withdraw(publication);
 }
 
+type Ownership = 'ours' | 'theirs' | 'unproven';
+
 /** No portable unlink is conditional on an inode, so the name is first moved
  * atomically to a private sibling; only there, where no other writer can
- * reach it, is the inode checked and removed. A competitor's file caught by
- * that move is put back without replacing anything. */
+ * reach it, is ownership checked and the file removed. Anything else caught
+ * by that move is put back without replacing anything. */
 async function withdraw(publication: RelocatePublication): Promise<void> {
-  const aside = privateSiblingOf(publication.path);
-  const moved = await fs.rename(publication.path, aside).then(
-    () => true,
-    () => false,
-  );
-  if (!moved) return;
-  if (samePublication(publication, await fs.lstat(aside).catch(() => null))) {
+  const aside = await moveAside(publication.path);
+  if (!aside) return;
+  const identity = await fs.lstat(aside).catch(() => null);
+  const ownership: Ownership = !identity
+    ? 'unproven'
+    : samePublication(publication, identity)
+      ? 'ours'
+      : 'theirs';
+  await settleAside(aside, publication.path, ownership);
+}
+
+/** Same withdrawal when the inode is unknown: a random nonce written through
+ * the still-open handle lands in this move's inode only, so the aside file
+ * holding exactly that nonce proves it is ours. */
+async function withdrawUnidentified(target: fs.FileHandle, destination: string): Promise<void> {
+  const aside = await moveAside(destination);
+  if (!aside) return;
+  const nonce = randomBytes(32);
+  const ownership: Ownership = await target
+    .write(nonce, 0, nonce.length, 0)
+    .then(async ({ bytesWritten }) => {
+      if (bytesWritten !== nonce.length) return 'unproven';
+      return nonce.equals(await fs.readFile(aside)) ? 'ours' : 'theirs';
+    })
+    .catch(() => 'unproven' as const);
+  await settleAside(aside, destination, ownership);
+}
+
+async function moveAside(name: string): Promise<string | null> {
+  const aside = privateSiblingOf(name);
+  try {
+    await fs.rename(name, aside);
+    return aside;
+  } catch (err) {
+    if (errnoCode(err) !== 'ENOENT') {
+      log.error(
+        { name, err: err instanceof Error ? err.message : err },
+        'relocate rollback: could not move a created file aside — it is kept, not deleted',
+      );
+    }
+    return null;
+  }
+}
+
+async function settleAside(aside: string, destination: string, ownership: Ownership) {
+  if (ownership === 'ours') {
     await fs.unlink(aside).catch(() => {});
     return;
   }
-  await restoreCompetitor(aside, publication.path);
+  if (ownership === 'theirs') {
+    await restoreAside(aside, destination);
+    return;
+  }
+  // A plain link never leaves a partial file, so restoring an unproven file
+  // cannot start another rollback of its own.
+  const relinked = await fs.link(aside, destination).then(
+    () =>
+      fs.unlink(aside).then(
+        () => true,
+        () => false,
+      ),
+    () => false,
+  );
+  log.error(
+    { aside, destination, keptAt: relinked ? destination : aside },
+    "relocate rollback: could not prove a created file is this move's own — it is kept, not deleted",
+  );
 }
 
-async function restoreCompetitor(aside: string, destination: string): Promise<void> {
+async function restoreAside(aside: string, destination: string): Promise<void> {
   try {
     await publishExclusive(aside, destination);
     if (await filesIdentical(aside, destination)) await fs.unlink(aside);
   } catch (err) {
     log.error(
       { aside, destination, err: err instanceof Error ? err.message : err },
-      'relocate rollback: another writer replaced this copy and the name was claimed again — their file is kept at the aside path',
+      'relocate rollback: a file could not be put back at its name — it is kept at the aside path',
     );
   }
 }

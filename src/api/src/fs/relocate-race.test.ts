@@ -336,6 +336,100 @@ for (const collision of ['skip', 'keep-both'] satisfies CollisionPolicy[]) {
   });
 }
 
+const transient = () => Object.assign(new Error('transient'), { code: 'EIO' });
+
+test('a hard-link publication whose identity read fails leaves no duplicate', async () => {
+  await write('src/photo.dng', 'source pixels');
+  const tmpPrefix = abs('dst/photo.dng.tmp.');
+  const lstat = fs.lstat;
+  let failed = false;
+  spyOn(fs, 'lstat').mockImplementation((async (target: string, options?: unknown) => {
+    if (String(target).startsWith(tmpPrefix) && !failed) {
+      failed = true;
+      throw transient();
+    }
+    return (lstat as (...args: unknown[]) => Promise<unknown>)(target, options);
+  }) as typeof fs.lstat);
+  const outcome = await relocateFile({
+    sourceAbsPath: abs('src/photo.dng'),
+    destAbsPath: abs('dst/photo.dng'),
+    mode: 'move',
+    collision: 'keep-both',
+  });
+  expect(failed).toBe(true);
+  expect(outcome.kind).toBe('error');
+  expect(await fs.readFile(abs('src/photo.dng'), 'utf8')).toBe('source pixels');
+  expect(await fs.readdir(abs('dst'))).toEqual([]);
+});
+
+for (const statFailures of [1, Infinity]) {
+  test(`fallback handle stat failing ${statFailures}x never strands the created file`, async () => {
+    await write('src/photo.dng', 'source pixels');
+    const destination = abs('dst/photo.dng');
+    spyOn(fs, 'link').mockRejectedValue(Object.assign(new Error('unsupported'), { code: 'EPERM' }));
+    const open = fs.open;
+    let failures = 0;
+    spyOn(fs, 'open').mockImplementation(async (target, flags, mode) => {
+      const handle = await open(target, flags, mode);
+      if (target !== destination) return handle;
+      const stat = handle.stat.bind(handle);
+      handle.stat = (async (options?: unknown) => {
+        if (failures < statFailures) {
+          failures++;
+          throw transient();
+        }
+        return stat(options as never);
+      }) as typeof handle.stat;
+      return handle;
+    });
+    const outcome = await relocateFile({
+      sourceAbsPath: abs('src/photo.dng'),
+      destAbsPath: destination,
+      mode: 'move',
+      collision: 'keep-both',
+    });
+    expect(failures).toBeGreaterThan(0);
+    if (statFailures === 1) {
+      expect(outcome).toMatchObject({ kind: 'relocated', newAbsPath: destination });
+      expect(await fs.readFile(destination, 'utf8')).toBe('source pixels');
+    } else {
+      expect(outcome.kind).toBe('error');
+      expect(await fs.readFile(abs('src/photo.dng'), 'utf8')).toBe('source pixels');
+      expect(await fs.readdir(abs('dst'))).toEqual([]);
+    }
+  });
+}
+
+test('an unprovable fallback file is kept rather than deleted', async () => {
+  await write('src/photo.dng', 'source pixels');
+  const destination = abs('dst/photo.dng');
+  spyOn(fs, 'link').mockRejectedValue(Object.assign(new Error('unsupported'), { code: 'EPERM' }));
+  const open = fs.open;
+  spyOn(fs, 'open').mockImplementation(async (target, flags, mode) => {
+    const handle = await open(target, flags, mode);
+    if (target === destination) {
+      handle.stat = (async () => {
+        throw transient();
+      }) as typeof handle.stat;
+    }
+    return handle;
+  });
+  const readFile = fs.readFile;
+  spyOn(fs, 'readFile').mockImplementation((async (target: unknown, options?: unknown) => {
+    if (String(target).startsWith(`${destination}.tmp.`)) throw transient();
+    return (readFile as (...args: unknown[]) => Promise<unknown>)(target, options);
+  }) as typeof fs.readFile);
+  const outcome = await relocateFile({
+    sourceAbsPath: abs('src/photo.dng'),
+    destAbsPath: destination,
+    mode: 'move',
+    collision: 'keep-both',
+  });
+  expect(outcome.kind).toBe('error');
+  expect(await fs.readFile(abs('src/photo.dng'), 'utf8')).toBe('source pixels');
+  expect(await fs.readdir(abs('dst'))).toHaveLength(1);
+});
+
 test('rollback never removes a file that replaced the publication just before removal', async () => {
   await write('src/photo.dng', 'source pixels');
   await write('replacement', 'competing pixels');
