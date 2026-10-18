@@ -79,10 +79,10 @@ namespace Maple.WinUI.Services.Cloud
         {
             using var response = await PostRedeemAsync(code, codeVerifier, ct);
             if (response == null)
-                return (false, "code redeem could not reach the server — check your connection and try signing in again.", true);
+                return (false, "code redeem could not reach the server — check your connection and try signing in again.", false);
             if (!response.IsSuccessStatusCode)
                 return (false, $"code redeem failed ({(int)response.StatusCode}) — the code may have expired; try signing in again.",
-                    (int)response.StatusCode == 429 || (int)response.StatusCode >= 500);
+                    (int)response.StatusCode == 429);
             var tokens = await ReadJsonAsync<CloudRedeemResponse>(response, ct);
             if (string.IsNullOrEmpty(tokens?.AccessToken))
                 return (false, "code redeem returned no access token.", false);

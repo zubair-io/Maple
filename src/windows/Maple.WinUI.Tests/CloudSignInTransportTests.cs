@@ -32,7 +32,7 @@ public sealed class CloudSignInTransportTests : IDisposable
         using var client = Client(Unreachable);
         var (ok, message, retryable) = await client.RedeemNativeCodeAsync("code", "verifier", CancellationToken.None);
         Assert.False(ok);
-        Assert.True(retryable);
+        Assert.False(retryable);
         Assert.Contains("could not reach", message);
     }
 
@@ -64,9 +64,9 @@ public sealed class CloudSignInTransportTests : IDisposable
     [InlineData(HttpStatusCode.Unauthorized, false)]
     [InlineData(HttpStatusCode.NotFound, false)]
     [InlineData(HttpStatusCode.TooManyRequests, true)]
-    [InlineData(HttpStatusCode.InternalServerError, true)]
-    [InlineData(HttpStatusCode.ServiceUnavailable, true)]
-    public async Task RedeemRejectionIsRetryableOnlyForTransientStatuses(HttpStatusCode status, bool retryable)
+    [InlineData(HttpStatusCode.InternalServerError, false)]
+    [InlineData(HttpStatusCode.ServiceUnavailable, false)]
+    public async Task RedeemIsRetryableOnlyWhenRateLimitedBeforeTheCodeIsSpent(HttpStatusCode status, bool retryable)
     {
         using var client = Client(_ => new HttpResponseMessage(status));
         var (ok, _, actual) = await CloudSignInCallback.RedeemAsync(client, Pending, "code");
