@@ -167,17 +167,28 @@ impl EditJournal {
     }
 
     pub fn validate_original(&self, entry: &CloudEntry) -> Result<(), CloudError> {
-        if let Some(record) = &self.record {
-            if self.pending()?
-                && (record.entry.mtime != entry.mtime || record.entry.size != entry.size)
-            {
-                return Err(CloudError::Protocol(format!(
-                    "The remote original changed. Pending edits are preserved at {}",
-                    self.directory.display()
-                )));
-            }
+        if self.pending()? {
+            self.verify_original(entry)?;
         }
         Ok(())
+    }
+
+    pub fn entry(&self) -> Option<CloudEntry> {
+        self.record.as_ref().map(|record| record.entry.clone())
+    }
+
+    pub fn verify_original(&self, entry: &CloudEntry) -> Result<(), CloudError> {
+        match &self.record {
+            Some(record)
+                if record.entry.mtime != entry.mtime || record.entry.size != entry.size =>
+            {
+                Err(CloudError::Protocol(format!(
+                    "The remote original changed. Pending edits are preserved at {}",
+                    self.directory.display()
+                )))
+            }
+            _ => Ok(()),
+        }
     }
 
     pub fn synchronize(
