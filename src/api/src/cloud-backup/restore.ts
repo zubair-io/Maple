@@ -1,7 +1,8 @@
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { mkdir, open, link, unlink, lstat, realpath, readdir, statfs } from '../fs/mirrored.ts';
-import { safeWriteAllowed, registerRoot } from '../fs/root.ts';
+import { isWithinRoot, registerRoot, resolveRealPathThroughAncestors } from '../fs/root.ts';
+import { parseRootList } from '../fs/root-list.ts';
 import { fileHash, relativeBackupPath } from './inventory.ts';
 import { latestManifests, readRemoteCatalog, readEntryPurge } from './catalog.ts';
 import type { BackupProvider, BackupManifest } from './provider.ts';
@@ -27,11 +28,15 @@ export interface RecoveryRequest {
 }
 async function validateRecoveryTarget(target: string): Promise<string> {
   if (!path.isAbsolute(target)) throw new Error('Recovery requires an absolute empty directory');
-  const allowed = await safeWriteAllowed(path.join(target, '.maple-recovery-check'));
-  if (!allowed.ok) throw new Error('Recovery directory is outside allowed server roots');
   const canonical = await realpath(target);
   if ((await lstat(target)).isSymbolicLink() || !(await lstat(canonical)).isDirectory())
     throw new Error('Recovery target must be a directory, not a symlink');
+  // Recovery is an owner-requested registration of a new library, so it may
+  // start outside existing libraries. Explicit server roots still bound it.
+  const configured = parseRootList(process.env.MAPLE_ROOTS);
+  const roots = await Promise.all(configured.map(resolveRealPathThroughAncestors));
+  if (roots.length > 0 && !roots.some((root) => isWithinRoot(root, canonical)))
+    throw new Error('Recovery directory is outside allowed server roots');
   return canonical;
 }
 function selected(entries: BackupManifest[], request: RecoveryRequest): BackupManifest[] {
