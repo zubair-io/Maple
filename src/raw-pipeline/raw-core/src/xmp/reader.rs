@@ -79,6 +79,14 @@ pub(super) fn parse_events<'a>(
                     continue;
                 }
                 let (canon_name, _) = namespaces.start(&e)?;
+                // Lightroom's profile look (#4685) nests the profile's own PV2012
+                // curves and grayscale flag under `crs:Look`: the profile's recipe,
+                // not the user's edit, so the subtree is opaque passthrough.
+                if is_profile_look(&name, &canon_name) {
+                    namespaces.end(&name);
+                    workflow_depth = 1;
+                    continue;
+                }
                 if stack.len() == 1
                     && subject::is_xmpmeta_name(&stack[0])
                     && !subject::is_rdf_name(&canon_name)
@@ -118,6 +126,9 @@ pub(super) fn parse_events<'a>(
                     continue;
                 }
                 let (canon_name, _) = namespaces.empty(&e)?;
+                if is_profile_look(&name, &canon_name) {
+                    continue;
+                }
                 if stack.len() == 1
                     && subject::is_xmpmeta_name(&stack[0])
                     && !subject::is_rdf_name(&canon_name)
@@ -197,4 +208,10 @@ pub(super) fn parse_events<'a>(
         WbScaleVersion::V5
     });
     Ok(model)
+}
+
+/// The walkers match raw prefixed names, so the raw spelling is skipped too;
+/// the canonical spelling catches a Camera Raw namespace bound to another prefix.
+fn is_profile_look(raw: &str, canonical: &str) -> bool {
+    raw == "crs:Look" || canonical == "crs:Look"
 }
