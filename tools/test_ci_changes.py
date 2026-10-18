@@ -311,12 +311,15 @@ class GitTests(unittest.TestCase):
         self.commit("src/web/second.ts")
         self.git("checkout", "-q", "--detach", self.base)
         self.git("merge", "-q", "--no-ff", "first-pr", "-m", "merge first PR")
+        prior_group_head = self.git("rev-parse", "HEAD")
         self.git("merge", "-q", "--no-ff", "second-pr", "-m", "merge second PR")
         group_head = self.git("rev-parse", "HEAD")
         event = {"merge_group": {"base_sha": self.base, "head_sha": group_head}}
         selected = ci.select("merge_group", event, self.repo)
-        self.assert_selected(selected, {"api", "web", "windows"})
-        self.assertIn(f"{self.base}..{group_head}", selected[1])
+        self.assert_selected(selected, ci.ALL)
+        # A later queue event can name the earlier synthetic head as base_sha.
+        later = {"merge_group": {"base_sha": prior_group_head, "head_sha": group_head}}
+        self.assert_selected(ci.select("merge_group", later, self.repo), ci.ALL)
         self.assert_selected(
             ci.select("merge_group", {"merge_group": {"base_sha": first}}, self.repo),
             ci.ALL,
