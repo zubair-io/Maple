@@ -95,25 +95,37 @@ async function copyExclusive(source: string, destination: string): Promise<Reloc
   const target = await fs.open(destination, 'wx').catch((err: unknown) => {
     throw errnoCode(err) === 'EEXIST' ? new PublishCollisionError(destination) : err;
   });
-  const identity = await target.stat();
+  const identity = await target.stat().catch(async (err: unknown) => {
+    await target.close();
+    throw err;
+  });
   const publication = { path: destination, dev: identity.dev, ino: identity.ino };
   try {
-    await streamInto(source, target);
+    try {
+      await streamInto(source, target);
+    } finally {
+      await target.close();
+    }
+    await confirmPublished(source, publication);
   } catch (err) {
-    await target.close();
     await revertCreated([publication]);
     throw err;
   }
-  await target.close();
-  if (!samePublication(publication, await fs.lstat(destination).catch(() => null))) {
-    throw new PublishCollisionError(destination);
-  }
-  if (!(await filesIdentical(source, destination))) {
-    await revertCreated([publication]);
-    throw new Error(`relocate: fallback copy verification failed: ${source} -> ${destination}`);
-  }
   fs.replicatePath(destination);
   return publication;
+}
+
+/** Only an inode that genuinely differs is a collision; an `lstat` error
+ * proves nothing about a competitor and propagates as itself. */
+async function confirmPublished(source: string, publication: RelocatePublication): Promise<void> {
+  if (!samePublication(publication, await fs.lstat(publication.path))) {
+    throw new PublishCollisionError(publication.path);
+  }
+  if (!(await filesIdentical(source, publication.path))) {
+    throw new Error(
+      `relocate: fallback copy verification failed: ${source} -> ${publication.path}`,
+    );
+  }
 }
 
 async function streamInto(source: string, target: fs.FileHandle): Promise<void> {
