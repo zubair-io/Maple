@@ -68,6 +68,9 @@ test('cancelling temp staging returns promptly and removes a temp opened afterwa
   const { promise: releaseOpen, resolve: resumeOpen } = Promise.withResolvers<void>();
   const { promise: openResolved, resolve: markOpenResolved } = Promise.withResolvers<void>();
   const { promise: lateCleanup, resolve: markLateCleanup } = Promise.withResolvers<void>();
+  const { promise: releaseLateCleanup, resolve: resumeLateCleanup } = Promise.withResolvers<void>();
+  const { promise: lateCleanupFinished, resolve: markLateCleanupFinished } =
+    Promise.withResolvers<void>();
   const controller = new AbortController();
   let temporaryPath = '';
   let cleanupAttempts = 0;
@@ -94,6 +97,12 @@ test('cancelling temp staging returns promptly and removes a temp opened afterwa
   ) => {
     if (String(args[0]) === temporaryPath && temporaryPath && ++cleanupAttempts === 2) {
       markLateCleanup();
+      await releaseLateCleanup;
+      try {
+        return await realUnlink(...args);
+      } finally {
+        markLateCleanupFinished();
+      }
     }
     return realUnlink(...args);
   }) as never);
@@ -120,10 +129,14 @@ test('cancelling temp staging returns promptly and removes a temp opened afterwa
     resumeOpen();
     await openResolved;
     await lateCleanup;
+    expect(await nativeFs.readdir(directory)).toContain(path.basename(temporaryPath));
+    resumeLateCleanup();
+    await lateCleanupFinished;
     expect(await nativeFs.readdir(directory)).not.toContain(path.basename(temporaryPath));
     expect(await nativeFs.readdir(directory)).not.toContain('photo.xmp');
   } finally {
     resumeOpen();
+    resumeLateCleanup();
     authorization.mockRestore();
     open.mockRestore();
     unlink.mockRestore();
