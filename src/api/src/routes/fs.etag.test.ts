@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { mkdtemp, rm, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -9,6 +9,8 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { fsRoutes } from './fs.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
+
+const inheritedRoots = process.env.MAPLE_ROOTS;
 
 /**
  * The ETag is computed over the enriched listing, and enriching it is what
@@ -26,8 +28,10 @@ import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 describe('GET /api/fs/dir — ETag', () => {
   let tmp: string | null = null;
   let live: LiveTestDatabase | null = null;
+  let previousRoots: string | undefined;
 
   beforeEach(async () => {
+    previousRoots = process.env.MAPLE_ROOTS;
     live = await createLiveTestDatabase();
     tmp = await realpath(await mkdtemp(join(tmpdir(), 'maple-fs-etag-')));
     process.env.MAPLE_ROOTS = tmp;
@@ -35,6 +39,8 @@ describe('GET /api/fs/dir — ETag', () => {
   });
 
   afterEach(async () => {
+    if (previousRoots === undefined) delete process.env.MAPLE_ROOTS;
+    else process.env.MAPLE_ROOTS = previousRoots;
     if (tmp) await rm(tmp, { recursive: true, force: true }).catch(() => {});
     tmp = null;
     live?.close();
@@ -79,4 +85,8 @@ describe('GET /api/fs/dir — ETag', () => {
     expect(second.status).toBe(200);
     expect(second.headers.get('ETag')).not.toBe(etag1);
   });
+});
+
+test('ETag fixtures restore the inherited filesystem root boundary', () => {
+  expect(process.env.MAPLE_ROOTS).toBe(inheritedRoots);
 });
