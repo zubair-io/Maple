@@ -21,6 +21,7 @@
         <mui-list-row
           icon="star"
           [label]="'Delete “' + preset.name + '”?'"
+          [pressable]="false"
           [testId]="'preset-delete-confirm-row-' + preset.id"
         >
           <mui-button
