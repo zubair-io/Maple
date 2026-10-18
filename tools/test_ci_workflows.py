@@ -88,15 +88,23 @@ class WorkflowTests(unittest.TestCase):
             )
             self.assertEqual(computed.returncode, 0, computed.stderr)
             self.assertIn(f"MERGE_BASE={base}", env_file.read_text())
-            malformed = subprocess.run(
-                ["bash", "-c", compute.replace("${{ github.event_name }}", "merge_group")],
-                cwd=repo,
-                check=False,
-                env={**env, "GROUP_REF": "refs/heads/../main"},
-                capture_output=True,
-                text=True,
+            invalid = (
+                {"GROUP_REF": "refs/heads/../main"},
+                {"GROUP_REF": "main"},
+                {"GROUP_BASE": "HEAD"},
+                {"GROUP_HEAD": prior_group_head},
             )
-            self.assertNotEqual(malformed.returncode, 0)
+            for override in invalid:
+                with self.subTest(override=override):
+                    malformed = subprocess.run(
+                        ["bash", "-c", compute.replace("${{ github.event_name }}", "merge_group")],
+                        cwd=repo,
+                        check=False,
+                        env={**env, **override},
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertNotEqual(malformed.returncode, 0)
             checked = subprocess.run(
                 ["bash", "-c", compare],
                 cwd=repo,
@@ -166,6 +174,7 @@ class WorkflowTests(unittest.TestCase):
         )
         for script in steps.values():
             self.assertIn('git fetch --no-tags origin "$GROUP_REF"', script)
+            self.assertIn('"$GROUP_REF" = refs/heads/* ]] || exit 1', script)
         self.assertIn(
             'merge_base="$(git merge-base FETCH_HEAD "$GROUP_HEAD")"',
             steps["budgets-ratchet-shrinks-only"],
