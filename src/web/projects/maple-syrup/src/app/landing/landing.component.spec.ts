@@ -21,7 +21,7 @@ describe('LandingComponent', () => {
   const folderAccess = {
     hasFsAccess: true,
     openFolder: vi.fn<() => Promise<MapleFolderHandle | null>>(),
-    openDroppedFolder: vi.fn<() => Promise<MapleFolderHandle | null>>(),
+    openDroppedFolder: vi.fn<(drop: DropSnapshot) => Promise<MapleFolderHandle | null>>(),
   };
   const libraryState = {
     enterSingleFileWorkspace: vi.fn(),
@@ -232,9 +232,9 @@ describe('LandingComponent', () => {
         return locked ? [] : [file];
       },
     } as unknown as DataTransfer;
-    folderAccess.openDroppedFolder.mockImplementation(async (drop: unknown) => {
+    folderAccess.openDroppedFolder.mockImplementation(async (drop) => {
       locked = true;
-      expect(await (drop as DropSnapshot).handles).toEqual([handle]);
+      expect(await drop.handles).toEqual([handle]);
       return null;
     });
 

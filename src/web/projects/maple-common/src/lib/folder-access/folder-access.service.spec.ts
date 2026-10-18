@@ -100,6 +100,23 @@ describe('snapshotDrop', () => {
   });
 });
 
+describe('snapshotDrop item kinds', () => {
+  it('looks up handles for every non-string item, including items that omit `kind`', async () => {
+    const handle = { kind: 'directory', name: 'd' } as FileSystemHandle;
+    const stringLookup = vi.fn().mockResolvedValue(null);
+    const snapshot = snapshotDrop({
+      items: [
+        { getAsFileSystemHandle: async () => handle },
+        { kind: 'string', getAsFileSystemHandle: stringLookup },
+      ],
+      files: [],
+    } as unknown as DataTransfer);
+
+    expect(await snapshot.handles).toEqual([handle]);
+    expect(stringLookup).not.toHaveBeenCalled();
+  });
+});
+
 describe('FolderAccessService.resolveDrop', () => {
   let restoreBackend: (() => void) | null = null;
 
