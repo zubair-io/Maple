@@ -17,6 +17,10 @@
     ]
     private let moreTools: [Tool] = [.presets, .heal]
 
+    /// Tools wait for the sidecar (#4709 review): arming Crop, Mask or Heal on
+    /// unloaded defaults would edit a model hydration then replaces.
+    private var canEdit: Bool { state.session.hasLoadedSidecar }
+
     var body: some ToolbarContent {
       ToolbarItemGroup(placement: .topBarTrailing) {
         ForEach(ToolGroup.allCases, id: \.self) { group in groupButton(group) }
@@ -69,6 +73,7 @@
           ? .isSelected : []
       )
       .accessibilityIdentifier("editor-dock-group-\(group.rawValue)")
+      .disabled(!canEdit)
     }
 
     private func toolButton(_ tool: Tool) -> some View {
@@ -85,6 +90,7 @@
       .accessibilityLabel(tool.displayName)
       .accessibilityAddTraits(state.armedTool == tool ? .isSelected : [])
       .accessibilityIdentifier("editor-dock-tool-\(tool.rawValue)")
+      .disabled(!canEdit)
     }
 
     private func moreMenu(_ tools: [Tool]) -> some View {
@@ -111,6 +117,7 @@
       }
       .accessibilityLabel("More tools")
       .accessibilityIdentifier("editor-dock-more")
+      .disabled(!canEdit)
     }
   }
 

@@ -157,4 +157,44 @@ final class BatchMetadataSessionSafetyTests: EditorTestCase {
       XCTAssertEqual(failedAssets(error), [remote.id])
     }
   }
+
+  /// A culling change that lands while the batch waits on the session's
+  /// pending save must survive the batch's write, not be replaced by the
+  /// culling the batch captured before it waited.
+  func testCullingEditDuringBatchApplyIsKept() async throws {
+    let raw = try makeRaw()
+    try await saveSidecar(exposure: 1.5, stars: 1, title: "Kept", beside: raw)
+    let session = EditSession(asset: AssetRef(url: raw))
+    await session.loadSidecar()
+    let store = try XCTUnwrap(session.sidecarStore as? XMPSidecarStore)
+    let entered = expectation(description: "sidecar actor occupied")
+    let release = DispatchSemaphore(value: 0)
+    defer { release.signal() }
+    let occupied = Task.detached { await store.occupy(entered: entered, release: release) }
+    await fulfillment(of: [entered], timeout: 5)
+    session.culling.colorLabel = .red
+    let vm = BatchMetadataViewModel(assets: [session.asset], sessions: [session.asset.id: session])
+    vm.touchedMetadata.stars = 4
+
+    let batch = Task { try await vm.apply() }
+    for _ in 0..<20 { await Task.yield() }
+    session.culling.flag = .pick
+    release.signal()
+    await occupied.value
+    try await batch.value
+
+    let (_, culling, metadata) = try reparse(raw)
+    XCTAssertEqual(culling.stars, 4)
+    XCTAssertEqual(culling.flag, .pick, "the concurrent flag was dropped by the batch write")
+    XCTAssertEqual(culling.colorLabel, .red)
+    XCTAssertEqual(metadata.title, "Kept")
+  }
+}
+
+extension XMPSidecarStore {
+  /// Holds the store's actor so a queued update cannot run until released.
+  fileprivate func occupy(entered: XCTestExpectation, release: DispatchSemaphore) {
+    entered.fulfill()
+    XCTAssertEqual(release.wait(timeout: .now() + 5), .success)
+  }
 }
