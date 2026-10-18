@@ -2,8 +2,15 @@ import * as core from '@actions/core';
 import * as github from '@actions/github';
 import { jules } from '@google/jules-sdk';
 import { buildReviewPrompt } from './prompt.js';
-import { publishThenDelete, pollForReview, isAuthError } from './cleanup.js';
-import { parseVerdict, resolveOutcome, type FailOn, type Outcome } from './outcome.js';
+import { publishThenDelete, pollForReview } from './cleanup.js';
+import {
+  isAuthFailure,
+  parseVerdict,
+  resolveOutcome,
+  settleFailure,
+  type FailOn,
+  type Outcome,
+} from './outcome.js';
 
 const COMMENT_MARKER = '<!-- jules-pr-reviewer -->';
 const VALID_FAIL_ON: FailOn[] = ['never', 'blocking', 'any'];
@@ -71,6 +78,7 @@ async function run(): Promise<void> {
   }
 
   let commentId: number | undefined;
+  let producedVerdict: Outcome | undefined;
 
   try {
     try {
@@ -168,7 +176,9 @@ async function run(): Promise<void> {
     const verdict = parseVerdict(reviewMessage);
 
     const finalBody = `${COMMENT_MARKER}\n## 🤖 Jules Review\n\n${reviewMessage}\n\n---\n_Session: \`${session.id}\`_`;
-    const { state, description } = resolveOutcome({ kind: 'verdict', verdict, failOn });
+    const verdictOutcome = resolveOutcome({ kind: 'verdict', verdict, failOn });
+    producedVerdict = verdictOutcome;
+    const { state, description } = verdictOutcome;
     await publishThenDelete(
       session.id,
       apiKey,
@@ -191,22 +201,19 @@ async function run(): Promise<void> {
     core.info(`Verdict: ${verdict}. Status check: ${state}.`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const outcome = resolveOutcome({ kind: 'failure', error: err });
+    const verdictAlreadyProduced = producedVerdict !== undefined;
+    if (commentId !== undefined && !verdictAlreadyProduced) {
+      const preview = resolveOutcome({ kind: 'failure', error: err });
+      await markCommentFailed(octokit, owner, repo, commentId, msg, preview).catch(() => {});
+    }
+    const outcome = await settleFailure(
+      err,
+      producedVerdict,
+      (o) => setStatus(octokit, owner, repo, headSha, statusContext, o.state, o.description),
+      (attempt) => new Promise((resolve) => setTimeout(resolve, attempt * 2_000)),
+    );
     if (outcome.failJob) core.error(`Review failed: ${msg}`);
     else core.warning(`Review skipped, not blocking the PR: ${msg}`);
-
-    if (commentId !== undefined) {
-      await markCommentFailed(octokit, owner, repo, commentId, msg, outcome).catch(() => {});
-    }
-    await setStatus(
-      octokit,
-      owner,
-      repo,
-      headSha,
-      statusContext,
-      outcome.state,
-      outcome.description,
-    ).catch(() => {});
     if (outcome.failJob) core.setFailed(`Jules PR review failed: ${msg}`);
   }
 }
@@ -305,7 +312,7 @@ async function markCommentFailed(
 
 function wrapPermissionError(err: unknown, needed: string, op: string): Error {
   const msg = err instanceof Error ? err.message : String(err);
-  if (isAuthError(msg) || msg.includes('Resource not accessible')) {
+  if (isAuthFailure(err) || msg.includes('Resource not accessible')) {
     return new Error(
       `${op} failed with 403. The github_token likely lacks ${needed}. Add to your workflow:\n` +
         `    permissions:\n      pull-requests: write\n      contents: read\n      statuses: write\n` +
@@ -328,7 +335,7 @@ async function waitUntilSessionReady(session: {
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (isAuthError(msg)) {
+      if (isAuthFailure(err)) {
         throw new Error(`Jules API rejected request (${msg}). Check JULES_API_KEY is valid.`);
       }
       if (!msg.includes('404')) {

@@ -7,7 +7,9 @@ type ReviewSession = Pick<SessionClient, 'id' | 'info' | 'history'> & {
 
 // Match HTTP status codes, not digits embedded in a Jules session ID.
 export function isAuthError(message: string): boolean {
-  return /\b(?:401|403)\b/.test(message);
+  return /\b(?:401|403)\b|bad credentials|unauthenticated|unauthorized|api key not valid|invalid api key/i.test(
+    message,
+  );
 }
 
 export async function pollForReview(session: ReviewSession, timeoutMs: number): Promise<string> {
@@ -44,7 +46,11 @@ export async function pollForReview(session: ReviewSession, timeoutMs: number): 
             `Inspect https://jules.google.com/session/${session.id}.`,
         );
       }
-      if (isAuthError(message)) {
+      const { status, response } = (err ?? {}) as {
+        status?: unknown;
+        response?: { status?: unknown };
+      };
+      if (isAuthError(message) || [401, 403].includes(Number(status ?? response?.status))) {
         throw new Error(`Jules API rejected request (${message}). Check JULES_API_KEY is valid.`);
       }
       core.info(`Review polling error (attempt ${attempt}): ${message}`);
