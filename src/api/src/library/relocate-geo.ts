@@ -55,13 +55,25 @@ const log = childLogger('library/relocate-geo');
  * not reproduced here. */
 export type GeoMoveOutcome = 'moved' | 'skipped';
 
-/** `true` when both paths name the same file on disk — the destination is a
- * directory symlink, case alias or hard link of the source (#4701). Comparing
- * such a file with itself reports identical bytes, and the dedupe would then
- * delete the only original. */
-async function isSameFile(a: string, b: string): Promise<boolean> {
-  const [statA, statB] = await Promise.all([fs.stat(a), fs.stat(b)]);
-  return statA.dev === statB.dev && statA.ino === statB.ino;
+/** `true` when `dest` reaches the very directory entry `source` names — a
+ * symlinked or case-aliased folder, or a symlink file — so the dedupe would
+ * delete the only original (#4701). Both paths share a basename, so they are
+ * one entry exactly when their parent folders are one folder. A hard link in a
+ * genuinely different folder is a second entry: unlinking the source leaves it
+ * intact, so it returns `false` and dedupes like any identical occupant. */
+async function isSameDirectoryEntry(source: string, dest: string): Promise<boolean> {
+  const [sourceFile, destFile, destEntry] = await Promise.all([
+    fs.stat(source),
+    fs.stat(dest),
+    fs.lstat(dest),
+  ]);
+  if (sourceFile.dev !== destFile.dev || sourceFile.ino !== destFile.ino) return false;
+  if (!destEntry.isFile()) return true;
+  const [sourceDir, destDir] = await Promise.all([
+    fs.stat(path.dirname(source)),
+    fs.stat(path.dirname(dest)),
+  ]);
+  return sourceDir.dev === destDir.dev && sourceDir.ino === destDir.ino;
 }
 
 async function pathExists(p: string): Promise<boolean> {
@@ -154,10 +166,10 @@ export async function relocateGeoAsset(
     ? path.join(libRoot, doc.apple_rendered_path)
     : null;
 
-  if ((await pathExists(destAbsPath)) && (await isSameFile(sourceAbsPath, destAbsPath))) {
+  if ((await pathExists(destAbsPath)) && (await isSameDirectoryEntry(sourceAbsPath, destAbsPath))) {
     log.warn(
       { _id: String(doc._id), sourceAbsPath, destAbsPath },
-      'relocateGeoAsset: destination is the source file itself (symlink or case alias) — skipped',
+      'relocateGeoAsset: destination is the source entry itself (symlink or case alias) — skipped',
     );
     return 'skipped';
   }
