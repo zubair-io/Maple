@@ -166,4 +166,56 @@ final class ConditionalSidecarCleanupTests: XCTestCase {
     XCTAssertEqual(try sidecars.read(phassetLocalId: id), newXML)
   }
 
+  func testAppSupportWriterWaitsForCoordinatedPublication() async throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("backup-sidecar-write-order-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sidecars = AppSupportSidecarStore(root: root)
+    let id = "PHOTO/L0/005"
+    try sidecars.write(phassetLocalId: id, xmp: "<x:xmpmeta>old</x:xmpmeta>")
+    let entered = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    let holderDone = DispatchSemaphore(value: 0)
+    defer { release.signal() }
+    DispatchQueue.global().async {
+      let coordinator = NSFileCoordinator(filePresenter: nil)
+      var coordinationError: NSError?
+      coordinator.coordinate(
+        writingItemAt: sidecars.sidecarURL(phassetLocalId: id), options: [],
+        error: &coordinationError
+      ) { _ in
+        entered.signal()
+        release.wait()
+      }
+      XCTAssertNil(coordinationError)
+      holderDone.signal()
+    }
+    guard entered.wait(timeout: .now() + 5) == .success else {
+      release.signal()
+      return XCTFail("coordinated publisher did not claim the XMP")
+    }
+
+    let completion = CompletionFlag()
+    let attempt = root.appendingPathComponent("writer-attempt")
+    let newXML = "<x:xmpmeta>new</x:xmpmeta>"
+    let writer = Task.detached {
+      try Data().write(to: attempt)
+      try sidecars.write(phassetLocalId: id, xmp: newXML)
+      await completion.finish()
+    }
+    for _ in 0..<1_000 where !FileManager.default.fileExists(atPath: attempt.path) {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    XCTAssertTrue(FileManager.default.fileExists(atPath: attempt.path))
+    try await Task.sleep(for: .milliseconds(300))
+    let finishedWhileAnotherWriterHeldFile = await completion.done
+    XCTAssertFalse(
+      finishedWhileAnotherWriterHeldFile, "direct PhotoKit writer bypassed coordination")
+
+    release.signal()
+    try await writer.value
+    XCTAssertEqual(holderDone.wait(timeout: .now() + 5), .success)
+    XCTAssertEqual(try sidecars.read(phassetLocalId: id), newXML)
+  }
 }
