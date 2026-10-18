@@ -12,6 +12,7 @@ RenderSchedulingBackpressureTests
 RenderRequestIdentityTests
 RenderActivityTests
 NativeDetailCancellationTests
+DecodedCacheAgentCaptureTests
 DecodedCacheAutosaveTests
 DecodedCacheLiveModelTests
 RenderedPreviewCacheWriteTests

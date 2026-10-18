@@ -24,7 +24,9 @@ extension EditSession {
     {
       return (preview, nil)
     }
-    let initial = await renderActor.snapshot(forAsset: asset)
+    // The canvas keys its decode on the live model (#4715); a disk-keyed
+    // snapshot would call a remote asset's baked edit stale forever.
+    let initial = await renderActor.snapshot(forAsset: asset, liveModel: renderModel)
     if initial.image == nil || !initial.isFresh {
       // XMP publication may complete after the scheduled frame. Acquire the
       // actual current develop, then require a fresh canonical scene buffer.
@@ -33,7 +35,7 @@ extension EditSession {
       await renderActor.awaitCurrentRenderIfInFlight()
     }
     let model = renderModel
-    let snapshot = await renderActor.snapshot(forAsset: asset)
+    let snapshot = await renderActor.snapshot(forAsset: asset, liveModel: model)
     let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
     guard let decoded = snapshot.image, snapshot.isFresh,
       !resolvedIsRaw

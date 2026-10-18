@@ -25,7 +25,8 @@ extension RenderActor {
     if !assetMatches {
       isFresh = false
     } else if let liveModel {
-      isFresh = (Self.bakedModel(fromLive: liveModel) == decodedBakedModel)
+      let storedKey = decodedBakedModel.map(Self.bakedModel(fromLive:))
+      isFresh = (Self.bakedModel(fromLive: liveModel) == storedKey)
     } else if decodedSidecarURL == asset.sidecarURL,
       let mt = decodedSidecarMtime, currentMtime == mt
     {
@@ -98,8 +99,10 @@ extension RenderActor {
     -> Bool
   {
     let liveBaked = bakedModel(fromLive: live)
-    return cachedBakedModel == liveBaked
-      || (cachedBakedModel == nil && liveBaked == defaultBakedModel)
+    guard let cachedBakedModel else { return liveBaked == defaultBakedModel }
+    // Normalise the stored key too: it may predate the live-model key or come
+    // from a seed that stripped without normalising, and the strip is idempotent.
+    return bakedModel(fromLive: cachedBakedModel) == liveBaked
   }
 
   /// The same key, taken from a model already in memory (#4715). Crop and
