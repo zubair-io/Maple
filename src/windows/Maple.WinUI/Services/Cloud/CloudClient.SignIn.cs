@@ -19,6 +19,12 @@ namespace Maple.WinUI.Services.Cloud
         public string? RefreshToken { get; private set; }
         public event Action<string>? RefreshTokenRotated;
 
+        /// <summary>The redirect callback (redeem) and the claim poll consume the
+        /// same single-use code; one runs at a time, and whichever finishes
+        /// second adopts the first one's tokens instead of re-spending the code.</summary>
+        private readonly SemaphoreSlim _signInGate = new(1, 1);
+        private string? _signedInMessage;
+
         /// <summary>Health + auth-mode probe — step 1 of any connect flow.</summary>
         public async Task<(bool Ok, string Message, bool DevLoginEnabled)> ProbeAsync(CancellationToken ct)
         {
@@ -55,6 +61,22 @@ namespace Maple.WinUI.Services.Cloud
         public async Task<(bool Ok, string Message, bool Retryable)> RedeemNativeCodeAsync(
             string code, string codeVerifier, CancellationToken ct)
         {
+            await _signInGate.WaitAsync(ct);
+            try
+            {
+                return _signedInMessage is { } done
+                    ? (true, done, false)
+                    : await RedeemNativeCodeCoreAsync(code, codeVerifier, ct);
+            }
+            finally
+            {
+                _signInGate.Release();
+            }
+        }
+
+        private async Task<(bool Ok, string Message, bool Retryable)> RedeemNativeCodeCoreAsync(
+            string code, string codeVerifier, CancellationToken ct)
+        {
             using var response = await PostRedeemAsync(code, codeVerifier, ct);
             if (response == null)
                 return (false, "code redeem could not reach the server — check your connection and try signing in again.", true);
@@ -66,7 +88,8 @@ namespace Maple.WinUI.Services.Cloud
                 return (false, "code redeem returned no access token.", false);
             _accessToken = tokens!.AccessToken;
             RefreshToken = tokens.RefreshToken;
-            return (true, $"Signed in as {tokens.User?.Email ?? "user"}.", false);
+            _signedInMessage = $"Signed in as {tokens.User?.Email ?? "user"}.";
+            return (true, _signedInMessage, false);
         }
 
         private async Task<HttpResponseMessage?> PostRedeemAsync(string code, string codeVerifier, CancellationToken ct)
@@ -97,6 +120,22 @@ namespace Maple.WinUI.Services.Cloud
         public async Task<(bool Ok, bool Fatal, string Message)> ClaimNativeCodeAsync(
             string state, string codeVerifier, CancellationToken ct)
         {
+            await _signInGate.WaitAsync(ct);
+            try
+            {
+                return _signedInMessage is { } done
+                    ? (true, false, done)
+                    : await ClaimNativeCodeCoreAsync(state, codeVerifier, ct);
+            }
+            finally
+            {
+                _signInGate.Release();
+            }
+        }
+
+        private async Task<(bool Ok, bool Fatal, string Message)> ClaimNativeCodeCoreAsync(
+            string state, string codeVerifier, CancellationToken ct)
+        {
             try
             {
                 using var response = await _http.PostAsync("api/auth/native-code/claim",
@@ -111,7 +150,8 @@ namespace Maple.WinUI.Services.Cloud
                     return (false, true, "claim returned no access token.");
                 _accessToken = tokens!.AccessToken;
                 RefreshToken = tokens.RefreshToken;
-                return (true, false, $"Signed in as {tokens.User?.Email ?? "user"}.");
+                _signedInMessage = $"Signed in as {tokens.User?.Email ?? "user"}.";
+                return (true, false, _signedInMessage);
             }
             catch (HttpRequestException ex)
             {

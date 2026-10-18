@@ -74,6 +74,43 @@ public sealed class CloudSignInTransportTests : IDisposable
         Assert.Equal(retryable, actual);
     }
 
+    private sealed class ClaimThenRedeemHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource ClaimStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseClaim { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int RedeemRequests;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/claim"))
+            {
+                ClaimStarted.SetResult();
+                await ReleaseClaim.Task.WaitAsync(ct);
+                return Json("""{"access_token":"a","refresh_token":"r","user":{"email":"x@y.z"}}""");
+            }
+            Interlocked.Increment(ref RedeemRequests);
+            return new HttpResponseMessage(HttpStatusCode.BadRequest);
+        }
+    }
+
+    [Fact]
+    public async Task RedeemOverlappingAnInFlightClaimAdoptsTheClaimedTokens()
+    {
+        var handler = new ClaimThenRedeemHandler();
+        using var client = new CloudClient("https://maple.example.test", handler, _cache);
+        var claim = client.ClaimNativeCodeAsync("state-1", "verifier", CancellationToken.None);
+        await handler.ClaimStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var redeem = client.RedeemNativeCodeAsync("code", "verifier", CancellationToken.None);
+        Assert.False(redeem.IsCompleted);
+        handler.ReleaseClaim.SetResult();
+
+        Assert.True((await claim).Ok);
+        var (ok, _, _) = await redeem;
+        Assert.True(ok);
+        Assert.Equal(0, handler.RedeemRequests);
+        Assert.Equal("r", client.RefreshToken);
+    }
+
     [Fact]
     public async Task ProbeReportsUnreachableServerWhenHealthRequestDrops()
     {
