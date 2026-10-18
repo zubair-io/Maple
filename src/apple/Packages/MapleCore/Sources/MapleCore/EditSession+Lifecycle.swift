@@ -96,6 +96,13 @@ extension EditSession {
   public func flushPendingSidecarWriteConfirmed() async throws {
     // A rating queued before load is merged and saved once the load lands (#4708).
     if !hasLoadedSidecar, queuedCullingPatch != nil { await loadSidecar() }
+    // An unloaded session holds defaults, not the photo's edits: never write
+    // them, even when the store would accept it. A queued rating that cannot
+    // be merged is an unpersisted edit, so it fails the confirmed flush.
+    guard hasLoadedSidecar else {
+      if queuedCullingPatch != nil { throw sidecarError ?? CancellationError() }
+      return
+    }
     while true {
       await workflow.waitForIdle()
       // A flush is a commit boundary (#2432): close the open transaction

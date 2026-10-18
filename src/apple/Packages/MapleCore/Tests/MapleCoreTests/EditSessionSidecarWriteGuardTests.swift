@@ -230,6 +230,45 @@ extension EditSessionSidecarWriteGuardTests {
   }
 }
 
+extension EditSessionSidecarWriteGuardTests {
+  /// A failed read leaves the session holding defaults. A flush — exit, or a
+  /// queued rating — must never write them, even to a store that would accept
+  /// the write (Cloud/NAS where only the read failed).
+  func testFlushAfterAFailedLoadNeverWritesDefaults() async throws {
+    let store = ReadFailsWriteAcceptsStore()
+    let asset = AssetRef(displayName: "remote.dng", hintExtension: "dng", bytesProvider: { Data() })
+    let session = EditSession(asset: asset, remoteSidecarStore: store)
+    await session.loadSidecar()
+    XCTAssertTrue(session.sidecarLoadFailed)
+
+    await session.flushPendingSidecarWrite()
+    let afterExitFlush = await store.writes
+    XCTAssertEqual(afterExitFlush, 0, "an exit flush wrote defaults over an unreadable sidecar")
+
+    session.culling.stars = 4
+    do {
+      try await session.flushPendingSidecarWriteConfirmed()
+      XCTFail("a queued rating that cannot be merged must not report a confirmed save")
+    } catch {}
+    let afterQueuedFlush = await store.writes
+    XCTAssertEqual(afterQueuedFlush, 0, "a queued rating wrote defaults over an unreadable sidecar")
+  }
+}
+
+/// Every read fails; every write is accepted and counted.
+private actor ReadFailsWriteAcceptsStore: SidecarStoreProtocol {
+  private(set) var writes = 0
+
+  func load() async throws -> (AdjustmentModel, CullingState) { throw URLError(.timedOut) }
+  func loadIfPresent() async throws -> (AdjustmentModel, CullingState)? {
+    throw URLError(.timedOut)
+  }
+  func update(model: AdjustmentModel, culling: CullingState) { writes += 1 }
+  func flush() async {}
+  func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws { writes += 1 }
+  func errors() -> AsyncStream<Error> { AsyncStream { $0.finish() } }
+}
+
 /// The first read suspends until released, then fails (or, with
 /// `firstReadFails: false`, returns); later reads succeed at once. Stands in
 /// for browse priming and the editor racing two Cloud reads.
