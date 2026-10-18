@@ -57,11 +57,9 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
   const mirror = join(fixture, 'mirror');
   const outside = join(fixture, 'outside');
   await Promise.all([mkdir(library), mkdir(mirror), mkdir(outside)]);
-  await Promise.all([
-    writeFile(join(library, 'photo.xmp'), '<xmpmeta/>'),
-    writeFile(join(mirror, 'photo.xmp'), '<xmpmeta/>'),
-    writeFile(join(outside, 'photo.xmp'), '<xmpmeta/>'),
-  ]);
+  await Promise.all(
+    [library, mirror, outside].map((root) => writeFile(join(root, 'photo.xmp'), '<xmpmeta/>')),
+  );
   await symlink(join(outside, 'photo.xmp'), join(library, 'escaped.xmp'));
   delete process.env.MAPLE_ROOTS;
   const libraryId = insertFolder(live.db, { path: library });
@@ -71,7 +69,6 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
   expect((await safeWriteAllowed(join(outside, 'new.xmp'))).ok).toBe(false);
   expect((await safeReadFile(join(library, 'escaped.xmp'))).ok).toBe(false);
 
-  setMirrorRoots({ [library]: [mirror] });
   // A controlled unresolved realpath stands in for a wedged mirror mount.
   let releaseProbe!: () => void;
   const blocked = new Promise<void>((resolve) => (releaseProbe = resolve));
@@ -85,40 +82,20 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
   }) as typeof nodeFs.realpath);
   setMirrorRoots({ [library]: [mirror] });
   try {
-    const primary = await within(
-      Promise.all([
-        safeReadFile(join(library, 'photo.xmp')),
-        safeWriteAllowed(join(library, 'new.xmp')),
-      ]),
-      500,
+    expect((await within(safeReadFile(join(library, 'photo.xmp')), 500))?.data?.toString()).toBe(
+      '<xmpmeta/>',
     );
-    expect(primary?.[0].data?.toString()).toBe('<xmpmeta/>');
-    expect(primary?.[1].ok).toBe(true);
+    expect((await within(safeWriteAllowed(join(library, 'new.xmp')), 500))?.ok).toBe(true);
     const bounded = (target: string) => within(checkAllowed(target), 2_600);
     const denied = await bounded(join(outside, 'photo.xmp'));
     expect(denied?.ok).toBe(false);
     expect(benchedMirrors().map(({ root }) => root)).toContain(mirror);
     resetMirrorHealth();
-    const [mirrorDenied, missingMirrorDenied] = await Promise.all([
-      bounded(mirrorSidecar),
-      bounded(join(mirror, 'new.xmp')),
-    ]);
-    expect(mirrorDenied?.ok).toBe(false);
-    expect(missingMirrorDenied?.ok).toBe(false);
+    expect((await bounded(mirrorSidecar))?.ok).toBe(false);
+    expect((await bounded(join(mirror, 'new.xmp')))?.ok).toBe(false);
   } finally {
     releaseProbe();
     realpathProbe.mockRestore();
-  }
-  const slowPrimary = spyOn(nodeFs, 'realpath').mockImplementation((async (
-    requested: Parameters<typeof nodeFs.realpath>[0],
-  ) => {
-    if (requested === join(library, 'photo.xmp')) await Bun.sleep(2_100);
-    return actualRealpath(requested);
-  }) as typeof nodeFs.realpath);
-  try {
-    expect((await safeReadFile(join(library, 'photo.xmp'))).data?.toString()).toBe('<xmpmeta/>');
-  } finally {
-    slowPrimary.mockRestore();
   }
   clearMirrorRoots();
   expect((await checkAllowed(join(mirror, 'photo.xmp'))).ok).toBe(false);
@@ -147,12 +124,16 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
   invalidateLibraryRoots();
   let releaseProbe!: () => void;
   let slowAlias = false;
+  let stalledProbes = 0;
   const blocked = new Promise<void>((resolve) => (releaseProbe = resolve));
   const actualRealpath = nodeFs.realpath.bind(nodeFs);
   const probe = spyOn(nodeFs, 'realpath').mockImplementation((async (
     requested: Parameters<typeof nodeFs.realpath>[0],
   ) => {
-    if (requested === stalled) await blocked;
+    if (requested === stalled) {
+      stalledProbes++;
+      await blocked;
+    }
     if (requested === alias && slowAlias) {
       slowAlias = false;
       await Bun.sleep(2_100);
@@ -160,13 +141,22 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
     return actualRealpath(requested);
   }) as typeof nodeFs.realpath);
   try {
-    const read = await within(safeReadFile(join(healthy, 'photo.xmp')), 500);
-    expect(read?.data?.toString()).toBe('<xmpmeta/>');
+    expect((await within(safeReadFile(join(healthy, 'photo.xmp')), 500))?.data?.toString()).toBe(
+      '<xmpmeta/>',
+    );
     setMirrorRoots({ [healthy]: [mirror] });
-    const mirrorRead = await within(safeReadFile(join(mirror, 'photo.xmp')), 500);
-    expect(mirrorRead?.data?.toString()).toBe('<xmpmeta/>');
-    const outside = await within(checkAllowed(join(fixture, 'outside.xmp')), 3_500);
-    expect(outside?.ok).toBe(false);
+    expect((await within(safeReadFile(join(mirror, 'photo.xmp')), 500))?.data?.toString()).toBe(
+      '<xmpmeta/>',
+    );
+    const outsideRequests = () =>
+      Promise.all(Array.from({ length: 5 }, () => checkAllowed(join(fixture, 'outside.xmp'))));
+    const outside = await within(outsideRequests(), 3_500);
+    expect(outside?.every(({ ok }) => !ok)).toBe(true);
+    expect(stalledProbes).toBe(1);
+    const repeated = await within(outsideRequests(), 500);
+    expect(repeated?.every(({ ok }) => !ok)).toBe(true);
+    expect(stalledProbes).toBe(1);
+    expect((await within(safeReadFile(join(healthy, 'photo.xmp')), 500))?.ok).toBe(true);
     await symlink(healthy, alias);
     insertFolder(live.db, { path: alias });
     live.db.query('DELETE FROM folders WHERE id = ?').run(healthyId);

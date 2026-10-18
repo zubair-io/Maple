@@ -47,6 +47,7 @@ let envRootsCache:
 let mirrorRootsCache:
   | { source: readonly string[]; roots: readonly (readonly [string, string])[] }
   | undefined;
+const libraryProbes = new Map<string, { raw: Promise<string>; bounded?: Promise<string> }>();
 
 async function normalizedMirrorRoots(source: readonly string[]): Promise<string[]> {
   if (mirrorRootsCache?.source === source)
@@ -75,21 +76,30 @@ async function normalizedLibraryRoots(requested: string, real: string): Promise<
   const lexical = configured.filter((root) => isWithinRoot(root, requested));
   const matchingRoot = Promise.any(
     (lexical.length ? lexical : configured).map(async (root) => {
-      const canonical = await resolveRealPathThroughAncestors(root);
+      let probe = libraryProbes.get(root);
+      if (!probe) {
+        probe = { raw: resolveRealPathThroughAncestors(root) };
+        libraryProbes.set(root, probe);
+        const evict = () => {
+          if (libraryProbes.get(root) === probe) libraryProbes.delete(root);
+        };
+        void probe.raw.then(evict, evict);
+      }
+      // Share one settling deadline and one underlying probe per unknown root.
+      // The filesystem call cannot be cancelled; later misses must not attach to it.
+      const canonical = await (lexical.length
+        ? probe.raw
+        : (probe.bounded ??= Promise.race([
+            probe.raw,
+            Bun.sleep(3_000).then(() => {
+              throw new Error('Library alias probe timed out');
+            }),
+          ])));
       if (!isWithinRoot(canonical, real)) throw new Error('Library root does not contain path');
       return canonical;
     }),
   ).catch(() => null);
-  // Bound unknown aliases; lexical primary probes may need longer to finish.
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const match = lexical.length
-    ? await matchingRoot
-    : await Promise.race([
-        matchingRoot,
-        new Promise<null>((resolve) => {
-          timer = setTimeout(() => resolve(null), 3_000);
-        }),
-      ]).finally(() => clearTimeout(timer));
+  const match = await matchingRoot;
   return match ? [...configured, match] : configured;
 }
 
