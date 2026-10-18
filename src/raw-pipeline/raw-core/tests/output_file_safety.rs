@@ -143,6 +143,20 @@ fn failed_publication_cleans_up_owned_staging_file() {
 
 #[cfg(unix)]
 #[test]
+fn reports_directory_sync_failure_after_publish() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("out.png");
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o300)).unwrap();
+    let result = write_derived(&out, &[], b"complete pixels");
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(result.is_err(), "directory sync failure must be reported");
+    assert_eq!(fs::read(&out).unwrap(), b"complete pixels");
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[cfg(unix)]
+#[test]
 fn output_permissions_follow_process_umask() {
     use std::os::unix::fs::PermissionsExt;
     const CHILD: &str = "MAPLE_TEST_OUTPUT_PERMISSIONS_CHILD";

@@ -130,5 +130,8 @@ fn write_derived_once(out: &Path, inputs: &[&Path], bytes: &[u8]) -> io::Result<
     staging.as_file().sync_all()?;
     validate_destination(out, inputs)?;
     staging.persist(out).map_err(|e| e.error)?;
+    // On Unix the rename is durable only after the containing directory is synced.
+    #[cfg(unix)]
+    std::fs::File::open(parent)?.sync_all()?;
     Ok(())
 }
