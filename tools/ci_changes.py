@@ -84,9 +84,14 @@ def swift_api_closure(root=ROOT):
     return frozenset(seen), complete
 
 
+def is_maple_runtime(path):
+    # src/api installs `maple` from file:../maple and the workflow fixture imports it.
+    return path.startswith("src/maple/") and not path.endswith(".md") and "/test/" not in path
+
+
 def affects_swift_api(path, root=ROOT):
     closure, complete = swift_api_closure(root)
-    return not complete or path in closure
+    return path in closure or (not complete and path.startswith("src/api/"))
 
 
 SWIFT_WEB_INPUTS = frozenset(
@@ -166,7 +171,8 @@ def dependencies(path):
     swift = (
         {"swift"}
         if path in SWIFT_API_INPUTS
-        or (path.startswith("src/api/") and affects_swift_api(path))
+        or affects_swift_api(path)
+        or is_maple_runtime(path)
         or path in SWIFT_WEB_INPUTS
         or path.startswith("src/web/e2e/recipe-interchange/")
         else set()
@@ -174,10 +180,10 @@ def dependencies(path):
     if path.startswith("src/android/"):
         return {"android"} | codegen
     if path == "src/maple/package.json":
-        return {"android", "api", "maple", "web"}
+        return {"android", "api", "maple", "web"} | swift
     # Android's shared folder writer pins these API-owned cache tier parameters.
     if path in ("src/api/src/thumbs/render.ts", "src/api/src/indexer/previewer.ts"):
-        return {"android", "api", "maple", "web"} | codegen
+        return {"android", "api", "maple", "web"} | codegen | swift
     if path.startswith(("src/api/", "src/maple/")):
         return {"api", "maple", "web"} | codegen | swift
     if path.startswith("src/web/"):
