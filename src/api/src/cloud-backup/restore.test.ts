@@ -9,11 +9,52 @@ import {
   copyFile,
   unlink,
   writeFile,
+  mkdtemp,
 } from '../fs/mirrored.ts';
 import * as path from 'node:path';
+import { tmpdir } from 'node:os';
 import { recoverBackup, recoveryPreview } from './restore.ts';
 import { recoveryFixture as fixture, libraryId, entryId, source } from './restore.test-helpers.ts';
 import type { BackupManifest } from './provider.ts';
+import { getRegisteredRoots, registerRoot, unregisterRoot } from '../fs/root.ts';
+import { insertFolder } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+
+test('recovery admits a new empty target after another library is registered', async () => {
+  const f = await fixture();
+  const existing = await mkdtemp(path.join(tmpdir(), 'maple-existing-library-'));
+  const previousRoots = process.env.MAPLE_ROOTS;
+  try {
+    delete process.env.MAPLE_ROOTS;
+    unregisterRoot(f.root);
+    insertFolder(f.live.db, { path: existing });
+    registerRoot(existing);
+    invalidateLibraryRoots();
+    f.provider.manifest();
+
+    process.env.MAPLE_ROOTS = existing;
+    await expect(recoveryPreview(f.provider, f.request)).rejects.toThrow(
+      'outside allowed server roots',
+    );
+    process.env.MAPLE_ROOTS = f.root;
+    expect((await recoveryPreview(f.provider, f.request)).files).toBe(1);
+    expect(getRegisteredRoots()).not.toContain(f.root);
+    delete process.env.MAPLE_ROOTS;
+    expect((await recoveryPreview(f.provider, f.request)).files).toBe(1);
+    expect(getRegisteredRoots()).not.toContain(f.root);
+    expect((await recoverBackup(f.provider, f.request, f.ctx, source)).kind).toBe('done');
+    expect(await readFile(path.join(f.root, 'photo.jpg'), 'utf8')).toBe(`${entryId}-version-1`);
+  } finally {
+    if (previousRoots === undefined) delete process.env.MAPLE_ROOTS;
+    else process.env.MAPLE_ROOTS = previousRoots;
+    try {
+      await f.close();
+    } finally {
+      unregisterRoot(existing);
+      await rm(existing, { recursive: true, force: true });
+    }
+  }
+});
 
 test('recovery continues to read manifests created before the mirror layout', async () => {
   const f = await fixture();

@@ -10,7 +10,9 @@ import { cloudBackupRestoreHandler } from './cloud-backup-restore.ts';
 
 async function fixture() {
   const f = await recoveryFixture();
-  const libraryId = insertFolder(f.live.db, { path: path.join(f.root, 'source-library') });
+  const libraryId = insertFolder(f.live.db, {
+    path: path.join(f.root, 'source-library'),
+  });
   const destination = await backupEngine.repo.createDestination({
     libraryId,
     kind: 'google-drive',
@@ -23,14 +25,21 @@ async function fixture() {
   );
   const providerSpy = spyOn(backupEngine, 'provider').mockResolvedValue(f.provider);
   const payload = { destinationId: destination.id, ...f.request };
+  const previousRoots = process.env.MAPLE_ROOTS;
+  process.env.MAPLE_ROOTS = f.root;
   return {
     ...f,
     destination,
     providerSpy,
     payload,
     async close() {
-      providerSpy.mockRestore();
-      await f.close();
+      try {
+        providerSpy.mockRestore();
+        await f.close();
+      } finally {
+        if (previousRoots === undefined) delete process.env.MAPLE_ROOTS;
+        else process.env.MAPLE_ROOTS = previousRoots;
+      }
     },
   };
 }
@@ -151,9 +160,18 @@ test('restore handler restores the current mirror version and binds its durable 
       rootId: 'drive-root',
       accountId: 'drive-account',
     });
-    expect(journal.selection).toEqual({ includeTrash: false, entryId, sequence: 2 });
-    expect(f.checkpoint()).toEqual({ targetPath: f.root, journal: f.ctx.jobId.toHexString() });
-    expect(f.live.db.query('SELECT COUNT(*) AS n FROM assets').get()).toEqual({ n: 1 });
+    expect(journal.selection).toEqual({
+      includeTrash: false,
+      entryId,
+      sequence: 2,
+    });
+    expect(f.checkpoint()).toEqual({
+      targetPath: f.root,
+      journal: f.ctx.jobId.toHexString(),
+    });
+    expect(f.live.db.query('SELECT COUNT(*) AS n FROM assets').get()).toEqual({
+      n: 1,
+    });
     expect(f.providerSpy.mock.calls[0]![0]).toMatchObject({
       id: f.destination.id,
       generation: f.destination.generation,
@@ -199,7 +217,9 @@ test('restore handler passes the captured destination generation to the real Goo
   try {
     f.providerSpy.mockImplementation(async (destination: BackupDestination) => {
       const provider = providerForDestination(destination);
-      await backupEngine.repo.updateDestination(destination.id, { name: 'Reconfigured Drive' });
+      await backupEngine.repo.updateDestination(destination.id, {
+        name: 'Reconfigured Drive',
+      });
       return provider;
     });
     await expect(cloudBackupRestoreHandler.run(f.payload, f.ctx)).rejects.toThrow(
