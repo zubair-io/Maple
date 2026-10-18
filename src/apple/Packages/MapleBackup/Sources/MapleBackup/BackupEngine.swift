@@ -8,10 +8,6 @@ import os
 
 public actor BackupEngine {
 
-  private enum SidecarError: Error {
-    case changedDuringUpload
-  }
-
   /// Diagnostics for the best-effort companion path (#700). Surfaces which
   /// companion (sidecar / rendered / live-mov) is retrying or has exhausted
   /// its bounded budget, so a stranded artifact is visible in Console.app
@@ -416,24 +412,22 @@ public actor BackupEngine {
         "local-edit sidecar read failed, phasset=\(task.id.phassetLocalId, privacy: .private): \(String(describing: error), privacy: .public)"
       )
     }
-    if localEditXmp != nil {
+    if let localEditXmp {
       await runCompanion(
         taskId: task.id,
         label: "sidecar",
         maxAttempts: Self.localEditCompanionRetries
       ) { [self] in
-        guard let currentXmp = try sidecars.read(phassetLocalId: task.id.phassetLocalId) else {
-          return
-        }
         try await upload.uploadSidecar(
           phassetLocalId: task.id.phassetLocalId,
           targetRelPath: result.targetRelPath,
-          xmp: currentXmp,
+          xmp: localEditXmp,
           mapleId: read.mapleId)
-        guard
-          try sidecars.deleteIfUnchanged(
-            phassetLocalId: task.id.phassetLocalId, matching: currentXmp)
-        else { throw SidecarError.changedDuringUpload }
+        // Delete the local-edit XMP only after the sidecar actually lands on
+        // the server, so a failed attempt re-derives correctly on retry and
+        // a crash before delivery leaves the user's edit on disk.
+        try sidecars.deleteIfUnchanged(
+          phassetLocalId: task.id.phassetLocalId, matching: localEditXmp)
       }
     }
 
