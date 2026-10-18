@@ -197,7 +197,7 @@ final class EditSessionSidecarWriteGuardTests: EditorTestCase {
     await store.waitUntilFirstLoadStarts()
     await session.loadSidecar()
     XCTAssertTrue(session.hasLoadedSidecar)
-    await store.failFirstLoad()
+    await store.releaseFirstLoad()
     await slow.value
 
     XCTAssertFalse(session.sidecarLoadFailed, "a stale failure must not pause a loaded session")
@@ -206,14 +206,44 @@ final class EditSessionSidecarWriteGuardTests: EditorTestCase {
   }
 }
 
-/// The first read suspends until released, then fails; later reads succeed.
-/// Stands in for browse priming and the editor racing two Cloud reads.
+extension EditSessionSidecarWriteGuardTests {
+  /// Rapid shortcuts during a slow first read (BrowseGrid presses 3 then 4)
+  /// each wait on hydration; they must apply in the order they were made,
+  /// so the last one wins rather than whichever read resumed last.
+  func testCullingShortcutsDuringHydrationApplyInOrder() async throws {
+    let store = FirstLoadFailsLateStore(model: .default, firstReadFails: false)
+    let asset = AssetRef(displayName: "remote.dng", hintExtension: "dng", bytesProvider: { Data() })
+    let session = EditSession(asset: asset, remoteSidecarStore: store)
+
+    let first = Task { try await session.setCulling { $0.stars = 3 } }
+    await store.waitUntilFirstLoadStarts()
+    let second = Task { try await session.setCulling { $0.stars = 4 } }
+    for _ in 0..<20 { await Task.yield() }
+    await store.releaseFirstLoad()
+    try await first.value
+    try await second.value
+    await session.flushPendingSidecarWrite()
+
+    XCTAssertEqual(session.culling.stars, 4)
+    let written = await store.written
+    XCTAssertEqual(written?.stars, 4)
+  }
+}
+
+/// The first read suspends until released, then fails (or, with
+/// `firstReadFails: false`, returns); later reads succeed at once. Stands in
+/// for browse priming and the editor racing two Cloud reads.
 private actor FirstLoadFailsLateStore: SidecarStoreProtocol {
   private let value: (AdjustmentModel, CullingState)
+  private let firstReadFails: Bool
   private var reads = 0
   private var firstRead: CheckedContinuation<Void, Never>?
+  private(set) var written: CullingState?
 
-  init(model: AdjustmentModel) { value = (model, CullingState()) }
+  init(model: AdjustmentModel, firstReadFails: Bool = true) {
+    value = (model, CullingState())
+    self.firstReadFails = firstReadFails
+  }
 
   func load() async throws -> (AdjustmentModel, CullingState) { value }
 
@@ -221,20 +251,23 @@ private actor FirstLoadFailsLateStore: SidecarStoreProtocol {
     reads += 1
     guard reads == 1 else { return value }
     await withCheckedContinuation { firstRead = $0 }
-    throw URLError(.timedOut)
+    guard !firstReadFails else { throw URLError(.timedOut) }
+    return value
   }
 
   func waitUntilFirstLoadStarts() async {
     while firstRead == nil { await Task.yield() }
   }
 
-  func failFirstLoad() {
+  func releaseFirstLoad() {
     firstRead?.resume()
     firstRead = nil
   }
 
-  func update(model: AdjustmentModel, culling: CullingState) {}
+  func update(model: AdjustmentModel, culling: CullingState) { written = culling }
   func flush() async {}
-  func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {}
+  func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {
+    written = culling
+  }
   func errors() -> AsyncStream<Error> { AsyncStream { $0.finish() } }
 }
