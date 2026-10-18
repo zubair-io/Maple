@@ -51,25 +51,28 @@ class WorkflowTests(unittest.TestCase):
             git("add", "--", "tools/check-file-budget.sh", "tools/budget-allowlist.txt")
             git("commit", "-qm", "base")
             base = git("rev-parse", "HEAD")
+            git("remote", "add", "origin", ".")
             git("checkout", "-q", "-b", "first-pr")
-            (repo / "first.txt").write_text("first PR\n")
-            git("add", "--", "first.txt")
-            git("commit", "-qm", "first PR")
-            git("checkout", "-q", "-b", "second-pr", base)
             (repo / "tools/budget-allowlist.txt").write_text(
                 "src/web/old.ts\nsrc/web/new.ts\n"
             )
             git("add", "--", "tools/budget-allowlist.txt")
+            git("commit", "-qm", "first PR")
+            git("checkout", "-q", "-b", "second-pr", base)
+            (repo / "docs.md").write_text("second PR\n")
+            git("add", "--", "docs.md")
             git("commit", "-qm", "second PR")
             git("checkout", "-q", "--detach", base)
             git("merge", "-q", "--no-ff", "first-pr", "-m", "merge first PR")
+            prior_group_head = git("rev-parse", "HEAD")
             git("merge", "-q", "--no-ff", "second-pr", "-m", "merge second PR")
             env_file = repo / "github-env"
             env = {
                 **os.environ,
                 "GITHUB_ENV": str(env_file),
-                "GROUP_BASE": base,
+                "GROUP_BASE": prior_group_head,
                 "GROUP_HEAD": git("rev-parse", "HEAD"),
+                "GROUP_REF": "refs/heads/main",
             }
             computed = subprocess.run(
                 [
@@ -85,6 +88,15 @@ class WorkflowTests(unittest.TestCase):
             )
             self.assertEqual(computed.returncode, 0, computed.stderr)
             self.assertIn(f"MERGE_BASE={base}", env_file.read_text())
+            malformed = subprocess.run(
+                ["bash", "-c", compute.replace("${{ github.event_name }}", "merge_group")],
+                cwd=repo,
+                check=False,
+                env={**env, "GROUP_REF": "refs/heads/../main"},
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(malformed.returncode, 0)
             checked = subprocess.run(
                 ["bash", "-c", compare],
                 cwd=repo,
@@ -145,16 +157,27 @@ class WorkflowTests(unittest.TestCase):
             )
         }
         self.assertIn(
-            'git diff --name-only --diff-filter=ACMR "$GROUP_BASE" "$GROUP_HEAD"',
+            'git diff --name-only --diff-filter=ACMR "$target_base" "$GROUP_HEAD"',
             steps["format-check"],
         )
         self.assertIn(
-            'bash tools/check-budget-headroom.sh "$GROUP_BASE"',
+            'bash tools/check-budget-headroom.sh "$(git merge-base FETCH_HEAD "$GROUP_HEAD")"',
             steps["budget-headroom"],
         )
-        self.assertIn('merge_base="$GROUP_BASE"', steps["budgets-ratchet-shrinks-only"])
-        self.assertIn('merge_base="$GROUP_BASE"', steps["allowlist-shrinks-only"])
-        self.assertIn('RANGE="${GROUP_BASE}..${GROUP_HEAD}"', steps["gitleaks"])
+        for script in steps.values():
+            self.assertIn('git fetch --no-tags origin "$GROUP_REF"', script)
+        self.assertIn(
+            'merge_base="$(git merge-base FETCH_HEAD "$GROUP_HEAD")"',
+            steps["budgets-ratchet-shrinks-only"],
+        )
+        self.assertIn(
+            'merge_base="$(git merge-base FETCH_HEAD "$GROUP_HEAD")"',
+            steps["allowlist-shrinks-only"],
+        )
+        self.assertIn(
+            'RANGE="$(git merge-base FETCH_HEAD "$GROUP_HEAD")..${GROUP_HEAD}"',
+            steps["gitleaks"],
+        )
 
     def test_raw_pipeline_watches_its_comparison_regressions(self):
         events = workflow("raw-pipeline")[True]

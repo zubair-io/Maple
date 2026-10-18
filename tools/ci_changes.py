@@ -289,6 +289,9 @@ def select(event_name, event, repo="."):
                 raise ValueError("Event SHA is not a commit")
         if event_name == "merge_group":
             git(repo, "merge-base", "--is-ancestor", base, head)
+            # base_sha can be an earlier synthetic queue commit. A later group
+            # must still run consumers changed by every PR ahead of it.
+            return selection(ALL, "Merge group; running all consumers on combined head.")
         start = (
             valid_sha(git(repo, "merge-base", "--all", base, head).decode().strip())
             if event_name == "pull_request"

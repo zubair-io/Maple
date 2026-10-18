@@ -119,6 +119,7 @@ jobs:
           AFTER_SHA: ${{ github.sha }}
           GROUP_BASE: ${{ github.event.merge_group.base_sha }}
           GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_REF: ${{ github.event.merge_group.base_ref }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -130,9 +131,12 @@ jobs:
             git diff --name-only --diff-filter=ACMR "${MERGE_BASE}" HEAD > /tmp/changed.txt
           elif [ "${{ github.event_name }}" = "merge_group" ]; then
             [[ "$GROUP_BASE" =~ ^[0-9a-fA-F]{40}$ ]] && [[ "$GROUP_HEAD" = "$(git rev-parse HEAD)" ]]
+            [[ "$GROUP_REF" = refs/heads/* ]] && git check-ref-format "$GROUP_REF"
             git cat-file -e "${GROUP_BASE}^{commit}"
             git merge-base --is-ancestor "$GROUP_BASE" "$GROUP_HEAD"
-            git diff --name-only --diff-filter=ACMR "$GROUP_BASE" "$GROUP_HEAD" > /tmp/changed.txt
+            git fetch --no-tags origin "$GROUP_REF"
+            target_base="$(git merge-base FETCH_HEAD "$GROUP_HEAD")"
+            git diff --name-only --diff-filter=ACMR "$target_base" "$GROUP_HEAD" > /tmp/changed.txt
           else
             # push to main: format only files touched in that push. Fall back
             # to HEAD~1..HEAD if `before` is unavailable (e.g. force-push,
@@ -225,7 +229,7 @@ jobs:
 
   budget-headroom:
     name: budget-headroom (changed files may not grow past 570 LOC)
-    # Compare PRs with their merge base and merge groups with their group base.
+    # Compare PRs and groups with their target branch merge base.
     # Pushes to main have no changed-file headroom gate.
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
@@ -255,20 +259,23 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           GROUP_BASE: ${{ github.event.merge_group.base_sha }}
           GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_REF: ${{ github.event.merge_group.base_ref }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "merge_group" ]; then
             [[ "$GROUP_BASE" =~ ^[0-9a-fA-F]{40}$ ]] && [[ "$GROUP_HEAD" = "$(git rev-parse HEAD)" ]]
+            [[ "$GROUP_REF" = refs/heads/* ]] && git check-ref-format "$GROUP_REF"
             git cat-file -e "${GROUP_BASE}^{commit}"
             git merge-base --is-ancestor "$GROUP_BASE" "$GROUP_HEAD"
-            bash tools/check-budget-headroom.sh "$GROUP_BASE"
+            git fetch --no-tags origin "$GROUP_REF"
+            bash tools/check-budget-headroom.sh "$(git merge-base FETCH_HEAD "$GROUP_HEAD")"
           else
             bash tools/check-budget-headroom.sh "origin/${BASE_REF}"
           fi
 
   allowlist-shrinks-only:
     name: allowlist-shrinks-only
-    # Compare PRs with their merge base and groups with their queued base.
+    # Compare PRs and groups with their target branch merge base.
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     env:
@@ -295,6 +302,7 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           GROUP_BASE: ${{ github.event.merge_group.base_sha }}
           GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_REF: ${{ github.event.merge_group.base_ref }}
         run: |
           set -euo pipefail
           # Fetch the base branch tip so `git merge-base` can find the true
@@ -302,9 +310,11 @@ jobs:
           # commits, but not always the named ref — be explicit.
           if [ "${{ github.event_name }}" = "merge_group" ]; then
             [[ "$GROUP_BASE" =~ ^[0-9a-fA-F]{40}$ ]] && [[ "$GROUP_HEAD" = "$(git rev-parse HEAD)" ]]
+            [[ "$GROUP_REF" = refs/heads/* ]] && git check-ref-format "$GROUP_REF"
             git cat-file -e "${GROUP_BASE}^{commit}"
             git merge-base --is-ancestor "$GROUP_BASE" "$GROUP_HEAD"
-            merge_base="$GROUP_BASE"
+            git fetch --no-tags origin "$GROUP_REF"
+            merge_base="$(git merge-base FETCH_HEAD "$GROUP_HEAD")"
           else
             git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
             merge_base="$(git merge-base "origin/${BASE_REF}" HEAD)"
@@ -461,7 +471,7 @@ jobs:
       - name: check_budget_ratchet self-test
         run: python3 tools/check_budget_ratchet.py --self-test
 
-      # PRs use their merge base; merge groups use the queued base SHA.
+      # PRs and merge groups use their target branch merge base.
       # Pushes to main still run only the checker's self-test.
       - name: Compute merge base
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
@@ -469,6 +479,7 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           GROUP_BASE: ${{ github.event.merge_group.base_sha }}
           GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_REF: ${{ github.event.merge_group.base_ref }}
         run: |
           set -euo pipefail
           # Fetch the base branch tip so `git merge-base` can find the true
@@ -476,9 +487,11 @@ jobs:
           # always the named ref — be explicit).
           if [ "${{ github.event_name }}" = "merge_group" ]; then
             [[ "$GROUP_BASE" =~ ^[0-9a-fA-F]{40}$ ]] && [[ "$GROUP_HEAD" = "$(git rev-parse HEAD)" ]]
+            [[ "$GROUP_REF" = refs/heads/* ]] && git check-ref-format "$GROUP_REF"
             git cat-file -e "${GROUP_BASE}^{commit}"
             git merge-base --is-ancestor "$GROUP_BASE" "$GROUP_HEAD"
-            merge_base="$GROUP_BASE"
+            git fetch --no-tags origin "$GROUP_REF"
+            merge_base="$(git merge-base FETCH_HEAD "$GROUP_HEAD")"
           else
             git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
             merge_base="$(git merge-base "origin/${BASE_REF}" HEAD)"
@@ -783,6 +796,7 @@ jobs:
           AFTER_SHA: ${{ github.sha }}
           GROUP_BASE: ${{ github.event.merge_group.base_sha }}
           GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_REF: ${{ github.event.merge_group.base_ref }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -795,9 +809,11 @@ jobs:
             RANGE="origin/${BASE_REF}..HEAD"
           elif [ "${{ github.event_name }}" = "merge_group" ]; then
             [[ "$GROUP_BASE" =~ ^[0-9a-fA-F]{40}$ ]] && [[ "$GROUP_HEAD" = "$(git rev-parse HEAD)" ]]
+            [[ "$GROUP_REF" = refs/heads/* ]] && git check-ref-format "$GROUP_REF"
             git cat-file -e "${GROUP_BASE}^{commit}"
             git merge-base --is-ancestor "$GROUP_BASE" "$GROUP_HEAD"
-            RANGE="${GROUP_BASE}..${GROUP_HEAD}"
+            git fetch --no-tags origin "$GROUP_REF"
+            RANGE="$(git merge-base FETCH_HEAD "$GROUP_HEAD")..${GROUP_HEAD}"
           else
             # push: scan the pushed range. Fall back to HEAD~1..HEAD if `before`
             # is unavailable (force-push, branch-create, or the all-zeros
