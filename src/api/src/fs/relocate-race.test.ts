@@ -302,6 +302,40 @@ for (const cap of [3, 0]) {
   });
 }
 
+for (const collision of ['skip', 'keep-both'] satisfies CollisionPolicy[]) {
+  test(`${collision}: a failed fallback revalidation withdraws the new file`, async () => {
+    await write('src/photo.dng', 'source pixels');
+    const destination = abs('dst/photo.dng');
+    spyOn(fs, 'link').mockRejectedValue(Object.assign(new Error('unsupported'), { code: 'EPERM' }));
+    const open = fs.open;
+    let created = false;
+    spyOn(fs, 'open').mockImplementation(async (target, flags, mode) => {
+      const handle = await open(target, flags, mode);
+      if (target === destination) created = true;
+      return handle;
+    });
+    const lstat = fs.lstat;
+    let failed = false;
+    spyOn(fs, 'lstat').mockImplementation((async (target: string, options?: unknown) => {
+      if (target === destination && created && !failed) {
+        failed = true;
+        throw Object.assign(new Error('transient'), { code: 'EIO' });
+      }
+      return (lstat as (...args: unknown[]) => Promise<unknown>)(target, options);
+    }) as typeof fs.lstat);
+    const outcome = await relocateFile({
+      sourceAbsPath: abs('src/photo.dng'),
+      destAbsPath: destination,
+      mode: 'move',
+      collision,
+    });
+    expect(failed).toBe(true);
+    expect(outcome.kind).toBe('error');
+    expect(await fs.readFile(abs('src/photo.dng'), 'utf8')).toBe('source pixels');
+    expect(await fs.readdir(abs('dst'))).toEqual([]);
+  });
+}
+
 test('rollback never removes a file that replaced the publication just before removal', async () => {
   await write('src/photo.dng', 'source pixels');
   await write('replacement', 'competing pixels');
