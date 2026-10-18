@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 CONSUMERS = ("android", "windows", "web", "api", "maple", "codegen", "swift")
@@ -13,17 +14,81 @@ CODEGEN_DOCS = frozenset(
     for name in ("capability-registry", "camera-support")
     for extension in ("md", "json")
 )
-# Swift (macOS-runner) jobs read these outside src/apple: the API servers the
-# FileProvider tests boot, and the saved-recipe interchange gate's web inputs.
-SWIFT_API_INPUTS = frozenset(
-    (
-        "src/api/tests/fixtures/file-provider-restart.ts",
-        "src/api/tests/fixtures/unified-folder-server.ts",
-        "src/api/tests/browser/workflow-server.ts",
-        "src/api/package.json",
-        "src/api/bun.lock",
-    )
+ROOT = Path(__file__).resolve().parent.parent
+# Swift (macOS-runner) jobs boot these API fixture servers and read the files
+# below outside src/apple. An API change reaches Swift only through the
+# fixtures' transitive imports, which swift_api_closure() walks.
+SWIFT_API_ENTRY_POINTS = (
+    "src/api/tests/fixtures/file-provider-restart.ts",
+    "src/api/tests/fixtures/unified-folder-server.ts",
+    "src/api/tests/browser/workflow-server.ts",
 )
+SWIFT_API_INPUTS = frozenset(("src/api/package.json", "src/api/bun.lock"))
+IMPORT_SPECIFIER = re.compile(
+    r"""(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"](\.{1,2}/[^'"]*)['"]"""
+)
+# Whole-line comments only: stripping /* */ spans could swallow real imports
+# after a glob string such as "**/*.ts".
+COMMENT_LINE = ("//", "*", "/*")
+SOURCE_SUFFIXES = (".ts", ".tsx", ".js", ".mjs", ".json")
+
+
+def resolve_import(root, importer, specifier):
+    base = (root / importer).parent / specifier
+    stem = base.with_suffix("") if base.suffix in (".js", ".mjs") else base
+    for candidate in (
+        base,
+        *(Path(f"{stem}{suffix}") for suffix in SOURCE_SUFFIXES),
+        *(stem / f"index{suffix}" for suffix in SOURCE_SUFFIXES),
+    ):
+        if candidate.is_file():
+            return candidate.resolve().relative_to(root.resolve()).as_posix()
+    return None
+
+
+@lru_cache(maxsize=None)
+def swift_api_closure(root=ROOT):
+    """Files the Swift-booted API fixtures import, and whether the walk was complete."""
+    root = Path(root)
+    pending = list(SWIFT_API_ENTRY_POINTS)
+    seen = set()
+    complete = True
+    while pending:
+        path = pending.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        file = root / path
+        if not file.is_file():
+            complete = False
+            continue
+        if file.suffix not in (".ts", ".tsx", ".js", ".mjs"):
+            continue
+        try:
+            source = file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            complete = False
+            continue
+        code = "\n".join(
+            line for line in source.splitlines() if not line.lstrip().startswith(COMMENT_LINE)
+        )
+        for specifier in IMPORT_SPECIFIER.findall(code):
+            try:
+                resolved = resolve_import(root, path, specifier)
+            except ValueError:
+                resolved = None
+            if resolved is None:
+                complete = False
+            else:
+                pending.append(resolved)
+    return frozenset(seen), complete
+
+
+def affects_swift_api(path, root=ROOT):
+    closure, complete = swift_api_closure(root)
+    return not complete or path in closure
+
+
 SWIFT_WEB_INPUTS = frozenset(
     (
         "src/web/package.json",
@@ -101,6 +166,7 @@ def dependencies(path):
     swift = (
         {"swift"}
         if path in SWIFT_API_INPUTS
+        or (path.startswith("src/api/") and affects_swift_api(path))
         or path in SWIFT_WEB_INPUTS
         or path.startswith("src/web/e2e/recipe-interchange/")
         else set()
