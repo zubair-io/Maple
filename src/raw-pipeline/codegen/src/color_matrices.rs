@@ -212,6 +212,11 @@ pub fn emit_wgsl() -> String {
         "// Existing import-default maximum attenuation (#4112).\nconst SHARPEN_PRESERVED_DARKENING: f32 = {};\n",
         wgsl_f(raw_core::stages::sharpen::PRESERVED_DARKENING),
     ));
+    out.push_str(&format!(
+        "// Dark-channel transmission guards from stages/dehaze.rs (#4654).\nconst DEHAZE_TRANSMISSION_OMEGA: f32 = {};\nconst DEHAZE_AIRLIGHT_FLOOR: f32 = {};\n",
+        wgsl_f(raw_core::stages::dehaze::TRANSMISSION_OMEGA),
+        wgsl_f(raw_core::stages::dehaze::AIRLIGHT_FLOOR),
+    ));
     out
 }
 
@@ -346,6 +351,23 @@ mod tests {
     #[test]
     fn determinism_double_emit_is_identical() {
         assert_eq!(emit_wgsl(), emit_wgsl());
+    }
+
+    #[test]
+    fn dehaze_guards_follow_core_constants() {
+        let output = emit_wgsl();
+        for (name, value) in [
+            (
+                "DEHAZE_TRANSMISSION_OMEGA",
+                raw_core::stages::dehaze::TRANSMISSION_OMEGA,
+            ),
+            (
+                "DEHAZE_AIRLIGHT_FLOOR",
+                raw_core::stages::dehaze::AIRLIGHT_FLOOR,
+            ),
+        ] {
+            assert!(output.contains(&format!("const {name}: f32 = {};", wgsl_f(value))));
+        }
     }
 
     /// The emitted row consts must equal `Matrix3::mul_vec` semantics: the
