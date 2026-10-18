@@ -146,40 +146,49 @@ EXPECTED_SLICE_DIRS=(ios-arm64 ios-arm64-simulator macos-arm64_x86_64)
 #     even when no Rust/Cargo input moved)
 # Paths are hashed alongside bytes and sorted with NUL delimiters so that
 # renames/additions/deletions all register, independent of locale or
-# filesystem ordering. Use paths relative to raw-pipeline (including the
-# Apple fetch script) so identical checkouts have identical fingerprints.
+# filesystem ordering. Use paths relative to raw-pipeline, with a stable label
+# for the Apple fetch script, so identical checkouts have identical fingerprints.
 compute_input_hash() {
     (
         cd "$RAW_PIPELINE_DIR"
+        if [[ ! -f "$SCRIPT_DIR/fetch-ort-ios.sh" ]]; then
+            echo "ERROR: missing xcframework input: $SCRIPT_DIR/fetch-ort-ios.sh" >&2
+            return 1
+        fi
         {
-            # raw-core, raw-ffi, (since M3 #1235) maple-pano, and raw-gpu — raw-ffi's
-            # GPU live/present FFI delegates into raw-gpu (the wgpu/WGSL chain), so a
-            # raw-gpu change MUST trigger a rebuild. Omitting it (the bug #1513
-            # exposed) let a raw-gpu-only edit hash-skip and ship a stale xcframework.
-            # Includes `*.wgsl` shaders: raw-gpu `include_str!`s them into the compiled
-            # library (the kernels run from those strings), so a shader-only edit also
-            # changes the lib and must not hash-skip.
-            # Includes `*.bin` blobs (#1946): the baked LUT / profile-bundle files are
-            # `include_bytes!`-embedded into the compiled libraries and are therefore
-            # real build inputs — `view/agx_lut.bin` (the AgX cube LUT) and
-            # `color/profiles/profiles.bin` (the DCP bundle). A LUT- or
-            # profile-only regeneration touches no `.rs`/`.wgsl`
-            # file, so without hashing these a stale xcframework would ship — the same
-            # bug class #1513 fixed for `.wgsl`, never extended to the `.bin` files.
-            find raw-core/src raw-ffi/src maple-pano/src raw-gpu/src \
-                -type f \( -name '*.rs' -o -name '*.wgsl' -o -name '*.bin' \) -print0 || return 1
-            for f in \
-                Cargo.lock Cargo.toml \
-                raw-core/Cargo.toml raw-ffi/Cargo.toml \
-                maple-pano/Cargo.toml raw-gpu/Cargo.toml \
-                raw-ffi/cbindgen.toml ../apple/scripts/fetch-ort-ios.sh; do
-                if [[ ! -f "$f" ]]; then
-                    echo "ERROR: missing xcframework input: $f" >&2
-                    return 1
-                fi
-                printf '%s\0' "$f"
-            done
-        } | LC_ALL=C sort -z | xargs -0 shasum | shasum | awk '{print $1}'
+            # ../apple sorts before the raw-pipeline inputs. Read through SCRIPT_DIR
+            # because _find_raw_pipeline also accepts non-sibling layouts.
+            shasum "$SCRIPT_DIR/fetch-ort-ios.sh" | awk '{print $1 "  ../apple/scripts/fetch-ort-ios.sh"}'
+            {
+                # raw-core, raw-ffi, (since M3 #1235) maple-pano, and raw-gpu — raw-ffi's
+                # GPU live/present FFI delegates into raw-gpu (the wgpu/WGSL chain), so a
+                # raw-gpu change MUST trigger a rebuild. Omitting it (the bug #1513
+                # exposed) let a raw-gpu-only edit hash-skip and ship a stale xcframework.
+                # Includes `*.wgsl` shaders: raw-gpu `include_str!`s them into the compiled
+                # library (the kernels run from those strings), so a shader-only edit also
+                # changes the lib and must not hash-skip.
+                # Includes `*.bin` blobs (#1946): the baked LUT / profile-bundle files are
+                # `include_bytes!`-embedded into the compiled libraries and are therefore
+                # real build inputs — `view/agx_lut.bin` (the AgX cube LUT) and
+                # `color/profiles/profiles.bin` (the DCP bundle). A LUT- or
+                # profile-only regeneration touches no `.rs`/`.wgsl`
+                # file, so without hashing these a stale xcframework would ship — the same
+                # bug class #1513 fixed for `.wgsl`, never extended to the `.bin` files.
+                find raw-core/src raw-ffi/src maple-pano/src raw-gpu/src \
+                    -type f \( -name '*.rs' -o -name '*.wgsl' -o -name '*.bin' \) -print0 || return 1
+                for f in \
+                    Cargo.lock Cargo.toml \
+                    raw-core/Cargo.toml raw-ffi/Cargo.toml \
+                    maple-pano/Cargo.toml raw-gpu/Cargo.toml \
+                    raw-ffi/cbindgen.toml; do
+                    if [[ ! -f "$f" ]]; then
+                        echo "ERROR: missing xcframework input: $f" >&2
+                        return 1
+                    fi
+                    printf '%s\0' "$f"
+                done
+            } | LC_ALL=C sort -z | xargs -0 shasum
+        } | shasum | awk '{print $1}'
     )
 }
 INPUT_HASH="$(compute_input_hash)"

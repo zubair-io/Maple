@@ -33,6 +33,10 @@ fingerprint() {
 	bash "$1/src/apple/scripts/build-xcframework.sh" | tail -n 1
 }
 
+fingerprint_script() {
+	bash "$1" | tail -n 1
+}
+
 expect_changed() {
 	local label="$1" actual
 	actual="$(fingerprint "$second")"
@@ -56,6 +60,36 @@ if [[ "$baseline" != "$(fingerprint "$scratch/alias")" ]]; then
 	echo 'FAIL: a symlink alias changed the xcframework fingerprint' >&2
 	exit 1
 fi
+
+for depth in 1 2 3 4; do
+	layout="$scratch/layout-$depth"
+	native="$layout/a/b/c/apple"
+	case "$depth" in
+	1) raw="$layout/a/b/c/raw-pipeline" ;;
+	2) raw="$layout/a/b/raw-pipeline" ;;
+	3) raw="$layout/a/raw-pipeline" ;;
+	4) raw="$layout/raw-pipeline" ;;
+	esac
+	mkdir -p "$native/scripts" "$(dirname "$raw")"
+	cp -R "$first/src/raw-pipeline" "$raw"
+	cp "$first/src/apple/scripts/build-xcframework.sh" "$native/scripts/"
+	cp "$first/src/apple/scripts/fetch-ort-ios.sh" "$native/scripts/"
+	probe="$native/scripts/build-xcframework.sh"
+	if [[ "$baseline" != "$(fingerprint_script "$probe")" ]]; then
+		echo "FAIL: resolver layout $depth changed or could not compute the fingerprint" >&2
+		exit 1
+	fi
+	printf 'updated\n' >>"$native/scripts/fetch-ort-ios.sh"
+	if [[ "$baseline" == "$(fingerprint_script "$probe")" ]]; then
+		echo "FAIL: resolver layout $depth ignored fetch script content" >&2
+		exit 1
+	fi
+	rm "$native/scripts/fetch-ort-ios.sh"
+	if fingerprint_script "$probe" >/dev/null 2>&1; then
+		echo "FAIL: resolver layout $depth accepted a missing fetch script" >&2
+		exit 1
+	fi
+done
 
 printf 'changed\n' >>"$second/src/raw-pipeline/raw-core/src/lib.rs"
 expect_changed 'Rust source content'
