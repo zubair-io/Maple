@@ -26,6 +26,8 @@
 name: raw-pipeline
 
 on:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
     paths:
