@@ -29,11 +29,25 @@ extension EditSession {
 
   /// Rate, flag, label or hide only after the sidecar has loaded, so the
   /// write merges over the saved develop settings instead of defaults.
-  public func setCulling(_ edit: (inout CullingState) -> Void) async throws {
-    await loadSidecar()
-    try Task.checkCancellation()
-    guard hasLoadedSidecar else { throw sidecarError ?? CancellationError() }
-    edit(&culling)
+  /// Calls apply in the order they were made: rapid shortcuts during a slow
+  /// read each wait on hydration, and the last one must win.
+  public func setCulling(_ edit: @escaping (inout CullingState) -> Void) async throws {
+    let previous = cullingEditTail
+    let step = Task { () -> Error? in
+      _ = await previous?.value
+      await loadSidecar()
+      if Task.isCancelled { return CancellationError() }
+      guard hasLoadedSidecar else { return sidecarError ?? CancellationError() }
+      edit(&culling)
+      return nil
+    }
+    cullingEditTail = step
+    let failure = await withTaskCancellationHandler {
+      await step.value
+    } onCancel: {
+      step.cancel()
+    }
+    if let failure { throw failure }
   }
 
   /// Replace the IPTC keyword list (#632). Routes through `culling`'s

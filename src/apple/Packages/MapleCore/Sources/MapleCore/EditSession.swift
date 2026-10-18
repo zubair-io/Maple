@@ -405,6 +405,7 @@ public final class EditSession {
   /// write sidecars back out while reading them.
   @ObservationIgnored var isHydratingInitialState = false
   @ObservationIgnored var queuedCullingPatch: CullingPatch?
+  @ObservationIgnored var cullingEditTail: Task<Error?, Never>?
 
   /// Flips on when a caller actually asks this session for pixels. The app
   /// primes sessions for every folder asset so metadata/culling is ready,
