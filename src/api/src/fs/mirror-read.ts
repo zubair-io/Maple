@@ -56,6 +56,7 @@ const UNHEALTHY_COOLDOWN_MS = 60_000;
 /** Ceiling on a single mirror-side `stat`/`readFile`. A wedged network mount
  * hangs rather than failing; without this the health signal could never fire. */
 const MIRROR_IO_TIMEOUT_MS = 2_000;
+export class MirrorIoTimeoutError extends Error {}
 
 /**
  * Size is exact and mtime is preserved by every replication path
@@ -87,7 +88,7 @@ function markMirrorHealthy(mirrorRoot: string): void {
 }
 
 /** True when reads may be routed to this mirror root. */
-function isMirrorHealthy(mirrorRoot: string): boolean {
+export function isMirrorHealthy(mirrorRoot: string): boolean {
   const until = _benchedUntil.get(mirrorRoot);
   if (until === undefined) return true;
   if (Date.now() >= until) {
@@ -142,11 +143,11 @@ function isErrno(err: unknown, code: string): boolean {
 /** Run a mirror-side I/O op under a timeout so a wedged mount can't hang the
  * request. Rejects with a synthetic timeout error the caller treats as unhealthy.
  * The timer is always cleared, so a fast read leaves nothing pending. */
-async function withTimeout<T>(work: Promise<T>): Promise<T> {
+export async function withTimeout<T>(work: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`mirror I/O timed out after ${MIRROR_IO_TIMEOUT_MS}ms`)),
+      () => reject(new MirrorIoTimeoutError('mirror I/O timed out')),
       MIRROR_IO_TIMEOUT_MS,
     );
   });

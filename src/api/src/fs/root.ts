@@ -12,7 +12,13 @@ import { lstat, readFile, realpath, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { parseRootList } from './root-list.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { snapshotMirrorRoots } from './mirror-registry.ts';
+import { activeMirrorRoots } from './mirror-registry.ts';
+import {
+  isMirrorHealthy,
+  markMirrorUnhealthy,
+  MirrorIoTimeoutError,
+  withTimeout as withMirrorTimeout,
+} from './mirror-read.ts';
 
 export interface OpResult<T = undefined> {
   ok: boolean;
@@ -41,6 +47,30 @@ let envRootsCache:
     }
   | undefined;
 const libraryRootsCache = new WeakMap<ReadonlyMap<string, string>, Promise<string[]>>();
+let mirrorRootsCache:
+  | { source: readonly string[]; roots: readonly (readonly [string, string])[] }
+  | undefined;
+
+async function normalizedMirrorRoots(source: readonly string[]): Promise<string[]> {
+  if (mirrorRootsCache?.source === source)
+    return mirrorRootsCache.roots
+      .filter(([configured]) => isMirrorHealthy(configured))
+      .map(([, canonical]) => canonical);
+  const resolved = await Promise.all(
+    source.map(async (configured): Promise<readonly [string, string] | null> => {
+      if (!isMirrorHealthy(configured)) return null;
+      try {
+        return [configured, await withMirrorTimeout(resolveRealPathThroughAncestors(configured))];
+      } catch {
+        markMirrorUnhealthy(configured);
+        return null;
+      }
+    }),
+  );
+  const roots = resolved.filter((root): root is readonly [string, string] => root !== null);
+  if (roots.length === source.length) mirrorRootsCache = { source, roots };
+  return roots.map(([, canonical]) => canonical);
+}
 
 async function normalizedLibraryRoots(): Promise<string[]> {
   const libraries = await loadLibraryRoots();
@@ -145,20 +175,27 @@ export async function resolveRealPathThroughAncestors(filePath: string): Promise
  * runtime root, or MAPLE_ROOTS entry. Returns the resolved path on success.
  */
 export async function checkAllowed(filePath: string): Promise<OpResult<string>> {
+  const configuredMirrors = activeMirrorRoots();
   let real: string;
   try {
     // Resolve symlinks to prevent directory traversal.
-    real = await resolveRealPath(filePath);
-  } catch {
-    // Not written yet (a new XMP, a folder about to be created). A text-only
-    // resolve would miss a directory symlink higher up and authorize a write
-    // that lands outside the root (#4748), so canonicalise the deepest
-    // ancestor that does exist and append the missing tail to it.
+    const resolution = resolveRealPath(filePath);
+    real = await (configuredMirrors.length ? withMirrorTimeout(resolution) : resolution);
+  } catch (error) {
+    if (error instanceof MirrorIoTimeoutError) {
+      const requested = path.resolve(filePath);
+      for (const mirror of configuredMirrors)
+        if (isWithinRoot(mirror, requested)) markMirrorUnhealthy(mirror);
+      return { ok: false, error: 'Path resolution timed out' };
+    }
+    // A new XMP may not exist yet; resolve its deepest existing ancestor so
+    // a directory symlink cannot escape the jail (#4748).
     real = await resolveRealPathThroughAncestors(filePath);
   }
 
   const envRoots = await normalizedEnvRoots();
   const declared = [...envRoots, ..._registeredRoots];
+  if (declared.some((root) => isWithinRoot(root, real))) return { ok: true, data: real };
   let libraries: string[];
   try {
     libraries = await normalizedLibraryRoots();
@@ -171,11 +208,12 @@ export async function checkAllowed(filePath: string): Promise<OpResult<string>> 
     }
     libraries = [];
   }
-  const mirrorRoots = Object.values(snapshotMirrorRoots()).flat();
-  const mirrors = await Promise.all(mirrorRoots.map(resolveRealPathThroughAncestors));
+  if (libraries.some((root) => isWithinRoot(root, real))) return { ok: true, data: real };
+  const mirrorRoots = activeMirrorRoots();
+  const mirrors = await normalizedMirrorRoots(mirrorRoots);
   const allowedRoots = [...declared, ...libraries, ...mirrors];
 
-  if (allowedRoots.length === 0) {
+  if (declared.length === 0 && libraries.length === 0 && mirrorRoots.length === 0) {
     // A successfully loaded, empty library still permits first-run setup.
     return { ok: true, data: real };
   }

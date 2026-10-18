@@ -29,6 +29,7 @@ export interface MirrorTarget {
 
 /** Normalized primary root → list of normalized mirror roots. */
 let _mirrors: Map<string, string[]> = new Map();
+let _mirrorRoots: readonly string[] = [];
 
 /** Strip a trailing separator and resolve to an absolute, normalized path. */
 function normalizeRoot(p: string): string {
@@ -55,11 +56,18 @@ export function setMirrorRoots(
     next.set(normalizeRoot(primary), normMirrors);
   }
   _mirrors = next;
+  _mirrorRoots = [...new Set([...next.values()].flat())];
 }
 
 /** Drop all mirror configuration (used by tests and on teardown). */
 export function clearMirrorRoots(): void {
   _mirrors = new Map();
+  _mirrorRoots = [];
+}
+
+/** Stable root list until the mirror configuration changes. */
+export function activeMirrorRoots(): readonly string[] {
+  return _mirrorRoots;
 }
 
 /** Cheap check the hot path uses to skip all resolution when nothing is mirrored. */

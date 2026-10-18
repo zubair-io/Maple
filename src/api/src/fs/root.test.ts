@@ -10,6 +10,7 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
+import * as nodeFs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join, parse, sep } from 'node:path';
 import {
@@ -24,6 +25,7 @@ import { createLiveTestDatabase, insertFolder } from '../db/sqlite/test-sqlite.t
 import type { SqlParams, SqlRow } from '../db/sqlite/protocol.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { clearMirrorRoots, setMirrorRoots } from './mirror-registry.ts';
+import { benchedMirrors, resetMirrorHealth } from './mirror-read.ts';
 
 let originalRoots: string | undefined;
 const temporaryRoots: string[] = [];
@@ -37,6 +39,7 @@ afterEach(async () => {
   else process.env.MAPLE_ROOTS = originalRoots;
   for (const root of temporaryRoots) unregisterRoot(root);
   clearMirrorRoots();
+  resetMirrorHealth();
   await Promise.all(
     temporaryRoots.splice(0).map((path) => rm(path, { recursive: true, force: true })),
   );
@@ -71,6 +74,44 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
 
   setMirrorRoots({ [library]: [mirror] });
   expect((await checkAllowed(join(mirror, 'photo.xmp'))).ok).toBe(true);
+  // A controlled unresolved realpath stands in for a wedged mirror mount.
+  let releaseProbe!: () => void;
+  const blocked = new Promise<void>((resolve) => (releaseProbe = resolve));
+  const actualRealpath = nodeFs.realpath.bind(nodeFs);
+  const mirrorSidecar = join(mirror, 'photo.xmp');
+  const realpathProbe = spyOn(nodeFs, 'realpath').mockImplementation(
+    (async (requested: Parameters<typeof nodeFs.realpath>[0]) => {
+      if (requested === mirror || requested === mirrorSidecar) await blocked;
+      return actualRealpath(requested);
+    }) as typeof nodeFs.realpath,
+  );
+  setMirrorRoots({ [library]: [mirror] });
+  try {
+    const primary = await Promise.race([
+      Promise.all([
+        safeReadFile(join(library, 'photo.xmp')),
+        safeWriteAllowed(join(library, 'new.xmp')),
+      ]),
+      Bun.sleep(100).then(() => null),
+    ]);
+    expect(primary?.[0].data?.toString()).toBe('<xmpmeta/>');
+    expect(primary?.[1].ok).toBe(true);
+    const denied = await Promise.race([
+      checkAllowed(join(outside, 'photo.xmp')),
+      Bun.sleep(2_600).then(() => null),
+    ]);
+    expect(denied?.ok).toBe(false);
+    expect(benchedMirrors().map(({ root }) => root)).toContain(mirror);
+    resetMirrorHealth();
+    const mirrorDenied = await Promise.race([
+      checkAllowed(mirrorSidecar),
+      Bun.sleep(2_600).then(() => null),
+    ]);
+    expect(mirrorDenied?.ok).toBe(false);
+  } finally {
+    releaseProbe();
+    realpathProbe.mockRestore();
+  }
   clearMirrorRoots();
   expect((await checkAllowed(join(mirror, 'photo.xmp'))).ok).toBe(false);
 
