@@ -35,6 +35,14 @@ struct MapleBackupAgentEntryPoint {
     // Same App Group root the app writes (#4717) — a separate process must
     // report the same device id and resume the same state DB.
     let storageRoot = try BackupStorage.sharedRoot()
+    // One engine per shared state DB (#4988): if the app is backing up, it
+    // owns the work; this helper leaves it alone instead of re-claiming rows.
+    guard let engineLock = BackupEngineLock.acquire(in: storageRoot) else {
+      FileHandle.standardError.write(
+        Data("MapleBackupAgent: the Maple app is already backing up; exiting\n".utf8))
+      return
+    }
+    defer { engineLock.release() }
     let deviceId = try DeviceIdentity.current(
       storageURL: DeviceIdentity.storageURL(in: storageRoot))
     let sidecars = AppSupportSidecarStore(

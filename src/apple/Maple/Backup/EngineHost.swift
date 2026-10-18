@@ -66,6 +66,8 @@ public final class EngineHost {
   public private(set) var usesLocalAddress = false
 
   private var runnerTask: Task<Void, Never>?
+  /// Held while this app runs the engine on the shared state DB (#4988).
+  private var engineLock: BackupEngineLock?
 
   /// Long-running task that triggers a safety walk every 7 days.
   /// On iOS this is supplemented by the BGProcessingTask handler;
@@ -115,6 +117,14 @@ public final class EngineHost {
 
     do {
       let storageRoot = try BackupStorage.sharedRoot()
+      // One engine per shared state DB (#4988): the backup helper may be
+      // working through the backlog; never rehydrate rows it is uploading.
+      guard let engineLock = BackupEngineLock.acquire(in: storageRoot) else {
+        lastStartError = "Backup is running in the background helper. Try again when it finishes."
+        progress.setPhase(.stopped)
+        return
+      }
+      self.engineLock = engineLock
       let deviceId = try DeviceIdentity.current(
         storageURL: DeviceIdentity.storageURL(in: storageRoot))
       let sidecars = AppSupportSidecarStore(
@@ -197,6 +207,8 @@ public final class EngineHost {
       let msg = String(describing: error)
       BackupIssueStatus.log(.error, "Backup startup failed: \(msg)")
       lastStartError = "Couldn't start backup. Check your server and storage settings."
+      engineLock?.release()
+      engineLock = nil
       // The restart never produced a running engine — drop back to
       // Stopped so the panel doesn't show "Restarting…" forever.
       progress.setPhase(.stopped)
@@ -221,6 +233,8 @@ public final class EngineHost {
     if let engine { await engine.stop() }
     runnerTask = nil
     engine = nil
+    engineLock?.release()
+    engineLock = nil
     periodicWalkTask?.cancel()
     periodicWalkTask = nil
     // Stop the progress VM so it detaches from the now-discarded queue.
