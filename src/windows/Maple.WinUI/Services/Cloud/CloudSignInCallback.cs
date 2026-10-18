@@ -13,7 +13,7 @@ namespace Maple.WinUI.Services.Cloud
             return code.Length > 0 && query["state"] == pending.State;
         }
 
-        public static async Task<(bool Ok, string Message)> RedeemAsync(
+        public static async Task<(bool Ok, string Message, bool Retryable)> RedeemAsync(
             CloudClient client, CloudPkcePending pending, string code)
         {
             try
@@ -23,7 +23,7 @@ namespace Maple.WinUI.Services.Cloud
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 DiagLog.Write($"[cloud] sign-in redeem failed: {ex}");
-                return (false, ex.Message);
+                return (false, ex.Message, false);
             }
         }
     }

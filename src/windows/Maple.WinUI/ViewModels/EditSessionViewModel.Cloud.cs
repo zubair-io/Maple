@@ -160,14 +160,16 @@ namespace Maple.WinUI.ViewModels
             }
             var client = _cloud;
 
-            var (ok, message) = await CloudSignInCallback.RedeemAsync(client, pending, code);
+            var (ok, message, retryable) = await CloudSignInCallback.RedeemAsync(client, pending, code);
             if (_pendingSignIn != pending || _cloud != client)
                 return;
             CloudStatus = ok ? message : $"Sign-in failed: {message}";
-            if (!ok)
+            if (!ok && retryable)
                 return;
             _pendingSignIn = null;
             _signInPollCts?.Cancel();
+            if (!ok)
+                return;
             PersistCloudSession(pending.ServerUrl, client.RefreshToken);
             await FinishConnectAsync();
         }

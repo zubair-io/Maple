@@ -30,8 +30,9 @@ public sealed class CloudSignInTransportTests : IDisposable
     public async Task RedeemReturnsFailureWhenServerUnreachable()
     {
         using var client = Client(Unreachable);
-        var (ok, message) = await client.RedeemNativeCodeAsync("code", "verifier", CancellationToken.None);
+        var (ok, message, retryable) = await client.RedeemNativeCodeAsync("code", "verifier", CancellationToken.None);
         Assert.False(ok);
+        Assert.True(retryable);
         Assert.Contains("could not reach", message);
     }
 
@@ -42,7 +43,7 @@ public sealed class CloudSignInTransportTests : IDisposable
         Assert.False((await CloudSignInCallback.RedeemAsync(down, Pending, "code")).Ok);
 
         using var up = Client(_ => Json("""{"access_token":"a","refresh_token":"r","user":{"email":"x@y.z"}}"""));
-        var (ok, _) = await CloudSignInCallback.RedeemAsync(up, Pending, "code");
+        var (ok, _, _) = await CloudSignInCallback.RedeemAsync(up, Pending, "code");
         Assert.True(ok);
         Assert.Equal("r", up.RefreshToken);
     }
@@ -56,6 +57,21 @@ public sealed class CloudSignInTransportTests : IDisposable
         var (ok, _, devLogin) = await client.ProbeAsync(CancellationToken.None);
         Assert.True(ok);
         Assert.False(devLogin);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest, false)]
+    [InlineData(HttpStatusCode.Unauthorized, false)]
+    [InlineData(HttpStatusCode.NotFound, false)]
+    [InlineData(HttpStatusCode.TooManyRequests, true)]
+    [InlineData(HttpStatusCode.InternalServerError, true)]
+    [InlineData(HttpStatusCode.ServiceUnavailable, true)]
+    public async Task RedeemRejectionIsRetryableOnlyForTransientStatuses(HttpStatusCode status, bool retryable)
+    {
+        using var client = Client(_ => new HttpResponseMessage(status));
+        var (ok, _, actual) = await CloudSignInCallback.RedeemAsync(client, Pending, "code");
+        Assert.False(ok);
+        Assert.Equal(retryable, actual);
     }
 
     [Fact]
