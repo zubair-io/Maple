@@ -17,8 +17,42 @@ namespace Maple.WinUI.Services.FileOperations
 {
     public static partial class LocalFileOperations
     {
-        internal static bool SameSidecarPath(string a, string b) =>
-            string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
+        /// <summary>Rule 3 asks whether two names are one sidecar file. Both
+        /// paths are resolved through every directory link and junction on
+        /// the way (not only the immediate parent), so a rename through an
+        /// aliased folder still maps <c>X.xmp</c> onto itself. A path that
+        /// cannot be resolved counts as the same file: the sidecar is then
+        /// kept, never deleted.</summary>
+        internal static bool SameSidecarPath(string a, string b)
+        {
+            try
+            {
+                return string.Equals(FullyResolvedPath(a), FullyResolvedPath(b), StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return true;
+            }
+        }
+
+        private static string FullyResolvedPath(string path)
+        {
+            var full = Path.GetFullPath(path);
+            var root = Path.GetPathRoot(full) ?? string.Empty;
+            var current = root;
+            foreach (var segment in full[root.Length..].Split(
+                         new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                         StringSplitOptions.RemoveEmptyEntries))
+            {
+                current = Path.Combine(current, segment);
+                FileSystemInfo? link = Directory.Exists(current) ? new DirectoryInfo(current)
+                    : File.Exists(current) ? new FileInfo(current)
+                    : null;
+                var target = link?.LinkTarget != null ? link.ResolveLinkTarget(returnFinalTarget: true) : null;
+                if (target != null) current = FullyResolvedPath(target.FullName);
+            }
+            return current;
+        }
 
         // Generated staging names (`<name>.tmp.<pid>-<guid>`); a real photo
         // whose name merely contains `.tmp.` still claims its stem.

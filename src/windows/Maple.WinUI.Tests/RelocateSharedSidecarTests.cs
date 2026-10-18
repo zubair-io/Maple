@@ -44,6 +44,21 @@ namespace Maple.WinUI.Tests
             Assert.Equal(expected, File.ReadAllText(P(parts)));
 
         [Fact]
+        public async Task ExtensionOnlyRename_ThroughAnAliasedFolder_KeepsTheSoleSidecar()
+        {
+            var raw = Write("raw", "photos", "X.CR3");
+            Write("<only/>", "photos", "X.xmp");
+            Directory.CreateSymbolicLink(P("alias"), P("photos"));
+
+            await LocalFileOperations.RelocateAsync(
+                raw, P("alias"), "X.DNG", RelocateMode.Move, CollisionPolicy.AutoSuffix);
+
+            AssertContent("raw", "photos", "X.DNG");
+            AssertContent("<only/>", "photos", "X.xmp");
+            Assert.False(File.Exists(raw));
+        }
+
+        [Fact]
         public async Task Move_PhotoWhoseNameContainsTmp_StillSharesWithItsSibling()
         {
             var raw = Write("raw", "src", "IMG.tmp.CR3");
