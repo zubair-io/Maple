@@ -3,9 +3,7 @@ import * as github from '@actions/github';
 import { jules } from '@google/jules-sdk';
 import { buildReviewPrompt } from './prompt.js';
 import { publishThenDelete, pollForReview, isAuthError } from './cleanup.js';
-
-type FailOn = 'never' | 'blocking' | 'any';
-type Verdict = 'approve' | 'comment' | 'block';
+import { parseVerdict, resolveOutcome, type FailOn, type Outcome } from './outcome.js';
 
 const COMMENT_MARKER = '<!-- jules-pr-reviewer -->';
 const VALID_FAIL_ON: FailOn[] = ['never', 'blocking', 'any'];
@@ -143,6 +141,7 @@ async function run(): Promise<void> {
     core.info(`Collected review (${reviewMessage.length} chars)`);
 
     if (!reviewMessage) {
+      const outcome = resolveOutcome({ kind: 'timeout', minutes: timeoutMinutes });
       await markCommentFailed(
         octokit,
         owner,
@@ -151,6 +150,7 @@ async function run(): Promise<void> {
         `Jules did not return a review within ${timeoutMinutes} minutes. Session: \`${session.id}\`. ` +
           `The session may still be running on Jules' side — check https://jules.google.com/session/${session.id}. ` +
           `Consider raising the action's \`timeout_minutes\` input or re-running the workflow.`,
+        outcome,
       );
       await setStatus(
         octokit,
@@ -158,17 +158,17 @@ async function run(): Promise<void> {
         repo,
         headSha,
         statusContext,
-        'error',
-        'Jules did not return a review in time',
+        outcome.state,
+        outcome.description,
       );
-      core.setFailed(`Jules returned no review message within ${timeoutMinutes} minutes.`);
+      if (outcome.failJob) core.setFailed(outcome.description);
       return;
     }
 
     const verdict = parseVerdict(reviewMessage);
 
     const finalBody = `${COMMENT_MARKER}\n## 🤖 Jules Review\n\n${reviewMessage}\n\n---\n_Session: \`${session.id}\`_`;
-    const { state, description } = statusFromVerdict(verdict, failOn);
+    const { state, description } = resolveOutcome({ kind: 'verdict', verdict, failOn });
     await publishThenDelete(
       session.id,
       apiKey,
@@ -191,10 +191,12 @@ async function run(): Promise<void> {
     core.info(`Verdict: ${verdict}. Status check: ${state}.`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    core.error(`Review failed: ${msg}`);
+    const outcome = resolveOutcome({ kind: 'failure', error: err });
+    if (outcome.failJob) core.error(`Review failed: ${msg}`);
+    else core.warning(`Review skipped, not blocking the PR: ${msg}`);
 
     if (commentId !== undefined) {
-      await markCommentFailed(octokit, owner, repo, commentId, msg).catch(() => {});
+      await markCommentFailed(octokit, owner, repo, commentId, msg, outcome).catch(() => {});
     }
     await setStatus(
       octokit,
@@ -202,10 +204,10 @@ async function run(): Promise<void> {
       repo,
       headSha,
       statusContext,
-      'error',
-      truncate(msg, 140),
+      outcome.state,
+      outcome.description,
     ).catch(() => {});
-    core.setFailed(`Jules PR review failed: ${msg}`);
+    if (outcome.failJob) core.setFailed(`Jules PR review failed: ${msg}`);
   }
 }
 
@@ -292,8 +294,12 @@ async function markCommentFailed(
   repo: string,
   commentId: number,
   reason: string,
+  outcome: Outcome,
 ): Promise<void> {
-  const body = `${COMMENT_MARKER}\n⚠️ **Jules PR review failed to complete.**\n\n\`\`\`\n${truncate(reason, 500)}\n\`\`\`\n\nSee the [workflow logs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}) for details.`;
+  const headline = outcome.failJob
+    ? '⚠️ **Jules PR review failed to complete.**'
+    : '⚠️ **Jules PR review did not run — this does not block the PR.** The bot hit an infrastructure error, timeout or quota limit; no verdict was produced.';
+  const body = `${COMMENT_MARKER}\n${headline}\n\n\`\`\`\n${truncate(reason, 500)}\n\`\`\`\n\nSee the [workflow logs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}) for details.`;
   await octokit.rest.issues.updateComment({ owner, repo, comment_id: commentId, body });
 }
 
@@ -347,30 +353,6 @@ function truncateDiff(diff: string, maxChars: number): { text: string; truncated
 
 function truncate(s: string, max: number): string {
   return s.length <= max ? s : s.slice(0, max - 1) + '…';
-}
-
-function parseVerdict(message: string): Verdict {
-  const match = message.match(/VERDICT:\s*(approve|comment|block)/i);
-  if (match) return match[1].toLowerCase() as Verdict;
-  if (/\[BLOCKING\]/.test(message)) return 'block';
-  return 'comment';
-}
-
-function statusFromVerdict(
-  verdict: Verdict,
-  failOn: FailOn,
-): { state: 'success' | 'failure'; description: string } {
-  if (failOn === 'never') {
-    return { state: 'success', description: `Review complete (verdict: ${verdict})` };
-  }
-  if (failOn === 'any') {
-    return verdict === 'approve'
-      ? { state: 'success', description: 'Approved' }
-      : { state: 'failure', description: `Review verdict: ${verdict}` };
-  }
-  return verdict === 'block'
-    ? { state: 'failure', description: 'Blocking issues found' }
-    : { state: 'success', description: `Review complete (verdict: ${verdict})` };
 }
 
 run().catch((err) => {
