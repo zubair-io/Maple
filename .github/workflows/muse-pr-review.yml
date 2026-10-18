@@ -3,6 +3,11 @@
 # PR review powered by the Muse CLI authenticated on the CT 126 runner.
 # This trusted pull_request_target workflow checks out only the PR base commit;
 # the PR diff is input data and no PR-controlled code or scripts are executed.
+#
+# Muse only ever posts a comment; it never gates a merge. So when the Muse CLI
+# is unavailable, errors or runs out of quota, the check passes with a warning
+# instead of turning every PR red. The runner-identity and diff-fetch steps stay
+# strict: they guard where the job runs and what it reads.
 name: Muse PR Review
 on:
   pull_request_target:
@@ -42,6 +47,8 @@ jobs:
           persist-credentials: false
 
       - name: Verify review tools
+        id: tools
+        continue-on-error: true
         run: |
           command -v muse
           command -v gh
@@ -51,6 +58,7 @@ jobs:
       # `pull_request_target` provides a write-capable job token. Keep it out of
       # the Muse process; only this final `gh` step can use it to post a comment.
       - name: Fetch PR diff as data
+        if: steps.tools.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -59,6 +67,9 @@ jobs:
             > "$GITHUB_WORKSPACE/.pr-review-diff.patch"
 
       - name: Run authenticated Muse CLI review
+        id: muse
+        if: steps.tools.outcome == 'success'
+        continue-on-error: true
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
@@ -75,6 +86,8 @@ jobs:
           test -s "$RUNNER_TEMP/muse-review.md"
 
       - name: Post Muse review comment
+        id: post
+        if: steps.muse.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -82,3 +95,8 @@ jobs:
           gh pr comment "$PR_NUMBER" \
             --repo "$GITHUB_REPOSITORY" \
             --body-file "$RUNNER_TEMP/muse-review.md"
+
+      - name: Report skipped review
+        if: always() && steps.post.outcome != 'success' && steps.tools.outcome != 'skipped'
+        run: |
+          echo "::warning::Muse review did not complete (tools=${{ steps.tools.outcome }}, review=${{ steps.muse.outcome }}, comment=${{ steps.post.outcome }}). Treated as non-blocking: Muse never gates merges."
