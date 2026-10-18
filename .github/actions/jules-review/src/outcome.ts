@@ -22,12 +22,60 @@ export function parseVerdict(message: string): Verdict {
   return 'comment';
 }
 
+const AUTH_MESSAGE =
+  /\b(?:401|403)\b|bad credentials|unauthenticated|unauthorized|permission[_ ]denied|api key not valid|invalid api key|resource not accessible|check jules_api_key/i;
+
+function statusOf(error: unknown): unknown {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const { status, response } = error as { status?: unknown; response?: { status?: unknown } };
+  return status ?? response?.status;
+}
+
 // Bad credentials or missing token permissions are misconfiguration the operator must fix;
 // everything else a review run can hit (quota, timeouts, 5xx, a failed session) is the bot's
-// infrastructure and must not hold up a PR.
+// infrastructure and must not hold up a PR. Mirrors isAuthError in cleanup.ts, which cannot
+// import this module because manual recovery runs it standalone.
+export function isAuthFailure(error: unknown): boolean {
+  const status = Number(statusOf(error));
+  if (status === 401 || status === 403) return true;
+  return AUTH_MESSAGE.test(error instanceof Error ? error.message : String(error));
+}
+
 export function isInfrastructureFailure(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return !(/\b(?:401|403)\b/.test(message) || message.includes('Resource not accessible'));
+  return !isAuthFailure(error);
+}
+
+const STATUS_WRITE_ATTEMPTS = 3;
+
+// A produced verdict is the source of truth: never replace it with an infrastructure skip.
+// Retry only the status write; if that cannot be done, fail the job loudly instead.
+export async function settleFailure(
+  error: unknown,
+  produced: Outcome | undefined,
+  writeStatus: (outcome: Outcome) => Promise<void>,
+  pause: (attempt: number) => Promise<void> = () => Promise.resolve(),
+): Promise<Outcome> {
+  if (produced === undefined) {
+    const outcome = resolveOutcome({ kind: 'failure', error });
+    await writeStatus(outcome).catch(() => {});
+    return outcome;
+  }
+  for (let attempt = 1; attempt <= STATUS_WRITE_ATTEMPTS; attempt++) {
+    try {
+      await writeStatus(produced);
+      return produced;
+    } catch {
+      await pause(attempt);
+    }
+  }
+  const reason = error instanceof Error ? error.message : String(error);
+  return {
+    state: produced.state,
+    description: truncate(
+      `Review verdict produced but its status could not be written (${reason})`,
+    ),
+    failJob: true,
+  };
 }
 
 export function resolveOutcome(result: ReviewResult): Outcome {

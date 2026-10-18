@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseVerdict, resolveOutcome } from '../src/outcome.ts';
+import { isAuthFailure, parseVerdict, resolveOutcome, settleFailure } from '../src/outcome.ts';
 
 const verdictOutcome = (message, failOn = 'blocking') =>
   resolveOutcome({ kind: 'verdict', verdict: parseVerdict(message), failOn });
@@ -71,4 +71,78 @@ test('credential and permission errors still fail loudly', () => {
 
 test('non-Error throwables are classified by their text', () => {
   assert.equal(resolveOutcome({ kind: 'failure', error: 'socket hang up' }).failJob, false);
+});
+
+test('authentication is detected from status codes on the error object', () => {
+  const withStatus = (message, extra) => Object.assign(new Error(message), extra);
+  const errors = [
+    withStatus('Request failed', { status: 401 }),
+    withStatus('Request failed', { status: '403' }),
+    withStatus('Request failed', { response: { status: 403 } }),
+  ];
+  for (const error of errors) {
+    assert.equal(isAuthFailure(error), true);
+    const outcome = resolveOutcome({ kind: 'failure', error });
+    assert.equal(outcome.failJob, true);
+    assert.equal(outcome.state, 'error');
+  }
+  for (const status of [429, 500, 503]) {
+    const error = Object.assign(new Error('Request failed'), { status });
+    assert.equal(isAuthFailure(error), false, String(status));
+  }
+});
+
+test('authentication is detected from provider message wording', () => {
+  for (const message of [
+    'Bad credentials',
+    'UNAUTHENTICATED: Request had invalid authentication credentials',
+    'API key not valid. Please pass a valid API key.',
+    'Unauthorized',
+    'Jules API rejected request (upstream). Check JULES_API_KEY is valid.',
+  ]) {
+    assert.equal(
+      resolveOutcome({ kind: 'failure', error: new Error(message) }).failJob,
+      true,
+      message,
+    );
+  }
+});
+
+const blocked = () => resolveOutcome({ kind: 'verdict', verdict: 'block', failOn: 'blocking' });
+
+test('a failure before any verdict writes the infrastructure skip status', async () => {
+  const written = [];
+  const outcome = await settleFailure(new Error('503 upstream'), undefined, async (o) => {
+    written.push(o);
+  });
+  assert.equal(outcome.state, 'success');
+  assert.deepEqual(written, [outcome]);
+});
+
+test('a transient status failure after a block verdict retries the real verdict, never a pass', async () => {
+  const written = [];
+  let calls = 0;
+  const outcome = await settleFailure(new Error('502 Bad Gateway'), blocked(), async (o) => {
+    calls++;
+    if (calls < 3) throw new Error('502');
+    written.push(o);
+  });
+  assert.equal(calls, 3);
+  assert.equal(outcome.state, 'failure');
+  assert.deepEqual(
+    written.map((o) => o.state),
+    ['failure'],
+  );
+});
+
+test('if the verdict status can never be written the job fails loudly without a passing status', async () => {
+  const written = [];
+  const outcome = await settleFailure(new Error('502'), blocked(), async (o) => {
+    written.push(o);
+    throw new Error('still down');
+  });
+  assert.equal(outcome.failJob, true);
+  assert.notEqual(outcome.state, 'success');
+  assert.ok(written.every((o) => o.state === 'failure'));
+  assert.equal(written.length, 3);
 });
