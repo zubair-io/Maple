@@ -170,29 +170,30 @@ export async function resolveRealPathThroughAncestors(filePath: string): Promise
   }
 }
 
+async function resolveForJail(filePath: string, mirrors: readonly string[]): Promise<string | null> {
+  try {
+    const resolution = resolveRealPath(filePath);
+    return await (mirrors.length ? withMirrorTimeout(resolution) : resolution);
+  } catch (error) {
+    if (error instanceof MirrorIoTimeoutError) {
+      const requested = path.resolve(filePath);
+      for (const mirror of mirrors)
+        if (isWithinRoot(mirror, requested)) markMirrorUnhealthy(mirror);
+      return null;
+    }
+    // A new XMP leaf may not exist yet. Canonicalize its existing ancestor
+    // so a directory symlink cannot escape the jail (#4748).
+    return resolveRealPathThroughAncestors(filePath);
+  }
+}
+
 /**
  * Check whether `filePath` is under a registered library, enabled mirror,
  * runtime root, or MAPLE_ROOTS entry. Returns the resolved path on success.
  */
 export async function checkAllowed(filePath: string): Promise<OpResult<string>> {
-  const configuredMirrors = activeMirrorRoots();
-  let real: string;
-  try {
-    // Resolve symlinks to prevent directory traversal.
-    const resolution = resolveRealPath(filePath);
-    real = await (configuredMirrors.length ? withMirrorTimeout(resolution) : resolution);
-  } catch (error) {
-    if (error instanceof MirrorIoTimeoutError) {
-      const requested = path.resolve(filePath);
-      for (const mirror of configuredMirrors)
-        if (isWithinRoot(mirror, requested)) markMirrorUnhealthy(mirror);
-      return { ok: false, error: 'Path resolution timed out' };
-    }
-    // A new XMP may not exist yet; resolve its deepest existing ancestor so
-    // a directory symlink cannot escape the jail (#4748).
-    real = await resolveRealPathThroughAncestors(filePath);
-  }
-
+  const real = await resolveForJail(filePath, activeMirrorRoots());
+  if (real === null) return { ok: false, error: 'Path resolution timed out' };
   const envRoots = await normalizedEnvRoots();
   const declared = [...envRoots, ..._registeredRoots];
   if (declared.some((root) => isWithinRoot(root, real))) return { ok: true, data: real };

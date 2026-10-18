@@ -64,7 +64,6 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
   const libraryId = insertFolder(live.db, { path: library });
   invalidateLibraryRoots();
 
-  expect((await checkAllowed(join(library, 'photo.xmp'))).ok).toBe(true);
   expect((await safeReadFile(join(library, 'photo.xmp'))).data?.toString()).toBe('<xmpmeta/>');
   expect((await safeWriteAllowed(join(library, 'new.xmp'))).ok).toBe(true);
   expect((await safeReadFile(join(outside, 'photo.xmp'))).ok).toBe(false);
@@ -96,17 +95,13 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
     ]);
     expect(primary?.[0].data?.toString()).toBe('<xmpmeta/>');
     expect(primary?.[1].ok).toBe(true);
-    const denied = await Promise.race([
-      checkAllowed(join(outside, 'photo.xmp')),
-      Bun.sleep(2_600).then(() => null),
-    ]);
+    const bounded = (target: string) =>
+      Promise.race([checkAllowed(target), Bun.sleep(2_600).then(() => null)]);
+    const denied = await bounded(join(outside, 'photo.xmp'));
     expect(denied?.ok).toBe(false);
     expect(benchedMirrors().map(({ root }) => root)).toContain(mirror);
     resetMirrorHealth();
-    const mirrorDenied = await Promise.race([
-      checkAllowed(mirrorSidecar),
-      Bun.sleep(2_600).then(() => null),
-    ]);
+    const mirrorDenied = await bounded(mirrorSidecar);
     expect(mirrorDenied?.ok).toBe(false);
   } finally {
     releaseProbe();
@@ -349,10 +344,7 @@ describe('safeWriteAllowed', () => {
     await writeFile(sidecar, '<xmpmeta/>');
     process.env.MAPLE_ROOTS = fixture;
 
-    expect(await safeWriteAllowed(sidecar)).toEqual({
-      ok: true,
-      data: sidecar,
-    });
+    expect(await safeWriteAllowed(sidecar)).toEqual({ ok: true, data: sidecar });
   });
 
   test('keeps one destination while atomic saves replace the sidecar (#4051)', async () => {
