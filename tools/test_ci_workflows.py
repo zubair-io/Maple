@@ -147,6 +147,66 @@ class WorkflowTests(unittest.TestCase):
                             needs[job] = {"result": "success" if enabled else "skipped"}
                         validate(needs, rules, event)
 
+    def test_apple_swift_jobs_are_selected_and_gated_fail_closed(self):
+        config = workflow("apple")
+        jobs = config["jobs"]
+        self.assertEqual(jobs["changes"]["uses"], "./.github/workflows/ci-changes.yml")
+        for event in ("push", "pull_request"):
+            self.assertNotIn("paths", config[True][event] or {})
+        selected = {"swift-build", "swift-ui", "swift-regressions"}
+        for job in selected:
+            with self.subTest(job=job):
+                self.assertEqual(jobs[job]["needs"], "changes")
+                self.assertEqual(
+                    jobs[job]["if"], "needs.changes.outputs.swift == 'true'"
+                )
+        self.assertNotIn("if", jobs["swift-regressions-coverage"])
+        gate = jobs["validation-result"]
+        self.assertEqual(gate["if"], "always()")
+        self.assertEqual(set(gate["needs"]), set(jobs) - {"validation-result"})
+        step = next(step for step in gate["steps"] if "run" in step)
+        self.assertEqual(step["env"]["NEEDS_JSON"], "${{ toJSON(needs) }}")
+        command = shlex.split(step["run"])
+        self.assertEqual(command[:2], ["python3", "tools/ci_result.py"])
+        rules = dict(item.split("=", 1) for item in command[2:])
+        self.assertEqual(
+            rules,
+            {
+                "swift-build": "swift",
+                "swift-ui": "swift",
+                "swift-regressions": "swift",
+                "swift-regressions-coverage": "always",
+            },
+        )
+        self.assertEqual(
+            config[True]["workflow_call"]["outputs"]["validated_sha"]["value"],
+            "${{ jobs.validation-result.outputs.sha }}",
+        )
+
+    def test_apple_result_gate_passes_skips_and_rejects_missing_runs(self):
+        rules = {
+            "swift-build": "swift",
+            "swift-ui": "swift",
+            "swift-regressions": "swift",
+            "swift-regressions-coverage": "always",
+        }
+
+        def needs(swift, result):
+            return {
+                "changes": {"result": "success", "outputs": {"swift": swift}},
+                **{job: {"result": result} for job in rules},
+                "swift-regressions-coverage": {"result": "success"},
+            }
+
+        validate(needs("false", "skipped"), rules, "pull_request")
+        validate(needs("true", "success"), rules, "pull_request")
+        with self.assertRaises(ValueError):
+            validate(needs("true", "skipped"), rules, "pull_request")
+        with self.assertRaises(ValueError):
+            validate(needs("true", "failure"), rules, "pull_request")
+        with self.assertRaises(ValueError):
+            validate(needs("false", "success"), rules, "pull_request")
+
     def test_release_names_and_native_trigger_coverage(self):
         for name in ("android", "api", "windows", "web", "maple-types", "cross"):
             self.assertIn("pull_request", workflow(name)[True])
