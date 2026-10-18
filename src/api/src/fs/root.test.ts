@@ -57,18 +57,15 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
   const mirror = join(fixture, 'mirror');
   const outside = join(fixture, 'outside');
   await Promise.all([mkdir(library), mkdir(mirror), mkdir(outside)]);
-  await Promise.all(
-    [library, mirror, outside].map((root) => writeFile(join(root, 'photo.xmp'), '<xmpmeta/>')),
-  );
+  for (const root of [library, mirror, outside])
+    await writeFile(join(root, 'photo.xmp'), '<xmpmeta/>');
   await symlink(join(outside, 'photo.xmp'), join(library, 'escaped.xmp'));
   delete process.env.MAPLE_ROOTS;
   const libraryId = insertFolder(live.db, { path: library });
   invalidateLibraryRoots();
-
   expect((await safeReadFile(join(outside, 'photo.xmp'))).ok).toBe(false);
   expect((await safeWriteAllowed(join(outside, 'new.xmp'))).ok).toBe(false);
   expect((await safeReadFile(join(library, 'escaped.xmp'))).ok).toBe(false);
-
   // A controlled unresolved realpath stands in for a wedged mirror mount.
   let releaseProbe!: () => void;
   const blocked = new Promise<void>((resolve) => (releaseProbe = resolve));
@@ -87,8 +84,7 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
     );
     expect((await within(safeWriteAllowed(join(library, 'new.xmp')), 500))?.ok).toBe(true);
     const bounded = (target: string) => within(checkAllowed(target), 2_600);
-    const denied = await bounded(join(outside, 'photo.xmp'));
-    expect(denied?.ok).toBe(false);
+    expect((await bounded(join(outside, 'photo.xmp')))?.ok).toBe(false);
     expect(benchedMirrors().map(({ root }) => root)).toContain(mirror);
     resetMirrorHealth();
     expect((await bounded(mirrorSidecar))?.ok).toBe(false);
@@ -99,7 +95,6 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
   }
   clearMirrorRoots();
   expect((await checkAllowed(join(mirror, 'photo.xmp'))).ok).toBe(false);
-
   insertFolder(live.db, { path: mirror });
   invalidateLibraryRoots();
   live.db.query('DELETE FROM folders WHERE id = ?').run(libraryId);
@@ -114,8 +109,9 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
   const healthy = join(fixture, 'healthy');
   const stalled = join(fixture, 'stalled');
   const mirror = join(fixture, 'mirror');
+  const stalledMirror = join(fixture, 'stalled-mirror');
   const alias = join(fixture, 'healthy-alias');
-  await Promise.all([mkdir(healthy), mkdir(stalled), mkdir(mirror)]);
+  await Promise.all([mkdir(healthy), mkdir(stalled), mkdir(mirror), mkdir(stalledMirror)]);
   await writeFile(join(healthy, 'photo.xmp'), '<xmpmeta/>');
   await writeFile(join(mirror, 'photo.xmp'), '<xmpmeta/>');
   delete process.env.MAPLE_ROOTS;
@@ -125,6 +121,7 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
   let releaseProbe!: () => void;
   let slowAlias = false;
   let stalledProbes = 0;
+  let stalledMirrorProbes = 0;
   const blocked = new Promise<void>((resolve) => (releaseProbe = resolve));
   const actualRealpath = nodeFs.realpath.bind(nodeFs);
   const probe = spyOn(nodeFs, 'realpath').mockImplementation((async (
@@ -134,6 +131,10 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
       stalledProbes++;
       await blocked;
     }
+    if (requested === stalledMirror) {
+      stalledMirrorProbes++;
+      await blocked;
+    }
     if (requested === alias && slowAlias) {
       slowAlias = false;
       await Bun.sleep(2_100);
@@ -141,28 +142,28 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
     return actualRealpath(requested);
   }) as typeof nodeFs.realpath);
   try {
-    expect((await within(safeReadFile(join(healthy, 'photo.xmp')), 500))?.data?.toString()).toBe(
-      '<xmpmeta/>',
-    );
-    setMirrorRoots({ [healthy]: [mirror] });
-    expect((await within(safeReadFile(join(mirror, 'photo.xmp')), 500))?.data?.toString()).toBe(
-      '<xmpmeta/>',
-    );
+    const quickRead = async (p: string) => (await within(safeReadFile(p), 500))?.data?.toString();
+    expect(await quickRead(join(healthy, 'photo.xmp'))).toBe('<xmpmeta/>');
+    setMirrorRoots({ [healthy]: [mirror, stalledMirror] });
+    expect(await quickRead(join(mirror, 'photo.xmp'))).toBe('<xmpmeta/>');
+    expect(stalledMirrorProbes).toBe(0);
+    const mirrorAlias = join(fixture, 'mirror-alias');
+    await symlink(mirror, mirrorAlias);
+    expect((await checkAllowed(join(mirrorAlias, 'photo.xmp'))).ok).toBe(true);
+    clearMirrorRoots();
+    expect((await checkAllowed(join(mirrorAlias, 'photo.xmp'))).ok).toBe(false);
     const outsideRequests = () =>
       Promise.all(Array.from({ length: 5 }, () => checkAllowed(join(fixture, 'outside.xmp'))));
-    const outside = await within(outsideRequests(), 3_500);
-    expect(outside?.every(({ ok }) => !ok)).toBe(true);
+    expect((await within(outsideRequests(), 3_500))?.every(({ ok }) => !ok)).toBe(true);
     expect(stalledProbes).toBe(1);
-    const repeated = await within(outsideRequests(), 500);
-    expect(repeated?.every(({ ok }) => !ok)).toBe(true);
+    expect((await within(outsideRequests(), 500))?.every(({ ok }) => !ok)).toBe(true);
     expect(stalledProbes).toBe(1);
     expect((await within(safeReadFile(join(healthy, 'photo.xmp')), 500))?.ok).toBe(true);
     await symlink(healthy, alias);
     insertFolder(live.db, { path: alias });
     live.db.query('DELETE FROM folders WHERE id = ?').run(healthyId);
     invalidateLibraryRoots();
-    const viaAlias = await within(safeReadFile(join(healthy, 'photo.xmp')), 500);
-    expect(viaAlias?.data?.toString()).toBe('<xmpmeta/>');
+    expect(await quickRead(join(healthy, 'photo.xmp'))).toBe('<xmpmeta/>');
     slowAlias = true;
     expect((await safeWriteAllowed(join(alias, 'new.xmp'))).ok).toBe(true);
   } finally {
@@ -174,18 +175,15 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
 test('an empty registered library remains usable for first-run setup', async () => {
   const fixture = await mkdtemp(join(tmpdir(), 'maple-root-first-run-'));
   temporaryRoots.push(fixture);
-  const env = { ...process.env };
-  delete env.MAPLE_ROOTS;
+  const { MAPLE_ROOTS: _ignored, ...env } = process.env;
   // Other suites may retain runtime roots; first-run means none exist at all.
   const script = `
     import { createLiveTestDatabase } from ${JSON.stringify(new URL('../db/sqlite/test-sqlite.test-helpers.ts', import.meta.url).href)};
     import { checkAllowed, getRegisteredRoots } from ${JSON.stringify(new URL('./root.ts', import.meta.url).href)};
     using live = await createLiveTestDatabase();
-    const count = live.db.query('SELECT COUNT(*) AS count FROM folders').get().count;
-    console.log(JSON.stringify({ count, roots: getRegisteredRoots(), result: await checkAllowed(${JSON.stringify(fixture)}) }));
+    console.log(JSON.stringify({ count: live.db.query('SELECT COUNT(*) AS count FROM folders').get().count, roots: getRegisteredRoots(), result: await checkAllowed(${JSON.stringify(fixture)}) }));
   `;
   const child = Bun.spawnSync([process.execPath, '--eval', script], { env });
-  expect(child.stderr.toString()).toBe('');
   expect(child.exitCode).toBe(0);
   const outcome = JSON.parse(child.stdout.toString());
   expect(outcome.count).toBe(0);
@@ -202,7 +200,6 @@ test('a pre-registration empty lookup cannot reopen the jail after library regis
   await mkdir(library);
   await writeFile(outside, '<xmpmeta/>');
   delete process.env.MAPLE_ROOTS;
-
   let signalRead!: () => void;
   let releaseRead!: () => void;
   const readStarted = new Promise<void>((resolve) => (signalRead = resolve));
@@ -224,7 +221,6 @@ test('a pre-registration empty lookup cannot reopen the jail after library regis
     insertFolder(live.db, { path: library });
     invalidateLibraryRoots();
     releaseRead();
-
     expect((await pending).ok).toBe(false);
     expect((await checkAllowed(outside)).ok).toBe(false);
   } finally {

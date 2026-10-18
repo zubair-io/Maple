@@ -49,8 +49,11 @@ let mirrorRootsCache:
   | undefined;
 const libraryProbes = new Map<string, { raw: Promise<string>; bounded?: Promise<string> }>();
 
-async function normalizedMirrorRoots(source: readonly string[]): Promise<string[]> {
-  if (mirrorRootsCache?.source === source)
+async function normalizedMirrorRoots(
+  source: readonly string[],
+  useCache = true,
+): Promise<string[]> {
+  if (useCache && mirrorRootsCache?.source === source)
     return mirrorRootsCache.roots
       .filter(([configured]) => isMirrorHealthy(configured))
       .map(([, canonical]) => canonical);
@@ -66,7 +69,7 @@ async function normalizedMirrorRoots(source: readonly string[]): Promise<string[
     }),
   );
   const roots = resolved.filter((root): root is readonly [string, string] => root !== null);
-  if (roots.length === source.length) mirrorRootsCache = { source, roots };
+  if (useCache && roots.length === source.length) mirrorRootsCache = { source, roots };
   return roots.map(([, canonical]) => canonical);
 }
 
@@ -225,8 +228,8 @@ async function mirrorAllowed(
   real: string,
   roots: readonly string[],
 ): Promise<boolean> {
-  if (!roots.some((root) => isWithinRoot(root, path.resolve(filePath)))) return false;
-  return (await normalizedMirrorRoots(roots)).some((root) => isWithinRoot(root, real));
+  const candidates = roots.filter((root) => isWithinRoot(root, path.resolve(filePath)));
+  return (await normalizedMirrorRoots(candidates, false)).some((root) => isWithinRoot(root, real));
 }
 
 /**
