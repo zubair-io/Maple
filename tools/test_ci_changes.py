@@ -21,7 +21,7 @@ class ClassificationTests(unittest.TestCase):
             "src/raw-pipeline/raw-core/src/lib.rs": ci.ALL,
             "src/raw-pipeline/Cargo.lock": ci.ALL,
             "src/api/src/routes/assets.ts": {"api", "maple", "web"},
-            "src/maple/package.json": {"android", "api", "maple", "web"},
+            "src/maple/package.json": {"android", "api", "maple", "web", "swift"},
             "src/web/package.json": {"api", "web", "swift"},
             "src/web/projects/maple/src/main.ts": {"api", "web"},
             "src/windows/Maple.WinUI/App.xaml.cs": {"windows"},
@@ -147,7 +147,10 @@ class ClassificationTests(unittest.TestCase):
             for imported in imports:
                 path = (source.parent / imported).resolve().relative_to(root).as_posix()
                 with self.subTest(consumer=consumer, path=path):
-                    self.assertEqual(ci.dependencies(path), {"api", "web"})
+                    expected = {"api", "web"} | (
+                        {"swift"} if path in ci.swift_api_closure()[0] else set()
+                    )
+                    self.assertEqual(ci.dependencies(path), expected)
 
     def test_codegen_evidence_corpora_remain_covered(self):
         registry = (
@@ -338,6 +341,23 @@ class SwiftApiClosureTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertIn("swift", ci.dependencies(path))
+
+    def test_closure_members_outside_the_api_tree_select_swift(self):
+        parser = "src/web/projects/maple-common/src/lib/addressing/maple-id-parser.ts"
+        self.assertIn(parser, ci.swift_api_closure()[0])
+        self.assertIn("swift", ci.dependencies(parser))
+
+    def test_local_maple_runtime_package_selects_swift(self):
+        for path in (
+            "src/maple/package.json",
+            "src/maple/dist/index.js",
+            "src/maple/src/index.ts",
+        ):
+            with self.subTest(path=path):
+                self.assertIn("swift", ci.dependencies(path))
+        for path in ("src/maple/README.md", "src/maple/test/native.test.ts"):
+            with self.subTest(path=path):
+                self.assertNotIn("swift", ci.dependencies(path))
 
     def test_unrelated_api_modules_skip_swift(self):
         closure, complete = ci.swift_api_closure()
