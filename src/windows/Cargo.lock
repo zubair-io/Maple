@@ -3196,6 +3196,7 @@ dependencies = [
  "jpeg-encoder",
  "libc",
  "miniz_oxide",
+ "moxcms",
  "png 0.17.16",
  "quick-xml 0.37.5",
  "rav1d",
@@ -3207,8 +3208,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "tempfile",
  "thiserror 2.0.19",
  "tiff",
+ "windows-sys 0.61.2",
  "zune-jpeg",
 ]
 

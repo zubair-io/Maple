@@ -4071,8 +4071,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "tempfile",
  "thiserror 2.0.21",
  "tiff",
+ "windows-sys 0.61.2",
  "zune-jpeg",
 ]
 

@@ -84,6 +84,7 @@ jobs:
         shell: pwsh
         run: |
           cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --lib
+          cargo test --manifest-path src/raw-pipeline/Cargo.toml -p raw-core --test output_file_safety
 
       - name: Verify native application architecture
         shell: pwsh
