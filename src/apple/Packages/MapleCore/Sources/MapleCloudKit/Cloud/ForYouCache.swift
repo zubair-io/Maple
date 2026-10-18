@@ -47,6 +47,23 @@ struct ForYouSnapshot: Codable, Equatable, Sendable {
     guard kept.count < firstPages.count else { return nil }
     return ForYouSnapshot(collections: collections, firstPages: kept, savedAt: savedAt)
   }
+
+  /// Partial folder trash keeps live rows on a mixed page, including its cover.
+  func forgettingRows(_ isGone: (SearchAsset) -> Bool) -> ForYouSnapshot? {
+    let kept = firstPages.compactMapValues { page -> GeneratedSearchAssetPage? in
+      let results = page.results.filter { !isGone($0) }
+      guard results.count < page.results.count else { return page }
+      guard !results.isEmpty else { return nil }
+      let total =
+        page.isSnapshot
+        ? results.count : max(results.count, page.total - (page.results.count - results.count))
+      return GeneratedSearchAssetPage(
+        results: results, total: total, isSnapshot: page.isSnapshot, more: page.more,
+        capped: page.capped, isPending: page.isPending)
+    }
+    guard kept != firstPages else { return nil }
+    return ForYouSnapshot(collections: collections, firstPages: kept, savedAt: savedAt)
+  }
 }
 
 enum ForYouDeletion: Codable, Equatable, Sendable {
@@ -159,8 +176,8 @@ public actor ForYouCache {
   /// next answer. `assetID` is the id the app trashed by; the path catches a
   /// cached row that carries the other id form.
   public func forgetAsset(host: String, assetID: String, absPath: String = "") {
-    forget(host: host) {
-      Self.matchesAsset($0, assetID: assetID, absPath: absPath)
+    forget(host: host) { snapshot in
+      snapshot.forgetting { Self.matchesAsset($0, assetID: assetID, absPath: absPath) }
     }
   }
 
@@ -168,8 +185,20 @@ public actor ForYouCache {
   /// `libraryFolderID`.
   public func forgetFolder(host: String, libraryFolderID: String, folderPath: String) {
     guard !folderPath.isEmpty else { return }
-    forget(host: host) {
-      Self.matchesFolder($0, libraryFolderID: libraryFolderID, folderPath: folderPath)
+    forget(host: host) { snapshot in
+      snapshot.forgetting {
+        Self.matchesFolder($0, libraryFolderID: libraryFolderID, folderPath: folderPath)
+      }
+    }
+  }
+
+  /// Remove successful rows from all cached pages on this host in one pass.
+  public func forgetAssetsPreservingPages(host: String, assetIDs: Set<String>) {
+    guard !assetIDs.isEmpty else { return }
+    forget(host: host) { snapshot in
+      snapshot.forgettingRows { asset in
+        assetIDs.contains(asset.id) || asset._id.map(assetIDs.contains) == true
+      }
     }
   }
 
@@ -200,14 +229,16 @@ public actor ForYouCache {
       }
     }
     for (host, entries) in byHost {
-      let succeeded = forget(host: host) { asset in
-        entries.contains { entry in
-          switch entry.deletion {
-          case .asset(_, let assetID, let absPath):
-            return Self.matchesAsset(asset, assetID: assetID, absPath: absPath)
-          case .folder(_, let libraryFolderID, let folderPath):
-            return Self.matchesFolder(
-              asset, libraryFolderID: libraryFolderID, folderPath: folderPath)
+      let succeeded = forget(host: host) { snapshot in
+        snapshot.forgetting { asset in
+          entries.contains { entry in
+            switch entry.deletion {
+            case .asset(_, let assetID, let absPath):
+              return Self.matchesAsset(asset, assetID: assetID, absPath: absPath)
+            case .folder(_, let libraryFolderID, let folderPath):
+              return Self.matchesFolder(
+                asset, libraryFolderID: libraryFolderID, folderPath: folderPath)
+            }
           }
         }
       }
@@ -249,7 +280,7 @@ public actor ForYouCache {
   }
 
   @discardableResult
-  private func forget(host: String, _ isGone: (SearchAsset) -> Bool) -> Bool {
+  private func forget(host: String, _ transform: (ForYouSnapshot) -> ForYouSnapshot?) -> Bool {
     epochs[host, default: 0] += 1
     let files =
       (try? FileManager.default.contentsOfDirectory(
@@ -259,7 +290,7 @@ public actor ForYouCache {
       guard let data = try? Data(contentsOf: file),
         let snapshot = try? JSONDecoder().decode(ForYouSnapshot.self, from: data),
         snapshot.version == ForYouSnapshot.currentVersion,
-        let pruned = snapshot.forgetting(isGone)
+        let pruned = transform(snapshot)
       else { continue }
       guard let encoded = try? JSONEncoder().encode(pruned),
         (try? encoded.write(to: file, options: .atomic)) != nil
