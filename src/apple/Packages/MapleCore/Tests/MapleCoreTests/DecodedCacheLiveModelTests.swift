@@ -166,4 +166,32 @@ final class DecodedCacheLiveModelTests: XCTestCase {
     XCTAssertEqual(baked.exposure, 0, "stripped fields are zeroed in the baked key")
     XCTAssertEqual(baked, RenderActor.bakedModel(fromLive: AdjustmentModel()))
   }
+
+  func testFailedLiveXMPWriteFailsTheDecodeInsteadOfUsingTheDiskSidecar() {
+    let disk = URL(fileURLWithPath: "/tmp/photo.xmp")
+    let live = URL(fileURLWithPath: "/tmp/maple-strip-live.xmp")
+    XCTAssertEqual(
+      RenderActor.decodeXMPSource(hasLiveModel: true, liveXMP: nil, diskSidecar: disk), .fail)
+    XCTAssertEqual(
+      RenderActor.decodeXMPSource(hasLiveModel: true, liveXMP: live, diskSidecar: disk),
+      .use(live))
+    XCTAssertEqual(
+      RenderActor.decodeXMPSource(hasLiveModel: false, liveXMP: nil, diskSidecar: disk),
+      .use(disk))
+    XCTAssertEqual(
+      RenderActor.decodeXMPSource(hasLiveModel: false, liveXMP: nil, diskSidecar: nil), .use(nil))
+  }
+
+  func testExportReusesTheInteractiveDecodeForCropAndPerspectiveEdits() {
+    let cached = RenderActor.bakedModel(fromLive: AdjustmentModel())
+    var geometry = AdjustmentModel()
+    geometry.crop = Crop(top: 0.1, left: 0.1, bottom: 0.9, right: 0.9)
+    geometry.perspective.vertical = 8
+    XCTAssertTrue(RenderActor.exportCanReuse(cachedBakedModel: cached, live: geometry))
+
+    var baked = AdjustmentModel()
+    baked.retouchSpots = [healSpot]
+    XCTAssertFalse(RenderActor.exportCanReuse(cachedBakedModel: cached, live: baked))
+    XCTAssertTrue(RenderActor.exportCanReuse(cachedBakedModel: nil, live: AdjustmentModel()))
+  }
 }

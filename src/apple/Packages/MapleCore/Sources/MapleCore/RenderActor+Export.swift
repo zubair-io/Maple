@@ -64,16 +64,13 @@ extension RenderActor {
     let quality: PipelineRenderer.Quality =
       qualityOverride ?? (targetSize != nil ? .preview : (AmazeFlag.isEnabled ? .amaze : .full))
 
-    let liveBaked = RawCoreBridge.stripAppleGPUStages(m)
     let canReuseCachedDecode =
       targetSize != nil
       && decodedForAssetID == asset.id
       && decodedImage != nil
       && decodedProfile == m.profile
       && decodedAutoExposure == m.autoExposure
-      && (decodedBakedModel == liveBaked
-        || (decodedBakedModel == nil
-          && liveBaked == RawCoreBridge.stripAppleGPUStages(AdjustmentModel())))
+      && Self.exportCanReuse(cachedBakedModel: decodedBakedModel, live: m)
 
     let decodeResult: ImageEditPipeline.SceneLinearDecodeResult?
     if canReuseCachedDecode, let cached = decodedImage {

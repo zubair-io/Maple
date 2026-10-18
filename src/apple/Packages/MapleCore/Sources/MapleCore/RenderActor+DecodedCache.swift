@@ -209,13 +209,21 @@ extension RenderActor {
               $0, profileOverride: decodeProfile, autoExposureOverride: decodeAutoExposure)
           }
           defer { if let liveXMP { try? FileManager.default.removeItem(at: liveXMP) } }
-          let sidecar: URL? = {
-            if let liveXMP { return liveXMP }
+          let diskSidecar: URL? = {
             guard let url = asset.sidecarURL,
               FileManager.default.fileExists(atPath: url.path)
             else { return nil }
             return url
           }()
+          guard
+            case .use(let sidecar) = RenderActor.decodeXMPSource(
+              hasLiveModel: liveModel != nil, liveXMP: liveXMP, diskSidecar: diskSidecar)
+          else {
+            editSessionLogger.error(
+              "live-model temp XMP could not be written; failing the decode rather than caching disk-state pixels under the live key"
+            )
+            return nil
+          }
           // The session's staged file is also Auto Profile's source. A
           // bytes-FFI decode would use a different native cache key (Bytes
           // vs Path), demuxing the same RAW again for fitting. Only this
@@ -545,6 +553,34 @@ extension RenderActor {
   nonisolated static func bakedModel(for asset: AssetRef) -> AdjustmentModel {
     guard EditSession.sidecarMtime(for: asset) != nil else { return defaultBakedModel }
     return bakedModel(fromLive: EditSession.parseSidecarModel(for: asset))
+  }
+
+  enum DecodeXMPSource: Equatable {
+    case use(URL?)
+    case fail
+  }
+
+  /// Which XMP the RAW decode bakes (#4715). With a live model the cache is
+  /// keyed on that model, so a failed temp-XMP write must fail the decode:
+  /// falling back to the disk sidecar would store disk-state pixels under the
+  /// live key and report them fresh until some later invalidation.
+  nonisolated static func decodeXMPSource(
+    hasLiveModel: Bool, liveXMP: URL?, diskSidecar: URL?
+  ) -> DecodeXMPSource {
+    guard hasLiveModel else { return .use(diskSidecar) }
+    return liveXMP.map { .use($0) } ?? .fail
+  }
+
+  /// Whether a cached decode can serve an export of `live` (#4715). Uses the
+  /// same normalised key the interactive cache stores, so a crop or
+  /// perspective edit (presentation stages) does not force a second decode.
+  /// Profile and auto exposure are compared by the caller on their own keys.
+  nonisolated static func exportCanReuse(cachedBakedModel: AdjustmentModel?, live: AdjustmentModel)
+    -> Bool
+  {
+    let liveBaked = bakedModel(fromLive: live)
+    return cachedBakedModel == liveBaked
+      || (cachedBakedModel == nil && liveBaked == defaultBakedModel)
   }
 
   /// The same key, taken from a model already in memory (#4715). Crop and
