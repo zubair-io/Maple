@@ -28,7 +28,6 @@ src/apple/Packages/MapleCore/Tests/MapleCoreTests/AppleRenderHarnessTests.swift 
 # --- Rust core (raw-pipeline) ---
 src/raw-pipeline/raw-core/src/api.rs                                              # 1381 — public C-FFI surface
 src/raw-pipeline/raw-core/src/color/dcp.rs                                        # 1097 — DCP profile evaluator
-src/raw-pipeline/raw-core/src/color/hsm.rs                                        # 683  — HSL/HSV/saturation maps
 src/raw-pipeline/raw-core/src/decode.rs                                           # 787  — RAW decode entry
 src/raw-pipeline/raw-core/src/test_support/synth_dng.rs                           # 702  — synthetic DNG generator (tests only)
 
