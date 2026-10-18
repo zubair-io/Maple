@@ -112,7 +112,7 @@ jobs:
 
       - name: Upload WinUI lifecycle evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: winui-lifecycle-${{ matrix.arch }}
           path: ${{ runner.temp }}/maple-window-lifecycle

@@ -142,7 +142,7 @@ jobs:
           ./src/maple/scripts/audit-linkage.sh "src/raw-pipeline/target/${{ matrix.target }}/release/libraw_ffi.so" "${{ matrix.libc_type }}"
 
       - name: Upload Linux binary artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.pkg_name }}
           path: src/raw-pipeline/target/${{ matrix.target }}/release/libraw_ffi.so
@@ -177,7 +177,7 @@ jobs:
           key: ${{ steps.native-fingerprint.outputs.key }}
 
       - name: Upload Linux napi artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.pkg_name }}-napi
           path: src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ matrix.platform_dir }}.node
@@ -247,7 +247,7 @@ jobs:
           cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-ffi --target ${{ matrix.target }}
 
       - name: Upload macOS binary artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.pkg_name }}
           path: src/raw-pipeline/target/${{ matrix.target }}/release/libraw_ffi.dylib
@@ -280,7 +280,7 @@ jobs:
           key: ${{ steps.native-fingerprint.outputs.key }}
 
       - name: Upload macOS napi artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.pkg_name }}-napi
           path: src/raw-pipeline/target/${{ matrix.target }}/release/raw-napi.${{ matrix.platform_dir }}.node
@@ -340,7 +340,7 @@ jobs:
           cargo build --manifest-path src/raw-pipeline/Cargo.toml --release -p raw-ffi --target x86_64-pc-windows-msvc
 
       - name: Upload Windows binary artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: maple-win32-x64-msvc
           path: src/raw-pipeline/target/x86_64-pc-windows-msvc/release/raw_ffi.dll
@@ -373,7 +373,7 @@ jobs:
           key: ${{ steps.native-fingerprint.outputs.key }}
 
       - name: Upload Windows napi artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: maple-win32-x64-msvc-napi
           path: src/raw-pipeline/target/x86_64-pc-windows-msvc/release/raw-napi.win32-x64-msvc.node
