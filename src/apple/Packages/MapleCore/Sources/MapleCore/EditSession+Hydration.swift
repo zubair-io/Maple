@@ -385,6 +385,11 @@ extension EditSession {
     let openProfile = self.model.profile
     // #1387: mirror the LIVE autoExposure too — same staleness story.
     let openAutoExposure = self.model.autoExposure
+    // #4961: bake the live model's decode-baked fields, the key every render
+    // compares against. A remote asset has no sidecar for the decode to read,
+    // so without it the first decode baked defaults and the first render
+    // re-decoded.
+    let openLiveModel = self.renderModel
     // Cold open is a display decode, not export prep. Always give the
     // shared decoder a bounded target: the physical viewport when mounted,
     // or the pipeline's ~2 MP fallback before layout. Omitting this target
@@ -400,6 +405,7 @@ extension EditSession {
         target: openTarget,
         profile: openProfile,
         autoExposure: openAutoExposure,
+        liveModel: openLiveModel,
         normalize: { [weak self] image, asset in
           guard let self else { return image }
           return await MainActor.run {
