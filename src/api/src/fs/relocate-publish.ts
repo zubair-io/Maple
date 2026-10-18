@@ -108,6 +108,10 @@ async function copyExclusive(source: string, destination: string): Promise<Reloc
   if (!samePublication(publication, await fs.lstat(destination).catch(() => null))) {
     throw new PublishCollisionError(destination);
   }
+  if (!(await filesIdentical(source, destination))) {
+    await revertCreated([publication]);
+    throw new Error(`relocate: fallback copy verification failed: ${source} -> ${destination}`);
+  }
   fs.replicatePath(destination);
   return publication;
 }
@@ -115,12 +119,29 @@ async function copyExclusive(source: string, destination: string): Promise<Reloc
 async function streamInto(source: string, target: fs.FileHandle): Promise<void> {
   const input = await fs.open(source, 'r');
   try {
+    let position = 0;
     for await (const chunk of input.createReadStream({ autoClose: false })) {
-      await target.write(chunk as Buffer);
+      position += await writeFully(target, chunk as Buffer, position);
     }
   } finally {
     await input.close();
   }
+}
+
+/** `write` may report fewer bytes than asked (common on remote volumes);
+ * the rest of the chunk is written until none remains. */
+async function writeFully(target: fs.FileHandle, chunk: Buffer, position: number): Promise<number> {
+  for (let written = 0; written < chunk.length; ) {
+    const { bytesWritten } = await target.write(
+      chunk,
+      written,
+      chunk.length - written,
+      position + written,
+    );
+    if (bytesWritten <= 0) throw new Error('relocate: fallback copy write made no progress');
+    written += bytesWritten;
+  }
+  return chunk.length;
 }
 
 /** Withdraw every publication. Only an inode proven to be this relocation's

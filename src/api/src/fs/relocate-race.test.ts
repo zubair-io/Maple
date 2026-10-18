@@ -265,6 +265,43 @@ for (const collision of ['skip', 'keep-both'] satisfies CollisionPolicy[]) {
   });
 }
 
+for (const cap of [3, 0]) {
+  test(`fallback copy with writes capped at ${cap} bytes never truncates the moved file`, async () => {
+    const pixels = 'source pixels '.repeat(64);
+    await write('src/photo.dng', pixels);
+    const destination = abs('dst/photo.dng');
+    spyOn(fs, 'link').mockRejectedValue(Object.assign(new Error('unsupported'), { code: 'EPERM' }));
+    const open = fs.open;
+    spyOn(fs, 'open').mockImplementation(async (target, flags, mode) => {
+      const handle = await open(target, flags, mode);
+      if (target !== destination) return handle;
+      const original = handle.write.bind(handle) as (...args: unknown[]) => Promise<unknown>;
+      const capped = (
+        buffer: Buffer,
+        offset = 0,
+        length = buffer.length - offset,
+        position?: number,
+      ) => original(buffer, offset, Math.min(cap, length), position);
+      handle.write = capped as typeof handle.write;
+      return handle;
+    });
+    const outcome = await relocateFile({
+      sourceAbsPath: abs('src/photo.dng'),
+      destAbsPath: destination,
+      mode: 'move',
+      collision: 'keep-both',
+    });
+    if (outcome.kind === 'relocated') {
+      expect(await fs.readFile(outcome.newAbsPath, 'utf8')).toBe(pixels);
+    } else {
+      expect(outcome.kind).toBe('error');
+      expect(await fs.readFile(abs('src/photo.dng'), 'utf8')).toBe(pixels);
+      expect(await fs.readdir(abs('dst'))).toEqual([]);
+    }
+    expect(outcome.kind).toBe(cap > 0 ? 'relocated' : 'error');
+  });
+}
+
 test('rollback never removes a file that replaced the publication just before removal', async () => {
   await write('src/photo.dng', 'source pixels');
   await write('replacement', 'competing pixels');
