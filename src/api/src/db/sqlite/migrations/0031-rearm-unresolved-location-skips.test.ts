@@ -24,14 +24,16 @@ test('rows that recorded the unresolved-location skip are re-armed, other rows k
   };
   const skipped = assetWith('a.dng');
   const healthy = assetWith('b.dng');
-  const insertRow = (assetId: string, version: number, lastError: string | null) =>
+  const sidecarSkipped = assetWith('c.dng');
+  const insertRow = (assetId: string, version: number, lastError: string | null, stage = 'exif') =>
     handle.db.run(
       `INSERT INTO stage_state (asset_id, stage, version, processed_at, last_error)
-       VALUES (?, 'exif', ?, '2026-10-01T00:00:00Z', ?)`,
-      [assetId, version, lastError],
+       VALUES (?, ?, ?, '2026-10-01T00:00:00Z', ?)`,
+      [assetId, stage, version, lastError],
     );
   insertRow(skipped, 3, 'skip: no-resolvable-location');
   insertRow(healthy, 3, 'skip: not-an-image');
+  insertRow(sidecarSkipped, 2, 'skip: no-path', 'sidecar-metadata-index');
 
   const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
   expect(result.applied).toEqual([ID]);
@@ -41,6 +43,7 @@ test('rows that recorded the unresolved-location skip are re-armed, other rows k
       .query(`SELECT version, processed_at, last_error FROM stage_state WHERE asset_id = ?`)
       .get(assetId);
   expect(row(skipped)).toEqual({ version: 0, processed_at: null, last_error: null });
+  expect(row(sidecarSkipped)).toEqual({ version: 0, processed_at: null, last_error: null });
   expect(row(healthy)).toEqual({
     version: 3,
     processed_at: '2026-10-01T00:00:00Z',
