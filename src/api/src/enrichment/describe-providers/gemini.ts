@@ -53,6 +53,7 @@ interface GeminiResponse {
   usageMetadata?: {
     promptTokenCount?: unknown;
     candidatesTokenCount?: unknown;
+    thoughtsTokenCount?: unknown;
   };
 }
 
@@ -125,9 +126,8 @@ export class GeminiProvider implements DescribeProvider {
         ? parsed.usageMetadata.promptTokenCount
         : 0;
     const outTokens =
-      typeof parsed.usageMetadata?.candidatesTokenCount === 'number'
-        ? parsed.usageMetadata.candidatesTokenCount
-        : 0;
+      tokenCount(parsed.usageMetadata?.candidatesTokenCount) +
+      tokenCount(parsed.usageMetadata?.thoughtsTokenCount);
     const cost = priceForModel(opts.model, inTokens, outTokens);
     return {
       text,
@@ -199,6 +199,10 @@ function extractCandidateText(candidates: unknown): string {
     }
   }
   return parts.join('\n').trim();
+}
+
+function tokenCount(value: unknown): number {
+  return typeof value === 'number' ? value : 0;
 }
 
 function priceForModel(model: string, inTokens: number, outTokens: number): number {

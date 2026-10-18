@@ -110,4 +110,20 @@ describe('paid describe providers: truncation', () => {
     expect(err.retryable).toBe(false);
     expect(err.message).toContain('finishReason=MAX_TOKENS');
   });
+
+  it('Gemini bills thought tokens as output on a successful response', async () => {
+    const { fetchImpl } = jsonFetch({
+      candidates: [{ content: { parts: [{ text: '{}' }] }, finishReason: 'STOP' }],
+      usageMetadata: { promptTokenCount: 0, candidatesTokenCount: 1000, thoughtsTokenCount: 3000 },
+    });
+    const result = await new GeminiProvider({ apiKey: 'k', fetchImpl }).describe(FRAME, OPTS);
+    const withoutThoughts = await new GeminiProvider({
+      apiKey: 'k',
+      fetchImpl: jsonFetch({
+        candidates: [{ content: { parts: [{ text: '{}' }] }, finishReason: 'STOP' }],
+        usageMetadata: { promptTokenCount: 0, candidatesTokenCount: 1000 },
+      }).fetchImpl,
+    }).describe(FRAME, OPTS);
+    expect(result.cost_usd).toBeCloseTo(withoutThoughts.cost_usd * 4, 10);
+  });
 });
