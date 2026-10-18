@@ -53,14 +53,19 @@ class WorkflowTests(unittest.TestCase):
             base = git("rev-parse", "HEAD")
             git("remote", "add", "origin", ".")
             git("checkout", "-q", "-b", "first-pr")
+            (repo / "tools/check-file-budget.sh").write_text(
+                'case "$path" in *.ts|*.cs) : ;; esac\n'
+            )
             (repo / "tools/budget-allowlist.txt").write_text(
-                "src/web/old.ts\nsrc/web/new.ts\n"
+                "src/web/old.ts\nsrc/windows/old.cs\n"
+            )
+            git("add", "--", "tools/check-file-budget.sh", "tools/budget-allowlist.txt")
+            git("commit", "-qm", "first PR")
+            git("checkout", "-q", "-b", "second-pr", "first-pr")
+            (repo / "tools/budget-allowlist.txt").write_text(
+                "src/web/old.ts\nsrc/windows/old.cs\nsrc/windows/new.cs\n"
             )
             git("add", "--", "tools/budget-allowlist.txt")
-            git("commit", "-qm", "first PR")
-            git("checkout", "-q", "-b", "second-pr", base)
-            (repo / "docs.md").write_text("second PR\n")
-            git("add", "--", "docs.md")
             git("commit", "-qm", "second PR")
             git("checkout", "-q", "--detach", base)
             git("merge", "-q", "--no-ff", "first-pr", "-m", "merge first PR")
@@ -114,7 +119,7 @@ class WorkflowTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(checked.returncode, 1, checked.stdout + checked.stderr)
-            self.assertIn("src/web/new.ts", checked.stdout)
+            self.assertIn("src/windows/new.cs", checked.stdout)
 
     def test_combined_group_events_and_cross_gates(self):
         names = (

@@ -324,6 +324,8 @@ jobs:
 
       - name: Compare allowlist length against merge base
         if: steps.probe.outputs.have_allowlist == 'true'
+        env:
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
         run: |
           set -euo pipefail
 
@@ -396,8 +398,15 @@ jobs:
           # `\*\.$1(...|$)` put `$` before a closing paren, which isn't
           # that, and isn't guaranteed to behave as an anchor there).
           extension_already_gated() {
-            grep -Eq -- "\*\.$1[^A-Za-z0-9_]" "$gate_script_tmp"
+            grep -Eq -- "\*\.$1[^A-Za-z0-9_]" "$2"
           }
+
+          group_gate_tmp="$(mktemp)"
+          group_paths="$(mktemp)"
+          if [ -n "$GROUP_BASE" ]; then
+            git show "${GROUP_BASE}:tools/check-file-budget.sh" > "$group_gate_tmp"
+            git show "${GROUP_BASE}:tools/budget-allowlist.txt" | extract_paths /dev/stdin | sort > "$group_paths"
+          fi
 
           head_total="$(extract_paths tools/budget-allowlist.txt | wc -l | tr -d ' ')"
 
@@ -427,21 +436,25 @@ jobs:
           rm -f "$base_tmp"
 
           failed=0
-          for ext in $(sed -E 's/^.*\.([A-Za-z0-9]+)$/\1/' "$head_paths" | sort -u); do
-            if extension_already_gated "$ext"; then
+          while read -r ext; do
+            if extension_already_gated "$ext" "$gate_script_tmp" || extension_already_gated "$ext" "$group_gate_tmp"; then
+              comparison_paths="$base_paths"
+              if ! extension_already_gated "$ext" "$gate_script_tmp"; then
+                comparison_paths="$group_paths"
+              fi
               while read -r new_path; do
                 [ -n "$new_path" ] || continue
-                echo "::error::budget-allowlist.txt gained a new .${ext} entry (${new_path}) — that extension was already gated at the merge base and the allowlist is append-forbidden for it. Split the offending file instead of allowlisting it."
+                echo "::error::budget-allowlist.txt gained a new .${ext} entry (${new_path}) — that extension was already gated at the target merge base or prior group boundary. Split the offending file instead of allowlisting it."
                 failed=1
-              done < <(comm -13 <(grep -E "\.${ext}\$" "$base_paths") <(grep -E "\.${ext}\$" "$head_paths"))
+              done < <(comm -13 <(grep -E "\.${ext}\$" "$comparison_paths") <(grep -E "\.${ext}\$" "$head_paths"))
             else
               new_count="$(grep -c -E "\.${ext}\$" "$head_paths" || true)"
               if [ "${new_count:-0}" -gt 0 ]; then
                 echo "::notice::.${ext} entries (${new_count}) are new in this PR — allowed once as day-0 seeding for a language newly brought under the file-budget gate. Any further growth of .${ext} is append-forbidden starting now."
               fi
             fi
-          done
-          rm -f "$head_paths" "$base_paths" "$gate_script_tmp"
+          done < <(sed -E 's/^.*\.([A-Za-z0-9]+)$/\1/' "$head_paths" | sort -u)
+          rm -f "$head_paths" "$base_paths" "$gate_script_tmp" "$group_gate_tmp" "$group_paths"
 
           if [ "$failed" -ne 0 ]; then
             exit 1
