@@ -134,9 +134,11 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
   temporaryRoots.push(fixture);
   const healthy = join(fixture, 'healthy');
   const stalled = join(fixture, 'stalled');
+  const mirror = join(fixture, 'mirror');
   const alias = join(fixture, 'healthy-alias');
-  await Promise.all([mkdir(healthy), mkdir(stalled)]);
+  await Promise.all([mkdir(healthy), mkdir(stalled), mkdir(mirror)]);
   await writeFile(join(healthy, 'photo.xmp'), '<xmpmeta/>');
+  await writeFile(join(mirror, 'photo.xmp'), '<xmpmeta/>');
   delete process.env.MAPLE_ROOTS;
   const healthyId = insertFolder(live.db, { path: healthy });
   insertFolder(live.db, { path: stalled });
@@ -161,6 +163,17 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
       Bun.sleep(500).then(() => null),
     ]);
     expect(read?.data?.toString()).toBe('<xmpmeta/>');
+    setMirrorRoots({ [healthy]: [mirror] });
+    const mirrorRead = await Promise.race([
+      safeReadFile(join(mirror, 'photo.xmp')),
+      Bun.sleep(500).then(() => null),
+    ]);
+    expect(mirrorRead?.data?.toString()).toBe('<xmpmeta/>');
+    const outside = await Promise.race([
+      checkAllowed(join(fixture, 'outside.xmp')),
+      Bun.sleep(3_500).then(() => null),
+    ]);
+    expect(outside?.ok).toBe(false);
     await symlink(healthy, alias);
     insertFolder(live.db, { path: alias });
     live.db.query('DELETE FROM folders WHERE id = ?').run(healthyId);
@@ -176,7 +189,7 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
     releaseProbe();
     probe.mockRestore();
   }
-});
+}, 12_000);
 
 test('an empty registered library remains usable for first-run setup', async () => {
   const fixture = await mkdtemp(join(tmpdir(), 'maple-root-first-run-'));

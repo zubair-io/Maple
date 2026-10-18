@@ -77,7 +77,7 @@ async function normalizedLibraryRoots(requested: string, real: string): Promise<
   if (configured.some((root) => isWithinRoot(root, real))) return configured;
   const lexical = configured.filter((root) => isWithinRoot(root, requested));
   const probes = lexical.length ? lexical : configured;
-  const match = await Promise.any(
+  const matchingRoot = Promise.any(
     probes.map(async (root) => {
       const resolution = resolveRealPathThroughAncestors(root);
       const canonical = await resolution;
@@ -85,6 +85,17 @@ async function normalizedLibraryRoots(requested: string, real: string): Promise<
       return canonical;
     }),
   ).catch(() => null);
+  // Unknown paths must fail closed in finite time if an unrelated mount wedges.
+  // Lexical library candidates remain unbounded, as primary I/O can be slow.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const match = lexical.length
+    ? await matchingRoot
+    : await Promise.race([
+        matchingRoot,
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), 3_000);
+        }),
+      ]).finally(() => clearTimeout(timer));
   return match ? [...configured, match] : configured;
 }
 
@@ -177,7 +188,10 @@ export async function resolveRealPathThroughAncestors(filePath: string): Promise
   }
 }
 
-async function resolveForJail(filePath: string, mirrors: readonly string[]): Promise<string | null> {
+async function resolveForJail(
+  filePath: string,
+  mirrors: readonly string[],
+): Promise<string | null> {
   const requested = path.resolve(filePath);
   const cached = mirrorRootsCache?.source === mirrors ? mirrorRootsCache.roots : [];
   const candidates = mirrors.filter(
@@ -201,6 +215,15 @@ async function resolveForJail(filePath: string, mirrors: readonly string[]): Pro
   }
 }
 
+async function mirrorAllowed(
+  filePath: string,
+  real: string,
+  mirrorRoots: readonly string[],
+): Promise<boolean> {
+  if (!mirrorRoots.some((root) => isWithinRoot(root, path.resolve(filePath)))) return false;
+  return (await normalizedMirrorRoots(mirrorRoots)).some((root) => isWithinRoot(root, real));
+}
+
 /**
  * Check whether `filePath` is under a registered library, enabled mirror,
  * runtime root, or MAPLE_ROOTS entry. Returns the resolved path on success.
@@ -211,6 +234,8 @@ export async function checkAllowed(filePath: string): Promise<OpResult<string>> 
   const envRoots = await normalizedEnvRoots();
   const declared = [...envRoots, ..._registeredRoots];
   if (declared.some((root) => isWithinRoot(root, real))) return { ok: true, data: real };
+  const mirrorRoots = activeMirrorRoots();
+  if (await mirrorAllowed(filePath, real, mirrorRoots)) return { ok: true, data: real };
   let libraries: string[];
   try {
     libraries = await normalizedLibraryRoots(path.resolve(filePath), real);
@@ -224,7 +249,6 @@ export async function checkAllowed(filePath: string): Promise<OpResult<string>> 
     libraries = [];
   }
   if (libraries.some((root) => isWithinRoot(root, real))) return { ok: true, data: real };
-  const mirrorRoots = activeMirrorRoots();
   const mirrors = await normalizedMirrorRoots(mirrorRoots);
   const allowedRoots = [...declared, ...libraries, ...mirrors];
 
