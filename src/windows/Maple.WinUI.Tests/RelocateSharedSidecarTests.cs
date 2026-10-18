@@ -59,6 +59,23 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public async Task CaseOnlyRename_FollowsTheFolderCaseRule()
+        {
+            var raw = Write("raw", "photos", "x.CR3");
+            Write("<edits/>", "photos", "x.xmp");
+            var foldsCase = File.Exists(P("photos", "X.CR3"));
+
+            await LocalFileOperations.RelocateAsync(
+                raw, P("photos"), "X.DNG", RelocateMode.Move, CollisionPolicy.AutoSuffix);
+
+            // A case-sensitive folder (WSL-style NTFS, case-sensitive APFS)
+            // gives X.DNG its own X.xmp; a folding one keeps the one sidecar.
+            var names = Directory.EnumerateFiles(P("photos")).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal);
+            Assert.Equal(foldsCase ? new[] { "X.DNG", "x.xmp" } : new[] { "X.DNG", "X.xmp" }, names);
+            Assert.Equal("<edits/>", File.ReadAllText(P("photos", foldsCase ? "x.xmp" : "X.xmp")));
+        }
+
+        [Fact]
         public async Task Move_PhotoWhoseNameContainsTmp_StillSharesWithItsSibling()
         {
             var raw = Write("raw", "src", "IMG.tmp.CR3");

@@ -20,19 +20,36 @@ namespace Maple.WinUI.Services.FileOperations
         /// <summary>Rule 3 asks whether two names are one sidecar file. Both
         /// paths are resolved through every directory link and junction on
         /// the way (not only the immediate parent), so a rename through an
-        /// aliased folder still maps <c>X.xmp</c> onto itself. A path that
-        /// cannot be resolved counts as the same file: the sidecar is then
-        /// kept, never deleted.</summary>
+        /// aliased folder still maps <c>X.xmp</c> onto itself. Names that
+        /// differ only in case are one file only where the folder folds case
+        /// (a case-sensitive NTFS directory keeps <c>x.xmp</c> and
+        /// <c>X.xmp</c> apart). A path that cannot be resolved counts as the
+        /// same file: the sidecar is then kept, never deleted.</summary>
         internal static bool SameSidecarPath(string a, string b)
         {
             try
             {
-                return string.Equals(FullyResolvedPath(a), FullyResolvedPath(b), StringComparison.OrdinalIgnoreCase);
+                var (resolvedA, resolvedB) = (FullyResolvedPath(a), FullyResolvedPath(b));
+                if (string.Equals(resolvedA, resolvedB, StringComparison.Ordinal)) return true;
+                return string.Equals(resolvedA, resolvedB, StringComparison.OrdinalIgnoreCase)
+                    && FolderFoldsCaseBetween(resolvedA, resolvedB);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 return true;
             }
+        }
+
+        /// <summary>For two paths differing only in case: a case-folding folder
+        /// finds the second name through the first entry, while a
+        /// case-sensitive one either lacks it or lists both names
+        /// separately.</summary>
+        private static bool FolderFoldsCaseBetween(string a, string b)
+        {
+            var dir = Path.GetDirectoryName(a);
+            if (dir == null || !File.Exists(a) || !File.Exists(b)) return false;
+            var names = Directory.EnumerateFileSystemEntries(dir).Select(Path.GetFileName).ToHashSet(StringComparer.Ordinal);
+            return !(names.Contains(Path.GetFileName(a)) && names.Contains(Path.GetFileName(b)));
         }
 
         private static string FullyResolvedPath(string path)
