@@ -57,10 +57,11 @@ async function loadContentRow(
   const rows = await db.read<{ id: string; deleted_at: string | null }>(sql, [param]);
   const row = rows[0];
   if (row === undefined) return null;
-  const locations = await db.read<{ library_id: string; path: string; filename: string }>(
-    CONTENT_LOCATIONS_SQL,
-    [row.id],
-  );
+  const locations = await db.read<{
+    library_id: string;
+    path: string;
+    filename: string;
+  }>(CONTENT_LOCATIONS_SQL, [row.id]);
   return {
     id: toObjectId(row.id),
     deletedAt: row.deleted_at,
@@ -175,9 +176,10 @@ export async function appendOrRefreshLocation(
         sql: `INSERT INTO asset_locations
                 (asset_id, ordinal, library_id, path, filename, keep)
               SELECT ?, COALESCE(MAX(ordinal) + 1, 0), ?, ?, ?, ?
-                FROM asset_locations WHERE asset_id = ?
+                FROM (SELECT ordinal FROM asset_locations WHERE asset_id = ? UNION ALL
+                      SELECT ordinal FROM backup_entries WHERE asset_id = ?) WHERE 1
               ON CONFLICT DO NOTHING`,
-        params: [id, ...locationParams(entry), entry.keep ? 1 : 0, id],
+        params: [id, ...locationParams(entry), entry.keep ? 1 : 0, id, id],
       },
       refreshAssetStatement(id, refresh),
       ...seedStageRowStatements(id, ALL_STAGE_NAMES),

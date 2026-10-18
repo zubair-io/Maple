@@ -56,13 +56,16 @@ export async function indexRecoveredEntry(
       ...insert,
       {
         sql: `INSERT INTO asset_locations(asset_id,ordinal,library_id,path,filename,keep)
-        SELECT ?,COALESCE(MAX(ordinal)+1,0),?,?,?,0 FROM asset_locations WHERE asset_id=?
+        SELECT ?,COALESCE(MAX(ordinal)+1,0),?,?,?,0 FROM (
+          SELECT ordinal FROM asset_locations WHERE asset_id=? UNION ALL
+          SELECT ordinal FROM backup_entries WHERE asset_id=?) WHERE 1
         ON CONFLICT(library_id,path,filename) DO NOTHING`,
         params: [
           id.toHexString(),
           folderId.toHexString(),
           location.path,
           location.filename,
+          id.toHexString(),
           id.toHexString(),
         ],
       },
