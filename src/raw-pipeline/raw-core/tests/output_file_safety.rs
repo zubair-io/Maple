@@ -45,24 +45,19 @@ fn refuses_extension_only_originals_and_unlisted_sidecars() {
         let out = dir.path().join(name);
         let original = b"existing original or sidecar";
         fs::write(&out, original).unwrap();
-        assert!(
-            write_derived(&out, &[], b"derived pixels").is_err(),
-            "{name}"
-        );
+        assert!(write_derived(&out, &[], b"derived pixels").is_err());
         assert_eq!(fs::read(&out).unwrap(), original, "{name}");
         fs::remove_file(&out).unwrap();
-        assert!(
-            write_derived(&out, &[], b"derived pixels").is_err(),
-            "{name}"
-        );
+        assert!(write_derived(&out, &[], b"derived pixels").is_err());
         assert!(!out.exists(), "{name}");
     }
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn links_and_planted_fixed_temp_preserve_original_bytes() {
+    #[cfg(unix)]
     use std::os::unix::fs::symlink;
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("original.dng");
@@ -71,21 +66,28 @@ fn links_and_planted_fixed_temp_preserve_original_bytes() {
     fs::write(&sidecar, b"<x:xmpmeta xmlns:x='adobe:ns:meta/'/>").unwrap();
     for target in [&source, &sidecar] {
         let out = dir.path().join("alias.png");
-        symlink(target, &out).unwrap();
-        assert!(write_derived(&out, &[&source, &sidecar], b"pixels").is_err());
-        fs::remove_file(&out).unwrap();
+        #[cfg(unix)]
+        {
+            symlink(target, &out).unwrap();
+            assert!(write_derived(&out, &[&source, &sidecar], b"pixels").is_err());
+            fs::remove_file(&out).unwrap();
+        }
         fs::hard_link(target, &out).unwrap();
+        assert!(validate_destination(&out, &[&source, &sidecar]).is_err());
         assert!(write_derived(&out, &[&source, &sidecar], b"pixels").is_err());
         fs::remove_file(out).unwrap();
     }
-    let out = dir.path().join("out.png");
-    symlink(&source, dir.path().join("out.png.tmp")).unwrap();
-    write_derived(&out, &[&source], b"pixels").unwrap();
-    assert_eq!(fs::read(&out).unwrap(), b"pixels");
-    fs::remove_file(dir.path().join("out.png.tmp")).unwrap();
-    fs::hard_link(&source, dir.path().join("out.png.tmp")).unwrap();
-    write_derived(&out, &[&source], b"replacement").unwrap();
-    assert_eq!(fs::read(out).unwrap(), b"replacement");
+    #[cfg(unix)]
+    {
+        let out = dir.path().join("out.png");
+        symlink(&source, dir.path().join("out.png.tmp")).unwrap();
+        write_derived(&out, &[&source], b"pixels").unwrap();
+        assert_eq!(fs::read(&out).unwrap(), b"pixels");
+        fs::remove_file(dir.path().join("out.png.tmp")).unwrap();
+        fs::hard_link(&source, dir.path().join("out.png.tmp")).unwrap();
+        write_derived(&out, &[&source], b"replacement").unwrap();
+        assert_eq!(fs::read(out).unwrap(), b"replacement");
+    }
     assert_eq!(fs::read(source).unwrap(), b"original");
     assert_eq!(
         fs::read(sidecar).unwrap(),
@@ -95,25 +97,19 @@ fn links_and_planted_fixed_temp_preserve_original_bytes() {
 
 #[cfg(windows)]
 #[test]
-fn hard_links_to_original_and_sidecar_are_rejected() {
+fn win32_trimmed_names_cannot_create_or_replace_protected_files() {
     let dir = tempfile::tempdir().unwrap();
-    let source = dir.path().join("original.dng");
-    let sidecar = dir.path().join("original.xmp");
-    fs::write(&source, b"original").unwrap();
-    fs::write(&sidecar, b"<x:xmpmeta xmlns:x='adobe:ns:meta/'/>").unwrap();
-    for target in [&source, &sidecar] {
-        let out = dir.path().join("alias.png");
-        fs::hard_link(target, &out).unwrap();
-        assert!(validate_destination(&out, &[&source, &sidecar]).is_err());
-        assert!(write_derived(&out, &[&source, &sidecar], b"pixels").is_err());
-        fs::remove_file(out).unwrap();
+    for (name, canonical) in [("out.xmp.", "out.xmp"), ("out.dng ", "out.dng")] {
+        let out = dir.path().join(name);
+        let original = dir.path().join(canonical);
+        assert!(write_derived(&out, &[], b"derived").is_err(), "{name}");
+        assert!(!original.exists(), "{name}");
+        fs::write(&original, b"original").unwrap();
+        assert!(write_derived(&out, &[], b"derived").is_err(), "{name}");
+        assert_eq!(fs::read(&original).unwrap(), b"original", "{name}");
+        fs::remove_file(original).unwrap();
     }
-    assert_eq!(fs::read(source).unwrap(), b"original");
-    assert_eq!(
-        fs::read(sidecar).unwrap(),
-        b"<x:xmpmeta xmlns:x='adobe:ns:meta/'/>"
-    );
-    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
 }
 
 #[test]
@@ -143,14 +139,21 @@ fn failed_publication_cleans_up_owned_staging_file() {
 
 #[cfg(unix)]
 #[test]
-fn reports_directory_sync_failure_after_publish() {
+fn publication_reports_directory_sync_result() {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("out.png");
     fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o300)).unwrap();
+    let can_sync = fs::File::open(dir.path())
+        .and_then(|parent| parent.sync_all())
+        .is_ok();
     let result = write_derived(&out, &[], b"complete pixels");
     fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
-    assert!(result.is_err(), "directory sync failure must be reported");
+    assert_eq!(
+        result.is_ok(),
+        can_sync,
+        "directory sync result must be reported"
+    );
     assert_eq!(fs::read(&out).unwrap(), b"complete pixels");
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
 }
