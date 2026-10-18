@@ -62,7 +62,7 @@ jobs:
       # Upload the unpatched compiler output. Each consumer runs the canonical
       # sync script, including its guarded wasm-bindgen-rayon worker patch.
       - name: Upload raw-wasm package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-raw-wasm
           path: src/raw-pipeline/raw-wasm/pkg/
@@ -162,7 +162,7 @@ jobs:
       # errors to diagnose instead of "re-run and hope it passes".
       - name: Upload production e2e artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: production-e2e-artifacts
           path: |
@@ -266,7 +266,7 @@ jobs:
 
       - name: Upload batch transfer browser failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: batch-transfer-browser-results
           path: src/web/test-results/
@@ -374,7 +374,7 @@ jobs:
       # (`trace: 'retain-on-failure'`) under test-results/, not a report dir.
       - name: Upload Playwright traces
         if: failure() && steps.fixture.outputs.available == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-webgpu-smoke-traces
           path: src/web/test-results/
@@ -504,7 +504,7 @@ jobs:
           cp "$RUNNER_TEMP/self-hosted-export-retry-results.json" test-results/export-original-retry/results.json
       - name: Upload workflow acceptance evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-workflow-acceptance
           path: src/web/test-results/

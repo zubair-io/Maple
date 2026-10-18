@@ -470,7 +470,7 @@ jobs:
             echo "::warning::no committed test-fixtures/qualification/gpu_chain_parity_lavapipe.json — download the qualification-gpu_chain_parity_lavapipe artifact from this run and commit it (docs/testing.md § Capability registry)."
           fi
       - name: Upload the lavapipe evidence record
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qualification-gpu_chain_parity_lavapipe
           path: test-fixtures/qualification/gpu_chain_parity_lavapipe.json

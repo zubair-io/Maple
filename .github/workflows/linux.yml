@@ -79,7 +79,7 @@ jobs:
       - name: Launch unpacked release on Wayland
         run: dbus-run-session -- python3 src/linux/packaging/weston_smoke.py --accessibility "$RUNNER_TEMP/maple-unpacked/bin/maple-linux"
       - name: Upload native archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: maple-linux-x86_64
           path: ${{ runner.temp }}/maple-linux.tar.gz

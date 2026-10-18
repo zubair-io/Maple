@@ -91,7 +91,7 @@ jobs:
         run: python3 tools/android_test_reports.py
       - name: Publish Android test reports and device evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: maple-android-test-reports
           path: |
@@ -101,7 +101,7 @@ jobs:
             src/android/ci-artifacts/
           if-no-files-found: error
       - name: Publish native APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: maple-android-debug
           path: src/android/app/build/outputs/apk/debug/app-debug.apk
