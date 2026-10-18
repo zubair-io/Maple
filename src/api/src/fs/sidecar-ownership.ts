@@ -20,12 +20,17 @@ import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
 import { isVideoFilename } from '../indexer/media-types';
 import { child as childLogger } from '../log.ts';
+import {
+  PublishCollisionError,
+  publishExclusive,
+  type RelocatePublication,
+} from './relocate-publish.ts';
 
 const log = childLogger('fs/sidecar-ownership');
 
-export class SidecarCollisionError extends Error {
-  constructor(readonly destination: string) {
-    super(`relocate: destination sidecar is occupied: ${destination}`);
+export class SidecarCollisionError extends PublishCollisionError {
+  constructor(destination: string) {
+    super(destination, `relocate: destination sidecar is occupied: ${destination}`);
     this.name = 'SidecarCollisionError';
   }
 }
@@ -125,28 +130,11 @@ export async function assetDestinationOccupied(
   }
 }
 
-const LINK_UNSUPPORTED = new Set(['ENOTSUP', 'EPERM', 'EXDEV']);
-
-function errnoCode(err: unknown): string | undefined {
-  return (err as NodeJS.ErrnoException)?.code;
-}
-
-async function linkExclusive(tmp: string, dest: string): Promise<void> {
+async function linkExclusive(tmp: string, dest: string): Promise<RelocatePublication> {
   try {
-    await fs.link(tmp, dest);
+    return await publishExclusive(tmp, dest);
   } catch (err) {
-    if (errnoCode(err) === 'EEXIST') throw new SidecarCollisionError(dest);
-    if (!LINK_UNSUPPORTED.has(errnoCode(err) ?? '')) throw err;
-    await copyExclusive(tmp, dest);
-  }
-}
-
-/** Fallback for volumes that cannot hard-link (SMB, exFAT). */
-async function copyExclusive(tmp: string, dest: string): Promise<void> {
-  try {
-    await fs.copyFile(tmp, dest, fs.constants.COPYFILE_EXCL);
-  } catch (err) {
-    throw errnoCode(err) === 'EEXIST' ? new SidecarCollisionError(dest) : err;
+    throw err instanceof PublishCollisionError ? new SidecarCollisionError(dest) : err;
   }
 }
 
@@ -175,14 +163,19 @@ export async function joinCarriedSidecar(source: string, dest: string): Promise<
 }
 
 /** Read `source` inside its save barrier and publish those bytes at `dest`
- * without ever replacing an occupant. Returns the snapshot so the later
+ * without ever replacing an occupant, recording the publication in
+ * `publications` for a later rollback. Returns the snapshot so the later
  * source unlink can tell whether a save landed in between. */
-export async function publishSidecarSnapshot(source: string, dest: string): Promise<Buffer> {
+export async function publishSidecarSnapshot(
+  source: string,
+  dest: string,
+  publications: RelocatePublication[] = [],
+): Promise<Buffer> {
   return serializeSidecarWrite(source, async () => {
     const snapshot = await fs.readFile(source);
     const tmp = await writeVerifiedTemp(dest, snapshot);
     try {
-      await linkExclusive(tmp, dest);
+      publications.push(await linkExclusive(tmp, dest));
     } finally {
       await fs.unlink(tmp).catch(() => {});
     }

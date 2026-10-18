@@ -10,6 +10,7 @@ import {
   sidecarAlreadyCarried,
   sidecarStemClaimedBySibling,
 } from './sidecar-ownership.ts';
+import type { RelocatePublication } from './relocate-publish.ts';
 
 export interface SidecarPlanEntry {
   source: string;
@@ -99,9 +100,13 @@ const log = childLogger('fs/relocate');
 
 /** Best-effort copy of one sidecar — a failure is logged and the original
  * left in place; only a collision aborts the whole asset. */
-async function tryCopySidecar(sidecar: string, dest: string): Promise<Buffer | null> {
+async function tryCopySidecar(
+  sidecar: string,
+  dest: string,
+  createdPaths: RelocatePublication[],
+): Promise<Buffer | null> {
   try {
-    return await publishSidecarSnapshot(sidecar, dest);
+    return await publishSidecarSnapshot(sidecar, dest, createdPaths);
   } catch (err) {
     if (err instanceof SidecarCollisionError) throw err;
     log.warn(
@@ -116,7 +121,7 @@ async function tryCopySidecar(sidecar: string, dest: string): Promise<Buffer | n
  * creates as it lands so a later throw can revert exactly what exists. */
 export async function carryPlannedSidecars(
   plan: SidecarPlan,
-  createdPaths: string[],
+  createdPaths: RelocatePublication[],
 ): Promise<{ copiedSidecars: string[]; carried: Omit<MovedSidecar, 'keepSource'>[] }> {
   const copiedSidecars: string[] = [];
   const carried: Omit<MovedSidecar, 'keepSource'>[] = [];
@@ -132,9 +137,8 @@ export async function carryPlannedSidecars(
       continue;
     }
     if (entry.replacesOccupant) await fs.unlink(entry.dest).catch(() => {});
-    const snapshot = await tryCopySidecar(entry.source, entry.dest);
+    const snapshot = await tryCopySidecar(entry.source, entry.dest, createdPaths);
     if (!snapshot) continue;
-    createdPaths.push(entry.dest);
     copiedSidecars.push(entry.dest);
     carried.push({ source: entry.source, dest: entry.dest, snapshot });
   }
