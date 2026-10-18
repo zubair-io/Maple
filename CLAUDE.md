@@ -264,17 +264,22 @@ Every worktree builds its own `src/raw-pipeline/target` (20–27 GB each, releas
 
 ```bash
 brew install sccache
-mkdir -p ~/.cargo
-cat >> ~/.cargo/config.toml <<'TOML'
+mkdir -p ~/.cargo && touch ~/.cargo/config.toml
+cargo config get build.rustc-wrapper   # see what is already set before changing anything
+```
+
+Then **merge** these keys into `~/.cargo/config.toml`; if it already has a `[build]` or `[env]` table, add the keys to that table instead of appending a duplicate table (a duplicate table makes cargo reject the file):
+
+```toml
 [build]
 rustc-wrapper = "sccache"
 incremental = false        # sccache cannot cache incremental builds
 
 [env]
 SCCACHE_CACHE_SIZE = "60G"
-TOML
-sccache -s                 # confirm hits after a second build in another worktree
 ```
+
+Verify with `cargo config get build.rustc-wrapper` and `sccache -s` (hits appear after a second build in another worktree).
 
 - The cache lives outside the worktrees (`~/Library/Caches/Mozilla.sccache`), so deleting a worktree's `target/` is cheap: the next build is mostly cache hits.
 - `build-xcframework.sh` hardcodes `CARGO_TARGET_DIR`; sccache still applies because it wraps `rustc`, not the target dir. Do not point worktrees at one shared `CARGO_TARGET_DIR`: concurrent builds then serialize on cargo's lock and thrash each other's fingerprints.
@@ -282,8 +287,8 @@ sccache -s                 # confirm hits after a second build in another worktr
 
 ### Parallel agents and shared CI
 
-- **Rebase only when needed.** Every push restarts the whole CI suite. Push once at the end of a fix; force-push a rebase only when GitHub reports a real conflict (merge state `DIRTY`) or the required checks demonstrably need the new base.
-- **One pipeline-version bump at a time.** A change to `PIPELINE_OUTPUT_VERSION` forces re-recording the five CI-gated evidence records (`synthetic_grey`, `color_chart`, `grey_adjustments`, `grey_dcp`, `sidecar_contract_api`). Before bumping, run `gh pr list --state open` and look for any other PR touching `raw-core/src/lib.rs` or the qualification records; if one exists, wait for it to merge and take the next free version.
+- **Rebase once, right before merge.** Every push restarts the whole CI suite. While iterating, push a fix once and do not chase `main` with repeated rebases. When the PR is otherwise ready, rebase onto the current `main` once (or earlier if GitHub reports a real conflict, merge state `DIRTY`), so the required checks run against the base the PR will land on. That one rebase is the merge contract; the rule is about not rebasing on every `main` advance in between.
+- **One pipeline-version bump at a time.** A change to `PIPELINE_OUTPUT_VERSION` forces re-recording the five CI-gated evidence records (`synthetic_grey`, `color_chart`, `grey_adjustments`, `grey_dcp`, `sidecar_contract_api`). Before bumping, run `gh pr list --state open --json number,title,files --jq '.[] | select(.files[].path | test("raw-core/src/lib.rs|qualification")) | .number'` and look for any other PR touching `raw-core/src/lib.rs` or the qualification records; if one exists, wait for it to merge and take the next free version.
 - **Heavy local suites one at a time.** Check `uptime` first and wait if the one-minute load is above about 40; never use broad `pkill -f` patterns, stop only the processes you started, by PID.
 
 ## Objective color testing — no eyeballing
