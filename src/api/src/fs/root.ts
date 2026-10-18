@@ -46,7 +46,6 @@ let envRootsCache:
       roots: Promise<string[]>;
     }
   | undefined;
-const libraryRootsCache = new WeakMap<ReadonlyMap<string, string>, Promise<string[]>>();
 let mirrorRootsCache:
   | { source: readonly string[]; roots: readonly (readonly [string, string])[] }
   | undefined;
@@ -72,13 +71,21 @@ async function normalizedMirrorRoots(source: readonly string[]): Promise<string[
   return roots.map(([, canonical]) => canonical);
 }
 
-async function normalizedLibraryRoots(): Promise<string[]> {
+async function normalizedLibraryRoots(requested: string, real: string): Promise<string[]> {
   const libraries = await loadLibraryRoots();
-  const cached = libraryRootsCache.get(libraries);
-  if (cached) return cached;
-  const roots = Promise.all([...libraries.values()].map(resolveRealPathThroughAncestors));
-  libraryRootsCache.set(libraries, roots);
-  return roots;
+  const configured = [...libraries.values()].map((root) => path.resolve(root));
+  if (configured.some((root) => isWithinRoot(root, real))) return configured;
+  const lexical = configured.filter((root) => isWithinRoot(root, requested));
+  const probes = lexical.length ? lexical : configured;
+  const match = await Promise.any(
+    probes.map(async (root) => {
+      const resolution = resolveRealPathThroughAncestors(root);
+      const canonical = await (lexical.length ? resolution : withMirrorTimeout(resolution));
+      if (!isWithinRoot(canonical, real)) throw new Error('Library root does not contain path');
+      return canonical;
+    }),
+  ).catch(() => null);
+  return match ? [...configured, match] : configured;
 }
 
 async function normalizedEnvRoots(): Promise<string[]> {
@@ -171,14 +178,21 @@ export async function resolveRealPathThroughAncestors(filePath: string): Promise
 }
 
 async function resolveForJail(filePath: string, mirrors: readonly string[]): Promise<string | null> {
+  const requested = path.resolve(filePath);
+  const cached = mirrorRootsCache?.source === mirrors ? mirrorRootsCache.roots : [];
+  const candidates = mirrors.filter(
+    (root) =>
+      isWithinRoot(root, requested) ||
+      cached.some(([configured, canonical]) =>
+        configured === root ? isWithinRoot(canonical, requested) : false,
+      ),
+  );
   try {
     const resolution = resolveRealPath(filePath);
-    return await (mirrors.length ? withMirrorTimeout(resolution) : resolution);
+    return await (candidates.length ? withMirrorTimeout(resolution) : resolution);
   } catch (error) {
     if (error instanceof MirrorIoTimeoutError) {
-      const requested = path.resolve(filePath);
-      for (const mirror of mirrors)
-        if (isWithinRoot(mirror, requested)) markMirrorUnhealthy(mirror);
+      for (const mirror of candidates) markMirrorUnhealthy(mirror);
       return null;
     }
     // A new XMP leaf may not exist yet. Canonicalize its existing ancestor
@@ -199,7 +213,7 @@ export async function checkAllowed(filePath: string): Promise<OpResult<string>> 
   if (declared.some((root) => isWithinRoot(root, real))) return { ok: true, data: real };
   let libraries: string[];
   try {
-    libraries = await normalizedLibraryRoots();
+    libraries = await normalizedLibraryRoots(path.resolve(filePath), real);
   } catch (error) {
     if (declared.length === 0) {
       return {

@@ -107,6 +107,17 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
     releaseProbe();
     realpathProbe.mockRestore();
   }
+  const slowPrimary = spyOn(nodeFs, 'realpath').mockImplementation(
+    (async (requested: Parameters<typeof nodeFs.realpath>[0]) => {
+      if (requested === join(library, 'photo.xmp')) await Bun.sleep(2_100);
+      return actualRealpath(requested);
+    }) as typeof nodeFs.realpath,
+  );
+  try {
+    expect((await safeReadFile(join(library, 'photo.xmp'))).data?.toString()).toBe('<xmpmeta/>');
+  } finally {
+    slowPrimary.mockRestore();
+  }
   clearMirrorRoots();
   expect((await checkAllowed(join(mirror, 'photo.xmp'))).ok).toBe(false);
 
@@ -115,6 +126,49 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
   live.db.query('DELETE FROM folders WHERE id = ?').run(libraryId);
   invalidateLibraryRoots();
   expect((await checkAllowed(join(library, 'photo.xmp'))).ok).toBe(false);
+});
+
+test('an unrelated stalled library does not delay a healthy sidecar read', async () => {
+  using live = await createLiveTestDatabase('file');
+  const fixture = await mkdtemp(join(tmpdir(), 'maple-root-stalled-library-'));
+  temporaryRoots.push(fixture);
+  const healthy = join(fixture, 'healthy');
+  const stalled = join(fixture, 'stalled');
+  await Promise.all([mkdir(healthy), mkdir(stalled)]);
+  await writeFile(join(healthy, 'photo.xmp'), '<xmpmeta/>');
+  delete process.env.MAPLE_ROOTS;
+  const healthyId = insertFolder(live.db, { path: healthy });
+  insertFolder(live.db, { path: stalled });
+  invalidateLibraryRoots();
+  let releaseProbe!: () => void;
+  const blocked = new Promise<void>((resolve) => (releaseProbe = resolve));
+  const actualRealpath = nodeFs.realpath.bind(nodeFs);
+  const probe = spyOn(nodeFs, 'realpath').mockImplementation(
+    (async (requested: Parameters<typeof nodeFs.realpath>[0]) => {
+      if (requested === stalled) await blocked;
+      return actualRealpath(requested);
+    }) as typeof nodeFs.realpath,
+  );
+  try {
+    const read = await Promise.race([
+      safeReadFile(join(healthy, 'photo.xmp')),
+      Bun.sleep(100).then(() => null),
+    ]);
+    expect(read?.data?.toString()).toBe('<xmpmeta/>');
+    const alias = join(fixture, 'healthy-alias');
+    await symlink(healthy, alias);
+    insertFolder(live.db, { path: alias });
+    live.db.query('DELETE FROM folders WHERE id = ?').run(healthyId);
+    invalidateLibraryRoots();
+    const viaAlias = await Promise.race([
+      safeReadFile(join(healthy, 'photo.xmp')),
+      Bun.sleep(100).then(() => null),
+    ]);
+    expect(viaAlias?.data?.toString()).toBe('<xmpmeta/>');
+  } finally {
+    releaseProbe();
+    probe.mockRestore();
+  }
 });
 
 test('an empty registered library remains usable for first-run setup', async () => {
