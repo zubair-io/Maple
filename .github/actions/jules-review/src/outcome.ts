@@ -55,15 +55,11 @@ export async function settleFailure(
   writeStatus: (outcome: Outcome) => Promise<void>,
   pause: (attempt: number) => Promise<void> = () => Promise.resolve(),
 ): Promise<Outcome> {
-  if (produced === undefined) {
-    const outcome = resolveOutcome({ kind: 'failure', error });
-    await writeStatus(outcome).catch(() => {});
-    return outcome;
-  }
+  const outcome = produced ?? resolveOutcome({ kind: 'failure', error });
   for (let attempt = 1; attempt <= STATUS_WRITE_ATTEMPTS; attempt++) {
     try {
-      await writeStatus(produced);
-      return produced;
+      await writeStatus(outcome);
+      return outcome;
     } catch {
       await pause(attempt);
     }

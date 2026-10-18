@@ -88,6 +88,7 @@ jobs:
       - name: Post Muse review comment
         id: post
         if: steps.muse.outcome == 'success'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

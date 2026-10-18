@@ -146,3 +146,23 @@ test('if the verdict status can never be written the job fails loudly without a 
   assert.ok(written.every((o) => o.state === 'failure'));
   assert.equal(written.length, 3);
 });
+
+test('an infrastructure skip whose status cannot be written fails instead of leaving the check pending', async () => {
+  let calls = 0;
+  const outcome = await settleFailure(new Error('503 upstream'), undefined, async () => {
+    calls++;
+    throw new Error('status API down');
+  });
+  assert.equal(calls, 3);
+  assert.equal(outcome.failJob, true);
+  assert.notEqual(outcome.state, 'success');
+});
+
+test('an infrastructure skip retries a transient status failure and then passes', async () => {
+  let calls = 0;
+  const outcome = await settleFailure(new Error('503 upstream'), undefined, async () => {
+    if (++calls < 2) throw new Error('blip');
+  });
+  assert.equal(outcome.state, 'success');
+  assert.equal(outcome.failJob, false);
+});
