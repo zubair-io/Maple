@@ -42,6 +42,53 @@ final class FolderTrashForYouCacheTests: XCTestCase {
     XCTAssertEqual(stored?.firstPages.isEmpty, true)
   }
 
+  func testPartialTrashPrunesMixedPagesOnceAndKeepsFailedCover() async throws {
+    let cache = ForYouCache(directory: directory)
+    let successfulIDs = (1..<30).map { "success-\($0)" }
+    let results = try [asset(id: "failed-id")] + successfulIDs.map { try asset(id: $0) }
+    let page = GeneratedSearchAssetPage(results: results, total: results.count, isSnapshot: true)
+    let card = GeneratedSearchCard(
+      id: "mixed", theme: "t", title: "Mixed", result_count: results.count,
+      generated_for: "2026-10-17")
+    let snapshot = ForYouSnapshot(
+      collections: [card], firstPages: [card.id: page], savedAt: Date())
+    await cache.write(snapshot, libraryID: library, host: host)
+    await cache.write(snapshot, libraryID: "another-library", host: host)
+    let before = await cache.epoch(host: host)
+
+    await cache.forgetFolderTrash(
+      try partialSummary(successfulIDs: successfulIDs, failedID: "failed-id"), host: host,
+      libraryFolderID: library, folderPath: "/photos/trip")
+
+    for libraryID in [library, "another-library"] {
+      let stored = await cache.read(libraryID: libraryID, host: host)
+      XCTAssertEqual(stored?.firstPages[card.id]?.results.map(\.id), ["failed-id"])
+      XCTAssertEqual(stored?.firstPages[card.id]?.total, 1)
+      XCTAssertEqual(stored?.firstPages[card.id]?.isSnapshot, true)
+    }
+    let after = await cache.epoch(host: host)
+    XCTAssertEqual(after, before + 1, "one folder outcome is one atomic cache invalidation")
+  }
+
+  private func partialSummary(successfulIDs: [String], failedID: String) throws
+    -> FolderTrashSummary
+  {
+    let items =
+      successfulIDs.map { ["assetId": $0, "filename": "\($0).dng", "ok": true] as [String: Any] }
+      + [["assetId": failedID, "filename": "failed.dng", "ok": false]]
+    let data = try JSONSerialization.data(withJSONObject: [
+      "total": items.count, "succeeded": successfulIDs.count, "failed": 1, "items": items,
+    ])
+    return try JSONDecoder().decode(FolderTrashSummary.self, from: data)
+  }
+
+  private func asset(id: String) throws -> SearchAsset {
+    let json = """
+      {"id":"\(id)","folder_id":"\(library)","abs_path":"/photos/trip/\(id).dng","filename":"\(id).dng"}
+      """
+    return try JSONDecoder().decode(SearchAsset.self, from: Data(json.utf8))
+  }
+
   private func summary(failed: Int) throws -> FolderTrashSummary {
     let failedItem = failed == 0 ? "true" : "false"
     let json = """
