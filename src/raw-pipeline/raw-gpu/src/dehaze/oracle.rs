@@ -210,7 +210,15 @@ fn recover_with_mask(
     for (i, p) in pixels.iter_mut().enumerate() {
         let t = t_refined[i].clamp(0.0, 1.0);
         let (j_r, j_g, j_b) = if scale >= 0.0 {
-            let t_eff = (t + (1.0 - t) * (1.0 - scale)).max(T0);
+            let point_min = (p[0] / a[0].max(A_FLOOR))
+                .min(p[1] / a[1].max(A_FLOOR))
+                .min(p[2] / a[2].max(A_FLOOR));
+            let point_transmission = (1.0 - OMEGA * point_min).clamp(0.0, 1.0);
+            let supported_t = t.max(point_transmission);
+            if supported_t == 1.0 {
+                continue;
+            }
+            let t_eff = (supported_t + (1.0 - supported_t) * (1.0 - scale)).max(T0);
             (
                 (p[0] - a[0]) / t_eff + a[0],
                 (p[1] - a[1]) / t_eff + a[1],

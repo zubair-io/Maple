@@ -1,6 +1,10 @@
 use crate::image::{ColorSpace, Image};
 
 const DARK_RADIUS: i32 = 7; // 15×15 neighborhood per spec § 3.9.
+/// Existing dark-channel transmission factor, shared with generated WGSL.
+pub const TRANSMISSION_OMEGA: f32 = 0.95;
+/// Denominator floor for transmission estimates; recovery retains raw airlight.
+pub const AIRLIGHT_FLOOR: f32 = 1e-6;
 
 fn dark_channel(img: &Image) -> Vec<f32> {
     let w = img.width as i32;
@@ -51,7 +55,6 @@ fn atmospheric_light(img: &Image, dc: &[f32]) -> [f32; 3] {
 /// Transmission estimate: `t(x,y) = 1 - ω * min over 15×15 of min(rgb/A)`.
 /// ω = 0.95 per spec § 3.9 step 3.
 fn transmission(img: &Image, a: [f32; 3]) -> Vec<f32> {
-    const OMEGA: f32 = 0.95;
     let w = img.width as i32;
     let h = img.height as i32;
     let mut out = vec![0.0f32; (w * h) as usize];
@@ -63,15 +66,15 @@ fn transmission(img: &Image, a: [f32; 3]) -> Vec<f32> {
                     let ux = (x + dx).clamp(0, w - 1) as usize;
                     let uy = (y + dy).clamp(0, h - 1) as usize;
                     let p = img.pixels[uy * (w as usize) + ux];
-                    let scaled_min = (p[0] / a[0].max(1e-6))
-                        .min(p[1] / a[1].max(1e-6))
-                        .min(p[2] / a[2].max(1e-6));
+                    let scaled_min = (p[0] / a[0].max(AIRLIGHT_FLOOR))
+                        .min(p[1] / a[1].max(AIRLIGHT_FLOOR))
+                        .min(p[2] / a[2].max(AIRLIGHT_FLOOR));
                     if scaled_min < m {
                         m = scaled_min;
                     }
                 }
             }
-            out[(y * w + x) as usize] = 1.0 - OMEGA * m;
+            out[(y * w + x) as usize] = 1.0 - TRANSMISSION_OMEGA * m;
         }
     }
     out
@@ -277,7 +280,17 @@ fn recover_with_mask(img: &mut Image, dehaze: f32, t_refined: &[f32], a: [f32; 3
         let (j_r, j_g, j_b) = if scale >= 0.0 {
             // Positive: linearly blend from "no haze removal" (t=1) toward
             // the recovered transmission.
-            let t_eff = (t + (1.0 - t) * (1.0 - scale)).max(t0);
+            // Keep the window minimum's bound after refinement: t >= 1 - omega * min(I/A) (#4654).
+            let point_min = (p[0] / a[0].max(AIRLIGHT_FLOOR))
+                .min(p[1] / a[1].max(AIRLIGHT_FLOOR))
+                .min(p[2] / a[2].max(AIRLIGHT_FLOOR));
+            let point_transmission = (1.0 - TRANSMISSION_OMEGA * point_min).clamp(0.0, 1.0);
+            let supported_t = t.max(point_transmission);
+            // Avoid cancellation and mask-rounding when recovery is identity.
+            if supported_t == 1.0 {
+                continue;
+            }
+            let t_eff = (supported_t + (1.0 - supported_t) * (1.0 - scale)).max(t0);
             (
                 (p[0] - a[0]) / t_eff + a[0],
                 (p[1] - a[1]) / t_eff + a[1],
@@ -336,3 +349,7 @@ fn apply_with_mask_override(img: &mut Image, dehaze: f32, mask_override: &[f32])
 #[cfg(test)]
 #[path = "dehaze_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "dehaze_transmission_tests.rs"]
+mod transmission_tests;
