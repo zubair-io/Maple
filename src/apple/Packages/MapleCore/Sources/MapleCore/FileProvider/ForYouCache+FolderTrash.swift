@@ -6,8 +6,11 @@ extension ForYouCache {
     _ summary: FolderTrashSummary, host: String, libraryFolderID: String, folderPath: String
   ) {
     if summary.failed > 0 {
-      let assetIDs = Set(summary.items.filter(\.ok).map(\.assetId))
-      forgetAssetsPreservingPages(host: host, assetIDs: assetIDs)
+      let failedIDs = Set(summary.items.filter { !$0.ok }.map(\.assetId))
+      let assetIDs = Set(summary.items.filter(\.ok).map(\.assetId)).subtracting(failedIDs)
+      forgetAssetsPreservingPages(
+        host: host, libraryFolderID: libraryFolderID, folderPath: folderPath,
+        assetIDs: assetIDs)
     } else {
       forgetFolder(host: host, libraryFolderID: libraryFolderID, folderPath: folderPath)
     }

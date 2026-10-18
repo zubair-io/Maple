@@ -190,12 +190,15 @@ public actor ForYouCache {
     }
   }
 
-  /// Remove successful rows from all cached pages on this host in one pass.
-  public func forgetAssetsPreservingPages(host: String, assetIDs: Set<String>) {
-    guard !assetIDs.isEmpty else { return }
+  /// Remove successful rows under this folder from cached pages in one pass.
+  public func forgetAssetsPreservingPages(
+    host: String, libraryFolderID: String, folderPath: String, assetIDs: Set<String>
+  ) {
+    guard !folderPath.isEmpty, !assetIDs.isEmpty else { return }
     forget(host: host) { snapshot in
       snapshot.forgettingRows { asset in
-        assetIDs.contains(asset.id) || asset._id.map(assetIDs.contains) == true
+        Self.matchesFolder(asset, libraryFolderID: libraryFolderID, folderPath: folderPath)
+          && (assetIDs.contains(asset.id) || asset._id.map(assetIDs.contains) == true)
       }
     }
   }
