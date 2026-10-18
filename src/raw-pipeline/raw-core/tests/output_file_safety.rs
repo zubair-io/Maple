@@ -38,6 +38,28 @@ fn refuses_original_extensions_and_canonical_inputs() {
     assert_eq!(fs::read(xmp).unwrap(), xml);
 }
 
+#[test]
+fn refuses_extension_only_originals_and_unlisted_sidecars() {
+    let dir = tempfile::tempdir().unwrap();
+    for name in [".xmp", ".XmP", ".dng", ".DnG"] {
+        let out = dir.path().join(name);
+        let original = b"existing original or sidecar";
+        fs::write(&out, original).unwrap();
+        assert!(
+            write_derived(&out, &[], b"derived pixels").is_err(),
+            "{name}"
+        );
+        assert_eq!(fs::read(&out).unwrap(), original, "{name}");
+        fs::remove_file(&out).unwrap();
+        assert!(
+            write_derived(&out, &[], b"derived pixels").is_err(),
+            "{name}"
+        );
+        assert!(!out.exists(), "{name}");
+    }
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
 #[cfg(unix)]
 #[test]
 fn links_and_planted_fixed_temp_preserve_original_bytes() {
