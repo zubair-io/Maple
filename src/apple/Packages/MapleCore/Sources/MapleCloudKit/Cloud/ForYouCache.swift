@@ -54,9 +54,7 @@ struct ForYouSnapshot: Codable, Equatable, Sendable {
       let results = page.results.filter { !isGone($0) }
       guard results.count < page.results.count else { return page }
       guard !results.isEmpty else { return nil }
-      let total =
-        page.isSnapshot
-        ? results.count : max(results.count, page.total - (page.results.count - results.count))
+      let total = max(results.count, page.total - (page.results.count - results.count))
       return GeneratedSearchAssetPage(
         results: results, total: total, isSnapshot: page.isSnapshot, more: page.more,
         capped: page.capped, isPending: page.isPending)
