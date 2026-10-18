@@ -22,7 +22,7 @@ class ClassificationTests(unittest.TestCase):
             "src/raw-pipeline/Cargo.lock": ci.ALL,
             "src/api/src/routes/assets.ts": {"api", "maple", "web"},
             "src/maple/package.json": {"android", "api", "maple", "web"},
-            "src/web/package.json": {"api", "web"},
+            "src/web/package.json": {"api", "web", "swift"},
             "src/web/projects/maple/src/main.ts": {"api", "web"},
             "src/windows/Maple.WinUI/App.xaml.cs": {"windows"},
             "src/windows/Maple.WinUI/Themes/Tokens.xaml": {"windows", "codegen"},
@@ -41,8 +41,8 @@ class ClassificationTests(unittest.TestCase):
                 "web",
                 "codegen",
             },
-            "src/apple/Maple/App.swift": {"codegen"},
-            "src/apple/Packages/MapleCore/Package.swift": {"codegen"},
+            "src/apple/Maple/App.swift": {"codegen", "swift"},
+            "src/apple/Packages/MapleCore/Package.swift": {"codegen", "swift"},
             "docs/features.md": set(),
             "docs/design/maple-ui/components/slider.md": {"web"},
             "README.md": set(),
@@ -91,16 +91,18 @@ class ClassificationTests(unittest.TestCase):
                 "web",
                 "maple",
                 "codegen",
+                "swift",
             },
             apple + "MapleUITests/Goldens/.calibration/a.png": ci.ALL,
             apple + "MapleUITests/Goldens/.calibration/expected.json": ci.ALL,
-            apple + "MapleUITests/Goldens/other.png": {"codegen"},
+            apple + "MapleUITests/Goldens/other.png": {"codegen", "swift"},
             assets + "LaunchLogo.imageset/launchlogo_2x.png": {
                 "android",
                 "web",
                 "codegen",
+                "swift",
             },
-            assets + "Other.imageset/maple512.png": {"codegen"},
+            assets + "Other.imageset/maple512.png": {"codegen", "swift"},
             "docs/design/maple-ui/components/nested/README.md": {"web"},
             "docs/design/maple-ui/components-other/slider.md": set(),
             "src/api/src/routes/xmp.sidecar-contract.test.ts": {
@@ -116,6 +118,7 @@ class ClassificationTests(unittest.TestCase):
                     "android",
                     "web",
                     "codegen",
+                    "swift",
                 }
                 for size in (16, 32, 64, 128, 256, 512, 1024)
             }
@@ -223,6 +226,105 @@ class ClassificationTests(unittest.TestCase):
         for raw in (b"docs/file.md", b"docs/a\0\0docs/b\0"):
             with patch.object(ci, "git", side_effect=[b"commit\n", b"commit\n", raw]):
                 self.assertTrue(all(ci.select("push", event)[0].values()))
+
+
+class SwiftSelectionTests(unittest.TestCase):
+    """macOS runners are the CI bottleneck; Swift jobs run only when Swift can be affected."""
+
+    def swift(self, *paths):
+        return ci.classify_paths(list(paths))[0]["swift"]
+
+    def test_api_only_diff_skips_swift(self):
+        for path in (
+            "src/api/src/routes/assets.ts",
+            "src/api/src/db/schema.ts",
+            "src/api/tests/assets-restore.test.ts",
+            "src/api/tests/fixtures/other-server.ts",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(self.swift(path))
+
+    def test_api_fixtures_booted_by_swift_tests_select_swift(self):
+        for path in (
+            "src/api/tests/fixtures/file-provider-restart.ts",
+            "src/api/tests/fixtures/unified-folder-server.ts",
+            "src/api/tests/browser/workflow-server.ts",
+            "src/api/package.json",
+            "src/api/bun.lock",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(self.swift(path))
+
+    def test_shared_fixture_diff_runs_swift(self):
+        for path in (
+            "test-fixtures/file-operations/cases.json",
+            "test-fixtures/xmp-namespaces/namespaces.xmp",
+            "test-fixtures/export-recipes/interchange-cases.json",
+            "test-fixtures/local-adjustments/mask.json",
+            ".github/swift-regressions/run.txt",
+            ".github/swift-regressions/excluded.txt",
+            "docs/design/maple-ui/apple-icon-inventory.json",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(self.swift(path))
+
+    def test_native_core_diff_runs_swift(self):
+        for path in (
+            "src/raw-pipeline/raw-ffi/src/lib.rs",
+            "src/raw-pipeline/raw-core/src/color/mod.rs",
+            "src/raw-pipeline/Cargo.lock",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(self.swift(path))
+
+    def test_apple_source_and_recipe_interchange_inputs_run_swift(self):
+        for path in (
+            "src/apple/Maple/App.swift",
+            "src/apple/Packages/MapleCore/Sources/MapleCore/Foo.swift",
+            "src/apple/Packages/MapleUI/Sources/MapleUI/Resources/font.ttf",
+            "src/apple/Maple.xcodeproj/project.pbxproj",
+            "src/web/package.json",
+            "src/web/bun.lock",
+            "src/web/e2e/recipe-interchange/spec.ts",
+            "src/web/playwright.recipe-interchange.config.ts",
+            "src/web/projects/maple-common/src/lib/export/export-recipe-store.ts",
+            "src/web/projects/maple-common/src/lib/generated/export-recipe.generated.ts",
+            "src/scripts/test_export_recipe_interchange.sh",
+            "tools/check-swift-regressions-coverage.py",
+            ".github/workflows/apple.yml",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(self.swift(path))
+
+    def test_docs_metadata_and_unrelated_consumers_skip_swift(self):
+        for path in (
+            "docs/features.md",
+            "docs/testing.md",
+            "docs/design/maple-ui/components/slider.md",
+            "README.md",
+            "src/web/projects/maple/src/main.ts",
+            "src/windows/Maple.WinUI/App.xaml.cs",
+            "src/android/app/build.gradle.kts",
+            "tools/release_handoff.py",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(self.swift(path))
+
+    def test_mixed_diff_runs_swift_when_any_path_needs_it(self):
+        self.assertTrue(
+            self.swift("src/api/src/routes/assets.ts", "src/apple/Maple/App.swift")
+        )
+
+    def test_uncertain_events_still_run_swift(self):
+        self.assertTrue(ci.classify_paths([])[0]["swift"])
+        self.assertTrue(self.swift("some/new/domain.txt"))
+        self.assertTrue(ci.select("workflow_dispatch", {})[0]["swift"])
+        self.assertTrue(
+            ci.select(
+                "pull_request",
+                {"pull_request": {"head": {"ref": "release/next-v1.2.3"}}},
+            )[0]["swift"]
+        )
 
 
 class GitTests(unittest.TestCase):

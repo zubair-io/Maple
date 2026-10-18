@@ -6,13 +6,34 @@ import re
 import subprocess
 from pathlib import Path
 
-CONSUMERS = ("android", "windows", "web", "api", "maple", "codegen")
+CONSUMERS = ("android", "windows", "web", "api", "maple", "codegen", "swift")
 ALL = frozenset(CONSUMERS)
 CODEGEN_DOCS = frozenset(
     f"docs/{name}.{extension}"
     for name in ("capability-registry", "camera-support")
     for extension in ("md", "json")
 )
+# Swift (macOS-runner) jobs read these outside src/apple: the API servers the
+# FileProvider tests boot, and the saved-recipe interchange gate's web inputs.
+SWIFT_API_INPUTS = frozenset(
+    (
+        "src/api/tests/fixtures/file-provider-restart.ts",
+        "src/api/tests/fixtures/unified-folder-server.ts",
+        "src/api/tests/browser/workflow-server.ts",
+        "src/api/package.json",
+        "src/api/bun.lock",
+    )
+)
+SWIFT_WEB_INPUTS = frozenset(
+    (
+        "src/web/package.json",
+        "src/web/bun.lock",
+        "src/web/playwright.recipe-interchange.config.ts",
+        "src/web/projects/maple-common/src/lib/export/export-recipe-store.ts",
+        "src/web/projects/maple-common/src/lib/generated/export-recipe.generated.ts",
+    )
+)
+SWIFT_DOCS = frozenset(("docs/design/maple-ui/apple-icon-inventory.json",))
 METADATA = frozenset(
     name + extension
     for name in ("README", "AGENTS", "CLAUDE", "LICENSE")
@@ -47,20 +68,22 @@ def dependencies(path):
             "src/apple/Packages/MapleUI/Sources/MapleUI/Resources/",
         )
     ):
-        return {"android", "codegen"}
+        return {"android", "codegen", "swift"}
     if path == (
         "src/apple/Packages/MapleCore/Sources/MapleCore/Resources/builtin-presets.json"
     ):
-        return {"api", "maple", "web", "codegen"}
+        return {"api", "maple", "web", "codegen", "swift"}
     if path.startswith(
         (
             "src/apple/Maple/Assets.xcassets/AppIcon.appiconset/",
             "src/apple/Maple/Assets.xcassets/LaunchLogo.imageset/",
         )
     ):
-        return {"android", "web", "codegen"}
+        return {"android", "web", "codegen", "swift"}
     if path.startswith("docs/design/maple-ui/components/"):
         return {"web"}
+    if path in SWIFT_DOCS:
+        return {"swift"}
     generated = "generated" in path.lower().split("/") or path.endswith(
         (".generated.ts", ".g.cs")
     )
@@ -75,6 +98,13 @@ def dependencies(path):
         )
         else set()
     )
+    swift = (
+        {"swift"}
+        if path in SWIFT_API_INPUTS
+        or path in SWIFT_WEB_INPUTS
+        or path.startswith("src/web/e2e/recipe-interchange/")
+        else set()
+    )
     if path.startswith("src/android/"):
         return {"android"} | codegen
     if path == "src/maple/package.json":
@@ -83,7 +113,7 @@ def dependencies(path):
     if path in ("src/api/src/thumbs/render.ts", "src/api/src/indexer/previewer.ts"):
         return {"android", "api", "maple", "web"} | codegen
     if path.startswith(("src/api/", "src/maple/")):
-        return {"api", "maple", "web"} | codegen
+        return {"api", "maple", "web"} | codegen | swift
     if path.startswith("src/web/"):
         android = (
             {"android"}
@@ -95,7 +125,7 @@ def dependencies(path):
             )
             else set()
         )
-        return {"api", "web"} | codegen | android
+        return {"api", "web"} | codegen | android | swift
     if path.startswith("src/windows/"):
         return (
             {"windows"}
@@ -106,7 +136,9 @@ def dependencies(path):
                 else set()
             )
         )
-    if path.startswith("src/apple/") or path in CODEGEN_DOCS:
+    if path.startswith("src/apple/"):
+        return {"codegen", "swift"}
+    if path in CODEGEN_DOCS:
         return {"codegen"}
     if path.startswith("docs/") or path in METADATA:
         return frozenset()
