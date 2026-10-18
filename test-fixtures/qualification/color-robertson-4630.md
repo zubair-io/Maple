@@ -193,3 +193,14 @@ existing main color failures remain covered by the session exception.
 
 Fresh logs and mapping source hashes are retained under
 `/tmp/maple-color-merge-20261017/` and copied to the session evidence archive.
+
+### Final qualification-record conflict resolution
+
+Main subsequently refreshed its output-27 evidence in #4940 and fixed the
+active luminance-NR authoring test setup in #4954. The resulting record conflict
+is resolved against main `51f7826047` without changing the reviewed mapping
+implementation. Fresh runs at `474b875a1b99b4782a7c39b2d8b37ee944ad3929` pass all
+62 domain/API qualification cases at output 28, plus 15 comparator checks,
+19 metadata tests, 11 harness tests, and 19 Adobe authoring tests. Full generation
+completes successfully. These runs are preserved in `/tmp/maple-4804-final-merge/`
+and the session archive. No full physical-corpus rerun is claimed.

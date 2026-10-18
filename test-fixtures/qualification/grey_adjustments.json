@@ -5,9 +5,9 @@
   "executed_cases": 41,
   "expected_cases": 41,
   "failed_cases": 0,
-  "git_sha": "c58a0173f324fc93dfcdcf062f6ab26e351d2b26",
-  "pipeline_version": 27,
-  "recorded_at": "2026-10-17T21:22:54Z",
+  "git_sha": "474b875a1b99b4782a7c39b2d8b37ee944ad3929",
+  "pipeline_version": 28,
+  "recorded_at": "2026-10-18T00:35:33Z",
   "schema_version": 5,
   "skipped_cases": 0,
   "source": "grey_adjustments"
