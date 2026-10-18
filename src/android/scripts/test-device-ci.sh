@@ -16,7 +16,6 @@ collect() {
 	adb pull /sdcard/Android/data/app.justmaple.aperture/files "$artifacts/app-files" || true
 }
 trap collect EXIT
-adb logcat -c
 # 1280x800 dp exercises the inspector/group reset and full sources column.
 configure_display() {
 	adb shell wm size 1280x800
@@ -74,11 +73,13 @@ else
 	fi
 	# Recover only the observed pre-test ANR, once. A second unhealthy boot fails.
 	echo 'Android boot ANR observed; rebooting emulator once before instrumentation'
+	previous_boot="$(adb shell cat /proc/sys/kernel/random/boot_id | tr -d '\r')"
 	adb reboot
-	timeout 180 adb wait-for-device
 	booted=false
 	for ((sample = 0; sample < 90; sample++)); do
-		if [[ "$(adb shell getprop sys.boot_completed | tr -d '\r')" == 1 ]]; then
+		if [[ "$(adb get-state 2>/dev/null)" == device ]] &&
+			[[ "$(adb shell cat /proc/sys/kernel/random/boot_id 2>/dev/null | tr -d '\r')" != "$previous_boot" ]] &&
+			[[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == 1 ]]; then
 			booted=true
 			break
 		fi
@@ -96,4 +97,5 @@ else
 	fi
 	echo 'Android boot UI healthy after one recovery boot'
 fi
+adb logcat -c
 ./gradlew --no-daemon "-PmapleAbis=$build_abis" connectedDebugAndroidTest
