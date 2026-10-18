@@ -24,13 +24,15 @@ fn file_identity(path: &Path) -> io::Result<(u32, u64)> {
 }
 
 fn protected(path: &Path) -> bool {
+    #[cfg(windows)]
+    let path = Path::new(
+        path.to_str()
+            .unwrap_or_default()
+            .trim_end_matches(['.', ' ']),
+    );
     path.extension()
         .and_then(|s| s.to_str())
-        .or_else(|| {
-            path.file_name()
-                .and_then(|s| s.to_str())
-                .and_then(|name| name.strip_prefix('.'))
-        })
+        .or_else(|| path.file_name()?.to_str()?.strip_prefix('.'))
         .is_some_and(|ext| {
             ext.eq_ignore_ascii_case("xmp")
                 || rawler::decoders::supported_extensions()
