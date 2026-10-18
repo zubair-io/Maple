@@ -152,7 +152,7 @@
 ///   retaining the ratio response below diffuse white (#4635).
 /// - 28 — Robertson inverse tint measures displacement from the interpolated
 ///   locus, correcting legacy white-balance sidecar normalization (#4630).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 28;
+pub const PIPELINE_OUTPUT_VERSION: u32 = 29;
 
 #[cfg(test)]
 mod tests {

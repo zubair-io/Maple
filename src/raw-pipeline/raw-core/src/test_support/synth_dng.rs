@@ -6,45 +6,49 @@ use std::io;
 use std::path::Path;
 
 // DNG-specific TIFF tag IDs. Subset of what raw-core's decoder reads.
-const TAG_NEW_SUBFILE_TYPE: u16 = 254;
-const TAG_IMAGE_WIDTH: u16 = 256;
-const TAG_IMAGE_LENGTH: u16 = 257;
-const TAG_BITS_PER_SAMPLE: u16 = 258;
-const TAG_COMPRESSION: u16 = 259;
-const TAG_PHOTOMETRIC: u16 = 262;
-const TAG_STRIP_OFFSETS: u16 = 273;
-const TAG_SAMPLES_PER_PIXEL: u16 = 277;
-const TAG_ROWS_PER_STRIP: u16 = 278;
-const TAG_STRIP_BYTE_COUNTS: u16 = 279;
-const TAG_PLANAR_CONFIG: u16 = 284;
-const TAG_CFA_REPEAT_PATTERN_DIM: u16 = 33421;
-const TAG_CFA_PATTERN: u16 = 33422;
-const TAG_DNG_VERSION: u16 = 50706;
-const TAG_DNG_BACKWARD_VERSION: u16 = 50707;
-const TAG_UNIQUE_CAMERA_MODEL: u16 = 50708;
-const TAG_BLACK_LEVEL_REPEAT_DIM: u16 = 50713;
-const TAG_BLACK_LEVEL: u16 = 50714;
-const TAG_WHITE_LEVEL: u16 = 50717;
-const TAG_COLOR_MATRIX_1: u16 = 50721;
-const TAG_CAMERA_CALIBRATION_1: u16 = 50723;
-const TAG_ANALOG_BALANCE: u16 = 50727;
-const TAG_AS_SHOT_NEUTRAL: u16 = 50728;
-const TAG_BASELINE_EXPOSURE: u16 = 50730;
-const TAG_CALIBRATION_ILLUMINANT_1: u16 = 50778;
-const TAG_COLOR_MATRIX_2: u16 = 50722;
-const TAG_FORWARD_MATRIX_1: u16 = 50964;
-const TAG_FORWARD_MATRIX_2: u16 = 50965;
-const TAG_PROFILE_TONE_CURVE: u16 = 50940;
-const TAG_CALIBRATION_ILLUMINANT_2: u16 = 50779;
+pub(crate) const TAG_NEW_SUBFILE_TYPE: u16 = 254;
+pub(crate) const TAG_IMAGE_WIDTH: u16 = 256;
+pub(crate) const TAG_IMAGE_LENGTH: u16 = 257;
+pub(crate) const TAG_BITS_PER_SAMPLE: u16 = 258;
+pub(crate) const TAG_COMPRESSION: u16 = 259;
+pub(crate) const TAG_PHOTOMETRIC: u16 = 262;
+pub(crate) const TAG_STRIP_OFFSETS: u16 = 273;
+pub(crate) const TAG_SAMPLES_PER_PIXEL: u16 = 277;
+pub(crate) const TAG_ROWS_PER_STRIP: u16 = 278;
+pub(crate) const TAG_STRIP_BYTE_COUNTS: u16 = 279;
+pub(crate) const TAG_PLANAR_CONFIG: u16 = 284;
+pub(crate) const TAG_CFA_REPEAT_PATTERN_DIM: u16 = 33421;
+pub(crate) const TAG_CFA_PATTERN: u16 = 33422;
+pub(crate) const TAG_DNG_VERSION: u16 = 50706;
+pub(crate) const TAG_DNG_BACKWARD_VERSION: u16 = 50707;
+pub(crate) const TAG_UNIQUE_CAMERA_MODEL: u16 = 50708;
+pub(crate) const TAG_BLACK_LEVEL_REPEAT_DIM: u16 = 50713;
+pub(crate) const TAG_BLACK_LEVEL: u16 = 50714;
+pub(crate) const TAG_WHITE_LEVEL: u16 = 50717;
+pub(crate) const TAG_COLOR_MATRIX_1: u16 = 50721;
+pub(crate) const TAG_CAMERA_CALIBRATION_1: u16 = 50723;
+pub(crate) const TAG_ANALOG_BALANCE: u16 = 50727;
+pub(crate) const TAG_AS_SHOT_NEUTRAL: u16 = 50728;
+pub(crate) const TAG_BASELINE_EXPOSURE: u16 = 50730;
+pub(crate) const TAG_CALIBRATION_ILLUMINANT_1: u16 = 50778;
+pub(crate) const TAG_COLOR_MATRIX_2: u16 = 50722;
+pub(crate) const TAG_FORWARD_MATRIX_1: u16 = 50964;
+pub(crate) const TAG_FORWARD_MATRIX_2: u16 = 50965;
+pub(crate) const TAG_PROFILE_TONE_CURVE: u16 = 50940;
+pub(crate) const TAG_CALIBRATION_ILLUMINANT_2: u16 = 50779;
 // DNG LinearizationTable, spec § "Linearization Table". Tag 50712 / 0xC618.
 // Per-value LUT: encoded sensor codes → linear codes. SHORT-typed, up to
 // `1 << BitsPerSample` entries. Rawler applies it inside the integer decode
 // path (rawler/src/decoders/mod.rs:641-642) before `raw_data` reaches us.
-const TAG_LINEARIZATION_TABLE: u16 = 50712;
+pub(crate) const TAG_LINEARIZATION_TABLE: u16 = 50712;
 
 // DNG OpcodeList3, spec § "Opcode Lists" (tag 51022 / 0xC75E). See
 // `pipeline::pano::opcodes` for the binary layout and the reader.
-const TAG_OPCODE_LIST_3: u16 = 51022;
+pub(crate) const TAG_OPCODE_LIST_3: u16 = 51022;
+
+// DNG ActiveArea (tag 50829): [top, left, bottom, right]. CFAPattern and
+// BlackLevel are both anchored at its origin per the DNG spec.
+pub(crate) const TAG_ACTIVE_AREA: u16 = 50829;
 
 // CFA-photometric value
 const PHOTOMETRIC_CFA: u16 = 32803;
@@ -101,7 +105,7 @@ pub struct SyntheticGreyDng {
     pub encoded_value_override: Option<u16>,
     /// Raw big-endian `OpcodeList3` blob (tag 51022) — see
     /// [`fix_vignette_radial_opcode_list3`] to build one. No `ActiveArea`
-    /// tag is written by this struct, so the opcode's coordinate system
+    /// tag is written unless `active_area` is set, so the opcode's coordinate system
     /// always resolves to the full frame (`ActiveAreaRect::full`, DNG
     /// default — see `pipeline::pano::opcodes::read_opcode_list3`).
     pub opcode_list3: Option<Vec<u8>>,
@@ -110,6 +114,16 @@ pub struct SyntheticGreyDng {
     /// deliberately inconsistent file: rawler's `BlackLevel::new` asserts
     /// `levels.len() == rows * cols * cpp` and panics (#3230's repro).
     pub black_level_repeat_dim: Option<(u16, u16)>,
+    /// Full per-site `BlackLevel` table, row-major over the CFA tile (4
+    /// entries for 2×2 Bayer, 36 for 6×6 X-Trans). When set, the writer
+    /// emits the table with a matching `BlackLevelRepeatDim` and the strip
+    /// encodes `linear_value` above each site's own black (#4730).
+    pub black_level_table: Option<Vec<u16>>,
+    /// DNG `ActiveArea` `[top, left, bottom, right]`. Rawler re-anchors the
+    /// decoded CFA to the sensor origin by `CFA::shift(left, top)` while the
+    /// `BlackLevel` table stays ActiveArea-relative, which is the case the
+    /// X-Trans black-table keying has to undo (#4730).
+    pub active_area: Option<[u16; 4]>,
 }
 
 impl Default for SyntheticGreyDng {
@@ -134,6 +148,8 @@ impl Default for SyntheticGreyDng {
             encoded_value_override: None,
             opcode_list3: None,
             black_level_repeat_dim: None,
+            black_level_table: None,
+            active_area: None,
         }
     }
 }
@@ -229,8 +245,8 @@ impl SyntheticGreyDng {
         ifd.add_long(TAG_STRIP_BYTE_COUNTS, strip_byte_count);
         ifd.add_short(TAG_PLANAR_CONFIG, 1); // chunky
 
-        // CFA: 2x2 pattern, RGGB bytes
-        ifd.add_shorts(TAG_CFA_REPEAT_PATTERN_DIM, vec![2, 2]);
+        let (cfa_rows, cfa_cols) = self.cfa_tile_dims();
+        ifd.add_shorts(TAG_CFA_REPEAT_PATTERN_DIM, vec![cfa_rows, cfa_cols]);
         ifd.add_bytes(TAG_CFA_PATTERN, self.cfa_pattern_bytes());
 
         // DNG identity
@@ -239,9 +255,17 @@ impl SyntheticGreyDng {
         ifd.add_ascii(TAG_UNIQUE_CAMERA_MODEL, "Maple Synthetic");
 
         // Linearisation
-        ifd.add_short(TAG_BLACK_LEVEL, 0);
-        if let Some((rows, cols)) = self.black_level_repeat_dim {
-            ifd.add_shorts(TAG_BLACK_LEVEL_REPEAT_DIM, vec![rows, cols]);
+        match &self.black_level_table {
+            Some(table) => {
+                ifd.add_shorts(TAG_BLACK_LEVEL, table.clone());
+                ifd.add_shorts(TAG_BLACK_LEVEL_REPEAT_DIM, vec![cfa_rows, cfa_cols]);
+            }
+            None => {
+                ifd.add_short(TAG_BLACK_LEVEL, 0);
+                if let Some((rows, cols)) = self.black_level_repeat_dim {
+                    ifd.add_shorts(TAG_BLACK_LEVEL_REPEAT_DIM, vec![rows, cols]);
+                }
+            }
         }
         ifd.add_short(TAG_WHITE_LEVEL, 65535);
 
@@ -307,6 +331,10 @@ impl SyntheticGreyDng {
             ifd.add_shorts(TAG_LINEARIZATION_TABLE, table.clone());
         }
 
+        if let Some(area) = self.active_area {
+            ifd.add_shorts(TAG_ACTIVE_AREA, area.to_vec());
+        }
+
         if let Some(blob) = &self.opcode_list3 {
             // UNDEFINED per DNG spec — `read_opcode_list3` also accepts
             // BYTE (rawler's `Value::Byte`), but real camera DNGs write
@@ -324,42 +352,60 @@ impl SyntheticGreyDng {
         // position carries the same u16; the LUT plus WB produces the scene
         // neutral on the decoder side. Otherwise compute per-position raw
         // codes from `linear_value` + AsShotNeutral as before.
-        let (raw_r, raw_g, raw_b) = if let Some(v) = self.encoded_value_override {
-            (v, v, v)
-        } else {
-            compute_raw_values(self.linear_value, self.as_shot_neutral_array(), 0, 65535)
+        let (tile_rows, tile_cols) = self.cfa_tile_dims();
+        let site_black = |x: u32, y: u32| -> u16 {
+            self.black_level_table.as_ref().map_or(0, |table| {
+                table[((y % u32::from(tile_rows)) * u32::from(tile_cols)
+                    + (x % u32::from(tile_cols))) as usize]
+            })
+        };
+        let raw_at = |x: u32, y: u32| -> u16 {
+            if let Some(v) = self.encoded_value_override {
+                return v;
+            }
+            let (raw_r, raw_g, raw_b) = compute_raw_values(
+                self.linear_value,
+                self.as_shot_neutral_array(),
+                site_black(x, y),
+                65535,
+            );
+            match self.cfa.color_at(x, y) {
+                0 => raw_r,
+                1 => raw_g,
+                2 => raw_b,
+                _ => unreachable!(),
+            }
         };
         let n = (self.width as usize) * (self.height as usize);
         let mut buf = Vec::with_capacity(n * 2);
         // Walk row-major, emit 16-bit LE per CFA position.
         for y in 0..self.height {
             for x in 0..self.width {
-                let v = match self.cfa.color_at(x, y) {
-                    0 => raw_r,
-                    1 => raw_g,
-                    2 => raw_b,
-                    _ => unreachable!(),
-                };
-                write_u16_le(&mut buf, v);
+                write_u16_le(&mut buf, raw_at(x, y));
             }
         }
         buf
     }
 
+    fn cfa_tile_dims(&self) -> (u16, u16) {
+        if self.cfa.is_xtrans() {
+            (6, 6)
+        } else {
+            (2, 2)
+        }
+    }
+
     fn cfa_pattern_bytes(&self) -> Vec<u8> {
-        // 4 bytes for 2x2 pattern, 0=R, 1=G, 2=B
+        // Row-major tile, 0=R, 1=G, 2=B: 4 bytes for 2×2, 36 for X-Trans.
         match self.cfa {
             CfaPattern::Rggb => vec![0, 1, 1, 2],
             CfaPattern::Bggr => vec![2, 1, 1, 0],
             CfaPattern::Grbg => vec![1, 0, 2, 1],
             CfaPattern::Gbrg => vec![1, 2, 0, 1],
+            CfaPattern::XTrans(pattern) => pattern.to_vec(),
             CfaPattern::LinearRgb => panic!(
                 "SyntheticGreyDng with CfaPattern::LinearRgb is unsupported \
-                 — synthesise a Bayer pattern (Rggb/Bggr/Grbg/Gbrg) instead"
-            ),
-            CfaPattern::XTrans(_) => panic!(
-                "SyntheticGreyDng with CfaPattern::XTrans is unsupported \
-                 (the synthetic-DNG writer emits a 2×2 Bayer CFAPattern tag)"
+                 — use test_support::synth_linearraw_dng::SyntheticLinearRawDng"
             ),
         }
     }
