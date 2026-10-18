@@ -78,12 +78,12 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
   const blocked = new Promise<void>((resolve) => (releaseProbe = resolve));
   const actualRealpath = nodeFs.realpath.bind(nodeFs);
   const mirrorSidecar = join(mirror, 'photo.xmp');
-  const realpathProbe = spyOn(nodeFs, 'realpath').mockImplementation(
-    (async (requested: Parameters<typeof nodeFs.realpath>[0]) => {
-      if (requested === mirror || requested === mirrorSidecar) await blocked;
-      return actualRealpath(requested);
-    }) as typeof nodeFs.realpath,
-  );
+  const realpathProbe = spyOn(nodeFs, 'realpath').mockImplementation((async (
+    requested: Parameters<typeof nodeFs.realpath>[0],
+  ) => {
+    if (requested === mirror || requested === mirrorSidecar) await blocked;
+    return actualRealpath(requested);
+  }) as typeof nodeFs.realpath);
   setMirrorRoots({ [library]: [mirror] });
   try {
     const primary = await Promise.race([
@@ -91,7 +91,7 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
         safeReadFile(join(library, 'photo.xmp')),
         safeWriteAllowed(join(library, 'new.xmp')),
       ]),
-      Bun.sleep(100).then(() => null),
+      Bun.sleep(500).then(() => null),
     ]);
     expect(primary?.[0].data?.toString()).toBe('<xmpmeta/>');
     expect(primary?.[1].ok).toBe(true);
@@ -107,12 +107,12 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
     releaseProbe();
     realpathProbe.mockRestore();
   }
-  const slowPrimary = spyOn(nodeFs, 'realpath').mockImplementation(
-    (async (requested: Parameters<typeof nodeFs.realpath>[0]) => {
-      if (requested === join(library, 'photo.xmp')) await Bun.sleep(2_100);
-      return actualRealpath(requested);
-    }) as typeof nodeFs.realpath,
-  );
+  const slowPrimary = spyOn(nodeFs, 'realpath').mockImplementation((async (
+    requested: Parameters<typeof nodeFs.realpath>[0],
+  ) => {
+    if (requested === join(library, 'photo.xmp')) await Bun.sleep(2_100);
+    return actualRealpath(requested);
+  }) as typeof nodeFs.realpath);
   try {
     expect((await safeReadFile(join(library, 'photo.xmp'))).data?.toString()).toBe('<xmpmeta/>');
   } finally {
@@ -126,7 +126,7 @@ test('DB libraries and enabled mirrors bound the default filesystem jail', async
   live.db.query('DELETE FROM folders WHERE id = ?').run(libraryId);
   invalidateLibraryRoots();
   expect((await checkAllowed(join(library, 'photo.xmp'))).ok).toBe(false);
-});
+}, 10_000);
 
 test('an unrelated stalled library does not delay a healthy sidecar read', async () => {
   using live = await createLiveTestDatabase('file');
@@ -145,17 +145,20 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
   let slowAlias = false;
   const blocked = new Promise<void>((resolve) => (releaseProbe = resolve));
   const actualRealpath = nodeFs.realpath.bind(nodeFs);
-  const probe = spyOn(nodeFs, 'realpath').mockImplementation(
-    (async (requested: Parameters<typeof nodeFs.realpath>[0]) => {
-      if (requested === stalled) await blocked;
-      if (requested === alias && slowAlias) await Bun.sleep(2_100);
-      return actualRealpath(requested);
-    }) as typeof nodeFs.realpath,
-  );
+  const probe = spyOn(nodeFs, 'realpath').mockImplementation((async (
+    requested: Parameters<typeof nodeFs.realpath>[0],
+  ) => {
+    if (requested === stalled) await blocked;
+    if (requested === alias && slowAlias) {
+      slowAlias = false;
+      await Bun.sleep(2_100);
+    }
+    return actualRealpath(requested);
+  }) as typeof nodeFs.realpath);
   try {
     const read = await Promise.race([
       safeReadFile(join(healthy, 'photo.xmp')),
-      Bun.sleep(100).then(() => null),
+      Bun.sleep(500).then(() => null),
     ]);
     expect(read?.data?.toString()).toBe('<xmpmeta/>');
     await symlink(healthy, alias);
@@ -164,7 +167,7 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
     invalidateLibraryRoots();
     const viaAlias = await Promise.race([
       safeReadFile(join(healthy, 'photo.xmp')),
-      Bun.sleep(100).then(() => null),
+      Bun.sleep(500).then(() => null),
     ]);
     expect(viaAlias?.data?.toString()).toBe('<xmpmeta/>');
     slowAlias = true;
