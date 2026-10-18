@@ -97,6 +97,10 @@ fn journal_excludes_other_editors_and_keeps_changed_original_pending_data() {
     assert!(journal.validate_original(&changed_size).is_err());
     assert!(journal.validate_original(&changed_mtime).is_err());
     assert!(journal.validate_original(&remote).is_ok());
+    assert_eq!(journal.entry().unwrap().address, remote.address);
+    assert!(journal.verify_original(&changed_size).is_err());
+    assert!(journal.verify_original(&changed_mtime).is_err());
+    assert!(journal.verify_original(&remote).is_ok());
     drop(journal);
     let mut changed = remote;
     changed.size += 1;

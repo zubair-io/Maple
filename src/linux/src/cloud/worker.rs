@@ -137,6 +137,10 @@ impl Worker {
                                     if edit.path().map_err(|e| e.to_string())? != path {
                                         return Err("Cloud image changed before this save".into());
                                     }
+                                    let live = connection
+                                        .stat_entry(&edit.entry().ok_or("No cloud edit is open")?)
+                                        .map_err(|e| e.to_string())?;
+                                    edit.verify_original(&live).map_err(|e| e.to_string())?;
                                     edit.synchronize(connection, &document)
                                         .map_err(|e| e.to_string())
                                 })();
