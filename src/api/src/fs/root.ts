@@ -80,7 +80,7 @@ async function normalizedLibraryRoots(requested: string, real: string): Promise<
   const match = await Promise.any(
     probes.map(async (root) => {
       const resolution = resolveRealPathThroughAncestors(root);
-      const canonical = await (lexical.length ? resolution : withMirrorTimeout(resolution));
+      const canonical = await resolution;
       if (!isWithinRoot(canonical, real)) throw new Error('Library root does not contain path');
       return canonical;
     }),

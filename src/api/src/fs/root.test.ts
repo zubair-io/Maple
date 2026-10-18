@@ -134,6 +134,7 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
   temporaryRoots.push(fixture);
   const healthy = join(fixture, 'healthy');
   const stalled = join(fixture, 'stalled');
+  const alias = join(fixture, 'healthy-alias');
   await Promise.all([mkdir(healthy), mkdir(stalled)]);
   await writeFile(join(healthy, 'photo.xmp'), '<xmpmeta/>');
   delete process.env.MAPLE_ROOTS;
@@ -141,11 +142,13 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
   insertFolder(live.db, { path: stalled });
   invalidateLibraryRoots();
   let releaseProbe!: () => void;
+  let slowAlias = false;
   const blocked = new Promise<void>((resolve) => (releaseProbe = resolve));
   const actualRealpath = nodeFs.realpath.bind(nodeFs);
   const probe = spyOn(nodeFs, 'realpath').mockImplementation(
     (async (requested: Parameters<typeof nodeFs.realpath>[0]) => {
       if (requested === stalled) await blocked;
+      if (requested === alias && slowAlias) await Bun.sleep(2_100);
       return actualRealpath(requested);
     }) as typeof nodeFs.realpath,
   );
@@ -155,7 +158,6 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
       Bun.sleep(100).then(() => null),
     ]);
     expect(read?.data?.toString()).toBe('<xmpmeta/>');
-    const alias = join(fixture, 'healthy-alias');
     await symlink(healthy, alias);
     insertFolder(live.db, { path: alias });
     live.db.query('DELETE FROM folders WHERE id = ?').run(healthyId);
@@ -165,6 +167,8 @@ test('an unrelated stalled library does not delay a healthy sidecar read', async
       Bun.sleep(100).then(() => null),
     ]);
     expect(viaAlias?.data?.toString()).toBe('<xmpmeta/>');
+    slowAlias = true;
+    expect((await safeWriteAllowed(join(alias, 'new.xmp'))).ok).toBe(true);
   } finally {
     releaseProbe();
     probe.mockRestore();
