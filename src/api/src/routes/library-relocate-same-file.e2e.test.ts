@@ -3,10 +3,12 @@
  * original. When the target folder is a directory symlink or a case alias of
  * the source folder, the "destination" IS the source; comparing it to itself
  * reports identical bytes, and the dedupe used to delete the one real file and
- * repoint the catalogue at a path that no longer exists.
+ * repoint the catalogue at a path that no longer exists. A hard link in a
+ * genuinely different folder is a second directory entry, not an alias, so it
+ * still dedupes: the row moves and only the old entry is removed.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
-import * as fs from 'node:fs/promises';
+import * as fs from '../fs/mirrored.ts';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
@@ -108,5 +110,65 @@ describe('library-relocate — destination is the source itself (#4701)', () => 
     const location = locationOf(live.db, asset.assetId);
     expect(location?.filename).toBe('IMG_8.dng');
     expect(location?.path.toLowerCase()).toBe(oldRel);
+  });
+  it('a hard link in a different folder dedupes onto the link and removes only the old entry', async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-hard-link-')));
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
+    await fs.mkdir(path.join(dir, ...newRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(dir, oldRel, 'IMG_9.dng'), 'linked-bytes');
+    await fs.link(path.join(dir, oldRel, 'IMG_9.dng'), path.join(dir, newRel, 'IMG_9.dng'));
+
+    const asset = seedRelocatableAsset(live.db, {
+      root: dir,
+      relPath: oldRel,
+      filename: 'IMG_9.dng',
+      mapleId: 'relocate-hard-link-id',
+      metadataOverride: usPlaceText(),
+    });
+
+    const res = await postRelocate([`${SLUG}:${oldRel}/IMG_9.dng`]);
+    expect(res.status).toBe(200);
+    const [result] = await resultsOf(res);
+    expect(result!.outcome).toBe('moved');
+
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_9.dng'), 'utf8')).toBe('linked-bytes');
+    expect(await fs.stat(path.join(dir, oldRel, 'IMG_9.dng')).catch(() => null)).toBeNull();
+    expect(locationOf(live.db, asset.assetId)).toMatchObject({
+      path: newRel,
+      filename: 'IMG_9.dng',
+    });
+  });
+
+  it('a target file that is a symlink to the source keeps the only original', async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-file-symlink-')));
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
+    await fs.mkdir(path.join(dir, ...newRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(dir, oldRel, 'IMG_10.dng'), 'the-only-copy');
+    await fs.symlink(path.join(dir, oldRel, 'IMG_10.dng'), path.join(dir, newRel, 'IMG_10.dng'));
+
+    const asset = seedRelocatableAsset(live.db, {
+      root: dir,
+      relPath: oldRel,
+      filename: 'IMG_10.dng',
+      mapleId: 'relocate-file-symlink-id',
+      metadataOverride: usPlaceText(),
+    });
+
+    const res = await postRelocate([`${SLUG}:${oldRel}/IMG_10.dng`]);
+    expect(res.status).toBe(200);
+    const [result] = await resultsOf(res);
+    expect(result!.outcome).not.toBe('moved');
+
+    expect(await fs.readFile(path.join(dir, oldRel, 'IMG_10.dng'), 'utf8')).toBe('the-only-copy');
+    expect(locationOf(live.db, asset.assetId)).toMatchObject({
+      path: oldRel,
+      filename: 'IMG_10.dng',
+    });
   });
 });
