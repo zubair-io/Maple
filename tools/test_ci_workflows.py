@@ -39,7 +39,7 @@ class WorkflowTests(unittest.TestCase):
                     ["git", *args], cwd=repo, text=True
                 ).strip()
 
-            git("init", "-q")
+            git("init", "-q", "-b", "main")
             git("config", "user.name", "CI Test")
             git("config", "user.email", "ci@example.invalid")
             git("config", "commit.gpgsign", "false")
