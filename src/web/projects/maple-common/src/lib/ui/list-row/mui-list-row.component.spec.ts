@@ -57,6 +57,20 @@ describe('MuiListRowComponent', () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
+  it('a non-pressable row is static: no button role or tab stop, and never fires pressed', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('pressable', false);
+    fixture.detectChanges();
+    const pressed: void[] = [];
+    fixture.componentInstance.pressed.subscribe(() => pressed.push(undefined));
+    const row = fixture.nativeElement.querySelector('.mui-list-row') as HTMLElement;
+
+    row.click();
+    expect(row.getAttribute('role')).toBeNull();
+    expect(row.getAttribute('tabindex')).toBeNull();
+    expect(pressed.length).toBe(0);
+  });
+
   it('active uses surface_alt + left border, never a full primary fill, and exposes aria-current', () => {
     const fixture = render();
     fixture.componentRef.setInput('active', true);

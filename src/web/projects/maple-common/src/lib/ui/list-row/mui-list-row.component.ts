@@ -37,6 +37,10 @@ export class MuiListRowComponent {
   readonly timestampValue = input<Date | number | string | null>(null);
   readonly active = input<boolean>(false);
   readonly disabled = input<boolean>(false);
+  /** `false` renders a static row — no button role, tab stop or pointer cursor —
+   * for content whose own nested controls are the only interaction (e.g. an
+   * inline confirm prompt), while keeping their hit-testing intact. */
+  readonly pressable = input<boolean>(true);
   /** Forwarded to the row's own interactive `[role="button"]` element's
    * `data-testid` — not `<mui-list-row>`'s custom-element host, which
    * carries no click/keydown handling of its own. */
@@ -54,7 +58,7 @@ export class MuiListRowComponent {
   );
 
   onRowClick(): void {
-    if (this.disabled()) return;
+    if (this.disabled() || !this.pressable()) return;
     this.pressed.emit();
   }
 
