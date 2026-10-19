@@ -1,8 +1,11 @@
 //! AVIF samples are normalized to the bitmap recipe's sRGB input contract.
 use crate::raster::RasterImage;
 
-pub(super) fn normalizes_to_srgb(header: &super::Dav1dSequenceHeader) -> bool {
-    header.pri as u32 == 12 && header.trc as u32 == 13
+pub(super) fn normalizes_to_srgb(bytes: &[u8], header: &super::Dav1dSequenceHeader) -> bool {
+    let cicp = crate::avif_boxes::read_avif_boxes(bytes)
+        .cicp
+        .unwrap_or((header.pri as u16, header.trc as u16));
+    cicp == (12, 13)
 }
 
 pub(super) fn normalize_colour(image: RasterImage, p3: bool) -> RasterImage {

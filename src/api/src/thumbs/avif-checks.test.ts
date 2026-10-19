@@ -71,6 +71,39 @@ describe('checkAvifOutput (maple)', () => {
       }));
   }
 
+  for (const [primaries, transfer] of [
+    [12, 13],
+    [1, 16],
+    [9, 13],
+    [2, 2],
+    [1, 13],
+    [1, 2],
+    [2, 13],
+  ]) {
+    it(`checks container-only CICP ${primaries}/${transfer} independently of sample layout`, () =>
+      withDir(async (dir) => {
+        const source = Buffer.from(await readFile(join(ICC_FIXTURES, 'p3-rgb.avif')));
+        const icc = source.indexOf('prof');
+        const nclx = source.indexOf('nclx');
+        expect(icc).toBeGreaterThan(4);
+        expect(nclx).toBeGreaterThan(4);
+        source.write('free', icc - 4, 'ascii');
+        source.writeUInt16BE(primaries!, nclx + 4);
+        source.writeUInt16BE(transfer!, nclx + 6);
+        const p = join(dir, 'container-colour.avif');
+        await writeFile(p, source);
+        const meta = await maple(p).metadata();
+        expect(meta.hasProfile).toBe(false);
+        expect(meta.space).toBe('srgb');
+        expect(meta.colorPrimaries).toBe(primaries);
+        expect(meta.transferCharacteristics).toBe(transfer);
+        expect(await maple(p).validateIntegrity()).toEqual({ ok: true });
+        const result = await checkAvifOutput(p, 256);
+        expect(result.ok).toBe([1, 2].includes(primaries!) && [13, 2].includes(transfer!));
+        if (!result.ok) expect(result.reason).toContain('unexpected CICP');
+      }));
+  }
+
   it('rejects an AVIF whose source ICC was retained by withMetadata', () =>
     withDir(async (dir) => {
       const p = join(dir, 'kept-profile.avif');

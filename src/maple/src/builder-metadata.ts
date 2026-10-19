@@ -56,6 +56,8 @@ function metadataFromReply(reply: Record<string, unknown>): ImageMetadata {
     hasAlpha: m.hasAlpha as boolean,
     hasProfile: m.hasProfile as boolean,
     space: m.space as string,
+    colorPrimaries: (m.colorPrimaries as number | null) ?? undefined,
+    transferCharacteristics: (m.transferCharacteristics as number | null) ?? undefined,
     depth: m.depth as string,
     density: (m.density as number | null) ?? undefined,
     size: m.size as number,
@@ -323,7 +325,10 @@ export function applyWithExif(
     });
     // Snapshot caller-owned objects; later mutation cannot silently alter a recipe.
     const authored = entries.reduce<ExifTags>(
-      (result, [ifd, tags]) => ({ ...result, [ifd]: { ...result[ifd], ...tags } }),
+      (result, [ifd, tags]) => ({
+        ...result,
+        [ifd]: { ...result[ifd], ...tags },
+      }),
       {},
     );
     state.metadata.exifTags = Object.fromEntries(

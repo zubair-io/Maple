@@ -44,7 +44,8 @@ function errMessage(e: unknown): string {
  *     space other than `srgb`. This pipeline's bare AVIF encoder writes
  *     untagged 8-bit sRGB derivatives. The probe's `space` describes channel
  *     layout/sample depth (`rgb16`, `b-w`, etc.), not CICP primaries; it does
- *     not prove an arbitrary AVIF's colour signalling is sRGB.
+ *     not prove an arbitrary AVIF's colour signalling is sRGB. CICP must
+ *     also specify sRGB or unspecified primaries and transfer.
  *  4. Integrity: a full pixel decode must succeed. `.metadata()` alone is
  *     NOT sufficient — it can return a plausible width/height read straight
  *     from the AVIF's meta/header box even when the pixel payload is
@@ -92,7 +93,19 @@ export async function checkAvifOutput(
     };
   }
   if (meta.space !== 'srgb') {
-    return { ok: false, reason: `unexpected colourspace "${meta.space}" (expected srgb)` };
+    return {
+      ok: false,
+      reason: `unexpected colourspace "${meta.space}" (expected srgb)`,
+    };
+  }
+  if (
+    ![1, 2].includes(meta.colorPrimaries ?? NaN) ||
+    ![13, 2].includes(meta.transferCharacteristics ?? NaN)
+  ) {
+    return {
+      ok: false,
+      reason: `unexpected CICP primaries ${meta.colorPrimaries} / transfer ${meta.transferCharacteristics} (expected sRGB)`,
+    };
   }
   const intact = await image.validateIntegrity();
   return intact.ok ? { ok: true } : { ok: false, reason: `pixel decode failed: ${intact.error}` };
