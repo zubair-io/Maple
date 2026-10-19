@@ -172,7 +172,7 @@ describe('DescribeServerPool — truncated output', () => {
     const tried: string[] = [];
     const result = await pool.run(async (_provider, server) => {
       tried.push(server.url);
-      if (server.url === servers[0]!.url) throw new TruncatedOutputError('cut off');
+      if (server.url === servers[0]!.url) throw new TruncatedOutputError('cut off', 0);
       return 'ok';
     });
     expect(result).toBe('ok');
@@ -183,7 +183,7 @@ describe('DescribeServerPool — truncated output', () => {
     const pool = poolOf();
     const error = await pool
       .run(async () => {
-        throw new TruncatedOutputError('cut off');
+        throw new TruncatedOutputError('cut off', 0);
       })
       .catch((e: unknown) => e);
     expect(error).toBeInstanceOf(TruncatedOutputError);

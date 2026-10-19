@@ -104,20 +104,21 @@ export class OpenAIProvider implements DescribeProvider {
       throw new RemoteError(`Malformed OpenAI JSON: ${msg}`, false);
     }
 
+    const inTokens =
+      typeof parsed.usage?.prompt_tokens === 'number' ? parsed.usage.prompt_tokens : 0;
+    const outTokens =
+      typeof parsed.usage?.completion_tokens === 'number' ? parsed.usage.completion_tokens : 0;
+    const cost = priceForModel(opts.model, inTokens, outTokens);
     if (firstChoiceFinishReason(parsed.choices) === 'length') {
       throw new TruncatedOutputError(
         `OpenAI stopped generating before it finished (finish_reason=length, max_tokens=${MAX_OUTPUT_TOKENS})`,
+        cost,
       );
     }
     const text = extractFirstChoiceText(parsed.choices);
     if (text.length === 0) {
       throw new RemoteError('OpenAI returned empty content', false);
     }
-    const inTokens =
-      typeof parsed.usage?.prompt_tokens === 'number' ? parsed.usage.prompt_tokens : 0;
-    const outTokens =
-      typeof parsed.usage?.completion_tokens === 'number' ? parsed.usage.completion_tokens : 0;
-    const cost = priceForModel(opts.model, inTokens, outTokens);
     return {
       text,
       cost_usd: cost,

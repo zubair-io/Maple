@@ -44,6 +44,7 @@ import { DescribeServerPool } from '../../enrichment/describe-server-pool.ts';
 import { describeServersForRuntime } from '../describe-capacity.ts';
 import {
   getDescribeProvider,
+  TruncatedOutputError,
   type DescribeProviderName,
 } from '../../enrichment/describe-providers/index.ts';
 import {
@@ -284,19 +285,26 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // on the least-loaded healthy endpoint and re-runs this on the next
   // server if the one it picked fails in a way that is the server's fault
   // (network / timeout / 5xx). A terminal 4xx propagates on the first try.
+  const truncatedCallCosts: number[] = [];
   const { result, server } = await pool.run(async (provider, pickedServer) => ({
-    result: await provider.describe([jpegBytes], {
-      systemPrompt,
-      model: pickedServer.model ?? model,
-      // Constrain Ollama's output to the VisionDoc schema. Ollama 0.5+
-      // enforces this at decode time, so the model cannot emit out-of-enum
-      // values, drop required fields, or produce malformed JSON. The
-      // parse-vision-json synonym maps stay as defense in depth for older
-      // Ollama versions and edge cases.
-      format: provider.name === 'ollama' ? VISION_DOC_JSON_SCHEMA : undefined,
-    }),
+    result: await provider
+      .describe([jpegBytes], {
+        systemPrompt,
+        model: pickedServer.model ?? model,
+        // Constrain Ollama's output to the VisionDoc schema. Ollama 0.5+
+        // enforces this at decode time, so the model cannot emit out-of-enum
+        // values, drop required fields, or produce malformed JSON. The
+        // parse-vision-json synonym maps stay as defense in depth for older
+        // Ollama versions and edge cases.
+        format: provider.name === 'ollama' ? VISION_DOC_JSON_SCHEMA : undefined,
+      })
+      .catch((err: unknown) => {
+        if (err instanceof TruncatedOutputError) truncatedCallCosts.push(err.cost_usd);
+        throw err;
+      }),
     server: pickedServer,
   }));
+  const costUsd = truncatedCallCosts.reduce((sum, cost) => sum + cost, result.cost_usd);
 
   // Strict parse — throws VisionParseError on malformed output. The runtime
   // dead-letters the row after maxAttempts; operators triage via
@@ -320,7 +328,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
       model: server.model ?? model,
       prompt_version: DESCRIBE_PROMPT_VERSION,
       generated_at: now,
-      cost_usd: result.cost_usd,
+      cost_usd: costUsd,
       ...result.provider_info,
     },
     // Structured vision subdoc — the new canonical source. The screenshot

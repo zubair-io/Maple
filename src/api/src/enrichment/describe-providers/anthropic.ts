@@ -121,19 +121,20 @@ export class AnthropicProvider implements DescribeProvider {
       throw new RemoteError(`Malformed Anthropic JSON: ${msg}`, false);
     }
 
+    const inTokens = typeof parsed.usage?.input_tokens === 'number' ? parsed.usage.input_tokens : 0;
+    const outTokens =
+      typeof parsed.usage?.output_tokens === 'number' ? parsed.usage.output_tokens : 0;
+    const cost = priceForModel(opts.model, inTokens, outTokens);
     if (parsed.stop_reason === 'max_tokens') {
       throw new TruncatedOutputError(
         `Anthropic stopped generating before it finished (stop_reason=max_tokens, max_tokens=${MAX_OUTPUT_TOKENS})`,
+        cost,
       );
     }
     const text = extractText(parsed.content);
     if (text.length === 0) {
       throw new RemoteError('Anthropic returned empty content', false);
     }
-    const inTokens = typeof parsed.usage?.input_tokens === 'number' ? parsed.usage.input_tokens : 0;
-    const outTokens =
-      typeof parsed.usage?.output_tokens === 'number' ? parsed.usage.output_tokens : 0;
-    const cost = priceForModel(opts.model, inTokens, outTokens);
     return {
       text,
       cost_usd: cost,
