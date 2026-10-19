@@ -9,6 +9,10 @@ use crate::view::{
     acr_fit::model::{ciede2000, srgb_linear_to_lab},
     agx_inverse::srgb_gamma_inv,
 };
+#[path = "paired_projection.rs"]
+mod projection;
+use projection::constrain_to_prior;
+
 pub(super) const GRID: usize = 9;
 pub(super) const CELLS: usize = GRID * GRID * GRID;
 // Allow small regional sampling/quantization drift; image acceptance budgets stay fixed.
@@ -87,48 +91,6 @@ fn solve(a: &[f64], b: &[f64]) -> Vec<f64> {
     x
 }
 
-fn constrain_to_prior(data: &mut [f32], prior: &ColorLut) {
-    let n = prior.size;
-    let epsilon = 0.002 / (n - 1) as f32;
-    for v in data.iter_mut() {
-        *v = v.clamp(0., 1.);
-    }
-    for _ in 0..32 {
-        for z in 0..n {
-            for y in 0..n {
-                for x in 0..n {
-                    let i = ((z * n + y) * n + x) * 3;
-                    for (c, (coordinate, stride)) in
-                        [(x, 3), (y, 3 * n), (z, 3 * n * n)].into_iter().enumerate()
-                    {
-                        if coordinate + 1 < n {
-                            project_edge(data, &prior.data, i + c, i + stride + c, epsilon);
-                        }
-                    }
-                }
-            }
-        }
-        for k in 0..n - 1 {
-            let i = ((k * n + k) * n + k) * 3;
-            let j = (((k + 1) * n + k + 1) * n + k + 1) * 3;
-            for c in 0..3 {
-                project_edge(data, &prior.data, i + c, j + c, epsilon);
-            }
-        }
-    }
-}
-
-fn project_edge(data: &mut [f32], prior: &[f32], i: usize, j: usize, epsilon: f32) {
-    // The existing calibration remains feasible, including any existing folds.
-    let minimum = (prior[j] - prior[i]).min(epsilon);
-    let deficit = minimum - (data[j] - data[i]);
-    if deficit > 0. {
-        let shift = deficit * 0.5;
-        data[i] = (data[i] - shift).clamp(0., 1.);
-        data[j] = (data[j] + shift).clamp(0., 1.);
-    }
-}
-
 fn solve_observations(
     observations: &[Observation],
     prior: &ColorLut,
@@ -139,7 +101,11 @@ fn solve_observations(
     }
     let mut a = vec![0.; CELLS * CELLS];
     let mut b = vec![[0.; 3]; CELLS];
+    let mut confidence = vec![0.; prior.size.pow(3)];
     for row in observations.iter().filter(|row| !row.validation) {
+        for &(j, w) in &row.artifact_weights {
+            confidence[j] += w * w;
+        }
         for &(j, u) in &row.weights {
             for &(k, v) in &row.weights {
                 a[j * CELLS + k] += u * v;
@@ -194,7 +160,10 @@ fn solve_observations(
             node[c] += delta[c];
         }
     }
-    constrain_to_prior(&mut result.data, prior);
+    for weight in &mut confidence {
+        *weight = *weight / count as f64 + 1e-8;
+    }
+    constrain_to_prior(&mut result.data, prior, &confidence);
     Some((result, coarse))
 }
 
