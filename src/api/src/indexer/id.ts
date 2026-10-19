@@ -160,7 +160,7 @@ export async function hashFileForId(absPath: string): Promise<{
     return {
       maple_id: id.hex,
       sha1_head: toHex(sha1(concat(headChunks))),
-      size: stat.size,
+      size: position,
       mtime: stat.mtimeMs,
     };
   } finally {
