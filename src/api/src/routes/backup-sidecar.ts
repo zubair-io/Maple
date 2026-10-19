@@ -34,7 +34,7 @@
  *   404 — library not found, or no prior upload (neither maple_id nor device+phasset matched)
  *   413 — body exceeds 256 KB
  */
-import { backupId, backupLibrary, backupLibraryId } from './backup-id.ts';
+import { backupId, backupLibrary, backupLibraryId, isSafeRelPath } from './backup-id.ts';
 import { atomicMove } from '../backup/fs-util.ts';
 import { Elysia, t } from 'elysia';
 import type { ObjectId } from '../db/object-id.ts';
@@ -50,21 +50,6 @@ import { recordSidecarDivergence } from '../db/repos/sidecar-divergences.repo.ts
 
 const log = childLogger('backup-sidecar');
 const MAX_SIDECAR_BYTES = 256 * 1024; // 256 KB
-
-/**
- * Validate that a relative path is safe: no ".." segments, no leading slash,
- * no backslash, does not start with "." at the first segment.
- */
-function isSafeRelPath(relPath: string): boolean {
-  if (!relPath || relPath.length === 0 || relPath.length > 2048) return false;
-  if (relPath.startsWith('/') || relPath.startsWith('\\')) return false;
-  const parts = relPath.split(/[/\\]/);
-  for (const part of parts) {
-    if (part === '..' || part === '.') return false;
-    if (part.length === 0) return false;
-  }
-  return true;
-}
 
 /** The raw XMP bytes (Buffer or ArrayBuffer), or why they can't be stored. */
 function readSidecarBody(body: unknown): { buf: Buffer } | { status: number; error: string } {
