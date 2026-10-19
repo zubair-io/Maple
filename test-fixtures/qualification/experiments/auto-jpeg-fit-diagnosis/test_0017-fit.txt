@@ -1,0 +1,15 @@
+fixture: 26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e
+pairs: 15114588
+auto1_mean_de00: 10.4923
+auto1_rms_de00: 12.2762
+auto1_smoothness_max_second_diff: 0.04265
+auto1_gamut_probe[saturated_red]: 0.2620
+auto1_gamut_probe[saturated_green]: 0.2438
+auto1_gamut_probe[saturated_blue]: 0.1512
+auto2_mean_de00: 10.3124
+auto2_rms_de00: 12.5880
+auto2_smoothness_max_second_diff: 0.01597
+auto2_gamut_probe[saturated_red]: 0.0000
+auto2_gamut_probe[saturated_green]: 0.0000
+auto2_gamut_probe[saturated_blue]: 0.0000
+wb_offset: {"gains":[1.0000,1.0000,1.0000],"temperature_k":6500.0,"tint":0.00,"pairs_used":14160816,"pairs_total":15114588,"spread_log2":3.3211,"confident":false}
