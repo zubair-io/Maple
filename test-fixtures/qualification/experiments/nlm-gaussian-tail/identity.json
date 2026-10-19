@@ -1,0 +1,18 @@
+{
+  "status": "Experimental Gaussian tail restoration, not adopted. Original Raw/XMP/references/settings/budgets unchanged.",
+  "base_commit": "b4523b79e616f2745f3b0a7e8e1c60b9bff08424",
+  "binary_sha256": "786ec17c8e9e3ae974cb6ca39969baa3022b7531b36eb667dfe3a0be2b243208",
+  "pipeline_output_version": "36 plus Gaussian NLM tail",
+  "auto_fit_model_version": "6; fresh-process diagnostic fits; production change would bump identity",
+  "source_patch_sha256": "f9274cf41897030079f76cd4056f4fde2af1f685d8ed596d7248e60d54ae31c8",
+  "cpu_nlm_tests_passed": 20,
+  "gpu_noise_tests_passed": 22,
+  "gpu_noise_tests_ignored": 2,
+  "caller_noise_tests_passed": 10,
+  "composed_gpu_cpu_passed": 1,
+  "original_cpu_regressions_failed": 3,
+  "original_gpu_regression_failed": 1,
+  "existing_assertion_updates": "Exact-zero cutoff expectations replaced with Gaussian tails/analytic weighted mean; f64 oracle stops copying the cutoff. Existing numeric error bounds and all image budgets unchanged.",
+  "math_evidence": "Panasonic pixel b plane has48of48 x>=8; old total neighbor weight0 vs Gaussian0.00077313. a plane still has positive weights. Tail removal prevents this asymmetric all-or-none normalization.",
+  "primary_method": "https://www.ipol.im/pub/art/2011/bcm_nlm/revisions/2011-09-13/bcm_nlm.htm"
+}

@@ -1,0 +1,7 @@
+{
+  "status": "Diagnostic only. Staged sidecars add only HotPixelSuppression On. No original input mutation or production default change.",
+  "source_commit": "b4523b79e616f2745f3b0a7e8e1c60b9bff08424",
+  "binary_sha256": "a0dbab682e20b1c855ac880bc9c01faca11b50c81d12241136dabfe1158555f2",
+  "scope": "91case original-condition control cohort with only defect filter toggled. Reuse1already-completed identical-source Panasonic exposure diagnostic;90fresh renders planned. Stop on first newly failing physical case and retain all completed reports.",
+  "rationale": "Isolated measured B0.21149 versus eight same-color neighbors below0.059; existing conservative defect predicate flags it. Exposure target max11.868->7.510 below7.90 in diagnostic."
+}

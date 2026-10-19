@@ -1,0 +1,44 @@
+{
+  "scope": "ROI interior matches the existing conservative hot/dead detector and median replacement exactly, with every unflagged measured CFA sample unchanged. Before normal-mode demosaic preserves all measured samples exactly. BE0. Counterfactual modeOn only; not a proposal to mutate original data.",
+  "roi": [
+    2400,
+    128,
+    512,
+    256
+  ],
+  "checked_sites": 128016,
+  "normal_measured_samples_bit_exact": true,
+  "mode_on_expected_medians_and_unflagged_samples_bit_exact": true,
+  "groups": {
+    "red_blue": {
+      "same_color_neighbors": 8,
+      "hot": 163,
+      "dead": 1350
+    },
+    "green": {
+      "same_color_neighbors": 12,
+      "hot": 43,
+      "dead": 998
+    }
+  },
+  "witness": {
+    "sensor_position": [
+      2608,
+      254
+    ],
+    "cfa_color": "B",
+    "sample": 0.2114902138710022,
+    "neighbors": [
+      0.0002508780744392425,
+      0.010286000557243824,
+      0.011791269294917583,
+      0.01379829365760088,
+      0.022328147664666176,
+      0.024836929515004158,
+      0.03487205132842064,
+      0.05895634740591049
+    ],
+    "hot_threshold": 0.13791269481182097,
+    "median": 0.018063221126794815
+  }
+}

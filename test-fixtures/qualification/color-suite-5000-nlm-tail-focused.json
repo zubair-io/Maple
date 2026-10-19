@@ -1,0 +1,69 @@
+{
+  "status": "Frozen candidate passes all5opposing anchors and all20Auto baselines.25focused comparisons total;24pass,1existing dehaze failure. Complete candidate gate not run yet; no production adoption claimed here.",
+  "identity": {
+    "status": "Experimental Gaussian tail restoration, not adopted. Original Raw/XMP/references/settings/budgets unchanged.",
+    "base_commit": "b4523b79e616f2745f3b0a7e8e1c60b9bff08424",
+    "binary_sha256": "786ec17c8e9e3ae974cb6ca39969baa3022b7531b36eb667dfe3a0be2b243208",
+    "pipeline_output_version": "36 plus Gaussian NLM tail",
+    "auto_fit_model_version": "6; fresh-process diagnostic fits; production change would bump identity",
+    "source_patch_sha256": "f9274cf41897030079f76cd4056f4fde2af1f685d8ed596d7248e60d54ae31c8",
+    "cpu_nlm_tests_passed": 20,
+    "gpu_noise_tests_passed": 22,
+    "gpu_noise_tests_ignored": 2,
+    "caller_noise_tests_passed": 10,
+    "composed_gpu_cpu_passed": 1,
+    "original_cpu_regressions_failed": 3,
+    "original_gpu_regression_failed": 1,
+    "existing_assertion_updates": "Exact-zero cutoff expectations replaced with Gaussian tails/analytic weighted mean; f64 oracle stops copying the cutoff. Existing numeric error bounds and all image budgets unchanged.",
+    "math_evidence": "Panasonic pixel b plane has48of48 x>=8; old total neighbor weight0 vs Gaussian0.00077313. a plane still has positive weights. Tail removal prevents this asymmetric all-or-none normalization.",
+    "primary_method": "https://www.ipol.im/pub/art/2011/bcm_nlm/revisions/2011-09-13/bcm_nlm.htm"
+  },
+  "compared": 25,
+  "failures": 1,
+  "cleared_source36": [
+    {
+      "fixture": "test_0001",
+      "case": "exposure_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "passed",
+      "breaches": [],
+      "mean": 0.6838225617311218,
+      "p95": 1.609427524518185,
+      "max": 7.510037896181721,
+      "bR": 0.002130698956815267,
+      "bG": 0.0004906606112511622,
+      "bB": 0.0013703298687790003,
+      "n_pixels": 9000000,
+      "reference_protocol": "legacy-direct-reference"
+    },
+    {
+      "fixture": "test_0001",
+      "case": "temperature_max",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "passed",
+      "breaches": [],
+      "mean": 9.608845374299321,
+      "p95": 17.182091191883075,
+      "max": 56.37556426515471,
+      "bR": 0.036510444479864866,
+      "bG": 0.06369871302115161,
+      "bB": 0.10387180573414158,
+      "n_pixels": 9000000,
+      "reference_protocol": "legacy-direct-reference"
+    }
+  ],
+  "new_failures_source36": [],
+  "auto_baselines": {
+    "compared": 20,
+    "failed": 0
+  },
+  "ledger": {
+    "path": "color-suite-5000-nlm-tail-focused-cases.jsonl",
+    "sha256": "773a0cbeac14d0b5107030bf506c47874a831964be7fbed73b1cc769a4aacbe7",
+    "records": 25
+  },
+  "method_reference": "https://www.ipol.im/pub/art/2011/bcm_nlm/revisions/2011-09-13/bcm_nlm.htm",
+  "interpretation": "NLM normalizes weights and uses the neighborhood maximum for the center. Arbitrarily dropping all low absolute neighbor weights therefore creates an identity fallback; independent color components cross that threshold at different times. The candidate retains Gaussian tails and preserves existing numerical bounds/settings."
+}

@@ -1,0 +1,10 @@
+{
+  "status": "Experimental default policy, not adopted. No original input mutation.",
+  "base_commit": "b4523b79e616f2745f3b0a7e8e1c60b9bff08424",
+  "source_patch_sha256": "2a3f60c7414c74556e775d026b09a1b6655408fb740f659749aff6832f325a6a",
+  "binary_sha256": "f77dc10a38ce602c43aeee4b787322ff53e99d6f5d8b08ffd15d50feabb9fe90",
+  "pipeline_output_version": "36 plus experimental default defect correction",
+  "auto_fit_model_version": "6 experimental fresh-process fits; production change would require new fit identity",
+  "difference_from_override_study": "Both active default model and invariant pinned Auto-fit model now select existing defect correction. No live edits leak into fitter. Enum/default model agree.",
+  "source_changes": "Only existing default value changes in2canonical declarations. Existing detector, numerical thresholds, CFA medians and all original inputs unchanged. Historical default-Off documentation intentionally retained in rejected-or-adopted later prototype."
+}
