@@ -1,6 +1,6 @@
 # Testing and CI
 
-Maple's test surface has three layers. **Unit and integration tests** run per language in their own toolchain (`cargo test`, `swift test`, `bun test`, `ng test`, `dotnet test`, `vitest`). **Harness gates** are shell scripts under `src/scripts/` that render images through the real pipeline and compare them numerically — against Adobe Camera Raw references, against committed goldens, or against closed-form predictions — with per-case ceilings stored in JSON files that may only ever get stricter. **Repo tooling gates** under `tools/` guard cross-cutting invariants: file size, generated-code drift, budget ratchets, component-contract docs. GitHub Actions workflows wire these into CI; a few of the heaviest harnesses depend on RAW fixtures that are gitignored, so they deliberately no-op on a stock runner and only become meaningful on a fixture-provisioned machine.
+Maple's test surface has three layers. **Unit and integration tests** run per language in their own toolchain (`cargo test`, `swift test`, `bun test`, `ng test`, `dotnet test`, `vitest`). **Harness gates** are shell scripts under `src/scripts/` that render images through the real pipeline and compare them numerically — against camera embedded JPEGs, committed Maple goldens, or closed-form predictions — with per-case ceilings stored in JSON files that may only ever get stricter. **Repo tooling gates** under `tools/` guard cross-cutting invariants: file size, generated-code drift, budget ratchets, component-contract docs. GitHub Actions workflows wire these into CI; a few of the heaviest harnesses depend on RAW fixtures that are gitignored, so they deliberately no-op on a stock runner and only become meaningful on a fixture-provisioned machine.
 
 The rule that shapes everything colour-related: **no eyeballing**. A screenshot comparison is never acceptable evidence for a pipeline change. The number that counts is CIEDE2000 (ΔE₀₀) plus per-channel bias, produced by one shared implementation in [`src/scripts/compare_images.py`](../src/scripts/compare_images.py).
 
@@ -16,7 +16,7 @@ The table below summarizes test and review workflows in [`.github/workflows/`](.
 | `web.yml`             | `build-wasm`, `web-build`, `web-test`, `web-test-common`, `web-webgpu-smoke`, `web-workflow-acceptance`, selection/result | One shared WASM build; Angular builds and unit suites, artifact/capability/adoption checks and Playwright; optional fixture-gated WebGPU smoke                                                             | every push to `main` + every PR; jobs selected by dependencies                                                                                                                                      |
 | `maple-types.yml`     | `maple-typecheck`                                                                                                         | Strict package source and test typechecks using the frozen API dependency lock; no native library or image fixtures required                                                                               | every push to `main` + every PR + `workflow_dispatch`                                                                                                                                               |
 | `api.yml`             | `api-typecheck`, `api-tests`                                                                                              | `bun run typecheck` for source and tests, then `bun test --timeout 30000` with no database service                                                                                                         | every push to `main` + every PR + `workflow_dispatch`                                                                                                                                               |
-| `raw-pipeline.yml`    | `build-raw-ffi`, `raw-gpu`, `raw-gpu-metal`, `rust-tests`, `color-pipeline`, `pano-pipeline`                              | FFI compile+test, GPU/WGSL parity on software Vulkan, GPU/WGSL parity on real Metal (non-required, #2315), fixture-free Rust tests + synthetic gates, the ACR colour harness, the pano harness             | pushes/PRs touching `src/raw-pipeline/**`, the harness scripts, or the budget JSONs                                                                                                                 |
+| `raw-pipeline.yml`    | `build-raw-ffi`, `raw-gpu`, `raw-gpu-metal`, `rust-tests`, `color-pipeline`, `pano-pipeline`                              | FFI compile+test, GPU/WGSL parity on software Vulkan, GPU/WGSL parity on real Metal (non-required, #2315), fixture-free Rust tests + synthetic gates, Auto vs embedded-JPEG accuracy, the pano harness             | pushes/PRs touching `src/raw-pipeline/**`, the harness scripts, or the budget JSONs                                                                                                                 |
 | `apple.yml`           | `swift-build`, `swift-regressions`, `swift-regressions-coverage`                                                          | MapleCore compile gate, executable regressions against a real host Rust archive, and the run/excluded class-list gate                                                                                      | every push/PR runs `changes`; the macOS jobs run only when `tools/ci_changes.py` selects `swift` (Apple source, raw-pipeline, shared fixtures, API fixtures Swift boots, recipe-interchange inputs) |
 | `windows.yml`         | Wrapper contract, build/tests, selection/result                                                                           | Supported Windows wrapper build, raw-core tests, WinUI XMP/FFI-layout tests and real window-lifecycle smoke                                                                                                | every push to `main` + every PR; jobs selected by dependencies                                                                                                                                      |
 | `linux.yml`           | Native build/tests and archive                                                                                            | All-target Clippy, native library/integration tests serially on required software Vulkan, release binary and local-prefix archive; committed small fixtures, no physical-GPU or real-account qualification | Linux/shared Rust, film assets, native fixtures/icon or workflow changes; manual dispatch                                                                                                           |
@@ -114,7 +114,7 @@ Fixtures live in one shared `test-fixtures/` tree at the repository root, read b
 
 **Skip-pass** is the convention for everything that needs the gitignored RAWs: the script prints a "skipping" line and exits 0, so a clone without fixtures doesn't fail spuriously. Two refinements matter:
 
-- **Fail-closed once fixtures are half-present.** `test_color_pipeline.sh` skips only at preflight (missing manifest or missing budgets). Once both exist it refuses to report green on zero comparisons — an empty candidate directory, an unresolvable RAW path, or a `FILTER` matching nothing exits non-zero rather than passing vacuously.
+- **Fail-closed once fixtures are half-present.** `test_color_pipeline.sh` requires RAWs and measurable embedded-JPEG comparisons. Empty selections, render errors and zero comparisons fail; CI without physical fixtures reports NOT TESTED.
 - **Ignored, not silently skipped, in Rust.** Fixture-dependent tests are marked `#[cfg_attr(not(feature = "fixtures"), ignore)]`, so on a stock runner they appear in the `ignored` count. With `--features fixtures` a missing file **panics** ([`raw-core/src/test_support/fixtures.rs`](../src/raw-pipeline/raw-core/src/test_support/fixtures.rs)) — broken provisioning fails loudly instead of no-opping.
 
 The synthetic gates (grey, colour chart, banding) synthesise their inputs in memory and therefore **never** skip. They are the strictest always-on regression net in the repo.
@@ -138,7 +138,7 @@ cargo test -p raw-ffi --test develop_preview_parity
 cargo fmt --check -p raw-ffi        # raw-ffi is rustfmt-canonical; the rest of the workspace is not
 
 # Golden tests that shell out to compare_images.py — opt-in, needs Python + fixtures.
-cargo test -p raw-core --features golden golden -- --nocapture --test-threads=1
+# ACR golden image tests are archived; use test_color_pipeline.sh for Auto accuracy.
 ```
 
 Cargo features on `raw-core` that change what gets tested:
@@ -147,11 +147,11 @@ Cargo features on `raw-core` that change what gets tested:
 | -------------- | --------------------------------------------------------------------------------------------- |
 | `test-support` | DNG-synthesis helpers. Required by every `tests/*.rs` integration target. Never ship it.      |
 | `fixtures`     | Un-ignores the fixture-gated tests and makes a missing fixture a panic.                       |
-| `golden`       | Enables `tests/golden.rs`, which renders a fixture and shells out to `compare_images.py`.     |
+
 | `stage-dump`   | Writes one OpenEXR per pipeline stage to `$MAPLE_STAGE_DUMP`. Adds ~2 MB; diagnostics only.   |
 | `gpu`          | Pulls in the `raw-gpu` crate (wgpu/WGSL). Off by default so CPU-only builds don't carry wgpu. |
 
-The integration targets under `raw-core/tests/` are the synthetic gates' entry points: `grey_invariants`, `grey_adjustments`, `grey_adjustments_display`, `grey_adjustments_wb`, `grey_dcp_phase1`, `color_chart_invariants`, plus `golden` and the ACR-fitting helpers.
+The integration targets under `raw-core/tests/` are the synthetic gates' entry points: `grey_invariants`, `grey_adjustments`, `grey_adjustments_display`, `grey_adjustments_wb`, `grey_dcp_phase1`, `color_chart_invariants`, plus the solver math helpers (synthetic inputs, not Adobe image comparisons).
 
 The `build-raw-ffi` job also compile-gates `cargo build --bin maple-cli --features pano`, which is the only always-on CI step that compiles `maple-pano` with its ML stack.
 
@@ -159,116 +159,43 @@ The `build-raw-ffi` job also compile-gates `cargo build --bin maple-cli --featur
 
 ## The colour harness
 
-[`src/scripts/test_color_pipeline.sh`](../src/scripts/test_color_pipeline.sh) is the canonical perceptual gate.
+`src/scripts/test_color_pipeline.sh` is the canonical Auto appearance gate.
+It delegates to `test_auto_profile_match.sh`: each RAW is rendered with Auto
+and compared against its own camera-embedded JPEG, never an Adobe render.
+The established metric is signed channel bias in five reference-luma bands,
+with the unchanged 0.05 limit. Preview extraction normalizes orientation and
+Adobe-RGB previews to display sRGB. Geometry uses the established aspect
+center-crop, BOX resize and inner80% measurement.
 
 ```bash
-src/scripts/test_color_pipeline.sh                      # full manifest
-FILTER=test_0000 src/scripts/test_color_pipeline.sh     # one fixture
-FILTER=baseline  src/scripts/test_color_pipeline.sh     # one case across fixtures
-PREFERRED_RES=full src/scripts/test_color_pipeline.sh   # full-res references
+src/scripts/test_color_pipeline.sh
+FILTER=test_0000 src/scripts/test_color_pipeline.sh
+RAW_DIR=/path/to/raws OUTPUT_DIR=/path/to/new-evidence src/scripts/test_color_pipeline.sh
 ```
 
-It builds `maple-cli` in release (unconditionally — cargo's own fingerprint is the staleness check, so a stale prebuilt binary can't silently report old results), renders the manifest with `maple-cli batch`, and compares through `compare_images.py`'s `diff_manifest_case()`. For exact `baseline` cases (Neutral and Auto), the existing down reference supplies the dimensions and its native `full` counterpart supplies the pixels: both full candidate and full reference are reduced with the same Lanczos kernel. A missing native reference is a comparison error; the harness does not fall back to differently filtered down pixels. Other cases retain the legacy direct-reference protocol, including full-resolution detail comparisons; each comparison prints its protocol. Native-pair migration of the remaining corpus is tracked in [#3678](https://github.com/zubair-io/Maple/issues/3678). Output is a column-aligned table sorted by fixture and case, with per-fixture and grand-mean aggregates.
+`MAPLE_CLI` pins a renderer. `MANIFEST` may select baseline RAW paths; reference
+PNG and ACR-budget entries are not read. Evidence retains PNGs, logs, hashes,
+per-band results and `summary.json`. Render/extraction errors, missing RAWs,
+empty selections and zero measurable comparisons fail. Preview-less files
+are explicitly `no-preview`, never passing matches. CI without RAWs reports
+physical accuracy as **NOT TESTED**, while runner contract tests still execute.
 
-**Reference protocol correction (#3633).** The ACR exporter uses Photoshop BICUBICSHARPER for its down PNGs. Previously only the candidate was reduced with Lanczos, attributing a difference between resizing filters to the color pipeline. On the same native 0000 ACR image this discrepancy alone reaches max ΔE 13.89. Matching both reductions corrects that measurement without altering original RAWs, sidecars, either reference tier, dimensions, numerical ceilings or metric definitions. Baseline full/down references must have matching Camera Raw metadata and compatible geometry; candidates must have the exact native reference dimensions. Explicit Adobe authoring sidecars are verified when supplied. This changes reference pixels and metric distributions, so old and new measurements are reported separately. The corpus audit found 576 missing native captures and 10 metadata-free pairs outside the 20 baseline pairs; broader migration is unfinished (#3678). The qualification report `test-fixtures/qualification/color-baseline-3633.md` records the old and corrected protocol results, including unchanged-main controls and reference hashes. The standalone `compare_images.py` CLI retains its existing direct-pair behavior for other callers.
+Neutral retains AgX's intentional appearance. CPU/GPU parity, synthetic grey,
+DCP, exposure, white-balance and clipping invariants remain correctness gates.
+No ACR appearance comparison runs in CI or the color gate. The former shell
+harness and tone-response checks are manual `diagnose_acr_*.sh` tools only.
+Rust/Apple ACR image tests are archived as noncompiled text under
+`test-fixtures/qualification/experiments/retired-acr/`; historical references,
+budgets and failure ledgers remain evidence, not active Auto requirements.
+The old `color_harness` recorder explicitly rejects new qualification writes;
+its historical record does not attest to embedded-JPEG accuracy.
 
-The metric, from [`compare_images.py`](../src/scripts/compare_images.py): mean / p95 / max CIEDE2000 plus per-channel bias (`bias_r`, `bias_g`, `bias_b`). `--zones` adds a shadow/mid/highlight breakdown keyed on the reference's L\*; `--hue-bins N` adds per-hue-angle deltas with low-chroma pixels routed to a neutral bucket. Python deps are pinned in `src/scripts/requirements.txt` (numpy, Pillow, colour-science, scipy, tifffile).
 
-Adobe's `Custom` white balance requires both `Temperature` and `Tint`.
-Reference preparation completes a missing axis only from the same fixture's
-recorded effective `As Shot` baseline PNG (#4784). It preserves authored axes
-and Maple's canonical XMP bytes. A missing baseline or an incomplete Custom pair
-fails preparation or verification; no universal camera white balance is used.
+### Historical Adobe diagnostics
 
-Useful environment overrides: `MAPLE_CLI` (use a prebuilt binary, skipping the build), `MANIFEST`, `BUDGETS`, `KEEP_TMP`, and `ALLOW_MISSING_BUDGET` (by default a case with no budget entry **fails**, which is what forces new cases to be budgeted).
-
-### Auto accuracy and Neutral appearance are different contracts
-
-`Profile::Auto` fits the camera's embedded JPEG. Run
-`src/scripts/test_auto_profile_match.sh` to test that target with the established
-five reference-luma bands and per-channel signed bias budget of 0.05. This is
-independent of Adobe references. `RAW_DIR` selects physical RAWs; alternatively
-`MANIFEST` selects only its baseline RAW paths. `MAPLE_CLI` pins a renderer and
-`OUTPUT_DIR` selects a new directory for retained PNGs, logs, hashes and
-`summary.json`. Missing fixtures, render/extraction errors and zero measurable
-comparisons fail. A genuine missing embedded preview is reported as
-`no-preview`, never a passing comparison. All-previewless runs fail.
-
-CI runs the runner's contract tests without RAW fixtures and the physical Auto
-gate when RAW fixtures are provisioned, retaining its evidence artifact. A runner
-without RAWs explicitly reports Auto as **not tested**.
-
-`test_color_pipeline.sh` separately retains its Auto-to-ACR regression checks.
-Passing those does not establish embedded-JPEG accuracy. Neutral deliberately
-retains AgX's appearance, so an ACR breach alone proves neither a processing bug
-nor an expected AgX difference. Separate reference-setting defects, introduced
-regressions, baseline appearance/calibration candidates and unresolved cases.
-Confirm an expected difference with independent stage attribution; baseline
-bias by itself does not identify AgX as the cause. Existing ACR budgets and
-failure records remain intact during this investigation.
-
-### Explicit native-pair comparison
-
-A qualified nonbaseline case can declare
-`"reference_protocol": "native-pair-lanczos-v1"` in its manifest entry (#4788).
-This requires an `acr_xmp` Adobe authoring sidecar with every audited default
-explicit, matching effective settings in the saved PNGs, a native `full`
-reference, native candidate dimensions, and compatible full/down geometry.
-Unknown protocol names, missing native pixels, and ignored Adobe settings fail
-the comparison. Installing a full PNG does not switch an undeclared legacy
-case. Full-resolution detail still compares every native pixel.
-
-The corpus identity includes the protocol declaration, authoring bytes,
-reference bytes, and comparison implementation, including its helper modules.
-Capture qualification and old/new physical measurements remain prerequisites
-for adopting this declaration. Protocol support does not complete the corpus
-migration tracked by #3678 or represent a renderer improvement.
-
-### The one-way ratchet
-
-`test-fixtures/budgets.json` holds a `{version, fixtures: {<fixture>: {<case>: {mean, p95, max, bias}}}}` table. All four metrics are ceilings, so lower is stricter. **Budgets only go down**, and a budget drops in the same commit that delivers the improvement.
-
-[`tools/check_budget_ratchet.py`](../tools/check_budget_ratchet.py) is the gate. Per cell present on the base branch: a raised ceiling fails, and a _removed_ cell fails too (dropping a budget silently drops its gate). New cells pass — adding coverage is the ratchet turning the right way. CI resolves the PR merge base, `git show`s that revision's `budgets.json`, and diffs:
-
-```bash
-python3 tools/check_budget_ratchet.py --self-test                    # runs unconditionally in CI
-python3 tools/check_budget_ratchet.py --base <old.json> --head test-fixtures/budgets.json
-```
-
-[`test-fixtures/BUDGETS_DRIFT.md`](../test-fixtures/BUDGETS_DRIFT.md) is the log of budgets that are knowingly held rather than re-baselined — currently fourteen cases across `test_0013` and `test_0018` whose ceilings are frozen at values the harness still breaches, deliberately keeping those rows red rather than papering over a real systematic shift.
-
-**Re-baselining (#2335).** A raise is not always a regression: a legitimate re-capture against a changed default pipeline can ratchet most cells down while genuinely raising a few (#814: 218 down, 41 up), and the gate above has no way to let those 41 through short of disabling the whole required check — which would leave no record at all. Instead, cover each raised cell with a `RE-BASELINE:` marker line, one per cell, in the PR body or the head commit's own message (either is scanned; the commit message is the one that survives "Rebase and merge" into `main`'s permanent history, since the PR body itself does not):
-
-```
-RE-BASELINE: test_0013/baseline.max: retuned AgX sigmoid, see #814
-RE-BASELINE: test_0018/baseline_auto.p95: same retune, see #814
-```
-
-A marker with no justification text after the second colon does not count — the raise it would have covered still fails the gate. Every accepted marker is echoed to the CI log (`N audited RE-BASELINE raise(s)`) so the exception is visible next to the run, not just buried in the PR description; a raise still fails if no marker names its exact `<fixture>/<case>.<metric>` cell. Markers only ever excuse a _raise_ — a removed cell fails regardless, same as always.
-
-### Adding a case
-
-1. Save the native ACR capture to `test-fixtures/references/test_NNNN/full/<case>.png` and its down-resolution counterpart to `test-fixtures/references/test_NNNN/down/<case>.png`, with matching Camera Raw settings.
-2. Add the case to `test-fixtures/references/manifest.json`.
-3. Run the harness — it fails with `no-budget-entry`.
-4. Take the printed `mean / p95 / max / bias` and add a budget entry with roughly 5–10% headroom, or pipe the captured table through [`tools/budget_init.py`](../tools/budget_init.py), which does exactly that (`ceil(x * 1.05)` with floors of 0.5 / 1.0 / 1.0 / 0.005) and emits JSON.
-5. Commit the reference, the manifest entry, and the budgets entry together.
-
-`budget_init.py` parses both PASS and FAIL rows, so it is usable on the red run a re-baseline is captured from.
-
-### P3 primaries (#1339, P3 phase 3)
-
-ACR references are sRGB. Once `maple-cli render --target-primaries p3` renders true Display P3 (#1337), the harness can't diff that candidate against an sRGB reference directly — saturated colours would read as "out of budget" everywhere purely from the primaries mismatch, not a real pipeline error. The strategy: render in the target colourspace, **rotate the candidate back to sRGB before the diff**. Same references, same metric — no separate P3 reference set, since the rotation is exact linear-algebra (not a perceptual step), so nothing is lost going through it.
-
-The plumbing landed in this PR — `maple-cli render`/`batch --target-primaries {srgb,p3}` (default `srgb`, byte-identical to the historical behaviour) and `compare_images.py`'s `diff(..., source_primaries="srgb"|"p3")` / `--source-primaries` / `maple-cli diff --source-primaries` — but **no manifest cases or `budgets.json` entries were added**. `test-fixtures/BUDGETS_DRIFT.md` already carries fourteen cases held red pending #814's re-baseline; seeding P3 budgets before that lands would inherit the same unresolved baseline. Adding P3 cases to `test_color_pipeline.sh`'s manifest is a follow-up once #814 is closed, using the same [Adding a case](#adding-a-case) steps above with `--target-primaries p3` on the render side and `--source-primaries p3` on the diff side.
-
-The rotation itself: `pixels_srgb = M_P3→sRGB · pixels_p3`, applied in linear light (decode the shared sRGB OETF, rotate, re-encode) via `compare_images.py`'s `p3_to_srgb_primaries`, where `M_P3→sRGB = inv(M_SRGB_TO_P3)` and `M_SRGB_TO_P3` is copied verbatim from [`raw-core/src/color/matrices.rs::M_SRGB_TO_P3`](../src/raw-pipeline/raw-core/src/color/matrices.rs) — the same matrix `rec2020_to_display(TargetPrimaries::P3)` rotates through, not an independently-derived equivalent. Verify the rotation in isolation, no fixtures or references needed:
-
-```bash
-python3 src/scripts/compare_images.py --self-test
-```
-
-It checks: the two matrices are true inverses; white round-trips exactly (P3 and sRGB share the D65 white point); a synthetic in-gamut patch round-trips sRGB → P3 → sRGB within float rounding noise; an out-of-sRGB-gamut P3 primary clips into `[0,1]` without NaN; and — through the real `diff()` entry, with two temporary PNGs — a P3-rotated candidate against its own sRGB source reads near-zero ΔE while the same pair diffed _without_ the rotation reads far worse, proving the flag is actually wired into the comparison, not just correct in isolation.
+The retired ACR native-pair protocol, budgets and P3 comparison notes are
+preserved in `test-fixtures/qualification/experiments/retired-acr/`.
+They do not define Auto's target or a color CI requirement.
 
 ---
 
@@ -279,15 +206,13 @@ It checks: the two matrices are true inverses; white round-trips exactly (P3 and
 | [`test_synthetic_grey.sh`](../src/scripts/test_synthetic_grey.sh)               | Yes, never skips                                                             | In-memory DNG                       | `rust-tests`              |
 | [`test_synthetic_color_chart.sh`](../src/scripts/test_synthetic_color_chart.sh) | Yes, never skips                                                             | Synthetic 24-patch chart            | `rust-tests`              |
 | [`test_grey_adjustments.sh`](../src/scripts/test_grey_adjustments.sh)           | Yes, never skips                                                             | In-memory DNG                       | `rust-tests`              |
-| [`test_tone_bands.sh`](../src/scripts/test_tone_bands.sh)                       | Yes; skips at preflight                                                      | RAWs + ACR refs                     | **not in CI**             |
-| [`test_tone_exposure.sh`](../src/scripts/test_tone_exposure.sh)                 | Yes; self-tests always run, real renders skip only when both RAWs are absent | Committed ACR ±1 EV refs + two RAWs | `rust-tests`              |
 | [`test_grey_dcp.sh`](../src/scripts/test_grey_dcp.sh)                           | Yes, never skips                                                             | In-memory DNG                       | `rust-tests`              |
 | [`test_banding.sh`](../src/scripts/test_banding.sh)                             | Yes; tail section skips without a RAW                                        | Synthetic ramps                     | `rust-tests`              |
-| [`test_color_pipeline.sh`](../src/scripts/test_color_pipeline.sh)               | Yes; skips at preflight                                                      | RAWs + ACR refs                     | `color-pipeline`          |
+| `test_color_pipeline.sh` | Fails without measurable RAW/JPEG comparisons | RAWs + embedded JPEGs | `color-pipeline` |
 | [`test_pano_pipeline.sh`](../src/scripts/test_pano_pipeline.sh)                 | Partly (see below)                                                           | `raws/pano_*/` sets                 | `pano-pipeline`           |
 | [`test_film_looks.sh`](../src/scripts/test_film_looks.sh)                       | Yes; skips without the RAW or LUT pack                                       | `test_0017.dng` + `.mlut` pack      | **not in CI**             |
 | [`test_face_clustering.sh`](../src/scripts/test_face_clustering.sh)             | Yes                                                                          | Committed JSONL corpus              | `face-clustering-quality` |
-| [`test_auto_profile_match.sh`](../src/scripts/test_auto_profile_match.sh)       | Yes; skips without RAWs                                                      | RAWs + embedded JPEGs               | **not in CI**             |
+| `test_auto_profile_match.sh` | Same canonical JPEG gate | RAWs + embedded JPEGs | `color-pipeline` |
 | [`check_wgsl.sh`](../src/scripts/check_wgsl.sh)                                 | Yes                                                                          | WGSL sources                        | `raw-gpu`                 |
 | [`test_halo_detection.sh`](../src/scripts/test_halo_detection.sh)               | Diagnostic only                                                              | Synthetic disk                      | **not in CI**             |
 | [`test_hue_stability.sh`](../src/scripts/test_hue_stability.sh)                 | Diagnostic only                                                              | Synthetic primaries                 | **not in CI**             |
@@ -378,7 +303,6 @@ The visual harnesses in `src/apple/MapleUITests/` all follow one shape: stage a 
 | Test class             | What it proves                                                                                                                                                                                                         |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MapleUITests`         | One fixture at default settings vs a committed golden (`Goldens/test_0017-default.png`). Budgets: mean ≤ 5, p95 ≤ 10, max ≤ 30, bias ≤ 0.05. Deleting the PNG re-records it and fails with "baseline written"          |
-| `SliderMatrixUITests`  | Every committed slider XMP under `references/<stem>/xmp/` vs its ACR render. Both sides resized to a 1024px long edge. Budgets are loose (Maple's AgX view transform differs from ACR's) and failures attach both PNGs |
 | `SyntheticGreyUITests` | The Apple path (Rust FFI scene-linear → Metal AgX → Metal sRGB encode) lands on the same grey the Rust CPU tail produces: every pixel neutral within ±2 LSB, canvas mean within ±3 LSB of six per-case expected values |
 | `CIEDE2000Tests`       | Cross-validates the Swift ΔE₀₀ port against `compare_images.py` on a committed calibration PNG pair                                                                                                                    |
 
@@ -572,7 +496,7 @@ tools/qualification/record.sh sidecar_contract_apple xctest-macos -- \
   bash -c 'cd src/apple/Packages/MapleCore && swift test --filter SidecarTransactionContract'
 tools/qualification/record.sh gpu_chain_parity_metal metal -- \
   bash -c 'cd src/raw-pipeline && MAPLE_REQUIRE_GPU=1 cargo test -p raw-wasm --features gpu gpu_render'
-tools/qualification/record.sh color_harness cpu-reference -- bash src/scripts/test_color_pipeline.sh
+# Retired ACR color_harness records are historical; run the Auto JPEG gate directly.
 
 # Then regenerate the registry and commit both.
 bash tools/codegen.sh
@@ -584,7 +508,7 @@ CI keeps the CI-runnable records honest with `record.sh --check`, which re-runs 
 
 ### Lens corrections
 
-`test_color_pipeline.sh` renders with `--no-bundled-lens`: the ACR references were produced without lens-profile corrections, so the colour gate measures colour with the same geometry on both sides (embedded DNG corrections still apply on both). Lens geometry has its own gates below.
+The Auto JPEG gate renders with default geometry and records its center-crop/resize protocol. Lens geometry has its own independent gates below.
 
 Two gates cover the bundled Lensfun database (#3564). `lens_profile::lensfun::tests_parity` (part of `cargo test -p raw-core --lib`) reproduces `liblensfun`'s own source coordinates and vignetting factors from `test-fixtures/qualification/lensfun-reference.json` at exact sample points, to 0.05 px and 1e-4 in gain; the JSON is regenerated by `src/scripts/lensfun_reference.sh <lensfun-checkout>`, which builds `liblensfun` and runs `src/scripts/lensfun_reference.cpp`. `src/scripts/test_lensfun_vs_lcp.sh` compares the bundled calibration against Adobe's LCP for the same lens on `test_0011.ARW` by diffing the two resolved warp fields (`maple-cli render --lens-warp-out`, `src/scripts/lens_warp_diff.py`) against the ceilings in `test-fixtures/qualification/lensfun-vs-lcp.json`; it skip-passes when the RAW or the Adobe profile is absent, so it is a local gate on the machines that have both.
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Retired ACR comparison diagnostic; manual use only, outside CI/color gates.
 # Per-luma-band tone-slider gate (companion to test_color_pipeline.sh).
 # Renders baseline + tone cases with maple-cli (Neutral profile, RCD demosaic,
 # native resolution — maple-cli batch has no output-sizing flag, so this is
@@ -16,9 +17,10 @@ BUDGETS="$REPO_ROOT/test-fixtures/tone_band_budgets.json"
 CASES_RE='/(baseline|exposure_max|exposure_min|highlights_max|highlights_min|whites_max|whites_min|shadows_max|shadows_min|blacks_max|blacks_min)$'
 PARALLEL="${PARALLEL:-4}"
 if [ ! -d "$REPO_ROOT/test-fixtures/raws" ] || [ ! -f "$MANIFEST" ]; then
-  echo "test_tone_bands: no fixtures, skipping"; exit 0
+	echo "test_tone_bands: no fixtures, skipping"
+	exit 0
 fi
-( cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli >/dev/null )
+(cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli >/dev/null)
 CLI="$REPO_ROOT/src/raw-pipeline/target/release/maple-cli"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -58,25 +60,26 @@ for i, shard in enumerate(shards):
     print(f"test_tone_bands: shard{i} {len(shard)} cases")
 PY
 for i in $(seq 0 $((PARALLEL - 1))); do
-  "$CLI" batch --manifest "$WORK/shard$i.json" --out-dir "$WORK/out" --profile neutral --demosaic full \
-    > "$WORK/shard$i.log" 2>&1 &
+	"$CLI" batch --manifest "$WORK/shard$i.json" --out-dir "$WORK/out" --profile neutral --demosaic full \
+		>"$WORK/shard$i.log" 2>&1 &
 done
 wait
 fail=0
 for i in $(seq 0 $((PARALLEL - 1))); do
-  want="$(python3 -c "import json;print(len(json.load(open('$WORK/shard$i.json'))['cases']))")"
-  got="$(grep -c '^ok' "$WORK/shard$i.log" || true)"
-  if [ "$got" != "$want" ]; then
-    echo "test_tone_bands: shard$i incomplete ($got/$want ok) — log:"
-    cat "$WORK/shard$i.log"
-    fail=1
-  fi
+	want="$(python3 -c "import json;print(len(json.load(open('$WORK/shard$i.json'))['cases']))")"
+	got="$(grep -c '^ok' "$WORK/shard$i.log" || true)"
+	if [ "$got" != "$want" ]; then
+		echo "test_tone_bands: shard$i incomplete ($got/$want ok) — log:"
+		cat "$WORK/shard$i.log"
+		fail=1
+	fi
 done
 if [ "$fail" != "0" ]; then
-  echo "test_tone_bands: one or more shards failed to render"; exit 1
+	echo "test_tone_bands: one or more shards failed to render"
+	exit 1
 fi
 # No --filter here: $WORK/mini.json is already filtered above, so the gate
 # (invoked with its own default empty filter) sees exactly the selected cases.
 python3 "$REPO_ROOT/tools/tone_band_gate.py" gate --candidates "$WORK/out" --references "$REFS" \
-  --manifest "$WORK/mini.json" --budgets "$BUDGETS" \
-  ${WRITE_ACR:+--write-acr "$WRITE_ACR"}
+	--manifest "$WORK/mini.json" --budgets "$BUDGETS" \
+	${WRITE_ACR:+--write-acr "$WRITE_ACR"}

@@ -291,46 +291,39 @@ Verify with `cargo config get build.rustc-wrapper` and `sccache -s` (hits appear
 - **One pipeline-version bump at a time.** A change to `PIPELINE_OUTPUT_VERSION` forces re-recording the five CI-gated evidence records (`synthetic_grey`, `color_chart`, `grey_adjustments`, `grey_dcp`, `sidecar_contract_api`). Before bumping, run `gh pr list --state open --json number,title,files --jq '.[] | select(.files[].path | test("raw-core/src/lib.rs|qualification")) | .number'` and look for any other PR touching `raw-core/src/lib.rs` or the qualification records; if one exists, wait for it to merge and take the next free version.
 - **Heavy local suites one at a time.** Check `uptime` first and wait if the one-minute load is above about 40; never use broad `pkill -f` patterns, stop only the processes you started, by PID.
 
-## Objective color testing — no eyeballing
+## Objective color testing — embedded camera JPEG
 
-Every color-pipeline change must pass the perceptual harness against ACR-rendered references. Screenshot comparisons are not acceptable evidence.
-
-The testing surface has two layers — a broad end-to-end gate and per-domain unit/integration gates that all run in CI:
-
-```bash
-# Broad end-to-end perceptual gate (the canonical color-correctness signal).
-src/scripts/test_color_pipeline.sh
-
-# Per-domain gates (fast unit/integration tests for specific subsystems).
-src/scripts/test_synthetic_grey.sh        # neutral pipeline + flatness invariants on a hand-rolled DNG
-src/scripts/test_grey_adjustments.sh      # closed-form predictors for every scene-linear slider + ACR parity
-src/scripts/test_grey_dcp.sh              # DCP code-path coverage (ColorMatrix1/2, ForwardMatrix1/2, PTC)
-```
-
-The end-to-end gate runs `maple-cli batch` against every case in `test-fixtures/references/manifest.json`, diffs each candidate vs. the ACR-rendered reference, and gates per-fixture × per-case `mean / p95 / max / bias` against `test-fixtures/budgets.json`. **Budgets are a one-way ratchet — they can only go down.** Lowering a budget happens in the same commit that delivers the improvement.
-
-Adding a new case to the end-to-end gate:
-
-1. Render the ACR reference and place it under `test-fixtures/references/test_NNNN/down/<case>.png`.
-2. Add the case to `test-fixtures/references/manifest.json`.
-3. Run the harness once — it will FAIL with `no-budget-entry` for the new case.
-4. Inspect the printed `mean`/`p95`/`max`/`bias`, add a `budgets.json` entry whose ceilings are roughly 5–10% above those numbers (or pipe the captured table through `tools/budget_init.py` and merge).
-5. Commit the case, manifest entry, and budgets.json entry together.
-
-Spot-check a single fixture:
+Auto's appearance target is the camera's embedded JPEG. Neutral retains its
+AgX appearance. Adobe Camera Raw image comparisons are retired from CI and
+color test gates by explicit owner direction (#5000); they are not merge or
+qualification requirements. Do not reinstate ACR targets to diagnose Auto.
 
 ```bash
+src/scripts/test_color_pipeline.sh            # canonical Auto-to-JPEG gate
 FILTER=test_0000 src/scripts/test_color_pipeline.sh
-FILTER=baseline src/scripts/test_color_pipeline.sh
+src/scripts/test_synthetic_grey.sh            # neutral/flatness invariants
+src/scripts/test_grey_adjustments.sh          # closed-form slider predictors
+src/scripts/test_grey_dcp.sh                  # DCP matrix-path correctness
 ```
 
-Sanity check vs the camera's embedded JPEG preview (NOT a CI gate — varies per camera body):
+The physical Auto gate renders each RAW with Profile=Auto and compares it to
+its own extracted, display-oriented, sRGB-normalized embedded JPEG. It measures
+signed RGB bias in five reference-luma bands at the unchanged 0.05 limit.
+Render errors, empty fixture selections and zero measurable comparisons fail.
+Missing embedded previews are reported separately, never as passing matches.
+CI without RAWs explicitly reports physical accuracy as NOT TESTED.
 
-```bash
-tools/sanity-checks/test_embedded_preview.sh
-```
+`MAPLE_CLI` pins a renderer, `RAW_DIR` selects physical RAWs, and `OUTPUT_DIR`
+selects a new evidence directory. `MANIFEST` may select baseline RAW paths;
+its Adobe outputs are never read. Preserve per-image PNGs, logs, hashes and
+metrics. Do not loosen the JPEG bias budget to conceal failures.
 
-When fixtures aren't present locally (e.g. CI without the gitignored RAWs), every gate skip-passes with a "skipping" message and exit 0 — so CI without fixtures doesn't fail spuriously.
+Keep independent closed-form math, sensor/decode, exposure, white balance,
+clipping, detail, CPU/GPU parity and performance tests. Internal algorithms
+with historical Adobe names remain tested against mathematical or JPEG targets.
+Historical ACR results and manual `diagnose_acr_*.sh` tools remain diagnostic
+records, not active color tests. The legacy `color_harness` qualification record
+is archived evidence, not proof of Auto-to-JPEG accuracy.
 
 ## Cross-platform parity
 
