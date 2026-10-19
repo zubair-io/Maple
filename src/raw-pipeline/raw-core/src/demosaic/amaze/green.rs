@@ -10,11 +10,6 @@ use crate::image::CfaPattern;
 const EPS: f32 = 1e-5;
 const EPS_SQ: f32 = 1e-10;
 const ARTHRESH: f32 = 0.75;
-// 0.8 / initialGain; initialGain == 1.0 for the normalised [0, 1] data
-// produced by `sensor_linearize`.
-const CLIP_PT8: f32 = 0.8;
-const CLIP_PT: f32 = 1.0;
-
 /// Stage 0.5: `dirwts0` (vertical roughness), `dirwts1` (horizontal), and
 /// `delhvsqsum` (sum of squared H/V first differences — the Nyquist test's
 /// gradient term). Engine 368–377.
@@ -38,7 +33,12 @@ pub(super) fn compute_dirwts_delhv(s: &mut Scratch, t: &Tile) {
 /// flipped, because stage 4's directional variances and stage 3's median
 /// bounding read `vcd`/`hcd` at the green neighbours of each R/B site
 /// (the #1561 port gap).
-pub(super) fn interpolate_green_diffs(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
+pub(super) fn interpolate_green_diffs(
+    s: &mut Scratch,
+    t: &Tile,
+    pattern: CfaPattern,
+    clip_point: f32,
+) {
     for rr in 4..t.rr1 - 4 {
         for cc in 4..t.cc1 - 4 {
             let i = rr * TS + cc;
@@ -106,7 +106,10 @@ pub(super) fn interpolate_green_diffs(s: &mut Scratch, t: &Tile, pattern: CfaPat
             let mut hcd_v = hcd_main;
 
             // Highlight clip fallback (engine 517–525).
-            if cf > CLIP_PT8 || g_int_v_ha > CLIP_PT8 || g_int_h_ha > CLIP_PT8 {
+            if cf > (0.8 * clip_point)
+                || g_int_v_ha > (0.8 * clip_point)
+                || g_int_h_ha > (0.8 * clip_point)
+            {
                 guar = guha;
                 gdar = gdha;
                 glar = glha;
@@ -134,7 +137,7 @@ pub(super) fn interpolate_green_diffs(s: &mut Scratch, t: &Tile, pattern: CfaPat
 /// passes are not equivalent. Emit `cddiffsq = (vcd − hcd)²` at R/B sites (the Nyquist
 /// texture term; every tap of the Nyquist gaussian lands on an R/B site, so
 /// G cells are never read).
-pub(super) fn refine_and_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
+pub(super) fn refine_and_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern, clip_point: f32) {
     use super::scratch::median3;
     let var3 =
         |a: f32, b: f32, c: f32| -> f32 { 3.0 * (a * a + b * b + c * c) - (a + b + c).powi(2) };
@@ -175,10 +178,10 @@ pub(super) fn refine_and_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
                             + (1.0 - vwt) * (median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) - v);
                     }
                 }
-                if g_int_h > CLIP_PT {
+                if g_int_h > clip_point {
                     s.hcd[i] = median3(g_int_h, s.cfa[i - 1], s.cfa[i + 1]) - v;
                 }
-                if g_int_v > CLIP_PT {
+                if g_int_v > clip_point {
                     s.vcd[i] = median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) - v;
                 }
                 s.cddiffsq[i] = (s.vcd[i] - s.hcd[i]).powi(2);
@@ -204,10 +207,10 @@ pub(super) fn refine_and_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
                             + (1.0 - vwt) * (-median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) + v);
                     }
                 }
-                if g_int_h > CLIP_PT {
+                if g_int_h > clip_point {
                     s.hcd[i] = -median3(g_int_h, s.cfa[i - 1], s.cfa[i + 1]) + v;
                 }
-                if g_int_v > CLIP_PT {
+                if g_int_v > clip_point {
                     s.vcd[i] = -median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) + v;
                 }
             }
@@ -323,7 +326,7 @@ mod ordering_tests {
                         rr1: 16,
                         cc1: 16,
                     };
-                    refine_and_bound(&mut s, &tile, pattern);
+                    refine_and_bound(&mut s, &tile, pattern, 1.0);
                     let values = if vertical { &s.vcd } else { &s.hcd };
                     assert_eq!(values[target - step].to_bits(), 0.0_f32.to_bits());
                     // After the preceding site's -0.5 is bounded to 0, the main

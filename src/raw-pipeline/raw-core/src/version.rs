@@ -162,7 +162,10 @@
 ///   qualification exposed five new failures from green guidance (#5000).
 /// - 34 — positive-chroma FCS blending requires a green reconstruction within
 ///   its measured directional support at R/B sites (#5000).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 34;
+/// - 35 — AMaZE camera paths reconstruct in a metadata-balanced CFA domain,
+///   restoring measured samples exactly, and local highlight donors use the
+///   same surviving-hue match as the regional tier (#5000).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 35;
 
 #[cfg(test)]
 mod tests {

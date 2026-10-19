@@ -272,7 +272,13 @@ fn develop_scene_linear_for_pano(
                     &crate::types::AdjustmentModel::default(),
                     raw,
                 );
-                demosaic::demosaic_cancellable(algo, &mosaic, raw.cfa, never)
+                demosaic::camera_demosaic_cancellable(
+                    algo,
+                    &mosaic,
+                    raw.cfa,
+                    raw.as_shot_neutral,
+                    never,
+                )
             })
         }
     };
