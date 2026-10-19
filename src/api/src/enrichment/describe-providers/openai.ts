@@ -49,7 +49,7 @@ interface OpenAIChatResponse {
 }
 
 export class OpenAIProvider implements DescribeProvider {
-  // fallow-ignore-next-line unused-class-members -- part of the DescribeProvider contract; callers use it through the interface
+  // fallow-ignore-next-line unused-class-member -- part of the DescribeProvider contract; callers use it through the interface
   readonly name = 'openai' as const;
 
   private readonly apiKey: string;
@@ -63,7 +63,7 @@ export class OpenAIProvider implements DescribeProvider {
   }
 
   /** GET `/v1/models` — verifies the key works without spending tokens. */
-  // fallow-ignore-next-line unused-class-members -- part of the DescribeProvider contract; callers use it through the interface
+  // fallow-ignore-next-line unused-class-member -- part of the DescribeProvider contract; callers use it through the interface
   async health(): Promise<void> {
     const res = await this.timedFetch(MODELS_ENDPOINT, {
       method: 'GET',

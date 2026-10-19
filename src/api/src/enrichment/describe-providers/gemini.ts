@@ -59,7 +59,7 @@ interface GeminiResponse {
 }
 
 export class GeminiProvider implements DescribeProvider {
-  // fallow-ignore-next-line unused-class-members -- part of the DescribeProvider contract; callers use it through the interface
+  // fallow-ignore-next-line unused-class-member -- part of the DescribeProvider contract; callers use it through the interface
   readonly name = 'gemini' as const;
 
   private readonly apiKey: string;
@@ -73,7 +73,7 @@ export class GeminiProvider implements DescribeProvider {
   }
 
   /** GET `/v1beta/models?key=...` — verifies the key works. */
-  // fallow-ignore-next-line unused-class-members -- part of the DescribeProvider contract; callers use it through the interface
+  // fallow-ignore-next-line unused-class-member -- part of the DescribeProvider contract; callers use it through the interface
   async health(): Promise<void> {
     const url = `${MODELS_ENDPOINT}?key=${encodeURIComponent(this.apiKey)}`;
     const res = await this.timedFetch(url, { method: 'GET' });
