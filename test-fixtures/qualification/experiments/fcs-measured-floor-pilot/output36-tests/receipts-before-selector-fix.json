@@ -1,0 +1,28 @@
+[
+  {
+    "name": "amaze",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-core",
+      "--lib",
+      "demosaic::amaze"
+    ],
+    "exit_code": 0,
+    "passed": 29
+  },
+  {
+    "name": "auto-fit-cache",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-core",
+      "--lib",
+      "view::auto_profile::cache_tests"
+    ],
+    "exit_code": 0,
+    "passed": 0
+  }
+]

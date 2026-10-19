@@ -165,7 +165,10 @@
 /// - 35 — AMaZE camera paths reconstruct in a metadata-balanced CFA domain,
 ///   restoring measured samples exactly, and local highlight donors use the
 ///   same surviving-hue match as the regional tier (#5000).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 35;
+/// - 36 — unsupported-green FCS keeps positive estimates within the measured
+///   target envelope while restoring chroma below every nearest sensor sample
+///   (#5000). This retains thin features without the broad increase exception.
+pub const PIPELINE_OUTPUT_VERSION: u32 = 36;
 
 #[cfg(test)]
 mod tests {

@@ -1,7 +1,9 @@
-# Measured-floor guard repair
+# Measured-floor FCS repair
 
-Experimental processing, not yet adopted. Permit the measured-value exception only when the positive reconstructed channel falls below every nearest measured target sample. Keep the original green-support guard within the sample envelope. All old assertions and thresholds are unchanged.
+Promoted as an output36 draft checkpoint after the complete91-case focused cohort:13 source35 regressions cleared,0 new failures, all13 prior captured-main clears retained, all20 Auto baselines pass.17 known cohort failures remain. A complete806-case run on committed source36 is still required; whole-suite remaining count is not established.
 
-All 29 AMaZE tests pass. Both opposing physical anchors pass: chart contrast max Delta E 40.86770903404888 against 43.00; Hasselblad luminance-NR max49.97698843308419 against50.90. The rejected broader exception failed the latter at51.89043209976267.
+Permit the measured-value exception only below every nearest measured target sample; preserve the original green-support guard inside the measured envelope. All old assertions, physical inputs and tolerances are unchanged. Output cache identity36 and Auto fit identity6 prevent stale results.
 
-The 91-case cohort now expands automatically after both anchors pass. It includes all 29 new source35 failures, all 13 captured-main cases cleared by source35, and the previous58 controls. No full-cohort or complete-suite pass is claimed. Frozen binaries and generated images remain in the external evidence archive; the exact patch, unit log and controller are preserved here.
+29 AMaZE,15 Auto cache,18 dual,11 basic tile tests and composed CPU/GPU parity pass on prepared source36. The new witness assertions were then split unchanged into a dedicated file, and all29 AMaZE tests reran successfully.
+
+The frozen prototype identity is the historical experimental start snapshot; the final decision and complete metrics are in ../../color-suite-5000-measured-floor-repair.json. Exact original patch, driver, logs and candidate SHA inventory are retained.

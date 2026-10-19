@@ -58,7 +58,9 @@ use super::lut::ColorLut;
 // changes the AgX tail used to fit the pinned scene/JPEG pair (#4635).
 // Version 5 changes the pinned camera reconstruction and local highlight
 // donor estimator feeding that fit (#5000).
-pub const AUTO_FIT_MODEL_VERSION: u32 = 5;
+// Version 6 narrows the positive-chroma FCS guard in the pinned camera
+// prefix to preserve measured features below the target-sample envelope.
+pub const AUTO_FIT_MODEL_VERSION: u32 = 6;
 
 /// Shared capacity, in entries, of BOTH the curve and LUT caches. The two
 /// stores are touched with the same keys in the same order (a fit inserts

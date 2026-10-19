@@ -430,3 +430,6 @@ fn unsupported_reconstructed_green_does_not_drive_positive_chroma_blending() {
         }
     }
 }
+
+#[path = "tests_fcs_measured_floor.rs"]
+mod measured_floor;

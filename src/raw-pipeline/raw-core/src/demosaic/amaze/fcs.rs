@@ -62,10 +62,11 @@ pub(super) fn suppress_false_colour(
     // colour samples are used (the immediate Bayer neighbours of that
     // colour), so a sharp 1-px colour edge is preserved rather than averaged
     // away.
-    let value_estimate = |x: usize, y: usize, t: usize| -> f32 {
+    let value_estimate = |x: usize, y: usize, t: usize| -> (f32, f32) {
         // Pass 1: distance-1 cardinal same-colour neighbours.
         let mut sum = 0.0_f32;
         let mut cnt = 0.0_f32;
+        let mut minimum = f32::INFINITY;
         for (dx, dy) in [(-1_isize, 0_isize), (1, 0), (0, -1), (0, 1)] {
             let nx = x as isize + dx;
             let ny = y as isize + dy;
@@ -74,12 +75,14 @@ pub(super) fn suppress_false_colour(
             }
             let (nxu, nyu) = (nx as usize, ny as usize);
             if color_at(nxu, nyu) == t {
-                sum += cfa_flat[nyu * w + nxu];
+                let sample = cfa_flat[nyu * w + nxu];
+                sum += sample;
+                minimum = minimum.min(sample);
                 cnt += 1.0;
             }
         }
         if cnt > 0.0 {
-            return sum / cnt;
+            return (sum / cnt, minimum);
         }
         // Pass 2: distance-√2 diagonal same-colour neighbours (used when the
         // target colour is not a cardinal neighbour of this site, e.g. the
@@ -92,14 +95,16 @@ pub(super) fn suppress_false_colour(
             }
             let (nxu, nyu) = (nx as usize, ny as usize);
             if color_at(nxu, nyu) == t {
-                sum += cfa_flat[nyu * w + nxu];
+                let sample = cfa_flat[nyu * w + nxu];
+                sum += sample;
+                minimum = minimum.min(sample);
                 cnt += 1.0;
             }
         }
         if cnt > 0.0 {
-            sum / cnt
+            (sum / cnt, minimum)
         } else {
-            0.0
+            (0.0, 0.0)
         }
     };
 
@@ -123,8 +128,9 @@ pub(super) fn suppress_false_colour(
 
     // At R/B sites green itself is reconstructed. A green extrapolation
     // outside both nearest measured-green directional means cannot certify
-    // which positive chroma estimate is wrong. Preserve the kernel estimate
-    // there instead of using that uncertain guide to mix sensor values.
+    // which positive chroma estimate is wrong. Preserve positive kernel
+    // estimates within the measured target envelope; a lost feature below
+    // every nearest target sample may still use the measured-value estimate.
     let green_supported = |x: usize, y: usize| -> bool {
         if color_at(x, y) == 1 {
             return true;
@@ -266,11 +272,15 @@ pub(super) fn suppress_false_colour(
                         px[t] = c_hue;
                         continue;
                     }
-                    if px[t] > 0.0 && !guide_supported {
+                    let (c_val, measured_floor) = value_estimate(x, y, t);
+                    // Without reliable green, preserve a positive kernel
+                    // estimate that lies within the measured-value envelope.
+                    // Below every nearest target sample, retain the value
+                    // correction that restores a lost thin chroma feature.
+                    if px[t] > 0.0 && c_hue >= measured_floor && !guide_supported {
                         px[t] = c_hue;
                         continue;
                     }
-                    let c_val = value_estimate(x, y, t);
                     // Disagreement between the two estimates, normalised by
                     // the local channel magnitude.
                     let mag = c_hue.abs() + c_val.abs() + EPS;
