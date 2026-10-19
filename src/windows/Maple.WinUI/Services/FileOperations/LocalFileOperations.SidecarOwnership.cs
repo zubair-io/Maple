@@ -84,24 +84,27 @@ namespace Maple.WinUI.Services.FileOperations
         private static readonly Regex StagingName =
             new(@"\.tmp\.\d+[-.][0-9a-fA-F]+$", RegexOptions.CultureInvariant);
 
-        // Photo formats any Maple surface pairs with a sidecar — wider than
-        // what Windows itself opens, because an IMG_1.HEIC beside IMG_1.CR3
-        // still reads IMG_1.xmp on Apple and Web. Non-media files (notes.txt,
-        // IMG_1.txt) never claim a stem.
+        // Every extension the API indexes (`SUPPORTED_EXTS`) or Apple treats as
+        // an image (`RAWExtensions`, `NonRawImageExtensions`): on those
+        // surfaces IMG_1.MEF beside IMG_1.CR3 still reads IMG_1.xmp, wider
+        // than what Windows itself opens. SidecarClaimFormatTests parses both
+        // sources, so a format added there fails here. Non-media files
+        // (notes.txt, IMG_1.txt) never claim a stem.
         private static readonly System.Collections.Generic.HashSet<string> PhotoExtensions =
             new(DropMountLogic.SupportedExtensions.Concat(new[]
             {
-                ".heic", ".heif", ".png", ".webp", ".avif", ".psd", ".psb", ".gif", ".bmp", ".jxl",
-                ".crw", ".nrw", ".sr2", ".srf", ".erf", ".kdc", ".dcr", ".mrw", ".mos", ".iiq",
-                ".3fr", ".fff", ".rwl", ".x3f", ".raw",
+                ".heic", ".heif", ".png", ".webp", ".avif", ".gif", ".bmp", ".jxl", ".jpe",
+                ".psd", ".psb", ".hdr", ".afphoto", ".ai", ".eip", ".braw",
+                ".crw", ".nrw", ".sr2", ".srf", ".erf", ".kdc", ".dcr", ".dcs", ".mrw", ".mos", ".iiq",
+                ".3fr", ".fff", ".rwl", ".x3f", ".raw", ".mef", ".cap",
+                ".mp3", ".wav", ".m4a", ".aac",
             }), StringComparer.OrdinalIgnoreCase);
 
-        private static bool IsMediaFile(string name) =>
+        internal static bool IsMediaFile(string name) =>
             SidecarStore.IsVideoFilename(name) || PhotoExtensions.Contains(Path.GetExtension(name));
 
         private static string SidecarStemOf(string fileName) =>
-            (SidecarStore.IsVideoFilename(fileName) ? fileName : Path.GetFileNameWithoutExtension(fileName))
-                .Normalize(NormalizationForm.FormC);
+            SidecarStore.IsVideoFilename(fileName) ? fileName : Path.GetFileNameWithoutExtension(fileName);
 
         /// <summary>True when a file in <paramref name="primaryPath"/>'s
         /// folder, other than the primary and <paramref name="excluded"/>,
@@ -121,7 +124,7 @@ namespace Maple.WinUI.Services.FileOperations
                     !name!.StartsWith('.')
                     && !StagingName.IsMatch(name)
                     && IsMediaFile(name)
-                    && !skip.Contains(Path.Combine(dir, name), StringComparer.OrdinalIgnoreCase)
+                    && !skip.Any(excludedPath => IsExcludedName(dir, name, excludedPath, names!))
                     && SiblingReadsSameSidecar(dir, name, stem, names!));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -130,16 +133,37 @@ namespace Maple.WinUI.Services.FileOperations
             }
         }
 
-        /// <summary>A sibling whose stem differs only in case reads the same
-        /// sidecar only where the folder folds case: its name re-cased to
-        /// <paramref name="stem"/> then reaches it without being listed as a
+        /// <summary>An excluded path names a listed file when the spellings
+        /// match exactly, or differ only in case while the folder resolves the
+        /// excluded spelling to a file it does not list under that spelling
+        /// (a case-folding folder stores a single spelling; a case-sensitive
+        /// one keeps both as distinct files).</summary>
+        private static bool IsExcludedName(
+            string dir, string listedName, string excludedPath, System.Collections.Generic.ISet<string> names)
+        {
+            if (!string.Equals(Path.GetDirectoryName(excludedPath), dir, StringComparison.OrdinalIgnoreCase)) return false;
+            var excludedName = Path.GetFileName(excludedPath);
+            return string.Equals(excludedName, listedName, StringComparison.Ordinal)
+                || (string.Equals(excludedName, listedName, StringComparison.OrdinalIgnoreCase)
+                    && !names.Contains(excludedName) && File.Exists(Path.Combine(dir, excludedName)));
+        }
+
+        /// <summary>A sibling whose stem differs only in case or Unicode form
+        /// (composed vs decomposed accents) reads the same sidecar only where
+        /// the folder treats those spellings as one name; NTFS keeps
+        /// canonically equivalent names as distinct files, APFS does not. The
+        /// folder is asked, not assumed: the sibling's name re-spelled to
+        /// <paramref name="stem"/> must reach it without being listed as a
         /// file of its own.</summary>
         private static bool SiblingReadsSameSidecar(
             string dir, string siblingName, string stem, System.Collections.Generic.ISet<string> names)
         {
             var siblingStem = SidecarStemOf(siblingName);
             if (string.Equals(siblingStem, stem, StringComparison.Ordinal)) return true;
-            if (!string.Equals(siblingStem, stem, StringComparison.OrdinalIgnoreCase)) return false;
+            if (!string.Equals(
+                    siblingStem.Normalize(NormalizationForm.FormC), stem.Normalize(NormalizationForm.FormC),
+                    StringComparison.OrdinalIgnoreCase))
+                return false;
             var recased = SidecarStore.IsVideoFilename(siblingName) ? stem : stem + Path.GetExtension(siblingName);
             return !names.Contains(recased) && File.Exists(Path.Combine(dir, recased));
         }

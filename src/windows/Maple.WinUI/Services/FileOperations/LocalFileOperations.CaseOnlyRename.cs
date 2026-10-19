@@ -29,16 +29,8 @@ namespace Maple.WinUI.Services.FileOperations
         {
             var sourceSidecarPath = SidecarStore.SidecarPathFor(source);
             var hadSidecar = File.Exists(sourceSidecarPath);
-            // On a case-sensitive folder x.CR3 -> X.CR3 gives the photo a
-            // distinct X.xmp; a sibling x.JPG that still reads x.xmp keeps it
-            // (#4758 rule 1), so the sidecar is copied, never moved.
-            var sidecarSharedWithSibling = hadSidecar && SidecarStemClaimedBySibling(source, target);
-            // A case-sensitive folder can already hold an unrelated X.xmp;
-            // the renamed photo would adopt it, so refuse before anything moves.
             var targetSidecarPath = SidecarStore.SidecarPathFor(target);
-            if (!SameSidecarPath(sourceSidecarPath, targetSidecarPath) && PathOccupied(targetSidecarPath))
-                throw new FileOperationException(FileOperationErrorKind.DestinationExists,
-                    $"destination sidecar belongs to another file: {targetSidecarPath}");
+            var sidecarSharedWithSibling = hadSidecar && SidecarStemClaimedBySibling(source, target);
 
             File.Move(source, target);
 
@@ -50,8 +42,6 @@ namespace Maple.WinUI.Services.FileOperations
                 try
                 {
                     if (!sidecarSharedWithSibling) File.Move(sourceSidecarPath, targetSidecarPath);
-                    else if (!SameSidecarPath(sourceSidecarPath, targetSidecarPath))
-                        File.Copy(sourceSidecarPath, targetSidecarPath, overwrite: false);
                 }
                 catch (System.Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {

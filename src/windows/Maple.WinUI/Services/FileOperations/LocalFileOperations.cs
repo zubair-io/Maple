@@ -78,7 +78,7 @@ namespace Maple.WinUI.Services.FileOperations
                 case SameFileClassification.Identical:
                     throw new FileOperationException(FileOperationErrorKind.SameFile,
                         $"destination resolves to the same file as the source: {sourcePrimaryPath}");
-                case SameFileClassification.CaseOnlyRename:
+                case SameFileClassification.CaseOnlyRename when FolderFoldsCaseBetween(sourcePrimaryPath, targetPath):
                     if (mode != RelocateMode.Move)
                         throw new FileOperationException(FileOperationErrorKind.SameFile,
                             "case-only rename target is the same file as the source on a case-insensitive "
