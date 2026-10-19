@@ -121,6 +121,23 @@ pub(super) fn suppress_false_colour(
         ((gc - mean).abs() / mag).min(1.0)
     };
 
+    // At R/B sites green itself is reconstructed. A green extrapolation
+    // outside both nearest measured-green directional means cannot certify
+    // which positive chroma estimate is wrong. Preserve the kernel estimate
+    // there instead of using that uncertain guide to mix sensor values.
+    let green_supported = |x: usize, y: usize| -> bool {
+        if color_at(x, y) == 1 {
+            return true;
+        }
+        let i = y * w + x;
+        let horizontal = 0.5 * (green[i - 1] + green[i + 1]);
+        let vertical = 0.5 * (green[i - w] + green[i + w]);
+        let low = horizontal.min(vertical);
+        let high = horizontal.max(vertical);
+        let tolerance = EPS * (green[i].abs() + low.abs() + high.abs() + EPS);
+        green[i] >= low - tolerance && green[i] <= high + tolerance
+    };
+
     // A negative opposite chroma at an R/B site means AMaZE's directional
     // kernel extrapolated the colour difference past green at a luminance
     // edge, so the hue path carries no estimate there. The four diagonal
@@ -230,6 +247,7 @@ pub(super) fn suppress_false_colour(
                     continue;
                 }
                 let ghf = green_hf(x, y);
+                let guide_supported = green_supported(x, y);
                 let mut px = row[x];
                 for t in 0..3usize {
                     // Only reconstructed channels; the sampled channel and
@@ -245,6 +263,10 @@ pub(super) fn suppress_false_colour(
                     }
                     let c_hue = px[t].max(0.0);
                     if ghf <= 0.0 {
+                        px[t] = c_hue;
+                        continue;
+                    }
+                    if px[t] > 0.0 && !guide_supported {
                         px[t] = c_hue;
                         continue;
                     }

@@ -160,7 +160,9 @@
 ///   scalar raster order, matching the upstream numeric dependency (#5000).
 /// - 33 — restore sensor-value false-color interpolation after complete-suite
 ///   qualification exposed five new failures from green guidance (#5000).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 33;
+/// - 34 — positive-chroma FCS blending requires a green reconstruction within
+///   its measured directional support at R/B sites (#5000).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 34;
 
 #[cfg(test)]
 mod tests {

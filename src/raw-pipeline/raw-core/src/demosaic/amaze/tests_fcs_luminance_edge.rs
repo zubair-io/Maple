@@ -372,3 +372,61 @@ fn amaze_step_between_equal_chromaticity_surfaces_keeps_opposite_chroma_hue() {
 
 #[path = "tests_fcs_ceiling.rs"]
 mod ceiling;
+
+#[test]
+fn unsupported_reconstructed_green_does_not_drive_positive_chroma_blending() {
+    for pattern in PATTERNS {
+        for centre_colour in [0, 2] {
+            for exposure in [0.01_f32, 1.0, 16.0] {
+                let i = (10..14)
+                    .flat_map(|y| (10..14).map(move |x| y * SIDE + x))
+                    .find(|&i| sampled(pattern, i) == centre_colour)
+                    .unwrap();
+                let target = 2 - centre_colour;
+                let mut image =
+                    Image::new(SIDE as u32, SIDE as u32, ColorSpace::CameraNativeLinearRgb);
+                image.pixels.fill([0.02 * exposure; 3]);
+                let mut green = vec![0.01 * exposure; SIDE * SIDE];
+                let mut cfa = vec![0.01 * exposure; SIDE * SIDE];
+                image.pixels[i] = [
+                    0.044907175 * exposure,
+                    0.0585592 * exposure,
+                    0.044907175 * exposure,
+                ];
+                image.pixels[i][target] = 0.064314194 * exposure;
+                cfa[i] = image.pixels[i][centre_colour];
+                green[i] = image.pixels[i][1];
+                for (offset, value) in [
+                    (-1_isize, 0.011289514),
+                    (1, 0.010787757),
+                    (-(SIDE as isize), 0.012293026),
+                    (SIDE as isize, 0.0880582),
+                ] {
+                    let n = (i as isize + offset) as usize;
+                    green[n] = value * exposure;
+                    cfa[n] = green[n];
+                }
+                for ((dx, dy), value) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)]
+                    .into_iter()
+                    .zip([0.002759659, 0.02734571, 0.009784245, 0.011791269])
+                {
+                    cfa[(i as isize + dy * SIDE as isize + dx) as usize] = value * exposure;
+                }
+                let before = image.pixels[i];
+                fcs::suppress_false_colour(
+                    &mut image,
+                    &cfa,
+                    &green,
+                    SIDE,
+                    SIDE,
+                    pattern,
+                    fcs::FALSE_COLOUR_SUPPRESS_STRENGTH,
+                );
+                assert_eq!(
+                    image.pixels[i], before,
+                    "{pattern:?} colour={centre_colour} exposure={exposure}"
+                );
+            }
+        }
+    }
+}
