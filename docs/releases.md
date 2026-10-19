@@ -49,14 +49,16 @@ release-handoff run.
 ## One-time rollout
 
 The workflow and controller must land on main before requiring their status.
-Keep the existing **Main** ruleset, strict up-to-date setting, rebase-only rule,
-and `Release readiness` check. Add **release-handoff-complete** as another
-required status check, issued by GitHub Actions. Do not replace existing rules.
+Keep the existing **Main** ruleset, rebase-only rule, and `Release readiness`
+check. Leave **Require branches to be up to date before merging** off so ordinary
+PRs can auto-merge after their required checks without updating to every main
+change. Add **release-handoff-complete** as another required status check, issued
+by GitHub Actions. Do not replace existing rules.
 
 First run **release-handoff** manually to seed statuses on open PR heads, then
 add the requirement. The release dispatcher refuses to create a release if
-the handoff or Release readiness requirement is absent, or strict up-to-date
-checks are disabled. Repository auto-merge must be enabled. A PAT/GitHub App credential in `VERSION_SYNC_TOKEN`
+the handoff or Release readiness requirement is absent. Repository auto-merge
+must be enabled. A PAT/GitHub App credential in `VERSION_SYNC_TOKEN`
 (fallback: existing `JULES_GH`) needs contents, PRs, issues and statuses write,
 Actions/rules read. Project-board assignment is not part of release orchestration
 and requires no Projects permission. The credential must trigger
@@ -67,6 +69,20 @@ commit. Run **version-sync** with **advance_only = true** once. This explicitly
 opens the `0.1.3` migration PR without releasing anything or moving `v0.1.2`.
 Merge it after CI. Normal releases can then use the default mode. Activating
 the gate before this migration deliberately holds all other PRs until it lands.
+
+## Release-only freshness
+
+Release creation still validates a pinned revision and refuses to tag if main
+has moved. The required `release-handoff-complete` check allows the next-version
+PR only when its exact version-only commit is a direct child of current main.
+Every push to main refreshes that check for all open PR heads, revoking success
+for a stale release PR until the handoff is repaired. `Release readiness` still
+waits for the complete release CI suite. Ordinary PRs need no freshness check
+when no release handoff is active.
+
+Land the controller change that removes its branch-wide strict-check requirement
+before turning off the setting in the Main ruleset. Keep both release checks
+required throughout the transition.
 
 ## Failure and retry behavior
 

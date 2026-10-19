@@ -101,7 +101,7 @@ class ReleaseTests(GitFixture):
         self.assertFalse(any(args[:2] == ("git", "push") for args in self.calls))
         self.assertIsNone(control.remote_tag("v1.2.3"))
 
-    def test_release_tags_current_commit_then_opens_bump(self):
+    def test_release_tags_current_commit_and_enables_auto_merge_with_loose_checks(self):
         control.release("owner/repo", "")
         self.assertEqual(self.git("rev-parse", "v1.2.3^{commit}"), self.main)
         self.assertEqual(policy.version("origin/main"), "1.2.3")
@@ -135,10 +135,10 @@ class ReleaseTests(GitFixture):
             sum(args[:3] == ("gh", "pr", "merge") for args in self.calls), 2
         )
 
-    def test_auto_merge_requires_readiness_and_strict_checks(self):
+    def test_auto_merge_requires_both_release_checks(self):
         for strict, contexts in [
             (True, [policy.CONTEXT]),
-            (False, [policy.CONTEXT, "Release readiness"]),
+            (False, ["Release readiness"]),
         ]:
             rules = [
                 {

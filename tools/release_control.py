@@ -176,12 +176,9 @@ def require_gate(repo):
         raise ValueError(
             f"Require {CONTEXT} and Release readiness in the Main ruleset before creating releases"
         )
-    if not any(
-        rule["parameters"].get("strict_required_status_checks_policy")
-        for rule in rules
-        if rule["type"] == "required_status_checks"
-    ):
-        raise ValueError("Require strict up-to-date checks before creating releases")
+    # Freshness is release-specific: release() pins the current main revision,
+    # and refresh_gate() requires the handoff commit's parent to equal main.
+    # Ordinary PRs may pass their required checks against an older main.
 
 
 def require_release_validation(sha):
