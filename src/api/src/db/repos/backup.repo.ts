@@ -219,6 +219,25 @@ export async function isLocationOwnedByOtherAsset(
   return assetId === undefined || row.asset_id !== toHex(assetId);
 }
 
+/** Whether `relPath` is a live location of `assetId` in this library, so a
+ * write addressed to it really targets that asset's file (#4719). */
+export async function isLiveLocationOfAsset(
+  assetId: ObjectId,
+  libraryId: ObjectId,
+  relPath: string,
+  dbOverride?: SqliteDb,
+): Promise<boolean> {
+  const { dir, filename } = splitRelPath(relPath);
+  const rows = await sqliteDb(dbOverride).read<{ one: number }>(
+    `SELECT 1 AS one FROM asset_locations
+      WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?
+        AND deleted_at IS NULL
+      LIMIT 1`,
+    [toHex(assetId), toHex(libraryId), dir, filename],
+  );
+  return rows.length > 0;
+}
+
 /** One row of the device reconciliation feed. */
 export interface BackupStateEntry {
   phasset_local_id: string;

@@ -47,6 +47,7 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { parseSidecarBase, publishSidecarCas } from '../backup/sidecar-cas.ts';
 import { recordSidecarDivergence } from '../db/repos/sidecar-divergences.repo.ts';
+import { isLiveLocationOfAsset } from '../db/repos/backup.repo.ts';
 
 const log = childLogger('backup-sidecar');
 const MAX_SIDECAR_BYTES = 256 * 1024; // 256 KB
@@ -63,6 +64,7 @@ function readSidecarBody(body: unknown): { buf: Buffer } | { status: number; err
 
 interface BackupSidecarCasRequest {
   finalPath: string;
+  targetRelPath: string;
   sidecarRelPath: string;
   xmp: string;
   baseHeader: string;
@@ -84,6 +86,9 @@ async function publishBackupSidecarCas(
       status: 400,
       body: { error: 'X-Maple-Sidecar-Base must be a SHA-256 hex digest or "none"' },
     };
+  }
+  if (!(await isLiveLocationOfAsset(req.assetId, req.libraryId, req.targetRelPath))) {
+    return { status: 404, body: { error: 'no prior upload of this asset at this path' } };
   }
   await fs.mkdir(path.dirname(req.finalPath), { recursive: true });
   const outcome = await publishSidecarCas(
@@ -107,6 +112,13 @@ async function publishBackupSidecarCas(
     { phid: req.phid, sidecarRelPath: req.sidecarRelPath, outcome: outcome.kind },
     'sidecar compare-and-swap',
   );
+  if (outcome.kind === 'refused') {
+    log.warn(
+      { phid: req.phid, sidecarRelPath: req.sidecarRelPath, error: outcome.error },
+      'sidecar path refused',
+    );
+    return { status: 400, body: { error: 'sidecar path not allowed' } };
+  }
   if (outcome.kind === 'error') {
     log.error(
       { phid: req.phid, sidecarRelPath: req.sidecarRelPath, error: outcome.error },
@@ -200,6 +212,7 @@ export const backupSidecarRoutes = new Elysia().post(
     if (baseHeader !== undefined) {
       const result = await publishBackupSidecarCas({
         finalPath,
+        targetRelPath,
         sidecarRelPath,
         xmp: buf.toString('utf8'),
         baseHeader,
