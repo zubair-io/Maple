@@ -17,3 +17,7 @@ The saved synthetic witness has zero signed bias but mean absolute error 0.2. It
 The original 12 signed-bias failures remain unresolved. The image-quality gate is not repaired by this audit. Before accepting another processing change, establish spatial alignment and color-space handling, add non-cancelling per-pixel/region color and luminance checks plus clipping and gradient/detail checks, and qualify their ability to reject the saved defective outputs. Include full-frame review (the old 10% border exclusion hid edges), all original passing controls and separate no-preview Auto-to-Neutral fallback checks. Fit against image correspondences and independent photographic constraints, not only the aggregate acceptance statistics. No new acceptance thresholds are invented in this diagnostic chunk.
 
 Keep draft PR #5003 open and unmerged. Prior numerical receipts are preserved but explicitly marked rejected for image-quality qualification. No complete-fix claim remains valid.
+
+## Rollback verification
+
+The complete `src/raw-pipeline` tree matches f945dd3f4d exactly. Auto unit checks after rollback: 51 pass, 0 fail, 6 existing ignored. These checks establish the rollback, not repaired JPEG image quality. No new physical rerender or GPU qualification is claimed.
