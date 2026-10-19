@@ -274,23 +274,24 @@ export async function checkAllowed(filePath: string): Promise<OpResult<string>> 
   if (resolution === null) return { ok: false, error: `Cannot resolve "${filePath}".` };
   const { real, landing } = resolution;
   const envRoots = await normalizedEnvRoots();
+  const explicitRoots = [...envRoots, ..._registeredRoots];
+  const candidates = [...new Set([real, landing])];
+  const requiresPrimary = candidates.filter(
+    (candidate) => !explicitRoots.some((root) => isWithinRoot(root, candidate)),
+  );
+  if (requiresPrimary.length === 0) return { ok: true, data: real };
   const libraryRoots = await loadJailLibraryRoots().catch(() => new Map<string, string>());
   const requested = path.resolve(filePath);
-  const explicitRoots = [...envRoots, ..._registeredRoots];
   const allowedRoots = [
     ...explicitRoots,
     ...[...libraryRoots.values()].map((root) => path.resolve(root)),
   ];
-  const candidates = [...new Set([real, landing])];
   const results = await Promise.all(
-    candidates.map(async (candidate) => {
-      if (explicitRoots.some((root) => isWithinRoot(root, candidate))) return true;
-      return allowedByPrimary(candidate, requested, libraryRoots);
-    }),
+    requiresPrimary.map((candidate) => allowedByPrimary(candidate, requested, libraryRoots)),
   );
   if ((await loadJailLibraryRoots().catch(() => null)) !== libraryRoots)
     return { ok: false, error: 'Library roots changed during authorization' };
-  const outside = candidates.find((_, index) => !results[index]);
+  const outside = requiresPrimary.find((_, index) => !results[index]);
   if (outside === undefined) return { ok: true, data: real };
   return {
     ok: false,

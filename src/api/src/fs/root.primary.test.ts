@@ -13,6 +13,7 @@ import {
 } from './root.ts';
 import { createLiveTestDatabase, insertFolder } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
+import * as libraryCache from '../indexer/libraries.cache.ts';
 
 let originalRoots: string | undefined;
 const temporaryRoots: string[] = [];
@@ -306,3 +307,66 @@ test('a held probe cannot cross an SQLite root removal and re-addition', async (
     invalidateLibraryRoots();
   }
 }, 10_000);
+
+test.each(['runtime', 'MAPLE_ROOTS'] as const)(
+  '%s access stays independent of failing or reloaded SQLite roots',
+  async (source) => {
+    const fixture = await realpath(await mkdtemp(join(tmpdir(), 'maple-explicit-independent-')));
+    temporaryRoots.push(fixture);
+    delete process.env.MAPLE_ROOTS;
+    if (source === 'runtime') registerRoot(fixture);
+    else process.env.MAPLE_ROOTS = fixture;
+    const existing = join(fixture, 'existing.xmp');
+    await writeFile(existing, '<existing/>');
+    const loader = spyOn(libraryCache, 'loadJailLibraryRoots');
+    try {
+      for (const mode of ['failure', 'reload'] as const) {
+        loader.mockImplementation(async () => {
+          if (mode === 'failure') throw new Error('SQLite unavailable');
+          return new Map<string, string>();
+        });
+        expect((await safeReadFile(existing)).data?.toString()).toBe('<existing/>');
+        const destination = join(fixture, `${mode}.xmp`);
+        expect(await safeWriteAllowed(destination)).toEqual({ ok: true, data: destination });
+        await writeFile(destination, '<new/>');
+        expect((await safeReadFile(destination)).data?.toString()).toBe('<new/>');
+        expect((await checkAllowed(join(fixture, 'nested', 'missing.xmp'))).ok).toBe(true);
+      }
+      expect(loader).not.toHaveBeenCalled();
+    } finally {
+      loader.mockRestore();
+      unregisterRoot(fixture);
+    }
+  },
+);
+
+test.each(['stable', 'reload', 'failure'] as const)(
+  'a dangling link needing both explicit and SQLite roots checks a %s generation',
+  async (mode) => {
+    const fixture = await realpath(await mkdtemp(join(tmpdir(), 'maple-mixed-authorization-')));
+    temporaryRoots.push(fixture);
+    const explicit = join(fixture, 'explicit');
+    const primary = join(fixture, 'primary');
+    await Promise.all([mkdir(explicit), mkdir(primary)]);
+    process.env.MAPLE_ROOTS = explicit;
+    const link = join(explicit, 'new.xmp');
+    await symlink(join(primary, 'missing.xmp'), link);
+    const roots = new Map([['library', primary]]);
+    const loader = spyOn(libraryCache, 'loadJailLibraryRoots')
+      .mockResolvedValueOnce(roots)
+      .mockImplementation(async () => {
+        if (mode === 'failure') throw new Error('SQLite unavailable');
+        return mode === 'stable' ? roots : new Map(roots);
+      });
+    try {
+      const result = await checkAllowed(link);
+      expect(result.ok).toBe(mode === 'stable');
+      if (mode !== 'stable') {
+        expect(result.error).toBe('Library roots changed during authorization');
+      }
+      expect(loader).toHaveBeenCalledTimes(2);
+    } finally {
+      loader.mockRestore();
+    }
+  },
+);
