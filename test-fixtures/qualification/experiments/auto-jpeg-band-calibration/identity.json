@@ -1,0 +1,10 @@
+{
+  "parent": "f945dd3f4dc5d19e974f02cb5b87ec53eca4d8c8",
+  "purpose": "Post-structured monotone native-pixel JPEG-band correction pilot; no adoption or physical clears yet.",
+  "binary_sha256": "b28a77b5b881ae360dc8ab07204da762f61742c7b518fb8633689e59dc9d659a",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "unit_tests": 52,
+  "existing_ignored": 6,
+  "candidate_patch_sha256": "2fdaed6c5508f218956c35b7dae5aea054a5864c4988915e92bbff426cb759bf"
+}

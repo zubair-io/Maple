@@ -118,6 +118,28 @@ pub fn fit_curve_from_preview_display(
     sensor_h: usize,
     orientation: ExifOrientation,
 ) -> Option<ProfileCurve> {
+    fit_curve_from_preview_mapped(
+        preview,
+        cs,
+        sensor_rgb,
+        sensor_w,
+        sensor_h,
+        orientation,
+        |v| v,
+    )
+}
+
+/// JPEG-band residual over an existing display transform, with native-pixel
+/// evaluation before footprint averaging. The input buffer remains unchanged.
+pub(super) fn fit_curve_from_preview_mapped(
+    preview: DynamicImage,
+    cs: preview::JpegColorSpace,
+    sensor_rgb: &[f32],
+    sensor_w: usize,
+    sensor_h: usize,
+    orientation: ExifOrientation,
+    transform: impl Fn([f32; 3]) -> [f32; 3],
+) -> Option<ProfileCurve> {
     // CRITICAL — orientation alignment. Both the embedded JPEG and the source
     // buffer (`scene.pixels` at the auto_profile stage, which runs BEFORE
     // `apply_orientation` in the render pipeline) are SENSOR-oriented here. The
@@ -228,7 +250,7 @@ pub fn fit_curve_from_preview_display(
     // linear, `B_b` is LINEAR in the anchor outputs: `B_b = Σ_a M[b][a]·out[a]`.
     // box-then-eval is the WRONG model — at the ~0.05 margins the Jensen gap is
     // decisive (measured ~0.015 on test_0000).
-    let design = solve::build_design_matrices(
+    let design = solve::build_design_matrices_mapped(
         source_rgb,
         source_w,
         crop_x_start,
@@ -240,6 +262,7 @@ pub fn fit_curve_from_preview_display(
         &band_of,
         &band_counts,
         &footprint,
+        transform,
     );
     let band_target = solve::band_targets(&target, &band_of, &band_counts);
 
