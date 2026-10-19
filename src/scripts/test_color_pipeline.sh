@@ -378,6 +378,13 @@ for case in sorted(cases, key=lambda c: c["name"]):
         "status": "breach" if breach else "passed",
         "breaches": breach,
         "mean": row["mean"],
+        "p95": row["p95"],
+        "max": row["max"],
+        "bR": row["bR"],
+        "bG": row["bG"],
+        "bB": row["bB"],
+        "n_pixels": row["n_pixels"],
+        "reference_protocol": metrics["reference_protocol"],
     })
 
     # Tabular row.
@@ -659,6 +666,13 @@ for case in sorted(cases, key=lambda c: c["name"]):
         "status": "breach" if breach else "passed",
         "breaches": breach,
         "mean": row["mean"],
+        "p95": row["p95"],
+        "max": row["max"],
+        "bR": row["bR"],
+        "bG": row["bG"],
+        "bB": row["bB"],
+        "n_pixels": row["n_pixels"],
+        "reference_protocol": metrics["reference_protocol"],
     })
 
     n_pix_str = f"{row['n_pixels'] / 1e6:5.2f}M" if row["n_pixels"] >= 1e6 else f"{row['n_pixels']:>8}"
@@ -920,6 +934,13 @@ for case in sorted(cases, key=lambda c: c["name"]):
         "status": "breach" if breach else "passed",
         "breaches": breach,
         "mean": row["mean"],
+        "p95": row["p95"],
+        "max": row["max"],
+        "bR": row["bR"],
+        "bG": row["bG"],
+        "bB": row["bB"],
+        "n_pixels": row["n_pixels"],
+        "reference_protocol": metrics["reference_protocol"],
     })
 
     n_pix_str = f"{row['n_pixels'] / 1e6:5.2f}M" if row["n_pixels"] >= 1e6 else f"{row['n_pixels']:>8}"
