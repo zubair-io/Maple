@@ -1,0 +1,65 @@
+{
+  "target": "camera-embedded-jpeg",
+  "profile": "auto",
+  "metric": "display-sRGB signed channel bias in five reference-luma bands",
+  "budget": 0.05,
+  "binary": "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-nodefit-restart-pilot/maple-cli",
+  "binary_sha256": "65bb5ba6365080c5e21e16905146eb5fcf52c073e4fec09d269ed72b682cf9f5",
+  "geometry": "default render; aspect center-crop, BOX resize, inner 80% comparison",
+  "reference_decode": "extract-preview: display-oriented, Adobe RGB converted to sRGB",
+  "runner_sha256": "2d92a543236d299c956e8ace642755bed78495b2fa3b6b08229ad57f9bc8c275",
+  "comparator_sha256": "0622267f4d5e881ad0cf6c9489b43b2581bfaac7df5c4d4c9be53bcb7a45be77",
+  "selected": 1,
+  "cases": [
+    {
+      "fixture": "test_0017",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/26/26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e.dng",
+      "raw_sha256": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
+      "bands": {
+        "0.00-0.10": {
+          "n": 21210,
+          "R": 0.04875243826903699,
+          "G": 0.04982592376884747,
+          "B": 0.049044938107256096
+        },
+        "0.10-0.25": {
+          "n": 969170,
+          "R": -0.020787724770356363,
+          "G": -0.005330560797221479,
+          "B": 0.005120581245282247
+        },
+        "0.25-0.50": {
+          "n": 9755621,
+          "R": -0.04755854146879557,
+          "G": -0.04872202676292779,
+          "B": -0.04793327083221169
+        },
+        "0.50-0.75": {
+          "n": 3604875,
+          "R": 0.046979345099806974,
+          "G": -0.0029492643744276023,
+          "B": -0.026265127628776128
+        },
+        "0.75-1.00": {
+          "n": 763712,
+          "R": -0.04753463167719111,
+          "G": -0.049082237960968354,
+          "B": -0.047874961180315576
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "fc1be49f37c015961655d16c52c2c1655402c0bc12017d456d4b5d250f2d189f",
+      "reference_sha256": "19f620d07c2b06b29a7e0e4dea6ded9f3b3a108a4b81600d9c677a9acda8fa7f"
+    }
+  ],
+  "complete": true,
+  "counts": {
+    "passed": 1,
+    "failed": 0,
+    "no-preview": 0,
+    "error": 0
+  },
+  "binary_unchanged": true,
+  "status": "passed"
+}

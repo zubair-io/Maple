@@ -1,15 +1,24 @@
-# Monotone restart of the exact baked-node fit — #5000
+# Auto embedded-JPEG qualification — #5000
 
-The complete9139fcf000 qualification cleared11of12JPEG failures, retaining all
-4original passes. The remainingLeica0017constrained fit stalled in its darkest
-band. Restart the same optimization from a separable monotone prior, deriving
-its design rows by marginalizing the SAME tetrahedral node weights. No image
-resampling pass, per-camera rule, budget change or new apply-time stage is added.
-The solver retains the best measured candidate across both initializations.
+All 12 original failures are cleared. The complete 20-fixture set now has **16 passing JPEG comparisons, 0 failures, 4 unchanged missing previews, and 0 errors**. Missing previews are not passes. The four original passing controls remain passing.
 
-Leica's physical point now passes: worst band bias0.04982592376884747<0.05.
-This is close to the existing limit; no tolerance or rounding changed. All5
-existing Hassy Auto2banding/smoothness gates pass with unchanged budgets.
-Final complete-fixture and relevant host/GPU validation are still pending in
-this checkpoint. Production math is shared by CPU/GPU fitting; NeutralAgX,
-output37/fit7 and original inputs remain unchanged. Same draft5003,no merge.
+The previous structured model already missed the target before LUT baking. Fit the actual baked tetrahedral LUT using the reference-luma band means, correct BOX sampling geometry, smooth bounded updates, and monotone projections. When structured initialization stalls, restart from a separable monotone prior using the same tetrahedral design rows. Retain the best measured candidate. No per-camera rules or extra apply-time stage are added.
+
+Final processing commit: `62afc78711e1c7e696611bde057c2d79a2753a24`.
+Binary SHA-256: `65bb5ba6365080c5e21e16905146eb5fcf52c073e4fec09d269ed72b682cf9f5`.
+The full result is `../../color-suite-5000-auto-embedded-jpeg-final.json`; the two disjoint final shards are `leica-point-result.json` and `final-rest-result.json`.
+
+Every original RAW hash and all 16 embedded-JPEG reference hashes match the baseline. All candidate hashes were checked and all comparisons independently recomputed with the final comparator. Four no-preview sentinels were reconfirmed. No original inputs or budgets changed.
+
+Leica test_0017 is close to the unchanged 0.05 limit: worst absolute channel-band bias 0.04982592376884747. Repeating with four Rayon workers instead of two produces the identical candidate PNG hash and metrics (`leica-workers4-result.json`). This is corpus qualification, not a claim of pixelwise equivalence or coverage of every camera.
+
+## Final validation
+
+- Auto unit tests: 57 pass, 6 pre-existing ignored.
+- Real-RAW host fit/cache tests: 8 pass.
+- GPU LUT parity: 7 pass at existing thresholds.
+- Existing Auto2 banding checks: all 5 pass at unchanged budgets.
+- Canonical entrypoint contracts: 4 pass; JPEG runner contracts: 9 pass.
+- Code generation completed with no generated diff.
+
+Neutral AgX, pipeline output version 37, and Auto fit version 7 remain unchanged. ACR image comparisons were removed from active CI/color tests per the owner request; preserved historical ACR results are not the current target. Work stays on draft #5003; nothing is merged.
