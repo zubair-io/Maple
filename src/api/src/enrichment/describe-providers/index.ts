@@ -95,12 +95,19 @@ export class RemoteError extends Error {
   }
 }
 
-export class TruncatedOutputError extends RemoteError {
+export class BilledOutputError extends RemoteError {
   readonly cost_usd: number;
   constructor(message: string, cost_usd: number) {
     super(message, false);
-    this.name = 'TruncatedOutputError';
+    this.name = 'BilledOutputError';
     this.cost_usd = cost_usd;
+  }
+}
+
+export class TruncatedOutputError extends BilledOutputError {
+  constructor(message: string, cost_usd: number) {
+    super(message, cost_usd);
+    this.name = 'TruncatedOutputError';
   }
 }
 

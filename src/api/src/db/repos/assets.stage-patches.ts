@@ -263,7 +263,9 @@ const DESCRIBE_UPSERT_SQL = `
   SELECT id, ?, json(?), ?, json(?), json(?), json(?) FROM assets WHERE id = ?
   ON CONFLICT (asset_id) DO UPDATE SET
     description      = excluded.description,
-    description_meta = excluded.description_meta,
+    description_meta = json_set(excluded.description_meta, '$.cost_usd',
+      COALESCE(json_extract(asset_detail.description_meta, '$.cost_usd'), 0)
+        + COALESCE(json_extract(excluded.description_meta, '$.cost_usd'), 0)),
     ocr_text         = excluded.ocr_text,
     ocr_meta         = excluded.ocr_meta,
     vision           = excluded.vision,
@@ -295,7 +297,9 @@ const VIDEO_DESCRIPTION_UPSERT_SQL = `
   SELECT id, json(?), json(?) FROM assets WHERE id = ?
   ON CONFLICT (asset_id) DO UPDATE SET
     video_description      = excluded.video_description,
-    video_description_meta = excluded.video_description_meta`;
+    video_description_meta = json_set(excluded.video_description_meta, '$.cost_usd',
+      COALESCE(json_extract(asset_detail.video_description_meta, '$.cost_usd'), 0)
+        + COALESCE(json_extract(excluded.video_description_meta, '$.cost_usd'), 0))`;
 
 /**
  * The video-describe stage's output: the whole multi-frame description and its

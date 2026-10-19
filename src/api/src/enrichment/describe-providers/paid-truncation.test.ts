@@ -57,6 +57,21 @@ describe('paid describe providers: output budget', () => {
 });
 
 describe('paid describe providers: truncation', () => {
+  it.each([
+    [OpenAIProvider, { choices: [], usage: { prompt_tokens: 900, completion_tokens: 20 } }],
+    [AnthropicProvider, { content: [], usage: { input_tokens: 900, output_tokens: 20 } }],
+    [
+      GeminiProvider,
+      { candidates: [], usageMetadata: { promptTokenCount: 900, thoughtsTokenCount: 20 } },
+    ],
+  ] as const)('retains billed usage when %p returns empty content', async (Provider, body) => {
+    const { fetchImpl } = jsonFetch(body);
+    const err = await failure(() => new Provider({ apiKey: 'k', fetchImpl }).describe(FRAME, OPTS));
+    expect(err.message).toContain('empty content');
+    expect(err.retryable).toBe(false);
+    expect((err as TruncatedOutputError).cost_usd).toBeGreaterThan(0);
+  });
+
   it('OpenAI finish_reason=length is a non-retryable OpenAI error', async () => {
     const { fetchImpl } = jsonFetch({
       model: 'gpt-4o-mini',

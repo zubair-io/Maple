@@ -1,3 +1,4 @@
+import { withDescribeCosts, type DescribeCosts } from './describe-cost.ts';
 import { assignedAiPool } from '../../enrichment/ai-assigned-pool.ts';
 /**
  * Video-describe (multi-frame visual description) stage — #2158.
@@ -47,7 +48,6 @@ import { assignedAiPool } from '../../enrichment/ai-assigned-pool.ts';
 import { DescribeServerPool } from '../../enrichment/describe-server-pool.ts';
 import {
   RemoteError,
-  TruncatedOutputError,
   type DescribeResult,
   getDescribeProvider,
   type DescribeProviderName,
@@ -205,10 +205,18 @@ function isTerminalProviderError(err: unknown): boolean {
   return err instanceof RemoteError && !err.retryable;
 }
 
-// fallow-ignore-next-line complexity
 export async function videoDescribeHandler(
   image: ImageDoc,
+  ctx: StageContext,
+): Promise<StageResult> {
+  return withDescribeCosts(image, ctx, videoDescribeAttempt);
+}
+
+// fallow-ignore-next-line complexity
+async function videoDescribeAttempt(
+  image: ImageDoc,
   _ctx: StageContext,
+  costs: DescribeCosts,
 ): Promise<StageResult> {
   const primary = assetPrimaryFileInfo(image);
   if (!primary || !isVideoFilename(primary.filename)) {
@@ -228,7 +236,6 @@ export async function videoDescribeHandler(
   }
 
   const ladder = degradationLadder(sampled.frames);
-  const truncatedCallCosts: number[] = [];
   let inferenceMs = 0;
   let call: DescribeCallResult | null = null;
   let fallbackLevel: FallbackLevel = 'full';
@@ -239,19 +246,16 @@ export async function videoDescribeHandler(
     const startedAt = Date.now();
     try {
       call = await deps.pool.run(async (provider, server) => ({
-        result: await provider
-          .describe(
+        result: await costs.record(
+          provider.describe(
             rung.frames.map((f) => f.jpeg),
             {
               systemPrompt: deps.systemPrompt,
               model: server.model ?? deps.model,
               format: provider.name === 'ollama' ? VIDEO_DESCRIPTION_JSON_SCHEMA : undefined,
             },
-          )
-          .catch((err: unknown) => {
-            if (err instanceof TruncatedOutputError) truncatedCallCosts.push(err.cost_usd);
-            throw err;
-          }),
+          ),
+        ),
         server,
       }));
       inferenceMs += Date.now() - startedAt;
@@ -287,7 +291,7 @@ export async function videoDescribeHandler(
     sampling_ms: sampled.samplingMs,
     inference_ms: inferenceMs,
     fallback_level: fallbackLevel,
-    cost_usd: truncatedCallCosts.reduce((sum, cost) => sum + cost, call.result.cost_usd),
+    cost_usd: costs.total,
   };
 
   return {

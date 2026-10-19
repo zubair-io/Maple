@@ -13,6 +13,7 @@
 
 import {
   RemoteError,
+  BilledOutputError,
   TruncatedOutputError,
   type DescribeOptions,
   type DescribeProvider,
@@ -128,7 +129,7 @@ export class GeminiProvider implements DescribeProvider {
     }
     const text = extractCandidateText(parsed.candidates);
     if (text.length === 0) {
-      throw new RemoteError('Gemini returned empty content', false);
+      throw new BilledOutputError('Gemini returned empty content', cost);
     }
     return {
       text,

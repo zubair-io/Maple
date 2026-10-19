@@ -10,6 +10,7 @@
 
 import {
   RemoteError,
+  BilledOutputError,
   TruncatedOutputError,
   type DescribeOptions,
   type DescribeProvider,
@@ -133,7 +134,7 @@ export class AnthropicProvider implements DescribeProvider {
     }
     const text = extractText(parsed.content);
     if (text.length === 0) {
-      throw new RemoteError('Anthropic returned empty content', false);
+      throw new BilledOutputError('Anthropic returned empty content', cost);
     }
     return {
       text,

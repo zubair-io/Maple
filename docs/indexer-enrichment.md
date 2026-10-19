@@ -192,6 +192,8 @@ The manual worker SemVer field is an operator label: it neither changes the code
 
 Ollama servers remain pooled by `enrichment/describe-server-pool.ts`, with per-server concurrency, failover, and circuit breakers. Saving the default URL also updates the first saved server entry; server lists retain their existing validation. Legacy paid-provider settings use worker concurrency; centralized assignments derive Describe capacity from every selected connection. Description and OCR remain derived database fields; no XMP sidecars are written. Because the preview is AVIF and provider inputs are JPEG, handlers re-encode in memory.
 
+Describe and video-describe accumulate reported provider charges in their respective metadata's `cost_usd`, including billed truncations, empty responses, and responses rejected by the stage parser. Failed attempts persist charges with the failure writeback even without a description; retries and later successful descriptions add to the recorded total without marking failed work successful. Calls without reported usage cannot be accounted for, and previously discarded charges cannot be recovered.
+
 **`search-blob` depends only on the always-on stages,** so keyword search is available early. Every producer of the blob's text — describe, geocode, transcribe, video-describe, people renames — re-arms it when its output changes, and re-arms `embed` too, since the embedded text reads the same sources.
 
 ## Maintenance workers
