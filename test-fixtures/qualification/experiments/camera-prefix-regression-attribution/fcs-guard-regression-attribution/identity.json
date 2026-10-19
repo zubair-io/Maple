@@ -1,0 +1,41 @@
+{
+  "scope": "Isolate positive-chroma green support guard from corrected upstream traversal; original FCS, no WB/HR change.28newfailures plus independently completed test0001/exposure-min. Diagnostic only.",
+  "binary_identity": {
+    "phase": "58 focused comparisons starting",
+    "commit": "a45a2d90a93dbab5d6e1495b9026b31a7c6e2a59",
+    "pipeline_output_version": 33,
+    "binary_sha256": "245cf18057fd1b719c9394540019fb836a840c7243aedd9ae982d4868b553a0d",
+    "scope": "Fused AMaZE traversal; original sensor-value FCS. No WB/HR experiment. Focused check, not final full qualification.",
+    "driver_sha256": "e9a3f1344ee6ff9624833f072df038fcdb77b04f00238faaafc8ff2dcc389aa4"
+  },
+  "targets": [
+    "test_0000/dehaze_max",
+    "test_0001/blacks_min",
+    "test_0001/clarity_min",
+    "test_0001/dehaze_min",
+    "test_0001/shadows_max",
+    "test_0002/shadows_max",
+    "test_0002/vibrance_min",
+    "test_0003/dehaze_max",
+    "test_0003/wb_auto",
+    "test_0004/dehaze_max",
+    "test_0004/highlights_min",
+    "test_0004/nr_color_max",
+    "test_0007/dehaze_max",
+    "test_0011/wb_tungsten",
+    "test_0014/sharpen_detail_min",
+    "test_0014/sharpen_radius_max",
+    "test_0018/clarity_min",
+    "test_0018/contrast_max",
+    "test_0018/nr_color_min",
+    "test_0018/nr_luminance_max",
+    "test_0018/saturation_min",
+    "test_0018/sharpen_detail_min",
+    "test_0018/sharpen_masking_max",
+    "test_0018/sharpen_radius_max",
+    "test_0018/sharpen_radius_min",
+    "test_0018/temperature_max",
+    "test_0018/wb_daylight",
+    "test_0018/wb_flash"
+  ]
+}
