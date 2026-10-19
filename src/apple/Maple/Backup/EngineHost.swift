@@ -134,8 +134,10 @@ public final class EngineHost {
           try await BackupEngineLock.acquireWhenFree(in: storageRoot, pollInterval: .seconds(2))
         }
         engineLockWait = wait
+        // Cleared however the wait ends — a failed poll must not leave the
+        // panel offering Stop for an engine that never started.
+        defer { if engineLockWait == wait { engineLockWait = nil } }
         let waited = try await wait.value
-        if engineLockWait == wait { engineLockWait = nil }
         guard generation == self.generation else {
           waited.release()
           return
