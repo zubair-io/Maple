@@ -106,6 +106,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             // later via `develop_sized`. A true half-res X-Trans
             // preview is a follow-up.
             let mut mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+            dump_after("00_sensor_linearized", &mosaic);
             // Hot/dead-pixel suppression (#1106) — pre-demosaic, raw-domain.
             // No-op (bit-identical) at the default Off.
             stage("hot_pixel", || {
@@ -121,6 +122,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
         }
         _ => {
             let mut mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+            dump_after("00_sensor_linearized", &mosaic);
             // Hot/dead-pixel suppression (#1106) — pre-demosaic, raw-domain.
             // No-op (bit-identical) at the default Off.
             stage("hot_pixel", || {
