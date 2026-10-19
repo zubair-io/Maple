@@ -13,6 +13,7 @@ pub(super) struct Observation {
     pub target: [f64; 3],
     pub baseline: [f64; 3],
     pub validation: bool,
+    pub region: usize,
 }
 
 fn mix(mut x: u64) -> u64 {
@@ -138,6 +139,7 @@ pub(super) fn build(
                 target,
                 baseline: base,
                 validation: mix(seed ^ 0x517cc1b727220a95) % 4 == 0,
+                region: (y * 8 / th) * 8 + x * 8 / tw,
             });
         }
     }

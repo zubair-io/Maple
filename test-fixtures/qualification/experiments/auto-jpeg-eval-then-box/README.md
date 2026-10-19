@@ -26,3 +26,29 @@ exact coarse-to-fine artifact sampling, orientation, pixel-center BOX spans,
 invalid data and integer sampling portability. Physical, visual, host/GPU and
 banding qualification remains pending. Neutral AgX, output37/fit7, original
 inputs and all fixed harness limits remain unchanged. Keep draft5003 unmerged.
+
+## Complete source5b6d0f1d92 qualification
+
+The complete physical run accounts for20fixtures:2JPEG passes,14failures,4
+previewless cases and0errors. All four previewless Auto/Neutral pixel comparisons
+pass. All original RAW/preview hashes match.0004 now passes the stronger gate
+(mean ΔE4.36618→2.60402);0002 remains passing. This is one newly detected quality
+failure cleared, not one of the original12signed-bias failures cleared.
+
+58Auto unit checks pass (6existing ignored),8real-RAW host fit/cache checks,7GPU
+LUT parity checks and all5unchanged banding checks pass. Full-frame contact sheets
+were inspected across all16JPEG fixtures. However, some already failing images
+have NEW regional subcheck failures:006(7),008(5),010(7),011(4),012(6). Overall
+case counts hide these regressions. `matched-subchecks.json` preserves them.
+0006's pink wall and0012's purple ground are visible regressions despite better
+whole-frame means. The whole candidate is NOT accepted as a clean fix.
+
+## Regional selection guard — next change
+
+The fitter now additionally compares held-out perceptual error within every8x8
+spatial region. Each must retain at least32validation samples and may increase
+by at most0.1ΔE to cover small sampling/quantization drift. This is an added
+model-selection restriction; NONE of the acceptance limits are changed. A new
+independent witness improves global error while damaging one region and must
+be rejected. Eight focused checks pass. The new guard still needs physical
+replay and visual review; do not carry source5b6counts forward as its result.

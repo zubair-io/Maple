@@ -139,3 +139,35 @@ fn rotated_pixel_footprints_stay_aligned_with_the_preview() {
         }
     }
 }
+
+#[test]
+fn rejects_local_color_damage_even_when_global_errors_improve() {
+    let mut observations = Vec::new();
+    for region in 0..64 {
+        let (input, target, baseline) = if region == 0 {
+            (0.4, 0.2, 0.2)
+        } else {
+            (0.5, 0.5, 0.8)
+        };
+        for _ in 0..64 {
+            observations.push(Observation {
+                weights: corners([input; 3]).to_vec(),
+                source: [input as f64; 3],
+                target: [target; 3],
+                baseline: [baseline; 3],
+                validation: true,
+                region,
+            });
+        }
+    }
+    let old_squared: f64 = observations
+        .iter()
+        .map(|row| (row.baseline[0] - row.target[0]).powi(2))
+        .sum();
+    let new_squared: f64 = observations
+        .iter()
+        .map(|row| (row.source[0] - row.target[0]).powi(2))
+        .sum();
+    assert!(new_squared < old_squared);
+    assert!(!prefer(&ColorLut::identity(GRID), &observations));
+}

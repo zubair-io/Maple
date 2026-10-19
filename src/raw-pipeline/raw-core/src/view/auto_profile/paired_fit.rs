@@ -11,6 +11,8 @@ use crate::view::{
 };
 pub(super) const GRID: usize = 9;
 pub(super) const CELLS: usize = GRID * GRID * GRID;
+// Allow small regional sampling/quantization drift; image acceptance budgets stay fixed.
+const REGIONAL_SELECTION_MARGIN_DE: f64 = 0.1;
 
 pub(super) fn corners(rgb: [f32; 3]) -> [(usize, f64); 4] {
     let mut lo = [0; 3];
@@ -203,8 +205,11 @@ fn prefer(candidate: &ColorLut, observations: &[Observation]) -> bool {
     let mut absolute = [[0.; 3]; 2];
     let mut perceptual = [0.; 2];
     let mut tails = [Vec::new(), Vec::new()];
+    let mut regional = [[0.; 64]; 2];
+    let mut counts = [0usize; 64];
     for row in observations.iter().filter(|row| row.validation) {
         let target = lab(row.target.map(|v| v as f32));
+        counts[row.region] += 1;
         let prediction = std::array::from_fn(|c| {
             row.weights
                 .iter()
@@ -214,6 +219,7 @@ fn prefer(candidate: &ColorLut, observations: &[Observation]) -> bool {
         for (i, output) in [prediction, row.baseline].into_iter().enumerate() {
             let de = f64::from(ciede2000(lab(output.map(|v| v as f32)), target));
             perceptual[i] += de;
+            regional[i][row.region] += de;
             tails[i].push(de);
             for c in 0..3 {
                 let error = output[c] - row.target[c];
@@ -230,7 +236,12 @@ fn prefer(candidate: &ColorLut, observations: &[Observation]) -> bool {
         .iter_mut()
         .map(|values| *values.select_nth_unstable_by(index, f64::total_cmp).1)
         .collect();
-    perceptual[0] < perceptual[1]
+    let regions_improve = (0..64).all(|r| {
+        counts[r] >= 32
+            && (regional[0][r] - regional[1][r]) / counts[r] as f64 <= REGIONAL_SELECTION_MARGIN_DE
+    });
+    regions_improve
+        && perceptual[0] < perceptual[1]
         && p95[0] <= p95[1]
         && (0..3).all(|c| squared[0][c] <= squared[1][c] && absolute[0][c] <= absolute[1][c])
 }
