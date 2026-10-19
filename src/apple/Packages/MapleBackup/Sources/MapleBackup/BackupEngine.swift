@@ -219,6 +219,9 @@ public actor BackupEngine {
     for task in cancelled {
       await task.value
     }
+    // A retry registered while the cancelled ones drained (stop() is
+    // reentrant at each await) is torn down the same way.
+    if !retryTasks.isEmpty { await stop() }
   }
 
   /// Process the next task in the queue, or return without throwing if

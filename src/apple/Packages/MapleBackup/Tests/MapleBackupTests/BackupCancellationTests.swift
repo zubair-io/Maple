@@ -124,6 +124,27 @@ final class BackupCancellationTests: XCTestCase {
       lateRequests, 0, "a cancelled companion retry scheduled a replacement after stop()")
   }
 
+  /// A companion retry that fails just as `stop()` cancels it reaches the
+  /// engine after the teardown snapshot; it must not register a replacement
+  /// that would run after the engine lock is released.
+  func testCancelledCallerCannotScheduleACompanionRetry() async throws {
+    let (engine, _, _, _, tmpRoot) = try freshHarness(companionBackoff: { _ in 0 })
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let ran = expectation(description: "replacement retry ran")
+    ran.isInverted = true
+    let caller = Task {
+      withUnsafeCurrentTask { $0?.cancel() }
+      await engine.scheduleCompanionRetry(
+        taskId: BackupTaskID(deviceId: "d", phassetLocalId: "photo"),
+        label: "sidecar", attempt: 1, maxAttempts: 3,
+        op: { ran.fulfill() })
+    }
+    await caller.value
+    let registered = await engine.retryTasks.count
+    XCTAssertEqual(registered, 0, "a cancelled caller registered a companion retry")
+    await fulfillment(of: [ran], timeout: 0.3)
+  }
+
   func testHundredThousandPhotosPersistAndRecoverInBatches() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
