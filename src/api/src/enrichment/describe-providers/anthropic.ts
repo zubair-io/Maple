@@ -57,7 +57,7 @@ interface AnthropicMessagesResponse {
 }
 
 export class AnthropicProvider implements DescribeProvider {
-  // fallow-ignore-next-line unused-class-members -- part of the DescribeProvider contract; callers use it through the interface
+  // fallow-ignore-next-line unused-class-member -- part of the DescribeProvider contract; callers use it through the interface
   readonly name = 'anthropic' as const;
 
   private readonly apiKey: string;
@@ -73,7 +73,7 @@ export class AnthropicProvider implements DescribeProvider {
   /** No dedicated health endpoint; do a tiny token-only message that
    * verifies the key works. We use a minimum max_tokens=1 to keep cost
    * effectively zero. */
-  // fallow-ignore-next-line unused-class-members -- part of the DescribeProvider contract; callers use it through the interface
+  // fallow-ignore-next-line unused-class-member -- part of the DescribeProvider contract; callers use it through the interface
   async health(): Promise<void> {
     const res = await this.timedFetch(ENDPOINT, {
       method: 'POST',
