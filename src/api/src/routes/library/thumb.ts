@@ -21,6 +21,9 @@ import {
   resolveDerivativeAddress,
 } from './shared.ts';
 
+/** Tells the Cloudflare thumb Worker not to mirror this response into R2 (#4750). */
+const EDGE_CACHEABLE_HEADER = 'X-Maple-Cacheable';
+
 const log = childLogger('routes/library/thumb');
 const inflightThumbGen = new Map<string, Promise<void>>();
 
@@ -39,6 +42,7 @@ async function serveThumb(
   thumbPath: string,
   ifNoneMatch: string | undefined,
   set: Context['set'],
+  edgeCacheable: boolean,
 ): Promise<Response | { error: string }> {
   try {
     await assertDerivativeCacheDirectory(thumbPath);
@@ -69,6 +73,7 @@ async function serveThumb(
         ETag: etag,
         'Cache-Control': MUTABLE_PREVIEW_CACHE,
         'X-Thumb-Cache': fresh ? 'hit' : 'miss',
+        ...(edgeCacheable ? {} : { [EDGE_CACHEABLE_HEADER]: '0' }),
       },
     });
   } catch (err) {
@@ -113,7 +118,13 @@ export const thumbRoutes = new Elysia().get(
       set.status = 404;
       return { error: 'Cannot resolve thumbnail path for this asset' };
     }
-    return serveThumb(absPath, thumbPath, headers['if-none-match'], set);
+    return serveThumb(
+      absPath,
+      thumbPath,
+      headers['if-none-match'],
+      set,
+      asset !== null && !asset.hidden,
+    );
   },
   { params: wildcardSlugParams() },
 );

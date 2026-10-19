@@ -71,6 +71,47 @@ describe('thumbnail-cache Worker', () => {
 		expect([...new Uint8Array(await cached!.arrayBuffer())]).toEqual([3]);
 	});
 
+	it('revalidates a 304 from R2 instead of stamping it immutable', async () => {
+		const stored = await env.THUMBS_BUCKET.put('thumbs/main/etag.jpg/v25', new Uint8Array([5]));
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(
+			new IncomingRequest('https://example.com/api/thumb/main/etag.jpg', {
+				headers: {
+					authorization: `Bearer ${await bearerToken()}`,
+					'if-none-match': stored.httpEtag,
+				},
+			}),
+			env,
+			ctx,
+		);
+		await waitOnExecutionContext(ctx);
+		expect(response.status).toBe(304);
+		expect(response.headers.get('cache-control')).toBe('private, no-cache');
+	});
+
+	it('does not mirror an origin 200 into R2 when the origin opts out, and hides the opt-out header', async () => {
+		const path = '/api/thumb/main/hidden.jpg';
+		fetchMock
+			.get(env.ORIGIN_API_BASE_URL)
+			.intercept({ path, method: 'GET' })
+			.reply(200, new Uint8Array([9]), {
+				headers: { 'content-type': 'image/avif', 'x-maple-cacheable': '0' },
+			});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(
+			new IncomingRequest(`https://example.com${path}`, {
+				headers: { authorization: `Bearer ${await bearerToken()}` },
+			}),
+			env,
+			ctx,
+		);
+		expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([9]);
+		await waitOnExecutionContext(ctx);
+		expect(response.status).toBe(200);
+		expect(response.headers.has('x-maple-cacheable')).toBe(false);
+		expect(await env.THUMBS_BUCKET.get('thumbs/main/hidden.jpg/v25')).toBeNull();
+	});
+
 	it('does not proxy protocol-relative paths carrying capability-shaped tokens', async () => {
 		const request = new IncomingRequest(
 			`https://example.com//evil.example/collect?token=${'T'.repeat(43)}`,
@@ -128,6 +169,17 @@ describe('thumbnail-cache Worker', () => {
 		expect(await env.THUMBS_BUCKET.get(`thumbs/main/a.jpg/v25`)).toBeNull();
 	});
 
+	it('refuses non-GET/HEAD methods before touching R2 or the origin', async () => {
+		const request = new IncomingRequest('https://example.com/api/thumb/main/a.jpg', {
+			method: 'POST',
+			headers: { authorization: `Bearer ${await bearerToken()}` },
+		});
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+		expect(response.status).toBe(405);
+	});
+
 	it('rejects an invalid bearer token', async () => {
 		const request = new IncomingRequest(`https://example.com/api/thumb/main/a.jpg`, {
 			headers: { authorization: 'Bearer not-a-real-jwt' },
@@ -152,7 +204,7 @@ describe('thumbnail-cache Worker', () => {
 		await waitOnExecutionContext(ctx);
 
 		expect(response.status).toBe(200);
-		expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+		expect(response.headers.get('cache-control')).toBe('private, no-cache');
 		expect(response.headers.get('content-type')).toBe('image/avif');
 		expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
 	});

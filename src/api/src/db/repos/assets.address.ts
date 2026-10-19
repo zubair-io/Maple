@@ -46,6 +46,7 @@ const LIVE_ENTRY = `l.deleted_at IS NULL AND l.missing_since IS NULL`;
 export interface AddressedAsset {
   _id: ObjectId;
   maple_id: string | null;
+  hidden: boolean;
   fileinfo: FileInfo[];
 }
 
@@ -63,8 +64,8 @@ export async function findAssetAtAddress(
   dbOverride?: SqliteDb,
 ): Promise<AddressedAsset | null> {
   const db = sqliteDb(dbOverride);
-  const rows = await db.read<{ id: string; maple_id: string | null }>(
-    `SELECT a.id AS id, a.maple_id AS maple_id
+  const rows = await db.read<{ id: string; maple_id: string | null; hidden: number }>(
+    `SELECT a.id AS id, a.maple_id AS maple_id, a.hidden AS hidden
        FROM asset_locations l
        JOIN assets a ON a.id = l.asset_id
       WHERE ${ADDRESS_WHERE} AND ${LIVE_ENTRY} AND a.deleted_at IS NULL
@@ -77,6 +78,7 @@ export async function findAssetAtAddress(
   return {
     _id: toObjectId(row.id),
     maple_id: row.maple_id,
+    hidden: row.hidden === 1,
     fileinfo: toFileInfo(locations),
   };
 }

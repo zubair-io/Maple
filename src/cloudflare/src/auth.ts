@@ -6,8 +6,10 @@
  * forgery is rejected before the signature is even checked.
  *
  * The Worker only needs to know a request is authenticated as SOME valid
- * user — it doesn't branch on role or read `email`/`sub` — so this checks
- * signature + expiry and returns nothing more than a boolean.
+ * user, so this checks signature + expiry + an access-token `role` claim and
+ * returns a boolean. The role requirement rejects step-up assertions
+ * (`purpose: 'step_up'`, no role), which share the signing secret but are not
+ * access tokens.
  */
 
 import { jwtVerify, errors as joseErrors } from 'jose';
@@ -29,8 +31,8 @@ export async function verifyBearer(
 	const match = authorizationHeader ? /^Bearer (.+)$/.exec(authorizationHeader) : null;
 	if (!match) return false;
 	try {
-		await jwtVerify(match[1], secretKey(secret), { algorithms: [ALG] });
-		return true;
+		const { payload } = await jwtVerify(match[1], secretKey(secret), { algorithms: [ALG] });
+		return payload.role === 'owner' || payload.role === 'member';
 	} catch (e) {
 		if (e instanceof joseErrors.JWTExpired) return false;
 		if (e instanceof joseErrors.JWSSignatureVerificationFailed) return false;
