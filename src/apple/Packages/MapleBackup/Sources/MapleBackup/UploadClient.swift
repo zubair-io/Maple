@@ -136,11 +136,17 @@ public actor UploadClient {
   ///   re-imported photos (whose `phasset_link` for this device was never
   ///   attached) resolve instead of 404'ing (#698). Optional for callers
   ///   that don't have it; the server falls back to device+phasset.
+  /// - Parameter basedOn: Digest of the sidecar this device last delivered for
+  ///   the photo, or `nil` for its first (#4719). Sent as
+  ///   `X-Maple-Sidecar-Base`, which opts into the server's compare-and-swap:
+  ///   a newer edit always lands, and a version it replaces without having
+  ///   been based on is kept server-side rather than lost.
   public func uploadSidecar(
     phassetLocalId: String,
     targetRelPath: String,
     xmp: String,
-    mapleId: String? = nil
+    mapleId: String? = nil,
+    basedOn: String?
   ) async throws {
     let url =
       baseURL
@@ -157,6 +163,7 @@ public actor UploadClient {
     req.setValue(phassetLocalId, forHTTPHeaderField: "X-Maple-Phasset-Id")
     req.setValue(targetRelPath, forHTTPHeaderField: "X-Maple-Target-Rel-Path")
     if let mapleId { req.setValue(mapleId, forHTTPHeaderField: "X-Maple-Id") }
+    req.setValue(basedOn ?? "none", forHTTPHeaderField: "X-Maple-Sidecar-Base")
     req.httpBody = Data(xmp.utf8)
 
     let (data, response) = try await transport(req)

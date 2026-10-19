@@ -291,6 +291,7 @@ enum ChangeObserverWiring {
       photoIDs: libraryPhotoIDs, backedUpIDs: locallyBackedUp)
     EngineHost.shared.progress.setWalkPhase(.checkingServer)
     var serverKnownPhids: Set<String> = []
+    var serverHeld: [ServerHeldAsset] = []
     let stateClient = BackupStateClient(
       baseURL: LocalNetworkResolver.shared.effectiveURL(for: serverBaseURL),
       libraryId: libraryId, deviceId: deviceId,
@@ -298,6 +299,13 @@ enum ChangeObserverWiring {
     do {
       let known = try await stateClient.fetchKnownAssets()
       serverKnownPhids = Set(known.map(\.phassetLocalId))
+      serverHeld = known.compactMap { asset in
+        asset.relPath.map {
+          ServerHeldAsset(
+            id: BackupTaskID(deviceId: deviceId, phassetLocalId: asset.phassetLocalId),
+            targetRelPath: $0, mapleId: asset.mapleId)
+        }
+      }
       log.info(
         "walk server-state reconciliation: server knows \(serverKnownPhids.count) phids for this device"
       )
@@ -396,6 +404,12 @@ enum ChangeObserverWiring {
     log.info(
       "walk done: enqueued=\(enqueuedCount) retried=\(retriedCount) reconciled-uploaded=\(reconciledUploaded) skipped=\(ids.count - enqueuedCount - retriedCount)"
     )
+
+    // Photos the server already holds can still carry a newer local edit than
+    // the one they were uploaded with; send those on top (#4719).
+    if let engine = EngineHost.shared.engine {
+      await engine.resendNewerEdits(serverHeld)
+    }
 
     guard !Task.isCancelled else { return }
     // Publish the outcome so the status panel can tell "fully backed up"
