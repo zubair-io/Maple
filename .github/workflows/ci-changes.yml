@@ -17,6 +17,10 @@ on:
         value: ${{ jobs.select.outputs.codegen }}
       swift:
         value: ${{ jobs.select.outputs.swift }}
+      release:
+        value: ${{ jobs.select.outputs.release }}
+      ci:
+        value: ${{ jobs.select.outputs.ci }}
 
 permissions:
   contents: read
@@ -32,6 +36,8 @@ jobs:
       maple: ${{ steps.changes.outputs.maple }}
       codegen: ${{ steps.changes.outputs.codegen }}
       swift: ${{ steps.changes.outputs.swift }}
+      release: ${{ steps.changes.outputs.release }}
+      ci: ${{ steps.changes.outputs.ci }}
     steps:
       - uses: actions/checkout@v4
         with:

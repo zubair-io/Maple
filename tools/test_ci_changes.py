@@ -18,8 +18,8 @@ SCRIPT = Path(ci.__file__).resolve()
 class ClassificationTests(unittest.TestCase):
     def test_dependencies(self):
         cases = {
-            "src/raw-pipeline/raw-core/src/lib.rs": ci.ALL,
-            "src/raw-pipeline/Cargo.lock": ci.ALL,
+            "src/raw-pipeline/raw-core/src/lib.rs": ci.BUILDS,
+            "src/raw-pipeline/Cargo.lock": ci.BUILDS,
             "src/api/src/routes/assets.ts": {"api", "maple", "web"},
             "src/maple/package.json": {"android", "api", "maple", "web", "swift"},
             "src/web/package.json": {"api", "web", "swift"},
@@ -50,20 +50,24 @@ class ClassificationTests(unittest.TestCase):
             "AGENTS.md": set(),
             "CLAUDE.md": set(),
             "LICENSE": set(),
-            "tools/release_handoff.py": set(),
-            "tools/test_release_control.py": set(),
-            "tools/sync-release-version.sh": ci.ALL,
+            "tools/release_handoff.py": {"release"},
+            "tools/test_release_control.py": {"release"},
+            "tools/sync-release-version.sh": {"release"},
             "tools/codegen.sh": ci.ALL,
             "tools/codegen/helper.py": ci.ALL,
             "tools/ci_changes.py": ci.ALL,
-            "tools/qualification/record.sh": ci.ALL,
-            "test-fixtures/qualification/record.json": ci.ALL,
+            "tools/qualification/record.sh": ci.BUILDS,
+            "test-fixtures/qualification/record.json": ci.BUILDS,
             "src/scripts/derive_agx_lut.py": ci.ALL,
             "src/apple/scripts/build-xcframework.sh": ci.ALL,
             "src/apple/ci_scripts/ci_post_clone.sh": ci.ALL,
             "src/windows/scripts/build-windows.sh": ci.ALL,
             "src/api/scripts/build-raw-ffi.sh": ci.ALL,
             ".github/workflows/web.yml": ci.ALL,
+            ".github/workflows/version-sync.yml": {"release"},
+            ".github/workflows/release-handoff.yml": {"release"},
+            "tools/generate_nlm_exp_table.py": {"codegen"},
+            "tools/test_nlm_exp_table.py": {"codegen"},
             ".github/actions/setup/action.yml": ci.ALL,
             "some/new/domain.txt": ci.ALL,
             "README.md/unexpected": ci.ALL,
@@ -74,6 +78,22 @@ class ClassificationTests(unittest.TestCase):
         for path, expected in cases.items():
             with self.subTest(path=path):
                 self.assertEqual(set(ci.dependencies(path)), set(expected))
+
+    def test_regression_suites_skip_unrelated_application_changes(self):
+        for path in (
+            "src/api/src/routes/assets.ts",
+            "src/apple/Maple/App.swift",
+            "src/raw-pipeline/raw-core/src/lib.rs",
+            "docs/testing.md",
+        ):
+            with self.subTest(path=path):
+                outputs, _ = ci.classify_paths([path])
+                self.assertFalse(outputs["release"])
+                self.assertFalse(outputs["ci"])
+        for path in ("tools/ci_changes.py", ".github/workflows/cross.yml"):
+            outputs, _ = ci.classify_paths([path])
+            self.assertTrue(outputs["ci"])
+            self.assertTrue(outputs["release"])
 
     def test_union_and_empty(self):
         result, _ = ci.classify_paths(["docs/testing.md", "src/web/a", "src/windows/b"])
@@ -94,8 +114,8 @@ class ClassificationTests(unittest.TestCase):
                 "codegen",
                 "swift",
             },
-            apple + "MapleUITests/Goldens/.calibration/a.png": ci.ALL,
-            apple + "MapleUITests/Goldens/.calibration/expected.json": ci.ALL,
+            apple + "MapleUITests/Goldens/.calibration/a.png": ci.BUILDS,
+            apple + "MapleUITests/Goldens/.calibration/expected.json": ci.BUILDS,
             apple + "MapleUITests/Goldens/other.png": {"codegen", "swift"},
             assets + "LaunchLogo.imageset/launchlogo_2x.png": {
                 "android",
@@ -134,7 +154,7 @@ class ClassificationTests(unittest.TestCase):
                 self.assertFalse(ci.dependencies(path))
                 self.assertEqual(ci.dependencies("src/web/" + path), {"api", "web"})
                 self.assertEqual(
-                    ci.dependencies("src/raw-pipeline/vendor/pkg/" + path), ci.ALL
+                    ci.dependencies("src/raw-pipeline/vendor/pkg/" + path), ci.BUILDS
                 )
                 self.assertEqual(ci.dependencies("unknown/" + path), ci.ALL)
 

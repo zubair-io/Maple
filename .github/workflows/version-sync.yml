@@ -22,7 +22,7 @@ permissions:
 jobs:
   release-readiness:
     name: Release readiness
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/next-v')
     runs-on: ubuntu-latest
     permissions:
       actions: read
