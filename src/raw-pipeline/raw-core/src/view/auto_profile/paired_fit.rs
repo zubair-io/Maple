@@ -174,6 +174,20 @@ fn lab(rgb: [f32; 3]) -> [f32; 3] {
 }
 
 fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observation]) -> bool {
+    let assessment = assess(candidate, observations, display);
+    assessment.compatible && assessment.native_bands_preserved
+}
+
+struct Assessment {
+    compatible: bool,
+    native_bands_preserved: bool,
+}
+
+fn assess(
+    candidate: &ColorLut,
+    observations: &[Observation],
+    display: &[Observation],
+) -> Assessment {
     let mut squared = [[0.; 3]; 2];
     let mut absolute = [[0.; 3]; 2];
     let mut perceptual = [0.; 2];
@@ -205,7 +219,10 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
         }
     }
     if validation_count < 32 {
-        return false;
+        return Assessment {
+            compatible: false,
+            native_bands_preserved: true,
+        };
     }
     for row in display {
         counts[row.region] += 1;
@@ -229,7 +246,10 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
         }
     }
     if tails[0].len() < 32 {
-        return false;
+        return Assessment {
+            compatible: false,
+            native_bands_preserved: true,
+        };
     }
     let index = (tails[0].len() * 95 / 100).min(tails[0].len() - 1);
     let p95: Vec<f64> = tails
@@ -258,8 +278,7 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
         p95[1] > 0.1 || p95[0] <= 0.1
     });
     let native_bands_preserved = native_bands.preserved();
-    let accepted = regions_improve
-        && native_bands_preserved
+    let compatible = regions_improve
         && rgb_regions_preserved
         && rgb_tails_preserved
         && perceptual[0] < perceptual[1]
@@ -268,12 +287,15 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
     #[cfg(feature = "stage-dump")]
     if let Some(dir) = crate::stage_dump::dump_dir() {
         let regions:Vec<_>=(0..64).map(|r|serde_json::json!({"region":r,"count":counts[r],"candidate_mean":(counts[r]>0).then(||regional[0][r]/counts[r] as f64),"baseline_mean":(counts[r]>0).then(||regional[1][r]/counts[r] as f64)})).collect();
-        let report = serde_json::json!({"accepted":accepted,"regions_improve":regions_improve,"native_bands_preserved":native_bands_preserved,"rgb_regions_preserved":rgb_regions_preserved,"rgb_tails_preserved":rgb_tails_preserved,"native_squared_rgb":squared,"native_absolute_rgb":absolute,"display_perceptual_sum":perceptual,"display_p95":p95,"native_validation_samples":validation_count,"display_samples":display.len(),"regions":regions});
+        let report = serde_json::json!({"accepted":compatible && native_bands_preserved,"regions_improve":regions_improve,"native_bands_preserved":native_bands_preserved,"rgb_regions_preserved":rgb_regions_preserved,"rgb_tails_preserved":rgb_tails_preserved,"native_squared_rgb":squared,"native_absolute_rgb":absolute,"display_perceptual_sum":perceptual,"display_p95":p95,"native_validation_samples":validation_count,"display_samples":display.len(),"regions":regions});
         if let Ok(file) = std::fs::File::create(dir.join("auto_fit_selection.json")) {
             let _ = serde_json::to_writer_pretty(std::io::BufWriter::new(file), &report);
         }
     }
-    accepted
+    Assessment {
+        compatible,
+        native_bands_preserved,
+    }
 }
 
 pub(super) fn fit(
@@ -365,7 +387,7 @@ fn select_step(
     let mut selected = None;
     for fraction in [1., 0.5, 0.25, 0.125, 0.0625] {
         let candidate = blend(fraction);
-        if prefer(&candidate, native, display) {
+        if assess(&candidate, native, display).compatible {
             selected = Some((fraction, candidate));
             break;
         }
@@ -376,7 +398,7 @@ fn select_step(
         for _ in 0..8 {
             let fraction = (lower + upper) * 0.5;
             let candidate = blend(fraction);
-            if prefer(&candidate, native, display) {
+            if assess(&candidate, native, display).compatible {
                 lower = fraction;
                 result = candidate;
             } else {
@@ -384,11 +406,29 @@ fn select_step(
             }
         }
     }
+    let native_band_backtracked = !assess(&result, native, display).native_bands_preserved;
+    if native_band_backtracked {
+        let original = lower;
+        let mut safe = None;
+        // Sampled band limits need interior slack, not a refinement to their estimated boundary.
+        for fraction in [0.5, 0.25, 0.125, 0.0625] {
+            let fraction = original * fraction;
+            let candidate = blend(fraction);
+            if prefer(&candidate, native, display) {
+                safe = Some((fraction, candidate));
+                break;
+            }
+        }
+        (lower, result) = safe?;
+    }
     #[cfg(feature = "stage-dump")]
     if let Some(dir) = crate::stage_dump::dump_dir() {
         let _ = prefer(&result, native, display);
         if let Ok(file) = std::fs::File::create(dir.join("auto_fit_step.json")) {
-            let _ = serde_json::to_writer(file, &serde_json::json!({"fraction":lower}));
+            let _ = serde_json::to_writer(
+                file,
+                &serde_json::json!({"fraction":lower,"native_band_backtracked":native_band_backtracked}),
+            );
         }
     }
     Some(result)

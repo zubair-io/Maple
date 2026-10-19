@@ -100,3 +100,51 @@ fn an_existing_rgb_tail_failure_does_not_discard_otherwise_safer_corrections() {
     assert_perceptual_safeguards_allow(&rows);
     assert!(prefer(&ColorLut::identity(GRID), &rows, &rows));
 }
+
+#[test]
+fn sampled_native_band_limits_keep_the_first_safe_half_step_instead_of_refining_to_the_boundary() {
+    let current = ColorLut::identity(GRID);
+    let mut proposed = current.clone();
+    for node in proposed.data.chunks_exact_mut(3) {
+        for value in node {
+            *value = (*value - if *value <= 0.25 { 0.02 } else { 0.06 }).max(0.);
+        }
+    }
+    let mut native = Vec::new();
+    let mut display = Vec::new();
+    for region in 0..64 {
+        for i in 0..64 {
+            let (source, target) = if i % 16 == 0 {
+                (0.625, 0.665)
+            } else {
+                (0.25, 0.22)
+            };
+            native.push(Observation {
+                weights: corners([source; 3]).to_vec(),
+                artifact_weights: corners([source; 3]).to_vec(),
+                source: [source as f64; 3],
+                target: [target; 3],
+                baseline: [source as f64; 3],
+                validation: true,
+                in_bias_region: true,
+                region,
+            });
+            display.push(Observation {
+                weights: corners([0.25; 3]).to_vec(),
+                artifact_weights: corners([0.25; 3]).to_vec(),
+                source: [0.25; 3],
+                target: [0.22; 3],
+                baseline: [0.25; 3],
+                validation: true,
+                in_bias_region: true,
+                region,
+            });
+        }
+    }
+    let full = assess(&proposed, &native, &display);
+    assert!(full.compatible);
+    assert!(!full.native_bands_preserved);
+    let result = select_step(&proposed, &current, &native, &display).unwrap();
+    assert!(prefer(&result, &native, &display));
+    assert!((result.sample([0.25; 3])[0] - 0.2475).abs() < 1e-7);
+}
