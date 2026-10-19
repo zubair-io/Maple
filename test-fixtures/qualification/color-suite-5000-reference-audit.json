@@ -1,0 +1,562 @@
+{
+  "scope": "Explicit canonical controls only; omitted controls are not certified.",
+  "manifest": "/Users/riabuz/.codex/color-suite-evidence/5000/baseline-cf62d12ddc/source/test-fixtures/references/manifest.json",
+  "outputs": 806,
+  "matched": 760,
+  "mismatched": 36,
+  "errors": 10,
+  "manifest_sha256": "d19126e60a1224ccc4742f6b1d14080fca98ecee7c81f4a7090eb51cd6a854d6",
+  "original_inputs_verified": 1582,
+  "changed_inputs": [],
+  "full_report_sha256": "bfdf5b0168ccf0e04d53ee911cf56814aa8f4c7f28716507787a0062c789d07a",
+  "records": [
+    {
+      "case": "test_0000/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Temperature",
+          "authored": "6500",
+          "effective": "5500"
+        },
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0000/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Temperature",
+          "authored": "6500",
+          "effective": "5500"
+        },
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0001/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0001/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0001/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0001/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0002/nr_color_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/nr_color_max.png",
+      "status": "error",
+      "error": "saved PNG has no effective Adobe XMP"
+    },
+    {
+      "case": "test_0002/nr_color_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/nr_color_min.png",
+      "status": "error",
+      "error": "saved PNG has no effective Adobe XMP"
+    },
+    {
+      "case": "test_0002/nr_luminance_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/nr_luminance_max.png",
+      "status": "error",
+      "error": "saved PNG has no effective Adobe XMP"
+    },
+    {
+      "case": "test_0002/sharpen_amount_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/sharpen_amount_max.png",
+      "status": "error",
+      "error": "saved PNG has no effective Adobe XMP"
+    },
+    {
+      "case": "test_0002/sharpen_amount_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/sharpen_amount_min.png",
+      "status": "error",
+      "error": "saved PNG has no effective Adobe XMP"
+    },
+    {
+      "case": "test_0002/sharpen_detail_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/sharpen_detail_max.png",
+      "status": "error",
+      "error": "saved PNG has no effective Adobe XMP"
+    },
+    {
+      "case": "test_0002/sharpen_detail_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/sharpen_detail_min.png",
+      "status": "error",
+      "error": "saved PNG has no effective Adobe XMP"
+    },
+    {
+      "case": "test_0002/sharpen_masking_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/sharpen_masking_max.png",
+      "status": "error",
+      "error": "saved PNG has no effective Adobe XMP"
+    },
+    {
+      "case": "test_0002/sharpen_radius_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/sharpen_radius_max.png",
+      "status": "error",
+      "error": "saved PNG has no effective Adobe XMP"
+    },
+    {
+      "case": "test_0002/sharpen_radius_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/sharpen_radius_min.png",
+      "status": "error",
+      "error": "saved PNG has no effective Adobe XMP"
+    },
+    {
+      "case": "test_0002/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0002/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0003/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0003/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0004/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0004/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0004/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0004/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0005/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0005/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0005/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0005/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0006/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0006/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0006/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0006/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0007/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0007/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0008/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0008/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0008/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0008/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0009/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0009/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0009/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0009/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0010/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0010/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0010/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0010/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0011/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0011/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0012/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0012/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0012/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0012/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0013/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0013/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0013/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0013/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0014/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0014/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0014/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0014/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0015/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0015/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0015/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0015/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0017/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0017/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0018/tint_max",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/down/tint_max.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    },
+    {
+      "case": "test_0018/tint_min",
+      "resolution": "down",
+      "png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/down/tint_min.png",
+      "mismatches": [
+        {
+          "control": "Tint",
+          "authored": "-150",
+          "effective": "+10"
+        }
+      ],
+      "status": "mismatch"
+    }
+  ]
+}

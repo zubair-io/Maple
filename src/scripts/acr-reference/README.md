@@ -180,3 +180,20 @@ they're multi-file stitching fixtures, not single-image test subjects.
    `test_0004.fff` — the same file as the medium_format entry.
    Originally documented as a symlink but the filesystem has no symlink;
    both entries point at the single flat file. Pre-existing; not touched.
+
+## Read-only audit of historical captures
+
+Before using historical references for renderer attribution, compare the
+controls explicitly present in canonical sidecars with each PNG's effective
+Adobe metadata:
+
+```bash
+python3 src/scripts/acr-reference/audit_authored_settings.py \
+  test-fixtures/references/manifest.json --output /tmp/authored-settings-audit.json
+```
+
+This command changes no RAW, XMP or reference PNG. It reports every mismatch
+and missing/unreadable metadata entry, and exits nonzero if any are found.
+Omitted controls are not certified or assigned defaults. For a newly rendered
+batch, use `verify_settings.py` instead: that stricter verifier checks every
+explicit Adobe-side default as well as the authored overrides.

@@ -74,3 +74,22 @@ its production source changes were reverted.
 The exact patch, test logs, unchanged input verification and raw comparison
 metrics are retained so this investigation can be resumed without lost work.
 The full main baseline is still running; no complete-suite reduction is claimed.
+
+## Authored-setting audit of all existing references
+
+The new read-only audit checked all 806 saved reference outputs against only
+the controls explicitly authored in their canonical XMPs. It found 760 matches,
+36 mismatches (all tint endpoints), and 10 PNGs without effective Adobe metadata
+(all test_0002 detail/NR down references). A match does not certify omitted
+controls. These counts describe reference integrity, not color-gate failures.
+All 1,582 unique canonical sidecar/PNG inputs were rehashed against the original
+baseline identities and remain unchanged. The compact audit report retains all
+46 nonmatching/uncertified records. Eight new audit tests and all 27 reference
+tooling tests pass; Ruff passes.
+
+Two isolated Photoshop captures confirm the tint mismatch for test_0007. Their
+settings verifier passes; with the unchanged renderer and budgets, tint_max
+passes against the verified capture, while tint_min still fails maximum error.
+The originals remain intact and no canonical failures are counted as cleared.
+Full settings, hashes and matched measurements are retained under
+`experiments/wb-reference-diagnostic/`.
