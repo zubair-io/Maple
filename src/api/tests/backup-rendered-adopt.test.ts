@@ -19,6 +19,7 @@ import {
 } from './helpers/sqlite-fixtures.ts';
 import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
 import { resolvePurgeCompanion } from '../src/library/purge-rendered-companion.ts';
+import { assetOwnsRelPath } from '../src/db/repos/assets.location-owner.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -52,13 +53,13 @@ afterEach(async () => {
   await fs.rm(tmpLib, { recursive: true, force: true });
 });
 
-async function uploadLiveTwin(bytes: Buffer): Promise<string> {
+async function uploadLiveTwin(bytes: Buffer, device = deviceId): Promise<string> {
   const res = await authedHandle(
     new Request(`http://localhost/api/libraries/${libId.toHexString()}/backup/rendered`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/octet-stream',
-        'X-Maple-Device-Id': deviceId,
+        'X-Maple-Device-Id': device,
         'X-Maple-Phasset-Id': 'ADOPT/1',
         'X-Maple-Target-Rel-Path': photoRel,
         'X-Maple-Suffix-Override': 'mov',
@@ -149,5 +150,63 @@ describe('Trash purge companion guard (#4695)', () => {
       path.join(canonical, photoRel),
     );
     expect(target).toBe(path.join(canonical, companionRel));
+  });
+});
+
+describe('rendered companion review follow-ups (#4695)', () => {
+  test('a second device reuses the identical companion already at the disambiguated name', async () => {
+    await fs.writeFile(path.join(tmpLib, '2024/LivePhotos/IMG_0001.mov'), 'someone-elses-video');
+    const twin = Buffer.from('the-live-photo-twin');
+
+    const first = await uploadLiveTwin(twin, 'device-a');
+    const second = await uploadLiveTwin(twin, 'device-b');
+
+    expect(second).toBe(first);
+    expect(recordedCompanion()).toBe(first);
+    const movs = (await fs.readdir(path.join(tmpLib, '2024/LivePhotos'))).filter((name) =>
+      name.toLowerCase().endsWith('.mov'),
+    );
+    expect(movs).toHaveLength(2);
+  });
+
+  test('a retry of a completed disambiguated upload returns where the companion landed', async () => {
+    await fs.writeFile(path.join(tmpLib, '2024/LivePhotos/IMG_0001.mov'), 'someone-elses-video');
+    const twin = Buffer.from('the-live-photo-twin');
+
+    const placed = await uploadLiveTwin(twin);
+    const retried = await uploadLiveTwin(twin);
+
+    expect(placed).not.toBe('2024/LivePhotos/IMG_0001.mov');
+    expect(retried).toBe(placed);
+  });
+
+  test('ownership matches a non-ASCII case alias of an indexed filename', async () => {
+    seedBackupAsset(live.db, {
+      mapleId: '0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d',
+      size: 5,
+      locations: [{ libraryId: libId, relPath: '2024/LivePhotos/Ünterwegs.MOV' }],
+      links: [{ deviceId, phassetLocalId: 'ADOPT/UNICODE' }],
+    });
+
+    expect(await assetOwnsRelPath(libId, '2024/LivePhotos/ünterwegs.mov')).toBe(true);
+    expect(await assetOwnsRelPath(libId, '2024/LivePhotos/u\u0308nterwegs.mov')).toBe(true);
+    expect(await assetOwnsRelPath(libId, '2024/LivePhotos/anderswo.mov')).toBe(false);
+  });
+
+  test('the ownership lookup seeks the folder through the location index', async () => {
+    const seen: { sql: string; params: unknown[] }[] = [];
+    const recording = {
+      ...live.handle,
+      read: (sql: string, params?: unknown[]) => {
+        seen.push({ sql, params: params ?? [] });
+        return live.handle.read(sql, params as never);
+      },
+    } as typeof live.handle;
+    await assetOwnsRelPath(libId, '2024/LivePhotos/IMG_0001.mov', recording);
+    expect(seen).toHaveLength(1);
+    const plan = live.db
+      .query(`EXPLAIN QUERY PLAN ${seen[0]!.sql}`)
+      .all(...(seen[0]!.params as never[])) as { detail: string }[];
+    expect(plan.map((row) => row.detail).join(' ')).toContain('path=?');
   });
 });
