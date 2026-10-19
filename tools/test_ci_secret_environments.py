@@ -25,7 +25,13 @@ def load(name):
 
 
 def secret_names(value):
-    return re.findall(r"secrets(?:\.|\[\s*['\"])([A-Za-z0-9_]+)", str(value))
+    found = re.findall(r"secrets(?:\.|\[\s*['\"])([A-Za-z0-9_]+)", str(value), re.IGNORECASE)
+    return [name.upper() for name in found]
+
+
+def job_secret_names(config, job):
+    workflow_level = {key: value for key, value in config.items() if key != "jobs"}
+    return secret_names(workflow_level) + secret_names(job)
 
 
 class SecretEnvironmentTests(unittest.TestCase):
@@ -39,7 +45,7 @@ class SecretEnvironmentTests(unittest.TestCase):
         for path in workflow_files():
             config = yaml.safe_load(path.read_text())
             for job_id, job in config.get("jobs", {}).items():
-                names = secret_names(job)
+                names = job_secret_names(config, job)
                 for pattern, environment in SENSITIVE_ENVIRONMENTS:
                     matched = [name for name in names if pattern.search(name)]
                     if matched:
@@ -50,6 +56,17 @@ class SecretEnvironmentTests(unittest.TestCase):
         self.assertEqual(secret_names("${{ secrets.VERSION_SYNC_TOKEN }}"), ["VERSION_SYNC_TOKEN"])
         self.assertEqual(secret_names("${{ secrets['VERSION_SYNC_TOKEN'] }}"), ["VERSION_SYNC_TOKEN"])
         self.assertEqual(secret_names('${{ secrets[ "ANDROID_UPLOAD_KEY" ] }}'), ["ANDROID_UPLOAD_KEY"])
+
+    def test_secret_names_ignore_case_and_include_workflow_level_values(self):
+        self.assertEqual(secret_names("${{ secrets.version_sync_token }}"), ["VERSION_SYNC_TOKEN"])
+        config = {"env": {"TOKEN": "${{ secrets.VERSION_SYNC_TOKEN }}"}, "jobs": {"build": {"steps": []}}}
+        self.assertEqual(job_secret_names(config, config["jobs"]["build"]), ["VERSION_SYNC_TOKEN"])
+
+    def test_no_workflow_hands_over_the_whole_secrets_object(self):
+        whole_object = re.compile(r"secrets:\s*inherit|toJSON\(\s*secrets\s*\)|secrets\[\s*[^'\"\s]", re.IGNORECASE)
+        for path in workflow_files():
+            with self.subTest(workflow=path.name):
+                self.assertIsNone(whole_object.search(path.read_text()))
 
     def test_workflow_files_cover_yaml_and_yml(self):
         self.assertTrue(all(path.suffix in (".yml", ".yaml") for path in workflow_files()))
