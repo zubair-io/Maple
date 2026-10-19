@@ -19,6 +19,6 @@ its existing explicit bookkeeping/inactive exceptions. Unknown active changes
 still fail. Native and down metadata within each qualified pair match exactly.
 
 The runnable full overlay manifest and private Adobe assets are retained at:
-`/Users/riabuz/.codex/color-suite-evidence/5000/resize-family-diagnostic/qualified-manifest-v3.json`.
+`/Users/riabuz/.codex/color-suite-evidence/5000/resize-family-diagnostic/qualified-manifest-v4.json`.
 They are separate from the original-protocol baseline and primary fixture tree.
 The tint-reference proposal remains a separate pending user decision.

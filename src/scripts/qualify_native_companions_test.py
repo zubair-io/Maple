@@ -111,6 +111,22 @@ class NativeCompanionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "UnknownActive"):
             qualify(self.base, self.capture)
 
+    def test_adobe_sidecar_must_preserve_explicit_canonical_controls(self):
+        packet = self.packet.replace(
+            b'crs:Contrast2012="-100"', b'crs:Contrast2012="0"'
+        )
+        self.adobe.write_bytes(packet)
+        for name, size in [
+            ("old.png", (4, 3)),
+            ("down.png", (4, 3)),
+            ("full.png", (8, 6)),
+        ]:
+            self.save(name, size, packet=packet)
+        with self.assertRaisesRegex(
+            ValueError, "canonical control overridden.*Contrast2012"
+        ):
+            qualify(self.base, self.capture)
+
     def test_capture_metadata_may_add_known_inactive_controls(self):
         packet = self.packet.replace(
             b"<rdf:Description ", b'<rdf:Description crs:Version="18.7" crs:Glow="0" '

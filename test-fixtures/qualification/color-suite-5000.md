@@ -139,6 +139,6 @@ measurements and successful/rejected capture identities are committed under
 `experiments/native-companions/`. The complete original-protocol baseline
 continues independently; no original reference or budget was overwritten.
 
-Validation: all 12 companion qualification tests, 19 complete-metadata tests
+Validation: all 13 companion qualification tests, 19 complete-metadata tests
 and 27 Adobe reference-tooling tests pass; Ruff passes. The final qualifier
 produces a byte-identical manifest to the one used by the physical comparisons.

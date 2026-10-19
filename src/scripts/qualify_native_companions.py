@@ -87,6 +87,12 @@ def qualify(base_path: Path, capture_path: Path) -> tuple[dict, dict]:
             raise ValueError(f"capture requires explicit Adobe sidecar: {name}")
         packet = Path(sidecar).read_bytes()
         authored = camera_raw_settings(packet)
+        canonical = camera_raw_settings(Path(original["xmp"]).read_bytes())
+        for key, value in canonical.items():
+            if authored.get(key) != value:
+                raise ValueError(
+                    f"canonical control overridden in Adobe sidecar: {key}"
+                )
         expected = reference_settings(packet)
         old_png = outputs["down"]["png"]
         down_png = fresh["down"]["png"]
