@@ -192,3 +192,46 @@ explicitly an incremental composed ledger, not a new independent full-suite
 run or the required final passing gate. The 36 tint recaptures are not adopted
 and do not affect this count. Full provenance, overrides and remaining IDs are
 in `color-suite-5000-incremental-ledger.json`.
+
+## Negative-Whites and native-detail attribution
+
+All 18 negative-Whites controls were measured relative to each renderer's own
+baseline, using all pixels and the immutable input snapshot. The five cases
+that fail RGB bias (test_0002, 0008, 0013, 0015, 0018) already have a darker
+baseline; each Whites edit reduces the magnitude of that baseline bias. The
+mean excess Whites lightness change across all 18 scenes is only -0.0910 L*,
+while the large failing RGB biases are present before the edit. Own-baseline
+neutral lightness bins also closely follow the current single-sourced grey
+curve. No Whites coefficient was changed: weakening the edit to clear these
+gates would conceal the baseline mismatch. Full attribution summaries are in
+`color-suite-5000-negative-whites-attribution.json`.
+
+All 20 native baseline biases were then measured at their complete native
+pixel populations. For 35 of 41 full-detail failures, the baseline alone
+already exceeds every failing bias limit in the same direction, and those
+cases have no other breached metric. This is a counterfactual attribution,
+not removal of a gate or proof that the edit has zero error. The remaining
+six are maximum-only failures in test_0000; details are retained in
+`color-suite-5000-native-bias-attribution.json`.
+
+One maximum was localized over all 100,663,296 pixels: sharpen_detail_min
+exceeds its unchanged max ceiling at exactly one pixel, (182,6336). Maple
+is RGB (241,37,115), Adobe (248,241,198), Delta E 54.13238 > 52.3. The same
+magenta defect exists in the unedited baseline and at the shared coordinate
+in several other failing detail cases. This points the next investigation
+at raw reconstruction/highlight handling, rather than changing the budgets
+or globally retuning sharpening. Only this case's global maximum has been
+localized; other cases were inspected at that exact coordinate, not assumed
+to have the same global maximum. Exact values are retained in
+`color-suite-5000-native-peak-attribution.json`.
+
+Twenty 1024-pixel Preview scene-anchor diagnostics were also recorded. None
+of the five dark-baseline cases reaches the gain cap; only test_0014 does.
+These Preview observations are not full-path physical gate results. Reusable
+float32 SceneLinearRec2020 buffers, their metadata and SHA identities were
+retained for all 20 fixtures to screen future view/exposure hypotheses without
+repeating RAW decode/demosaic. Every buffer has the expected dimensions and
+finite values. The two new examples are diagnostic-only; production rendering,
+all original inputs and numerical budgets remain unchanged. Working ledger
+remains 103 failures. The Neutral appearance preference and tint-reference
+proposal are pending user replies.
