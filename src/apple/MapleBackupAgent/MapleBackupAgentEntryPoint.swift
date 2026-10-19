@@ -34,8 +34,16 @@ struct MapleBackupAgentEntryPoint {
     // One engine per shared state DB (#4988). While the app is backing up it
     // owns the work; wait for it to finish rather than exiting, because
     // launchd does not relaunch a helper that exited successfully.
-    let engineLock = try await BackupEngineLock.acquireWhenFree(
-      in: storageRoot, pollInterval: .seconds(5))
+    let engineLock: BackupEngineLock
+    do {
+      engineLock = try await BackupEngineLock.acquireWhenFree(
+        in: storageRoot, pollInterval: .seconds(5))
+    } catch {
+      // A failing exit keeps launchd's KeepAlive retry; contention never gets here.
+      FileHandle.standardError.write(
+        Data("MapleBackupAgent: can't take the backup engine lock: \(error)\n".utf8))
+      throw error
+    }
     defer { engineLock.release() }
     // The user may have stopped backup or changed the library meanwhile.
     guard let s = BackupSettings.configuredForHelper() else {

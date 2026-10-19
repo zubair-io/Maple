@@ -45,9 +45,9 @@ final class BackupEngineLockTests: XCTestCase {
     func testOnlyOneHostAcquiresTheLock() throws {
         let root = try makeRoot()
         let first = try XCTUnwrap(BackupEngineLock.acquire(in: root))
-        XCTAssertNil(BackupEngineLock.acquire(in: root), "a second engine started on the shared state DB")
+        XCTAssertNil(try BackupEngineLock.acquire(in: root), "a second engine started on the shared state DB")
         first.release()
-        XCTAssertNotNil(BackupEngineLock.acquire(in: root), "a clean stop must free the lock")
+        XCTAssertNotNil(try BackupEngineLock.acquire(in: root), "a clean stop must free the lock")
     }
 
     func testDroppingTheHolderReleasesTheLock() throws {
@@ -55,7 +55,7 @@ final class BackupEngineLockTests: XCTestCase {
         var first: BackupEngineLock? = try XCTUnwrap(BackupEngineLock.acquire(in: root))
         XCTAssertNotNil(first)
         first = nil
-        XCTAssertNotNil(BackupEngineLock.acquire(in: root))
+        XCTAssertNotNil(try BackupEngineLock.acquire(in: root))
     }
 
     func testAnotherProcessHoldingTheLockBlocksThisHost() throws {
@@ -63,18 +63,18 @@ final class BackupEngineLockTests: XCTestCase {
         let holder = try startHolder(at: root)
         defer { if holder.isRunning { holder.terminate() } }
 
-        XCTAssertNil(BackupEngineLock.acquire(in: root))
+        XCTAssertNil(try BackupEngineLock.acquire(in: root))
     }
 
     func testACrashedHolderFreesTheLock() throws {
         let root = try makeRoot()
         let holder = try startHolder(at: root)
-        XCTAssertNil(BackupEngineLock.acquire(in: root))
+        XCTAssertNil(try BackupEngineLock.acquire(in: root))
 
         kill(holder.processIdentifier, SIGKILL)
         holder.waitUntilExit()
 
-        XCTAssertNotNil(BackupEngineLock.acquire(in: root), "the kernel frees a dead host's lock")
+        XCTAssertNotNil(try BackupEngineLock.acquire(in: root), "the kernel frees a dead host's lock")
     }
 
     /// A host that loses the race waits for the lock instead of giving up,
@@ -86,7 +86,7 @@ final class BackupEngineLockTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(100))
         holder.release()
         let taken = try await waiter.value
-        XCTAssertNil(BackupEngineLock.acquire(in: root), "the waiter now holds the lock")
+        XCTAssertNil(try BackupEngineLock.acquire(in: root), "the waiter now holds the lock")
         taken.release()
     }
 
@@ -112,6 +112,35 @@ final class BackupEngineLockTests: XCTestCase {
             XCTFail("a cancelled wait must not hand out the lock")
         } catch is CancellationError {}
         holder.release()
-        XCTAssertNotNil(BackupEngineLock.acquire(in: root), "the cancelled waiter left nothing held")
+        XCTAssertNotNil(try BackupEngineLock.acquire(in: root), "the cancelled waiter left nothing held")
+    }
+
+    /// A real failure (here: the shared folder is not writable) is an error,
+    /// not "another host holds the lock" — callers must not wait on it forever.
+    func testAnUnusableLockLocationThrowsInsteadOfReadingAsBusy() throws {
+        let root = try makeRoot()
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: root.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path) }
+
+        XCTAssertThrowsError(try BackupEngineLock.acquire(in: root))
+    }
+
+    func testWaitingOnAnUnusableLockLocationFailsPromptly() async throws {
+        let root = try makeRoot()
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: root.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path) }
+
+        let waiter = Task { try await BackupEngineLock.acquireWhenFree(in: root, pollInterval: .milliseconds(20)) }
+        let canceller = Task {
+            try? await Task.sleep(for: .seconds(2))
+            waiter.cancel()
+        }
+        defer { canceller.cancel() }
+        do {
+            _ = try await waiter.value
+            XCTFail("an unusable lock location must not hand out a lock")
+        } catch is CancellationError {
+            XCTFail("the wait polled until cancelled instead of reporting the error")
+        } catch {}
     }
 }
