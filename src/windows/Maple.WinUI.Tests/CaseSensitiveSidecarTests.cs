@@ -63,7 +63,7 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
-        public async Task CaseOnlyRename_OntoAnUnrelatedSidecarName_FailsWithNothingMoved()
+        public async Task CaseOnlyRename_OntoAnUnrelatedSidecarName_FailPolicyThrowsWithNothingMoved()
         {
             var raw = Write("raw", "photos", "x.CR3");
             Write("<own/>", "photos", "x.xmp");
@@ -72,12 +72,64 @@ namespace Maple.WinUI.Tests
             Write("<unrelated/>", "photos", "X.xmp");
 
             var ex = await Assert.ThrowsAsync<FileOperationException>(() => LocalFileOperations.RelocateAsync(
-                raw, P("photos"), "X.CR3", RelocateMode.Move, CollisionPolicy.AutoSuffix));
+                raw, P("photos"), "X.CR3", RelocateMode.Move, CollisionPolicy.Fail));
 
             Assert.Equal(FileOperationErrorKind.DestinationExists, ex.Kind);
             Assert.Equal(new[] { "X.xmp", "x.CR3", "x.xmp" }, Names("photos"));
             Assert.Equal("<own/>", File.ReadAllText(P("photos", "x.xmp")));
             Assert.Equal("<unrelated/>", File.ReadAllText(P("photos", "X.xmp")));
+        }
+
+        [Fact]
+        public async Task CaseOnlyRename_OntoAnUnrelatedSidecarName_FollowsTheCollisionPolicy()
+        {
+            var raw = Write("raw", "photos", "x.CR3");
+            Write("<own/>", "photos", "x.xmp");
+            var foldsCase = File.Exists(P("photos", "X.CR3"));
+            if (foldsCase) return;
+            Write("<unrelated/>", "photos", "X.xmp");
+
+            var outcome = await LocalFileOperations.RelocateAsync(
+                raw, P("photos"), "X.CR3", RelocateMode.Move, CollisionPolicy.AutoSuffix);
+
+            Assert.True(outcome.RenamedDueToCollision);
+            Assert.Equal(new[] { "X.1.CR3", "X.1.xmp", "X.xmp" }, Names("photos"));
+            Assert.Equal("<own/>", File.ReadAllText(P("photos", "X.1.xmp")));
+            Assert.Equal("<unrelated/>", File.ReadAllText(P("photos", "X.xmp")));
+        }
+
+        [Fact]
+        public async Task CaseOnlyRename_OntoAnUnrelatedSidecarName_ReplaceOverwritesIt()
+        {
+            var raw = Write("raw", "photos", "x.CR3");
+            Write("<own/>", "photos", "x.xmp");
+            var foldsCase = File.Exists(P("photos", "X.CR3"));
+            if (foldsCase) return;
+            Write("<unrelated/>", "photos", "X.xmp");
+
+            await LocalFileOperations.RelocateAsync(
+                raw, P("photos"), "X.CR3", RelocateMode.Move, CollisionPolicy.Replace);
+
+            Assert.Equal(new[] { "X.CR3", "X.xmp" }, Names("photos"));
+            Assert.Equal("<own/>", File.ReadAllText(P("photos", "X.xmp")));
+        }
+
+        [Fact]
+        public async Task Replace_IncomingDifferentlyCasedName_OnlyAFoldingFolderCountsTheReplacedPhotoAsTheSameFile()
+        {
+            var raw = Write("new", "src", "img.CR3");
+            Write("old", "album", "IMG.CR3");
+            Write("<old/>", "album", "IMG.xmp");
+            var foldsCase = File.Exists(P("album", "img.CR3"));
+
+            await LocalFileOperations.RelocateAsync(
+                raw, P("album"), null, RelocateMode.Move, CollisionPolicy.Replace);
+
+            // Folding: img.CR3 replaced IMG.CR3 and the stale IMG.xmp must not
+            // be adopted. Case-sensitive: a different photo that merely sits
+            // beside IMG.CR3, whose IMG.xmp stays.
+            Assert.Equal(!foldsCase, File.Exists(P("album", "IMG.xmp")));
+            Assert.False(File.Exists(P("album", "img.xmp")));
         }
     }
 }
