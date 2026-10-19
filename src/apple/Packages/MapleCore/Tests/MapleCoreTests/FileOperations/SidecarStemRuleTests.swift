@@ -107,6 +107,44 @@ final class SidecarStemRuleTests: XCTestCase {
     XCTAssertEqual(FileOperationsTestSupport.contents(album.appendingPathComponent("img.JPG")), "jpg")
   }
 
+  func testCaseOnlyRenameOnACaseSensitiveVolumeKeepsTheSiblingsSidecar() async throws {
+    let volume = try mountCaseSensitiveVolume()
+    let raw = FileOperationsTestSupport.write("raw", to: volume.appendingPathComponent("IMG.CR3"))
+    FileOperationsTestSupport.write("jpg", to: volume.appendingPathComponent("IMG.JPG"))
+    FileOperationsTestSupport.write("<shared/>", to: volume.appendingPathComponent("IMG.xmp"))
+
+    let outcome = try await LocalFileOperations.relocate(
+      raw, to: volume, newBasename: "img.cr3", mode: .move, collision: .fail)
+
+    XCTAssertTrue(outcome.sidecarFollowed)
+    XCTAssertEqual(try names(in: volume), ["IMG.JPG", "IMG.xmp", "img.cr3", "img.xmp"])
+    XCTAssertEqual(
+      FileOperationsTestSupport.contents(volume.appendingPathComponent("IMG.xmp")), "<shared/>")
+    XCTAssertEqual(
+      FileOperationsTestSupport.contents(volume.appendingPathComponent("img.xmp")), "<shared/>")
+  }
+
+  func testExternalCaseOnlyRenameOnACaseSensitiveVolumeKeepsTheSiblingsSidecar() async throws {
+    let volume = try mountCaseSensitiveVolume()
+    FileOperationsTestSupport.write("raw", to: volume.appendingPathComponent("img.cr3"))
+    FileOperationsTestSupport.write("jpg", to: volume.appendingPathComponent("IMG.JPG"))
+    FileOperationsTestSupport.write("<shared/>", to: volume.appendingPathComponent("IMG.xmp"))
+
+    let applied = await LocalFileOperations.applyExternalRename(
+      oldPrimaryPath: volume.appendingPathComponent("IMG.CR3").path,
+      newPrimaryPath: volume.appendingPathComponent("img.cr3").path)
+
+    XCTAssertTrue(applied)
+    XCTAssertEqual(try names(in: volume), ["IMG.JPG", "IMG.xmp", "img.cr3", "img.xmp"])
+    XCTAssertEqual(
+      FileOperationsTestSupport.contents(volume.appendingPathComponent("IMG.xmp")), "<shared/>")
+  }
+
+  private func names(in directory: URL) throws -> [String] {
+    try FileManager.default.contentsOfDirectory(atPath: directory.path)
+      .filter { !$0.hasPrefix(".") }.sorted()
+  }
+
   /// Attaches a fresh case-sensitive APFS sparse image under `root`, detached
   /// again on teardown. Skips where `hdiutil` cannot create or attach one.
   private func mountCaseSensitiveVolume() throws -> URL {

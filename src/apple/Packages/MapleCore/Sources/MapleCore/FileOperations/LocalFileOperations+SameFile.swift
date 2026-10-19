@@ -54,8 +54,11 @@ extension LocalFileOperations {
     let sourceBase = source.lastPathComponent
     let targetBase = target.lastPathComponent
     if sourceBase == targetBase { return .identical }
-    if sourceBase.caseInsensitiveCompare(targetBase) == .orderedSame { return .caseOnlyRename }
-    return .different
+    // On a case-sensitive volume `IMG.CR3` and `img.cr3` are two files (#4707).
+    let caseOnly =
+      sourceBase.caseInsensitiveCompare(targetBase) == .orderedSame
+      && SidecarOwnership.localVolumeFoldsCase(URL(fileURLWithPath: sourceParent))
+    return caseOnly ? .caseOnlyRename : .different
   }
 
   /// The ONE relocate shape that bypasses copy-verify-delete AND

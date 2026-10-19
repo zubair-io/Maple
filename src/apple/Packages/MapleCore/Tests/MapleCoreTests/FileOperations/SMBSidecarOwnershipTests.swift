@@ -209,4 +209,54 @@ final class SMBSidecarOwnershipTests: XCTestCase {
     let files = await t.allFiles()
     XCTAssertEqual(files, ["/Album/IMG_1.1.CR3": "new", "/Album/IMG_1.xmp": "<orphan/>"])
   }
+  // MARK: - Trash lifecycle of a shared sidecar
+
+  private func trashBothHalves(_ t: FakeSMBTransport) async throws {
+    await t.seed("raw", at: "/Shoot/IMG_1.CR3")
+    await t.seed("jpg", at: "/Shoot/IMG_1.JPG")
+    await t.seed("<shared/>", at: "/Shoot/IMG_1.xmp")
+    _ = try await SMBFileOperations.trash("/Shoot/IMG_1.CR3", transport: t)
+    _ = try await SMBFileOperations.trash("/Shoot/IMG_1.JPG", transport: t)
+  }
+
+  private func trashedItem(_ name: String, _ t: FakeSMBTransport) async throws -> TrashedItem {
+    let items = await SMBFileOperations.listMapleTrash(transport: t)
+    return try XCTUnwrap(items.first { ($0.primaryPath as NSString).lastPathComponent == name })
+  }
+
+  func testPermanentlyDeletingOneTrashedHalfKeepsTheSidecarTheOtherStillUses() async throws {
+    let t = FakeSMBTransport()
+    try await trashBothHalves(t)
+
+    try await SMBFileOperations.permanentlyDeleteFromMapleTrash(
+      try await trashedItem("IMG_1.CR3", t), transport: t)
+
+    let afterFirst = await t.fileContents(at: "/.maple/trash/Shoot/IMG_1.xmp")
+    XCTAssertEqual(afterFirst, "<shared/>")
+    let jpg = await t.fileContents(at: "/.maple/trash/Shoot/IMG_1.JPG")
+    XCTAssertEqual(jpg, "jpg")
+
+    try await SMBFileOperations.permanentlyDeleteFromMapleTrash(
+      try await trashedItem("IMG_1.JPG", t), transport: t)
+
+    let afterSecond = await t.fileExists(at: "/.maple/trash/Shoot/IMG_1.xmp")
+    XCTAssertFalse(afterSecond)
+  }
+
+  func testRestoringBothTrashedHalvesRejoinsTheSharedSidecar() async throws {
+    let t = FakeSMBTransport()
+    try await trashBothHalves(t)
+
+    _ = try await SMBFileOperations.restoreFromMapleTrash(
+      "/.maple/trash/Shoot/IMG_1.CR3", transport: t)
+    let second = try await SMBFileOperations.restoreFromMapleTrash(
+      "/.maple/trash/Shoot/IMG_1.JPG", transport: t)
+
+    XCTAssertFalse(second.renamedDueToCollision)
+    XCTAssertEqual(second.sidecarPath, "/Shoot/IMG_1.xmp")
+    let files = await t.allFiles()
+    XCTAssertEqual(
+      files,
+      ["/Shoot/IMG_1.CR3": "raw", "/Shoot/IMG_1.JPG": "jpg", "/Shoot/IMG_1.xmp": "<shared/>"])
+  }
 }

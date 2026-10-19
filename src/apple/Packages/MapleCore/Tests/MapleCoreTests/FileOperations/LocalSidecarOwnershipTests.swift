@@ -313,10 +313,15 @@ final class LocalSidecarOwnershipTests: XCTestCase {
     XCTAssertFalse(
       SidecarOwnership.stemClaimedBySibling(
         primaryPath: "/d/IMG_1.CR3", siblingNames: ["img_1.jpg"], excluding: ["/d/img_1.jpg"]))
-    XCTAssertTrue(
+    XCTAssertFalse(
       SidecarOwnership.stemClaimedBySibling(
         primaryPath: "/d/IMG_1.CR3", siblingNames: ["img_1.jpg"], excluding: ["/d/IMG_1.JPG"]),
-      "exclusions match the exact path; a case-different sibling still claims the stem")
+      "on a case-folding volume a case-different exclusion names the same file")
+    XCTAssertTrue(
+      SidecarOwnership.stemClaimedBySibling(
+        primaryPath: "/d/IMG_1.CR3", siblingNames: ["img_1.JPG", "IMG_1.JPG"],
+        excluding: ["/d/IMG_1.JPG"], foldsCase: false),
+      "on a case-sensitive volume a case-different sibling is a separate photo")
   }
 
   func testAnUnlistableFolderCountsAsClaimed() {
@@ -367,5 +372,152 @@ final class LocalSidecarOwnershipTests: XCTestCase {
     XCTAssertEqual(
       try tree(),
       ["Album/IMG_1.CR3": "raw", "Album/IMG_1.JPG": "jpg", "Album/IMG_1.xmp": "<shared/>"])
+  }
+  // MARK: - File identity, not spelling
+
+  func testExtensionOnlyRenameThroughASymlinkedFolderKeepsTheSoleSidecar() async throws {
+    let raw = write("raw", "real/X.CR3")
+    write("<only/>", "real/X.xmp")
+    try FileManager.default.createSymbolicLink(at: url("alias"), withDestinationURL: url("real"))
+
+    let outcome = try await LocalFileOperations.relocate(
+      raw, to: url("alias"), newBasename: "X.DNG", mode: .move, collision: .fail)
+
+    XCTAssertTrue(outcome.sidecarFollowed)
+    XCTAssertEqual(try tree(), ["real/X.DNG": "raw", "real/X.xmp": "<only/>"])
+  }
+
+  private func requireCaseFoldingRoot() throws {
+    guard SidecarOwnership.localVolumeFoldsCase(root) else {
+      throw XCTSkip("needs a case-insensitive temp volume")
+    }
+  }
+
+  func testReplacingACaseDifferentNameClearsTheReplacedPhotosStaleSidecar() async throws {
+    try requireCaseFoldingRoot()
+    let incoming = write("new", "Source/img.CR3")
+    write("old", "Album/IMG.CR3")
+    write("<stale/>", "Album/IMG.xmp")
+
+    let outcome = try await LocalFileOperations.relocate(
+      incoming, to: url("Album"), mode: .move, collision: .replace)
+
+    XCTAssertFalse(outcome.sidecarFollowed)
+    XCTAssertEqual(FileOperationsTestSupport.contents(url("Album/IMG.CR3")), "new")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: url("Album/IMG.xmp").path))
+  }
+
+  func testReplacingACaseDifferentNameCarriesTheIncomingSidecar() async throws {
+    try requireCaseFoldingRoot()
+    let incoming = write("new", "Source/img.CR3")
+    write("<new/>", "Source/img.xmp")
+    write("old", "Album/IMG.CR3")
+    write("<stale/>", "Album/IMG.xmp")
+
+    let outcome = try await LocalFileOperations.relocate(
+      incoming, to: url("Album"), mode: .move, collision: .replace)
+
+    XCTAssertTrue(outcome.sidecarFollowed)
+    XCTAssertEqual(FileOperationsTestSupport.contents(url("Album/IMG.CR3")), "new")
+    XCTAssertEqual(FileOperationsTestSupport.contents(url("Album/IMG.xmp")), "<new/>")
+  }
+
+  // MARK: - Trash lifecycle of a shared sidecar
+
+  private func trashBothHalves() async throws {
+    write("raw", "Shoot/IMG_1.CR3")
+    write("jpg", "Shoot/IMG_1.JPG")
+    write("<shared/>", "Shoot/IMG_1.xmp")
+    _ = try await LocalFileOperations.trashToMapleFolder(url("Shoot/IMG_1.CR3"), libraryRoot: root)
+    _ = try await LocalFileOperations.trashToMapleFolder(url("Shoot/IMG_1.JPG"), libraryRoot: root)
+  }
+
+  private func trashedItem(_ name: String) throws -> TrashedItem {
+    try XCTUnwrap(
+      LocalFileOperations.listMapleTrash(libraryRoot: root).first {
+        URL(fileURLWithPath: $0.primaryPath).lastPathComponent == name
+      })
+  }
+
+  func testPermanentlyDeletingOneTrashedHalfKeepsTheSidecarTheOtherStillUses() async throws {
+    try await trashBothHalves()
+    XCTAssertEqual(
+      try tree(),
+      [
+        ".maple/trash/Shoot/IMG_1.CR3": "raw", ".maple/trash/Shoot/IMG_1.JPG": "jpg",
+        ".maple/trash/Shoot/IMG_1.xmp": "<shared/>",
+      ])
+
+    try LocalFileOperations.permanentlyDeleteFromMapleTrash(
+      try trashedItem("IMG_1.CR3"), libraryRoot: root)
+
+    XCTAssertEqual(
+      try tree(),
+      [".maple/trash/Shoot/IMG_1.JPG": "jpg", ".maple/trash/Shoot/IMG_1.xmp": "<shared/>"])
+
+    try LocalFileOperations.permanentlyDeleteFromMapleTrash(
+      try trashedItem("IMG_1.JPG"), libraryRoot: root)
+
+    XCTAssertEqual(try tree(), [:])
+  }
+
+  func testRestoringBothTrashedHalvesRejoinsTheSharedSidecar() async throws {
+    try await trashBothHalves()
+
+    _ = try await LocalFileOperations.restoreFromMapleTrash(
+      url(".maple/trash/Shoot/IMG_1.CR3"), libraryRoot: root)
+    let second = try await LocalFileOperations.restoreFromMapleTrash(
+      url(".maple/trash/Shoot/IMG_1.JPG"), libraryRoot: root)
+
+    XCTAssertFalse(second.renamedDueToCollision)
+    XCTAssertTrue(second.sidecarFollowed)
+    XCTAssertEqual(second.sidecarPath.map { URL(fileURLWithPath: $0).lastPathComponent }, "IMG_1.xmp")
+    XCTAssertEqual(
+      try tree(),
+      ["Shoot/IMG_1.CR3": "raw", "Shoot/IMG_1.JPG": "jpg", "Shoot/IMG_1.xmp": "<shared/>"])
+  }
+
+  func testRestoreStillAvoidsADestinationSidecarWithDifferentEdits() async throws {
+    let trashed = write("jpg", ".maple/trash/Shoot/IMG_1.JPG")
+    write("<trashed/>", ".maple/trash/Shoot/IMG_1.xmp")
+    write("raw", "Shoot/IMG_1.CR3")
+    write("<live/>", "Shoot/IMG_1.xmp")
+
+    let outcome = try await LocalFileOperations.restoreFromMapleTrash(trashed, libraryRoot: root)
+
+    XCTAssertTrue(outcome.renamedDueToCollision)
+    XCTAssertEqual(FileOperationsTestSupport.contents(url("Shoot/IMG_1.xmp")), "<live/>")
+    XCTAssertEqual(
+      outcome.sidecarPath.flatMap { FileOperationsTestSupport.contents(URL(fileURLWithPath: $0)) },
+      "<trashed/>")
+  }
+
+  func testExternalMoveOfTheSecondHalfJoinsAnIdenticalDestinationSidecar() async throws {
+    write("raw", "Album/IMG_1.CR3")
+    write("<shared/>", "Album/IMG_1.xmp")
+    write("jpg", "Album/IMG_1.JPG")
+    write("<shared/>", "Source/IMG_1.xmp")
+
+    let applied = await LocalFileOperations.applyExternalRename(
+      oldPrimaryPath: url("Source/IMG_1.JPG").path, newPrimaryPath: url("Album/IMG_1.JPG").path)
+
+    XCTAssertTrue(applied)
+    XCTAssertEqual(
+      try tree(),
+      ["Album/IMG_1.CR3": "raw", "Album/IMG_1.JPG": "jpg", "Album/IMG_1.xmp": "<shared/>"])
+  }
+
+  func testExternalMoveStillDeclinesADestinationSidecarWithDifferentEdits() async throws {
+    write("raw", "Album/IMG_1.CR3")
+    write("<raw/>", "Album/IMG_1.xmp")
+    write("jpg", "Album/IMG_1.JPG")
+    write("<jpg/>", "Source/IMG_1.xmp")
+    let before = try tree()
+
+    let applied = await LocalFileOperations.applyExternalRename(
+      oldPrimaryPath: url("Source/IMG_1.JPG").path, newPrimaryPath: url("Album/IMG_1.JPG").path)
+
+    XCTAssertFalse(applied)
+    XCTAssertEqual(try tree(), before)
   }
 }
