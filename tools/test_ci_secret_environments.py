@@ -17,7 +17,21 @@ SENSITIVE_ENVIRONMENTS = (
 
 
 RETIRED_SECRETS = {"JULES_GH", "MUSE"}
-EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+def expressions(text):
+    found = []
+    start = text.find("${{")
+    while start != -1:
+        index, quoted = start + 3, False
+        while index < len(text):
+            char = text[index]
+            if char == "'":
+                quoted = not quoted
+            elif not quoted and text.startswith("}}", index):
+                break
+            index += 1
+        found.append(text[start + 3 : index])
+        start = text.find("${{", index)
+    return found
 INHERIT = re.compile(r"secrets:\s*inherit", re.IGNORECASE)
 NAMED_SECRET = re.compile(r"secrets\s*(?:\.\s*([A-Za-z_]\w*)|\[\s*(['\"])([A-Za-z_]\w*)\2\s*\])", re.IGNORECASE)
 WHOLE_OBJECT = re.compile(r"\bsecrets\b(?!\s*\.\s*[A-Za-z_]\w*)(?!\s*\[\s*(['\"])[A-Za-z_]\w*\1\s*\])", re.IGNORECASE)
@@ -46,7 +60,7 @@ class SecretEnvironmentTests(unittest.TestCase):
             with self.subTest(workflow=path.name):
                 text = path.read_text()
                 self.assertNotIn("jules_gh", text.lower())
-                names = {name for expression in EXPRESSION.findall(text) for name in secret_names(expression)}
+                names = {name for expression in expressions(text) for name in secret_names(expression)}
                 self.assertFalse(names & RETIRED_SECRETS, names & RETIRED_SECRETS)
 
     def test_sensitive_secrets_only_run_in_their_environment(self):
@@ -64,6 +78,13 @@ class SecretEnvironmentTests(unittest.TestCase):
         self.assertEqual(secret_names("${{ secrets.VERSION_SYNC_TOKEN }}"), ["VERSION_SYNC_TOKEN"])
         self.assertEqual(secret_names("${{ secrets['VERSION_SYNC_TOKEN'] }}"), ["VERSION_SYNC_TOKEN"])
         self.assertEqual(secret_names('${{ secrets[ "ANDROID_UPLOAD_KEY" ] }}'), ["ANDROID_UPLOAD_KEY"])
+
+    def test_expression_scanner_ignores_braces_inside_quoted_strings(self):
+        text = "x: ${{ format('{{{0}}}', secrets[format('{0}', 'VERSION_SYNC_TOKEN')]) }} y: ${{ secrets.OTHER }}"
+        scanned = expressions(text)
+        self.assertEqual(len(scanned), 2)
+        self.assertIn("secrets[format(", scanned[0])
+        self.assertIsNotNone(WHOLE_OBJECT.search(scanned[0]))
 
     def test_retired_secrets_are_found_in_every_access_form(self):
         for expression in ("secrets.MUSE", "secrets['MUSE']", "secrets . muse", "secrets [ \"Jules_GH\" ]"):
@@ -90,7 +111,7 @@ class SecretEnvironmentTests(unittest.TestCase):
             text = path.read_text()
             with self.subTest(workflow=path.name):
                 self.assertIsNone(INHERIT.search(text))
-                for expression in EXPRESSION.findall(text):
+                for expression in expressions(text):
                     self.assertIsNone(WHOLE_OBJECT.search(expression), expression)
 
     def test_no_parsed_job_inherits_all_secrets(self):
