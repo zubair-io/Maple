@@ -66,11 +66,38 @@ by GitHub Actions. Do not replace existing rules.
 First run **release-handoff** manually to seed statuses on open PR heads, then
 add the requirement. The release dispatcher refuses to create a release if
 the handoff or Release readiness requirement is absent. Repository auto-merge
-must be enabled. A PAT/GitHub App credential in `VERSION_SYNC_TOKEN`
-(fallback: existing `JULES_GH`) needs contents, PRs, issues and statuses write,
-Actions/rules read. Project-board assignment is not part of release orchestration
+must be enabled. A fine-grained PAT or GitHub App credential in the `release`
+environment's `VERSION_SYNC_TOKEN` needs contents, PRs, issues and statuses
+write, Actions/rules read. Project-board assignment is not part of release orchestration
 and requires no Projects permission. The credential must trigger
 downstream workflows; the ordinary `GITHUB_TOKEN` is not used for release pushes.
+
+### Protected environments for signing and release secrets (#4751)
+
+Create these environments before merging a workflow that references them, and
+move (do not copy) the named secrets into them, then delete the repo-level
+copies and rotate any credential that was ever repo-level:
+
+- `release` — deployment branches: `main` and tags matching `v*`. Holds
+  `VERSION_SYNC_TOKEN` and the Azure Trusted Signing set used by
+  `release.yml` (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`,
+  `AZURE_TS_ENDPOINT`, `AZURE_TS_ACCOUNT`, `AZURE_TS_PROFILE`). The
+  `create-release` job in `version-sync.yml` and the `windows-app` job in
+  `release.yml` declare `environment: release`, so a branch workflow cannot
+  read these secrets.
+- `apple-signing` — deployment branches: `main` and tags matching `v*`. Holds
+  the Apple signing set (`MACOS_CERT_P12_*`, `APPSTORE_PRIVATE_KEY`). No
+  in-repo workflow consumes these today (Xcode Cloud signs externally); any
+  future workflow that does must declare `environment: apple-signing`, which
+  `tools/test_ci_secret_environments.py` enforces for these and the
+  `release`/`android-signing` sets.
+
+`publish-package.yml` holds no long-lived secret (npm uses OIDC provenance
+via `id-token`), so it needs no environment. Remove the repo-level `JULES_GH`
+owner PAT entirely — `version-sync` no longer falls back to it — and revoke
+the old PAT when rotating `VERSION_SYNC_TOKEN`. Bot accounts (Jules, Codex)
+must not hold a token with the `workflow` scope, so a bot push cannot add or
+modify a workflow under `.github/workflows/`.
 
 At rollout, main still says `0.1.2` and `v0.1.2` already exists on an older
 commit. Run **version-sync** with **advance_only = true** once. This explicitly

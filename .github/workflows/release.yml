@@ -95,6 +95,7 @@ jobs:
   windows-app:
     name: Windows ${{ matrix.arch }} (sign, package)
     needs: [windows-build]
+    environment: release
     runs-on: windows-latest
     strategy:
       fail-fast: false
