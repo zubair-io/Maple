@@ -84,3 +84,18 @@ fn local_rgb_failure_is_rejected_even_when_perceptual_and_native_errors_improve(
     assert_perceptual_safeguards_allow(&rows);
     assert!(!prefer(&ColorLut::identity(GRID), &rows, &rows));
 }
+
+#[test]
+fn an_existing_rgb_tail_failure_does_not_discard_otherwise_safer_corrections() {
+    let mut rows = observations(false);
+    for row in &mut rows {
+        if row.target[0] > 0.5 {
+            row.source = [0.77; 3];
+            row.artifact_weights = corners([0.77; 3]).to_vec();
+        } else {
+            row.baseline = [0.21; 3];
+        }
+    }
+    assert_perceptual_safeguards_allow(&rows);
+    assert!(prefer(&ColorLut::identity(GRID), &rows, &rows));
+}

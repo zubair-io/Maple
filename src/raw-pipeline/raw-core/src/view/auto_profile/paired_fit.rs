@@ -236,8 +236,8 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
     // Do not introduce RGB failures while improving perceptual averages (#5000).
     let rgb_regions_preserved = (0..64).all(|r| {
         (0..3).all(|c| {
-            regional_rgb[0][r][c] / counts[r].max(1) as f64
-                <= (regional_rgb[1][r][c] / counts[r].max(1) as f64).max(0.05)
+            regional_rgb[1][r][c] / counts[r].max(1) as f64 > 0.05
+                || regional_rgb[0][r][c] / counts[r].max(1) as f64 <= 0.05
         })
     });
     let rgb_tails_preserved = (0..3).all(|c| {
@@ -248,7 +248,7 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
                 *values.select_nth_unstable_by(index, f64::total_cmp).1
             })
             .collect();
-        p95[0] <= p95[1].max(0.1)
+        p95[1] > 0.1 || p95[0] <= 0.1
     });
     let accepted = regions_improve
         && rgb_regions_preserved
