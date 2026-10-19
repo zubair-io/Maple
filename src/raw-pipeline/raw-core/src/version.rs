@@ -152,7 +152,11 @@
 ///   retaining the ratio response below diffuse white (#4635).
 /// - 28 — Robertson inverse tint measures displacement from the interpolated
 ///   locus, correcting legacy white-balance sidecar normalization (#4630).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 29;
+/// - 29 — per-channel black levels are kept for LinearRaw and 6×6 X-Trans
+///   tables instead of collapsing to the first entry (#4730).
+/// - 30 — per-axis DNG HueSatMap interpolation (#4631) and the dehaze
+///   transmission bound after guided refinement (#4654).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 30;
 
 #[cfg(test)]
 mod tests {
