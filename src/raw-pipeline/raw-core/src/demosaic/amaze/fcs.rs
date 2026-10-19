@@ -92,6 +92,44 @@ pub(super) fn suppress_false_colour(
             return 0.0;
         }
         let samples = &samples[..count];
+        let unweighted = || samples.iter().map(|(v, _)| v).sum::<f32>() / count as f32;
+        // Green is a valid range guide only across a supported color surface.
+        // A real chroma edge can change green too; guiding there discards
+        // precisely the color samples the value-domain fallback must retain.
+        let consistent = |ratios: &[f32]| {
+            let mean = ratios.iter().sum::<f32>() / ratios.len() as f32;
+            let lo = ratios.iter().copied().fold(f32::INFINITY, f32::min);
+            let hi = ratios.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            mean > 0.0 && (hi - lo) / mean <= MAX_COLLAPSED_RATIO_SPREAD
+        };
+        let mut donor_ratios = [0.0; 4];
+        for (i, &(value, guide)) in samples.iter().enumerate() {
+            if guide <= 0.0 {
+                return unweighted();
+            }
+            donor_ratios[i] = value / guide;
+        }
+        if !consistent(&donor_ratios[..count]) {
+            return unweighted();
+        }
+        let sampled = color_at(x, y);
+        if sampled != 1 {
+            let mut surface_ratios = [0.0; 9];
+            let mut n = 0;
+            for dy in [-2_isize, 0, 2] {
+                for dx in [-2_isize, 0, 2] {
+                    let i = (y as isize + dy) as usize * w + (x as isize + dx) as usize;
+                    if green[i] <= 0.0 {
+                        return unweighted();
+                    }
+                    surface_ratios[n] = cfa_flat[i] / green[i];
+                    n += 1;
+                }
+            }
+            if !consistent(&surface_ratios) {
+                return unweighted();
+            }
+        }
         let scale = samples
             .iter()
             .fold(centre.abs(), |m, (_, g)| m.max(g.abs()))

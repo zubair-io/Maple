@@ -29,12 +29,11 @@ fn collapsed_chroma_bounds_value_overshoot_on_a_varying_surface() {
             let fallback = suppress(pattern, &truth, |i| i == centre, 0.0);
             // Same-colour ratios span 0.42..0.58 (>15%), rejecting the
             // constant-hue branch. The opposite-colour donors span 0.46..0.54.
-            // Green-guided interpolation now follows the dark-side donors
-            // directly. The ceiling must stay inactive on that valid estimate,
-            // including the zero fallback; neither should import bright values.
-            let expected = truth[centre][t];
+            // A ceiling at the highest supported ratio leaves their variation
+            // intact, while stopping the value blend's bright-side overshoot.
+            let expected = truth[centre][1] * 0.54;
             assert!((collapsed.pixels[centre][t] - expected).abs() < 1e-6 * exposure);
-            assert!((fallback.pixels[centre][t] - expected).abs() < 1e-6 * exposure);
+            assert!(fallback.pixels[centre][t] > 2.0 * expected);
             for (i, actual) in collapsed.pixels.iter().enumerate() {
                 if i != centre {
                     assert_eq!(*actual, fallback.pixels[i]);
@@ -84,11 +83,7 @@ fn collapsed_chroma_keeps_fallback_without_interpolated_surface_support() {
             }
             let collapsed = suppress(pattern, &truth, |i| i == centre, -0.5);
             let fallback = suppress(pattern, &truth, |i| i == centre, 0.0);
-            // No supported surface fit: retain the guided value fallback,
-            // bounded by the dark side's actual 0.4..0.6 donor ratios.
-            let level = truth[centre][1];
-            assert!(fallback.pixels[centre][t] >= 0.4 * level - 1e-6);
-            assert!(fallback.pixels[centre][t] <= 0.6 * level + 1e-6);
+            assert!(fallback.pixels[centre][t] > 2.0 * truth[centre][1] * 0.6);
             assert_eq!(collapsed.pixels, fallback.pixels);
         }
     }

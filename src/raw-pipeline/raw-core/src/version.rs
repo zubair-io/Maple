@@ -154,7 +154,9 @@
 ///   locus, correcting legacy white-balance sidecar normalization (#4630).
 /// - 30 — AMaZE false-color value interpolation follows local green evidence
 ///   across luminance edges instead of mixing bright and dark sensor samples (#5000).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 30;
+/// - 31 — green guidance requires consistent donor and centre surface hue;
+///   unsupported color edges retain the original sensor-value interpolation.
+pub const PIPELINE_OUTPUT_VERSION: u32 = 31;
 
 #[cfg(test)]
 mod tests {

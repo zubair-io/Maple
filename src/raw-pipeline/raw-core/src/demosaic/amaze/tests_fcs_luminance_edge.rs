@@ -402,3 +402,37 @@ fn positive_chroma_does_not_import_bright_side_values_across_luminance_edges() {
         }
     }
 }
+
+#[test]
+fn unsupported_hue_edges_keep_the_nearest_sensor_value_average() {
+    for pattern in PATTERNS {
+        for exposure in [0.01_f32, 1.0, 16.0] {
+            let centre = (10..14)
+                .flat_map(|y| (10..14).map(move |x| y * SIDE + x))
+                .find(|&i| sampled(pattern, i) != 1)
+                .unwrap();
+            let target = 2 - sampled(pattern, centre);
+            let mut truth = vec![[0.1 * exposure, 0.2 * exposure, 0.3 * exposure]; SIDE * SIDE];
+            for offset in [-1_isize, 1, -(SIDE as isize), SIDE as isize] {
+                truth[(centre as isize + offset) as usize][1] = 0.8 * exposure;
+            }
+            let mut expected = 0.0;
+            for ((dx, dy), (guide, ratio)) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)]
+                .into_iter()
+                .zip([(0.2, 0.1), (0.8, 0.3), (0.2, 0.6), (0.8, 1.0)])
+            {
+                let i = (centre as isize + dy * SIDE as isize + dx) as usize;
+                truth[i][1] = guide * exposure;
+                truth[i][target] = guide * ratio * exposure;
+                expected += truth[i][target];
+            }
+            expected *= 0.25;
+            let out = suppress(pattern, &truth, |i| i == centre, 0.0);
+            assert!(
+                (out.pixels[centre][target] - expected).abs() <= 1e-7 * exposure,
+                "{pattern:?} exposure={exposure}: {:?}, expected value fallback {expected}",
+                out.pixels[centre]
+            );
+        }
+    }
+}
