@@ -2354,6 +2354,8 @@ function metadataFromReply(reply) {
     hasAlpha: m.hasAlpha,
     hasProfile: m.hasProfile,
     space: m.space,
+    colorPrimaries: m.colorPrimaries ?? undefined,
+    transferCharacteristics: m.transferCharacteristics ?? undefined,
     depth: m.depth,
     density: m.density ?? undefined,
     size: m.size,
@@ -2528,7 +2530,10 @@ function applyWithExif(state, exif, merge = false) {
       });
       return [ifd.toLowerCase(), Object.fromEntries(tags)];
     });
-    const authored = entries.reduce((result, [ifd, tags]) => ({ ...result, [ifd]: { ...result[ifd], ...tags } }), {});
+    const authored = entries.reduce((result, [ifd, tags]) => ({
+      ...result,
+      [ifd]: { ...result[ifd], ...tags }
+    }), {});
     state.metadata.exifTags = Object.fromEntries(Object.entries({ ...state.metadata.exifTags, ...authored }).map(([ifd, tags]) => [
       ifd,
       { ...state.metadata.exifTags?.[ifd], ...tags }

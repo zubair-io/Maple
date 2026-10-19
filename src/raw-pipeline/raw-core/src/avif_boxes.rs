@@ -93,6 +93,7 @@ pub struct AvifBoxes {
     pub exif: Option<Vec<u8>>,
     pub xmp: Option<Vec<u8>>,
     pub icc: Option<Vec<u8>>,
+    pub cicp: Option<(u16, u16)>,
 }
 
 impl AvifBoxes {
@@ -367,19 +368,24 @@ pub(crate) fn read_avif_boxes_source<S: crate::metadata_source::MetadataSource +
     // header (almost always zero), per ISO/IEC 23008-12 Annex A.2.1.
     let exif = block_for(b"Exif").and_then(|raw| raw.get(4..).map(|s| s.to_vec()));
     let xmp = block_for(b"mime");
-    let icc = find_child_box(meta_children, 0, meta_children.len(), b"iprp")
-        .and_then(|iprp| color::read_icc(iprp, primary_item));
+    let iprp = find_child_box(meta_children, 0, meta_children.len(), b"iprp");
+    let profile = iprp.and_then(|iprp| color::read_icc(iprp, primary_item));
+    let icc = profile
+        .filter(|bytes| bytes.len() <= crate::raster_meta::MAX_SIDECAR_BYTES)
+        .map(<[u8]>::to_vec);
+    let cicp = iprp.and_then(|iprp| color::read_nclx(iprp, primary_item));
 
     AvifBoxes {
         transform,
         exif,
         xmp,
         icc,
+        cicp,
     }
 }
 
 #[path = "avif_boxes_color.rs"]
-mod color;
+pub(crate) mod color;
 
 #[cfg(test)]
 #[path = "avif_boxes_fixture_tests.rs"]
