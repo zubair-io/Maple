@@ -42,7 +42,7 @@ import { openChunkSession, takeChunk } from './backup-chunk.ts';
 import { Elysia, t } from 'elysia';
 import { setAppleRenderedPath } from '../db/repos/backup.repo.ts';
 import { assetOwnsRelPath } from '../db/repos/assets.location-owner.ts';
-import { filesIdentical, firstFreeSiblingPath, moveNoClobber } from '../backup/fs-util.ts';
+import { filesIdentical } from '../backup/fs-util.ts';
 import type { ObjectId } from '../db/object-id.ts';
 import { uploadSessions } from '../backup/upload-session.ts';
 import { isSafeFilenamePart, containedJoin } from '../backup/path-safety.ts';
@@ -204,16 +204,27 @@ function unsafeFilenamePart(ext: string | undefined, suffix: string | undefined)
   return null;
 }
 
+/** `relPath` itself, then `<stem>-1<ext>`, `<stem>-2<ext>`, … in its folder. */
+function companionCandidate(relPath: string, attempt: number): string {
+  if (attempt === 0) return relPath;
+  const dir = path.posix.dirname(relPath);
+  const ext = path.posix.extname(relPath);
+  const name = `${path.posix.basename(relPath, ext)}-${attempt}${ext}`;
+  return dir === '.' ? name : `${dir}/${name}`;
+}
+
 /**
  * Moves the assembled companion into the library and returns the rel path it
  * actually landed at.
  *
- * An existing file at the target is adopted only when it holds the same bytes
- * (another device won the race past the cloud-id check) and no asset owns that
- * path. Anything else — an unrelated file, or another asset's original under a
- * case alias — would be recorded as this photo's companion and deleted with it
- * on a Trash purge (#4695), so the upload takes the first free suffixed name
- * instead.
+ * Walks the canonical name and then its suffixed siblings. A name an asset
+ * owns is skipped. A free name is claimed without clobbering. An occupied name
+ * is adopted only when it already holds these exact bytes — another device
+ * placed this same companion there first, including at a suffix, so a second
+ * device reuses it instead of leaking another copy. Anything else — an
+ * unrelated file, or another asset's original under a case alias — would be
+ * recorded as this photo's companion and deleted with it on a Trash purge
+ * (#4695), so the walk moves on.
  */
 async function placeRenderedFile(
   tmpFile: string,
@@ -226,25 +237,21 @@ async function placeRenderedFile(
   const finalPath = containedJoin(libraryRoot, relPath);
   if (!finalPath) return badRequest('resolved path escapes library root');
   await fs.mkdir(path.dirname(finalPath), { recursive: true });
-  if (!(await assetOwnsRelPath(libraryId, relPath))) {
+  for (let attempt = 0; attempt <= 9999; attempt++) {
+    const candidate = companionCandidate(relPath, attempt);
+    if (await assetOwnsRelPath(libraryId, candidate)) continue;
+    const absPath = path.join(libraryRoot, ...candidate.split('/'));
     try {
-      await atomicMove(tmpFile, finalPath);
-      return relPath;
+      await atomicMove(tmpFile, absPath);
     } catch (e: unknown) {
       if ((e as { code?: unknown } | null)?.code !== 'EEXIST') throw e;
-      if (await filesIdentical(tmpFile, finalPath)) {
-        await fs.unlink(tmpFile).catch(() => {});
-        return relPath;
-      }
+      if (!(await filesIdentical(tmpFile, absPath))) continue;
+      await fs.unlink(tmpFile).catch(() => {});
     }
-  }
-  const isTaken = (candidate: string) => assetOwnsRelPath(libraryId, candidate);
-  for (let attempt = 0; attempt < 16; attempt++) {
-    const free = await firstFreeSiblingPath(libraryRoot, relPath, isTaken);
-    if (await moveNoClobber(tmpFile, free.absPath)) {
-      log.warn({ requested: relPath, placed: free.relPath }, 'rendered companion target occupied');
-      return free.relPath;
+    if (candidate !== relPath) {
+      log.warn({ requested: relPath, placed: candidate }, 'rendered companion target occupied');
     }
+    return candidate;
   }
   throw new Error(`no free name for rendered companion ${relPath}`);
 }
@@ -313,7 +320,9 @@ export const backupRenderedRoutes = new Elysia().post(
         'rendered ingest short-circuit (already complete)',
       );
       set.status = 200;
-      return { target_rel_path: session.target_rel_path };
+      // A disambiguated upload completed under its sibling name; hand that
+      // back, not the occupied path the device asked for.
+      return { target_rel_path: session.resolved_rel_path ?? session.target_rel_path };
     }
 
     const resolvedTargetRelPath = session.target_rel_path;
@@ -338,7 +347,7 @@ export const backupRenderedRoutes = new Elysia().post(
 
     const placed = await placeRenderedFile(tmpFile, libraryId, folder.path, resolvedTargetRelPath);
     if (placed instanceof Response) return placed;
-    await uploadSessions.complete({ sessionId: session._id, mapleId });
+    await uploadSessions.complete({ sessionId: session._id, mapleId, resolvedRelPath: placed });
 
     // Persist apple_rendered_path on the matching asset. Post
     // drop-abs-path-2026-05-21 the per-library pointer is the asset's
