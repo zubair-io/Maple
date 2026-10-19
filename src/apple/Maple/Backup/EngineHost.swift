@@ -69,6 +69,9 @@ public final class EngineHost {
   /// Held while this app runs the engine on the shared state DB (#4988).
   private var engineLock: BackupEngineLock?
   private var engineLockWait: Task<BackupEngineLock, Error>?
+  /// Startup is parked until the background helper releases the engine lock;
+  /// the panel keeps a Stop control available meanwhile.
+  public var isWaitingForBackgroundHelper: Bool { engineLockWait != nil }
 
   /// Long-running task that triggers a safety walk every 7 days.
   /// On iOS this is supplemented by the BGProcessingTask handler;
@@ -244,7 +247,13 @@ public final class EngineHost {
     generation = UUID()
     engineLockWait?.cancel()
     engineLockWait = nil
-    ChangeObserverWiring.stop()
+    // Library walks upsert rows in the shared state DB: wait for them to
+    // exit before the lock below is released to the helper (#4988).
+    await ChangeObserverWiring.stopAndDrain()
+    let periodicWalk = periodicWalkTask
+    periodicWalkTask = nil
+    periodicWalk?.cancel()
+    await periodicWalk?.value
     let runner = runnerTask
     runner?.cancel()
     // Await engine teardown so retry tasks are cancelled before the runner
@@ -261,8 +270,6 @@ public final class EngineHost {
     engine = nil
     engineLock?.release()
     engineLock = nil
-    periodicWalkTask?.cancel()
-    periodicWalkTask = nil
     // Stop the progress VM so it detaches from the now-discarded queue.
     // `progress.start(queue:)` is idempotent — a subsequent start(settings:)
     // call will reattach to the new queue cleanly.

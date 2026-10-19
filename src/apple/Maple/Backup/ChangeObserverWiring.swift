@@ -119,6 +119,15 @@ enum ChangeObserverWiring {
     }
   }
 
+  /// Stops the wiring and waits for a walk already in flight to exit, so
+  /// nothing is still writing the shared state DB when the caller hands the
+  /// engine lock to the backup helper (#4988).
+  static func stopAndDrain() async {
+    let inFlight = walkTask
+    stop()
+    await inFlight?.value
+  }
+
   /// Public entry point for the periodic safety walk (called by EngineHost's
   /// weekly timer and the iOS BGProcessingTask handler). Always new-only —
   /// the periodic walk picks up new captures, it does not reset failed-retry
@@ -147,7 +156,9 @@ enum ChangeObserverWiring {
     libraryId: String, serverBaseURL: URL,
     retryFailed: Bool
   ) async {
-    guard !Task.isCancelled, !BackupSettings.isStoppedByUser,
+    // `configuration` is cleared by stop(): a periodic or background walk
+    // racing a stop must not start once the wiring is down.
+    guard !Task.isCancelled, !BackupSettings.isStoppedByUser, configuration != nil,
       EngineHost.shared.progress.phase == .running
     else {
       return
