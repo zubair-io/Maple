@@ -1,0 +1,10 @@
+{
+  "base_commit": "a83c9a42f201b0293772b5977714c507ad989d65",
+  "processing_base": "95fc03d6819b34f46f928ba93de58188a4014022",
+  "pipeline_output_version": "37 plus native-domain camera dispatch (WB preconditioning bypass only)",
+  "auto_fit_model_version": 7,
+  "binary_sha256": "d9130ce9d4f573352043af5acb9d79fbbe2dd596bac5389d0e9eacf5bab4e38f",
+  "source_patch_sha256": "959253aeb51c3bb7cd26963b709d9a653d65d9e21433a75dbf10d2b7ccb20307",
+  "amaze_tests_passed": 29,
+  "status": "Experimental reassessment after NLM repair. Current FCS measured-floor guard and local chromatic highlight recovery retained. All existing tests/limits/input bytes unchanged; no production adoption."
+}
