@@ -25,7 +25,7 @@ def load(name):
 
 
 def secret_names(value):
-    found = re.findall(r"secrets(?:\.|\[\s*['\"])([A-Za-z0-9_]+)", str(value), re.IGNORECASE)
+    found = re.findall(r"secrets\s*(?:\.\s*|\[\s*['\"])([A-Za-z0-9_]+)", str(value), re.IGNORECASE)
     return [name.upper() for name in found]
 
 
@@ -57,13 +57,23 @@ class SecretEnvironmentTests(unittest.TestCase):
         self.assertEqual(secret_names("${{ secrets['VERSION_SYNC_TOKEN'] }}"), ["VERSION_SYNC_TOKEN"])
         self.assertEqual(secret_names('${{ secrets[ "ANDROID_UPLOAD_KEY" ] }}'), ["ANDROID_UPLOAD_KEY"])
 
+    def test_secret_names_allow_whitespace_around_access_operators(self):
+        for expression in (
+            "${{ secrets ['VERSION_SYNC_TOKEN'] }}",
+            "${{ secrets . VERSION_SYNC_TOKEN }}",
+            "${{ secrets\n  .VERSION_SYNC_TOKEN }}",
+            "${{ secrets [ \"VERSION_SYNC_TOKEN\" ] }}",
+        ):
+            with self.subTest(expression=expression):
+                self.assertEqual(secret_names(expression), ["VERSION_SYNC_TOKEN"])
+
     def test_secret_names_ignore_case_and_include_workflow_level_values(self):
         self.assertEqual(secret_names("${{ secrets.version_sync_token }}"), ["VERSION_SYNC_TOKEN"])
         config = {"env": {"TOKEN": "${{ secrets.VERSION_SYNC_TOKEN }}"}, "jobs": {"build": {"steps": []}}}
         self.assertEqual(job_secret_names(config, config["jobs"]["build"]), ["VERSION_SYNC_TOKEN"])
 
     def test_no_workflow_hands_over_the_whole_secrets_object(self):
-        whole_object = re.compile(r"secrets:\s*inherit|toJSON\(\s*secrets\s*\)|secrets\[\s*[^'\"\s]", re.IGNORECASE)
+        whole_object = re.compile(r"secrets:\s*inherit|toJSON\(\s*secrets\s*\)|secrets\s*\[\s*[^'\"\s]", re.IGNORECASE)
         for path in workflow_files():
             with self.subTest(workflow=path.name):
                 self.assertIsNone(whole_object.search(path.read_text()))
