@@ -169,3 +169,26 @@ a single exposure-offset correction as a sufficient fix. It does not establish
 Adobe's scene-linear truth or justify fitting a camera-specific curve. The
 compact input/filter/selection identities and results are retained in
 `color-suite-5000-sony-attribution.json`.
+
+## Complete captured-main baseline and working ledger
+
+The full original-protocol baseline is complete: **105 failing cases in 806
+comparisons / 796 unique budget cases**, with zero comparison errors. Neutral
+fails 64/606, Auto fails 0/20, native detail fails 41/180. Accounting reports
+zero unique cases skipped; the 170 Neutral missing-tier skips are covered by
+the required native-detail pass. All 1,860 original inputs, all 796 candidate
+PNGs and the frozen binary remain unchanged. The three original residual
+controls plus all 20 independent Auto controls reproduce exactly.
+The failure records, complete run identity and full-ledger/input-index hashes
+are in `color-suite-5000-main-baseline.json`. This replaces historical counts
+for this captured revision; it does not describe a later moving main tip.
+
+Applying only the three measured native-companion rechecks gives a working
+ledger of **103 remaining failures: 62 Neutral, 0 Auto, 41 native detail**.
+Two protocol-related cases clear, zero new cases fail, and all 806 comparisons
+remain covered. Every other manifest case and the renderer/budgets remain
+unchanged, so their complete baseline measurements are retained. This is
+explicitly an incremental composed ledger, not a new independent full-suite
+run or the required final passing gate. The 36 tint recaptures are not adopted
+and do not affect this count. Full provenance, overrides and remaining IDs are
+in `color-suite-5000-incremental-ledger.json`.
