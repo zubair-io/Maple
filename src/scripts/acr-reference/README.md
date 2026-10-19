@@ -197,3 +197,25 @@ and missing/unreadable metadata entry, and exits nonzero if any are found.
 Omitted controls are not certified or assigned defaults. For a newly rendered
 batch, use `verify_settings.py` instead: that stricter verifier checks every
 explicit Adobe-side default as well as the authored overrides.
+
+## Qualifying native companions for unchanged legacy references
+
+For an existing down-only reference, capture full and down PNGs from the same
+Adobe document using a staged RAW copy and a complete explicit Adobe sidecar.
+Qualify that capture into a separate manifest:
+
+```bash
+python3 src/scripts/qualify_native_companions.py \
+  /path/to/original-manifest.json /path/to/capture-manifest.json \
+  --output /path/to/new-qualified-manifest.json \
+  --report /path/to/new-qualification-report.json
+```
+
+RAW and canonical XMP bytes must match the originals. The new down PNG must
+have exactly the original RGB pixels. Complete authored Adobe controls must
+match; new full/down metadata must match each other. The output selects the
+existing `native-pair-lanczos-v1` protocol with the newly captured pair; the
+original PNG and original manifest remain intact. Both output paths must be
+new. The entire batch validates before either output is written. Any pixel
+difference or unknown active setting fails qualification; no acceptance
+tolerance or color budget is added.

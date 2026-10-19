@@ -1,0 +1,114 @@
+{
+  "scope": "Qualified native companions; original references and budgets unchanged.",
+  "base_manifest_sha256": "d19126e60a1224ccc4742f6b1d14080fca98ecee7c81f4a7090eb51cd6a854d6",
+  "capture_manifest_sha256": "bec1ff9060a28d88f7cc1012d506191a6605cab7268543c7b9f2179f13e22b8a",
+  "qualifier_sha256": "04a749a9c15b33d73b3f7c7da2a2fbaee6de548c34322245958a2ba1eb0e70d1",
+  "qualified": 3,
+  "cases": [
+    {
+      "case": "test_0007/texture_max",
+      "raw_sha256": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+      "canonical_xmp_sha256": "7591efce4b3867a45988c09f87feac5b282819a3b9d91b605633e43a46bf6724",
+      "original_down": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/texture_max.png",
+      "original_down_sha256": "afc24cb91df76006dd34b0cd0150c810963a36883afae64cdfbeffaa8f8025c3",
+      "qualified_down": "/Users/riabuz/.codex/color-suite-evidence/5000/resize-family-diagnostic/renders/test_0007_texture_max_down.png",
+      "captured_down_sha256": "048ba6e088098d0b2a30cac85d7728f060c47fef5b67db1c04bcfcc6ce5db229",
+      "capture_added_metadata_changes": {
+        "{http://ns.adobe.com/camera-raw-settings/1.0/}ReshapeAmount": {
+          "before": "None",
+          "after": "0"
+        },
+        "{http://ns.adobe.com/camera-raw-settings/1.0/}Glow": {
+          "before": "None",
+          "after": "0"
+        },
+        "{http://ns.adobe.com/camera-raw-settings/1.0/}Version": {
+          "before": "18.2.2",
+          "after": "18.7"
+        }
+      },
+      "native": "/Users/riabuz/.codex/color-suite-evidence/5000/resize-family-diagnostic/renders/test_0007_texture_max_full.png",
+      "native_sha256": "406084e4af16091cdb3e4de387e02144061a9fb53d987a9d82182f31e8b78634",
+      "authoring_sidecar_sha256": "ef597e74c3999b8e83ba740e8a6005f933d158864ceb2ecff1267cbfa9c884e4",
+      "native_dimensions": [
+        5760,
+        3840
+      ],
+      "down_dimensions": [
+        4000,
+        2667
+      ],
+      "down_rgb_pixels_identical": true
+    },
+    {
+      "case": "test_0007/whites_min",
+      "raw_sha256": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+      "canonical_xmp_sha256": "5c2b9e23ebf7c341d0bc7557d33962ec567ddb915be8b582a9d5246ace46706b",
+      "original_down": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/whites_min.png",
+      "original_down_sha256": "760cdb47f05866455305103d6706793d168eb1716427ecdbf9d42b9cbfdc0ad6",
+      "qualified_down": "/Users/riabuz/.codex/color-suite-evidence/5000/resize-family-diagnostic/renders/test_0007_whites_min_down.png",
+      "captured_down_sha256": "68e8de40ed14292c36e31b80937985cb60b9298d4620ef9de379284116d53c82",
+      "capture_added_metadata_changes": {
+        "{http://ns.adobe.com/camera-raw-settings/1.0/}ReshapeAmount": {
+          "before": "None",
+          "after": "0"
+        },
+        "{http://ns.adobe.com/camera-raw-settings/1.0/}Glow": {
+          "before": "None",
+          "after": "0"
+        },
+        "{http://ns.adobe.com/camera-raw-settings/1.0/}Version": {
+          "before": "18.2.2",
+          "after": "18.7"
+        }
+      },
+      "native": "/Users/riabuz/.codex/color-suite-evidence/5000/resize-family-diagnostic/renders/test_0007_whites_min_full.png",
+      "native_sha256": "326b87191e84c71917758eb9eb15e75c01d64397eb8a9d5ca992277fca2a53bb",
+      "authoring_sidecar_sha256": "13678541293315999d927f060cdb8516a8763a39230cd85b5b0f64ccc04b6bd8",
+      "native_dimensions": [
+        5760,
+        3840
+      ],
+      "down_dimensions": [
+        4000,
+        2667
+      ],
+      "down_rgb_pixels_identical": true
+    },
+    {
+      "case": "test_0007/clarity_max",
+      "raw_sha256": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+      "canonical_xmp_sha256": "bfa7c713ebad300e8a2edfbbe9ede5152db04ad1572e1c436ba0c69bc28f4f1a",
+      "original_down": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/clarity_max.png",
+      "original_down_sha256": "f62d7433ee3ef430a15385af153f21eca8aa7f4d45cc62881be490e1c89ba3b7",
+      "qualified_down": "/Users/riabuz/.codex/color-suite-evidence/5000/resize-reference-diagnostic/renders/clarity_max_down.png",
+      "captured_down_sha256": "62674eb9ad6d6d74f81649aadb8d9530e6b74f76af0b6a35df28560757761a94",
+      "capture_added_metadata_changes": {
+        "{http://ns.adobe.com/camera-raw-settings/1.0/}ReshapeAmount": {
+          "before": "None",
+          "after": "0"
+        },
+        "{http://ns.adobe.com/camera-raw-settings/1.0/}Glow": {
+          "before": "None",
+          "after": "0"
+        },
+        "{http://ns.adobe.com/camera-raw-settings/1.0/}Version": {
+          "before": "18.2.2",
+          "after": "18.7"
+        }
+      },
+      "native": "/Users/riabuz/.codex/color-suite-evidence/5000/resize-reference-diagnostic/renders/clarity_max_full.png",
+      "native_sha256": "a12ffe0e5445380ab7761d962a1c54bde4d418cf61654998c6d289bc17864284",
+      "authoring_sidecar_sha256": "7ef93e2013a07e6e2538292fab0f1268ad3e9a3a616f77267f339044cbf3bda1",
+      "native_dimensions": [
+        5760,
+        3840
+      ],
+      "down_dimensions": [
+        4000,
+        2667
+      ],
+      "down_rgb_pixels_identical": true
+    }
+  ]
+}

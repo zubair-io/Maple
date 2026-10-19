@@ -113,3 +113,32 @@ native images through Lanczos gives max 40.90518 <= 42.1 instead of
 42.24899 > 42.1 with the Adobe BICUBICSHARPER down reference. This is evidence
 for that one case, not a full-family claim or a canonical failure reduction.
 Exact metrics and hashes are under `experiments/resize-reference-diagnostic/`.
+
+## First qualified native companions — three-case chunk
+
+The companion qualifier adds a separate manifest using the suite's existing
+`native-pair-lanczos-v1` protocol. It writes no original asset or source manifest.
+A captured down image must be RGB-identical to the original, use identical RAW
+and canonical XMP bytes, and pass the complete effective Adobe settings checks.
+Native and newly saved down metadata must match exactly. Original assets remain
+intact; the separate down capture carries the identical RGB pixels plus export
+metadata matching the new native companion. Unknown active controls are rejected.
+
+Three test_0007 cases qualify. Canonical before/after comparisons use the same
+captured-main PNGs and budgets: clarity_max max changes 42.24899 -> 40.90518
+(ceiling 42.1); whites_min 42.20815 -> 41.30722 (ceiling 41.4). Both cases now
+pass under the qualified comparison protocol. texture_max remains passing
+(42.82735 -> 41.31910, ceiling 43.4). Thus this focused chunk resolves **two
+protocol-related failures, zero new failed cases**, with no renderer changes.
+This is not a passing full-suite result or a count of renderer bugs fixed.
+
+Three test_0000 captures fail exact RGB identity: 50–60 pixels differ, by at
+most one or two code values, across the Adobe 18.2.2/18.7 capture versions.
+They were not qualified, and no extra pixel tolerance was introduced. Exact
+measurements and successful/rejected capture identities are committed under
+`experiments/native-companions/`. The complete original-protocol baseline
+continues independently; no original reference or budget was overwritten.
+
+Validation: all 12 companion qualification tests, 19 complete-metadata tests
+and 27 Adobe reference-tooling tests pass; Ruff passes. The final qualifier
+produces a byte-identical manifest to the one used by the physical comparisons.
