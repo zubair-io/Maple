@@ -3,6 +3,7 @@
 
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -52,6 +53,32 @@ class AutoJpegGateTests(unittest.TestCase):
         rc, result = self.run_gate(bias=20)
         self.assertEqual(rc, 1)
         self.assertEqual(result["cases"][0]["breaches"][0]["channel"], "G")
+
+    def test_balanced_errors_fail_despite_zero_bias(self):
+        reference = self.root / "reference.png"
+        candidate = self.root / "candidate.png"
+        Image.new("RGB", (64, 64), (128, 128, 128)).save(reference)
+        pixels = np.full((64, 64, 3), 128, dtype=np.uint8)
+        pixels[:, :32] = 179
+        pixels[:, 32:] = 77
+        Image.fromarray(pixels).save(candidate)
+        result = gate.compare(candidate, reference, 0.05)
+        self.assertFalse(result["breaches"])
+        self.assertEqual(result["native_absolute"]["status"], "failed")
+        self.assertEqual(result["status"], "failed")
+        cli = subprocess.run(
+            [
+                sys.executable,
+                str(Path(gate.__file__).with_name("auto_profile_diff.py")),
+                str(candidate),
+                str(reference),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(cli.returncode, 1)
+        self.assertEqual(json.loads(cli.stdout)["status"], "failed")
 
     def test_render_failure_is_error_not_skip(self):
         rc, result = self.run_gate(render_rc=1)

@@ -66,7 +66,9 @@ regression labels above. This is a saved-image replay, not a new RAW render.
 No original RAW or embedded reference changed. All reference hashes match.
 
 Validation: 16 quality tests (including 48 photographic subcases across all
-16 fixtures), 12 runner tests, and 4 canonical entrypoint tests pass. The native
+16 fixtures), 13 runner tests, and 4 canonical entrypoint tests pass. The native
 cancellation witness and separately reported no-preview fallback contract are
 covered. Actual no-preview physical renders remain to be run; a mocked contract
 is not reported as physical qualification.
+
+The direct CLI is also tested with balanced +/-0.2 errors that have zero signed bias but must exit nonzero. Workflow path filters include the photographic corpus, so changing a regression PNG alone triggers these checks.
