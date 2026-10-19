@@ -194,10 +194,12 @@ public actor BackupEngine {
     }
   }
 
-  /// Cancel all pending retry tasks. Called by EngineHost.stop() before
-  /// cancelling the runner Task so retries are torn down cleanly.
-  public func stop() {
-    for task in retryTasks.values {
+  /// Cancel every retry task and wait for each to exit, so nothing is still
+  /// uploading or writing state when the caller hands the engine lock to the
+  /// other backup host (#4988).
+  public func stop() async {
+    let cancelled = Array(retryTasks.values)
+    for task in cancelled {
       task.cancel()
     }
     retryTasks.removeAll()
@@ -214,6 +216,9 @@ public actor BackupEngine {
     // outstanding-companion counters too — a fresh run starts clean and we
     // never re-emit a stale `.companionsResolved` for a torn-down task (#702).
     outstandingCompanions.removeAll()
+    for task in cancelled {
+      await task.value
+    }
   }
 
   /// Process the next task in the queue, or return without throwing if
@@ -481,6 +486,8 @@ public actor BackupEngine {
     do {
       try await op()
     } catch {
+      // Cancelled by stop(): never schedule a retry that outlives the teardown.
+      guard !Task.isCancelled else { return }
       Self.companionLog.notice(
         "companion \(label, privacy: .public) first attempt failed, scheduling retry: \(String(describing: error), privacy: .public)"
       )
@@ -528,6 +535,11 @@ public actor BackupEngine {
         // Terminal: the companion landed on this retry. Decrement once.
         await self?.companionResolved(taskId)
       } catch {
+        // Cancelled by stop(): a replacement retry would outlive the teardown.
+        guard !Task.isCancelled else {
+          await self?.finishRetry(token)
+          return
+        }
         // Bounded recursion via the actor so retryTasks stays consistent.
         // No re-increment: this companion is already counted outstanding.
         await self?.scheduleCompanionRetry(

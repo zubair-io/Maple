@@ -226,9 +226,16 @@ enum ChangeObserverWiring {
     // for several seconds on a 100k-photo library — the original symptom
     // that made the Start Backup button look dead.
     let walkStarted = Date()
-    let ids: [String] = await Task.detached(priority: .userInitiated) {
+    let enumeration = Task.detached(priority: .userInitiated) {
       walkPhotoKit(settings: settings)
-    }.value
+    }
+    // A detached task does not inherit cancellation: forward Stop to it, so
+    // draining the walk never waits out the rest of a large scan.
+    let ids = await withTaskCancellationHandler {
+      await enumeration.value
+    } onCancel: {
+      enumeration.cancel()
+    }
     log.info(
       "walk enumerated \(ids.count) eligible assets in \(Int(Date().timeIntervalSince(walkStarted) * 1000))ms"
     )
@@ -431,6 +438,7 @@ enum ChangeObserverWiring {
     let imageIDs = PhotoKitCatalog.shared.imageIdentifiers()
     ids.reserveCapacity(imageIDs.count)
     for phid in imageIDs {
+      guard !Task.isCancelled else { return [] }
       guard let asset = PhotoKitCatalog.shared.asset(localId: phid),
         shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
       else { continue }
@@ -441,6 +449,7 @@ enum ChangeObserverWiring {
       let videoIDs = PhotoKitCatalog.shared.videoIdentifiers()
       ids.reserveCapacity(ids.count + videoIDs.count)
       for phid in videoIDs {
+        guard !Task.isCancelled else { return [] }
         guard let asset = PhotoKitCatalog.shared.asset(localId: phid),
           shouldInclude(asset, settings: settings, sharedAlbumIDs: sharedAlbumIDs)
         else { continue }

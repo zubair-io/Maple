@@ -128,7 +128,8 @@ public final class EngineHost {
       if let free = try BackupEngineLock.acquire(in: storageRoot) {
         engineLock = free
       } else {
-        lastStartError = "The background helper is finishing a backup. Maple will take over when it's done."
+        lastStartError =
+          "The background helper is finishing a backup. Maple will take over when it's done."
         let wait = Task {
           try await BackupEngineLock.acquireWhenFree(in: storageRoot, pollInterval: .seconds(2))
         }
@@ -247,6 +248,11 @@ public final class EngineHost {
     generation = UUID()
     engineLockWait?.cancel()
     engineLockWait = nil
+    // Stop uploads first, so an explicit Stop takes effect at once even while
+    // a library scan is still winding down.
+    let runner = runnerTask
+    runner?.cancel()
+    if let engine { await engine.stop() }
     // Library walks upsert rows in the shared state DB: wait for them to
     // exit before the lock below is released to the helper (#4988).
     await ChangeObserverWiring.stopAndDrain()
@@ -254,14 +260,6 @@ public final class EngineHost {
     periodicWalkTask = nil
     periodicWalk?.cancel()
     await periodicWalk?.value
-    let runner = runnerTask
-    runner?.cancel()
-    // Await engine teardown so retry tasks are cancelled before the runner
-    // task exits. This prevents a race where a retry re-enqueues after
-    // the queue has been discarded by a subsequent start().
-    if let engine {
-      await engine.stop()
-    }
     await runner?.value
     // A companion operation already in flight can schedule a retry while
     // the runner drains. Sweep those late retries after it has fully exited.
