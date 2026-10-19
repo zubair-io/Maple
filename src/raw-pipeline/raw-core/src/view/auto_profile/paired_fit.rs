@@ -255,7 +255,6 @@ pub(super) fn fit(
     }
     let observations =
         paired_observations::build(pixels, width, height, orientation, preview, current)?;
-    let (result, coarse) = solve_observations(&observations, current)?;
     let display = if preview.image.width().max(preview.image.height()) > 1024 {
         Some(paired_observations::build_display(
             pixels,
@@ -268,6 +267,8 @@ pub(super) fn fit(
     } else {
         None
     };
+    let (result, coarse) =
+        solve_observations(display.as_deref().unwrap_or(&observations), current)?;
     #[cfg(feature = "stage-dump")]
     if let Some(dir) = crate::stage_dump::dump_dir() {
         #[derive(serde::Serialize)]

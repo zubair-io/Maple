@@ -1,0 +1,5 @@
+# Fit Auto color at the comparison display scale — #5000
+
+The paired fitter still minimized native JPEG-resolution residuals, despite selecting candidates and measuring perceptual quality after BOX reduction to a 1024-pixel long edge. Camera sharpening and native demosaic differences can bias that color objective. Train the same bounded, regularized residual using the existing display observation operator. The native held-out absolute/squared RGB checks, display mean/tail/local guards, fixed external quality limits and all banding limits remain unchanged. The same training/validation split is used at each scale. Preview sizes at or below 1024 retain their existing native path.
+
+A cached aligned 0005 diagnostic improves display mean DE from 3.84494 to 2.58271, compared with 2.68386 for the native-trained unprojected residual. All 64 sampled regions improve and native RGB absolute errors also improve. Both calculations precede monotonic projection; neither is a physical passing result. The new independent physical run determines acceptance. Do not change geometry, source files, Neutral AgX, pipeline version 37 or fit version 7. Keep PR #5003 draft and unmerged.
