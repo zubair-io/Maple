@@ -156,7 +156,9 @@
 ///   across luminance edges instead of mixing bright and dark sensor samples (#5000).
 /// - 31 — green guidance requires consistent donor and centre surface hue;
 ///   unsupported color edges retain the original sensor-value interpolation.
-pub const PIPELINE_OUTPUT_VERSION: u32 = 31;
+/// - 32 — AMaZE variance selection reads immediately bounded predecessors in
+///   scalar raster order, matching the upstream numeric dependency (#5000).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 32;
 
 #[cfg(test)]
 mod tests {

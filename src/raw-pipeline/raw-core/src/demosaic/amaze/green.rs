@@ -128,11 +128,14 @@ pub(super) fn interpolate_green_diffs(s: &mut Scratch, t: &Tile, pattern: CfaPat
     }
 }
 
-/// Stage 2: pick the smoother colour difference between vcd/vcdalt and
-/// hcd/hcdalt via the cheap 3-sample variance (engine 601–609). Split from
-/// stage 3 (upstream fuses them in-place; its SIMD branch already breaks
-/// that sequential dependency, so the split is behaviour-equivalent).
-pub(super) fn refine_by_variance(s: &mut Scratch, t: &Tile) {
+/// Stages 2–3: select lower-variance differences and immediately median-bound
+/// each site in upstream scalar raster order (engine 601–682). Earlier bounded
+/// hcd/vcd samples must participate in later variance reads; two whole-tile
+/// passes are not equivalent. Emit `cddiffsq = (vcd − hcd)²` at R/B sites (the Nyquist
+/// texture term; every tap of the Nyquist gaussian lands on an R/B site, so
+/// G cells are never read).
+pub(super) fn refine_and_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
+    use super::scratch::median3;
     let var3 =
         |a: f32, b: f32, c: f32| -> f32 { 3.0 * (a * a + b * b + c * c) - (a + b + c).powi(2) };
     for rr in 4..t.rr1 - 4 {
@@ -140,27 +143,14 @@ pub(super) fn refine_by_variance(s: &mut Scratch, t: &Tile) {
             let i = rr * TS + cc;
             let hcd_var = var3(s.hcd[i - 2], s.hcd[i], s.hcd[i + 2]);
             let hcd_alt_var = var3(s.hcdalt[i - 2], s.hcdalt[i], s.hcdalt[i + 2]);
+            let vcd_var = var3(s.vcd[i - 2 * TS], s.vcd[i], s.vcd[i + 2 * TS]);
+            let vcd_alt_var = var3(s.vcdalt[i - 2 * TS], s.vcdalt[i], s.vcdalt[i + 2 * TS]);
             if hcd_alt_var < hcd_var {
                 s.hcd[i] = s.hcdalt[i];
             }
-            let vcd_var = var3(s.vcd[i - 2 * TS], s.vcd[i], s.vcd[i + 2 * TS]);
-            let vcd_alt_var = var3(s.vcdalt[i - 2 * TS], s.vcdalt[i], s.vcdalt[i + 2 * TS]);
             if vcd_alt_var < vcd_var {
                 s.vcd[i] = s.vcdalt[i];
             }
-        }
-    }
-}
-
-/// Stage 3: median-bound the colour differences on saturated edges (engine
-/// 619–682) and emit `cddiffsq = (vcd − hcd)²` at R/B sites (the Nyquist
-/// texture term; every tap of the Nyquist gaussian lands on an R/B site, so
-/// G cells are never read).
-pub(super) fn median_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
-    use super::scratch::median3;
-    for rr in 4..t.rr1 - 4 {
-        for cc in 4..t.cc1 - 4 {
-            let i = rr * TS + cc;
             let c = pattern.color_at(cc as u32, rr as u32) as usize;
             let v = s.cfa[i];
             if c != 1 {
@@ -291,6 +281,64 @@ pub(super) fn adaptive_hvwt(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
             } else {
                 diffwt
             };
+        }
+    }
+}
+
+#[cfg(test)]
+mod ordering_tests {
+    use super::*;
+
+    #[test]
+    fn variance_reads_the_already_bounded_previous_site() {
+        for pattern in [
+            CfaPattern::Rggb,
+            CfaPattern::Bggr,
+            CfaPattern::Grbg,
+            CfaPattern::Gbrg,
+        ] {
+            for vertical in [false, true] {
+                for green_site in [false, true] {
+                    let mut s = Scratch::new();
+                    s.cfa.fill(0.5);
+                    let row = 6;
+                    let col = (6..8)
+                        .find(|&x| (pattern.color_at(x as u32, row as u32) == 1) == green_site)
+                        .unwrap();
+                    let target = row * TS + col;
+                    let step = if vertical { 2 * TS } else { 2 };
+                    let (main, alternate) = if vertical {
+                        (&mut s.vcd, &mut s.vcdalt)
+                    } else {
+                        (&mut s.hcd, &mut s.hcdalt)
+                    };
+                    let sign = if green_site { -1.0_f32 } else { 1.0_f32 };
+                    main[target - step] = -0.5 * sign;
+                    main[target] = 0.1 * sign;
+                    alternate[target - step] = -0.5 * sign;
+                    alternate[target + step] = -0.5 * sign;
+                    let tile = Tile {
+                        top: 0,
+                        left: 0,
+                        rr1: 16,
+                        cc1: 16,
+                    };
+                    refine_and_bound(&mut s, &tile, pattern);
+                    let values = if vertical { &s.vcd } else { &s.hcd };
+                    assert_eq!(values[target - step].to_bits(), 0.0_f32.to_bits());
+                    // After the preceding site's -0.5 is bounded to 0, the main
+                    // triplet [0,0.1,0] has variance0.02. The alternate [-0.5,0,-0.5]
+                    // has variance0.5, so the centre must retain0.1. A separate
+                    // whole-tile variance pass instead sees [-0.5,0.1,0] (0.62)
+                    // and wrongly selects the alternate0 before any bounding.
+                    // Green sites exercise the same dependency with inverted signs.
+                    assert_eq!(
+                    values[target].to_bits(),
+                    (0.1_f32 * sign).to_bits(),
+                    "{pattern:?} vertical={vertical} green_site={green_site}: variance read an unbounded predecessor"
+                );
+                }
+            }
         }
     }
 }

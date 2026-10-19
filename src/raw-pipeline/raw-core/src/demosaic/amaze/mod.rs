@@ -23,7 +23,8 @@
 //!   * Stage 2    — variance-based selection of vcd/vcdalt, hcd/hcdalt
 //!                  (601–609).
 //!   * Stage 3    — median-bound colour differences on saturated edges
-//!                  (619–682).
+//!                  (619–682), in the same per-site traversal as stage 2:
+//!                  later variance tests read earlier bounded differences.
 //!   * Stage 4    — adaptive H/V direction weight per R/B site (741–784).
 //!   * Stage 5    — full AMaZE chroma reconstruction (802–1559): Nyquist
 //!                  texture mask + dilation, 13×13 area interpolation of
@@ -109,8 +110,7 @@ pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
                 scratch::fill_tile(&mut s, &t, &cfa_flat, w, h);
                 green::compute_dirwts_delhv(&mut s, &t);
                 green::interpolate_green_diffs(&mut s, &t, cfa);
-                green::refine_by_variance(&mut s, &t);
-                green::median_bound(&mut s, &t, cfa);
+                green::refine_and_bound(&mut s, &t, cfa);
                 green::adaptive_hvwt(&mut s, &t, cfa);
                 nyquist::reconstruct_green(&mut s, &t, cfa);
                 diag::diagonal_refine(&mut s, &t, cfa);
