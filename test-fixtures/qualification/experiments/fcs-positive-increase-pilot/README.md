@@ -1,9 +1,7 @@
-# Selective positive-chroma guard trial
+# Rejected broad increase exception
 
-Experimental patch, not adopted yet. The complete source-35 suite exposed 29 new failures. Matched frozen controls attribute 16 to the green-support guard and 13 to the camera prefix.
+The initial chart target passes and all 28 AMaZE tests pass, but a physical counterexample invalidates the broad exception: test_0000/nr_luminance_max returns to max Delta E 51.89043209976267, above the unchanged 50.90 limit; source35 passes this case.
 
-The chart witness is a Bayer sample beside a thin chroma feature. Reconstructed green is below both directional means, but measured red neighbors support an increase in reconstructed red. The unconditional guard prevents that increase and creates a dark artifact.
+Stopped the 91-case experiment after 34 completed comparisons rather than spend more time on a rejected hypothesis. All completed reports, exact source patch, unit logs and candidate hashes are preserved; referenced immutable inputs were independently revalidated after stopping. Only the owned experimental driver and its children were terminated. No production change adopted.
 
-This patch retains measured-value increases while guarding positive-chroma reductions when green lacks support. Negative-collapse behavior, all existing thresholds, all original assertions and all physical inputs are unchanged. A new phase/exposure regression fails the original implementation; all 28 AMaZE tests pass with the trial. The first physical chart target now passes.
-
-A 91-case cohort is running: the prior 58 controls plus every newly failing or cleared source-35 case. No complete-cohort or full-suite pass is claimed. Exact patch, driver, unit logs and source-35 chart trace samples are preserved here.
+The next trial retains the green-support guard whenever the reconstructed channel remains within the nearest measured target samples. It permits a value increase only below every measured target sample. Both the chart and the Hasselblad counterexample must pass before expanded controls.
