@@ -125,7 +125,7 @@ class GitFixture(unittest.TestCase):
                 {
                     "type": "required_status_checks",
                     "parameters": {
-                        "strict_required_status_checks_policy": True,
+                        "strict_required_status_checks_policy": False,
                         "required_status_checks": [
                             {"context": policy.CONTEXT},
                             {"context": "Release readiness"},
@@ -241,6 +241,14 @@ class GateTests(GitFixture):
         control.refresh_gate("owner/repo")
         self.assertEqual([p["state"] for _, p in self.statuses], ["success"])
 
+    def test_ordinary_pr_behind_main_passes_without_handoff(self):
+        self.prs = [self.pr(self.main)]
+        self.write("new.txt", "Another merge\n")
+        moved = self.commit("Main moved")
+        self.git("push", "origin", f"{moved}:refs/heads/main")
+        control.refresh_gate("owner/repo")
+        self.assertEqual(self.statuses[-1][1]["state"], "success")
+
     def test_before_tag_all_prs_blocked(self):
         head = self.handoff(tagged=False)
         self.prs = [self.pr(head, policy.branch("1.2.3")), self.pr(self.main)]
@@ -301,6 +309,20 @@ class GateTests(GitFixture):
         moved = self.commit("Main moved")
         self.git("push", "origin", f"{moved}:refs/heads/main")
         self.prs = [self.pr(head, policy.branch("1.2.3"))]
+        control.refresh_gate("owner/repo")
+        self.assertEqual(self.statuses[-1][1]["state"], "pending")
+
+    def test_main_movement_revokes_green_release_even_with_identical_tree(self):
+        head = self.handoff()
+        self.prs = [self.pr(head, policy.branch("1.2.3"))]
+        control.refresh_gate("owner/repo")
+        self.assertEqual(self.statuses[-1][1]["state"], "success")
+
+        self.git("checkout", "--detach", self.main)
+        self.git("commit", "--allow-empty", "-m", "Main moved without file changes")
+        moved = self.git("rev-parse", "HEAD")
+        self.git("push", "origin", f"{moved}:refs/heads/main")
+        policy.validate_bump(moved, head)
         control.refresh_gate("owner/repo")
         self.assertEqual(self.statuses[-1][1]["state"], "pending")
 
