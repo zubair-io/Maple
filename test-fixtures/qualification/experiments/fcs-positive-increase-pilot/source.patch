@@ -1,0 +1,64 @@
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
+index a20a45968e..d6fcf338e2 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
+@@ -266,11 +266,15 @@ pub(super) fn suppress_false_colour(
+                         px[t] = c_hue;
+                         continue;
+                     }
+-                    if px[t] > 0.0 && !guide_supported {
++                    let c_val = value_estimate(x, y, t);
++                    // Uncertain reconstructed green must not erase positive
++                    // chroma supported by the directional kernel. Keep the
++                    // measured-value increase that restores thin colour lines;
++                    // it does not rely on the guide's absolute chroma ratio.
++                    if px[t] > 0.0 && c_val < c_hue && !guide_supported {
+                         px[t] = c_hue;
+                         continue;
+                     }
+-                    let c_val = value_estimate(x, y, t);
+                     // Disagreement between the two estimates, normalised by
+                     // the local channel magnitude.
+                     let mag = c_hue.abs() + c_val.abs() + EPS;
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs
+index 0a92f02be6..b434869b19 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs
+@@ -430,3 +430,37 @@ fn unsupported_reconstructed_green_does_not_drive_positive_chroma_blending() {
+         }
+     }
+ }
++
++
++#[test]
++fn unsupported_green_does_not_erase_the_value_estimate_of_a_chroma_line() {
++    for pattern in PATTERNS {
++        for centre_colour in [0, 2] {
++            for exposure in [0.01_f32, 1.0, 16.0] {
++                let i = (10..14).flat_map(|y| (10..14).map(move |x| y * SIDE + x))
++                    .find(|&i| sampled(pattern, i) == centre_colour).unwrap();
++                let target = 2 - centre_colour;
++                let mut image = Image::new(SIDE as u32, SIDE as u32, ColorSpace::CameraNativeLinearRgb);
++                image.pixels.fill([0.07 * exposure; 3]);
++                let mut green = vec![0.07 * exposure; SIDE * SIDE];
++                let mut cfa = vec![0.07 * exposure; SIDE * SIDE];
++                image.pixels[i][target] = 0.14 * exposure;
++                for (offset, value) in [(-1_isize, 0.06), (1, 0.73), (-(SIDE as isize), 0.06), (SIDE as isize, 0.30)] {
++                    let n = (i as isize + offset) as usize;
++                    green[n] = value * exposure;
++                    cfa[n] = green[n];
++                }
++                for (dx, dy) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)] {
++                    cfa[(i as isize + dy * SIDE as isize + dx) as usize] = 0.4 * exposure;
++                }
++                let before = image.pixels[i];
++                fcs::suppress_false_colour(&mut image, &cfa, &green, SIDE, SIDE, pattern,
++                    fcs::FALSE_COLOUR_SUPPRESS_STRENGTH);
++                assert!((image.pixels[i][target] - 0.4 * exposure).abs() < 1e-6 * exposure,
++                    "{pattern:?} colour={centre_colour} exposure={exposure}: uncertain green must not suppress the measured chroma-line estimate");
++                assert_eq!(image.pixels[i][centre_colour], before[centre_colour]);
++                assert_eq!(image.pixels[i][1], before[1]);
++            }
++        }
++    }
++}

@@ -1,0 +1,30 @@
+{
+  "reason": "Physical counterexample: test0000/nr_luminance_max max51.89043209976267 exceeds50.90; broad measured-value increase loses existing source35 pass. Stop rejected prototype before remaining91cases.",
+  "completed_comparisons": 34,
+  "planned_comparisons": 91,
+  "terminated_driver_pid": 93001,
+  "terminated_owned_children": [
+    {
+      "pid": 93875,
+      "ppid": 93001,
+      "command": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-positive-increase-pilot/maple-cli batch --manifest /Users/riabuz/.codex/color-suite-evidence/5000/fcs-positive-increase-pilot/jobs/test_0000_sharpen_masking_max-neutral/manifest.json --out-dir /Users/riabuz/.codex/color-suite-evidence/5000/fcs-positive-increase-pilot/candidates --profile neutral --no-bundled-lens"
+    },
+    {
+      "pid": 93896,
+      "ppid": 93001,
+      "command": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-positive-increase-pilot/maple-cli batch --manifest /Users/riabuz/.codex/color-suite-evidence/5000/fcs-positive-increase-pilot/jobs/test_0000_sharpen_radius_max-neutral/manifest.json --out-dir /Users/riabuz/.codex/color-suite-evidence/5000/fcs-positive-increase-pilot/candidates --profile neutral --no-bundled-lens"
+    },
+    {
+      "pid": 93899,
+      "ppid": 93001,
+      "command": "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python - /Users/riabuz/.codex/color-suite-evidence/5000/fcs-positive-increase-pilot/jobs/test_0000_sharpen_detail_min-neutral/manifest.json /Users/riabuz/.codex/color-suite-evidence/5000/fcs-positive-increase-pilot/candidates /Users/riabuz/.codex/color-suite-evidence/5000/baseline-cf62d12ddc/source/src/scripts/compare_images.py full  /Users/riabuz/.codex/color-suite-evidence/5000/baseline-cf62d12ddc/source/test-fixtures/budgets.json   12"
+    },
+    {
+      "pid": 93921,
+      "ppid": 93001,
+      "command": "/Users/riabuz/.codex/color-suite-evidence/5000/fcs-positive-increase-pilot/maple-cli batch --manifest /Users/riabuz/.codex/color-suite-evidence/5000/fcs-positive-increase-pilot/jobs/test_0000_sharpen_radius_min-neutral/manifest.json --out-dir /Users/riabuz/.codex/color-suite-evidence/5000/fcs-positive-increase-pilot/candidates --profile neutral --no-bundled-lens"
+    }
+  ],
+  "timestamp": "2026-10-19T12:20:42.900435+00:00",
+  "production_source": "unchanged source35; experimental patch never adopted"
+}

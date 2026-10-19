@@ -5,6 +5,19 @@
 use super::fast_exp_table;
 use super::fast_neg_exp;
 
+#[cfg(any(
+    target_arch = "aarch64",
+    all(target_arch = "wasm32", target_feature = "simd128")
+))]
+fn repair_gaussian_tails(arguments: [f32; 4], mut weights: [f32; 4]) -> [f32; 4] {
+    for i in 0..4 {
+        if arguments[i] >= 8.0 {
+            weights[i] = fast_neg_exp(arguments[i]);
+        }
+    }
+    weights
+}
+
 pub(super) fn accumulate(
     sums: &[f32],
     shifted: &[f32],
@@ -45,6 +58,16 @@ pub(super) fn accumulate(
                     vmulq_f32(vsubq_f32(vld1q_f32(b.as_ptr()), av), fraction),
                 );
                 let weight = vbslq_f32(vcltq_f32(x, vdupq_n_f32(8.0)), weight, vdupq_n_f32(0.0));
+                let weight = if vmaxvq_u32(vcgeq_f32(x, vdupq_n_f32(8.0))) != 0 {
+                    let mut xs = [0.0; 4];
+                    let mut ws = [0.0; 4];
+                    vst1q_f32(xs.as_mut_ptr(), x);
+                    vst1q_f32(ws.as_mut_ptr(), weight);
+                    let repaired = repair_gaussian_tails(xs, ws);
+                    vld1q_f32(repaired.as_ptr())
+                } else {
+                    weight
+                };
                 vst1q_f32(
                     acc.as_mut_ptr().add(start),
                     vaddq_f32(
@@ -111,6 +134,24 @@ pub(super) fn accumulate(
                 );
                 let weight = v128_bitselect(zero, weight, f32x4_ge(x, f32x4_splat(8.0)));
                 let weight = v128_bitselect(f32x4_splat(1.0), weight, f32x4_lt(x, zero));
+                let weight = if v128_any_true(f32x4_ge(x, f32x4_splat(8.0))) {
+                    let xs = [
+                        f32x4_extract_lane::<0>(x),
+                        f32x4_extract_lane::<1>(x),
+                        f32x4_extract_lane::<2>(x),
+                        f32x4_extract_lane::<3>(x),
+                    ];
+                    let ws = [
+                        f32x4_extract_lane::<0>(weight),
+                        f32x4_extract_lane::<1>(weight),
+                        f32x4_extract_lane::<2>(weight),
+                        f32x4_extract_lane::<3>(weight),
+                    ];
+                    let repaired = repair_gaussian_tails(xs, ws);
+                    repaired.as_ptr().cast::<v128>().read_unaligned()
+                } else {
+                    weight
+                };
                 store_f32x4(
                     acc.as_mut_ptr().add(start),
                     f32x4_add(
@@ -199,6 +240,24 @@ pub(super) fn accumulate_dynamic(
                 );
                 let weight = v128_bitselect(zero, weight, f32x4_ge(x, f32x4_splat(8.0)));
                 let weight = v128_bitselect(f32x4_splat(1.0), weight, f32x4_lt(x, zero));
+                let weight = if v128_any_true(f32x4_ge(x, f32x4_splat(8.0))) {
+                    let xs = [
+                        f32x4_extract_lane::<0>(x),
+                        f32x4_extract_lane::<1>(x),
+                        f32x4_extract_lane::<2>(x),
+                        f32x4_extract_lane::<3>(x),
+                    ];
+                    let ws = [
+                        f32x4_extract_lane::<0>(weight),
+                        f32x4_extract_lane::<1>(weight),
+                        f32x4_extract_lane::<2>(weight),
+                        f32x4_extract_lane::<3>(weight),
+                    ];
+                    let repaired = repair_gaussian_tails(xs, ws);
+                    repaired.as_ptr().cast::<v128>().read_unaligned()
+                } else {
+                    weight
+                };
                 let enabled = i32x4_ge(
                     load_unaligned(search.as_ptr().add(start)),
                     i32x4_splat(distance as i32),

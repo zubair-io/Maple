@@ -1,0 +1,7 @@
+{
+  "scope": "Experimental value estimator at measured green sites only. Interpolate chromaticity from2same-color, unclipped donors with existing15percent ratio support and measured-green bracketing. Reconstructed-center FCS and other unsupported estimates keep old behavior.30AMaZE tests pass, including3new tests and unchanged original assertions; new luma-edge test fails source35. Target first, expand58onlyif it passes. Not adopted.",
+  "base_commit": "bfe563ae2689cbfebdcf432a03cc0d17c692ecee",
+  "binary_sha256": "da52dd4ade1f9f986c1f2f090e6aa2338a1369a96a9815e924b6cbb0aae0ad66",
+  "source_patch_sha256": "9579470c0be2bb9b848c570f9b601cf11d614080833cb7f6bf93e59b891240e8",
+  "sensor_white_metadata": "production passes the preconditioning scales; synthetic unbounded tests explicitly pass infinity, clipped-evidence tests supply real scaled ceilings"
+}

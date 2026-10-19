@@ -97,6 +97,30 @@ pub fn demosaic_cancellable(
     }
 }
 
+/// Camera-aware AMaZE input conditioning. All other kernels keep their
+/// existing native-domain contract. Invalid metadata takes the original path.
+pub(crate) fn camera_demosaic_cancellable(
+    algo: DemosaicAlgorithm,
+    mosaic: &Image,
+    cfa: CfaPattern,
+    neutral: [f32; 3],
+    cancel: crate::cancel::CancelToken<'_>,
+) -> Image {
+    if !neutral.iter().all(|n| n.is_finite() && *n > 0.0) {
+        return demosaic_cancellable(algo, mosaic, cfa, cancel);
+    }
+    let minimum = neutral.into_iter().fold(f32::INFINITY, f32::min);
+    let scales = neutral.map(|n| minimum / n);
+    if scales.iter().any(|v| *v <= 0.0) {
+        return demosaic_cancellable(algo, mosaic, cfa, cancel);
+    }
+    match algo {
+        DemosaicAlgorithm::Amaze => amaze::amaze_with_gains(mosaic, cfa, scales),
+        DemosaicAlgorithm::DualAmazeVng4 => dual::dual_amaze_vng4_with_gains(mosaic, cfa, scales),
+        _ => demosaic_cancellable(algo, mosaic, cfa, cancel),
+    }
+}
+
 /// Flatten the sparse 3-channel mosaic to a single float per CFA position.
 ///
 /// `sensor_linearize` populates exactly one of `[r, g, b]` per pixel — the

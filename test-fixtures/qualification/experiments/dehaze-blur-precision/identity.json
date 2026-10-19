@@ -1,0 +1,11 @@
+{
+  "base_commit": "044681b71b0999b1db9dd821ada7320dfc600499",
+  "processing_base": "95fc03d6819b34f46f928ba93de58188a4014022",
+  "pipeline_output_version": "37 plus experimental f64 dehaze running sums",
+  "auto_fit_model_version": 7,
+  "binary_sha256": "37de4575c0f26a3da6a36ef0cc9884eab857fb4b9bf9aea0d89ef8156adeae7e",
+  "source_patch_sha256": "07afb40ed4903969e086bb7c70b20b55fbfe4c94a289343310caade4abb704b0",
+  "cpu_dehaze_passed": 17,
+  "gpu_dehaze_passed": 11,
+  "status": "Experimental. Same atmospheric-light logic/settings/original image budgets. f64 sum, f32 per-pass outputs. Physical target before deciding wider cohort."
+}

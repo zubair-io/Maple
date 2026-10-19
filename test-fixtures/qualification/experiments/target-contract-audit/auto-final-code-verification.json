@@ -1,0 +1,109 @@
+{
+  "verified": true,
+  "cases": [
+    {
+      "fixture": "test_0000",
+      "status": "failed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0001",
+      "status": "no-preview",
+      "verified": true
+    },
+    {
+      "fixture": "test_0002",
+      "status": "passed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0003",
+      "status": "passed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0004",
+      "status": "passed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0005",
+      "status": "failed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0006",
+      "status": "failed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0007",
+      "status": "failed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0008",
+      "status": "failed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0009",
+      "status": "passed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0010",
+      "status": "failed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0011",
+      "status": "failed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0012",
+      "status": "failed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0013",
+      "status": "failed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0014",
+      "status": "failed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0015",
+      "status": "failed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0017",
+      "status": "failed",
+      "verified": true
+    },
+    {
+      "fixture": "test_0018",
+      "status": "no-preview",
+      "verified": true
+    },
+    {
+      "fixture": "test_0019",
+      "status": "no-preview",
+      "verified": true
+    },
+    {
+      "fixture": "test_0020",
+      "status": "no-preview",
+      "verified": true
+    }
+  ],
+  "binary_sha256": "bd23444c334ca520cb634fa92622bd7c41452c70569f095d7f1e995683f6e96c",
+  "runner_sha256": "2d92a543236d299c956e8ace642755bed78495b2fa3b6b08229ad57f9bc8c275",
+  "comparator_sha256": "0622267f4d5e881ad0cf6c9489b43b2581bfaac7df5c4d4c9be53bcb7a45be77",
+  "note": "Final formatted gate code independently re-compares all retained physical images; no rerender or reference substitution."
+}

@@ -1,0 +1,1501 @@
+{
+  "scope": "All20 native baseline mean-bias diagnostics and41 known full-detail failures. No RAW rerender, tolerance changes, reference changes or gate reclassification. Baseline-only exceedance is a counterfactual attribution, not a passing gate.",
+  "main_commit": "cf62d12ddc573cff68780e7754f7b5b63f7ae621",
+  "baseline_full_biases": [
+    {
+      "fixture": "test_0000",
+      "n_pixels": 100663296,
+      "baseline_full_bias": [
+        0.012614363890438468,
+        0.014604665448836466,
+        0.01676583766797472
+      ],
+      "candidate_sha256": "68bae830a59e359eb9ec02b33940b2b44a5f2682d232ae69ee4c77e4d776f867",
+      "reference_sha256": "22475e8d4f13972b779f137df4d2c37906e8e089f46d6f0ac84fc96235c9879a"
+    },
+    {
+      "fixture": "test_0001",
+      "n_pixels": 10036224,
+      "baseline_full_bias": [
+        0.15589813797404378,
+        0.14534586125782095,
+        0.15378383778933657
+      ],
+      "candidate_sha256": "00fb2a062bc12a2f134f42093b164715a884c4ba558e35ee4037859e203df6ac",
+      "reference_sha256": "cdbce29b223dda8f9e9e38256041bf7c328bff8c4ba65b1613e200131a697d43"
+    },
+    {
+      "fixture": "test_0002",
+      "n_pixels": 39052992,
+      "baseline_full_bias": [
+        -0.19299489289060034,
+        -0.16093360569336185,
+        -0.14298228741968982
+      ],
+      "candidate_sha256": "58d68a9167b727fba6500e26bfc50e619caa001268beebea456a01b9416cdcdf",
+      "reference_sha256": "589f2bdee9b43292d110b4d37f9d20e1e36df794fd36e48d7fe774f3b16771bf"
+    },
+    {
+      "fixture": "test_0003",
+      "n_pixels": 50320896,
+      "baseline_full_bias": [
+        0.036042152441448747,
+        0.027167308613141438,
+        0.024734329269925786
+      ],
+      "candidate_sha256": "56f309429fa321bf7b28c9b1879da15d30c644ff2037cc7940a57d2fba209955",
+      "reference_sha256": "60f0fd0f5f8140a85053adb434030ddc8bcb76df5b8b172429ed43871ef6ded6"
+    },
+    {
+      "fixture": "test_0004",
+      "n_pixels": 40011312,
+      "baseline_full_bias": [
+        -0.02199355035759736,
+        -0.022242371600119715,
+        -0.018925658975082055
+      ],
+      "candidate_sha256": "0234566a4d82e1183d145c37617a36ef372e2e1673069cea05db4beac06ec5af",
+      "reference_sha256": "f4a14133d620c28cd9e14ba7e2d58f00d754060b146976690e28fa909bbe2ae2"
+    },
+    {
+      "fixture": "test_0005",
+      "n_pixels": 51121152,
+      "baseline_full_bias": [
+        0.1148923775557713,
+        0.09541927025629192,
+        0.08628729816321237
+      ],
+      "candidate_sha256": "155d8dfad0be215915a30baffb0afcd20d58df00501dde12030dbaf6f3006112",
+      "reference_sha256": "2ceb03f0c421d15f996adec8c6fabb195fc8318b5abebe0ef33e8022b42c4e17"
+    },
+    {
+      "fixture": "test_0006",
+      "n_pixels": 22118400,
+      "baseline_full_bias": [
+        0.013816597899894966,
+        0.02200430798093818,
+        -0.026462503171903497
+      ],
+      "candidate_sha256": "551545c4a26b56e4079cb402e9303f2db85f5c8620a3d870b769504ed3738f34",
+      "reference_sha256": "5c0ea5662ea4fe8b23a92c098efd254da42a8efcf0eeb858124800d553e4d0ce"
+    },
+    {
+      "fixture": "test_0007",
+      "n_pixels": 22118400,
+      "baseline_full_bias": [
+        0.011255294354976441,
+        0.01589676968582498,
+        0.02434466745582896
+      ],
+      "candidate_sha256": "01fe0cac6636e0f68d8b8e194c0367aab1b66e1b8d4d938a1de6fd0f6acd6de6",
+      "reference_sha256": "00125bb71f18b93d0601d10d725f628c61bc43267d5eefd484dec04370b8082f"
+    },
+    {
+      "fixture": "test_0008",
+      "n_pixels": 25958400,
+      "baseline_full_bias": [
+        -0.07430740940273524,
+        -0.09048348408247575,
+        -0.07501899890858243
+      ],
+      "candidate_sha256": "7d10e558d4ed313820a721adbc787b25777722779d94a32d7621021d6e081c61",
+      "reference_sha256": "66e2bf7df8cfbf0c5fd8b9ac3a4dfaf2d75e1e549da74434e0f162ef25a4f7b3"
+    },
+    {
+      "fixture": "test_0009",
+      "n_pixels": 30105600,
+      "baseline_full_bias": [
+        0.08594734204771749,
+        0.0684221824123459,
+        0.056542878274762245
+      ],
+      "candidate_sha256": "a3d0ed4ee12f4ac4881bd610d2662a53c6d3fb41bf6b8fcba382003f7e48e679",
+      "reference_sha256": "9153bdac44c983db40c2cb5b399736fb2883136ed6d39d88bcf9ef82662cb456"
+    },
+    {
+      "fixture": "test_0010",
+      "n_pixels": 16934400,
+      "baseline_full_bias": [
+        0.0009008743057126242,
+        0.0264283183224285,
+        -0.005170654051339896
+      ],
+      "candidate_sha256": "d3241a3daa8e3745a961d4e4dcbf09d9700dad6634f39f80fc603a67468006bc",
+      "reference_sha256": "111802ffff943a88803798cd5b171a88fc06a12b501c43b85076a7aba46abbfd"
+    },
+    {
+      "fixture": "test_0011",
+      "n_pixels": 60217344,
+      "baseline_full_bias": [
+        0.040299047106145736,
+        0.03392159401250655,
+        0.031440481982462784
+      ],
+      "candidate_sha256": "3ba2cc6a67effd1afcf0a6f6e8e35092473bdf91498243dfc82062b11119c52d",
+      "reference_sha256": "5d3b509bc0423ae4fdf1e78df9907ced1ef813121838d16d2e73aeb396e5a69c"
+    },
+    {
+      "fixture": "test_0012",
+      "n_pixels": 51121152,
+      "baseline_full_bias": [
+        0.14335260144594644,
+        0.06845523740945642,
+        0.03363493884981894
+      ],
+      "candidate_sha256": "cef5d1cee44fb4f9512b35f12d6f50fe8c2089da5b369dc464694a4ed9c9c20a",
+      "reference_sha256": "8028795b6a2dba1d174c4482710c312ca78ad67ede8a437d550eea2b64f09a72"
+    },
+    {
+      "fixture": "test_0013",
+      "n_pixels": 12192768,
+      "baseline_full_bias": [
+        -0.028364369235532497,
+        -0.042231157984226456,
+        -0.04571240372468802
+      ],
+      "candidate_sha256": "e3edf098dda1e9bda51723094795d4bc4d935c26ca73894dc45cb5408d487a97",
+      "reference_sha256": "4230cabc62c44afa65783caf860e0ec97066a3ff313ebf5cf34fd7a63923eb48"
+    },
+    {
+      "fixture": "test_0014",
+      "n_pixels": 45441024,
+      "baseline_full_bias": [
+        0.18895474194808123,
+        0.1739657563173709,
+        0.17605744371143267
+      ],
+      "candidate_sha256": "a32e3f1bed9688fa56eb4aa284102badbdd27e7827c536228d2cea0c7f0c0c67",
+      "reference_sha256": "5e5284b1f1bde08d4c61aaa6eccf475fbac2688806bf873bff1fb1c0013dc5f9"
+    },
+    {
+      "fixture": "test_0015",
+      "n_pixels": 12419584,
+      "baseline_full_bias": [
+        -0.11668228339637544,
+        -0.12971755716132968,
+        -0.11113378580582188
+      ],
+      "candidate_sha256": "c22f1273715eadb732776fbaf5fcb053bdb31694a41efbf0d4e64c98f5373ce4",
+      "reference_sha256": "6722294d60786bd99cefd7e415a725101bff7a481a0aa03e81ed62c6076d5e8b"
+    },
+    {
+      "fixture": "test_0017",
+      "n_pixels": 23808384,
+      "baseline_full_bias": [
+        -0.03354145667074356,
+        -0.006852387865139427,
+        0.02332483493197151
+      ],
+      "candidate_sha256": "3eaace3d7bd7e602c7b72763119b0bbc0647174bab45af766b5885b1dd97ce0c",
+      "reference_sha256": "984efbf3ccd50042d34a46012fb6c2af43787cae4151e0f06baca107934f39f0"
+    },
+    {
+      "fixture": "test_0018",
+      "n_pixels": 474880,
+      "baseline_full_bias": [
+        -0.15189266620363728,
+        -0.15669538020639556,
+        -0.1562376094789676
+      ],
+      "candidate_sha256": "deedcf76aff63cb2dd2ff25b16e7b4cb9a3373a0ae9fa1e282d460331e8ecef5",
+      "reference_sha256": "7f9247dcee30dab15f94610dc92965b530803ce8cefb216e335a63982d4f0e16"
+    },
+    {
+      "fixture": "test_0019",
+      "n_pixels": 474880,
+      "baseline_full_bias": [
+        -0.17233843440194666,
+        -0.1713913301356147,
+        -0.17518194000661244
+      ],
+      "candidate_sha256": "f1fadbff44a22c29dbee17143d4a7a163d477b4b78b8bd3c74e2b8ebb22c9ee3",
+      "reference_sha256": "6904a7a65e1d4120aefd9b923e7398bebda4e2315e4baa762a63a8704e7b3286"
+    },
+    {
+      "fixture": "test_0020",
+      "n_pixels": 9633792,
+      "baseline_full_bias": [
+        -0.16537244384334598,
+        -0.14821523005665113,
+        -0.13681430592857907
+      ],
+      "candidate_sha256": "e9220d55f8aefd8bb06614e7fab3f3b694590d5e23c2bac3b7518b4230d9e658",
+      "reference_sha256": "ab58635389d70fce9201e1e935247bee68854401ea767dc7514e7658d8aa15d1"
+    }
+  ],
+  "failures": [
+    {
+      "case": "test_0000/nr_color_max",
+      "baseline_full_bias": [
+        0.012614363890438468,
+        0.014604665448836466,
+        0.01676583766797472
+      ],
+      "case_full_bias": [
+        0.012422089264482286,
+        0.014528409574744772,
+        0.016648996277496515
+      ],
+      "edit_excess_bias": [
+        -0.00019227462595618194,
+        -7.625587409169389e-05,
+        -0.0001168413904782048
+      ],
+      "case_bias_ceiling": 0.0257,
+      "bias_breached_channels": [],
+      "baseline_alone_exceeds_same_limit_in_channels": [],
+      "all_bias_breaches_already_exceeded_by_baseline": false,
+      "all_gate_breaches_are_bias": false,
+      "breaches": [
+        "max 46.95>42.90"
+      ]
+    },
+    {
+      "case": "test_0000/nr_luminance_max",
+      "baseline_full_bias": [
+        0.012614363890438468,
+        0.014604665448836466,
+        0.01676583766797472
+      ],
+      "case_full_bias": [
+        0.013180784242298035,
+        0.015184660303460587,
+        0.01736540732911825
+      ],
+      "edit_excess_bias": [
+        0.0005664203518595673,
+        0.0005799948546241218,
+        0.00059956966114353
+      ],
+      "case_bias_ceiling": 0.0268,
+      "bias_breached_channels": [],
+      "baseline_alone_exceeds_same_limit_in_channels": [],
+      "all_bias_breaches_already_exceeded_by_baseline": false,
+      "all_gate_breaches_are_bias": false,
+      "breaches": [
+        "max 53.99>50.90"
+      ]
+    },
+    {
+      "case": "test_0000/sharpen_detail_max",
+      "baseline_full_bias": [
+        0.012614363890438468,
+        0.014604665448836466,
+        0.01676583766797472
+      ],
+      "case_full_bias": [
+        0.012615197015537141,
+        0.014608292045766266,
+        0.01677593663623317
+      ],
+      "edit_excess_bias": [
+        8.331250986731709e-07,
+        3.6265969298003575e-06,
+        1.0098968258449165e-05
+      ],
+      "case_bias_ceiling": 0.0258,
+      "bias_breached_channels": [],
+      "baseline_alone_exceeds_same_limit_in_channels": [],
+      "all_bias_breaches_already_exceeded_by_baseline": false,
+      "all_gate_breaches_are_bias": false,
+      "breaches": [
+        "max 54.71>52.20"
+      ]
+    },
+    {
+      "case": "test_0000/sharpen_detail_min",
+      "baseline_full_bias": [
+        0.012614363890438468,
+        0.014604665448836466,
+        0.01676583766797472
+      ],
+      "case_full_bias": [
+        0.012579152799167442,
+        0.014560416189928094,
+        0.016712047880764896
+      ],
+      "edit_excess_bias": [
+        -3.521109127102573e-05,
+        -4.424925890837185e-05,
+        -5.3789787209823636e-05
+      ],
+      "case_bias_ceiling": 0.0259,
+      "bias_breached_channels": [],
+      "baseline_alone_exceeds_same_limit_in_channels": [],
+      "all_bias_breaches_already_exceeded_by_baseline": false,
+      "all_gate_breaches_are_bias": false,
+      "breaches": [
+        "max 54.13>52.30"
+      ]
+    },
+    {
+      "case": "test_0000/sharpen_masking_max",
+      "baseline_full_bias": [
+        0.012614363890438468,
+        0.014604665448836466,
+        0.01676583766797472
+      ],
+      "case_full_bias": [
+        0.012965318235427825,
+        0.014985873833882649,
+        0.01713276854242522
+      ],
+      "edit_excess_bias": [
+        0.00035095434498935707,
+        0.0003812083850461834,
+        0.00036693087445049954
+      ],
+      "case_bias_ceiling": 0.0265,
+      "bias_breached_channels": [],
+      "baseline_alone_exceeds_same_limit_in_channels": [],
+      "all_bias_breaches_already_exceeded_by_baseline": false,
+      "all_gate_breaches_are_bias": false,
+      "breaches": [
+        "max 54.39>52.50"
+      ]
+    },
+    {
+      "case": "test_0000/sharpen_radius_max",
+      "baseline_full_bias": [
+        0.012614363890438468,
+        0.014604665448836466,
+        0.01676583766797472
+      ],
+      "case_full_bias": [
+        0.009827936015202677,
+        0.011799412274313007,
+        0.013835506013816196
+      ],
+      "edit_excess_bias": [
+        -0.002786427875235791,
+        -0.002805253174523459,
+        -0.002930331654158524
+      ],
+      "case_bias_ceiling": 0.0215,
+      "bias_breached_channels": [],
+      "baseline_alone_exceeds_same_limit_in_channels": [],
+      "all_bias_breaches_already_exceeded_by_baseline": false,
+      "all_gate_breaches_are_bias": false,
+      "breaches": [
+        "max 54.84>53.40"
+      ]
+    },
+    {
+      "case": "test_0005/nr_color_max",
+      "baseline_full_bias": [
+        0.1148923775557713,
+        0.09541927025629192,
+        0.08628729816321237
+      ],
+      "case_full_bias": [
+        0.11490182846084959,
+        0.09541730314785767,
+        0.08624158568336926
+      ],
+      "edit_excess_bias": [
+        9.450905078298155e-06,
+        -1.967108434253184e-06,
+        -4.5712479843112996e-05
+      ],
+      "case_bias_ceiling": 0.1031,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1149>0.1031"
+      ]
+    },
+    {
+      "case": "test_0005/nr_color_min",
+      "baseline_full_bias": [
+        0.1148923775557713,
+        0.09541927025629192,
+        0.08628729816321237
+      ],
+      "case_full_bias": [
+        0.11560697680374923,
+        0.09523872836070499,
+        0.08661381109331617
+      ],
+      "edit_excess_bias": [
+        0.0007145992479779401,
+        -0.00018054189558693035,
+        0.00032651293010380056
+      ],
+      "case_bias_ceiling": 0.1033,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1156>0.1033"
+      ]
+    },
+    {
+      "case": "test_0005/nr_luminance_max",
+      "baseline_full_bias": [
+        0.1148923775557713,
+        0.09541927025629192,
+        0.08628729816321237
+      ],
+      "case_full_bias": [
+        0.11512001545739035,
+        0.09564528759595976,
+        0.08650091710330245
+      ],
+      "edit_excess_bias": [
+        0.00022763790161905995,
+        0.00022601733966784443,
+        0.00021361894009007398
+      ],
+      "case_bias_ceiling": 0.1026,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1151>0.1026"
+      ]
+    },
+    {
+      "case": "test_0005/sharpen_amount_max",
+      "baseline_full_bias": [
+        0.1148923775557713,
+        0.09541927025629192,
+        0.08628729816321237
+      ],
+      "case_full_bias": [
+        0.10858396437275528,
+        0.08825817813078352,
+        0.07874832191180763
+      ],
+      "edit_excess_bias": [
+        -0.006308413183016018,
+        -0.007161092125508403,
+        -0.007538976251404747
+      ],
+      "case_bias_ceiling": 0.1043,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1086>0.1043"
+      ]
+    },
+    {
+      "case": "test_0005/sharpen_amount_min",
+      "baseline_full_bias": [
+        0.1148923775557713,
+        0.09541927025629192,
+        0.08628729816321237
+      ],
+      "case_full_bias": [
+        0.11579907766318198,
+        0.09633322399820105,
+        0.08713960770179843
+      ],
+      "edit_excess_bias": [
+        0.0009067001074106878,
+        0.0009139537419091265,
+        0.0008523095385860602
+      ],
+      "case_bias_ceiling": 0.1029,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1158>0.1029"
+      ]
+    },
+    {
+      "case": "test_0005/sharpen_detail_max",
+      "baseline_full_bias": [
+        0.1148923775557713,
+        0.09541927025629192,
+        0.08628729816321237
+      ],
+      "case_full_bias": [
+        0.11434099207228102,
+        0.09487374787482002,
+        0.08584388935098707
+      ],
+      "edit_excess_bias": [
+        -0.000551385483490277,
+        -0.0005455223814719024,
+        -0.00044340881222530715
+      ],
+      "case_bias_ceiling": 0.1034,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1143>0.1034"
+      ]
+    },
+    {
+      "case": "test_0005/sharpen_detail_min",
+      "baseline_full_bias": [
+        0.1148923775557713,
+        0.09541927025629192,
+        0.08628729816321237
+      ],
+      "case_full_bias": [
+        0.11513480955409182,
+        0.0956648358595617,
+        0.08650756315284334
+      ],
+      "edit_excess_bias": [
+        0.00024243199832052476,
+        0.0002455656032697845,
+        0.00022026498963097219
+      ],
+      "case_bias_ceiling": 0.1029,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1151>0.1029"
+      ]
+    },
+    {
+      "case": "test_0005/sharpen_masking_max",
+      "baseline_full_bias": [
+        0.1148923775557713,
+        0.09541927025629192,
+        0.08628729816321237
+      ],
+      "case_full_bias": [
+        0.11550824696381294,
+        0.096041427197863,
+        0.08685243029984498
+      ],
+      "edit_excess_bias": [
+        0.0006158694080416471,
+        0.0006221569415710837,
+        0.000565132136632604
+      ],
+      "case_bias_ceiling": 0.1028,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1155>0.1028"
+      ]
+    },
+    {
+      "case": "test_0005/sharpen_radius_max",
+      "baseline_full_bias": [
+        0.1148923775557713,
+        0.09541927025629192,
+        0.08628729816321237
+      ],
+      "case_full_bias": [
+        0.11301920659521805,
+        0.09355667390541375,
+        0.08451871032669069
+      ],
+      "edit_excess_bias": [
+        -0.0018731709605532415,
+        -0.0018625963508781679,
+        -0.0017685878365216873
+      ],
+      "case_bias_ceiling": 0.1024,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1130>0.1024"
+      ]
+    },
+    {
+      "case": "test_0005/sharpen_radius_min",
+      "baseline_full_bias": [
+        0.1148923775557713,
+        0.09541927025629192,
+        0.08628729816321237
+      ],
+      "case_full_bias": [
+        0.1155417269413893,
+        0.09606891112752287,
+        0.08688388576844143
+      ],
+      "edit_excess_bias": [
+        0.0006493493856180033,
+        0.0006496408712309554,
+        0.000596587605229057
+      ],
+      "case_bias_ceiling": 0.1032,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1155>0.1032"
+      ]
+    },
+    {
+      "case": "test_0011/nr_color_max",
+      "baseline_full_bias": [
+        0.040299047106145736,
+        0.03392159401250655,
+        0.031440481982462784
+      ],
+      "case_full_bias": [
+        0.040271283556128634,
+        0.033947292165230125,
+        0.031423462586600476
+      ],
+      "edit_excess_bias": [
+        -2.77635500171014e-05,
+        2.5698152723574452e-05,
+        -1.7019395862308273e-05
+      ],
+      "case_bias_ceiling": 0.0116,
+      "bias_breached_channels": [
+        0,
+        1,
+        2
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0,
+        1,
+        2
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.0403>0.0116",
+        "bias_G +0.0339>0.0116",
+        "bias_B +0.0314>0.0116"
+      ]
+    },
+    {
+      "case": "test_0011/nr_color_min",
+      "baseline_full_bias": [
+        0.040299047106145736,
+        0.03392159401250655,
+        0.031440481982462784
+      ],
+      "case_full_bias": [
+        0.04019100220324713,
+        0.03360068178425677,
+        0.03173988390250248
+      ],
+      "edit_excess_bias": [
+        -0.00010804490289860469,
+        -0.0003209122282497798,
+        0.00029940192003969496
+      ],
+      "case_bias_ceiling": 0.0115,
+      "bias_breached_channels": [
+        0,
+        1,
+        2
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0,
+        1,
+        2
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.0402>0.0115",
+        "bias_G +0.0336>0.0115",
+        "bias_B +0.0317>0.0115"
+      ]
+    },
+    {
+      "case": "test_0011/nr_luminance_max",
+      "baseline_full_bias": [
+        0.040299047106145736,
+        0.03392159401250655,
+        0.031440481982462784
+      ],
+      "case_full_bias": [
+        0.040136296464428116,
+        0.03375787946326617,
+        0.03127887184161785
+      ],
+      "edit_excess_bias": [
+        -0.00016275064171761972,
+        -0.0001637145492403777,
+        -0.00016161014084493247
+      ],
+      "case_bias_ceiling": 0.0114,
+      "bias_breached_channels": [
+        0,
+        1,
+        2
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0,
+        1,
+        2
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.0401>0.0114",
+        "bias_G +0.0338>0.0114",
+        "bias_B +0.0313>0.0114"
+      ]
+    },
+    {
+      "case": "test_0011/sharpen_amount_max",
+      "baseline_full_bias": [
+        0.040299047106145736,
+        0.03392159401250655,
+        0.031440481982462784
+      ],
+      "case_full_bias": [
+        0.038947320713894736,
+        0.03247341679261781,
+        0.030163508085297587
+      ],
+      "edit_excess_bias": [
+        -0.001351726392251,
+        -0.001448177219888741,
+        -0.001276973897165197
+      ],
+      "case_bias_ceiling": 0.0108,
+      "bias_breached_channels": [
+        0,
+        1,
+        2
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0,
+        1,
+        2
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.0389>0.0108",
+        "bias_G +0.0325>0.0108",
+        "bias_B +0.0302>0.0108"
+      ]
+    },
+    {
+      "case": "test_0011/sharpen_amount_min",
+      "baseline_full_bias": [
+        0.040299047106145736,
+        0.03392159401250655,
+        0.031440481982462784
+      ],
+      "case_full_bias": [
+        0.04039482200727594,
+        0.03404741380173517,
+        0.031537430145357516
+      ],
+      "edit_excess_bias": [
+        9.577490113020504e-05,
+        0.0001258197892286192,
+        9.69481628947319e-05
+      ],
+      "case_bias_ceiling": 0.0117,
+      "bias_breached_channels": [
+        0,
+        1,
+        2
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0,
+        1,
+        2
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.0404>0.0117",
+        "bias_G +0.0340>0.0117",
+        "bias_B +0.0315>0.0117"
+      ]
+    },
+    {
+      "case": "test_0011/sharpen_detail_max",
+      "baseline_full_bias": [
+        0.040299047106145736,
+        0.03392159401250655,
+        0.031440481982462784
+      ],
+      "case_full_bias": [
+        0.04024854246515059,
+        0.03386720560158584,
+        0.03139274874772402
+      ],
+      "edit_excess_bias": [
+        -5.050464099514568e-05,
+        -5.438841092070962e-05,
+        -4.773323473876434e-05
+      ],
+      "case_bias_ceiling": 0.0115,
+      "bias_breached_channels": [
+        0,
+        1,
+        2
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0,
+        1,
+        2
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.0402>0.0115",
+        "bias_G +0.0339>0.0115",
+        "bias_B +0.0314>0.0115"
+      ]
+    },
+    {
+      "case": "test_0011/sharpen_detail_min",
+      "baseline_full_bias": [
+        0.040299047106145736,
+        0.03392159401250655,
+        0.031440481982462784
+      ],
+      "case_full_bias": [
+        0.0403267721673364,
+        0.033952099328539716,
+        0.03146594966257222
+      ],
+      "edit_excess_bias": [
+        2.7725061190662925e-05,
+        3.050531603316503e-05,
+        2.5467680109435287e-05
+      ],
+      "case_bias_ceiling": 0.0116,
+      "bias_breached_channels": [
+        0,
+        1,
+        2
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0,
+        1,
+        2
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.0403>0.0116",
+        "bias_G +0.0340>0.0116",
+        "bias_B +0.0315>0.0116"
+      ]
+    },
+    {
+      "case": "test_0011/sharpen_masking_max",
+      "baseline_full_bias": [
+        0.040299047106145736,
+        0.03392159401250655,
+        0.031440481982462784
+      ],
+      "case_full_bias": [
+        0.04038545033422182,
+        0.034029822752226976,
+        0.03152600766610754
+      ],
+      "edit_excess_bias": [
+        8.640322807608458e-05,
+        0.00010822873972042568,
+        8.552568364475488e-05
+      ],
+      "case_bias_ceiling": 0.0117,
+      "bias_breached_channels": [
+        0,
+        1,
+        2
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0,
+        1,
+        2
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.0404>0.0117",
+        "bias_G +0.0340>0.0117",
+        "bias_B +0.0315>0.0117"
+      ]
+    },
+    {
+      "case": "test_0011/sharpen_radius_max",
+      "baseline_full_bias": [
+        0.040299047106145736,
+        0.03392159401250655,
+        0.031440481982462784
+      ],
+      "case_full_bias": [
+        0.039980348802371286,
+        0.03360465261666851,
+        0.031146566069245176
+      ],
+      "edit_excess_bias": [
+        -0.00031869830377444924,
+        -0.00031694139583804404,
+        -0.00029391591321760793
+      ],
+      "case_bias_ceiling": 0.0112,
+      "bias_breached_channels": [
+        0,
+        1,
+        2
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0,
+        1,
+        2
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.0400>0.0112",
+        "bias_G +0.0336>0.0112",
+        "bias_B +0.0311>0.0112"
+      ]
+    },
+    {
+      "case": "test_0011/sharpen_radius_min",
+      "baseline_full_bias": [
+        0.040299047106145736,
+        0.03392159401250655,
+        0.031440481982462784
+      ],
+      "case_full_bias": [
+        0.04036214625192596,
+        0.03400056201285251,
+        0.031504531344185176
+      ],
+      "edit_excess_bias": [
+        6.309914578022519e-05,
+        7.896800034595808e-05,
+        6.404936172239167e-05
+      ],
+      "case_bias_ceiling": 0.0116,
+      "bias_breached_channels": [
+        0,
+        1,
+        2
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0,
+        1,
+        2
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.0404>0.0116",
+        "bias_G +0.0340>0.0116",
+        "bias_B +0.0315>0.0116"
+      ]
+    },
+    {
+      "case": "test_0012/nr_color_max",
+      "baseline_full_bias": [
+        0.14335260144594644,
+        0.06845523740945642,
+        0.03363493884981894
+      ],
+      "case_full_bias": [
+        0.14336553288256668,
+        0.06848429464340558,
+        0.03356683718515438
+      ],
+      "edit_excess_bias": [
+        1.2931436620233772e-05,
+        2.9057233949164596e-05,
+        -6.810166466456047e-05
+      ],
+      "case_bias_ceiling": 0.1221,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1434>0.1221"
+      ]
+    },
+    {
+      "case": "test_0012/nr_color_min",
+      "baseline_full_bias": [
+        0.14335260144594644,
+        0.06845523740945642,
+        0.03363493884981894
+      ],
+      "case_full_bias": [
+        0.1428315896673072,
+        0.06845456322275141,
+        0.033694086719633254
+      ],
+      "edit_excess_bias": [
+        -0.0005210117786392521,
+        -6.741867050047423e-07,
+        5.91478698143133e-05
+      ],
+      "case_bias_ceiling": 0.1222,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1428>0.1222"
+      ]
+    },
+    {
+      "case": "test_0012/nr_luminance_max",
+      "baseline_full_bias": [
+        0.14335260144594644,
+        0.06845523740945642,
+        0.03363493884981894
+      ],
+      "case_full_bias": [
+        0.14358438361617173,
+        0.06865757161064726,
+        0.03380532792575117
+      ],
+      "edit_excess_bias": [
+        0.00023178217022529202,
+        0.00020233420119084022,
+        0.00017038907593223268
+      ],
+      "case_bias_ceiling": 0.1173,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1436>0.1173"
+      ]
+    },
+    {
+      "case": "test_0012/sharpen_amount_max",
+      "baseline_full_bias": [
+        0.14335260144594644,
+        0.06845523740945642,
+        0.03363493884981894
+      ],
+      "case_full_bias": [
+        0.13563508342816613,
+        0.05984617284714168,
+        0.02418008599546097
+      ],
+      "edit_excess_bias": [
+        -0.0077175180177803115,
+        -0.008609064562314736,
+        -0.00945485285435797
+      ],
+      "case_bias_ceiling": 0.1334,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1356>0.1334"
+      ]
+    },
+    {
+      "case": "test_0012/sharpen_amount_min",
+      "baseline_full_bias": [
+        0.14335260144594644,
+        0.06845523740945642,
+        0.03363493884981894
+      ],
+      "case_full_bias": [
+        0.14496179170310247,
+        0.0700470341730306,
+        0.035234345549635546
+      ],
+      "edit_excess_bias": [
+        0.001609190257156029,
+        0.0015917967635741825,
+        0.001599406699816605
+      ],
+      "case_bias_ceiling": 0.1181,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1450>0.1181"
+      ]
+    },
+    {
+      "case": "test_0012/sharpen_detail_max",
+      "baseline_full_bias": [
+        0.14335260144594644,
+        0.06845523740945642,
+        0.03363493884981894
+      ],
+      "case_full_bias": [
+        0.1425041870492506,
+        0.06761937332088445,
+        0.032809946537653054
+      ],
+      "edit_excess_bias": [
+        -0.0008484143966958346,
+        -0.0008358640885719609,
+        -0.000824992312165887
+      ],
+      "case_bias_ceiling": 0.1253,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1425>0.1253"
+      ]
+    },
+    {
+      "case": "test_0012/sharpen_detail_min",
+      "baseline_full_bias": [
+        0.14335260144594644,
+        0.06845523740945642,
+        0.03363493884981894
+      ],
+      "case_full_bias": [
+        0.14383523760679628,
+        0.06891442512140912,
+        0.03407888377290627
+      ],
+      "edit_excess_bias": [
+        0.00048263616084984196,
+        0.0004591877119527049,
+        0.00044394492308733047
+      ],
+      "case_bias_ceiling": 0.1196,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1438>0.1196"
+      ]
+    },
+    {
+      "case": "test_0012/sharpen_masking_max",
+      "baseline_full_bias": [
+        0.14335260144594644,
+        0.06845523740945642,
+        0.03363493884981894
+      ],
+      "case_full_bias": [
+        0.14433402885320484,
+        0.06941668813583639,
+        0.03458378595113388
+      ],
+      "edit_excess_bias": [
+        0.0009814274072584006,
+        0.0009614507263799726,
+        0.0009488471013149383
+      ],
+      "case_bias_ceiling": 0.1178,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1443>0.1178"
+      ]
+    },
+    {
+      "case": "test_0012/sharpen_radius_max",
+      "baseline_full_bias": [
+        0.14335260144594644,
+        0.06845523740945642,
+        0.03363493884981894
+      ],
+      "case_full_bias": [
+        0.1411017807171318,
+        0.06613336082958521,
+        0.031183306173979707
+      ],
+      "edit_excess_bias": [
+        -0.0022508207288146342,
+        -0.002321876579871207,
+        -0.002451632675839234
+      ],
+      "case_bias_ceiling": 0.1207,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1411>0.1207"
+      ]
+    },
+    {
+      "case": "test_0012/sharpen_radius_min",
+      "baseline_full_bias": [
+        0.14335260144594644,
+        0.06845523740945642,
+        0.03363493884981894
+      ],
+      "case_full_bias": [
+        0.14443096553275328,
+        0.06955092666278917,
+        0.034756288045013316
+      ],
+      "edit_excess_bias": [
+        0.0010783640868068378,
+        0.0010956892533327545,
+        0.0011213491951943752
+      ],
+      "case_bias_ceiling": 0.1205,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1444>0.1205"
+      ]
+    },
+    {
+      "case": "test_0014/nr_color_max",
+      "baseline_full_bias": [
+        0.18895474194808123,
+        0.1739657563173709,
+        0.17605744371143267
+      ],
+      "case_full_bias": [
+        0.18886239710447292,
+        0.17398304949342044,
+        0.1759648422811348
+      ],
+      "edit_excess_bias": [
+        -9.23448436083163e-05,
+        1.7293176049537617e-05,
+        -9.260143029787837e-05
+      ],
+      "case_bias_ceiling": 0.1886,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1889>0.1886"
+      ]
+    },
+    {
+      "case": "test_0014/nr_color_min",
+      "baseline_full_bias": [
+        0.18895474194808123,
+        0.1739657563173709,
+        0.17605744371143267
+      ],
+      "case_full_bias": [
+        0.1889305175618772,
+        0.17421454638448614,
+        0.17632882239415423
+      ],
+      "edit_excess_bias": [
+        -2.4224386204030335e-05,
+        0.0002487900671152288,
+        0.0002713786827215625
+      ],
+      "case_bias_ceiling": 0.188,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1889>0.1880"
+      ]
+    },
+    {
+      "case": "test_0014/nr_luminance_max",
+      "baseline_full_bias": [
+        0.18895474194808123,
+        0.1739657563173709,
+        0.17605744371143267
+      ],
+      "case_full_bias": [
+        0.18999592161412265,
+        0.1750789252114015,
+        0.1769447540415227
+      ],
+      "edit_excess_bias": [
+        0.0010411796660414196,
+        0.0011131688940305973,
+        0.0008873103300900409
+      ],
+      "case_bias_ceiling": 0.1888,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1900>0.1888"
+      ]
+    },
+    {
+      "case": "test_0014/sharpen_amount_max",
+      "baseline_full_bias": [
+        0.18895474194808123,
+        0.1739657563173709,
+        0.17605744371143267
+      ],
+      "case_full_bias": [
+        0.17733041259494245,
+        0.16167013038482758,
+        0.1678395230452218
+      ],
+      "edit_excess_bias": [
+        -0.011624329353138785,
+        -0.012295625932543325,
+        -0.008217920666210882
+      ],
+      "case_bias_ceiling": 0.1616,
+      "bias_breached_channels": [
+        0,
+        1,
+        2
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0,
+        1,
+        2
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1773>0.1616",
+        "bias_G +0.1617>0.1616",
+        "bias_B +0.1678>0.1616"
+      ]
+    },
+    {
+      "case": "test_0014/sharpen_detail_max",
+      "baseline_full_bias": [
+        0.18895474194808123,
+        0.1739657563173709,
+        0.17605744371143267
+      ],
+      "case_full_bias": [
+        0.18827666280787717,
+        0.17327038081485438,
+        0.17557878002176702
+      ],
+      "edit_excess_bias": [
+        -0.0006780791402040687,
+        -0.0006953755025165265,
+        -0.0004786636896656482
+      ],
+      "case_bias_ceiling": 0.1872,
+      "bias_breached_channels": [
+        0
+      ],
+      "baseline_alone_exceeds_same_limit_in_channels": [
+        0
+      ],
+      "all_bias_breaches_already_exceeded_by_baseline": true,
+      "all_gate_breaches_are_bias": true,
+      "breaches": [
+        "bias_R +0.1883>0.1872"
+      ]
+    }
+  ],
+  "entirely_bias_only_and_baseline_already_exceeds": 35
+}

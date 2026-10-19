@@ -555,3 +555,6 @@ fn nlm_composes_as_one_pass_in_a_chain() {
         "luma-then-color NR produced non-finite output"
     );
 }
+
+#[path = "tests_tail.rs"]
+mod tail;

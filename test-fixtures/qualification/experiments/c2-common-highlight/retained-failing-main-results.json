@@ -1,0 +1,210 @@
+{
+  "scope": "Matched main controls for only the five failing retained C2 cases; not a complete regression sweep.",
+  "original_inputs_verified": 12,
+  "main_commit": "cf62d12ddc573cff68780e7754f7b5b63f7ae621",
+  "main_binary_sha256": "8b877e07552a5cfd2f41d8884adb7c3fbd045c0462b4169808353862ce724ae6",
+  "changes": [
+    {
+      "case": "test_0000/contrast_min",
+      "main": {
+        "fixture": "test_0000",
+        "case": "contrast_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 40.49>39.00"
+        ],
+        "mean": 6.097048856210751,
+        "p95": 10.6581817501555,
+        "max": 40.489449054012255,
+        "bR": 0.000774785891784017,
+        "bG": 0.004521456531521714,
+        "bB": 0.0060352115772684106,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0000",
+        "case": "contrast_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 40.62>39.00"
+        ],
+        "mean": 6.0983643190325125,
+        "p95": 10.658227165352907,
+        "max": 40.62088039654381,
+        "bR": 0.0007514630732241597,
+        "bG": 0.004510911526752096,
+        "bB": 0.006037254336499234,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "case": "test_0007/clarity_max",
+      "main": {
+        "fixture": "test_0007",
+        "case": "clarity_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 42.25>42.10"
+        ],
+        "mean": 8.333995633265664,
+        "p95": 17.204156615237142,
+        "max": 42.248989120652645,
+        "bR": 0.06920741233299434,
+        "bG": 0.06192647014644236,
+        "bB": 0.056377764863337634,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0007",
+        "case": "clarity_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 43.09>42.10"
+        ],
+        "mean": 8.334041103234219,
+        "p95": 17.20421646641959,
+        "max": 43.09433546568027,
+        "bR": 0.0692075667254424,
+        "bG": 0.06192599336783072,
+        "bB": 0.056377032969580854,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "case": "test_0007/texture_max",
+      "main": {
+        "fixture": "test_0007",
+        "case": "texture_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 4.936245358889053,
+        "p95": 8.634786212006048,
+        "max": 42.827349428170635,
+        "bR": 0.01054666283650422,
+        "bG": 0.015063955575927147,
+        "bB": 0.02356044017583638,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0007",
+        "case": "texture_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 43.67>43.40"
+        ],
+        "mean": 4.936291352394324,
+        "p95": 8.634728389287853,
+        "max": 43.66641128697719,
+        "bR": 0.010546817964157252,
+        "bG": 0.015063458579249447,
+        "bB": 0.023559714898894968,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "case": "test_0007/tint_max",
+      "main": {
+        "fixture": "test_0007",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 50.05>19.70",
+          "p95 60.66>28.30",
+          "max 77.36>51.10",
+          "bias_G -0.1701>0.1079",
+          "bias_B +0.5559>0.1079"
+        ],
+        "mean": 50.04707717603685,
+        "p95": 60.66320798194458,
+        "max": 77.35943697051383,
+        "bR": -0.10403222159637388,
+        "bG": -0.17010864108001855,
+        "bB": 0.5558688096662764,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0007",
+        "case": "tint_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 50.05>19.70",
+          "p95 60.66>28.30",
+          "max 77.33>51.10",
+          "bias_G -0.1701>0.1079",
+          "bias_B +0.5559>0.1079"
+        ],
+        "mean": 50.04800681202978,
+        "p95": 60.66410800896346,
+        "max": 77.33388562333113,
+        "bR": -0.10403977249038111,
+        "bG": -0.17013095593342048,
+        "bB": 0.5558676634861074,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "case": "test_0007/whites_min",
+      "main": {
+        "fixture": "test_0007",
+        "case": "whites_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 42.21>41.40"
+        ],
+        "mean": 4.411048737754766,
+        "p95": 7.768816411931591,
+        "max": 42.20815180105443,
+        "bR": -0.0014247880973874123,
+        "bG": 0.010112460104100574,
+        "bB": 0.024159952678287806,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0007",
+        "case": "whites_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 43.82>41.40"
+        ],
+        "mean": 4.411095290509637,
+        "p95": 7.768805582353997,
+        "max": 43.81842068130147,
+        "bR": -0.0014245815055738515,
+        "bG": 0.01011196421020658,
+        "bB": 0.02415923769414749,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    }
+  ],
+  "new_failed_cases": 1
+}

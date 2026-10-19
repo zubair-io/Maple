@@ -1,0 +1,10 @@
+file:              /Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/2a/2a44135ce4f3beb064b72aad3d30cbf0e9313c729fa3a28db7f6b258f41eb6df.dng
+camera_make:       ""
+camera_model:      ""
+unique_camera_model: Some("Maple Synthetic Chart")
+camera_key:        CameraKey { unique_camera_model: "Maple Synthetic Chart" }
+bundled_profile:   MISS
+baseline_exposure: 0
+as_shot_neutral:   [1.0000, 1.0000, 1.0000]
+cfa:               Rggb
+dimensions:        848 x 560

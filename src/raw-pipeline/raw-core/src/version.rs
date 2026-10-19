@@ -152,7 +152,26 @@
 ///   retaining the ratio response below diffuse white (#4635).
 /// - 28 — Robertson inverse tint measures displacement from the interpolated
 ///   locus, correcting legacy white-balance sidecar normalization (#4630).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 29;
+/// - 30 — AMaZE false-color value interpolation follows local green evidence
+///   across luminance edges instead of mixing bright and dark sensor samples (#5000).
+/// - 31 — green guidance requires consistent donor and centre surface hue;
+///   unsupported color edges retain the original sensor-value interpolation.
+/// - 32 — AMaZE variance selection reads immediately bounded predecessors in
+///   scalar raster order, matching the upstream numeric dependency (#5000).
+/// - 33 — restore sensor-value false-color interpolation after complete-suite
+///   qualification exposed five new failures from green guidance (#5000).
+/// - 34 — positive-chroma FCS blending requires a green reconstruction within
+///   its measured directional support at R/B sites (#5000).
+/// - 35 — AMaZE camera paths reconstruct in a metadata-balanced CFA domain,
+///   restoring measured samples exactly, and local highlight donors use the
+///   same surviving-hue match as the regional tier (#5000).
+/// - 36 — unsupported-green FCS keeps positive estimates within the measured
+///   target envelope while restoring chroma below every nearest sensor sample
+///   (#5000). This retains thin features without the broad increase exception.
+/// - 37 — NLM retains Gaussian weights beyond the fast-lookup range, so
+///   normalization no longer switches isolated chroma components to identity
+///   when their finite matches all exceed the old cutoff (#5000).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 37;
 
 #[cfg(test)]
 mod tests {

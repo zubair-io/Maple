@@ -240,8 +240,8 @@ fn fast_neg_exp_weight_never_exceeds_one_for_any_input() {
     // Positive sweep across the LUT range and past FAST_EXP_RANGE = 8:
     // bounded to [0, 1], non-increasing, and — inside the table range —
     // within the LUT's linear-interpolation budget (~3e-5 per segment) of
-    // hardware exp. Past the range the function documents truncation to 0
-    // (drops the ≤ ~3.4e-4 tail).
+    // hardware exp. Outside the table range retain the hardware-exp tail;
+    // small weights remain relevant after normalization.
     let mut prev = 1.0f32;
     for i in 0..=4096 {
         let x = i as f32 * (10.0 / 4096.0);
@@ -257,7 +257,11 @@ fn fast_neg_exp_weight_never_exceeds_one_for_any_input() {
                 "weight {w} deviates from exp(-x) at x={x} beyond the LUT budget",
             );
         } else {
-            assert_eq!(w, 0.0, "x={x} ≥ FAST_EXP_RANGE must truncate to 0");
+            assert_eq!(
+                w.to_bits(),
+                (-x).exp().to_bits(),
+                "x={x}: positive Gaussian tails must survive normalization"
+            );
         }
         prev = w;
     }

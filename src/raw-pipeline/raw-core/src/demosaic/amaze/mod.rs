@@ -23,7 +23,8 @@
 //!   * Stage 2    — variance-based selection of vcd/vcdalt, hcd/hcdalt
 //!                  (601–609).
 //!   * Stage 3    — median-bound colour differences on saturated edges
-//!                  (619–682).
+//!                  (619–682), in the same per-site traversal as stage 2:
+//!                  later variance tests read earlier bounded differences.
 //!   * Stage 4    — adaptive H/V direction weight per R/B site (741–784).
 //!   * Stage 5    — full AMaZE chroma reconstruction (802–1559): Nyquist
 //!                  texture mask + dilation, 13×13 area interpolation of
@@ -56,6 +57,8 @@ mod scratch;
 mod tests;
 #[cfg(test)]
 mod tests_fcs_luminance_edge;
+#[cfg(test)]
+mod tests_white_balance;
 
 use crate::image::{CfaPattern, ColorSpace, Image};
 use rayon::prelude::*;
@@ -68,6 +71,17 @@ use scratch::{Scratch, Tile, BAND, TS};
 /// `sensor_linearize` (single channel populated per pixel, normalised to
 /// `[0, 1]`). Output is `CameraNativeLinearRgb`.
 pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
+    amaze_with_gains(mosaic, cfa, [1.0; 3])
+}
+
+/// Reconstruct in a metadata-balanced CFA domain, then return native sensor RGB.
+/// Scales must be finite positive values at most one. Measured CFA samples are
+/// restored exactly after reversing the reconstruction preconditioner.
+pub fn amaze_with_gains(mosaic: &Image, cfa: CfaPattern, scales: [f32; 3]) -> Image {
+    assert!(scales
+        .iter()
+        .all(|v| v.is_finite() && *v > 0.0 && *v <= 1.0));
+    let clip_point = scales.into_iter().fold(1.0_f32, f32::min);
     mosaic.assert_space(ColorSpace::CameraNativeMosaic);
     let w = mosaic.width as usize;
     let h = mosaic.height as usize;
@@ -80,7 +94,10 @@ pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
     }
 
     // Flatten the sparse 3-channel mosaic to a single float per CFA site.
-    let cfa_flat = flatten_mosaic(mosaic, cfa);
+    let mut cfa_flat = flatten_mosaic(mosaic, cfa);
+    for (i, value) in cfa_flat.iter_mut().enumerate() {
+        *value *= scales[cfa.color_at((i % w) as u32, (i / w) as u32) as usize];
+    }
 
     let mut out = Image::new(w as u32, h as u32, ColorSpace::CameraNativeLinearRgb);
 
@@ -108,12 +125,11 @@ pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
                 s.reset();
                 scratch::fill_tile(&mut s, &t, &cfa_flat, w, h);
                 green::compute_dirwts_delhv(&mut s, &t);
-                green::interpolate_green_diffs(&mut s, &t, cfa);
-                green::refine_by_variance(&mut s, &t);
-                green::median_bound(&mut s, &t, cfa);
+                green::interpolate_green_diffs(&mut s, &t, cfa, clip_point);
+                green::refine_and_bound(&mut s, &t, cfa, clip_point);
                 green::adaptive_hvwt(&mut s, &t, cfa);
                 nyquist::reconstruct_green(&mut s, &t, cfa);
-                diag::diagonal_refine(&mut s, &t, cfa);
+                diag::diagonal_refine(&mut s, &t, cfa, clip_point);
                 assemble::finish_tile(band, w, &mut s, &t, cfa);
                 left += BAND as isize;
             }
@@ -129,5 +145,12 @@ pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
     let green_plane: Vec<f32> = out.pixels.par_iter().map(|p| p[1]).collect();
     fcs::suppress_false_colour(&mut out, &cfa_flat, &green_plane, w, h, cfa, fcs_strength);
 
+    for (i, pixel) in out.pixels.iter_mut().enumerate() {
+        for c in 0..3 {
+            pixel[c] /= scales[c];
+        }
+        let sampled = cfa.color_at((i % w) as u32, (i / w) as u32) as usize;
+        pixel[sampled] = mosaic.pixels[i][sampled];
+    }
     out
 }

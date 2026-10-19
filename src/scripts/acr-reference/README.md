@@ -180,3 +180,42 @@ they're multi-file stitching fixtures, not single-image test subjects.
    `test_0004.fff` — the same file as the medium_format entry.
    Originally documented as a symlink but the filesystem has no symlink;
    both entries point at the single flat file. Pre-existing; not touched.
+
+## Read-only audit of historical captures
+
+Before using historical references for renderer attribution, compare the
+controls explicitly present in canonical sidecars with each PNG's effective
+Adobe metadata:
+
+```bash
+python3 src/scripts/acr-reference/audit_authored_settings.py \
+  test-fixtures/references/manifest.json --output /tmp/authored-settings-audit.json
+```
+
+This command changes no RAW, XMP or reference PNG. It reports every mismatch
+and missing/unreadable metadata entry, and exits nonzero if any are found.
+Omitted controls are not certified or assigned defaults. For a newly rendered
+batch, use `verify_settings.py` instead: that stricter verifier checks every
+explicit Adobe-side default as well as the authored overrides.
+
+## Qualifying native companions for unchanged legacy references
+
+For an existing down-only reference, capture full and down PNGs from the same
+Adobe document using a staged RAW copy and a complete explicit Adobe sidecar.
+Qualify that capture into a separate manifest:
+
+```bash
+python3 src/scripts/qualify_native_companions.py \
+  /path/to/original-manifest.json /path/to/capture-manifest.json \
+  --output /path/to/new-qualified-manifest.json \
+  --report /path/to/new-qualification-report.json
+```
+
+RAW and canonical XMP bytes must match the originals. The new down PNG must
+have exactly the original RGB pixels. Complete authored Adobe controls must
+match; new full/down metadata must match each other. The output selects the
+existing `native-pair-lanczos-v1` protocol with the newly captured pair; the
+original PNG and original manifest remain intact. Both output paths must be
+new. The entire batch validates before either output is written. Any pixel
+difference or unknown active setting fails qualification; no acceptance
+tolerance or color budget is added.

@@ -1,0 +1,458 @@
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/diag.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/diag.rs
+index 0b226021de..921f04496f 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/diag.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/diag.rs
+@@ -11,12 +11,11 @@ use crate::image::CfaPattern;
+ const EPS: f32 = 1e-5;
+ const EPS_SQ: f32 = 1e-10;
+ const ARTHRESH: f32 = 0.75;
+-const CLIP_PT: f32 = 1.0;
+ 
+ // Gaussian on the 5×5 alt quincunx, sigma = 1.5 (engine 121).
+ const GAUSSEVEN: [f32; 2] = [0.137_194_94, 0.056_402_53];
+ 
+-pub(super) fn diagonal_refine(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
++pub(super) fn diagonal_refine(s: &mut Scratch, t: &Tile, pattern: CfaPattern, clip_point: f32) {
+     let v1 = TS as isize;
+     let p1 = -(TS as isize) + 1; // NE
+     let p2 = -2 * (TS as isize) + 2;
+@@ -132,10 +131,10 @@ pub(super) fn diagonal_refine(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
+                         + (1.0 - mwt) * median3(rbm_v, s.cfa[at(i, -m1)], s.cfa[at(i, m1)]);
+                 }
+             }
+-            if rbp_v > CLIP_PT {
++            if rbp_v > clip_point {
+                 rbp_v = median3(rbp_v, s.cfa[at(i, -p1)], s.cfa[at(i, p1)]);
+             }
+-            if rbm_v > CLIP_PT {
++            if rbm_v > clip_point {
+                 rbm_v = median3(rbm_v, s.cfa[at(i, -m1)], s.cfa[at(i, m1)]);
+             }
+             s.rbm[i >> 1] = rbm_v;
+@@ -213,10 +212,10 @@ pub(super) fn diagonal_refine(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
+                     ginth = hwt * ginth + (1.0 - hwt) * median3(ginth, s.cfa[i - 1], s.cfa[i + 1]);
+                 }
+             }
+-            if ginth > CLIP_PT {
++            if ginth > clip_point {
+                 ginth = median3(ginth, s.cfa[i - 1], s.cfa[i + 1]);
+             }
+-            if gintv > CLIP_PT {
++            if gintv > clip_point {
+                 gintv = median3(gintv, s.cfa[at(i, -v1)], s.cfa[at(i, v1)]);
+             }
+             s.rgbgreen[i] = ginth * (1.0 - s.hvwt[i >> 1]) + gintv * s.hvwt[i >> 1];
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/green.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/green.rs
+index 7b75714059..12a6119484 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/green.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/green.rs
+@@ -10,11 +10,6 @@ use crate::image::CfaPattern;
+ const EPS: f32 = 1e-5;
+ const EPS_SQ: f32 = 1e-10;
+ const ARTHRESH: f32 = 0.75;
+-// 0.8 / initialGain; initialGain == 1.0 for the normalised [0, 1] data
+-// produced by `sensor_linearize`.
+-const CLIP_PT8: f32 = 0.8;
+-const CLIP_PT: f32 = 1.0;
+-
+ /// Stage 0.5: `dirwts0` (vertical roughness), `dirwts1` (horizontal), and
+ /// `delhvsqsum` (sum of squared H/V first differences — the Nyquist test's
+ /// gradient term). Engine 368–377.
+@@ -38,7 +33,12 @@ pub(super) fn compute_dirwts_delhv(s: &mut Scratch, t: &Tile) {
+ /// flipped, because stage 4's directional variances and stage 3's median
+ /// bounding read `vcd`/`hcd` at the green neighbours of each R/B site
+ /// (the #1561 port gap).
+-pub(super) fn interpolate_green_diffs(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
++pub(super) fn interpolate_green_diffs(
++    s: &mut Scratch,
++    t: &Tile,
++    pattern: CfaPattern,
++    clip_point: f32,
++) {
+     for rr in 4..t.rr1 - 4 {
+         for cc in 4..t.cc1 - 4 {
+             let i = rr * TS + cc;
+@@ -106,7 +106,10 @@ pub(super) fn interpolate_green_diffs(s: &mut Scratch, t: &Tile, pattern: CfaPat
+             let mut hcd_v = hcd_main;
+ 
+             // Highlight clip fallback (engine 517–525).
+-            if cf > CLIP_PT8 || g_int_v_ha > CLIP_PT8 || g_int_h_ha > CLIP_PT8 {
++            if cf > (0.8 * clip_point)
++                || g_int_v_ha > (0.8 * clip_point)
++                || g_int_h_ha > (0.8 * clip_point)
++            {
+                 guar = guha;
+                 gdar = gdha;
+                 glar = glha;
+@@ -134,7 +137,7 @@ pub(super) fn interpolate_green_diffs(s: &mut Scratch, t: &Tile, pattern: CfaPat
+ /// passes are not equivalent. Emit `cddiffsq = (vcd − hcd)²` at R/B sites (the Nyquist
+ /// texture term; every tap of the Nyquist gaussian lands on an R/B site, so
+ /// G cells are never read).
+-pub(super) fn refine_and_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
++pub(super) fn refine_and_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern, clip_point: f32) {
+     use super::scratch::median3;
+     let var3 =
+         |a: f32, b: f32, c: f32| -> f32 { 3.0 * (a * a + b * b + c * c) - (a + b + c).powi(2) };
+@@ -175,10 +178,10 @@ pub(super) fn refine_and_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
+                             + (1.0 - vwt) * (median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) - v);
+                     }
+                 }
+-                if g_int_h > CLIP_PT {
++                if g_int_h > clip_point {
+                     s.hcd[i] = median3(g_int_h, s.cfa[i - 1], s.cfa[i + 1]) - v;
+                 }
+-                if g_int_v > CLIP_PT {
++                if g_int_v > clip_point {
+                     s.vcd[i] = median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) - v;
+                 }
+                 s.cddiffsq[i] = (s.vcd[i] - s.hcd[i]).powi(2);
+@@ -204,10 +207,10 @@ pub(super) fn refine_and_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
+                             + (1.0 - vwt) * (-median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) + v);
+                     }
+                 }
+-                if g_int_h > CLIP_PT {
++                if g_int_h > clip_point {
+                     s.hcd[i] = -median3(g_int_h, s.cfa[i - 1], s.cfa[i + 1]) + v;
+                 }
+-                if g_int_v > CLIP_PT {
++                if g_int_v > clip_point {
+                     s.vcd[i] = -median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) + v;
+                 }
+             }
+@@ -323,7 +326,7 @@ mod ordering_tests {
+                         rr1: 16,
+                         cc1: 16,
+                     };
+-                    refine_and_bound(&mut s, &tile, pattern);
++                    refine_and_bound(&mut s, &tile, pattern, 1.0);
+                     let values = if vertical { &s.vcd } else { &s.hcd };
+                     assert_eq!(values[target - step].to_bits(), 0.0_f32.to_bits());
+                     // After the preceding site's -0.5 is bounded to 0, the main
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/mod.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/mod.rs
+index 0f298a7279..6332e893e5 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/mod.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/mod.rs
+@@ -57,6 +57,8 @@ mod scratch;
+ mod tests;
+ #[cfg(test)]
+ mod tests_fcs_luminance_edge;
++#[cfg(test)]
++mod tests_white_balance;
+ 
+ use crate::image::{CfaPattern, ColorSpace, Image};
+ use rayon::prelude::*;
+@@ -69,6 +71,17 @@ use scratch::{Scratch, Tile, BAND, TS};
+ /// `sensor_linearize` (single channel populated per pixel, normalised to
+ /// `[0, 1]`). Output is `CameraNativeLinearRgb`.
+ pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
++    amaze_with_gains(mosaic, cfa, [1.0; 3])
++}
++
++/// Reconstruct in a metadata-balanced CFA domain, then return native sensor RGB.
++/// Scales must be finite positive values at most one. Measured CFA samples are
++/// restored exactly after reversing the reconstruction preconditioner.
++pub fn amaze_with_gains(mosaic: &Image, cfa: CfaPattern, scales: [f32; 3]) -> Image {
++    assert!(scales
++        .iter()
++        .all(|v| v.is_finite() && *v > 0.0 && *v <= 1.0));
++    let clip_point = scales.into_iter().fold(1.0_f32, f32::min);
+     mosaic.assert_space(ColorSpace::CameraNativeMosaic);
+     let w = mosaic.width as usize;
+     let h = mosaic.height as usize;
+@@ -81,7 +94,10 @@ pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
+     }
+ 
+     // Flatten the sparse 3-channel mosaic to a single float per CFA site.
+-    let cfa_flat = flatten_mosaic(mosaic, cfa);
++    let mut cfa_flat = flatten_mosaic(mosaic, cfa);
++    for (i, value) in cfa_flat.iter_mut().enumerate() {
++        *value *= scales[cfa.color_at((i % w) as u32, (i / w) as u32) as usize];
++    }
+ 
+     let mut out = Image::new(w as u32, h as u32, ColorSpace::CameraNativeLinearRgb);
+ 
+@@ -109,11 +125,11 @@ pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
+                 s.reset();
+                 scratch::fill_tile(&mut s, &t, &cfa_flat, w, h);
+                 green::compute_dirwts_delhv(&mut s, &t);
+-                green::interpolate_green_diffs(&mut s, &t, cfa);
+-                green::refine_and_bound(&mut s, &t, cfa);
++                green::interpolate_green_diffs(&mut s, &t, cfa, clip_point);
++                green::refine_and_bound(&mut s, &t, cfa, clip_point);
+                 green::adaptive_hvwt(&mut s, &t, cfa);
+                 nyquist::reconstruct_green(&mut s, &t, cfa);
+-                diag::diagonal_refine(&mut s, &t, cfa);
++                diag::diagonal_refine(&mut s, &t, cfa, clip_point);
+                 assemble::finish_tile(band, w, &mut s, &t, cfa);
+                 left += BAND as isize;
+             }
+@@ -129,5 +145,12 @@ pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
+     let green_plane: Vec<f32> = out.pixels.par_iter().map(|p| p[1]).collect();
+     fcs::suppress_false_colour(&mut out, &cfa_flat, &green_plane, w, h, cfa, fcs_strength);
+ 
++    for (i, pixel) in out.pixels.iter_mut().enumerate() {
++        for c in 0..3 {
++            pixel[c] /= scales[c];
++        }
++        let sampled = cfa.color_at((i % w) as u32, (i / w) as u32) as usize;
++        pixel[sampled] = mosaic.pixels[i][sampled];
++    }
+     out
+ }
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/dual/mod.rs b/src/raw-pipeline/raw-core/src/demosaic/dual/mod.rs
+index 341490a146..505a17477f 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/dual/mod.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/dual/mod.rs
+@@ -74,6 +74,15 @@ pub fn dual_amaze_vng4(mosaic: &Image, cfa: CfaPattern) -> Image {
+     blend_vng4_into(detailed, mosaic, cfa, CancelToken::never())
+ }
+ 
++pub(crate) fn dual_amaze_vng4_with_gains(
++    mosaic: &Image,
++    cfa: CfaPattern,
++    scales: [f32; 3],
++) -> Image {
++    let detailed = super::amaze::amaze_with_gains(mosaic, cfa, scales);
++    blend_vng4_into(detailed, mosaic, cfa, CancelToken::never())
++}
++
+ /// RCD in detailed regions, VNG4 in flat ones — the faster dual, for paths
+ /// that cannot afford AMaZE.
+ #[inline]
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/mod.rs b/src/raw-pipeline/raw-core/src/demosaic/mod.rs
+index b9afff31cb..223504a0c6 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/mod.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/mod.rs
+@@ -97,6 +97,30 @@ pub fn demosaic_cancellable(
+     }
+ }
+ 
++/// Camera-aware AMaZE input conditioning. All other kernels keep their
++/// existing native-domain contract. Invalid metadata takes the original path.
++pub(crate) fn camera_demosaic_cancellable(
++    algo: DemosaicAlgorithm,
++    mosaic: &Image,
++    cfa: CfaPattern,
++    neutral: [f32; 3],
++    cancel: crate::cancel::CancelToken<'_>,
++) -> Image {
++    if !neutral.iter().all(|n| n.is_finite() && *n > 0.0) {
++        return demosaic_cancellable(algo, mosaic, cfa, cancel);
++    }
++    let minimum = neutral.into_iter().fold(f32::INFINITY, f32::min);
++    let scales = neutral.map(|n| minimum / n);
++    if scales.iter().any(|v| *v <= 0.0) {
++        return demosaic_cancellable(algo, mosaic, cfa, cancel);
++    }
++    match algo {
++        DemosaicAlgorithm::Amaze => amaze::amaze_with_gains(mosaic, cfa, scales),
++        DemosaicAlgorithm::DualAmazeVng4 => dual::dual_amaze_vng4_with_gains(mosaic, cfa, scales),
++        _ => demosaic_cancellable(algo, mosaic, cfa, cancel),
++    }
++}
++
+ /// Flatten the sparse 3-channel mosaic to a single float per CFA position.
+ ///
+ /// `sensor_linearize` populates exactly one of `[r, g, b]` per pixel — the
+diff --git a/src/raw-pipeline/raw-core/src/pipeline/develop/mod.rs b/src/raw-pipeline/raw-core/src/pipeline/develop/mod.rs
+index 7c8521a7e3..75676e70df 100644
+--- a/src/raw-pipeline/raw-core/src/pipeline/develop/mod.rs
++++ b/src/raw-pipeline/raw-core/src/pipeline/develop/mod.rs
+@@ -138,7 +138,13 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
+             // below bails before any downstream stage runs either way.
+             stage("demosaic", || {
+                 let algo = crate::pipeline::bayer_kernel(quality, model, raw);
+-                demosaic::demosaic_cancellable(algo, &mosaic, raw.cfa, cancel)
++                demosaic::camera_demosaic_cancellable(
++                    algo,
++                    &mosaic,
++                    raw.cfa,
++                    raw.as_shot_neutral,
++                    cancel,
++                )
+             })
+         }
+     };
+diff --git a/src/raw-pipeline/raw-core/src/pipeline/develop_sized.rs b/src/raw-pipeline/raw-core/src/pipeline/develop_sized.rs
+index 6092fd2ede..29e8b2eeb6 100644
+--- a/src/raw-pipeline/raw-core/src/pipeline/develop_sized.rs
++++ b/src/raw-pipeline/raw-core/src/pipeline/develop_sized.rs
+@@ -203,7 +203,13 @@ pub(super) fn develop_sized_prefix(
+                     return demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel);
+                 }
+                 let algo = crate::pipeline::bayer_kernel(quality, model, raw);
+-                demosaic::demosaic_cancellable(algo, &mosaic, raw.cfa, cancel)
++                demosaic::camera_demosaic_cancellable(
++                    algo,
++                    &mosaic,
++                    raw.cfa,
++                    raw.as_shot_neutral,
++                    cancel,
++                )
+             })
+         }
+     };
+diff --git a/src/raw-pipeline/raw-core/src/pipeline/pano/mod.rs b/src/raw-pipeline/raw-core/src/pipeline/pano/mod.rs
+index fb3c7a3543..f266199b33 100644
+--- a/src/raw-pipeline/raw-core/src/pipeline/pano/mod.rs
++++ b/src/raw-pipeline/raw-core/src/pipeline/pano/mod.rs
+@@ -272,7 +272,13 @@ fn develop_scene_linear_for_pano(
+                     &crate::types::AdjustmentModel::default(),
+                     raw,
+                 );
+-                demosaic::demosaic_cancellable(algo, &mosaic, raw.cfa, never)
++                demosaic::camera_demosaic_cancellable(
++                    algo,
++                    &mosaic,
++                    raw.cfa,
++                    raw.as_shot_neutral,
++                    never,
++                )
+             })
+         }
+     };
+diff --git a/src/raw-pipeline/raw-core/src/pipeline/tile/prefix.rs b/src/raw-pipeline/raw-core/src/pipeline/tile/prefix.rs
+index 7c1dafbe0d..c1396b94af 100644
+--- a/src/raw-pipeline/raw-core/src/pipeline/tile/prefix.rs
++++ b/src/raw-pipeline/raw-core/src/pipeline/tile/prefix.rs
+@@ -26,10 +26,11 @@ pub(super) fn from_mosaic(
+     cancel: crate::CancelToken<'_>,
+ ) -> Image {
+     let mut camera = stage("tile_demosaic", || {
+-        crate::demosaic::demosaic_cancellable(
++        crate::demosaic::camera_demosaic_cancellable(
+             crate::pipeline::bayer_kernel(quality, model, raw),
+             mosaic,
+             raw.cfa,
++            raw.as_shot_neutral,
+             cancel,
+         )
+     });
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_white_balance.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_white_balance.rs
+new file mode 100644
+index 0000000000..83f53555cd
+--- /dev/null
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_white_balance.rs
+@@ -0,0 +1,122 @@
++//! Input-domain invariants for metadata-derived AMaZE preconditioning.
++use super::{amaze, amaze_with_gains};
++use crate::image::{CfaPattern, ColorSpace, Image};
++
++fn mosaic(pattern: CfaPattern, neutral: [f32; 3], clipped_glint: bool) -> Image {
++    let mut m = Image::new(96, 96, ColorSpace::CameraNativeMosaic);
++    for y in 0..96 {
++        for x in 0..96 {
++            let dx = x as f32 - 47.3;
++            let dy = y as f32 - 48.7;
++            let scene = if clipped_glint {
++                0.02 + 12.0 * (-(dx * dx + dy * dy) / (2.0 * 2.0_f32.powi(2))).exp()
++            } else {
++                0.2
++            };
++            let c = pattern.color_at(x, y) as usize;
++            m.pixels[(y * 96 + x) as usize][c] = (scene * neutral[c]).min(1.0);
++        }
++    }
++    m
++}
++
++#[test]
++fn unity_gains_are_the_original_entry_point() {
++    let m = mosaic(CfaPattern::Rggb, [0.37, 1.0, 0.67], true);
++    assert_eq!(
++        amaze(&m, CfaPattern::Rggb).pixels,
++        amaze_with_gains(&m, CfaPattern::Rggb, [1.0; 3]).pixels
++    );
++}
++
++#[test]
++fn balanced_reconstruction_returns_native_flat_field_in_all_bayer_phases() {
++    let n = [0.37, 1.0, 0.67];
++    let scales = n.map(|v| 0.37 / v);
++    for cfa in [
++        CfaPattern::Rggb,
++        CfaPattern::Bggr,
++        CfaPattern::Grbg,
++        CfaPattern::Gbrg,
++    ] {
++        let out = amaze_with_gains(&mosaic(cfa, n, false), cfa, scales);
++        for y in 24..72 {
++            for x in 24..72 {
++                for (c, neutral) in n.into_iter().enumerate() {
++                    assert!((out.pixels[y * 96 + x][c] - 0.2 * neutral).abs() < 2e-6);
++                }
++            }
++        }
++    }
++}
++
++#[test]
++fn preconditioning_preserves_sensor_samples_through_clipped_glints() {
++    let n = [0.37, 1.0, 0.67];
++    let scales = n.map(|v| 0.37 / v);
++    for cfa in [
++        CfaPattern::Rggb,
++        CfaPattern::Bggr,
++        CfaPattern::Grbg,
++        CfaPattern::Gbrg,
++    ] {
++        let input = mosaic(cfa, n, true);
++        let out = amaze_with_gains(&input, cfa, scales);
++        for y in 0..96 {
++            for x in 0..96 {
++                let c = cfa.color_at(x, y) as usize;
++                let i = (y * 96 + x) as usize;
++                assert_eq!(input.pixels[i][c].to_bits(), out.pixels[i][c].to_bits());
++                assert!(out.pixels[i].iter().all(|v| v.is_finite()));
++            }
++        }
++    }
++}
++
++#[test]
++fn invalid_metadata_preserves_original_camera_dispatch() {
++    use crate::{
++        cancel::CancelToken,
++        demosaic::{camera_demosaic_cancellable, DemosaicAlgorithm},
++    };
++    let cfa = CfaPattern::Rggb;
++    let m = mosaic(cfa, [0.37, 1.0, 0.67], true);
++    let expected = amaze(&m, cfa);
++    for neutral in [
++        [0.0, 1.0, 0.67],
++        [-0.37, 1.0, 0.67],
++        [f32::NAN, 1.0, 0.67],
++        [f32::INFINITY, 1.0, 0.67],
++        [f32::MIN_POSITIVE, f32::MAX, 1.0],
++    ] {
++        let actual = camera_demosaic_cancellable(
++            DemosaicAlgorithm::Amaze,
++            &m,
++            cfa,
++            neutral,
++            CancelToken::never(),
++        );
++        assert_eq!(actual.pixels, expected.pixels);
++    }
++}
++
++#[test]
++fn other_kernels_keep_the_native_domain_contract() {
++    use crate::{
++        cancel::CancelToken,
++        demosaic::{camera_demosaic_cancellable, demosaic, DemosaicAlgorithm},
++    };
++    let cfa = CfaPattern::Rggb;
++    let neutral = [0.37, 1.0, 0.67];
++    let m = mosaic(cfa, neutral, true);
++    for algorithm in [
++        DemosaicAlgorithm::Bilinear,
++        DemosaicAlgorithm::HamiltonAdams,
++        DemosaicAlgorithm::Rcd,
++        DemosaicAlgorithm::HalfRes,
++    ] {
++        let expected = demosaic(algorithm, &m, cfa);
++        let actual = camera_demosaic_cancellable(algorithm, &m, cfa, neutral, CancelToken::never());
++        assert_eq!(actual.pixels, expected.pixels);
++    }
++}

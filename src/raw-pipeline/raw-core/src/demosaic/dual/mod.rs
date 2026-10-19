@@ -74,6 +74,15 @@ pub fn dual_amaze_vng4(mosaic: &Image, cfa: CfaPattern) -> Image {
     blend_vng4_into(detailed, mosaic, cfa, CancelToken::never())
 }
 
+pub(crate) fn dual_amaze_vng4_with_gains(
+    mosaic: &Image,
+    cfa: CfaPattern,
+    scales: [f32; 3],
+) -> Image {
+    let detailed = super::amaze::amaze_with_gains(mosaic, cfa, scales);
+    blend_vng4_into(detailed, mosaic, cfa, CancelToken::never())
+}
+
 /// RCD in detailed regions, VNG4 in flat ones — the faster dual, for paths
 /// that cannot afford AMaZE.
 #[inline]

@@ -1,0 +1,9 @@
+{
+  "status": "Experimental processing, not adopted. Chart and Hasselblad NRL anchors must pass before91cohort.",
+  "base_commit": "19d79ecefe7e42dfb62146986a56b69d19faf41c",
+  "pipeline_output_version": "35 plus measured-floor guard exception",
+  "source_patch_sha256": "07c52cd95cd016df94d77962b17f5890777cb6fe93238d55031d65c8b1eec7aa",
+  "binary_sha256": "51fcd33494b3a1c7b900a6dd9b371fcd060535f49e107cad11413902d68fa701",
+  "amaze_tests_passed": 29,
+  "hypothesis": "Retain the guard for positive kernel chroma within the nearest measured target sample envelope. Permit value restoration only below all nearest target samples. No threshold changes, no changes to old assertions or original inputs."
+}

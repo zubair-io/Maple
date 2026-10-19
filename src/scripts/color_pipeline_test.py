@@ -10,13 +10,20 @@ import unittest
 from pathlib import Path
 
 from compare_images_test import _qualified_native_pair
+from PIL import Image, ImageChops
 
 SCRIPTS = Path(__file__).resolve().parent
 
 
 class DetailReferenceTests(unittest.TestCase):
     def run_detail_pass(
-        self, label, protocol, reference_state, marker="PY_DETAIL", missing_input=None
+        self,
+        label,
+        protocol,
+        reference_state,
+        marker="PY_DETAIL",
+        missing_input=None,
+        offset_candidate=False,
     ):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -56,6 +63,12 @@ class DetailReferenceTests(unittest.TestCase):
             ]
             for case in cases:
                 shutil.copyfile(full, root / (case["name"].replace("/", "_") + ".png"))
+            if offset_candidate:
+                candidate = root / (cases[1]["name"].replace("/", "_") + ".png")
+                with Image.open(candidate) as image:
+                    ImageChops.add(
+                        image.convert("RGB"), Image.new("RGB", image.size, (0, 1, 0))
+                    ).save(candidate)
             if missing_input == "candidate":
                 (root / (cases[1]["name"].replace("/", "_") + ".png")).unlink()
             elif missing_input == "raw":
@@ -109,6 +122,38 @@ class DetailReferenceTests(unittest.TestCase):
             )
             self.assertTrue(summary.exists(), result.stdout + result.stderr)
             return result, json.loads(summary.read_text())
+
+    def test_case_records_preserve_precise_metrics_for_each_comparison_pass(self):
+        for marker, label, pixels in (
+            ("PY", "exposure_min", 37 * 28),
+            ("PY_AUTO", "baseline", 37 * 28),
+            ("PY_DETAIL", "nr_luminance_max", 128 * 96),
+        ):
+            with self.subTest(marker=marker):
+                result, summary = self.run_detail_pass(
+                    label,
+                    "native-pair-lanczos-v1",
+                    "present",
+                    marker,
+                    offset_candidate=True,
+                )
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertEqual(summary["compared"], 2)
+                self.assertEqual(summary["breaches"], 1)
+                record = next(
+                    c for c in summary["cases"] if c["fixture"] == "test_0001"
+                )
+                self.assertEqual(record["n_pixels"], pixels)
+                self.assertEqual(record["reference_protocol"], "native-pair-lanczos-v1")
+                self.assertGreater(record["mean"], 0)
+                self.assertGreaterEqual(record["max"], record["p95"])
+                self.assertGreater(record["p95"], 0)
+                self.assertEqual(record["bR"], 0)
+                self.assertEqual(record["bB"], 0)
+                self.assertGreater(record["bG"], 0)
+                self.assertNotEqual(record["bG"], round(record["bG"], 4))
+                if marker == "PY_DETAIL":
+                    self.assertAlmostEqual(record["bG"], 1 / 255, places=8)
 
     def test_missing_migrated_reference_fails_even_when_another_case_passes(self):
         for label in ("sharpen_amount_max", "nr_luminance_max"):

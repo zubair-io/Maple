@@ -1,0 +1,95 @@
+diff --git a/src/raw-pipeline/raw-core/src/view/agx_hue_restoration.rs b/src/raw-pipeline/raw-core/src/view/agx_hue_restoration.rs
+index e572f80ff4..20716ca1f7 100644
+--- a/src/raw-pipeline/raw-core/src/view/agx_hue_restoration.rs
++++ b/src/raw-pipeline/raw-core/src/view/agx_hue_restoration.rs
+@@ -83,7 +83,8 @@ pub fn norm_sigmoid_ratio<F: Fn(f32) -> f32>(inset_rgb: [f32; 3], sigmoid_fn: F)
+ 
+ /// Blend only the common scene component above diffuse white (1.0) toward
+ /// the endpoint curve. Its support reaches one at the existing AgX shoulder;
+-/// the Hermite ramp has zero endpoint slopes. There is no fitted knee/amount.
++/// the quintic ramp has zero endpoint slope and curvature. Its degree-five
++/// polynomial is fixed by those endpoint conditions, without a fitted knee/amount.
+ #[inline]
+ pub(crate) fn common_highlight_minimum(lo: f32, hi: f32, high_out: f32, curve_low: f32) -> f32 {
+     let ratio_low = lo * high_out / hi;
+@@ -92,7 +93,8 @@ pub(crate) fn common_highlight_minimum(lo: f32, hi: f32, high_out: f32, curve_lo
+     }
+     let shoulder_log = super::AGX_MAX_EV + super::AGX_MID_GRAY.log2();
+     let t = (lo.log2() / shoulder_log).clamp(0.0, 1.0);
+-    let weight = t * t * (3.0 - 2.0 * t);
++    let u = 1.0 - t;
++    let weight = (t * t * t * (1.0 + u * (3.0 + 6.0 * u))).clamp(0.0, 1.0);
+     ratio_low + weight * (curve_low.max(ratio_low) - ratio_low)
+ }
+ 
+diff --git a/src/raw-pipeline/raw-core/src/view/agx_tests_chroma_path.rs b/src/raw-pipeline/raw-core/src/view/agx_tests_chroma_path.rs
+index 1e2fe68948..99f2df70ef 100644
+--- a/src/raw-pipeline/raw-core/src/view/agx_tests_chroma_path.rs
++++ b/src/raw-pipeline/raw-core/src/view/agx_tests_chroma_path.rs
+@@ -60,7 +60,7 @@ fn common_highlight_weight_matches_independent_ramp_and_channel_fractions() {
+         let out = hue_restoration::sigmoid_hue_range(rgb, |x| x.sqrt());
+         let high = 8.0f32.sqrt();
+         let fraction = 1.0 / (AGX_MAX_EV + AGX_MID_GRAY.log2());
+-        let weight = 3.0 * fraction.powi(2) - 2.0 * fraction.powi(3);
++        let weight = 10.0 * fraction.powi(3) - 15.0 * fraction.powi(4) + 6.0 * fraction.powi(5);
+         let old_low = high / 4.0;
+         let low = old_low + weight * (2.0f32.sqrt() - old_low);
+         for c in 0..3 {
+@@ -148,3 +148,29 @@ fn common_highlight_weight_meets_diffuse_white_without_a_derivative_jump() {
+     assert!((left_slope - high_out / hi).abs() < 1.0e-4);
+     assert!((right_slope - left_slope).abs() < 5.0e-4);
+ }
++
++#[test]
++fn common_highlight_blend_curvature_joins_both_constant_endpoints() {
++    let hi = 256.0f32;
++    let high_out = hi.sqrt();
++    let shoulder_log = AGX_MAX_EV + AGX_MID_GRAY.log2();
++    let weight = |position: f32| {
++        let lo = (position * shoulder_log).exp2();
++        let ratio_low = lo * high_out / hi;
++        let curve_low = lo.sqrt();
++        let low_out = common_highlight_minimum(lo, hi, high_out, curve_low);
++        f64::from((low_out - ratio_low) / (curve_low - ratio_low))
++    };
++    let curvature = |position: f32, step: f32| {
++        (weight(position + step) - 2.0 * weight(position) + weight(position - step))
++            / f64::from(step * step)
++    };
++    for boundary in [0.0f32, 1.0] {
++        let coarse = curvature(boundary, 0.125).abs();
++        let fine = curvature(boundary, 0.0625).abs();
++        assert!(
++            fine < coarse * 0.75,
++            "boundary={boundary}, coarse curvature={coarse}, fine curvature={fine}"
++        );
++    }
++}
+diff --git a/src/raw-pipeline/raw-gpu/src/agx.rs b/src/raw-pipeline/raw-gpu/src/agx.rs
+index 000960c25f..ace92f4d0e 100644
+--- a/src/raw-pipeline/raw-gpu/src/agx.rs
++++ b/src/raw-pipeline/raw-gpu/src/agx.rs
+@@ -379,7 +379,8 @@ fn agx_pixel(scene: [f32; 3], slope: f32, whites: f32) -> [f32; 3] {
+             let ratio_low = lo * high_out / n;
+             let shoulder_log = AGX_MAX_EV + AGX_MID_GRAY.log2();
+             let t = (lo.log2() / shoulder_log).clamp(0.0, 1.0);
+-            let weight = t * t * (3.0 - 2.0 * t);
++            let u = 1.0 - t;
++            let weight = (t * t * t * (1.0 + u * (3.0 + 6.0 * u))).clamp(0.0, 1.0);
+             let low_out = ratio_low + weight * (sigmoid_curve(lo).max(ratio_low) - ratio_low);
+             let gain = (high_out - low_out) / span;
+             inset.map(|v| low_out + (v - lo) * gain)
+diff --git a/src/raw-pipeline/raw-gpu/src/agx.wgsl b/src/raw-pipeline/raw-gpu/src/agx.wgsl
+index 8a248e851b..41547827b3 100644
+--- a/src/raw-pipeline/raw-gpu/src/agx.wgsl
++++ b/src/raw-pipeline/raw-gpu/src/agx.wgsl
+@@ -153,7 +153,8 @@ fn agx_hue_sigmoid(inset: vec3<f32>, slope: f32, whites: f32) -> vec3<f32> {
+     let ratio_low = lo * high_out / n;
+     let shoulder_log = AGX_MAX_EV + log2(AGX_MID_GRAY);
+     let t = clamp(log2(lo) / shoulder_log, 0.0, 1.0);
+-    let weight = t * t * (3.0 - 2.0 * t);
++    let u = 1.0 - t;
++    let weight = clamp(t * t * t * (1.0 + u * (3.0 + 6.0 * u)), 0.0, 1.0);
+     let endpoint_low = max(agx_sigmoid_curve(lo, slope, whites), ratio_low);
+     let low_out = ratio_low + weight * (endpoint_low - ratio_low);
+     let gain = (high_out - low_out) / span;
