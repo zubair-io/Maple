@@ -96,7 +96,7 @@ function readCost(db: Parameters<typeof testSqliteDb>[0], assetId: string, video
 }
 
 describe.each(['describe', 'video-describe'] as const)('%s failed-call billing', (stage) => {
-  it.each(FAILURE_CASES)(
+  it.each([...FAILURE_CASES])(
     'persists aggregate costs after $scenario failure and retains them after recovery',
     async ({ scenario, imageCost, videoCost, terminal }) => {
       using library = await createTempLibrary('maple-describe-cost-');
