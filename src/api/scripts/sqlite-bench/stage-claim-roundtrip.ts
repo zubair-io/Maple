@@ -28,7 +28,7 @@
  *   bun scripts/sqlite-bench/stage-claim-roundtrip.ts 200000
  */
 
-import { Database } from 'bun:sqlite';
+import type { Database } from 'bun:sqlite';
 import { SqlitePool } from '../../src/db/sqlite/pool.ts';
 import { LIVE_LOCATION_COUNT_RECOMPUTE_SQL } from '../../src/db/sqlite/ddl/asset-locations.ts';
 import { claimStageBatch } from '../../src/db/repos/stage-claim.ts';

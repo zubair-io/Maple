@@ -18,7 +18,6 @@ import { Elysia } from 'elysia';
 import { openSqlitePool, closeSqlitePool } from '../../src/db/sqlite/index.ts';
 import { newObjectIdHex } from '../../src/db/object-id.ts';
 import { generatedSearchesRoutes } from '../../src/routes/generated-searches.ts';
-import { saveSearchEngine } from '../../src/search/search-engine-selection.ts';
 
 const CARDS: Array<Record<string, string>> = [
   {
@@ -36,14 +35,13 @@ function percentile(samples: readonly number[], p: number): number {
     : sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]!;
 }
 
-const [path, secondsArg, clientsArg, engine] = process.argv.slice(2);
+const [path, secondsArg, clientsArg] = process.argv.slice(2);
 if (!path) {
-  throw new Error('usage: generated-search-load.ts <db> [seconds] [clients per card] [in-process]');
+  throw new Error('usage: generated-search-load.ts <db> [seconds] [clients per card]');
 }
 const seconds = Number(secondsArg ?? 60);
 const clientsPerCard = Number(clientsArg ?? 1);
 const pool = await openSqlitePool({ path });
-if (engine === 'in-process') await saveSearchEngine('in-process');
 
 const library = (await pool.read<{ id: string }>('SELECT id FROM folders LIMIT 1'))[0]!.id;
 const stored = (await pool.read<{ id: string }>('SELECT id FROM assets LIMIT 30')).map((r) => r.id);
@@ -121,7 +119,6 @@ const pinned = busyReaders.filter((n) => n === readers).length / Math.max(busyRe
 console.log(
   JSON.stringify(
     {
-      engine: engine ?? 'none selected',
       seconds,
       clients: cards.length * clientsPerCard,
       readers,

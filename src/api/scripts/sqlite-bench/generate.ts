@@ -12,7 +12,7 @@
  * a re-run reproduces the same library.
  */
 
-import type { Database, Statement } from 'bun:sqlite';
+import type { Database, SQLQueryBindings, Statement } from 'bun:sqlite';
 import {
   ASSET_LOCATIONS_TRIGGER_DDL,
   ASSET_LOCATIONS_TRIGGER_NAMES,
@@ -93,7 +93,7 @@ export interface GenerateResult {
   elapsedMs: number;
 }
 
-type Prepared = Statement<unknown, never[]>;
+type Prepared = Statement<unknown, SQLQueryBindings[]>;
 
 interface Statements {
   asset: Prepared;

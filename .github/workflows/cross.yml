@@ -167,7 +167,7 @@ jobs:
 
       - name: oxlint src/api
         working-directory: src/api
-        run: HOME=/tmp/xbun bunx oxlint src
+        run: HOME=/tmp/xbun bunx oxlint src scripts
 
   file-budget:
     name: file-budget (400 soft / 600 hard LOC)
