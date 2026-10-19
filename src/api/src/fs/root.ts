@@ -4,9 +4,8 @@
  * The server only reads/writes under the registered folder roots.
  * Any attempt to escape via ".." or symlinks outside the root is rejected.
  *
- * Additionally, if MAPLE_ROOTS env is set (platform PATH-separated absolute paths),
- * all file access is restricted to those roots. If unset, the restriction is
- * per-folder (registered roots from the DB are the boundary).
+ * MAPLE_ROOTS env entries (platform PATH-separated absolute paths) extend the
+ * runtime-registered and SQLite library roots.
  */
 
 import { lstat, readFile, readlink, realpath, stat } from 'node:fs/promises';
@@ -276,14 +275,15 @@ export async function checkAllowed(filePath: string): Promise<OpResult<string>> 
   const envRoots = await normalizedEnvRoots();
   const libraryRoots = await loadJailLibraryRoots().catch(() => new Map<string, string>());
   const requested = path.resolve(filePath);
-  const allowedRoots = envRoots.length
-    ? envRoots
-    : [..._registeredRoots, ...[...libraryRoots.values()].map((root) => path.resolve(root))];
+  const explicitRoots = [...envRoots, ..._registeredRoots];
+  const allowedRoots = [
+    ...explicitRoots,
+    ...[...libraryRoots.values()].map((root) => path.resolve(root)),
+  ];
   const candidates = [...new Set([real, landing])];
   const results = await Promise.all(
     candidates.map(async (candidate) => {
-      if (envRoots.length) return envRoots.some((root) => isWithinRoot(root, candidate));
-      if ([..._registeredRoots].some((root) => isWithinRoot(root, candidate))) return true;
+      if (explicitRoots.some((root) => isWithinRoot(root, candidate))) return true;
       return allowedByPrimary(candidate, requested, libraryRoots);
     }),
   );

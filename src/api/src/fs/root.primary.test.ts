@@ -4,7 +4,13 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promis
 import * as nodeFs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkAllowed, safeReadFile, safeWriteAllowed } from './root.ts';
+import {
+  checkAllowed,
+  registerRoot,
+  safeReadFile,
+  safeWriteAllowed,
+  unregisterRoot,
+} from './root.ts';
 import { createLiveTestDatabase, insertFolder } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 
@@ -24,6 +30,49 @@ afterEach(async () => {
   );
 });
 
+test.each(['runtime', 'SQLite'] as const)(
+  'MAPLE_ROOTS remains additive with %s roots for reads, writes, and revocation',
+  async (source) => {
+    const fixture = await realpath(await mkdtemp(join(tmpdir(), 'maple-primary-additive-')));
+    temporaryRoots.push(fixture);
+    const configured = join(fixture, 'configured');
+    const library = join(fixture, 'library');
+    const outside = join(fixture, 'outside');
+    await Promise.all([mkdir(configured), mkdir(library), mkdir(outside)]);
+    process.env.MAPLE_ROOTS = configured;
+    const live = await createLiveTestDatabase();
+    try {
+      if (source === 'runtime') registerRoot(library);
+      else insertFolder(live.db, { path: library, slug: 'library' });
+      invalidateLibraryRoots();
+      for (const root of [configured, library]) {
+        await writeFile(join(root, 'photo.xmp'), '<existing/>');
+        expect((await safeReadFile(join(root, 'photo.xmp'))).data?.toString()).toBe('<existing/>');
+        const write = await safeWriteAllowed(join(root, 'new.xmp'));
+        expect(write).toEqual({ ok: true, data: join(root, 'new.xmp') });
+        await writeFile(write.data!, '<new/>');
+        expect((await safeReadFile(write.data!)).data?.toString()).toBe('<new/>');
+        await symlink(join(outside, 'missing.xmp'), join(root, 'escape.xmp'));
+        expect((await safeWriteAllowed(join(root, 'escape.xmp'))).ok).toBe(false);
+      }
+      await writeFile(join(outside, 'photo.xmp'), '<outside/>');
+      expect((await safeReadFile(join(outside, 'photo.xmp'))).ok).toBe(false);
+      expect((await safeWriteAllowed(join(outside, 'new.xmp'))).ok).toBe(false);
+      if (source === 'runtime') unregisterRoot(library);
+      else live.db.query('DELETE FROM folders WHERE path = ?').run(library);
+      invalidateLibraryRoots();
+      expect((await safeReadFile(join(library, 'photo.xmp'))).ok).toBe(false);
+      expect((await safeWriteAllowed(join(library, 'new.xmp'))).ok).toBe(false);
+      expect((await safeReadFile(join(configured, 'photo.xmp'))).ok).toBe(true);
+      expect((await safeWriteAllowed(join(configured, 'new.xmp'))).ok).toBe(true);
+    } finally {
+      unregisterRoot(library);
+      live.close();
+      invalidateLibraryRoots();
+    }
+  },
+);
+
 test('a retargeted SQLite library alias stops authorizing its former directory without DB invalidation', async () => {
   const fixture = await realpath(await mkdtemp(join(tmpdir(), 'maple-primary-retarget-')));
   temporaryRoots.push(fixture);
@@ -34,7 +83,9 @@ test('a retargeted SQLite library alias stops authorizing its former directory w
   await writeFile(join(former, 'photo.xmp'), '<former/>');
   await writeFile(join(current, 'photo.xmp'), '<current/>');
   await symlink(former, alias);
-  delete process.env.MAPLE_ROOTS;
+  const configured = join(fixture, 'configured');
+  await mkdir(configured);
+  process.env.MAPLE_ROOTS = configured;
 
   const live = await createLiveTestDatabase();
   try {
@@ -51,7 +102,8 @@ test('a retargeted SQLite library alias stops authorizing its former directory w
     await writeFile(write.data!, '<new/>');
     expect((await safeReadFile(join(alias, 'new.xmp'))).data?.toString()).toBe('<new/>');
     process.env.MAPLE_ROOTS = former;
-    expect((await safeReadFile(join(alias, 'new.xmp'))).ok).toBe(false);
+    expect((await safeReadFile(join(former, 'photo.xmp'))).ok).toBe(true);
+    expect((await safeReadFile(join(alias, 'new.xmp'))).ok).toBe(true);
   } finally {
     live.close();
     invalidateLibraryRoots();
