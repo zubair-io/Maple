@@ -69,6 +69,13 @@ public final class AppSupportSidecarStore {
     return root.appendingPathComponent("\(safe).xmp")
   }
 
+  /// File names of every stored edit, so a caller checking many photos can
+  /// skip the ones without an edit without touching the disk per photo.
+  public func storedSidecarFileNames() throws -> Set<String> {
+    guard FileManager.default.fileExists(atPath: root.path) else { return [] }
+    return Set(try FileManager.default.contentsOfDirectory(atPath: root.path))
+  }
+
   /// Read the sidecar for `phassetLocalId`.
   ///
   /// Returns `nil` when no sidecar file exists for this identifier.

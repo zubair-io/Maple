@@ -12,7 +12,7 @@ public actor BackupEngine {
   /// companion (sidecar / rendered / live-mov) is retrying or has exhausted
   /// its bounded budget, so a stranded artifact is visible in Console.app
   /// without failing the (already-uploaded) photo.
-  private static let companionLog = Logger(
+  static let companionLog = Logger(
     subsystem: "app.justmaple.aperture", category: "backup.companion")
 
   public enum EngineError: Error, Equatable, Sendable {
@@ -21,9 +21,9 @@ public actor BackupEngine {
 
   /// `internal` for the same reason as `outstandingCompanions`.
   let queue: any BackupQueue
-  private let state: BackupStateStore
-  private let upload: UploadClient
-  private let sidecars: AppSupportSidecarStore
+  let state: BackupStateStore
+  let upload: UploadClient
+  let sidecars: AppSupportSidecarStore
   private let reader: any AssetReader
   private let reachability: Reachability?
   private let wifiOnly: Bool
@@ -422,11 +422,11 @@ public actor BackupEngine {
           phassetLocalId: task.id.phassetLocalId,
           targetRelPath: result.targetRelPath,
           xmp: localEditXmp,
-          mapleId: read.mapleId)
+          mapleId: read.mapleId,
+          basedOn: try await state.uploadedSidecarDigest(task.id))
         // The App Support XMP is the editor's canonical PhotoKit edit, so it
-        // is never deleted here; record which revision landed instead. Re-
-        // uploading a newer local edit is tracked by #4719 — it waits on a
-        // server conflict policy, since /backup/sidecar never overwrites.
+        // is never deleted; the recorded revision is what `resendNewerEdits`
+        // compares a later local edit against (#4719).
         try await state.recordUploadedSidecar(task.id, digest: Self.digest(of: localEditXmp))
       }
     }
