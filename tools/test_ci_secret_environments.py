@@ -37,6 +37,18 @@ NAMED_SECRET = re.compile(r"secrets\s*(?:\.\s*([A-Za-z_]\w*)|\[\s*(['\"])([A-Za-
 WHOLE_OBJECT = re.compile(r"\bsecrets\b(?!\s*\.\s*[A-Za-z_]\w*)(?!\s*\[\s*(['\"])[A-Za-z_]\w*\1\s*\])", re.IGNORECASE)
 
 
+def scalars(node):
+    if isinstance(node, str):
+        yield node
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            yield from scalars(key)
+            yield from scalars(value)
+    elif isinstance(node, (list, tuple)):
+        for item in node:
+            yield from scalars(item)
+
+
 def workflow_files():
     return sorted(path for path in WORKFLOWS.iterdir() if path.suffix in (".yml", ".yaml"))
 
@@ -109,10 +121,18 @@ class SecretEnvironmentTests(unittest.TestCase):
     def test_no_workflow_hands_over_the_whole_secrets_object(self):
         for path in workflow_files():
             text = path.read_text()
+            config = yaml.safe_load(text)
             with self.subTest(workflow=path.name):
                 self.assertIsNone(INHERIT.search(text))
-                for expression in expressions(text):
-                    self.assertIsNone(WHOLE_OBJECT.search(expression), expression)
+                for value in scalars(config):
+                    for expression in expressions(value):
+                        self.assertIsNone(WHOLE_OBJECT.search(expression), expression)
+
+    def test_yaml_escapes_are_decoded_before_scanning(self):
+        config = yaml.safe_load('ALL: "${{ toJSON(secr\\u0065ts) }}"\n')
+        found = [expression for value in scalars(config) for expression in expressions(value)]
+        self.assertEqual(len(found), 1)
+        self.assertIsNotNone(WHOLE_OBJECT.search(found[0]))
 
     def test_no_parsed_job_inherits_all_secrets(self):
         for path in workflow_files():
