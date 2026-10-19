@@ -29,6 +29,10 @@ namespace Maple.WinUI.Services.FileOperations
         {
             var sourceSidecarPath = SidecarStore.SidecarPathFor(source);
             var hadSidecar = File.Exists(sourceSidecarPath);
+            // On a case-sensitive folder x.CR3 -> X.CR3 gives the photo a
+            // distinct X.xmp; a sibling x.JPG that still reads x.xmp keeps it
+            // (#4758 rule 1), so the sidecar is copied, never moved.
+            var sidecarSharedWithSibling = hadSidecar && SidecarStemClaimedBySibling(source, target);
 
             File.Move(source, target);
 
@@ -40,7 +44,9 @@ namespace Maple.WinUI.Services.FileOperations
                 usedSourceSidecarPath = sourceSidecarPath;
                 try
                 {
-                    File.Move(sourceSidecarPath, targetSidecarPath);
+                    if (!sidecarSharedWithSibling) File.Move(sourceSidecarPath, targetSidecarPath);
+                    else if (!SameSidecarPath(sourceSidecarPath, targetSidecarPath))
+                        File.Copy(sourceSidecarPath, targetSidecarPath, overwrite: false);
                 }
                 catch (System.Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
