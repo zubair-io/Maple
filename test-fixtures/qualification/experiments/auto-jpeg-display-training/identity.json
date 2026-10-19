@@ -1,0 +1,8 @@
+{
+  "source_commit": "57935f3ba0204e23d7d210f70b95a451d54bf252",
+  "renderer_tree": "e91c2a1b058fe099a34a7913587d534c6de7bf7d",
+  "binary_sha256": "daa362f224aa6331a314650160020f3da173242703e198ed5ad947da0dd0f1c2",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "status": "unqualified display-trained residual; all 20 physical fixtures"
+}
