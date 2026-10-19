@@ -121,7 +121,7 @@ namespace Maple.WinUI.Tests
             var items = new[] { Item("a", @"C:\lib\src", "img.dng") };
             var occupied = new HashSet<string> { @"C:\lib\dest\img.dng" };
 
-            var colliding = DragMoveLogic.DetectCollisions(items, @"C:\lib\dest", occupied.Contains);
+            var colliding = DragMoveLogic.DetectCollisions(items, @"C:\lib\dest", occupied.Contains, (_, _) => false);
 
             Assert.Equal(new[] { "a" }, colliding);
         }
@@ -131,7 +131,7 @@ namespace Maple.WinUI.Tests
         {
             var items = new[] { Item("a", @"C:\lib\src", "img.dng") };
 
-            var colliding = DragMoveLogic.DetectCollisions(items, @"C:\lib\dest", _ => false);
+            var colliding = DragMoveLogic.DetectCollisions(items, @"C:\lib\dest", _ => false, (_, _) => false);
 
             Assert.Empty(colliding);
         }
@@ -145,7 +145,7 @@ namespace Maple.WinUI.Tests
             // reports as Skipped with a different reason.
             var items = new[] { Item("a", @"C:\lib\dest", "img.dng") };
 
-            var colliding = DragMoveLogic.DetectCollisions(items, @"C:\lib\dest", _ => true);
+            var colliding = DragMoveLogic.DetectCollisions(items, @"C:\lib\dest", _ => true, (_, _) => false);
 
             Assert.Empty(colliding);
         }
@@ -160,22 +160,38 @@ namespace Maple.WinUI.Tests
             };
             var occupied = new HashSet<string> { @"C:\lib\dest\taken.dng" };
 
-            var colliding = DragMoveLogic.DetectCollisions(items, @"C:\lib\dest", occupied.Contains);
+            var colliding = DragMoveLogic.DetectCollisions(items, @"C:\lib\dest", occupied.Contains, (_, _) => false);
 
             Assert.Equal(new[] { "taken" }, colliding);
         }
 
+        private static readonly string Lib = Path.Combine(Path.GetPathRoot(Path.GetTempPath())!, "lib");
+        private static readonly string LibSrc = Path.Combine(Lib, "src");
+        private static readonly string LibDest = Path.Combine(Lib, "dest");
+
         [Fact]
         public void DetectCollisions_OnlyTheSidecarNameIsOccupied_Flagged()
         {
-            var src = Path.Combine(Path.GetTempPath(), "src");
-            var dest = Path.Combine(Path.GetTempPath(), "dest");
-            var items = new[] { Item("raw", src, "IMG_1.CR3") };
-            var occupied = new HashSet<string> { Path.Combine(dest, "IMG_1.JPG"), Path.Combine(dest, "IMG_1.xmp") };
+            var items = new[] { Item("raw", LibSrc, "IMG_1.CR3") };
+            var occupied = new HashSet<string> { Path.Combine(LibDest, "IMG_1.JPG"), Path.Combine(LibDest, "IMG_1.xmp") };
 
-            var colliding = DragMoveLogic.DetectCollisions(items, dest, occupied.Contains);
+            var colliding = DragMoveLogic.DetectCollisions(items, LibDest, occupied.Contains, (_, _) => false);
 
             Assert.Equal(new[] { "raw" }, colliding);
+        }
+
+        [Fact]
+        public void DetectCollisions_SidecarNameHoldsTheItemsOwnSidecar_NotFlagged()
+        {
+            var items = new[] { Item("jpg", LibSrc, "IMG_1.JPG") };
+            var occupied = new HashSet<string> { Path.Combine(LibDest, "IMG_1.CR3"), Path.Combine(LibDest, "IMG_1.xmp") };
+            var compared = new List<(string Own, string Destination)>();
+
+            var colliding = DragMoveLogic.DetectCollisions(items, LibDest, occupied.Contains,
+                (own, destination) => { compared.Add((own, destination)); return true; });
+
+            Assert.Empty(colliding);
+            Assert.Equal(new[] { (Path.Combine(LibSrc, "IMG_1.xmp"), Path.Combine(LibDest, "IMG_1.xmp")) }, compared);
         }
     }
 }
