@@ -1,0 +1,30 @@
+{
+  "phase": "parallel canonical comparisons",
+  "launcher_pid": 81159,
+  "branch_commit": "bfe563ae2689cbfebdcf432a03cc0d17c692ecee",
+  "captured_main_commit": "cf62d12ddc573cff68780e7754f7b5b63f7ae621",
+  "renderer_tree": "7d7acb83deb4326fff2acccde9d1bb97184008ce",
+  "pipeline_output_version": 35,
+  "binary_sha256": "29e2e51401941a8bf482156fd8a27c816132f3ea35e195ad9c7fbe72a54ceb33",
+  "manifest_sha256": "8af5140a210214bd5255e4b27a38ff70b35efe48c918a6045bda4c8176ccc218",
+  "working_manifest_sha256": "8af5140a210214bd5255e4b27a38ff70b35efe48c918a6045bda4c8176ccc218",
+  "budgets_sha256": "8a0427c569486b27c9c6cd3bfa5797bb031fa8c0a71d62fa29a9289bfcf17e58",
+  "harness_sha256": "4c6ea00888412421d6a64e8eb6db7b66637861eea54dc764a14ed8bad8724f3d",
+  "comparator_sha256": "d62071c3dba62f439afe2426253a8b744cbfa3cb37761c0efb90baf575e8da2e",
+  "driver_sha256": "b88797a5608e649ea709652eab2b5ca463f2499a6cab4837750c28b1170c1f40",
+  "logical_input_paths": 1866,
+  "physical_input_files": 963,
+  "started_at": "2026-10-19T11:11:30.398489+00:00",
+  "render_workers": 4,
+  "comparison_workers": 8,
+  "completed_render_tasks": 199,
+  "render_errors": [],
+  "completed_comparison_tasks": 98,
+  "auto_fit_model_version": 5,
+  "binary_features": [
+    "stage-dump (inactive: all MAPLE env vars removed)"
+  ],
+  "input_preflight_completed": true,
+  "provenance_map_origin": "complete repaired branch31 snapshot",
+  "newly_rendered_cases": 796
+}

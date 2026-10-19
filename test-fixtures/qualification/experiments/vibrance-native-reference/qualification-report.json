@@ -1,0 +1,44 @@
+{
+  "scope": "Qualified native companions; original references and budgets unchanged.",
+  "base_manifest_sha256": "8af5140a210214bd5255e4b27a38ff70b35efe48c918a6045bda4c8176ccc218",
+  "capture_manifest_sha256": "f63017b55ac206473028a1fab7051566ad583e47afd29350a4fcff4ed92c65dc",
+  "qualifier_sha256": "317bc7f5d3e49c6387b71219a6acd08a51489efb9555fcb07059d17cbe30408a",
+  "qualified": 1,
+  "cases": [
+    {
+      "case": "test_0002/vibrance_min",
+      "raw_sha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "canonical_xmp_sha256": "37425186952af760870ea3fd259ed0f5016a31abaa806638d04b046a26166cb3",
+      "original_down": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/40/4087a11c94c4c7e1bc4e2fdf9c9243da7b95944d5a658f1cd4fef55d65622c4a.png",
+      "original_down_sha256": "4087a11c94c4c7e1bc4e2fdf9c9243da7b95944d5a658f1cd4fef55d65622c4a",
+      "qualified_down": "/Users/riabuz/.codex/color-suite-evidence/5000/vibrance-min-reference-diagnostic/captures/down/vibrance_min.png",
+      "captured_down_sha256": "72ce73c8856871bc773004de31ae5a154ec5e4726a9ff6cf68e795fa3bc9863b",
+      "capture_added_metadata_changes": {
+        "{http://ns.adobe.com/camera-raw-settings/1.0/}Version": {
+          "before": "18.2.2",
+          "after": "18.7"
+        },
+        "{http://ns.adobe.com/camera-raw-settings/1.0/}ReshapeAmount": {
+          "before": "None",
+          "after": "0"
+        },
+        "{http://ns.adobe.com/camera-raw-settings/1.0/}Glow": {
+          "before": "None",
+          "after": "0"
+        }
+      },
+      "native": "/Users/riabuz/.codex/color-suite-evidence/5000/vibrance-min-reference-diagnostic/captures/full/vibrance_min.png",
+      "native_sha256": "ab524426c2f0b3f7a78a02242f5bfba7703c1e8d81f055b9c092b55720d01d89",
+      "authoring_sidecar_sha256": "a8571ce4bc5818d43c8cc3d71c52674326fdeb1163ae3740e7f5f2203b4bd09d",
+      "native_dimensions": [
+        7216,
+        5412
+      ],
+      "down_dimensions": [
+        4000,
+        3000
+      ],
+      "down_rgb_pixels_identical": true
+    }
+  ]
+}
