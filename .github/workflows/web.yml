@@ -27,7 +27,7 @@ jobs:
     name: build-wasm (shared pkg)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Pinned to match raw-wasm/rust-toolchain.toml. rustup would resolve
       # the toolchain file automatically when wasm-pack runs from raw-wasm/,
@@ -75,7 +75,7 @@ jobs:
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -181,7 +181,7 @@ jobs:
     # accidental watch-mode hang burning the full job budget.
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -223,7 +223,7 @@ jobs:
     # accidental watch-mode hang burning the full job budget.
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -307,7 +307,7 @@ jobs:
     continue-on-error: true
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Probe smoke RAW fixture
         id: fixture
@@ -388,7 +388,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -526,7 +526,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: >-
           python3 tools/ci_result.py build-wasm=web web-build=web
           web-test=web web-test-common=web web-webgpu-smoke=web web-workflow-acceptance=web

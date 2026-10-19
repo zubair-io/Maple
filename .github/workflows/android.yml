@@ -23,7 +23,7 @@ jobs:
     # Cold dual-ABI release libraries and host parity must leave time for device tests.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -113,7 +113,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: python3 tools/ci_result.py android-build=android
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
