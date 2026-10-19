@@ -31,6 +31,33 @@ afterEach(async () => {
   );
 });
 
+test('concurrent SQLite reads and writes remain authorized after cold cache fills', async () => {
+  const fixture = await realpath(await mkdtemp(join(tmpdir(), 'maple-primary-cold-')));
+  temporaryRoots.push(fixture);
+  const primary = join(fixture, 'primary');
+  const alias = join(fixture, 'library');
+  await mkdir(primary);
+  await symlink(primary, alias);
+  await writeFile(join(primary, 'photo.xmp'), '<existing/>');
+  delete process.env.MAPLE_ROOTS;
+  using live = await createLiveTestDatabase();
+  insertFolder(live.db, { path: alias, slug: 'library' });
+
+  for (const _ of [0, 1]) {
+    invalidateLibraryRoots();
+    await Promise.all(
+      Array.from({ length: 8 }, async () => {
+        const [read, write] = await Promise.all([
+          safeReadFile(join(primary, 'photo.xmp')),
+          safeWriteAllowed(join(alias, 'new.xmp')),
+        ]);
+        expect(read.data?.toString()).toBe('<existing/>');
+        expect(write).toEqual({ ok: true, data: join(primary, 'new.xmp') });
+      }),
+    );
+  }
+});
+
 test.each(['runtime', 'SQLite'] as const)(
   'MAPLE_ROOTS remains additive with %s roots for reads, writes, and revocation',
   async (source) => {

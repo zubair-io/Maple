@@ -48,6 +48,7 @@ interface LibraryCache {
 }
 
 let cached: LibraryCache | null = null;
+let loading: Promise<LibraryCache> | null = null;
 let generation = 0;
 let cachedAtMs = 0;
 
@@ -71,15 +72,24 @@ function buildLibraryCache(roots: readonly LibraryRoot[]): LibraryCache {
 
 async function loadCache(): Promise<LibraryCache> {
   if (cached) return cached;
+  if (loading) return loading;
   const loadGeneration = generation;
-  const loaded = buildLibraryCache(await listLibraryRoots());
-  // An invalidation that landed while this read was in flight means the rows
-  // may predate the folder change it announced; serve them once, never cache them.
-  if (loadGeneration === generation) {
-    cached = loaded;
-    cachedAtMs = Date.now();
+  const load = (async () => {
+    const loaded = buildLibraryCache(await listLibraryRoots());
+    // An invalidation that landed while this read was in flight means the rows
+    // may predate the folder change it announced; serve them once, never cache them.
+    if (loadGeneration === generation) {
+      cached = loaded;
+      cachedAtMs = Date.now();
+    }
+    return loaded;
+  })();
+  loading = load;
+  try {
+    return await load;
+  } finally {
+    if (loading === load) loading = null;
   }
-  return loaded;
 }
 
 export async function loadLibraryRoots(): Promise<ReadonlyMap<string, string>> {
@@ -187,6 +197,7 @@ export function installWorkerLibraryRootsSync(): void {
 export function invalidateLibraryRoots(options?: { localOnly?: boolean }): void {
   generation += 1;
   cached = null;
+  loading = null;
   if (options?.localOnly) return;
   for (const listener of invalidateListeners) {
     try {
@@ -221,6 +232,7 @@ export async function loadLibraryIdToSlug(): Promise<ReadonlyMap<string, string>
  */
 export function setLibraryRootsForTests(map: ReadonlyMap<string, string> | null): void {
   generation += 1;
+  loading = null;
   cached = map === null ? null : { byId: map, bySlug: new Map() };
 }
 
