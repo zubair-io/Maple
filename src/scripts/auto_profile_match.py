@@ -2,7 +2,8 @@
 """Fail-closed Auto vs embedded-JPEG qualification; preserves per-image evidence.
 
 The ACR reference images and ACR budgets are never read. The established
-five-band/channel bias metric and default 0.05 budget are unchanged.
+five-band/channel bias metric and default 0.05 budget are retained.
+Full-frame spatial, absolute-error, perceptual and clipping checks also gate.
 """
 
 import argparse
@@ -16,6 +17,9 @@ import tempfile
 from pathlib import Path
 
 import auto_profile_diff as diff
+import auto_profile_quality as quality
+import numpy as np
+from PIL import Image
 
 EXTENSIONS = {
     ".dng",
@@ -84,10 +88,58 @@ def compare(candidate, reference, budget):
         for ch in "RGB"
         if abs(v[ch]) > budget
     ]
+    native = quality.native_absolute(cand, ref, budget)
+    spatial = quality.compare(candidate, reference)
     return {
+        "quality": spatial,
+        "native_absolute": native,
         "bands": bands,
         "breaches": breaches,
-        "status": "failed" if breaches else "passed",
+        "status": "failed"
+        if breaches or native["breaches"] or spatial["breaches"]
+        else "passed",
+    }
+
+
+def validate_previewless(cli, raw, folder, env):
+    images = []
+    for profile in ["auto", "neutral"]:
+        target = folder / f"fallback-{profile}.png"
+        with (folder / f"fallback-{profile}.log").open("w") as log:
+            result = subprocess.run(
+                [
+                    str(cli),
+                    "render",
+                    str(raw),
+                    "--out",
+                    str(target),
+                    "--profile",
+                    profile,
+                ],
+                check=False,
+                env=env,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+        if result.returncode:
+            raise RuntimeError(
+                f"previewless {profile} render exited {result.returncode}"
+            )
+        images.append(target)
+    with Image.open(images[0]) as first, Image.open(images[1]) as second:
+        if first.mode != "RGB" or second.mode != "RGB" or first.size != second.size:
+            raise ValueError("previewless Auto/Neutral output geometry or mode differs")
+        for y in range(0, first.height, 64):
+            box = (0, y, first.width, min(first.height, y + 64))
+            if not np.array_equal(
+                np.asarray(first.crop(box)), np.asarray(second.crop(box))
+            ):
+                raise ValueError("previewless Auto does not equal Neutral")
+    return {
+        "status": "passed",
+        "metric": "exact decoded RGB equality: Auto versus Neutral",
+        "auto_sha256": sha(images[0]),
+        "neutral_sha256": sha(images[1]),
     }
 
 
@@ -95,7 +147,9 @@ def qualify(cli, selected, out, budget):
     identity = {
         "target": "camera-embedded-jpeg",
         "profile": "auto",
-        "metric": "display-sRGB signed channel bias in five reference-luma bands",
+        "metric": "legacy signed band bias AND full-frame non-cancelling image-quality checks",
+        "quality_policy": quality.POLICY,
+        "quality_implementation_sha256": sha(quality.__file__),
         "budget": budget,
         "binary": str(cli),
         "binary_sha256": sha(cli),
@@ -142,7 +196,8 @@ def qualify(cli, selected, out, budget):
                 if action == "preview" and result.returncode == 3:
                     row.update(
                         status="no-preview",
-                        reason="explicit CLI no-preview sentinel; not a pass",
+                        reason="explicit CLI no-preview sentinel; not a JPEG match pass",
+                        fallback=validate_previewless(cli, raw, folder, env),
                     )
                     break
                 if result.returncode:
@@ -165,6 +220,7 @@ def qualify(cli, selected, out, budget):
     }
     identity.update(
         counts=counts,
+        previewless_fallback_checks=sum("fallback" in row for row in identity["cases"]),
         complete=True,
         binary_unchanged=sha(cli) == identity["binary_sha256"],
     )

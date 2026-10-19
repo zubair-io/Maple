@@ -69,6 +69,30 @@ class AutoJpegGateTests(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertEqual(result["counts"]["no-preview"], 1)
 
+    def test_previewless_fallback_is_rendered_and_verified(self):
+        rc, result = self.run_gate(preview_rc=3)
+        self.assertEqual(rc, 1)
+        self.assertEqual(result["previewless_fallback_checks"], 1)
+        self.assertEqual(result["cases"][0]["fallback"]["status"], "passed")
+        self.assertTrue((self.out / "test_0000/fallback-neutral.png").exists())
+
+    def test_previewless_fallback_render_error_fails(self):
+        rc, result = self.run_gate(preview_rc=3, render_rc=1)
+        self.assertEqual(rc, 1)
+        self.assertEqual(result["counts"]["error"], 1)
+
+    def test_previewless_auto_neutral_difference_fails(self):
+        def command(args, **kwargs):
+            value = 128 if args[-1] == "neutral" else 130
+            Image.new("RGB", (64, 64), (value, value, value)).save(
+                args[args.index("--out") + 1]
+            )
+            return subprocess.CompletedProcess(args, 0)
+
+        with patch.object(gate.subprocess, "run", side_effect=command):
+            with self.assertRaisesRegex(ValueError, "does not equal Neutral"):
+                gate.validate_previewless(self.cli, self.raw, self.out, {})
+
     def test_empty_filter_fails_closed(self):
         with self.assertRaises(ValueError):
             gate.fixtures(self.root, None, "does-not-exist")

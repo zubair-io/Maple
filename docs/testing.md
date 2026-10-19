@@ -162,13 +162,20 @@ The `build-raw-ffi` job also compile-gates `cargo build --bin maple-cli --featur
 `src/scripts/test_color_pipeline.sh` is the canonical Auto appearance gate.
 It delegates to `test_auto_profile_match.sh`: each RAW is rendered with Auto
 and compared against its own camera-embedded JPEG, never an Adobe render.
-**Known gate limitation (#5000):** signed band means can cancel large opposing
-errors. A passing score is insufficient for image-quality qualification.
-The rejected calibration passed all 16 numeric comparisons while visibly
-degrading multiple images. All 16 JPEG-bearing fixtures, including original
-passing controls, require non-cancelling spatial/color checks and visual review;
-the four previewless fixtures require separate fallback validation. See
-`test-fixtures/qualification/experiments/auto-jpeg-quality-audit/`.
+**Auto JPEG quality checks (#5000):** the old signed band means alone allowed
+severe visible defects. The runner and direct comparator now ALSO require
+non-cancelling full-frame/per-band RGB error at the JPEG grid, full-frame and
+8-by-8 regional error at display scale, perceptual mean/tail color error,
+clipping and gradient checks. No borders are omitted from the added checks.
+The fixed shared policy is in `src/scripts/auto_profile_quality.py`; its
+rationale and saved physical replay are in
+`test-fixtures/qualification/experiments/auto-jpeg-quality-harness/`.
+All 16 JPEG-bearing fixtures have committed photographic regression derivatives,
+including the four old passing controls, and identity controls. Tests run in CI
+without RAWs. Numeric passes still require full-corpus visual review; this does
+not establish native detail, host/GPU parity or every-camera quality.
+Previewless RAWs separately require exact rendered Auto/Neutral pixel equality;
+they remain excluded from JPEG-match pass counts.
 
 The established metric is signed channel bias in five reference-luma bands,
 with the unchanged 0.05 limit. Preview extraction normalizes orientation and

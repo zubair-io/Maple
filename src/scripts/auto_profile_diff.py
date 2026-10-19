@@ -6,11 +6,12 @@ Compares Maple's `Profile = Auto` render against the RAW's embedded JPEG.
 Emits per-luma-band (5 bands) per-channel signed bias. Fails if any
 band exceeds the budget.
 
-This is a signed-bias check, not an image-quality acceptance test. Positive
+The signed-bias metric alone is not an image-quality acceptance test. Positive
 and negative errors can cancel within each band. It does not establish
 spatial color accuracy, clipping safety, detail preservation or absence of
 posterization. The #5000 LUT calibration passed it despite visible damage.
-Non-cancelling measurements and full-fixture visual review are required.
+The CLI also enforces auto_profile_quality.py non-cancelling checks.
+Full-fixture visual review is still required.
 Companion: src/scripts/test_auto_profile_match.sh drives this script
 fixture-by-fixture and aggregates pass/fail counts.
 """
@@ -144,39 +145,14 @@ def main():
     if not math.isfinite(args.budget) or args.budget < 0:
         ap.error("budget must be finite and nonnegative")
 
-    ref = load(args.reference)
-    cand = match_shape(load(args.candidate), ref)
+    from auto_profile_match import compare
 
-    # Discard outer 10% border to ignore lens vignetting and cropping mismatch
-    h, w = ref.shape[:2]
-    border_y = round(h * 0.1)
-    border_x = round(w * 0.1)
-    cand_inner = cand[border_y : h - border_y, border_x : w - border_x]
-    ref_inner = ref[border_y : h - border_y, border_x : w - border_x]
-
-    bias = per_band_bias(cand_inner, ref_inner)
-    print(json.dumps(bias, indent=2))
-
-    if not bias or not all(
-        math.isfinite(vals[ch]) for vals in bias.values() for ch in "RGB"
-    ):
-        print("FAIL: no measurable luma bands or nonfinite bias", file=sys.stderr)
-        sys.exit(2)
-
-    failed = []
-    for band, vals in bias.items():
-        for ch in "RGB":
-            if abs(vals[ch]) > args.budget:
-                failed.append(
-                    f"band {band} channel {ch} bias={vals[ch]:+.4f} "
-                    f"(budget ±{args.budget})"
-                )
-    if failed:
-        print("FAIL:", file=sys.stderr)
-        for f in failed:
-            print("  " + f, file=sys.stderr)
+    result = compare(args.candidate, args.reference, args.budget)
+    print(json.dumps(result, indent=2))
+    if result["status"] != "passed":
+        print("FAIL: bias or full-frame image-quality checks", file=sys.stderr)
         sys.exit(1)
-    print("PASS")
+    print("PASS: numeric checks; visual review still required")
 
 
 if __name__ == "__main__":

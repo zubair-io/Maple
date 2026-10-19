@@ -602,6 +602,8 @@ jobs:
         run: python3 src/scripts/stage_stats_test.py
       - name: stage_diff.py unit tests
         run: python3 src/scripts/stage_diff_test.py
+      - name: Test Auto JPEG non-cancelling quality checks
+        run: python3 src/scripts/auto_profile_quality_test.py
       - name: Test Auto embedded-JPEG gate contracts
         run: python3 src/scripts/auto_profile_match_test.py
       - name: Test canonical color gate uses embedded JPEGs
