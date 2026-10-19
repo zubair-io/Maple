@@ -41,3 +41,18 @@ when the stage-dump feature AND existing MAPLE_STAGE_DUMP directory are enabled.
 MAPLE_STAGE_DUMP_ROI may keep EXR diagnostics tiny; the sampled operator is still
 built from the full fit frame. Neither file is full RAW qualification by itself.
 Normal rendering and all acceptance budgets remain unchanged.
+
+## Measured rejection cause and sampling correction
+
+The diagnostic on0004shows every native global RGB/perceptual check improving.
+Only display region14rejects the candidate: the quarter-sample estimate is
++0.14923DE. Using all1,024sampled display pixels gives+0.05436DE, with paired
+standard error0.06876DE; the full-image audit measured only+0.00438DE. The
+source data snapshots are preserved outside Git in the diagnostic evidence root.
+
+The local safety check now uses ALL sampled display pixels. The native global
+checks retain the held-out split. No limit changes. For small previews the local
+check may include training observations, but it only adds an image-preservation
+constraint; final full-RAW acceptance and all fixed negative fixtures remain
+independent. The local-damage witness still rejects a harmful region even when
+whole-frame averages improve. Physical verification remains required.

@@ -236,7 +236,7 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
         .iter_mut()
         .map(|values| *values.select_nth_unstable_by(index, f64::total_cmp).1)
         .collect();
-    for row in display.iter().filter(|row| row.validation) {
+    for row in display {
         counts[row.region] += 1;
         let prediction = std::array::from_fn(|c| {
             row.weights

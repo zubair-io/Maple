@@ -227,4 +227,8 @@ fn regional_perception_uses_display_averages_and_keeps_native_rgb_checks() {
     let candidate = ColorLut::identity(GRID);
     assert!(!prefer(&candidate, &native, &native));
     assert!(prefer(&candidate, &native, &display));
+    for row in &mut display {
+        row.validation = false;
+    }
+    assert!(prefer(&candidate, &native, &display));
 }
