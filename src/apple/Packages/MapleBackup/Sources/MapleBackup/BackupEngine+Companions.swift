@@ -95,6 +95,10 @@ extension BackupEngine {
     maxAttempts: Int,
     op: @escaping @Sendable () async throws -> Void
   ) {
+    // Checked on the actor, with no suspension before the insert below: a
+    // caller cancelled by stop() while hopping here must not register a retry
+    // after stop() took its snapshot.
+    guard !Task.isCancelled else { return }
     guard attempt < maxAttempts else {
       Self.companionLog.error(
         "companion \(label, privacy: .public) exhausted \(maxAttempts) attempts — dropping (re-derivable artifacts can be regenerated on a future walk)"
