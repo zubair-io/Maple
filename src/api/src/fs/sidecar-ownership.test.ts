@@ -32,6 +32,21 @@ afterEach(async () => {
 
 const abs = (rel: string) => path.join(root, ...rel.split('/'));
 
+async function settledWithin<T>(
+  pending: Promise<T>[],
+  ms = 2000,
+): Promise<PromiseSettledResult<T>[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadlock = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('sidecar barriers deadlocked')), ms);
+  });
+  try {
+    return await Promise.race([Promise.allSettled(pending), deadlock]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function write(rel: string, content: string): Promise<string> {
   await fs.mkdir(path.dirname(abs(rel)), { recursive: true });
   await fs.writeFile(abs(rel), content);
@@ -138,6 +153,38 @@ describe('batch moves', () => {
   test('a join of a sidecar with itself takes one barrier instead of waiting on itself', async () => {
     const sidecar = await write('a/IMG_1.xmp', '<shared/>');
     expect((await joinCarriedSidecar(sidecar, sidecar)).toString()).toBe('<shared/>');
+  });
+
+  test('a join through a file symlink to the same sidecar settles instead of waiting on itself', async () => {
+    const sidecar = await write('a/IMG_1.xmp', '<shared/>');
+    await fs.symlink(sidecar, abs('a/IMG_2.xmp'));
+    const [outcome] = await settledWithin([joinCarriedSidecar(sidecar, abs('a/IMG_2.xmp'))]);
+    expect(outcome?.status).toBe('rejected');
+  });
+
+  test('crossed joins through file symlinks to two sidecars do not deadlock', async () => {
+    const a = await write('d/a.xmp', '<shared/>');
+    const b = await write('d/b.xmp', '<shared/>');
+    await fs.symlink(a, abs('d/y.xmp'));
+    await fs.symlink(b, abs('d/z.xmp'));
+    const outcomes = await settledWithin([
+      joinCarriedSidecar(a, abs('d/z.xmp')),
+      joinCarriedSidecar(b, abs('d/y.xmp')),
+    ]);
+    expect(outcomes.map((o) => o.status)).toEqual(['rejected', 'rejected']);
+  });
+
+  // A real bind mount needs root; a symlinked parent is the unprivileged stand-in
+  // for two directory paths that reach one folder.
+  test('crossed joins through two paths to one folder do not deadlock', async () => {
+    const a = await write('real/a.xmp', '<shared/>');
+    const b = await write('real/b.xmp', '<shared/>');
+    await fs.symlink(abs('real'), abs('mount'));
+    const outcomes = await settledWithin([
+      joinCarriedSidecar(a, abs('mount/b.xmp')),
+      joinCarriedSidecar(b, abs('mount/a.xmp')),
+    ]);
+    expect(outcomes.map((o) => o.status)).toEqual(['fulfilled', 'fulfilled']);
   });
 
   test('a join whose destination changed under its barrier becomes a collision', async () => {
