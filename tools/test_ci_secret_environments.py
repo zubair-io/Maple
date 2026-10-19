@@ -18,7 +18,8 @@ SENSITIVE_ENVIRONMENTS = (
 
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 INHERIT = re.compile(r"secrets:\s*inherit", re.IGNORECASE)
-WHOLE_OBJECT = re.compile(r"\bsecrets\b(?!\s*\.\s*[A-Za-z_])(?!\s*\[\s*['\"])", re.IGNORECASE)
+NAMED_SECRET = re.compile(r"secrets\s*(?:\.\s*([A-Za-z_]\w*)|\[\s*(['\"])([A-Za-z_]\w*)\2\s*\])", re.IGNORECASE)
+WHOLE_OBJECT = re.compile(r"\bsecrets\b(?!\s*\.\s*[A-Za-z_]\w*)(?!\s*\[\s*(['\"])[A-Za-z_]\w*\1\s*\])", re.IGNORECASE)
 
 
 def workflow_files():
@@ -30,8 +31,7 @@ def load(name):
 
 
 def secret_names(value):
-    found = re.findall(r"secrets\s*(?:\.\s*|\[\s*['\"])([A-Za-z0-9_]+)", str(value), re.IGNORECASE)
-    return [name.upper() for name in found]
+    return [(dotted or quoted).upper() for dotted, _, quoted in NAMED_SECRET.findall(str(value))]
 
 
 def job_secret_names(config, job):
@@ -103,6 +103,8 @@ class SecretEnvironmentTests(unittest.TestCase):
             " toJSON ( secrets ) ",
             " format('{0}', secrets) ",
             " secrets[format('{0}', 'X')] ",
+            " secrets['harmless' && 'VERSION_SYNC_TOKEN'] ",
+            " secrets['VERSION_SYNC_TOKEN' || 'x'] ",
         ):
             with self.subTest(expression=expression):
                 self.assertIsNotNone(WHOLE_OBJECT.search(expression))
