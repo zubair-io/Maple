@@ -16,6 +16,11 @@ SENSITIVE_ENVIRONMENTS = (
 )
 
 
+EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+INHERIT = re.compile(r"secrets:\s*inherit", re.IGNORECASE)
+WHOLE_OBJECT = re.compile(r"\bsecrets\b(?!\s*\.)(?!\s*\[\s*['\"])", re.IGNORECASE)
+
+
 def workflow_files():
     return sorted(path for path in WORKFLOWS.iterdir() if path.suffix in (".yml", ".yaml"))
 
@@ -73,10 +78,24 @@ class SecretEnvironmentTests(unittest.TestCase):
         self.assertEqual(job_secret_names(config, config["jobs"]["build"]), ["VERSION_SYNC_TOKEN"])
 
     def test_no_workflow_hands_over_the_whole_secrets_object(self):
-        whole_object = re.compile(r"secrets:\s*inherit|toJSON\(\s*secrets\s*\)|secrets\s*\[\s*[^'\"\s]", re.IGNORECASE)
         for path in workflow_files():
+            text = path.read_text()
             with self.subTest(workflow=path.name):
-                self.assertIsNone(whole_object.search(path.read_text()))
+                self.assertIsNone(INHERIT.search(text))
+                for expression in EXPRESSION.findall(text):
+                    self.assertIsNone(WHOLE_OBJECT.search(expression), expression)
+
+    def test_whole_object_patterns_catch_equivalent_spellings(self):
+        for expression in (
+            " toJSON(secrets) ",
+            " toJSON ( secrets ) ",
+            " format('{0}', secrets) ",
+            " secrets[format('{0}', 'X')] ",
+        ):
+            with self.subTest(expression=expression):
+                self.assertIsNotNone(WHOLE_OBJECT.search(expression))
+        self.assertIsNone(WHOLE_OBJECT.search(" secrets.VERSION_SYNC_TOKEN "))
+        self.assertIsNone(WHOLE_OBJECT.search(" secrets ['VERSION_SYNC_TOKEN'] "))
 
     def test_workflow_files_cover_yaml_and_yml(self):
         self.assertTrue(all(path.suffix in (".yml", ".yaml") for path in workflow_files()))
