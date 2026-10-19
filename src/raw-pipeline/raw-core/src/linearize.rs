@@ -110,7 +110,11 @@ pub fn sensor_linearize_region(
                 let denom = (wl - bl).max(1.0);
                 let raw_v = raw_row[abs_x] as f32;
                 let v = ((raw_v - bl) / denom).clamp(0.0, 1.0);
-                px[color] = v;
+                let gain = raw
+                    .sensor_gain_maps
+                    .as_ref()
+                    .map_or(1., |maps| maps.gain_at(abs_x as u32, abs_y as u32, 0));
+                px[color] = v * gain;
             }
         });
     img
@@ -207,6 +211,13 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
             (r_norm, g_norm, b_norm)
         };
         *px = [r, g, b];
+        if let Some(maps) = &raw.sensor_gain_maps {
+            let x = (idx % w) as u32;
+            let y = (idx / w) as u32;
+            for (plane, value) in px.iter_mut().enumerate() {
+                *value *= maps.gain_at(x, y, plane as u32);
+            }
+        }
     });
     Ok(img)
 }

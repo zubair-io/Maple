@@ -31,6 +31,7 @@ pub mod decode_cache;
 pub mod dng_ifd_walker;
 
 pub mod linearize;
+pub mod sensor_gain_maps;
 
 pub mod demosaic;
 

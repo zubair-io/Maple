@@ -700,6 +700,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         crop_rect,
         iso,
         noise_profile,
+        sensor_gain_maps: crate::sensor_gain_maps::read(bytes, ext, width, height),
         opcode_list3,
         aperture,
         focal_length,
