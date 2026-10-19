@@ -27,6 +27,27 @@ function errMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+interface ColourMetadata {
+  hasProfile?: boolean;
+  space?: string;
+  colorPrimaries?: number;
+  transferCharacteristics?: number;
+}
+
+function colourMetadataRejection(meta: ColourMetadata): string | null {
+  if (meta.hasProfile) {
+    return 'unexpected embedded ICC profile — this pipeline writes untagged sRGB AVIF by convention';
+  }
+  if (meta.space !== 'srgb') {
+    return `unexpected colourspace "${meta.space}" (expected srgb)`;
+  }
+  const primariesOk = [1, 2].includes(meta.colorPrimaries ?? NaN);
+  const transferOk = [13, 2].includes(meta.transferCharacteristics ?? NaN);
+  return primariesOk && transferOk
+    ? null
+    : `unexpected CICP primaries ${meta.colorPrimaries} / transfer ${meta.transferCharacteristics} (expected sRGB)`;
+}
+
 /**
  * Decode `filePath` and confirm it's a genuine, complete, correctly-sized
  * AVIF matching this pipeline's encode conventions. Checks run cheapest
@@ -85,28 +106,8 @@ export async function checkAvifOutput(
       reason: `dimensions ${meta.width}x${meta.height} exceed expected long edge ${expectedLongEdgePx} (+${DIMENSION_TOLERANCE_PX}px tolerance)`,
     };
   }
-  if (meta.hasProfile) {
-    return {
-      ok: false,
-      reason:
-        'unexpected embedded ICC profile — this pipeline writes untagged sRGB AVIF by convention',
-    };
-  }
-  if (meta.space !== 'srgb') {
-    return {
-      ok: false,
-      reason: `unexpected colourspace "${meta.space}" (expected srgb)`,
-    };
-  }
-  if (
-    ![1, 2].includes(meta.colorPrimaries ?? NaN) ||
-    ![13, 2].includes(meta.transferCharacteristics ?? NaN)
-  ) {
-    return {
-      ok: false,
-      reason: `unexpected CICP primaries ${meta.colorPrimaries} / transfer ${meta.transferCharacteristics} (expected sRGB)`,
-    };
-  }
+  const colourReason = colourMetadataRejection(meta);
+  if (colourReason) return { ok: false, reason: colourReason };
   const intact = await image.validateIntegrity();
   return intact.ok ? { ok: true } : { ok: false, reason: `pixel decode failed: ${intact.error}` };
 }
