@@ -161,11 +161,22 @@ describe('exif handler', () => {
     const jpeg = await solidJpeg(600, 600, [10, 20, 30]);
     const bytes = Buffer.concat([jpeg, Buffer.alloc(80 * 1024, 7)]);
     await writeFile(file, bytes);
-    const doc = { ...makeDoc(file, libraryId, dir), maple_id: `02${'c'.repeat(30)}` };
+    const legacyId = deriveId(new Uint8Array(bytes.subarray(0, 64 * 1024)), null, null, null).hex;
+    const doc = { ...makeDoc(file, libraryId, dir), maple_id: legacyId };
     const result = await exifStage.handler(doc as never, {} as never);
     expect(patchFields(result).maple_id).toBe(
       deriveId(new Uint8Array(bytes), null, null, null).hex,
     );
+  });
+
+  it('leaves a full-file fallback id alone for dateless rows', async () => {
+    const file = path.join(dir, 'current-dateless.jpg');
+    const bytes = Buffer.concat([await solidJpeg(600, 600, [1, 2, 3]), Buffer.alloc(80 * 1024, 9)]);
+    await writeFile(file, bytes);
+    const mapleId = deriveId(new Uint8Array(bytes), null, null, null).hex;
+    const doc = { ...makeDoc(file, libraryId, dir), maple_id: mapleId };
+    const result = await exifStage.handler(doc as never, {} as never);
+    expect(patchFields(result).maple_id).toBeUndefined();
   });
 
   it('never downgrades a primary-form id when the file has no capture date', async () => {

@@ -114,17 +114,19 @@ const exifStage = defineStage({
     // Heuristic screenshot seed — describe stage refines this later.
     const isScreenshot = isLikelyScreenshot(absPath, exif?.camera_make ?? null);
 
-    // Upgrade maple_id to primary form if capturedAt is available; a dateless
-    // row stays fallback-form but is re-derived over the full file, replacing
-    // the legacy head-only id (#4728). Primary ids are never downgraded.
+    // Upgrade maple_id to primary form if capturedAt is available. A dateless
+    // row stays fallback-form, but one still holding the legacy head-only id
+    // is re-derived over the full file (#4728); an id discover already derived
+    // over the full file matches neither and costs no extra read.
+    const head = await readHead(absPath);
     const id = exif?.captured_at
       ? deriveId(
-          await readHead(absPath),
+          head,
           exif.captured_at,
           null, // camera_serial not in AssetExif schema yet
           null, // shutter_count not in AssetExif schema yet
         )
-      : image.maple_id?.startsWith('02')
+      : image.maple_id === deriveId(head, null, null, null).hex
         ? { hex: (await hashFileForId(absPath)).maple_id }
         : null;
     if (id) {
