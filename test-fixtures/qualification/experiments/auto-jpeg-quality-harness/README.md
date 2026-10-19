@@ -55,3 +55,18 @@ previewless fixture a JPEG color match.
 No complete color-fix claim is made. Once the replay and regression tests are
 committed, work resumes on actual Auto processing against this stricter policy,
 with full-corpus visual review and incremental draft pushes. Nothing is merged.
+
+## Verified checkpoint
+
+The complete replay of original full-resolution saved PNGs is complete: all 20
+fixtures accounted for, 16 actual image comparisons per version and four missing
+previews. The stronger checks reject 14/16 rejected-calibration images and 15/16
+original images; the remaining numerical positive controls match the photographic
+regression labels above. This is a saved-image replay, not a new RAW render.
+No original RAW or embedded reference changed. All reference hashes match.
+
+Validation: 16 quality tests (including 48 photographic subcases across all
+16 fixtures), 12 runner tests, and 4 canonical entrypoint tests pass. The native
+cancellation witness and separately reported no-preview fallback contract are
+covered. Actual no-preview physical renders remain to be run; a mocked contract
+is not reported as physical qualification.
