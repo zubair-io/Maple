@@ -1,0 +1,18 @@
+{
+  "source": "4cfbe3881207d8a982a9676ace1f8d9542423267",
+  "all_16_photographs_visually_inspected": true,
+  "contact_sheets": [
+    "contact-1.jpg",
+    "contact-2.jpg",
+    "contact-3.jpg",
+    "contact-4.jpg"
+  ],
+  "original_candidate_camera_jpeg": true,
+  "remaining_visible_concerns": {
+    "0005": "Partial sky/color improvement; remaining local/native failures stay red.",
+    "0012": "Improved blue appearance but remaining brightness/framing differences.",
+    "0015": "Shading/sky improve; foreground remains too flat versus camera JPEG.",
+    "0017": "Faded/low contrast remains obvious; framing correspondence also differs."
+  },
+  "new_native_and_signed_breaches_0011": "Still unaccepted despite small full-image perceptual improvement; no waiver."
+}
