@@ -144,4 +144,11 @@ extension EditSession {
     else { return nil }
     return mtime
   }
+
+  /// The model the decoded cache keys on (#4715, #4961): the live model once
+  /// the sidecar has loaded. Before that the live model is only constructor
+  /// defaults, so every decode reads the sidecar on disk instead of baking them.
+  func decodeKey(_ model: AdjustmentModel) -> AdjustmentModel? {
+    hasLoadedSidecar ? model : nil
+  }
 }

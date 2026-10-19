@@ -98,7 +98,7 @@ extension EditSession {
     let fitRevision = autoFitRevision
     // #1781: adopt the decode-exported WB slider frame BEFORE capturing
     // the model + anchor (this snapshot is also the freshness read).
-    let snapshot = await renderActor.snapshot(forAsset: asset, liveModel: renderModel)
+    let snapshot = await renderActor.snapshot(forAsset: asset, liveModel: decodeKey(renderModel))
     guard !Task.isCancelled else { return }
     adoptDecodedWbFrame(snapshot.wbFrame)
     // #2231: same lifecycle as the WB frame above — the inspector
@@ -351,7 +351,7 @@ extension EditSession {
           profile: m.profile,
           autoExposure: m.autoExposure,
           quality: decodeQuality,
-          liveModel: m,
+          liveModel: decodeKey(m),
           normalize: { [weak self] image, asset in
             guard let self else { return image }
             return await MainActor.run {
@@ -367,7 +367,7 @@ extension EditSession {
         }
         // #1781: adopt the fresh decode's slider-frame export BEFORE
         // the GPU present (it reads the session's frame + model).
-        let freshSnapshot = await renderActor.snapshot(forAsset: asset, liveModel: m)
+        let freshSnapshot = await renderActor.snapshot(forAsset: asset, liveModel: decodeKey(m))
         adoptDecodedWbFrame(freshSnapshot.wbFrame)
         // #2231: same lifecycle as the WB frame above.
         cameraSupport = freshSnapshot.cameraSupport

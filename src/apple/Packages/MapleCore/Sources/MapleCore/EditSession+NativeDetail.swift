@@ -94,7 +94,7 @@ extension EditSession {
     // `Optional<(data:[Float], size:Int, key:UInt32)>` is Sendable, so
     // it captures cleanly into the detached closure (#2683 / #2713).
     let filmLattice = filmLutStore.lattice(for: m.filmLook)
-    let snapshot = await renderActor.snapshot(forAsset: asset, liveModel: m)
+    let snapshot = await renderActor.snapshot(forAsset: asset, liveModel: decodeKey(m))
     guard requestID == nativeDetailRequestID, !Task.isCancelled else { return true }
     adoptDecodedWbFrame(snapshot.wbFrame)
     // #1976: the live WB delta is applied ONCE, by `processSceneLinear`
