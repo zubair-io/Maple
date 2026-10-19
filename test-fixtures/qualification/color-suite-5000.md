@@ -142,3 +142,30 @@ continues independently; no original reference or budget was overwritten.
 Validation: all 13 companion qualification tests, 19 complete-metadata tests
 and 27 Adobe reference-tooling tests pass; Ruff passes. The final qualifier
 produces a byte-identical manifest to the one used by the physical comparisons.
+
+## Complete Neutral/Auto passes and tint preview
+
+The original-protocol run has completed all 606 Neutral comparisons: **64
+fail**, with zero comparison errors. All 20 Auto comparisons pass. Native
+detail remains in progress, so these are not whole-suite totals. Sony
+test_0011 contributes 25 of the 64 Neutral failures. Every one of the original
+1,860 input paths has additionally been copied into a read-only, SHA-verified
+snapshot (957 unique contents), preserving inputs even if old worktrees go away.
+Reference paths must come from the frozen manifest: Sony uses the separate
+tone-slider-sprint capture root, not the primary checkout's older lens-enabled
+reference. No original input was changed.
+
+All 36 proposed corrected tint captures were compared to the already retained
+main PNGs. Original references fail 18; corrected captures fail 16: **9 clear,
+7 newly fail**. This preview is not adopted and is not a renderer-fix count.
+It preserves all 36 cases, including newly exposed errors. Full raw metrics
+are in `color-suite-5000-tint-preview.json`.
+
+Fresh current-main Sony attribution repeats the existing deterministic
+neutral/flat-pixel probe on the exact canonical reduced pair. The required
+median EV changes are -0.4233, -0.9262 and -1.1817 for reference code bands
+10–30, 30–60 and 60–90; their +/-1-code bounds do not overlap. This rules out
+a single exposure-offset correction as a sufficient fix. It does not establish
+Adobe's scene-linear truth or justify fitting a camera-specific curve. The
+compact input/filter/selection identities and results are retained in
+`color-suite-5000-sony-attribution.json`.
