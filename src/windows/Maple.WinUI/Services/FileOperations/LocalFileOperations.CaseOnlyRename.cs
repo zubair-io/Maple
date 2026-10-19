@@ -33,6 +33,12 @@ namespace Maple.WinUI.Services.FileOperations
             // distinct X.xmp; a sibling x.JPG that still reads x.xmp keeps it
             // (#4758 rule 1), so the sidecar is copied, never moved.
             var sidecarSharedWithSibling = hadSidecar && SidecarStemClaimedBySibling(source, target);
+            // A case-sensitive folder can already hold an unrelated X.xmp;
+            // the renamed photo would adopt it, so refuse before anything moves.
+            var targetSidecarPath = SidecarStore.SidecarPathFor(target);
+            if (!SameSidecarPath(sourceSidecarPath, targetSidecarPath) && PathOccupied(targetSidecarPath))
+                throw new FileOperationException(FileOperationErrorKind.DestinationExists,
+                    $"destination sidecar belongs to another file: {targetSidecarPath}");
 
             File.Move(source, target);
 
@@ -40,7 +46,6 @@ namespace Maple.WinUI.Services.FileOperations
             string? usedSourceSidecarPath = null;
             if (hadSidecar)
             {
-                var targetSidecarPath = SidecarStore.SidecarPathFor(target);
                 usedSourceSidecarPath = sourceSidecarPath;
                 try
                 {
