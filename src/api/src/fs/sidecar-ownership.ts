@@ -21,6 +21,7 @@ import { serializeSidecarWrite, serializeSidecarWrites } from './sidecar-write-o
 import { isVideoFilename } from '../indexer/media-types';
 import { child as childLogger } from '../log.ts';
 import {
+  errnoCode,
   PublishCollisionError,
   publishExclusive,
   type RelocatePublication,
