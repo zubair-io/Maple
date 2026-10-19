@@ -1,7 +1,8 @@
 import { createLiveTestDatabase } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { ObjectId } from '../../db/object-id.ts';
-import { RemoteError } from '../../enrichment/describe-providers/index.ts';
+import { RemoteError, TruncatedOutputError } from '../../enrichment/describe-providers/index.ts';
+import { DescribeServerPool } from '../../enrichment/describe-server-pool.ts';
 import { STAGE_STATE_VIDEO_NARROWING } from '../../db/sqlite/ddl/stage-state.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import type { SampledFrame } from '../../video/sample-frames.ts';
@@ -66,7 +67,11 @@ afterEach(() => {
 
 interface InjectOptions {
   frames?: SampledFrame[];
-  describeImpl?: (frames: readonly Buffer[]) => Promise<{
+  serverCount?: number;
+  describeImpl?: (
+    frames: readonly Buffer[],
+    serverUrl: string,
+  ) => Promise<{
     result: { text: string; cost_usd: number; provider_info: Record<string, string> };
     server: { url: string };
   }>;
@@ -86,21 +91,29 @@ function inject(opts: InjectOptions = {}): { calls: Array<readonly Buffer[]> } {
     server: { url: 'http://gpu-box:11434' },
   });
   const impl = opts.describeImpl ?? defaultDescribe;
-  // Every call — success or throw — is recorded here, regardless of which
-  // implementation ran, so a test asserting on `calls` never has to
-  // remember to record it itself.
-  const recordingDescribe = async (sent: readonly Buffer[]) => {
-    calls.push(sent);
-    return impl(sent);
-  };
+  const pool = new DescribeServerPool(
+    Array.from({ length: opts.serverCount ?? 1 }, (_, i) => ({
+      url: i === 0 ? 'http://gpu-box:11434' : `http://gpu-box-${i}:11434`,
+      concurrency: 1,
+    })),
+    (url) => ({
+      name: 'openai',
+      health: async () => {},
+      describe: async (sent) => {
+        calls.push(sent);
+        return (await impl(sent, url)).result;
+      },
+    }),
+  );
   setVideoDescribeDepsForTests({
     sampleFrames: async () =>
       opts.sampleFailureReason
         ? { ok: false, reason: opts.sampleFailureReason }
         : { ok: true, frames, candidateCount: frames.length * 4, samplingMs: 123 },
-    describe: recordingDescribe,
+    pool,
+    systemPrompt: 'video prompt',
     model: 'gemma4:12b',
-  } as never);
+  });
   return { calls };
 }
 
@@ -137,6 +150,41 @@ describe('video-describe stage config', () => {
 });
 
 describe('video-describe handler', () => {
+  it.each(['failover', 'all-truncated', 'terminal-after-truncation'])(
+    'includes billed truncations across %s and degradation rungs',
+    async (scenario) => {
+      const { calls } = inject({
+        serverCount: 2,
+        describeImpl: async (sent, url) => {
+          if (url === 'http://gpu-box:11434') {
+            throw new TruncatedOutputError('cut off', 0.004);
+          }
+          if (sent.length > 1 && scenario !== 'failover') {
+            if (scenario === 'all-truncated') throw new TruncatedOutputError('cut off', 0.002);
+            throw new RemoteError('too many images', false, 400);
+          }
+          return {
+            result: {
+              text: validResponseFor(THREE_FRAMES.slice(0, sent.length)),
+              cost_usd: 0.001,
+              provider_info: {},
+            },
+            server: { url },
+          };
+        },
+      });
+      const result = await videoDescribeHandler(asset('clip.mp4') as never, {} as never);
+      const meta = patchedVideoMeta(result);
+      expect(meta.cost_usd).toBeCloseTo(
+        scenario === 'failover' ? 0.005 : scenario === 'all-truncated' ? 0.017 : 0.013,
+        10,
+      );
+      expect(meta.fallback_level).toBe(scenario === 'failover' ? 'full' : 'poster-only');
+      expect(calls).toHaveLength(scenario === 'failover' ? 2 : 6);
+      expect(meta.server_url).toBe('http://gpu-box-1:11434');
+    },
+  );
+
   it('skips a non-video asset defensively (claimResidual already narrows this)', async () => {
     inject();
     const result = await videoDescribeHandler(asset('photo.jpg') as never, {} as never);
