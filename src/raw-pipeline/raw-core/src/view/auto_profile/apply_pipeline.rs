@@ -189,11 +189,16 @@ fn fit_via_acr2(
         &model,
         crate::view::auto_profile::bake::DEFAULT_LUT_SIZE,
     );
-    if let (Some(current), Some(candidate)) = (
-        residual.as_ref(),
-        super::paired_fit::fit(&pairs, crate::view::auto_profile::bake::DEFAULT_LUT_SIZE),
-    ) {
-        if super::paired_fit::prefer(&candidate, current, &pairs) {
+    if let Some(current) = residual.as_ref() {
+        if let Some(candidate) = super::paired_fit::fit(
+            pixels,
+            w,
+            h,
+            orientation,
+            p,
+            current,
+            crate::view::auto_profile::bake::DEFAULT_LUT_SIZE,
+        ) {
             residual = Some(candidate);
         }
     }

@@ -1,14 +1,18 @@
 //! Regularized paired-pixel Auto candidate, qualified separately under #5000.
-use super::{lut::ColorLut, pairs::DisplayPair};
+use super::{
+    lut::ColorLut,
+    paired_observations::{self, Observation},
+    preview::ExtractedPreview,
+};
+use crate::image::ExifOrientation;
 use crate::view::{
     acr_fit::model::{ciede2000, srgb_linear_to_lab},
     agx_inverse::srgb_gamma_inv,
 };
-const GRID: usize = 9;
-const CELLS: usize = GRID * GRID * GRID;
-const SAMPLES: usize = 65536;
+pub(super) const GRID: usize = 9;
+pub(super) const CELLS: usize = GRID * GRID * GRID;
 
-fn corners(rgb: [f32; 3]) -> [(usize, f64); 4] {
+pub(super) fn corners(rgb: [f32; 3]) -> [(usize, f64); 4] {
     let mut lo = [0; 3];
     let mut f = [0.; 3];
     for c in 0..3 {
@@ -135,33 +139,22 @@ fn constrain(data: &mut [f32]) {
     }
 }
 
-pub(super) fn fit(pairs: &[DisplayPair], size: usize) -> Option<ColorLut> {
-    if pairs.len() < 256
-        || size < 2
-        || pairs
-            .iter()
-            .any(|p| p.maple.iter().chain(&p.jpeg).any(|v| !v.is_finite()))
-    {
+fn solve_observations(observations: &[Observation], size: usize) -> Option<(ColorLut, ColorLut)> {
+    let count = observations.iter().filter(|row| !row.validation).count();
+    if count < 128 || size < 2 {
         return None;
     }
-    let stride = pairs.len().div_ceil(SAMPLES);
     let mut a = vec![0.; CELLS * CELLS];
     let mut b = vec![[0.; 3]; CELLS];
-    let mut count = 0;
-    for (i, pair) in pairs.iter().step_by(stride).enumerate() {
-        if i % 4 == 0 {
-            continue;
-        }
-        let weights = corners(pair.maple);
-        for (j, u) in weights {
-            for (k, v) in weights {
+    for row in observations.iter().filter(|row| !row.validation) {
+        for &(j, u) in &row.weights {
+            for &(k, v) in &row.weights {
                 a[j * CELLS + k] += u * v;
             }
             for c in 0..3 {
-                b[j][c] += u * f64::from(pair.jpeg[c] - pair.maple[c]);
+                b[j][c] += u * (row.target[c] - row.source[c]);
             }
         }
-        count += 1;
     }
     for v in &mut a {
         *v /= count as f64;
@@ -198,104 +191,65 @@ pub(super) fn fit(pairs: &[DisplayPair], size: usize) -> Option<ColorLut> {
     for node in result.data.chunks_exact_mut(3) {
         node.copy_from_slice(&coarse.sample([node[0], node[1], node[2]]));
     }
-    Some(result)
+    Some((result, coarse))
 }
 
 fn lab(rgb: [f32; 3]) -> [f32; 3] {
     srgb_linear_to_lab(rgb.map(srgb_gamma_inv))
 }
 
-pub(super) fn prefer(candidate: &ColorLut, current: &ColorLut, pairs: &[DisplayPair]) -> bool {
-    let stride = pairs.len().div_ceil(SAMPLES).max(1);
+fn prefer(candidate: &ColorLut, observations: &[Observation]) -> bool {
     let mut squared = [[0.; 3]; 2];
     let mut absolute = [[0.; 3]; 2];
     let mut perceptual = [0.; 2];
-    for pair in pairs.iter().step_by(stride).step_by(4) {
-        let target = lab(pair.jpeg);
-        for (i, lut) in [candidate, current].into_iter().enumerate() {
-            let output = lut.sample(pair.maple);
-            perceptual[i] += f64::from(ciede2000(lab(output), target));
+    let mut tails = [Vec::new(), Vec::new()];
+    for row in observations.iter().filter(|row| row.validation) {
+        let target = lab(row.target.map(|v| v as f32));
+        let prediction = std::array::from_fn(|c| {
+            row.weights
+                .iter()
+                .map(|&(i, w)| w * f64::from(candidate.data[i * 3 + c]))
+                .sum::<f64>()
+        });
+        for (i, output) in [prediction, row.baseline].into_iter().enumerate() {
+            let de = f64::from(ciede2000(lab(output.map(|v| v as f32)), target));
+            perceptual[i] += de;
+            tails[i].push(de);
             for c in 0..3 {
-                let error = f64::from(output[c] - pair.jpeg[c]);
+                let error = output[c] - row.target[c];
                 squared[i][c] += error * error;
                 absolute[i][c] += error.abs();
             }
         }
     }
+    if tails[0].len() < 32 {
+        return false;
+    }
+    let index = (tails[0].len() * 95 / 100).min(tails[0].len() - 1);
+    let p95: Vec<f64> = tails
+        .iter_mut()
+        .map(|values| *values.select_nth_unstable_by(index, f64::total_cmp).1)
+        .collect();
     perceptual[0] < perceptual[1]
+        && p95[0] <= p95[1]
         && (0..3).all(|c| squared[0][c] <= squared[1][c] && absolute[0][c] <= absolute[1][c])
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn pairs(correction: f32) -> Vec<DisplayPair> {
-        let mut result = Vec::new();
-        for b in 0..9 {
-            for g in 0..9 {
-                for r in 0..9 {
-                    let maple = [r as f32 / 8., g as f32 / 8., b as f32 / 8.];
-                    let jpeg = maple.map(|x| x * (1. - correction) + 0.5 * correction);
-                    for _ in 0..4 {
-                        result.push(DisplayPair { maple, jpeg });
-                    }
-                }
-            }
-        }
-        result
-    }
-    #[test]
-    fn basis_matches_the_artifact_sampler() {
-        let mut lut = ColorLut::identity(GRID);
-        for (i, v) in lut.data.iter_mut().enumerate() {
-            *v = ((i * 37) % 101) as f32 / 100.;
-        }
-        for i in 0..1000 {
-            let rgb = [
-                ((i * 13) % 997) as f32 / 996.,
-                ((i * 29) % 991) as f32 / 990.,
-                ((i * 53) % 983) as f32 / 982.,
-            ];
-            let actual = lut.sample(rgb);
-            for c in 0..3 {
-                let expected: f64 = corners(rgb)
-                    .into_iter()
-                    .map(|(j, w)| w * f64::from(lut.data[j * 3 + c]))
-                    .sum();
-                assert!((f64::from(actual[c]) - expected).abs() < 2e-6);
-            }
-        }
-    }
-    #[test]
-    fn identity_is_preserved() {
-        let lut = fit(&pairs(0.), 33).unwrap();
-        for i in 0..100 {
-            let x = i as f32 / 99.;
-            assert!((lut.sample([x; 3])[0] - x).abs() < 1e-5);
-        }
-    }
-    #[test]
-    fn learns_pixel_mapping_on_held_out_pairs() {
-        let data = pairs(0.2);
-        let lut = fit(&data, 33).unwrap();
-        assert!(prefer(&lut, &ColorLut::identity(33), &data));
-        assert!(lut
-            .data
-            .iter()
-            .all(|v| v.is_finite() && *v >= 0. && *v <= 1.));
-        let mut last = -1.;
-        for i in 0..4096 {
-            let x = i as f32 / 4095.;
-            let y = lut.sample([x; 3])[0];
-            assert!(y > last);
-            last = y;
-        }
-    }
-    #[test]
-    fn rejects_invalid_correspondences() {
-        assert!(fit(&pairs(0.)[..100], 33).is_none());
-        let mut data = pairs(0.);
-        data[1].jpeg[0] = f32::NAN;
-        assert!(fit(&data, 33).is_none());
-    }
+pub(super) fn fit(
+    pixels: &[f32],
+    width: usize,
+    height: usize,
+    orientation: ExifOrientation,
+    preview: &ExtractedPreview,
+    current: &ColorLut,
+    size: usize,
+) -> Option<ColorLut> {
+    let observations =
+        paired_observations::build(pixels, width, height, orientation, preview, current)?;
+    let (result, coarse) = solve_observations(&observations, size)?;
+    prefer(&coarse, &observations).then_some(result)
 }
+
+#[cfg(test)]
+#[path = "paired_fit_tests.rs"]
+mod tests;
