@@ -177,6 +177,8 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
     let mut perceptual = [0.; 2];
     let mut tails = [Vec::new(), Vec::new()];
     let mut regional = [[0.; 64]; 2];
+    let mut rgb_tails = [Vec::new(), Vec::new()];
+    let mut regional_rgb = [[[0.; 3]; 64]; 2];
     let mut counts = [0usize; 64];
     let mut validation_count = 0;
     for row in observations.iter().filter(|row| row.validation) {
@@ -208,6 +210,11 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
         });
         let target = lab(row.target.map(|v| v as f32));
         for (i, output) in [prediction, row.baseline].into_iter().enumerate() {
+            let error: [f64; 3] = std::array::from_fn(|c| (output[c] - row.target[c]).abs());
+            for c in 0..3 {
+                regional_rgb[i][row.region][c] += error[c];
+            }
+            rgb_tails[i].push(error);
             let de = f64::from(ciede2000(lab(output.map(|v| v as f32)), target));
             regional[i][row.region] += de;
             perceptual[i] += de;
@@ -226,14 +233,33 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
         counts[r] >= 32
             && (regional[0][r] - regional[1][r]) / counts[r] as f64 <= REGIONAL_SELECTION_MARGIN_DE
     });
+    // Do not introduce RGB failures while improving perceptual averages (#5000).
+    let rgb_regions_preserved = (0..64).all(|r| {
+        (0..3).all(|c| {
+            regional_rgb[0][r][c] / counts[r].max(1) as f64
+                <= (regional_rgb[1][r][c] / counts[r].max(1) as f64).max(0.05)
+        })
+    });
+    let rgb_tails_preserved = (0..3).all(|c| {
+        let p95: Vec<f64> = rgb_tails
+            .iter()
+            .map(|rows| {
+                let mut values: Vec<_> = rows.iter().map(|v| v[c]).collect();
+                *values.select_nth_unstable_by(index, f64::total_cmp).1
+            })
+            .collect();
+        p95[0] <= p95[1].max(0.1)
+    });
     let accepted = regions_improve
+        && rgb_regions_preserved
+        && rgb_tails_preserved
         && perceptual[0] < perceptual[1]
         && p95[0] <= p95[1]
         && (0..3).all(|c| squared[0][c] <= squared[1][c] && absolute[0][c] <= absolute[1][c]);
     #[cfg(feature = "stage-dump")]
     if let Some(dir) = crate::stage_dump::dump_dir() {
         let regions:Vec<_>=(0..64).map(|r|serde_json::json!({"region":r,"count":counts[r],"candidate_mean":(counts[r]>0).then(||regional[0][r]/counts[r] as f64),"baseline_mean":(counts[r]>0).then(||regional[1][r]/counts[r] as f64)})).collect();
-        let report = serde_json::json!({"accepted":accepted,"regions_improve":regions_improve,"native_squared_rgb":squared,"native_absolute_rgb":absolute,"display_perceptual_sum":perceptual,"display_p95":p95,"native_validation_samples":validation_count,"display_samples":display.len(),"regions":regions});
+        let report = serde_json::json!({"accepted":accepted,"regions_improve":regions_improve,"rgb_regions_preserved":rgb_regions_preserved,"rgb_tails_preserved":rgb_tails_preserved,"native_squared_rgb":squared,"native_absolute_rgb":absolute,"display_perceptual_sum":perceptual,"display_p95":p95,"native_validation_samples":validation_count,"display_samples":display.len(),"regions":regions});
         if let Ok(file) = std::fs::File::create(dir.join("auto_fit_selection.json")) {
             let _ = serde_json::to_writer_pretty(std::io::BufWriter::new(file), &report);
         }
@@ -362,3 +388,7 @@ fn select_step(
 #[cfg(test)]
 #[path = "paired_fit_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "paired_quality_tests.rs"]
+mod quality_tests;

@@ -1,0 +1,7 @@
+# Prevent new RGB tail and local failures in Auto selection — #5000
+
+The previous full display-training run retained5JPEG passes/11failures/4exactfallbacks, but0005's mean and p95perceptual improvements introduced4new RGB subcheck failures. Perceptual mean/tail/local protection and native RGB mean/squared error alone do not prevent this.
+
+Candidate selection now also checks display per-channel p95absolute error and each8x8region's per-channel absolute error. A candidate may not cross the existing0.10tail or0.05regional RGB limits. If the prior already exceeds a limit, the candidate must not worsen that metric. This protects candidate selection only: the independent physical gate still requires each actual fixed limit, with no baseline waiver. All existing native, perceptual and local safeguards remain. Backtracking checks these RGB requirements too.
+
+Two independent witnesses demonstrate that all original native/perceptual safeguards permit the constructed candidate, while it introduces either a new RGB tail failure or a localized RGB mean failure. Both are rejected.70Auto tests pass,6existing ignored. Full physical qualification follows under a frozen binary. Do not claim a completed fix before checking all16JPEG fixtures,4exactfallbacks, every subcheck, visuals, parity and banding. Neutral AgX, versions37/7, sources, comparison geometry and external budgets remain unchanged. Draft5003only; no merge.
