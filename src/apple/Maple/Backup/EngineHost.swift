@@ -122,7 +122,7 @@ public final class EngineHost {
       // working through the backlog; never rehydrate rows it is uploading.
       // Wait for it to finish and take over, rather than staying stopped.
       let engineLock: BackupEngineLock
-      if let free = BackupEngineLock.acquire(in: storageRoot) {
+      if let free = try BackupEngineLock.acquire(in: storageRoot) {
         engineLock = free
       } else {
         lastStartError = "The background helper is finishing a backup. Maple will take over when it's done."
@@ -139,7 +139,12 @@ public final class EngineHost {
         lastStartError = nil
         engineLock = waited
       }
-      self.engineLock = engineLock
+      // This start owns the lock until a running engine takes it. If stop()
+      // supersedes it mid-startup, it keeps the lock while it still touches
+      // the state DB and gives it back only when it bails, so the helper can
+      // never start rehydrating alongside it.
+      var lockHandedToEngine = false
+      defer { if !lockHandedToEngine { engineLock.release() } }
       let deviceId = try DeviceIdentity.current(
         storageURL: DeviceIdentity.storageURL(in: storageRoot))
       let sidecars = AppSupportSidecarStore(
@@ -200,6 +205,8 @@ public final class EngineHost {
       self.runnerTask = Task.detached(priority: .background) {
         await engine.run(keepAlive: true)
       }
+      self.engineLock = engineLock
+      lockHandedToEngine = true
 
       startPeriodicWalk(
         deviceId: deviceId, settings: settings,
@@ -226,8 +233,6 @@ public final class EngineHost {
       let msg = String(describing: error)
       BackupIssueStatus.log(.error, "Backup startup failed: \(msg)")
       lastStartError = "Couldn't start backup. Check your server and storage settings."
-      engineLock?.release()
-      engineLock = nil
       // The restart never produced a running engine — drop back to
       // Stopped so the panel doesn't show "Restarting…" forever.
       progress.setPhase(.stopped)

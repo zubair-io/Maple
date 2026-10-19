@@ -22,11 +22,15 @@ public final class BackupEngineLock: @unchecked Sendable {
     }
 
     /// The lock, or `nil` when another host is already running an engine.
-    public static func acquire(in root: URL) -> BackupEngineLock? {
+    /// Any other failure (the shared folder is unwritable, descriptors are
+    /// exhausted) throws: it is not contention, and waiting would never end.
+    public static func acquire(in root: URL) throws -> BackupEngineLock? {
         let fd = open(lockURL(in: root).path, O_CREAT | O_RDWR | O_CLOEXEC, 0o644)
-        guard fd >= 0 else { return nil }
+        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            let code = errno
             close(fd)
+            guard code == EWOULDBLOCK else { throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO) }
             return nil
         }
         return BackupEngineLock(descriptor: fd)
@@ -38,7 +42,7 @@ public final class BackupEngineLock: @unchecked Sendable {
     public static func acquireWhenFree(in root: URL, pollInterval: Duration) async throws -> BackupEngineLock {
         while true {
             try Task.checkCancellation()
-            if let lock = acquire(in: root) { return lock }
+            if let lock = try acquire(in: root) { return lock }
             try await Task.sleep(for: pollInterval)
         }
     }
