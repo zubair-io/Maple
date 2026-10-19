@@ -158,7 +158,9 @@
 ///   unsupported color edges retain the original sensor-value interpolation.
 /// - 32 — AMaZE variance selection reads immediately bounded predecessors in
 ///   scalar raster order, matching the upstream numeric dependency (#5000).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 32;
+/// - 33 — restore sensor-value false-color interpolation after complete-suite
+///   qualification exposed five new failures from green guidance (#5000).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 33;
 
 #[cfg(test)]
 mod tests {
