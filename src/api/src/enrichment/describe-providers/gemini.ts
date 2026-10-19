@@ -112,15 +112,6 @@ export class GeminiProvider implements DescribeProvider {
       throw new RemoteError(`Malformed Gemini JSON: ${msg}`, false);
     }
 
-    if (firstCandidateFinishReason(parsed.candidates) === 'MAX_TOKENS') {
-      throw new TruncatedOutputError(
-        `Gemini stopped generating before it finished (finishReason=MAX_TOKENS, maxOutputTokens=${MAX_OUTPUT_TOKENS})`,
-      );
-    }
-    const text = extractCandidateText(parsed.candidates);
-    if (text.length === 0) {
-      throw new RemoteError('Gemini returned empty content', false);
-    }
     const inTokens =
       typeof parsed.usageMetadata?.promptTokenCount === 'number'
         ? parsed.usageMetadata.promptTokenCount
@@ -129,6 +120,16 @@ export class GeminiProvider implements DescribeProvider {
       tokenCount(parsed.usageMetadata?.candidatesTokenCount) +
       tokenCount(parsed.usageMetadata?.thoughtsTokenCount);
     const cost = priceForModel(opts.model, inTokens, outTokens);
+    if (firstCandidateFinishReason(parsed.candidates) === 'MAX_TOKENS') {
+      throw new TruncatedOutputError(
+        `Gemini stopped generating before it finished (finishReason=MAX_TOKENS, maxOutputTokens=${MAX_OUTPUT_TOKENS})`,
+        cost,
+      );
+    }
+    const text = extractCandidateText(parsed.candidates);
+    if (text.length === 0) {
+      throw new RemoteError('Gemini returned empty content', false);
+    }
     return {
       text,
       cost_usd: cost,

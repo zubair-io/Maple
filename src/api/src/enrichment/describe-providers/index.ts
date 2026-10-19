@@ -96,9 +96,11 @@ export class RemoteError extends Error {
 }
 
 export class TruncatedOutputError extends RemoteError {
-  constructor(message: string) {
+  readonly cost_usd: number;
+  constructor(message: string, cost_usd: number) {
     super(message, false);
     this.name = 'TruncatedOutputError';
+    this.cost_usd = cost_usd;
   }
 }
 

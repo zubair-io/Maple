@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { AnthropicProvider } from './anthropic.ts';
 import { GeminiProvider } from './gemini.ts';
 import { OpenAIProvider } from './openai.ts';
-import { RemoteError } from './index.ts';
+import { RemoteError, type TruncatedOutputError } from './index.ts';
 
 const FRAME = [Buffer.alloc(4)];
 const OPTS = { systemPrompt: 'p', model: 'm' };
@@ -70,6 +70,7 @@ describe('paid describe providers: truncation', () => {
     expect(err.retryable).toBe(false);
     expect(err.message).toContain('OpenAI');
     expect(err.message).toContain('finish_reason=length');
+    expect((err as TruncatedOutputError).cost_usd).toBeGreaterThan(0);
   });
 
   it('Anthropic stop_reason=max_tokens is a non-retryable Anthropic error', async () => {

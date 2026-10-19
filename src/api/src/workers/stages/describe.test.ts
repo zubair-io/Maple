@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DescribeServerPool } from '../../enrichment/describe-server-pool.ts';
+import { TruncatedOutputError } from '../../enrichment/describe-providers/index.ts';
 import { ObjectId } from '../../db/object-id.ts';
 import type { ImageDoc } from '../run-stage.ts';
 import {
@@ -43,6 +44,38 @@ async function stageDoc(absPath: string): Promise<ImageDoc> {
 }
 
 const fakeCtx = {} as never;
+
+describe('describeHandler — cost across failover', () => {
+  it('bills a truncated call on one server in addition to the answering server', async () => {
+    const doc = await stageDoc(join(tmpRoot, 'img.dng'));
+    const truncating = mockProvider(new TruncatedOutputError('cut off', 0.004));
+    const answering = mockProvider({
+      text: JSON.stringify(VALID_VISION),
+      cost_usd: 0.001,
+      provider_info: {},
+    });
+    const providers = new Map([
+      ['http://a:1', truncating],
+      ['http://b:1', answering],
+    ]);
+    setDescribeDepsForTests({
+      pool: new DescribeServerPool(
+        [
+          { url: 'http://a:1', concurrency: 1 },
+          { url: 'http://b:1', concurrency: 1 },
+        ],
+        (url) => providers.get(url)!,
+      ),
+      systemPrompt: 'structured vision prompt',
+      model: 'm',
+    });
+
+    const meta = patchFields(await describeHandler(doc, fakeCtx)).description_meta as {
+      cost_usd: number;
+    };
+    expect(meta.cost_usd).toBeCloseTo(0.005, 10);
+  });
+});
 
 describe('describeHandler — happy path', () => {
   it('returns patch with description, description_meta, vision, vision_meta', async () => {
