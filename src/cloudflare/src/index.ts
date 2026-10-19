@@ -9,18 +9,21 @@
  *   1. Verify the bearer token (HS256, shared secret) — reject
  *      before touching R2 or the origin.
  *   2. Derive the R2 key from the URL alone (no DB access here — see r2.ts).
- *   3. R2 hit  -> stream back with immutable cache headers.
+ *   3. R2 hit  -> stream back with revalidating (`private, no-cache`) headers;
+ *      R2 keys are path-keyed, so the bytes behind a key change on edit.
  *   4. R2 miss -> forward to the origin with the same bearer token (and any
  *      conditional-request headers), stream the response to the client, and
  *      asynchronously populate R2 for next time (only for a confirmed 200
- *      with a body).
+ *      with a body, and not opted out by the origin via `X-Maple-Cacheable: 0`,
+ *      which it sends for hidden or unindexed assets).
  */
 
 import { verifyBearer } from './auth';
 import { maybeConvertAvifToJpeg } from './image-format';
 import { parseThumbPath, thumbR2Key } from './r2';
 
-const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
+const REVALIDATE_CACHE = 'private, no-cache';
+const EDGE_CACHEABLE_HEADER = 'x-maple-cacheable';
 const FALLBACK_CONTENT_TYPE = 'image/avif';
 
 function originTarget(incoming: URL, originBaseUrl: string): URL {
@@ -43,9 +46,22 @@ function unauthorized(): Response {
 	});
 }
 
+function methodNotAllowed(): Response {
+	return new Response(JSON.stringify({ error: 'method not allowed' }), {
+		status: 405,
+		headers: {
+			'content-type': 'application/json',
+			'cache-control': 'no-store',
+			allow: 'GET, HEAD',
+		},
+	});
+}
+
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
 		const url = new URL(request.url);
+
+		if (request.method !== 'GET' && request.method !== 'HEAD') return methodNotAllowed();
 
 		const authorized = await verifyBearer(request.headers.get('authorization'), env.JWT_SECRET);
 		if (!authorized) return unauthorized();
@@ -87,7 +103,7 @@ export default {
 		if (!('body' in object) || object.body === undefined) {
 			return new Response(null, {
 				status: 304,
-				headers: { etag: object.httpEtag, 'cache-control': IMMUTABLE_CACHE },
+				headers: { etag: object.httpEtag, 'cache-control': REVALIDATE_CACHE },
 			});
 		}
 
@@ -98,7 +114,7 @@ export default {
 		object.writeHttpMetadata(headers);
 		if (!headers.has('content-type')) headers.set('content-type', FALLBACK_CONTENT_TYPE);
 		headers.set('etag', object.httpEtag);
-		headers.set('cache-control', IMMUTABLE_CACHE);
+		headers.set('cache-control', REVALIDATE_CACHE);
 
 		return maybeConvertAvifToJpeg(new Response(object.body, { status: 200, headers }), url);
 	},
@@ -136,6 +152,17 @@ async function fetchFromOriginAndCache(
 		return originResponse;
 	}
 
+	const clientHeaders = new Headers(originResponse.headers);
+	const edgeCacheable = clientHeaders.get(EDGE_CACHEABLE_HEADER) !== '0';
+	clientHeaders.delete(EDGE_CACHEABLE_HEADER);
+
+	if (!edgeCacheable) {
+		return maybeConvertAvifToJpeg(
+			new Response(originResponse.body, { status: 200, headers: clientHeaders }),
+			originUrl,
+		);
+	}
+
 	const [toClient, toCache] = originResponse.body.tee();
 	ctx.waitUntil(
 		env.THUMBS_BUCKET.put(key, toCache, {
@@ -148,7 +175,7 @@ async function fetchFromOriginAndCache(
 	return maybeConvertAvifToJpeg(
 		new Response(toClient, {
 			status: 200,
-			headers: originResponse.headers,
+			headers: clientHeaders,
 		}),
 		originUrl,
 	);

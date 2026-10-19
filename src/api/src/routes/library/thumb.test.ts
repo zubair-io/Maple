@@ -103,6 +103,46 @@ describe('GET /thumb/:slug/*', () => {
     expect(second.headers.get('ETag')).toBe(etag);
   });
 
+  describe('edge-cacheability header (#4750)', () => {
+    async function requestSeeded(filename: string, hidden: boolean) {
+      const id = seedRouteAsset(live.db, {
+        libraryId,
+        path: '',
+        filename,
+        mapleId: newObjectIdHex(),
+      });
+      if (hidden) live.db.run(`UPDATE assets SET hidden = 1 WHERE id = ?`, [id]);
+      const src = path.join(tmpDir, filename);
+      await writeFile(src, 'fake-source');
+      const thumbPath = resolveThumbPath(src);
+      await mkdir(path.dirname(thumbPath), { recursive: true });
+      await writeFile(thumbPath, 'thumb-bytes');
+      return app.handle(new Request(`http://localhost/thumb/thumblib/${filename}`));
+    }
+
+    test('a visible indexed asset carries no opt-out', async () => {
+      const res = await requestSeeded('visible.jpg', false);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('X-Maple-Cacheable')).toBeNull();
+    });
+
+    test('a hidden asset tells the edge not to mirror it', async () => {
+      const res = await requestSeeded('hidden.jpg', true);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('X-Maple-Cacheable')).toBe('0');
+    });
+
+    test('an un-indexed file tells the edge not to mirror it', async () => {
+      const src = path.join(tmpDir, 'unindexed.jpg');
+      await writeFile(src, 'fake-source');
+      const thumbPath = resolveThumbPath(src);
+      await mkdir(path.dirname(thumbPath), { recursive: true });
+      await writeFile(thumbPath, 'thumb-bytes');
+      const res = await app.handle(new Request('http://localhost/thumb/thumblib/unindexed.jpg'));
+      expect(res.headers.get('X-Maple-Cacheable')).toBe('0');
+    });
+  });
+
   test('never serves corrupt unindexed video bytes as an image', async () => {
     const src = path.join(tmpDir, 'clip.mov');
     await writeFile(src, 'fake-video-bytes');
