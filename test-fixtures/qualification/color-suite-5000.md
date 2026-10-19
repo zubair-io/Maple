@@ -38,3 +38,26 @@ Full-run output and input identities are retained under
 The added three-pass test reproduces missing metric fields on unchanged main.
 After the reporting fix, all 12 harness tests and 9 accounting tests pass.
 The draft PR remains unmerged while physical fixes and full qualification proceed.
+
+## Completed Auto baseline controls
+
+All 20 Auto baselines pass the canonical comparison pass with zero breaches,
+missing inputs, skipped comparisons or errors. All 86 original inputs used
+by this pass were rehashed afterward and remain unchanged; the frozen renderer
+binary also remains unchanged. The complete unrounded records are in
+`color-suite-5000-auto-baselines.json`. Neutral and native-detail comparisons
+are still pending, so this is not a passing full-suite claim.
+
+## Nikon residual attribution
+
+The fresh `test_0014/sharpen_amount_max` PNG is byte-identical to the archived
+AgX candidate (`490b2f52d0e16adcf0d5b1cb0590a7aac667bfea5ea43d90123432b03fbeb691`).
+The archived pre-AgX control, AgX candidate and Adobe reference hashes were
+independently revalidated. Existing pixel attribution therefore applies to this
+exact current output: 1,164,774 changed green pixels worsen their absolute
+reference error, versus 42,442 that improve it. The extra green bias is
+0.00010419227435023; its budget excess is 0.00007013038482760. The change is
+concentrated at reference green codes 128–241, with none at codes 0–127.
+Red and blue already breach on the pre-AgX control, so clearing the new green
+breach alone would not clear this whole case. The companion attribution JSON
+preserves the source hashes and full bin totals.
