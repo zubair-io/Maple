@@ -253,8 +253,19 @@ All six require a bearer — they write files and reconcile deletions. Resume id
 | GET    | `/api/libraries/:libraryId/backup/state`          | bearer | Reconciliation feed: assets already seen from `device_id`, optionally `since` an ISO timestamp                                                                                                             |
 | POST   | `/api/libraries/:libraryId/backup/ingest`         | bearer | Chunked resumable upload. `202` = send more, `200` = complete (returns `maple_id` and `target_rel_path`), `409` = resume from `expected_offset`, `423` = another device is uploading the same iCloud photo |
 | POST   | `/api/libraries/:libraryId/backup/rendered`       | bearer | Same protocol for the Photos-edited companion, landing at `<base>.rendered.<ext>`                                                                                                                          |
-| POST   | `/api/libraries/:libraryId/backup/sidecar`        | bearer | Write an XMP sidecar next to a previously uploaded asset, addressed by `X-Maple-Target-Rel-Path`                                                                                                           |
+| POST   | `/api/libraries/:libraryId/backup/sidecar`        | bearer | Write an XMP sidecar next to a previously uploaded asset, addressed by `X-Maple-Target-Rel-Path`. With `X-Maple-Sidecar-Base` (see below) it is a compare-and-swap; without it an existing sidecar is kept |
 | POST   | `/api/libraries/:libraryId/backup/notify-deleted` | bearer | Body `{ phasset_local_ids }`; marks the cloud copies `deleted_from_photos`. The rows and bytes stay                                                                                                        |
+
+### Re-sending a newer edit (`X-Maple-Sidecar-Base`)
+
+A device that edits a photo after backing it up re-sends the sidecar, naming the version its edit was based on: the SHA-256 (hex) of the XMP it last delivered, or `none` for its first sidecar. The write never skips (#4719):
+
+- nothing on disk yet → written;
+- the server already holds exactly this XMP → `unchanged: true`, no write;
+- the server still holds the named version → overwritten;
+- anything else → the edit is written on top, `diverged: true`, and the displaced XMP is kept in the `sidecar_divergences` table with both digests, the device and the asset.
+
+The check and the publish run under the shared sidecar write barrier, so two edits racing on one base serialise: one overwrites, the other diverges, and neither version is lost. A request without the header keeps the original rule: an existing sidecar is never overwritten (#698). A malformed base is a `400`.
 
 ## Library backup destinations
 
