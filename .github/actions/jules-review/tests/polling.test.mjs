@@ -162,6 +162,26 @@ for (const status of [401, 403]) {
   });
 }
 
+for (const message of [
+  'PERMISSION_DENIED: caller lacks permission',
+  'Resource not accessible by integration',
+  'permission denied',
+]) {
+  test(`status-less "${message}" fails immediately as an authentication error`, async () => {
+    await assert.rejects(
+      pollForReview(
+        reviewSession({
+          info: async () => {
+            throw new Error(message);
+          },
+        }),
+        60_000,
+      ),
+      /Jules API rejected request/,
+    );
+  });
+}
+
 for (const state of ['inProgress', 'completed']) {
   test(`${state} without a final completed verdict times out`, async (t) => {
     fastClock(t);

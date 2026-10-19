@@ -7,7 +7,7 @@ type ReviewSession = Pick<SessionClient, 'id' | 'info' | 'history'> & {
 
 // Match HTTP status codes, not digits embedded in a Jules session ID.
 export function isAuthError(message: string): boolean {
-  return /\b(?:401|403)\b|bad credentials|unauthenticated|unauthorized|api key not valid|invalid api key/i.test(
+  return /\b(?:401|403)\b|bad credentials|unauthenticated|unauthorized|api key not valid|invalid api key|permission[_ ]denied|resource not accessible/i.test(
     message,
   );
 }
