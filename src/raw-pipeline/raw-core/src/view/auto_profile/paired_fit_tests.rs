@@ -24,6 +24,7 @@ fn perceptual_tails_use_display_footprints_while_native_rgb_remains_held_out() {
                 target: [target; 3],
                 baseline: [baseline; 3],
                 validation: true,
+                in_bias_region: true,
                 region,
             });
             let weights: Vec<_> = corners([0.125; 3])
@@ -42,6 +43,7 @@ fn perceptual_tails_use_display_footprints_while_native_rgb_remains_held_out() {
                 target: [(0.175 + 15. * 0.5) / 16.; 3],
                 baseline: [(0.175 + 15. * 0.52) / 16.; 3],
                 validation: false,
+                in_bias_region: true,
                 region,
             });
         }
@@ -85,6 +87,7 @@ fn backtracking_keeps_a_useful_partial_correction_without_relaxing_local_safety(
                 target,
                 baseline,
                 validation: true,
+                in_bias_region: true,
                 region,
             });
         }
@@ -159,6 +162,7 @@ fn zero_residual_preserves_a_detailed_existing_calibration_exactly() {
                 target: baseline,
                 baseline,
                 validation: i % 4 == 0,
+                in_bias_region: true,
                 region: i % 64,
             }
         })
@@ -191,6 +195,7 @@ fn residual_fit_preserves_already_correct_nonlinear_channels() {
                 target,
                 baseline,
                 validation: i % 4 == 0,
+                in_bias_region: true,
                 region: i % 64,
             }
         })
@@ -341,6 +346,7 @@ fn rejects_local_color_damage_even_when_global_errors_improve() {
                 target: [target; 3],
                 baseline: [baseline; 3],
                 validation: true,
+                in_bias_region: true,
                 region,
             });
         }
@@ -380,6 +386,7 @@ fn regional_perception_uses_display_averages_and_keeps_native_rgb_checks() {
                     target: [target; 3],
                     baseline: [baseline; 3],
                     validation: true,
+                    in_bias_region: true,
                     region,
                 });
                 let weights: Vec<_> = corners([0.4; 3])
@@ -394,6 +401,7 @@ fn regional_perception_uses_display_averages_and_keeps_native_rgb_checks() {
                     target: [0.5; 3],
                     baseline: [0.52; 3],
                     validation: true,
+                    in_bias_region: true,
                     region,
                 });
             } else {
@@ -406,6 +414,7 @@ fn regional_perception_uses_display_averages_and_keeps_native_rgb_checks() {
                         target: input.map(f64::from),
                         baseline: [0.8, 0.6, 0.95],
                         validation: true,
+                        in_bias_region: true,
                         region,
                     });
                 }

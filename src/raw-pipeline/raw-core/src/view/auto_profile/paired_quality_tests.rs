@@ -24,6 +24,7 @@ fn observations(regional: bool) -> Vec<Observation> {
                 target: [target; 3],
                 baseline: [baseline; 3],
                 validation: true,
+                in_bias_region: true,
                 region,
             });
         }

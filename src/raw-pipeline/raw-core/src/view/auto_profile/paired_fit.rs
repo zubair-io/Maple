@@ -12,6 +12,8 @@ use crate::view::{
 #[path = "paired_projection.rs"]
 mod projection;
 use projection::constrain_to_prior;
+#[path = "paired_bands.rs"]
+mod bands;
 
 pub(super) const GRID: usize = 9;
 pub(super) const CELLS: usize = GRID * GRID * GRID;
@@ -181,14 +183,19 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
     let mut regional_rgb = [[[0.; 3]; 64]; 2];
     let mut counts = [0usize; 64];
     let mut validation_count = 0;
-    for row in observations.iter().filter(|row| row.validation) {
-        validation_count += 1;
+    let mut native_bands = bands::NativeBands::default();
+    for row in observations {
         let prediction = std::array::from_fn(|c| {
             row.artifact_weights
                 .iter()
                 .map(|&(i, w)| w * f64::from(candidate.data[i * 3 + c]))
                 .sum::<f64>()
         });
+        native_bands.observe(row.target, row.in_bias_region, [prediction, row.baseline]);
+        if !row.validation {
+            continue;
+        }
+        validation_count += 1;
         for (i, output) in [prediction, row.baseline].into_iter().enumerate() {
             for c in 0..3 {
                 let error = output[c] - row.target[c];
@@ -250,7 +257,9 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
             .collect();
         p95[1] > 0.1 || p95[0] <= 0.1
     });
+    let native_bands_preserved = native_bands.preserved();
     let accepted = regions_improve
+        && native_bands_preserved
         && rgb_regions_preserved
         && rgb_tails_preserved
         && perceptual[0] < perceptual[1]
@@ -259,7 +268,7 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
     #[cfg(feature = "stage-dump")]
     if let Some(dir) = crate::stage_dump::dump_dir() {
         let regions:Vec<_>=(0..64).map(|r|serde_json::json!({"region":r,"count":counts[r],"candidate_mean":(counts[r]>0).then(||regional[0][r]/counts[r] as f64),"baseline_mean":(counts[r]>0).then(||regional[1][r]/counts[r] as f64)})).collect();
-        let report = serde_json::json!({"accepted":accepted,"regions_improve":regions_improve,"rgb_regions_preserved":rgb_regions_preserved,"rgb_tails_preserved":rgb_tails_preserved,"native_squared_rgb":squared,"native_absolute_rgb":absolute,"display_perceptual_sum":perceptual,"display_p95":p95,"native_validation_samples":validation_count,"display_samples":display.len(),"regions":regions});
+        let report = serde_json::json!({"accepted":accepted,"regions_improve":regions_improve,"native_bands_preserved":native_bands_preserved,"rgb_regions_preserved":rgb_regions_preserved,"rgb_tails_preserved":rgb_tails_preserved,"native_squared_rgb":squared,"native_absolute_rgb":absolute,"display_perceptual_sum":perceptual,"display_p95":p95,"native_validation_samples":validation_count,"display_samples":display.len(),"regions":regions});
         if let Ok(file) = std::fs::File::create(dir.join("auto_fit_selection.json")) {
             let _ = serde_json::to_writer_pretty(std::io::BufWriter::new(file), &report);
         }

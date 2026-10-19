@@ -15,6 +15,7 @@ pub(super) struct Observation {
     pub target: [f64; 3],
     pub baseline: [f64; 3],
     pub validation: bool,
+    pub in_bias_region: bool,
     pub region: usize,
 }
 
@@ -26,6 +27,12 @@ fn mix(mut x: u64) -> u64 {
 
 fn within(seed: u64, start: usize, end: usize) -> usize {
     start + (seed % (end - start) as u64) as usize
+}
+
+fn in_bias_region(x: usize, y: usize, width: usize, height: usize) -> bool {
+    let border_x = (width as f64 * 0.1).round_ties_even() as usize;
+    let border_y = (height as f64 * 0.1).round_ties_even() as usize;
+    x >= border_x && x < width - border_x && y >= border_y && y < height - border_y
 }
 
 fn spans(source: usize, target: usize) -> Vec<(usize, usize)> {
@@ -216,6 +223,7 @@ fn build_at_scale(
                 target,
                 baseline: base,
                 validation: mix(seed ^ 0x517cc1b727220a95) % 4 == 0,
+                in_bias_region: in_bias_region(x, y, tw, th),
                 region: (y * 8 / th) * 8 + x * 8 / tw,
             });
         }
@@ -226,6 +234,23 @@ fn build_at_scale(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn legacy_bias_window_uses_exact_native_pixel_bounds_and_ties_even() {
+        for (width, height, bx, by) in [(1616, 1080, 162, 108), (25, 35, 2, 4), (35, 25, 4, 2)] {
+            assert!(in_bias_region(bx, by, width, height));
+            assert!(in_bias_region(
+                width - bx - 1,
+                height - by - 1,
+                width,
+                height
+            ));
+            assert!(!in_bias_region(bx - 1, by, width, height));
+            assert!(!in_bias_region(width - bx, by, width, height));
+            assert!(!in_bias_region(bx, by - 1, width, height));
+            assert!(!in_bias_region(bx, height - by, width, height));
+        }
+    }
+
     #[test]
     fn display_target_matches_pillow_box_after_srgb_quantization() {
         let examples: [(usize, usize, usize, &[u8]); 3] = [
