@@ -61,3 +61,16 @@ concentrated at reference green codes 128–241, with none at codes 0–127.
 Red and blue already breach on the pre-AgX control, so clearing the new green
 breach alone would not clear this whole case. The companion attribution JSON
 preserves the source hashes and full bin totals.
+
+## C2 common-highlight probe checkpoint
+
+The first bounded highlight experiment is preserved under
+`experiments/c2-common-highlight/`. It passes 52 core tests and 10 GPU parity
+tests, and clears two failing channel measurements, but clears **zero of the
+three failing physical cases**. A retained control also regresses:
+`test_0007/texture_max` passes on captured main (max 42.82735 <= 43.4)
+and fails the candidate (max 43.66641 > 43.4). The probe was rejected and
+its production source changes were reverted.
+The exact patch, test logs, unchanged input verification and raw comparison
+metrics are retained so this investigation can be resumed without lost work.
+The full main baseline is still running; no complete-suite reduction is claimed.
