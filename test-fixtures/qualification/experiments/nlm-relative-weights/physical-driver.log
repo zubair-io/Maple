@@ -1,0 +1,8 @@
+ANCHOR 1 test_0018/temperature_max neutral breach max 55.075041823711054 render_s 0.442
+ANCHOR 2 test_0001/exposure_min neutral passed max 7.510037896181721 render_s 5.167
+ANCHOR 3 test_0000/nr_color_max neutral passed max 36.42677274406286 render_s 64.172
+ANCHOR 4 test_0000/nr_luminance_max neutral passed max 49.901656326947666 render_s 74.535
+ANCHOR 5 test_0018/contrast_max neutral passed max 40.03974032907533 render_s 0.168
+ANCHOR 6 test_0002/baseline auto passed max 26.85093250694425 render_s 19.333
+ANCHOR 7 test_0003/baseline auto passed max 13.0813300130852 render_s 36.26
+{"status": "Relative NLM first physical witnesses only; no production adoption or full-suite count.", "comparisons": 7, "planned": 7, "all_passed": false, "all_original_inputs_unchanged": true, "renderer_unchanged": true, "production_changed": false}
