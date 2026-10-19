@@ -139,47 +139,59 @@ pub(super) fn fit(lut: &mut ColorLut, design: &Design) {
         gram[b][b] += if active[b] { ridge } else { 1. };
     }
     for c in 0..3 {
-        let mut values = lut
+        let original = lut
             .data
             .chunks_exact(3)
             .map(|v| f64::from(v[c]))
             .collect::<Vec<_>>();
-        let mut best = values.clone();
+        let mut best = original.clone();
         let mut best_error = f64::INFINITY;
-        for _ in 0..64 {
-            let error: [f64; 5] = std::array::from_fn(|b| {
-                if active[b] {
-                    design.targets[b][c]
-                        - design.rows[b]
-                            .iter()
-                            .zip(&values)
-                            .map(|(a, v)| a * v)
-                            .sum::<f64>()
-                } else {
-                    0.
+        // Restart a stalled constrained solve from a monotone global prior
+        // derived from these same exact baked-node design rows.
+        for restart in 0..2 {
+            if best_error < 0.001 {
+                break;
+            }
+            let mut values = if restart == 0 {
+                original.clone()
+            } else {
+                super::jpeg_band_prior::channel(lut, design, c)
+            };
+            for _ in 0..64 {
+                let error: [f64; 5] = std::array::from_fn(|b| {
+                    if active[b] {
+                        design.targets[b][c]
+                            - design.rows[b]
+                                .iter()
+                                .zip(&values)
+                                .map(|(a, v)| a * v)
+                                .sum::<f64>()
+                    } else {
+                        0.
+                    }
+                });
+                let worst = error.iter().map(|v| v.abs()).fold(0., f64::max);
+                if worst < best_error {
+                    best_error = worst;
+                    best.clone_from(&values);
                 }
-            });
-            let worst = error.iter().map(|v| v.abs()).fold(0., f64::max);
-            if worst < best_error {
-                best_error = worst;
-                best.clone_from(&values);
+                if worst < 0.001 {
+                    break;
+                }
+                let coefficients = solve(gram, error);
+                if !coefficients.iter().all(|v| v.is_finite()) {
+                    break;
+                }
+                for (i, v) in values.iter_mut().enumerate() {
+                    *v += coefficients
+                        .iter()
+                        .enumerate()
+                        .map(|(b, k)| k * basis[b][i])
+                        .sum::<f64>();
+                    *v = v.clamp(0., 1.);
+                }
+                project(&mut values, lut.size, c);
             }
-            if worst < 0.001 {
-                break;
-            }
-            let coefficients = solve(gram, error);
-            if !coefficients.iter().all(|v| v.is_finite()) {
-                break;
-            }
-            for (i, v) in values.iter_mut().enumerate() {
-                *v += coefficients
-                    .iter()
-                    .enumerate()
-                    .map(|(b, k)| k * basis[b][i])
-                    .sum::<f64>();
-                *v = v.clamp(0., 1.);
-            }
-            project(&mut values, lut.size, c);
         }
         for (node, value) in lut.data.chunks_exact_mut(3).zip(best) {
             node[c] = value as f32;

@@ -27,6 +27,7 @@ pub mod cache;
 pub mod curve;
 pub mod fit_display;
 mod jpeg_band_design;
+mod jpeg_band_prior;
 mod jpeg_band_solve;
 mod jpeg_calibration;
 pub mod lut;
