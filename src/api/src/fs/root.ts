@@ -61,27 +61,82 @@ async function normalizedEnvRoots(): Promise<string[]> {
   return roots;
 }
 
-let libraryRootsCache:
-  | {
-      source: ReadonlyMap<string, string>;
-      roots: Promise<string[]>;
-    }
-  | undefined;
+const PRIMARY_PROBE_TIMEOUT_MS = 3_000;
+type PrimaryProbe = {
+  source: ReadonlyMap<string, string>;
+  raw: Promise<string>;
+  successor?: Promise<string | null>;
+};
+const primaryProbes = new Map<string, PrimaryProbe>();
 
-/** Library roots, realpath-normalized once per cache generation (a new map after every invalidation). */
-async function normalizedLibraryRoots(): Promise<string[]> {
-  const source = await loadJailLibraryRoots().catch(() => null);
-  if (!source) return [];
-  if (libraryRootsCache?.source === source) return libraryRootsCache.roots;
-  const roots = Promise.all(
-    [...source.values()].map(async (root) => {
-      const resolved = path.resolve(root);
-      const real = await realpath(resolved).catch(() => resolved);
-      return real === resolved ? [resolved] : [real, resolved];
+/** An OS realpath cannot be cancelled. A later request gets one shared serial
+ * revalidation; if its deadline expires, no queued I/O starts afterwards. */
+function canonicalPrimary(
+  root: string,
+  source: ReadonlyMap<string, string>,
+): Promise<string | null> {
+  const pending = primaryProbes.get(root);
+  if (pending) {
+    if (pending.source !== source) return Promise.resolve(null);
+    if (pending.successor) return pending.successor;
+    let expired = false;
+    const next = pending.raw.then(
+      () => {
+        if (expired) return null;
+        if (primaryProbes.get(root) === pending) primaryProbes.delete(root);
+        return canonicalPrimary(root, source);
+      },
+      () => {
+        if (expired) return null;
+        if (primaryProbes.get(root) === pending) primaryProbes.delete(root);
+        return canonicalPrimary(root, source);
+      },
+    );
+    return (pending.successor = boundedPrimary(next, () => (expired = true)));
+  }
+  const raw = resolveRealPathThroughAncestors(root).then((canonical) =>
+    canonical === path.resolve(root) ? canonical : resolveRealPathThroughAncestors(root),
+  );
+  const probe: PrimaryProbe = { source, raw };
+  primaryProbes.set(root, probe);
+  void raw.then(
+    () => {
+      if (primaryProbes.get(root) === probe) primaryProbes.delete(root);
+    },
+    () => {
+      if (primaryProbes.get(root) === probe) primaryProbes.delete(root);
+    },
+  );
+  return boundedPrimary(raw);
+}
+
+function boundedPrimary(raw: Promise<string | null>, onTimeout = () => {}): Promise<string | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      onTimeout();
+      resolve(null);
+    }, PRIMARY_PROBE_TIMEOUT_MS);
+  });
+  return Promise.race([raw.catch(() => null), deadline]).finally(() => clearTimeout(timer));
+}
+
+async function allowedByPrimary(
+  candidate: string,
+  requested: string,
+  source: ReadonlyMap<string, string>,
+): Promise<boolean> {
+  const roots = [...source.values()];
+  const lexical = roots.filter((root) => isWithinRoot(root, requested));
+  const selected = lexical.length ? lexical : roots;
+  if (selected.length === 0) return false;
+  return Promise.any(
+    selected.map(async (root) => {
+      const canonical = await canonicalPrimary(root, source);
+      if (canonical && isWithinRoot(canonical, candidate)) return true;
+      throw new Error('Outside primary root');
     }),
-  ).then((pairs) => pairs.flat());
-  libraryRootsCache = { source, roots };
-  return roots;
+  ).catch(() => false);
 }
 
 /** Register a root so that file access under it is permitted.
@@ -218,14 +273,23 @@ export async function checkAllowed(filePath: string): Promise<OpResult<string>> 
   const resolution = await resolvePathAndLanding(filePath);
   if (resolution === null) return { ok: false, error: `Cannot resolve "${filePath}".` };
   const { real, landing } = resolution;
-  const allowedRoots = [
-    ...(await normalizedEnvRoots()),
-    ..._registeredRoots,
-    ...(await normalizedLibraryRoots()),
-  ];
-  const outside = [real, landing].find(
-    (candidate) => !allowedRoots.some((root) => isWithinRoot(root, candidate)),
+  const envRoots = await normalizedEnvRoots();
+  const libraryRoots = await loadJailLibraryRoots().catch(() => new Map<string, string>());
+  const requested = path.resolve(filePath);
+  const allowedRoots = envRoots.length
+    ? envRoots
+    : [..._registeredRoots, ...[...libraryRoots.values()].map((root) => path.resolve(root))];
+  const candidates = [...new Set([real, landing])];
+  const results = await Promise.all(
+    candidates.map(async (candidate) => {
+      if (envRoots.length) return envRoots.some((root) => isWithinRoot(root, candidate));
+      if ([..._registeredRoots].some((root) => isWithinRoot(root, candidate))) return true;
+      return allowedByPrimary(candidate, requested, libraryRoots);
+    }),
   );
+  if ((await loadJailLibraryRoots().catch(() => null)) !== libraryRoots)
+    return { ok: false, error: 'Library roots changed during authorization' };
+  const outside = candidates.find((_, index) => !results[index]);
   if (outside === undefined) return { ok: true, data: real };
   return {
     ok: false,
@@ -280,7 +344,10 @@ export async function safeReadFile(filePath: string): Promise<OpResult<Buffer>> 
 export async function safeWriteAllowed(filePath: string): Promise<OpResult<string>> {
   const name = path.basename(filePath);
   if (name === '.' || name === '..') {
-    return { ok: false, error: 'Write destination must name a file, not a dot component.' };
+    return {
+      ok: false,
+      error: 'Write destination must name a file, not a dot component.',
+    };
   }
   // For writes, the file may not exist yet; check parent dir.
   const parent = path.dirname(filePath);
