@@ -18,7 +18,7 @@ SENSITIVE_ENVIRONMENTS = (
 
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 INHERIT = re.compile(r"secrets:\s*inherit", re.IGNORECASE)
-WHOLE_OBJECT = re.compile(r"\bsecrets\b(?!\s*\.)(?!\s*\[\s*['\"])", re.IGNORECASE)
+WHOLE_OBJECT = re.compile(r"\bsecrets\b(?!\s*\.\s*[A-Za-z_])(?!\s*\[\s*['\"])", re.IGNORECASE)
 
 
 def workflow_files():
@@ -43,8 +43,9 @@ class SecretEnvironmentTests(unittest.TestCase):
     def test_owner_pat_fallback_is_gone(self):
         for path in workflow_files():
             with self.subTest(workflow=path.name):
-                self.assertNotIn("JULES_GH", path.read_text())
-                self.assertNotIn("secrets.MUSE", path.read_text())
+                text = path.read_text().lower()
+                self.assertNotIn("jules_gh", text)
+                self.assertNotIn("secrets.muse", text)
 
     def test_sensitive_secrets_only_run_in_their_environment(self):
         for path in workflow_files():
@@ -85,6 +86,17 @@ class SecretEnvironmentTests(unittest.TestCase):
                 for expression in EXPRESSION.findall(text):
                     self.assertIsNone(WHOLE_OBJECT.search(expression), expression)
 
+    def test_no_parsed_job_inherits_all_secrets(self):
+        for path in workflow_files():
+            config = yaml.safe_load(path.read_text())
+            for job_id, job in config.get("jobs", {}).items():
+                with self.subTest(workflow=path.name, job=job_id):
+                    self.assertNotEqual(str(job.get("secrets", "")).strip().lower(), "inherit")
+
+    def test_aliased_inherit_is_caught_after_parsing(self):
+        config = yaml.safe_load("x: &all inherit\njobs:\n  call:\n    secrets: *all\n")
+        self.assertEqual(str(config["jobs"]["call"]["secrets"]).lower(), "inherit")
+
     def test_whole_object_patterns_catch_equivalent_spellings(self):
         for expression in (
             " toJSON(secrets) ",
@@ -94,6 +106,8 @@ class SecretEnvironmentTests(unittest.TestCase):
         ):
             with self.subTest(expression=expression):
                 self.assertIsNotNone(WHOLE_OBJECT.search(expression))
+        self.assertIsNotNone(WHOLE_OBJECT.search(" toJSON(secrets.*) "))
+        self.assertIsNotNone(WHOLE_OBJECT.search(" toJSON(secrets . *) "))
         self.assertIsNone(WHOLE_OBJECT.search(" secrets.VERSION_SYNC_TOKEN "))
         self.assertIsNone(WHOLE_OBJECT.search(" secrets ['VERSION_SYNC_TOKEN'] "))
 
