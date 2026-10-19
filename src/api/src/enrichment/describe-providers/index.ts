@@ -111,6 +111,68 @@ export class TruncatedOutputError extends BilledOutputError {
   }
 }
 
+export function requireFrames(frames: readonly Buffer[]): void {
+  if (frames.length === 0) {
+    throw new RemoteError('Describe requires at least one JPEG frame', false);
+  }
+}
+
+export async function timedProviderFetch(
+  provider: string,
+  url: string,
+  init: RequestInit,
+  config: { timeoutMs: number; fetchImpl: typeof fetch },
+): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), config.timeoutMs);
+  try {
+    return await config.fetchImpl(url, { ...init, signal: ctrl.signal });
+  } catch (err) {
+    const aborted = err instanceof Error && (err.name === 'AbortError' || ctrl.signal.aborted);
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new RemoteError(
+      aborted
+        ? `${provider} request timed out after ${config.timeoutMs}ms`
+        : `${provider} request failed: ${msg}`,
+      true,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function tokenUsageInfo(
+  model: unknown,
+  requestedModel: string,
+  inTokens: number,
+  outTokens: number,
+): Record<string, string> {
+  return {
+    model: typeof model === 'string' ? model : requestedModel,
+    input_tokens: String(inTokens),
+    output_tokens: String(outTokens),
+  };
+}
+
+export function billedOutputText(
+  provider: string,
+  cost: number,
+  truncationDetail: string | null,
+  extractText: () => string,
+): string {
+  if (truncationDetail !== null) {
+    throw new TruncatedOutputError(
+      `${provider} stopped generating before it finished (${truncationDetail})`,
+      cost,
+    );
+  }
+  const text = extractText();
+  if (text.length === 0) {
+    throw new BilledOutputError(`${provider} returned empty content`, cost);
+  }
+  return text;
+}
+
 export interface ProviderFactoryOptions {
   /** Override the provider URL (only meaningful for Ollama; the paid
    * providers hard-code their endpoint). */

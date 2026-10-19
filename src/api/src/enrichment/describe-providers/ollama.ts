@@ -13,6 +13,8 @@
 
 import {
   RemoteError,
+  requireFrames,
+  timedProviderFetch,
   type DescribeOptions,
   type DescribeProvider,
   type DescribeResult,
@@ -111,28 +113,10 @@ export class OllamaProvider implements DescribeProvider {
   }
 
   private async timedFetch(url: string, init: RequestInit): Promise<Response> {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
-    try {
-      return await this.fetchImpl(url, { ...init, signal: ctrl.signal });
-    } catch (err) {
-      const aborted = err instanceof Error && (err.name === 'AbortError' || ctrl.signal.aborted);
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new RemoteError(
-        aborted
-          ? `Ollama request timed out after ${this.timeoutMs}ms`
-          : `Ollama request failed: ${msg}`,
-        true,
-      );
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-}
-
-function requireFrames(frames: readonly Buffer[]): void {
-  if (frames.length === 0) {
-    throw new RemoteError('Describe requires at least one JPEG frame', false);
+    return timedProviderFetch('Ollama', url, init, {
+      timeoutMs: this.timeoutMs,
+      fetchImpl: this.fetchImpl,
+    });
   }
 }
 

@@ -24,10 +24,81 @@ afterEach(() => {
   setLibraryRootsForTests(null);
 });
 
+const FAILURE_CASES = [
+  { scenario: 'truncated', imageCost: 0.006, videoCost: 0.018, terminal: true },
+  { scenario: 'transport', imageCost: 0.004, videoCost: 0.004, terminal: false },
+  { scenario: 'terminal', imageCost: 0.004, videoCost: 0.012, terminal: true },
+  { scenario: 'parse', imageCost: 0.005, videoCost: 0.005, terminal: false },
+  { scenario: 'empty', imageCost: 0.006, videoCost: 0.018, terminal: true },
+] as const;
+type FailureCase = (typeof FAILURE_CASES)[number];
+
+function failedProviderResult(scenario: FailureCase['scenario']) {
+  switch (scenario) {
+    case 'truncated':
+      throw new TruncatedOutputError('cut off', 0.002);
+    case 'transport':
+      throw new RemoteError('unavailable', true, 503);
+    case 'empty':
+      throw new BilledOutputError('empty content', 0.002);
+    case 'terminal':
+      throw new RemoteError('rejected', false, 400);
+    case 'parse':
+      return { text: '{invalid', cost_usd: 0.001, provider_info: {} };
+  }
+}
+
+function configureProviders(video: boolean, scenario: FailureCase['scenario']) {
+  const validText = video
+    ? JSON.stringify({
+        summary: 'A clip.',
+        scenes: [{ frame_index: 0, caption: 'A scene.', text_visible: null }],
+      })
+    : JSON.stringify(VALID_VISION);
+  let recovering = false;
+  const pool = new DescribeServerPool(
+    [
+      { url: 'a', concurrency: 1 },
+      { url: 'b', concurrency: 1 },
+    ],
+    (url) => ({
+      name: 'openai',
+      health: async () => {},
+      describe: async () => {
+        if (recovering) return { text: validText, cost_usd: 0.001, provider_info: {} };
+        if (url === 'a') throw new TruncatedOutputError('cut off', 0.004);
+        return failedProviderResult(scenario);
+      },
+    }),
+  );
+  const deps = { pool, model: 'm', systemPrompt: 'prompt' };
+  setDescribeDepsForTests(deps);
+  setVideoDescribeDepsForTests({
+    ...deps,
+    sampleFrames: async () => ({
+      ok: true,
+      frames: [0, 1, 2].map((timestampSec) => ({ timestampSec, jpeg: Buffer.from('frame') })),
+      candidateCount: 3,
+      samplingMs: 0,
+    }),
+  });
+  return () => {
+    recovering = true;
+  };
+}
+
+function readCost(db: Parameters<typeof testSqliteDb>[0], assetId: string, video: boolean): number {
+  const column = video ? 'video_description_meta' : 'description_meta';
+  const row = db
+    .query(`SELECT ${column} AS meta FROM asset_detail WHERE asset_id = ?`)
+    .get(assetId) as { meta: string } | null;
+  return row ? (JSON.parse(row.meta).cost_usd as number) : 0;
+}
+
 describe.each(['describe', 'video-describe'] as const)('%s failed-call billing', (stage) => {
-  it.each(['truncated', 'transport', 'terminal', 'parse', 'empty'] as const)(
-    'persists aggregate costs after %s failure and retains them after recovery',
-    async (scenario) => {
+  it.each(FAILURE_CASES)(
+    'persists aggregate costs after $scenario failure and retains them after recovery',
+    async ({ scenario, imageCost, videoCost, terminal }) => {
       using library = await createTempLibrary('maple-describe-cost-');
       const live = { db: library.db, handle: testSqliteDb(library.db) };
       const root = library.root;
@@ -41,61 +112,9 @@ describe.each(['describe', 'video-describe'] as const)('%s failed-call billing',
         'INSERT INTO stage_state (asset_id, stage, version, attempts, claim_token) VALUES (?, ?, 0, 1, ?)',
         [assetId, stage, 'lease'],
       );
-      const frames = [0, 1, 2].map((timestampSec) => ({
-        timestampSec,
-        jpeg: Buffer.from('frame'),
-      }));
-      const validText = video
-        ? JSON.stringify({
-            summary: 'A clip.',
-            scenes: [{ frame_index: 0, caption: 'A scene.', text_visible: null }],
-          })
-        : JSON.stringify(VALID_VISION);
-      let recovering = false;
-      const pool = new DescribeServerPool(
-        [
-          { url: 'a', concurrency: 1 },
-          { url: 'b', concurrency: 1 },
-        ],
-        (url) => ({
-          name: 'openai',
-          health: async () => {},
-          describe: async () => {
-            if (recovering) return { text: validText, cost_usd: 0.001, provider_info: {} };
-            if (url === 'a') throw new TruncatedOutputError('cut off', 0.004);
-            if (scenario === 'truncated') throw new TruncatedOutputError('cut off', 0.002);
-            if (scenario === 'transport') throw new RemoteError('unavailable', true, 503);
-            if (scenario === 'empty') throw new BilledOutputError('empty content', 0.002);
-            if (scenario === 'terminal') throw new RemoteError('rejected', false, 400);
-            return { text: '{invalid', cost_usd: 0.001, provider_info: {} };
-          },
-        }),
-      );
-      const deps = { pool, model: 'm', systemPrompt: 'prompt' };
-      setDescribeDepsForTests(deps);
-      setVideoDescribeDepsForTests({
-        ...deps,
-        sampleFrames: async () => ({
-          ok: true,
-          frames,
-          candidateCount: 3,
-          samplingMs: 0,
-        }),
-      });
+      const recover = configureProviders(video, scenario);
       const handler = video ? videoDescribeHandler : describeHandler;
-      const column = video ? 'video_description_meta' : 'description_meta';
-      const readCost = () => {
-        const row = live.db
-          .query(`SELECT ${column} AS meta FROM asset_detail WHERE asset_id = ?`)
-          .get(assetId) as { meta: string } | null;
-        return row ? (JSON.parse(row.meta).cost_usd as number) : 0;
-      };
-      const perAttempt =
-        scenario === 'parse'
-          ? 0.005
-          : scenario === 'truncated' || scenario === 'empty'
-            ? 0.006 * (video ? 3 : 1)
-            : 0.004 * (video && scenario === 'terminal' ? 3 : 1);
+      const perAttempt = video ? videoCost : imageCost;
       for (const attemptNo of [1, 2]) {
         live.db.run(
           'UPDATE stage_state SET dead = 0, attempts = ?, claim_token = ?, next_attempt_at = ? WHERE asset_id = ? AND stage = ?',
@@ -111,9 +130,9 @@ describe.each(['describe', 'video-describe'] as const)('%s failed-call billing',
           err,
           retryDelayMs: () => 1000,
         });
-        expect(failure.terminal).toBe(scenario !== 'transport' && scenario !== 'parse');
+        expect(failure.terminal).toBe(terminal);
         await live.handle.transaction(failure.statements);
-        expect(readCost()).toBeCloseTo(perAttempt * attemptNo, 10);
+        expect(readCost(live.db, assetId, video)).toBeCloseTo(perAttempt * attemptNo, 10);
         const row = live.db
           .query('SELECT dead, last_error FROM stage_state WHERE asset_id = ? AND stage = ?')
           .get(assetId, stage);
@@ -130,11 +149,11 @@ describe.each(['describe', 'video-describe'] as const)('%s failed-call billing',
         .query('SELECT description, video_description, vision FROM asset_detail WHERE asset_id = ?')
         .get(assetId);
       expect(detail).toEqual({ description: null, video_description: null, vision: null });
-      recovering = true;
+      recover();
       const result = await handler(doc, {} as never);
       if (!('patch' in result)) throw new Error('expected successful description');
       await live.handle.transaction(result.patch);
-      expect(readCost()).toBeCloseTo(perAttempt * 2 + 0.001, 10);
+      expect(readCost(live.db, assetId, video)).toBeCloseTo(perAttempt * 2 + 0.001, 10);
     },
   );
 });

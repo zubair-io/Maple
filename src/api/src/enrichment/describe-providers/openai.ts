@@ -10,8 +10,10 @@
 
 import {
   RemoteError,
-  BilledOutputError,
-  TruncatedOutputError,
+  requireFrames,
+  timedProviderFetch,
+  tokenUsageInfo,
+  billedOutputText,
   type DescribeOptions,
   type DescribeProvider,
   type DescribeResult,
@@ -112,24 +114,18 @@ export class OpenAIProvider implements DescribeProvider {
     const outTokens =
       typeof parsed.usage?.completion_tokens === 'number' ? parsed.usage.completion_tokens : 0;
     const cost = priceForModel(opts.model, inTokens, outTokens);
-    if (firstChoiceFinishReason(parsed.choices) === 'length') {
-      throw new TruncatedOutputError(
-        `OpenAI stopped generating before it finished (finish_reason=length, max_tokens=${MAX_OUTPUT_TOKENS})`,
-        cost,
-      );
-    }
-    const text = extractFirstChoiceText(parsed.choices);
-    if (text.length === 0) {
-      throw new BilledOutputError('OpenAI returned empty content', cost);
-    }
+    const text = billedOutputText(
+      'OpenAI',
+      cost,
+      firstChoiceFinishReason(parsed.choices) === 'length'
+        ? `finish_reason=length, max_tokens=${MAX_OUTPUT_TOKENS}`
+        : null,
+      () => extractFirstChoiceText(parsed.choices),
+    );
     return {
       text,
       cost_usd: cost,
-      provider_info: {
-        model: typeof parsed.model === 'string' ? parsed.model : opts.model,
-        input_tokens: String(inTokens),
-        output_tokens: String(outTokens),
-      },
+      provider_info: tokenUsageInfo(parsed.model, opts.model, inTokens, outTokens),
     };
   }
 
@@ -138,28 +134,10 @@ export class OpenAIProvider implements DescribeProvider {
   }
 
   private async timedFetch(url: string, init: RequestInit): Promise<Response> {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
-    try {
-      return await this.fetchImpl(url, { ...init, signal: ctrl.signal });
-    } catch (err) {
-      const aborted = err instanceof Error && (err.name === 'AbortError' || ctrl.signal.aborted);
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new RemoteError(
-        aborted
-          ? `OpenAI request timed out after ${this.timeoutMs}ms`
-          : `OpenAI request failed: ${msg}`,
-        true,
-      );
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-}
-
-function requireFrames(frames: readonly Buffer[]): void {
-  if (frames.length === 0) {
-    throw new RemoteError('Describe requires at least one JPEG frame', false);
+    return timedProviderFetch('OpenAI', url, init, {
+      timeoutMs: this.timeoutMs,
+      fetchImpl: this.fetchImpl,
+    });
   }
 }
 
