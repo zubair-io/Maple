@@ -21,8 +21,13 @@ class GitFixture(unittest.TestCase):
         self.addCleanup(os.chdir, self.previous)
         os.chdir(self.directory.name)
         self.git("init", "--bare", "remote.git")
+        self.git("--git-dir=remote.git", "config", "gc.auto", "0")
+        self.git("--git-dir=remote.git", "config", "maintenance.auto", "false")
         self.git("init", "-b", "main", "work")
         os.chdir("work")
+        # Detached Git housekeeping can outlive a command and race temp cleanup (#4993).
+        self.git("config", "gc.auto", "0")
+        self.git("config", "maintenance.auto", "false")
         self.git("config", "user.name", "Release test")
         self.git("config", "user.email", "release@example.test")
         self.git("remote", "add", "origin", "../remote.git")
