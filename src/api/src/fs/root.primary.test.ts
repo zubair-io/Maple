@@ -73,6 +73,62 @@ test.each(['runtime', 'SQLite'] as const)(
   },
 );
 
+test.each(['directory', 'file'] as const)(
+  'authorizes cross-library %s symlinks and revalidates the destination root',
+  async (kind) => {
+    const fixture = await realpath(await mkdtemp(join(tmpdir(), 'maple-primary-cross-root-')));
+    temporaryRoots.push(fixture);
+    const libraryA = join(fixture, 'library-a');
+    const libraryB = join(fixture, 'library-b');
+    const aliasB = join(fixture, 'alias-b');
+    const outside = join(fixture, 'outside');
+    await Promise.all([mkdir(libraryA), mkdir(libraryB), mkdir(outside)]);
+    await symlink(libraryB, aliasB);
+    await writeFile(join(libraryB, 'photo.xmp'), '<existing/>');
+    const link = join(libraryA, kind === 'directory' ? 'linked' : 'linked.xmp');
+    await symlink(kind === 'directory' ? libraryB : join(libraryB, 'photo.xmp'), link);
+    const readPath = kind === 'directory' ? join(link, 'photo.xmp') : link;
+    const writePath = kind === 'directory' ? join(link, 'nested', 'new.xmp') : link;
+    const destination =
+      kind === 'directory' ? join(libraryB, 'nested', 'new.xmp') : join(libraryB, 'photo.xmp');
+    const dangling = join(libraryA, 'dangling.xmp');
+    await symlink(join(libraryB, 'missing.xmp'), dangling);
+    delete process.env.MAPLE_ROOTS;
+
+    const live = await createLiveTestDatabase();
+    try {
+      insertFolder(live.db, { path: libraryA, slug: 'library-a' });
+      insertFolder(live.db, { path: aliasB, slug: 'library-b' });
+      invalidateLibraryRoots();
+      expect((await safeReadFile(readPath)).data?.toString()).toBe('<existing/>');
+      expect(await safeWriteAllowed(writePath)).toEqual({ ok: true, data: destination });
+      if (kind === 'directory') await mkdir(join(libraryB, 'nested'));
+      await writeFile(destination, '<updated/>');
+      expect((await safeReadFile(writePath)).data?.toString()).toBe('<updated/>');
+      expect((await safeWriteAllowed(dangling)).ok).toBe(true);
+      expect((await safeWriteAllowed(join(libraryA, 'new.xmp'))).ok).toBe(true);
+
+      await rm(aliasB);
+      await symlink(outside, aliasB);
+      expect((await safeReadFile(readPath)).ok).toBe(false);
+      expect((await safeWriteAllowed(writePath)).ok).toBe(false);
+      expect((await safeWriteAllowed(dangling)).ok).toBe(false);
+
+      await rm(aliasB);
+      await symlink(libraryB, aliasB);
+      expect((await safeReadFile(readPath)).ok).toBe(true);
+      live.db.query('DELETE FROM folders WHERE path = ?').run(aliasB);
+      invalidateLibraryRoots();
+      expect((await safeReadFile(readPath)).ok).toBe(false);
+      expect((await safeWriteAllowed(writePath)).ok).toBe(false);
+      expect((await safeWriteAllowed(dangling)).ok).toBe(false);
+    } finally {
+      live.close();
+      invalidateLibraryRoots();
+    }
+  },
+);
+
 test('a retargeted SQLite library alias stops authorizing its former directory without DB invalidation', async () => {
   const fixture = await realpath(await mkdtemp(join(tmpdir(), 'maple-primary-retarget-')));
   temporaryRoots.push(fixture);
