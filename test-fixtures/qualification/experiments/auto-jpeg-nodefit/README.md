@@ -23,3 +23,9 @@ bounds. The8case physical pilot is underway; no physical clear or complete
 suite result is claimed in this checkpoint.
 
 Output37/fit7 and NeutralAgX unchanged. Same draft5003, no merge.
+
+Completed full coverage for9139fcf000:15pass,1fail(Leica0017darkestband),
+4no-preview,0errors. All4original passing controls stay green;11of12original
+JPEG failures clear. The complete20fixture accounting joins2disjoint shards
+from the same frozen binary. A monotone-prior restart is now being tested for
+the remaining constrained-solve stall; no result for it is implied here.
