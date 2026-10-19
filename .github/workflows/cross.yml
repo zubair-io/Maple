@@ -464,6 +464,9 @@ jobs:
 
   budgets-ratchet-shrinks-only:
     name: budgets-ratchet-shrinks-only
+    permissions:
+      contents: read
+      pull-requests: read
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -521,6 +524,8 @@ jobs:
           # On pull_request runs HEAD is the synthetic merge commit, whose message is
           # "Merge <sha> into <sha>" — read the PR head commit instead (Copilot, #3114).
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # If budgets.json didn't exist at the merge base (brand-new file),
@@ -536,11 +541,25 @@ jobs:
           # `RE-BASELINE: <fixture>/<case>.<metric>: <justification>` lines in
           # the PR body and/or the head commit message — either location is
           # fine, and the commit message is what survives "Rebase and merge"
-          # into main's history, since the PR body itself does not.
+          # into main's history, since the PR body itself does not. A
+          # merge_group run has no pull_request payload, so the queued PR
+          # numbers are read out of the queue head ref and each PR's body is
+          # fetched from the API and appended as well — failing closed if
+          # no queued PR can be identified.
           marker="$(mktemp)"
           printf '%s\n' "$PR_BODY" > "$marker"
           if [ "${{ github.event_name }}" = "merge_group" ]; then
             git log --format=%B "${MERGE_BASE}..HEAD" >> "$marker"
+            queued_prs="$(printf '%s' "$GROUP_HEAD_REF" | grep -oE 'pr-[0-9]+' | sed 's/^pr-//' | awk '!seen[$0]++' || true)"
+            if [ -z "$queued_prs" ]; then
+              echo "::error::could not identify a queued PR from the merge-group head ref — refusing to validate budget raises without the queued PR bodies."
+              exit 1
+            fi
+            while read -r queued_pr; do
+              [ -n "$queued_pr" ] || continue
+              printf '\n' >> "$marker"
+              gh api "repos/${GITHUB_REPOSITORY}/pulls/${queued_pr}" --jq '.body // ""' >> "$marker"
+            done <<< "$queued_prs"
           else
             git log -1 --format=%B "${HEAD_SHA:-HEAD}" >> "$marker"
           fi
