@@ -1,3 +1,13 @@
+# REJECTED: Auto JPEG band calibration
+
+Owner review of the before/after gallery found severe visual regressions, including crushed shadows, posterization and color shifts. The signed-band gate passed these defective outputs. The prior completion claim is withdrawn. The calibration has been removed from the render path; its commits and all original receipts remain available.
+
+Every JPEG-bearing fixture must be re-evaluated, including the four original passing controls. No-preview cases require separate fallback checks. Do not select only the three most obvious regressions.
+
+The historical numerical report below is preserved to explain the false positive; it is not accepted image-quality qualification.
+
+---
+
 # Auto embedded-JPEG qualification — #5000
 
 All 12 original failures are cleared. The complete 20-fixture set now has **16 passing JPEG comparisons, 0 failures, 4 unchanged missing previews, and 0 errors**. Missing previews are not passes. The four original passing controls remain passing.

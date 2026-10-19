@@ -844,5 +844,7 @@
       "status": "no-preview"
     }
   ],
-  "complete": true
+  "complete": true,
+  "qualification_status": "rejected-visual-regressions",
+  "superseded_by": "Owner review found severe visual regressions across multiple fixtures. These are signed-band-bias passes only, not accepted fixes. Calibration removed from production; all measured counts retained as historical evidence."
 }

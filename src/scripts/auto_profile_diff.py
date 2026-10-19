@@ -6,12 +6,11 @@ Compares Maple's `Profile = Auto` render against the RAW's embedded JPEG.
 Emits per-luma-band (5 bands) per-channel signed bias. Fails if any
 band exceeds the budget.
 
-NO aggregate ΔE/RMSE/MAE. Those metrics mask the structural per-channel
-errors we care about. See the L2.7 failure lesson:
-median-LUT introduced a global green cast that an aggregate ΔE happily
-averaged away — but per-luma-band per-channel bias would have flagged it
-immediately as a "+0.04 in G across all bands" structural error.
-
+This is a signed-bias check, not an image-quality acceptance test. Positive
+and negative errors can cancel within each band. It does not establish
+spatial color accuracy, clipping safety, detail preservation or absence of
+posterization. The #5000 LUT calibration passed it despite visible damage.
+Non-cancelling measurements and full-fixture visual review are required.
 Companion: src/scripts/test_auto_profile_match.sh drives this script
 fixture-by-fixture and aggregates pass/fail counts.
 """
