@@ -17,3 +17,9 @@ physical case or whole-suite improvement is claimed at this start checkpoint.
 Relevant host/GPU parity and physical results remain prerequisites for adoption.
 Pipeline output37/fit7, JPEG limit0.05, original RAW/preview inputs unchanged.
 Same draft5003, no merge. This is an incremental implementation checkpoint.
+
+Completed pilot:8comparisons,4existingcontrols pass,4existingfailures remain.
+Zero clears or new failures. GPU residual-LUT parity7pass; real-Leica host
+fit/cache/edited-caller parity8pass. The per-channel residual is insufficient
+for the4target cases; preserve this checkpoint and replace its constrained
+model, rather than loosening0.05 or declaring the pilot complete qualification.
