@@ -12,7 +12,7 @@ public actor BackupEngine {
   /// companion (sidecar / rendered / live-mov) is retrying or has exhausted
   /// its bounded budget, so a stranded artifact is visible in Console.app
   /// without failing the (already-uploaded) photo.
-  private static let companionLog = Logger(
+  static let companionLog = Logger(
     subsystem: "app.justmaple.aperture", category: "backup.companion")
 
   public enum EngineError: Error, Equatable, Sendable {
@@ -49,7 +49,7 @@ public actor BackupEngine {
   /// Keyed by a token rather than held in a `Set<Task>` so a retry can
   /// retire its OWN entry from inside its closure, before it signals. That
   /// ordering is load-bearing — see `finishRetry(_:)`.
-  private var retryTasks: [UUID: Task<Void, Never>] = [:]
+  var retryTasks: [UUID: Task<Void, Never>] = [:]
 
   /// Wakes `run()` when a sleeping retry re-enqueues, so it can park
   /// instead of polling on a fixed interval while retries are outstanding
@@ -471,91 +471,6 @@ public actor BackupEngine {
     }
   }
 
-  /// Run one companion upload best-effort: try `op` inline once; on failure
-  /// schedule a bounded, exponentially-backed-off detached retry (tracked in
-  /// `retryTasks` so `stop()` tears it down cleanly). Never throws, never
-  /// emits queue events. `busyElsewhere` on a companion is treated like any
-  /// other transient failure here — it's coordination on a re-derivable
-  /// artifact, not a reason to fail the (already-uploaded) photo.
-  private func runCompanion(
-    taskId: BackupTaskID,
-    label: String,
-    maxAttempts: Int,
-    _ op: @escaping @Sendable () async throws -> Void
-  ) async {
-    do {
-      try await op()
-    } catch {
-      // Cancelled by stop(): never schedule a retry that outlives the teardown.
-      guard !Task.isCancelled else { return }
-      Self.companionLog.notice(
-        "companion \(label, privacy: .public) first attempt failed, scheduling retry: \(String(describing: error), privacy: .public)"
-      )
-      // This companion is now outstanding — count it once. The bounded
-      // detached retry (and its recursive reschedules) decrement exactly
-      // once at the chain's terminus (success or exhaustion). Emit the
-      // 0→1 `.companionPending` signal here so the photo flips from "done"
-      // to "uploaded, companions pending" in the progress VM (#702).
-      await companionBecamePending(taskId)
-      scheduleCompanionRetry(
-        taskId: taskId, label: label, attempt: 1,
-        maxAttempts: maxAttempts, op: op)
-    }
-  }
-
-  /// Schedule the next bounded companion retry. Detached so it doesn't hold a
-  /// `run()` concurrency slot; on exhaustion the re-derivable artifact is
-  /// simply dropped (a future safety walk can regenerate it).
-  private func scheduleCompanionRetry(
-    taskId: BackupTaskID,
-    label: String,
-    attempt: Int,
-    maxAttempts: Int,
-    op: @escaping @Sendable () async throws -> Void
-  ) {
-    guard attempt < maxAttempts else {
-      Self.companionLog.error(
-        "companion \(label, privacy: .public) exhausted \(maxAttempts) attempts — dropping (re-derivable artifacts can be regenerated on a future walk)"
-      )
-      // Terminal: budget exhausted. Decrement once so a dropped companion
-      // doesn't leak as permanently "pending" (#702).
-      Task { await self.companionResolved(taskId) }
-      return
-    }
-    let backoff = companionBackoff(attempt)
-    let token = UUID()
-    let retryTask = Task.detached(priority: .background) { [weak self] in
-      try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
-      if Task.isCancelled {
-        await self?.finishRetry(token)
-        return
-      }
-      do {
-        try await op()
-        // Terminal: the companion landed on this retry. Decrement once.
-        await self?.companionResolved(taskId)
-      } catch {
-        // Cancelled by stop(): a replacement retry would outlive the teardown.
-        guard !Task.isCancelled else {
-          await self?.finishRetry(token)
-          return
-        }
-        // Bounded recursion via the actor so retryTasks stays consistent.
-        // No re-increment: this companion is already counted outstanding.
-        await self?.scheduleCompanionRetry(
-          taskId: taskId, label: label,
-          attempt: attempt + 1,
-          maxAttempts: maxAttempts, op: op)
-      }
-      // Retire on EVERY exit. A companion retry never enqueues to the
-      // upload queue and used to never signal at all, so a `retryTasks`
-      // holding only companions parked `run()` on a wake that could not
-      // arrive — the 1 s poll used to paper over that.
-      await self?.finishRetry(token)
-    }
-    retryTasks[token] = retryTask
-  }
-
   /// Retire a finished retry and wake `run()` — in that order.
   ///
   /// The ordering is the whole point. `run()` parks precisely because
@@ -567,7 +482,7 @@ public actor BackupEngine {
   /// is evaluated against a `retryTasks` that already reflects this task's
   /// exit. Signalling unconditionally (not just when the queue gained work)
   /// is what covers the companion path, which never enqueues anything.
-  private func finishRetry(_ token: UUID) async {
+  func finishRetry(_ token: UUID) async {
     retryTasks[token] = nil
     await retryWake.signal()
   }
