@@ -140,7 +140,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - run: python3 tools/test_nlm_wasm_simd.py
@@ -561,7 +561,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       # banding_check.py (#1627) needs numpy + an EXR reader (OpenEXR
@@ -670,7 +670,7 @@ jobs:
             echo "::notice::test-fixtures/raws or references/manifest.json not present — color-pipeline gate is a no-op on this runner. See test-fixtures/BUDGETS_DRIFT.md."
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: steps.probe.outputs.have_fixtures == 'true'
         with:
           python-version: '3.12'
@@ -750,7 +750,7 @@ jobs:
             echo "::notice::test-fixtures/raws/pano_* not present — pano candidate gates are a no-op on this runner; the metrics self-test still runs."
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
