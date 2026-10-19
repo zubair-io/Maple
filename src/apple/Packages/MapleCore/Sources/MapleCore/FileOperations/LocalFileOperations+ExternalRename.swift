@@ -91,7 +91,13 @@ extension LocalFileOperations {
                 sourceSidecarPath = oldSidecarURL.path
                 finalSidecarPath = newSidecarURL.path
             } else {
-                guard !fm.fileExists(atPath: newSidecarURL.path) else {
+                // The destination already holding exactly these bytes is the
+                // pair's other half having carried them there: join it (#4707).
+                let joinsCarriedSidecar =
+                    fm.fileExists(atPath: newSidecarURL.path)
+                    && SidecarOwnership.localSidecarAlreadyCarried(
+                        oldSidecarURL.path, at: newSidecarURL.path)
+                guard !fm.fileExists(atPath: newSidecarURL.path) || joinsCarriedSidecar else {
                     // The newly-arrived file already owns a sidecar of its
                     // own — moving the old one on top would silently attach
                     // one photo's edits to another. Decline rather than
@@ -102,10 +108,13 @@ extension LocalFileOperations {
                 }
                 do {
                     // A sidecar another same-stem photo still uses is copied, never taken (#4707).
-                    if SidecarOwnership.localStemClaimedBySibling(oldURL, excluding: [newURL]) {
-                        try fm.copyItem(at: oldSidecarURL, to: newSidecarURL)
-                    } else {
-                        try fm.moveItem(at: oldSidecarURL, to: newSidecarURL)
+                    let sourceClaimed = SidecarOwnership.localStemClaimedBySibling(
+                        oldURL, excluding: [newURL])
+                    switch (joinsCarriedSidecar, sourceClaimed) {
+                    case (true, true): break
+                    case (true, false): try fm.removeItem(at: oldSidecarURL)
+                    case (false, true): try fm.copyItem(at: oldSidecarURL, to: newSidecarURL)
+                    case (false, false): try fm.moveItem(at: oldSidecarURL, to: newSidecarURL)
                     }
                 } catch {
                     externalRenameLog.error(

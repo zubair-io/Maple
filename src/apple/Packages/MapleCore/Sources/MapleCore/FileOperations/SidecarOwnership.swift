@@ -44,12 +44,13 @@ enum SidecarOwnership {
     primaryPath: String, siblingNames: [String], excluding: [String] = [], foldsCase: Bool = true
   ) -> Bool {
     let dir = (primaryPath as NSString).deletingLastPathComponent
-    let skipped = Set(([primaryPath] + excluding).map(exact))
+    let key: (String) -> String = foldsCase ? folded : exact
+    let skipped = Set(([primaryPath] + excluding).map(key))
     let primaryStem = stem(of: (primaryPath as NSString).lastPathComponent, foldsCase: foldsCase)
     return siblingNames.contains { name in
       !name.hasPrefix(".") && !isStagingName(name)
         && (name as NSString).pathExtension.lowercased() != "xmp"
-        && !skipped.contains(exact((dir as NSString).appendingPathComponent(name)))
+        && !skipped.contains(key((dir as NSString).appendingPathComponent(name)))
         && stem(of: name, foldsCase: foldsCase) == primaryStem
     }
   }
@@ -88,12 +89,12 @@ enum SidecarOwnership {
     return stemClaimedBySibling(primaryPath: primaryPath, siblingNames: names, excluding: excluding)
   }
 
-  /// Rule 3's "maps onto itself" asks whether two names are one FILE: the
-  /// identical path, or a case-only difference only where the volume folds
-  /// case — so the answer comes from file identity, never a string compare.
+  /// Rule 3's "maps onto itself" asks whether two names are one FILE — the
+  /// identical path, a case-only difference where the volume folds case, or
+  /// a name reached through a symlinked folder — so the answer comes from
+  /// file identity (device + inode), never a string compare.
   static func sameLocalFile(_ a: String, _ b: String) -> Bool {
     guard exact(a) != exact(b) else { return true }
-    guard folded(a) == folded(b) else { return false }
     let fm = FileManager.default
     guard let ia = try? fm.attributesOfItem(atPath: a), let ib = try? fm.attributesOfItem(atPath: b)
     else { return false }

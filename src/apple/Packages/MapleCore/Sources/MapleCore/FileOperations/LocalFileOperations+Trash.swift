@@ -228,7 +228,10 @@ extension LocalFileOperations {
     try requireUnderMapleTrash(item.primaryPath, libraryRoot: libraryRoot)
     let fm = FileManager.default
     try fm.removeItem(atPath: item.primaryPath)
-    if let sidecarPath = item.sidecarPath {
+    // A sidecar another trashed same-stem photo still uses is never deleted (#4707).
+    if let sidecarPath = item.sidecarPath,
+      !SidecarOwnership.localStemClaimedBySibling(URL(fileURLWithPath: item.primaryPath))
+    {
       try? fm.removeItem(atPath: sidecarPath)
     }
     removeTrashedMarker(forItemAt: URL(fileURLWithPath: item.primaryPath))

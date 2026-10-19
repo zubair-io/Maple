@@ -61,6 +61,7 @@ extension LocalFileOperations {
       }
     }
     let original = directory.appendingPathComponent(source.lastPathComponent)
+    let foldsCase = SidecarOwnership.localVolumeFoldsCase(directory)
     for attempt in -1...CollisionResolver.maxAttempts {
       try Task.checkCancellation()
       let target = URL(
@@ -68,8 +69,7 @@ extension LocalFileOperations {
       guard !(try RestoreLocalFile.exists(target)) else { continue }
       let occupied = try RestoreSidecarPairing.matchedNames(
         fm.contentsOfDirectory(atPath: directory.path), primary: target.path)
-      guard occupied.isEmpty else { continue }
-      let destinations = try members.map { member in
+      let planned = try members.map { member in
         member.source == source
           ? target
           : URL(
@@ -77,10 +77,28 @@ extension LocalFileOperations {
               try RestoreSidecarPairing.target(
                 member.source.path, from: source.path, to: target.path))
       }
+      // An occupied sidecar holding exactly the incoming bytes is the pair's
+      // already-restored other half: join it instead of colliding (#4707).
+      let joins = occupied.map { name in
+        members.indices.first { index in
+          let plannedName = planned[index].lastPathComponent
+          return members[index].source != source
+            && (foldsCase
+              ? plannedName.caseInsensitiveCompare(name) == .orderedSame : plannedName == name)
+            && SidecarOwnership.localSidecarAlreadyCarried(
+              members[index].staged.path, at: directory.appendingPathComponent(name).path)
+        }.map { (index: $0, name: name) }
+      }
+      guard joins.allSatisfy({ $0 != nil }) else { continue }
+      let joined = Dictionary(
+        joins.compactMap { $0 }.map { ($0.index, $0.name) }, uniquingKeysWith: { first, _ in first })
+      let destinations = planned.enumerated().map { index, url in
+        joined[index].map { directory.appendingPathComponent($0) } ?? url
+      }
       var published: [Int] = []
       do {
         for member in members { try member.original.assertUnchanged(member.source) }
-        for (index, member) in members.enumerated() {
+        for (index, member) in members.enumerated() where joined[index] == nil {
           try member.copy.assertUnchanged(member.staged)
           try anchor.assertSame(directory)
           try beforeClaim?(member.staged, destinations[index])
@@ -109,7 +127,7 @@ extension LocalFileOperations {
         continue
       }
       do {
-        for (index, member) in members.enumerated() {
+        for (index, member) in members.enumerated() where joined[index] == nil {
           try member.copy.assertUnchanged(destinations[index])
         }
         for member in members { try member.original.assertUnchanged(member.source) }

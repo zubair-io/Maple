@@ -41,19 +41,36 @@ extension SMBFileOperations {
     for attempt in -1...CollisionResolver.maxAttempts {
       try Task.checkCancellation()
       let target = RestoreCollisionNaming.candidate(original, attempt: attempt)
-      guard !(try await RestoreSMBFile.exists(target, transport: transport)),
-        try await restorePairedSidecars(target, transport: transport).isEmpty
-      else { continue }
-      let destinations = try members.map { member in
+      guard !(try await RestoreSMBFile.exists(target, transport: transport)) else { continue }
+      let planned = try members.map { member in
         member.source == source
           ? target : try RestoreSidecarPairing.target(member.source, from: source, to: target)
       }
+      // An occupied sidecar holding exactly the incoming bytes is the pair's
+      // already-restored other half: join it instead of colliding (#4707).
+      var joined: [Int: String] = [:]
+      var collides = false
+      for occupant in try await restorePairedSidecars(target, transport: transport) {
+        let match = members.indices.first { index in
+          members[index].source != source && joined[index] == nil && planned[index] == occupant
+        }
+        guard let match,
+          await SidecarOwnership.smbSidecarAlreadyCarried(
+            members[match].staged, at: occupant, transport: transport)
+        else {
+          collides = true
+          break
+        }
+        joined[match] = occupant
+      }
+      guard !collides else { continue }
+      let destinations = planned.enumerated().map { joined[$0.offset] ?? $0.element }
       var published: [Int] = []
       do {
         for member in members {
           try await member.original.assertUnchanged(member.source, transport: transport)
         }
-        for (index, member) in members.enumerated() {
+        for (index, member) in members.enumerated() where joined[index] == nil {
           try await member.copy.assertUnchanged(member.staged, transport: transport)
           try await member.copy.moveIfUnchanged(
             member.staged, to: destinations[index], transport: transport)
@@ -73,7 +90,7 @@ extension SMBFileOperations {
         continue
       }
       do {
-        for (index, member) in members.enumerated() {
+        for (index, member) in members.enumerated() where joined[index] == nil {
           try await member.copy.assertUnchanged(destinations[index], transport: transport)
         }
       } catch {

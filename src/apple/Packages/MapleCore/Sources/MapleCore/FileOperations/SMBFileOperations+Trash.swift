@@ -182,7 +182,10 @@ extension SMBFileOperations {
   ) async throws {
     try requireUnderMapleTrash(item.primaryPath, shareRoot: shareRoot)
     try await transport.removeItem(atPath: item.primaryPath)
-    if let sidecarPath = item.sidecarPath {
+    // A sidecar another trashed same-stem photo still uses is never deleted (#4707).
+    if let sidecarPath = item.sidecarPath,
+      await !SidecarOwnership.smbStemClaimedBySibling(item.primaryPath, transport: transport)
+    {
       try? await transport.removeItem(atPath: sidecarPath)
     }
     await removeTrashedMarker(forItemAt: item.primaryPath, transport: transport)
