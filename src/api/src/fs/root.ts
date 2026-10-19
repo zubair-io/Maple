@@ -127,15 +127,16 @@ async function allowedByPrimary(
 ): Promise<boolean> {
   const roots = [...source.values()];
   const lexical = roots.filter((root) => isWithinRoot(root, requested));
-  const selected = lexical.length ? lexical : roots;
-  if (selected.length === 0) return false;
-  return Promise.any(
-    selected.map(async (root) => {
-      const canonical = await canonicalPrimary(root, source);
-      if (canonical && isWithinRoot(canonical, candidate)) return true;
-      throw new Error('Outside primary root');
-    }),
-  ).catch(() => false);
+  const matches = (selected: readonly string[]): Promise<boolean> =>
+    Promise.any(
+      selected.map(async (root) => {
+        const canonical = await canonicalPrimary(root, source);
+        if (canonical && isWithinRoot(canonical, candidate)) return true;
+        throw new Error('Outside primary root');
+      }),
+    ).catch(() => false);
+  if (await matches(lexical)) return true;
+  return matches(roots.filter((root) => !isWithinRoot(root, requested)));
 }
 
 /** Register a root so that file access under it is permitted.
