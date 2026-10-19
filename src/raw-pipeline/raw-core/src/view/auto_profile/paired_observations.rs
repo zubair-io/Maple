@@ -7,6 +7,7 @@ use super::{
 };
 use crate::image::ExifOrientation;
 
+#[cfg_attr(feature = "stage-dump", derive(serde::Serialize))]
 pub(super) struct Observation {
     pub weights: Vec<(usize, f64)>,
     pub source: [f64; 3],

@@ -26,3 +26,18 @@ https://github.com/python-pillow/Pillow/blob/12.0.0/src/libImaging/Resample.c
 
 Physical, full-corpus visual and host/GPU/banding qualification remain pending.
 Keep existing draft5003open and unmerged. This is not a completed color fix.
+
+## Pilot result
+
+All nine previously changed/positive-control images were rendered with source
+6d624a6da5.0002passes and the other eight still fail. Every output matches the
+original baseline PNG hash: selection rejects every new candidate.62Auto unit
+tests pass (6existing ignored). This does not clear a color failure.
+
+To diagnose the actual rejection rather than guess, the existing stage-dump
+diagnostic mode now also writes `auto_fit_selection.json` and the sampled
+operator/target/prior snapshot `auto_fit_observations.json`. This is active only
+when the stage-dump feature AND existing MAPLE_STAGE_DUMP directory are enabled.
+MAPLE_STAGE_DUMP_ROI may keep EXR diagnostics tiny; the sampled operator is still
+built from the full fit frame. Neither file is full RAW qualification by itself.
+Normal rendering and all acceptance budgets remain unchanged.

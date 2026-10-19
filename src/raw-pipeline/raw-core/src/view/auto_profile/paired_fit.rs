@@ -253,10 +253,19 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
         counts[r] >= 32
             && (regional[0][r] - regional[1][r]) / counts[r] as f64 <= REGIONAL_SELECTION_MARGIN_DE
     });
-    regions_improve
+    let accepted = regions_improve
         && perceptual[0] < perceptual[1]
         && p95[0] <= p95[1]
-        && (0..3).all(|c| squared[0][c] <= squared[1][c] && absolute[0][c] <= absolute[1][c])
+        && (0..3).all(|c| squared[0][c] <= squared[1][c] && absolute[0][c] <= absolute[1][c]);
+    #[cfg(feature = "stage-dump")]
+    if let Some(dir) = crate::stage_dump::dump_dir() {
+        let regions:Vec<_>=(0..64).map(|r|serde_json::json!({"region":r,"count":counts[r],"candidate_mean":(counts[r]>0).then(||regional[0][r]/counts[r] as f64),"baseline_mean":(counts[r]>0).then(||regional[1][r]/counts[r] as f64)})).collect();
+        let report = serde_json::json!({"accepted":accepted,"regions_improve":regions_improve,"native_squared_rgb":squared,"native_absolute_rgb":absolute,"native_perceptual_sum":perceptual,"native_p95":p95,"regions":regions});
+        if let Ok(file) = std::fs::File::create(dir.join("auto_fit_selection.json")) {
+            let _ = serde_json::to_writer_pretty(std::io::BufWriter::new(file), &report);
+        }
+    }
+    accepted
 }
 
 pub(super) fn fit(
@@ -283,6 +292,35 @@ pub(super) fn fit(
     } else {
         None
     };
+    #[cfg(feature = "stage-dump")]
+    if let Some(dir) = crate::stage_dump::dump_dir() {
+        #[derive(serde::Serialize)]
+        struct Snapshot<'a> {
+            width: usize,
+            height: usize,
+            grid: usize,
+            native: &'a [Observation],
+            display: Option<&'a [Observation]>,
+            prior_size: usize,
+            prior: &'a [f32],
+            coarse: &'a [f32],
+            artifact: &'a [f32],
+        }
+        let snapshot = Snapshot {
+            width,
+            height,
+            grid: GRID,
+            native: &observations,
+            display: display.as_deref(),
+            prior_size: current.size,
+            prior: &current.data,
+            coarse: &coarse.data,
+            artifact: &result.data,
+        };
+        if let Ok(file) = std::fs::File::create(dir.join("auto_fit_observations.json")) {
+            let _ = serde_json::to_writer(std::io::BufWriter::new(file), &snapshot);
+        }
+    }
     prefer(
         &coarse,
         &observations,
