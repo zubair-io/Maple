@@ -17,7 +17,7 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { listPairedSidecars } from './xmp-conflict.ts';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
-import { serializeSidecarWrite } from './sidecar-write-order.ts';
+import { serializeSidecarWrite, serializeSidecarWrites } from './sidecar-write-order.ts';
 import { isVideoFilename } from '../indexer/media-types';
 import { child as childLogger } from '../log.ts';
 import {
@@ -132,25 +132,6 @@ export async function requireSidecarBytes(sidecar: string): Promise<Buffer> {
   return bytes;
 }
 
-/** The form `serializeSidecarWrite` keys on: the parent resolved through
- * symlinks plus the case-folded name, so two aliases of one sidecar order the
- * same way and compare equal. */
-async function barrierKey(p: string): Promise<string> {
-  const parent = await fs.realpath(path.dirname(p)).catch(() => path.dirname(p));
-  return comparable(path.join(parent, path.basename(p)));
-}
-
-/** Both save barriers, always taken in canonical order so two operations
- * touching the same pair — even through different symlinked parents —
- * cannot deadlock. Two names sharing one barrier key take it once rather
- * than wait on themselves. */
-async function withSidecarBarriers<T>(a: string, b: string, run: () => Promise<T>): Promise<T> {
-  const [keyA, keyB] = await Promise.all([barrierKey(a), barrierKey(b)]);
-  if (keyA === keyB || (await sameSidecarFile(a, b))) return serializeSidecarWrite(a, run);
-  const [first, second] = keyA < keyB ? [a, b] : [b, a];
-  return serializeSidecarWrite(first, () => serializeSidecarWrite(second, run));
-}
-
 /** Destination occupancy for a whole asset: the primary path itself, or any
  * sidecar paired to it that is neither one of the moving asset's own sidecars
  * nor an identical copy of the one that would land there. */
@@ -201,7 +182,7 @@ async function writeVerifiedTemp(dest: string, bytes: Buffer): Promise<string> {
  * `dest` still matches, under both save barriers. A save that changed `dest`
  * turns the join back into a collision. */
 export async function joinCarriedSidecar(source: string, dest: string): Promise<Buffer> {
-  return withSidecarBarriers(source, dest, async () => {
+  return serializeSidecarWrites([source, dest], async () => {
     const snapshot = await requireSidecarBytes(source);
     if (!snapshot.equals((await readSidecarBytes(dest)) ?? Buffer.alloc(0))) {
       throw new SidecarCollisionError(dest);
@@ -241,7 +222,7 @@ export async function settleCarriedSidecar(
   snapshot: Buffer,
   keepSource: boolean,
 ): Promise<void> {
-  await withSidecarBarriers(source, dest, async () => {
+  await serializeSidecarWrites([source, dest], async () => {
     const current = await readSidecarBytes(source);
     if (current === null) return;
     if (!current.equals(snapshot) && !(await carryLateSave(current, dest, snapshot))) {

@@ -237,6 +237,37 @@ async function reserveActualDestinationKeys(
   await waitForAbortable(previousActualWrites, signal);
 }
 
+/**
+ * One save barrier over several sidecars, reserving every name's keys at once.
+ * Nesting `serializeSidecarWrite` calls instead would hold one key set while
+ * waiting on the next, and no path order matches the key sets: a file symlink
+ * or a second mount path reaches one sidecar under a different name.
+ */
+export async function serializeSidecarWrites<T>(
+  destinations: readonly string[],
+  write: () => Promise<T>,
+): Promise<T> {
+  const admission = reserveAdmission('\0unscoped');
+  let reservation: WriteReservation | undefined;
+  try {
+    await admission.previous;
+    admission.acquired = true;
+    const keySets = await Promise.all(
+      destinations.map((destination) =>
+        destinationKeys(destination, canonicalKeys(destination, false)),
+      ),
+    );
+    const registered = registerReservation([...new Set(keySets.flat())]);
+    reservation = registered.reservation;
+    admission.release();
+    await registered.previousWrites;
+    return await write();
+  } finally {
+    admission.release();
+    if (reservation) releaseReservation(reservation, false);
+  }
+}
+
 export async function serializeSidecarWrite<T>(
   destination: string,
   write: (resolvedDestination: string) => Promise<T>,
