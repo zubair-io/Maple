@@ -340,7 +340,7 @@ fn select_step(
     native: &[Observation],
     display: &[Observation],
 ) -> Option<ColorLut> {
-    for fraction in [1., 0.5, 0.25, 0.125, 0.0625] {
+    let blend = |fraction: f32| {
         let mut candidate = proposed.clone();
         if fraction != 1. {
             for ((value, &before), &after) in candidate
@@ -352,17 +352,39 @@ fn select_step(
                 *value = before + fraction * (after - before);
             }
         }
+        candidate
+    };
+    let mut upper = 1.;
+    let mut selected = None;
+    for fraction in [1., 0.5, 0.25, 0.125, 0.0625] {
+        let candidate = blend(fraction);
         if prefer(&candidate, native, display) {
-            #[cfg(feature = "stage-dump")]
-            if let Some(dir) = crate::stage_dump::dump_dir() {
-                if let Ok(file) = std::fs::File::create(dir.join("auto_fit_step.json")) {
-                    let _ = serde_json::to_writer(file, &serde_json::json!({"fraction":fraction}));
-                }
+            selected = Some((fraction, candidate));
+            break;
+        }
+        upper = fraction;
+    }
+    let (mut lower, mut result) = selected?;
+    if lower != 1. {
+        for _ in 0..8 {
+            let fraction = (lower + upper) * 0.5;
+            let candidate = blend(fraction);
+            if prefer(&candidate, native, display) {
+                lower = fraction;
+                result = candidate;
+            } else {
+                upper = fraction;
             }
-            return Some(candidate);
         }
     }
-    None
+    #[cfg(feature = "stage-dump")]
+    if let Some(dir) = crate::stage_dump::dump_dir() {
+        let _ = prefer(&result, native, display);
+        if let Ok(file) = std::fs::File::create(dir.join("auto_fit_step.json")) {
+            let _ = serde_json::to_writer(file, &serde_json::json!({"fraction":lower}));
+        }
+    }
+    Some(result)
 }
 
 #[cfg(test)]

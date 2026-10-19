@@ -39,6 +39,16 @@ fn backtracking_keeps_a_useful_partial_correction_without_relaxing_local_safety(
     assert!(actual[0] > 0.25 && actual[0] < 0.26);
     assert_eq!(actual[1], current.sample([0.25, 0.625, 0.875])[1]);
     assert_eq!(actual[2], current.sample([0.25, 0.625, 0.875])[2]);
+    let mut larger = selected.clone();
+    for ((value, &before), &after) in larger
+        .data
+        .iter_mut()
+        .zip(&current.data)
+        .zip(&proposed.data)
+    {
+        *value += (after - before) / 256.;
+    }
+    assert!(!prefer(&larger, &observations, &observations));
 }
 
 #[test]
