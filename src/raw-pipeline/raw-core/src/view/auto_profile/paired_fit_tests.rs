@@ -91,7 +91,7 @@ fn equal_mean_footprints_need_different_eval_then_box_predictions() {
         .iter()
         .any(|row| row.validation && row.target[0] > 0.4));
     let (_, coarse) = solve_observations(&observations, 33).unwrap();
-    assert!(prefer(&coarse, &observations));
+    assert!(prefer(&coarse, &observations, &observations));
     for row in observations.iter().step_by(31) {
         let predicted: f64 = row
             .weights
@@ -169,5 +169,62 @@ fn rejects_local_color_damage_even_when_global_errors_improve() {
         .map(|row| (row.source[0] - row.target[0]).powi(2))
         .sum();
     assert!(new_squared < old_squared);
-    assert!(!prefer(&ColorLut::identity(GRID), &observations));
+    assert!(!prefer(
+        &ColorLut::identity(GRID),
+        &observations,
+        &observations
+    ));
+}
+
+#[test]
+fn regional_perception_uses_display_averages_and_keeps_native_rgb_checks() {
+    let mut native = Vec::new();
+    let mut display = Vec::new();
+    for region in 0..64 {
+        for i in 0..64 {
+            if region == 0 {
+                let (input, target, baseline) = if i % 2 == 0 {
+                    (0.4, 0.38, 0.38)
+                } else {
+                    (0.6, 0.62, 0.66)
+                };
+                native.push(Observation {
+                    weights: corners([input; 3]).to_vec(),
+                    source: [input as f64; 3],
+                    target: [target; 3],
+                    baseline: [baseline; 3],
+                    validation: true,
+                    region,
+                });
+                let weights: Vec<_> = corners([0.4; 3])
+                    .into_iter()
+                    .chain(corners([0.6; 3]))
+                    .map(|(j, w)| (j, w * 0.5))
+                    .collect();
+                display.push(Observation {
+                    weights,
+                    source: [0.5; 3],
+                    target: [0.5; 3],
+                    baseline: [0.52; 3],
+                    validation: true,
+                    region,
+                });
+            } else {
+                let input = [0.5, 0.3, 0.7];
+                for rows in [&mut native, &mut display] {
+                    rows.push(Observation {
+                        weights: corners(input).to_vec(),
+                        source: input.map(f64::from),
+                        target: input.map(f64::from),
+                        baseline: [0.8, 0.6, 0.95],
+                        validation: true,
+                        region,
+                    });
+                }
+            }
+        }
+    }
+    let candidate = ColorLut::identity(GRID);
+    assert!(!prefer(&candidate, &native, &native));
+    assert!(prefer(&candidate, &native, &display));
 }

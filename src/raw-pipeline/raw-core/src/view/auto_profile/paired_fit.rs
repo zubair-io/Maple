@@ -200,7 +200,7 @@ fn lab(rgb: [f32; 3]) -> [f32; 3] {
     srgb_linear_to_lab(rgb.map(srgb_gamma_inv))
 }
 
-fn prefer(candidate: &ColorLut, observations: &[Observation]) -> bool {
+fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observation]) -> bool {
     let mut squared = [[0.; 3]; 2];
     let mut absolute = [[0.; 3]; 2];
     let mut perceptual = [0.; 2];
@@ -209,7 +209,7 @@ fn prefer(candidate: &ColorLut, observations: &[Observation]) -> bool {
     let mut counts = [0usize; 64];
     for row in observations.iter().filter(|row| row.validation) {
         let target = lab(row.target.map(|v| v as f32));
-        counts[row.region] += 1;
+
         let prediction = std::array::from_fn(|c| {
             row.weights
                 .iter()
@@ -219,7 +219,7 @@ fn prefer(candidate: &ColorLut, observations: &[Observation]) -> bool {
         for (i, output) in [prediction, row.baseline].into_iter().enumerate() {
             let de = f64::from(ciede2000(lab(output.map(|v| v as f32)), target));
             perceptual[i] += de;
-            regional[i][row.region] += de;
+
             tails[i].push(de);
             for c in 0..3 {
                 let error = output[c] - row.target[c];
@@ -236,6 +236,19 @@ fn prefer(candidate: &ColorLut, observations: &[Observation]) -> bool {
         .iter_mut()
         .map(|values| *values.select_nth_unstable_by(index, f64::total_cmp).1)
         .collect();
+    for row in display.iter().filter(|row| row.validation) {
+        counts[row.region] += 1;
+        let prediction = std::array::from_fn(|c| {
+            row.weights
+                .iter()
+                .map(|&(i, w)| w * f64::from(candidate.data[i * 3 + c]))
+                .sum::<f64>()
+        });
+        let target = lab(row.target.map(|v| v as f32));
+        for (i, output) in [prediction, row.baseline].into_iter().enumerate() {
+            regional[i][row.region] += f64::from(ciede2000(lab(output.map(|v| v as f32)), target));
+        }
+    }
     let regions_improve = (0..64).all(|r| {
         counts[r] >= 32
             && (regional[0][r] - regional[1][r]) / counts[r] as f64 <= REGIONAL_SELECTION_MARGIN_DE
@@ -258,7 +271,24 @@ pub(super) fn fit(
     let observations =
         paired_observations::build(pixels, width, height, orientation, preview, current)?;
     let (result, coarse) = solve_observations(&observations, size)?;
-    prefer(&coarse, &observations).then_some(result)
+    let display = if preview.image.width().max(preview.image.height()) > 1024 {
+        Some(paired_observations::build_display(
+            pixels,
+            width,
+            height,
+            orientation,
+            preview,
+            current,
+        )?)
+    } else {
+        None
+    };
+    prefer(
+        &coarse,
+        &observations,
+        display.as_deref().unwrap_or(&observations),
+    )
+    .then_some(result)
 }
 
 #[cfg(test)]
