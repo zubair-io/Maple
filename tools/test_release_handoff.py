@@ -105,16 +105,16 @@ class GitFixture(unittest.TestCase):
         }
 
     def api(self, repo, endpoint, payload=None):
-        if endpoint.startswith("commits/") and "/status?" in endpoint:
+        if endpoint.startswith("commits/") and "/statuses?" in endpoint:
             sha = endpoint.split("/")[1]
             previous = next(
                 (item for head, item in reversed(self.statuses) if head == sha), None
             )
-            return {
-                "statuses": [{**previous, "creator": {"login": "github-actions[bot]"}}]
+            return (
+                [{**previous, "creator": {"login": "github-actions[bot]"}}]
                 if previous
                 else []
-            }
+            )
         if endpoint.startswith("statuses/"):
             self.statuses.append((endpoint.split("/")[1], payload))
             return {}
@@ -215,13 +215,54 @@ class GateTests(GitFixture):
             "creator": {"login": "github-actions[bot]"},
         }
         pages = [
-            {"statuses": [{"context": f"check-{index}"} for index in range(100)]},
-            {"statuses": [matching]},
+            [{"context": f"check-{index}"} for index in range(100)],
+            [matching],
         ]
         with patch.object(control, "api", side_effect=pages) as request:
             control.status("owner/repo", self.pr(self.main), "success", "ready")
         self.assertEqual(request.call_count, 2)
         self.assertIn("page=2", request.call_args.args[1])
+
+    def test_status_history_preserves_creator_and_avoids_exhausted_status_writes(self):
+        matching = {
+            "context": policy.CONTEXT,
+            "state": "success",
+            "description": "ready",
+            "creator": {"login": "github-actions[bot]"},
+        }
+
+        def history_only(repo, endpoint, payload=None):
+            self.assertEqual(repo, "owner/repo")
+            self.assertEqual(
+                endpoint, f"commits/{self.main}/statuses?per_page=100&page=1"
+            )
+            self.assertIsNone(payload, "Unchanged status must never be posted again")
+            return [matching]
+
+        with patch.object(control, "api", side_effect=history_only) as request:
+            control.status("owner/repo", self.pr(self.main), "success", "ready")
+        self.assertEqual(request.call_count, 1)
+
+    def test_latest_status_is_not_hidden_by_older_matching_status(self):
+        older = {
+            "context": policy.CONTEXT,
+            "state": "success",
+            "description": "ready",
+            "creator": {"login": "github-actions[bot]"},
+        }
+        for latest in (
+            {**older, "state": "pending"},
+            {**older, "creator": {"login": "some-user"}},
+        ):
+            with (
+                self.subTest(latest=latest),
+                patch.object(
+                    control, "api", side_effect=[[latest, older], {}]
+                ) as request,
+            ):
+                control.status("owner/repo", self.pr(self.main), "success", "ready")
+            self.assertEqual(request.call_count, 2)
+            self.assertEqual(request.call_args.args[1], f"statuses/{self.main}")
 
     def test_status_from_another_actor_is_replaced(self):
         matching = {
@@ -230,9 +271,7 @@ class GateTests(GitFixture):
             "description": "ready",
             "creator": {"login": "some-user"},
         }
-        with patch.object(
-            control, "api", side_effect=[{"statuses": [matching]}, {}]
-        ) as request:
+        with patch.object(control, "api", side_effect=[[matching], {}]) as request:
             control.status("owner/repo", self.pr(self.main), "success", "ready")
         self.assertEqual(request.call_count, 2)
 

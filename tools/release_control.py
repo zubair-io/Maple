@@ -89,22 +89,21 @@ def remote_tag(tag):
 def status(repo, pr, state, description):
     payload = {"state": state, "context": CONTEXT, "description": description}
     sha = pr["head"]["sha"]
-    # The combined endpoint returns the latest status for each context. Do not
-    # consume GitHub's 1,000-status allowance merely to change the run URL.
+    # Status history includes creator; the combined /status response omits it.
+    # Newest first: inspect the latest entry for this context, preserving actor
+    # verification without consuming the 1,000-status limit for unchanged runs.
     page = 1
     while True:
-        current = api(repo, f"commits/{sha}/status?per_page=100&page={page}")
-        previous = next(
-            (item for item in current["statuses"] if item["context"] == CONTEXT), None
-        )
-        if previous or len(current["statuses"]) < 100:
+        current = api(repo, f"commits/{sha}/statuses?per_page=100&page={page}")
+        previous = next((item for item in current if item["context"] == CONTEXT), None)
+        if previous or len(current) < 100:
             break
         page += 1
     if (
         previous
         and previous["state"] == state
         and previous.get("description") == description
-        and previous.get("creator", {}).get("login") == "github-actions[bot]"
+        and (previous.get("creator") or {}).get("login") == "github-actions[bot]"
     ):
         return
     if os.environ.get("GITHUB_RUN_ID"):
