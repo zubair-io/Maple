@@ -53,6 +53,8 @@ jobs:
 
   ci-selection-tests:
     name: CI selection regression tests
+    needs: changes
+    if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,10 +63,23 @@ jobs:
           python-version: '3.12'
       - run: python3 -m pip install PyYAML==6.0.2
       - run: python3 -m unittest discover -s tools -p 'test_ci_*.py'
+
+  nlm-exp-tests:
+    name: NLM exponential table regression tests
+    needs: changes
+    if: needs.changes.outputs.codegen == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - run: python3 -m unittest discover -s tools -p 'test_nlm_exp_table.py'
 
   release-handoff-tests:
     name: Release handoff regression tests
+    needs: changes
+    if: needs.changes.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -751,6 +766,7 @@ jobs:
     needs:
       - changes
       - ci-selection-tests
+      - nlm-exp-tests
       - release-handoff-tests
       - format-check
       - oxlint-api
@@ -770,7 +786,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: >-
           python3 tools/ci_result.py
-          ci-selection-tests=always release-handoff-tests=always
+          ci-selection-tests=ci nlm-exp-tests=codegen release-handoff-tests=release
           format-check=always oxlint-api=api file-budget=always
           budget-headroom=pr allowlist-shrinks-only=pr
           budgets-ratchet-shrinks-only=always codegen-drift=codegen

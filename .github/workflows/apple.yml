@@ -55,6 +55,7 @@ jobs:
     uses: ./.github/workflows/ci-changes.yml
 
   validation-result:
+    name: Apple result
     needs: [changes, swift-build, swift-ui, swift-regressions-coverage, swift-regressions]
     if: always()
     runs-on: ubuntu-latest
@@ -62,7 +63,7 @@ jobs:
       sha: ${{ steps.revision.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
-      - run: python3 tools/ci_result.py swift-build=swift swift-ui=swift swift-regressions=swift swift-regressions-coverage=always
+      - run: python3 tools/ci_result.py swift-build=swift swift-ui=swift swift-regressions=swift swift-regressions-coverage=swift
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
       - id: revision
@@ -178,6 +179,8 @@ jobs:
 
   swift-regressions-coverage:
     name: swift-regressions-coverage (every test class is run or excluded on purpose)
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

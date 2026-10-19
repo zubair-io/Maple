@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from android_test_reports import verify
-from ci_changes import ALL, classify_paths, dependencies
+from ci_changes import ALL, BUILDS, classify_paths, dependencies
 from ci_result import validate
 from test_ci_workflows import ROOT, workflow
 
@@ -94,7 +94,7 @@ class AndroidSelectionTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertNotIn("android", dependencies(path))
         self.assertEqual(dependencies("unknown/shared-input"), ALL)
-        self.assertEqual(dependencies("test-fixtures/new-corpus/photo.dng"), ALL)
+        self.assertEqual(dependencies("test-fixtures/new-corpus/photo.dng"), BUILDS)
 
 
 class AndroidWorkflowTests(unittest.TestCase):

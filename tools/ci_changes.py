@@ -4,10 +4,12 @@ import json
 import os
 import re
 import subprocess
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
-CONSUMERS = ("android", "windows", "web", "api", "maple", "codegen", "swift")
+BUILD_CONSUMERS = ("android", "windows", "web", "api", "maple", "codegen", "swift")
+CONSUMERS = (*BUILD_CONSUMERS, "release", "ci")
+BUILDS = frozenset(BUILD_CONSUMERS)
 ALL = frozenset(CONSUMERS)
 CODEGEN_DOCS = frozenset(
     f"docs/{name}.{extension}"
@@ -46,7 +48,7 @@ def resolve_import(root, importer, specifier):
     return None
 
 
-@lru_cache(maxsize=None)
+@cache
 def swift_api_closure(root=ROOT):
     """Files the Swift-booted API fixtures import, and whether the walk was complete."""
     root = Path(root)
@@ -70,7 +72,9 @@ def swift_api_closure(root=ROOT):
             complete = False
             continue
         code = "\n".join(
-            line for line in source.splitlines() if not line.lstrip().startswith(COMMENT_LINE)
+            line
+            for line in source.splitlines()
+            if not line.lstrip().startswith(COMMENT_LINE)
         )
         for specifier in IMPORT_SPECIFIER.findall(code):
             try:
@@ -86,7 +90,11 @@ def swift_api_closure(root=ROOT):
 
 def is_maple_runtime(path):
     # src/api installs `maple` from file:../maple and the workflow fixture imports it.
-    return path.startswith("src/maple/") and not path.endswith(".md") and "/test/" not in path
+    return (
+        path.startswith("src/maple/")
+        and not path.endswith(".md")
+        and "/test/" not in path
+    )
 
 
 def affects_swift_api(path, root=ROOT):
@@ -119,17 +127,23 @@ def dependencies(path):
     parts = path.split("/")
     if not path or any(part in ("", ".", "..") for part in parts):
         return ALL
-    if path.startswith(("tools/release_", "tools/test_release_")):
-        return frozenset()
+    if path.startswith(("tools/release_", "tools/test_release_")) or path in (
+        "tools/sync-release-version.sh",
+        ".github/workflows/version-sync.yml",
+        ".github/workflows/release-handoff.yml",
+    ):
+        return {"release"}
+    if path in ("tools/generate_nlm_exp_table.py", "tools/test_nlm_exp_table.py"):
+        return {"codegen"}
     if path.startswith((".github/workflows/", ".github/actions/")) or (
         not path.startswith("src/android/")
         and any(part in ("scripts", "ci_scripts") for part in parts[:-1])
     ):
         return ALL
     if path.startswith(("src/raw-pipeline/", "test-fixtures/", "tools/qualification/")):
-        return ALL
+        return BUILDS
     if path.startswith("src/apple/MapleUITests/Goldens/.calibration/"):
-        return ALL
+        return BUILDS
     # Android stages the shared layout raster and exports MapleUI's bundled
     # fonts/glyphs. Ordinary Swift changes are still codegen-only.
     if path.startswith(

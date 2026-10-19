@@ -40,14 +40,32 @@ codegen drift check, even when the generator itself did not change.
 PR selection uses the event's immutable base/head merge base; main pushes use
 the entire before/after range. Deletes and both sides of renames count. Missing
 history, invalid events and empty diffs conservatively run everything. Manual
-runs and `release/next-v*` PRs retain full coverage. The eight workflow names
-polled by Release readiness remain unchanged; no branch protections are changed.
+runs and `release/next-v*` PRs retain full coverage. The workflow names
+polled by Release readiness remain unchanged.
 
 Each optimized workflow has an always-running result job using
 `tools/ci_result.py`: selection must succeed, every selected required job must
 succeed, and only explicitly unselected jobs may skip. The existing optional
 WebGPU smoke remains non-blocking; an absent RAW fixture is reported as not
 exercised before dependency/browser setup. It is not evidence of GPU parity.
+
+Release regression tests run only for changes to `tools/release_*`,
+`tools/test_release_*`, `tools/sync-release-version.sh`, or the release workflows.
+CI selection regression tests run when CI configuration or shared tooling changes.
+Unknown inputs, unavailable diffs and release PRs select all suites. Shared Rust
+and fixture changes select the platform builds without unrelated release tests.
+The NLM table test follows codegen selection, and the Swift test inventory follows
+Swift selection. Formatting, secret scanning and repository budget checks remain
+cross-cutting checks.
+
+For ordinary PRs, `Release readiness` is skipped before allocating a runner;
+release PRs still wait for the full release CI suite. Main requires the stable
+`Android result`, `API result`, `Web result`, `Windows result`, `Maple types result`,
+`Apple result`, and `Cross result` checks, plus `Release readiness` and
+`release-handoff-complete`. These aggregate results validate selected successes
+and intentional skips. Auto-merge waits for them without requiring ordinary PRs
+to update to every new main commit. Release freshness remains enforced by the
+handoff policy in `docs/releases.md`.
 
 Web builds the canonical `gpu,parallel` WASM package once, shares it through an
 artifact from the same workflow run, and syncs it into each consumer. The stamp

@@ -157,14 +157,18 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(jobs["changes"]["uses"], "./.github/workflows/ci-changes.yml")
         for event in ("push", "pull_request"):
             self.assertNotIn("paths", config[True][event] or {})
-        selected = {"swift-build", "swift-ui", "swift-regressions"}
+        selected = {
+            "swift-build",
+            "swift-ui",
+            "swift-regressions",
+            "swift-regressions-coverage",
+        }
         for job in selected:
             with self.subTest(job=job):
                 self.assertEqual(jobs[job]["needs"], "changes")
                 self.assertEqual(
                     jobs[job]["if"], "needs.changes.outputs.swift == 'true'"
                 )
-        self.assertNotIn("if", jobs["swift-regressions-coverage"])
         gate = jobs["validation-result"]
         self.assertEqual(gate["if"], "always()")
         self.assertEqual(set(gate["needs"]), set(jobs) - {"validation-result"})
@@ -179,7 +183,7 @@ class WorkflowTests(unittest.TestCase):
                 "swift-build": "swift",
                 "swift-ui": "swift",
                 "swift-regressions": "swift",
-                "swift-regressions-coverage": "always",
+                "swift-regressions-coverage": "swift",
             },
         )
         self.assertEqual(
@@ -192,14 +196,13 @@ class WorkflowTests(unittest.TestCase):
             "swift-build": "swift",
             "swift-ui": "swift",
             "swift-regressions": "swift",
-            "swift-regressions-coverage": "always",
+            "swift-regressions-coverage": "swift",
         }
 
         def needs(swift, result):
             return {
                 "changes": {"result": "success", "outputs": {"swift": swift}},
                 **{job: {"result": result} for job in rules},
-                "swift-regressions-coverage": {"result": "success"},
             }
 
         validate(needs("false", "skipped"), rules, "pull_request")
@@ -210,6 +213,33 @@ class WorkflowTests(unittest.TestCase):
             validate(needs("true", "failure"), rules, "pull_request")
         with self.assertRaises(ValueError):
             validate(needs("false", "success"), rules, "pull_request")
+
+    def test_readiness_uses_a_runner_only_for_release_prs(self):
+        job = workflow("version-sync")["jobs"]["release-readiness"]
+        self.assertEqual(job["name"], "Release readiness")
+        self.assertEqual(
+            job["if"],
+            "github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/next-v')",
+        )
+
+    def test_aggregate_checks_have_unique_stable_names(self):
+        names = [
+            workflow(name)["jobs"]["result"]["name"]
+            for name in ("android", "api", "windows", "web", "maple-types", "cross")
+        ]
+        names.append(workflow("apple")["jobs"]["validation-result"]["name"])
+        self.assertEqual(
+            set(names),
+            {
+                "Android result",
+                "API result",
+                "Windows result",
+                "Web result",
+                "Maple types result",
+                "Cross result",
+                "Apple result",
+            },
+        )
 
     def test_release_names_and_native_trigger_coverage(self):
         for name in ("android", "api", "windows", "web", "maple-types", "cross"):
