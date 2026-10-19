@@ -29,7 +29,8 @@ namespace Maple.WinUI.Services.FileOperations
         {
             try
             {
-                var (resolvedA, resolvedB) = (FullyResolvedPath(a), FullyResolvedPath(b));
+                var (hopsA, hopsB) = (0, 0);
+                var (resolvedA, resolvedB) = (FullyResolvedPath(a, ref hopsA), FullyResolvedPath(b, ref hopsB));
                 if (string.Equals(resolvedA, resolvedB, StringComparison.Ordinal)) return true;
                 return string.Equals(resolvedA, resolvedB, StringComparison.OrdinalIgnoreCase)
                     && FolderFoldsCaseBetween(resolvedA, resolvedB);
@@ -52,7 +53,12 @@ namespace Maple.WinUI.Services.FileOperations
             return !(names.Contains(Path.GetFileName(a)) && names.Contains(Path.GetFileName(b)));
         }
 
-        private static string FullyResolvedPath(string path)
+        // The same bound POSIX puts on one lookup (SYMLOOP_MAX): links that
+        // loop through each other across several segments would otherwise
+        // recurse until the stack overflows, which no catch can stop.
+        private const int MaxLinkHops = 40;
+
+        private static string FullyResolvedPath(string path, ref int hops)
         {
             var full = Path.GetFullPath(path);
             var root = Path.GetPathRoot(full) ?? string.Empty;
@@ -66,7 +72,9 @@ namespace Maple.WinUI.Services.FileOperations
                     : File.Exists(current) ? new FileInfo(current)
                     : null;
                 var target = link?.LinkTarget != null ? link.ResolveLinkTarget(returnFinalTarget: true) : null;
-                if (target != null) current = FullyResolvedPath(target.FullName);
+                if (target == null) continue;
+                if (++hops > MaxLinkHops) throw new IOException($"Too many directory links resolving {path}.");
+                current = FullyResolvedPath(target.FullName, ref hops);
             }
             return current;
         }
@@ -128,12 +136,17 @@ namespace Maple.WinUI.Services.FileOperations
         /// exactly <paramref name="source"/>'s bytes — the sidecar an earlier
         /// same-stem photo carried there (both halves of a RAW+JPEG pair moved
         /// one after the other). Joining it neither overwrites nor adopts
-        /// different edits, so it is not a collision.</summary>
+        /// different edits, so it is not a collision. A file past the
+        /// sidecar editing limit is no sidecar Maple wrote, and is never read
+        /// whole to find out.</summary>
         internal static bool SidecarAlreadyCarried(string source, string destination)
         {
             try
             {
-                return File.Exists(source) && File.Exists(destination)
+                var (sourceInfo, destinationInfo) = (new FileInfo(source), new FileInfo(destination));
+                return sourceInfo.Exists && destinationInfo.Exists
+                    && sourceInfo.Length == destinationInfo.Length
+                    && sourceInfo.Length <= SidecarStore.MaxSidecarBytes
                     && File.ReadAllBytes(source).AsSpan().SequenceEqual(File.ReadAllBytes(destination));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

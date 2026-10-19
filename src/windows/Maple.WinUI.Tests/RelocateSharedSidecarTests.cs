@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Maple.WinUI.Services.FileOperations;
+using Maple.WinUI.Services.Xmp;
 using Maple.WinUI.Tests.Support;
 using Xunit;
 
@@ -292,6 +293,34 @@ namespace Maple.WinUI.Tests
                 Directory.GetFiles(P("album")).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal));
             AssertContent("<shared/>", "album", "IMG_1.xmp");
             Assert.Empty(Directory.GetFiles(P("src")));
+        }
+
+        [Fact]
+        public void SidecarAlreadyCarried_IdenticalFilesPastTheSidecarLimit_IsNotAJoin()
+        {
+            var oversized = new string('x', (int)SidecarStore.MaxSidecarBytes + 1);
+            var source = Write(oversized, "src", "IMG_1.xmp");
+            var destination = Write(oversized, "album", "IMG_1.xmp");
+
+            Assert.False(LocalFileOperations.SidecarAlreadyCarried(source, destination));
+        }
+
+        [Fact]
+        public void SameSidecarPath_ThroughCyclicFolderLinks_StopsAndKeepsTheSidecar()
+        {
+            Write("<only/>", "photos", "X.xmp");
+            Directory.CreateSymbolicLink(P("loop-a"), P("loop-b", "inner"));
+            Directory.CreateSymbolicLink(P("loop-b"), P("loop-a"));
+
+            Assert.True(LocalFileOperations.SameSidecarPath(P("loop-a", "X.xmp"), P("photos", "X.xmp")));
+        }
+
+        [Fact]
+        public void SameSidecarPath_ThroughALinkToAMissingFolder_StillResolvesTheLink()
+        {
+            Directory.CreateSymbolicLink(P("dangling"), P("not-yet"));
+
+            Assert.True(LocalFileOperations.SameSidecarPath(P("dangling", "X.xmp"), P("not-yet", "X.xmp")));
         }
 
         [Fact]

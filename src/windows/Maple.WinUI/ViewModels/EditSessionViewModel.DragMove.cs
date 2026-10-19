@@ -61,7 +61,8 @@ namespace Maple.WinUI.ViewModels
         public static IReadOnlyList<string> DetectDragMoveCollisions(
             IReadOnlyList<DragMoveSourceItem> sources, string destinationDir) =>
             DragMoveLogic.DetectCollisions(sources, destinationDir,
-                path => File.Exists(path) || Directory.Exists(path));
+                path => File.Exists(path) || Directory.Exists(path),
+                LocalFileOperations.SidecarAlreadyCarried);
 
         /// <summary>Applies the drag-move/drag-copy sequentially and
         /// re-points every successfully-relocated (Move mode only) PhotoItem
