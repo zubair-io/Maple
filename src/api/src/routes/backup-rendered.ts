@@ -37,7 +37,13 @@
  *         Body: { retry_after_seconds }. Same-key metadata mismatches
  *         self-heal silently (session reset in place).
  */
-import { backupId, backupChunkRange, backupLibrary, backupLibraryId } from './backup-id.ts';
+import {
+  backupChunkRange,
+  backupId,
+  backupLibrary,
+  backupLibraryId,
+  isSafeRelPath,
+} from './backup-id.ts';
 import { openChunkSession, takeChunk } from './backup-chunk.ts';
 import { Elysia, t } from 'elysia';
 import { setAppleRenderedPath } from '../db/repos/backup.repo.ts';
@@ -86,21 +92,6 @@ async function atomicMove(src: string, dst: string): Promise<void> {
   // write) is what lets the rendered companion replicate to the backup root.
   await fs.copyFile(src, dst, fsConstants.COPYFILE_EXCL);
   await fs.unlink(src);
-}
-
-/**
- * Validate that a relative path is safe: no ".." segments, no leading slash,
- * no backslash, no empty segments.
- */
-function isSafeRelPath(relPath: string): boolean {
-  if (!relPath || relPath.length === 0 || relPath.length > 2048) return false;
-  if (relPath.startsWith('/') || relPath.startsWith('\\')) return false;
-  const parts = relPath.split(/[/\\]/);
-  for (const part of parts) {
-    if (part === '..' || part === '.') return false;
-    if (part.length === 0) return false;
-  }
-  return true;
 }
 
 /**

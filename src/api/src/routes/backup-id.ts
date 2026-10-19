@@ -54,3 +54,19 @@ export function backupChunkRange(totalBytesRaw: string, range: string, id: strin
 function badRequest(body: { error: string }): Response {
   return Response.json(body, { status: 400 });
 }
+
+/**
+ * A client-supplied relative path is safe to join under a library root: no
+ * ".." or "." segments, no leading slash or backslash, no empty segments.
+ * Shared by the sidecar and rendered-companion routes.
+ */
+export function isSafeRelPath(relPath: string): boolean {
+  if (!relPath || relPath.length === 0 || relPath.length > 2048) return false;
+  if (relPath.startsWith('/') || relPath.startsWith('\\')) return false;
+  const parts = relPath.split(/[/\\]/);
+  for (const part of parts) {
+    if (part === '..' || part === '.') return false;
+    if (part.length === 0) return false;
+  }
+  return true;
+}
