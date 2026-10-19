@@ -116,20 +116,32 @@ namespace Maple.WinUI.Services.FileOperations
             var stem = SidecarStemOf(Path.GetFileName(primaryPath));
             try
             {
-                return Directory.EnumerateFiles(dir).Any(path =>
-                {
-                    var name = Path.GetFileName(path);
-                    return !name.StartsWith('.')
-                        && !StagingName.IsMatch(name)
-                        && IsMediaFile(name)
-                        && !skip.Contains(path, StringComparer.OrdinalIgnoreCase)
-                        && string.Equals(SidecarStemOf(name), stem, StringComparison.OrdinalIgnoreCase);
-                });
+                var names = Directory.EnumerateFiles(dir).Select(Path.GetFileName).ToHashSet(StringComparer.Ordinal);
+                return names.Any(name =>
+                    !name!.StartsWith('.')
+                    && !StagingName.IsMatch(name)
+                    && IsMediaFile(name)
+                    && !skip.Contains(Path.Combine(dir, name), StringComparer.OrdinalIgnoreCase)
+                    && SiblingReadsSameSidecar(dir, name, stem, names!));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 return true;
             }
+        }
+
+        /// <summary>A sibling whose stem differs only in case reads the same
+        /// sidecar only where the folder folds case: its name re-cased to
+        /// <paramref name="stem"/> then reaches it without being listed as a
+        /// file of its own.</summary>
+        private static bool SiblingReadsSameSidecar(
+            string dir, string siblingName, string stem, System.Collections.Generic.ISet<string> names)
+        {
+            var siblingStem = SidecarStemOf(siblingName);
+            if (string.Equals(siblingStem, stem, StringComparison.Ordinal)) return true;
+            if (!string.Equals(siblingStem, stem, StringComparison.OrdinalIgnoreCase)) return false;
+            var recased = SidecarStore.IsVideoFilename(siblingName) ? stem : stem + Path.GetExtension(siblingName);
+            return !names.Contains(recased) && File.Exists(Path.Combine(dir, recased));
         }
 
         /// <summary>True when <paramref name="destination"/> already holds
