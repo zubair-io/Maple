@@ -179,11 +179,7 @@ function registerReservation(keys: string[]): {
   return { reservation, previousWrites };
 }
 
-function extendReservation(reservation: WriteReservation, keys: string[]): Promise<void[]> {
-  const sharesKey = keys.some((key) => reservation.keys.includes(key));
-  const missingKeys = sharesKey ? [] : keys.filter((key) => !reservation.keys.includes(key));
-  if (missingKeys.length === 0) return Promise.resolve([]);
-
+function extendReservation(reservation: WriteReservation, missingKeys: string[]): Promise<void[]> {
   const previousWrites = Promise.all(
     missingKeys.map((key) => pendingWrites.get(key) ?? Promise.resolve()),
   );
@@ -194,6 +190,30 @@ function extendReservation(reservation: WriteReservation, keys: string[]): Promi
   for (const key of missingKeys) pendingWrites.set(key, reservation.barrier);
   reservation.keys = [...reservation.keys, ...missingKeys];
   return previousWrites;
+}
+
+interface HeldReservation {
+  reservation: WriteReservation;
+  previousWrites: Promise<unknown>;
+}
+
+/**
+ * Add `keys` to a reservation whose earlier keys are already settled. When
+ * another reservation holds one of the new keys, waiting on it while keeping
+ * the first set is hold-and-wait: that holder may be queued behind this
+ * reservation's first keys (a name that became an alias after it reserved).
+ * The write has not run yet, so release everything and register the union
+ * afresh, behind every current holder.
+ */
+function reserveAdditionalKeys(reservation: WriteReservation, keys: string[]): HeldReservation {
+  const sharesKey = keys.some((key) => reservation.keys.includes(key));
+  const missingKeys = sharesKey ? [] : keys.filter((key) => !reservation.keys.includes(key));
+  if (missingKeys.length === 0) return { reservation, previousWrites: Promise.resolve() };
+  if (!missingKeys.some((key) => pendingWrites.has(key))) {
+    return { reservation, previousWrites: extendReservation(reservation, missingKeys) };
+  }
+  releaseReservation(reservation, true);
+  return registerReservation([...reservation.keys, ...missingKeys]);
 }
 
 function releaseReservation(reservation: WriteReservation, waitForPrerequisites: boolean): void {
@@ -216,9 +236,11 @@ async function reserveActualDestinationKeys(
   allowMissingParent: boolean,
   reservation: WriteReservation,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<HeldReservation> {
   const actualDestination = path.resolve(resolvedDestination);
-  if (actualDestination === path.resolve(destination)) return;
+  if (actualDestination === path.resolve(destination)) {
+    return { reservation, previousWrites: Promise.resolve() };
+  }
 
   const actualCanonicalKeyRequest = canonicalKeys(actualDestination, allowMissingParent);
   let actualKeys: string[];
@@ -233,8 +255,7 @@ async function reserveActualDestinationKeys(
     }
     throw error;
   }
-  const previousActualWrites = extendReservation(reservation, actualKeys);
-  await waitForAbortable(previousActualWrites, signal);
+  return reserveAdditionalKeys(reservation, actualKeys);
 }
 
 /**
@@ -302,16 +323,17 @@ export async function serializeSidecarWrite<T>(
     admission.release();
     await waitForAbortable(registered.previousWrites, options.signal);
     const resolvedDestination = await waitForAbortable(destinationPromise, options.signal);
-    // A shared lexical or inode key already protects this write from aliases.
-    // Avoid extending a held reservation with a second key: another alias may
-    // have reserved that key while waiting on ours, which would form a cycle.
-    await reserveActualDestinationKeys(
+    // A shared lexical or inode key already protects this write from aliases;
+    // otherwise the resolved name's keys are added without hold-and-wait.
+    const actual = await reserveActualDestinationKeys(
       destination,
       resolvedDestination,
       options.resolveDestination !== undefined,
       reservation,
       options.signal,
     );
+    reservation = actual.reservation;
+    await waitForAbortable(actual.previousWrites, options.signal);
     return await write(path.resolve(resolvedDestination));
   } finally {
     if (options.signal?.aborted && canonicalKeyRequest) {
