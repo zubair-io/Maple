@@ -1,0 +1,954 @@
+{
+  "scope": "Proposed independent Adobe recaptures of all 36 incorrectly recorded tint endpoints; original canonical inputs untouched. Not adopted into canonical suite.",
+  "phase": "complete; 36 independently verified captures, not adopted",
+  "verified_captures": 36,
+  "original_inputs_unchanged": true,
+  "effective_changed_controls": {
+    "Tint": 36,
+    "Temperature": 36
+  },
+  "updates": [
+    {
+      "case": "test_0000/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0000_tint_max.png",
+      "proposed_sha256": "10b5ea0253781662697f0ba15406020aa58562b76362d80e179a2be834bcd88a",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/tint_max.png",
+      "original_sha256": "1eea9e583dcf684fd2c96f160f8b465af4b816aa8889b8e6ed9222b1800cf1b0",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "6500"
+        }
+      },
+      "prepared_sidecar_sha256": "820dc3ca9d183326a07fabbddb25d04fe2cda3a2e1fe4c8b9d431386432933b6"
+    },
+    {
+      "case": "test_0000/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0000_tint_min.png",
+      "proposed_sha256": "f1dd6bb39c83d91f3b107a2309be57b1819f5ffd47fa24971547f147c62a4abb",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0000/down/tint_min.png",
+      "original_sha256": "3fda984aef373d33119f97516ae9b6742f2a8919613b2d063e5c2064d146ff6f",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "6500"
+        }
+      },
+      "prepared_sidecar_sha256": "a72090f3fa48a6f355655a3d3bd155092c353f3ba5a7e224f3cbca388567f869"
+    },
+    {
+      "case": "test_0001/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0001_tint_max.png",
+      "proposed_sha256": "0fab7c7eade277135e81cd1fb933b22d2d802a3e9357f8b85b595f7681a71cf3",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0001/down/tint_max.png",
+      "original_sha256": "bfc83d0eae033f0112f1329b0a34cceabf853a9c9b1dc732cfd7438b0f0f903f",
+      "old_dimensions": [
+        4000,
+        2250
+      ],
+      "new_dimensions": [
+        4000,
+        2250
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "4450"
+        }
+      },
+      "prepared_sidecar_sha256": "475fa62677be5fef4df4f9e587d40cc95a965227db53212775f36aa4a5f25dba"
+    },
+    {
+      "case": "test_0001/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0001_tint_min.png",
+      "proposed_sha256": "47aacae506b3b2320f95c064c4804e102dc79660000a0825e1a4b92c0a7577f8",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0001/down/tint_min.png",
+      "original_sha256": "39c24600921cbb8c494b7d31a51f4c8b877db533e9ef31df43fe9c04f7920052",
+      "old_dimensions": [
+        4000,
+        2250
+      ],
+      "new_dimensions": [
+        4000,
+        2250
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "4450"
+        }
+      },
+      "prepared_sidecar_sha256": "1811f77e770c62cace751521390bea26092b8ab7736173b94fb5c174db84f5a4"
+    },
+    {
+      "case": "test_0002/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0002_tint_max.png",
+      "proposed_sha256": "a4f9c8e263dbd0ccdced13239da2429b5d4a70b6a2586b63ec049864b731ff76",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/tint_max.png",
+      "original_sha256": "84e2235b447f97f15a2eaafd2aee57379db986eab5171c72a4d03d2c2b18bb6b",
+      "old_dimensions": [
+        4000,
+        3000
+      ],
+      "new_dimensions": [
+        4000,
+        3000
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "4450"
+        }
+      },
+      "prepared_sidecar_sha256": "3ee4662dc383a856713fb59fbde6a69e6d71e9d2e27c894e7833534d999eebda"
+    },
+    {
+      "case": "test_0002/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0002_tint_min.png",
+      "proposed_sha256": "832f2a905d4663ea4c9357544504c72139496745a76c82f7d22c8023b5094ca4",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0002/down/tint_min.png",
+      "original_sha256": "5e04e18bf2fd805ad57ba36ec4278026002850673a983046de475dd3d5ab1c12",
+      "old_dimensions": [
+        4000,
+        3000
+      ],
+      "new_dimensions": [
+        4000,
+        3000
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "4450"
+        }
+      },
+      "prepared_sidecar_sha256": "2ca2c5688857cc5ebf7055e372dce76b56be5296f190e5fcbed9266f4764ac1a"
+    },
+    {
+      "case": "test_0003/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0003_tint_max.png",
+      "proposed_sha256": "e192b2a2977c247c27ff17abe331416e5cb32fa249c7c87fed585fd7a7b3d4c4",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/down/tint_max.png",
+      "original_sha256": "74be9cab05547cab66299b575f611959e30f2dd8d8eca3476fcf239a3d2d5eb8",
+      "old_dimensions": [
+        2667,
+        4000
+      ],
+      "new_dimensions": [
+        2667,
+        4000
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5100"
+        }
+      },
+      "prepared_sidecar_sha256": "7359dd74ef5a9789c54eefc8ee82c02898b1083ad2993417173297bb4595a93a"
+    },
+    {
+      "case": "test_0003/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0003_tint_min.png",
+      "proposed_sha256": "eb7aae4ec08c06a254833a0525d58d378b96b850560d4eabef1678249c28dae1",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0003/down/tint_min.png",
+      "original_sha256": "dc226ed13b01fb1ea3e87fbf129e89b1a10f4abddeb84acd828ed1905ad42db9",
+      "old_dimensions": [
+        2667,
+        4000
+      ],
+      "new_dimensions": [
+        2667,
+        4000
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5100"
+        }
+      },
+      "prepared_sidecar_sha256": "8260bc9468fa9b16a9066cbe22fbdaab49c0bb673417bab7f2f805d0aee955c8"
+    },
+    {
+      "case": "test_0004/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0004_tint_max.png",
+      "proposed_sha256": "3bcad3e84308768e8eec89c300787dee6ba2740d386a7d7553b1663e4cd1e2a0",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0004/down/tint_max.png",
+      "original_sha256": "0766801269145e37be631e3a6f341a06f28b077a338a6ed3797036e6937b869f",
+      "old_dimensions": [
+        4000,
+        3000
+      ],
+      "new_dimensions": [
+        4000,
+        3000
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "6000"
+        }
+      },
+      "prepared_sidecar_sha256": "605b0c049ab42af196dff6e4f0dddcd37dc0391baff0bec0583ce4ef45dcc22d"
+    },
+    {
+      "case": "test_0004/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0004_tint_min.png",
+      "proposed_sha256": "816aa0ad7525b14092de1b2079d6699b433020af44899fdd8488439668412fbd",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0004/down/tint_min.png",
+      "original_sha256": "5d4d2923df8dc4cac72a147a6601704ee1e24a1494e27135bdfff072a3a5d00f",
+      "old_dimensions": [
+        4000,
+        3000
+      ],
+      "new_dimensions": [
+        4000,
+        3000
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "6000"
+        }
+      },
+      "prepared_sidecar_sha256": "a37c3cdc9e8bc2cfce953eab8a39def82dc38b7e429f808122fc62e2ca16f7dd"
+    },
+    {
+      "case": "test_0005/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0005_tint_max.png",
+      "proposed_sha256": "680f27ef10265c23e848d7ce97e5c844141abbd4bf656be1a672f1752e22a95d",
+      "original_png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0005/down/tint_max.png",
+      "original_sha256": "5a4ae8ac79f40462771df01ebec51c0a49108a1bc72c8544d72dafe1ea398534",
+      "old_dimensions": [
+        4000,
+        3000
+      ],
+      "new_dimensions": [
+        4000,
+        3000
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5100"
+        }
+      },
+      "prepared_sidecar_sha256": "059957f212240874842bb07fb8dd5811cdbfcd0e883f773e09351508c1f985e9"
+    },
+    {
+      "case": "test_0005/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0005_tint_min.png",
+      "proposed_sha256": "c21695d79359a6e72af03aea06af00f3f785449fe0deaffddbca517d3a9202ba",
+      "original_png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0005/down/tint_min.png",
+      "original_sha256": "432d0e4c4f645f783c127514ae57d1df4be787b8e8b407f53b27a95a1905aee2",
+      "old_dimensions": [
+        4000,
+        3000
+      ],
+      "new_dimensions": [
+        4000,
+        3000
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5100"
+        }
+      },
+      "prepared_sidecar_sha256": "4fc06ed1416ce9d595d093001435b1aae86a8656fc74fe4692bfc279e88fe199"
+    },
+    {
+      "case": "test_0006/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0006_tint_max.png",
+      "proposed_sha256": "8c924baa06ae66aa1b0bdd1bb2ba9d7767bb66cac56f6e4d1b35d77a93067178",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0006/down/tint_max.png",
+      "original_sha256": "593792ebaed6afb51bbeaaa4deb45f102ec5ad52552d0c68bd3462fc6c51d6e5",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "3750"
+        }
+      },
+      "prepared_sidecar_sha256": "86a669ad66a5087dd503035dfc7a3b1dcd40e174ddef3f3bcd645a1dd3679c85"
+    },
+    {
+      "case": "test_0006/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0006_tint_min.png",
+      "proposed_sha256": "5dda93aab35bfd22a3528d4d7241f647289ca5d141ce43692ddfea9b2e45fa23",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0006/down/tint_min.png",
+      "original_sha256": "f13ee4438780cd457d89962d539a09ada1f1e50847d23358e4d5afffc0fb702c",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "3750"
+        }
+      },
+      "prepared_sidecar_sha256": "7f9f4fc360b5dd612b0a0228f1fc9ee01221bf99a131c7d458c0a4aa1ad734f0"
+    },
+    {
+      "case": "test_0007/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0007_tint_max.png",
+      "proposed_sha256": "bec537b1865c5667c0f7834f047fcb67bfbc544692e7020963f32d41758a104e",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/tint_max.png",
+      "original_sha256": "882343054e8ff8e913f43bffb5b17ecacaec1a2ba16586f4bdd8462d6c36de0f",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "3750"
+        }
+      },
+      "prepared_sidecar_sha256": "86a669ad66a5087dd503035dfc7a3b1dcd40e174ddef3f3bcd645a1dd3679c85"
+    },
+    {
+      "case": "test_0007/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0007_tint_min.png",
+      "proposed_sha256": "8dff5f26c3c31c255138bf616367137bd81511c630ceb4f7f9c259a8c965df24",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0007/down/tint_min.png",
+      "original_sha256": "73cde93da1196ba5f85480e37d621a55de0c3244b0f7aca2b50e896ca4357b56",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "3750"
+        }
+      },
+      "prepared_sidecar_sha256": "7f9f4fc360b5dd612b0a0228f1fc9ee01221bf99a131c7d458c0a4aa1ad734f0"
+    },
+    {
+      "case": "test_0008/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0008_tint_max.png",
+      "proposed_sha256": "435aa44e1e5ce5bf7746787877a3f6c33c542270f72f81d4513ffd7a1183b044",
+      "original_png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0008/down/tint_max.png",
+      "original_sha256": "64833dcb2754aa15ede3e077f8e3293f6a6a88507ea704aa90d238babde0874d",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5150"
+        }
+      },
+      "prepared_sidecar_sha256": "b3a2d3f33bb2e7335a7bd4dd134d3a8669e8865fc8c7cae22d3eaf3a0e81a049"
+    },
+    {
+      "case": "test_0008/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0008_tint_min.png",
+      "proposed_sha256": "1ea4eeb64074bdfa075e1d37e0f042fd990ca620afe4ff01ca8bb856d1e5e0f8",
+      "original_png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0008/down/tint_min.png",
+      "original_sha256": "43f7de32f8d08c5adec7e0ab240c2d4ea18c11cca12a394b4a90a96c690aca45",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5150"
+        }
+      },
+      "prepared_sidecar_sha256": "683c618c8a62bc812332e99ce12fa1e90876610edb90c2c3c9412bfc6222c706"
+    },
+    {
+      "case": "test_0009/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0009_tint_max.png",
+      "proposed_sha256": "dbe98e88872b73167b261791f82e924333623683f7a186a75c32fd6c951ad892",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0009/down/tint_max.png",
+      "original_sha256": "0da3ec2850b24e565131b719d4b47168f5e90fe4892f66874fb65206ab04472a",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "4950"
+        }
+      },
+      "prepared_sidecar_sha256": "544310b4ddb38d576c181ec0a6a5a107a54961b9b4eb47f8da47e2da26003c40"
+    },
+    {
+      "case": "test_0009/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0009_tint_min.png",
+      "proposed_sha256": "d09f42b24ef76bb9fc7f3472c912166ba37d10ab9b7442ff4320137b12a7931e",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0009/down/tint_min.png",
+      "original_sha256": "272a14577d1e77137f050bef4a446d95092a63bbd879f127f436cda6eaa37b07",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "4950"
+        }
+      },
+      "prepared_sidecar_sha256": "85b05ed4b886f5a9c67e3fcdafd8e1db4b188822d9164d9db4c2b55b1699f942"
+    },
+    {
+      "case": "test_0010/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0010_tint_max.png",
+      "proposed_sha256": "1bbb198c2b8341702f53370e66ab01bebdda11ff07b146fdf453c3f2dd9027a1",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0010/down/tint_max.png",
+      "original_sha256": "7ea25b24432ecb88fc01ee0e955ce75708e01aea633e967840ccdb884a9f2bbd",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5000"
+        }
+      },
+      "prepared_sidecar_sha256": "72bf60c8891d63331c7ffb29c9b1f97b42754bbfb3384ddcd68edd3b0bf91051"
+    },
+    {
+      "case": "test_0010/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0010_tint_min.png",
+      "proposed_sha256": "bf47d6021667be5d580193d1438a09f8cfba8d58d1b9a5e31afd830ed0023fd7",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0010/down/tint_min.png",
+      "original_sha256": "3fac0086795d9ce5f6b22a1ad0f4535c4444f99f6d551567a4f606c8e2dc5507",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5000"
+        }
+      },
+      "prepared_sidecar_sha256": "5fb454605b1f7de28daadd8ab6de0e38795d72bd20c23057e9f88615f95620b4"
+    },
+    {
+      "case": "test_0011/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0011_tint_max.png",
+      "proposed_sha256": "f0bbbb67a6f7c1dc9400713f3e8affb4e0ef5b9bda68274fb09b9b39e310e120",
+      "original_png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/tint_max.png",
+      "original_sha256": "f1b5cfcd2e91d606869858cc8cb6dc6446b6cd9c681d8044cfcbaabb8f82b77d",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "7050"
+        }
+      },
+      "prepared_sidecar_sha256": "f14de4fa78ac802a0341c2f6b05c385a29bd5cce631fe8ce4a342a372c9b3e56"
+    },
+    {
+      "case": "test_0011/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0011_tint_min.png",
+      "proposed_sha256": "ccb318dd6b83b11ab02d9db9a0d03f5276a14104c3ffcc76d920962be43ba44f",
+      "original_png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/tint_min.png",
+      "original_sha256": "9f72fe0623cae18702d3098e6bb043f6ba94176eb5d63b07f1285f59f5ad6341",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "7050"
+        }
+      },
+      "prepared_sidecar_sha256": "1f2ad7c89b8ae1e329be88a8b61a68bd7ad027918af36f5cbebda0fe5f809620"
+    },
+    {
+      "case": "test_0012/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0012_tint_max.png",
+      "proposed_sha256": "922e7f50fd2f8b4890987c9891bfd91018c77f7b82dc798f950bebfe92c0c3d7",
+      "original_png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0012/down/tint_max.png",
+      "original_sha256": "7c1b8e7fa4bffc8c04a6b35bd403a7baba8a5e1ff4b95dede3efc523d960983a",
+      "old_dimensions": [
+        4000,
+        3000
+      ],
+      "new_dimensions": [
+        4000,
+        3000
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "4750"
+        }
+      },
+      "prepared_sidecar_sha256": "f9b163dffde7259068229cd40d6c5886c38a165abcc2930cf11d4af672213be2"
+    },
+    {
+      "case": "test_0012/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0012_tint_min.png",
+      "proposed_sha256": "b398d9826c0602d108815495f0a9c4223ffb1504f55f21438bf15f5e81862236",
+      "original_png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0012/down/tint_min.png",
+      "original_sha256": "843609233bf6481dea69486abb5f1f49a020d362917206f713c89c9358ca8623",
+      "old_dimensions": [
+        4000,
+        3000
+      ],
+      "new_dimensions": [
+        4000,
+        3000
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "4750"
+        }
+      },
+      "prepared_sidecar_sha256": "2ebe0cebee4848eaea4dcfe01e03a6e34476fccefad9f67039e2c1a0da871e9a"
+    },
+    {
+      "case": "test_0013/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0013_tint_max.png",
+      "proposed_sha256": "75b9ffdf0b6df3f6d474c625287f30a05ebab73089b4feb1dba819caa6762687",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0013/down/tint_max.png",
+      "original_sha256": "c9c259c94dca270cd5f24a8fa5348fd228a3418642f7754b40017b740c1f8037",
+      "old_dimensions": [
+        3000,
+        4000
+      ],
+      "new_dimensions": [
+        3000,
+        4000
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5600"
+        }
+      },
+      "prepared_sidecar_sha256": "786dc5831ceb3a5d374bcb58203760279e64eb715263c67ba3b5d31218f26374"
+    },
+    {
+      "case": "test_0013/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0013_tint_min.png",
+      "proposed_sha256": "35d037f3d16556ac232728cc5ce8e5f052bc6ab3ed1dc220cd732cb2568bc691",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0013/down/tint_min.png",
+      "original_sha256": "9f95f7728b8608ed58e2fd41272990e3f8c29bd2829419a5b09df569c7dadc37",
+      "old_dimensions": [
+        3000,
+        4000
+      ],
+      "new_dimensions": [
+        3000,
+        4000
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5600"
+        }
+      },
+      "prepared_sidecar_sha256": "febb1dd3141beb7ff5e164501ef3579425cce3db2d896c54056392b3d6948d12"
+    },
+    {
+      "case": "test_0014/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0014_tint_max.png",
+      "proposed_sha256": "5e0e3f88ce02f3ecfd92bc18e80416f26cb6a2bf43ff074df9e7cd58b2e8dd61",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0014/down/tint_max.png",
+      "original_sha256": "e2c55854b9120c6dbf9f8c2598b8efe5e91359e5364aef864f604057d276be68",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5250"
+        }
+      },
+      "prepared_sidecar_sha256": "111ff84475a9e9afac8e5c230db61fe5d40b534b9f1e8935e1ea82c0081114ae"
+    },
+    {
+      "case": "test_0014/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0014_tint_min.png",
+      "proposed_sha256": "1861019b6a10219b4a6f2fce4b8a02525c8ff71a3a77d4d7f882d3c725297fd9",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0014/down/tint_min.png",
+      "original_sha256": "d0617b3ceda577b8e795735de8c7da4d6713a1cfe1974c46ca7c8f8f2265aa96",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5250"
+        }
+      },
+      "prepared_sidecar_sha256": "c167a9c17f094ca3b9c3469fc7c4d5d4cb3efd6f97c031780a1595f1979c216b"
+    },
+    {
+      "case": "test_0015/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0015_tint_max.png",
+      "proposed_sha256": "76fe5de4eed3ec6478d980f555dc9dbceae8d8f80c91edbc0c9e6d3dd2c94828",
+      "original_png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0015/down/tint_max.png",
+      "original_sha256": "73bbddf4d285d1259c47aafe9e04e01507d7448481cc7541add58fdc66378e8c",
+      "old_dimensions": [
+        4000,
+        3008
+      ],
+      "new_dimensions": [
+        4000,
+        3008
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5800"
+        }
+      },
+      "prepared_sidecar_sha256": "e0433bdf51c26da4119e50adf7b06f224870bb28511eee440c75da9bad34d31f"
+    },
+    {
+      "case": "test_0015/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0015_tint_min.png",
+      "proposed_sha256": "654f2f7035357b8c7c80b88539e33b69e719381d5f7698381cabbbde35f4e5ee",
+      "original_png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0015/down/tint_min.png",
+      "original_sha256": "c0331318f3921d4e289ca6ef5e530cf192ad78cd728ccf67d8dc85f09fd6fd99",
+      "old_dimensions": [
+        4000,
+        3008
+      ],
+      "new_dimensions": [
+        4000,
+        3008
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5800"
+        }
+      },
+      "prepared_sidecar_sha256": "d41c8076de68d51125cd7cadc73df4acadb82e6064e8cbad71473ecf84956ce2"
+    },
+    {
+      "case": "test_0017/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0017_tint_max.png",
+      "proposed_sha256": "e238eea6ec3264fdbff61fcc77c447510976b3bdac1a4225928a0a8d72d216d2",
+      "original_png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/down/tint_max.png",
+      "original_sha256": "43202829b114e862abb89625032ac4f82e85ee655d78ed9972c77dc409e37965",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5300"
+        }
+      },
+      "prepared_sidecar_sha256": "a284b243f42676f9742bb95a4245df916594af519d79e8eb58aeaf4c14727da1"
+    },
+    {
+      "case": "test_0017/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0017_tint_min.png",
+      "proposed_sha256": "dbae7c908c230d17e5ad4903e7edc168842bcf171f1d41f8a1ae7e982cbe8d3c",
+      "original_png": "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0017/down/tint_min.png",
+      "original_sha256": "affa09e37be64db79614b6198e79a4647177c34357fec1097162634e31eb7974",
+      "old_dimensions": [
+        4000,
+        2667
+      ],
+      "new_dimensions": [
+        4000,
+        2667
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "5300"
+        }
+      },
+      "prepared_sidecar_sha256": "b6ad2b0e2d12f4ad63f87b86f78f668d1f2e927eaebef820afa0aa3811a215b4"
+    },
+    {
+      "case": "test_0018/tint_max",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0018_tint_max.png",
+      "proposed_sha256": "d444a502bd1a8474e9cdbfa6b0b43d2aaac5bcb478f29af5ab88f6a685658833",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/down/tint_max.png",
+      "original_sha256": "9e62e41033d695c9a97dec40f85fd82235f63153cb27aebfe333f7659d829d2a",
+      "old_dimensions": [
+        848,
+        560
+      ],
+      "new_dimensions": [
+        848,
+        560
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "+150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "6500"
+        }
+      },
+      "prepared_sidecar_sha256": "24a4878010960bdd2bdb1b748007af0f88b7c633dd789c869d7767ae2ac08648"
+    },
+    {
+      "case": "test_0018/tint_min",
+      "proposed_png": "/Users/riabuz/.codex/color-suite-evidence/5000/wb-recapture-proposal/renders/test_0018_tint_min.png",
+      "proposed_sha256": "36532e0751062c977fd11548e17e1c9412bca189b19097683cbfeed3438bd373",
+      "original_png": "/Users/riabuz/Projects/_Maple/test-fixtures/references/test_0018/down/tint_min.png",
+      "original_sha256": "8def4d254ba5ea3dbe908f1aa170864dfa579df83723a843647b9325577e69a4",
+      "old_dimensions": [
+        848,
+        560
+      ],
+      "new_dimensions": [
+        848,
+        560
+      ],
+      "effective_changes": {
+        "Tint": {
+          "before": "+10",
+          "after": "-150"
+        },
+        "Temperature": {
+          "before": "5500",
+          "after": "6500"
+        }
+      },
+      "prepared_sidecar_sha256": "9ebd17422c2c75a690425f75635ab0c2b190c3773e1cc510b66d823d3cf560a6"
+    }
+  ],
+  "manifest_sha256": "94824207d2d1cf6f1374a2441c636e71a4b4e38f3fbd64b1dd0b1b6702dcd276",
+  "render_script_sha256": "b42432e44a6e1d1c99c74fbfdbcd84ef196c1c9a71b397827ac8ff63464bff45",
+  "staged_raw_copies_verified_unchanged": 18,
+  "as_shot_baselines_verified_unchanged": 18,
+  "settings_verifier": "verify_settings.py: 36 saved PNGs match explicit tone/lens settings",
+  "adopted": false
+}

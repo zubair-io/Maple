@@ -93,3 +93,23 @@ passes against the verified capture, while tint_min still fails maximum error.
 The originals remain intact and no canonical failures are counted as cleared.
 Full settings, hashes and matched measurements are retained under
 `experiments/wb-reference-diagnostic/`.
+
+## Staged reference repair proposal and resize diagnostic
+
+All 36 mismatched tint endpoints have now been independently recaptured using
+Photoshop on isolated RAW copies. Every capture passes the complete effective
+settings verifier. All original RAW/XMP/PNG hashes and all staged RAW copies
+remain unchanged; all 18 As Shot baselines were also revalidated. Original and
+new dimensions match, and only effective Temperature/Tint changed in the saved
+settings. The proposed capture hashes and settings changes are committed in
+`color-suite-5000-tint-recapture-proposal.json`; the captures are backed up on NAS.
+They have not been adopted. User choice about a separate versioned reference
+set is pending; no canonical corpus changes or budget changes have been made.
+
+A separate one-case diagnostic finds that the legacy resize protocol creates
+the maximum-error breach for test_0007/clarity_max: the newly saved Adobe down
+reference has exactly the same RGB pixels as the original, yet comparing both
+native images through Lanczos gives max 40.90518 <= 42.1 instead of
+42.24899 > 42.1 with the Adobe BICUBICSHARPER down reference. This is evidence
+for that one case, not a full-family claim or a canonical failure reduction.
+Exact metrics and hashes are under `experiments/resize-reference-diagnostic/`.
