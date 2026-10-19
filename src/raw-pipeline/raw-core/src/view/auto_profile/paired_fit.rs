@@ -326,12 +326,43 @@ pub(super) fn fit(
             let _ = serde_json::to_writer(std::io::BufWriter::new(file), &snapshot);
         }
     }
-    prefer(
+    select_step(
         &result,
+        current,
         &observations,
         display.as_deref().unwrap_or(&observations),
     )
-    .then_some(result)
+}
+
+fn select_step(
+    proposed: &ColorLut,
+    current: &ColorLut,
+    native: &[Observation],
+    display: &[Observation],
+) -> Option<ColorLut> {
+    for fraction in [1., 0.5, 0.25, 0.125, 0.0625] {
+        let mut candidate = proposed.clone();
+        if fraction != 1. {
+            for ((value, &before), &after) in candidate
+                .data
+                .iter_mut()
+                .zip(&current.data)
+                .zip(&proposed.data)
+            {
+                *value = before + fraction * (after - before);
+            }
+        }
+        if prefer(&candidate, native, display) {
+            #[cfg(feature = "stage-dump")]
+            if let Some(dir) = crate::stage_dump::dump_dir() {
+                if let Ok(file) = std::fs::File::create(dir.join("auto_fit_step.json")) {
+                    let _ = serde_json::to_writer(file, &serde_json::json!({"fraction":fraction}));
+                }
+            }
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 #[cfg(test)]

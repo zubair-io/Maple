@@ -2,6 +2,46 @@ use super::*;
 use crate::view::auto_profile::preview::JpegColorSpace;
 
 #[test]
+fn backtracking_keeps_a_useful_partial_correction_without_relaxing_local_safety() {
+    let current = ColorLut::identity(GRID);
+    let mut proposed = current.clone();
+    for node in proposed.data.chunks_exact_mut(3) {
+        node[0] = (node[0] + 0.01).min(1.);
+    }
+    let mut observations = Vec::new();
+    for region in 0..64 {
+        let input = if region == 0 {
+            [0.5; 3]
+        } else {
+            [0.25, 0.625, 0.875]
+        };
+        let baseline = current.sample(input).map(f64::from);
+        let mut target = baseline;
+        if region != 0 {
+            target[0] += 0.01;
+        }
+        for _ in 0..64 {
+            observations.push(Observation {
+                weights: corners(input).to_vec(),
+                artifact_weights: corners(input).to_vec(),
+                source: input.map(f64::from),
+                target,
+                baseline,
+                validation: true,
+                region,
+            });
+        }
+    }
+    assert!(!prefer(&proposed, &observations, &observations));
+    let selected = select_step(&proposed, &current, &observations, &observations).unwrap();
+    assert!(prefer(&selected, &observations, &observations));
+    let actual = selected.sample([0.25, 0.625, 0.875]);
+    assert!(actual[0] > 0.25 && actual[0] < 0.26);
+    assert_eq!(actual[1], current.sample([0.25, 0.625, 0.875])[1]);
+    assert_eq!(actual[2], current.sample([0.25, 0.625, 0.875])[2]);
+}
+
+#[test]
 fn basis_matches_the_artifact_sampler() {
     let mut lut = ColorLut::identity(GRID);
     for (i, v) in lut.data.iter_mut().enumerate() {
