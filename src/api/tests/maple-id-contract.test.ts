@@ -17,7 +17,7 @@ for (const [name, implementation] of Object.entries({ api, web })) {
   });
 }
 
-test('70,001-byte golden preserves primary, browser full-file fallback and legacy server head-only fallback', async () => {
+test('70,001-byte golden preserves primary and the full-file fallback on the server, browser and native paths', async () => {
   const bytes = Uint8Array.from({ length: 70001 }, (_, i) => i % 251);
   expect(api.primary(bytes, '2024:06:01 12:34:56', 'SN-1234', 4242).hex).toBe(
     '01102ecbacd47a8405c6ed25cac58f85',
@@ -27,7 +27,7 @@ test('70,001-byte golden preserves primary, browser full-file fallback and legac
   try {
     const file = join(dir, 'original.bin');
     await writeFile(file, bytes);
-    expect((await api.hashFileForId(file)).maple_id).toBe('02cb7b06150dc8846a51af1abdba0f66');
+    expect((await api.hashFileForId(file)).maple_id).toBe('020cd7e09e4485130fa4e571188060f1');
     expect(new Uint8Array(await readFile(file))).toEqual(bytes);
   } finally {
     await rm(dir, { recursive: true });

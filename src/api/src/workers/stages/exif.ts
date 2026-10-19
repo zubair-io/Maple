@@ -4,7 +4,7 @@
  *
  * The primary-form maple:id embeds BLAKE3( SHA1(head) || capturedAt ||
  * cameraSerial || shutterCount ) (tag 0x01). The discover watcher writes
- * the fallback form (tag 0x02, SHA1(head) only) inline at insert; this
+ * the fallback form (tag 0x02, SHA1(full file) || size) inline at insert; this
  * stage upgrades it if DateTimeOriginal is present. See
  * `src/api/src/indexer/id.ts` for the byte layout.
  *
@@ -17,7 +17,7 @@ import * as fs from 'node:fs/promises';
 import { ObjectId } from '../../db/object-id.ts';
 import { readExif } from '../../indexer/exif.ts';
 import { isLikelyScreenshot } from '../../indexer/screenshot.ts';
-import { deriveId } from '../../indexer/id.ts';
+import { deriveId, hashFileForId } from '../../indexer/id.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { findMapleIdHolder, mergeIntoSurvivor } from '../../db/repos/assets.merge.ts';
 import { exifPatchStatements } from '../../db/repos/assets.stage-patches.ts';
@@ -51,7 +51,9 @@ const exifStage = defineStage({
   name: 'exif',
   // v2: GPS hemisphere refs added to the exifr pick list — earlier indexes
   // wrote western-hemisphere longitudes as positive. Bumping forces re-extract.
-  targetVersion: 2,
+  // v3: dateless rows still holding the legacy head-only 0x02 id are re-derived
+  // to the full-file fallback (#4728).
+  targetVersion: 3,
   dependsOn: [],
   // Reads the original file — an ENOENT means it vanished from disk, so the
   // runner tags `missing_since` for the missing-reaper.
@@ -112,15 +114,20 @@ const exifStage = defineStage({
     // Heuristic screenshot seed — describe stage refines this later.
     const isScreenshot = isLikelyScreenshot(absPath, exif?.camera_make ?? null);
 
-    // Upgrade maple_id to primary form if capturedAt is available.
-    if (exif?.captured_at) {
-      const head = await readHead(absPath);
-      const id = deriveId(
-        head,
-        exif.captured_at,
-        null, // camera_serial not in AssetExif schema yet
-        null, // shutter_count not in AssetExif schema yet
-      );
+    // Upgrade maple_id to primary form if capturedAt is available; a dateless
+    // row stays fallback-form but is re-derived over the full file, replacing
+    // the legacy head-only id (#4728). Primary ids are never downgraded.
+    const id = exif?.captured_at
+      ? deriveId(
+          await readHead(absPath),
+          exif.captured_at,
+          null, // camera_serial not in AssetExif schema yet
+          null, // shutter_count not in AssetExif schema yet
+        )
+      : image.maple_id?.startsWith('02')
+        ? { hex: (await hashFileForId(absPath)).maple_id }
+        : null;
+    if (id) {
       if (id.hex !== image.maple_id) {
         // The upgrade only runs when the id is actually changing — same
         // value would be a no-op, but a different value risks colliding
