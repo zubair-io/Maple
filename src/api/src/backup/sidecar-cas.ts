@@ -32,6 +32,18 @@ interface DisplacedSidecar {
   incomingSha256: string;
 }
 
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+/** `X-Maple-Sidecar-Base`: absent → `undefined` (legacy skip-if-exists),
+ * `none` → `null`, a SHA-256 hex digest → itself, anything else → `'invalid'`. */
+export function parseSidecarBase(
+  header: string | undefined,
+): string | null | undefined | 'invalid' {
+  if (header === undefined) return undefined;
+  if (header === 'none') return null;
+  return SHA256_HEX.test(header) ? header : 'invalid';
+}
+
 const sidecarSha256 = (xmp: string): string =>
   createHash('sha256').update(xmp, 'utf8').digest('hex');
 
@@ -42,6 +54,32 @@ async function readCurrent(destination: string): Promise<string | null> {
     if (isMissingSidecar(error)) return null;
     throw error;
   }
+}
+
+/** Publish over an existing sidecar: leave an identical one alone, overwrite
+ * the named base, and keep anything else before landing the edit on top. */
+async function publishOver(
+  destination: string,
+  current: string,
+  xmp: string,
+  base: string | null,
+  recordDisplaced: (displaced: DisplacedSidecar) => Promise<void>,
+): Promise<SidecarCasOutcome> {
+  const incomingSha256 = sidecarSha256(xmp);
+  const currentSha256 = sidecarSha256(current);
+  if (currentSha256 === incomingSha256) return { kind: 'unchanged' };
+  const diverged = currentSha256 !== base;
+  if (diverged) await recordDisplaced({ xmp: current, sha256: currentSha256, incomingSha256 });
+  const written = await writeSidecarAtomic(destination, xmp, 'sidecar write failed');
+  if (!written.ok) return { kind: 'error', error: written.error };
+  return { kind: diverged ? 'diverged' : 'written' };
+}
+
+/** Create the sidecar when none exists; `null` when one appeared first. */
+async function createIfAbsent(destination: string, xmp: string): Promise<SidecarCasOutcome | null> {
+  const created = await writeSidecarCreateOnly(destination, xmp, 'sidecar write failed');
+  if (created.ok) return { kind: 'written' };
+  return 'exists' in created ? null : { kind: 'error', error: created.error };
 }
 
 export async function publishSidecarCas(
@@ -55,24 +93,13 @@ export async function publishSidecarCas(
     destination,
     async (resolved) => {
       const existing = await readCurrent(resolved);
-      if (existing === null) {
-        const created = await writeSidecarCreateOnly(resolved, xmp, 'sidecar write failed');
-        if (created.ok) return { kind: 'written' };
-        if (!('exists' in created)) return { kind: 'error', error: created.error };
-      }
+      const created = existing === null ? await createIfAbsent(resolved, xmp) : null;
+      if (created) return created;
       // A writer outside the barrier can create the file between the read and
       // the create-only publish; compare against what is actually there.
       const current = existing ?? (await readCurrent(resolved));
       if (current === null) return { kind: 'error', error: 'sidecar vanished during write' };
-
-      const incomingSha256 = sidecarSha256(xmp);
-      const currentSha256 = sidecarSha256(current);
-      if (currentSha256 === incomingSha256) return { kind: 'unchanged' };
-      const diverged = currentSha256 !== base;
-      if (diverged) await recordDisplaced({ xmp: current, sha256: currentSha256, incomingSha256 });
-      const written = await writeSidecarAtomic(resolved, xmp, 'sidecar write failed');
-      if (!written.ok) return { kind: 'error', error: written.error };
-      return { kind: diverged ? 'diverged' : 'written' };
+      return publishOver(resolved, current, xmp, base, recordDisplaced);
     },
     { admissionScope },
   );

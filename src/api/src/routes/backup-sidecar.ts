@@ -30,13 +30,14 @@
  *   200 — { target_rel_path: "...xmp", skipped: true } — already on disk, not overwritten (no base header)
  *   200 — { target_rel_path: "...xmp", unchanged: true } — the server already holds this XMP
  *   200 — { target_rel_path: "...xmp", diverged: true } — written over a version the base didn't name
- *   400 — missing/invalid headers (including a malformed base), unsafe path
+ *   400 — missing/invalid headers (including a malformed base), body too large, unsafe path
  *   404 — library not found, or no prior upload (neither maple_id nor device+phasset matched)
  *   413 — body exceeds 256 KB
  */
 import { backupId, backupLibrary, backupLibraryId } from './backup-id.ts';
 import { atomicMove } from '../backup/fs-util.ts';
 import { Elysia, t } from 'elysia';
+import type { ObjectId } from '../db/object-id.ts';
 import { findLiveAssetIdByMapleId, findLiveAssetIdByPhassetLink } from '../db/repos/assets.repo.ts';
 import { child as childLogger } from '../log.ts';
 // Mirror-aware drop-in: the sidecar publish (atomicMove → rename/copyFile)
@@ -44,12 +45,11 @@ import { child as childLogger } from '../log.ts';
 import fs from '../fs/mirrored.ts';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { publishSidecarCas } from '../backup/sidecar-cas.ts';
+import { parseSidecarBase, publishSidecarCas } from '../backup/sidecar-cas.ts';
 import { recordSidecarDivergence } from '../db/repos/sidecar-divergences.repo.ts';
 
 const log = childLogger('backup-sidecar');
 const MAX_SIDECAR_BYTES = 256 * 1024; // 256 KB
-const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 /**
  * Validate that a relative path is safe: no ".." segments, no leading slash,
@@ -64,6 +64,76 @@ function isSafeRelPath(relPath: string): boolean {
     if (part.length === 0) return false;
   }
   return true;
+}
+
+/** The raw XMP bytes (Buffer or ArrayBuffer), or why they can't be stored. */
+function readSidecarBody(body: unknown): { buf: Buffer } | { status: number; error: string } {
+  const buf = body instanceof Uint8Array ? Buffer.from(body) : Buffer.from(body as ArrayBuffer);
+  if (buf.byteLength === 0) return { status: 400, error: 'body must not be empty' };
+  if (buf.byteLength > MAX_SIDECAR_BYTES) {
+    return { status: 413, error: 'sidecar body exceeds 256 KB limit' };
+  }
+  return { buf };
+}
+
+interface BackupSidecarCasRequest {
+  finalPath: string;
+  sidecarRelPath: string;
+  xmp: string;
+  baseHeader: string;
+  assetId: ObjectId;
+  libraryId: ObjectId;
+  deviceId: string;
+  libraryRoot: string;
+  phid: string;
+}
+
+/** The compare-and-swap branch (#4719): publish, keep a displaced version in
+ * `sidecar_divergences`, and say which of the outcomes happened. */
+async function publishBackupSidecarCas(
+  req: BackupSidecarCasRequest,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const base = parseSidecarBase(req.baseHeader);
+  if (base === 'invalid' || base === undefined) {
+    return {
+      status: 400,
+      body: { error: 'X-Maple-Sidecar-Base must be a SHA-256 hex digest or "none"' },
+    };
+  }
+  await fs.mkdir(path.dirname(req.finalPath), { recursive: true });
+  const outcome = await publishSidecarCas(
+    req.finalPath,
+    req.xmp,
+    base,
+    (displaced) =>
+      recordSidecarDivergence({
+        assetId: req.assetId,
+        libraryId: req.libraryId,
+        sidecarRelPath: req.sidecarRelPath,
+        deviceId: req.deviceId,
+        baseSha256: base,
+        displacedSha256: displaced.sha256,
+        displacedXmp: displaced.xmp,
+        incomingSha256: displaced.incomingSha256,
+      }),
+    req.libraryRoot,
+  );
+  log.debug(
+    { phid: req.phid, sidecarRelPath: req.sidecarRelPath, outcome: outcome.kind },
+    'sidecar compare-and-swap',
+  );
+  if (outcome.kind === 'error') {
+    log.error(
+      { phid: req.phid, sidecarRelPath: req.sidecarRelPath, error: outcome.error },
+      'sidecar compare-and-swap failed',
+    );
+    return { status: 500, body: { error: 'sidecar write failed' } };
+  }
+  const body =
+    outcome.kind === 'written'
+      ? { target_rel_path: req.sidecarRelPath }
+      : { target_rel_path: req.sidecarRelPath, [outcome.kind]: true };
+  return { status: 200, body };
 }
 
 export const backupSidecarRoutes = new Elysia().post(
@@ -83,12 +153,6 @@ export const backupSidecarRoutes = new Elysia().post(
     if (!deviceId || !phid || !targetRelPath) {
       set.status = 400;
       return { error: 'missing required headers' };
-    }
-
-    const baseHeader = headers['x-maple-sidecar-base'];
-    if (baseHeader !== undefined && baseHeader !== 'none' && !SHA256_HEX.test(baseHeader)) {
-      set.status = 400;
-      return { error: 'X-Maple-Sidecar-Base must be a SHA-256 hex digest or "none"' };
     }
 
     // Path-traversal guard.
@@ -130,18 +194,12 @@ export const backupSidecarRoutes = new Elysia().post(
       return { error: 'no prior upload for this device and phasset' };
     }
 
-    // Validate body (raw bytes or Buffer).
-    const buf = body instanceof Uint8Array ? Buffer.from(body) : Buffer.from(body as ArrayBuffer);
-
-    if (buf.byteLength === 0) {
-      set.status = 400;
-      return { error: 'body must not be empty' };
+    const sidecarBody = readSidecarBody(body);
+    if ('status' in sidecarBody) {
+      set.status = sidecarBody.status;
+      return { error: sidecarBody.error };
     }
-
-    if (buf.byteLength > MAX_SIDECAR_BYTES) {
-      set.status = 413;
-      return { error: 'sidecar body exceeds 256 KB limit' };
-    }
+    const buf = sidecarBody.buf;
 
     // Compute final sidecar path: <library>/<targetRelPath>.xmp
     const sidecarRelPath = `${targetRelPath}.xmp`;
@@ -153,38 +211,21 @@ export const backupSidecarRoutes = new Elysia().post(
       return { error: 'path escape detected' };
     }
 
+    const baseHeader = headers['x-maple-sidecar-base'];
     if (baseHeader !== undefined) {
-      await fs.mkdir(path.dirname(finalPath), { recursive: true });
-      const outcome = await publishSidecarCas(
+      const result = await publishBackupSidecarCas({
         finalPath,
-        buf.toString('utf8'),
-        baseHeader === 'none' ? null : baseHeader,
-        (displaced) =>
-          recordSidecarDivergence({
-            assetId: asset,
-            libraryId,
-            sidecarRelPath,
-            deviceId,
-            baseSha256: baseHeader === 'none' ? null : baseHeader,
-            displacedSha256: displaced.sha256,
-            displacedXmp: displaced.xmp,
-            incomingSha256: displaced.incomingSha256,
-          }),
-        folder.path,
-      );
-      if (outcome.kind === 'error') {
-        log.error(
-          { phid, sidecarRelPath, error: outcome.error },
-          'sidecar compare-and-swap failed',
-        );
-        set.status = 500;
-        return { error: 'sidecar write failed' };
-      }
-      log.debug({ phid, sidecarRelPath, outcome: outcome.kind }, 'sidecar compare-and-swap');
-      set.status = 200;
-      return outcome.kind === 'written'
-        ? { target_rel_path: sidecarRelPath }
-        : { target_rel_path: sidecarRelPath, [outcome.kind]: true };
+        sidecarRelPath,
+        xmp: buf.toString('utf8'),
+        baseHeader,
+        assetId: asset,
+        libraryId,
+        deviceId,
+        libraryRoot: folder.path,
+        phid,
+      });
+      set.status = result.status;
+      return result.body;
     }
 
     // SKIP-IF-EXISTS: a dedup re-upload from a second device must not clobber
