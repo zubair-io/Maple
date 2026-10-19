@@ -28,6 +28,7 @@ pub mod curve;
 pub mod fit_display;
 pub mod lut;
 mod lut_fit;
+mod paired_fit;
 pub mod pairs;
 pub mod preview;
 mod solve;

@@ -185,10 +185,18 @@ fn fit_via_acr2(
             return (None, None);
         }
     };
-    let (curve, residual) = acr_fit::acr_model_as_profile_artifacts(
+    let (curve, mut residual) = acr_fit::acr_model_as_profile_artifacts(
         &model,
         crate::view::auto_profile::bake::DEFAULT_LUT_SIZE,
     );
+    if let (Some(current), Some(candidate)) = (
+        residual.as_ref(),
+        super::paired_fit::fit(&pairs, crate::view::auto_profile::bake::DEFAULT_LUT_SIZE),
+    ) {
+        if super::paired_fit::prefer(&candidate, current, &pairs) {
+            residual = Some(candidate);
+        }
+    }
     if let (Some(key), Some(c), Some(l)) = (cache_key, curve.as_ref(), residual.as_ref()) {
         cache::insert(key.clone(), c.clone());
         cache::insert_lut(key.clone(), l.clone());
