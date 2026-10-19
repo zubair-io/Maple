@@ -15,17 +15,21 @@ pub(super) const CELLS: usize = GRID * GRID * GRID;
 const REGIONAL_SELECTION_MARGIN_DE: f64 = 0.1;
 
 pub(super) fn corners(rgb: [f32; 3]) -> [(usize, f64); 4] {
+    corners_at(rgb, GRID)
+}
+
+pub(super) fn corners_at(rgb: [f32; 3], size: usize) -> [(usize, f64); 4] {
     let mut lo = [0; 3];
     let mut f = [0.; 3];
     for c in 0..3 {
-        let x = f64::from(rgb[c].clamp(0., 1.)) * (GRID - 1) as f64;
-        lo[c] = (x.floor() as usize).min(GRID - 2);
+        let x = f64::from(rgb[c].clamp(0., 1.)) * (size - 1) as f64;
+        lo[c] = (x.floor() as usize).min(size - 2);
         f[c] = x - lo[c] as f64;
     }
     let mut axes = [0, 1, 2];
     axes.sort_by(|&a, &b| f[b].total_cmp(&f[a]));
-    let stride = [1, GRID, GRID * GRID];
-    let start = (lo[2] * GRID + lo[1]) * GRID + lo[0];
+    let stride = [1, size, size * size];
+    let start = (lo[2] * size + lo[1]) * size + lo[0];
     [
         (start, 1. - f[axes[0]]),
         (start + stride[axes[0]], f[axes[0]] - f[axes[1]]),
@@ -33,7 +37,7 @@ pub(super) fn corners(rgb: [f32; 3]) -> [(usize, f64); 4] {
             start + stride[axes[0]] + stride[axes[1]],
             f[axes[1]] - f[axes[2]],
         ),
-        (start + 1 + GRID + GRID * GRID, f[axes[2]]),
+        (start + 1 + size + size * size, f[axes[2]]),
     ]
 }
 
@@ -83,67 +87,54 @@ fn solve(a: &[f64], b: &[f64]) -> Vec<f64> {
     x
 }
 
-fn ordered(values: &mut [f64; GRID]) {
-    let epsilon = 0.002 / (GRID - 1) as f64;
-    let mut means = [0.; GRID];
-    let mut counts = [0usize; GRID];
-    let mut blocks = 0;
-    for (i, value) in values.iter().enumerate() {
-        means[blocks] = value - i as f64 * epsilon;
-        counts[blocks] = 1;
-        blocks += 1;
-        while blocks > 1 && means[blocks - 2] > means[blocks - 1] {
-            let j = blocks - 2;
-            let count = counts[j] + counts[j + 1];
-            means[j] =
-                (means[j] * counts[j] as f64 + means[j + 1] * counts[j + 1] as f64) / count as f64;
-            counts[j] = count;
-            blocks -= 1;
-        }
+fn constrain_to_prior(data: &mut [f32], prior: &ColorLut) {
+    let n = prior.size;
+    let epsilon = 0.002 / (n - 1) as f32;
+    for v in data.iter_mut() {
+        *v = v.clamp(0., 1.);
     }
-    let mut index = 0;
-    for j in 0..blocks {
-        for _ in 0..counts[j] {
-            values[index] = means[j].clamp(0., 1. - 0.002) + index as f64 * epsilon;
-            index += 1;
-        }
-    }
-}
-
-fn constrain(data: &mut [f32]) {
     for _ in 0..32 {
-        for c in 0..3 {
-            for a in 0..GRID {
-                for b in 0..GRID {
-                    let indices: [usize; GRID] = std::array::from_fn(|k| {
-                        let rgb = match c {
-                            0 => [k, a, b],
-                            1 => [a, k, b],
-                            _ => [a, b, k],
-                        };
-                        ((rgb[2] * GRID + rgb[1]) * GRID + rgb[0]) * 3 + c
-                    });
-                    let mut values = indices.map(|i| f64::from(data[i]));
-                    ordered(&mut values);
-                    for (i, v) in indices.into_iter().zip(values) {
-                        data[i] = v as f32;
+        for z in 0..n {
+            for y in 0..n {
+                for x in 0..n {
+                    let i = ((z * n + y) * n + x) * 3;
+                    for (c, (coordinate, stride)) in
+                        [(x, 3), (y, 3 * n), (z, 3 * n * n)].into_iter().enumerate()
+                    {
+                        if coordinate + 1 < n {
+                            project_edge(data, &prior.data, i + c, i + stride + c, epsilon);
+                        }
                     }
                 }
             }
-            let indices: [usize; GRID] =
-                std::array::from_fn(|k| ((k * GRID + k) * GRID + k) * 3 + c);
-            let mut values = indices.map(|i| f64::from(data[i]));
-            ordered(&mut values);
-            for (i, v) in indices.into_iter().zip(values) {
-                data[i] = v as f32;
+        }
+        for k in 0..n - 1 {
+            let i = ((k * n + k) * n + k) * 3;
+            let j = (((k + 1) * n + k + 1) * n + k + 1) * 3;
+            for c in 0..3 {
+                project_edge(data, &prior.data, i + c, j + c, epsilon);
             }
         }
     }
 }
 
-fn solve_observations(observations: &[Observation], size: usize) -> Option<(ColorLut, ColorLut)> {
+fn project_edge(data: &mut [f32], prior: &[f32], i: usize, j: usize, epsilon: f32) {
+    // The existing calibration remains feasible, including any existing folds.
+    let minimum = (prior[j] - prior[i]).min(epsilon);
+    let deficit = minimum - (data[j] - data[i]);
+    if deficit > 0. {
+        let shift = deficit * 0.5;
+        data[i] = (data[i] - shift).clamp(0., 1.);
+        data[j] = (data[j] + shift).clamp(0., 1.);
+    }
+}
+
+fn solve_observations(
+    observations: &[Observation],
+    prior: &ColorLut,
+) -> Option<(ColorLut, ColorLut)> {
     let count = observations.iter().filter(|row| !row.validation).count();
-    if count < 128 || size < 2 {
+    if count < 128 || prior.size < 2 {
         return None;
     }
     let mut a = vec![0.; CELLS * CELLS];
@@ -154,7 +145,7 @@ fn solve_observations(observations: &[Observation], size: usize) -> Option<(Colo
                 a[j * CELLS + k] += u * v;
             }
             for c in 0..3 {
-                b[j][c] += u * (row.target[c] - row.source[c]);
+                b[j][c] += u * (row.target[c] - row.baseline[c]);
             }
         }
     }
@@ -180,19 +171,30 @@ fn solve_observations(observations: &[Observation], size: usize) -> Option<(Colo
             }
         }
     }
-    let mut coarse = ColorLut::identity(GRID);
+    let mut coarse = ColorLut {
+        size: GRID,
+        data: vec![0.; CELLS * 3],
+    };
     for c in 0..3 {
         let target: Vec<_> = b.iter().map(|row| row[c]).collect();
         let delta = solve(&a, &target);
         for i in 0..CELLS {
-            coarse.data[i * 3 + c] += delta[i] as f32;
+            coarse.data[i * 3 + c] = delta[i] as f32;
         }
     }
-    constrain(&mut coarse.data);
-    let mut result = ColorLut::identity(size);
-    for node in result.data.chunks_exact_mut(3) {
-        node.copy_from_slice(&coarse.sample([node[0], node[1], node[2]]));
+    let mut result = prior.clone();
+    let coordinates = ColorLut::identity(prior.size);
+    for (node, rgb) in result
+        .data
+        .chunks_exact_mut(3)
+        .zip(coordinates.data.chunks_exact(3))
+    {
+        let delta = coarse.sample([rgb[0], rgb[1], rgb[2]]);
+        for c in 0..3 {
+            node[c] += delta[c];
+        }
     }
+    constrain_to_prior(&mut result.data, prior);
     Some((result, coarse))
 }
 
@@ -211,7 +213,7 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
         let target = lab(row.target.map(|v| v as f32));
 
         let prediction = std::array::from_fn(|c| {
-            row.weights
+            row.artifact_weights
                 .iter()
                 .map(|&(i, w)| w * f64::from(candidate.data[i * 3 + c]))
                 .sum::<f64>()
@@ -239,7 +241,7 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
     for row in display {
         counts[row.region] += 1;
         let prediction = std::array::from_fn(|c| {
-            row.weights
+            row.artifact_weights
                 .iter()
                 .map(|&(i, w)| w * f64::from(candidate.data[i * 3 + c]))
                 .sum::<f64>()
@@ -277,9 +279,12 @@ pub(super) fn fit(
     current: &ColorLut,
     size: usize,
 ) -> Option<ColorLut> {
+    if current.size != size {
+        return None;
+    }
     let observations =
         paired_observations::build(pixels, width, height, orientation, preview, current)?;
-    let (result, coarse) = solve_observations(&observations, size)?;
+    let (result, coarse) = solve_observations(&observations, current)?;
     let display = if preview.image.width().max(preview.image.height()) > 1024 {
         Some(paired_observations::build_display(
             pixels,
@@ -322,7 +327,7 @@ pub(super) fn fit(
         }
     }
     prefer(
-        &coarse,
+        &result,
         &observations,
         display.as_deref().unwrap_or(&observations),
     )

@@ -2,7 +2,7 @@
 use super::{
     fit_display::orient_rgb_f32_to_display,
     lut::ColorLut,
-    paired_fit::corners,
+    paired_fit::{corners, corners_at},
     preview::{self, ExtractedPreview},
 };
 use crate::image::ExifOrientation;
@@ -10,6 +10,7 @@ use crate::image::ExifOrientation;
 #[cfg_attr(feature = "stage-dump", derive(serde::Serialize))]
 pub(super) struct Observation {
     pub weights: Vec<(usize, f64)>,
+    pub artifact_weights: Vec<(usize, f64)>,
     pub source: [f64; 3],
     pub target: [f64; 3],
     pub baseline: [f64; 3],
@@ -125,6 +126,8 @@ fn build_at_scale(
     let mut observations = Vec::with_capacity(nx * ny);
     let mut weights = [0.; super::paired_fit::CELLS];
     let mut active = Vec::new();
+    let mut artifact_weights = vec![0.; baseline.size.pow(3)];
+    let mut artifact_active = Vec::new();
     for gy in 0..ny {
         for gx in 0..nx {
             let seed = mix((gx as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15) ^ (gy as u64 + 1));
@@ -151,9 +154,13 @@ fn build_at_scale(
                             weights[j] += w / count;
                         }
                     }
-                    let prediction = baseline.sample(rgb);
-                    for c in 0..3 {
-                        base[c] += f64::from(prediction[c]) / count;
+                    for (j, w) in corners_at(rgb, baseline.size) {
+                        if w > 0. {
+                            if artifact_weights[j] == 0. {
+                                artifact_active.push(j);
+                            }
+                            artifact_weights[j] += w / count;
+                        }
                     }
                 }
             }
@@ -192,8 +199,19 @@ fn build_at_scale(
                 }
             }
             active.clear();
+            let mut artifact_row = Vec::with_capacity(artifact_active.len());
+            for &j in &artifact_active {
+                let w = artifact_weights[j];
+                artifact_row.push((j, w));
+                artifact_weights[j] = 0.;
+                for c in 0..3 {
+                    base[c] += w * f64::from(baseline.data[j * 3 + c]);
+                }
+            }
+            artifact_active.clear();
             observations.push(Observation {
                 weights: row,
+                artifact_weights: artifact_row,
                 source: identity,
                 target,
                 baseline: base,

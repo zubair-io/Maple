@@ -29,6 +29,83 @@ fn basis_matches_the_artifact_sampler() {
     }
 }
 
+#[test]
+fn zero_residual_preserves_a_detailed_existing_calibration_exactly() {
+    let mut prior = ColorLut::identity(33);
+    for node in prior.data.chunks_exact_mut(3) {
+        node[0] = (node[0] + 0.02 * (node[1] * 31.).sin()).clamp(0., 1.);
+        node[1] = node[1].powf(1.2);
+        node[2] = node[2].sqrt();
+    }
+    let rows: Vec<_> = (0..1024)
+        .map(|i| {
+            let input = [
+                ((i * 13) % 997) as f32 / 996.,
+                ((i * 29) % 991) as f32 / 990.,
+                ((i * 53) % 983) as f32 / 982.,
+            ];
+            let baseline = prior.sample(input).map(f64::from);
+            Observation {
+                weights: corners(input).to_vec(),
+                artifact_weights: corners_at(input, 33).to_vec(),
+                source: input.map(f64::from),
+                target: baseline,
+                baseline,
+                validation: i % 4 == 0,
+                region: i % 64,
+            }
+        })
+        .collect();
+    let (result, _) = solve_observations(&rows, &prior).unwrap();
+    assert_eq!(result.data, prior.data);
+}
+
+#[test]
+fn residual_fit_preserves_already_correct_nonlinear_channels() {
+    let mut prior = ColorLut::identity(33);
+    for node in prior.data.chunks_exact_mut(3) {
+        node[1] = node[1].powf(1.7);
+        node[2] = node[2].sqrt();
+    }
+    let rows: Vec<_> = (0..8192)
+        .map(|i| {
+            let input = [
+                ((i * 13) % 997) as f32 / 996.,
+                ((i * 29) % 991) as f32 / 990.,
+                ((i * 53) % 983) as f32 / 982.,
+            ];
+            let baseline = prior.sample(input).map(f64::from);
+            let mut target = baseline;
+            target[0] += 0.03 * f64::from(input[0] * (1. - input[0]));
+            Observation {
+                weights: corners(input).to_vec(),
+                artifact_weights: corners_at(input, 33).to_vec(),
+                source: input.map(f64::from),
+                target,
+                baseline,
+                validation: i % 4 == 0,
+                region: i % 64,
+            }
+        })
+        .collect();
+    let (result, _) = solve_observations(&rows, &prior).unwrap();
+    for (actual, expected) in result.data.chunks_exact(3).zip(prior.data.chunks_exact(3)) {
+        assert_eq!(actual[1], expected[1]);
+        assert_eq!(actual[2], expected[2]);
+    }
+    let mut errors = [0.; 2];
+    for row in rows.iter().filter(|r| r.validation) {
+        let corrected: f64 = row
+            .artifact_weights
+            .iter()
+            .map(|&(j, w)| w * f64::from(result.data[j * 3]))
+            .sum();
+        errors[0] += (row.baseline[0] - row.target[0]).powi(2);
+        errors[1] += (corrected - row.target[0]).powi(2);
+    }
+    assert!(errors[1] < errors[0] * 0.01, "{errors:?}");
+}
+
 fn preview(image: image::RgbImage) -> ExtractedPreview {
     ExtractedPreview {
         image: image::DynamicImage::ImageRgb8(image),
@@ -53,7 +130,7 @@ fn identity_observations_preserve_identity() {
             assert!((row.source[c] - row.target[c]).abs() < 1e-6);
         }
     }
-    let (result, _) = solve_observations(&observations, 33).unwrap();
+    let (result, _) = solve_observations(&observations, &base).unwrap();
     for (a, b) in result.data.iter().zip(&base.data) {
         assert!((a - b).abs() < 1e-5);
     }
@@ -90,13 +167,13 @@ fn equal_mean_footprints_need_different_eval_then_box_predictions() {
     assert!(observations
         .iter()
         .any(|row| row.validation && row.target[0] > 0.4));
-    let (_, coarse) = solve_observations(&observations, 33).unwrap();
-    assert!(prefer(&coarse, &observations, &observations));
+    let (result, _) = solve_observations(&observations, &base).unwrap();
+    assert!(prefer(&result, &observations, &observations));
     for row in observations.iter().step_by(31) {
         let predicted: f64 = row
-            .weights
+            .artifact_weights
             .iter()
-            .map(|&(i, w)| w * f64::from(coarse.data[i * 3]))
+            .map(|&(i, w)| w * f64::from(result.data[i * 3]))
             .sum();
         assert!((predicted - row.target[0]).abs() < 0.01);
     }
@@ -152,6 +229,7 @@ fn rejects_local_color_damage_even_when_global_errors_improve() {
         for _ in 0..64 {
             observations.push(Observation {
                 weights: corners([input; 3]).to_vec(),
+                artifact_weights: corners([input; 3]).to_vec(),
                 source: [input as f64; 3],
                 target: [target; 3],
                 baseline: [baseline; 3],
@@ -190,6 +268,7 @@ fn regional_perception_uses_display_averages_and_keeps_native_rgb_checks() {
                 };
                 native.push(Observation {
                     weights: corners([input; 3]).to_vec(),
+                    artifact_weights: corners([input; 3]).to_vec(),
                     source: [input as f64; 3],
                     target: [target; 3],
                     baseline: [baseline; 3],
@@ -202,6 +281,7 @@ fn regional_perception_uses_display_averages_and_keeps_native_rgb_checks() {
                     .map(|(j, w)| (j, w * 0.5))
                     .collect();
                 display.push(Observation {
+                    artifact_weights: weights.clone(),
                     weights,
                     source: [0.5; 3],
                     target: [0.5; 3],
@@ -214,6 +294,7 @@ fn regional_perception_uses_display_averages_and_keeps_native_rgb_checks() {
                 for rows in [&mut native, &mut display] {
                     rows.push(Observation {
                         weights: corners(input).to_vec(),
+                        artifact_weights: corners(input).to_vec(),
                         source: input.map(f64::from),
                         target: input.map(f64::from),
                         baseline: [0.8, 0.6, 0.95],
