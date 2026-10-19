@@ -1,5 +1,5 @@
 {
-  "status": "Frozen candidate passes all5opposing anchors and all20Auto baselines.25focused comparisons total;24pass,1existing dehaze failure. Complete candidate gate not run yet; no production adoption claimed here.",
+  "status": "Adopted into draft branch as output37 / Auto fit7 after 25 focused comparisons: 24 pass, 1 existing dehaze failure; 2 clears and 0 new versus complete source36. Complete output37 corpus pending. Experimental run-start identity below remains historical.",
   "identity": {
     "status": "Experimental Gaussian tail restoration, not adopted. Original Raw/XMP/references/settings/budgets unchanged.",
     "base_commit": "b4523b79e616f2745f3b0a7e8e1c60b9bff08424",
@@ -65,5 +65,18 @@
     "records": 25
   },
   "method_reference": "https://www.ipol.im/pub/art/2011/bcm_nlm/revisions/2011-09-13/bcm_nlm.htm",
-  "interpretation": "NLM normalizes weights and uses the neighborhood maximum for the center. Arbitrarily dropping all low absolute neighbor weights therefore creates an identity fallback; independent color components cross that threshold at different times. The candidate retains Gaussian tails and preserves existing numerical bounds/settings."
+  "interpretation": "NLM normalizes weights and uses the neighborhood maximum for the center. Arbitrarily dropping all low absolute neighbor weights therefore creates an identity fallback; independent color components cross that threshold at different times. The candidate retains Gaussian tails and preserves existing numerical bounds/settings.",
+  "production_checkpoint": {
+    "pipeline_output_version": 37,
+    "auto_fit_model_version": 7,
+    "cpu_nlm_tests_passed": 20,
+    "auto_fit_cache_tests_passed": 15,
+    "caller_noise_tests_passed": 10,
+    "gpu_noise_tests_passed": 22,
+    "gpu_benchmarks_ignored": 2,
+    "composed_gpu_cpu_passed": 1,
+    "wasm_simd_compile": "passed after installing missing target",
+    "full_suite": "pending; last complete source36 has 110 failures (captured-main baseline 105)",
+    "settings": "Production hot/dead suppression remains Off. Original inputs and all physical budgets unchanged."
+  }
 }

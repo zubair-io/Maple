@@ -60,7 +60,9 @@ use super::lut::ColorLut;
 // donor estimator feeding that fit (#5000).
 // Version 6 narrows the positive-chroma FCS guard in the pinned camera
 // prefix to preserve measured features below the target-sample envelope.
-pub const AUTO_FIT_MODEL_VERSION: u32 = 6;
+// Version 7 restores positive NLM weight tails in the default NR prefix
+// sampled by the pinned Auto fit (#5000).
+pub const AUTO_FIT_MODEL_VERSION: u32 = 7;
 
 /// Shared capacity, in entries, of BOTH the curve and LUT caches. The two
 /// stores are touched with the same keys in the same order (a fit inserts

@@ -168,7 +168,10 @@
 /// - 36 — unsupported-green FCS keeps positive estimates within the measured
 ///   target envelope while restoring chroma below every nearest sensor sample
 ///   (#5000). This retains thin features without the broad increase exception.
-pub const PIPELINE_OUTPUT_VERSION: u32 = 36;
+/// - 37 — NLM retains Gaussian weights beyond the fast-lookup range, so
+///   normalization no longer switches isolated chroma components to identity
+///   when their finite matches all exceed the old cutoff (#5000).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 37;
 
 #[cfg(test)]
 mod tests {

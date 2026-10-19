@@ -83,7 +83,7 @@ public struct CapabilityRecord: Sendable {
 
 /// The registry plus the build the states were computed for.
 public enum CapabilityRegistry {
-  public static let pipelineOutputVersion: UInt32 = 36
+  public static let pipelineOutputVersion: UInt32 = 37
   public static let schemaVersion: UInt32 = 5
 
   public static let all: [CapabilityRecord] = [
