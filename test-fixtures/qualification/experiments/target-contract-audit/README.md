@@ -27,10 +27,14 @@ python3 test-fixtures/qualification/experiments/target-contract-audit/driver.py 
 Auto's accuracy target is the embedded camera JPEG. Its ACR regression pass
 is a separate target. The repaired embedded-JPEG runner fails on render errors,
 empty selection and no measurable bands, covers RAW extensions the old glob
-omitted, and preserves per-fixture results. All nine runner contract checks pass.
-A fresh20-fixture physical run is in progress using the frozen production37
+omitted, and preserves per-fixture results. All nine runner contract checks and all12 existing ACR harness tests pass.
+A fresh20-fixture physical run completed using the frozen production37
 binary, default Auto rendering, original immutable RAW snapshots and unchanged
-0.05 bias limit. Results will be committed after completion. Geometry retains
+0.05 bias limit: **4pass,12fail,4no-preview,0errors**. These are16actual
+comparisons, not20passes. The failed fixture IDs are0000,0005,0006,0007,0008,
+0010,0011,0012,0013,0014,0015,0017. They require Auto/preview/geometry diagnosis;
+they are not counted as105Neutral ACR failures. Full per-band metrics, input/
+output/binary hashes are in `color-suite-5000-auto-embedded-jpeg.json`. Geometry retains
 the pre-existing center-crop/BOX/inner80% protocol; geometric mismatch remains a
 possible contributor to a measured failure, so a breach is not automatically
 an Auto-fit root-cause diagnosis.
