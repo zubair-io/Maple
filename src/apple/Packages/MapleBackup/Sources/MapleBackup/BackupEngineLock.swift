@@ -32,6 +32,17 @@ public final class BackupEngineLock: @unchecked Sendable {
         return BackupEngineLock(descriptor: fd)
     }
 
+    /// Waits until the other host lets go, so whichever host loses the race
+    /// takes over when the winner finishes instead of staying idle until a
+    /// manual restart. Cancelling the wait stops it without holding the lock.
+    public static func acquireWhenFree(in root: URL, pollInterval: Duration) async throws -> BackupEngineLock {
+        while true {
+            try Task.checkCancellation()
+            if let lock = acquire(in: root) { return lock }
+            try await Task.sleep(for: pollInterval)
+        }
+    }
+
     /// Hands the engine slot back on a clean stop. Idempotent.
     public func release() {
         lock.lock()

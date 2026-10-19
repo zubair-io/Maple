@@ -76,4 +76,42 @@ final class BackupEngineLockTests: XCTestCase {
 
         XCTAssertNotNil(BackupEngineLock.acquire(in: root), "the kernel frees a dead host's lock")
     }
+
+    /// A host that loses the race waits for the lock instead of giving up,
+    /// so backup resumes once the other host finishes (#4989 review).
+    func testAWaitingHostTakesOverWhenTheHolderReleases() async throws {
+        let root = try makeRoot()
+        let holder = try XCTUnwrap(BackupEngineLock.acquire(in: root))
+        let waiter = Task { try await BackupEngineLock.acquireWhenFree(in: root, pollInterval: .milliseconds(20)) }
+        try await Task.sleep(for: .milliseconds(100))
+        holder.release()
+        let taken = try await waiter.value
+        XCTAssertNil(BackupEngineLock.acquire(in: root), "the waiter now holds the lock")
+        taken.release()
+    }
+
+    func testAWaitingHostTakesOverWhenTheHolderProcessExits() async throws {
+        let root = try makeRoot()
+        let holder = try startHolder(at: root)
+        let waiter = Task { try await BackupEngineLock.acquireWhenFree(in: root, pollInterval: .milliseconds(20)) }
+        try await Task.sleep(for: .milliseconds(100))
+        kill(holder.processIdentifier, SIGKILL)
+        holder.waitUntilExit()
+        let taken = try await waiter.value
+        taken.release()
+    }
+
+    func testCancellingAWaitingHostLeavesTheLockAlone() async throws {
+        let root = try makeRoot()
+        let holder = try XCTUnwrap(BackupEngineLock.acquire(in: root))
+        let waiter = Task { try await BackupEngineLock.acquireWhenFree(in: root, pollInterval: .milliseconds(20)) }
+        try await Task.sleep(for: .milliseconds(60))
+        waiter.cancel()
+        do {
+            _ = try await waiter.value
+            XCTFail("a cancelled wait must not hand out the lock")
+        } catch is CancellationError {}
+        holder.release()
+        XCTAssertNotNil(BackupEngineLock.acquire(in: root), "the cancelled waiter left nothing held")
+    }
 }
