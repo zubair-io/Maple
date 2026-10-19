@@ -16,23 +16,27 @@ SENSITIVE_ENVIRONMENTS = (
 )
 
 
+def workflow_files():
+    return sorted(path for path in WORKFLOWS.iterdir() if path.suffix in (".yml", ".yaml"))
+
+
 def load(name):
     return yaml.safe_load((WORKFLOWS / f"{name}.yml").read_text())
 
 
 def secret_names(value):
-    return re.findall(r"secrets\.([A-Z0-9_]+)", str(value))
+    return re.findall(r"secrets(?:\.|\[\s*['\"])([A-Za-z0-9_]+)", str(value))
 
 
 class SecretEnvironmentTests(unittest.TestCase):
     def test_owner_pat_fallback_is_gone(self):
-        for path in WORKFLOWS.glob("*.yml"):
+        for path in workflow_files():
             with self.subTest(workflow=path.name):
                 self.assertNotIn("JULES_GH", path.read_text())
                 self.assertNotIn("secrets.MUSE", path.read_text())
 
     def test_sensitive_secrets_only_run_in_their_environment(self):
-        for path in WORKFLOWS.glob("*.yml"):
+        for path in workflow_files():
             config = yaml.safe_load(path.read_text())
             for job_id, job in config.get("jobs", {}).items():
                 names = secret_names(job)
@@ -41,6 +45,15 @@ class SecretEnvironmentTests(unittest.TestCase):
                     if matched:
                         with self.subTest(workflow=path.name, job=job_id, secrets=matched):
                             self.assertEqual(job.get("environment"), environment)
+
+    def test_secret_names_recognises_property_and_index_access(self):
+        self.assertEqual(secret_names("${{ secrets.VERSION_SYNC_TOKEN }}"), ["VERSION_SYNC_TOKEN"])
+        self.assertEqual(secret_names("${{ secrets['VERSION_SYNC_TOKEN'] }}"), ["VERSION_SYNC_TOKEN"])
+        self.assertEqual(secret_names('${{ secrets[ "ANDROID_UPLOAD_KEY" ] }}'), ["ANDROID_UPLOAD_KEY"])
+
+    def test_workflow_files_cover_yaml_and_yml(self):
+        self.assertTrue(all(path.suffix in (".yml", ".yaml") for path in workflow_files()))
+        self.assertIn("release.yml", [path.name for path in workflow_files()])
 
     def test_version_sync_uses_only_the_environment_scoped_token(self):
         job = load("version-sync")["jobs"]["create-release"]
