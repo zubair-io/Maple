@@ -76,6 +76,37 @@ namespace Maple.WinUI.Tests
         }
 
         [Fact]
+        public async Task Replace_WithoutIncomingSidecar_IgnoresANonMediaFileWithTheSameStem()
+        {
+            var raw = Write("new", "src", "IMG_1.CR3");
+            Write("old", "album", "IMG_1.CR3");
+            Write("notes", "album", "IMG_1.txt");
+            Write("<stale/>", "album", "IMG_1.xmp");
+
+            await LocalFileOperations.RelocateAsync(
+                raw, P("album"), null, RelocateMode.Move, CollisionPolicy.Replace);
+
+            AssertContent("new", "album", "IMG_1.CR3");
+            Assert.False(File.Exists(P("album", "IMG_1.xmp")));
+            AssertContent("notes", "album", "IMG_1.txt");
+        }
+
+        [Fact]
+        public async Task CaseOnlyRename_WithASiblingStillReadingTheSidecar_KeepsItsSidecar()
+        {
+            var raw = Write("raw", "photos", "x.CR3");
+            Write("jpg", "photos", "x.JPG");
+            Write("<shared/>", "photos", "x.xmp");
+            var foldsCase = File.Exists(P("photos", "X.CR3"));
+
+            await LocalFileOperations.RelocateAsync(
+                raw, P("photos"), "X.CR3", RelocateMode.Move, CollisionPolicy.AutoSuffix);
+
+            AssertContent("<shared/>", "photos", "x.xmp");
+            if (!foldsCase) AssertContent("<shared/>", "photos", "X.xmp");
+        }
+
+        [Fact]
         public async Task Move_PhotoWhoseNameContainsTmp_StillSharesWithItsSibling()
         {
             var raw = Write("raw", "src", "IMG.tmp.CR3");

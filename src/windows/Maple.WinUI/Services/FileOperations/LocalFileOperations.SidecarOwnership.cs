@@ -76,6 +76,21 @@ namespace Maple.WinUI.Services.FileOperations
         private static readonly Regex StagingName =
             new(@"\.tmp\.\d+[-.][0-9a-fA-F]+$", RegexOptions.CultureInvariant);
 
+        // Photo formats any Maple surface pairs with a sidecar — wider than
+        // what Windows itself opens, because an IMG_1.HEIC beside IMG_1.CR3
+        // still reads IMG_1.xmp on Apple and Web. Non-media files (notes.txt,
+        // IMG_1.txt) never claim a stem.
+        private static readonly System.Collections.Generic.HashSet<string> PhotoExtensions =
+            new(DropMountLogic.SupportedExtensions.Concat(new[]
+            {
+                ".heic", ".heif", ".png", ".webp", ".avif", ".psd", ".psb", ".gif", ".bmp", ".jxl",
+                ".crw", ".nrw", ".sr2", ".srf", ".erf", ".kdc", ".dcr", ".mrw", ".mos", ".iiq",
+                ".3fr", ".fff", ".rwl", ".x3f", ".raw",
+            }), StringComparer.OrdinalIgnoreCase);
+
+        private static bool IsMediaFile(string name) =>
+            SidecarStore.IsVideoFilename(name) || PhotoExtensions.Contains(Path.GetExtension(name));
+
         private static string SidecarStemOf(string fileName) =>
             (SidecarStore.IsVideoFilename(fileName) ? fileName : Path.GetFileNameWithoutExtension(fileName))
                 .Normalize(NormalizationForm.FormC);
@@ -98,7 +113,7 @@ namespace Maple.WinUI.Services.FileOperations
                     var name = Path.GetFileName(path);
                     return !name.StartsWith('.')
                         && !StagingName.IsMatch(name)
-                        && !string.Equals(Path.GetExtension(name), ".xmp", StringComparison.OrdinalIgnoreCase)
+                        && IsMediaFile(name)
                         && !skip.Contains(path, StringComparer.OrdinalIgnoreCase)
                         && string.Equals(SidecarStemOf(name), stem, StringComparison.OrdinalIgnoreCase);
                 });
