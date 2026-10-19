@@ -68,6 +68,7 @@ public final class EngineHost {
   private var runnerTask: Task<Void, Never>?
   /// Held while this app runs the engine on the shared state DB (#4988).
   private var engineLock: BackupEngineLock?
+  private var engineLockWait: Task<BackupEngineLock, Error>?
 
   /// Long-running task that triggers a safety walk every 7 days.
   /// On iOS this is supplemented by the BGProcessingTask handler;
@@ -119,10 +120,24 @@ public final class EngineHost {
       let storageRoot = try BackupStorage.sharedRoot()
       // One engine per shared state DB (#4988): the backup helper may be
       // working through the backlog; never rehydrate rows it is uploading.
-      guard let engineLock = BackupEngineLock.acquire(in: storageRoot) else {
-        lastStartError = "Backup is running in the background helper. Try again when it finishes."
-        progress.setPhase(.stopped)
-        return
+      // Wait for it to finish and take over, rather than staying stopped.
+      let engineLock: BackupEngineLock
+      if let free = BackupEngineLock.acquire(in: storageRoot) {
+        engineLock = free
+      } else {
+        lastStartError = "The background helper is finishing a backup. Maple will take over when it's done."
+        let wait = Task {
+          try await BackupEngineLock.acquireWhenFree(in: storageRoot, pollInterval: .seconds(2))
+        }
+        engineLockWait = wait
+        let waited = try await wait.value
+        if engineLockWait == wait { engineLockWait = nil }
+        guard generation == self.generation else {
+          waited.release()
+          return
+        }
+        lastStartError = nil
+        engineLock = waited
       }
       self.engineLock = engineLock
       let deviceId = try DeviceIdentity.current(
@@ -199,6 +214,10 @@ public final class EngineHost {
         libraryId: settings.libraryId, serverBaseURL: serverBaseURL,
         retryFailed: retryFailed)
       log.info("start ok engine running, state initialized")
+    } catch is CancellationError {
+      // A stop() ended the wait for the background helper; nothing failed.
+      lastStartError = nil
+      return
     } catch {
       // The most likely failures are filesystem permission issues or
       // SQLite open errors. Capture into `lastStartError` so the
@@ -218,6 +237,8 @@ public final class EngineHost {
   /// Cancel discovery, active reads/uploads, and retries; pending work stays durable.
   public func stop() async {
     generation = UUID()
+    engineLockWait?.cancel()
+    engineLockWait = nil
     ChangeObserverWiring.stop()
     let runner = runnerTask
     runner?.cancel()

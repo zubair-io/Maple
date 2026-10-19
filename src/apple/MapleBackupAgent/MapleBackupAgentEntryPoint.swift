@@ -22,27 +22,31 @@ import MapleCore
 @main
 struct MapleBackupAgentEntryPoint {
   static func main() async throws {
-    guard !BackupSettings.isStoppedByUser, let s = BackupSettings.load(), s.isConfigured else {
+    guard BackupSettings.configuredForHelper() != nil else {
       FileHandle.standardError.write(
         Data("MapleBackupAgent: no backup settings configured; exiting\n".utf8))
-      return
-    }
-    guard let url = URL(string: s.serverURL) else {
-      FileHandle.standardError.write(Data("MapleBackupAgent: invalid server URL\n".utf8))
       return
     }
 
     // Same App Group root the app writes (#4717) — a separate process must
     // report the same device id and resume the same state DB.
     let storageRoot = try BackupStorage.sharedRoot()
-    // One engine per shared state DB (#4988): if the app is backing up, it
-    // owns the work; this helper leaves it alone instead of re-claiming rows.
-    guard let engineLock = BackupEngineLock.acquire(in: storageRoot) else {
+    // One engine per shared state DB (#4988). While the app is backing up it
+    // owns the work; wait for it to finish rather than exiting, because
+    // launchd does not relaunch a helper that exited successfully.
+    let engineLock = try await BackupEngineLock.acquireWhenFree(
+      in: storageRoot, pollInterval: .seconds(5))
+    defer { engineLock.release() }
+    // The user may have stopped backup or changed the library meanwhile.
+    guard let s = BackupSettings.configuredForHelper() else {
       FileHandle.standardError.write(
-        Data("MapleBackupAgent: the Maple app is already backing up; exiting\n".utf8))
+        Data("MapleBackupAgent: backup was stopped while waiting; exiting\n".utf8))
       return
     }
-    defer { engineLock.release() }
+    guard let url = URL(string: s.serverURL) else {
+      FileHandle.standardError.write(Data("MapleBackupAgent: invalid server URL\n".utf8))
+      return
+    }
     let deviceId = try DeviceIdentity.current(
       storageURL: DeviceIdentity.storageURL(in: storageRoot))
     let sidecars = AppSupportSidecarStore(
@@ -104,5 +108,13 @@ struct MapleBackupAgentEntryPoint {
       queue: queue, state: state, upload: upload,
       sidecars: sidecars, reader: reader)
     await engine.run()
+  }
+}
+
+extension BackupSettings {
+  /// Settings the helper may run with: configured and not stopped by the user.
+  fileprivate static func configuredForHelper() -> BackupSettings? {
+    guard !isStoppedByUser, let settings = load(), settings.isConfigured else { return nil }
+    return settings
   }
 }
