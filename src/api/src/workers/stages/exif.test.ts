@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
 import exifStage, { isLikelyScreenshot } from './exif.ts';
+import { deriveId } from '../../indexer/id.ts';
 import { EXIF_PICK_TAGS } from '../../indexer/exif.ts';
 import { createLiveTestDatabase } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { solidJpeg, solidPng } from '../../test-support/synth-image.ts';
@@ -149,6 +150,30 @@ describe('exif handler', () => {
 
   it('exif stage targetVersion is at least 2 (post-GPS-sign-fix)', () => {
     expect(exifStage.targetVersion).toBeGreaterThanOrEqual(2);
+  });
+
+  it('re-derives a legacy head-only fallback id over the full file for dateless rows (#4728)', async () => {
+    using live = await createLiveTestDatabase();
+    void live;
+    const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
+    setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
+    const file = path.join(dir, 'legacy-dateless.jpg');
+    const jpeg = await solidJpeg(600, 600, [10, 20, 30]);
+    const bytes = Buffer.concat([jpeg, Buffer.alloc(80 * 1024, 7)]);
+    await writeFile(file, bytes);
+    const doc = { ...makeDoc(file, libraryId, dir), maple_id: `02${'c'.repeat(30)}` };
+    const result = await exifStage.handler(doc as never, {} as never);
+    expect(patchFields(result).maple_id).toBe(
+      deriveId(new Uint8Array(bytes), null, null, null).hex,
+    );
+  });
+
+  it('never downgrades a primary-form id when the file has no capture date', async () => {
+    const file = path.join(dir, 'primary-dateless.jpg');
+    await writeFile(file, await solidJpeg(4, 4, [0, 0, 0]));
+    const doc = { ...makeDoc(file, libraryId, dir), maple_id: `01${'d'.repeat(30)}` };
+    const result = await exifStage.handler(doc as never, {} as never);
+    expect(patchFields(result).maple_id).toBeUndefined();
   });
 
   it('flags is_screenshot for a no-EXIF iOS-style filename', async () => {

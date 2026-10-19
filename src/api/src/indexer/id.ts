@@ -92,7 +92,10 @@ export function primary(
  * Fallback-form id. SHA-1 over full bytes, BLAKE3 over that || filesize.
  */
 export function fallback(bytes: Uint8Array, filesize: bigint | number): MapleId {
-  const sha1Full = sha1(bytes);
+  return fallbackFromSha1(sha1(bytes), filesize);
+}
+
+function fallbackFromSha1(sha1Full: Uint8Array, filesize: bigint | number): MapleId {
   const size = toLeU64(filesize);
   const digest = blake3(concat([sha1Full, size]));
   return makeId(TAG_FALLBACK, digest);
@@ -113,21 +116,17 @@ export function deriveId(
     : fallback(bytes, bytes.length);
 }
 
+const HASH_CHUNK_BYTES = 1024 * 1024;
+
 /**
- * Disk-side helper: read the first 64 KB of a file, stat it, and produce
- * the fields the discover watcher needs to insert an asset row with
- * `maple_id` populated.
+ * Disk-side helper: stream a file once, stat it, and produce the fields the
+ * discover watcher needs to insert an asset row with `maple_id` populated.
  *
- * Returned shape mirrors what the legacy `hash` worker stage wrote to the
- * doc — `(maple_id, sha1_head, size, mtime)` — so callers can stop running
- * the post-insert hash stage entirely. The id is in **fallback form**
- * (tag `0x02`): the exif stage upgrades it to primary form once
- * `captured_at` is available.
- *
- * Byte-for-byte parity with the previous hash-stage handler is enforced by
- * `id.test.ts` — same head slice (≤ 64 KB), same `deriveId(head, null,
- * null, null)` call. Changing this shape requires bumping the hash
- * stage's `targetVersion` so legacy rows re-derive.
+ * The id is in **fallback form** (tag `0x02`) over the full file and its real
+ * size, matching raw-core, Swift and the browser; `sha1_head` still covers only
+ * the first 64 KB. The exif stage upgrades the id to primary form once
+ * `captured_at` is available, and re-derives legacy head-only fallback ids
+ * (`EXIF_STAGE_VERSION` 3).
  */
 export async function hashFileForId(absPath: string): Promise<{
   maple_id: string;
@@ -135,22 +134,36 @@ export async function hashFileForId(absPath: string): Promise<{
   size: number;
   mtime: number;
 }> {
-  // Open once, read head AND stat off the same fd. If the path is replaced
-  // between read and stat (rename / atomic swap), `fs.stat(absPath)` would
-  // return fields from a different inode than the bytes we hashed; `fd.stat`
-  // is inode-stable for the lifetime of the descriptor.
+  // Hash and stat off one fd: if the path is swapped mid-read, `fs.stat(absPath)`
+  // would describe a different inode than the bytes we hashed.
   const fd = await fs.open(absPath, 'r');
-  let head: Uint8Array;
-  let stat: Awaited<ReturnType<typeof fd.stat>>;
   try {
-    const buf = new Uint8Array(SHA1_HEAD_BYTES);
-    const { bytesRead } = await fd.read(buf, 0, buf.length, 0);
-    head = buf.subarray(0, bytesRead);
-    stat = await fd.stat();
+    const full = sha1.create();
+    const buf = new Uint8Array(HASH_CHUNK_BYTES);
+    const headChunks: Uint8Array[] = [];
+    let headLen = 0;
+    let position = 0;
+    for (;;) {
+      const { bytesRead } = await fd.read(buf, 0, buf.length, position);
+      if (bytesRead === 0) break;
+      const chunk = buf.subarray(0, bytesRead);
+      full.update(chunk);
+      if (headLen < SHA1_HEAD_BYTES) {
+        const take = chunk.subarray(0, SHA1_HEAD_BYTES - headLen);
+        headChunks.push(take.slice());
+        headLen += take.length;
+      }
+      position += bytesRead;
+    }
+    const stat = await fd.stat();
+    const id = fallbackFromSha1(full.digest(), position);
+    return {
+      maple_id: id.hex,
+      sha1_head: toHex(sha1(concat(headChunks))),
+      size: stat.size,
+      mtime: stat.mtimeMs,
+    };
   } finally {
     await fd.close();
   }
-  const sha1_head = toHex(sha1(head));
-  const id = deriveId(head, null, null, null);
-  return { maple_id: id.hex, sha1_head, size: stat.size, mtime: stat.mtimeMs };
 }
