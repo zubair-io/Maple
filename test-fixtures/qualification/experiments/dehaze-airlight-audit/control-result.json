@@ -1,0 +1,40 @@
+{
+  "fixture": "test_0015/dehaze_max",
+  "rows": [
+    {
+      "current_A": [
+        3.1101953983306885,
+        3.1910390853881836,
+        3.3480958938598633
+      ],
+      "fractional_tie_A": [
+        3.1108245743407648,
+        3.1916685937562903,
+        3.3485941178088474
+      ],
+      "height": 3056,
+      "selected_from_tie": 165,
+      "strictly_above": 12254,
+      "threshold": 1.9110009670257568,
+      "tie_max": [
+        3.463820695877075,
+        3.501277446746826,
+        3.460613489151001
+      ],
+      "tie_min": [
+        1.9110009670257568,
+        1.9792711734771729,
+        2.1988303661346436
+      ],
+      "tie_weight": 0.7568807339449541,
+      "tied": 218,
+      "top_n": 12419,
+      "width": 4064
+    }
+  ],
+  "pixel_output_sha256": "e7bdcf1cd3635f351d5925163fdd59df150441e0092b054d9009e9abd812a36c",
+  "frozen_tail_candidate_output_sha256": "ec2882f462813f600c25b45107a5e9f73375019927aee05741c054e9ec93d764",
+  "diagnostic_output_matches_frozen": false,
+  "inputs_unchanged": true,
+  "interpretation": "Instrumentation only; fractional-tie A hypothetical, not adopted. Exact output match needed before causal conclusions."
+}

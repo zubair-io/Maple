@@ -1,0 +1,6 @@
+{
+  "base": "95fc03d6819b34f46f928ba93de58188a4014022",
+  "control": "Only FCS logic replaced by source35; NLM tails remain37; observational A logging identical. Not a production candidate.",
+  "binary_sha256": "123dce1337961de872f5f652a151e9f38d1fe0bc26df50ee0ce27b962392d9f0",
+  "patch_sha256": "8ff2a3afbe7859dc431f7b68fac1fdd9938bf1fd950e324c8d06734ca69ccd8e"
+}
