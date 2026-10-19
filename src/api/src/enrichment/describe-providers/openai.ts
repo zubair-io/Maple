@@ -10,6 +10,7 @@
 
 import {
   RemoteError,
+  BilledOutputError,
   TruncatedOutputError,
   type DescribeOptions,
   type DescribeProvider,
@@ -117,7 +118,7 @@ export class OpenAIProvider implements DescribeProvider {
     }
     const text = extractFirstChoiceText(parsed.choices);
     if (text.length === 0) {
-      throw new RemoteError('OpenAI returned empty content', false);
+      throw new BilledOutputError('OpenAI returned empty content', cost);
     }
     return {
       text,

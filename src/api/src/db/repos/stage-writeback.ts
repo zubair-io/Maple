@@ -56,6 +56,7 @@
 
 import type { StageResult } from '../../workers/stage-config.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
+import { describeFailureCostStatements } from './describe-cost.ts';
 import {
   STAGE_CLAIM_ROLLBACK_SQL,
   STAGE_DAMAGED_SQL,
@@ -351,6 +352,7 @@ export function stageFailureStatements(input: {
     retryInMs,
     terminal,
     statements: [
+      ...describeFailureCostStatements(target.assetId, target.stage, err),
       {
         sql: STAGE_FAILURE_SQL,
         params: [

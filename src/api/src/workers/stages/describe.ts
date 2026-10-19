@@ -1,3 +1,4 @@
+import { withDescribeCosts, type DescribeCosts } from './describe-cost.ts';
 import { assignedAiPool } from '../../enrichment/ai-assigned-pool.ts';
 /**
  * Describe (caption + structured vision) stage.
@@ -44,7 +45,6 @@ import { DescribeServerPool } from '../../enrichment/describe-server-pool.ts';
 import { describeServersForRuntime } from '../describe-capacity.ts';
 import {
   getDescribeProvider,
-  TruncatedOutputError,
   type DescribeProviderName,
 } from '../../enrichment/describe-providers/index.ts';
 import {
@@ -191,8 +191,16 @@ export function setDescribeDepsForTests(deps: DescribeDeps | null): void {
   _deps = deps;
 }
 
-// fallow-ignore-next-line complexity
 export async function describeHandler(image: ImageDoc, ctx: StageContext): Promise<StageResult> {
+  return withDescribeCosts(image, ctx, describeAttempt);
+}
+
+// fallow-ignore-next-line complexity
+async function describeAttempt(
+  image: ImageDoc,
+  ctx: StageContext,
+  costs: DescribeCosts,
+): Promise<StageResult> {
   // Video containers, metadata-only stub images (eip/braw/afphoto/ai), and
   // audio have no still frame for the vision model to caption. They reach
   // this stage because the library can hold mixed media (the backup-ingest
@@ -285,10 +293,9 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
   // on the least-loaded healthy endpoint and re-runs this on the next
   // server if the one it picked fails in a way that is the server's fault
   // (network / timeout / 5xx). A terminal 4xx propagates on the first try.
-  const truncatedCallCosts: number[] = [];
   const { result, server } = await pool.run(async (provider, pickedServer) => ({
-    result: await provider
-      .describe([jpegBytes], {
+    result: await costs.record(
+      provider.describe([jpegBytes], {
         systemPrompt,
         model: pickedServer.model ?? model,
         // Constrain Ollama's output to the VisionDoc schema. Ollama 0.5+
@@ -297,14 +304,10 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
         // parse-vision-json synonym maps stay as defense in depth for older
         // Ollama versions and edge cases.
         format: provider.name === 'ollama' ? VISION_DOC_JSON_SCHEMA : undefined,
-      })
-      .catch((err: unknown) => {
-        if (err instanceof TruncatedOutputError) truncatedCallCosts.push(err.cost_usd);
-        throw err;
       }),
+    ),
     server: pickedServer,
   }));
-  const costUsd = truncatedCallCosts.reduce((sum, cost) => sum + cost, result.cost_usd);
 
   // Strict parse — throws VisionParseError on malformed output. The runtime
   // dead-letters the row after maxAttempts; operators triage via
@@ -328,7 +331,7 @@ export async function describeHandler(image: ImageDoc, ctx: StageContext): Promi
       model: server.model ?? model,
       prompt_version: DESCRIBE_PROMPT_VERSION,
       generated_at: now,
-      cost_usd: costUsd,
+      cost_usd: costs.total,
       ...result.provider_info,
     },
     // Structured vision subdoc — the new canonical source. The screenshot
