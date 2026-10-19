@@ -70,9 +70,9 @@ class SecretEnvironmentTests(unittest.TestCase):
     def test_owner_pat_fallback_is_gone(self):
         for path in workflow_files():
             with self.subTest(workflow=path.name):
-                text = path.read_text()
-                self.assertNotIn("jules_gh", text.lower())
-                names = {name for expression in expressions(text) for name in secret_names(expression)}
+                decoded = list(scalars(yaml.safe_load(path.read_text())))
+                self.assertFalse([value for value in decoded if "jules_gh" in value.lower()])
+                names = {name for value in decoded for expression in expressions(value) for name in secret_names(expression)}
                 self.assertFalse(names & RETIRED_SECRETS, names & RETIRED_SECRETS)
 
     def test_sensitive_secrets_only_run_in_their_environment(self):
@@ -97,6 +97,11 @@ class SecretEnvironmentTests(unittest.TestCase):
         self.assertEqual(len(scanned), 2)
         self.assertIn("secrets[format(", scanned[0])
         self.assertIsNotNone(WHOLE_OBJECT.search(scanned[0]))
+
+    def test_retired_names_are_found_after_yaml_escape_decoding(self):
+        config = yaml.safe_load('TOKEN: "${{ secrets.M\\u0055SE }}"\n')
+        names = {name for value in scalars(config) for expression in expressions(value) for name in secret_names(expression)}
+        self.assertIn("MUSE", names)
 
     def test_retired_secrets_are_found_in_every_access_form(self):
         for expression in ("secrets.MUSE", "secrets['MUSE']", "secrets . muse", "secrets [ \"Jules_GH\" ]"):
