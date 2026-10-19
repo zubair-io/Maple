@@ -313,13 +313,19 @@ fn develop_scene_linear_for_pano(
         raw.as_shot_neutral
     };
     stage("pano_highlight_recovery", || {
-        highlight_recovery::apply_in_region(
+        highlight_recovery::apply_in_sensor_space(
             &mut camera_rgb,
             HighlightRecoveryMode::default(),
             hr_neutral,
             raw.baseline_exposure,
             crate::pipeline::develop::highlight_active_area(
                 raw,
+                effective_quality_divisor(quality, raw.cfa),
+            ),
+            None,
+            crate::sensor_gain_maps::ClipGainContext::new(
+                raw,
+                (0, 0),
                 effective_quality_divisor(quality, raw.cfa),
             ),
         )

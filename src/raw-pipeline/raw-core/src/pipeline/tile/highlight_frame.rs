@@ -150,10 +150,17 @@ pub(super) fn scene_prior(
                 },
             ),
         );
+        let gains =
+            crate::sensor_gain_maps::ClipGainContext::new(raw, (0, start * divisor), divisor);
         while y < bottom.min(band + 128) {
             let mut x = aa.x.min(w);
             while x < right {
-                samples.push(camera.pixels[((y - start) * camera.width + x) as usize]);
+                let index = ((y - start) * camera.width + x) as usize;
+                if let Some(gains) = gains {
+                    samples.push_with_scale(camera.pixels[index], gains.scale(index, camera.width));
+                } else {
+                    samples.push(camera.pixels[index]);
+                }
                 x += 8;
             }
             y += 8;

@@ -283,6 +283,66 @@ fn tile_vs_full_large_blown_region_matches_full_frame() {
     );
 }
 
+#[test]
+fn tile_vs_full_highlights_with_sensor_gain_maps_match_the_same_frame() {
+    use crate::{
+        pipeline::pano::opcodes::{ActiveAreaRect, GainMapOpcode},
+        sensor_gain_maps::SensorGainMaps,
+    };
+    let mut raw = blown_chart_raw();
+    let maps = (0..4)
+        .map(|phase| {
+            let factor = 1. + phase as f32 * 0.03;
+            GainMapOpcode {
+                top: phase / 2,
+                left: phase % 2,
+                bottom: raw.height,
+                right: raw.width,
+                plane: 0,
+                planes: 1,
+                row_pitch: 2,
+                col_pitch: 2,
+                points_v: 2,
+                points_h: 2,
+                spacing_v: 1.,
+                spacing_h: 1.,
+                origin_v: 0.,
+                origin_h: 0.,
+                map_planes: 1,
+                gains: [1.3, 1.7, 2.1, 2.6].map(|g| g * factor).to_vec(),
+            }
+        })
+        .collect();
+    raw.sensor_gain_maps = Some(SensorGainMaps {
+        maps,
+        active_area: ActiveAreaRect::full(raw.width, raw.height),
+    });
+    let model = AdjustmentModel {
+        sharpen_amount: 0.,
+        nr_color: 0.,
+        nr_luminance: 0.,
+        auto_exposure: AutoExposureMode::Off,
+        ..Default::default()
+    };
+    let full = full_rect_lanes(
+        &develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full).unwrap(),
+    );
+    let tile = tile_lanes(&raw, &model);
+    let off = full_rect_lanes(
+        &develop_scene_linear_from_raw_with_quality(
+            &raw,
+            &AdjustmentModel {
+                highlight_recovery: HighlightRecoveryMode::Off,
+                ..model
+            },
+            RenderQuality::Full,
+        )
+        .unwrap(),
+    );
+    assert!(max_abs(&full, &off) > MIN_CASE_EFFECT);
+    assert!(max_abs(&full, &tile) <= 1e-4, "{}", max_abs(&full, &tile));
+}
+
 fn lensfun_chart_raw() -> crate::image::RawImage {
     let mut raw = camera_chart_raw();
     raw.camera_make = "Canon".into();

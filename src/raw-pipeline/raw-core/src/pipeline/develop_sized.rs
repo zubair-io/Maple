@@ -246,12 +246,14 @@ pub(super) fn develop_sized_prefix(
         raw.as_shot_neutral
     };
     stage("sized_highlight_recovery", || {
-        highlight_recovery::apply_in_region(
+        highlight_recovery::apply_in_sensor_space(
             &mut camera_rgb,
             model.highlight_recovery,
             hr_neutral,
             raw.baseline_exposure,
             crate::pipeline::develop::highlight_active_area(raw, crop_divisor),
+            None,
+            crate::sensor_gain_maps::ClipGainContext::new(raw, (0, 0), crop_divisor),
         )
     });
     dump_after("00b_highlight_recovery", &camera_rgb);

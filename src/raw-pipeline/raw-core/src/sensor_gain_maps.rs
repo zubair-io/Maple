@@ -3,6 +3,9 @@ use crate::pipeline::pano::{
     opcodes::{self, ActiveAreaRect, GainMapOpcode, PanoOpcode},
 };
 
+mod clip_context;
+pub(crate) use clip_context::ClipGainContext;
+
 #[derive(Clone, Debug)]
 pub struct SensorGainMaps {
     pub maps: Vec<GainMapOpcode>,
@@ -204,5 +207,89 @@ mod tests {
         });
         let image = crate::linearize::linearraw_to_camera_rgb(&raw).unwrap();
         assert!(image.pixels.iter().all(|pixel| *pixel == [1., 1.5, 2.]));
+    }
+
+    #[test]
+    fn clipping_scales_keep_sensor_phase_and_half_resolution_quad_coordinates() {
+        let maps = [map(0, 0, 2.), map(0, 1, 3.), map(1, 0, 4.), map(1, 1, 5.)];
+        let fixture = SyntheticGreyDng {
+            opcode_list2: Some(blob(&maps)),
+            ..Default::default()
+        };
+        let raw = decode_bytes(&fixture.write_to_bytes(), "dng").unwrap();
+        let native = ClipGainContext::new(&raw, (0, 0), 1).unwrap();
+        assert_eq!(native.scale(0, 64), [2., 3.5, 5.]);
+        assert_eq!(native.scale(1, 64), [2., 3., 5.]);
+        assert_eq!(native.scale(64, 64), [2., 4., 5.]);
+        let quad = ClipGainContext::new(&raw, (0, 0), 2).unwrap();
+        assert_eq!(quad.scale(0, 32), [2., 3.5, 5.]);
+        let tile = ClipGainContext::new(&raw, (6, 10), 1).unwrap();
+        for y in 0..8 {
+            for x in 0..8 {
+                assert_eq!(
+                    tile.scale(y * 8 + x, 8),
+                    native.scale((y + 10) * 64 + x + 6, 64)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn gain_aware_highlights_preserve_unclipped_bright_values_and_known_channels() {
+        use crate::{stages::highlight_recovery, xmp::HighlightRecoveryMode, ColorSpace, Image};
+        let maps = [map(0, 0, 2.), map(0, 1, 3.), map(1, 0, 4.), map(1, 1, 5.)];
+        let raw = decode_bytes(
+            &SyntheticGreyDng {
+                opcode_list2: Some(blob(&maps)),
+                ..Default::default()
+            }
+            .write_to_bytes(),
+            "dng",
+        )
+        .unwrap();
+        let context = ClipGainContext::new(&raw, (0, 0), 1).unwrap();
+        let mut image = Image::new(64, 64, ColorSpace::CameraNativeLinearRgb);
+        for (i, pixel) in image.pixels.iter_mut().enumerate() {
+            *pixel = context.scale(i, 64).map(|g| g * 0.6);
+        }
+        let before = image.pixels.clone();
+        let mut wrong = image.clone();
+        highlight_recovery::apply(
+            &mut wrong,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            [1.; 3],
+            0.,
+        );
+        assert_ne!(wrong.pixels, before);
+        highlight_recovery::apply_in_sensor_space(
+            &mut image,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            [1.; 3],
+            0.,
+            None,
+            None,
+            Some(context),
+        );
+        assert_eq!(image.pixels, before);
+        let index = 32 * 64 + 32;
+        image.pixels[index][0] = context.scale(index, 64)[0];
+        let known = image.pixels[index];
+        highlight_recovery::apply_in_sensor_space(
+            &mut image,
+            HighlightRecoveryMode::ChromaticAdaptation,
+            [1.; 3],
+            0.,
+            None,
+            None,
+            Some(context),
+        );
+        assert_ne!(image.pixels[index][0], known[0]);
+        assert_eq!(image.pixels[index][1], known[1]);
+        assert_eq!(image.pixels[index][2], known[2]);
+        for i in 0..before.len() {
+            if i != index {
+                assert_eq!(image.pixels[i], before[i]);
+            }
+        }
     }
 }
