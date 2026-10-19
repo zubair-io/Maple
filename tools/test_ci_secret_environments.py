@@ -16,6 +16,7 @@ SENSITIVE_ENVIRONMENTS = (
 )
 
 
+RETIRED_SECRETS = {"JULES_GH", "MUSE"}
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 INHERIT = re.compile(r"secrets:\s*inherit", re.IGNORECASE)
 NAMED_SECRET = re.compile(r"secrets\s*(?:\.\s*([A-Za-z_]\w*)|\[\s*(['\"])([A-Za-z_]\w*)\2\s*\])", re.IGNORECASE)
@@ -43,9 +44,10 @@ class SecretEnvironmentTests(unittest.TestCase):
     def test_owner_pat_fallback_is_gone(self):
         for path in workflow_files():
             with self.subTest(workflow=path.name):
-                text = path.read_text().lower()
-                self.assertNotIn("jules_gh", text)
-                self.assertNotIn("secrets.muse", text)
+                text = path.read_text()
+                self.assertNotIn("jules_gh", text.lower())
+                names = {name for expression in EXPRESSION.findall(text) for name in secret_names(expression)}
+                self.assertFalse(names & RETIRED_SECRETS, names & RETIRED_SECRETS)
 
     def test_sensitive_secrets_only_run_in_their_environment(self):
         for path in workflow_files():
@@ -62,6 +64,11 @@ class SecretEnvironmentTests(unittest.TestCase):
         self.assertEqual(secret_names("${{ secrets.VERSION_SYNC_TOKEN }}"), ["VERSION_SYNC_TOKEN"])
         self.assertEqual(secret_names("${{ secrets['VERSION_SYNC_TOKEN'] }}"), ["VERSION_SYNC_TOKEN"])
         self.assertEqual(secret_names('${{ secrets[ "ANDROID_UPLOAD_KEY" ] }}'), ["ANDROID_UPLOAD_KEY"])
+
+    def test_retired_secrets_are_found_in_every_access_form(self):
+        for expression in ("secrets.MUSE", "secrets['MUSE']", "secrets . muse", "secrets [ \"Jules_GH\" ]"):
+            with self.subTest(expression=expression):
+                self.assertTrue(set(secret_names(expression)) & RETIRED_SECRETS)
 
     def test_secret_names_allow_whitespace_around_access_operators(self):
         for expression in (
