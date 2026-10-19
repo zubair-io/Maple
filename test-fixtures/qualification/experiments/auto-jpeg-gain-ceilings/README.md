@@ -7,3 +7,9 @@ Independent synthetic tests demonstrate that the old detector changes unsaturate
 A derived conservative minimum gain skips lattice evaluation for pixels that cannot be saturated. Existing stage-dump diagnostics can record false/missed hard-clip counts without a new runtime setting. Physical all-corpus qualification follows; unit passes do not establish color completion. Neutral AgX, output37, fit7 and image-quality limits stay unchanged.
 
 The full, sized and pano entries now share the four-argument sensor-recovery helper, including the sized path's actual early-downsample divisor. This also keeps their source files below the570-line headroom gate. The tile entry retains its frame anchor and absolute sensor origin. The post-refactor native tile parity test passes. Physical qualification remains pending.
+
+## Complete physical checkpoint
+
+Source2ff187bacb: 5 JPEG passes(0002,0004,0009,0013,0014),11 failures,4 exact missing-preview Auto==Neutral fallbacks,0 errors. Four previously failing cases clear versus the original strong-quality baseline1pass/15fail. All16 before/current/reference images inspected. Remaining failures and new subcheck breaches(15in0015,1in0007,1in0011 versus ed6424ae59) stay explicitly unaccepted; the full goal remains incomplete.
+
+65 Auto unit tests pass(6 existing ignored),8 real Pixel6Pro RAW host/cache checks pass,7 GPU LUT parity checks pass, all5 unchanged-budget banding ramps pass. Local headroom check passes. The physical0015 diagnostic confirms3,872 channel samples were falsely classified as hard-clipped by the old uniform detector; gain-aware detection finds624 genuinely clipped pixels versus4,476 previously, with0 newly missed hard-clip channels. This fixes a real sensor-processing fault but does not by itself fix the remaining image-quality failures.

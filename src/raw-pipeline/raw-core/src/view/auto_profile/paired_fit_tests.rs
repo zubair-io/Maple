@@ -2,6 +2,63 @@ use super::*;
 use crate::view::auto_profile::preview::JpegColorSpace;
 
 #[test]
+fn perceptual_tails_use_display_footprints_while_native_rgb_remains_held_out() {
+    let candidate = ColorLut::identity(GRID);
+    let mut native = Vec::new();
+    let mut display = Vec::new();
+    let mut native_de = [Vec::new(), Vec::new()];
+    for region in 0..64 {
+        for i in 0..64 {
+            let (input, target, baseline) = if i % 16 == 0 {
+                (0.125f32, 0.175, 0.175)
+            } else {
+                (0.5, 0.5, 0.52)
+            };
+            for (j, output) in [input, baseline as f32].into_iter().enumerate() {
+                native_de[j].push(ciede2000(lab([output; 3]), lab([target as f32; 3])));
+            }
+            native.push(Observation {
+                weights: corners([input; 3]).to_vec(),
+                artifact_weights: corners([input; 3]).to_vec(),
+                source: [input as f64; 3],
+                target: [target; 3],
+                baseline: [baseline; 3],
+                validation: true,
+                region,
+            });
+            let weights: Vec<_> = corners([0.125; 3])
+                .into_iter()
+                .map(|(j, w)| (j, w / 16.))
+                .chain(
+                    corners([0.5; 3])
+                        .into_iter()
+                        .map(|(j, w)| (j, w * 15. / 16.)),
+                )
+                .collect();
+            display.push(Observation {
+                weights: weights.clone(),
+                artifact_weights: weights,
+                source: [(0.125 + 15. * 0.5) / 16.; 3],
+                target: [(0.175 + 15. * 0.5) / 16.; 3],
+                baseline: [(0.175 + 15. * 0.52) / 16.; 3],
+                validation: false,
+                region,
+            });
+        }
+    }
+    for values in &mut native_de {
+        values.sort_by(f32::total_cmp);
+    }
+    let p95 = native_de[0].len() * 95 / 100;
+    assert!(native_de[0][p95] > native_de[1][p95]);
+    assert!(prefer(&candidate, &native, &display));
+    for row in &mut native {
+        row.baseline = row.target;
+    }
+    assert!(!prefer(&candidate, &native, &display));
+}
+
+#[test]
 fn backtracking_keeps_a_useful_partial_correction_without_relaxing_local_safety() {
     let current = ColorLut::identity(GRID);
     let mut proposed = current.clone();
