@@ -13,6 +13,7 @@
  */
 import { createHash } from 'node:crypto';
 import {
+  authorizeSidecarWrite,
   isMissingSidecar,
   readSidecarNoFollow,
   writeSidecarAtomic,
@@ -24,6 +25,7 @@ type SidecarCasOutcome =
   | { kind: 'written' }
   | { kind: 'unchanged' }
   | { kind: 'diverged' }
+  | { kind: 'refused'; error: string }
   | { kind: 'error'; error: string };
 
 interface DisplacedSidecar {
@@ -89,6 +91,8 @@ export async function publishSidecarCas(
   recordDisplaced: (displaced: DisplacedSidecar) => Promise<void>,
   admissionScope: string,
 ): Promise<SidecarCasOutcome> {
+  const allowed = await authorizeSidecarWrite(destination);
+  if (!allowed.ok) return { kind: 'refused', error: allowed.error ?? 'path not allowed' };
   return serializeSidecarWrite<SidecarCasOutcome>(
     destination,
     async (resolved) => {
@@ -101,6 +105,15 @@ export async function publishSidecarCas(
       if (current === null) return { kind: 'error', error: 'sidecar vanished during write' };
       return publishOver(resolved, current, xmp, base, recordDisplaced);
     },
-    { admissionScope },
+    {
+      admissionScope,
+      // Read only the jail-resolved file: a symlinked parent must not let the
+      // compare step read (and keep) a sidecar outside the library.
+      resolveDestination: async () => {
+        const recheck = await authorizeSidecarWrite(destination);
+        if (!recheck.ok) throw new Error(recheck.error ?? 'path not allowed');
+        return recheck.data ?? destination;
+      },
+    },
   );
 }

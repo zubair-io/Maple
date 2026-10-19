@@ -209,4 +209,41 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
     expect([xmp('edit A'), xmp('edit B')]).toContain(final);
     expect(rows[0]?.displaced_xmp).toBe(displaced);
   });
+  test('a target path belonging to another asset is refused and its sidecar kept', async () => {
+    const owner = await seedUpload('owner');
+    const other = await seedUpload('other');
+    expect((await post(other, xmp('theirs'), 'none')).status).toBe(200);
+
+    const res = await post({ relPath: other.relPath, phid: owner.phid }, xmp('mine'), 'none');
+    expect(res.status).toBe(404);
+    expect(await onDisk(other.relPath)).toBe(xmp('theirs'));
+    expect(divergences(other.relPath)).toEqual([]);
+  });
+
+  test('a sidecar reached through a symlink out of the library is never read or stored', async () => {
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-sidecar-cas-outside-'));
+    try {
+      await fs.writeFile(path.join(outside, 'IMG.HEIC'), Buffer.alloc(64, 1));
+      await fs.writeFile(path.join(outside, 'IMG.HEIC.xmp'), xmp('outside secret'));
+      await fs.mkdir(path.join(tmpLib, '2024/CAS'), { recursive: true });
+      await fs.symlink(outside, path.join(tmpLib, '2024/CAS/linked'));
+      const relPath = '2024/CAS/linked/IMG.HEIC';
+      const phid = 'CAS/linked/L0/001';
+      seedBackupAsset(live.db, {
+        mapleId: createHash('md5').update('linked').digest('hex'),
+        size: 64,
+        locations: [{ libraryId: libId, relPath }],
+        links: [{ deviceId, phassetLocalId: phid }],
+      });
+
+      const res = await post({ relPath, phid }, xmp('incoming'), 'none');
+      expect(res.status).not.toBe(200);
+      expect(divergences(relPath)).toEqual([]);
+      expect(await fs.readFile(path.join(outside, 'IMG.HEIC.xmp'), 'utf8')).toBe(
+        xmp('outside secret'),
+      );
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
 });
