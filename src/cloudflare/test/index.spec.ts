@@ -112,6 +112,25 @@ describe('thumbnail-cache Worker', () => {
 		expect(await env.THUMBS_BUCKET.get('thumbs/main/hidden.jpg/v25')).toBeNull();
 	});
 
+	it('hides the opt-out header on an origin 304 too', async () => {
+		const path = '/api/thumb/main/hidden304.jpg';
+		fetchMock
+			.get(env.ORIGIN_API_BASE_URL)
+			.intercept({ path, method: 'GET' })
+			.reply(304, '', { headers: { etag: '"x"', 'x-maple-cacheable': '0' } });
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(
+			new IncomingRequest(`https://example.com${path}`, {
+				headers: { authorization: `Bearer ${await bearerToken()}`, 'if-none-match': '"x"' },
+			}),
+			env,
+			ctx,
+		);
+		await waitOnExecutionContext(ctx);
+		expect(response.status).toBe(304);
+		expect(response.headers.has('x-maple-cacheable')).toBe(false);
+	});
+
 	it('does not proxy protocol-relative paths carrying capability-shaped tokens', async () => {
 		const request = new IncomingRequest(
 			`https://example.com//evil.example/collect?token=${'T'.repeat(43)}`,

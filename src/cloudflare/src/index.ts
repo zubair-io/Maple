@@ -148,13 +148,17 @@ async function fetchFromOriginAndCache(
 		headers: forwardHeaders,
 	});
 
-	if (originResponse.status !== 200 || !originResponse.body) {
-		return originResponse;
-	}
-
 	const clientHeaders = new Headers(originResponse.headers);
 	const edgeCacheable = clientHeaders.get(EDGE_CACHEABLE_HEADER) !== '0';
 	clientHeaders.delete(EDGE_CACHEABLE_HEADER);
+
+	if (originResponse.status !== 200 || !originResponse.body) {
+		return new Response(originResponse.body, {
+			status: originResponse.status,
+			statusText: originResponse.statusText,
+			headers: clientHeaders,
+		});
+	}
 
 	if (!edgeCacheable) {
 		return maybeConvertAvifToJpeg(
