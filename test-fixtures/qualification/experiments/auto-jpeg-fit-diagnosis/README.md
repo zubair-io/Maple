@@ -23,6 +23,17 @@ appearance remains intentional; the correction belongs in Auto's residual fit.
 Further attribution must separate sparse neutral support, fitted objective
 and model constraints before changing coefficients or adopting an algorithm.
 
-Nine remaining failures are being probed separately, preserving completed
-cases. A boundary/empty-band unit check for the probe passes, plus13JPEG gate
+All12failures have now been probed, preserving completed cases. Every direct
+model already breaches0.05 (worst biases range0.0591–0.3414).
+`complete-diagnosis.json` joins these component measurements to the immutable
+physical JPEG gate. The separate curve-only counterfactual clears0012 but
+leaves0017 at0.0504 and0015 at0.0648, so it is not adopted. Current defaults
+still have12JPEG failures; no diagnostic result changes that physical count. A boundary/empty-band unit check for the probe passes, plus13JPEG gate
 contract checks. No full-suite rerender, tolerance/reference changes or merge.
+
+Secondary finding:0010also has a large direct-to-baked discrepancy on the
+same pair means (B shadow-band bias-0.01209to-0.11307). Native pixel averaging
+does not explain that difference. Investigate baking/application mapping as
+well as the fitted objective; the direct diagnostic and bake differ in their
+intentional highlight shoulder, so do not label the entire gap interpolation
+error without isolating those contributions.
