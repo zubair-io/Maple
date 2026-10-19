@@ -83,7 +83,7 @@ use crate::{
     error::{Error, Result},
     image::{CfaPattern, ExifOrientation, Image, RawImage},
     linearize,
-    stages::{highlight_recovery, white_balance},
+    stages::white_balance,
     types::HighlightRecoveryMode,
 };
 
@@ -307,27 +307,12 @@ fn develop_scene_linear_for_pano(
     }
     // Clipped-channel reconstruction with the canonical default mode. The
     // per-channel ceilings mirror develop's hr_neutral selection.
-    let hr_neutral = if skip_pre_gain {
-        [1.0; 3]
-    } else {
-        raw.as_shot_neutral
-    };
     stage("pano_highlight_recovery", || {
-        highlight_recovery::apply_in_sensor_space(
+        crate::pipeline::develop::recover_sensor_highlights(
             &mut camera_rgb,
+            raw,
             HighlightRecoveryMode::default(),
-            hr_neutral,
-            raw.baseline_exposure,
-            crate::pipeline::develop::highlight_active_area(
-                raw,
-                effective_quality_divisor(quality, raw.cfa),
-            ),
-            None,
-            crate::sensor_gain_maps::ClipGainContext::new(
-                raw,
-                (0, 0),
-                effective_quality_divisor(quality, raw.cfa),
-            ),
+            effective_quality_divisor(quality, raw.cfa),
         )
     });
     dump_after("pano_00b_highlight_recovery", &camera_rgb);

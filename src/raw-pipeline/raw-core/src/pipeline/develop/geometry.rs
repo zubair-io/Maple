@@ -156,3 +156,25 @@ pub(in crate::pipeline) fn lateral_ca(
     }
     Ok(())
 }
+
+pub(in crate::pipeline) fn recover_sensor_highlights(
+    image: &mut Image,
+    raw: &RawImage,
+    mode: crate::xmp::HighlightRecoveryMode,
+    divisor: u32,
+) {
+    let neutral = if raw.cfa == CfaPattern::LinearRgb && raw.white_level <= 255 {
+        [1.; 3]
+    } else {
+        raw.as_shot_neutral
+    };
+    crate::stages::highlight_recovery::apply_in_sensor_space(
+        image,
+        mode,
+        neutral,
+        raw.baseline_exposure,
+        highlight_active_area(raw, divisor),
+        None,
+        crate::sensor_gain_maps::ClipGainContext::new(raw, (0, 0), divisor),
+    );
+}
