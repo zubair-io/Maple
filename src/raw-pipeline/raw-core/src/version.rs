@@ -152,7 +152,9 @@
 ///   retaining the ratio response below diffuse white (#4635).
 /// - 28 — Robertson inverse tint measures displacement from the interpolated
 ///   locus, correcting legacy white-balance sidecar normalization (#4630).
-pub const PIPELINE_OUTPUT_VERSION: u32 = 29;
+/// - 30 — AMaZE false-color value interpolation follows local green evidence
+///   across luminance edges instead of mixing bright and dark sensor samples (#5000).
+pub const PIPELINE_OUTPUT_VERSION: u32 = 30;
 
 #[cfg(test)]
 mod tests {

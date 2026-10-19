@@ -372,3 +372,33 @@ fn amaze_step_between_equal_chromaticity_surfaces_keeps_opposite_chroma_hue() {
 
 #[path = "tests_fcs_ceiling.rs"]
 mod ceiling;
+
+#[test]
+fn positive_chroma_does_not_import_bright_side_values_across_luminance_edges() {
+    for pattern in PATTERNS {
+        for direction in 0..3 {
+            for exposure in [0.01_f32, 1.0, 16.0] {
+                let truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
+                    .map(|i| {
+                        let level = if edge_side(direction, i % SIDE, i / SIDE) {
+                            0.75
+                        } else {
+                            0.045
+                        };
+                        CHROMA.map(|c| c * level * exposure)
+                    })
+                    .collect();
+                let out = suppress(pattern, &truth, |_| false, 0.0);
+                for y in 4..SIDE - 4 {
+                    for x in 4..SIDE - 4 {
+                        let i = y * SIDE + x;
+                        for (actual, expected) in out.pixels[i].iter().zip(truth[i]) {
+                            assert!((actual - expected).abs() <= 1e-4 * expected,
+                                "{pattern:?} direction={direction} exposure={exposure} ({x},{y}): {:?} != {:?}", out.pixels[i], truth[i]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -5,8 +5,9 @@
 //! almost everywhere, but it collapses at isolated high-frequency colour
 //! edges: a 1-px bright-blue line crossing a near-neutral region has a
 //! *flat* (B−G) field, so the reconstruction sets B≈G and the line's colour
-//! is lost. A value-domain (bilinear) interpolation — averaging the actual
-//! blue samples — preserves it. ACR's renderer keeps such edges, so AMaZE's
+//! is lost. A value-domain interpolation of the actual blue samples preserves it.
+//! Green-guided weights prevent that interpolation from importing the bright
+//! side of a luminance edge into its dark side (#5000). ACR's renderer keeps such edges, so AMaZE's
 //! constant-hue result drifts far from the reference precisely there
 //! (test_0007 baseline_auto, the cluster of ΔE≈50 yellow-vs-magenta pixels).
 //!
@@ -57,50 +58,53 @@ pub(super) fn suppress_false_colour(
     const EPS: f32 = 1e-6;
     let color_at = |x: usize, y: usize| pattern.color_at(x as u32, y as u32) as usize;
 
-    // Value-domain estimate of channel `t` at (x, y): the bilinear value
-    // interpolation the constant-hue path replaces. Only the *nearest* same-
-    // colour samples are used (the immediate Bayer neighbours of that
-    // colour), so a sharp 1-px colour edge is preserved rather than averaged
-    // away.
+    // Interpolate sensor values with green as a guide. An unweighted mean
+    // imports the bright side of a luminance edge into its dark side, even
+    // when AMaZE already reconstructed a plausible chroma there. Inverse-
+    // square range weights retain the same nearest CFA stencil and preserve
+    // a pure chroma edge (equal green -> equal weights). A shared local scale
+    // makes the weighting independent of exposure and of the WB green gain.
     let value_estimate = |x: usize, y: usize, t: usize| -> f32 {
-        // Pass 1: distance-1 cardinal same-colour neighbours.
+        let centre = green[y * w + x];
+        let mut samples = [(0.0_f32, 0.0_f32); 4];
+        let mut count = 0;
+        for stencil in [
+            [(-1_isize, 0_isize), (1, 0), (0, -1), (0, 1)],
+            [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)],
+        ] {
+            for (dx, dy) in stencil {
+                let (nx, ny) = (x as isize + dx, y as isize + dy);
+                if nx < 0 || ny < 0 || nx >= w as isize || ny >= h as isize {
+                    continue;
+                }
+                let (nx, ny) = (nx as usize, ny as usize);
+                if color_at(nx, ny) == t {
+                    let i = ny * w + nx;
+                    samples[count] = (cfa_flat[i], green[i]);
+                    count += 1;
+                }
+            }
+            if count > 0 {
+                break;
+            }
+        }
+        if count == 0 {
+            return 0.0;
+        }
+        let samples = &samples[..count];
+        let scale = samples
+            .iter()
+            .fold(centre.abs(), |m, (_, g)| m.max(g.abs()))
+            .max(EPS);
         let mut sum = 0.0_f32;
-        let mut cnt = 0.0_f32;
-        for (dx, dy) in [(-1_isize, 0_isize), (1, 0), (0, -1), (0, 1)] {
-            let nx = x as isize + dx;
-            let ny = y as isize + dy;
-            if nx < 0 || ny < 0 || nx >= w as isize || ny >= h as isize {
-                continue;
-            }
-            let (nxu, nyu) = (nx as usize, ny as usize);
-            if color_at(nxu, nyu) == t {
-                sum += cfa_flat[nyu * w + nxu];
-                cnt += 1.0;
-            }
+        let mut weights = 0.0_f32;
+        for &(value, guide) in samples {
+            let distance = (guide - centre) / scale;
+            let weight = 1.0 / (distance * distance + EPS);
+            sum += value * weight;
+            weights += weight;
         }
-        if cnt > 0.0 {
-            return sum / cnt;
-        }
-        // Pass 2: distance-√2 diagonal same-colour neighbours (used when the
-        // target colour is not a cardinal neighbour of this site, e.g. the
-        // opposite-chroma channel at an R/B site).
-        for (dx, dy) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)] {
-            let nx = x as isize + dx;
-            let ny = y as isize + dy;
-            if nx < 0 || ny < 0 || nx >= w as isize || ny >= h as isize {
-                continue;
-            }
-            let (nxu, nyu) = (nx as usize, ny as usize);
-            if color_at(nxu, nyu) == t {
-                sum += cfa_flat[nyu * w + nxu];
-                cnt += 1.0;
-            }
-        }
-        if cnt > 0.0 {
-            sum / cnt
-        } else {
-            0.0
-        }
+        sum / weights
     };
 
     // Local green high-frequency content: how much the centre green departs
