@@ -1,0 +1,16 @@
+{
+  "scope": "Complete13prefix-regression cohort with pre-existing metadata-balanced AMaZE + local-HR binary; original FCS/no green-support guard. Compare against WB-only and source35. No production edit.",
+  "binary_identity": {
+    "phase": "18 focused comparisons starting",
+    "base_commit": "a45a2d90a93dbab5d6e1495b9026b31a7c6e2a59",
+    "pipeline_output_version": "33 plus experimental WB and local recovery patches",
+    "binary_sha256": "6e0233c037a30fa729f91df06d8873de960aafc07a93d89014afd67769473034",
+    "source_patch_sha256": "d04ee46a3678fb59ac78b88a8e3f874907c8203cf69c8719b100f906a03d3e83",
+    "driver_sha256": "3794672bf40f45af068fd0dffeb4409cc58fdcdee10d6122020c01887ddf007b",
+    "scope": "Metadata-balanced fused AMaZE, original FCS, local chromaticity-weighted highlight estimator with unchanged count confidence.18focused comparisons, not adopted, not full qualification.",
+    "highlight_filtered_tests_passed": 107,
+    "highlight_filtered_tests_ignored": 1,
+    "source_complete_patch_sha256": "5669eb8111d566ce73aa40ca4d08357e2a870baeb675f40c021ce0d35a6cd3df",
+    "source_completion_note": "Adds the standalone donor regression test file omitted from the initial patch export. Processing source and frozen binary unchanged."
+  }
+}
