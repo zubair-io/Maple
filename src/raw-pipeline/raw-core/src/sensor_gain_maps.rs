@@ -53,7 +53,7 @@ impl SensorGainMaps {
             .map(|map| {
                 let h = (((x as f64 + 0.5) / aa.width as f64) - map.origin_h) / map.spacing_h;
                 let v = (((y as f64 + 0.5) / aa.height as f64) - map.origin_v) / map.spacing_v;
-                sample_lattice(map, v, h, (plane - map.plane).min(map.map_planes - 1))
+                sample_lattice(map, v, h, plane.min(map.map_planes - 1))
             })
             .product()
     }
@@ -186,6 +186,29 @@ mod tests {
             .iter()
             .flatten()
             .any(|v| *v > 1.));
+    }
+
+    #[test]
+    fn gain_planes_use_absolute_image_plane_and_single_plane_maps_broadcast() {
+        let mut gm = map(0, 0, 1.);
+        gm.plane = 1;
+        gm.planes = 2;
+        gm.map_planes = 3;
+        gm.row_pitch = 1;
+        gm.col_pitch = 1;
+        gm.gains = [2., 3., 4.].repeat(4);
+        let mut maps = SensorGainMaps {
+            maps: vec![gm],
+            active_area: ActiveAreaRect::full(64, 64),
+        };
+        assert_eq!(maps.gain_at(12, 20, 0), 1.);
+        assert_eq!(maps.gain_at(12, 20, 1), 3.);
+        assert_eq!(maps.gain_at(12, 20, 2), 4.);
+        maps.maps[0].map_planes = 1;
+        maps.maps[0].gains = vec![5.; 4];
+        assert_eq!(maps.gain_at(12, 20, 0), 1.);
+        assert_eq!(maps.gain_at(12, 20, 1), 5.);
+        assert_eq!(maps.gain_at(12, 20, 2), 5.);
     }
 
     #[test]
