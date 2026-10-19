@@ -11,18 +11,28 @@ import XCTest
 
 @MainActor
 final class DecodedCacheAgentCaptureTests: XCTestCase {
-  private func remoteRawSession(model: AdjustmentModel) throws -> EditSession {
+  /// A bytes-backed RAW whose edits load from a sidecar store, as for Cloud,
+  /// PhotoKit or SMB: no sidecar URL on the asset, sidecar loaded like the
+  /// editor does before the user can capture.
+  private func remoteRawSession(model: AdjustmentModel) async throws -> EditSession {
     let appleRoot = URL(fileURLWithPath: #filePath)
       .deletingLastPathComponent().deletingLastPathComponent()
       .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     let fixture = appleRoot.appendingPathComponent(
       "MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng")
     let bytes = try Data(contentsOf: fixture)
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+    let store = XMPSidecarStore(rawURL: dir.appendingPathComponent("agent-capture.dng"))
+    try await store.writeConfirmed(model: model, culling: CullingState())
     let asset = AssetRef(displayName: "agent-capture.dng", hintExtension: "dng") { bytes }
     XCTAssertNil(asset.sidecarURL, "precondition: remote-style asset with no sidecar on disk")
-    let session = EditSession(asset: asset, model: model)
+    let session = EditSession(asset: asset, remoteSidecarStore: store)
     session.nativeImageSize = CGSize(width: 64, height: 64)
     session.gpuLiveDriver = nil
+    await session.loadSidecar()
+    XCTAssertTrue(session.hasLoadedSidecar)
     return session
   }
 
@@ -42,7 +52,7 @@ final class DecodedCacheAgentCaptureTests: XCTestCase {
     var model = AdjustmentModel.default
     model.profile = .neutral
     model.highlightRecovery = .blend
-    let session = try remoteRawSession(model: model)
+    let session = try await remoteRawSession(model: model)
 
     await session.decodeAndRender(targetSize: CGSize(width: 32, height: 32), phase: .fast)
     let canvasSnapshot = await session.renderActor.snapshot(

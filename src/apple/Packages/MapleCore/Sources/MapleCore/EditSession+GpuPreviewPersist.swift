@@ -38,7 +38,7 @@ extension EditSession {
     // disappears. Join that work, then validate the actual uploaded pixels.
     _ = await latestRenderSchedule?.value
     await renderActor.awaitCurrentRenderIfInFlight()
-    let snapshot = await renderActor.snapshot(forAsset: asset, liveModel: capturedModel)
+    let snapshot = await renderActor.snapshot(forAsset: asset, liveModel: decodeKey(capturedModel))
     let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
     let identity = GpuUploadIdentity(
       decodeGeneration: snapshot.decodeGeneration, crop: capturedModel.crop)
