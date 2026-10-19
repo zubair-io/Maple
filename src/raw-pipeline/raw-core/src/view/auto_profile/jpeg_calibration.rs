@@ -1,9 +1,9 @@
 //! Final JPEG-band fit for the structured Auto tail. Neutral never calls this.
-use super::{curve::eval_channel, fit_display, lut::ColorLut, preview::ExtractedPreview};
+use super::{lut::ColorLut, preview::ExtractedPreview};
 use crate::image::ExifOrientation;
 
 /// Preserve the structured color field and calibrate its remaining channel
-/// bias with a monotone curve. Bake that correction into the existing LUT so
+/// bias directly on tetrahedral LUT nodes with smooth, bounded corrections so
 /// CPU and GPU hosts consume exactly the same artifact and apply order.
 pub(super) fn calibrate(
     lut: &mut ColorLut,
@@ -13,25 +13,11 @@ pub(super) fn calibrate(
     orientation: ExifOrientation,
     preview: &ExtractedPreview,
 ) {
-    let correction = fit_display::fit_curve_from_preview_mapped(
-        preview.image.clone(),
-        preview.color_space,
-        pixels,
-        w,
-        h,
-        orientation,
-        |v| lut.sample(v),
-    );
-    let Some(curve) = correction else {
+    let Some(design) = super::jpeg_band_design::build(lut.size, pixels, w, h, orientation, preview)
+    else {
         return;
     };
-    // The fitter models bounded display RGB directly. Do not reapply the
-    // legacy HDR soft knee or Oklab correction while composing the residual.
-    for node in lut.data.chunks_exact_mut(3) {
-        node[0] = eval_channel(&curve.r, node[0]);
-        node[1] = eval_channel(&curve.g, node[1]);
-        node[2] = eval_channel(&curve.b, node[2]);
-    }
+    super::jpeg_band_solve::fit(lut, &design);
 }
 
 #[cfg(test)]
@@ -80,6 +66,17 @@ mod tests {
             for c in 0..3 {
                 sums[b][c] += f64::from(out[c] - target);
             }
+        }
+        let mut previous = lut.sample([0.; 3]);
+        for i in 1..=1024 {
+            let current = lut.sample([i as f32 / 1024.; 3]);
+            for c in 0..3 {
+                assert!(
+                    current[c] + 1e-6 >= previous[c],
+                    "neutral ramp reversed at {i}, channel {c}"
+                );
+            }
+            previous = current;
         }
         for b in 0..5 {
             if counts[b] >= 100 {
