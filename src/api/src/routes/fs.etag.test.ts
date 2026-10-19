@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, test } from 'bun:test';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, test } from 'bun:test';
 import { Elysia } from 'elysia';
 import { mkdtemp, rm, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -10,7 +10,7 @@ import {
 import { fsRoutes } from './fs.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 
-const inheritedRoots = process.env.MAPLE_ROOTS;
+let inheritedRoots: string | undefined;
 
 /**
  * The ETag is computed over the enriched listing, and enriching it is what
@@ -29,6 +29,10 @@ describe('GET /api/fs/dir — ETag', () => {
   let tmp: string | null = null;
   let live: LiveTestDatabase | null = null;
   let previousRoots: string | undefined;
+
+  beforeAll(() => {
+    inheritedRoots = process.env.MAPLE_ROOTS;
+  });
 
   beforeEach(async () => {
     previousRoots = process.env.MAPLE_ROOTS;
