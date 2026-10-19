@@ -18,7 +18,9 @@ import {
   assetDestinationOccupied,
   sameSidecarFile,
   joinCarriedSidecar,
+  readSidecarBytes,
   SidecarCollisionError,
+  SidecarNotRegularFileError,
 } from './sidecar-ownership.ts';
 
 let root: string;
@@ -288,6 +290,15 @@ describe('symlinked sidecars', () => {
     expect(outcome.kind).toBe('relocated');
     expect(await fs.exists(abs('b/IMG_1.xmp'))).toBe(false);
     expect((await fs.lstat(abs('a/IMG_1.xmp'))).isSymbolicLink()).toBe(true);
+  });
+
+  test('a symlinked sidecar is refused where open() would follow it (no O_NOFOLLOW, as on Windows)', async () => {
+    const raw = await write('a/IMG_1.CR3', 'raw-bytes');
+    await fs.symlink(raw, abs('a/IMG_1.xmp'));
+    await expect(readSidecarBytes(abs('a/IMG_1.xmp'), 0)).rejects.toBeInstanceOf(
+      SidecarNotRegularFileError,
+    );
+    expect((await readSidecarBytes(raw, 0))?.toString()).toBe('raw-bytes');
   });
 });
 
