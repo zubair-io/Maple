@@ -15,9 +15,12 @@ immediately as a "+0.04 in G across all bands" structural error.
 Companion: src/scripts/test_auto_profile_match.sh drives this script
 fixture-by-fixture and aggregates pass/fail counts.
 """
-import sys
-import json
+
 import argparse
+import json
+import math
+import sys
+
 import numpy as np
 from PIL import Image
 
@@ -80,12 +83,12 @@ def match_shape(src, tgt):
     if abs(src_aspect - tgt_aspect) > 0.001:
         if src_aspect > tgt_aspect:
             # Source is wider: crop width
-            new_w = int(round(src_h * tgt_aspect))
+            new_w = round(src_h * tgt_aspect)
             crop_x = (src_w - new_w) // 2
             src = src[:, crop_x : crop_x + new_w]
         else:
             # Source is taller: crop height
-            new_h = int(round(src_w / tgt_aspect))
+            new_h = round(src_w / tgt_aspect)
             crop_y = (src_h - new_h) // 2
             src = src[crop_y : crop_y + new_h, :]
 
@@ -139,19 +142,27 @@ def main():
         help="Per-band per-channel absolute bias budget (default 0.05).",
     )
     args = ap.parse_args()
+    if not math.isfinite(args.budget) or args.budget < 0:
+        ap.error("budget must be finite and nonnegative")
 
     ref = load(args.reference)
     cand = match_shape(load(args.candidate), ref)
 
     # Discard outer 10% border to ignore lens vignetting and cropping mismatch
     h, w = ref.shape[:2]
-    border_y = int(round(h * 0.1))
-    border_x = int(round(w * 0.1))
+    border_y = round(h * 0.1)
+    border_x = round(w * 0.1)
     cand_inner = cand[border_y : h - border_y, border_x : w - border_x]
     ref_inner = ref[border_y : h - border_y, border_x : w - border_x]
 
     bias = per_band_bias(cand_inner, ref_inner)
     print(json.dumps(bias, indent=2))
+
+    if not bias or not all(
+        math.isfinite(vals[ch]) for vals in bias.values() for ch in "RGB"
+    ):
+        print("FAIL: no measurable luma bands or nonfinite bias", file=sys.stderr)
+        sys.exit(2)
 
     failed = []
     for band, vals in bias.items():

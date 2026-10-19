@@ -182,6 +182,31 @@ fails preparation or verification; no universal camera white balance is used.
 
 Useful environment overrides: `MAPLE_CLI` (use a prebuilt binary, skipping the build), `MANIFEST`, `BUDGETS`, `KEEP_TMP`, and `ALLOW_MISSING_BUDGET` (by default a case with no budget entry **fails**, which is what forces new cases to be budgeted).
 
+### Auto accuracy and Neutral appearance are different contracts
+
+`Profile::Auto` fits the camera's embedded JPEG. Run
+`src/scripts/test_auto_profile_match.sh` to test that target with the established
+five reference-luma bands and per-channel signed bias budget of 0.05. This is
+independent of Adobe references. `RAW_DIR` selects physical RAWs; alternatively
+`MANIFEST` selects only its baseline RAW paths. `MAPLE_CLI` pins a renderer and
+`OUTPUT_DIR` selects a new directory for retained PNGs, logs, hashes and
+`summary.json`. Missing fixtures, render/extraction errors and zero measurable
+comparisons fail. A genuine missing embedded preview is reported as
+`no-preview`, never a passing comparison. All-previewless runs fail.
+
+CI runs the runner's contract tests without RAW fixtures and the physical Auto
+gate when RAW fixtures are provisioned, retaining its evidence artifact. A runner
+without RAWs explicitly reports Auto as **not tested**.
+
+`test_color_pipeline.sh` separately retains its Auto-to-ACR regression checks.
+Passing those does not establish embedded-JPEG accuracy. Neutral deliberately
+retains AgX's appearance, so an ACR breach alone proves neither a processing bug
+nor an expected AgX difference. Separate reference-setting defects, introduced
+regressions, baseline appearance/calibration candidates and unresolved cases.
+Confirm an expected difference with independent stage attribution; baseline
+bias by itself does not identify AgX as the cause. Existing ACR budgets and
+failure records remain intact during this investigation.
+
 ### Explicit native-pair comparison
 
 A qualified nonbaseline case can declare
