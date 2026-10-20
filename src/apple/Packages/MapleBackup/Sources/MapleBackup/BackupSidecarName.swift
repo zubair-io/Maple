@@ -1,9 +1,5 @@
-// Sources/MapleBackup/BackupSidecarName.swift
-//
-// The sidecar name the server reads for a backed-up file (#5021): videos keep
-// their extension (`IMG.MOV.xmp`), everything else swaps it (`IMG.xmp`).
-// MapleBackup sits below MapleCore, so this mirrors MapleCore's `SidecarPath`;
-// `SidecarPathTests` keeps the two video lists identical.
+// The sidecar name the server reads for a backed-up file (#5021). Mirrors MapleCore's
+// `SidecarPath`, which MapleBackup cannot import; `SidecarPathTests` keeps them identical.
 
 import Foundation
 

@@ -61,7 +61,7 @@ public actor BackupStateStore {
   }
 
   public func recordUploadedSidecar(
-    _ id: BackupTaskID, digest: String, canonicalName: Bool = true
+    _ id: BackupTaskID, digest: String, canonicalName: Bool
   ) throws {
     try dbQueue.write { db in
       try db.execute(
@@ -79,10 +79,8 @@ public actor BackupStateStore {
   }
 
   /// A video's sidecar always had its canonical name, so its older rows still count.
-  public func uploadedSidecarDigest(_ id: BackupTaskID, targetRelPath: String? = nil) throws
-    -> String?
-  {
-    let alwaysCanonical = targetRelPath.map(BackupSidecarName.isVideo) ?? false
+  public func uploadedSidecarDigest(_ id: BackupTaskID, targetRelPath: String) throws -> String? {
+    let alwaysCanonical = BackupSidecarName.isVideo(targetRelPath)
     return try dbQueue.read { db in
       try String.fetchOne(
         db,

@@ -37,7 +37,7 @@ final class BackupEngineEditRetentionTests: XCTestCase {
         try await engine.processOne()
 
         XCTAssertEqual(try sidecars.read(phassetLocalId: "P1"), revisionA)
-        let recorded = try await state.uploadedSidecarDigest(id)
+        let recorded = try await state.uploadedSidecarDigest(id, targetRelPath: "IMG.heic")
         XCTAssertEqual(recorded, digest(revisionA))
     }
 
@@ -62,7 +62,7 @@ final class BackupEngineEditRetentionTests: XCTestCase {
 
         XCTAssertEqual(try sidecars.read(phassetLocalId: "P1"), revisionB,
             "an edit saved mid-upload must not be deleted")
-        let recorded = try await state.uploadedSidecarDigest(id)
+        let recorded = try await state.uploadedSidecarDigest(id, targetRelPath: "IMG.heic")
         XCTAssertEqual(recorded, digest(revisionA),
             "the recorded revision is the one actually uploaded, so B still reads as newer")
     }
