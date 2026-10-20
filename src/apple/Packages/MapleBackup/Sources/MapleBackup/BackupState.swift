@@ -11,6 +11,12 @@
 import Foundation
 import GRDB
 
+public struct DeliveredSidecar: Sendable, Equatable {
+  public let digest: String
+  /// It reached the canonical name the server reads (#5021).
+  public let counts: Bool
+}
+
 public actor BackupStateStore {
 
   private let dbQueue: DatabaseQueue
@@ -78,18 +84,29 @@ public actor BackupStateStore {
     }
   }
 
-  /// A video's sidecar always had its canonical name, so its older rows still count.
-  public func uploadedSidecarDigest(_ id: BackupTaskID, targetRelPath: String) throws -> String? {
-    let alwaysCanonical = BackupSidecarName.isVideo(targetRelPath)
-    return try dbQueue.read { db in
-      try String.fetchOne(
+  /// The revision last delivered, and whether it reached the name the server
+  /// reads. A video's sidecar always had its canonical name, so its older rows count.
+  public func deliveredSidecar(_ id: BackupTaskID, targetRelPath: String) throws
+    -> DeliveredSidecar?
+  {
+    let row = try dbQueue.read { db in
+      try Row.fetchOne(
         db,
         sql: """
-          SELECT digest FROM uploaded_sidecars
-           WHERE device_id = ? AND phasset_local_id = ? AND (canonical_name = 1 OR ?)
+          SELECT digest, canonical_name FROM uploaded_sidecars
+           WHERE device_id = ? AND phasset_local_id = ?
           """,
-        arguments: [id.deviceId, id.phassetLocalId, alwaysCanonical])
+        arguments: [id.deviceId, id.phassetLocalId])
     }
+    return row.map {
+      DeliveredSidecar(
+        digest: $0["digest"],
+        counts: $0["canonical_name"] == 1 || BackupSidecarName.isVideo(targetRelPath))
+    }
+  }
+
+  public func uploadedSidecarDigest(_ id: BackupTaskID, targetRelPath: String) throws -> String? {
+    try deliveredSidecar(id, targetRelPath: targetRelPath).flatMap { $0.counts ? $0.digest : nil }
   }
 
   /// Insert or replace by the natural (device_id, phasset_local_id) PK.
