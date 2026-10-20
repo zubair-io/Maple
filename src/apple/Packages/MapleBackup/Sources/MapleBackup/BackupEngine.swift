@@ -435,22 +435,17 @@ public actor BackupEngine {
         "local-edit sidecar read failed, phasset=\(task.id.phassetLocalId, privacy: .private): \(String(describing: error), privacy: .public)"
       )
     }
-    if let localEditXmp {
+    if localEditXmp != nil {
       await runCompanion(
         taskId: task.id,
         label: "sidecar",
         maxAttempts: Self.localEditCompanionRetries
       ) { [self] in
-        try await upload.uploadSidecar(
-          phassetLocalId: task.id.phassetLocalId,
-          targetRelPath: result.targetRelPath,
-          xmp: localEditXmp,
-          mapleId: read.mapleId,
-          basedOn: try await state.uploadedSidecarDigest(task.id))
         // The App Support XMP is the editor's canonical PhotoKit edit, so it
-        // is never deleted; the recorded revision is what `resendNewerEdits`
-        // compares a later local edit against (#4719).
-        try await state.recordUploadedSidecar(task.id, digest: Self.digest(of: localEditXmp))
+        // is never deleted; the recorded revision is what later sends compare
+        // a newer local edit against (#4719).
+        try await sendLatestEdit(
+          id: task.id, targetRelPath: result.targetRelPath, mapleId: read.mapleId)
       }
     }
 
