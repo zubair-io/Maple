@@ -219,7 +219,7 @@ describe('a canonical send is a server-visible edit (#5021)', () => {
       live.db
         .query(`SELECT kind FROM asset_changes WHERE asset_id = ?`)
         .all(photo.assetId.toHexString()),
-    ).toEqual([{ kind: 'update' }]);
+    ).toEqual([{ kind: 'update' }, { kind: 'update' }]);
   });
 
   test("it retires the photo's old-name sidecar, keeping a different version aside", async () => {
@@ -420,6 +420,6 @@ describe('a send only succeeds once the server has recorded the edit (#5021)', (
       live.db
         .query(`SELECT kind FROM asset_changes WHERE asset_id = ?`)
         .all(photo.assetId.toHexString()),
-    ).toEqual([{ kind: 'update' }]);
+    ).toEqual([{ kind: 'update' }, { kind: 'update' }]);
   });
 });
