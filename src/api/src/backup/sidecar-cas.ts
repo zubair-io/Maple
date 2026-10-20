@@ -20,6 +20,9 @@ import {
   writeSidecarCreateOnly,
 } from '../fs/sidecar-io.ts';
 import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
+// Mirror-aware drop-in, so the sidecar's directory replicates with it.
+import fs from '../fs/mirrored.ts';
+import path from 'node:path';
 
 type SidecarCasOutcome =
   | { kind: 'written' }
@@ -46,6 +49,10 @@ export function parseSidecarBase(
   return SHA256_HEX.test(header) ? header : 'invalid';
 }
 
+/** Keeps a displaced sidecar; the returned function drops that record again
+ * when the publish it was made for fails. */
+type RecordDisplaced = (displaced: DisplacedSidecar) => Promise<() => Promise<void>>;
+
 const sidecarSha256 = (xmp: string): string =>
   createHash('sha256').update(xmp, 'utf8').digest('hex');
 
@@ -65,15 +72,21 @@ async function publishOver(
   current: string,
   xmp: string,
   base: string | null,
-  recordDisplaced: (displaced: DisplacedSidecar) => Promise<void>,
+  recordDisplaced: RecordDisplaced,
 ): Promise<SidecarCasOutcome> {
   const incomingSha256 = sidecarSha256(xmp);
   const currentSha256 = sidecarSha256(current);
   if (currentSha256 === incomingSha256) return { kind: 'unchanged' };
   const diverged = currentSha256 !== base;
-  if (diverged) await recordDisplaced({ xmp: current, sha256: currentSha256, incomingSha256 });
+  const forget = diverged
+    ? await recordDisplaced({ xmp: current, sha256: currentSha256, incomingSha256 })
+    : null;
   const written = await writeSidecarAtomic(destination, xmp, 'sidecar write failed');
-  if (!written.ok) return { kind: 'error', error: written.error };
+  if (!written.ok) {
+    // Nothing was displaced after all; a retry must not pile up copies (#5023).
+    await forget?.();
+    return { kind: 'error', error: written.error };
+  }
   return { kind: diverged ? 'diverged' : 'written' };
 }
 
@@ -84,15 +97,24 @@ async function createIfAbsent(destination: string, xmp: string): Promise<Sidecar
   return 'exists' in created ? null : { kind: 'error', error: created.error };
 }
 
+/** Jail-authorize the destination (through symlinked parents) before its
+ * directory is created, so nothing is ever made outside the library. */
+async function prepareDestination(destination: string): Promise<SidecarCasOutcome | null> {
+  const allowed = await authorizeSidecarWrite(destination);
+  if (!allowed.ok) return { kind: 'refused', error: allowed.error ?? 'path not allowed' };
+  await fs.mkdir(path.dirname(destination), { recursive: true });
+  return null;
+}
+
 export async function publishSidecarCas(
   destination: string,
   xmp: string,
   base: string | null,
-  recordDisplaced: (displaced: DisplacedSidecar) => Promise<void>,
+  recordDisplaced: RecordDisplaced,
   admissionScope: string,
 ): Promise<SidecarCasOutcome> {
-  const allowed = await authorizeSidecarWrite(destination);
-  if (!allowed.ok) return { kind: 'refused', error: allowed.error ?? 'path not allowed' };
+  const refused = await prepareDestination(destination);
+  if (refused) return refused;
   return serializeSidecarWrite<SidecarCasOutcome>(
     destination,
     async (resolved) => {
@@ -126,12 +148,14 @@ export async function publishSidecarIfAbsent(
   xmp: string,
   admissionScope: string,
 ): Promise<'written' | 'skipped' | SidecarCasOutcome> {
+  const refused = await prepareDestination(destination);
+  if (refused) return refused;
   return serializeSidecarWrite(
     destination,
     async (resolved) => {
       const created = await writeSidecarCreateOnly(resolved, xmp, 'sidecar write failed');
       if (created.ok) return 'written';
-      return 'exists' in created ? 'skipped' : { kind: 'refused', error: created.error };
+      return 'exists' in created ? 'skipped' : { kind: 'error', error: created.error };
     },
     { admissionScope },
   );

@@ -265,7 +265,15 @@ A device that edits a photo after backing it up re-sends the sidecar, naming the
 - the server still holds the named version → overwritten;
 - anything else → the edit is written on top, `diverged: true`, and the displaced XMP is kept in the `sidecar_divergences` table with both digests, the device and the asset.
 
-The check and the publish run under the shared sidecar write barrier, so two edits racing on one base serialise: one overwrites, the other diverges, and neither version is lost. A request without the header keeps the original rule: an existing sidecar is never overwritten (#698). A malformed base is a `400`.
+The check and the publish run under the shared sidecar write barrier, so two edits racing on one base serialise: one overwrites, the other diverges, and neither version is lost. If the publish itself fails, the divergence row is dropped again, so retries don't pile up copies.
+
+Guards:
+
+- the target path must be a live (not deleted, not missing) location of the asset the request resolved; otherwise `404`;
+- the destination is checked against the library roots, resolving symlinked folders, before anything is read or any directory is created; a destination outside the library is a `400`;
+- a malformed base is a `400`.
+
+A request without the header keeps the original rule: the sidecar is written only when none exists (#698). That write is create-only and runs under the same barrier, so it can never land over a compare-and-swap edit. Merging duplicate assets moves their divergence rows to the surviving asset.
 
 ## Library backup destinations
 
