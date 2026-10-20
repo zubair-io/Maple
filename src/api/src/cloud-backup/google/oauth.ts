@@ -314,8 +314,7 @@ export async function finishGoogleFlow(
 }
 
 /** Internal machine-to-machine renewal; Bun exposes no browser-accessible renewal route. */
-/** Drops the cached access token so the next request renews it, e.g. after
- * Drive rejected it (#5038). */
+/** Drops the cached token, unless a fresher one has already replaced the rejected one (#5038). */
 export function forgetGoogleAccessToken(id: string, rejected?: string): void {
   if (rejected === undefined || cache.get(id)?.token === rejected) cache.delete(id);
 }
@@ -329,8 +328,7 @@ export async function googleAccessToken(
   const cached = cache.get(id);
   if (cached && cached.epoch === connection.epoch && cached.expires > Date.now())
     return cached.token;
-  // One refresh per destination at a time: concurrent transfers wait for it
-  // instead of failing as a connection error (#5038).
+  // Concurrent transfers share one refresh instead of failing as connection errors (#5038).
   const running = refreshing.get(id);
   if (running) return running;
   const refresh = renewAccessToken(id, connection.epoch, transport, signal).finally(() => {
@@ -400,8 +398,7 @@ async function renewWithLease(
   }
 }
 
-/** Another process's refresh lease lasts at most a minute; wait it out
- * rather than failing the transfer as a connection error. */
+/** Another process's refresh lease lasts at most a minute, so wait it out rather than fail. */
 async function claimRefreshWhenFree(
   id: string,
   epoch: number,

@@ -32,8 +32,7 @@ export interface StageRegistryEntry {
   getInFlight: () => number;
   getThroughput: () => number;
   getPaused: () => boolean;
-  /** How long the stage has held or claimed work without progress, once that
-   * passes the stall threshold; `null` otherwise (#5038). */
+  /** Milliseconds without progress once past the stall threshold, else `null` (#5038). */
   getStalledForMs?: () => number | null;
   /** Re-read worker_config from the database and apply to the live config. */
   reloadConfig: () => Promise<void>;
