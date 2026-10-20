@@ -45,21 +45,29 @@ extension BackupEngine {
 
   private func resendIfNewer(_ asset: ServerHeldAsset) async {
     do {
-      guard let xmp = try sidecars.read(phassetLocalId: asset.id.phassetLocalId) else { return }
-      let digest = Self.digest(of: xmp)
-      let delivered = try await state.uploadedSidecarDigest(asset.id)
-      guard digest != delivered else { return }
-      try await upload.uploadSidecar(
-        phassetLocalId: asset.id.phassetLocalId,
-        targetRelPath: asset.targetRelPath,
-        xmp: xmp,
-        mapleId: asset.mapleId,
-        basedOn: delivered)
-      try await state.recordUploadedSidecar(asset.id, digest: digest)
+      try await sendLatestEdit(
+        id: asset.id, targetRelPath: asset.targetRelPath, mapleId: asset.mapleId)
     } catch {
       Self.companionLog.error(
         "edit re-send failed, phasset=\(asset.id.phassetLocalId, privacy: .private): \(String(describing: error), privacy: .public)"
       )
     }
+  }
+
+  /// Sends the current local edit unless the server already has it. Both are
+  /// read at send time, so a delayed retry never sends an older edit with a
+  /// newer revision as its base (#5023).
+  func sendLatestEdit(id: BackupTaskID, targetRelPath: String, mapleId: String?) async throws {
+    guard let xmp = try sidecars.read(phassetLocalId: id.phassetLocalId) else { return }
+    let digest = Self.digest(of: xmp)
+    let delivered = try await state.uploadedSidecarDigest(id)
+    guard digest != delivered else { return }
+    try await upload.uploadSidecar(
+      phassetLocalId: id.phassetLocalId,
+      targetRelPath: targetRelPath,
+      xmp: xmp,
+      mapleId: mapleId,
+      basedOn: delivered)
+    try await state.recordUploadedSidecar(id, digest: digest)
   }
 }

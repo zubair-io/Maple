@@ -51,6 +51,9 @@ public actor UploadClient {
     case badResponse(reason: String)
     case resumeMismatchNoOffset
     case emptyAsset
+    /// The server answered 2xx but kept its existing sidecar (`skipped`):
+    /// a server older than compare-and-swap. The edit was not stored.
+    case sidecarNotStored
     /// Another device on the same iCloud library is actively uploading
     /// this asset. `retryAfterSeconds` is the server's hint for how long
     /// before the peer goes stale — the engine sleeps the task for at
@@ -71,6 +74,8 @@ public actor UploadClient {
         return "resumeMismatchNoOffset"
       case .emptyAsset:
         return "emptyAsset"
+      case .sidecarNotStored:
+        return "sidecarNotStored"
       case .busyElsewhere(let s):
         return "busyElsewhere(retryAfter=\(s)s)"
       }
@@ -180,7 +185,12 @@ public actor UploadClient {
       )
       throw UploadError.httpError(statusCode: http.statusCode, body: snippet)
     }
+    if (try? JSONDecoder().decode(SidecarReply.self, from: data))?.skipped == true {
+      throw UploadError.sidecarNotStored
+    }
   }
+
+  private struct SidecarReply: Decodable { let skipped: Bool? }
 
   /// Upload `bytes` to the ingest endpoint, splitting into `chunkSize`
   /// chunks. The final chunk carries `X-Maple-Maple-Id` for dedup;

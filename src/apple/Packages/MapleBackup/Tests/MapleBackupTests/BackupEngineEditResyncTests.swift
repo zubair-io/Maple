@@ -133,4 +133,55 @@ final class BackupEngineEditResyncTests: XCTestCase {
       sidecarPosts().first?.value(forHTTPHeaderField: "X-Maple-Sidecar-Base"),
       BackupEngine.digest(of: "<x:edit>old</x:edit>"))
   }
+  func testADelayedFirstUploadRetrySendsTheLatestEditNotTheOneItStartedWith() async throws {
+    StubURLProtocol.stub = .sequence([
+      .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+      .status(500),
+      .status(200),
+      .status(200),
+    ])
+    let (engine, queue, state, sidecars, tmpRoot) = try freshHarness(companionBackoff: { _ in 0.3 })
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+    try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit>v1</x:edit>")
+    let task = BackupTask(id: id, state: .pending, priority: .background)
+    try await state.upsert(task)
+    await queue.enqueue(task, priority: .background)
+    try await engine.processOne()
+
+    try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit>v2</x:edit>")
+    await engine.resendNewerEdits([
+      ServerHeldAsset(id: id, targetRelPath: "2024/03/15/IMG.heic", mapleId: "hash-P1")
+    ])
+    // The first upload's retry fires after the re-send; wait for it to settle.
+    let deadline = Date().addingTimeInterval(5)
+    while await engine.retryTasks.count > 0, Date() < deadline {
+      try await Task.sleep(for: .milliseconds(50))
+    }
+
+    let bodies = sidecarPosts().compactMap {
+      $0.httpBody.map { String(decoding: $0, as: UTF8.self) }
+    }
+    XCTAssertEqual(bodies.first, "<x:edit>v1</x:edit>")
+    XCTAssertFalse(
+      bodies.dropFirst().contains("<x:edit>v1</x:edit>"),
+      "a retry re-sent the older edit after the newer one: \(bodies)")
+    let delivered = try await state.uploadedSidecarDigest(id)
+    XCTAssertEqual(delivered, BackupEngine.digest(of: "<x:edit>v2</x:edit>"))
+  }
+
+  func testAResendTheServerSkippedIsNotRecordedAsDelivered() async throws {
+    StubURLProtocol.stub = .ok(
+      json: #"{"target_rel_path":"2024/03/15/IMG.heic.xmp","skipped":true}"#)
+    let (engine, _, state, sidecars, _, tmpRoot) = try freshHarness()
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    try await state.recordUploadedSidecar(
+      photo, digest: BackupEngine.digest(of: "<x:edit>A</x:edit>"))
+    try sidecars.write(phassetLocalId: photo.phassetLocalId, xmp: "<x:edit>B</x:edit>")
+
+    await engine.resendNewerEdits([held])
+
+    let delivered = try await state.uploadedSidecarDigest(photo)
+    XCTAssertEqual(delivered, BackupEngine.digest(of: "<x:edit>A</x:edit>"))
+  }
 }
