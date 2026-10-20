@@ -316,13 +316,14 @@ export async function finishGoogleFlow(
 /** Internal machine-to-machine renewal; Bun exposes no browser-accessible renewal route. */
 /** Drops the cached access token so the next request renews it, e.g. after
  * Drive rejected it (#5038). */
-export function forgetGoogleAccessToken(id: string): void {
-  cache.delete(id);
+export function forgetGoogleAccessToken(id: string, rejected?: string): void {
+  if (rejected === undefined || cache.get(id)?.token === rejected) cache.delete(id);
 }
 
 export async function googleAccessToken(
   id: string,
   transport: GoogleFetch = fetch,
+  signal?: AbortSignal,
 ): Promise<string> {
   const connection = await loadConnection(id);
   const cached = cache.get(id);
@@ -332,7 +333,7 @@ export async function googleAccessToken(
   // instead of failing as a connection error (#5038).
   const running = refreshing.get(id);
   if (running) return running;
-  const refresh = renewAccessToken(id, connection, transport).finally(() => {
+  const refresh = renewAccessToken(id, connection.epoch, transport, signal).finally(() => {
     if (refreshing.get(id) === refresh) refreshing.delete(id);
   });
   refreshing.set(id, refresh);
@@ -341,13 +342,29 @@ export async function googleAccessToken(
 
 async function renewAccessToken(
   id: string,
+  epoch: number,
+  transport: GoogleFetch,
+  signal?: AbortSignal,
+): Promise<string> {
+  const lease = randomBytes(32).toString('base64url');
+  await claimRefreshWhenFree(id, epoch, lease, signal);
+  try {
+    // Read after claiming: another process may have rotated the grant while we waited.
+    const connection = await loadConnection(id);
+    if (connection.epoch !== epoch || !connection.config.refreshToken)
+      throw new GoogleConnectionError('Reconnect Google Drive to resume backup.');
+    return await renewWithLease(id, connection, lease, transport);
+  } finally {
+    await releaseRefresh(id, lease);
+  }
+}
+
+async function renewWithLease(
+  id: string,
   connection: Connection,
+  lease: string,
   transport: GoogleFetch,
 ): Promise<string> {
-  if (!connection.config.refreshToken)
-    throw new GoogleConnectionError('Reconnect Google Drive to resume backup.');
-  const lease = randomBytes(32).toString('base64url');
-  await claimRefreshWhenFree(id, connection.epoch, lease);
   try {
     const tokens = await renewTokens(connection, transport);
     const account = await verifyToken(tokens.accessToken, connection.config.clientId, transport);
@@ -380,16 +397,20 @@ async function renewAccessToken(
       cache.delete(id);
     }
     throw error;
-  } finally {
-    await releaseRefresh(id, lease);
   }
 }
 
 /** Another process's refresh lease lasts at most a minute; wait it out
  * rather than failing the transfer as a connection error. */
-async function claimRefreshWhenFree(id: string, epoch: number, lease: string): Promise<void> {
+async function claimRefreshWhenFree(
+  id: string,
+  epoch: number,
+  lease: string,
+  signal?: AbortSignal,
+): Promise<void> {
   const deadline = Date.now() + REFRESH_LEASE_WAIT_MS;
   while (!(await claimRefresh(id, epoch, lease))) {
+    signal?.throwIfAborted();
     if (Date.now() >= deadline)
       throw new GoogleConnectionError(
         'Google token renewal is already in progress; retry shortly.',

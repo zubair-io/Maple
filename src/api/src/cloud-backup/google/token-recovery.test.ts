@@ -8,7 +8,7 @@
 import { expect, test } from 'bun:test';
 import { createLiveTestDatabase, insertFolder } from '../../db/sqlite/test-sqlite.test-helpers.ts';
 import { sqliteDb } from '../../db/repos/db-handle.ts';
-import { GOOGLE_BACKUP_DDL, loadConnection, saveConfig } from './repo.ts';
+import { GOOGLE_BACKUP_DDL, commitTokens, loadConnection, saveConfig } from './repo.ts';
 import { forgetGoogleAccessToken, googleAccessToken, type GoogleFetch } from './oauth.ts';
 import { DEFAULT_GOOGLE_CONFIG, DRIVE_SCOPE } from './config.ts';
 import { DriveClient } from './client.ts';
@@ -46,8 +46,11 @@ async function connectedDestination() {
 function google(options: { holdToken?: Promise<void> } = {}) {
   let minted = 0;
   const tokenRequests: number[] = [];
-  const transport: GoogleFetch = async (url) => {
+  const refreshTokensSent: string[] = [];
+  const transport: GoogleFetch = async (url, init) => {
     const href = url.toString();
+    if (href.endsWith('/token') && init?.body instanceof URLSearchParams)
+      refreshTokensSent.push(init.body.get('refresh_token') ?? '');
     if (href.endsWith('/tokeninfo')) return Response.json({ aud: clientId, scope: DRIVE_SCOPE });
     if (href.includes('/about?'))
       return Response.json({ user: { permissionId: 'account-1', emailAddress: 'a@example.com' } });
@@ -63,7 +66,7 @@ function google(options: { holdToken?: Promise<void> } = {}) {
     }
     throw new Error(`Unexpected network request: ${href}`);
   };
-  return { transport, tokenRequests };
+  return { transport, tokenRequests, refreshTokensSent };
 }
 
 test('concurrent transfers share one in-flight refresh instead of failing', async () => {
@@ -138,4 +141,33 @@ test('Drive rejecting a token drops it and retries once with a fresh one', async
   expect(response.status).toBe(200);
   expect(seen).toEqual(['Bearer stale', 'Bearer fresh']);
   expect(forgotten).toBe(1);
+});
+
+test('a refresh that waited out another process renews with the credentials it committed', async () => {
+  const { db, id } = await connectedDestination();
+  using _db = db;
+  const connection = await loadConnection(id);
+  await sqliteDb().write(
+    `UPDATE backup_google_connections SET refresh_owner='other-process', refresh_until=?
+     WHERE destination_id=? AND epoch=?`,
+    [Date.now() + 60_000, id, connection.epoch],
+  );
+  const mock = google();
+
+  const pending = googleAccessToken(id, mock.transport);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await commitTokens(
+    id,
+    { ...connection.config, refreshToken: 'rotated-refresh' },
+    connection.epoch,
+    'other-process',
+  );
+  await sqliteDb().write(
+    `UPDATE backup_google_connections SET refresh_owner=NULL, refresh_until=0 WHERE destination_id=?`,
+    [id],
+  );
+
+  expect(await pending).toBe('access-1');
+  expect(mock.refreshTokensSent).toEqual(['rotated-refresh']);
+  expect((await loadConnection(id)).config.refreshToken).toBe('rotated-refresh');
 });
