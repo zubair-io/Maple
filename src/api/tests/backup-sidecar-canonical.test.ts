@@ -397,3 +397,29 @@ describe("another photo's sidecar is never taken for an old-name file (#5021)", 
     expect((await noBase.json()).skipped).toBe(true);
   });
 });
+
+describe('a send only succeeds once the server has recorded the edit (#5021)', () => {
+  test('a failed bookkeeping write fails the send before the sidecar lands, and a retry completes it', async () => {
+    const photo = await seedUpload('2024/12/01/IMG_80.HEIC');
+    live.db.exec('ALTER TABLE asset_changes RENAME TO asset_changes_hidden');
+    const failed = await post(photo, mapleXmp('device edit'), 'none').finally(() =>
+      live.db.exec('ALTER TABLE asset_changes_hidden RENAME TO asset_changes'),
+    );
+
+    expect(failed.status).toBe(500);
+    expect(await read('2024/12/01/IMG_80.xmp')).toBeNull();
+
+    const retried = await post(photo, mapleXmp('device edit'), 'none');
+
+    expect(retried.status).toBe(200);
+    expect(await read('2024/12/01/IMG_80.xmp')).toBe(mapleXmp('device edit'));
+    expect(
+      live.db.query(`SELECT has_xmp FROM assets WHERE id = ?`).get(photo.assetId.toHexString()),
+    ).toEqual({ has_xmp: 1 });
+    expect(
+      live.db
+        .query(`SELECT kind FROM asset_changes WHERE asset_id = ?`)
+        .all(photo.assetId.toHexString()),
+    ).toEqual([{ kind: 'update' }]);
+  });
+});
