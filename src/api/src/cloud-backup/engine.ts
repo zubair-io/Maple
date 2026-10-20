@@ -385,6 +385,20 @@ export class BackupEngine {
       return;
     }
   }
+  /** Re-arms entries parked on connection failures once a cheap probe shows
+   * Google reachable again, so recovery never waits on a transfer that cannot
+   * be claimed until its backoff expires (#5038). */
+  async rearmParkedConnections(signal?: AbortSignal): Promise<void> {
+    for (const destination of await this.repo.destinations()) {
+      if (destination.kind !== 'google-drive' || !destination.enabled) continue;
+      if (!(await this.repo.hasParkedConnectionErrors(destination.id))) continue;
+      const healthy = await this.provider(destination)
+        .then((provider) => provider.probe(signal))
+        .then(() => true)
+        .catch(() => false);
+      if (healthy) await this.repo.clearResolvedConnectionErrors(destination.id);
+    }
+  }
   async backupAsset(assetId: string, signal?: AbortSignal): Promise<boolean> {
     const destinations = (await this.repo.destinations()).filter(
       (d) => d.kind === 'google-drive' && d.enabled,

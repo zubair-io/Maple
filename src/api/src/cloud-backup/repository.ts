@@ -1,6 +1,8 @@
 import { sqliteDb, type SqliteDb } from '../db/repos/db-handle.ts';
 import type { BackupManifest, BackupObject, UploadCheckpoint, PurgeRecord } from './provider.ts';
 
+const RESOLVABLE_CONNECTION_ERRORS = `destination_id=? AND error_kind='connection' AND (lease_owner IS NULL OR lease_until<=?)`;
+
 export interface BackupDestination {
   id: string;
   libraryId: string;
@@ -320,17 +322,21 @@ export class BackupRepository {
       ],
     );
   }
+  /** Whether any unleased entry is parked on a connection failure. */
+  async hasParkedConnectionErrors(destinationId: string): Promise<boolean> {
+    const [pending] = await this.db.read<{ found: number }>(
+      `SELECT EXISTS(SELECT 1 FROM backup_entries WHERE ${RESOLVABLE_CONNECTION_ERRORS}) AS found`,
+      [destinationId, Date.now()],
+    );
+    return !!pending?.found;
+  }
   /** A proven-healthy connection rearms every entry whose last failure was the
    * connection itself. Entries a worker currently holds are left alone; their
    * own outcome supersedes the stale error. */
   async clearResolvedConnectionErrors(destinationId: string): Promise<void> {
+    if (!(await this.hasParkedConnectionErrors(destinationId))) return;
     const now = Date.now();
-    const resolved = `destination_id=? AND error_kind='connection' AND (lease_owner IS NULL OR lease_until<=?)`;
-    const [pending] = await this.db.read<{ found: number }>(
-      `SELECT EXISTS(SELECT 1 FROM backup_entries WHERE ${resolved}) AS found`,
-      [destinationId, now],
-    );
-    if (!pending?.found) return;
+    const resolved = RESOLVABLE_CONNECTION_ERRORS;
     await this.db.transaction([
       {
         sql: `UPDATE stage_state SET version=0,attempts=0,dead=0,next_attempt_at=NULL
