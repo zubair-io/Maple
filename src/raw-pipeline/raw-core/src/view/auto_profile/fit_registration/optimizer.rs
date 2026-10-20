@@ -27,11 +27,11 @@ impl Pixels {
 
     pub(super) fn opposite(self) -> Self {
         match self {
-            Self::All => Self::All,
             Self::Top => Self::Bottom,
             Self::Bottom => Self::Top,
             Self::Left => Self::Right,
             Self::Right => Self::Left,
+            Self::All => Self::All,
         }
     }
 
