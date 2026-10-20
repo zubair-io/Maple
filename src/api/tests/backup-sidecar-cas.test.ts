@@ -210,6 +210,7 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
     expect([xmp('edit A'), xmp('edit B')]).toContain(final);
     expect(rows[0]?.displaced_xmp).toBe(displaced);
   });
+
   test('a target path belonging to another asset is refused and its sidecar kept', async () => {
     const owner = await seedUpload('owner');
     const other = await seedUpload('other');
@@ -247,6 +248,7 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
       await fs.rm(outside, { recursive: true, force: true });
     }
   });
+
   test('a location marked missing is not a valid target', async () => {
     const target = await seedUpload('missing');
     live.db
@@ -317,66 +319,56 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
       await fs.rm(outside, { recursive: true, force: true });
     }
   });
+
   test('a legacy upload whose folder becomes an outward symlink while it waits is a 400 (#5023)', async () => {
-    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-sidecar-legacy-swap-'));
-    let release = (): void => {};
-    try {
-      const target = await seedUpload('swapped/IMG');
-      const folder = path.dirname(path.join(tmpLib, target.relPath));
-      const sidecar = path.join(tmpLib, `${target.relPath}.xmp`);
-      const held = new Promise<void>((resolve) => (release = resolve));
-      let entered!: () => void;
-      const inside = new Promise<void>((resolve) => (entered = resolve));
-      const holder = serializeSidecarWrite(sidecar, async () => {
-        entered();
-        await held;
-      });
-      await inside;
-
-      const legacy = post(target, xmp('incoming'), undefined);
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      await fs.rm(folder, { recursive: true, force: true });
-      await fs.symlink(outside, folder);
-      release();
-      await holder;
-
-      expect((await legacy).status).toBe(400);
-      expect(await fs.readdir(outside)).toEqual([]);
-    } finally {
-      release();
-      await fs.rm(outside, { recursive: true, force: true });
-    }
+    const { status, outside } = await swapFolderWhileQueued('swapped/IMG', undefined);
+    expect(status).toBe(400);
+    expect(outside).toEqual([]);
   });
+
   test('a CAS upload whose folder becomes an outward symlink while it waits is a 400 (#5023)', async () => {
-    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-sidecar-cas-swap-'));
-    let release = (): void => {};
-    try {
-      const target = await seedUpload('cas-swapped/IMG');
-      await fs.writeFile(path.join(outside, 'IMG.HEIC.xmp'), xmp('incoming'));
-      const folder = path.dirname(path.join(tmpLib, target.relPath));
-      const sidecar = path.join(tmpLib, `${target.relPath}.xmp`);
-      const held = new Promise<void>((resolve) => (release = resolve));
-      let entered!: () => void;
-      const inside = new Promise<void>((resolve) => (entered = resolve));
-      const holder = serializeSidecarWrite(sidecar, async () => {
-        entered();
-        await held;
-      });
-      await inside;
-
-      const cas = post(target, xmp('incoming'), 'none');
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      await fs.rm(folder, { recursive: true, force: true });
-      await fs.symlink(outside, folder);
-      release();
-      await holder;
-
-      const res = await cas;
-      expect(res.status).toBe(400);
-      expect(divergences(target.relPath)).toEqual([]);
-    } finally {
-      release();
-      await fs.rm(outside, { recursive: true, force: true });
-    }
+    const { status, outside, relPath } = await swapFolderWhileQueued('cas-swapped/IMG', 'none');
+    expect(status).toBe(400);
+    expect(outside).toEqual(['IMG.HEIC.xmp']);
+    expect(divergences(relPath)).toEqual([]);
   });
 });
+
+/**
+ * Holds the sidecar's write barrier, sends an upload, swaps the photo's folder
+ * for a symlink to an outside folder (already holding the same XMP when a base
+ * is sent), then releases. Returns the status and the outside folder's files.
+ */
+async function swapFolderWhileQueued(
+  name: string,
+  base: string | undefined,
+): Promise<{ status: number; outside: string[]; relPath: string }> {
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-sidecar-swap-'));
+  let release = (): void => {};
+  try {
+    const target = await seedUpload(name);
+    if (base !== undefined) await fs.writeFile(path.join(outside, 'IMG.HEIC.xmp'), xmp('incoming'));
+    const folder = path.dirname(path.join(tmpLib, target.relPath));
+    const sidecar = path.join(tmpLib, `${target.relPath}.xmp`);
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const inside = new Promise<void>((resolve) => (entered = resolve));
+    const holder = serializeSidecarWrite(sidecar, async () => {
+      entered();
+      await held;
+    });
+    await inside;
+
+    const upload = post(target, xmp('incoming'), base);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await fs.rm(folder, { recursive: true, force: true });
+    await fs.symlink(outside, folder);
+    release();
+    await holder;
+    const status = (await upload).status;
+    return { status, outside: await fs.readdir(outside), relPath: target.relPath };
+  } finally {
+    release();
+    await fs.rm(outside, { recursive: true, force: true });
+  }
+}
