@@ -56,7 +56,7 @@ func freshHarness(
 }
 
 /// Convenience: a sequence stub for the standard two-request happy path
-/// (ingest → 200+JSON, sidecar → 200 empty).
+/// (ingest → 200+JSON, sidecar → 200 naming the stored sidecar).
 func ingestAndSidecarStub(mapleId: String = "hash-P1",
                           relPath: String = "2024/03/15/IMG.heic") -> StubURLProtocol.Stub {
     .sequence([
