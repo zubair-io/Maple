@@ -14,7 +14,6 @@ import {
   TIER_FOR_RESOLUTION,
   type CameraTier,
 } from '../generated/camera-support.generated';
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 
 /** Worst to best — the order the Rust `CameraTier` declares. */
 const TIER_ORDER: readonly CameraTier[] = [
@@ -28,8 +27,8 @@ const TIER_ORDER: readonly CameraTier[] = [
 const rank = (tier: CameraTier): number => TIER_ORDER.indexOf(tier);
 
 describe('camera support registry', () => {
-  it('was generated for the pipeline version the web caches key on', () => {
-    expect(CAMERA_SUPPORT_BUILD.pipelineOutputVersion).toBe(PIPELINE_OUTPUT_VERSION);
+  it('carries the bundled model count and no pipeline version', () => {
+    expect('pipelineOutputVersion' in CAMERA_SUPPORT_BUILD).toBe(false);
     expect(CAMERA_SUPPORT_BUILD.bundledModelCount).toBeGreaterThan(1000);
     // Every tier here was computed against a specific profile bundle;
     // regenerating it regenerates this file.

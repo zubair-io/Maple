@@ -6,9 +6,7 @@
   "expected_cases": 796,
   "failed_cases": 92,
   "git_sha": "c67deb3fcbc13a9f35848d0d3b34b887042d3e79",
-  "pipeline_version": 24,
   "recorded_at": "2026-10-15T00:43:34Z",
-  "schema_version": 5,
   "skipped_cases": 0,
   "source": "color_harness"
 }

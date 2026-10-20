@@ -6,8 +6,8 @@
 // A camera tier is COMPUTED, never asserted. The four lower tiers are a
 // total function of which branch the profile resolver takes; promotion
 // to `qualified` additionally needs every declared qualification suite
-// satisfied on the current pipeline + schema version, over the current
-// corpus, with executed == expected cases and zero failures or skips.
+// satisfied over the current corpus, with executed == expected
+// cases and zero failures or skips.
 // See docs/camera-support.md.
 
 export type CameraTier = 'unsupported' | 'decode_only' | 'matrix_only' | 'profiled' | 'qualified';
@@ -68,8 +68,6 @@ export interface CameraEvidenceRecord {
   readonly gitSha: string;
   readonly corpusHash: string;
   readonly backend: string;
-  readonly pipelineVersion: number;
-  readonly schemaVersion: number;
 }
 
 export interface CameraQualificationEvidence {
@@ -92,7 +90,6 @@ export interface SupportedCamera {
 
 export const CAMERA_SUPPORT_BUILD = {
   schemaVersion: 1,
-  pipelineOutputVersion: 30,
   bundledModelCount: 1406,
   profileBundleFormat: 1,
   profileBundleDigest: 'blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a',
@@ -115,13 +112,11 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'stale_pipeline',
+        status: 'failed',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
           backend: 'cpu-reference',
-          pipelineVersion: 24,
-          schemaVersion: 5,
         },
       },
     ],
@@ -138,13 +133,11 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'stale_pipeline',
+        status: 'failed',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
           backend: 'cpu-reference',
-          pipelineVersion: 24,
-          schemaVersion: 5,
         },
       },
     ],
@@ -161,13 +154,11 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'stale_pipeline',
+        status: 'failed',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
           backend: 'cpu-reference',
-          pipelineVersion: 24,
-          schemaVersion: 5,
         },
       },
     ],
@@ -184,13 +175,11 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'stale_pipeline',
+        status: 'failed',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
           backend: 'cpu-reference',
-          pipelineVersion: 24,
-          schemaVersion: 5,
         },
       },
     ],
@@ -207,13 +196,11 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'stale_pipeline',
+        status: 'failed',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
           backend: 'cpu-reference',
-          pipelineVersion: 24,
-          schemaVersion: 5,
         },
       },
     ],
@@ -230,13 +217,11 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'stale_pipeline',
+        status: 'failed',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
           backend: 'cpu-reference',
-          pipelineVersion: 24,
-          schemaVersion: 5,
         },
       },
     ],
@@ -253,13 +238,11 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'stale_pipeline',
+        status: 'failed',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
           backend: 'cpu-reference',
-          pipelineVersion: 24,
-          schemaVersion: 5,
         },
       },
     ],
@@ -276,13 +259,11 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'stale_pipeline',
+        status: 'failed',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
           backend: 'cpu-reference',
-          pipelineVersion: 24,
-          schemaVersion: 5,
         },
       },
     ],
@@ -299,13 +280,11 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'stale_pipeline',
+        status: 'failed',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
           backend: 'cpu-reference',
-          pipelineVersion: 24,
-          schemaVersion: 5,
         },
       },
     ],
@@ -322,13 +301,11 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'stale_pipeline',
+        status: 'failed',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
           backend: 'cpu-reference',
-          pipelineVersion: 24,
-          schemaVersion: 5,
         },
       },
     ],
@@ -345,13 +322,11 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'stale_pipeline',
+        status: 'failed',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
           backend: 'cpu-reference',
-          pipelineVersion: 24,
-          schemaVersion: 5,
         },
       },
     ],
@@ -368,13 +343,11 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'stale_pipeline',
+        status: 'failed',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
           backend: 'cpu-reference',
-          pipelineVersion: 24,
-          schemaVersion: 5,
         },
       },
     ],
@@ -391,13 +364,11 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'stale_pipeline',
+        status: 'failed',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
           backend: 'cpu-reference',
-          pipelineVersion: 24,
-          schemaVersion: 5,
         },
       },
     ],
@@ -425,13 +396,11 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'stale_pipeline',
+        status: 'failed',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
           backend: 'cpu-reference',
-          pipelineVersion: 24,
-          schemaVersion: 5,
         },
       },
     ],
@@ -448,13 +417,11 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
     qualification: [
       {
         source: 'color_harness',
-        status: 'stale_pipeline',
+        status: 'failed',
         record: {
           gitSha: 'c67deb3fcbc13a9f35848d0d3b34b887042d3e79',
           corpusHash: 'blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb',
           backend: 'cpu-reference',
-          pipelineVersion: 24,
-          schemaVersion: 5,
         },
       },
     ],

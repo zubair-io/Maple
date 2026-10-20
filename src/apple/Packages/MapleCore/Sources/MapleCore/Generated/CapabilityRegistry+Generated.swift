@@ -4,8 +4,8 @@
 //
 // Release state is COMPUTED from harness evidence, never asserted: a
 // capability reads `released` only when every declared evidence source
-// has a record on the current pipeline + schema version, over the
-// current corpus, on an accepted backend, with executed == expected
+// has a record over the current corpus, on an accepted backend,
+// with executed == expected
 // cases, zero failures, and zero skips. See docs/capability-registry.md.
 
 import Foundation
@@ -83,7 +83,6 @@ public struct CapabilityRecord: Sendable {
 
 /// The registry plus the build the states were computed for.
 public enum CapabilityRegistry {
-  public static let pipelineOutputVersion: UInt32 = 30
   public static let schemaVersion: UInt32 = 5
 
   public static let all: [CapabilityRecord] = [

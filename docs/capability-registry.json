@@ -1,7 +1,6 @@
 {
   "generator": "tools/codegen.sh (codegen --schema capability-registry --target json)",
   "build": {
-    "pipeline_output_version": 30,
     "schema_version": 5
   },
   "capabilities": [
@@ -38,8 +37,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v30"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -75,13 +74,13 @@
         },
         {
           "source": "color_harness",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v30"
+          "status": "failed",
+          "detail": "92 failed"
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v30"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -137,8 +136,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v30"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -174,13 +173,13 @@
         },
         {
           "source": "color_harness",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v30"
+          "status": "failed",
+          "detail": "92 failed"
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v30"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -263,8 +262,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v30"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -300,13 +299,13 @@
         },
         {
           "source": "color_harness",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v30"
+          "status": "failed",
+          "detail": "92 failed"
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v30"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -366,8 +365,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v30"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -403,13 +402,13 @@
         },
         {
           "source": "color_harness",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v30"
+          "status": "failed",
+          "detail": "92 failed"
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v30"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -448,8 +447,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v30"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -470,8 +469,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v24, current is v30"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "apple_canvas_golden",
@@ -511,8 +510,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v30"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -628,8 +627,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v30"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -680,8 +679,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v30"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -692,8 +691,8 @@
       "qualification": [
         {
           "source": "sidecar_contract_apple",
-          "status": "stale_pipeline",
-          "detail": "recorded on pipeline v19, current is v30"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "sidecar_contract_api",
@@ -742,8 +741,6 @@
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 30,
-        "schema_version": 5,
         "corpus_hash": "blake3:586dda5d1f3fc7d144dcfe3194e46a6212faf4e1d697f16a89b3fcf139226c2d",
         "expected_cases": 41,
         "executed_cases": 41,
@@ -765,8 +762,6 @@
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 30,
-        "schema_version": 5,
         "corpus_hash": "blake3:fcf261c40600660bbbc89f0ec6055348550ac5430d428adb0ba9eefff89006c7",
         "expected_cases": 6,
         "executed_cases": 6,
@@ -788,8 +783,6 @@
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 30,
-        "schema_version": 5,
         "corpus_hash": "blake3:5cb9b885cf0a893b73e4710df4d066eb5e38ef4346956d169ecce416ee80ed2c",
         "expected_cases": 5,
         "executed_cases": 5,
@@ -811,8 +804,6 @@
       "status": "satisfied",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 30,
-        "schema_version": 5,
         "corpus_hash": "blake3:7f41cb1428044e2013c7d2f811e013734029b4a5fb9c7e9b9e4b83c9cb2fe244",
         "expected_cases": 7,
         "executed_cases": 7,
@@ -840,11 +831,9 @@
         "src/scripts/acr-reference/write_xmp.py"
       ],
       "corpus_hash": null,
-      "status": "stale_pipeline",
+      "status": "failed",
       "record": {
         "backend": "cpu-reference",
-        "pipeline_version": 24,
-        "schema_version": 5,
         "corpus_hash": "blake3:1f7314cde5a177cfe290623e724b0b555096b0662aa9ea4efcada3198eebf6eb",
         "expected_cases": 796,
         "executed_cases": 796,
@@ -866,21 +855,54 @@
         "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractCloudTests.swift",
         "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractFilesystemTests.swift",
         "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractPhotoKitTests.swift",
-        "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractSMBTests.swift"
+        "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractSMBTests.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/PhotoKitSidecarStore.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/SMBSidecarStore.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/SidecarPath.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/SidecarStoreProtocol.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/WorkflowSidecarCore.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPLocalAdjustmentOrder.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPMaskGroupNamespaces.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPMaskGroupSources.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPPassthrough.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPPassthroughScanner.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Attrs.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+BlackWhite.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Canonical.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+HSL.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Helpers.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+LocalAdjustments.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+LocalAdjustmentsBrush.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+MaskGroups.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Metadata.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+MetadataWrite.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+ParseAttrs.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Passthrough.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Retouch.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+ToneCurves.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+VideoWrite.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+WhiteBalance.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarStore.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/Cloud/CloudSidecarStore.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/Cloud/CloudSidecarStore+Variants.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/Sources/SMBSource.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/Sources/SMBSource+Sidecar.swift",
+        "src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPCanonicalFormatTests.swift",
+        "src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPPassthroughTests.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XmpMetadata+Empty.swift"
       ],
-      "corpus_hash": "blake3:287a591997e0eeacc4a82411e114093f472af2560a8573a23789e77d1022c60b",
-      "status": "stale_pipeline",
+      "corpus_hash": "blake3:f286e87791303024dddaa1c42d130aabf9d1972fc4c0e8c33dffee01e5fb0229",
+      "status": "satisfied",
       "record": {
         "backend": "xctest-macos",
-        "pipeline_version": 19,
-        "schema_version": 5,
-        "corpus_hash": "blake3:287a591997e0eeacc4a82411e114093f472af2560a8573a23789e77d1022c60b",
+        "corpus_hash": "blake3:f286e87791303024dddaa1c42d130aabf9d1972fc4c0e8c33dffee01e5fb0229",
         "expected_cases": 12,
         "executed_cases": 12,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "873587cba9710e16f83e404091952fe689d4d30a",
-        "recorded_at": "2026-10-12T23:20:51Z",
+        "git_sha": "6264189730c5f1f2d811eb4a2f9577711d5c9ba0",
+        "recorded_at": "2026-10-20T01:33:00Z",
         "command": "bash -c cd\\ src/apple/Packages/MapleCore\\ \\&\\&\\ swift\\ test\\ --filter\\ SidecarTransactionContract"
       }
     },
@@ -890,20 +912,26 @@
       "covers": ["web"],
       "accepted_backends": ["bun"],
       "expected_cases": 4,
-      "corpus": ["src/api/src/routes/xmp.sidecar-contract.test.ts"],
-      "corpus_hash": "blake3:b241c429f7cf1689c7d84142488d59d7dc075a9606eac00c057188c2b05a61fe",
+      "corpus": [
+        "src/api/src/routes/xmp.sidecar-contract.test.ts",
+        "src/api/src/routes/xmp.ts",
+        "src/api/src/xmp",
+        "src/api/src/fs/sidecar-io.ts",
+        "src/api/src/fs/sidecar-write-order.ts",
+        "src/api/src/fs/xmp-conditional.ts",
+        "src/api/src/fs/xmp.ts"
+      ],
+      "corpus_hash": "blake3:9a7d121f0fa399ccfd0bb67bce95450d490bfa2d087c148a0811fb1b4afa6c0c",
       "status": "satisfied",
       "record": {
         "backend": "bun",
-        "pipeline_version": 30,
-        "schema_version": 5,
-        "corpus_hash": "blake3:b241c429f7cf1689c7d84142488d59d7dc075a9606eac00c057188c2b05a61fe",
+        "corpus_hash": "blake3:9a7d121f0fa399ccfd0bb67bce95450d490bfa2d087c148a0811fb1b4afa6c0c",
         "expected_cases": 4,
         "executed_cases": 4,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "57c31e1a7cfdafb0ee372c27ff4ede68dfe2310a",
-        "recorded_at": "2026-10-19T20:17:13Z",
+        "git_sha": "6264189730c5f1f2d811eb4a2f9577711d5c9ba0",
+        "recorded_at": "2026-10-20T01:32:36Z",
         "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts\\ --timeout\\ 30000"
       }
     },
@@ -934,11 +962,9 @@
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
       "corpus_hash": "blake3:d000af61599af6fbbdc9c20102cc219ec6da72ed358ba4ca7d7ad2efe4027f44",
-      "status": "stale_pipeline",
+      "status": "stale_corpus",
       "record": {
         "backend": "metal",
-        "pipeline_version": 24,
-        "schema_version": 5,
         "corpus_hash": "blake3:5b8de61aa594b13da619d6d92d67addcd2357902826df4479b61b5b1eaab5a1c",
         "expected_cases": 19,
         "executed_cases": 19,

@@ -67,14 +67,11 @@ const WEB_UNQUALIFIED: Capability = Capability {
     qualification: &[],
 };
 
-/// A record that satisfies `source` under `evidence`'s build + corpus.
+/// A record that satisfies `source` under `evidence`'s corpus.
 fn satisfied_record(source: EvidenceSource, evidence: &Evidence) -> EvidenceRecord {
-    let build = evidence.build.expect("build identity");
     EvidenceRecord {
         source,
         backend: source.accepted_backends()[0].to_owned(),
-        pipeline_version: build.pipeline_version,
-        schema_version: build.schema_version,
         corpus_hash: evidence.corpus_hashes[&source].clone(),
         expected_cases: source.expected_cases(),
         executed_cases: source.expected_cases(),
@@ -90,10 +87,6 @@ fn satisfied_record(source: EvidenceSource, evidence: &Evidence) -> EvidenceReco
 fn empty_evidence() -> Evidence {
     Evidence {
         records: BTreeMap::new(),
-        build: Some(BuildIdentity {
-            pipeline_version: 7,
-            schema_version: 3,
-        }),
         corpus_hashes: EvidenceSource::ALL
             .iter()
             .map(|s| (*s, format!("blake3:{}", s.id())))
@@ -214,10 +207,6 @@ fn color_harness_expected_cases_match_budget_cells() {
 #[test]
 fn current_schema_version_is_the_default_wb_scale() {
     assert_eq!(current_schema_version(), 5);
-    assert_eq!(
-        BuildIdentity::current().pipeline_version,
-        crate::PIPELINE_OUTPUT_VERSION
-    );
 }
 
 // ── The release-state rule ────────────────────────────────────────────────
@@ -327,34 +316,34 @@ fn skipped_failed_and_short_runs_do_not_count() {
 }
 
 #[test]
-fn evidence_loss_demotes_on_the_next_build() {
+fn legacy_version_fields_in_a_record_are_ignored() {
+    // Records written before #5007 carry pipeline_version / schema_version.
+    // They must parse, and neither field may stale the record: only corpus,
+    // backend, and counts judge it now.
+    let cap = &APPLE_ONLY;
+    let mut evidence = empty_evidence();
+    let source = cap.integration[0];
+    let good = satisfied_record(source, &evidence);
+    let mut value = good.to_json();
+    value["pipeline_version"] = serde_json::json!(1);
+    value["schema_version"] = serde_json::json!(99);
+    let parsed = EvidenceRecord::from_json(&value.to_string()).expect("legacy fields are ignored");
+    evidence.records.insert(source, parsed);
+    for other in cap.integration.iter().chain(cap.qualification) {
+        if *other != source {
+            evidence
+                .records
+                .insert(*other, satisfied_record(*other, &evidence));
+        }
+    }
+    assert_eq!(classify(cap, &evidence).state, ReleaseState::Released);
+}
+
+#[test]
+fn corpus_loss_demotes_a_capability() {
     let cap = &APPLE_ONLY;
     let satisfied = with_all_satisfied(cap);
     assert_eq!(classify(cap, &satisfied).state, ReleaseState::Released);
-
-    // Pipeline bump: every record is now stale.
-    let mut bumped = satisfied.clone();
-    bumped.build = Some(BuildIdentity {
-        pipeline_version: 8,
-        schema_version: 3,
-    });
-    let c = classify(cap, &bumped);
-    assert_eq!(c.state, ReleaseState::Core);
-    assert!(c.integration.iter().all(|f| matches!(
-        f.status,
-        RecordStatus::StalePipeline {
-            recorded: 7,
-            current: 8
-        }
-    )));
-
-    // Schema bump: same.
-    let mut schema = satisfied.clone();
-    schema.build = Some(BuildIdentity {
-        pipeline_version: 7,
-        schema_version: 4,
-    });
-    assert_eq!(classify(cap, &schema).state, ReleaseState::Core);
 
     // Corpus edit on one source: only that source goes stale.
     let mut corpus = satisfied.clone();
@@ -513,8 +502,6 @@ fn evidence_load_reads_records_and_hashes_their_corpora() {
     let record = EvidenceRecord {
         source: EvidenceSource::GreyDcp,
         backend: "cpu-reference".into(),
-        pipeline_version: crate::PIPELINE_OUTPUT_VERSION,
-        schema_version: current_schema_version(),
         corpus_hash: hash,
         expected_cases: EvidenceSource::GreyDcp.expected_cases(),
         executed_cases: EvidenceSource::GreyDcp.expected_cases(),
