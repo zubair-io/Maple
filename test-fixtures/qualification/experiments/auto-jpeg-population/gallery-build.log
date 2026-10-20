@@ -1,0 +1,6 @@
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+/Users/riabuz/Library/Python/3.14/lib/python/site-packages/PIL/Image.py:3574: DecompressionBombWarning: Image size (100663296 pixels) exceeds limit of 89478485 pixels, could be decompression bomb DOS attack.
+  warnings.warn(
+/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-population/gallery/index.html
