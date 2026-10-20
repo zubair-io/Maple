@@ -55,6 +55,7 @@ import { seedMissingStageStateMigration } from './0030-seed-missing-stage-state.
 import { rearmUnresolvedLocationSkipsMigration } from './0031-rearm-unresolved-location-skips.ts';
 import { sidecarDivergencesMigration } from './0032-sidecar-divergences.ts';
 import { workerStallThresholdMigration } from './0033-worker-stall-threshold.ts';
+import { backupSidecarNameMarkerMigration } from './0034-backup-sidecar-name-marker.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -90,4 +91,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   rearmUnresolvedLocationSkipsMigration,
   sidecarDivergencesMigration,
   workerStallThresholdMigration,
+  backupSidecarNameMarkerMigration,
 ];
