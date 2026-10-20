@@ -13,7 +13,7 @@ struct Evaluation {
 /// Which pixels a stage fits or scores: all of them, or one half of the
 /// frame so the opposite half is a spatial hold-out. A lens residual is the
 /// same radial term in every half; keystone or projective misfit is not.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy)]
 pub(super) enum Pixels {
     All,
     Top,
@@ -23,6 +23,7 @@ pub(super) enum Pixels {
 }
 
 impl Pixels {
+    /// Ordered as opposite pairs.
     pub(super) const HALVES: [Self; 4] = [Self::Top, Self::Bottom, Self::Left, Self::Right];
 
     pub(super) fn opposite(self) -> Self {
