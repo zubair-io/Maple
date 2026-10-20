@@ -28,7 +28,11 @@ impl<'a> ClipGainContext<'a> {
     /// Each site's own gain over a full-resolution `width × height` window,
     /// exactly as `sensor_linearize` applied it.
     pub(crate) fn site_gains(self, width: u32, height: u32) -> Vec<f32> {
-        let maps = self.raw.sensor_gain_maps.as_ref().unwrap();
+        let maps = self
+            .raw
+            .sensor_gain_maps
+            .as_ref()
+            .expect("ClipGainContext is only constructed with sensor gain maps");
         (0..width as usize * height as usize)
             .into_par_iter()
             .map(|i| {
