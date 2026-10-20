@@ -6,7 +6,10 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { ObjectId } from '../db/object-id.ts';
-import { recordSidecarDivergence } from '../db/repos/sidecar-divergences.repo.ts';
+import {
+  hasSidecarDivergence,
+  recordSidecarDivergence,
+} from '../db/repos/sidecar-divergences.repo.ts';
 import { readSidecarBytes, SidecarNotRegularFileError } from '../fs/sidecar-ownership.ts';
 import { xmpSidecarPath } from '../fs/xmp.ts';
 import * as fs from '../fs/mirrored.ts';
@@ -67,16 +70,20 @@ export async function retireLegacyBackupSidecar(landed: LandedBackupSidecar): Pr
   const bytes = legacy ? await readLegacyBackupEdit(legacy) : null;
   if (!legacy || !bytes) return;
   const legacyXmp = bytes.toString('utf8');
-  if (legacyXmp !== landed.xmp) {
+  const kept = {
+    assetId: landed.assetId,
+    sidecarRelPath: landed.sidecarRelPath,
+    displacedSha256: sha256(legacyXmp),
+    incomingSha256: sha256(landed.xmp),
+  };
+  // A retry after a failed unlink must not record the same version again.
+  if (legacyXmp !== landed.xmp && !(await hasSidecarDivergence(kept))) {
     await recordSidecarDivergence({
-      assetId: landed.assetId,
+      ...kept,
       libraryId: landed.libraryId,
-      sidecarRelPath: landed.sidecarRelPath,
       deviceId: landed.deviceId,
       baseSha256: null,
-      displacedSha256: sha256(legacyXmp),
       displacedXmp: legacyXmp,
-      incomingSha256: sha256(landed.xmp),
     });
   }
   await removeLegacyIfUnchanged(legacy, bytes);

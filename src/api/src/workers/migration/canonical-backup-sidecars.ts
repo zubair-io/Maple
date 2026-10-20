@@ -17,6 +17,7 @@
  * The old file is removed only once its edit is safe, and only if it still
  * holds the bytes that were published.
  */
+import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import type { ObjectId } from '../../db/object-id.ts';
 import type { FileInfo } from '../../db/schema.ts';
@@ -28,8 +29,10 @@ import {
 } from '../../db/repos/assets.migrations.ts';
 import {
   forgetSidecarDivergence,
+  hasSidecarDivergence,
   recordSidecarDivergence,
 } from '../../db/repos/sidecar-divergences.repo.ts';
+import { serializeSidecarWrite } from '../../fs/sidecar-write-order.ts';
 import {
   markCanonicalSidecarsChecked,
   NEEDS_CANONICAL_SIDECAR_CHECK,
@@ -121,6 +124,19 @@ async function publishCanonical(
   return 'done';
 }
 
+function supersededByASend(
+  assetId: ObjectId,
+  location: FileInfo,
+  primary: string,
+  legacyBytes: Buffer,
+): Promise<boolean> {
+  return hasSidecarDivergence({
+    assetId,
+    sidecarRelPath: path.posix.join(location.path, path.basename(xmpSidecarPath(primary))),
+    displacedSha256: createHash('sha256').update(legacyBytes).digest('hex'),
+  });
+}
+
 async function canonicalizeLocation(
   assetId: ObjectId,
   location: FileInfo,
@@ -131,6 +147,13 @@ async function canonicalizeLocation(
   try {
     const legacyBytes = legacy ? await readLegacyBackupEdit(legacy) : null;
     if (!legacy || !legacyBytes) return 'done';
+    if (await supersededByASend(assetId, location, primary, legacyBytes)) {
+      // A device send landed and kept this edit aside, but couldn't remove the file.
+      await serializeSidecarWrite(xmpSidecarPath(primary), () =>
+        removeLegacyIfUnchanged(legacy, legacyBytes),
+      );
+      return 'done';
+    }
     return await publishCanonical(assetId, location, primary, root, legacy, legacyBytes);
   } catch (err) {
     log.error(
