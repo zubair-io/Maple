@@ -184,8 +184,9 @@ export async function mergeIntoSurvivor(args: {
       // and the condemned links that made them eligible go with the delete below.
       sql: `INSERT INTO backup_sidecar_name_checks (asset_id, checked)
         SELECT ?, 0 WHERE EXISTS (SELECT 1 FROM asset_phasset_links WHERE asset_id IN (?, ?))
+          OR EXISTS (SELECT 1 FROM backup_sidecar_name_checks WHERE asset_id = ? AND checked = 0)
         ON CONFLICT (asset_id) DO UPDATE SET checked = 0`,
-      params: [args.survivorId, args.survivorId, args.condemnedId],
+      params: [args.survivorId, args.survivorId, args.condemnedId, args.condemnedId],
     },
     { sql: `DELETE FROM assets WHERE id = ?`, params: [args.condemnedId] },
     // Strictly after the delete, which is what frees the unique key — but inside
