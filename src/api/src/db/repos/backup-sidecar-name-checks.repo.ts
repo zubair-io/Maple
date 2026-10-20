@@ -13,7 +13,7 @@ export const NEEDS_CANONICAL_SIDECAR_CHECK = `(
       AND NOT EXISTS (SELECT 1 FROM backup_sidecar_name_checks c WHERE c.asset_id = a.id)))`;
 
 /** Stamp only while the asset still has the live locations the scan covered:
- * a merge that added some meanwhile keeps it due. `false` when not stamped. */
+ * a merge that added some meanwhile keeps it due. */
 export async function markCanonicalSidecarsChecked(
   id: ObjectId,
   scannedLiveLocations: number,
