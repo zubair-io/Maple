@@ -36,7 +36,7 @@ import {
   markCanonicalSidecarsChecked,
   NEEDS_CANONICAL_SIDECAR_CHECK,
 } from '../../db/repos/backup-sidecar-name-checks.repo.ts';
-import { publishSidecarIfAbsent } from '../../backup/sidecar-cas.ts';
+import { errorOutcome, publishSidecarIfAbsent } from '../../backup/sidecar-cas.ts';
 import { isLiveLocationOfAsset } from '../../db/repos/backup.repo.ts';
 import {
   legacyBackupSidecar,
@@ -126,10 +126,7 @@ async function publishCanonical(edit: LegacyEdit): Promise<LocationOutcome> {
     edit.bytes.toString('utf8'),
     root,
     { precondition: () => stillCurrent(edit), beforeWrite: () => recordSidecarEditAhead(primary) },
-  ).catch((error: unknown) => ({
-    kind: 'error' as const,
-    error: error instanceof Error ? error.message : String(error),
-  }));
+  ).catch(errorOutcome);
   if (outcome === 'written') {
     await announceSidecarLanded(primary);
     await serializeSidecarWrite(xmpSidecarPath(primary), () =>

@@ -58,6 +58,7 @@ import { sidecarStemClaimedBySibling } from '../fs/sidecar-ownership.ts';
 import { hasLegacyBackupEdit, retireLegacyBackupSidecar } from '../backup/legacy-sidecar.ts';
 import { announceSidecarLanded, recordSidecarEditAhead } from './xmp-change.ts';
 import {
+  errorOutcome,
   parseSidecarBase,
   publishSidecarCas,
   publishSidecarIfAbsent,
@@ -91,10 +92,7 @@ async function publishLegacySidecar(
   const outcome = await publishSidecarIfAbsent(send.finalPath, send.xmp, send.libraryRoot, {
     precondition: () => stillOwned(send),
     beforeWrite: () => recordSidecarEditAhead(primary),
-  }).catch((error: unknown) => ({
-    kind: 'error' as const,
-    error: error instanceof Error ? error.message : String(error),
-  }));
+  }).catch(errorOutcome);
   if (outcome === 'written') await announceSidecarLanded(primary);
   if (outcome === 'written' || outcome === 'skipped') {
     log.debug({ phid, sidecarRelPath, outcome }, 'sidecar legacy publish');
@@ -188,10 +186,7 @@ async function publishBackupSidecarCas(
         });
       },
     },
-  ).catch((error: unknown) => ({
-    kind: 'error' as const,
-    error: error instanceof Error ? error.message : String(error),
-  }));
+  ).catch(errorOutcome);
   log.debug(
     { phid: req.phid, sidecarRelPath: req.sidecarRelPath, outcome: outcome.kind },
     'sidecar compare-and-swap',
