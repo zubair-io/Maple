@@ -79,7 +79,7 @@ export function resolveOutcome(result: ReviewResult): Outcome {
   }
   const message = result.error instanceof Error ? result.error.message : String(result.error);
   return isInfrastructureFailure(result.error)
-    ? skipped(message)
+    ? skipped(describeInfrastructureFailure(message))
     : { state: 'error', description: truncate(message), failJob: true };
 }
 
@@ -101,6 +101,18 @@ function verdictOutcome(verdict: Verdict, failOn: FailOn): Outcome {
         : `Review complete (verdict: ${verdict})`,
     failJob: false,
   };
+}
+
+// Jules answers a session-creation request past its rolling daily task allowance with a bare
+// HTTP 400 FAILED_PRECONDITION ("Precondition check failed."), indistinguishable from a source
+// precondition, so name both rather than asserting one.
+const QUOTA_OR_PRECONDITION =
+  /FAILED_PRECONDITION|Precondition check failed|RESOURCE_EXHAUSTED|\b429\b|quota/i;
+
+function describeInfrastructureFailure(message: string): string {
+  return QUOTA_OR_PRECONDITION.test(message)
+    ? `Jules account quota or source precondition (${/RESOURCE_EXHAUSTED|\b429\b/i.test(message) ? 'quota' : 'FAILED_PRECONDITION'}); no review`
+    : message;
 }
 
 function skipped(reason: string): Outcome {
