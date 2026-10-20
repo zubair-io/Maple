@@ -2,8 +2,9 @@
 //! own cost, or the GPU round trip on the machine running the suite?
 //! Interleaves the shipped read path with a control that makes the same
 //! submission, map and wait without the histogram kernel, alternating which
-//! goes first, and splits every sample into time blocked on the GPU and host
-//! time after the GPU finished. If the control carries the same tail, the
+//! goes first, and splits every sample into host time before the GPU wait
+//! (encode, submit, map request), time blocked on the GPU, and host time
+//! after the GPU finished. If the control carries the same tail, the
 //! latency belongs to the runner. Diagnostic only — it asserts counts, never
 //! a time; the unchanged acceptance tests keep the 50 ms gate.
 use super::*;
@@ -17,6 +18,7 @@ fn assert_uniform_grey_bins(bins: &[u32]) {
 }
 
 struct Sample {
+    host_before: Duration,
     gpu_wait: Duration,
     host_after: Duration,
     total: Duration,
@@ -47,6 +49,7 @@ fn copy_map_and_wait(
     histogram.readback.unmap();
     let total = start.elapsed();
     let sample = Sample {
+        host_before: waiting,
         gpu_wait: woke - waiting,
         host_after: total - woke,
         total,
@@ -87,9 +90,10 @@ fn summary(path: &str, samples: &[Sample]) {
         format!("p50={:.3} p90={:.3} max={:.3}", at(0.5), at(0.9), at(1.0))
     };
     eprintln!(
-        "H4359 path={path} n={} total_ms[{}] gpu_wait_ms[{}] host_after_ms[{}]",
+        "H4359 path={path} n={} total_ms[{}] host_before_ms[{}] gpu_wait_ms[{}] host_after_ms[{}]",
         samples.len(),
         stats(|s| s.total),
+        stats(|s| s.host_before),
         stats(|s| s.gpu_wait),
         stats(|s| s.host_after)
     );
@@ -125,8 +129,9 @@ fn histogram_4359_read_vs_kernel_free_control() {
         for (path, sample) in [("histogram", &pair.0), ("control", &pair.1)] {
             if sample.total >= Duration::from_millis(20) {
                 eprintln!(
-                    "H4359 slow iteration={iteration} path={path} total_ms={:.3} gpu_wait_ms={:.3} host_after_ms={:.3}",
+                    "H4359 slow iteration={iteration} path={path} total_ms={:.3} host_before_ms={:.3} gpu_wait_ms={:.3} host_after_ms={:.3}",
                     sample.total.as_secs_f64() * 1e3,
+                    sample.host_before.as_secs_f64() * 1e3,
                     sample.gpu_wait.as_secs_f64() * 1e3,
                     sample.host_after.as_secs_f64() * 1e3
                 );
