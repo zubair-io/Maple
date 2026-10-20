@@ -61,7 +61,7 @@ const DISCOVER_NAME = 'discover';
 /** Every column, in one place, so the two read paths cannot select different sets. */
 const COLUMNS =
   'name, concurrency, max_attempts, paused, pause_reason, last_seen_target_version, ' +
-  'version, prompt_text, ai_provider, ai_model, sweep_dir_interval_ms';
+  'version, prompt_text, ai_provider, ai_model, sweep_dir_interval_ms, stall_after_minutes';
 
 interface WorkerConfigRow {
   name: string;
@@ -75,6 +75,7 @@ interface WorkerConfigRow {
   ai_provider: string | null;
   ai_model: string | null;
   sweep_dir_interval_ms: number | null;
+  stall_after_minutes: number | null;
 }
 
 /**
@@ -98,6 +99,7 @@ const DOC_FIELDS: ReadonlyArray<{
   { column: 'prompt_text', key: 'prompt_text' },
   { column: 'ai_provider', key: 'ai_provider' },
   { column: 'ai_model', key: 'ai_model' },
+  { column: 'stall_after_minutes', key: 'stallAfterMinutes' },
 ];
 
 /**
@@ -143,6 +145,7 @@ const COLUMN_OF = new Map<string, string>([
   ['ai_provider', 'ai_provider'],
   ['ai_model', 'ai_model'],
   ['sweepDirIntervalMs', 'sweep_dir_interval_ms'],
+  ['stallAfterMinutes', 'stall_after_minutes'],
 ]);
 
 /**
