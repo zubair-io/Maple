@@ -125,16 +125,11 @@ async function publishBackupSidecarCas(
   if (base === 'invalid' || base === undefined) {
     return {
       status: 400,
-      body: {
-        error: 'X-Maple-Sidecar-Base must be a SHA-256 hex digest or "none"',
-      },
+      body: { error: 'X-Maple-Sidecar-Base must be a SHA-256 hex digest or "none"' },
     };
   }
   if (!(await isLiveLocationOfAsset(req.assetId, req.libraryId, req.targetRelPath))) {
-    return {
-      status: 404,
-      body: { error: 'no prior upload of this asset at this path' },
-    };
+    return { status: 404, body: { error: 'no prior upload of this asset at this path' } };
   }
   const outcome = await publishSidecarCas(
     req.finalPath,
@@ -157,31 +152,19 @@ async function publishBackupSidecarCas(
     await sidecarStemClaimedBySibling(path.join(req.libraryRoot, req.targetRelPath)),
   );
   log.debug(
-    {
-      phid: req.phid,
-      sidecarRelPath: req.sidecarRelPath,
-      outcome: outcome.kind,
-    },
+    { phid: req.phid, sidecarRelPath: req.sidecarRelPath, outcome: outcome.kind },
     'sidecar compare-and-swap',
   );
   if (outcome.kind === 'refused') {
     log.warn(
-      {
-        phid: req.phid,
-        sidecarRelPath: req.sidecarRelPath,
-        error: outcome.error,
-      },
+      { phid: req.phid, sidecarRelPath: req.sidecarRelPath, error: outcome.error },
       'sidecar path refused',
     );
     return { status: 400, body: { error: 'sidecar path not allowed' } };
   }
   if (outcome.kind === 'error') {
     log.error(
-      {
-        phid: req.phid,
-        sidecarRelPath: req.sidecarRelPath,
-        error: outcome.error,
-      },
+      { phid: req.phid, sidecarRelPath: req.sidecarRelPath, error: outcome.error },
       'sidecar compare-and-swap failed',
     );
     return { status: 500, body: { error: 'sidecar write failed' } };

@@ -62,7 +62,6 @@ function candidateScope(): CandidateScope {
 
 type LocationOutcome = 'done' | 'error';
 
-/** Publish the old-name sidecar's edit at `primary`'s canonical name. */
 async function publishCanonical(
   assetId: ObjectId,
   location: FileInfo,
@@ -138,6 +137,22 @@ async function canonicalizeLocation(
   }
 }
 
+interface RootedLocation {
+  location: FileInfo;
+  root: string;
+}
+
+/** One location at a time: the locations of one photo can share a sidecar barrier. */
+async function canonicalizeAll(
+  assetId: ObjectId,
+  rooted: readonly RootedLocation[],
+): Promise<LocationOutcome> {
+  for (const { location, root } of rooted) {
+    if ((await canonicalizeLocation(assetId, location, root)) === 'error') return 'error';
+  }
+  return 'done';
+}
+
 async function canonicalizeAsset(
   libs: LibraryRoots,
   doc: MigrationCandidate,
@@ -145,16 +160,11 @@ async function canonicalizeAsset(
   const photos = doc.fileinfo.filter(
     (location) => isLiveFileInfo(location) && !isVideoFilename(location.filename),
   );
-  const rooted = photos.map((location) => ({
-    location,
-    root: libs.get(location.library_id.toHexString()),
-  }));
-  if (rooted.some(({ root }) => root === undefined)) return 'skipped-no-root';
-  const outcomes: LocationOutcome[] = [];
-  for (const { location, root } of rooted) {
-    outcomes.push(await canonicalizeLocation(doc.id, location, root!));
-  }
-  if (outcomes.includes('error')) return 'error';
+  const rooted = photos
+    .map((location) => ({ location, root: libs.get(location.library_id.toHexString()) }))
+    .filter((entry): entry is RootedLocation => entry.root !== undefined);
+  if (rooted.length !== photos.length) return 'skipped-no-root';
+  if ((await canonicalizeAll(doc.id, rooted)) === 'error') return 'error';
   await stampMarker(MARKER, BACKUP_SIDECAR_NAME_VERSION, [doc.id]);
   return 'processed';
 }
