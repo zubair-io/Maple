@@ -250,10 +250,6 @@ fn build_at_scale(
     let target_xs = spans(original_w, tw);
     let target_ys = spans(original_h, th);
     let (nx, ny) = (tw.min(256), th.min(256));
-    let support = match sampling {
-        Sampling::Aligned(warp) => Some(warp.support(cw, ch, tw, th)),
-        _ => None,
-    };
     let mut observations = Vec::with_capacity(nx * ny);
     let mut weights = [0.; super::paired_fit::CELLS];
     let mut active = Vec::new();
@@ -269,8 +265,9 @@ fn build_at_scale(
                 _ => (within(seed, x0, x1), within(seed >> 32, y0, y1)),
             };
             let ((sx0, sx1), (sy0, sy1)) = if let Sampling::Aligned(warp) = sampling {
-                let center = warp.map((x as f64 + 0.5) / tw as f64, (y as f64 + 0.5) / th as f64);
-                let support = support?;
+                let (u, v) = ((x as f64 + 0.5) / tw as f64, (y as f64 + 0.5) / th as f64);
+                let center = warp.map(u, v);
+                let support = warp.support(cw, ch, tw, th, u, v);
                 let Some(sx) = transformed_span(center[0] * cw as f64, support[0], cw) else {
                     continue;
                 };
@@ -415,6 +412,7 @@ mod tests {
             &prior,
             Warp {
                 coefficients: [1., 0., 3. / 64., 0., 1., 0.],
+                radial: 0.,
             },
         )
         .unwrap();
