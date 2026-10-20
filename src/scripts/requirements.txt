@@ -4,4 +4,5 @@ colour-science>=0.4.4
 scipy>=1.11
 tifffile>=2024.5.10
 opencv-python-headless>=4.10,<6
+OpenEXR>=3.3
 

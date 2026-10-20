@@ -22,6 +22,24 @@ class CanonicalColorGateTests(unittest.TestCase):
             cli.write_text("""#!/usr/bin/env python3
 import sys
 from PIL import Image
+if sys.argv[1] == 'auto-tail-ramp':
+    import json
+    import numpy as np
+    import OpenEXR
+    from pathlib import Path
+    out = Path(sys.argv[sys.argv.index('--out-dir') + 1])
+    out.mkdir()
+    (out / 'fit-provenance.json').write_text(json.dumps({
+        'demosaic': 'amaze', 'fit_dimensions': [64, 64]
+    }))
+    ramp = np.linspace(.1, .8, 1024, dtype=np.float32)
+    for name in ['neutral', 'foliage', 'blue', 'magenta', 'skin']:
+        folder = out / name
+        folder.mkdir()
+        color = [1, 1, 1] if name == 'neutral' else [.9, .3, .1]
+        pixels = np.tile(ramp[None, :, None] * np.array(color, dtype=np.float32), (8, 1, 1))
+        OpenEXR.File({}, {'RGB': pixels}).write(str(folder / '18_auto_tail.exr'))
+    sys.exit(0)
 value = 128 + (int(__import__('os').environ['TEST_GREEN_BIAS']) if sys.argv[1] == 'render' else 0)
 Image.new('RGB', (64, 64), (128, value, 128)).save(sys.argv[sys.argv.index('--out') + 1])
 """)
