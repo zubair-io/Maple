@@ -222,6 +222,16 @@ class WorkflowTests(unittest.TestCase):
             "(github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/next-v')) || github.event_name == 'merge_group'",
         )
 
+    def test_merge_group_handoff_runs_do_not_share_the_serialized_queue(self):
+        config = workflow("release-handoff")
+        group = config["concurrency"]["group"]
+        self.assertIn("github.event.merge_group.head_sha", group)
+        self.assertIn("'release-handoff'", group)
+        self.assertFalse(config["concurrency"]["cancel-in-progress"])
+        release = workflow("version-sync")["jobs"]["create-release"]
+        self.assertEqual(release["concurrency"]["group"], "release-handoff")
+        self.assertFalse(release["concurrency"]["cancel-in-progress"])
+
     def test_aggregate_checks_have_unique_stable_names(self):
         names = [
             workflow(name)["jobs"]["result"]["name"]

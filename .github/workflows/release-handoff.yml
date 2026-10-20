@@ -17,8 +17,12 @@ permissions:
   pull-requests: read
   statuses: write
 
+# Merge-group runs only write a status on their own group commit, so each gets
+# its own group: GitHub keeps one pending run per group and would otherwise let a
+# later trigger replace a queued group run. Refreshes and the release itself
+# (version-sync.yml) stay serialized on the shared key.
 concurrency:
-  group: release-handoff
+  group: ${{ github.event_name == 'merge_group' && format('release-handoff-merge-{0}', github.event.merge_group.head_sha) || 'release-handoff' }}
   cancel-in-progress: false
 
 jobs:
