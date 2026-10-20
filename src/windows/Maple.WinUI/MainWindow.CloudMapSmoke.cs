@@ -41,17 +41,19 @@ public sealed partial class MainWindow
                 throw new InvalidOperationException($"Map publication did not remain settled: requests={handler.RequestCount}, "
                     + $"settledRequests={settledRequests}, appliedCells={map.AppliedCellCount}; inspect map-publication.jsonl");
             RecordSmokeStage(output, "map-duplicate-viewport");
-            var publishedViewport = map.Viewport ?? throw new InvalidOperationException("Map viewport missing");
-            var publishedRequests = handler.RequestCount;
+            await WaitAsync(() => !map.RequestInFlight, "Map request did not settle before duplicate viewport updates");
+            handler.HoldViewport = true;
+            map.SetQuery(new() { MinimumRating = 3 });
+            await handler.ViewportEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             for (var duplicate = 0; duplicate < 50; duplicate++)
             {
-                map.UpdateViewport(publishedViewport);
-                if (map.AppliedCellCount != 1)
-                    throw new InvalidOperationException("Duplicate viewport cleared published Map cells");
+                if (duplicate == 25) handler.ViewportRelease.TrySetResult();
+                SendDuplicateViewport(map);
             }
-            await Task.Delay(250);
-            if (handler.RequestCount != publishedRequests || map.AppliedCellCount != 1)
-                throw new InvalidOperationException("Duplicate viewport restarted the settled Map request");
+            handler.HoldViewport = false;
+            await WaitAsync(() => !map.RequestInFlight && map.AppliedCellCount == 1, "In-flight Map request did not complete after duplicate viewport updates");
+            for (var duplicate = 0; duplicate < 50; duplicate++) SendDuplicateViewport(map);
+
             RecordSmokeStage(output, "map-server-failure");
             handler.Status = HttpStatusCode.ServiceUnavailable;
             map.SetQuery(new() { MinimumRating = 1 });
@@ -132,6 +134,17 @@ public sealed partial class MainWindow
             File.Delete(stylePath);
         }
 
+        static void SendDuplicateViewport(CloudMapView map)
+        {
+            var current = map.Viewport ?? throw new InvalidOperationException("Map viewport missing");
+            var generation = map.RequestGeneration;
+            map.UpdateViewport(current);
+            if (map.RequestGeneration != generation)
+                throw new InvalidOperationException("Duplicate viewport restarted the Map request");
+            if (map.AppliedCellCount != 1)
+                throw new InvalidOperationException("Duplicate viewport cleared published Map cells");
+        }
+
         static async Task WaitAsync(Func<bool> predicate, string error)
         {
             var deadline = DateTime.UtcNow.AddSeconds(30);
@@ -179,6 +192,9 @@ public sealed partial class MainWindow
         public int RequestCount;
         public int ConfigRequests;
         public bool HoldRecovery;
+        public volatile bool HoldViewport;
+        public TaskCompletionSource ViewportEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ViewportRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource RecoveryEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource RecoveryResponse = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public string TileUrl = "";
@@ -201,6 +217,11 @@ public sealed partial class MainWindow
             }
             Query = request.RequestUri!.Query;
             Interlocked.Increment(ref RequestCount);
+            if (HoldViewport)
+            {
+                ViewportEntered.TrySetResult();
+                await ViewportRelease.Task.WaitAsync(cancellationToken);
+            }
             if (Query.Contains("rating=5"))
             {
                 HeldEntered.TrySetResult();
