@@ -157,6 +157,7 @@ pub(super) fn stage(source: &Gray, target: &Gray, warp: Warp) -> Option<(Warp, f
     let (a, b, c, d) = (1. + p[0] / w, p[1] / w, p[3] / h, 1. + p[4] / h);
     Some((
         Warp {
+            radial: 0.,
             coefficients: [
                 a,
                 b,

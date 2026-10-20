@@ -1,7 +1,7 @@
 use super::super::{fit_registration::Warp, paired_observations::ObservationSet};
 
-fn supported(warp: Warp) -> bool {
-    if !warp.coefficients.iter().all(|v| v.is_finite()) {
+fn supported(warp: Warp, inverse: bool) -> bool {
+    if !warp.coefficients.iter().all(|v| v.is_finite()) || !warp.radial.is_finite() {
         return false;
     }
     let mut total = 0;
@@ -10,7 +10,19 @@ fn supported(warp: Warp) -> bool {
             let mut covered = 0;
             for y in gy * 16..(gy + 1) * 16 {
                 for x in gx * 16..(gx + 1) * 16 {
-                    let p = warp.map((x as f64 + 0.5) / 128., (y as f64 + 0.5) / 128.);
+                    let (u, v) = ((x as f64 + 0.5) / 128., (y as f64 + 0.5) / 128.);
+                    let [a, b, c, d] = warp.jacobian(u, v);
+                    if a * d - b * c <= 0. {
+                        return false;
+                    }
+                    let p = if inverse {
+                        let Some(p) = warp.inverse_map(u, v) else {
+                            return false;
+                        };
+                        p
+                    } else {
+                        warp.map(u, v)
+                    };
                     if p.iter().all(|v| (0. ..=1.).contains(v)) {
                         covered += 1;
                     }
@@ -26,22 +38,7 @@ fn supported(warp: Warp) -> bool {
 }
 
 pub(super) fn supported_both_directions(warp: Warp) -> bool {
-    let [a, b, x, c, d, y] = warp.coefficients;
-    let determinant = a * d - b * c;
-    if !determinant.is_finite() || determinant <= 0. {
-        return false;
-    }
-    let inverse = Warp {
-        coefficients: [
-            d / determinant,
-            -b / determinant,
-            (b * y - d * x) / determinant,
-            -c / determinant,
-            a / determinant,
-            (c * x - a * y) / determinant,
-        ],
-    };
-    supported(warp) && supported(inverse)
+    supported(warp, false) && supported(warp, true)
 }
 
 pub(super) fn retains_population(original: &ObservationSet, matched: &ObservationSet) -> bool {
@@ -70,6 +67,7 @@ mod tests {
     fn identity_and_small_lens_scale_retain_support() {
         assert!(supported_both_directions(Warp::IDENTITY));
         assert!(supported_both_directions(Warp {
+            radial: 0.,
             coefficients: [1.016, 0., -0.008, 0., 1.016, -0.008],
         }));
     }
@@ -81,7 +79,10 @@ mod tests {
             [0., 0., 0., 0., 0., 0.],
             [f64::NAN, 0., 0., 0., 1., 0.],
         ] {
-            assert!(!supported_both_directions(Warp { coefficients }));
+            assert!(!supported_both_directions(Warp {
+                coefficients,
+                radial: 0.
+            }));
         }
     }
     #[test]

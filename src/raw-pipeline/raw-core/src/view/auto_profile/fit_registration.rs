@@ -1,24 +1,68 @@
 use super::paired_observations::ObservationSet;
 mod features;
 mod optimizer;
+mod radial_optimizer;
 use features::Gray;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "stage-dump", derive(serde::Serialize))]
 pub(super) struct Warp {
     pub coefficients: [f64; 6],
+    pub radial: f64,
 }
 
 impl Warp {
     pub(super) const IDENTITY: Self = Self {
         coefficients: [1., 0., 0., 0., 1., 0.],
+        radial: 0.,
     };
     pub(super) fn map(self, u: f64, v: f64) -> [f64; 2] {
         let [a, b, x, c, d, y] = self.coefficients;
-        [a * u + b * v + x, c * u + d * v + y]
+        let (nx, ny) = (2. * u - 1., 2. * v - 1.);
+        let r2 = nx * nx + ny * ny;
+        [
+            a * u + b * v + x + self.radial * nx * r2,
+            c * u + d * v + y + self.radial * ny * r2,
+        ]
     }
-    pub(super) fn support(self, width: usize, height: usize, tw: usize, th: usize) -> [f64; 2] {
+    pub(super) fn jacobian(self, u: f64, v: f64) -> [f64; 4] {
         let [a, b, _, c, d, _] = self.coefficients;
+        let (x, y) = (2. * u - 1., 2. * v - 1.);
+        [
+            a + self.radial * (6. * x * x + 2. * y * y),
+            b + self.radial * 4. * x * y,
+            c + self.radial * 4. * x * y,
+            d + self.radial * (2. * x * x + 6. * y * y),
+        ]
+    }
+    pub(super) fn inverse_map(self, u: f64, v: f64) -> Option<[f64; 2]> {
+        let mut p = [u, v];
+        for _ in 0..12 {
+            let q = self.map(p[0], p[1]);
+            let [a, b, c, d] = self.jacobian(p[0], p[1]);
+            let det = a * d - b * c;
+            if !det.is_finite() || det <= 0. {
+                return None;
+            }
+            let (ex, ey) = (q[0] - u, q[1] - v);
+            if ex.abs().max(ey.abs()) < 1e-9 {
+                return Some(p);
+            }
+            p[0] -= (d * ex - b * ey) / det;
+            p[1] -= (a * ey - c * ex) / det;
+        }
+        None
+    }
+    pub(super) fn support(
+        self,
+        width: usize,
+        height: usize,
+        tw: usize,
+        th: usize,
+        u: f64,
+        v: f64,
+    ) -> [f64; 2] {
+        let [a, b, c, d] = self.jacobian(u, v);
         [
             ((a * width as f64).powi(2) + (c * height as f64).powi(2)).sqrt() / tw as f64,
             ((b * width as f64).powi(2) + (d * height as f64).powi(2)).sqrt() / th as f64,
@@ -63,6 +107,12 @@ fn register(source: Gray, target: Gray) -> Option<Registration> {
         previous = edge;
     }
     let (identity_correlation, aligned_correlation) = final_scores?;
+    let src = source.normalized(256.min(source.width.max(source.height)));
+    let dst = target.normalized(256.min(target.width.max(target.height)));
+    if let Some(candidate) = radial_optimizer::refine(&src, &dst, warp) {
+        // Both directions and every region must retain the established support.
+        warp = candidate;
+    }
     let maximum_grid_displacement = [0., 0.5, 1.]
         .into_iter()
         .flat_map(|v| [0., 0.5, 1.].map(move |u| (u, v)))
