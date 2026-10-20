@@ -13,6 +13,13 @@ use super::{
 };
 use rayon::prelude::*;
 
+#[derive(Clone, Copy, PartialEq)]
+enum Half {
+    Holds(f64),
+    Abstains,
+    Vetoes,
+}
+
 /// Minimum fractional held-out loss reduction over the affine fit.
 const HOLD_OUT_GAIN: f64 = 0.02;
 /// Maximum spread of the holding halves' and full-frame radial terms, relative.
@@ -21,25 +28,36 @@ const FOLD_AGREEMENT: f64 = 0.5;
 pub(super) fn refine(source: &Gray, target: &Gray, affine: Warp) -> Option<Warp> {
     let edge = source.width.max(source.height);
     let (src, dst) = (source.normalized(edge), target.normalized(edge));
-    let halves: Vec<Option<f64>> = Pixels::HALVES
+    let halves: Vec<Half> = Pixels::HALVES
         .par_iter()
         .map(|&fit| {
             let held_out = fit.opposite();
-            let linear = optimizer::stage(&src, &dst, affine, false, fit, held_out)?;
-            let radial = optimizer::stage(&src, &dst, affine, true, fit, held_out)?;
-            (radial.loss < linear.loss * (1. - HOLD_OUT_GAIN)).then_some(radial.warp.radial)
+            let fits = optimizer::stage(&src, &dst, affine, false, fit, held_out)
+                .zip(optimizer::stage(&src, &dst, affine, true, fit, held_out));
+            fits.map_or(Half::Abstains, |(linear, radial)| {
+                if radial.loss < linear.loss * (1. - HOLD_OUT_GAIN) {
+                    Half::Holds(radial.warp.radial)
+                } else if radial.loss > linear.loss {
+                    Half::Vetoes
+                } else {
+                    Half::Abstains
+                }
+            })
         })
         .collect();
-    // A texture-poor half (sky) may abstain, but one opposite pair must hold.
-    let pair_holds = |a: usize, b: usize| halves[a].is_some() && halves[b].is_some();
-    if !(pair_holds(0, 1) || pair_holds(2, 3)) {
+    // A texture-poor half (sky) may abstain, but a half the term makes worse
+    // vetoes it, and one opposite pair must hold.
+    let pair_holds = |pair: &[Half]| pair.iter().all(|h| matches!(h, Half::Holds(_)));
+    if halves.contains(&Half::Vetoes) || !halves.chunks(2).any(pair_holds) {
         return None;
     }
     let fitted = optimizer::stage(&src, &dst, affine, true, Pixels::All, Pixels::All)?.warp;
     let terms: Vec<f64> = halves
         .iter()
-        .flatten()
-        .copied()
+        .filter_map(|h| match h {
+            Half::Holds(k) => Some(*k),
+            _ => None,
+        })
         .chain([fitted.radial])
         .collect();
     let (low, high) = terms
