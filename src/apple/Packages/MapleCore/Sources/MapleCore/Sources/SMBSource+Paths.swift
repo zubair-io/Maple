@@ -2,7 +2,8 @@ import Foundation
 
 extension SMBSource {
   /// Listed locations keep identical RAW copies' sidecars independent (#4085).
-  /// Relocations retain captured references, including across reconnects.
+  /// Relocations retain captured references, including across reconnects,
+  /// until a fresh listing finds a file at the reference's old path again.
   /// ID lookup remains a fallback for reads and decodes of legacy references
   /// without a location; mutations go through `mutationPath(for:)` instead.
   func path(for ref: ImageRef) -> String {

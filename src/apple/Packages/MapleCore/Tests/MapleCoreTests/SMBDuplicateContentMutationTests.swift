@@ -88,6 +88,28 @@ final class SMBDuplicateContentMutationTests: EditorTestCase {
     XCTAssertEqual(bytes, fixture.original, "Decoding keeps the content-id fallback (#4085)")
   }
 
+  /// #4992: a relocation survives reconnects for references captured before it,
+  /// but a file listed afresh at the old path is a different file.
+  func testFreshListingAtARelocatedPathIsNotRedirectedToTheMovedFile() async throws {
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
+    let browse = BrowseViewModel()
+    await browse.loadSource(fixture.source)
+    let listed = try XCTUnwrap(browse.assets.first { $0.displayName == "photo.dng" })
+    let renamedPath = try await fixture.source.renameAsset(
+      try XCTUnwrap(listed.smbMutationRef), to: "moved.dng")
+    XCTAssertEqual(renamedPath, "/moved.dng")
+    try fixture.original.write(to: fixture.raw)
+    await fixture.source.disconnect()
+    try await fixture.source.connect(credentials: fixture.credentials)
+    await browse.loadSource(fixture.source)
+
+    let relisted = try XCTUnwrap(browse.assets.first { $0.displayName == "photo.dng" })
+    _ = try await fixture.source.trashAsset(try XCTUnwrap(relisted.smbMutationRef))
+    XCTAssertFalse(exists(fixture.share, "photo.dng"), "the newly listed file is the one trashed")
+    XCTAssertTrue(exists(fixture.share, "moved.dng"), "the earlier rename's file is untouched")
+    XCTAssertTrue(exists(fixture.share, "moved.xmp"))
+  }
+
   private func openDuplicatePair() async throws -> OwnedSMBWorkflowFixture {
     let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
     let backupDir = fixture.share.appendingPathComponent("Backup", isDirectory: true)

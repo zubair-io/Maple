@@ -509,6 +509,9 @@ extension SMBSource: ImageSource {
     }
     pathByMapleId = freshPathByMapleId
     ambiguousMapleIds = freshAmbiguousIds
+    // A path listed again holds whatever file is there now, not the one moved away (#4992).
+    let listed = Set(_assets.map(\.path))
+    relocatedPaths = relocatedPaths.filter { !listed.contains($0.key.smbPath ?? "") }
     return refs
   }
 
