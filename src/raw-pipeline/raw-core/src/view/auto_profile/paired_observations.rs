@@ -33,7 +33,7 @@ enum Sampling {
 
 impl Sampling {
     fn for_warp(warp: Warp) -> Self {
-        if warp == Warp::IDENTITY {
+        if warp.is_identity() {
             Self::Jittered
         } else {
             Self::Aligned(warp)
@@ -45,6 +45,8 @@ pub(super) struct ObservationSet {
     pub rows: Vec<Observation>,
     pub grid_width: usize,
     pub grid_height: usize,
+    /// Sampled frame size; the grid caps each axis at 256 independently.
+    pub frame: [usize; 2],
 }
 
 fn mix(mut x: u64) -> u64 {
@@ -368,6 +370,7 @@ fn build_at_scale(
         rows: observations,
         grid_width: nx,
         grid_height: ny,
+        frame: [tw, th],
     })
 }
 
@@ -412,7 +415,7 @@ mod tests {
             &prior,
             Warp {
                 coefficients: [1., 0., 3. / 64., 0., 1., 0.],
-                radial: 0.,
+                ..Warp::IDENTITY
             },
         )
         .unwrap();

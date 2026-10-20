@@ -67,7 +67,7 @@ mod tests {
         assert!(supported_both_directions(Warp::IDENTITY));
         assert!(supported_both_directions(Warp {
             coefficients: [1.016, 0., -0.008, 0., 1.016, -0.008],
-            radial: 0.,
+            ..Warp::IDENTITY
         }));
     }
     #[test]
@@ -80,7 +80,7 @@ mod tests {
         ] {
             assert!(!supported_both_directions(Warp {
                 coefficients,
-                radial: 0.
+                ..Warp::IDENTITY
             }));
         }
     }
@@ -105,6 +105,7 @@ mod tests {
                 .collect(),
             grid_width: 8,
             grid_height: 8,
+            frame: [8, 8],
         };
         let original = set([100; 64]);
         assert!(retains_population(&original, &set([95; 64])));
