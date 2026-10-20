@@ -160,24 +160,27 @@ pub(crate) fn amaze_with_sensor_gains(
     let green_plane: Vec<f32> = out.pixels.par_iter().map(|p| p[1]).collect();
     fcs::suppress_false_colour(&mut out, &cfa_flat, &green_plane, w, h, cfa, fcs_strength);
 
-    for (i, pixel) in out.pixels.iter_mut().enumerate() {
-        let gains = site_gains.map_or([1.0; 3], |g| quad_channel_gains(g, i, w, h, cfa));
-        for c in 0..3 {
-            pixel[c] = pixel[c] / scales[c] * gains[c];
-        }
-        let sampled = cfa.color_at((i % w) as u32, (i / w) as u32) as usize;
-        pixel[sampled] = mosaic.pixels[i][sampled];
-    }
+    out.pixels
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(i, pixel)| {
+            let gains = site_gains.map_or([1.0; 3], |g| quad_channel_gains(g, i, w, h, cfa));
+            for c in 0..3 {
+                pixel[c] = pixel[c] / scales[c] * gains[c];
+            }
+            let sampled = cfa.color_at((i % w) as u32, (i / w) as u32) as usize;
+            pixel[sampled] = mosaic.pixels[i][sampled];
+        });
     out
 }
 
 /// Per-channel gain at pixel `i`: the mean gain of that channel's sites in
-/// the 2×2 Bayer quad containing `i`. Gain maps are smooth, so the quad
+/// the 2×2 Bayer window containing `i`. Gain maps are smooth, so the quad
 /// stands in for the gain the reconstructed channel would have measured.
 fn quad_channel_gains(gains: &[f32], i: usize, w: usize, h: usize, cfa: CfaPattern) -> [f32; 3] {
-    let (x0, y0) = ((i % w) & !1, (i / w) & !1);
-    let sites = [(0, 0), (1, 0), (0, 1), (1, 1)]
-        .map(|(dx, dy)| ((x0 + dx).min(w - 1), (y0 + dy).min(h - 1)));
+    // Any 2×2 Bayer window holds every channel; odd edges step back one.
+    let (x0, y0) = (((i % w) & !1).min(w - 2), ((i / w) & !1).min(h - 2));
+    let sites = [(0, 0), (1, 0), (0, 1), (1, 1)].map(|(dx, dy)| (x0 + dx, y0 + dy));
     std::array::from_fn(|c| {
         let (sum, count) = sites
             .iter()

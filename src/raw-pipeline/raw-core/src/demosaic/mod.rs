@@ -108,24 +108,23 @@ pub(crate) fn camera_demosaic_cancellable(
     gains: Option<crate::sensor_gain_maps::ClipGainContext<'_>>,
     cancel: crate::cancel::CancelToken<'_>,
 ) -> Image {
-    if !matches!(
-        algo,
-        DemosaicAlgorithm::Amaze | DemosaicAlgorithm::DualAmazeVng4
-    ) {
-        return demosaic_cancellable(algo, mosaic, cfa, cancel);
-    }
     let minimum = neutral.into_iter().fold(f32::INFINITY, f32::min);
-    let scales = Some(neutral)
-        .filter(|n| n.iter().all(|v| v.is_finite() && *v > 0.0))
-        .map(|n| n.map(|n| minimum / n))
-        .filter(|s| s.iter().all(|v| *v > 0.0))
-        .unwrap_or([1.0; 3]);
-    let site_gains = gains.map(|g| g.site_gains(mosaic.width, mosaic.height));
+    let scales = || {
+        Some(neutral)
+            .filter(|n| n.iter().all(|v| v.is_finite() && *v > 0.0))
+            .map(|n| n.map(|n| minimum / n))
+            .filter(|s| s.iter().all(|v| *v > 0.0))
+            .unwrap_or([1.0; 3])
+    };
+    let site_gains = || gains.map(|g| g.site_gains(mosaic.width, mosaic.height));
     match algo {
         DemosaicAlgorithm::Amaze => {
-            amaze::amaze_with_sensor_gains(mosaic, cfa, scales, site_gains.as_deref())
+            amaze::amaze_with_sensor_gains(mosaic, cfa, scales(), site_gains().as_deref())
         }
-        _ => dual::dual_amaze_vng4_with_gains(mosaic, cfa, scales, site_gains.as_deref()),
+        DemosaicAlgorithm::DualAmazeVng4 => {
+            dual::dual_amaze_vng4_with_gains(mosaic, cfa, scales(), site_gains().as_deref())
+        }
+        _ => demosaic_cancellable(algo, mosaic, cfa, cancel),
     }
 }
 

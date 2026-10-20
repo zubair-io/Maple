@@ -107,3 +107,35 @@ fn per_phase_gains_scale_each_reconstructed_channel_by_its_quad_gain() {
         }
     }
 }
+
+#[test]
+fn odd_frames_keep_every_channel_gain_at_the_last_row_and_column() {
+    use crate::{
+        demosaic::{amaze::amaze_with_sensor_gains, dual::dual_amaze_vng4_with_gains},
+        image::CfaPattern,
+    };
+    let (w, h) = (19u32, 21u32);
+    for cfa in [
+        CfaPattern::Rggb,
+        CfaPattern::Bggr,
+        CfaPattern::Grbg,
+        CfaPattern::Gbrg,
+    ] {
+        let mut gained = Image::new(w, h, ColorSpace::CameraNativeMosaic);
+        for (i, pixel) in gained.pixels.iter_mut().enumerate() {
+            pixel[cfa.color_at(i as u32 % w, i as u32 / w) as usize] = 0.4 * 2.;
+        }
+        let site_gains = vec![2.; (w * h) as usize];
+        for out in [
+            amaze_with_sensor_gains(&gained, cfa, [1.; 3], Some(&site_gains)),
+            dual_amaze_vng4_with_gains(&gained, cfa, [1.; 3], Some(&site_gains)),
+        ] {
+            for (i, pixel) in out.pixels.iter().enumerate() {
+                assert!(
+                    pixel.iter().all(|v| (v - 0.8).abs() < 1e-5),
+                    "{cfa:?} {i}: {pixel:?}"
+                );
+            }
+        }
+    }
+}
