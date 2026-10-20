@@ -167,14 +167,10 @@ async function publishBackupSidecarCas(
       };
       if (setAside && (await hasSidecarDivergence(kept))) return async () => undefined;
       const id = await recordSidecarDivergence({
-        assetId: req.assetId,
-        libraryId: req.libraryId,
-        sidecarRelPath: req.sidecarRelPath,
+        ...kept,
         deviceId: req.deviceId,
         baseSha256: base,
-        displacedSha256: displaced.sha256,
         displacedXmp: displaced.xmp,
-        incomingSha256: displaced.incomingSha256,
       });
       return () => forgetSidecarDivergence(id);
     },
