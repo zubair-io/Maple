@@ -249,3 +249,16 @@ describe('a canonical send is a server-visible edit (#5021)', () => {
     expect(await read('2024/05/03/IMG_12.JPG.xmp')).toBe(foreign);
   });
 });
+
+describe('a send without a base never buries an old-name edit (#698, #5021)', () => {
+  test("it skips when the photo's edit still sits under the old name", async () => {
+    const photo = await seedUpload('2024/06/01/IMG_20.HEIC');
+    await fs.writeFile(path.join(tmpLib, '2024/06/01/IMG_20.HEIC.xmp'), mapleXmp('device A edit'));
+
+    const res = await post(photo, mapleXmp('device B default'), undefined);
+
+    expect(await res.json()).toEqual({ target_rel_path: '2024/06/01/IMG_20.xmp', skipped: true });
+    expect(await read('2024/06/01/IMG_20.xmp')).toBeNull();
+    expect(await read('2024/06/01/IMG_20.HEIC.xmp')).toBe(mapleXmp('device A edit'));
+  });
+});
