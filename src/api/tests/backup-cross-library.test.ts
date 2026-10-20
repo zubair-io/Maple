@@ -21,16 +21,19 @@
  * Runs against a private SQLite database installed as the process-wide handle
  * for the test (#3787), with both libraries rooted at their own tmp directory.
  */
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import type { ObjectId } from '../src/db/object-id.ts';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import { authedHandle, DEFAULT_AUTHED_USER_ID } from './helpers/authed-handle.ts';
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import type { ObjectId } from "../src/db/object-id.ts";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import {
+  authedHandle,
+  DEFAULT_AUTHED_USER_ID,
+} from "./helpers/authed-handle.ts";
 import {
   createLiveTestDatabase,
   type LiveTestDatabase,
-} from '../src/db/sqlite/test-sqlite.test-helpers.ts';
+} from "../src/db/sqlite/test-sqlite.test-helpers.ts";
 import {
   findAssetIdByMapleId,
   findAssetsByMapleId,
@@ -39,20 +42,21 @@ import {
   seedBackupAsset,
   seedLibrary,
   seedUser,
-} from './helpers/sqlite-fixtures.ts';
-import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
-import { formatBackupPath } from '../src/backup/path-formatter.ts';
+} from "./helpers/sqlite-fixtures.ts";
+import { invalidateLibraryRoots } from "../src/indexer/libraries.cache.ts";
+import { formatBackupPath } from "../src/backup/path-formatter.ts";
+import { xmpSidecarPath } from "../src/fs/xmp.ts";
 
-const deviceId = 'test-device-cross-lib';
-const phid = 'XLIB/L0/001';
+const deviceId = "test-device-cross-lib";
+const phid = "XLIB/L0/001";
 // A content hash that already lives in library A (e.g. a prior folder scan).
-const sharedMapleId = '02e759ceff3390dab8d6cd1425d1e196';
+const sharedMapleId = "02e759ceff3390dab8d6cd1425d1e196";
 // The bytes the device uploads — identical content, hence the same maple_id.
 const sharedBytes = Buffer.alloc(256, 0x5a);
 
 // The rel-path the SAME content occupies inside library A. The device backing
 // up to library B derives a different rel-path from capture date + filename.
-const relPathInA = 'scanned/originals/IMG_XLIB.HEIC';
+const relPathInA = "scanned/originals/IMG_XLIB.HEIC";
 
 let live: LiveTestDatabase;
 let libA: ObjectId;
@@ -61,17 +65,17 @@ let tmpLibA: string;
 let tmpLibB: string;
 
 beforeEach(async () => {
-  tmpLibA = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-xlib-A-'));
-  tmpLibB = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-xlib-B-'));
+  tmpLibA = await fs.mkdtemp(path.join(os.tmpdir(), "maple-xlib-A-"));
+  tmpLibB = await fs.mkdtemp(path.join(os.tmpdir(), "maple-xlib-B-"));
 
   live = await createLiveTestDatabase();
   seedUser(live.db, {
     id: DEFAULT_AUTHED_USER_ID,
-    email: 'test@maple.local',
-    role: 'owner',
+    email: "test@maple.local",
+    role: "owner",
   });
-  libA = seedLibrary(live.db, { path: tmpLibA, label: 'library-A' });
-  libB = seedLibrary(live.db, { path: tmpLibB, label: 'library-B' });
+  libA = seedLibrary(live.db, { path: tmpLibA, label: "library-A" });
+  libB = seedLibrary(live.db, { path: tmpLibB, label: "library-B" });
   // The library-roots cache memoizes folder rows; invalidate so the freshly
   // seeded libraries resolve.
   invalidateLibraryRoots();
@@ -98,44 +102,53 @@ afterEach(async () => {
 });
 
 function ingest(body: Buffer, headers: Record<string, string>): Request {
-  return new Request(`http://localhost/api/libraries/${libB.toHexString()}/backup/ingest`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/octet-stream', ...headers },
-    body: new Uint8Array(body),
-  });
+  return new Request(
+    `http://localhost/api/libraries/${libB.toHexString()}/backup/ingest`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream", ...headers },
+      body: new Uint8Array(body),
+    },
+  );
 }
 
 function sidecar(body: string, headers: Record<string, string>): Request {
-  return new Request(`http://localhost/api/libraries/${libB.toHexString()}/backup/sidecar`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/xml', ...headers },
-    body,
-  });
+  return new Request(
+    `http://localhost/api/libraries/${libB.toHexString()}/backup/sidecar`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/xml", ...headers },
+      body,
+    },
+  );
 }
 
 function rendered(body: Buffer, headers: Record<string, string>): Request {
-  return new Request(`http://localhost/api/libraries/${libB.toHexString()}/backup/rendered`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/octet-stream', ...headers },
-    body: new Uint8Array(body),
-  });
+  return new Request(
+    `http://localhost/api/libraries/${libB.toHexString()}/backup/rendered`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream", ...headers },
+      body: new Uint8Array(body),
+    },
+  );
 }
 
-describe('cross-library backup: same content already in library A, backing up to library B', () => {
-  test('ingest → sidecar → rendered to library B all succeed (no 404)', async () => {
+describe("cross-library backup: same content already in library A, backing up to library B", () => {
+  test("ingest → sidecar → rendered to library B all succeed (no 404)", async () => {
     // ---- Step 1: original bytes → library B ingest -----------------------
     // The content already exists (in library A), so ingest hits the dedup
     // branch. It must MATERIALIZE a location for library B rather than
     // pure-dedup against library A's row.
     const ingestRes = await authedHandle(
       ingest(sharedBytes, {
-        'X-Maple-Device-Id': deviceId,
-        'X-Maple-Phasset-Id': phid,
-        'X-Maple-Capture-Date': '2024-07-04T12:00:00Z',
-        'X-Maple-Filename': 'IMG_XLIB.HEIC',
-        'X-Maple-Total-Bytes': String(sharedBytes.byteLength),
-        'X-Maple-Maple-Id': sharedMapleId,
-        'Content-Range': `bytes 0-${sharedBytes.byteLength - 1}/${sharedBytes.byteLength}`,
+        "X-Maple-Device-Id": deviceId,
+        "X-Maple-Phasset-Id": phid,
+        "X-Maple-Capture-Date": "2024-07-04T12:00:00Z",
+        "X-Maple-Filename": "IMG_XLIB.HEIC",
+        "X-Maple-Total-Bytes": String(sharedBytes.byteLength),
+        "X-Maple-Maple-Id": sharedMapleId,
+        "Content-Range": `bytes 0-${sharedBytes.byteLength - 1}/${sharedBytes.byteLength}`,
       }),
     );
     expect(ingestRes.status).toBe(200);
@@ -156,7 +169,9 @@ describe('cross-library backup: same content already in library A, backing up to
     expect(rows).toHaveLength(1);
     const assetId = findAssetIdByMapleId(live.db, sharedMapleId);
     expect(assetId).not.toBeNull();
-    const libIds = readLocations(live.db, assetId!).map((location) => location.library_id);
+    const libIds = readLocations(live.db, assetId!).map(
+      (location) => location.library_id,
+    );
     expect(libIds).toContain(libA.toHexString());
     expect(libIds).toContain(libB.toHexString());
     // The device link was attached.
@@ -172,17 +187,17 @@ describe('cross-library backup: same content already in library A, backing up to
     const xmp = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about=""/></rdf:RDF></x:xmpmeta>`;
     const sidecarRes = await authedHandle(
       sidecar(xmp, {
-        'X-Maple-Device-Id': deviceId,
-        'X-Maple-Phasset-Id': phid,
-        'X-Maple-Target-Rel-Path': targetRelPath,
+        "X-Maple-Device-Id": deviceId,
+        "X-Maple-Phasset-Id": phid,
+        "X-Maple-Target-Rel-Path": targetRelPath,
       }),
     );
     expect(sidecarRes.status).toBe(200);
     const sidecarBody = await sidecarRes.json();
-    expect(sidecarBody.target_rel_path).toBe(`${targetRelPath}.xmp`);
+    expect(sidecarBody.target_rel_path).toBe(xmpSidecarPath(targetRelPath));
     const sidecarOnDisk = await fs.readFile(
       path.join(tmpLibB, sidecarBody.target_rel_path),
-      'utf8',
+      "utf8",
     );
     expect(sidecarOnDisk).toBe(xmp);
 
@@ -190,17 +205,19 @@ describe('cross-library backup: same content already in library A, backing up to
     const renderedBytes = Buffer.alloc(128, 0x33);
     const renderedRes = await authedHandle(
       rendered(renderedBytes, {
-        'X-Maple-Device-Id': deviceId,
-        'X-Maple-Phasset-Id': phid,
-        'X-Maple-Target-Rel-Path': targetRelPath,
-        'X-Maple-Total-Bytes': String(renderedBytes.byteLength),
-        'X-Maple-Maple-Id': sharedMapleId,
-        'Content-Range': `bytes 0-${renderedBytes.byteLength - 1}/${renderedBytes.byteLength}`,
+        "X-Maple-Device-Id": deviceId,
+        "X-Maple-Phasset-Id": phid,
+        "X-Maple-Target-Rel-Path": targetRelPath,
+        "X-Maple-Total-Bytes": String(renderedBytes.byteLength),
+        "X-Maple-Maple-Id": sharedMapleId,
+        "Content-Range": `bytes 0-${renderedBytes.byteLength - 1}/${renderedBytes.byteLength}`,
       }),
     );
     expect(renderedRes.status).toBe(200);
     const renderedBody = await renderedRes.json();
-    const renderedOnDisk = await fs.readFile(path.join(tmpLibB, renderedBody.target_rel_path));
+    const renderedOnDisk = await fs.readFile(
+      path.join(tmpLibB, renderedBody.target_rel_path),
+    );
     expect(renderedOnDisk.byteLength).toBe(renderedBytes.byteLength);
 
     // Library A's original copy is untouched — dedup never clobbered it.
@@ -211,24 +228,27 @@ describe('cross-library backup: same content already in library A, backing up to
 
 // #4696: library B's computed target is already occupied by an unrelated file.
 // Materializing the copy must neither overwrite that file nor adopt it.
-describe('cross-library backup: the target path in library B is already occupied (#4696)', () => {
-  const captureDate = '2024-07-04T12:00:00Z';
+describe("cross-library backup: the target path in library B is already occupied (#4696)", () => {
+  const captureDate = "2024-07-04T12:00:00Z";
   const targetInB = formatBackupPath({
     captureDate: new Date(captureDate),
     location: null,
-    filename: 'IMG_XLIB.HEIC',
+    filename: "IMG_XLIB.HEIC",
   });
 
-  async function ingestToB(): Promise<{ maple_id: string; target_rel_path: string }> {
+  async function ingestToB(): Promise<{
+    maple_id: string;
+    target_rel_path: string;
+  }> {
     const res = await authedHandle(
       ingest(sharedBytes, {
-        'X-Maple-Device-Id': deviceId,
-        'X-Maple-Phasset-Id': phid,
-        'X-Maple-Capture-Date': captureDate,
-        'X-Maple-Filename': 'IMG_XLIB.HEIC',
-        'X-Maple-Total-Bytes': String(sharedBytes.byteLength),
-        'X-Maple-Maple-Id': sharedMapleId,
-        'Content-Range': `bytes 0-${sharedBytes.byteLength - 1}/${sharedBytes.byteLength}`,
+        "X-Maple-Device-Id": deviceId,
+        "X-Maple-Phasset-Id": phid,
+        "X-Maple-Capture-Date": captureDate,
+        "X-Maple-Filename": "IMG_XLIB.HEIC",
+        "X-Maple-Total-Bytes": String(sharedBytes.byteLength),
+        "X-Maple-Maple-Id": sharedMapleId,
+        "Content-Range": `bytes 0-${sharedBytes.byteLength - 1}/${sharedBytes.byteLength}`,
       }),
     );
     expect(res.status).toBe(200);
@@ -236,8 +256,8 @@ describe('cross-library backup: the target path in library B is already occupied
   }
 
   for (const [name, occupant] of [
-    ['a different size', Buffer.alloc(sharedBytes.byteLength + 7, 0x11)],
-    ['the same size', Buffer.alloc(sharedBytes.byteLength, 0x11)],
+    ["a different size", Buffer.alloc(sharedBytes.byteLength + 7, 0x11)],
+    ["the same size", Buffer.alloc(sharedBytes.byteLength, 0x11)],
   ] as const) {
     test(`an occupant of ${name} is left untouched and the upload lands beside it`, async () => {
       const occupantPath = path.join(tmpLibB, targetInB);
@@ -248,7 +268,9 @@ describe('cross-library backup: the target path in library B is already occupied
 
       expect(body.target_rel_path).not.toBe(targetInB);
       expect(await fs.readFile(occupantPath)).toEqual(occupant);
-      expect(await fs.readFile(path.join(tmpLibB, body.target_rel_path))).toEqual(sharedBytes);
+      expect(
+        await fs.readFile(path.join(tmpLibB, body.target_rel_path)),
+      ).toEqual(sharedBytes);
       const assetId = findAssetIdByMapleId(live.db, sharedMapleId);
       const inB = readLocations(live.db, assetId!).filter(
         (location) => location.library_id === libB.toHexString(),
@@ -258,7 +280,7 @@ describe('cross-library backup: the target path in library B is already occupied
     });
   }
 
-  test('an occupant holding the same bytes is adopted without a second copy', async () => {
+  test("an occupant holding the same bytes is adopted without a second copy", async () => {
     const occupantPath = path.join(tmpLibB, targetInB);
     await fs.mkdir(path.dirname(occupantPath), { recursive: true });
     await fs.writeFile(occupantPath, sharedBytes);
@@ -267,6 +289,8 @@ describe('cross-library backup: the target path in library B is already occupied
 
     expect(body.target_rel_path).toBe(targetInB);
     const siblings = await fs.readdir(path.dirname(occupantPath));
-    expect(siblings.filter((name) => name.startsWith('IMG_XLIB'))).toHaveLength(1);
+    expect(siblings.filter((name) => name.startsWith("IMG_XLIB"))).toHaveLength(
+      1,
+    );
   });
 });
