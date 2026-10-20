@@ -15,7 +15,12 @@ import { createHash } from 'node:crypto';
 import { stageRegistry } from '../registry.ts';
 import { runMigrationTickOnce } from '../migration.ts';
 import { getMigration } from './index.ts';
-import { resetMigrationState, setMigrationEnabled } from '../migration-config.repo.ts';
+import { runCanonicalBackupSidecarsBatch } from './canonical-backup-sidecars.ts';
+import {
+  loadMigrationState,
+  resetMigrationState,
+  setMigrationEnabled,
+} from '../migration-config.repo.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import { createLibrary, seedAsset, type MigrationLibrary } from './migration.test-helpers.ts';
 import { serializeSidecarWrite } from '../../fs/sidecar-write-order.ts';
@@ -67,13 +72,29 @@ function stamped(library: MigrationLibrary, id: string): boolean {
   );
 }
 
+/** One batch of the migration's work; the registered migration is blocked until #5063. */
 async function runTick(): Promise<void> {
-  await resetMigrationState(MIGRATION_ID);
-  await setMigrationEnabled(MIGRATION_ID, true, new Date().toISOString());
-  await runMigrationTickOnce(50, new Date().toISOString());
+  await runCanonicalBackupSidecarsBatch(50);
 }
 
 describe('canonical-backup-sidecars', () => {
+  it('is blocked until #5063 lands: enabling it moves nothing and switches it back off', async () => {
+    using library = await backupLibrary('canon-blocked-');
+    await write(library, 'IMG_0.HEIC', 'pixels');
+    await write(library, 'IMG_0.HEIC.xmp', maple('backup edit'));
+    backupPhoto(library, 'IMG_0.HEIC');
+    await resetMigrationState(MIGRATION_ID);
+    await setMigrationEnabled(MIGRATION_ID, true, new Date().toISOString());
+
+    await runMigrationTickOnce(50, new Date().toISOString());
+
+    expect(await read(library, 'IMG_0.HEIC.xmp')).toBe(maple('backup edit'));
+    expect(await read(library, 'IMG_0.xmp')).toBeNull();
+    const state = await loadMigrationState(MIGRATION_ID);
+    expect(state.enabled).toBe(false);
+    expect(state.last_error).toContain('#5063');
+  });
+
   it('moves a backup sidecar to the canonical name when none exists', async () => {
     using library = await backupLibrary('canon-move-');
     await write(library, 'IMG_1.HEIC', 'pixels');
