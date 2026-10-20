@@ -237,7 +237,7 @@ cd src/raw-pipeline
 cargo test -p raw-core --lib            # ~840 lib tests (70 ignored, fixture-gated)
 cargo test -p raw-core --all-features   # includes fixture-gated tests
 
-# Color pipeline harness (CI gate — diffs vs ACR references, per-case budgets in test-fixtures/budgets.json)
+# Color accuracy gate (CI gate — Auto vs each RAW's embedded camera JPEG)
 src/scripts/test_color_pipeline.sh
 FILTER=baseline src/scripts/test_color_pipeline.sh   # subset to baseline cases for a fast spot-check
 

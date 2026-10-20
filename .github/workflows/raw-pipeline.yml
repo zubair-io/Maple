@@ -2,6 +2,8 @@
 # ACR appearance comparisons are retired from CI. Stock runners without RAWs
 # report physical Auto accuracy as NOT TESTED; fixture-free invariants still run.
 
+name: raw-pipeline
+
 on:
   push:
     branches: [main]
@@ -541,7 +543,7 @@ jobs:
       # failure without it. Add it explicitly rather than assuming
       # stage_stats' narrower numpy-only need covers stage_diff too.
       - name: Install Python deps for the banding gate
-        run: pip install 'numpy>=1.26' 'OpenEXR>=3.2' 'imageio>=2.34' 'colour-science>=0.4.4'
+        run: pip install 'numpy>=1.26' 'OpenEXR>=3.2' 'imageio>=2.34' 'colour-science>=0.4.4' 'opencv-python-headless>=4.10,<6'
       - name: 'Diagnostic input integrity (real EXR/CLI, #4082)'
         run: python3 -m unittest discover -s src/scripts -p test_diagnostic_evidence.py
       - name: Cache cargo registry + raw-pipeline target
@@ -677,7 +679,6 @@ jobs:
       - name: Lensfun-vs-LCP warp gate (test_lensfun_vs_lcp.sh)
         if: steps.probe.outputs.have_raws == 'true'
         run: bash src/scripts/test_lensfun_vs_lcp.sh
-
 
   # Pano regression harness (Maple Pano M0b, #1120). Mirrors the
   # color-pipeline job: fixture probe up front, the harness itself

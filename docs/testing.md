@@ -161,13 +161,12 @@ cargo fmt --check -p raw-ffi        # raw-ffi is rustfmt-canonical; the rest of 
 
 Cargo features on `raw-core` that change what gets tested:
 
-| Feature        | Effect                                                                                   |
-| -------------- | ---------------------------------------------------------------------------------------- |
-| `test-support` | DNG-synthesis helpers. Required by every `tests/*.rs` integration target. Never ship it. |
-| `fixtures`     | Un-ignores the fixture-gated tests and makes a missing fixture a panic.                  |
-
-| `stage-dump` | Writes one OpenEXR per pipeline stage to `$MAPLE_STAGE_DUMP`. Adds ~2 MB; diagnostics only. |
-| `gpu` | Pulls in the `raw-gpu` crate (wgpu/WGSL). Off by default so CPU-only builds don't carry wgpu. |
+| Feature        | Effect                                                                                        |
+| -------------- | --------------------------------------------------------------------------------------------- |
+| `test-support` | DNG-synthesis helpers. Required by every `tests/*.rs` integration target. Never ship it.      |
+| `fixtures`     | Un-ignores the fixture-gated tests and makes a missing fixture a panic.                       |
+| `stage-dump`   | Writes one OpenEXR per pipeline stage to `$MAPLE_STAGE_DUMP`. Adds ~2 MB; diagnostics only.   |
+| `gpu`          | Pulls in the `raw-gpu` crate (wgpu/WGSL). Off by default so CPU-only builds don't carry wgpu. |
 
 The integration targets under `raw-core/tests/` are the synthetic gates' entry points: `grey_invariants`, `grey_adjustments`, `grey_adjustments_display`, `grey_adjustments_wb`, `grey_dcp_phase1`, `color_chart_invariants`, plus the solver math helpers (synthetic inputs, not Adobe image comparisons).
 
@@ -477,7 +476,7 @@ Nothing has to be running first. The library database is a file each test makes 
 [`src/api/src/db/sqlite/test-sqlite.test-helpers.ts`](../src/api/src/db/sqlite/test-sqlite.test-helpers.ts) gives each test its own database with the schema already applied, and disposes of it when the test's block exits:
 
 ```ts
-test("rejects a duplicate filename", async () => {
+test('rejects a duplicate filename', async () => {
   using handle = await createTestDatabase();
   const db = handle.db;
   // …

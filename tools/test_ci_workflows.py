@@ -7,6 +7,7 @@ from pathlib import Path
 import yaml
 from ci_changes import CONSUMERS
 from ci_result import validate
+from release_ci import PATH_FILTERED_WORKFLOWS, REQUIRED_WORKFLOWS
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
@@ -264,6 +265,15 @@ class WorkflowTests(unittest.TestCase):
                 ".github/workflows/cloudflare.yml",
                 workflow("cloudflare")[True][event]["paths"],
             )
+
+    def test_release_readiness_finds_every_workflow_by_its_run_name(self):
+        names = {
+            yaml.safe_load(path.read_text()).get("name", str(path.relative_to(ROOT)))
+            for path in WORKFLOWS.glob("*.yml")
+        }
+        for required in {*REQUIRED_WORKFLOWS, *PATH_FILTERED_WORKFLOWS}:
+            with self.subTest(required=required):
+                self.assertIn(required, names)
 
 
 if __name__ == "__main__":
