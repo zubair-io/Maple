@@ -35,6 +35,8 @@ function reachable(request: Promise<Response>): Promise<Response> {
 }
 const hashCookie = (cookie: string) => createHash('sha256').update(cookie).digest('hex');
 const cache = new Map<string, { epoch: number; token: string; expires: number }>();
+const refreshing = new Map<string, Promise<string>>();
+const REFRESH_LEASE_WAIT_MS = 65_000;
 
 async function ownerStillAuthorized(id: string) {
   const [owner] = await sqliteDb().read<{ role: string }>('SELECT role FROM users WHERE id = ?', [
@@ -312,6 +314,12 @@ export async function finishGoogleFlow(
 }
 
 /** Internal machine-to-machine renewal; Bun exposes no browser-accessible renewal route. */
+/** Drops the cached access token so the next request renews it, e.g. after
+ * Drive rejected it (#5038). */
+export function forgetGoogleAccessToken(id: string): void {
+  cache.delete(id);
+}
+
 export async function googleAccessToken(
   id: string,
   transport: GoogleFetch = fetch,
@@ -320,11 +328,26 @@ export async function googleAccessToken(
   const cached = cache.get(id);
   if (cached && cached.epoch === connection.epoch && cached.expires > Date.now())
     return cached.token;
+  // One refresh per destination at a time: concurrent transfers wait for it
+  // instead of failing as a connection error (#5038).
+  const running = refreshing.get(id);
+  if (running) return running;
+  const refresh = renewAccessToken(id, connection, transport).finally(() => {
+    if (refreshing.get(id) === refresh) refreshing.delete(id);
+  });
+  refreshing.set(id, refresh);
+  return refresh;
+}
+
+async function renewAccessToken(
+  id: string,
+  connection: Connection,
+  transport: GoogleFetch,
+): Promise<string> {
   if (!connection.config.refreshToken)
     throw new GoogleConnectionError('Reconnect Google Drive to resume backup.');
   const lease = randomBytes(32).toString('base64url');
-  if (!(await claimRefresh(id, connection.epoch, lease)))
-    throw new GoogleConnectionError('Google token renewal is already in progress; retry shortly.');
+  await claimRefreshWhenFree(id, connection.epoch, lease);
   try {
     const tokens = await renewTokens(connection, transport);
     const account = await verifyToken(tokens.accessToken, connection.config.clientId, transport);
@@ -359,6 +382,19 @@ export async function googleAccessToken(
     throw error;
   } finally {
     await releaseRefresh(id, lease);
+  }
+}
+
+/** Another process's refresh lease lasts at most a minute; wait it out
+ * rather than failing the transfer as a connection error. */
+async function claimRefreshWhenFree(id: string, epoch: number, lease: string): Promise<void> {
+  const deadline = Date.now() + REFRESH_LEASE_WAIT_MS;
+  while (!(await claimRefresh(id, epoch, lease))) {
+    if (Date.now() >= deadline)
+      throw new GoogleConnectionError(
+        'Google token renewal is already in progress; retry shortly.',
+      );
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }
 

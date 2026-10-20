@@ -85,8 +85,19 @@ export class DriveClient {
   constructor(
     private token: () => Promise<string>,
     readonly transport: GoogleFetch = fetch,
+    private readonly onUnauthorized: () => void = () => {},
   ) {}
   async request(url: string, init: RequestInit = {}, signal?: AbortSignal): Promise<Response> {
+    const response = await this.send(url, init, signal);
+    if (response.status !== 401) return response;
+    // A token Drive rejects is dropped and replaced once; every body this
+    // client sends is buffered, so the retry is safe (#5038).
+    this.onUnauthorized();
+    const retried = await this.send(url, init, signal);
+    if (retried.status === 401) throw new GoogleDriveError(401, null);
+    return retried;
+  }
+  private async send(url: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
     const parsed = driveEndpoint(url);
     const token = await this.token();
     const response = await this.transport(parsed, {
@@ -104,6 +115,10 @@ export class DriveClient {
     }).catch(() => {
       throw new GoogleDriveError(0, null);
     });
+    if (response.status === 401) {
+      await response.body?.cancel().catch(() => {});
+      return response;
+    }
     if (!response.ok && !resumableProgress(parsed, init, response)) {
       await response.body?.cancel().catch(() => {});
       throw new GoogleDriveError(response.status, retryAfter(response));
