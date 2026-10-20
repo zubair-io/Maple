@@ -344,20 +344,28 @@ export async function listChangesSince(
  * `dbOverride` is for tests that want to target an isolated database.
  * Production callers omit it; the process-wide pool applies.
  */
+/** As `recordAndPublishAssetChange`, but a failure throws. */
+export async function recordAndPublishAssetChangeOrThrow(
+  input: RecordChangeInput,
+  dbOverride?: SqliteDb,
+): Promise<void> {
+  const db = sqliteDb(dbOverride);
+  const enriched: RecordChangeInput = {
+    ...input,
+    relative_path: await resolveRelativePath(db, input),
+  };
+  // Unlike the Mongo repo, which reconstructs a bus payload from the input to
+  // avoid a second round trip, the write already hands back the exact row it
+  // persisted — so the bus and the journal cannot disagree.
+  getChangeBus().publish(await recordAssetChangeRow(db, enriched));
+}
+
 export async function recordAndPublishAssetChange(
   input: RecordChangeInput,
   dbOverride?: SqliteDb,
 ): Promise<void> {
   try {
-    const db = sqliteDb(dbOverride);
-    const enriched: RecordChangeInput = {
-      ...input,
-      relative_path: await resolveRelativePath(db, input),
-    };
-    // Unlike the Mongo repo, which reconstructs a bus payload from the input to
-    // avoid a second round trip, the write already hands back the exact row it
-    // persisted — so the bus and the journal cannot disagree.
-    getChangeBus().publish(await recordAssetChangeRow(db, enriched));
+    await recordAndPublishAssetChangeOrThrow(input, dbOverride);
   } catch (err) {
     log.warn(
       { err, kind: input.kind, abs_path: input.abs_path },

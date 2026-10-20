@@ -83,6 +83,7 @@ async function publishOver(
   base: string | null,
   recordDisplaced: RecordDisplaced,
   shared: boolean,
+  beforeWrite: () => Promise<void>,
 ): Promise<SidecarCasOutcome> {
   const incomingSha256 = sidecarSha256(xmp);
   const currentSha256 = sidecarSha256(current);
@@ -92,6 +93,7 @@ async function publishOver(
     await recordDisplaced({ xmp, sha256: incomingSha256, incomingSha256 });
     return { kind: 'shared' };
   }
+  await beforeWrite();
   const forget = diverged
     ? await recordDisplaced({ xmp: current, sha256: currentSha256, incomingSha256 })
     : null;
@@ -107,7 +109,12 @@ async function publishOver(
 }
 
 /** Create the sidecar when none exists; `null` when one appeared first. */
-async function createIfAbsent(destination: string, xmp: string): Promise<SidecarCasOutcome | null> {
+async function createIfAbsent(
+  destination: string,
+  xmp: string,
+  beforeWrite: () => Promise<void>,
+): Promise<SidecarCasOutcome | null> {
+  await beforeWrite();
   const created = await writeSidecarCreateOnly(destination, xmp, 'sidecar write failed');
   if (created.ok) return { kind: 'written' };
   return 'exists' in created ? null : { kind: 'error', error: created.error };
@@ -128,15 +135,23 @@ async function publishAt(
   base: string | null,
   recordDisplaced: RecordDisplaced,
   shared: boolean,
+  beforeWrite: () => Promise<void>,
 ): Promise<SidecarCasOutcome> {
+  // Once only: a create that lost the race goes on to publish over the newcomer.
+  const ahead = once(beforeWrite);
   const existing = await readCurrent(target);
-  const created = existing === null ? await createIfAbsent(target, xmp) : null;
+  const created = existing === null ? await createIfAbsent(target, xmp, ahead) : null;
   if (created) return created;
   // A writer outside the barrier can create the file between the read and
   // the create-only publish; compare against what is actually there.
   const current = existing ?? (await readCurrent(target));
   if (current === null) return { kind: 'error', error: 'sidecar vanished during write' };
-  return publishOver(target, current, xmp, base, recordDisplaced, shared);
+  return publishOver(target, current, xmp, base, recordDisplaced, shared, ahead);
+}
+
+function once(run: () => Promise<void>): () => Promise<void> {
+  const ran: { promise?: Promise<void> } = {};
+  return () => (ran.promise ??= run());
 }
 
 /** Re-authorized after the barrier wait: the folder may now be an outward symlink. */
@@ -158,6 +173,8 @@ export interface SidecarCasOptions {
   shared?: () => Promise<boolean>;
   /** Checked inside the barrier before publishing; `false` abandons the write. */
   precondition?: () => Promise<boolean>;
+  /** Runs inside the barrier just before the bytes are written; a throw writes nothing. */
+  beforeWrite?: () => Promise<void>;
   /** Runs inside the barrier once the edit landed or was kept aside; a throw fails the publish. */
   afterLanded?: (outcome: SidecarCasOutcome) => Promise<void>;
 }
@@ -186,7 +203,14 @@ export async function publishSidecarCas(
       if (typeof target !== 'string') return target;
       if (options.precondition && !(await options.precondition())) return { kind: 'abandoned' };
       const shared = (await options.shared?.()) ?? false;
-      const outcome = await publishAt(target, xmp, base, recordDisplaced, shared);
+      const outcome = await publishAt(
+        target,
+        xmp,
+        base,
+        recordDisplaced,
+        shared,
+        options.beforeWrite ?? (async () => undefined),
+      );
       if (LANDED.has(outcome.kind)) await options.afterLanded?.(outcome);
       return outcome;
     },
@@ -212,14 +236,16 @@ export async function publishSidecarIfAbsent(
   destination: string,
   xmp: string,
   admissionScope: string,
-  precondition: () => Promise<boolean>,
+  hooks: { precondition: () => Promise<boolean>; beforeWrite: () => Promise<void> },
 ): Promise<'written' | 'skipped' | SidecarCasOutcome> {
   const refused = await prepareDestination(destination);
   if (refused) return refused;
   return serializeSidecarWrite(
     destination,
     async (resolved) => {
-      if (!(await precondition())) return { kind: 'abandoned' };
+      if (!(await hooks.precondition())) return { kind: 'abandoned' };
+      if ((await readCurrent(resolved)) !== null) return 'skipped';
+      await hooks.beforeWrite();
       const created = await writeSidecarCreateOnly(resolved, xmp, 'sidecar write failed');
       if (created.ok) return 'written';
       if ('exists' in created) return 'skipped';

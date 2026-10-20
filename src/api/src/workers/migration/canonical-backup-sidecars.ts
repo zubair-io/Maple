@@ -46,7 +46,7 @@ import {
 } from '../../backup/legacy-sidecar.ts';
 import { sidecarStemClaimedBySibling } from '../../fs/sidecar-ownership.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
-import { publishSidecarChange } from '../../routes/xmp-change.ts';
+import { announceSidecarLanded, recordSidecarEditAhead } from '../../routes/xmp-change.ts';
 import { libraryRootAvailable } from '../missing-reaper.helpers.ts';
 import { isLiveFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
@@ -103,9 +103,10 @@ async function publishCanonical(
           location.library_id,
           path.posix.join(location.path, location.filename),
         )) && (await readLegacyBackupEdit(primary).catch(() => null))?.equals(legacyBytes) === true,
+      beforeWrite: () => recordSidecarEditAhead(primary),
       afterLanded: async (landed) => {
         if (landed.kind === 'written' || landed.kind === 'diverged') {
-          await publishSidecarChange(primary, true);
+          await announceSidecarLanded(primary);
         }
         await removeLegacyIfUnchanged(legacy, legacyBytes);
       },

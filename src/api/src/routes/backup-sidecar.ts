@@ -56,7 +56,7 @@ import path from 'node:path';
 import { xmpSidecarPath } from '../fs/xmp.ts';
 import { sidecarStemClaimedBySibling } from '../fs/sidecar-ownership.ts';
 import { hasLegacyBackupEdit, retireLegacyBackupSidecar } from '../backup/legacy-sidecar.ts';
-import { publishSidecarChange } from './xmp-change.ts';
+import { announceSidecarLanded, recordSidecarEditAhead } from './xmp-change.ts';
 import {
   parseSidecarBase,
   publishSidecarCas,
@@ -87,9 +87,15 @@ async function publishLegacySidecar(
   send: BackupSidecarSend,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const { sidecarRelPath, phid } = send;
-  const outcome = await publishSidecarIfAbsent(send.finalPath, send.xmp, send.libraryRoot, () =>
-    stillOwned(send),
-  );
+  const primary = path.join(send.libraryRoot, send.targetRelPath);
+  const outcome = await publishSidecarIfAbsent(send.finalPath, send.xmp, send.libraryRoot, {
+    precondition: () => stillOwned(send),
+    beforeWrite: () => recordSidecarEditAhead(primary),
+  }).catch((error: unknown) => ({
+    kind: 'error' as const,
+    error: error instanceof Error ? error.message : String(error),
+  }));
+  if (outcome === 'written') await announceSidecarLanded(primary);
   if (outcome === 'written' || outcome === 'skipped') {
     log.debug({ phid, sidecarRelPath, outcome }, 'sidecar legacy publish');
     return {
@@ -167,9 +173,10 @@ async function publishBackupSidecarCas(
     {
       shared: () => sidecarStemClaimedBySibling(primary),
       precondition: () => stillOwned(req),
+      beforeWrite: () => recordSidecarEditAhead(primary),
       afterLanded: async (landed) => {
         if (landed.kind === 'written' || landed.kind === 'diverged') {
-          await publishSidecarChange(primary, true);
+          await announceSidecarLanded(primary);
         }
         await retireLegacyBackupSidecar({
           primary,
@@ -221,11 +228,7 @@ async function publishWithoutBase(
   if (await hasLegacyBackupEdit(primary)) {
     return { status: 200, body: { target_rel_path: send.sidecarRelPath, skipped: true } };
   }
-  const result = await publishLegacySidecar(send);
-  if (result.status === 200 && !('skipped' in result.body)) {
-    await publishSidecarChange(primary, true);
-  }
-  return result;
+  return publishLegacySidecar(send);
 }
 
 /** Why `targetRelPath` can't take this asset's canonical sidecar, if it can't. */

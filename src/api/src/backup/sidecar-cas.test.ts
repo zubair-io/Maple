@@ -46,7 +46,10 @@ test('a create-only publish whose precondition no longer holds writes nothing', 
   using library = await createTempLibrary('maple-cas-hooks-');
   const sidecar = path.join(library.root, 'IMG.xmp');
 
-  const outcome = await publishSidecarIfAbsent(sidecar, 'stale', library.root, async () => false);
+  const outcome = await publishSidecarIfAbsent(sidecar, 'stale', library.root, {
+    precondition: async () => false,
+    beforeWrite: async () => undefined,
+  });
 
   expect(outcome).toEqual({ kind: 'abandoned' });
   await expect(fs.access(sidecar)).rejects.toThrow();
