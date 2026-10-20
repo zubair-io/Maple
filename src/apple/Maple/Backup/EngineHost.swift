@@ -64,6 +64,8 @@ public final class EngineHost {
   /// Every start and stop runs here, one at a time (#5022): a second Stop, a
   /// BGTask expiry or a new Start never interleaves with a teardown.
   private let lifecycle = SerialOperationQueue()
+  /// A requested retry of failed photos survives a newer start superseding it.
+  private var retryFailedRequested = false
   private var activeSettings: BackupSettings?
   public private(set) var uploadAddress: URL?
   public private(set) var usesLocalAddress = false
@@ -108,23 +110,25 @@ public final class EngineHost {
       return
     }
     lastStartError = nil
-    // A newer start supersedes any earlier one, queued, tearing down or waiting
-    // for the helper's lock; a Stop issued after this call supersedes it too.
+    // Supersedes any earlier start, even one still queued or waiting for the helper's lock.
     generation = UUID()
     let generation = self.generation
+    retryFailedRequested = retryFailedRequested || retryFailed
     engineLockWait?.cancel()
     await lifecycle.run {
       await self.performStart(
-        settings: settings, serverBaseURL: serverBaseURL, retryFailed: retryFailed,
-        generation: generation)
+        settings: settings, serverBaseURL: serverBaseURL, generation: generation)
     }
   }
 
   private func performStart(
-    settings: BackupSettings, serverBaseURL: URL, retryFailed: Bool, generation: UUID
+    settings: BackupSettings, serverBaseURL: URL, generation: UUID
   ) async {
     guard generation == self.generation else { return }
-    if progress.phase == .running && activeSettings == settings { return }
+    if progress.phase == .running && activeSettings == settings {
+      retryFailedRequested = false
+      return
+    }
 
     // Surface "Starting…" to the panel before the (potentially slow)
     // teardown + rehydrate so the user gets immediate feedback that their
@@ -226,6 +230,8 @@ public final class EngineHost {
       lastStartError = nil
       progress.setPhase(.running)
       // Own initial discovery here, after the queue and runner are ready.
+      let retryFailed = retryFailedRequested
+      retryFailedRequested = false
       ChangeObserverWiring.start(
         deviceId: deviceId, settings: settings,
         libraryId: settings.libraryId, serverBaseURL: serverBaseURL,
@@ -252,6 +258,7 @@ public final class EngineHost {
   /// Cancel discovery, active reads/uploads, and retries; pending work stays durable.
   public func stop() async {
     generation = UUID()
+    retryFailedRequested = false
     engineLockWait?.cancel()
     await lifecycle.run { await self.tearDown() }
   }
@@ -291,8 +298,7 @@ public final class EngineHost {
     in storageRoot: URL, generation: UUID
   ) async throws -> BackupEngineLock? {
     if let free = try BackupEngineLock.acquire(in: storageRoot) { return free }
-    // Never start waiting once superseded: the newer start or stop is queued
-    // behind this one and would be stuck until the helper finishes.
+    // A superseded start must not wait: the newer start or stop is queued behind it.
     guard generation == self.generation else { return nil }
     lastStartError =
       "The background helper is finishing a backup. Maple will take over when it's done."
