@@ -213,29 +213,50 @@ namespace Maple.WinUI.Services.FileOperations
 
         /// <summary>
         /// Resolve <paramref name="path"/>'s PARENT directory through any
-        /// reparse point (<see cref="Directory.ResolveLinkTarget"/>), then
-        /// rejoin the ORIGINAL (unresolved) file name literally. Deliberately
-        /// does NOT resolve the full path — see <see cref="ClassifySameFile"/>
-        /// for why resolving the file name too would break case-only-rename
-        /// detection. Falls back to <see cref="Path.GetFullPath(string)"/>
-        /// when the parent doesn't exist, isn't a link, or can't be
-        /// inspected.
+        /// reparse point on ANY ancestor (the parent itself, or a junction
+        /// or symlink several levels up), then rejoin the ORIGINAL
+        /// (unresolved) file name literally. Deliberately does NOT resolve
+        /// the full path — see <see cref="ClassifySameFile"/> for why
+        /// resolving the file name too would break case-only-rename
+        /// detection. An ancestor that doesn't exist or can't be inspected
+        /// keeps its literal spelling.
         /// </summary>
         internal static string CanonicalParent(string path)
         {
             var full = Path.GetFullPath(path);
             var parent = Path.GetDirectoryName(full) ?? Path.GetPathRoot(full) ?? full;
-            try
+            return ResolveLinkedAncestors(parent, remainingLinkHops: MaxAncestorLinkHops);
+        }
+
+        private const int MaxAncestorLinkHops = 16;
+
+        private static string ResolveLinkedAncestors(string directory, int remainingLinkHops)
+        {
+            var linked = NearestLinkedAncestor(directory);
+            if (linked == null) return directory;
+            if (remainingLinkHops == 0)
+                throw new FileOperationException(FileOperationErrorKind.SameFile,
+                    $"too many directory links to rule out an alias: {directory}");
+            var (linkPath, target) = linked.Value;
+            var below = Path.GetRelativePath(linkPath, directory);
+            var rejoined = below == "." ? target : Path.Combine(target, below);
+            return ResolveLinkedAncestors(rejoined, remainingLinkHops - 1);
+        }
+
+        private static (string LinkPath, string Target)? NearestLinkedAncestor(string directory)
+        {
+            for (var current = directory; current != null; current = Path.GetDirectoryName(current))
             {
-                if (Directory.Exists(parent))
+                try
                 {
-                    var target = Directory.ResolveLinkTarget(parent, returnFinalTarget: true);
-                    if (target != null) return target.FullName;
+                    if (!Directory.Exists(current)) continue;
+                    var target = Directory.ResolveLinkTarget(current, returnFinalTarget: true);
+                    if (target != null) return (current, target.FullName);
                 }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
             }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-            return parent;
+            return null;
         }
 
         /// <summary>
