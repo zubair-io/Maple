@@ -319,6 +319,34 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
     expect(await onDisk(target.relPath)).toBe(xmp('sibling edit'));
   });
 
+  for (const base of ['none', undefined] as const) {
+    test(`a ${base ? 'compare-and-swap' : 'no-base'} send whose location goes away while it waits writes nothing`, async () => {
+      const target = await seedUpload(`gone-while-queued-${base ?? 'legacy'}`);
+      const sidecar = path.join(tmpLib, xmpSidecarPath(target.relPath));
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      let entered!: () => void;
+      const inside = new Promise<void>((resolve) => (entered = resolve));
+      const holder = serializeSidecarWrite(sidecar, async () => {
+        entered();
+        await held;
+      });
+      await inside;
+
+      const send = post(target, xmp('stale'), base);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      live.db
+        .query(`UPDATE asset_locations SET deleted_at = ? WHERE path || '/' || filename = ?`)
+        .run(new Date().toISOString(), target.relPath);
+      release();
+      await holder;
+      const res = await send;
+
+      expect(res.status).toBe(404);
+      await expect(fs.access(sidecar)).rejects.toThrow();
+    });
+  }
+
   test('a publish that fails leaves no divergence row behind (#5023)', async () => {
     const target = await seedUpload('failed-publish');
     expect((await post(target, xmp('v1'), 'none')).status).toBe(200);
