@@ -152,6 +152,7 @@ fn make_grey_raw(width: u32, height: u32, orientation: ExifOrientation) -> RawIm
         crop_rect: None,
         iso: 100,
         noise_profile: None,
+        sensor_gain_maps: None,
         opcode_list3: None,
         aperture: None,
         focal_length: None,

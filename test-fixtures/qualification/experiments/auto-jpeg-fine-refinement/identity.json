@@ -1,0 +1,9 @@
+{
+  "source_commit": "a431aa47315ec89020b73063747ff5c5a20b29b8",
+  "renderer_tree": "effa0e44a1bcff82ecf1f687cca47ea58e4595f3",
+  "binary": "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-fine-refinement/maple-cli",
+  "binary_sha256": "2dc0fe406652f9d496af65e802976b01a173b16c120343ea9a1c1914148bcefa",
+  "pipeline_output_version": 37,
+  "fit_version": 7,
+  "status": "full20 physical qualification in progress; prior verified baseline91fa8pass8fail4fallback"
+}

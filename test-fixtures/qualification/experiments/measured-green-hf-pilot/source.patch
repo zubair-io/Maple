@@ -1,0 +1,64 @@
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
+index a20a45968e..b45e6171d9 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
+@@ -112,11 +112,15 @@ pub(super) fn suppress_false_colour(
+         }
+         let i = y * w + x;
+         let gc = green[i];
+-        let gl = green[i - 1];
+-        let gr = green[i + 1];
+-        let gu = green[i - w];
+-        let gd = green[i + w];
+-        let mean = 0.25 * (gl + gr + gu + gd);
++        // The nearest measured green samples lie on the cardinal ring at
++        // R/B centres and the diagonal ring at green centres. Reconstructed
++        // green overshoot must not invent an edge at a measured-green site.
++        let mean = if color_at(x, y) == 1 {
++            0.25 * (green[i - w - 1] + green[i - w + 1]
++                + green[i + w - 1] + green[i + w + 1])
++        } else {
++            0.25 * (green[i - 1] + green[i + 1] + green[i - w] + green[i + w])
++        };
+         let mag = gc.abs() + mean.abs() + EPS;
+         ((gc - mean).abs() / mag).min(1.0)
+     };
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs
+index 0a92f02be6..52cd6942c5 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs
+@@ -430,3 +430,34 @@ fn unsupported_reconstructed_green_does_not_drive_positive_chroma_blending() {
+         }
+     }
+ }
++
++
++#[test]
++fn measured_green_hf_does_not_follow_reconstructed_green_overshoot() {
++    for pattern in PATTERNS {
++        for exposure in [0.01_f32, 1.0, 16.0] {
++            let mut out = Image::new(SIDE as u32, SIDE as u32, ColorSpace::CameraNativeLinearRgb);
++            let mut cfa = vec![0.0; SIDE * SIDE];
++            let mut green = vec![0.0; SIDE * SIDE];
++            for i in 0..SIDE * SIDE {
++                let c = sampled(pattern, i);
++                cfa[i] = [0.4, 0.5, 0.3][c] * exposure;
++                green[i] = if c == 1 { 0.5 } else { 1.0 } * exposure;
++                out.pixels[i] = [0.2 * exposure, green[i], 0.1 * exposure];
++                out.pixels[i][c] = cfa[i];
++            }
++            let before = out.pixels.clone();
++            fcs::suppress_false_colour(&mut out, &cfa, &green, SIDE, SIDE, pattern,
++                fcs::FALSE_COLOUR_SUPPRESS_STRENGTH);
++            for y in 3..SIDE-3 {
++                for x in 3..SIDE-3 {
++                    let i = y * SIDE + x;
++                    if sampled(pattern, i) == 1 {
++                        assert_eq!(out.pixels[i], before[i],
++                            "{pattern:?} exposure={exposure} ({x},{y}): reconstructed green must not invent a measured-green edge");
++                    }
++                }
++            }
++        }
++    }
++}

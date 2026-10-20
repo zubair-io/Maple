@@ -142,6 +142,7 @@ fn fake_raw_with_opcodes(
         crop_rect: None,
         iso: 100,
         noise_profile: None,
+        sensor_gain_maps: None,
         opcode_list3,
         aperture: None,
         focal_length: None,

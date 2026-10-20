@@ -1,0 +1,233 @@
+warning: `#[macro_use]` attribute cannot be used on crates
+   --> third_party/zune-jpeg/src/lib.rs:166:1
+    |
+166 | #![macro_use]
+    | ^^^^^^^^^^^^^
+    |
+    = help: `#[macro_use]` can be applied to extern crates and modules
+    = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+    = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zune-jpeg` (lib) generated 1 warning (run `cargo fix --lib -p zune-jpeg` to apply 1 suggestion)
+   Compiling raw-core v0.1.0 (/Users/riabuz/.codex/worktrees/color-suite-progress/_Maple/src/raw-pipeline/raw-core)
+warning: duplicated attribute
+   --> raw-core/src/black_level.rs:167:5
+    |
+167 |     #[test]
+    |     ^^^^^^^
+    |
+    = note: `#[warn(duplicate_macro_attributes)]` on by default
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery/guided.rs:202:24
+    |
+202 |         anchor: Option<FrameAnchor>,
+    |                        ^^^^^^^^^^^ expected lifetime parameter
+    |
+note: the lint level is defined here
+   --> raw-core/src/lib.rs:6:22
+    |
+  6 | #![warn(clippy::all, rust_2018_idioms)]
+    |                      ^^^^^^^^^^^^^^^^
+    = note: `#[warn(elided_lifetimes_in_paths)]` implied by `#[warn(rust_2018_idioms)]`
+help: indicate the anonymous lifetime
+    |
+202 |         anchor: Option<FrameAnchor<'_>>,
+    |                                   ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery/guided.rs:323:20
+    |
+323 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+323 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery.rs:142:20
+    |
+142 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+142 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: hidden lifetime parameters in types are deprecated
+   --> raw-core/src/stages/highlight_recovery.rs:262:20
+    |
+262 |     anchor: Option<FrameAnchor>,
+    |                    ^^^^^^^^^^^ expected lifetime parameter
+    |
+help: indicate the anonymous lifetime
+    |
+262 |     anchor: Option<FrameAnchor<'_>>,
+    |                               ++++
+
+warning: unused attribute `allow`
+   --> raw-core/src/stages/nlm.rs:334:1
+    |
+334 | #[allow(clippy::too_many_arguments)]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: the built-in attribute `allow` will be ignored, since it's applied to the macro invocation `include`
+   --> raw-core/src/stages/nlm.rs:335:1
+    |
+335 | include!("nlm_shift.rs");
+    | ^^^^^^^
+    = note: `#[warn(unused_attributes)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `camera`
+  --> raw-core/src/lens_profile/lensfun/tests_parity.rs:84:14
+   |
+84 |         let (camera, lens) = find_case(&case);
+   |              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_camera`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `camera`
+   --> raw-core/src/lens_profile/lensfun/tests_parity.rs:111:14
+    |
+111 |         let (camera, lens) = find_case(&case);
+    |              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_camera`
+
+warning: unused variable: `camera`
+   --> raw-core/src/lens_profile/lensfun/tests_parity.rs:149:14
+    |
+149 |         let (camera, lens) = find_case(&case);
+    |              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_camera`
+
+warning: unused variable: `auto_lateral_ca`
+   --> raw-core/src/types/adjustment/schema/tests.rs:152:9
+    |
+152 |         auto_lateral_ca,
+    |         ^^^^^^^^^^^^^^^ help: try ignoring the field: `auto_lateral_ca: _`
+
+warning: unused variable: `defringe_purple_amount`
+   --> raw-core/src/types/adjustment/schema/tests.rs:153:9
+    |
+153 |         defringe_purple_amount,
+    |         ^^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_purple_amount: _`
+
+warning: unused variable: `defringe_purple_hue_lo`
+   --> raw-core/src/types/adjustment/schema/tests.rs:154:9
+    |
+154 |         defringe_purple_hue_lo,
+    |         ^^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_purple_hue_lo: _`
+
+warning: unused variable: `defringe_purple_hue_hi`
+   --> raw-core/src/types/adjustment/schema/tests.rs:155:9
+    |
+155 |         defringe_purple_hue_hi,
+    |         ^^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_purple_hue_hi: _`
+
+warning: unused variable: `defringe_green_amount`
+   --> raw-core/src/types/adjustment/schema/tests.rs:156:9
+    |
+156 |         defringe_green_amount,
+    |         ^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_green_amount: _`
+
+warning: unused variable: `defringe_green_hue_lo`
+   --> raw-core/src/types/adjustment/schema/tests.rs:157:9
+    |
+157 |         defringe_green_hue_lo,
+    |         ^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_green_hue_lo: _`
+
+warning: unused variable: `defringe_green_hue_hi`
+   --> raw-core/src/types/adjustment/schema/tests.rs:158:9
+    |
+158 |         defringe_green_hue_hi,
+    |         ^^^^^^^^^^^^^^^^^^^^^ help: try ignoring the field: `defringe_green_hue_hi: _`
+
+warning: function `accumulate_dynamic` is never used
+   --> raw-core/src/stages/nlm_accumulate.rs:144:15
+    |
+144 | pub(super) fn accumulate_dynamic(
+    |               ^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `scalar_dynamic` is never used
+   --> raw-core/src/stages/nlm_accumulate.rs:276:15
+    |
+276 | pub(super) fn scalar_dynamic(
+    |               ^^^^^^^^^^^^^^
+
+warning: function `run_err` is never used
+  --> raw-core/src/raster_recipe_exec_tests.rs:16:4
+   |
+16 | fn run_err(json: &str, input: &[u8], aux: &[u8]) -> crate::error::Error {
+   |    ^^^^^^^
+
+warning: comparison is useless due to type limits
+   --> raw-core/src/raster_colour_lab_tests.rs:464:29
+    |
+464 |         p3.data[0] > 200 && p3.data[0] <= 255,
+    |                             ^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_comparisons)]` on by default
+
+warning: `raw-core` (lib test) generated 20 warnings (run `cargo fix --lib -p raw-core --tests` to apply 11 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 29.00s
+     Running unittests src/lib.rs (src/raw-pipeline/target/debug/deps/raw_core-2c2b988edcc0e292)
+
+running 52 tests
+test view::agx::chroma_path_tests::common_highlight_weight_meets_diffuse_white_without_a_derivative_jump ... ok
+test view::agx::hue_restoration::tests::ratio_preserves_hue_for_saturated_red ... ok
+test view::agx::hue_restoration::tests::ratio_preserves_neutral_axis ... ok
+test view::agx::chroma_path_tests::hue_range_maps_extrema_and_preserves_the_middle_channel_fraction ... ok
+test view::agx::hue_restoration::tests::ratio_below_floor_collapses_to_neutral ... ok
+test view::agx::chroma_path_tests::common_highlight_blend_curvature_joins_both_constant_endpoints ... ok
+test view::agx::chroma_path_tests::non_common_highlights_keep_exact_ratio_arithmetic_and_one_curve_sample ... ok
+test view::agx::chroma_path_tests::hue_range_is_identity_for_a_linear_curve_and_keeps_neutrals ... ok
+test view::agx::chroma_path_tests::common_highlight_weight_matches_independent_ramp_and_channel_fractions ... ok
+test view::agx::tests::inset_outset_are_numerical_inverses ... ok
+test view::agx::tests::inset_outset_row_sums_are_one ... ok
+test view::agx::tests::lut_anchors_are_zero_and_near_one ... ok
+test view::agx::tests::lut_is_monotone_nondecreasing ... ok
+test view::agx::tests::lut_pivot_value_equals_y_pivot ... ok
+test view::agx::tests::lut_size_matches_declared_constant ... ok
+test view::agx::chroma_path_tests::common_highlight_forward_inverse_roundtrip_before_lossy_gamut_compression ... ok
+test view::agx::hue_restoration::tests::gamut_compress_preserves_hue_direction ... ok
+test view::agx::hue_restoration::tests::gamut_compress_lands_in_unit_box ... ok
+test view::agx::hue_restoration::tests::gamut_compress_passes_through_in_gamut ... ok
+test view::agx::hue_restoration::tests::gamut_compress_scrubs_non_finite_to_finite_unit_range ... ok
+test view::agx_inverse::tests::inverse_undoes_whites_for_in_gamut_greys ... ok
+test view::agx::tests::output_space_becomes_display_linear ... ok
+test view::agx::tests::saturated_highlight_reduces_in_spread ... ok
+test view::agx::tests::mid_gray_identity_preserved ... ok
+test view::agx::tests::neutral_axis_preserved_across_log_domain ... ok
+test view::agx_inverse::tests::roundtrip_neutral_axis_midtones ... ok
+test view::agx::chroma_path_tests::finite_bright_colours_converge_to_the_neutral_shoulder ... ok
+test view::agx_inverse::tests::roundtrip_under_contrast_slope ... ok
+test view::agx_inverse::tests::inverse_uses_the_forward_images_resolved_strength_once ... ok
+test view::agx::tests::below_toe_luminance_collapses_to_neutral ... ok
+test view::agx::tests::huge_scene_values_map_below_or_equal_one ... ok
+test view::agx::tests::deep_shadow_chroma_preserved_via_ratio_sigmoid ... ok
+test view::agx::tests::negative_inputs_clamp_to_toe ... ok
+test view::agx::tests::mid_gray_anchor_preserved ... ok
+test view::agx_inverse::tests::roundtrip_midtone_color_preserves_hue_and_value ... ok
+test view::agx::tests::lut_hash_matches_apple_bundle ... ok
+test view::agx_inverse::tests::srgb_gamma_inverse_roundtrips ... ok
+test view::agx_whites::tests::negative_identity_at_and_below_lo ... ok
+test view::agx_whites::tests::positive_bump_peaks_exactly_at_mid ... ok
+test view::agx_whites::tests::positive_identity_at_and_below_lo ... ok
+test view::agx_whites::tests::zero_is_bit_identity ... ok
+test view::agx_whites_tests::whites_plus_100_lifts_mid_grey_by_at_least_twenty_lstar ... ok
+test view::agx_whites_tests::whites_minus_100_leaves_deep_shadow_untouched_but_moves_mid_grey_slightly ... ok
+test view::agx::tests::positive_contrast_steepens_around_mid_gray ... ok
+test view::agx_whites_tests::whites_and_contrast_compose_monotonically ... ok
+test view::agx_whites_tests::whites_zero_matches_the_two_argument_baseline_bit_for_bit ... ok
+test view::agx_whites::tests::strictly_monotone_across_the_whole_slider_range ... ok
+test view::agx_inverse::tests::full_view_tail_roundtrips_midtone ... ok
+test view::agx_whites::tests::negative_amt_respects_the_monotonicity_bound ... ok
+test view::agx_whites::tests::inverse_round_trips_to_1e_5 ... ok
+test view::agx_whites::tests::positive_amp_respects_the_monotonicity_bound ... ok
+test view::agx::chroma_path_tests::common_highlight_low_endpoint_is_monotone_and_bounded_for_slider_extremes ... ok
+
+test result: ok. 52 passed; 0 failed; 0 ignored; 0 measured; 2884 filtered out; finished in 0.01s
+

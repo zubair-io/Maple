@@ -1,0 +1,8 @@
+ANCHOR 1 test_0015/dehaze_max neutral breach max 51.23532547327914 render_s 16.909
+ANCHOR 2 test_0018/contrast_max neutral passed max 40.03974032907533 render_s 0.432
+ANCHOR 3 test_0000/nr_luminance_max neutral passed max 49.901656326947666 render_s 71.34
+ANCHOR 4 test_0001/exposure_min neutral passed max 7.510037896181721 render_s 3.49
+ANCHOR 5 test_0001/temperature_max neutral passed max 56.37556426515471 render_s 4.801
+ANCHOR 6 test_0002/baseline auto passed max 26.85093250694425 render_s 15.987
+ANCHOR 7 test_0003/baseline auto passed max 12.767853948314409 render_s 31.124
+{"status": "Opposing witnesses retained; known Pixel target reported separately. Wider qualification required.", "comparisons": 7, "planned": 7, "required_opposing_witnesses_pass": true, "known_target_still_fails": true, "all_original_inputs_unchanged": true, "renderer_unchanged": true, "production_changed": false}

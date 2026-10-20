@@ -1,0 +1,850 @@
+{
+  "target": "camera-embedded-jpeg",
+  "profile": "auto",
+  "source_processing_commit": "62afc78711e1c7e696611bde057c2d79a2753a24",
+  "renderer_tree": "b98a1bab62dd11311bd479558cf1bf195f1ad208",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "binary_sha256": "65bb5ba6365080c5e21e16905146eb5fcf52c073e4fec09d269ed72b682cf9f5",
+  "budget": 0.05,
+  "coverage": "Complete 20-fixture set in two disjoint shards using the identical final binary: 16 JPEG comparisons and 4 unchanged missing previews.",
+  "baseline_counts": {
+    "passed": 4,
+    "failed": 12,
+    "no-preview": 4,
+    "error": 0
+  },
+  "counts": {
+    "passed": 16,
+    "failed": 0,
+    "no-preview": 4,
+    "error": 0
+  },
+  "cleared": [
+    "test_0000",
+    "test_0005",
+    "test_0006",
+    "test_0007",
+    "test_0008",
+    "test_0010",
+    "test_0011",
+    "test_0012",
+    "test_0013",
+    "test_0014",
+    "test_0015",
+    "test_0017"
+  ],
+  "new_failures": [],
+  "remaining_failures": [],
+  "cases": [
+    {
+      "fixture": "test_0000",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/f4/f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5.DNG",
+      "raw_sha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "bands": {
+        "0.00-0.10": {
+          "n": 9478,
+          "R": 0.0059121432915854675,
+          "G": 0.0009466711352192288,
+          "B": 0.0008581275937258213
+        },
+        "0.10-0.25": {
+          "n": 71369,
+          "R": 0.0011629149691234635,
+          "G": 8.890551975249197e-05,
+          "B": 3.219940332197776e-05
+        },
+        "0.25-0.50": {
+          "n": 137020,
+          "R": 5.131639577448241e-05,
+          "G": -4.9999856897948154e-05,
+          "B": -6.416696002587216e-05
+        },
+        "0.50-0.75": {
+          "n": 125978,
+          "R": -2.658416237631121e-05,
+          "G": -5.198542291386755e-05,
+          "B": -8.734796209360016e-05
+        },
+        "0.75-1.00": {
+          "n": 49371,
+          "R": -6.862804670996117e-05,
+          "G": -5.2980216615216233e-05,
+          "B": -0.00014090990146235457
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "eb9c598755cca077822eb92117fec68be88dc8e48d635e0f28c1f4e45337bce8",
+      "reference_sha256": "f7100cf9e597a5e73719fb4660c89cf5143913f596c3248b4809f67025993ce6"
+    },
+    {
+      "fixture": "test_0001",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/c4/c4aebea165cf2e782ac976ebafb986f356fdb7fa05834392ad7a8169cbeaf184.RAW",
+      "raw_sha256": "c4aebea165cf2e782ac976ebafb986f356fdb7fa05834392ad7a8169cbeaf184",
+      "status": "no-preview",
+      "reason": "explicit CLI no-preview sentinel; not a pass"
+    },
+    {
+      "fixture": "test_0002",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/4a/4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe.dng",
+      "raw_sha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "bands": {
+        "0.10-0.25": {
+          "n": 30408,
+          "R": -0.00037696478222965077,
+          "G": -0.0003907640404227999,
+          "B": -0.0003853475091694134
+        },
+        "0.25-0.50": {
+          "n": 63691,
+          "R": -0.0003905498391283159,
+          "G": -0.0003956602973732556,
+          "B": -0.0003872249626798011
+        },
+        "0.50-0.75": {
+          "n": 23543,
+          "R": -0.0003859437841313299,
+          "G": -0.00038644349554798707,
+          "B": -0.0003822792337425137
+        },
+        "0.75-1.00": {
+          "n": 132118,
+          "R": -0.0011317868251465057,
+          "G": -0.0007545245500976775,
+          "B": -0.0003788354379581711
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "9af4999bab95f76f0524d97729091e15264d8d8bd46cd6f2aeadfd0bc4a54d64",
+      "reference_sha256": "b6da80bcd53c5bb65605c95b3f235d8c77f93fb81afec3a533e057bc91787733"
+    },
+    {
+      "fixture": "test_0003",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/19/195e1caf17a622c08323a76e8b0cfff9a9c5f76dbc5fa058af15273aa0eacf50.CR2",
+      "raw_sha256": "195e1caf17a622c08323a76e8b0cfff9a9c5f76dbc5fa058af15273aa0eacf50",
+      "bands": {
+        "0.00-0.10": {
+          "n": 5227096,
+          "R": 0.0007683004850411893,
+          "G": 0.0008295994713759555,
+          "B": 2.4240205718994844e-06
+        },
+        "0.10-0.25": {
+          "n": 4066175,
+          "R": 5.838700122496028e-06,
+          "G": 7.821582093394313e-07,
+          "B": 0.00011511806453938506
+        },
+        "0.25-0.50": {
+          "n": 13216433,
+          "R": 2.7594879976718222e-08,
+          "G": 7.984712044824042e-07,
+          "B": 1.035549796970087e-07
+        },
+        "0.50-0.75": {
+          "n": 8868129,
+          "R": -8.998958130698902e-07,
+          "G": 1.2337637928675067e-07,
+          "B": -5.11193886933364e-07
+        },
+        "0.75-1.00": {
+          "n": 828467,
+          "R": -5.680229089319724e-07,
+          "G": 1.2780515450973497e-06,
+          "B": -4.624653183554672e-06
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "beb426adaa689873d104fa47d8f9cbc0d2ca60e1f0ec493e8b6583c7088d4dc7",
+      "reference_sha256": "671fa1d439a20109d47aa531c02d2b8cde904c9383f2974597f465dbaefa07c5"
+    },
+    {
+      "fixture": "test_0004",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/20/209d464e13702de5f4fdb830ac26ac140c98a8d0dc3e81c5ba61d93677330832.fff",
+      "raw_sha256": "209d464e13702de5f4fdb830ac26ac140c98a8d0dc3e81c5ba61d93677330832",
+      "bands": {
+        "0.00-0.10": {
+          "n": 69059,
+          "R": 0.0008184533316070462,
+          "G": 0.0007091407205376254,
+          "B": 0.0007311168142954783
+        },
+        "0.10-0.25": {
+          "n": 218991,
+          "R": 0.0007251081408037091,
+          "G": 0.0006568986942878211,
+          "B": 0.000684744766572465
+        },
+        "0.25-0.50": {
+          "n": 84990,
+          "R": 0.001366988965253121,
+          "G": 0.0006481039291819803,
+          "B": 0.0010402146503971656
+        },
+        "0.50-0.75": {
+          "n": 127366,
+          "R": 0.0008802484610507974,
+          "G": 0.0006578848111956472,
+          "B": 0.0009916766040618482
+        },
+        "0.75-1.00": {
+          "n": 210857,
+          "R": 0.0005270368627302194,
+          "G": 0.0006345346772047978,
+          "B": 0.0006357993573750864
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "1ebd7ed3a80437c144b45c3f29cacd2a64791c284c89bf3bc0e4bcf751dbb752",
+      "reference_sha256": "873875c52ab155d88c139eaac8e06f87647e0aecbd49d606842917542c6785f2"
+    },
+    {
+      "fixture": "test_0005",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/a7/a7124d13910e0241a6b035154bc1fcdb7be4439371d043b1e1950a0251feb51e.RAF",
+      "raw_sha256": "a7124d13910e0241a6b035154bc1fcdb7be4439371d043b1e1950a0251feb51e",
+      "bands": {
+        "0.00-0.10": {
+          "n": 51232,
+          "R": 0.017139716598694447,
+          "G": 0.023049549301294537,
+          "B": 0.0372893473441844
+        },
+        "0.10-0.25": {
+          "n": 643614,
+          "R": 0.0036284200790913652,
+          "G": 0.004726776620525871,
+          "B": 0.006513129261437116
+        },
+        "0.25-0.50": {
+          "n": 2846591,
+          "R": 0.0017044412277083512,
+          "G": 0.0013901471592360428,
+          "B": 0.0020015107027813914
+        },
+        "0.50-0.75": {
+          "n": 4119396,
+          "R": 0.0018595292258627104,
+          "G": 0.001888524529362283,
+          "B": 0.0018969618980311572
+        },
+        "0.75-1.00": {
+          "n": 19167,
+          "R": 0.0017826799943121254,
+          "G": 0.0017476933904985892,
+          "B": 0.0015424795681302718
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "37c1e5efa69388ff0d1fb0efabcdda6bd4a11fa892434fed7b750d1748d88117",
+      "reference_sha256": "882b270ca1594a801ecc236fcb7a985c2c8aa881d9008ed155de03678ad613b2"
+    },
+    {
+      "fixture": "test_0006",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/15/159326856c29073e845c3c5a9ecf98c6474f43ca15798a88ad5e2baecd0664b7.DNG",
+      "raw_sha256": "159326856c29073e845c3c5a9ecf98c6474f43ca15798a88ad5e2baecd0664b7",
+      "bands": {
+        "0.00-0.10": {
+          "n": 30226,
+          "R": 0.00039674971424419743,
+          "G": 0.00041387560118998957,
+          "B": 0.00031086079637969146
+        },
+        "0.10-0.25": {
+          "n": 39662,
+          "R": 0.0003974763219795504,
+          "G": 0.0004071660432616398,
+          "B": 0.00039411458194290634
+        },
+        "0.25-0.50": {
+          "n": 171022,
+          "R": 0.0004054976529794009,
+          "G": 0.00040137021701828904,
+          "B": 0.0004040759805927949
+        },
+        "0.50-0.75": {
+          "n": 144827,
+          "R": 0.0004011818292467137,
+          "G": 0.000402671097646318,
+          "B": 0.00040370004672241137
+        },
+        "0.75-1.00": {
+          "n": 62803,
+          "R": -0.0004392196825866611,
+          "G": -0.00019182298335316557,
+          "B": -0.00021280362215742165
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "cd15db1eb8795d1be81325150588e514baef076314004ac97f25cd1c8715818c",
+      "reference_sha256": "62564f3d7b0242b319d1c4e54c62d30d03af2d47848f61e44ec8233f0c82c15b"
+    },
+    {
+      "fixture": "test_0007",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/95/95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1.DNG",
+      "raw_sha256": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+      "bands": {
+        "0.00-0.10": {
+          "n": 30226,
+          "R": 0.00041647043254541296,
+          "G": 0.001108901179740076,
+          "B": 0.0013881050335836052
+        },
+        "0.10-0.25": {
+          "n": 39662,
+          "R": 0.00041042890859132187,
+          "G": 0.0004294128523276582,
+          "B": 0.0005193888356613388
+        },
+        "0.25-0.50": {
+          "n": 171022,
+          "R": 0.0004090059735463453,
+          "G": 0.00040795118435628315,
+          "B": 0.0004157703824826109
+        },
+        "0.50-0.75": {
+          "n": 144827,
+          "R": 0.00039969256084710817,
+          "G": 0.00041106515589864844,
+          "B": 0.0004117691736875517
+        },
+        "0.75-1.00": {
+          "n": 62803,
+          "R": -1.4986170574460588e-05,
+          "G": 0.00035948076665502773,
+          "B": 0.00038389573621592257
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "76e0283944acdde6f97b20887f82731761ee6312c81375522a402702ac529769",
+      "reference_sha256": "5611d486a58214103a54654de18ca79edea619ee47ad29b502ac2819a3e3fc65"
+    },
+    {
+      "fixture": "test_0008",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/95/95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754.RAF",
+      "raw_sha256": "95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754",
+      "bands": {
+        "0.00-0.10": {
+          "n": 1090984,
+          "R": 0.001332281719269657,
+          "G": 0.0014965011618221842,
+          "B": 0.001418830678201926
+        },
+        "0.10-0.25": {
+          "n": 1197464,
+          "R": 0.0007767198994266707,
+          "G": 0.0008003679147814709,
+          "B": 0.0008193459301506833
+        },
+        "0.25-0.50": {
+          "n": 1797909,
+          "R": 0.0007851081123552229,
+          "G": 0.0007854854570220287,
+          "B": 0.0007883667998246201
+        },
+        "0.50-0.75": {
+          "n": 1496491,
+          "R": 0.0007832335515444566,
+          "G": 0.0007835218075707311,
+          "B": 0.0007847875135770229
+        },
+        "0.75-1.00": {
+          "n": 2738544,
+          "R": 0.000701493417025718,
+          "G": 0.0007103173416668311,
+          "B": 0.0007142825229928991
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "c197b062001e43543e3bf02dac70e4493f65a541815e3043bde25ba251bce639",
+      "reference_sha256": "d4b3dea1d1712d9c7b35dc8e4df265358a2c19970f7d1082cbe80b7e4de8e554"
+    },
+    {
+      "fixture": "test_0009",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/85/85bfec149261ffbae90797e45caae5e204e1e61ac62b92783925b5ee0f267d76.CR2",
+      "raw_sha256": "85bfec149261ffbae90797e45caae5e204e1e61ac62b92783925b5ee0f267d76",
+      "bands": {
+        "0.00-0.10": {
+          "n": 2088387,
+          "R": 0.000257727755496298,
+          "G": 8.117344564367192e-05,
+          "B": 4.677406675160115e-05
+        },
+        "0.10-0.25": {
+          "n": 3805338,
+          "R": 0.00026854330396292947,
+          "G": 4.522748895182007e-05,
+          "B": 2.9510660870515576e-05
+        },
+        "0.25-0.50": {
+          "n": 4140100,
+          "R": 9.008970608362687e-06,
+          "G": 1.3639909237780175e-07,
+          "B": 4.6981909596843543e-07
+        },
+        "0.50-0.75": {
+          "n": 6257100,
+          "R": 0.00017222599832472624,
+          "G": 1.3036171301546436e-07,
+          "B": -7.662260378093023e-05
+        },
+        "0.75-1.00": {
+          "n": 2976659,
+          "R": -1.8444155270904945e-07,
+          "G": -6.44227994819854e-07,
+          "B": -3.8205750203705294e-07
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "bd4e7be605d1180fafec258c402e46440a7dab596819c29be699314e7f29f04e",
+      "reference_sha256": "3ed06694a6de146f5c449c74bd59b79f8a56d7d6d675db57ba7c3811d81cb164"
+    },
+    {
+      "fixture": "test_0010",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/3e/3ea2d03556747afcafa24f13fee69106f383dfaf3a2f436f8331f14518f20037.CR2",
+      "raw_sha256": "3ea2d03556747afcafa24f13fee69106f383dfaf3a2f436f8331f14518f20037",
+      "bands": {
+        "0.00-0.10": {
+          "n": 1526937,
+          "R": -7.0062086488742455e-06,
+          "G": -7.165440663621097e-06,
+          "B": -7.822914789029404e-06
+        },
+        "0.10-0.25": {
+          "n": 3114682,
+          "R": -0.0009720087120340654,
+          "G": -0.0009063714445100374,
+          "B": -0.0009857752639236483
+        },
+        "0.25-0.50": {
+          "n": 4342185,
+          "R": -0.0008261666942912345,
+          "G": -0.0007673980527604178,
+          "B": -0.000928954919619284
+        },
+        "0.50-0.75": {
+          "n": 6224626,
+          "R": 3.8432421639530284e-05,
+          "G": 3.484263198161219e-05,
+          "B": 4.7697959810652256e-05
+        },
+        "0.75-1.00": {
+          "n": 4059154,
+          "R": -7.1684984643387e-07,
+          "G": 2.2094819390870966e-06,
+          "B": 1.1429021136608363e-06
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "1bb848303b5304b41ea6e9a99ead47593b11dbe9cab91050bb4f088181e82eb2",
+      "reference_sha256": "38733b5469659a1089505d73d2878612b89ab9e063d991dcaae304ca63591664"
+    },
+    {
+      "fixture": "test_0011",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/34/3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e.ARW",
+      "raw_sha256": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+      "bands": {
+        "0.00-0.10": {
+          "n": 297528,
+          "R": 0.0008141201144489416,
+          "G": 0.0006521185549318544,
+          "B": 0.0008031275751407283
+        },
+        "0.10-0.25": {
+          "n": 312351,
+          "R": 0.0005837324412750592,
+          "G": 0.0005728221412047669,
+          "B": 0.0005838203263159013
+        },
+        "0.25-0.50": {
+          "n": 107194,
+          "R": 0.000571549402640697,
+          "G": 0.0005704518873056608,
+          "B": 0.00056573257136502
+        },
+        "0.50-0.75": {
+          "n": 10251,
+          "R": -0.00022647240537028597,
+          "G": -0.00016029043555769348,
+          "B": -0.00043075663589013153
+        },
+        "0.75-1.00": {
+          "n": 388964,
+          "R": 0.0013663445036800638,
+          "G": 0.0005922620793980439,
+          "B": 0.0014876622484947999
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "cd152bf247a14681514dd995a9b65bc0953e411a91242dc81f3eafb64edde0ef",
+      "reference_sha256": "dde686e9852185784a4bc67242fabb040ce2c5befe73c525b65fe27d3c15fcd3"
+    },
+    {
+      "fixture": "test_0012",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/35/35109fc20a849026c43c47674902431ef5a2d54b09b616995263dc75df17912f.raf",
+      "raw_sha256": "35109fc20a849026c43c47674902431ef5a2d54b09b616995263dc75df17912f",
+      "bands": {
+        "0.00-0.10": {
+          "n": 1193746,
+          "R": 0.019716320248505583,
+          "G": 0.0027506294816288146,
+          "B": 0.00143135517086878
+        },
+        "0.10-0.25": {
+          "n": 622322,
+          "R": 0.006286632649852597,
+          "G": 0.0020051343447383715,
+          "B": 0.001686826144034503
+        },
+        "0.25-0.50": {
+          "n": 2537691,
+          "R": 0.0023819043590815182,
+          "G": 0.0017702258764009469,
+          "B": 0.0017510637912690739
+        },
+        "0.50-0.75": {
+          "n": 3007254,
+          "R": 0.001897933672197619,
+          "G": 0.0017473800637639854,
+          "B": 0.0017143162212854327
+        },
+        "0.75-1.00": {
+          "n": 318987,
+          "R": 0.0012691524646926387,
+          "G": 0.001750160449712842,
+          "B": 0.00013893245511200603
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "959a187d63be9d2bf004046bff4732e79c2f087d23e792741bf056c525a2465e",
+      "reference_sha256": "90fdfcd27884c33aadb06cac17fb7dc834313188b6c99433c58a061b4647b3c3"
+    },
+    {
+      "fixture": "test_0013",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/e9/e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2.DNG",
+      "raw_sha256": "e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2",
+      "bands": {
+        "0.00-0.10": {
+          "n": 507564,
+          "R": 0.0009724109359878268,
+          "G": 0.0006296820136349851,
+          "B": 0.000880800736652007
+        },
+        "0.10-0.25": {
+          "n": 1115570,
+          "R": 8.366425534339427e-07,
+          "G": 2.5978102814598693e-06,
+          "B": 1.4201831579282595e-05
+        },
+        "0.25-0.50": {
+          "n": 1917898,
+          "R": 0.00015717370645097664,
+          "G": 3.055428390872545e-05,
+          "B": 3.9330231612432485e-05
+        },
+        "0.50-0.75": {
+          "n": 2986755,
+          "R": 7.742418069896262e-05,
+          "G": 8.727420450178528e-06,
+          "B": 7.915994868979122e-06
+        },
+        "0.75-1.00": {
+          "n": 1279133,
+          "R": -0.00033226856493773427,
+          "G": -1.4228387509372514e-05,
+          "B": -1.3400620944492671e-05
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "a266b89928a17e0d61910ecd8db14bd7b1674d535feb06e2dd258c518e41d927",
+      "reference_sha256": "3e28203da1be426f6c86fa063c0e8c262102b4947484d04470cc3f31c7dd0aca"
+    },
+    {
+      "fixture": "test_0014",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/0c/0c9438258ddae5260b9f5a1aace6658a723f1cb1acace3a6cb507116dc6da4f2.NEF",
+      "raw_sha256": "0c9438258ddae5260b9f5a1aace6658a723f1cb1acace3a6cb507116dc6da4f2",
+      "bands": {
+        "0.00-0.10": {
+          "n": 6053326,
+          "R": 0.00046471098018238715,
+          "G": -3.984197622730163e-07,
+          "B": 0.0009441000035417252
+        },
+        "0.10-0.25": {
+          "n": 15818707,
+          "R": 0.00021421224783503011,
+          "G": -9.445257738576188e-08,
+          "B": 0.00014693325552126845
+        },
+        "0.25-0.50": {
+          "n": 3186344,
+          "R": -9.575175788168904e-07,
+          "G": -1.0867455296851971e-06,
+          "B": 5.069427901215738e-06
+        },
+        "0.50-0.75": {
+          "n": 3909381,
+          "R": 1.8437300271459353e-06,
+          "G": -2.6161305281817682e-06,
+          "B": -8.777278420894731e-07
+        },
+        "0.75-1.00": {
+          "n": 116258,
+          "R": -2.0576277440963664e-06,
+          "G": -2.7896035153740462e-05,
+          "B": 9.30992225202907e-06
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "2a11f08419bf4bd41230264304b05f5b10839fa42d9061eaadaba9d2a074485b",
+      "reference_sha256": "40204dea96ed3989974becef40c6a66a1dd0fb8d170554070e01870d72a20771"
+    },
+    {
+      "fixture": "test_0015",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/3a/3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d.dng",
+      "raw_sha256": "3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d",
+      "bands": {
+        "0.00-0.10": {
+          "n": 17295,
+          "R": 0.037685378863890166,
+          "G": 0.029328662369833745,
+          "B": 0.04058114948783793
+        },
+        "0.10-0.25": {
+          "n": 35915,
+          "R": -0.0006055692498355353,
+          "G": 0.016006529578279867,
+          "B": 0.022839656814974352
+        },
+        "0.25-0.50": {
+          "n": 65439,
+          "R": -0.032719230512235756,
+          "G": 0.006810413769566559,
+          "B": 0.01003011635742792
+        },
+        "0.50-0.75": {
+          "n": 98972,
+          "R": 0.03484154361740654,
+          "G": 0.0013904110728881272,
+          "B": -0.00414757828120135
+        },
+        "0.75-1.00": {
+          "n": 5419,
+          "R": -0.03353777015511869,
+          "G": 0.0010941892904052205,
+          "B": -0.03988001548654153
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "f16dec942773b815a306b9ba7482823d70276eea2a930a695f2b508e89b34695",
+      "reference_sha256": "5e3d67e6ed652580679f7ff6b0d740e218380fa9ab260fa3e6bbf13055dba8fe"
+    },
+    {
+      "fixture": "test_0017",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/26/26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e.dng",
+      "raw_sha256": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
+      "bands": {
+        "0.00-0.10": {
+          "n": 21210,
+          "R": 0.04875243826903699,
+          "G": 0.04982592376884747,
+          "B": 0.049044938107256096
+        },
+        "0.10-0.25": {
+          "n": 969170,
+          "R": -0.020787724770356363,
+          "G": -0.005330560797221479,
+          "B": 0.005120581245282247
+        },
+        "0.25-0.50": {
+          "n": 9755621,
+          "R": -0.04755854146879557,
+          "G": -0.04872202676292779,
+          "B": -0.04793327083221169
+        },
+        "0.50-0.75": {
+          "n": 3604875,
+          "R": 0.046979345099806974,
+          "G": -0.0029492643744276023,
+          "B": -0.026265127628776128
+        },
+        "0.75-1.00": {
+          "n": 763712,
+          "R": -0.04753463167719111,
+          "G": -0.049082237960968354,
+          "B": -0.047874961180315576
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "fc1be49f37c015961655d16c52c2c1655402c0bc12017d456d4b5d250f2d189f",
+      "reference_sha256": "19f620d07c2b06b29a7e0e4dea6ded9f3b3a108a4b81600d9c677a9acda8fa7f"
+    },
+    {
+      "fixture": "test_0018",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/2a/2a44135ce4f3beb064b72aad3d30cbf0e9313c729fa3a28db7f6b258f41eb6df.dng",
+      "raw_sha256": "2a44135ce4f3beb064b72aad3d30cbf0e9313c729fa3a28db7f6b258f41eb6df",
+      "status": "no-preview",
+      "reason": "explicit CLI no-preview sentinel; not a pass"
+    },
+    {
+      "fixture": "test_0019",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/8e/8e4a4681b5297c09e78974fdb36bb4b3268e271a54eb16892cc382260db9d064.dng",
+      "raw_sha256": "8e4a4681b5297c09e78974fdb36bb4b3268e271a54eb16892cc382260db9d064",
+      "status": "no-preview",
+      "reason": "explicit CLI no-preview sentinel; not a pass"
+    },
+    {
+      "fixture": "test_0020",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/00/000883c07a8f722a8ddde450ac656a5d01e629a3be39216e43cfd32a2c42d8ff.dng",
+      "raw_sha256": "000883c07a8f722a8ddde450ac656a5d01e629a3be39216e43cfd32a2c42d8ff",
+      "status": "no-preview",
+      "reason": "explicit CLI no-preview sentinel; not a pass"
+    }
+  ],
+  "all_raw_hashes_verified": true,
+  "all_16_reference_hashes_identical_to_original_baseline": true,
+  "all_16_candidate_hashes_verified": true,
+  "all_16_comparisons_recomputed_exactly": true,
+  "all_4_no_preview_sentinels_reconfirmed": true,
+  "original_inputs_changed": false,
+  "verification": [
+    {
+      "fixture": "test_0000",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0001",
+      "raw_verified": true,
+      "reference_verified": false,
+      "status": "no-preview"
+    },
+    {
+      "fixture": "test_0002",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0003",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0004",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0005",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0006",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0007",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0008",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0009",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0010",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0011",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0012",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0013",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0014",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0015",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0017",
+      "raw_verified": true,
+      "reference_verified": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0018",
+      "raw_verified": true,
+      "reference_verified": false,
+      "status": "no-preview"
+    },
+    {
+      "fixture": "test_0019",
+      "raw_verified": true,
+      "reference_verified": false,
+      "status": "no-preview"
+    },
+    {
+      "fixture": "test_0020",
+      "raw_verified": true,
+      "reference_verified": false,
+      "status": "no-preview"
+    }
+  ],
+  "complete": true,
+  "qualification_status": "rejected-visual-regressions",
+  "superseded_by": "Owner review found severe visual regressions across multiple fixtures. These are signed-band-bias passes only, not accepted fixes. Calibration removed from production; all measured counts retained as historical evidence."
+}

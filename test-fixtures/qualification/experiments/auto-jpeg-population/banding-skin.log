@@ -1,0 +1,17 @@
+# Banding gate — stage 18_auto_tail axis=chroma (1024x8)
+
+Second-difference spike (the #1627 gate metric):
+  max_abs_d2:       0.000021
+  mean_abs_d2:      0.000001
+  max_spike_ratio:  0.122700  (spike / row's own peak step)
+  mean_spike_ratio: 0.122700
+
+Flat run (plateau / posterization metric, |d1| <= 1e-06):
+  max_flat_run_frac: 0.000000  (longest flat run / ramp steps)
+
+Shadow histogram gaps (luma < 0.1, bin width = 0.001):
+  r: no shadow samples (n=0)
+  g: no shadow samples (n=0)
+  b: no shadow samples (n=0)
+
+# PASS — test_0000_auto2_skin/18_auto_tail/chroma within budget {'max_abs_d2': 0.001, 'max_spike_ratio': 1.2, 'max_flat_run_frac': 0.02}

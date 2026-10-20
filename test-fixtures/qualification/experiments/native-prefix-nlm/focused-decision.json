@@ -1,0 +1,81 @@
+{
+  "status": "Complete93case focused control; no production adoption or whole-suite count claim.",
+  "comparisons": 93,
+  "failures": 11,
+  "auto_compared": 20,
+  "auto_failures": 0,
+  "original_inputs_unchanged": true,
+  "binary_unchanged": true,
+  "matched_source36": {
+    "cleared": [
+      "test_0015/dehaze_max/neutral",
+      "test_0000/dehaze_max/neutral",
+      "test_0001/blacks_min/neutral",
+      "test_0001/clarity_min/neutral",
+      "test_0001/dehaze_min/neutral",
+      "test_0001/shadows_max/neutral",
+      "test_0001/temperature_max/neutral",
+      "test_0002/shadows_max/neutral",
+      "test_0002/vibrance_min/neutral",
+      "test_0003/dehaze_max/neutral",
+      "test_0003/wb_auto/neutral",
+      "test_0004/dehaze_max/neutral",
+      "test_0004/highlights_min/neutral",
+      "test_0007/dehaze_max/neutral",
+      "test_0011/wb_tungsten/neutral"
+    ],
+    "new": [
+      "test_0000/exposure_min/neutral",
+      "test_0000/shadows_min/neutral",
+      "test_0002/sharpen_amount_max/detail-fullres",
+      "test_0003/whites_min/neutral",
+      "test_0009/whites_max/neutral",
+      "test_0015/sharpen_amount_max/detail-fullres",
+      "test_0018/temperature_max/neutral"
+    ]
+  },
+  "matched_captured_main": {
+    "cleared": [
+      "test_0000/nr_color_max/detail-fullres",
+      "test_0000/nr_luminance_max/detail-fullres",
+      "test_0000/sharpen_detail_max/detail-fullres",
+      "test_0000/sharpen_detail_min/detail-fullres",
+      "test_0000/sharpen_masking_max/detail-fullres",
+      "test_0000/sharpen_radius_max/detail-fullres",
+      "test_0007/clarity_max/neutral",
+      "test_0007/whites_min/neutral",
+      "test_0018/contrast_min/neutral"
+    ],
+    "new": [
+      "test_0001/exposure_min/neutral",
+      "test_0002/sharpen_amount_max/detail-fullres",
+      "test_0014/sharpen_detail_min/detail-fullres",
+      "test_0014/sharpen_radius_max/detail-fullres",
+      "test_0015/sharpen_amount_max/detail-fullres",
+      "test_0018/temperature_max/neutral"
+    ]
+  },
+  "matched_source37": {
+    "cleared": [
+      "test_0015/dehaze_max/neutral",
+      "test_0000/dehaze_max/neutral",
+      "test_0001/dehaze_min/neutral",
+      "test_0002/shadows_max/neutral",
+      "test_0002/vibrance_min/neutral",
+      "test_0003/dehaze_max/neutral",
+      "test_0004/dehaze_max/neutral",
+      "test_0004/highlights_min/neutral",
+      "test_0007/dehaze_max/neutral",
+      "test_0011/wb_tungsten/neutral"
+    ],
+    "new": [
+      "test_0000/exposure_min/neutral",
+      "test_0000/shadows_min/neutral",
+      "test_0001/exposure_min/neutral",
+      "test_0002/sharpen_amount_max/detail-fullres",
+      "test_0003/whites_min/neutral",
+      "test_0009/whites_max/neutral",
+      "test_0015/sharpen_amount_max/detail-fullres"
+    ]
+  }
+}

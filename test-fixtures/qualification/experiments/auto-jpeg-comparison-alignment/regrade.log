@@ -1,0 +1,25 @@
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+{"fixture": "test_0017", "status": "failed", "seconds": 7.136526292000781, "native": "failed"}
+{"fixture": "test_0015", "status": "failed", "seconds": 0.9193877080106176, "native": "failed"}
+{"fixture": "test_0011", "status": "passed", "seconds": 2.6211678330000723, "native": "passed"}
+{"fixture": "test_0013", "status": "passed", "seconds": 4.108429708008771, "native": "passed"}
+{"fixture": "test_0004", "status": "passed", "seconds": 2.2575415419996716, "native": "passed"}
+{"fixture": "test_0009", "status": "passed", "seconds": 8.289836166994064, "native": "passed"}
+{"fixture": "test_0014", "status": "passed", "seconds": 12.400324542002636, "native": "passed"}
+{"fixture": "test_0002", "status": "passed", "seconds": 1.3270777500001714, "native": "passed"}
+{"fixture": "test_0005", "status": "failed", "seconds": 5.14575799999875, "native": "failed"}
+/Users/riabuz/Library/Python/3.14/lib/python/site-packages/PIL/Image.py:3574: DecompressionBombWarning: Image size (100663296 pixels) exceeds limit of 89478485 pixels, could be decompression bomb DOS attack.
+  warnings.warn(
+{"fixture": "test_0000", "status": "failed", "seconds": 3.7063687089976156, "native": "passed"}
+{"fixture": "test_0001", "status": "no-preview", "seconds": 0.2409826249931939, "native": null}
+{"fixture": "test_0003", "status": "failed", "seconds": 13.272254875002545, "native": "passed"}
+{"fixture": "test_0006", "status": "failed", "seconds": 1.4411850409960607, "native": "passed"}
+{"fixture": "test_0007", "status": "failed", "seconds": 1.3381892089964822, "native": "failed"}
+{"fixture": "test_0008", "status": "passed", "seconds": 4.279303249990335, "native": "passed"}
+{"fixture": "test_0010", "status": "failed", "seconds": 8.21187812500284, "native": "failed"}
+{"fixture": "test_0012", "status": "failed", "seconds": 4.9690290830039885, "native": "failed"}
+{"fixture": "test_0018", "status": "no-preview", "seconds": 0.00901891700050328, "native": null}
+{"fixture": "test_0019", "status": "no-preview", "seconds": 0.005154832993866876, "native": null}
+{"fixture": "test_0020", "status": "no-preview", "seconds": 0.10767845899681561, "native": null}

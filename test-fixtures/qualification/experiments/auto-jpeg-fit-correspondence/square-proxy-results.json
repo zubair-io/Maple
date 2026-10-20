@@ -1,0 +1,83 @@
+[
+  {
+    "fixture": "test_0005",
+    "status": "registration from existing sparse fit observations; geometry diagnostic, not physical qualification",
+    "affine_source_to_reference": [
+      [
+        0.9996118579421579,
+        -0.000371421297952121,
+        -0.13215949295451643
+      ],
+      [
+        0.0007780779712257139,
+        0.9967923985186804,
+        0.4454511950817759
+      ]
+    ],
+    "levels": [
+      {
+        "correlation": 0.9756805107271017,
+        "iterations": 11
+      },
+      {
+        "correlation": 0.9077703464627442,
+        "iterations": 17
+      }
+    ],
+    "max_grid_difference_from_root_sift_pixels": 1.9794802758354542
+  },
+  {
+    "fixture": "test_0015",
+    "status": "registration from existing sparse fit observations; geometry diagnostic, not physical qualification",
+    "affine_source_to_reference": [
+      [
+        0.9841989094233365,
+        4.9883008390889746e-05,
+        5.260755423375334
+      ],
+      [
+        0.0005694083951595467,
+        0.9837402343480951,
+        3.66515606742248
+      ]
+    ],
+    "levels": [
+      {
+        "correlation": 0.8775709794889497,
+        "iterations": 13
+      },
+      {
+        "correlation": 0.7541794272353776,
+        "iterations": 6
+      }
+    ],
+    "max_grid_difference_from_root_sift_pixels": 1.37363752999386
+  },
+  {
+    "fixture": "test_0011",
+    "status": "registration from existing sparse fit observations; geometry diagnostic, not physical qualification",
+    "affine_source_to_reference": [
+      [
+        0.9856054454806908,
+        -0.0008242850994851926,
+        7.460855659161711
+      ],
+      [
+        -0.00023293545156595442,
+        0.9888403110162562,
+        3.7987484844715267
+      ]
+    ],
+    "levels": [
+      {
+        "correlation": 0.9579711485691983,
+        "iterations": 10
+      },
+      {
+        "correlation": 0.8441346340738668,
+        "iterations": 9
+      }
+    ],
+    "max_grid_difference_from_root_sift_pixels": 1.6492327346027225
+  }
+]

@@ -1,0 +1,12 @@
+{
+  "source": "15d26545dd9abc50cc9160e2d300c5cb6f9bd9f7",
+  "reviewed": "all16 original/candidate/reference triplets in4contact sheets",
+  "notes": [
+    "0008 gains contrast/saturation and is visibly closer to JPEG;stillfails.",
+    "0015 improves slightly but still lacks foreground contrast;0017 stillfaded.",
+    "Allfivepassingcontrolsretainpasses;no new failures inanycheckfamily.",
+    "Only0008,0015,0017outputschangevs7cfe;other13JPEGoutputsbyte-identical.",
+    "MeanDEimproveswhilealready-failedDEp95increasessome;allphysicalmetricvaluesretained,no completepassingclaim."
+  ],
+  "goal_complete": false
+}

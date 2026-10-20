@@ -1,0 +1,10 @@
+{
+  "decision": "Back out green-guided FCS after the complete output31 run exposed five new failures and one clear relative to the103-case qualified ledger. Restore pre-experiment sensor-value interpolation; preserve the exact rejected code and added synthetic tests in experiments/green-guided-fcs/rejected-guidance.patch. This is a correction of our experiment, not a claimed failure reduction from captured main.",
+  "retained_fix": "AMaZE fused variance/bounding traversal from d5acd722e3 stays in production.",
+  "validation": {
+    "amaze_unit_tests": 21,
+    "existing_assertions": "Unchanged original FCS tests and new traversal dependency test all pass. Two synthetic guidance-specific tests move with rejected experiment.",
+    "physical_qualification": "58 comparisons planned, covering40 camera baselines,3 protocol controls,10 native test0000 detail controls and5 complete-suite regressions. No physical outcome claimed until finished."
+  },
+  "pipeline_output_version": 33
+}

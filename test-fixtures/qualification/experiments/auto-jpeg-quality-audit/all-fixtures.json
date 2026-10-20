@@ -1,0 +1,719 @@
+{
+  "status": "diagnostic-only-not-image-quality-qualification",
+  "geometry": "Display-oriented source PNGs; aspect-center crop to JPEG, BOX resize to at most 1024px; whole frame including borders.",
+  "thresholds": "None chosen. Metrics complement visual review; registration and lens geometry differences remain possible.",
+  "selected": 20,
+  "compared": 16,
+  "no_preview": 4,
+  "mean_absolute_error_increased": 6,
+  "cases": [
+    {
+      "fixture": "test_0000",
+      "baseline_bias_status": "failed",
+      "measurement_size": [
+        960,
+        640
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.07948628813028336,
+        "p95_absolute_channel_error": 0.2588235139846802,
+        "worst_8x8_tile_mean_absolute_error": 0.11166190356016159,
+        "per_channel_absolute_error": [
+          0.07931802421808243,
+          0.07929790765047073,
+          0.07928590476512909
+        ],
+        "per_channel_signed_error": [
+          0.021115250885486603,
+          0.024781018495559692,
+          0.027671031653881073
+        ],
+        "black_channel_fraction": 0.0,
+        "white_channel_fraction": 0.0
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.09660156816244125,
+        "p95_absolute_channel_error": 0.27843138575553894,
+        "worst_8x8_tile_mean_absolute_error": 0.12916992604732513,
+        "per_channel_absolute_error": [
+          0.09595698118209839,
+          0.09711845964193344,
+          0.0960063636302948
+        ],
+        "per_channel_signed_error": [
+          0.007767798844724894,
+          0.007421835325658321,
+          0.00788864865899086
+        ],
+        "black_channel_fraction": 0.011123589409722223,
+        "white_channel_fraction": 0.0
+      },
+      "mean_absolute_error_increased": true
+    },
+    {
+      "fixture": "test_0001",
+      "status": "no-preview",
+      "visual_match": "not-tested"
+    },
+    {
+      "fixture": "test_0002",
+      "baseline_bias_status": "passed",
+      "measurement_size": [
+        721,
+        541
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.019016284495592117,
+        "p95_absolute_channel_error": 0.039215683937072754,
+        "worst_8x8_tile_mean_absolute_error": 0.03629971668124199,
+        "per_channel_absolute_error": [
+          0.02590670995414257,
+          0.01325397752225399,
+          0.017769405618309975
+        ],
+        "per_channel_signed_error": [
+          -0.012377978302538395,
+          -0.0041130646131932735,
+          -0.008551879785954952
+        ],
+        "black_channel_fraction": 0.0,
+        "white_channel_fraction": 8.545671916272925e-06
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.009315314702689648,
+        "p95_absolute_channel_error": 0.03529411554336548,
+        "worst_8x8_tile_mean_absolute_error": 0.03645969554781914,
+        "per_channel_absolute_error": [
+          0.010064354166388512,
+          0.009316276758909225,
+          0.008534609340131283
+        ],
+        "per_channel_signed_error": [
+          -0.0009193205623887479,
+          -0.0005545318126678467,
+          -0.0009253380121663213
+        ],
+        "black_channel_fraction": 0.0,
+        "white_channel_fraction": 0.0
+      },
+      "mean_absolute_error_increased": false
+    },
+    {
+      "fixture": "test_0003",
+      "baseline_bias_status": "passed",
+      "measurement_size": [
+        683,
+        1024
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.029437052085995674,
+        "p95_absolute_channel_error": 0.09803923964500427,
+        "worst_8x8_tile_mean_absolute_error": 0.08623918145895004,
+        "per_channel_absolute_error": [
+          0.03460526466369629,
+          0.026061395183205605,
+          0.02742532454431057
+        ],
+        "per_channel_signed_error": [
+          0.007689157500863075,
+          0.0019244829891249537,
+          0.0004375366261228919
+        ],
+        "black_channel_fraction": 0.0,
+        "white_channel_fraction": 0.0
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.026606956496834755,
+        "p95_absolute_channel_error": 0.09803920984268188,
+        "worst_8x8_tile_mean_absolute_error": 0.08226463198661804,
+        "per_channel_absolute_error": [
+          0.030066950246691704,
+          0.02293567918241024,
+          0.026637913659214973
+        ],
+        "per_channel_signed_error": [
+          -0.0003830095811281353,
+          -0.0025699546094983816,
+          -0.003957028035074472
+        ],
+        "black_channel_fraction": 4.766044411908248e-07,
+        "white_channel_fraction": 0.0
+      },
+      "mean_absolute_error_increased": false
+    },
+    {
+      "fixture": "test_0004",
+      "baseline_bias_status": "passed",
+      "measurement_size": [
+        1024,
+        768
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.0332544669508934,
+        "p95_absolute_channel_error": 0.08627453446388245,
+        "worst_8x8_tile_mean_absolute_error": 0.06172002851963043,
+        "per_channel_absolute_error": [
+          0.03124994970858097,
+          0.0326528437435627,
+          0.03562166169285774
+        ],
+        "per_channel_signed_error": [
+          -0.0016329599311575294,
+          -0.002706698141992092,
+          0.009899056516587734
+        ],
+        "black_channel_fraction": 0.00264739990234375,
+        "white_channel_fraction": 0.0
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.02857614867389202,
+        "p95_absolute_channel_error": 0.08627450466156006,
+        "worst_8x8_tile_mean_absolute_error": 0.058785874396562576,
+        "per_channel_absolute_error": [
+          0.027894465252757072,
+          0.02657976560294628,
+          0.0310672540217638
+        ],
+        "per_channel_signed_error": [
+          -0.005098543129861355,
+          -0.003787980182096362,
+          -0.0063905562274158
+        ],
+        "black_channel_fraction": 0.0010935465494791667,
+        "white_channel_fraction": 0.0
+      },
+      "mean_absolute_error_increased": false
+    },
+    {
+      "fixture": "test_0005",
+      "baseline_bias_status": "failed",
+      "measurement_size": [
+        1024,
+        768
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.034045133739709854,
+        "p95_absolute_channel_error": 0.10196077823638916,
+        "worst_8x8_tile_mean_absolute_error": 0.10542216151952744,
+        "per_channel_absolute_error": [
+          0.033188797533512115,
+          0.03219395503401756,
+          0.03650243952870369
+        ],
+        "per_channel_signed_error": [
+          0.002439816715195775,
+          0.0017786765238270164,
+          -0.006833853665739298
+        ],
+        "black_channel_fraction": 0.0,
+        "white_channel_fraction": 0.0
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.0539327971637249,
+        "p95_absolute_channel_error": 0.1725490391254425,
+        "worst_8x8_tile_mean_absolute_error": 0.1485583484172821,
+        "per_channel_absolute_error": [
+          0.06233052536845207,
+          0.06171355023980141,
+          0.037325434386730194
+        ],
+        "per_channel_signed_error": [
+          -0.01267692819237709,
+          -0.012376339174807072,
+          -0.005803372245281935
+        ],
+        "black_channel_fraction": 0.03026029798719618,
+        "white_channel_fraction": 0.0
+      },
+      "mean_absolute_error_increased": true
+    },
+    {
+      "fixture": "test_0006",
+      "baseline_bias_status": "failed",
+      "measurement_size": [
+        1024,
+        683
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.05858385190367699,
+        "p95_absolute_channel_error": 0.14509806036949158,
+        "worst_8x8_tile_mean_absolute_error": 0.11567582190036774,
+        "per_channel_absolute_error": [
+          0.06621003150939941,
+          0.06351513415575027,
+          0.0455145500600338
+        ],
+        "per_channel_signed_error": [
+          0.04881570488214493,
+          0.04225451499223709,
+          0.018005574122071266
+        ],
+        "black_channel_fraction": 0.011377024615666179,
+        "white_channel_fraction": 2.9549475353831138e-05
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.03574349731206894,
+        "p95_absolute_channel_error": 0.11372548341751099,
+        "worst_8x8_tile_mean_absolute_error": 0.12253796309232712,
+        "per_channel_absolute_error": [
+          0.04005927965044975,
+          0.03682342916727066,
+          0.030065609142184258
+        ],
+        "per_channel_signed_error": [
+          0.02113170176744461,
+          0.01893533766269684,
+          0.008362685330212116
+        ],
+        "black_channel_fraction": 0.001520844771839922,
+        "white_channel_fraction": 3.193249755978526e-05
+      },
+      "mean_absolute_error_increased": false
+    },
+    {
+      "fixture": "test_0007",
+      "baseline_bias_status": "failed",
+      "measurement_size": [
+        1024,
+        683
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.036824215203523636,
+        "p95_absolute_channel_error": 0.10196077823638916,
+        "worst_8x8_tile_mean_absolute_error": 0.09049788862466812,
+        "per_channel_absolute_error": [
+          0.0402723103761673,
+          0.035430099815130234,
+          0.03447108343243599
+        ],
+        "per_channel_signed_error": [
+          0.010818203911185265,
+          0.006396478042006493,
+          0.005127621814608574
+        ],
+        "black_channel_fraction": 0.0004256077659834065,
+        "white_channel_fraction": 1.6204551000488043e-05
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.03331296518445015,
+        "p95_absolute_channel_error": 0.09803923964500427,
+        "worst_8x8_tile_mean_absolute_error": 0.11625048518180847,
+        "per_channel_absolute_error": [
+          0.03705093264579773,
+          0.03195107355713844,
+          0.030679546296596527
+        ],
+        "per_channel_signed_error": [
+          0.020114840939641,
+          0.01689513958990574,
+          0.014628833159804344
+        ],
+        "black_channel_fraction": 0.0009155571315275744,
+        "white_channel_fraction": 9.055484382625671e-06
+      },
+      "mean_absolute_error_increased": false
+    },
+    {
+      "fixture": "test_0008",
+      "baseline_bias_status": "failed",
+      "measurement_size": [
+        1024,
+        683
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.06709466129541397,
+        "p95_absolute_channel_error": 0.20392157137393951,
+        "worst_8x8_tile_mean_absolute_error": 0.19522635638713837,
+        "per_channel_absolute_error": [
+          0.07462583482265472,
+          0.06318052113056183,
+          0.06302286684513092
+        ],
+        "per_channel_signed_error": [
+          0.03405975177884102,
+          0.02898998185992241,
+          0.030257558450102806
+        ],
+        "black_channel_fraction": 4.289439970717423e-05,
+        "white_channel_fraction": 0.0
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.056810446083545685,
+        "p95_absolute_channel_error": 0.1882353127002716,
+        "worst_8x8_tile_mean_absolute_error": 0.1794782131910324,
+        "per_channel_absolute_error": [
+          0.06421675533056259,
+          0.0521547794342041,
+          0.053731173276901245
+        ],
+        "per_channel_signed_error": [
+          0.005378030240535736,
+          0.0014008396537974477,
+          0.003953747451305389
+        ],
+        "black_channel_fraction": 0.08537415355051245,
+        "white_channel_fraction": 0.0
+      },
+      "mean_absolute_error_increased": false
+    },
+    {
+      "fixture": "test_0009",
+      "baseline_bias_status": "passed",
+      "measurement_size": [
+        1024,
+        683
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.016129333525896072,
+        "p95_absolute_channel_error": 0.07058824598789215,
+        "worst_8x8_tile_mean_absolute_error": 0.04749570041894913,
+        "per_channel_absolute_error": [
+          0.02254905179142952,
+          0.014148695394396782,
+          0.011602087877690792
+        ],
+        "per_channel_signed_error": [
+          0.012686371803283691,
+          0.00525655085220933,
+          -0.00047938802163116634
+        ],
+        "black_channel_fraction": 0.0,
+        "white_channel_fraction": 4.766044411908248e-07
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.01452468428760767,
+        "p95_absolute_channel_error": 0.05882352590560913,
+        "worst_8x8_tile_mean_absolute_error": 0.042528316378593445,
+        "per_channel_absolute_error": [
+          0.021162576973438263,
+          0.01212027296423912,
+          0.010204879567027092
+        ],
+        "per_channel_signed_error": [
+          0.003443357767537236,
+          0.0013564913533627987,
+          -0.0018246053950861096
+        ],
+        "black_channel_fraction": 0.0,
+        "white_channel_fraction": 0.0
+      },
+      "mean_absolute_error_increased": false
+    },
+    {
+      "fixture": "test_0010",
+      "baseline_bias_status": "failed",
+      "measurement_size": [
+        1024,
+        683
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.04272228479385376,
+        "p95_absolute_channel_error": 0.11764708161354065,
+        "worst_8x8_tile_mean_absolute_error": 0.08134432137012482,
+        "per_channel_absolute_error": [
+          0.05851142853498459,
+          0.02930215559899807,
+          0.04001111909747124
+        ],
+        "per_channel_signed_error": [
+          -0.02158724144101143,
+          -0.017372233793139458,
+          -0.033951278775930405
+        ],
+        "black_channel_fraction": 0.08219853815885798,
+        "white_channel_fraction": 2.8119662030258664e-05
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.03632499650120735,
+        "p95_absolute_channel_error": 0.11372548341751099,
+        "worst_8x8_tile_mean_absolute_error": 0.08276927471160889,
+        "per_channel_absolute_error": [
+          0.04290967062115669,
+          0.02835576981306076,
+          0.03742078319191933
+        ],
+        "per_channel_signed_error": [
+          -0.0017081033438444138,
+          -0.003947935067117214,
+          -0.007569240406155586
+        ],
+        "black_channel_fraction": 0.0,
+        "white_channel_fraction": 0.0
+      },
+      "mean_absolute_error_increased": false
+    },
+    {
+      "fixture": "test_0011",
+      "baseline_bias_status": "failed",
+      "measurement_size": [
+        1024,
+        684
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.028065666556358337,
+        "p95_absolute_channel_error": 0.07450980693101883,
+        "worst_8x8_tile_mean_absolute_error": 0.091928631067276,
+        "per_channel_absolute_error": [
+          0.027472011744976044,
+          0.029472120106220245,
+          0.027058465406298637
+        ],
+        "per_channel_signed_error": [
+          0.0033049308694899082,
+          -0.004374461714178324,
+          -0.0022852616384625435
+        ],
+        "black_channel_fraction": 0.0015091031615497076,
+        "white_channel_fraction": 0.0
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.03013964742422104,
+        "p95_absolute_channel_error": 0.09411764144897461,
+        "worst_8x8_tile_mean_absolute_error": 0.09850091487169266,
+        "per_channel_absolute_error": [
+          0.03228960186243057,
+          0.029758283868432045,
+          0.028167005628347397
+        ],
+        "per_channel_signed_error": [
+          0.005810662172734737,
+          0.0035256778355687857,
+          0.0037256476934999228
+        ],
+        "black_channel_fraction": 0.00525449637548733,
+        "white_channel_fraction": 0.0
+      },
+      "mean_absolute_error_increased": true
+    },
+    {
+      "fixture": "test_0012",
+      "baseline_bias_status": "failed",
+      "measurement_size": [
+        1024,
+        768
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.09060432761907578,
+        "p95_absolute_channel_error": 0.23529411852359772,
+        "worst_8x8_tile_mean_absolute_error": 0.1498820185661316,
+        "per_channel_absolute_error": [
+          0.11947924643754959,
+          0.07907447963953018,
+          0.07313185185194016
+        ],
+        "per_channel_signed_error": [
+          0.09121885895729065,
+          0.05045798420906067,
+          0.046850744634866714
+        ],
+        "black_channel_fraction": 0.0,
+        "white_channel_fraction": 0.0
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.08930081874132156,
+        "p95_absolute_channel_error": 0.28235292434692383,
+        "worst_8x8_tile_mean_absolute_error": 0.23740032315254211,
+        "per_channel_absolute_error": [
+          0.09638281911611557,
+          0.0880773589015007,
+          0.08308035135269165
+        ],
+        "per_channel_signed_error": [
+          0.015550203621387482,
+          0.010847884230315685,
+          0.007287612650543451
+        ],
+        "black_channel_fraction": 0.10142940945095485,
+        "white_channel_fraction": 0.0
+      },
+      "mean_absolute_error_increased": false
+    },
+    {
+      "fixture": "test_0013",
+      "baseline_bias_status": "failed",
+      "measurement_size": [
+        768,
+        1024
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.059102125465869904,
+        "p95_absolute_channel_error": 0.15294119715690613,
+        "worst_8x8_tile_mean_absolute_error": 0.13236741721630096,
+        "per_channel_absolute_error": [
+          0.0639200508594513,
+          0.05894121527671814,
+          0.054004546254873276
+        ],
+        "per_channel_signed_error": [
+          0.010475576855242252,
+          0.00934878271073103,
+          0.0007187896990217268
+        ],
+        "black_channel_fraction": 0.0,
+        "white_channel_fraction": 0.0
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.06143830344080925,
+        "p95_absolute_channel_error": 0.14117646217346191,
+        "worst_8x8_tile_mean_absolute_error": 0.11106567829847336,
+        "per_channel_absolute_error": [
+          0.06353802233934402,
+          0.06185666099190712,
+          0.05836861953139305
+        ],
+        "per_channel_signed_error": [
+          -0.004050028510391712,
+          -0.003115219995379448,
+          -0.0026975644286721945
+        ],
+        "black_channel_fraction": 7.544623480902778e-05,
+        "white_channel_fraction": 0.0
+      },
+      "mean_absolute_error_increased": true
+    },
+    {
+      "fixture": "test_0014",
+      "baseline_bias_status": "failed",
+      "measurement_size": [
+        1024,
+        683
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.014864739030599594,
+        "p95_absolute_channel_error": 0.04313725233078003,
+        "worst_8x8_tile_mean_absolute_error": 0.03476734831929207,
+        "per_channel_absolute_error": [
+          0.013989613391458988,
+          0.006531839724630117,
+          0.02396545559167862
+        ],
+        "per_channel_signed_error": [
+          0.010930120013654232,
+          0.001092409365810454,
+          0.008517124690115452
+        ],
+        "black_channel_fraction": 0.0,
+        "white_channel_fraction": 0.0
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.008339877240359783,
+        "p95_absolute_channel_error": 0.023529410362243652,
+        "worst_8x8_tile_mean_absolute_error": 0.02084794081747532,
+        "per_channel_absolute_error": [
+          0.008180424571037292,
+          0.0048656039871275425,
+          0.011912230402231216
+        ],
+        "per_channel_signed_error": [
+          0.0005482340347953141,
+          -0.0007358903530985117,
+          -0.0030850281473249197
+        ],
+        "black_channel_fraction": 4.289439970717423e-06,
+        "white_channel_fraction": 0.0
+      },
+      "mean_absolute_error_increased": false
+    },
+    {
+      "fixture": "test_0015",
+      "baseline_bias_status": "failed",
+      "measurement_size": [
+        680,
+        512
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.09589424729347229,
+        "p95_absolute_channel_error": 0.2509803771972656,
+        "worst_8x8_tile_mean_absolute_error": 0.16077038645744324,
+        "per_channel_absolute_error": [
+          0.09316640347242355,
+          0.08872698247432709,
+          0.10534925013780594
+        ],
+        "per_channel_signed_error": [
+          0.026693278923630714,
+          -0.0024262811057269573,
+          -0.01422679889947176
+        ],
+        "black_channel_fraction": 0.0,
+        "white_channel_fraction": 0.0
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.12050583958625793,
+        "p95_absolute_channel_error": 0.3490196168422699,
+        "worst_8x8_tile_mean_absolute_error": 0.29055196046829224,
+        "per_channel_absolute_error": [
+          0.12530255317687988,
+          0.12829428911209106,
+          0.10748160630464554
+        ],
+        "per_channel_signed_error": [
+          -0.01999470219016075,
+          -0.0351102277636528,
+          -0.03464065119624138
+        ],
+        "black_channel_fraction": 0.10481675091911764,
+        "white_channel_fraction": 0.0
+      },
+      "mean_absolute_error_increased": true
+    },
+    {
+      "fixture": "test_0017",
+      "baseline_bias_status": "failed",
+      "measurement_size": [
+        1024,
+        683
+      ],
+      "before": {
+        "mean_absolute_rgb_error": 0.08072822540998459,
+        "p95_absolute_channel_error": 0.21960784494876862,
+        "worst_8x8_tile_mean_absolute_error": 0.13703733682632446,
+        "per_channel_absolute_error": [
+          0.07409942895174026,
+          0.08328674733638763,
+          0.08410981297492981
+        ],
+        "per_channel_signed_error": [
+          0.01836954802274704,
+          0.012208384461700916,
+          -0.0010822416516020894
+        ],
+        "black_channel_fraction": 0.0,
+        "white_channel_fraction": 1.6681155441678868e-05
+      },
+      "rejected_calibration": {
+        "mean_absolute_rgb_error": 0.16425132751464844,
+        "p95_absolute_channel_error": 0.3960784375667572,
+        "worst_8x8_tile_mean_absolute_error": 0.22219693660736084,
+        "per_channel_absolute_error": [
+          0.1838965117931366,
+          0.16602464020252228,
+          0.14367146790027618
+        ],
+        "per_channel_signed_error": [
+          -0.0351434201002121,
+          -0.03659370541572571,
+          -0.039892297238111496
+        ],
+        "black_channel_fraction": 0.0004013009394826745,
+        "white_channel_fraction": 0.0
+      },
+      "mean_absolute_error_increased": true
+    },
+    {
+      "fixture": "test_0018",
+      "status": "no-preview",
+      "visual_match": "not-tested"
+    },
+    {
+      "fixture": "test_0019",
+      "status": "no-preview",
+      "visual_match": "not-tested"
+    },
+    {
+      "fixture": "test_0020",
+      "status": "no-preview",
+      "visual_match": "not-tested"
+    }
+  ]
+}

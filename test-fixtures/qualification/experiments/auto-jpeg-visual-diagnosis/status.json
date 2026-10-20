@@ -1,0 +1,27 @@
+{
+  "issue": 5000,
+  "draft_pr": 5003,
+  "source_commit": "98dcabf603a7a039451f9f4a1ff2ab4770fa0021",
+  "scope": "visual diagnosis across all 16 JPEG-bearing fixtures, four independent previewless checks",
+  "complete": false,
+  "review": "All16 contact sheets inspected; observations recorded, no visual approvals claimed. Aligned review fixes coordinate comparison at gate resolution; native original viewer remains unregistered.",
+  "confirmed_cause": "test_0005 RAF embeds R03 Adobe RGB; detector previously treated non-Canon uncalibrated EXIF as sRGB. Fix reads the embedded JPEG interoperability IFD in-process for both file and bytes callers.",
+  "validation": {
+    "auto_units": "102 passed, 6 ignored",
+    "references": "all16 extracted; only0005 changed. Independent Adobe RGB matrix: p99 error0.003485, mean channels0.00104/0.00137/0.00119 (different JPEG decoders).",
+    "host": "Two formerly silent fixture skips now require fixtures. Real run19 passed/1failed because readonly source permissions propagated to temp copy; writable temp-copy fix then passed the real cache test. Earlier20-pass log included two silent skips and is not complete real-fixture evidence.",
+    "pilot": "0005 still FAILS. Same corrected reference: mean DE4.46969\u21922.72463; p95DE10.94806\u219210.42367; display breaches56\u219226; sourceRAW untouched.",
+    "full_corpus": "Complete9passes/7failures/4exactfallbacks/0errors; only0005pixelschanged; all20RAW andall16image/referencehashesverified.",
+    "gradient_status": "0005AMaZErampverifiedagainstactualrenderartifact: neutralandbluefail. Otherthreepass. Full-qualitybefore/aftercannotestablishAMaZEregression; retainedasdiagnosticevidence."
+  },
+  "constraints": {
+    "merge": false,
+    "pipeline_version": 37,
+    "auto_fit_version": 7,
+    "relaxed_tolerances": false,
+    "neutral_agx_changed": false,
+    "lens_corrections_retained": true
+  },
+  "evidence_root": "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-visual-diagnosis",
+  "next": "Finish full20 qualification, inspect new renders/ramps, then trace remaining contrast errors (especially0015) through stages. No more blind LUT tuning."
+}

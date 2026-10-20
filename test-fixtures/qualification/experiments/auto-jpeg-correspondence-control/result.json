@@ -1,0 +1,64 @@
+[
+  {
+    "fixture": "test_0017",
+    "status": "controlled geometry-only comparison; Neutral is deliberately not a colour qualification",
+    "default_lens_affine": [
+      [
+        1.0171933666508686,
+        2.7097619078451143e-05,
+        -7.1068634987711485
+      ],
+      [
+        -2.7097619078451143e-05,
+        1.0171933666508686,
+        -4.876491183897209
+      ]
+    ],
+    "lens_off_affine": [
+      [
+        1.0040112710558093,
+        -4.150094243857976e-07,
+        -0.3351511253524274
+      ],
+      [
+        4.150094243857976e-07,
+        1.0040112710558093,
+        -0.32367155015338833
+      ]
+    ],
+    "lens_off_inliers": 3360,
+    "lens_off_displacement_p95": 3.92907452583313,
+    "lens_off_affine_residual_p95": 0.5111074475474741
+  },
+  {
+    "fixture": "test_0012",
+    "status": "controlled geometry-only comparison; Neutral is deliberately not a colour qualification",
+    "default_lens_affine": [
+      [
+        0.9870696339573981,
+        -5.377602693636435e-05,
+        6.624424418360321
+      ],
+      [
+        5.377602693636435e-05,
+        0.9870696339573981,
+        4.906100618941998
+      ]
+    ],
+    "lens_off_affine": [
+      [
+        0.9939832776777501,
+        0.00010699886214201596,
+        2.9343279350190907
+      ],
+      [
+        -0.00010699886214201596,
+        0.9939832776777501,
+        2.4532335914515375
+      ]
+    ],
+    "lens_off_inliers": 863,
+    "lens_off_displacement_p95": 2.1793181896209717,
+    "lens_off_affine_residual_p95": 1.3049556826726698
+  }
+]

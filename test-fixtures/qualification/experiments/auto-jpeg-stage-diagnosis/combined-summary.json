@@ -1,0 +1,132 @@
+{
+  "complete": true,
+  "photographic_passes": 9,
+  "ramps_passed": 11,
+  "both_passed": 5,
+  "fallback_exact": 4,
+  "cases": [
+    {
+      "fixture": "test_0015",
+      "photographic_pass": false,
+      "ramp_pass": true,
+      "both_pass": false,
+      "failed_ramps": []
+    },
+    {
+      "fixture": "test_0000",
+      "photographic_pass": false,
+      "ramp_pass": true,
+      "both_pass": false,
+      "failed_ramps": []
+    },
+    {
+      "fixture": "test_0002",
+      "photographic_pass": true,
+      "ramp_pass": true,
+      "both_pass": true,
+      "failed_ramps": []
+    },
+    {
+      "fixture": "test_0003",
+      "photographic_pass": false,
+      "ramp_pass": true,
+      "both_pass": false,
+      "failed_ramps": []
+    },
+    {
+      "fixture": "test_0004",
+      "photographic_pass": true,
+      "ramp_pass": true,
+      "both_pass": true,
+      "failed_ramps": []
+    },
+    {
+      "fixture": "test_0005",
+      "photographic_pass": false,
+      "ramp_pass": false,
+      "both_pass": false,
+      "failed_ramps": [
+        "neutral",
+        "blue"
+      ]
+    },
+    {
+      "fixture": "test_0006",
+      "photographic_pass": false,
+      "ramp_pass": true,
+      "both_pass": false,
+      "failed_ramps": []
+    },
+    {
+      "fixture": "test_0007",
+      "photographic_pass": false,
+      "ramp_pass": true,
+      "both_pass": false,
+      "failed_ramps": []
+    },
+    {
+      "fixture": "test_0008",
+      "photographic_pass": true,
+      "ramp_pass": false,
+      "both_pass": false,
+      "failed_ramps": [
+        "magenta"
+      ]
+    },
+    {
+      "fixture": "test_0009",
+      "photographic_pass": true,
+      "ramp_pass": false,
+      "both_pass": false,
+      "failed_ramps": [
+        "neutral"
+      ]
+    },
+    {
+      "fixture": "test_0010",
+      "photographic_pass": true,
+      "ramp_pass": false,
+      "both_pass": false,
+      "failed_ramps": [
+        "neutral"
+      ]
+    },
+    {
+      "fixture": "test_0011",
+      "photographic_pass": true,
+      "ramp_pass": true,
+      "both_pass": true,
+      "failed_ramps": []
+    },
+    {
+      "fixture": "test_0012",
+      "photographic_pass": true,
+      "ramp_pass": false,
+      "both_pass": false,
+      "failed_ramps": [
+        "neutral"
+      ]
+    },
+    {
+      "fixture": "test_0013",
+      "photographic_pass": true,
+      "ramp_pass": true,
+      "both_pass": true,
+      "failed_ramps": []
+    },
+    {
+      "fixture": "test_0014",
+      "photographic_pass": true,
+      "ramp_pass": true,
+      "both_pass": true,
+      "failed_ramps": []
+    },
+    {
+      "fixture": "test_0017",
+      "photographic_pass": false,
+      "ramp_pass": true,
+      "both_pass": false,
+      "failed_ramps": []
+    }
+  ]
+}

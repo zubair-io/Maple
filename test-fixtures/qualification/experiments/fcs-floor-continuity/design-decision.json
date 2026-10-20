@@ -1,0 +1,5 @@
+{
+  "rejected": "Hard cap alters zero-kernel fallback; 2 existing edge tests fail. Preserved patch/log. No old assertions modified.",
+  "candidate": "Affine ceiling connects old zero-kernel fallback to the existing measured-floor guard. Only positive, below-floor, unsupported-green estimates change. Negative/zero/in-envelope/supported-green behavior unchanged.",
+  "new_test": "Checks <=1ULP against independent f64 affine oracle, plus exact unchanged floor and zero-boundary continuity. Initial new-test unit-slope assumption was invalid for unequal donor values; numerical error bound remains1ULP. All pre-existing tests, numeric limits and physical budgets remain unchanged."
+}

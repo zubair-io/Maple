@@ -258,8 +258,8 @@ fn border_strip_passes_through_unchanged() {
 
 /// f64 ground-truth NLM — the naive O(N·S²·P²) reference both f32 paths are
 /// graded against. Full-f64 patch SSD, weights, and per-pixel average. Uses
-/// exact `(-x).exp()` (not the `fast_neg_exp` LUT) with the same range/sign
-/// clamps as the production function. Because of this, the max-abs difference
+/// exact `(-x).exp()` (not the LUT) and the same lower-bound guard as
+/// production, with no artificial exponential cutoff. Because of this, the max-abs difference
 /// it reports captures BOTH accumulation-order error AND LUT-interpolation
 /// error vs the exact result — it is NOT a pure summation-accuracy probe.
 #[cfg(test)]
@@ -273,8 +273,6 @@ fn denoise_plane_f64_truth(plane: &[f32], w: usize, h: usize, params: NlmParams)
         let x = ssd * inv_norm;
         if x < 0.0 {
             1.0
-        } else if x >= 8.0 {
-            0.0
         } else {
             (-x).exp()
         }

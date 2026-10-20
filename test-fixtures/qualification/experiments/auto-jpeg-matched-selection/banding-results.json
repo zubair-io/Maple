@@ -1,0 +1,22 @@
+[
+  {
+    "ramp": "neutral",
+    "exit": 0
+  },
+  {
+    "ramp": "foliage",
+    "exit": 0
+  },
+  {
+    "ramp": "blue",
+    "exit": 0
+  },
+  {
+    "ramp": "magenta",
+    "exit": 0
+  },
+  {
+    "ramp": "skin",
+    "exit": 0
+  }
+]

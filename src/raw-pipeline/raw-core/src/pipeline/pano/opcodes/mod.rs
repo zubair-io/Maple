@@ -413,6 +413,16 @@ pub fn read_opcode_list3(
     raw_width: u32,
     raw_height: u32,
 ) -> Option<(OpcodeList3, ActiveAreaRect)> {
+    read_opcode_list(bytes, ext, raw_width, raw_height, DngTag::OpcodeList3)
+}
+
+pub(crate) fn read_opcode_list(
+    bytes: &[u8],
+    ext: &str,
+    raw_width: u32,
+    raw_height: u32,
+    tag: DngTag,
+) -> Option<(OpcodeList3, ActiveAreaRect)> {
     let hint_path = format!("rawfile.{}", ext);
     let source = RawSource::new_from_slice(bytes).with_path(std::path::Path::new(&hint_path));
     let decoder = rawler::get_decoder(&source).ok()?;
@@ -420,19 +430,19 @@ pub fn read_opcode_list3(
     // The raw image's IFD is the one that carries OpcodeList3 + ActiveArea.
     let raw_ifd = decoder.ifd(WellKnownIFD::Raw).ok().flatten();
     let root_ifd = decoder.ifd(WellKnownIFD::Root).ok().flatten();
-    let (entry, ifd) = match raw_ifd.as_ref().and_then(|ifd| {
-        ifd.get_entry(DngTag::OpcodeList3)
-            .map(|e| (e, ifd.as_ref()))
-    }) {
+    let (entry, ifd) = match raw_ifd
+        .as_ref()
+        .and_then(|ifd| ifd.get_entry(tag).map(|e| (e, ifd.as_ref())))
+    {
         Some(found) => found,
         None => {
             let root = root_ifd.as_ref()?;
             let ifd = crate::dng_ifd_walker::find_ifd_with_tag(
                 root.as_ref(),
-                DngTag::OpcodeList3,
+                tag,
                 crate::dng_ifd_walker::DEFAULT_MAX_DEPTH,
             )?;
-            (ifd.get_entry(DngTag::OpcodeList3)?, ifd)
+            (ifd.get_entry(tag)?, ifd)
         }
     };
     let blob: &[u8] = match &entry.value {

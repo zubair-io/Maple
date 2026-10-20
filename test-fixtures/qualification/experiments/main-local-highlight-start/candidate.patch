@@ -1,0 +1,1466 @@
+diff --git a/src/raw-pipeline/raw-core/examples/amaze-region-probe.rs b/src/raw-pipeline/raw-core/examples/amaze-region-probe.rs
+deleted file mode 100644
+index 8bd08814a4..0000000000
+--- a/src/raw-pipeline/raw-core/examples/amaze-region-probe.rs
++++ /dev/null
+@@ -1,54 +0,0 @@
+-//! Read-only native AMaZE regional diagnostic. Cropped results are not a physical gate.
+-use raw_core::{decode, demosaic::amaze::amaze, image::Image, linearize};
+-use std::{error::Error, io::Write, path::Path};
+-fn save(path: &Path, image: &Image) -> Result<(), Box<dyn Error>> {
+-    let mut f = std::io::BufWriter::new(
+-        std::fs::OpenOptions::new()
+-            .write(true)
+-            .create_new(true)
+-            .open(path)?,
+-    );
+-    for pixel in &image.pixels {
+-        for v in pixel {
+-            f.write_all(&v.to_le_bytes())?;
+-        }
+-    }
+-    f.flush()?;
+-    Ok(())
+-}
+-fn main() -> Result<(), Box<dyn Error>> {
+-    let a = std::env::args().collect::<Vec<_>>();
+-    if a.len() != 7 {
+-        return Err("usage: amaze-region-probe RAW X Y WIDTH HEIGHT NEW_OUTPUT_DIR".into());
+-    }
+-    let [x, y, w, h] = [
+-        a[2].parse::<u32>()?,
+-        a[3].parse()?,
+-        a[4].parse()?,
+-        a[5].parse()?,
+-    ];
+-    let raw = decode::decode(Path::new(&a[1]))?;
+-    if !raw.cfa.is_bayer_2x2()
+-        || x % 2 != 0
+-        || y % 2 != 0
+-        || w < 64
+-        || h < 64
+-        || x.checked_add(w).is_none_or(|r| r > raw.width)
+-        || y.checked_add(h).is_none_or(|b| b > raw.height)
+-    {
+-        return Err("expected even-origin bounded Bayer region of at least64px".into());
+-    }
+-    let dir = Path::new(&a[6]);
+-    std::fs::create_dir(dir)?;
+-    let mosaic = linearize::sensor_linearize_region(&raw, x, y, w, h);
+-    save(&dir.join("mosaic.f32"), &mosaic)?;
+-    let native = amaze(&mosaic, raw.cfa);
+-    save(&dir.join("native.f32"), &native)?;
+-    let identity = serde_json::json!({"origin":[x,y],"dimensions":[w,h],"as_shot_neutral":raw.as_shot_neutral,"baseline_exposure":raw.baseline_exposure,"scope":"cropped diagnostic, not full physical color gate; sensor RGB after FCS"});
+-    std::fs::write(
+-        dir.join("identity.json"),
+-        serde_json::to_string_pretty(&identity)?,
+-    )?;
+-    println!("{identity}");
+-    Ok(())
+-}
+diff --git a/src/raw-pipeline/raw-core/examples/negative-whites-curve-probe.rs b/src/raw-pipeline/raw-core/examples/negative-whites-curve-probe.rs
+deleted file mode 100644
+index cbe3ef4a7e..0000000000
+--- a/src/raw-pipeline/raw-core/examples/negative-whites-curve-probe.rs
++++ /dev/null
+@@ -1,27 +0,0 @@
+-//! Diagnostic-only global negative-Whites response sweep.
+-//!
+-//! Evaluates the existing, single-sourced neutral AgX curve. A strength ratio
+-//! scales the negative branch's existing amplitude; it does not change any RAW,
+-//! XMP, reference, budget, production constant or physical qualification result.
+-//! Physical validation with original -100 inputs is required before adoption.
+-use raw_core::view::{
+-    agx::{neutral_curve, AGX_MAX_EV, AGX_MID_GRAY, AGX_MIN_EV},
+-    agx_whites::WHITES_NEG_AMT,
+-};
+-
+-fn main() {
+-    println!("strength_ratio,negative_amplitude,scene_y,baseline_display_y,whites_display_y");
+-    for strength_step in 0..=20 {
+-        let ratio = 0.5 + strength_step as f32 * 0.025;
+-        for index in 0..=4096 {
+-            let ev = AGX_MIN_EV + (AGX_MAX_EV - AGX_MIN_EV) * index as f32 / 4096.0;
+-            let scene = AGX_MID_GRAY * ev.exp2();
+-            let baseline = neutral_curve(scene, 1.0, 0.0);
+-            let whites = neutral_curve(scene, 1.0, -100.0 * ratio);
+-            println!(
+-                "{ratio:.9},{:.9},{scene:.9},{baseline:.9},{whites:.9}",
+-                WHITES_NEG_AMT * ratio
+-            );
+-        }
+-    }
+-}
+diff --git a/src/raw-pipeline/raw-core/examples/scene-anchor-probe.rs b/src/raw-pipeline/raw-core/examples/scene-anchor-probe.rs
+deleted file mode 100644
+index 5f5af63bca..0000000000
+--- a/src/raw-pipeline/raw-core/examples/scene-anchor-probe.rs
++++ /dev/null
+@@ -1,128 +0,0 @@
+-//! Read-only scene-anchor attribution. Preview values are diagnostic only;
+-//! physical gate claims require the full path and unchanged original inputs.
+-use raw_core::{
+-    pipeline::{
+-        develop_scene_linear_from_raw_with_quality_with_gain,
+-        develop_scene_linear_sized_from_raw_with_quality_with_gain, RenderQuality,
+-    },
+-    xmp::Profile,
+-};
+-use std::{error::Error, io::Write, path::Path};
+-
+-/// Post-develop distribution only: recomposition verifies whether the baseline
+-/// has remained neutral after the anchor. It is not an alternate render engine.
+-fn distribution(image: &raw_core::image::Image, gain: f32) -> serde_json::Value {
+-    let mut luma = image
+-        .pixels
+-        .iter()
+-        .map(|p| 0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2])
+-        .filter(|y| y.is_finite())
+-        .collect::<Vec<_>>();
+-    if luma.is_empty() {
+-        return serde_json::json!({"valid": false});
+-    }
+-    luma.sort_unstable_by(f32::total_cmp);
+-    let n = luma.len();
+-    let p25 = n / 4;
+-    let p75 = ((n * 3) / 4).max(p25 + 1).min(n);
+-    let band = luma[p25..p75]
+-        .iter()
+-        .copied()
+-        .filter(|y| *y > 0.0)
+-        .collect::<Vec<_>>();
+-    if band.is_empty() {
+-        return serde_json::json!({"valid": false});
+-    }
+-    let mid = (band.iter().map(|y| (*y as f64).ln()).sum::<f64>() / band.len() as f64).exp() as f32;
+-    let percentile = |f: f64| luma[((n as f64 * f).floor() as usize).min(n - 1)];
+-    let p95 = percentile(0.95);
+-    let global_log_average = (luma
+-        .iter()
+-        .map(|y| ((*y as f64 / gain as f64).max(0.0) + 1e-6).ln())
+-        .sum::<f64>()
+-        / n as f64)
+-        .exp();
+-    let mid_gain = 0.18 * gain / mid;
+-    let high_gain = 0.85 * gain / p95;
+-    let recomposed = mid_gain.max(high_gain).min(8.0);
+-    serde_json::json!({
+-        "valid": true,
+-        "global_log_average_before_anchor": global_log_average,
+-        "global_log_offset": 1e-6,
+-        "nonpositive_luma_pixels": luma.iter().filter(|y| **y <= 0.0).count(),
+-        "midgrey_after_anchor": mid,
+-        "percentiles_after_anchor": {
+-            "p001": percentile(0.001), "p01": percentile(0.01), "p05": percentile(0.05),
+-            "p25": percentile(0.25), "p50": percentile(0.50), "p75": percentile(0.75),
+-            "p95": p95, "p99": percentile(0.99), "p999": percentile(0.999),
+-        },
+-        "reconstructed_midtone_gain": mid_gain,
+-        "reconstructed_highlight_gain": high_gain,
+-        "reconstructed_anchor_gain": recomposed,
+-        "reconstruction_relative_error": (recomposed / gain - 1.0).abs(),
+-    })
+-}
+-
+-fn main() -> Result<(), Box<dyn Error>> {
+-    let args = std::env::args().collect::<Vec<_>>();
+-    if args.len() != 4 && args.len() != 5 {
+-        return Err("usage: scene-anchor-probe RAW XMP preview|full [NEW_SCENE_DIRECTORY]".into());
+-    }
+-    let output = args.get(4).map(Path::new);
+-    if let Some(path) = output {
+-        std::fs::create_dir(path)?;
+-    }
+-    let raw = raw_core::decode::decode(Path::new(&args[1]))?;
+-    let mut model = raw_core::xmp::parse(&std::fs::read_to_string(&args[2])?)?;
+-    model.profile = Profile::Neutral;
+-    raw_core::lens_profile::set_auto_match_enabled(false);
+-    let (scene, gain) = match args[3].as_str() {
+-        "preview" => develop_scene_linear_sized_from_raw_with_quality_with_gain(
+-            &raw,
+-            &model,
+-            RenderQuality::Preview,
+-            1024,
+-        )?,
+-        "full" => develop_scene_linear_from_raw_with_quality_with_gain(
+-            &raw,
+-            &model,
+-            RenderQuality::Amaze,
+-        )?,
+-        _ => return Err("expected preview or full".into()),
+-    };
+-    scene.assert_space(raw_core::image::ColorSpace::SceneLinearRec2020);
+-    if let Some(path) = output {
+-        let file = std::fs::OpenOptions::new()
+-            .write(true)
+-            .create_new(true)
+-            .open(path.join("scene.f32"))?;
+-        let mut writer = std::io::BufWriter::new(file);
+-        for pixel in &scene.pixels {
+-            for channel in pixel {
+-                writer.write_all(&channel.to_le_bytes())?;
+-            }
+-        }
+-        writer.flush()?;
+-    }
+-    let result = serde_json::json!({
+-        "camera": raw.camera_model,
+-        "quality": args[3],
+-        "dimensions": [scene.width, scene.height],
+-        "anchor_gain": gain,
+-        "anchor_ev": gain.log2(),
+-        "baseline_exposure": raw.baseline_exposure,
+-        "auto_exposure": format!("{:?}", model.auto_exposure),
+-        "whites_anchor_ev": scene.whites_anchor_ev,
+-        "distribution": distribution(&scene, gain),
+-        "cached_scene_format": "interleaved-rgb-f32-le",
+-        "cached_scene_space": "SceneLinearRec2020",
+-    });
+-    if let Some(path) = output {
+-        std::fs::write(
+-            path.join("scene.json"),
+-            serde_json::to_string_pretty(&result)?,
+-        )?;
+-    }
+-    println!("{result}");
+-    Ok(())
+-}
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/diag.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/diag.rs
+index 921f04496f..0b226021de 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/diag.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/diag.rs
+@@ -11,11 +11,12 @@ use crate::image::CfaPattern;
+ const EPS: f32 = 1e-5;
+ const EPS_SQ: f32 = 1e-10;
+ const ARTHRESH: f32 = 0.75;
++const CLIP_PT: f32 = 1.0;
+ 
+ // Gaussian on the 5×5 alt quincunx, sigma = 1.5 (engine 121).
+ const GAUSSEVEN: [f32; 2] = [0.137_194_94, 0.056_402_53];
+ 
+-pub(super) fn diagonal_refine(s: &mut Scratch, t: &Tile, pattern: CfaPattern, clip_point: f32) {
++pub(super) fn diagonal_refine(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
+     let v1 = TS as isize;
+     let p1 = -(TS as isize) + 1; // NE
+     let p2 = -2 * (TS as isize) + 2;
+@@ -131,10 +132,10 @@ pub(super) fn diagonal_refine(s: &mut Scratch, t: &Tile, pattern: CfaPattern, cl
+                         + (1.0 - mwt) * median3(rbm_v, s.cfa[at(i, -m1)], s.cfa[at(i, m1)]);
+                 }
+             }
+-            if rbp_v > clip_point {
++            if rbp_v > CLIP_PT {
+                 rbp_v = median3(rbp_v, s.cfa[at(i, -p1)], s.cfa[at(i, p1)]);
+             }
+-            if rbm_v > clip_point {
++            if rbm_v > CLIP_PT {
+                 rbm_v = median3(rbm_v, s.cfa[at(i, -m1)], s.cfa[at(i, m1)]);
+             }
+             s.rbm[i >> 1] = rbm_v;
+@@ -212,10 +213,10 @@ pub(super) fn diagonal_refine(s: &mut Scratch, t: &Tile, pattern: CfaPattern, cl
+                     ginth = hwt * ginth + (1.0 - hwt) * median3(ginth, s.cfa[i - 1], s.cfa[i + 1]);
+                 }
+             }
+-            if ginth > clip_point {
++            if ginth > CLIP_PT {
+                 ginth = median3(ginth, s.cfa[i - 1], s.cfa[i + 1]);
+             }
+-            if gintv > clip_point {
++            if gintv > CLIP_PT {
+                 gintv = median3(gintv, s.cfa[at(i, -v1)], s.cfa[at(i, v1)]);
+             }
+             s.rgbgreen[i] = ginth * (1.0 - s.hvwt[i >> 1]) + gintv * s.hvwt[i >> 1];
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
+index 5094fade4a..c99ec69776 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
+@@ -62,11 +62,10 @@ pub(super) fn suppress_false_colour(
+     // colour samples are used (the immediate Bayer neighbours of that
+     // colour), so a sharp 1-px colour edge is preserved rather than averaged
+     // away.
+-    let value_estimate = |x: usize, y: usize, t: usize| -> (f32, f32) {
++    let value_estimate = |x: usize, y: usize, t: usize| -> f32 {
+         // Pass 1: distance-1 cardinal same-colour neighbours.
+         let mut sum = 0.0_f32;
+         let mut cnt = 0.0_f32;
+-        let mut minimum = f32::INFINITY;
+         for (dx, dy) in [(-1_isize, 0_isize), (1, 0), (0, -1), (0, 1)] {
+             let nx = x as isize + dx;
+             let ny = y as isize + dy;
+@@ -75,14 +74,12 @@ pub(super) fn suppress_false_colour(
+             }
+             let (nxu, nyu) = (nx as usize, ny as usize);
+             if color_at(nxu, nyu) == t {
+-                let sample = cfa_flat[nyu * w + nxu];
+-                sum += sample;
+-                minimum = minimum.min(sample);
++                sum += cfa_flat[nyu * w + nxu];
+                 cnt += 1.0;
+             }
+         }
+         if cnt > 0.0 {
+-            return (sum / cnt, minimum);
++            return sum / cnt;
+         }
+         // Pass 2: distance-√2 diagonal same-colour neighbours (used when the
+         // target colour is not a cardinal neighbour of this site, e.g. the
+@@ -95,16 +92,14 @@ pub(super) fn suppress_false_colour(
+             }
+             let (nxu, nyu) = (nx as usize, ny as usize);
+             if color_at(nxu, nyu) == t {
+-                let sample = cfa_flat[nyu * w + nxu];
+-                sum += sample;
+-                minimum = minimum.min(sample);
++                sum += cfa_flat[nyu * w + nxu];
+                 cnt += 1.0;
+             }
+         }
+         if cnt > 0.0 {
+-            (sum / cnt, minimum)
++            sum / cnt
+         } else {
+-            (0.0, 0.0)
++            0.0
+         }
+     };
+ 
+@@ -126,24 +121,6 @@ pub(super) fn suppress_false_colour(
+         ((gc - mean).abs() / mag).min(1.0)
+     };
+ 
+-    // At R/B sites green itself is reconstructed. A green extrapolation
+-    // outside both nearest measured-green directional means cannot certify
+-    // which positive chroma estimate is wrong. Preserve positive kernel
+-    // estimates within the measured target envelope; a lost feature below
+-    // every nearest target sample may still use the measured-value estimate.
+-    let green_supported = |x: usize, y: usize| -> bool {
+-        if color_at(x, y) == 1 {
+-            return true;
+-        }
+-        let i = y * w + x;
+-        let horizontal = 0.5 * (green[i - 1] + green[i + 1]);
+-        let vertical = 0.5 * (green[i - w] + green[i + w]);
+-        let low = horizontal.min(vertical);
+-        let high = horizontal.max(vertical);
+-        let tolerance = EPS * (green[i].abs() + low.abs() + high.abs() + EPS);
+-        green[i] >= low - tolerance && green[i] <= high + tolerance
+-    };
+-
+     // A negative opposite chroma at an R/B site means AMaZE's directional
+     // kernel extrapolated the colour difference past green at a luminance
+     // edge, so the hue path carries no estimate there. The four diagonal
+@@ -253,7 +230,6 @@ pub(super) fn suppress_false_colour(
+                     continue;
+                 }
+                 let ghf = green_hf(x, y);
+-                let guide_supported = green_supported(x, y);
+                 let mut px = row[x];
+                 for t in 0..3usize {
+                     // Only reconstructed channels; the sampled channel and
+@@ -272,15 +248,7 @@ pub(super) fn suppress_false_colour(
+                         px[t] = c_hue;
+                         continue;
+                     }
+-                    let (c_val, measured_floor) = value_estimate(x, y, t);
+-                    // Without reliable green, preserve a positive kernel
+-                    // estimate that lies within the measured-value envelope.
+-                    // Below every nearest target sample, retain the value
+-                    // correction that restores a lost thin chroma feature.
+-                    if px[t] > 0.0 && c_hue >= measured_floor && !guide_supported {
+-                        px[t] = c_hue;
+-                        continue;
+-                    }
++                    let c_val = value_estimate(x, y, t);
+                     // Disagreement between the two estimates, normalised by
+                     // the local channel magnitude.
+                     let mag = c_hue.abs() + c_val.abs() + EPS;
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/green.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/green.rs
+index 12a6119484..3aa7925fee 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/green.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/green.rs
+@@ -10,6 +10,11 @@ use crate::image::CfaPattern;
+ const EPS: f32 = 1e-5;
+ const EPS_SQ: f32 = 1e-10;
+ const ARTHRESH: f32 = 0.75;
++// 0.8 / initialGain; initialGain == 1.0 for the normalised [0, 1] data
++// produced by `sensor_linearize`.
++const CLIP_PT8: f32 = 0.8;
++const CLIP_PT: f32 = 1.0;
++
+ /// Stage 0.5: `dirwts0` (vertical roughness), `dirwts1` (horizontal), and
+ /// `delhvsqsum` (sum of squared H/V first differences — the Nyquist test's
+ /// gradient term). Engine 368–377.
+@@ -33,12 +38,7 @@ pub(super) fn compute_dirwts_delhv(s: &mut Scratch, t: &Tile) {
+ /// flipped, because stage 4's directional variances and stage 3's median
+ /// bounding read `vcd`/`hcd` at the green neighbours of each R/B site
+ /// (the #1561 port gap).
+-pub(super) fn interpolate_green_diffs(
+-    s: &mut Scratch,
+-    t: &Tile,
+-    pattern: CfaPattern,
+-    clip_point: f32,
+-) {
++pub(super) fn interpolate_green_diffs(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
+     for rr in 4..t.rr1 - 4 {
+         for cc in 4..t.cc1 - 4 {
+             let i = rr * TS + cc;
+@@ -106,10 +106,7 @@ pub(super) fn interpolate_green_diffs(
+             let mut hcd_v = hcd_main;
+ 
+             // Highlight clip fallback (engine 517–525).
+-            if cf > (0.8 * clip_point)
+-                || g_int_v_ha > (0.8 * clip_point)
+-                || g_int_h_ha > (0.8 * clip_point)
+-            {
++            if cf > CLIP_PT8 || g_int_v_ha > CLIP_PT8 || g_int_h_ha > CLIP_PT8 {
+                 guar = guha;
+                 gdar = gdha;
+                 glar = glha;
+@@ -131,14 +128,11 @@ pub(super) fn interpolate_green_diffs(
+     }
+ }
+ 
+-/// Stages 2–3: select lower-variance differences and immediately median-bound
+-/// each site in upstream scalar raster order (engine 601–682). Earlier bounded
+-/// hcd/vcd samples must participate in later variance reads; two whole-tile
+-/// passes are not equivalent. Emit `cddiffsq = (vcd − hcd)²` at R/B sites (the Nyquist
+-/// texture term; every tap of the Nyquist gaussian lands on an R/B site, so
+-/// G cells are never read).
+-pub(super) fn refine_and_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern, clip_point: f32) {
+-    use super::scratch::median3;
++/// Stage 2: pick the smoother colour difference between vcd/vcdalt and
++/// hcd/hcdalt via the cheap 3-sample variance (engine 601–609). Split from
++/// stage 3 (upstream fuses them in-place; its SIMD branch already breaks
++/// that sequential dependency, so the split is behaviour-equivalent).
++pub(super) fn refine_by_variance(s: &mut Scratch, t: &Tile) {
+     let var3 =
+         |a: f32, b: f32, c: f32| -> f32 { 3.0 * (a * a + b * b + c * c) - (a + b + c).powi(2) };
+     for rr in 4..t.rr1 - 4 {
+@@ -146,14 +140,27 @@ pub(super) fn refine_and_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern, c
+             let i = rr * TS + cc;
+             let hcd_var = var3(s.hcd[i - 2], s.hcd[i], s.hcd[i + 2]);
+             let hcd_alt_var = var3(s.hcdalt[i - 2], s.hcdalt[i], s.hcdalt[i + 2]);
+-            let vcd_var = var3(s.vcd[i - 2 * TS], s.vcd[i], s.vcd[i + 2 * TS]);
+-            let vcd_alt_var = var3(s.vcdalt[i - 2 * TS], s.vcdalt[i], s.vcdalt[i + 2 * TS]);
+             if hcd_alt_var < hcd_var {
+                 s.hcd[i] = s.hcdalt[i];
+             }
++            let vcd_var = var3(s.vcd[i - 2 * TS], s.vcd[i], s.vcd[i + 2 * TS]);
++            let vcd_alt_var = var3(s.vcdalt[i - 2 * TS], s.vcdalt[i], s.vcdalt[i + 2 * TS]);
+             if vcd_alt_var < vcd_var {
+                 s.vcd[i] = s.vcdalt[i];
+             }
++        }
++    }
++}
++
++/// Stage 3: median-bound the colour differences on saturated edges (engine
++/// 619–682) and emit `cddiffsq = (vcd − hcd)²` at R/B sites (the Nyquist
++/// texture term; every tap of the Nyquist gaussian lands on an R/B site, so
++/// G cells are never read).
++pub(super) fn median_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
++    use super::scratch::median3;
++    for rr in 4..t.rr1 - 4 {
++        for cc in 4..t.cc1 - 4 {
++            let i = rr * TS + cc;
+             let c = pattern.color_at(cc as u32, rr as u32) as usize;
+             let v = s.cfa[i];
+             if c != 1 {
+@@ -178,10 +185,10 @@ pub(super) fn refine_and_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern, c
+                             + (1.0 - vwt) * (median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) - v);
+                     }
+                 }
+-                if g_int_h > clip_point {
++                if g_int_h > CLIP_PT {
+                     s.hcd[i] = median3(g_int_h, s.cfa[i - 1], s.cfa[i + 1]) - v;
+                 }
+-                if g_int_v > clip_point {
++                if g_int_v > CLIP_PT {
+                     s.vcd[i] = median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) - v;
+                 }
+                 s.cddiffsq[i] = (s.vcd[i] - s.hcd[i]).powi(2);
+@@ -207,10 +214,10 @@ pub(super) fn refine_and_bound(s: &mut Scratch, t: &Tile, pattern: CfaPattern, c
+                             + (1.0 - vwt) * (-median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) + v);
+                     }
+                 }
+-                if g_int_h > clip_point {
++                if g_int_h > CLIP_PT {
+                     s.hcd[i] = -median3(g_int_h, s.cfa[i - 1], s.cfa[i + 1]) + v;
+                 }
+-                if g_int_v > clip_point {
++                if g_int_v > CLIP_PT {
+                     s.vcd[i] = -median3(g_int_v, s.cfa[i - TS], s.cfa[i + TS]) + v;
+                 }
+             }
+@@ -287,61 +294,3 @@ pub(super) fn adaptive_hvwt(s: &mut Scratch, t: &Tile, pattern: CfaPattern) {
+         }
+     }
+ }
+-
+-#[cfg(test)]
+-mod ordering_tests {
+-    use super::*;
+-
+-    #[test]
+-    fn variance_reads_the_already_bounded_previous_site() {
+-        for pattern in [
+-            CfaPattern::Rggb,
+-            CfaPattern::Bggr,
+-            CfaPattern::Grbg,
+-            CfaPattern::Gbrg,
+-        ] {
+-            for vertical in [false, true] {
+-                for green_site in [false, true] {
+-                    let mut s = Scratch::new();
+-                    s.cfa.fill(0.5);
+-                    let row = 6;
+-                    let col = (6..8)
+-                        .find(|&x| (pattern.color_at(x as u32, row as u32) == 1) == green_site)
+-                        .unwrap();
+-                    let target = row * TS + col;
+-                    let step = if vertical { 2 * TS } else { 2 };
+-                    let (main, alternate) = if vertical {
+-                        (&mut s.vcd, &mut s.vcdalt)
+-                    } else {
+-                        (&mut s.hcd, &mut s.hcdalt)
+-                    };
+-                    let sign = if green_site { -1.0_f32 } else { 1.0_f32 };
+-                    main[target - step] = -0.5 * sign;
+-                    main[target] = 0.1 * sign;
+-                    alternate[target - step] = -0.5 * sign;
+-                    alternate[target + step] = -0.5 * sign;
+-                    let tile = Tile {
+-                        top: 0,
+-                        left: 0,
+-                        rr1: 16,
+-                        cc1: 16,
+-                    };
+-                    refine_and_bound(&mut s, &tile, pattern, 1.0);
+-                    let values = if vertical { &s.vcd } else { &s.hcd };
+-                    assert_eq!(values[target - step].to_bits(), 0.0_f32.to_bits());
+-                    // After the preceding site's -0.5 is bounded to 0, the main
+-                    // triplet [0,0.1,0] has variance0.02. The alternate [-0.5,0,-0.5]
+-                    // has variance0.5, so the centre must retain0.1. A separate
+-                    // whole-tile variance pass instead sees [-0.5,0.1,0] (0.62)
+-                    // and wrongly selects the alternate0 before any bounding.
+-                    // Green sites exercise the same dependency with inverted signs.
+-                    assert_eq!(
+-                    values[target].to_bits(),
+-                    (0.1_f32 * sign).to_bits(),
+-                    "{pattern:?} vertical={vertical} green_site={green_site}: variance read an unbounded predecessor"
+-                );
+-                }
+-            }
+-        }
+-    }
+-}
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/mod.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/mod.rs
+index 6332e893e5..7912a7c230 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/mod.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/mod.rs
+@@ -23,8 +23,7 @@
+ //!   * Stage 2    — variance-based selection of vcd/vcdalt, hcd/hcdalt
+ //!                  (601–609).
+ //!   * Stage 3    — median-bound colour differences on saturated edges
+-//!                  (619–682), in the same per-site traversal as stage 2:
+-//!                  later variance tests read earlier bounded differences.
++//!                  (619–682).
+ //!   * Stage 4    — adaptive H/V direction weight per R/B site (741–784).
+ //!   * Stage 5    — full AMaZE chroma reconstruction (802–1559): Nyquist
+ //!                  texture mask + dilation, 13×13 area interpolation of
+@@ -57,8 +56,6 @@ mod scratch;
+ mod tests;
+ #[cfg(test)]
+ mod tests_fcs_luminance_edge;
+-#[cfg(test)]
+-mod tests_white_balance;
+ 
+ use crate::image::{CfaPattern, ColorSpace, Image};
+ use rayon::prelude::*;
+@@ -71,17 +68,6 @@ use scratch::{Scratch, Tile, BAND, TS};
+ /// `sensor_linearize` (single channel populated per pixel, normalised to
+ /// `[0, 1]`). Output is `CameraNativeLinearRgb`.
+ pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
+-    amaze_with_gains(mosaic, cfa, [1.0; 3])
+-}
+-
+-/// Reconstruct in a metadata-balanced CFA domain, then return native sensor RGB.
+-/// Scales must be finite positive values at most one. Measured CFA samples are
+-/// restored exactly after reversing the reconstruction preconditioner.
+-pub fn amaze_with_gains(mosaic: &Image, cfa: CfaPattern, scales: [f32; 3]) -> Image {
+-    assert!(scales
+-        .iter()
+-        .all(|v| v.is_finite() && *v > 0.0 && *v <= 1.0));
+-    let clip_point = scales.into_iter().fold(1.0_f32, f32::min);
+     mosaic.assert_space(ColorSpace::CameraNativeMosaic);
+     let w = mosaic.width as usize;
+     let h = mosaic.height as usize;
+@@ -94,10 +80,7 @@ pub fn amaze_with_gains(mosaic: &Image, cfa: CfaPattern, scales: [f32; 3]) -> Im
+     }
+ 
+     // Flatten the sparse 3-channel mosaic to a single float per CFA site.
+-    let mut cfa_flat = flatten_mosaic(mosaic, cfa);
+-    for (i, value) in cfa_flat.iter_mut().enumerate() {
+-        *value *= scales[cfa.color_at((i % w) as u32, (i / w) as u32) as usize];
+-    }
++    let cfa_flat = flatten_mosaic(mosaic, cfa);
+ 
+     let mut out = Image::new(w as u32, h as u32, ColorSpace::CameraNativeLinearRgb);
+ 
+@@ -125,11 +108,12 @@ pub fn amaze_with_gains(mosaic: &Image, cfa: CfaPattern, scales: [f32; 3]) -> Im
+                 s.reset();
+                 scratch::fill_tile(&mut s, &t, &cfa_flat, w, h);
+                 green::compute_dirwts_delhv(&mut s, &t);
+-                green::interpolate_green_diffs(&mut s, &t, cfa, clip_point);
+-                green::refine_and_bound(&mut s, &t, cfa, clip_point);
++                green::interpolate_green_diffs(&mut s, &t, cfa);
++                green::refine_by_variance(&mut s, &t);
++                green::median_bound(&mut s, &t, cfa);
+                 green::adaptive_hvwt(&mut s, &t, cfa);
+                 nyquist::reconstruct_green(&mut s, &t, cfa);
+-                diag::diagonal_refine(&mut s, &t, cfa, clip_point);
++                diag::diagonal_refine(&mut s, &t, cfa);
+                 assemble::finish_tile(band, w, &mut s, &t, cfa);
+                 left += BAND as isize;
+             }
+@@ -145,12 +129,5 @@ pub fn amaze_with_gains(mosaic: &Image, cfa: CfaPattern, scales: [f32; 3]) -> Im
+     let green_plane: Vec<f32> = out.pixels.par_iter().map(|p| p[1]).collect();
+     fcs::suppress_false_colour(&mut out, &cfa_flat, &green_plane, w, h, cfa, fcs_strength);
+ 
+-    for (i, pixel) in out.pixels.iter_mut().enumerate() {
+-        for c in 0..3 {
+-            pixel[c] /= scales[c];
+-        }
+-        let sampled = cfa.color_at((i % w) as u32, (i / w) as u32) as usize;
+-        pixel[sampled] = mosaic.pixels[i][sampled];
+-    }
+     out
+ }
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs
+index 44b43ae35a..f60f85a5b0 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs
+@@ -372,64 +372,3 @@ fn amaze_step_between_equal_chromaticity_surfaces_keeps_opposite_chroma_hue() {
+ 
+ #[path = "tests_fcs_ceiling.rs"]
+ mod ceiling;
+-
+-#[test]
+-fn unsupported_reconstructed_green_does_not_drive_positive_chroma_blending() {
+-    for pattern in PATTERNS {
+-        for centre_colour in [0, 2] {
+-            for exposure in [0.01_f32, 1.0, 16.0] {
+-                let i = (10..14)
+-                    .flat_map(|y| (10..14).map(move |x| y * SIDE + x))
+-                    .find(|&i| sampled(pattern, i) == centre_colour)
+-                    .unwrap();
+-                let target = 2 - centre_colour;
+-                let mut image =
+-                    Image::new(SIDE as u32, SIDE as u32, ColorSpace::CameraNativeLinearRgb);
+-                image.pixels.fill([0.02 * exposure; 3]);
+-                let mut green = vec![0.01 * exposure; SIDE * SIDE];
+-                let mut cfa = vec![0.01 * exposure; SIDE * SIDE];
+-                image.pixels[i] = [
+-                    0.044907175 * exposure,
+-                    0.0585592 * exposure,
+-                    0.044907175 * exposure,
+-                ];
+-                image.pixels[i][target] = 0.064314194 * exposure;
+-                cfa[i] = image.pixels[i][centre_colour];
+-                green[i] = image.pixels[i][1];
+-                for (offset, value) in [
+-                    (-1_isize, 0.011289514),
+-                    (1, 0.010787757),
+-                    (-(SIDE as isize), 0.012293026),
+-                    (SIDE as isize, 0.0880582),
+-                ] {
+-                    let n = (i as isize + offset) as usize;
+-                    green[n] = value * exposure;
+-                    cfa[n] = green[n];
+-                }
+-                for ((dx, dy), value) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)]
+-                    .into_iter()
+-                    .zip([0.002759659, 0.02734571, 0.009784245, 0.011791269])
+-                {
+-                    cfa[(i as isize + dy * SIDE as isize + dx) as usize] = value * exposure;
+-                }
+-                let before = image.pixels[i];
+-                fcs::suppress_false_colour(
+-                    &mut image,
+-                    &cfa,
+-                    &green,
+-                    SIDE,
+-                    SIDE,
+-                    pattern,
+-                    fcs::FALSE_COLOUR_SUPPRESS_STRENGTH,
+-                );
+-                assert_eq!(
+-                    image.pixels[i], before,
+-                    "{pattern:?} colour={centre_colour} exposure={exposure}"
+-                );
+-            }
+-        }
+-    }
+-}
+-
+-#[path = "tests_fcs_measured_floor.rs"]
+-mod measured_floor;
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_measured_floor.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_measured_floor.rs
+deleted file mode 100644
+index be9472698e..0000000000
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_measured_floor.rs
++++ /dev/null
+@@ -1,100 +0,0 @@
+-//! Measured-target envelope witnesses for the unsupported-green FCS guard.
+-
+-use super::*;
+-
+-#[test]
+-fn unsupported_green_does_not_erase_the_value_estimate_of_a_chroma_line() {
+-    for pattern in PATTERNS {
+-        for centre_colour in [0, 2] {
+-            for exposure in [0.01_f32, 1.0, 16.0] {
+-                let i = (10..14)
+-                    .flat_map(|y| (10..14).map(move |x| y * SIDE + x))
+-                    .find(|&i| sampled(pattern, i) == centre_colour)
+-                    .unwrap();
+-                let target = 2 - centre_colour;
+-                let mut image =
+-                    Image::new(SIDE as u32, SIDE as u32, ColorSpace::CameraNativeLinearRgb);
+-                image.pixels.fill([0.07 * exposure; 3]);
+-                let mut green = vec![0.07 * exposure; SIDE * SIDE];
+-                let mut cfa = vec![0.07 * exposure; SIDE * SIDE];
+-                image.pixels[i][target] = 0.14 * exposure;
+-                for (offset, value) in [
+-                    (-1_isize, 0.06),
+-                    (1, 0.73),
+-                    (-(SIDE as isize), 0.06),
+-                    (SIDE as isize, 0.30),
+-                ] {
+-                    let n = (i as isize + offset) as usize;
+-                    green[n] = value * exposure;
+-                    cfa[n] = green[n];
+-                }
+-                for (dx, dy) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)] {
+-                    cfa[(i as isize + dy * SIDE as isize + dx) as usize] = 0.4 * exposure;
+-                }
+-                let before = image.pixels[i];
+-                fcs::suppress_false_colour(
+-                    &mut image,
+-                    &cfa,
+-                    &green,
+-                    SIDE,
+-                    SIDE,
+-                    pattern,
+-                    fcs::FALSE_COLOUR_SUPPRESS_STRENGTH,
+-                );
+-                assert!((image.pixels[i][target] - 0.4 * exposure).abs() < 1e-6 * exposure,
+-                    "{pattern:?} colour={centre_colour} exposure={exposure}: uncertain green must not suppress the measured chroma-line estimate");
+-                assert_eq!(image.pixels[i][centre_colour], before[centre_colour]);
+-                assert_eq!(image.pixels[i][1], before[1]);
+-            }
+-        }
+-    }
+-}
+-
+-#[test]
+-fn unsupported_green_keeps_positive_chroma_inside_the_measured_envelope() {
+-    for pattern in PATTERNS {
+-        for centre_colour in [0, 2] {
+-            for exposure in [0.01_f32, 1.0, 16.0] {
+-                let i = (10..14)
+-                    .flat_map(|y| (10..14).map(move |x| y * SIDE + x))
+-                    .find(|&i| sampled(pattern, i) == centre_colour)
+-                    .unwrap();
+-                let target = 2 - centre_colour;
+-                let mut image =
+-                    Image::new(SIDE as u32, SIDE as u32, ColorSpace::CameraNativeLinearRgb);
+-                image.pixels.fill([0.07 * exposure; 3]);
+-                let mut green = vec![0.07 * exposure; SIDE * SIDE];
+-                let mut cfa = vec![0.07 * exposure; SIDE * SIDE];
+-                image.pixels[i][target] = 0.2 * exposure;
+-                for (offset, value) in [
+-                    (-1_isize, 0.06),
+-                    (1, 0.73),
+-                    (-(SIDE as isize), 0.06),
+-                    (SIDE as isize, 0.30),
+-                ] {
+-                    let n = (i as isize + offset) as usize;
+-                    green[n] = value * exposure;
+-                    cfa[n] = green[n];
+-                }
+-                for ((dx, dy), value) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)]
+-                    .into_iter()
+-                    .zip([0.1, 0.3, 0.5, 0.7])
+-                {
+-                    cfa[(i as isize + dy * SIDE as isize + dx) as usize] = value * exposure;
+-                }
+-                let before = image.pixels[i];
+-                fcs::suppress_false_colour(
+-                    &mut image,
+-                    &cfa,
+-                    &green,
+-                    SIDE,
+-                    SIDE,
+-                    pattern,
+-                    fcs::FALSE_COLOUR_SUPPRESS_STRENGTH,
+-                );
+-                assert_eq!(image.pixels[i], before,
+-                    "{pattern:?} colour={centre_colour} exposure={exposure}: the bright donor mean must not replace an in-envelope positive kernel estimate");
+-            }
+-        }
+-    }
+-}
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_white_balance.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_white_balance.rs
+deleted file mode 100644
+index 83f53555cd..0000000000
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_white_balance.rs
++++ /dev/null
+@@ -1,122 +0,0 @@
+-//! Input-domain invariants for metadata-derived AMaZE preconditioning.
+-use super::{amaze, amaze_with_gains};
+-use crate::image::{CfaPattern, ColorSpace, Image};
+-
+-fn mosaic(pattern: CfaPattern, neutral: [f32; 3], clipped_glint: bool) -> Image {
+-    let mut m = Image::new(96, 96, ColorSpace::CameraNativeMosaic);
+-    for y in 0..96 {
+-        for x in 0..96 {
+-            let dx = x as f32 - 47.3;
+-            let dy = y as f32 - 48.7;
+-            let scene = if clipped_glint {
+-                0.02 + 12.0 * (-(dx * dx + dy * dy) / (2.0 * 2.0_f32.powi(2))).exp()
+-            } else {
+-                0.2
+-            };
+-            let c = pattern.color_at(x, y) as usize;
+-            m.pixels[(y * 96 + x) as usize][c] = (scene * neutral[c]).min(1.0);
+-        }
+-    }
+-    m
+-}
+-
+-#[test]
+-fn unity_gains_are_the_original_entry_point() {
+-    let m = mosaic(CfaPattern::Rggb, [0.37, 1.0, 0.67], true);
+-    assert_eq!(
+-        amaze(&m, CfaPattern::Rggb).pixels,
+-        amaze_with_gains(&m, CfaPattern::Rggb, [1.0; 3]).pixels
+-    );
+-}
+-
+-#[test]
+-fn balanced_reconstruction_returns_native_flat_field_in_all_bayer_phases() {
+-    let n = [0.37, 1.0, 0.67];
+-    let scales = n.map(|v| 0.37 / v);
+-    for cfa in [
+-        CfaPattern::Rggb,
+-        CfaPattern::Bggr,
+-        CfaPattern::Grbg,
+-        CfaPattern::Gbrg,
+-    ] {
+-        let out = amaze_with_gains(&mosaic(cfa, n, false), cfa, scales);
+-        for y in 24..72 {
+-            for x in 24..72 {
+-                for (c, neutral) in n.into_iter().enumerate() {
+-                    assert!((out.pixels[y * 96 + x][c] - 0.2 * neutral).abs() < 2e-6);
+-                }
+-            }
+-        }
+-    }
+-}
+-
+-#[test]
+-fn preconditioning_preserves_sensor_samples_through_clipped_glints() {
+-    let n = [0.37, 1.0, 0.67];
+-    let scales = n.map(|v| 0.37 / v);
+-    for cfa in [
+-        CfaPattern::Rggb,
+-        CfaPattern::Bggr,
+-        CfaPattern::Grbg,
+-        CfaPattern::Gbrg,
+-    ] {
+-        let input = mosaic(cfa, n, true);
+-        let out = amaze_with_gains(&input, cfa, scales);
+-        for y in 0..96 {
+-            for x in 0..96 {
+-                let c = cfa.color_at(x, y) as usize;
+-                let i = (y * 96 + x) as usize;
+-                assert_eq!(input.pixels[i][c].to_bits(), out.pixels[i][c].to_bits());
+-                assert!(out.pixels[i].iter().all(|v| v.is_finite()));
+-            }
+-        }
+-    }
+-}
+-
+-#[test]
+-fn invalid_metadata_preserves_original_camera_dispatch() {
+-    use crate::{
+-        cancel::CancelToken,
+-        demosaic::{camera_demosaic_cancellable, DemosaicAlgorithm},
+-    };
+-    let cfa = CfaPattern::Rggb;
+-    let m = mosaic(cfa, [0.37, 1.0, 0.67], true);
+-    let expected = amaze(&m, cfa);
+-    for neutral in [
+-        [0.0, 1.0, 0.67],
+-        [-0.37, 1.0, 0.67],
+-        [f32::NAN, 1.0, 0.67],
+-        [f32::INFINITY, 1.0, 0.67],
+-        [f32::MIN_POSITIVE, f32::MAX, 1.0],
+-    ] {
+-        let actual = camera_demosaic_cancellable(
+-            DemosaicAlgorithm::Amaze,
+-            &m,
+-            cfa,
+-            neutral,
+-            CancelToken::never(),
+-        );
+-        assert_eq!(actual.pixels, expected.pixels);
+-    }
+-}
+-
+-#[test]
+-fn other_kernels_keep_the_native_domain_contract() {
+-    use crate::{
+-        cancel::CancelToken,
+-        demosaic::{camera_demosaic_cancellable, demosaic, DemosaicAlgorithm},
+-    };
+-    let cfa = CfaPattern::Rggb;
+-    let neutral = [0.37, 1.0, 0.67];
+-    let m = mosaic(cfa, neutral, true);
+-    for algorithm in [
+-        DemosaicAlgorithm::Bilinear,
+-        DemosaicAlgorithm::HamiltonAdams,
+-        DemosaicAlgorithm::Rcd,
+-        DemosaicAlgorithm::HalfRes,
+-    ] {
+-        let expected = demosaic(algorithm, &m, cfa);
+-        let actual = camera_demosaic_cancellable(algorithm, &m, cfa, neutral, CancelToken::never());
+-        assert_eq!(actual.pixels, expected.pixels);
+-    }
+-}
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/dual/mod.rs b/src/raw-pipeline/raw-core/src/demosaic/dual/mod.rs
+index 505a17477f..341490a146 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/dual/mod.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/dual/mod.rs
+@@ -74,15 +74,6 @@ pub fn dual_amaze_vng4(mosaic: &Image, cfa: CfaPattern) -> Image {
+     blend_vng4_into(detailed, mosaic, cfa, CancelToken::never())
+ }
+ 
+-pub(crate) fn dual_amaze_vng4_with_gains(
+-    mosaic: &Image,
+-    cfa: CfaPattern,
+-    scales: [f32; 3],
+-) -> Image {
+-    let detailed = super::amaze::amaze_with_gains(mosaic, cfa, scales);
+-    blend_vng4_into(detailed, mosaic, cfa, CancelToken::never())
+-}
+-
+ /// RCD in detailed regions, VNG4 in flat ones — the faster dual, for paths
+ /// that cannot afford AMaZE.
+ #[inline]
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/mod.rs b/src/raw-pipeline/raw-core/src/demosaic/mod.rs
+index 223504a0c6..b9afff31cb 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/mod.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/mod.rs
+@@ -97,30 +97,6 @@ pub fn demosaic_cancellable(
+     }
+ }
+ 
+-/// Camera-aware AMaZE input conditioning. All other kernels keep their
+-/// existing native-domain contract. Invalid metadata takes the original path.
+-pub(crate) fn camera_demosaic_cancellable(
+-    algo: DemosaicAlgorithm,
+-    mosaic: &Image,
+-    cfa: CfaPattern,
+-    neutral: [f32; 3],
+-    cancel: crate::cancel::CancelToken<'_>,
+-) -> Image {
+-    if !neutral.iter().all(|n| n.is_finite() && *n > 0.0) {
+-        return demosaic_cancellable(algo, mosaic, cfa, cancel);
+-    }
+-    let minimum = neutral.into_iter().fold(f32::INFINITY, f32::min);
+-    let scales = neutral.map(|n| minimum / n);
+-    if scales.iter().any(|v| *v <= 0.0) {
+-        return demosaic_cancellable(algo, mosaic, cfa, cancel);
+-    }
+-    match algo {
+-        DemosaicAlgorithm::Amaze => amaze::amaze_with_gains(mosaic, cfa, scales),
+-        DemosaicAlgorithm::DualAmazeVng4 => dual::dual_amaze_vng4_with_gains(mosaic, cfa, scales),
+-        _ => demosaic_cancellable(algo, mosaic, cfa, cancel),
+-    }
+-}
+-
+ /// Flatten the sparse 3-channel mosaic to a single float per CFA position.
+ ///
+ /// `sensor_linearize` populates exactly one of `[r, g, b]` per pixel — the
+diff --git a/src/raw-pipeline/raw-core/src/pipeline/develop/mod.rs b/src/raw-pipeline/raw-core/src/pipeline/develop/mod.rs
+index 75676e70df..3371fcc3eb 100644
+--- a/src/raw-pipeline/raw-core/src/pipeline/develop/mod.rs
++++ b/src/raw-pipeline/raw-core/src/pipeline/develop/mod.rs
+@@ -106,7 +106,6 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
+             // later via `develop_sized`. A true half-res X-Trans
+             // preview is a follow-up.
+             let mut mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+-            dump_after("00_sensor_linearized", &mosaic);
+             // Hot/dead-pixel suppression (#1106) — pre-demosaic, raw-domain.
+             // No-op (bit-identical) at the default Off.
+             stage("hot_pixel", || {
+@@ -122,7 +121,6 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
+         }
+         _ => {
+             let mut mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+-            dump_after("00_sensor_linearized", &mosaic);
+             // Hot/dead-pixel suppression (#1106) — pre-demosaic, raw-domain.
+             // No-op (bit-identical) at the default Off.
+             stage("hot_pixel", || {
+@@ -138,13 +136,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
+             // below bails before any downstream stage runs either way.
+             stage("demosaic", || {
+                 let algo = crate::pipeline::bayer_kernel(quality, model, raw);
+-                demosaic::camera_demosaic_cancellable(
+-                    algo,
+-                    &mosaic,
+-                    raw.cfa,
+-                    raw.as_shot_neutral,
+-                    cancel,
+-                )
++                demosaic::demosaic_cancellable(algo, &mosaic, raw.cfa, cancel)
+             })
+         }
+     };
+diff --git a/src/raw-pipeline/raw-core/src/pipeline/develop_sized.rs b/src/raw-pipeline/raw-core/src/pipeline/develop_sized.rs
+index 29e8b2eeb6..6092fd2ede 100644
+--- a/src/raw-pipeline/raw-core/src/pipeline/develop_sized.rs
++++ b/src/raw-pipeline/raw-core/src/pipeline/develop_sized.rs
+@@ -203,13 +203,7 @@ pub(super) fn develop_sized_prefix(
+                     return demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel);
+                 }
+                 let algo = crate::pipeline::bayer_kernel(quality, model, raw);
+-                demosaic::camera_demosaic_cancellable(
+-                    algo,
+-                    &mosaic,
+-                    raw.cfa,
+-                    raw.as_shot_neutral,
+-                    cancel,
+-                )
++                demosaic::demosaic_cancellable(algo, &mosaic, raw.cfa, cancel)
+             })
+         }
+     };
+diff --git a/src/raw-pipeline/raw-core/src/pipeline/pano/mod.rs b/src/raw-pipeline/raw-core/src/pipeline/pano/mod.rs
+index f266199b33..fb3c7a3543 100644
+--- a/src/raw-pipeline/raw-core/src/pipeline/pano/mod.rs
++++ b/src/raw-pipeline/raw-core/src/pipeline/pano/mod.rs
+@@ -272,13 +272,7 @@ fn develop_scene_linear_for_pano(
+                     &crate::types::AdjustmentModel::default(),
+                     raw,
+                 );
+-                demosaic::camera_demosaic_cancellable(
+-                    algo,
+-                    &mosaic,
+-                    raw.cfa,
+-                    raw.as_shot_neutral,
+-                    never,
+-                )
++                demosaic::demosaic_cancellable(algo, &mosaic, raw.cfa, never)
+             })
+         }
+     };
+diff --git a/src/raw-pipeline/raw-core/src/pipeline/tile/prefix.rs b/src/raw-pipeline/raw-core/src/pipeline/tile/prefix.rs
+index c1396b94af..7c1dafbe0d 100644
+--- a/src/raw-pipeline/raw-core/src/pipeline/tile/prefix.rs
++++ b/src/raw-pipeline/raw-core/src/pipeline/tile/prefix.rs
+@@ -26,11 +26,10 @@ pub(super) fn from_mosaic(
+     cancel: crate::CancelToken<'_>,
+ ) -> Image {
+     let mut camera = stage("tile_demosaic", || {
+-        crate::demosaic::camera_demosaic_cancellable(
++        crate::demosaic::demosaic_cancellable(
+             crate::pipeline::bayer_kernel(quality, model, raw),
+             mosaic,
+             raw.cfa,
+-            raw.as_shot_neutral,
+             cancel,
+         )
+     });
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm.rs b/src/raw-pipeline/raw-core/src/stages/nlm.rs
+index c0a9d87b13..5ed3790643 100644
+--- a/src/raw-pipeline/raw-core/src/stages/nlm.rs
++++ b/src/raw-pipeline/raw-core/src/stages/nlm.rs
+@@ -66,13 +66,15 @@ mod chroma;
+ mod tiled;
+ pub(crate) use chroma::denoise_chroma_pair_cancellable;
+ 
+-/// Fast exp(-x) weights for NLM's `exp(-d²/(h²·area))` kernel.
+-/// Interpolate the existing 512-entry table below x=8 and retain the
+-/// hardware-exp tail above it: small absolute weights can dominate after
+-/// normalization when every neighboring match is weak. The >= guard also
+-/// keeps the i+1 lookup within the table. Natural f32 underflow is zero at
+-/// x>=104. The common-range lookup was measured at ~0.6 ns per call on
+-/// Apple Silicon versus ~5 ns for hardware expf.
++/// Fast exp(-x) lookup. The NLM weight is `exp(-d²/(h²·area))` where the
++/// argument is always ≥ 0. For x ≥ `FAST_EXP_RANGE` the weight is ≤ ~3.4e-4
++/// — well below the noise floor of f32 accumulation across O(1000) pixels,
++/// so we clamp to 0. The bound is `≥` (not `>`) so that the `i+1` table
++/// lookup stays in range — at exactly `x = FAST_EXP_RANGE`, `i = TABLE_SIZE`
++/// and `table[i+1]` would be out of bounds. Inside the range we linearly
++/// interpolate a 512-entry table. Measured at ~0.6 ns per call on Apple
++/// Silicon (vs ~5 ns for hardware `expf`) — at 81 shifts × 2 MP, the
++/// saving is ~36 ms.
+ const FAST_EXP_RANGE: f32 = 8.0;
+ const FAST_EXP_TABLE_SIZE: usize = 512;
+ 
+@@ -110,9 +112,7 @@ fn fast_neg_exp(x: f32) -> f32 {
+     }
+     // exp(-x) ranges from 1.0 at x=0 down to ~3.4e-4 at x=8.
+     if x >= FAST_EXP_RANGE {
+-        // exp(-104) rounds to zero in f32. Keep every representable tail
+-        // below that point; an absolute cutoff at 8 breaks normalization.
+-        return if x >= 104.0 { 0.0 } else { (-x).exp() };
++        return 0.0;
+     }
+     let t = x * (FAST_EXP_TABLE_SIZE as f32 / FAST_EXP_RANGE);
+     let i = t as usize;
+@@ -349,7 +349,3 @@ mod tests_box;
+ #[cfg(test)]
+ #[path = "nlm_tests_determinism.rs"]
+ mod tests_determinism;
+-
+-#[cfg(test)]
+-#[path = "nlm_tests_tail.rs"]
+-mod tests_tail;
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm_accumulate.rs b/src/raw-pipeline/raw-core/src/stages/nlm_accumulate.rs
+index 7f3f528fe7..57e4d5393b 100644
+--- a/src/raw-pipeline/raw-core/src/stages/nlm_accumulate.rs
++++ b/src/raw-pipeline/raw-core/src/stages/nlm_accumulate.rs
+@@ -5,19 +5,6 @@
+ use super::fast_exp_table;
+ use super::fast_neg_exp;
+ 
+-#[cfg(any(
+-    target_arch = "aarch64",
+-    all(target_arch = "wasm32", target_feature = "simd128")
+-))]
+-fn repair_gaussian_tails(arguments: [f32; 4], mut weights: [f32; 4]) -> [f32; 4] {
+-    for i in 0..4 {
+-        if arguments[i] >= 8.0 {
+-            weights[i] = fast_neg_exp(arguments[i]);
+-        }
+-    }
+-    weights
+-}
+-
+ pub(super) fn accumulate(
+     sums: &[f32],
+     shifted: &[f32],
+@@ -58,16 +45,6 @@ pub(super) fn accumulate(
+                     vmulq_f32(vsubq_f32(vld1q_f32(b.as_ptr()), av), fraction),
+                 );
+                 let weight = vbslq_f32(vcltq_f32(x, vdupq_n_f32(8.0)), weight, vdupq_n_f32(0.0));
+-                let weight = if vmaxvq_u32(vcgeq_f32(x, vdupq_n_f32(8.0))) != 0 {
+-                    let mut xs = [0.0; 4];
+-                    let mut ws = [0.0; 4];
+-                    vst1q_f32(xs.as_mut_ptr(), x);
+-                    vst1q_f32(ws.as_mut_ptr(), weight);
+-                    let repaired = repair_gaussian_tails(xs, ws);
+-                    vld1q_f32(repaired.as_ptr())
+-                } else {
+-                    weight
+-                };
+                 vst1q_f32(
+                     acc.as_mut_ptr().add(start),
+                     vaddq_f32(
+@@ -134,24 +111,6 @@ pub(super) fn accumulate(
+                 );
+                 let weight = v128_bitselect(zero, weight, f32x4_ge(x, f32x4_splat(8.0)));
+                 let weight = v128_bitselect(f32x4_splat(1.0), weight, f32x4_lt(x, zero));
+-                let weight = if v128_any_true(f32x4_ge(x, f32x4_splat(8.0))) {
+-                    let xs = [
+-                        f32x4_extract_lane::<0>(x),
+-                        f32x4_extract_lane::<1>(x),
+-                        f32x4_extract_lane::<2>(x),
+-                        f32x4_extract_lane::<3>(x),
+-                    ];
+-                    let ws = [
+-                        f32x4_extract_lane::<0>(weight),
+-                        f32x4_extract_lane::<1>(weight),
+-                        f32x4_extract_lane::<2>(weight),
+-                        f32x4_extract_lane::<3>(weight),
+-                    ];
+-                    let repaired = repair_gaussian_tails(xs, ws);
+-                    repaired.as_ptr().cast::<v128>().read_unaligned()
+-                } else {
+-                    weight
+-                };
+                 store_f32x4(
+                     acc.as_mut_ptr().add(start),
+                     f32x4_add(
+@@ -240,24 +199,6 @@ pub(super) fn accumulate_dynamic(
+                 );
+                 let weight = v128_bitselect(zero, weight, f32x4_ge(x, f32x4_splat(8.0)));
+                 let weight = v128_bitselect(f32x4_splat(1.0), weight, f32x4_lt(x, zero));
+-                let weight = if v128_any_true(f32x4_ge(x, f32x4_splat(8.0))) {
+-                    let xs = [
+-                        f32x4_extract_lane::<0>(x),
+-                        f32x4_extract_lane::<1>(x),
+-                        f32x4_extract_lane::<2>(x),
+-                        f32x4_extract_lane::<3>(x),
+-                    ];
+-                    let ws = [
+-                        f32x4_extract_lane::<0>(weight),
+-                        f32x4_extract_lane::<1>(weight),
+-                        f32x4_extract_lane::<2>(weight),
+-                        f32x4_extract_lane::<3>(weight),
+-                    ];
+-                    let repaired = repair_gaussian_tails(xs, ws);
+-                    repaired.as_ptr().cast::<v128>().read_unaligned()
+-                } else {
+-                    weight
+-                };
+                 let enabled = i32x4_ge(
+                     load_unaligned(search.as_ptr().add(start)),
+                     i32x4_splat(distance as i32),
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm_tests.rs b/src/raw-pipeline/raw-core/src/stages/nlm_tests.rs
+index 0a866aacd0..9136a05111 100644
+--- a/src/raw-pipeline/raw-core/src/stages/nlm_tests.rs
++++ b/src/raw-pipeline/raw-core/src/stages/nlm_tests.rs
+@@ -240,8 +240,8 @@ fn fast_neg_exp_weight_never_exceeds_one_for_any_input() {
+     // Positive sweep across the LUT range and past FAST_EXP_RANGE = 8:
+     // bounded to [0, 1], non-increasing, and — inside the table range —
+     // within the LUT's linear-interpolation budget (~3e-5 per segment) of
+-    // hardware exp. Outside the table range retain the hardware-exp tail;
+-    // small weights remain relevant after normalization.
++    // hardware exp. Past the range the function documents truncation to 0
++    // (drops the ≤ ~3.4e-4 tail).
+     let mut prev = 1.0f32;
+     for i in 0..=4096 {
+         let x = i as f32 * (10.0 / 4096.0);
+@@ -257,11 +257,7 @@ fn fast_neg_exp_weight_never_exceeds_one_for_any_input() {
+                 "weight {w} deviates from exp(-x) at x={x} beyond the LUT budget",
+             );
+         } else {
+-            assert_eq!(
+-                w.to_bits(),
+-                (-x).exp().to_bits(),
+-                "x={x}: positive Gaussian tails must survive normalization"
+-            );
++            assert_eq!(w, 0.0, "x={x} ≥ FAST_EXP_RANGE must truncate to 0");
+         }
+         prev = w;
+     }
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm_tests_box.rs b/src/raw-pipeline/raw-core/src/stages/nlm_tests_box.rs
+index 2ab8eb9d39..f1ff35ebd6 100644
+--- a/src/raw-pipeline/raw-core/src/stages/nlm_tests_box.rs
++++ b/src/raw-pipeline/raw-core/src/stages/nlm_tests_box.rs
+@@ -258,8 +258,8 @@ fn border_strip_passes_through_unchanged() {
+ 
+ /// f64 ground-truth NLM — the naive O(N·S²·P²) reference both f32 paths are
+ /// graded against. Full-f64 patch SSD, weights, and per-pixel average. Uses
+-/// exact `(-x).exp()` (not the LUT) and the same lower-bound guard as
+-/// production, with no artificial exponential cutoff. Because of this, the max-abs difference
++/// exact `(-x).exp()` (not the `fast_neg_exp` LUT) with the same range/sign
++/// clamps as the production function. Because of this, the max-abs difference
+ /// it reports captures BOTH accumulation-order error AND LUT-interpolation
+ /// error vs the exact result — it is NOT a pure summation-accuracy probe.
+ #[cfg(test)]
+@@ -273,6 +273,8 @@ fn denoise_plane_f64_truth(plane: &[f32], w: usize, h: usize, params: NlmParams)
+         let x = ssd * inv_norm;
+         if x < 0.0 {
+             1.0
++        } else if x >= 8.0 {
++            0.0
+         } else {
+             (-x).exp()
+         }
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm_tests_tail.rs b/src/raw-pipeline/raw-core/src/stages/nlm_tests_tail.rs
+deleted file mode 100644
+index f630c0ddea..0000000000
+--- a/src/raw-pipeline/raw-core/src/stages/nlm_tests_tail.rs
++++ /dev/null
+@@ -1,69 +0,0 @@
+-//! Gaussian tails remain meaningful after NLM weight normalization.
+-use super::{accumulate, denoise_plane, fast_neg_exp, NlmParams};
+-
+-#[test]
+-fn gaussian_lookup_boundary_retains_positive_tail_weights() {
+-    for x in [8.0_f32, 8.125, 9.0, 16.0, 32.0, 80.0] {
+-        let expected = (-x).exp();
+-        assert_eq!(fast_neg_exp(x).to_bits(), expected.to_bits(), "x={x}");
+-    }
+-    let before = fast_neg_exp(f32::from_bits(8.0_f32.to_bits() - 1));
+-    let at = fast_neg_exp(8.0);
+-    assert!(before >= at && before - at < 2e-8);
+-}
+-
+-#[test]
+-fn normalized_gaussian_tails_denoise_an_isolated_chroma_impulse() {
+-    for exposure in [0.5_f32, 1.0, 2.0] {
+-        let (w, h) = (17, 17);
+-        let background = 0.02 * exposure;
+-        let center = 0.14 * exposure;
+-        let delta = center - background;
+-        let mut plane = vec![background; w * h];
+-        let i = 8 * w + 8;
+-        plane[i] = center;
+-        let params = NlmParams {
+-            patch_radius: 2,
+-            search_radius: 1,
+-            h: (2.0 * delta * delta / (25.0 * 8.125)).sqrt(),
+-        };
+-        let out = denoise_plane(&plane, w, h, params);
+-        // Every neighboring patch has the same SSD: all eight positive
+-        // weights and the max-weight center normalize to an equal average.
+-        let expected = (8.0 * background + center) / 9.0;
+-        assert!(
+-            (out[i] - expected).abs() < 2e-6 * exposure,
+-            "exposure={exposure}: {} != {expected}",
+-            out[i]
+-        );
+-    }
+-}
+-
+-#[test]
+-fn vector_and_scalar_tail_weights_match_the_gaussian() {
+-    let arguments = [8.0_f32, 8.125, 9.0, 16.0, 32.0, 80.0, 0.0, 7.99, 12.0, 24.0];
+-    for n in [1, 3, 4, 5, 8, 10] {
+-        let values: Vec<_> = (0..n).map(|i| 0.01 + i as f32 * 0.013).collect();
+-        let mut acc = vec![0.0; n];
+-        let mut weights = vec![0.0; n];
+-        let mut maxima = vec![0.0; n];
+-        accumulate::accumulate(
+-            &arguments[..n],
+-            &values,
+-            &mut acc,
+-            &mut weights,
+-            &mut maxima,
+-            1.0,
+-        );
+-        for i in 0..n {
+-            let expected = if arguments[i] < 8.0 {
+-                fast_neg_exp(arguments[i])
+-            } else {
+-                (-arguments[i]).exp()
+-            };
+-            assert_eq!(weights[i].to_bits(), expected.to_bits(), "n={n} lane={i}");
+-            assert_eq!(maxima[i].to_bits(), expected.to_bits());
+-            assert_eq!(acc[i].to_bits(), (expected * values[i]).to_bits());
+-        }
+-    }
+-}
+diff --git a/src/raw-pipeline/raw-gpu/src/noise_reduction.wgsl b/src/raw-pipeline/raw-gpu/src/noise_reduction.wgsl
+index 37c37d9c2c..fec5cb25eb 100644
+--- a/src/raw-pipeline/raw-gpu/src/noise_reduction.wgsl
++++ b/src/raw-pipeline/raw-gpu/src/noise_reduction.wgsl
+@@ -12,18 +12,15 @@
+ // FAST_EXP_RANGE = 8.0, FAST_EXP_TABLE_SIZE = 512. The table index is
+ // `t = x · (TABLE_SIZE / RANGE) = x · 64`, `i = floor(t)`, `frac = t - i`. The
+ // table stores exp(-(i / 64)), rounded once into canonical f32 bits shared by all hosts and the GPU.
+-// Keep the common-range lookup; positive tails remain meaningful after normalization.
++// This preserves the CPU lookup while removing two exponentials per shift/pixel.
+ const FAST_EXP_RANGE: f32 = 8.0;
+ const FAST_EXP_INV_STEP: f32 = 512.0 / 8.0; // TABLE_SIZE / RANGE
+ 
+ fn fast_neg_exp(x: f32) -> f32 {
+     // x is always >= 0 (it's `ssd · inv_norm`, both non-negative). The `>=` bound
+     // mirrors raw-core (so the i+1 endpoint never runs past the table tail).
+-    if (x >= 104.0) {
+-        return 0.0; // natural f32 underflow
+-    }
+     if (x >= FAST_EXP_RANGE) {
+-        return exp(-x);
++        return 0.0;
+     }
+     let t = x * FAST_EXP_INV_STEP;
+     let i = floor(t);
+diff --git a/src/raw-pipeline/raw-gpu/src/noise_reduction/tests.rs b/src/raw-pipeline/raw-gpu/src/noise_reduction/tests.rs
+index 9b27c368d9..8efc4795ab 100644
+--- a/src/raw-pipeline/raw-gpu/src/noise_reduction/tests.rs
++++ b/src/raw-pipeline/raw-gpu/src/noise_reduction/tests.rs
+@@ -555,6 +555,3 @@ fn nlm_composes_as_one_pass_in_a_chain() {
+         "luma-then-color NR produced non-finite output"
+     );
+ }
+-
+-#[path = "tests_tail.rs"]
+-mod tail;
+diff --git a/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tail.rs b/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tail.rs
+deleted file mode 100644
+index 3e1e6e258a..0000000000
+--- a/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tail.rs
++++ /dev/null
+@@ -1,32 +0,0 @@
+-//! GPU proof that small absolute Gaussian weights remain effective after normalization.
+-use super::*;
+-
+-#[test]
+-fn normalized_gaussian_tail_denoises_the_impulse_on_gpu() {
+-    let ctx = GpuContext::new_blocking().expect("GPU required");
+-    let (w, h) = (17usize, 17usize);
+-    let background = 0.02_f32;
+-    let center = 0.14_f32;
+-    let delta = center - background;
+-    let mut plane = vec![background; w * h];
+-    let i = 8 * w + 8;
+-    plane[i] = center;
+-    let params = NlmParams {
+-        patch_radius: 2,
+-        search_radius: 1,
+-        h: (2.0 * delta * delta / (25.0 * 8.125)).sqrt(),
+-    };
+-    let gpu = denoise_plane_gpu(
+-        &ctx,
+-        &plane,
+-        &plane,
+-        w as u32,
+-        h as u32,
+-        params,
+-        NoiseModulation::from_profile(None, 100, false),
+-    );
+-    let expected = (8.0 * background + center) / 9.0;
+-    assert!((gpu[i] - expected).abs() < 2e-6, "{} != {expected}", gpu[i]);
+-    let cpu = raw_core_denoise_plane(&plane, w, h, params);
+-    assert!((gpu[i] - cpu[i]).abs() < 1e-5);
+-}
+diff --git a/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tiled.rs b/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tiled.rs
+index 59c92c98af..f63abfc998 100644
+--- a/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tiled.rs
++++ b/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tiled.rs
+@@ -83,13 +83,13 @@ fn tiled_partial_workgroups_preserve_profile_radius_gates() {
+ }
+ 
+ #[test]
+-fn tiled_weight_lookup_preserves_interpolation_and_gaussian_tail() {
++fn tiled_weight_lookup_preserves_interpolation_and_cutoff() {
+     let ctx = GpuContext::new_blocking().expect("GPU required");
+     let (width, height) = (19, 17);
+     let params = chroma_params(25.0);
+     let center = 8 * width + 8;
+     // Odd shifts compare constant differences across the full patch, making
+-    // SSD/(h²·area) land on both sides of interpolation knots and the x=8 lookup boundary.
++    // SSD/(h²·area) land on both sides of interpolation knots and the x=8 cutoff.
+     for energy in [0.001f32, 0.015624, 0.015626, 3.999, 4.001, 7.999, 8.001] {
+         let amplitude = params.h * energy.sqrt();
+         let plane: Vec<f32> = (0..width * height)
+@@ -107,17 +107,10 @@ fn tiled_weight_lookup_preserves_interpolation_and_gaussian_tail() {
+         );
+         let (error, index) = max_diff_at(&reference, &gpu);
+         assert!(error < 1e-7, "energy={energy}: {error} at {index}");
+-        assert!(reference[center] - plane[center] > 1e-6);
+-        // Twenty even-shift neighbors and the max-weight center have weight
+-        // one; twenty-eight odd-shift neighbors have the same Gaussian weight.
+-        let delta = f64::from(plane[center + 1] - plane[center]);
+-        let exponent = delta * delta / f64::from(params.h).powi(2);
+-        let weight = (-exponent).exp();
+-        let expected = f64::from(plane[center]) + delta * 28.0 * weight / (21.0 + 28.0 * weight);
+-        assert!(
+-            (f64::from(gpu[center]) - expected).abs() < 1e-7,
+-            "energy={energy}: {} != Gaussian mean {expected}",
+-            gpu[center]
+-        );
++        if energy < 8.0 {
++            assert!(reference[center] - plane[center] > 1e-6);
++        } else {
++            assert!((gpu[center] - plane[center]).abs() < 1e-7);
++        }
+     }
+ }

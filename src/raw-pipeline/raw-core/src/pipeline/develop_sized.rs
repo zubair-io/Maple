@@ -20,9 +20,8 @@ use crate::{
     linearize,
     stages::{
         auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, defringe, dehaze,
-        highlight_recovery, highlight_recovery_oklab, hot_pixel, hsl, local_adjustments, retouch,
-        saturation, scene_tone_controls, texture, tone_curves, vibrance, vignette, wb_camera,
-        white_balance,
+        highlight_recovery_oklab, hot_pixel, hsl, local_adjustments, retouch, saturation,
+        scene_tone_controls, texture, tone_curves, vibrance, vignette, wb_camera, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -203,7 +202,13 @@ pub(super) fn develop_sized_prefix(
                     return demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel);
                 }
                 let algo = crate::pipeline::bayer_kernel(quality, model, raw);
-                demosaic::demosaic_cancellable(algo, &mosaic, raw.cfa, cancel)
+                demosaic::camera_demosaic_cancellable(
+                    algo,
+                    &mosaic,
+                    raw.cfa,
+                    raw.as_shot_neutral,
+                    cancel,
+                )
             })
         }
     };
@@ -234,18 +239,12 @@ pub(super) fn develop_sized_prefix(
         });
     }
     // See unsized variant (ticket #325, skip_pre_gain identity branch).
-    let hr_neutral = if skip_pre_gain {
-        [1.0; 3]
-    } else {
-        raw.as_shot_neutral
-    };
     stage("sized_highlight_recovery", || {
-        highlight_recovery::apply_in_region(
+        crate::pipeline::develop::recover_sensor_highlights(
             &mut camera_rgb,
+            raw,
             model.highlight_recovery,
-            hr_neutral,
-            raw.baseline_exposure,
-            crate::pipeline::develop::highlight_active_area(raw, crop_divisor),
+            crop_divisor,
         )
     });
     dump_after("00b_highlight_recovery", &camera_rgb);

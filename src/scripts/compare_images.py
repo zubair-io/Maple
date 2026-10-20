@@ -2,7 +2,7 @@
 """Compare two sRGB PNG images: CIEDE2000 + per-channel bias, optionally with
 per-tonal-zone and per-hue-angle breakdowns.
 
-This is the ONE diff implementation. `test_color_pipeline.sh` calls
+This is the ONE diff implementation. The manual `diagnose_acr_comparison.sh` calls
 `diff_manifest_case()` for matched native-pair reduction; the standalone CLI
 wraps `diff()` for direct image-pair comparisons.
 

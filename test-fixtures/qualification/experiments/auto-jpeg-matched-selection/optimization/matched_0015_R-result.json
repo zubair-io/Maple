@@ -1,0 +1,15 @@
+{
+  "case": "0015",
+  "channel": "R",
+  "qualification": "cached training-operator feasibility diagnostic, NOT physical qualification or a complete image pass",
+  "scipy": "1.17.1",
+  "success": false,
+  "status": 1,
+  "message": "Time limit reached. (HiGHS Status 13: model_status is Time limit reached; primal_status is None)",
+  "seconds": 90.28706691598927,
+  "source_observations_sha256": "e32da50d43d28915afdd099bda4ffb3a4dd15cd9262af7386a2b287bca7d5e7d",
+  "source_renderer": "91fa556d44",
+  "projection_constraints_included": true,
+  "bounds_included": true,
+  "heldout_used_for_training": false
+}

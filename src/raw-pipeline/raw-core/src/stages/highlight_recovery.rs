@@ -1,13 +1,14 @@
 //! Sensor-highlight chromaticity reconstruction (#3633).
 //!
-//! Runs in post-as-shot-WB camera RGB before lens gain, warp or reduction.
-//! Sensor ceilings include BaselineExposure and AsShotNeutral. Fully known
+//! Runs in post-as-shot-WB camera RGB before lens warp or reduction.
+//! Sensor ceilings include BaselineExposure, AsShotNeutral and sensor gain maps. Fully known
 //! pixels and every known channel of a partially clipped pixel stay unchanged.
 //!
 //! For each partial clip, normalize each fully known 7×7 witness by the mean
 //! of the target's surviving channels, using the SAME channel mask throughout.
 //! Reject negative or non-finite witnesses without changing their pixels.
-//! Average the missing-channel ratios and multiply by the target's known
+//! Weight local ratios by surviving-channel chromaticity (the same matcher
+//! as tier 2), normalize by their weight, and multiply by the target's known
 //! mean. Blend this estimate with the existing brightest-known neutral fallback
 //! at count/49 confidence (<4 witnesses means zero confidence). This treats channel permutations equally
 //! and avoids both a preferred green denominator and ratios of averaged ratios.
@@ -25,7 +26,7 @@
 //! returns before allocating the mask.
 //!
 //! Guided extension (#1690): the 7×7 pass above is tier 1 and is bit-identical
-//! to the pre-#1690 behavior whenever it finds ≥4 witnesses. Pixels it cannot
+//! to the local estimator whenever it finds ≥4 valid witnesses. Pixels it cannot
 //! support (fewer than 4 witnesses — interiors of clipped regions wider than
 //! 7 px, where the old code collapsed to a neutral fallback) are deferred to
 //! two further tiers in `highlight_recovery/guided.rs`. Tier 2 estimates the
@@ -49,6 +50,7 @@
 
 use crate::{
     image::{ColorSpace, CropRect, Image},
+    sensor_gain_maps::ClipGainContext,
     xmp::HighlightRecoveryMode,
 };
 
@@ -56,10 +58,16 @@ use crate::{
 mod frame;
 #[path = "highlight_recovery/guided.rs"]
 mod guided;
+#[cfg(feature = "stage-dump")]
+#[path = "highlight_recovery/sensor_diagnostic.rs"]
+mod sensor_diagnostic;
 pub(crate) use frame::{FrameAnchor, ScenePrior, SceneSamples};
-#[cfg(test)]
 use guided::chroma_weight;
-use guided::{resolve_deferred, scene_median, CellField, SkipGrid, SKIP_GRID_TRIGGER};
+#[cfg(test)]
+use guided::scene_median;
+use guided::{
+    resolve_deferred, scene_median_in_sensor_space, CellField, SkipGrid, SKIP_GRID_TRIGGER,
+};
 
 /// Per-channel clip margin in post-WB camera RGB at zero BaselineExposure.
 /// Scale it with the pixels and ceilings when baseline exposure is applied.
@@ -141,6 +149,26 @@ pub(crate) fn apply_in_region_with_anchor(
     active_area: Option<CropRect>,
     anchor: Option<FrameAnchor>,
 ) {
+    apply_in_sensor_space(
+        img,
+        mode,
+        as_shot_neutral,
+        baseline_exposure,
+        active_area,
+        anchor,
+        None,
+    );
+}
+
+pub(crate) fn apply_in_sensor_space(
+    img: &mut Image,
+    mode: HighlightRecoveryMode,
+    as_shot_neutral: [f32; 3],
+    baseline_exposure: f32,
+    active_area: Option<CropRect>,
+    anchor: Option<FrameAnchor>,
+    gains: Option<ClipGainContext<'_>>,
+) {
     img.assert_space(ColorSpace::CameraNativeLinearRgb);
     match mode {
         HighlightRecoveryMode::Off => {}
@@ -155,6 +183,7 @@ pub(crate) fn apply_in_region_with_anchor(
                 baseline_exposure,
                 active_area,
                 anchor,
+                gains,
             );
         }
         HighlightRecoveryMode::ChromaticAdaptation => {
@@ -164,6 +193,7 @@ pub(crate) fn apply_in_region_with_anchor(
                 baseline_exposure,
                 active_area,
                 anchor,
+                gains,
             );
         }
         HighlightRecoveryMode::OklabChromaReduction => {
@@ -207,17 +237,29 @@ fn lowest_channels(p: &[f32; 3]) -> u8 {
 /// Hard clips plus their ripple band: a lowest channel at or above its ripple
 /// floor with a hard clip of the same channel within [`RIPPLE_RADIUS`] in
 /// `region`.
+#[cfg(test)]
 fn clip_mask_with_ripple(
     img: &Image,
     thresholds: [f32; 3],
     floors: [f32; 3],
     (left, top, right, bottom): (i32, i32, i32, i32),
 ) -> Vec<u8> {
+    clip_mask_in_sensor_space(img, thresholds, floors, (left, top, right, bottom), None)
+}
+
+fn clip_mask_in_sensor_space(
+    img: &Image,
+    thresholds: [f32; 3],
+    floors: [f32; 3],
+    (left, top, right, bottom): (i32, i32, i32, i32),
+    gains: Option<ClipGainContext<'_>>,
+) -> Vec<u8> {
     let w = img.width as i32;
     let hard: Vec<u8> = img
         .pixels
         .iter()
-        .map(|p| channels_at_or_above(p, thresholds))
+        .enumerate()
+        .map(|(i, p)| channels_in_sensor_space(p, thresholds, gains, i, img.width))
         .collect();
     let hard = hard.as_slice();
     let near_hard = |x: i32, y: i32| {
@@ -231,7 +273,8 @@ fn clip_mask_with_ripple(
         .zip(hard)
         .enumerate()
         .map(|(i, (p, &h))| {
-            let band = channels_at_or_above(p, floors) & lowest_channels(p) & !h;
+            let band =
+                channels_in_sensor_space(p, floors, gains, i, img.width) & lowest_channels(p) & !h;
             let (x, y) = (i as i32 % w, i as i32 / w);
             let inside = x >= left && x < right && y >= top && y < bottom;
             if band == 0 || !inside {
@@ -241,6 +284,36 @@ fn clip_mask_with_ripple(
             }
         })
         .collect()
+}
+
+fn channels_in_sensor_space(
+    p: &[f32; 3],
+    levels: [f32; 3],
+    gains: Option<ClipGainContext<'_>>,
+    index: usize,
+    width: u32,
+) -> u8 {
+    let Some(context) = gains else {
+        return channels_at_or_above(p, levels);
+    };
+    if levels.iter().all(|v| v.is_finite() && *v >= 0.)
+        && channels_at_or_above(p, levels.map(|v| v * context.minimum_scale())) == 0
+    {
+        return 0;
+    }
+    channels_at_or_above(p, scaled_levels(levels, gains, index, width))
+}
+
+fn scaled_levels(
+    levels: [f32; 3],
+    gains: Option<ClipGainContext<'_>>,
+    index: usize,
+    width: u32,
+) -> [f32; 3] {
+    gains.map_or(levels, |context| {
+        let scale = context.scale(index, width);
+        std::array::from_fn(|c| levels[c] * scale[c])
+    })
 }
 
 fn baseline_gain(baseline_exposure: f32) -> f32 {
@@ -260,6 +333,7 @@ fn apply_chromatic_adaptation(
     baseline_exposure: f32,
     active_area: Option<CropRect>,
     anchor: Option<FrameAnchor>,
+    gains: Option<ClipGainContext<'_>>,
 ) {
     let w = img.width as i32;
     let h = img.height as i32;
@@ -281,6 +355,10 @@ fn apply_chromatic_adaptation(
     let margin = EPSILON * gain;
     let denominator_floor = 1e-4 * gain;
     let thresholds = ceil.map(|ceiling| ceiling - margin);
+    #[cfg(feature = "stage-dump")]
+    if let Some(gains) = gains {
+        sensor_diagnostic::record(img, thresholds, gains);
+    }
 
     // Cheap pre-scan: most scenes have no clipping post-WB (the common case
     // now that ChromaticAdaptation is the default — see #335 per-fixture
@@ -289,7 +367,8 @@ fn apply_chromatic_adaptation(
     let any_clipped = img
         .pixels
         .iter()
-        .any(|p| p[0] >= thresholds[0] || p[1] >= thresholds[1] || p[2] >= thresholds[2]);
+        .enumerate()
+        .any(|(i, p)| channels_in_sensor_space(p, thresholds, gains, i, img.width) != 0);
     if !any_clipped {
         return;
     }
@@ -298,7 +377,8 @@ fn apply_chromatic_adaptation(
     // at its ceiling minus the margin, or inside the demosaic ripple band
     // beside such a clip.
     let floors = ripple_floors(neutral, baseline_exposure);
-    let clip_mask = clip_mask_with_ripple(img, thresholds, floors, (left, top, right, bottom));
+    let clip_mask =
+        clip_mask_in_sensor_space(img, thresholds, floors, (left, top, right, bottom), gains);
 
     // Keep this mask frozen: even a reconstructed value below threshold must
     // remain excluded. Every accepted witness is therefore still original.
@@ -330,7 +410,8 @@ fn apply_chromatic_adaptation(
             // answer; we cannot recover scene detail past full sensor
             // saturation, but we can at least stop magenta from leaking in.
             if clipped_count == 3 {
-                let x_val = ceil[0].max(ceil[1]).max(ceil[2]);
+                let local_ceil = scaled_levels(ceil, gains, idx, img.width);
+                let x_val = local_ceil[0].max(local_ceil[1]).max(local_ceil[2]);
                 img.pixels[idx] = [x_val, x_val, x_val];
                 continue;
             }
@@ -351,6 +432,7 @@ fn apply_chromatic_adaptation(
                 skip_grid = Some(SkipGrid::build(&clip_mask, img.width, img.height));
             }
             let mut sum_ratio = [0.0f32; 3];
+            let mut ratio_weight = 0.0f32;
             let mut count = 0u32;
             let scan = skip_grid
                 .as_ref()
@@ -379,18 +461,30 @@ fn apply_chromatic_adaptation(
                         }
                         let witness_level = known_mean(np);
                         if witness_level > denominator_floor {
+                            let weight = chroma_weight(
+                                np,
+                                witness_level,
+                                p_in,
+                                known_level,
+                                m,
+                                3 - clipped_count,
+                            );
                             for c in 0..3 {
                                 if (m >> c) & 1 == 1 {
-                                    sum_ratio[c] += np[c] / witness_level;
+                                    sum_ratio[c] += weight * (np[c] / witness_level);
                                 }
                             }
+                            ratio_weight += weight;
                             count += 1;
                         }
                     }
                 }
             }
-            if count >= 4 {
-                // Tier 1 has solid support: the pre-#1690 formula, unchanged.
+            if count >= 4 && ratio_weight > 0.0 && ratio_weight.is_finite() {
+                // Coverage confidence stays tied to valid local samples. The
+                // missing-channel ratio uses the same surviving-channel hue
+                // matcher as tier 2; a neighboring colored surface must not
+                // dominate merely because it shares this spatial window.
                 let neutral_level = (0..3)
                     .filter(|c| (m >> c) & 1 == 0)
                     .map(|c| p_in[c])
@@ -399,7 +493,7 @@ fn apply_chromatic_adaptation(
                 let mut p_out = p_in;
                 for c in 0..3 {
                     if (m >> c) & 1 == 1 {
-                        let ratio = sum_ratio[c] / count as f32;
+                        let ratio = sum_ratio[c] / ratio_weight;
                         p_out[c] =
                             neutral_level + confidence * (known_level * ratio - neutral_level);
                     }
@@ -425,7 +519,11 @@ fn apply_chromatic_adaptation(
         // nothing unclipped exists to sample. A tile carries the full frame's
         // prior in its anchor (#4378).
         let scene_chroma = anchor.map_or_else(
-            || scene_median(img, &clip_mask, floors, left, top, right, bottom),
+            || {
+                scene_median_in_sensor_space(
+                    img, &clip_mask, floors, left, top, right, bottom, gains,
+                )
+            },
             |a| a.prior.scene(),
         );
         resolve_deferred(
@@ -456,3 +554,7 @@ mod tests_guided;
 #[cfg(test)]
 #[path = "highlight_recovery/tests_ripple.rs"]
 mod tests_ripple;
+
+#[cfg(test)]
+#[path = "highlight_recovery/tests_local_matching.rs"]
+mod tests_local_matching;

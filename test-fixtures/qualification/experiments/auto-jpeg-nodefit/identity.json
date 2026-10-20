@@ -1,0 +1,9 @@
+{
+  "purpose": "Smooth tetrahedral-node JPEG-band fit, pending physical validation; preserveNeutralAgX/output37/fit7.",
+  "parent": "750656e4003486352c6351c07aa66c7c763d8c98",
+  "binary_sha256": "7157f887ce15d4c951e46de2eb09c4732370623bca88901b37c247c9221e58cf",
+  "unit_tests": 56,
+  "existing_ignored": 6,
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7
+}

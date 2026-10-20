@@ -1,0 +1,25 @@
+{
+  "comparison_dimensions": [
+    848,
+    560
+  ],
+  "candidate_dimensions": [
+    848,
+    560
+  ],
+  "position": [
+    431,
+    431
+  ],
+  "max": 54.75652535717274,
+  "candidate_rgb": [
+    55,
+    28,
+    29
+  ],
+  "reference_rgb": [
+    227,
+    146,
+    20
+  ]
+}

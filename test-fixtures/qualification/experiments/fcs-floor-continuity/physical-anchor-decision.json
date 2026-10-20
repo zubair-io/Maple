@@ -1,0 +1,10 @@
+{
+  "status": "Opposing witnesses retained; known Pixel target reported separately. Wider qualification required.",
+  "comparisons": 7,
+  "planned": 7,
+  "required_opposing_witnesses_pass": true,
+  "known_target_still_fails": true,
+  "all_original_inputs_unchanged": true,
+  "renderer_unchanged": true,
+  "production_changed": false
+}

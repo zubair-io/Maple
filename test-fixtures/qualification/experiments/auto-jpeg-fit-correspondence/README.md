@@ -1,0 +1,13 @@
+# Auto fitting correspondences — #5000
+
+Frozen renderer `27f00506a23bf76d6a5f1e9e6562758d951feb74`: complete physical run **5 JPEG passes / 11 failures / 4 exact Auto==Neutral fallbacks / 0 errors**. All 20 RAW hashes, 16 reference hashes and frozen executable match. Neutral AgX, pipeline output 37 and Auto fit version 7 are unchanged. Draft #5003 remains incomplete; do not merge.
+
+The registered observations train a color proposal. Native/display acceptance rows, comparator geometry, image output framing and fixed quality thresholds remain unchanged. Selection retains the existing paired artifact unless the registered candidate passes original guards and beats that actual artifact under those guards.
+
+Only 0007 changes relative to `87b1dc14ce`: blue-channel display p95 absolute error falls from 0.101961 to 0.098039, clearing the original 0.1 check. Mean DE moves 3.571234 to 3.559387; 0007 remains an overall failing image. Other 15 JPEG outputs, including all five passing controls, are byte-identical. No newly failing display-quality, native-absolute or legacy signed-bias checks against the previous checkpoint or clean `ed6424ae59`. Individual error values are not all monotone.
+
+83 Auto unit tests pass; six existing fixture-dependent tests remain ignored. Eight real-RAW host/cache checks, seven GPU LUT parity checks, five unchanged-budget banding ramps and file headroom pass. All 16 original/current/JPEG triplets reviewed in four contact sheets. 0005 still differs; 0015 foreground remains flat; 0017 remains faded.
+
+Offline affine diagnostics cover all 16 photographs; sparse-observation probes cover 0005, 0011 and 0015. OpenCV is diagnostic-only; production uses bounded Rust affine optimization. Diagnostic 0015 recovers framing (correlation 0.557157→0.754180), but the registered color proposal worsens the original unregistered tail and is rejected. Larger 17/33 color grids with exact original projection also worsen that tail: this is no justification to enlarge the production solver or waive the test. `fine_*`/`selection_audit.py` are cached operator diagnostics, never physical qualification. Their native/display evaluation uses original rows even when the JPEG needs no separate display resize.
+
+Full images and gallery: `/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-fit-correspondence/`. Current remaining failures: 0000, 0003, 0005, 0006, 0007, 0008, 0010, 0011, 0012, 0015, 0017. Next: correct unequal sampling-cell populations in fitting/selection, preserving all guards; isolate remaining color/contrast defects from geometry without changing comparison policy.

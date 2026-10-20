@@ -290,6 +290,7 @@ pub struct RawImage {
     pub crop_rect: Option<CropRect>,
     pub iso: u32,
     pub noise_profile: Option<Vec<f32>>,
+    pub sensor_gain_maps: Option<crate::sensor_gain_maps::SensorGainMaps>,
     /// DNG OpcodeList3 corrections parsed at decode time.
     pub opcode_list3: Option<(
         crate::pipeline::pano::opcodes::OpcodeList3,

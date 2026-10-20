@@ -1,0 +1,10 @@
+{
+  "base_commit": "a83c9a42f201b0293772b5977714c507ad989d65",
+  "processing_base": "95fc03d6819b34f46f928ba93de58188a4014022",
+  "pipeline_output_version": "37 plus experimental continuous FCS measured-envelope ceiling",
+  "auto_fit_model_version": 7,
+  "binary_sha256": "85d143b2b1d4af5aa3ea103e37cfff42fb50e2cebecdc5ceab8d641c42385e62",
+  "source_patch_sha256": "1a899fedfe7e49a8508fa983803d690be6124484d4f02359a828df0cbc4a20d1",
+  "amaze_tests_passed": 30,
+  "status": "Experimental, not adopted. No new thresholds; original RAW/XMP/Adobe/budgets and existing assertions unchanged. Only unsupported-green positive estimates below all nearest target samples change; zero/negative fallback unchanged."
+}

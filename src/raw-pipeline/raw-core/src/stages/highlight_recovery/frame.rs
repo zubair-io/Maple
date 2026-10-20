@@ -30,9 +30,12 @@ impl SceneSamples {
         }
     }
     pub(crate) fn push(&mut self, p: [f32; 3]) {
-        let unclipped = !(p[0] >= self.thresholds[0]
-            || p[1] >= self.thresholds[1]
-            || p[2] >= self.thresholds[2]);
+        self.push_with_scale(p, [1.; 3]);
+    }
+    pub(crate) fn push_with_scale(&mut self, p: [f32; 3], scale: [f32; 3]) {
+        let unclipped = !(p[0] >= self.thresholds[0] * scale[0]
+            || p[1] >= self.thresholds[1] * scale[1]
+            || p[2] >= self.thresholds[2] * scale[2]);
         if unclipped && p.iter().all(|v| v.is_finite() && *v >= 0.0) {
             self.samples.push(p);
         }

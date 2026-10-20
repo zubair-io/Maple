@@ -1,0 +1,74 @@
+{
+  "scope": "Current captured-main Sony baseline, exactly the canonical matched Lanczos reduction; no input changes.",
+  "renderer_commit": "cf62d12ddc573cff68780e7754f7b5b63f7ae621",
+  "renderer_binary_sha256": "8b877e07552a5cfd2f41d8884adb7c3fbd045c0462b4169808353862ce724ae6",
+  "reduction_dimensions": [
+    4000,
+    2667
+  ],
+  "original_inputs": {
+    "/Users/riabuz/Projects/_Maple/test-fixtures/raws/test_0011.ARW": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+    "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/xmp/baseline.xmp": "23cdfdc027d919721421a3f68a2f30790b37b41837e2bfce924e79db86033b52",
+    "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/down/baseline.png": "eb0964fca514f80816250b685665f8767790c89ae9958be78e9696844a1da687",
+    "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/full/baseline.png": "5d3b509bc0423ae4fdf1e78df9907ced1ef813121838d16d2e73aeb396e5a69c",
+    "/Users/riabuz/Projects/_Maple/.codex-worktrees/tone-slider-sprint/test-fixtures/references/test_0011/acr-xmp/baseline.xmp": "7fb53cc4337a879bd9ebff069cc29f777c87b153b3856d0075fa04911f1a1ac3",
+    "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/maple-calibrate-XXXXXX.OMuZnJH7jA/candidates/test_0011_baseline.png": "3ba2cc6a67effd1afcf0a6f6e8e35092473bdf91498243dfc82062b11119c52d"
+  },
+  "reduced_pair": {
+    "/Users/riabuz/.codex/color-suite-evidence/5000/sony-current-attribution/reference.png": "4932d19c166199f89a9f7e7c36beb3e0e8c509c099fa33dfb67f801eb15e77a6",
+    "/Users/riabuz/.codex/color-suite-evidence/5000/sony-current-attribution/candidate.png": "67dcc70b8957b903157166b10954a9364d54a485f0592840f3e78ac67f15d97e"
+  },
+  "probe_source_sha256": "0f153a1c8f8e7e90c569b526ad8ebed2ff20fc5043a8fb2adf2d9391c1417aa6",
+  "raw_pipeline_tree": "14a719a1fd5751524b2b9645b5badcf74ca590e5",
+  "full_attribution_sha256": "c1f30b5099beecbaef85268bee3bac44c00ea303af0a203d961f45eebd5b4ca4",
+  "filters": {
+    "candidate_channel_spread_max": 5,
+    "cardinal_neighbor_channel_delta_max": 3,
+    "channel_code_range_inclusive": [
+      10,
+      245
+    ],
+    "reference_band_code": "floor((R + G + B) / 3)",
+    "reference_channel_spread_max": 3
+  },
+  "sampling": {
+    "maximum_per_band": 1000,
+    "method": "lowest fixed SplitMix64 score of (x, y, band), ties by y then x"
+  },
+  "bands": [
+    {
+      "eligible_pixels": 96410,
+      "median_ev_high": -0.2750000059604645,
+      "median_ev_low": -0.5728999972343445,
+      "median_required_ev": -0.42329999804496765,
+      "reference_mean_code_band": [
+        10,
+        30
+      ],
+      "sampled_pixels": 1000
+    },
+    {
+      "eligible_pixels": 12139,
+      "median_ev_high": -0.8799999952316284,
+      "median_ev_low": -0.9742000102996826,
+      "median_required_ev": -0.9261999726295471,
+      "reference_mean_code_band": [
+        30,
+        60
+      ],
+      "sampled_pixels": 1000
+    },
+    {
+      "eligible_pixels": 6188,
+      "median_ev_high": -1.1371999979019165,
+      "median_ev_low": -1.2265000343322754,
+      "median_required_ev": -1.1816999912261963,
+      "reference_mean_code_band": [
+        60,
+        90
+      ],
+      "sampled_pixels": 1000
+    }
+  ],
+  "interpretation": "Required EV changes differ beyond +/-1-code bounds across neutral brightness bands; a single exposure offset is not sufficient. These inverse-view values are diagnostic, not Adobe scene-linear ground truth."
+}

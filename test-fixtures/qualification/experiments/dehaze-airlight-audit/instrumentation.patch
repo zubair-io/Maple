@@ -1,0 +1,34 @@
+diff --git a/src/raw-pipeline/raw-core/src/stages/dehaze.rs b/src/raw-pipeline/raw-core/src/stages/dehaze.rs
+index bf4bc8d299..de48223ce0 100644
+--- a/src/raw-pipeline/raw-core/src/stages/dehaze.rs
++++ b/src/raw-pipeline/raw-core/src/stages/dehaze.rs
+@@ -45,6 +45,29 @@ fn atmospheric_light(img: &Image, dc: &[f32]) -> [f32; 3] {
+         sum[2] += p[2];
+     }
+     let k = top_n as f32;
++    if std::env::var_os("MAPLE_DEHAZE_AUDIT").is_some() {
++        let threshold = dc[idx[top_n - 1]];
++        let above: Vec<usize> = (0..n).filter(|&i| dc[i] > threshold).collect();
++        let tied: Vec<usize> = (0..n).filter(|&i| dc[i] == threshold).collect();
++        let tie_weight = (top_n - above.len()) as f64 / tied.len() as f64;
++        let mut weighted = [0.0_f64; 3];
++        let mut tie_min = [f32::INFINITY; 3];
++        let mut tie_max = [f32::NEG_INFINITY; 3];
++        for &i in &above { for c in 0..3 { weighted[c] += img.pixels[i][c] as f64; } }
++        for &i in &tied { for c in 0..3 {
++            weighted[c] += img.pixels[i][c] as f64 * tie_weight;
++            tie_min[c] = tie_min[c].min(img.pixels[i][c]);
++            tie_max[c] = tie_max[c].max(img.pixels[i][c]);
++        } }
++        eprintln!("DEHAZE_AUDIT {}", serde_json::json!({
++            "width":img.width,"height":img.height,"top_n":top_n,
++            "threshold":threshold,"strictly_above":above.len(),"tied":tied.len(),
++            "selected_from_tie":top_n-above.len(),"tie_weight":tie_weight,
++            "current_A":[sum[0]/k,sum[1]/k,sum[2]/k],
++            "fractional_tie_A":[weighted[0]/k as f64,weighted[1]/k as f64,weighted[2]/k as f64],
++            "tie_min":tie_min,"tie_max":tie_max
++        }));
++    }
+     [sum[0] / k, sum[1] / k, sum[2] / k]
+ }
+ 

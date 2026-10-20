@@ -1,0 +1,78 @@
+{
+  "phase": "complete",
+  "launcher_pid": 96739,
+  "branch_commit": "b4523b79e616f2745f3b0a7e8e1c60b9bff08424",
+  "captured_main_commit": "cf62d12ddc573cff68780e7754f7b5b63f7ae621",
+  "renderer_tree": "023b25519500ab2df2d0e338d4efc9f72ce7da41",
+  "pipeline_output_version": 36,
+  "binary_sha256": "a0dbab682e20b1c855ac880bc9c01faca11b50c81d12241136dabfe1158555f2",
+  "manifest_sha256": "8af5140a210214bd5255e4b27a38ff70b35efe48c918a6045bda4c8176ccc218",
+  "working_manifest_sha256": "8af5140a210214bd5255e4b27a38ff70b35efe48c918a6045bda4c8176ccc218",
+  "budgets_sha256": "8a0427c569486b27c9c6cd3bfa5797bb031fa8c0a71d62fa29a9289bfcf17e58",
+  "harness_sha256": "4c6ea00888412421d6a64e8eb6db7b66637861eea54dc764a14ed8bad8724f3d",
+  "comparator_sha256": "d62071c3dba62f439afe2426253a8b744cbfa3cb37761c0efb90baf575e8da2e",
+  "driver_sha256": "b43a9df982ffb4eabc5b1295bccccf46b4350be93295a0bad307407ffb845171",
+  "logical_input_paths": 1866,
+  "physical_input_files": 963,
+  "started_at": "2026-10-19T12:38:37.958034+00:00",
+  "render_workers": 4,
+  "comparison_workers": 8,
+  "completed_render_tasks": 199,
+  "render_errors": [],
+  "completed_comparison_tasks": 123,
+  "auto_fit_model_version": 6,
+  "binary_features": [
+    "stage-dump (inactive: all MAPLE env vars removed)"
+  ],
+  "input_preflight_completed": true,
+  "provenance_map_origin": "complete repaired branch31 snapshot",
+  "newly_rendered_cases": 796,
+  "opposing_anchors_pixel_hash_matched": [
+    "test_0000/nr_luminance_max",
+    "test_0018/contrast_max"
+  ],
+  "comparisons": 806,
+  "failures": 110,
+  "unique_cases": 796,
+  "unique_failed_cases": 110,
+  "changed_inputs": [],
+  "changed_candidates": [],
+  "binary_unchanged": true,
+  "passes": [
+    {
+      "compared": 606,
+      "breaches": 73,
+      "skipped_no_raw": 0,
+      "skipped_no_candidate": 0,
+      "skipped_no_reference": 170,
+      "errors": 0,
+      "grand_mean_deltaE": 11.12459293026761,
+      "grand_bias_r": -0.0024262612426930344,
+      "grand_bias_g": -0.01043063581810297,
+      "grand_bias_b": -0.0018693164827422656
+    },
+    {
+      "compared": 20,
+      "breaches": 0,
+      "skipped_no_raw": 0,
+      "skipped_no_candidate": 0,
+      "skipped_no_reference": 0,
+      "errors": 0,
+      "grand_mean_deltaE": 7.082524486395954,
+      "profile": "auto"
+    },
+    {
+      "compared": 180,
+      "breaches": 37,
+      "skipped_no_raw": 0,
+      "skipped_no_candidate": 0,
+      "skipped_no_reference": 0,
+      "errors": 0,
+      "grand_mean_deltaE": 9.358064755997557,
+      "profile": "detail-fullres"
+    }
+  ],
+  "complete_coverage": true,
+  "finished_at": "2026-10-19T13:28:58.755233+00:00",
+  "accounting_passed": true
+}

@@ -1,0 +1,26 @@
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+.........test_0000: no-preview
+./opt/homebrew/lib/python3.14/site-packages/numpy/lib/_function_base_impl.py:3036: RuntimeWarning: invalid value encountered in divide
+  c /= stddev[:, None]
+/opt/homebrew/lib/python3.14/site-packages/numpy/lib/_function_base_impl.py:3037: RuntimeWarning: invalid value encountered in divide
+  c /= stddev[None, :]
+...{"status": "failed", "compared": 0, "passed": 0, "failed": 0, "no-preview": 1, "error": 0, "evidence": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/tmpasashtol/evidence"}
+test_0000: failed
+..{"status": "failed", "compared": 1, "passed": 0, "failed": 1, "no-preview": 0, "error": 0, "evidence": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/tmplayc4gl_/evidence"}
+test_0000: passed
+..{"status": "passed", "compared": 1, "passed": 1, "failed": 0, "no-preview": 0, "error": 0, "evidence": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/tmpiecdm6k3/evidence"}
+test_0000: no-preview
+.{"status": "failed", "compared": 0, "passed": 0, "failed": 0, "no-preview": 1, "error": 0, "evidence": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/tmpdeltt9we/evidence"}
+test_0000: error
+.{"status": "failed", "compared": 0, "passed": 0, "failed": 0, "no-preview": 0, "error": 1, "evidence": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/tmp42ib7wfl/evidence"}
+test_0000: error
+.{"status": "failed", "compared": 0, "passed": 0, "failed": 0, "no-preview": 0, "error": 1, "evidence": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/tmpdvs5k8p1/evidence"}
+test_0000: error
+.......................
+----------------------------------------------------------------------
+Ran 43 tests in 21.442s
+
+OK
+{"status": "failed", "compared": 0, "passed": 0, "failed": 0, "no-preview": 0, "error": 1, "evidence": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/tmph_vjqrh4/evidence"}

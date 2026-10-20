@@ -66,15 +66,13 @@ mod chroma;
 mod tiled;
 pub(crate) use chroma::denoise_chroma_pair_cancellable;
 
-/// Fast exp(-x) lookup. The NLM weight is `exp(-d²/(h²·area))` where the
-/// argument is always ≥ 0. For x ≥ `FAST_EXP_RANGE` the weight is ≤ ~3.4e-4
-/// — well below the noise floor of f32 accumulation across O(1000) pixels,
-/// so we clamp to 0. The bound is `≥` (not `>`) so that the `i+1` table
-/// lookup stays in range — at exactly `x = FAST_EXP_RANGE`, `i = TABLE_SIZE`
-/// and `table[i+1]` would be out of bounds. Inside the range we linearly
-/// interpolate a 512-entry table. Measured at ~0.6 ns per call on Apple
-/// Silicon (vs ~5 ns for hardware `expf`) — at 81 shifts × 2 MP, the
-/// saving is ~36 ms.
+/// Fast exp(-x) weights for NLM's `exp(-d²/(h²·area))` kernel.
+/// Interpolate the existing 512-entry table below x=8 and retain the
+/// hardware-exp tail above it: small absolute weights can dominate after
+/// normalization when every neighboring match is weak. The >= guard also
+/// keeps the i+1 lookup within the table. Natural f32 underflow is zero at
+/// x>=104. The common-range lookup was measured at ~0.6 ns per call on
+/// Apple Silicon versus ~5 ns for hardware expf.
 const FAST_EXP_RANGE: f32 = 8.0;
 const FAST_EXP_TABLE_SIZE: usize = 512;
 
@@ -112,7 +110,9 @@ fn fast_neg_exp(x: f32) -> f32 {
     }
     // exp(-x) ranges from 1.0 at x=0 down to ~3.4e-4 at x=8.
     if x >= FAST_EXP_RANGE {
-        return 0.0;
+        // exp(-104) rounds to zero in f32. Keep every representable tail
+        // below that point; an absolute cutoff at 8 breaks normalization.
+        return if x >= 104.0 { 0.0 } else { (-x).exp() };
     }
     let t = x * (FAST_EXP_TABLE_SIZE as f32 / FAST_EXP_RANGE);
     let i = t as usize;
@@ -349,3 +349,7 @@ mod tests_box;
 #[cfg(test)]
 #[path = "nlm_tests_determinism.rs"]
 mod tests_determinism;
+
+#[cfg(test)]
+#[path = "nlm_tests_tail.rs"]
+mod tests_tail;

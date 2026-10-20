@@ -1,0 +1,629 @@
+{
+  "scope": "Focused physical qualification only:16 comparisons; not an independent full-suite branch result. The prior working ledger had103 failures; one of those clears here. Full remaining count awaits a complete branch run.",
+  "change": "AMaZE FCS interpolates nearest same-color sensor samples with scale-normalized inverse-square green-distance weights. The CFA stencil, measured channels, strength, original RAW/XMP/Adobe references, and gate tolerances are unchanged.",
+  "pipeline_output_version": 30,
+  "cache_mirrors": "Regenerated with tools/codegen.sh; historical qualification records retained at their actual recorded versions.",
+  "cleared": [
+    "test_0000/nr_color_max"
+  ],
+  "new_failures_in_focused_cohort": [],
+  "focused_comparisons": 16,
+  "focused_remaining_failures": 5,
+  "budgets_sha256": "8a0427c569486b27c9c6cd3bfa5797bb031fa8c0a71d62fa29a9289bfcf17e58",
+  "pilot_identity": {
+    "phase": "focused qualification",
+    "binary_sha256": "b6d4433c9902b6ce94fb2bcabd6758957f0728f6a65236abee5945aad02d8ba9",
+    "source_patch_sha256": "aaa2e1595449f546d64d82cbbecbee5680a570cab2afbdcf55c4ad25dbd5b684",
+    "scope": "Green-guided FCS only. No pre-WB change. Frozen original inputs/budgets. Sixteen focused comparisons, not full suite."
+  },
+  "version30_binary_sha256": "3c6f61052f53bcd02d762b668091380b5a8df12dfa986fa34e2b89d6b0d4e54f",
+  "wider_controls": "All20fixturebaselines in Neutral/Auto and3qualified native-companion cases are running under the version30binary;43total. No full-suite pass claimed.",
+  "tests": {
+    "amaze": 21,
+    "guided_and_tile": 24,
+    "dual_demosaic": 18,
+    "gpu_full_chain_composed_cpu_oracle": 1,
+    "new_positive_luminance_edge_test": "Fails on original FCS; passes on new code. Exercises4Bayerphases,3edgedirections,3exposures.",
+    "ceiling_test_update": "Replaced assertions requiring the old unweighted overshoot with the actual dark-surface value/donor bounds. Existing1e-6 numerical assertions retained; no physical corpus budgets changed."
+  },
+  "cases": [
+    {
+      "name": "test_0000/baseline",
+      "profile": "neutral",
+      "original": {
+        "fixture": "test_0000",
+        "case": "baseline",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 5.737030116067637,
+        "p95": 9.326871152249794,
+        "max": 35.49130896021131,
+        "bR": 0.01261046285979986,
+        "bG": 0.014605203889618007,
+        "bB": 0.016765547763813605,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      },
+      "candidate": {
+        "fixture": "test_0000",
+        "case": "baseline",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 5.736202597339926,
+        "p95": 9.323497755552658,
+        "max": 30.76446768139039,
+        "bR": 0.012531324219255962,
+        "bG": 0.014625492530855003,
+        "bB": 0.016734096546966427,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      }
+    },
+    {
+      "name": "test_0000/nr_color_min",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "nr_color_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 6.529142268716192,
+        "p95": 11.073358711135416,
+        "max": 59.188424573549504,
+        "bR": 0.013256086276407342,
+        "bG": 0.013849918244416023,
+        "bB": 0.016855741200602847,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0000",
+        "case": "nr_color_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 6.5400994645692725,
+        "p95": 11.109467482204222,
+        "max": 53.48977318972302,
+        "bR": 0.013154638582116851,
+        "bG": 0.013867349059168088,
+        "bB": 0.01682313745824333,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0000/nr_color_max",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "nr_color_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 46.95>42.90"
+        ],
+        "mean": 6.112860443888361,
+        "p95": 9.992622754572482,
+        "max": 46.94677480444817,
+        "bR": 0.012422089264482286,
+        "bG": 0.014528409574744772,
+        "bB": 0.016648996277496515,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0000",
+        "case": "nr_color_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 6.1120274073361,
+        "p95": 9.991555567495475,
+        "max": 34.98171671768672,
+        "bR": 0.01233732666514914,
+        "bG": 0.014550803040520513,
+        "bB": 0.01661672184177021,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0000/nr_luminance_max",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "nr_luminance_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 53.99>50.90"
+        ],
+        "mean": 5.826444600078439,
+        "p95": 9.778212144081582,
+        "max": 53.99387847200087,
+        "bR": 0.013180784242298035,
+        "bG": 0.015184660303460587,
+        "bB": 0.01736540732911825,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0000",
+        "case": "nr_luminance_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 53.26>50.90"
+        ],
+        "mean": 5.826399538745641,
+        "p95": 9.777165954679406,
+        "max": 53.25963333080858,
+        "bR": 0.013102740488481571,
+        "bG": 0.015206323670985919,
+        "bB": 0.017335243715896047,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0000/sharpen_amount_max",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "sharpen_amount_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 6.006903379418105,
+        "p95": 11.37858340267677,
+        "max": 57.89196465537094,
+        "bR": 0.009710687464464166,
+        "bG": 0.011461442501605523,
+        "bB": 0.013618389061358668,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0000",
+        "case": "sharpen_amount_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 6.006842623735029,
+        "p95": 11.377958361154421,
+        "max": 58.881309715420834,
+        "bR": 0.009639486986695789,
+        "bG": 0.011476917192562386,
+        "bB": 0.013588821338923543,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0000/sharpen_amount_min",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "sharpen_amount_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 5.733462051388025,
+        "p95": 9.423370097008998,
+        "max": 54.5613383744604,
+        "bR": 0.013086726763505798,
+        "bG": 0.015121233631474884,
+        "bB": 0.017261180384438246,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0000",
+        "case": "sharpen_amount_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 5.733723683312956,
+        "p95": 9.424741161439693,
+        "max": 49.75120148271318,
+        "bR": 0.013005007545759964,
+        "bG": 0.015143414234844332,
+        "bB": 0.017229810536797025,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0000/sharpen_detail_max",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "sharpen_detail_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 54.71>52.20"
+        ],
+        "mean": 5.812432970962043,
+        "p95": 9.630290182976983,
+        "max": 54.7104310947567,
+        "bR": 0.012615197015537141,
+        "bG": 0.014608292045766266,
+        "bB": 0.01677593663623317,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0000",
+        "case": "sharpen_detail_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 53.50>52.20"
+        ],
+        "mean": 5.812447035791695,
+        "p95": 9.629970942994966,
+        "max": 53.4997757066572,
+        "bR": 0.012535760655858286,
+        "bG": 0.014628569858453141,
+        "bB": 0.016744720903620097,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0000/sharpen_detail_min",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "sharpen_detail_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 54.13>52.30"
+        ],
+        "mean": 5.752187585287291,
+        "p95": 9.472635831027327,
+        "max": 54.1323794913219,
+        "bR": 0.012579152799167442,
+        "bG": 0.014560416189928094,
+        "bB": 0.016712047880764896,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0000",
+        "case": "sharpen_detail_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 52.93>52.30"
+        ],
+        "mean": 5.752429515088724,
+        "p95": 9.473752217949498,
+        "max": 52.93018581177972,
+        "bR": 0.012499716439473932,
+        "bG": 0.014580694002614783,
+        "bB": 0.016680832148151453,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0000/sharpen_masking_max",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "sharpen_masking_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 54.39>52.50"
+        ],
+        "mean": 5.754946272418948,
+        "p95": 9.478623564003723,
+        "max": 54.393688312132205,
+        "bR": 0.012965318235427825,
+        "bG": 0.014985873833882649,
+        "bB": 0.01713276854242522,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0000",
+        "case": "sharpen_masking_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 53.18>52.50"
+        ],
+        "mean": 5.755151323336659,
+        "p95": 9.479714958013002,
+        "max": 53.18031472406215,
+        "bR": 0.012884516617619893,
+        "bG": 0.015007118449556267,
+        "bB": 0.01710139226682574,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0007/baseline",
+      "profile": "neutral",
+      "original": {
+        "fixture": "test_0007",
+        "case": "baseline",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 4.84048907410006,
+        "p95": 8.082569243959018,
+        "max": 40.632324104187774,
+        "bR": 0.011257329547831854,
+        "bG": 0.015896585316142027,
+        "bB": 0.024343029480382673,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      },
+      "candidate": {
+        "fixture": "test_0007",
+        "case": "baseline",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 4.841215459051308,
+        "p95": 8.083888012498447,
+        "max": 40.27006986053585,
+        "bR": 0.011239282906281952,
+        "bG": 0.01590753174243366,
+        "bB": 0.024312680699692873,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      }
+    },
+    {
+      "name": "test_0009/baseline",
+      "profile": "neutral",
+      "original": {
+        "fixture": "test_0009",
+        "case": "baseline",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 7.831668451615404,
+        "p95": 15.323978248059882,
+        "max": 23.588459470855184,
+        "bR": 0.08594709357331233,
+        "bG": 0.06842197941888581,
+        "bB": 0.05654296366268544,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      },
+      "candidate": {
+        "fixture": "test_0009",
+        "case": "baseline",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 7.831889254894408,
+        "p95": 15.324257618396086,
+        "max": 22.989987615497324,
+        "bR": 0.08591867800660413,
+        "bG": 0.06841800418004429,
+        "bB": 0.05652557098306235,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      }
+    },
+    {
+      "name": "test_0000/sharpen_radius_max",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "sharpen_radius_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 54.84>53.40"
+        ],
+        "mean": 5.634783105916952,
+        "p95": 9.326371087841988,
+        "max": 54.835411822869446,
+        "bR": 0.009827936015202677,
+        "bG": 0.011799412274313007,
+        "bB": 0.013835506013816196,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0000",
+        "case": "sharpen_radius_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 53.71>53.40"
+        ],
+        "mean": 5.635182795040471,
+        "p95": 9.328917283502543,
+        "max": 53.712871608654716,
+        "bR": 0.009753052243128196,
+        "bG": 0.011816638991209235,
+        "bB": 0.013805182169523256,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0000/sharpen_radius_min",
+      "profile": "detail-fullres",
+      "original": {
+        "fixture": "test_0000",
+        "case": "sharpen_radius_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 5.768570789470824,
+        "p95": 9.450471159893903,
+        "max": 54.12585026196555,
+        "bR": 0.013010072647368425,
+        "bG": 0.015034587512984476,
+        "bB": 0.017191870112185648,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "candidate": {
+        "fixture": "test_0000",
+        "case": "sharpen_radius_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "passed",
+        "breaches": [],
+        "mean": 5.768715547773351,
+        "p95": 9.45135650170711,
+        "max": 52.59119485372893,
+        "bR": 0.01292901383351166,
+        "bG": 0.015056224428440604,
+        "bB": 0.017160526054240472,
+        "n_pixels": 100663296,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0007/baseline_auto",
+      "profile": "auto",
+      "original": {
+        "fixture": "test_0007",
+        "case": "baseline_auto",
+        "profile": "auto",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 1.6056191278546217,
+        "p95": 3.4048231380677416,
+        "max": 38.39966745563883,
+        "bR": -0.01054563118826792,
+        "bG": -0.008975236960984656,
+        "bB": -0.005052475026768434,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      },
+      "candidate": {
+        "fixture": "test_0007",
+        "case": "baseline_auto",
+        "profile": "auto",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 1.6018099443444784,
+        "p95": 3.412313968982201,
+        "max": 38.39966745563883,
+        "bR": -0.010118998503850589,
+        "bG": -0.009081473690957917,
+        "bB": -0.005046303748138701,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      }
+    },
+    {
+      "name": "test_0000/baseline_auto",
+      "profile": "auto",
+      "original": {
+        "fixture": "test_0000",
+        "case": "baseline_auto",
+        "profile": "auto",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 2.92808638129928,
+        "p95": 5.6234065710548204,
+        "max": 32.00005706239394,
+        "bR": 0.0043795996811857255,
+        "bG": 0.010660560054288648,
+        "bB": 0.01134553081632435,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      },
+      "candidate": {
+        "fixture": "test_0000",
+        "case": "baseline_auto",
+        "profile": "auto",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 2.929552821731386,
+        "p95": 5.6242771539296825,
+        "max": 30.317605272149915,
+        "bR": 0.004351512750001308,
+        "bG": 0.010670952505407625,
+        "bB": 0.011363978142607492,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      }
+    },
+    {
+      "name": "test_0009/baseline_auto",
+      "profile": "auto",
+      "original": {
+        "fixture": "test_0009",
+        "case": "baseline_auto",
+        "profile": "auto",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 6.959948152714242,
+        "p95": 15.589959169626804,
+        "max": 24.584270804801047,
+        "bR": 0.07253318048963132,
+        "bG": 0.07793374807274396,
+        "bB": 0.08471083078812039,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      },
+      "candidate": {
+        "fixture": "test_0009",
+        "case": "baseline_auto",
+        "profile": "auto",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 6.969305919661324,
+        "p95": 15.665277310202509,
+        "max": 24.454526273872965,
+        "bR": 0.07221939802193568,
+        "bG": 0.07801229599464414,
+        "bB": 0.08487478749313136,
+        "n_pixels": 10668000,
+        "reference_protocol": "baseline-native-pair-lanczos"
+      }
+    }
+  ]
+}

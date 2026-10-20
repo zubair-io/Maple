@@ -1,0 +1,10 @@
+{
+  "base_commit": "5424f1357d949dc4ac3e8b0dd6f50f8cc5292aaf",
+  "processing_base": "95fc03d6819b34f46f928ba93de58188a4014022",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "binary_sha256": "f853f958bba484585f065ba7c6e27a658a2ab4f3cc7b4d01edfc05a296eee52a",
+  "source_patch_sha256": "5cb99968fdfad861232f8147ae7000bd4b04a9d28aaf6f44797eba3f7895f86c",
+  "status": "Native dispatch plus relative Gaussian NLM: isolated experiment only, no adoption or output/version/input/tolerance policy change.",
+  "amaze_tests_passed": 29
+}

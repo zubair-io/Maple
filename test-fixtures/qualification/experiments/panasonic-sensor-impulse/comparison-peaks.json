@@ -1,0 +1,100 @@
+{
+  "current36": {
+    "native_dimensions": [
+      4224,
+      2376
+    ],
+    "comparison_dimensions": [
+      4000,
+      2250
+    ],
+    "max": 11.868309730338728,
+    "position": [
+      2437,
+      211
+    ],
+    "candidate_rgb": [
+      4,
+      1,
+      28
+    ],
+    "reference_rgb": [
+      2,
+      1,
+      1
+    ]
+  },
+  "original_fcs": {
+    "native_dimensions": [
+      4224,
+      2376
+    ],
+    "comparison_dimensions": [
+      4000,
+      2250
+    ],
+    "max": 7.431262096310173,
+    "position": [
+      2437,
+      211
+    ],
+    "candidate_rgb": [
+      3,
+      1,
+      19
+    ],
+    "reference_rgb": [
+      2,
+      1,
+      1
+    ]
+  },
+  "guard_native_wb": {
+    "native_dimensions": [
+      4224,
+      2376
+    ],
+    "comparison_dimensions": [
+      4000,
+      2250
+    ],
+    "max": 8.275942607512409,
+    "position": [
+      2437,
+      211
+    ],
+    "candidate_rgb": [
+      6,
+      2,
+      21
+    ],
+    "reference_rgb": [
+      2,
+      1,
+      1
+    ]
+  },
+  "hot_pixel_on_diagnostic": {
+    "at_original_peak_rgb": [
+      1,
+      1,
+      1
+    ],
+    "canonical_comparison": {
+      "fixture": "test_0001",
+      "case": "exposure_min",
+      "profile": "neutral",
+      "resolution": "down",
+      "status": "passed",
+      "breaches": [],
+      "mean": 0.6890404514611761,
+      "p95": 1.6140827954254235,
+      "max": 7.510037896181721,
+      "bR": 0.0023759377434971326,
+      "bG": 0.00045483533815604945,
+      "bB": 0.0015610305268973525,
+      "n_pixels": 9000000,
+      "reference_protocol": "legacy-direct-reference"
+    }
+  }
+}

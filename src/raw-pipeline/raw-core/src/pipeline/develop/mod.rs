@@ -33,9 +33,9 @@ use crate::{
     linearize,
     stages::{
         auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, defringe, dehaze,
-        highlight_recovery, highlight_recovery_oklab, hot_pixel, hsl, local_adjustments,
-        noise_reduction, retouch, saturation, scene_tone_controls, sharpen, texture, tone_curves,
-        vibrance, vignette, wb_camera, white_balance,
+        highlight_recovery_oklab, hot_pixel, hsl, local_adjustments, noise_reduction, retouch,
+        saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance, vignette,
+        wb_camera, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -49,6 +49,7 @@ mod geometry;
 
 pub(super) use geometry::{
     crop_to_default, effective_quality_divisor, highlight_active_area, lateral_ca,
+    recover_sensor_highlights,
 };
 
 // The three forwarding entries live in a sibling for the file-size budget
@@ -106,6 +107,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             // later via `develop_sized`. A true half-res X-Trans
             // preview is a follow-up.
             let mut mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+            dump_after("00_sensor_linearized", &mosaic);
             // Hot/dead-pixel suppression (#1106) — pre-demosaic, raw-domain.
             // No-op (bit-identical) at the default Off.
             stage("hot_pixel", || {
@@ -121,6 +123,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
         }
         _ => {
             let mut mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+            dump_after("00_sensor_linearized", &mosaic);
             // Hot/dead-pixel suppression (#1106) — pre-demosaic, raw-domain.
             // No-op (bit-identical) at the default Off.
             stage("hot_pixel", || {
@@ -136,7 +139,13 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             // below bails before any downstream stage runs either way.
             stage("demosaic", || {
                 let algo = crate::pipeline::bayer_kernel(quality, model, raw);
-                demosaic::demosaic_cancellable(algo, &mosaic, raw.cfa, cancel)
+                demosaic::camera_demosaic_cancellable(
+                    algo,
+                    &mosaic,
+                    raw.cfa,
+                    raw.as_shot_neutral,
+                    cancel,
+                )
             })
         }
     };
@@ -189,21 +198,12 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     // After WB pre-gain, highlight ceilings are 2^BE / AsShotNeutral.
     // Use identity neutral (1,1,1) when pre-gain was skipped (8-bit lossy
     // LinearRaw); otherwise the detector misses R/B clips and trips on G.
-    let hr_neutral = if skip_pre_gain {
-        [1.0; 3]
-    } else {
-        raw.as_shot_neutral
-    };
     stage("highlight_recovery", || {
-        highlight_recovery::apply_in_region(
+        crate::pipeline::develop::recover_sensor_highlights(
             &mut camera_rgb,
+            raw,
             model.highlight_recovery,
-            hr_neutral,
-            raw.baseline_exposure,
-            crate::pipeline::develop::highlight_active_area(
-                raw,
-                effective_quality_divisor(quality, raw.cfa),
-            ),
+            effective_quality_divisor(quality, raw.cfa),
         )
     });
     dump_after("00b_highlight_recovery", &camera_rgb);

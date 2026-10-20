@@ -1,0 +1,257 @@
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
+index a20a45968e..785cd10a24 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
+@@ -43,6 +43,7 @@ pub(super) fn suppress_false_colour(
+     h: usize,
+     pattern: CfaPattern,
+     strength: f32,
++    sensor_ceilings: [f32; 3],
+ ) {
+     if strength <= 0.0 || w < 9 || h < 9 {
+         out.pixels
+@@ -57,12 +58,63 @@ pub(super) fn suppress_false_colour(
+     const EPS: f32 = 1e-6;
+     let color_at = |x: usize, y: usize| pattern.color_at(x as u32, y as u32) as usize;
+ 
++    // A measured green site can anchor a same-surface chromaticity estimate.
++    // Only interpolate between unclipped donors with agreeing C/G ratios;
++    // do not extrapolate an isolated green feature or infer hue from clipping.
++    let measured_green_estimate = |x: usize, y: usize, t: usize| -> Option<f32> {
++        let centre = green[y * w + x];
++        if color_at(x, y) != 1 || centre <= 0.0 || centre >= sensor_ceilings[1] {
++            return None;
++        }
++        let (mut colour, mut guide, mut n) = (0.0_f32, 0.0_f32, 0);
++        let (mut low_g, mut high_g) = (f32::INFINITY, f32::NEG_INFINITY);
++        let (mut low_ratio, mut high_ratio) = (f32::INFINITY, f32::NEG_INFINITY);
++        let mut ratio_sum = 0.0;
++        for (dx, dy) in [(-1_isize, 0_isize), (1, 0), (0, -1), (0, 1)] {
++            let (nx, ny) = ((x as isize + dx) as usize, (y as isize + dy) as usize);
++            if color_at(nx, ny) != t {
++                continue;
++            }
++            let i = ny * w + nx;
++            let (sample, g) = (cfa_flat[i], green[i]);
++            if !sample.is_finite()
++                || sample < 0.0
++                || sample >= sensor_ceilings[t]
++                || !g.is_finite()
++                || g <= 0.0
++            {
++                return None;
++            }
++            let ratio = sample / g;
++            colour += sample;
++            guide += g;
++            n += 1;
++            low_g = low_g.min(g);
++            high_g = high_g.max(g);
++            low_ratio = low_ratio.min(ratio);
++            high_ratio = high_ratio.max(ratio);
++            ratio_sum += ratio;
++        }
++        let tolerance = EPS * (centre.abs() + low_g.abs() + high_g.abs() + EPS);
++        if n != 2 || centre < low_g - tolerance || centre > high_g + tolerance {
++            return None;
++        }
++        let mean_ratio = ratio_sum / n as f32;
++        if mean_ratio <= 0.0 || (high_ratio - low_ratio) / mean_ratio > MAX_COLLAPSED_RATIO_SPREAD {
++            return None;
++        }
++        Some(centre * colour / guide)
++    };
++
+     // Value-domain estimate of channel `t` at (x, y): the bilinear value
+     // interpolation the constant-hue path replaces. Only the *nearest* same-
+     // colour samples are used (the immediate Bayer neighbours of that
+     // colour), so a sharp 1-px colour edge is preserved rather than averaged
+     // away.
+     let value_estimate = |x: usize, y: usize, t: usize| -> f32 {
++        if let Some(estimate) = measured_green_estimate(x, y, t) {
++            return estimate;
++        }
+         // Pass 1: distance-1 cardinal same-colour neighbours.
+         let mut sum = 0.0_f32;
+         let mut cnt = 0.0_f32;
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/mod.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/mod.rs
+index 6332e893e5..a359569e8f 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/mod.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/mod.rs
+@@ -143,7 +143,16 @@ pub fn amaze_with_gains(mosaic: &Image, cfa: CfaPattern, scales: [f32; 3]) -> Im
+         .and_then(|v| v.parse::<f32>().ok())
+         .unwrap_or(fcs::FALSE_COLOUR_SUPPRESS_STRENGTH);
+     let green_plane: Vec<f32> = out.pixels.par_iter().map(|p| p[1]).collect();
+-    fcs::suppress_false_colour(&mut out, &cfa_flat, &green_plane, w, h, cfa, fcs_strength);
++    fcs::suppress_false_colour(
++        &mut out,
++        &cfa_flat,
++        &green_plane,
++        w,
++        h,
++        cfa,
++        fcs_strength,
++        scales,
++    );
+ 
+     for (i, pixel) in out.pixels.iter_mut().enumerate() {
+         for c in 0..3 {
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs
+index 0a92f02be6..25934c0cf6 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_luminance_edge.rs
+@@ -66,6 +66,7 @@ fn suppress(
+         SIDE,
+         pattern,
+         fcs::FALSE_COLOUR_SUPPRESS_STRENGTH,
++        [f32::INFINITY; 3],
+     );
+     image
+ }
+@@ -291,6 +292,7 @@ fn disabled_suppression_and_frame_ring_only_clamp_signed_opposite_chroma() {
+                 H,
+                 pattern,
+                 strength,
++                [f32::INFINITY; 3],
+             );
+             image
+         };
+@@ -421,6 +423,7 @@ fn unsupported_reconstructed_green_does_not_drive_positive_chroma_blending() {
+                     SIDE,
+                     pattern,
+                     fcs::FALSE_COLOUR_SUPPRESS_STRENGTH,
++                    [f32::INFINITY; 3],
+                 );
+                 assert_eq!(
+                     image.pixels[i], before,
+@@ -430,3 +433,130 @@ fn unsupported_reconstructed_green_does_not_drive_positive_chroma_blending() {
+         }
+     }
+ }
++
++#[test]
++fn measured_green_sites_keep_supported_chromaticity_across_luma_edges() {
++    for pattern in PATTERNS {
++        for direction in 0..3 {
++            for exposure in [0.01_f32, 1.0, 16.0] {
++                let truth: Vec<[f32; 3]> = (0..SIDE * SIDE)
++                    .map(|i| {
++                        let level = if edge_side(direction, i % SIDE, i / SIDE) {
++                            0.75
++                        } else {
++                            0.045
++                        };
++                        CHROMA.map(|c| c * level * exposure)
++                    })
++                    .collect();
++                let out = suppress(pattern, &truth, |_| false, 0.0);
++                for y in 4..SIDE - 4 {
++                    for x in 4..SIDE - 4 {
++                        let i = y * SIDE + x;
++                        if sampled(pattern, i) != 1 {
++                            continue;
++                        }
++                        for c in 0..3 {
++                            assert!((out.pixels[i][c]-truth[i][c]).abs()<=1e-5*truth[i][c],
++                                "{pattern:?} direction={direction} exposure={exposure} ({x},{y}) {:?} != {:?}",out.pixels[i],truth[i]);
++                        }
++                    }
++                }
++            }
++        }
++    }
++}
++
++#[test]
++fn measured_green_ratio_requires_unclipped_sensor_evidence() {
++    for pattern in PATTERNS {
++        for target in [0, 2] {
++            for exposure in [0.01_f32, 1.0, 16.0] {
++                let centre = (10..14)
++                    .flat_map(|y| (10..14).map(move |x| y * SIDE + x))
++                    .find(|&i| sampled(pattern, i) == 1)
++                    .unwrap();
++                let mut cfa = vec![0.1 * exposure; SIDE * SIDE];
++                let mut green = vec![0.1 * exposure; SIDE * SIDE];
++                cfa[centre] = 0.5 * exposure;
++                green[centre] = cfa[centre];
++                let donors: Vec<_> = [-1_isize, 1, -(SIDE as isize), SIDE as isize]
++                    .into_iter()
++                    .map(|d| (centre as isize + d) as usize)
++                    .filter(|&i| sampled(pattern, i) == target)
++                    .collect();
++                for (i, (value, g)) in donors.into_iter().zip([(0.42, 0.4), (0.8, 0.8)]) {
++                    cfa[i] = value * exposure;
++                    green[i] = g * exposure;
++                }
++                let run = |limits: [f32; 3]| {
++                    let mut image =
++                        Image::new(SIDE as u32, SIDE as u32, ColorSpace::CameraNativeLinearRgb);
++                    image.pixels.fill([0.2 * exposure; 3]);
++                    image.pixels[centre][1] = 0.5 * exposure;
++                    fcs::suppress_false_colour(
++                        &mut image,
++                        &cfa,
++                        &green,
++                        SIDE,
++                        SIDE,
++                        pattern,
++                        fcs::FALSE_COLOUR_SUPPRESS_STRENGTH,
++                        limits,
++                    );
++                    assert_eq!(image.pixels[centre][1], 0.5 * exposure);
++                    image.pixels[centre][target]
++                };
++                let initial = 0.2 * exposure;
++                let value = 0.61 * exposure;
++                let ghf = (0.5 * exposure - 0.35 * exposure).abs()
++                    / (0.5 * exposure + 0.35 * exposure + 1e-6);
++                let disagree = (value - initial).abs() / (value + initial + 1e-6);
++                let alpha = (fcs::FALSE_COLOUR_SUPPRESS_STRENGTH * ghf * disagree).clamp(0.0, 1.0);
++                let expected = (1.0 - alpha) * initial + alpha * value;
++                let mut donor_clipped = [exposure; 3];
++                donor_clipped[target] = 0.8 * exposure;
++                let mut anchor_clipped = [exposure; 3];
++                anchor_clipped[1] = 0.5 * exposure;
++                for limits in [donor_clipped, anchor_clipped] {
++                    assert!((run(limits) - expected).abs() <= 1e-6 * exposure);
++                }
++                assert!(run([exposure; 3]) < expected - 0.001 * exposure);
++            }
++        }
++    }
++}
++
++#[test]
++fn measured_green_ratio_does_not_extrapolate_isolated_green_features() {
++    for pattern in PATTERNS {
++        for target in [0, 2] {
++            for exposure in [0.01_f32, 1.0, 16.0] {
++                let centre = (10..14)
++                    .flat_map(|y| (10..14).map(move |x| y * SIDE + x))
++                    .find(|&i| sampled(pattern, i) == 1)
++                    .unwrap();
++                let mut cfa = vec![0.2 * exposure; SIDE * SIDE];
++                let mut green = vec![0.1 * exposure; SIDE * SIDE];
++                cfa[centre] = exposure;
++                green[centre] = exposure;
++                let mut image =
++                    Image::new(SIDE as u32, SIDE as u32, ColorSpace::CameraNativeLinearRgb);
++                image.pixels.fill([0.05 * exposure; 3]);
++                image.pixels[centre][1] = exposure;
++                fcs::suppress_false_colour(
++                    &mut image,
++                    &cfa,
++                    &green,
++                    SIDE,
++                    SIDE,
++                    pattern,
++                    fcs::FALSE_COLOUR_SUPPRESS_STRENGTH,
++                    [2.0 * exposure; 3],
++                );
++                assert_eq!(image.pixels[centre][1], exposure);
++                assert!((image.pixels[centre][target] - 0.2 * exposure).abs() <= 1e-6 * exposure);
++            }
++        }
++    }
++}
