@@ -1,0 +1,31 @@
+{
+  "reviewed_all16": true,
+  "fixtures": [
+    "test_0017",
+    "test_0015",
+    "test_0011",
+    "test_0013",
+    "test_0004",
+    "test_0009",
+    "test_0014",
+    "test_0002",
+    "test_0005",
+    "test_0000",
+    "test_0003",
+    "test_0006",
+    "test_0007",
+    "test_0008",
+    "test_0010",
+    "test_0012"
+  ],
+  "method": "all four newly generated triplet contact sheets, plus enlarged0010 triplet; full originals linked in synchronized native-size viewer",
+  "notes": {
+    "test_0009": "minor changed chart fit; sky, chart and dark patches retain appearance; no observed new artifact",
+    "test_0010": "chart shadows/colors closer to JPEG; slight sky difference remains; all fixed metrics pass",
+    "other14": "byte-identical prior verified outputs; all triplets inspected again",
+    "test_0005": "still visible blue/green facade and contrast mismatch; failed",
+    "test_0015": "foreground remains washed out versus camera JPEG; failed",
+    "test_0017": "much closer than historical4cf but remaining edge/grass regional mismatch; failed"
+  },
+  "complete_goal": false
+}
