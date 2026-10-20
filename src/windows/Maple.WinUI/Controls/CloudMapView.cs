@@ -40,6 +40,7 @@ public sealed class CloudMapView : Grid, IDisposable
 
     internal int AppliedCellCount => _cells.Length;
     internal bool HostReady => _ready;
+    internal bool RequestInFlight => _loading;
     internal bool CanRetry => _retry.Visibility == Visibility.Visible;
     internal bool RetryEnabled => _retry.IsEnabled;
     internal string StatusText => _status.Text;
