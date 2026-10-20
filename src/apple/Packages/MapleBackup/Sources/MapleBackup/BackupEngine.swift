@@ -53,6 +53,8 @@ public actor BackupEngine {
   private var stopping: Task<Void, Never>?
   /// The sidecar send in flight per photo; the next one waits for it (#5023).
   var sidecarSends: [BackupTaskID: Task<Void, Error>] = [:]
+  /// The queued send that is past its predecessor and actually sending.
+  var sidecarSending: [BackupTaskID: UUID] = [:]
 
   /// Wakes `run()` when a sleeping retry re-enqueues, so it can park
   /// instead of polling on a fixed interval while retries are outstanding
