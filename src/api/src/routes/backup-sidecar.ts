@@ -152,7 +152,7 @@ async function publishBackupSidecarCas(
     },
     req.libraryRoot,
     {
-      shared: await sidecarStemClaimedBySibling(primary),
+      shared: () => sidecarStemClaimedBySibling(primary),
       afterLanded: () =>
         retireLegacyBackupSidecar({
           primary,

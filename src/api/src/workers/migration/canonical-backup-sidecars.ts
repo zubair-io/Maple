@@ -91,7 +91,7 @@ async function publishCanonical(
     },
     root,
     {
-      shared: await sidecarStemClaimedBySibling(primary),
+      shared: () => sidecarStemClaimedBySibling(primary),
       // A device send may have retired the file since it was read.
       precondition: async () =>
         (await readLegacyBackupEdit(legacy).catch(() => null))?.equals(legacyBytes) === true,
