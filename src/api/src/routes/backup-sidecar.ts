@@ -211,8 +211,9 @@ async function publishWithoutBase(
     return { status: 200, body: { target_rel_path: sidecarRelPath, skipped: true } };
   }
   const result = await publishLegacySidecar(finalPath, sidecarRelPath, buf, libraryRoot, phid);
-  if (result.status === 200 && !('skipped' in result.body))
+  if (result.status === 200 && !('skipped' in result.body)) {
     await publishSidecarChange(primary, true);
+  }
   return result;
 }
 
