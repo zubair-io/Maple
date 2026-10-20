@@ -26,8 +26,24 @@ export function legacyBackupSidecar(primary: string): string | null {
   return path.resolve(xmpSidecarPath(primary)) === path.resolve(legacy) ? null : legacy;
 }
 
-/** The Maple edit at `legacy`; `null` when absent, another tool's, or not a regular file. */
-export async function readLegacyBackupEdit(legacy: string): Promise<Buffer | null> {
+const comparable = (p: string): string => path.resolve(p).normalize('NFC').toLowerCase();
+
+/** `IMG.HEIC.JPG`'s own sidecar is also named `IMG.HEIC.xmp`; an unlistable folder counts as claimed. */
+async function claimedByAnotherFile(primary: string, legacy: string): Promise<boolean> {
+  const dir = path.dirname(primary);
+  const entries = await fs.readdir(dir).catch(() => null);
+  if (entries === null) return true;
+  return entries.some(
+    (name) =>
+      comparable(path.join(dir, name)) !== comparable(primary) &&
+      path.extname(name).toLowerCase() !== '.xmp' &&
+      comparable(xmpSidecarPath(path.join(dir, name))) === comparable(legacy),
+  );
+}
+
+/** The Maple edit in `legacy`; `null` when absent, another file's, another tool's, or not a regular file. */
+async function readLegacyAt(primary: string, legacy: string): Promise<Buffer | null> {
+  if (await claimedByAnotherFile(primary, legacy)) return null;
   try {
     const bytes = await readSidecarBytes(legacy);
     return bytes && MAPLE_XMP_NAMESPACE.test(bytes.toString('utf8')) ? bytes : null;
@@ -37,11 +53,15 @@ export async function readLegacyBackupEdit(legacy: string): Promise<Buffer | nul
   }
 }
 
+/** `primary`'s pre-#5021 Maple edit, if it has one. */
+export async function readLegacyBackupEdit(primary: string): Promise<Buffer | null> {
+  const legacy = legacyBackupSidecar(primary);
+  return legacy === null ? null : readLegacyAt(primary, legacy);
+}
+
 /** An unreadable old-name file counts as an edit, so it is never written past. */
 export async function hasLegacyBackupEdit(primary: string): Promise<boolean> {
-  const legacy = legacyBackupSidecar(primary);
-  const edit =
-    legacy === null ? null : await readLegacyBackupEdit(legacy).catch(() => 'unreadable');
+  const edit = await readLegacyBackupEdit(primary).catch(() => 'unreadable');
   return edit !== null;
 }
 
@@ -64,7 +84,7 @@ export interface LandedBackupSidecar {
 /** A failure fails the send, so the device retries instead of leaving a stale file to replay. */
 export async function retireLegacyBackupSidecar(landed: LandedBackupSidecar): Promise<void> {
   const legacy = legacyBackupSidecar(landed.primary);
-  const bytes = legacy ? await readLegacyBackupEdit(legacy) : null;
+  const bytes = legacy ? await readLegacyAt(landed.primary, legacy) : null;
   if (!legacy || !bytes) return;
   const legacyXmp = bytes.toString('utf8');
   const kept = {
