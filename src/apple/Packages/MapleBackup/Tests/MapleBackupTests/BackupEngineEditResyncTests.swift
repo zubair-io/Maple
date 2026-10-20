@@ -284,6 +284,7 @@ final class BackupEngineEditResyncTests: XCTestCase {
     await server.release()
     await stalled.value
   }
+
   func testACancelledQueuedSendKeepsTheOrderForTheSendsAfterIt() async throws {
     let tmpRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
@@ -308,7 +309,11 @@ final class BackupEngineEditResyncTests: XCTestCase {
     }
     try await Task.sleep(for: .milliseconds(100))
     cancelled.cancel()
-    _ = await cancelled.result
+    let returned = await awaitBounded(timeout: 1) {
+      _ = await cancelled.result
+      return true
+    }
+    XCTAssertNotNil(returned, "a cancelled send kept waiting for a stalled send ahead of it")
     try sidecars.write(phassetLocalId: photo.phassetLocalId, xmp: "<x:edit>v2</x:edit>")
     let next = Task { await engine.resendNewerEdits([held]) }
     try await Task.sleep(for: .milliseconds(200))

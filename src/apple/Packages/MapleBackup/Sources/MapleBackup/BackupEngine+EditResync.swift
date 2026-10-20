@@ -61,8 +61,7 @@ extension BackupEngine {
   func sendLatestEdit(id: BackupTaskID, targetRelPath: String, mapleId: String?) async throws {
     let previous = sidecarSends[id]
     let token = UUID()
-    // The link stays in the chain even when its caller gives up: it still
-    // waits for the send ahead of it, then skips its own if cancelled.
+    // A cancelled link keeps its place: it still waits its turn, then skips sending.
     let link = Task {
       _ = await previous?.result
       try Task.checkCancellation()
@@ -72,9 +71,11 @@ extension BackupEngine {
     Task { await retire(link, for: id) }
     try await withTaskCancellationHandler {
       await waitUnlessCancelled(for: link)
-      // Cancelled while still queued: return now. Cancelled while sending:
-      // wait for the request to unwind, so nothing outlives a Stop (#4988).
-      if Task.isCancelled, sidecarSending[id] != token { throw CancellationError() }
+      // Still queued: return now; already sending: let it unwind (#4988).
+      if Task.isCancelled, sidecarSending[id] != token {
+        link.cancel()
+        throw CancellationError()
+      }
       try await link.value
     } onCancel: {
       link.cancel()
