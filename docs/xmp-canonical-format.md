@@ -279,6 +279,8 @@ Windows models the name and all four provenance attributes too (`XmpWhiteBalance
 
 ### WB slider-scale versioning
 
+Since #5007 this per-field pattern is the _only_ sanctioned mechanism for reinterpretation: any change that alters what an already-stored sidecar value means must ship a stamp plus a load-time converter like this one — there is no global pipeline version left to bump instead.
+
 What a stored `crs:Temperature`/`crs:Tint` pair _means_ has changed five times, so the scale is stamped on the sidecar as `papp:WbScaleVersion`:
 
 | Stamp | Meaning                                                                                                            |
@@ -589,11 +591,10 @@ A document that will not parse yields an empty passthrough bucket: malformed byt
 
 ## Schema versioning
 
-Four independent version numbers appear in or around a sidecar, and they mean different things:
+Three independent version numbers appear in or around a sidecar, and they mean different things:
 
 - **`crs:Version` / `crs:ProcessVersion` (`"11.0"`)** — Adobe process-version signalling, written unconditionally, retained from an import.
 - **`papp:WbScaleVersion` (`1`–`5`)** — the only _semantics_ version in the schema; see above. An unknown value is a hard parse error in `raw-core`.
-- **`PIPELINE_OUTPUT_VERSION`** (`raw_core::version`, mirrored into `adjustment-model.generated.ts`) — not written to the sidecar. It is folded into every rendered-output cache key so a change that alters pixels for the same (RAW, sidecar) input invalidates stale entries on all platforms. See [caching](caching.md).
 - **`"schema": 2`** inside the `papp:InpaintRemovals` JSON payload — versioning local to that payload.
 
 New fields are added by extending `ADJUSTMENT_SCHEMA`, regenerating with `tools/codegen.sh`, and mirroring the key in all writers; because absent attributes read back as the canonical default and defaults are omitted on write, a new field costs nothing in existing sidecars. Removing a field is the harder direction — the reader arm has to stay (as `papp:Look`'s does) or old sidecars stop round-tripping.

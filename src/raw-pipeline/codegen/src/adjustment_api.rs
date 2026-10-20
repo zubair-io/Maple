@@ -9,10 +9,6 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
          // Source: raw_core::types::ADJUSTMENT_SCHEMA\n\n\
 ",
     );
-    out.push_str(&format!(
-        "export const PIPELINE_OUTPUT_VERSION = {};\n\n",
-        raw_core::PIPELINE_OUTPUT_VERSION
-    ));
     out.push_str("export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, number]>> = {\n");
     let mut strings = Vec::new();
     let mut free_form = Vec::new();

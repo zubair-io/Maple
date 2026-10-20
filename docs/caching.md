@@ -2,7 +2,7 @@
 
 Maple caches four kinds of thing: **thumbnails** (small grid images), **previews** (a 1280-px developed still), **decoded/intermediate pixel state** (in memory, per session), and **API responses** (folder listings, counts, geocodes). The first two are written into a `.maple/` folder that sits next to the photos, so they travel with the library and are shared by the Mac app, the Windows app, the web client, and the Self-Hosted server. Everything in a cache is derived and disposable — an original file is never a cache entry, and losing the whole cache costs time, never data.
 
-Two rules explain most of the design. First, **thumb and preview cache filenames are derived from the photo's own filename**, not its content or its database id — so the cache resolves with no database lookup and survives being copied to another machine, but nothing survives a rename or a move (the fix is to regenerate at the new path, never to relocate cache files). Second, **shared thumbnails and previews are never versioned**: their names, HTTP identities and server stages carry no pipeline version, so a pipeline change never regenerates, re-syncs or rejects one. They are refreshed only when the original or its sidecar changes (see [Pipeline output version](#pipeline-output-version)).
+Two rules explain most of the design. First, **thumb and preview cache filenames are derived from the photo's own filename**, not its content or its database id — so the cache resolves with no database lookup and survives being copied to another machine, but nothing survives a rename or a move (the fix is to regenerate at the new path, never to relocate cache files). Second, **shared thumbnails and previews are never versioned**: their names, HTTP identities and server stages carry no pipeline version, so a pipeline change never regenerates, re-syncs or rejects one. They are refreshed only when the original or its sidecar changes (see [No pipeline version](#no-pipeline-version)).
 
 The one cache that tracks a photo's _edits_ is Apple's rendered-preview cache, and the adjustment-version proxy it uses is the modification time of the [XMP sidecar](xmp-canonical-format.md) — see [The adjustment-version proxy](#the-adjustment-version-proxy).
 
@@ -34,8 +34,9 @@ Because an existing `.maple/thumbs/` entry is served as-is by every other client
 
 Previews have their own agreed parameters: **1280 px long edge, AVIF quality ~0.7** (`PREVIEW_LONG_EDGE_PX` / quality `70` in `src/api/src/indexer/previewer.ts`; `displayPreviewLongEdge` / `displayPreviewAvifQuality` in `src/apple/Packages/MapleCore/Sources/MapleCore/Cache/ThumbnailLoader+DisplayPreview.swift`).
 
-## Pipeline output version
+## No pipeline version
 
+<<<<<<< HEAD
 `PIPELINE_OUTPUT_VERSION` (`src/raw-pipeline/raw-core/src/version.rs`, currently **30**) is the single monotonic counter for the develop pipeline described in [pipeline](pipeline.md). It answers one question: "the pipeline now produces different pixels for the same RAW + sidecar — how does every derived artifact know it's stale?". A raw-core change bumps it by one whenever it alters develop output for any input, or silently reinterprets an already-stored slider value with no load-time converter. Adding a slider at its identity default, or fixing a non-output-visible bug, does not bump it.
 
 The `codegen` crate (`tools/codegen.sh`) emits the mirrors, and the `codegen-drift` CI job fails if a hand edit makes them diverge:
@@ -43,15 +44,17 @@ The `codegen` crate (`tools/codegen.sh`) emits the mirrors, and the `codegen-dri
 - Swift: `AdjustmentModel.pipelineOutputVersion` in `src/apple/Packages/MapleCore/Sources/MapleCore/Generated/AdjustmentModel+Generated.swift`
 - TypeScript: `PIPELINE_OUTPUT_VERSION` in `src/web/projects/maple-common/src/lib/generated/adjustment-model.generated.ts`
 
-The counter is **not** part of any shared thumbnail or preview (#4793). A pipeline bump must never regenerate, re-sync or reject one:
+# The counter is **not** part of any shared thumbnail or preview (#4793). A pipeline bump must never regenerate, re-sync or reject one:
+
+There is no pipeline output version. The monotonic counter that once answered "the pipeline now produces different pixels for the same RAW + sidecar — how does every derived artifact know it's stale?" was retired in #5007: shared derivatives had already been decoupled from it in #4793, and its remaining consumers (evidence records, generated mirrors) cost more in re-recording and PR serialisation than they returned. Derivatives are refreshed only when the original or its sidecar changes; a colour-only pipeline change deliberately does not invalidate a shared thumb or preview until that asset is next edited or regenerated. What remains is the state #4793 established, and it must not be re-coupled:
+
+> > > > > > > a334618e5b (feat(core): retire PIPELINE_OUTPUT_VERSION)
 
 - **Shared thumb and preview filenames** carry no `.v<N>`, and neither do Web's JPEG/WebP/PNG fallback artifacts, descriptors and source identities. Legacy versioned names are renamed into place by readers on a miss (see [Legacy names and rename-on-miss](#legacy-names-and-rename-on-miss)).
 - **HTTP.** Clients send no `?pv=` and no `X-Maple-Pipeline-Version` upload header. The server ignores `pv` if an old client sends it, never answers a derivative read with `409` for a version, and accepts `PUT /api/preview` with or without the header. Derivative responses carry no version header, and ETags are content-based only.
-- **Server stages and derivative audit** share `THUMB_TARGET_VERSION` and `PREVIEW_TARGET_VERSION`, frozen at the literal 29 and decoupled from the counter (`src/api/src/workers/derivative-versions.ts`), so nothing re-arms.
+- **Server stages and derivative audit** share `THUMB_TARGET_VERSION` and `PREVIEW_TARGET_VERSION`, frozen literals (`src/api/src/workers/derivative-versions.ts`), so nothing re-arms on a pipeline change.
 - **The edge cache** keeps its existing R2 keys (see [R2 mirror and the Cloudflare Worker](#r2-mirror-and-the-cloudflare-worker)), so there is no mass re-upload.
 - **Apple's `RenderedPreviewCache`** does not include it: its key is the asset's own state only.
-
-The counter still drives everything that is not a shared derivative, such as the capability registry and qualification evidence.
 
 Apple's former local counter, `RenderedPreviewCache.viewTransformVersion` (8), was a pipeline-version proxy and was removed with #4793; the rendered-preview cache carries no version. (The 512²-grid `TileManager` compositor and its `viewTransformVersion` (5) were retired in #3288.)
 
@@ -337,7 +340,7 @@ On Apple, `LocalFileOperations.invalidateDerivedCaches` (and its SMB twin) remov
 Android folder libraries read and write the shared `.maple/thumbs/` and
 `.maple/previews/` tiers through the OS document provider, including network
 folders exposed by that provider. `FolderDerivativeCache`, `CacheDocuments` and
-`SharedCacheContract` use the portable basename hash, generated pipeline version,
+`SharedCacheContract` use the portable basename hash and unversioned
 512-pixel/quality-55 AVIF thumbnails and 1280-pixel/quality-70 AVIF previews.
 Fresh shared hits are copied byte-for-byte into bounded private read-through
 leases without staging or developing the original. The cache also reads Hosted
@@ -361,8 +364,8 @@ conditional authenticated HTTP cache. `PhotoLibrary.kt` owns the following state
 | Cache                           | Key / identity                                                                                                                                                                                                  | Invalidation / bound                                                                                                                                   |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Staged original                 | SHA-256 of URI, original size and mtime, plus the verified content digest for single-file imports; HEIF/AVIF add `platform-rgb-v2` plus preview edge/full-resolution identity and stage source-gamut float TIFF | 512 MiB plus the currently leased original; a process-wide lease protects all library instances while Rust reads it                                    |
-| Single-file thumbnail / preview | Pipeline output version, Android thumbnail version 4, original identity, requested edge and complete current sidecar text                                                                                       | 64 MiB shared LRU; metadata-only RAW sidecars reuse the embedded preview                                                                               |
-| Cloud derivative                | Pipeline output version, original identity and edge → atomic ETag/content-hash index → immutable payload                                                                                                        | Same 64 MiB bound; conditional authenticated GET revalidates each load, 304 reuses bytes, changed validators replace the index                         |
+| Single-file thumbnail / preview | Android thumbnail version 4, original identity, requested edge and complete current sidecar text                                                                                                                | 64 MiB shared LRU; metadata-only RAW sidecars reuse the embedded preview                                                                               |
+| Cloud derivative                | Original identity and edge → atomic ETag/content-hash index → immutable payload                                                                                                                                 | Same 64 MiB bound; conditional authenticated GET revalidates each load, 304 reuses bytes, changed validators replace the index                         |
 | Folder snapshot                 | One parent URI → names, document URIs, types, sizes and mtimes from one provider query                                                                                                                          | Replaced on folder listing/photo open; refreshed during baseline checks; invalidated after XMP publication/recovery. Sidecar contents are never cached |
 | Decoded RAW / GPU session       | Current photo session plus one GPU context per serial worker                                                                                                                                                    | Photo changes close the active image; worker teardown releases the device, shader caches and frame pool                                                |
 
@@ -406,7 +409,7 @@ are never modified or treated as disposable cache data.
 
 `src/windows/Maple.WinUI/Services/ThumbnailService.cs` runs two tiers. The **512-px grid tier** writes the cross-app shared `.maple/thumbs/` cache via `ThumbCachePaths`, and reuses an entry only when it is newer than the original and its sidecar. A cold render develops a present sidecar through the Rust recipe renderer, including its selected film and restored lens profile; malformed XML or an unavailable LUT fails without publishing camera-original pixels. When the photo folder is unwritable (read-only media, a share without write permission), it falls back to a machine-local copy so thumbnails still work.
 
-The **2560-px full-screen JPEG preview tier** has no cross-app contract, so it stays machine-local under `%LOCALAPPDATA%\Maple\local-cache`, keyed on `SHA-256(path|rawMtimeTicks|size|sidecarMtimeTicks|maxPx|pipelineVersion)[:32]`. Edits and moves therefore orphan entries naturally; a **30-day age sweep** on construction is what keeps that bounded, alongside a one-shot deletion of the pre-shared-cache `%LOCALAPPDATA%\Maple\thumbs` directory. The shared tier's old entries are cleaned synchronously by `LocalFileOperations.FinalizeRelocate`.
+The **2560-px full-screen JPEG preview tier** has no cross-app contract, so it stays machine-local under `%LOCALAPPDATA%\Maple\local-cache`, keyed on `SHA-256(path|rawMtimeTicks|size|sidecarMtimeTicks|maxPx)[:32]`. Edits and moves therefore orphan entries naturally; a **30-day age sweep** on construction is what keeps that bounded, alongside a one-shot deletion of the pre-shared-cache `%LOCALAPPDATA%\Maple\thumbs` directory. The shared tier's old entries are cleaned synchronously by `LocalFileOperations.FinalizeRelocate`.
 
 ## The adjustment-version proxy
 
@@ -415,7 +418,7 @@ The **2560-px full-screen JPEG preview tier** has no cross-app contract, so it s
 - `RenderedPreviewCache.cacheKey` hashes `"<primaryMtime>_<sidecarMtime>_<screenWidth>"`, with no version component (#4793). Because every sidecar write bumps the file's mtime, any slider change changes the key. `primaryMtime` is in there too, so a change to the RAW's own bytes that leaves the sidecar untouched — a re-import, an external sync tool, a filesystem restore — also misses, rather than serving a preview developed from the old bytes under an identical key.
 - (The retired `TileManager`'s `TileKey` also carried `sidecarMtime` directly as a field — #3288.)
 
-Shared filenames include the pipeline version but omit an edit token. Clients validate freshness against the original and sidecar mtimes, and the editor overwrites the shared artifacts after a develop render. Apple's `ThumbnailLoader.updateThumbnailFromRender` updates the grid thumbnail; its idle-debounce persist updates the 1280px display preview. Windows' machine-local derivative key also includes sidecar mtime. The server preview ETag — the preview file's own `mtimeMs` and size — propagates replacement bytes to HTTP clients.
+Shared filenames carry no pipeline version and omit an edit token. Clients validate freshness against the original and sidecar mtimes, and the editor overwrites the shared artifacts after a develop render. Apple's `ThumbnailLoader.updateThumbnailFromRender` updates the grid thumbnail; its idle-debounce persist updates the 1280px display preview. Windows' machine-local derivative key also includes sidecar mtime. The server preview ETag — the preview file's own `mtimeMs` and size — propagates replacement bytes to HTTP clients.
 
 And one cache deliberately rejects the proxy: the session decoded-image slot on `RenderActor` keys on the stripped adjustment model instead, because most slider moves don't change the decode at all and treating a sidecar write as a decode invalidation cost a full re-decode on every drag pause. Sidecar mtime survives there only as a cheap gate that decides whether the XMP is worth re-parsing.
 

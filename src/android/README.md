@@ -284,7 +284,7 @@ Saves debounce for 750 ms and flush on navigation/backgrounding.
 App-private caches are reconstructible and bounded: staged originals use
 512 MiB plus the currently leased file; thumbnails/previews share 64 MiB. A
 staging lease prevents eviction during decode/export. Derived keys include
-pipeline output version, original URI, size, mtime, requested edge, and the complete current sidecar.
+original URI, size, mtime, requested edge, and the complete current sidecar.
 An unedited thumbnail extracts the embedded JPEG, with real develop as fallback;
 an edited thumbnail/preview uses the canonical develop chain. No derivative is
 written into the user's photo folder.
@@ -390,9 +390,9 @@ Android 12+ AVIF alias; file-picker inputs are validated before opening.
 ## Shared folder caches
 
 Folder libraries reuse and populate the portable `.maple/` cache through Android
-document providers. Thumbnails use `.maple/thumbs/<sha256-prefix16(basename)>.v<N>.avif`
-at 512 pixels / quality 55; previews use `.maple/previews/<filename.ext>.v<N>.avif`
-at 1280 pixels / quality 70. `<N>` is the generated pipeline output version. Warm
+document providers. Thumbnails use `.maple/thumbs/<filename.ext>.avif`
+at 512 pixels / quality 55; previews use `.maple/previews/<filename.ext>.avif`
+at 1280 pixels / quality 70. Neither name carries a pipeline version (#4793, #5007). Warm
 shared reads do not stage or develop the original. Hosted preview descriptors
 allow JPEG/WebP/PNG reuse, with newer canonical AVIFs taking precedence.
 

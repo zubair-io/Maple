@@ -105,7 +105,7 @@ fn main() -> std::io::Result<()> {
         raw_core::types::WbScaleVersion::V5 => 5,
     };
     let raster_restrictions = raster_restrictions();
-    let mut fields = format!("{HEADER}package app.justmaple.aperture.generated\n\ndata class AdjustmentField(val index: Int, val name: String, val minimum: Float, val maximum: Float, val initial: Float, val xmp: String, val rasterSupported: Boolean)\n\nobject AdjustmentFields {{\n    const val pipelineOutputVersion = {}\n    const val whiteBalanceScaleVersion = {scale}\n    val all = listOf(\n", raw_core::PIPELINE_OUTPUT_VERSION);
+    let mut fields = format!("{HEADER}package app.justmaple.aperture.generated\n\ndata class AdjustmentField(val index: Int, val name: String, val minimum: Float, val maximum: Float, val initial: Float, val xmp: String, val rasterSupported: Boolean)\n\nobject AdjustmentFields {{\n    const val whiteBalanceScaleVersion = {scale}\n    val all = listOf(\n");
     let mut native = format!("{HEADER}use raw_core::types::AdjustmentModel;\n\npub fn get(model: &AdjustmentModel, index: usize) -> Option<f32> {{\n    match index {{\n");
     let mut raster_allowed =
         String::from("pub fn raster_allowed(index: usize) -> bool { match index {\n");
