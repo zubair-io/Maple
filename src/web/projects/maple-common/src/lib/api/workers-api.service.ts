@@ -25,6 +25,8 @@ export interface WorkerConfig {
   ai_provider?: string | null;
   /** Assigned AI model, e.g. "gemma4:12b", "gpt-4o-mini". */
   ai_model?: string | null;
+  /** Minutes without progress before the stage shows as Stalled; unset = 60. */
+  stallAfterMinutes?: number;
 }
 
 /** API status payload — one entry per stage from GET /api/workers/status. */

@@ -41,6 +41,7 @@ export function isWhisperModelTier(value: string): value is WhisperModelTier {
 export interface RuntimeForm {
   concurrency: string;
   maxAttempts: string;
+  stallAfterMinutes: string;
   version?: string;
   prompt_text?: string;
 }
@@ -73,6 +74,7 @@ export type SaveState = 'idle' | 'saving' | 'success' | 'error';
 export const DEFAULT_RUNTIME = Object.freeze({
   concurrency: 2,
   maxAttempts: 5,
+  stallAfterMinutes: 60,
 });
 
 /** Concurrency clamp ceiling. Raised 32 → 100 in #674 (pure guardrail); the
@@ -86,6 +88,7 @@ export function blankRuntime(stage: StageStatus): RuntimeForm {
   return {
     concurrency: String(cfg?.concurrency ?? DEFAULT_RUNTIME.concurrency),
     maxAttempts: String(cfg?.maxAttempts ?? DEFAULT_RUNTIME.maxAttempts),
+    stallAfterMinutes: String(cfg?.stallAfterMinutes ?? DEFAULT_RUNTIME.stallAfterMinutes),
     version: cfg?.version ?? 'v0.1.0',
     prompt_text: cfg?.prompt_text ?? '',
   };
@@ -144,6 +147,12 @@ export function runtimeFormToPatch(form: RuntimeForm): Partial<WorkerConfig> {
   return {
     concurrency: parseClampedInt(form.concurrency, 1, CONCURRENCY_MAX, DEFAULT_RUNTIME.concurrency),
     maxAttempts: parseClampedInt(form.maxAttempts, 1, 20, DEFAULT_RUNTIME.maxAttempts),
+    stallAfterMinutes: parseClampedInt(
+      form.stallAfterMinutes,
+      5,
+      1440,
+      DEFAULT_RUNTIME.stallAfterMinutes,
+    ),
     ...(form.version !== undefined ? { version: form.version.trim() || null } : {}),
     ...(form.prompt_text !== undefined ? { prompt_text: form.prompt_text.trim() || null } : {}),
   };
@@ -176,6 +185,7 @@ export function summarizeStages(stages: readonly StageStatus[]): {
   running: number;
   idle: number;
   paused: number;
+  stalled: number;
   dead: number;
   pending: number;
 } {
@@ -183,6 +193,7 @@ export function summarizeStages(stages: readonly StageStatus[]): {
     running: stages.filter((s) => s.status === 'running').length,
     idle: stages.filter((s) => s.status === 'idle').length,
     paused: stages.filter((s) => s.status === 'paused').length,
+    stalled: stages.filter((s) => s.status === 'stalled').length,
     dead: stages.reduce((acc, s) => acc + s.dead, 0),
     pending: stages.reduce((acc, s) => acc + s.pending, 0),
   };

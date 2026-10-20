@@ -22,6 +22,10 @@
         <span class="chip-val">{{ summary().paused }}</span>
         <span class="chip-label">Paused</span>
       </span>
+      <span class="chip set-chip" [class.err]="summary().stalled > 0" data-testid="stalled-chip">
+        <span class="chip-val">{{ summary().stalled }}</span>
+        <span class="chip-label">Stalled</span>
+      </span>
       <span class="chip set-chip" [class.err]="summary().dead > 0">
         <span class="chip-val">{{ summary().dead | number }}</span>
         <span class="chip-label">Dead</span>
@@ -742,6 +746,22 @@
                     />
                   </div>
                   <div class="field-hint">1 – 20</div>
+                </div>
+                <div class="field set-field">
+                  <div class="field-label">Stall after (min)</div>
+                  <div class="num-input set-num-input">
+                    <mui-input
+                      variant="numeric"
+                      [min]="5"
+                      [max]="1440"
+                      [value]="runtimeValue(s, 'stallAfterMinutes')"
+                      (valueChange)="setRuntime(s, 'stallAfterMinutes', $event)"
+                      ariaLabel="Stall after minutes"
+                    />
+                  </div>
+                  <div class="field-hint">
+                    5 – 1440 · shown as Stalled after this long without progress
+                  </div>
                 </div>
 
                 <div class="field set-field">
