@@ -188,22 +188,20 @@ fn fit_auto_profile_rejects_null_args() {
     assert_eq!(rc, -1, "null lut_size must return -1");
 }
 
-/// FIXTURE-GATED real-RAW round-trip: `maple_gpu_fit_auto_profile` on a real RAW
-/// surfaces a curve + residual whose two-pass application matches the cube the
-/// default `maple_compute_auto_profile_lut` bakes (within the grid-interp
-/// tolerance). Skips cleanly when the gitignored RAW is absent (CI without
-/// fixtures), mirroring `render_tests.rs`'s fixture gate.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn fixture_fit_matches_cube_when_present() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        return; // skip-pass: no fixture (CI without RAWs)
-    }
-    // An XMP forcing Profile::Auto is required for a non-`1` fit. The fixtures dir
-    // may not ship a matching sidecar; without one the model defaults to Neutral
-    // and the fit returns `1` (no tail). Treat a `1` here as a soft skip — this
-    // test's value is the parity when a tail EXISTS, not forcing one.
+    let path = std::env::var_os("MAPLE_RENDER_FIT_TEST_RAW")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../test-fixtures/raws/test_0002.dng")
+        });
+    assert!(
+        path.is_file(),
+        "required RAW fixture missing: {}",
+        path.display()
+    );
     let cpath = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
 
     let mut curve = [0f32; PROFILE_CURVE_FLAT_LEN];
@@ -224,11 +222,7 @@ fn fixture_fit_matches_cube_when_present() {
             &mut size,
         )
     };
-    if rc == 1 {
-        eprintln!("A2 FIXTURE: no Auto tail for test_0002.dng (Neutral default) — soft skip");
-        return;
-    }
-    assert_eq!(rc, 0, "fit returned {rc} (expected 0 or the soft-skip 1)");
+    assert_eq!(rc, 0, "the fixture must produce an Auto tail");
     assert!(
         present == 1 || size > 0,
         "a successful fit must surface a curve or a residual"
@@ -283,7 +277,7 @@ fn fixture_fit_matches_cube_when_present() {
         }
     }
     eprintln!(
-        "A2 FIXTURE [test_0002, curve_present={present}, lut_size={size}]: \
+        "A2 FIXTURE [curve_present={present}, lut_size={size}]: \
          max |two-pass − cube| = {max_delta:e} (< {DECOMPOSE_TOL:e})"
     );
     assert!(
@@ -309,15 +303,26 @@ fn fixture_fit_matches_cube_when_present() {
 /// decode runs BEFORE the Auto/Neutral tail decision, so an `rc` of 0 (tail)
 /// or 1 (no tail) both mean the decode executed.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn fixture_gpu_fit_routes_decode_through_shared_cache() {
-    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0017.dng");
-    if !fixture.exists() {
-        return; // skip-pass: no fixture (CI without RAWs)
-    }
+    let fixture = std::env::var_os("MAPLE_RENDER_FIT_TEST_RAW")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../test-fixtures/raws/test_0017.dng")
+        });
+    assert!(
+        fixture.is_file(),
+        "required RAW fixture missing: {}",
+        fixture.display()
+    );
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("test_0017_1662.dng");
-    std::fs::copy(&fixture, &path).expect("copy fixture into tempdir");
+    std::io::copy(
+        &mut std::fs::File::open(&fixture).expect("open fixture"),
+        &mut std::fs::File::create(&path).expect("create writable temporary copy"),
+    )
+    .expect("copy fixture into tempdir");
 
     let cpath = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
     let mut curve = [0f32; PROFILE_CURVE_FLAT_LEN];

@@ -108,7 +108,7 @@ fn cached_fit_bakes_without_file_read_and_respects_quality() {
 }
 
 #[test]
-fn absent_curve_preserves_white_while_present_curve_compresses() {
+fn auto2_cache_marker_preserves_white_while_explicit_curve_compresses() {
     use raw_core::pipeline::RenderQuality;
     use raw_core::test_support::synth_dng::SyntheticGreyDng;
     use raw_core::view::auto_profile::cache as auto_cache;
@@ -121,7 +121,7 @@ fn absent_curve_preserves_white_while_present_curve_compresses() {
     let cached_residual = ColorLut::identity(5);
     let key = auto_cache::CacheKey::from_path(&path, RenderQuality::Full)
         .expect("temp file is stattable");
-    auto_cache::insert_lut(key.clone(), cached_residual);
+    auto_cache::insert_lut(key.clone(), cached_residual.clone());
 
     // Absent curve + present residual (#4216): white must remain exactly 1.0.
     let n = 5u32;
@@ -132,7 +132,6 @@ fn absent_curve_preserves_white_while_present_curve_compresses() {
     assert_eq!(rc, 0);
     assert_eq!(&out[out.len() - 3..], &[1.0, 1.0, 1.0]);
 
-    // Present identity curve + residual: fitted curve is respected, compressing white.
     auto_cache::insert(key, ProfileCurve::identity());
     let mut out_with_curve = vec![0f32; 5 * 5 * 5 * 3];
     let rc = unsafe {
@@ -142,6 +141,21 @@ fn absent_curve_preserves_white_while_present_curve_compresses() {
             0,
             n,
             out_with_curve.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 0);
+    assert_eq!(out_with_curve, out, "Auto 2's marker must not add a stage");
+    let explicit_curve = ProfileCurve::identity().to_flat();
+    let rc = unsafe {
+        crate::auto_profile_compose::maple_compose_auto_profile_lut(
+            explicit_curve.as_ptr(),
+            explicit_curve.len(),
+            cached_residual.data.as_ptr(),
+            cached_residual.data.len(),
+            5,
+            n,
+            out_with_curve.as_mut_ptr(),
+            out_with_curve.len(),
         )
     };
     assert_eq!(rc, 0);

@@ -101,8 +101,8 @@ fn sized_ffi_matches_core_with_cold_warm_and_edited_callers() {
         let mut actual = Artifacts::new();
         assert_eq!(unsafe { actual.call(&raw_path, sidecar.as_ptr(), edge) }, 0);
         assert!(
-            actual.present == 1 && actual.size > 0,
-            "both real stages required"
+            actual.present == 0 && actual.size > 0,
+            "Auto 2 requires a real residual and no separate curve stage"
         );
         let pair = actual.pair();
         let expected = fit_auto_profile_from_raw_at_cap(
