@@ -10,7 +10,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 STAGES = ROOT / "src/raw-pipeline/raw-core/src/stages"
-SCALAR_SHA = "45c34f8b043ec616757532e60075696032233e9ac5e243d5439bcf5a33763043"
+SCALAR_SHA = "9d522975e25f402ce4f8d7fe3f040d55fd31a8d903f26efa01dc23849c51bdb3"
 
 
 def run():
