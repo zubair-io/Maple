@@ -611,7 +611,9 @@ jobs:
       - name: Test Auto JPEG non-cancelling quality checks
         run: python3 src/scripts/auto_profile_quality_test.py
       - name: Test Auto embedded-JPEG gate contracts
-        run: python3 src/scripts/auto_profile_match_test.py
+        run: |
+          python3 src/scripts/auto_profile_match_test.py
+          python3 src/scripts/auto_profile_gradients_test.py
       - name: Test canonical color gate uses embedded JPEGs
         run: python3 src/scripts/color_pipeline_test.py
 

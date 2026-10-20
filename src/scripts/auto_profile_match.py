@@ -18,6 +18,7 @@ from pathlib import Path
 
 import auto_profile_alignment as alignment
 import auto_profile_diff as diff
+import auto_profile_gradients as gradients
 import auto_profile_quality as quality
 import numpy as np
 from PIL import Image
@@ -221,6 +222,10 @@ def qualify(cli, selected, out, budget):
             else:
                 row.update(compare(auto, preview, budget))
                 row.update(candidate_sha256=sha(auto), reference_sha256=sha(preview))
+                row["photographic_status"] = row["status"]
+                row["gradients"] = gradients.check(cli, raw, folder, env)
+                if row["gradients"]["status"] != "passed":
+                    row["status"] = "failed"
             if sha(raw) != before:
                 raise RuntimeError("RAW changed during qualification")
         except (OSError, ValueError, RuntimeError, SystemExit) as error:

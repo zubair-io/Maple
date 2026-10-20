@@ -190,6 +190,15 @@ not establish native detail, host/GPU parity or every-camera quality.
 Previewless RAWs separately require exact rendered Auto/Neutral pixel equality;
 they remain excluded from JPEG-match pass counts.
 
+Every JPEG-bearing RAW also runs `auto-tail-ramp` with the native AMaZE fit.
+Neutral, foliage, blue, magenta and skin ramps must all meet the existing
+`test_0000_auto2_*/18_auto_tail/*` ceilings in `banding_budgets.json`.
+The runner preserves `photographic_status` separately and fails the combined
+case if any ramp fails. Missing producers, wrong demosaic provenance, missing
+budgets and inconsistent measurement reports are errors, never skipped passes.
+The wrapper builds `maple-cli` with `stage-dump`; supplied binaries need that
+feature too. These checks qualify native CPU fits, not host proxy/GPU fits.
+
 The established metric is signed channel bias in five reference-luma bands,
 with the unchanged 0.05 limit. Preview extraction normalizes orientation and
 Adobe-RGB previews to display sRGB. Geometry uses the established aspect

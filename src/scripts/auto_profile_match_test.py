@@ -26,7 +26,7 @@ class AutoJpegGateTests(unittest.TestCase):
         self.out = self.root / "evidence"
         self.out.mkdir()
 
-    def run_gate(self, preview_rc=0, render_rc=0, bias=0):
+    def run_gate(self, preview_rc=0, render_rc=0, bias=0, gradient_status="passed"):
         def command(args, **kwargs):
             action = args[1]
             rc = preview_rc if action == "extract-preview" else render_rc
@@ -38,7 +38,12 @@ class AutoJpegGateTests(unittest.TestCase):
                 Image.fromarray(image).save(target)
             return subprocess.CompletedProcess(args, rc)
 
-        with patch.object(gate.subprocess, "run", side_effect=command):
+        with (
+            patch.object(gate.subprocess, "run", side_effect=command),
+            patch.object(
+                gate.gradients, "check", return_value={"status": gradient_status}
+            ),
+        ):
             result = gate.qualify(self.cli, [("test_0000", self.raw)], self.out, 0.05)
         return result, json.loads((self.out / "summary.json").read_text())
 
@@ -53,6 +58,12 @@ class AutoJpegGateTests(unittest.TestCase):
         rc, result = self.run_gate(bias=20)
         self.assertEqual(rc, 1)
         self.assertEqual(result["cases"][0]["breaches"][0]["channel"], "G")
+
+    def test_photo_pass_cannot_hide_gradient_failure(self):
+        rc, result = self.run_gate(gradient_status="failed")
+        self.assertEqual(rc, 1)
+        self.assertEqual(result["cases"][0]["photographic_status"], "passed")
+        self.assertEqual(result["cases"][0]["status"], "failed")
 
     def test_balanced_errors_fail_despite_zero_bias(self):
         reference = self.root / "reference.png"
@@ -116,9 +127,11 @@ class AutoJpegGateTests(unittest.TestCase):
             )
             return subprocess.CompletedProcess(args, 0)
 
-        with patch.object(gate.subprocess, "run", side_effect=command):
-            with self.assertRaisesRegex(ValueError, "does not equal Neutral"):
-                gate.validate_previewless(self.cli, self.raw, self.out, {})
+        with (
+            patch.object(gate.subprocess, "run", side_effect=command),
+            self.assertRaisesRegex(ValueError, "does not equal Neutral"),
+        ):
+            gate.validate_previewless(self.cli, self.raw, self.out, {})
 
     def test_empty_filter_fails_closed(self):
         with self.assertRaises(ValueError):

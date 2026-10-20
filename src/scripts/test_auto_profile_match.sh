@@ -10,7 +10,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 if [[ -z "${MAPLE_CLI:-}" ]]; then
-	(cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli >&2)
+	(cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli --features stage-dump >&2)
 	MAPLE_CLI="$REPO_ROOT/src/raw-pipeline/target/release/maple-cli"
 fi
 args=(--cli "$MAPLE_CLI" --budget "${BUDGET:-0.05}" --filter "${FILTER:-}")
