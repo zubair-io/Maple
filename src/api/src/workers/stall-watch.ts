@@ -24,8 +24,7 @@ export class StallWatch {
     this.lastProgressAt = now;
   }
 
-  /** Held or claimed work (deferrals are claims, not progress), or a poll loop
-   * that stopped turning, with no progress for `thresholdMs`. */
+  /** Deferrals count as claims, not progress; a stopped poll loop also stalls. */
   stalledForMs(inFlight: number, thresholdMs: number, now: number = Date.now()): number | null {
     const sinceProgress = now - this.lastProgressAt;
     if (sinceProgress < thresholdMs) return null;

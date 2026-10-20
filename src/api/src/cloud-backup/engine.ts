@@ -386,10 +386,7 @@ export class BackupEngine {
     }
   }
   private readonly probeHealthy = new Map<string, boolean>();
-  /** Re-arms entries parked on connection failures when a cheap probe shows
-   * Google reachable again after it was not (or for the first time since
-   * boot), so recovery never waits on a transfer that cannot be claimed until
-   * its backoff expires, and still-failing entries keep their backoff (#5038). */
+  /** Re-arms parked entries on a probe's recovery edge only; failing ones keep backoff (#5038). */
   async rearmParkedConnections(signal?: AbortSignal): Promise<void> {
     for (const destination of await this.repo.destinations()) {
       if (destination.kind !== 'google-drive' || !destination.enabled) continue;

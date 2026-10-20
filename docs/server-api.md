@@ -341,7 +341,7 @@ Pause and config changes are written to the `worker_config` table; the worker ch
 | PATCH  | `/api/workers/performance`                 | bearer | Resize the pool live, clamped to its min/max                             |
 | POST   | `/api/workers/:name/pause`                 | bearer | Pause one stage                                                          |
 | POST   | `/api/workers/:name/resume`                | bearer | Resume it; also clears a self-imposed `pause_reason`                     |
-| PATCH  | `/api/workers/:name/config`                | bearer | Patch its concurrency, batch size, and target version                    |
+| PATCH  | `/api/workers/:name/config`                | bearer | Patch its concurrency, batch size, target version and stall threshold    |
 | GET    | `/api/workers/:name/dead`                  | bearer | Dead-lettered assets for that stage                                      |
 | POST   | `/api/workers/:name/retry-dead`            | bearer | Re-arm them                                                              |
 | GET    | `/api/workers/damaged`                     | bearer | Assets tagged damaged by a stage                                         |
