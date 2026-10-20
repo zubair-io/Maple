@@ -66,8 +66,7 @@ export async function hasLegacyBackupEdit(primary: string): Promise<boolean> {
   return edit !== null;
 }
 
-/** Remove `legacy` unless it changed after `expected` was read. Callers hold
- * the canonical sidecar's barrier, which every old-name change runs under. */
+/** Unlink `legacy` only if it still holds `expected`; the bytes, not a lock, decide. */
 export async function removeLegacyIfUnchanged(legacy: string, expected: Buffer): Promise<void> {
   const current = await readSidecarBytes(legacy).catch(() => null);
   if (!current?.equals(expected)) return;
