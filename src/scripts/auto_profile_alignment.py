@@ -1,8 +1,10 @@
-"""Geometry-only reference sampling; candidate pixels and color limits stay fixed."""
+"""Bounded affine/radial reference sampling; candidate pixels and limits stay fixed."""
 
 import hashlib
 from pathlib import Path
 
+import auto_profile_radial as radial
+import auto_profile_radial_geometry as radial_geometry
 import auto_profile_registration as registration
 import numpy as np
 
@@ -47,6 +49,17 @@ def resample_reference(reference, warp):
         ) * fy
         valid[start:stop] = mask
     return result, valid
+
+
+def resample_report(reference, report):
+    """Apply the exact display correspondence at native preview resolution."""
+    warp = np.array(report["candidate_to_reference_normalized"])
+    model = report.get("radial_model")
+    if model is None:
+        return resample_reference(reference, warp)
+    return radial_geometry.resample(
+        reference, warp, np.array(model["coefficients"]), np.array(model["fit_size"])
+    )
 
 
 def coverage(shape, warp):
@@ -100,11 +113,39 @@ def align(candidate, reference):
                     }
                 )
     aligned, valid = resample_reference(reference, warp)
+    radial_model, radial_report = None, {"reason": "affine geometry failed"}
+    if not breaches and not np.array_equal(candidate, reference):
+        coefficients, radial_report = radial.fit_residual(candidate, aligned, valid)
+        if coefficients is not None:
+            size = np.array(reference.shape[1::-1])
+            try:
+                checks = radial_geometry.geometry_checks(
+                    reference.shape, warp, coefficients, size
+                )
+                radial_report["checks"] = checks
+                if not checks["breaches"]:
+                    aligned, valid = radial_geometry.resample(
+                        reference, warp, coefficients, size
+                    )
+                    radial_model = {
+                        "coefficients": coefficients.tolist(),
+                        "fit_size": size.tolist(),
+                    }
+                    forward = checks["regions"]["candidate"]["coverage"]
+                    backward = checks["regions"]["reference"]["coverage"]
+                    tiles = checks["regions"]["candidate"]["tiles"]
+                    reverse_tiles = checks["regions"]["reference"]["tiles"]
+            except (ValueError, np.linalg.LinAlgError) as failure:
+                radial_report["rejected"] = str(failure)
+    elif not breaches:
+        radial_report = {"reason": "identical pixels"}
     return (
         aligned,
         valid,
         {
             "candidate_to_reference_normalized": warp.tolist(),
+            "radial_model": radial_model,
+            "radial_diagnostic": radial_report,
             "levels": levels,
             "candidate_overlap": forward,
             "reference_overlap": backward,
@@ -113,7 +154,12 @@ def align(candidate, reference):
             "policy": POLICY,
             "implementation_sha256": {
                 Path(p).name: hashlib.sha256(Path(p).read_bytes()).hexdigest()
-                for p in (__file__, registration.__file__)
+                for p in (
+                    __file__,
+                    registration.__file__,
+                    radial.__file__,
+                    radial_geometry.__file__,
+                )
             },
             "breaches": breaches,
             "status": "failed" if breaches else "passed",

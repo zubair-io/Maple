@@ -77,14 +77,13 @@ def compare(candidate, reference, budget):
     ref = diff.load(reference)
     cand = diff.match_shape(diff.load(candidate), ref)
     spatial = quality.compare(candidate, reference)
-    warp = np.asarray(spatial["alignment"]["candidate_to_reference_normalized"])
     unaligned_native = quality.native_absolute(cand, ref, budget)
     h, w = ref.shape[:2]
     y, x = round(h * 0.1), round(w * 0.1)
     unaligned_bands = diff.per_band_bias(
         cand[y : h - y, x : w - x], ref[y : h - y, x : w - x]
     )
-    ref, valid = alignment.resample_reference(ref, warp)
+    ref, valid = alignment.resample_report(ref, spatial["alignment"])
     bands = diff.per_band_bias(
         cand[y : h - y, x : w - x],
         ref[y : h - y, x : w - x],
@@ -165,7 +164,7 @@ def qualify(cli, selected, out, budget):
         "budget": budget,
         "binary": str(cli),
         "binary_sha256": sha(cli),
-        "geometry": "default lens-corrected render; structural affine reference coordinates; full overlap plus inner 80% bias",
+        "geometry": "default lens-corrected render; bounded affine/radial reference coordinates; full overlap plus inner 80% bias",
         "alignment_policy": alignment.POLICY,
         "alignment_implementation_sha256": sha(alignment.__file__),
         "registration_implementation_sha256": sha(alignment.registration.__file__),

@@ -124,6 +124,10 @@ class PhotographicAlignmentTests(unittest.TestCase):
         cases = json.loads((root / "manifest.json").read_text())["cases"]
         self.assertEqual(len(cases), 16)
         numeric_controls = {
+            # The 384px original clears fixed display limits once its radial
+            # misalignment is removed. The damaged variant must still fail.
+            # This is not acceptance of the full-resolution RAF fixture.
+            ("test_0005", "original"),
             ("test_0002", "original"),
             ("test_0002", "rejected"),
             ("test_0014", "rejected"),

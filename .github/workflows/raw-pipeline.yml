@@ -605,7 +605,9 @@ jobs:
       - name: stage_diff.py unit tests
         run: python3 src/scripts/stage_diff_test.py
       - name: Test Auto JPEG geometry correspondence
-        run: python3 src/scripts/auto_profile_alignment_test.py
+        run: |
+          python3 src/scripts/auto_profile_alignment_test.py
+          python3 src/scripts/auto_profile_radial_test.py
       - name: Test Auto JPEG non-cancelling quality checks
         run: python3 src/scripts/auto_profile_quality_test.py
       - name: Test Auto embedded-JPEG gate contracts

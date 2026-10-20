@@ -168,7 +168,11 @@ non-cancelling full-frame/per-band RGB error at the JPEG grid, full-frame and
 8-by-8 regional error at display scale, perceptual mean/tail color error,
 clipping and gradient checks. Lens corrections remain enabled. A bounded
 structural affine fit maps reference scene coordinates to the untouched candidate
-grid; no evaluated colors, exposure or contrast are fitted. Only coordinates
+grid. A radial residual is accepted only when spatially held-out landmark error
+improves by at least 25%, bidirectional coverage still passes, and the mapping
+has no folds or displacement exceeding the existing 10% geometry bound.
+OpenCV SIFT supplies mutual landmarks; selection never uses color scores.
+No evaluated colors, exposure or contrast are fitted. Only coordinates
 outside the geometric overlap are excluded. Both image directions must retain
 95% overlap and every 8-by-8 tile must retain 75%; insufficient support or
 structural confidence fails. Gradients use supported adjacent pixel pairs.
@@ -178,7 +182,9 @@ The fixed shared policy is in `src/scripts/auto_profile_quality.py`; its
 rationale and saved physical replay are in
 `test-fixtures/qualification/experiments/auto-jpeg-quality-harness/`.
 All 16 JPEG-bearing fixtures have committed photographic regression derivatives,
-including the four old passing controls, and identity controls. Tests run in CI
+including the four old passing controls, and identity controls. The small
+`test_0005` original also clears display limits after radial alignment; its
+damaged variant and full-resolution physical fixture still fail. Tests run in CI
 without RAWs. Numeric passes still require full-corpus visual review; this does
 not establish native detail, host/GPU parity or every-camera quality.
 Previewless RAWs separately require exact rendered Auto/Neutral pixel equality;

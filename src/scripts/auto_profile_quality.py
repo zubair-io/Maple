@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Non-cancelling, full-frame Auto/JPEG checks alongside the legacy bias gate.
 
-The fixed color/detail policy is shared by every fixture. Geometry-only affine
+The fixed color/detail policy is shared by every fixture. Geometry-only affine/radial
 correspondence is allowed by the session's explicit lens-correction policy.
 Candidate colors are never fitted or resampled; unsupported scene coordinates
 are reported and subject to fixed overlap gates. Unaligned scores are retained.
