@@ -48,6 +48,9 @@ pub(super) fn constrain(
                 });
                 let mass = row.population as f64 / populations[region] as f64;
                 for &(i, w) in &row.artifact_weights {
+                    if super::projection::is_neutral_node(i, origin.size) {
+                        continue;
+                    }
                     for c in 0..3 {
                         gradient[i][c] += mass * w * derivative[c];
                     }

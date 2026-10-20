@@ -1,4 +1,4 @@
-use super::{Observation, TrainingRow};
+use super::{projection::is_neutral_node, Observation, TrainingRow};
 
 pub(super) struct System<'a> {
     rows: &'a [TrainingRow<'a>],
@@ -7,6 +7,7 @@ pub(super) struct System<'a> {
     pub diagonal: Vec<f64>,
     lambda: f64,
     ridge: f64,
+    fixed: Vec<bool>,
 }
 
 impl<'a> System<'a> {
@@ -29,7 +30,14 @@ impl<'a> System<'a> {
             diagonal[i] += lambda;
             diagonal[j] += lambda;
         }
+        let fixed: Vec<_> = (0..count).map(|i| is_neutral_node(i, size)).collect();
+        for i in 0..count {
+            if fixed[i] {
+                diagonal[i] = 1.;
+            }
+        }
         Self {
+            fixed,
             rows,
             weights,
             edges,
@@ -57,18 +65,30 @@ impl<'a> System<'a> {
             result[i] += delta;
             result[j] -= delta;
         }
+        for i in 0..result.len() {
+            if self.fixed[i] {
+                result[i] = values[i];
+            }
+        }
         result
     }
 
     pub(super) fn solve(&self, rhs: &[f64], initial: Vec<f64>) -> Option<Vec<f64>> {
         let dot = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(u, v)| u * v).sum::<f64>();
+        let mut rhs = rhs.to_vec();
         let mut x = initial;
+        for i in 0..x.len() {
+            if self.fixed[i] {
+                x[i] = 0.;
+                rhs[i] = 0.;
+            }
+        }
         let ax = self.multiply(&x);
         let mut r: Vec<_> = rhs.iter().zip(ax).map(|(b, a)| b - a).collect();
         let mut z: Vec<_> = r.iter().zip(&self.diagonal).map(|(v, d)| v / d).collect();
         let mut p = z.clone();
         let mut rz = dot(&r, &z);
-        let norm = dot(rhs, rhs);
+        let norm = dot(&rhs, &rhs);
         if norm < 1e-25 {
             return Some(vec![0.; rhs.len()]);
         }
@@ -126,7 +146,7 @@ mod tests {
     fn matrix_free_solution_matches_its_independent_normal_equation_residual() {
         let row = Observation {
             weights: vec![],
-            artifact_weights: vec![(0, 0.25), (1, 0.75)],
+            artifact_weights: vec![(1, 0.25), (2, 0.75)],
             source: [0.; 3],
             target: [0.; 3],
             baseline: [0.; 3],
@@ -143,17 +163,21 @@ mod tests {
         let weights = [2.];
         let edges = edges(2);
         let system = System::new(&rows, &weights, 2, &edges);
-        let rhs = vec![0.5, 1.5, 0., 0., 0., 0., 0., 0.];
+        let rhs = vec![0., 0.5, 1.5, 0., 0., 0., 0., 0.];
         let solved = system.solve(&rhs, vec![0.; 8]).unwrap();
         let mut residual: Vec<_> = solved.iter().map(|v| v * system.ridge).collect();
-        let predicted = 0.25 * solved[0] + 0.75 * solved[1];
-        residual[0] += 0.5 * predicted;
-        residual[1] += 1.5 * predicted;
+        let predicted = 0.25 * solved[1] + 0.75 * solved[2];
+        residual[1] += 0.5 * predicted;
+        residual[2] += 1.5 * predicted;
         for &(i, j) in &edges {
             let delta = system.lambda * (solved[i] - solved[j]);
             residual[i] += delta;
             residual[j] -= delta;
         }
+        residual[0] = solved[0];
+        residual[7] = solved[7];
+        assert_eq!(solved[0], 0.);
+        assert_eq!(solved[7], 0.);
         assert!(residual.iter().zip(rhs).all(|(a, b)| (a - b).abs() < 1e-6));
     }
 }

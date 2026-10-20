@@ -1,4 +1,6 @@
-use super::{assess_against, projection, ColorLut, Observation};
+use super::{assess_against, ColorLut, Observation};
+#[path = "paired_refinement_projection.rs"]
+mod projection;
 #[path = "paired_refinement_regions.rs"]
 mod regions;
 #[path = "paired_refinement_system.rs"]
