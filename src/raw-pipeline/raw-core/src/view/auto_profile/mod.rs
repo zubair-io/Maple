@@ -33,6 +33,7 @@ mod paired_fit;
 mod paired_observations;
 pub mod pairs;
 pub mod preview;
+mod preview_raf_color;
 mod solve;
 
 pub use apply::{apply_curve, compress_input};
