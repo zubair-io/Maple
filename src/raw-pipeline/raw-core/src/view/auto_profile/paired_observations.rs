@@ -31,6 +31,16 @@ enum Sampling {
     Geometry,
 }
 
+impl Sampling {
+    fn for_warp(warp: Warp) -> Self {
+        if warp == Warp::IDENTITY {
+            Self::Jittered
+        } else {
+            Self::Aligned(warp)
+        }
+    }
+}
+
 pub(super) struct ObservationSet {
     pub rows: Vec<Observation>,
     pub grid_width: usize,
@@ -152,11 +162,7 @@ pub(super) fn build_aligned(
         preview,
         baseline,
         Some(1024),
-        if warp == Warp::IDENTITY {
-            Sampling::Jittered
-        } else {
-            Sampling::Aligned(warp)
-        },
+        Sampling::for_warp(warp),
     )
 }
 
@@ -177,11 +183,7 @@ pub(super) fn build_native_aligned(
         preview,
         baseline,
         None,
-        if warp == Warp::IDENTITY {
-            Sampling::Jittered
-        } else {
-            Sampling::Aligned(warp)
-        },
+        Sampling::for_warp(warp),
     )
 }
 

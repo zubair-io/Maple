@@ -42,7 +42,7 @@
       outline: 2px solid #8bc1ff;
       outline-offset: 2px;
     }
-    button[aria-pressed="true"] {
+    button[aria-pressed='true'] {
       background: #e3e7eb;
       color: #17191b;
       border-color: #e3e7eb;
@@ -177,7 +177,7 @@
       height: 48px;
       object-fit: contain;
     }
-    #filmstrip button[aria-current="true"] {
+    #filmstrip button[aria-current='true'] {
       outline: 2px solid #b8cbe0;
       outline-offset: -2px;
       background: #39434c;
@@ -247,23 +247,15 @@
         <button data-view="before" aria-pressed="false">1 · Before</button
         ><button data-view="after" aria-pressed="true">2 · After</button
         ><button data-view="reference" aria-pressed="false">3 · JPEG</button
-        ><button id="swap" title="Space: toggle After and your last comparison">
-          A/B ␣
-        </button>
+        ><button id="swap" title="Space: toggle After and your last comparison">A/B ␣</button>
       </div>
       <div class="spacer"></div>
       <div class="group">
         <button id="fit" title="F: fit image">Fit</button
-        ><button id="native" title="0: one render pixel per CSS pixel">
-          100%</button
-        ><button id="minus" aria-label="Zoom out">−</button
-        ><span id="zoom">Fit</span
+        ><button id="native" title="0: one render pixel per CSS pixel">100%</button
+        ><button id="minus" aria-label="Zoom out">−</button><span id="zoom">Fit</span
         ><button id="plus" aria-label="Zoom in">+</button
-        ><button
-          id="fullscreen"
-          title="Enter or leave full screen"
-          aria-label="Full screen"
-        >
+        ><button id="fullscreen" title="Enter or leave full screen" aria-label="Full screen">
           ⛶
         </button>
       </div>
@@ -274,21 +266,20 @@
       aria-label="Image comparison. Drag to pan; scroll to zoom. Press 1, 2, 3 to change image."
     >
       <div id="scene">
-        <img id="before" alt="Before render" /><img
-          id="after"
-          alt="After render"
-        /><img id="reference" alt="Camera embedded JPEG" />
+        <img id="before" alt="Before render" /><img id="after" alt="After render" /><img
+          id="reference"
+          alt="Camera embedded JPEG"
+        />
       </div>
       <div id="badge">After</div>
       <div id="help">
-        1 Before · 2 After · 3 JPEG · Space swap · ← → image · scroll zoom ·
-        drag pan · double-click 100% / Fit
+        1 Before · 2 After · 3 JPEG · Space swap · ← → image · scroll zoom · drag pan · double-click
+        100% / Fit
       </div>
     </div>
     <footer>
       <span id="load" role="status">Loading…</span><span id="result"></span
-      ><a id="original" href="#" class="hint" target="_blank" rel="noopener"
-        >Open original file ↗</a
+      ><a id="original" href="#" class="hint" target="_blank" rel="noopener">Open original file ↗</a
       ><a href="overview.html" class="hint">Overview</a>
     </footer>
     <nav id="filmstrip" aria-label="Test images"></nav>

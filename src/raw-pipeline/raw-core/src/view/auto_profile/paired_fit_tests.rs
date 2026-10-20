@@ -466,8 +466,17 @@ fn geometric_training_preserves_colors_and_retains_the_existing_fit_when_guards_
     let original =
         paired_observations::build(&pixels, 128, 128, ExifOrientation::Normal, &preview, &prior)
             .unwrap();
+    let geometry = paired_observations::build_geometry(
+        &pixels,
+        128,
+        128,
+        ExifOrientation::Normal,
+        &preview,
+        &prior,
+    )
+    .unwrap();
     let registration =
-        super::super::fit_registration::estimate(&original).expect("shifted scene must register");
+        super::super::fit_registration::estimate(&geometry).expect("shifted scene must register");
     let aligned = paired_observations::build_aligned(
         &pixels,
         128,
