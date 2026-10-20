@@ -153,9 +153,6 @@ pub mod ui_tokens;
 pub mod capability_registry;
 pub mod support_tiers;
 
-pub mod version;
-pub use version::PIPELINE_OUTPUT_VERSION;
-
 pub mod xmp;
 
 pub mod pipeline;

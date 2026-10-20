@@ -118,7 +118,6 @@ TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables
 "$BIN" --schema adjustment --target ts-tables --out "$TS_TABLES_OUT"
 "$BIN" --schema adjustment --target cs --out "src/windows/Maple.WinUI/Generated/AdjustmentFields.g.cs"
 "$BIN" --schema adjustment-api --target ts --out "src/api/src/generated/adjustment-fields.generated.ts"
-"$BIN" --schema pipeline-output-version --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCloudKit/Generated/PipelineOutputVersion+Generated.swift"
 "$BIN" --schema raster-recipe --target ts --out "src/maple/src/recipe.generated.ts"
 # Ranked search window ladder (#4545): the API widens up it, the Apple client keys facets on it.
 "$BIN" --schema ranked-window --target ts --out "src/api/src/generated/ranked-window.generated.ts"
@@ -231,8 +230,8 @@ FILM_CS_OUT="src/windows/Maple.WinUI/Generated/FilmCatalog.g.cs"
 # evidence records in test-fixtures/qualification/ (written by
 # tools/qualification/record.sh). Regenerating on every codegen run is what
 # makes "evidence loss demotes a capability in the next build" true: a
-# record that no longer matches the current pipeline / schema version, its
-# corpus, or its declared case count stops counting, and this drift gate
+# record whose corpus no longer matches, or whose declared case count
+# changed, stops counting, and this drift gate
 # then requires the demoted outputs to be committed.
 
 CAP_EVIDENCE_DIR="test-fixtures/qualification"

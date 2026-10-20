@@ -78,19 +78,26 @@ pub use raster_resize::{
 /// Smoke-test export: proves the crate builds into a loadable addon and that a
 /// trivial `#[napi]` function round-trips through a host's N-API loader.
 ///
-/// It reads `raw_core::PIPELINE_OUTPUT_VERSION` on purpose rather than
-/// returning a bare literal — that is what makes the heavy `raw-core` graph
-/// (rawler, rav1d, ravif, zune-jpeg, fast_image_resize) genuinely part of the
-/// addon's link, so this one call is a real end-to-end toolchain proof and not
-/// just a proof that `napi-derive` expands.
+/// It formats the crate version together with a raw-core constant on
+/// purpose rather than returning a bare literal — that is what makes the
+/// heavy `raw-core` graph (rawler, rav1d, ravif, zune-jpeg,
+/// fast_image_resize) genuinely part of the addon's link, so this one call
+/// is a real end-to-end toolchain proof and not just a proof that
+/// `napi-derive` expands.
 ///
 /// JS name is `mapleNapiVersion` — napi-derive lower-camel-cases `snake_case`
 /// Rust function names by default; no `js_name` override is in play.
 #[napi]
 pub fn maple_napi_version() -> String {
     format!(
-        "{} (raw-core pipeline output v{})",
+        "{} (raw-core wb scale v{})",
         env!("CARGO_PKG_VERSION"),
-        raw_core::PIPELINE_OUTPUT_VERSION
+        match raw_core::types::WbScaleVersion::default() {
+            raw_core::types::WbScaleVersion::V1 => 1,
+            raw_core::types::WbScaleVersion::V2 => 2,
+            raw_core::types::WbScaleVersion::V3 => 3,
+            raw_core::types::WbScaleVersion::V4 => 4,
+            raw_core::types::WbScaleVersion::V5 => 5,
+        }
     )
 }
