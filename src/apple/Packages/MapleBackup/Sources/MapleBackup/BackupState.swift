@@ -60,30 +60,37 @@ public actor BackupStateStore {
     }
   }
 
-  public func recordUploadedSidecar(_ id: BackupTaskID, digest: String) throws {
+  public func recordUploadedSidecar(
+    _ id: BackupTaskID, digest: String, canonicalName: Bool = true
+  ) throws {
     try dbQueue.write { db in
       try db.execute(
         literal: """
           INSERT INTO uploaded_sidecars
             (device_id, phasset_local_id, digest, uploaded_at, canonical_name)
           VALUES
-            (\(id.deviceId), \(id.phassetLocalId), \(digest), \(Date().timeIntervalSince1970), 1)
+            (\(id.deviceId), \(id.phassetLocalId), \(digest), \(Date().timeIntervalSince1970),
+             \(canonicalName))
           ON CONFLICT(device_id, phasset_local_id)
           DO UPDATE SET digest = excluded.digest, uploaded_at = excluded.uploaded_at,
-            canonical_name = 1
+            canonical_name = excluded.canonical_name
           """)
     }
   }
 
-  public func uploadedSidecarDigest(_ id: BackupTaskID) throws -> String? {
-    try dbQueue.read { db in
+  /// A video's sidecar always had its canonical name, so its older rows still count.
+  public func uploadedSidecarDigest(_ id: BackupTaskID, targetRelPath: String? = nil) throws
+    -> String?
+  {
+    let alwaysCanonical = targetRelPath.map(BackupSidecarName.isVideo) ?? false
+    return try dbQueue.read { db in
       try String.fetchOne(
         db,
         sql: """
           SELECT digest FROM uploaded_sidecars
-           WHERE device_id = ? AND phasset_local_id = ? AND canonical_name = 1
+           WHERE device_id = ? AND phasset_local_id = ? AND (canonical_name = 1 OR ?)
           """,
-        arguments: [id.deviceId, id.phassetLocalId])
+        arguments: [id.deviceId, id.phassetLocalId, alwaysCanonical])
     }
   }
 
