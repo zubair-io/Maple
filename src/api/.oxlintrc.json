@@ -102,6 +102,8 @@
         "src/fs/root.test.ts",
         // #4995: primary jail tests create and retarget only temporary SQLite/XMP symlink fixtures.
         "src/fs/root.primary.test.ts",
+        // #4981: mirror jail regressions stage symlinks and XMP only in owned temporary directories.
+        "src/fs/root.mirror.test.ts",
         "src/job-runner/batch-scope.integration.test.ts",
         "src/fs/browse.registered-roots.test.ts",
         "src/fs/root-connectivity.ts",
