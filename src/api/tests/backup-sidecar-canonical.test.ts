@@ -324,3 +324,35 @@ describe('a send without a base is bound to the photo it names (#5021)', () => {
     expect(await read('2024/09/01/IMG_51.xmp')).toBeNull();
   });
 });
+
+describe('a failed old-name retirement is retried, never left to replay (#5021)', () => {
+  test('the send fails until the old-name edit is kept aside, and a retry finishes it', async () => {
+    const photo = await seedUpload('2024/10/01/IMG_60.HEIC');
+    await fs.writeFile(path.join(tmpLib, '2024/10/01/IMG_60.HEIC.xmp'), mapleXmp('older send'));
+    live.db.exec('ALTER TABLE sidecar_divergences RENAME TO sidecar_divergences_hidden');
+    const failed = await post(photo, mapleXmp('newer edit'), 'none').finally(() =>
+      live.db.exec('ALTER TABLE sidecar_divergences_hidden RENAME TO sidecar_divergences'),
+    );
+
+    expect(failed.status).toBe(500);
+    expect(await read('2024/10/01/IMG_60.HEIC.xmp')).toBe(mapleXmp('older send'));
+    expect(
+      live.db.query(`SELECT has_xmp FROM assets WHERE id = ?`).get(photo.assetId.toHexString()),
+    ).toEqual({ has_xmp: 1 });
+
+    const retried = await post(photo, mapleXmp('newer edit'), 'none');
+
+    expect(await retried.json()).toEqual({
+      target_rel_path: '2024/10/01/IMG_60.xmp',
+      unchanged: true,
+    });
+    expect(await read('2024/10/01/IMG_60.HEIC.xmp')).toBeNull();
+    expect(keptAside('2024/10/01/IMG_60.xmp')).toEqual([
+      {
+        displaced_xmp: mapleXmp('older send'),
+        displaced_sha256: sha256(mapleXmp('older send')),
+        incoming_sha256: sha256(mapleXmp('newer edit')),
+      },
+    ]);
+  });
+});
