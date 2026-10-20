@@ -43,6 +43,22 @@ final class SMBCrossShareMutationTests: EditorTestCase {
       "the share that listed the photo still accepts its own reference")
   }
 
+  /// The same connection object reopened on another share must retire its
+  /// earlier refs; reopening the same share at another address must not.
+  func testReconnectingToAnotherShareRetiresEarlierReferences() async throws {
+    let listing = try await OwnedSMBWorkflowFixture.open(testCase: self)
+    let other = try await OwnedSMBWorkflowFixture.open(testCase: self, shareName: "ARCHIVE")
+    let ref = try await listing.image()
+    await listing.source.disconnect()
+    try await listing.source.connect(credentials: other.credentials)
+    _ = try await listing.source.images()
+
+    try await assertRefused("trash after switching shares") {
+      _ = try await listing.source.trashAsset(ref)
+    }
+    XCTAssertTrue(FileManager.default.fileExists(atPath: other.raw.path))
+  }
+
   private func assertRefused(_ label: String, _ mutation: () async throws -> Void) async throws {
     do {
       try await mutation()
