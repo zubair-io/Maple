@@ -382,3 +382,18 @@ describe('a retirement that keeps failing records its kept-aside edit once (#502
     },
   );
 });
+
+describe("another photo's sidecar is never taken for an old-name file (#5021)", () => {
+  test("a send for IMG.HEIC leaves IMG.HEIC.JPG's sidecar alone", async () => {
+    const photo = await seedUpload('2024/11/01/IMG_70.HEIC');
+    await fs.writeFile(path.join(tmpLib, '2024/11/01/IMG_70.HEIC.JPG'), Buffer.alloc(8));
+    await fs.writeFile(path.join(tmpLib, '2024/11/01/IMG_70.HEIC.xmp'), mapleXmp('jpeg edit'));
+
+    expect((await post(photo, mapleXmp('heic edit'), 'none')).status).toBe(200);
+    const noBase = await post(photo, mapleXmp('heic edit again'), undefined);
+
+    expect(await read('2024/11/01/IMG_70.HEIC.xmp')).toBe(mapleXmp('jpeg edit'));
+    expect(keptAside('2024/11/01/IMG_70.xmp')).toEqual([]);
+    expect((await noBase.json()).skipped).toBe(true);
+  });
+});
