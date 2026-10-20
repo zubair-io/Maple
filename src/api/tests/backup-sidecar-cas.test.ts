@@ -110,9 +110,7 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
     const target = await seedUpload('first');
     const res = await post(target, xmp('v1'), 'none');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      target_rel_path: xmpSidecarPath(target.relPath),
-    });
+    expect(await res.json()).toEqual({ target_rel_path: xmpSidecarPath(target.relPath) });
     expect(await onDisk(target.relPath)).toBe(xmp('v1'));
     expect(divergences(target.relPath)).toEqual([]);
   });
@@ -122,9 +120,7 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
     expect((await post(target, xmp('v1'), 'none')).status).toBe(200);
     const res = await post(target, xmp('v2'), sha256(xmp('v1')));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      target_rel_path: xmpSidecarPath(target.relPath),
-    });
+    expect(await res.json()).toEqual({ target_rel_path: xmpSidecarPath(target.relPath) });
     expect(await onDisk(target.relPath)).toBe(xmp('v2'));
     expect(divergences(target.relPath)).toEqual([]);
   });
@@ -375,11 +371,7 @@ async function swapFolderWhileQueued(
     release();
     await holder;
     const status = (await upload).status;
-    return {
-      status,
-      outside: await fs.readdir(outside),
-      relPath: target.relPath,
-    };
+    return { status, outside: await fs.readdir(outside), relPath: target.relPath };
   } finally {
     release();
     await fs.rm(outside, { recursive: true, force: true });

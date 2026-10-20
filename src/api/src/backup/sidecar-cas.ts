@@ -92,11 +92,7 @@ async function publishOver(
     return { kind: 'shared' };
   }
   const forget = diverged
-    ? await recordDisplaced({
-        xmp: current,
-        sha256: currentSha256,
-        incomingSha256,
-      })
+    ? await recordDisplaced({ xmp: current, sha256: currentSha256, incomingSha256 })
     : null;
   const written = await writeSidecarAtomic(destination, xmp, 'sidecar write failed');
   if (!written.ok) {
@@ -121,9 +117,7 @@ async function createIfAbsent(destination: string, xmp: string): Promise<Sidecar
 async function prepareDestination(destination: string): Promise<SidecarCasOutcome | null> {
   const allowed = await authorizeSidecarWrite(destination);
   if (!allowed.ok) return { kind: 'refused', error: allowed.error ?? 'path not allowed' };
-  await fs.mkdir(path.dirname(allowed.data ?? destination), {
-    recursive: true,
-  });
+  await fs.mkdir(path.dirname(allowed.data ?? destination), { recursive: true });
   return null;
 }
 
@@ -146,10 +140,7 @@ export async function publishSidecarCas(
       const target = allowed.data ?? destination;
       // A path re-routed while queued wasn't the one these barrier keys cover.
       if (path.resolve(target) !== path.resolve(resolved)) {
-        return {
-          kind: 'error',
-          error: 'sidecar path changed while waiting; retry',
-        };
+        return { kind: 'error', error: 'sidecar path changed while waiting; retry' };
       }
       const existing = await readCurrent(target);
       const created = existing === null ? await createIfAbsent(target, xmp) : null;

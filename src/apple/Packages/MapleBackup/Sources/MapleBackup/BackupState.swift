@@ -51,8 +51,7 @@ public actor BackupStateStore {
         t.column("uploaded_at", .double).notNull()
         t.primaryKey(["device_id", "phasset_local_id"])
       }
-      // Revisions delivered before #5021 landed as `IMG.HEIC.xmp`, which the
-      // server never reads; they keep 0 here and don't count as delivered.
+      // Pre-#5021 revisions went to `IMG.HEIC.xmp`, unread by the server: 0 = not delivered.
       let sidecarColumns = try db.columns(in: "uploaded_sidecars").map(\.name)
       if !sidecarColumns.contains("canonical_name") {
         try db.execute(

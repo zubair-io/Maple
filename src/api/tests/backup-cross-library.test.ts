@@ -220,10 +220,7 @@ describe('cross-library backup: the target path in library B is already occupied
     filename: 'IMG_XLIB.HEIC',
   });
 
-  async function ingestToB(): Promise<{
-    maple_id: string;
-    target_rel_path: string;
-  }> {
+  async function ingestToB(): Promise<{ maple_id: string; target_rel_path: string }> {
     const res = await authedHandle(
       ingest(sharedBytes, {
         'X-Maple-Device-Id': deviceId,

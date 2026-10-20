@@ -47,7 +47,7 @@ final class BackupEngineCanonicalSidecarResendTests: XCTestCase {
     }
   }
 
-  private func engine(stateURL: URL, sidecarRoot: URL) throws -> BackupEngine {
+  private func makeEngine(stateURL: URL, sidecarRoot: URL) throws -> BackupEngine {
     let upload = UploadClient(
       baseURL: URL(string: "https://server.example")!, libraryId: "lib", deviceId: "d",
       transport: stubTransport())
@@ -67,7 +67,7 @@ final class BackupEngineCanonicalSidecarResendTests: XCTestCase {
     try storeDeliveredUnderTheOldName(at: stateURL)
     try AppSupportSidecarStore(root: sidecarRoot).write(
       phassetLocalId: photo.phassetLocalId, xmp: edit)
-    let engine = try engine(stateURL: stateURL, sidecarRoot: sidecarRoot)
+    let engine = try makeEngine(stateURL: stateURL, sidecarRoot: sidecarRoot)
 
     await engine.resendNewerEdits([held])
     await engine.resendNewerEdits([held])
