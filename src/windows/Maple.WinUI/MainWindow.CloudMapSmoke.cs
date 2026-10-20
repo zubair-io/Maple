@@ -49,10 +49,14 @@ public sealed partial class MainWindow
             {
                 if (duplicate == 25) handler.ViewportRelease.TrySetResult();
                 SendDuplicateViewport(map);
+                await Task.Delay(1);
             }
             handler.HoldViewport = false;
             await WaitAsync(() => !map.RequestInFlight && map.AppliedCellCount == 1, "In-flight Map request did not complete after duplicate viewport updates");
-            for (var duplicate = 0; duplicate < 50; duplicate++) SendDuplicateViewport(map);
+            for (var duplicate = 0; duplicate < 50; duplicate++)
+            {
+                SendDuplicateViewport(map);
+            }
 
             RecordSmokeStage(output, "map-server-failure");
             handler.Status = HttpStatusCode.ServiceUnavailable;
