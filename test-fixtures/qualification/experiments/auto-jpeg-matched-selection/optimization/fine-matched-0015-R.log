@@ -1,0 +1,189 @@
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+{"case": "0015", "channel": "R", "scipy": "1.17.1", "variables": 59624, "constraints": 154238, "nnz": 962571, "training_rows": 23686, "groups": 70, "phase": "minimize worst native/display group absolute error with existing bounds and projection inequalities"}
+Running HiGHS 1.12.0 (git hash: 4f96ee8): Copyright (c) 2025 HiGHS under MIT licence terms
+LP has 154238 rows; 59624 cols; 962571 nonzeros
+Coefficient ranges:
+  Matrix  [1e-08, 1e+00]
+  Cost    [1e+00, 1e+00]
+  Bound   [0e+00, 0e+00]
+  RHS     [3e-08, 1e+00]
+WARNING: Problem has some excessively small row bounds
+Presolving model
+79822 rows, 57083 cols, 885613 nonzeros  0s
+47603 rows, 24106 cols, 818758 nonzeros  0s
+47601 rows, 24104 cols, 817824 nonzeros  0s
+Presolve reductions: rows 47601(-106637); columns 24104(-35520); nonzeros 817824(-144747) 
+Solving the presolved LP
+IPX model has 47601 rows, 24106 columns and 817826 nonzeros
+Input
+    Number of variables:                                24106
+    Number of free variables:                           0
+    Number of constraints:                              47601
+    Number of equality constraints:                     2
+    Number of matrix entries:                           817826
+    Matrix range:                                       [5e-09, 9e+00]
+    RHS range:                                          [3e-08, 9e-01]
+    Objective range:                                    [1e+00, 1e+00]
+    Bounds range:                                       [1e-07, 2e+00]
+Preprocessing
+    Dualized model:                                     no
+    Number of dense columns:                            0
+    Range of scaling factors:                           [5.00e-01, 4.10e+03]
+    Scaled cost norm:                                   0.5
+    Scaled bounds norm:                                 204.8
+IPX version 1.0
+Interior point solve
+ Iter       primal obj         dual obj       pinf       dinf       gap     time
+   0    3.75283145e-01  -8.17458261e+02   1.68e-02   1.00e+00  2.00e+00       0s
+   1    9.64233694e+01  -1.04685943e+03   7.85e-03   9.68e-01  2.40e+00       0s
+   2    1.17591994e+02  -2.93434074e+03   2.81e-03   8.22e-02  2.17e+00       0s
+   3    1.23971310e+02  -2.54866691e+03   7.21e-04   2.84e-02  2.20e+00       1s
+   4    1.24060902e+02  -2.00616495e+03   4.04e-04   1.27e-02  2.26e+00       1s
+   5    1.24748835e+02  -1.47382281e+03   2.32e-04   5.04e-03  2.37e+00       2s
+ Constructing starting basis...
+   6    1.23692754e+02  -1.10209971e+03   1.44e-04   2.82e-03  2.50e+00       3s
+   7    1.26632714e+02  -9.96483462e+02   1.20e-04   2.35e-03  2.58e+00       3s
+   8    1.26165146e+02  -6.94495703e+02   7.57e-05   1.27e-03  2.88e+00       3s
+   9    1.09821334e+02  -4.96057435e+02   3.28e-05   8.18e-04  3.12e+00       4s
+  10    6.81003635e+01  -1.32535665e+02   2.02e-06   1.55e-04  6.04e+00       4s
+  11    2.96080011e+01  -3.21025981e+01   5.50e-07   2.69e-05  2.75e+01       4s
+  12    1.07716285e+01  -1.61787053e+01   1.33e-07   1.19e-05  7.28e+00       5s
+  13    1.00684452e+01  -1.44558826e+01   1.01e-07   9.83e-06  7.68e+00       5s
+  14    7.78700932e+00  -1.15834339e+01   5.88e-08   7.39e-06  6.68e+00       5s
+  15    6.34184479e+00  -9.30134723e+00   3.47e-08   5.51e-06  6.31e+00       6s
+  16    4.60572560e+00  -5.11499976e+00   1.89e-08   2.85e-06  7.75e+00       6s
+  17    3.42822360e+00  -3.85261052e+00   7.54e-09   2.08e-06  6.01e+00       7s
+    Start  factorization  17: nonzeros in basis =    700021                   7s
+  18    2.79286879e+00  -2.21141792e+00   3.58e-09   1.33e-06  3.88e+00       8s
+  19    2.82131087e+00  -1.83462563e+00   2.68e-09   1.17e-06  3.12e+00      10s
+  20    2.80523250e+00  -1.07555592e+00   1.85e-09   8.50e-07  2.08e+00      10s
+  21    2.76537862e+00  -5.02031607e-01   1.24e-09   6.09e-07  1.53e+00      11s
+  22    2.67179473e+00   3.03159495e-01   8.09e-10   3.49e-07  9.52e-01      12s
+    Finish factorization  25: fill factor =   1.00                           13s
+  23    2.60505994e+00   6.34032478e-01   5.41e-10   2.30e-07  7.52e-01      13s
+  24    2.54813281e+00   8.22889188e-01   4.08e-10   1.86e-07  6.42e-01      14s
+  25    2.46809591e+00   1.05657003e+00   2.61e-10   1.45e-07  5.11e-01      14s
+  26    2.41459092e+00   1.19395352e+00   1.60e-10   1.16e-07  4.35e-01      15s
+  27    2.39757688e+00   1.26630388e+00   1.34e-10   1.06e-07  3.99e-01      16s
+  28    2.36552249e+00   1.51732513e+00   9.82e-11   7.28e-08  2.88e-01      17s
+  29    2.33363898e+00   1.57236207e+00   5.56e-11   6.25e-08  2.58e-01      17s
+    Start  factorization  32: nonzeros in basis =    703526                  18s
+  30    2.31484395e+00   1.66274072e+00   3.95e-11   5.22e-08  2.18e-01      18s
+  31    2.30184530e+00   1.69765327e+00   2.56e-11   4.72e-08  2.01e-01      19s
+  32    2.29547061e+00   1.75785564e+00   2.08e-11   4.08e-08  1.78e-01      19s
+  33    2.28346689e+00   1.91646802e+00   1.27e-11   2.46e-08  1.18e-01      20s
+  34    2.27612046e+00   1.92272900e+00   7.08e-12   2.37e-08  1.14e-01      20s
+  35    2.26876548e+00   2.00276662e+00   3.65e-12   1.66e-08  8.48e-02      21s
+  36    2.26498697e+00   2.03378497e+00   1.94e-12   1.37e-08  7.34e-02      22s
+  37    2.26287041e+00   2.11583501e+00   1.25e-12   7.52e-09  4.61e-02      23s
+    Start  factorization  40: nonzeros in basis =    706547                  23s
+  38    2.26128389e+00   2.15058255e+00   7.86e-13   4.82e-09  3.45e-02      23s
+  39    2.26072680e+00   2.17034867e+00   5.61e-13   2.78e-09  2.81e-02      24s
+  40    2.25966084e+00   2.19398183e+00   3.59e-13   1.84e-09  2.04e-02      25s
+  41    2.25855167e+00   2.22195203e+00   1.61e-13   7.81e-10  1.13e-02      25s
+  42    2.25811865e+00   2.22723620e+00   9.18e-14   5.88e-10  9.52e-03      26s
+  43    2.25772160e+00   2.23805023e+00   5.22e-14   3.37e-10  6.06e-03      26s
+  44    2.25761023e+00   2.23975400e+00   4.09e-14   2.89e-10  5.50e-03      27s
+  45    2.25740573e+00   2.24715807e+00   2.44e-14   1.38e-10  3.15e-03      28s
+    Start  factorization  48: nonzeros in basis =    705440                  28s
+  46    2.25733979e+00   2.24774875e+00   1.81e-14   1.21e-10  2.95e-03      28s
+  47    2.25721139e+00   2.25020267e+00   1.06e-14   8.14e-11  2.15e-03      29s
+  48    2.25718285e+00   2.25067463e+00   8.64e-15   7.36e-11  2.00e-03      29s
+  49    2.25710525e+00   2.25173358e+00   3.48e-15   5.07e-11  1.65e-03      30s
+  50    2.25705859e+00   2.25362002e+00   1.22e-15   1.58e-11  1.06e-03      30s
+  51    2.25703124e+00   2.25365297e+00   5.49e-16   1.55e-11  1.04e-03      31s
+  52    2.25698664e+00   2.25490277e+00   5.94e-16   7.76e-12  6.40e-04      32s
+  53    2.25697418e+00   2.25516677e+00   6.07e-16   5.60e-12  5.55e-04      32s
+  54    2.25697201e+00   2.25520774e+00   1.83e-15   5.25e-12  5.42e-04      33s
+    Start  factorization  57: nonzeros in basis =    703107                  33s
+  55    2.25695761e+00   2.25583273e+00   4.34e-15   3.15e-12  3.45e-04      34s
+  56    2.25695686e+00   2.25587899e+00   1.40e-15   2.90e-12  3.31e-04      34s
+  57    2.25694865e+00   2.25620867e+00   3.74e-15   1.53e-12  2.27e-04      35s
+  58    2.25694429e+00   2.25623928e+00   9.71e-16   1.44e-12  2.16e-04      36s
+  59    2.25693461e+00   2.25645786e+00   1.70e-15   8.54e-13  1.46e-04      36s
+  60    2.25693118e+00   2.25648712e+00   8.13e-16   7.65e-13  1.36e-04      37s
+  61    2.25692648e+00   2.25660405e+00   7.32e-16   4.21e-13  9.90e-05      37s
+  62    2.25692626e+00   2.25663956e+00   2.22e-15   3.60e-13  8.80e-05      38s
+    Start  factorization  65: nonzeros in basis =    694316                  38s
+  63    2.25692172e+00   2.25666780e+00   2.29e-15   3.01e-13  7.80e-05      39s
+  64    2.25691578e+00   2.25667817e+00   2.31e-15   2.80e-13  7.30e-05      39s
+  65    2.25691607e+00   2.25669333e+00   9.53e-16   2.47e-13  6.84e-05      40s
+  66    2.25691307e+00   2.25677356e+00   3.56e-15   1.48e-13  4.28e-05      40s
+  67    2.25691240e+00   2.25679702e+00   4.12e-16   1.16e-13  3.54e-05      41s
+  68    2.25691063e+00   2.25682148e+00   5.18e-15   8.50e-14  2.74e-05      42s
+  69    2.25691000e+00   2.25684365e+00   1.07e-15   6.11e-14  2.04e-05      42s
+  70    2.25691004e+00   2.25684555e+00   4.68e-15   5.89e-14  1.98e-05      43s
+  71    2.25691025e+00   2.25685195e+00   1.20e-15   4.41e-14  1.79e-05      44s
+    Start  factorization  74: nonzeros in basis =    697032                  44s
+  72    2.25690931e+00   2.25686320e+00   5.69e-16   3.39e-14  1.42e-05      44s
+  73    2.25690970e+00   2.25686573e+00   1.69e-15   2.64e-14  1.35e-05      45s
+  74    2.25690872e+00   2.25686970e+00   2.83e-15   2.29e-14  1.20e-05      45s
+  75    2.25690831e+00   2.25688852e+00   4.02e-15   8.55e-15  6.08e-06      45s
+  76    2.25690766e+00   2.25689775e+00   1.54e-15   3.58e-15  3.04e-06      46s
+  77    2.25690737e+00   2.25689945e+00   3.04e-15   1.62e-14  2.43e-06      47s
+  78    2.25690692e+00   2.25690330e+00   1.50e-15   1.44e-14  1.11e-06      48s
+  79    2.25690674e+00   2.25690445e+00   4.48e-15   2.93e-15  7.03e-07      48s
+  80    2.25690665e+00   2.25690474e+00   3.19e-15   1.16e-14  5.87e-07      48s
+  81    2.25690662e+00   2.25690552e+00   3.27e-15   8.66e-15  3.36e-07      49s
+    Start  factorization  86: nonzeros in basis =    702475                  49s
+  82    2.25690660e+00   2.25690589e+00   4.73e-15   4.10e-15  2.19e-07      49s
+  83    2.25690661e+00   2.25690612e+00   6.51e-15   6.25e-15  1.50e-07      49s
+  84    2.25690659e+00   2.25690647e+00   2.25e-15   1.45e-14  3.88e-08      49s
+  85    2.25690659e+00   2.25690653e+00   8.34e-16   3.30e-15  1.91e-08      50s
+  86    2.25690659e+00   2.25690653e+00   3.70e-15   5.62e-15  1.80e-08      50s
+  87*   2.25690659e+00   2.25690657e+00   4.10e-15   1.54e-14  6.92e-09      50s
+  88*   2.25690659e+00   2.25690657e+00   4.37e-15   1.12e-14  6.52e-09      50s
+  89*   2.25690659e+00   2.25690657e+00   3.15e-15   3.14e-15  4.62e-09      50s
+  90*   2.25690659e+00   2.25690658e+00   9.48e-16   3.42e-15  3.29e-09      51s
+  91*   2.25690659e+00   2.25690658e+00   3.57e-15   1.20e-14  2.89e-09      51s
+  92*   2.25690659e+00   2.25690658e+00   2.90e-16   9.95e-15  2.54e-09      51s
+  93*   2.25690659e+00   2.25690658e+00   1.18e-16   4.34e-15  2.13e-09      51s
+  94*   2.25690659e+00   2.25690658e+00   3.59e-15   3.52e-15  1.90e-09      51s
+  95*   2.25690659e+00   2.25690658e+00   1.90e-15   7.98e-15  1.95e-09      51s
+  96*   2.25690659e+00   2.25690658e+00   5.11e-15   5.63e-15  1.03e-09      52s
+  97*   2.25690659e+00   2.25690658e+00   1.90e-16   6.39e-15  9.56e-10      52s
+  98*   2.25690659e+00   2.25690658e+00   1.13e-15   2.71e-15  6.19e-10      52s
+  99*   2.25690659e+00   2.25690659e+00   6.83e-16   1.02e-14  4.49e-11      52s
+ 100*   2.25690659e+00   2.25690659e+00   4.87e-15   1.62e-14  3.32e-13      52s
+Running crossover as requested
+    Primal residual before push phase:                  1.36e-07
+    Dual residual before push phase:                    2.75e-08
+    Number of dual pushes required:                     151
+    Number of primal pushes required:                   15833
+Summary
+    Runtime:                                            53.10s
+    Status interior point solve:                        imprecise
+    Status crossover:                                   imprecise
+    objective value:                                    2.25690659e+00
+    interior solution primal residual (abs/rel):        4.58e-11 / 1.59e-11
+    interior solution dual residual (abs/rel):          1.73e-06 / 8.65e-07
+    interior solution objective gap (abs/rel):          -3.20e-07 / -9.81e-08
+    basic solution primal infeasibility:                1.03e-14
+    basic solution dual infeasibility:                  2.24e-07
+WARNING: Ipx: IPM       imprecise
+WARNING: Ipx: Crossover imprecise
+WARNING: Unwelcome IPX status of Unknown: basis is valid; solution is valid; run_crossover is "on"
+WARNING: IPM solution is imprecise, so clean up with simplex
+Using EKK dual simplex solver - serial
+  Iteration        Objective     Infeasibilities num(sum)
+          0     2.2569065838e+00 Pr: 0(0) 54s
+         25     2.2569065848e+00 Pr: 0(0); Du: 0(3.91548e-08) 54s
+         25     2.2569065848e+00 Pr: 0(0); Du: 0(3.91548e-08) 54s
+Using EKK dual simplex solver - serial
+  Iteration        Objective     Infeasibilities num(sum)
+         25     2.2582174872e+00 Pr: 1(0.0013104); Du: 0(0.000139579) 54s
+         26     2.2569065848e+00 Pr: 0(0); Du: 0(9.7887e-09) 54s
+
+Performed postsolve
+Solving the original LP from the solution after postsolve
+
+Model status        : Optimal
+Simplex   iterations: 26
+IPM       iterations: 100
+Crossover iterations: 4593
+Objective value     :  2.2569065848e+00
+P-D objective error :  1.6913655070e-15
+HiGHS run time      :         53.86
+{"case": "0015", "channel": "R", "qualification": "cached training-operator feasibility diagnostic, NOT physical qualification or a complete image pass", "scipy": "1.17.1", "success": true, "status": 0, "message": "Optimization terminated successfully. (HiGHS Status 7: Optimal)", "seconds": 54.00648520899995, "source_observations_sha256": "e32da50d43d28915afdd099bda4ffb3a4dd15cd9262af7386a2b287bca7d5e7d", "source_renderer": "91fa556d44", "projection_constraints_included": true, "float_projection_rounding_tolerance": 1e-07, "training_stride": 4, "fit_basis": "independent existing33-cube LUT nodes", "bounds_included": true, "heldout_used_for_training": false, "optimal_training_worst_ratio": 2.256906584792335, "maximum_constraint_residual": 2.6807722708355186e-13, "node_min_max": [0.0, 1.0]}

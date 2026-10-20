@@ -1,0 +1,496 @@
+{
+  "accepted": false,
+  "display_p95": [
+    16.56270980834961,
+    17.312955856323242
+  ],
+  "display_perceptual_sum": [
+    1657706.9754622672,
+    1821959.4669407308
+  ],
+  "display_samples": 63229,
+  "native_absolute_rgb": [
+    [
+      4022.3718052629265,
+      4034.263742892014,
+      4222.6845972836845
+    ],
+    [
+      4564.457567870458,
+      4578.620961420677,
+      4683.2048718267115
+    ]
+  ],
+  "native_bands_preserved": true,
+  "native_squared_rgb": [
+    [
+      545.739563202427,
+      540.9731650930258,
+      539.550073584841
+    ],
+    [
+      632.5841338185704,
+      627.2515410488057,
+      619.2395243771812
+    ]
+  ],
+  "native_validation_samples": 15941,
+  "reduces_worst_failure": true,
+  "regions": [
+    {
+      "baseline_mean": 0.9492018593773934,
+      "candidate_mean": 0.9127192874224019,
+      "count": 891,
+      "region": 0,
+      "represented_pixels": 4764
+    },
+    {
+      "baseline_mean": 0.42600692630398507,
+      "candidate_mean": 0.3746959716344581,
+      "count": 960,
+      "region": 1,
+      "represented_pixels": 5100
+    },
+    {
+      "baseline_mean": 0.4021216749589817,
+      "candidate_mean": 0.4906980711849881,
+      "count": 960,
+      "region": 2,
+      "represented_pixels": 5100
+    },
+    {
+      "baseline_mean": 0.5404248922917189,
+      "candidate_mean": 0.5582946964221842,
+      "count": 960,
+      "region": 3,
+      "represented_pixels": 5100
+    },
+    {
+      "baseline_mean": 0.5396825805116517,
+      "candidate_mean": 0.5490070262434436,
+      "count": 960,
+      "region": 4,
+      "represented_pixels": 5100
+    },
+    {
+      "baseline_mean": 0.4561959719029712,
+      "candidate_mean": 0.5272245638744504,
+      "count": 960,
+      "region": 5,
+      "represented_pixels": 5100
+    },
+    {
+      "baseline_mean": 0.6667660068323018,
+      "candidate_mean": 0.592357696616367,
+      "count": 952,
+      "region": 6,
+      "represented_pixels": 5060
+    },
+    {
+      "baseline_mean": 1.4415707492407208,
+      "candidate_mean": 1.2660123835037311,
+      "count": 881,
+      "region": 7,
+      "represented_pixels": 4642
+    },
+    {
+      "baseline_mean": 0.6894671314740871,
+      "candidate_mean": 0.48434485448708997,
+      "count": 941,
+      "region": 8,
+      "represented_pixels": 5044
+    },
+    {
+      "baseline_mean": 0.3595524812295266,
+      "candidate_mean": 0.30944659540854286,
+      "count": 1024,
+      "region": 9,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.34006901331903305,
+      "candidate_mean": 0.4461320753750282,
+      "count": 1024,
+      "region": 10,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.3119947593101054,
+      "candidate_mean": 0.3341797326376443,
+      "count": 1024,
+      "region": 11,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.35171454724006573,
+      "candidate_mean": 0.31607992909026933,
+      "count": 1024,
+      "region": 12,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.26218956860932796,
+      "candidate_mean": 0.2900516984114588,
+      "count": 1024,
+      "region": 13,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.4785383535151863,
+      "candidate_mean": 0.30120267376769333,
+      "count": 1024,
+      "region": 14,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 1.0192881787219379,
+      "candidate_mean": 0.7864731340285956,
+      "count": 960,
+      "region": 15,
+      "represented_pixels": 5056
+    },
+    {
+      "baseline_mean": 2.737902541755778,
+      "candidate_mean": 2.703989756198112,
+      "count": 948,
+      "region": 16,
+      "represented_pixels": 5072
+    },
+    {
+      "baseline_mean": 0.5880301463760107,
+      "candidate_mean": 0.5184880478287061,
+      "count": 1024,
+      "region": 17,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.3623189391160849,
+      "candidate_mean": 0.4818869959682856,
+      "count": 1024,
+      "region": 18,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.7332771458115209,
+      "candidate_mean": 0.8969137173693846,
+      "count": 1024,
+      "region": 19,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 2.1201415182091297,
+      "candidate_mean": 1.9032860188580611,
+      "count": 1024,
+      "region": 20,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 1.6841575429199591,
+      "candidate_mean": 1.6264923091039665,
+      "count": 1024,
+      "region": 21,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 0.6842570881030577,
+      "candidate_mean": 0.5940972378874636,
+      "count": 1024,
+      "region": 22,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 1.2573223982545654,
+      "candidate_mean": 1.1368793222398934,
+      "count": 960,
+      "region": 23,
+      "represented_pixels": 5056
+    },
+    {
+      "baseline_mean": 7.842585332214597,
+      "candidate_mean": 7.393728994168783,
+      "count": 945,
+      "region": 24,
+      "represented_pixels": 5060
+    },
+    {
+      "baseline_mean": 6.069660490827964,
+      "candidate_mean": 5.470943658064832,
+      "count": 1024,
+      "region": 25,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 4.1601426779237745,
+      "candidate_mean": 4.040409063454717,
+      "count": 1024,
+      "region": 26,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.706371933284818,
+      "candidate_mean": 3.4611555563888565,
+      "count": 1024,
+      "region": 27,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.8065463640918846,
+      "candidate_mean": 3.671986590846277,
+      "count": 1024,
+      "region": 28,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 3.283184433290187,
+      "candidate_mean": 3.3067939643090702,
+      "count": 1024,
+      "region": 29,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 4.587862652299159,
+      "candidate_mean": 4.209303369285429,
+      "count": 1024,
+      "region": 30,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 5.993814178848568,
+      "candidate_mean": 5.478968410752714,
+      "count": 960,
+      "region": 31,
+      "represented_pixels": 5056
+    },
+    {
+      "baseline_mean": 9.462700072770254,
+      "candidate_mean": 9.190787351914222,
+      "count": 944,
+      "region": 32,
+      "represented_pixels": 5056
+    },
+    {
+      "baseline_mean": 8.775344106576899,
+      "candidate_mean": 7.465849855257308,
+      "count": 1024,
+      "region": 33,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 9.66337490595658,
+      "candidate_mean": 9.026565525505472,
+      "count": 1024,
+      "region": 34,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 6.362861053536044,
+      "candidate_mean": 5.960781057847335,
+      "count": 1024,
+      "region": 35,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 5.97962438933113,
+      "candidate_mean": 5.632543300481184,
+      "count": 1024,
+      "region": 36,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 7.283829408971703,
+      "candidate_mean": 7.081321672032423,
+      "count": 1024,
+      "region": 37,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 7.807273878535146,
+      "candidate_mean": 6.992455268793685,
+      "count": 1024,
+      "region": 38,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 8.250713551251948,
+      "candidate_mean": 7.563353757220733,
+      "count": 960,
+      "region": 39,
+      "represented_pixels": 5056
+    },
+    {
+      "baseline_mean": 9.653853141442294,
+      "candidate_mean": 9.46576060809042,
+      "count": 946,
+      "region": 40,
+      "represented_pixels": 5064
+    },
+    {
+      "baseline_mean": 8.385465948130278,
+      "candidate_mean": 6.99146070153836,
+      "count": 1024,
+      "region": 41,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 9.74667357208536,
+      "candidate_mean": 8.254849287034833,
+      "count": 1024,
+      "region": 42,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 10.8024347717052,
+      "candidate_mean": 10.324647164081826,
+      "count": 1024,
+      "region": 43,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 10.55745838974767,
+      "candidate_mean": 10.305280844187912,
+      "count": 1024,
+      "region": 44,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.761667847392314,
+      "candidate_mean": 11.431213489635025,
+      "count": 1024,
+      "region": 45,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 10.673805142106378,
+      "candidate_mean": 8.297797732296235,
+      "count": 1024,
+      "region": 46,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 10.61676375036234,
+      "candidate_mean": 10.655510984290439,
+      "count": 960,
+      "region": 47,
+      "represented_pixels": 5056
+    },
+    {
+      "baseline_mean": 9.980979783073245,
+      "candidate_mean": 9.536309339217988,
+      "count": 945,
+      "region": 48,
+      "represented_pixels": 5060
+    },
+    {
+      "baseline_mean": 9.704530988414499,
+      "candidate_mean": 8.528803339490995,
+      "count": 1024,
+      "region": 49,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 7.770108726620674,
+      "candidate_mean": 6.147371344246409,
+      "count": 1024,
+      "region": 50,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 9.586917545493035,
+      "candidate_mean": 8.715540350601078,
+      "count": 1024,
+      "region": 51,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 9.316420400515199,
+      "candidate_mean": 8.642447153259726,
+      "count": 1024,
+      "region": 52,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 8.512641414956136,
+      "candidate_mean": 6.692881957825054,
+      "count": 1024,
+      "region": 53,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 8.438304910293835,
+      "candidate_mean": 7.4786753297838215,
+      "count": 1024,
+      "region": 54,
+      "represented_pixels": 5440
+    },
+    {
+      "baseline_mean": 11.910839909569749,
+      "candidate_mean": 12.265762557853249,
+      "count": 960,
+      "region": 55,
+      "represented_pixels": 5056
+    },
+    {
+      "baseline_mean": 11.767565438064045,
+      "candidate_mean": 10.242443330890914,
+      "count": 865,
+      "region": 56,
+      "represented_pixels": 4642
+    },
+    {
+      "baseline_mean": 10.071840274447757,
+      "candidate_mean": 9.565023210922119,
+      "count": 947,
+      "region": 57,
+      "represented_pixels": 5028
+    },
+    {
+      "baseline_mean": 9.015631475960253,
+      "candidate_mean": 8.086778099740412,
+      "count": 944,
+      "region": 58,
+      "represented_pixels": 5014
+    },
+    {
+      "baseline_mean": 7.162122395556411,
+      "candidate_mean": 5.19029467709973,
+      "count": 946,
+      "region": 59,
+      "represented_pixels": 5028
+    },
+    {
+      "baseline_mean": 7.012274071747273,
+      "candidate_mean": 4.890735553749858,
+      "count": 940,
+      "region": 60,
+      "represented_pixels": 4994
+    },
+    {
+      "baseline_mean": 6.269184452771189,
+      "candidate_mean": 4.676598074502811,
+      "count": 943,
+      "region": 61,
+      "represented_pixels": 5010
+    },
+    {
+      "baseline_mean": 7.863038875985145,
+      "candidate_mean": 7.317651655590534,
+      "count": 941,
+      "region": 62,
+      "represented_pixels": 5000
+    },
+    {
+      "baseline_mean": 8.681654507256741,
+      "candidate_mean": 8.360087040512923,
+      "count": 886,
+      "region": 63,
+      "represented_pixels": 4662
+    }
+  ],
+  "regions_improve": false,
+  "rgb_regions_preserved": true,
+  "rgb_tails_preserved": true,
+  "worst_normalized_errors": [
+    2.5896130434268905,
+    2.8744213369390637
+  ]
+}

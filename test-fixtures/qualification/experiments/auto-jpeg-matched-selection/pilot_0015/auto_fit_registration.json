@@ -1,0 +1,19 @@
+{
+  "matched_validation": true,
+  "registration": {
+    "aligned_correlation": 0.7541798265667365,
+    "identity_correlation": 0.5571565096198005,
+    "maximum_grid_displacement": 3.1139444954389197,
+    "warp": {
+      "coefficients": [
+        1.0160547985157617,
+        -0.00003877555099171641,
+        -0.007922906838647815,
+        -0.0007810868226937178,
+        1.0165285065277065,
+        -0.007332270592145823
+      ]
+    }
+  },
+  "selected_fit": "original-paired"
+}
