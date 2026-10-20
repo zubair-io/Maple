@@ -688,6 +688,9 @@ export interface AssetDoc {
    * would re-enter the candidate set and the migration would loop forever.
    */
   preview_missing_redrive_version?: number;
+  /** Canonical-backup-sidecars generation (`workers/migration/canonical-backup-sidecars.ts`,
+   * #5021): stamped once the asset's `<name>.<ext>.xmp` backup sidecars were moved. */
+  backup_sidecar_name_version?: number;
   /**
    * Provenance written by the `apply-video-geo-backfill` migration when it
    * borrows GPS from a temporally-nearby photo. Lives outside `exif` so a
