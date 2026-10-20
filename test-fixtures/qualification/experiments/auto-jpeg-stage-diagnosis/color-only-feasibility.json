@@ -1,0 +1,37 @@
+{
+  "fixture": "test_0015",
+  "diagnostic_only": true,
+  "limitations": "8-bit prefix; BOX-before-LUT unlike real pipeline. Training/heldout use disjoint16x16spatialblocks. No production adoption or proof of impossibility.",
+  "models": [
+    {
+      "neighbors": 1,
+      "heldout_mae": [
+        0.057546514809959384,
+        0.05696211104168862,
+        0.05697279873610217
+      ],
+      "heldout_worst_tile": 0.134625825728349,
+      "p95_rgb_distance": 0.0
+    },
+    {
+      "neighbors": 8,
+      "heldout_mae": [
+        0.04229303903329411,
+        0.04200457925122691,
+        0.04229902985386202
+      ],
+      "heldout_worst_tile": 0.10688538464992196,
+      "p95_rgb_distance": 0.0039215686274509665
+    },
+    {
+      "neighbors": 32,
+      "heldout_mae": [
+        0.04027389309126282,
+        0.03994414564088666,
+        0.040298317939367764
+      ],
+      "heldout_worst_tile": 0.10405317360866785,
+      "p95_rgb_distance": 0.005545935538718039
+    }
+  ]
+}

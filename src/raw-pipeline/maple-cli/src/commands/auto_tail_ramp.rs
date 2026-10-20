@@ -182,8 +182,9 @@ mod imp {
             auto_exposure: AutoExposureMode::Off,
             ..AdjustmentModel::default()
         };
+        // Match the default `render` quality: different demosaics fit different tails.
         let mut scene =
-            develop_scene_linear_from_raw_with_quality(&raw, &fit_model, RenderQuality::Full)
+            develop_scene_linear_from_raw_with_quality(&raw, &fit_model, RenderQuality::Amaze)
                 .map_err(|e| format!("develop error: {e}"))?;
         raw_core::view::agx::apply(&mut scene, fit_model.contrast, fit_model.whites);
         color_grade::apply_model(&mut scene, &fit_model);
@@ -231,6 +232,18 @@ mod imp {
             );
             return Ok(4);
         }
+
+        std::fs::create_dir_all(out_dir)?;
+        std::fs::write(
+            out_dir.join("fit-provenance.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "demosaic": "amaze",
+                "fit_dimensions": [w, h],
+                "curve_present": curve.is_some(),
+                "residual_size": residual.as_ref().map(|lut| lut.size),
+                "residual": residual.as_ref().map(|lut| &lut.data),
+            }))?,
+        )?;
 
         // Apply the fitted tail to each ramp the way the CPU render path
         // does: curve in place, then residual at the production strength.

@@ -1,0 +1,111 @@
+{
+  "complete": true,
+  "counts": {
+    "passed": 9,
+    "failed": 7,
+    "no-preview": 4,
+    "error": 0
+  },
+  "all20_RAW_hashes_verified": true,
+  "all16_output_reference_hashes_verified": true,
+  "all16": [
+    {
+      "fixture": "test_0017",
+      "same_image": true,
+      "same_reference": true,
+      "status": "failed"
+    },
+    {
+      "fixture": "test_0015",
+      "same_image": true,
+      "same_reference": true,
+      "status": "failed"
+    },
+    {
+      "fixture": "test_0011",
+      "same_image": true,
+      "same_reference": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0013",
+      "same_image": true,
+      "same_reference": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0004",
+      "same_image": true,
+      "same_reference": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0009",
+      "same_image": true,
+      "same_reference": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0014",
+      "same_image": true,
+      "same_reference": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0002",
+      "same_image": true,
+      "same_reference": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0005",
+      "same_image": false,
+      "same_reference": false,
+      "status": "failed"
+    },
+    {
+      "fixture": "test_0000",
+      "same_image": true,
+      "same_reference": true,
+      "status": "failed"
+    },
+    {
+      "fixture": "test_0003",
+      "same_image": true,
+      "same_reference": true,
+      "status": "failed"
+    },
+    {
+      "fixture": "test_0006",
+      "same_image": true,
+      "same_reference": true,
+      "status": "failed"
+    },
+    {
+      "fixture": "test_0007",
+      "same_image": true,
+      "same_reference": true,
+      "status": "failed"
+    },
+    {
+      "fixture": "test_0008",
+      "same_image": true,
+      "same_reference": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0010",
+      "same_image": true,
+      "same_reference": true,
+      "status": "passed"
+    },
+    {
+      "fixture": "test_0012",
+      "same_image": true,
+      "same_reference": true,
+      "status": "passed"
+    }
+  ],
+  "fallback_checks": 4,
+  "banding_0005": "New blue-ramp failure: d2 .00112886 > .001, spike1.22743 >1.2; old blue passed. Neutral already failed .0053528 and still fails .00491683 >.004007. No tolerances changed. Reference fix is correct; fitted artifact not fully qualified."
+}

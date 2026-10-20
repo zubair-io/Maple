@@ -11,7 +11,8 @@
     "references": "all16 extracted; only0005 changed. Independent Adobe RGB matrix: p99 error0.003485, mean channels0.00104/0.00137/0.00119 (different JPEG decoders).",
     "host": "Two formerly silent fixture skips now require fixtures. Real run19 passed/1failed because readonly source permissions propagated to temp copy; writable temp-copy fix then passed the real cache test. Earlier20-pass log included two silent skips and is not complete real-fixture evidence.",
     "pilot": "0005 still FAILS. Same corrected reference: mean DE4.46969\u21922.72463; p95DE10.94806\u219210.42367; display breaches56\u219226; sourceRAW untouched.",
-    "full_corpus": "Running frozen98dcabf603 binary; do not claim new overall passing count yet."
+    "full_corpus": "Complete9passes/7failures/4exactfallbacks/0errors; only0005pixelschanged; all20RAW andall16image/referencehashesverified.",
+    "gradient_status": "0005AMaZErampverifiedagainstactualrenderartifact: neutralandbluefail. Otherthreepass. Full-qualitybefore/aftercannotestablishAMaZEregression; retainedasdiagnosticevidence."
   },
   "constraints": {
     "merge": false,
