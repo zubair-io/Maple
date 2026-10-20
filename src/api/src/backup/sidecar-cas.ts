@@ -108,7 +108,7 @@ async function createIfAbsent(destination: string, xmp: string): Promise<Sidecar
 async function prepareDestination(destination: string): Promise<SidecarCasOutcome | null> {
   const allowed = await authorizeSidecarWrite(destination);
   if (!allowed.ok) return { kind: 'refused', error: allowed.error ?? 'path not allowed' };
-  await fs.mkdir(path.dirname(destination), { recursive: true });
+  await fs.mkdir(path.dirname(allowed.data ?? destination), { recursive: true });
   return null;
 }
 
