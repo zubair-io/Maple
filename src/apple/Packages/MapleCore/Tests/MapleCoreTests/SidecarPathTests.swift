@@ -7,10 +7,19 @@
 // same-stem still. Mirrors the API's `xmpSidecarPath()` so a clip edited on
 // Web and on Apple targets the same `.xmp` file.
 
+import MapleBackup
 import XCTest
 @testable import MapleCore
 
 final class SidecarPathTests: XCTestCase {
+
+    // MARK: - Backup sends name the same sidecar (#5021)
+
+    func test_backupSidecarName_matchesTheSidecarRule() {
+        XCTAssertEqual(BackupSidecarName.videoExtensions, SidecarPath.videoExtensions)
+        XCTAssertEqual(BackupSidecarName.canonical(for: "2024/IMG_1.HEIC"), "2024/IMG_1.xmp")
+        XCTAssertEqual(BackupSidecarName.canonical(for: "2024/IMG_1.MOV"), "2024/IMG_1.MOV.xmp")
+    }
 
     // MARK: - Images: stem-swap
 

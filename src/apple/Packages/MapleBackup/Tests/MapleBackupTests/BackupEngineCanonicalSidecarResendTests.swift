@@ -77,4 +77,44 @@ final class BackupEngineCanonicalSidecarResendTests: XCTestCase {
     XCTAssertEqual(posts.first?.value(forHTTPHeaderField: "X-Maple-Sidecar-Base"), "none")
     XCTAssertEqual(posts.first?.httpBody, Data(edit.utf8))
   }
+
+  private func harness() throws -> (BackupEngine, URL) {
+    let tmpRoot = FileManager.default.temporaryDirectory
+      .appendingPathComponent("canonical-resend-\(UUID().uuidString)", isDirectory: true)
+    let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
+    try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
+    let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
+    try storeDeliveredUnderTheOldName(at: stateURL)
+    try AppSupportSidecarStore(root: sidecarRoot).write(
+      phassetLocalId: photo.phassetLocalId, xmp: edit)
+    return (try makeEngine(stateURL: stateURL, sidecarRoot: sidecarRoot), tmpRoot)
+  }
+
+  /// Videos always had their canonical `IMG.MOV.xmp`, so nothing needs re-sending.
+  func testAVideoEditDeliveredBeforeTheRenameIsNotSentAgain() async throws {
+    let (engine, tmpRoot) = try harness()
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let clip = ServerHeldAsset(id: photo, targetRelPath: "2024/03/15/IMG.MOV", mapleId: "hash-P1")
+
+    await engine.resendNewerEdits([clip])
+
+    XCTAssertEqual(sidecarPosts().count, 0)
+  }
+
+  /// A server from before #5021 still stores `IMG.HEIC.xmp`; that delivery
+  /// must not count, or the edit is never re-sent once the server upgrades.
+  func testAnEditAnOldServerStoredUnderTheOldNameIsSentAgainAfterItUpgrades() async throws {
+    StubURLProtocol.stub = .sequence([
+      .ok(json: #"{"target_rel_path":"2024/03/15/IMG.HEIC.xmp"}"#),
+      .ok(json: #"{"target_rel_path":"2024/03/15/IMG.xmp"}"#),
+    ])
+    let (engine, tmpRoot) = try harness()
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+
+    await engine.resendNewerEdits([held])
+    await engine.resendNewerEdits([held])
+    await engine.resendNewerEdits([held])
+
+    XCTAssertEqual(sidecarPosts().count, 2)
+  }
 }
