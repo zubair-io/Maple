@@ -235,7 +235,8 @@ fn identity_observations_preserve_identity() {
     let base = ColorLut::identity(33);
     let observations =
         paired_observations::build(&pixels, 64, 64, ExifOrientation::Normal, &target, &base)
-            .unwrap();
+            .unwrap()
+            .rows;
     for row in &observations {
         assert!((row.weights.iter().map(|(_, w)| w).sum::<f64>() - 1.).abs() < 1e-12);
         for c in 0..3 {
@@ -269,7 +270,8 @@ fn equal_mean_footprints_need_different_eval_then_box_predictions() {
     let base = ColorLut::identity(33);
     let observations =
         paired_observations::build(&pixels, 512, 512, ExifOrientation::Normal, &target, &base)
-            .unwrap();
+            .unwrap()
+            .rows;
     assert!(observations
         .iter()
         .all(|row| (row.source[0] - 0.5).abs() < 1e-8));
@@ -321,7 +323,8 @@ fn rotated_pixel_footprints_stay_aligned_with_the_preview() {
         &preview(target),
         &ColorLut::identity(33),
     )
-    .unwrap();
+    .unwrap()
+    .rows;
     for row in observations {
         for c in 0..3 {
             assert!((row.source[c] - row.target[c]).abs() < 1e-6);
@@ -428,4 +431,67 @@ fn regional_perception_uses_display_averages_and_keeps_native_rgb_checks() {
         row.validation = false;
     }
     assert!(prefer(&candidate, &native, &display));
+}
+
+#[test]
+fn geometric_training_preserves_colors_and_retains_the_existing_fit_when_guards_reject_it() {
+    let image = image::RgbImage::from_fn(128, 128, |x, y| {
+        let (u, v) = (x as f64 / 128., y as f64 / 128.);
+        let level = 0.5
+            + 0.12 * (41. * u + 17. * v).sin()
+            + 0.1 * (23. * v - 7. * u).cos()
+            + 0.08 * (71. * u * v).sin();
+        image::Rgb([
+            (level * 255.).round() as u8,
+            ((0.2 + 0.7 * level) * 255.).round() as u8,
+            ((0.8 - 0.5 * level) * 255.).round() as u8,
+        ])
+    });
+    let pixels: Vec<_> = image.as_raw().iter().map(|v| *v as f32 / 255.).collect();
+    let target = image::RgbImage::from_fn(128, 128, |x, y| *image.get_pixel((x + 3).min(127), y));
+    let preview = ExtractedPreview {
+        image: image::DynamicImage::ImageRgb8(target),
+        color_space: JpegColorSpace::SRgb,
+    };
+    let prior = ColorLut::identity(33);
+    let original =
+        paired_observations::build(&pixels, 128, 128, ExifOrientation::Normal, &preview, &prior)
+            .unwrap();
+    let registration =
+        super::super::fit_registration::estimate(&original).expect("shifted scene must register");
+    let aligned = paired_observations::build_aligned(
+        &pixels,
+        128,
+        128,
+        ExifOrientation::Normal,
+        &preview,
+        &prior,
+        registration.warp,
+    )
+    .unwrap();
+    let error: f64 = aligned
+        .rows
+        .iter()
+        .map(|r| (r.baseline[0] - r.target[0]).abs())
+        .sum::<f64>()
+        / aligned.rows.len() as f64;
+    assert!(error < 1e-6, "{error}: {:?}", registration.warp);
+    let result = fit(
+        &pixels,
+        128,
+        128,
+        ExifOrientation::Normal,
+        &preview,
+        &prior,
+        33,
+    );
+    let aligned_solution = solve_observations(&aligned.rows, &prior).unwrap().0;
+    assert!(aligned_solution
+        .data
+        .iter()
+        .zip(&prior.data)
+        .all(|(a, b)| (*a - b).abs() < 1e-5));
+    let original_solution = solve_observations(&original.rows, &prior).unwrap().0;
+    let existing = select_step(&original_solution, &prior, &original.rows, &original.rows);
+    assert_eq!(result.map(|lut| lut.data), existing.map(|lut| lut.data));
 }

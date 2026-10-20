@@ -188,6 +188,24 @@ fn assess(
     observations: &[Observation],
     display: &[Observation],
 ) -> Assessment {
+    assess_against(candidate, observations, display, None)
+}
+
+fn predict(candidate: &ColorLut, row: &Observation) -> [f64; 3] {
+    std::array::from_fn(|c| {
+        row.artifact_weights
+            .iter()
+            .map(|&(i, w)| w * f64::from(candidate.data[i * 3 + c]))
+            .sum()
+    })
+}
+
+fn assess_against(
+    candidate: &ColorLut,
+    observations: &[Observation],
+    display: &[Observation],
+    reference: Option<&ColorLut>,
+) -> Assessment {
     let mut squared = [[0.; 3]; 2];
     let mut absolute = [[0.; 3]; 2];
     let mut perceptual = [0.; 2];
@@ -199,18 +217,14 @@ fn assess(
     let mut validation_count = 0;
     let mut native_bands = bands::NativeBands::default();
     for row in observations {
-        let prediction = std::array::from_fn(|c| {
-            row.artifact_weights
-                .iter()
-                .map(|&(i, w)| w * f64::from(candidate.data[i * 3 + c]))
-                .sum::<f64>()
-        });
-        native_bands.observe(row.target, row.in_bias_region, [prediction, row.baseline]);
+        let prediction = predict(candidate, row);
+        let baseline = reference.map_or(row.baseline, |lut| predict(lut, row));
+        native_bands.observe(row.target, row.in_bias_region, [prediction, baseline]);
         if !row.validation {
             continue;
         }
         validation_count += 1;
-        for (i, output) in [prediction, row.baseline].into_iter().enumerate() {
+        for (i, output) in [prediction, baseline].into_iter().enumerate() {
             for c in 0..3 {
                 let error = output[c] - row.target[c];
                 squared[i][c] += error * error;
@@ -226,14 +240,10 @@ fn assess(
     }
     for row in display {
         counts[row.region] += 1;
-        let prediction = std::array::from_fn(|c| {
-            row.artifact_weights
-                .iter()
-                .map(|&(i, w)| w * f64::from(candidate.data[i * 3 + c]))
-                .sum::<f64>()
-        });
+        let prediction = predict(candidate, row);
+        let baseline = reference.map_or(row.baseline, |lut| predict(lut, row));
         let target = lab(row.target.map(|v| v as f32));
-        for (i, output) in [prediction, row.baseline].into_iter().enumerate() {
+        for (i, output) in [prediction, baseline].into_iter().enumerate() {
             let error: [f64; 3] = std::array::from_fn(|c| (output[c] - row.target[c]).abs());
             for c in 0..3 {
                 regional_rgb[i][row.region][c] += error[c];
@@ -288,7 +298,11 @@ fn assess(
     if let Some(dir) = crate::stage_dump::dump_dir() {
         let regions:Vec<_>=(0..64).map(|r|serde_json::json!({"region":r,"count":counts[r],"candidate_mean":(counts[r]>0).then(||regional[0][r]/counts[r] as f64),"baseline_mean":(counts[r]>0).then(||regional[1][r]/counts[r] as f64)})).collect();
         let report = serde_json::json!({"accepted":compatible && native_bands_preserved,"regions_improve":regions_improve,"native_bands_preserved":native_bands_preserved,"rgb_regions_preserved":rgb_regions_preserved,"rgb_tails_preserved":rgb_tails_preserved,"native_squared_rgb":squared,"native_absolute_rgb":absolute,"display_perceptual_sum":perceptual,"display_p95":p95,"native_validation_samples":validation_count,"display_samples":display.len(),"regions":regions});
-        if let Ok(file) = std::fs::File::create(dir.join("auto_fit_selection.json")) {
+        if let Ok(file) = std::fs::File::create(dir.join(if reference.is_some() {
+            "auto_fit_selection_against_existing.json"
+        } else {
+            "auto_fit_selection.json"
+        })) {
             let _ = serde_json::to_writer_pretty(std::io::BufWriter::new(file), &report);
         }
     }
@@ -324,10 +338,61 @@ pub(super) fn fit(
     } else {
         None
     };
-    let (result, coarse) =
-        solve_observations(display.as_deref().unwrap_or(&observations), current)?;
+    let registration = super::fit_registration::estimate(display.as_ref().unwrap_or(&observations));
+    let aligned = registration.as_ref().and_then(|r| {
+        paired_observations::build_aligned(
+            pixels,
+            width,
+            height,
+            orientation,
+            preview,
+            current,
+            r.warp,
+        )
+    });
+    let native_rows = observations.rows.as_slice();
+    let display_rows = display
+        .as_ref()
+        .map(|s| s.rows.as_slice())
+        .unwrap_or(native_rows);
+    let original_solution = solve_observations(display_rows, current)?;
+    let original_choice = select_step(&original_solution.0, current, native_rows, display_rows);
+    let aligned_solution = aligned
+        .as_ref()
+        .and_then(|set| solve_observations(&set.rows, current));
+    let aligned_choice = aligned_solution
+        .as_ref()
+        .and_then(|solution| select_step(&solution.0, current, native_rows, display_rows));
+    let use_registered = match (&aligned_choice, &original_choice) {
+        (Some(candidate), Some(existing)) => {
+            let assessment = assess_against(candidate, native_rows, display_rows, Some(existing));
+            assessment.compatible && assessment.native_bands_preserved
+        }
+        (Some(_), None) => true,
+        _ => false,
+    };
+    let (result, coarse) = if use_registered {
+        aligned_solution.as_ref()?
+    } else {
+        &original_solution
+    };
+    let chosen = if use_registered {
+        aligned_choice
+    } else {
+        original_choice
+    };
     #[cfg(feature = "stage-dump")]
     if let Some(dir) = crate::stage_dump::dump_dir() {
+        if let Ok(file) = std::fs::File::create(dir.join("auto_fit_registration.json")) {
+            let _ = serde_json::to_writer_pretty(
+                std::io::BufWriter::new(file),
+                &serde_json::json!({"registration":registration,"selected_fit":if chosen.is_none() {"camera-calibration"} else if use_registered {"registered-paired"} else {"original-paired"}}),
+            );
+        }
+    }
+    #[cfg(feature = "stage-dump")]
+    if let Some(dir) = crate::stage_dump::dump_dir() {
+        let _ = select_step(result, current, native_rows, display_rows);
         #[derive(serde::Serialize)]
         struct Snapshot<'a> {
             width: usize,
@@ -335,6 +400,7 @@ pub(super) fn fit(
             grid: usize,
             native: &'a [Observation],
             display: Option<&'a [Observation]>,
+            aligned: Option<&'a [Observation]>,
             prior_size: usize,
             prior: &'a [f32],
             coarse: &'a [f32],
@@ -344,8 +410,9 @@ pub(super) fn fit(
             width,
             height,
             grid: GRID,
-            native: &observations,
-            display: display.as_deref(),
+            native: native_rows,
+            display: display.as_ref().map(|s| s.rows.as_slice()),
+            aligned: aligned.as_ref().map(|s| s.rows.as_slice()),
             prior_size: current.size,
             prior: &current.data,
             coarse: &coarse.data,
@@ -355,12 +422,7 @@ pub(super) fn fit(
             let _ = serde_json::to_writer(std::io::BufWriter::new(file), &snapshot);
         }
     }
-    select_step(
-        &result,
-        current,
-        &observations,
-        display.as_deref().unwrap_or(&observations),
-    )
+    chosen
 }
 
 fn select_step(

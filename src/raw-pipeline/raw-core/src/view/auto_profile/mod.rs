@@ -26,6 +26,7 @@ pub mod bake;
 pub mod cache;
 pub mod curve;
 pub mod fit_display;
+mod fit_registration;
 pub mod lut;
 mod lut_fit;
 mod paired_fit;

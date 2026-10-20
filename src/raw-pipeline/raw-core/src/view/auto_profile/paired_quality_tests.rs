@@ -148,3 +148,24 @@ fn sampled_native_band_limits_keep_the_first_safe_half_step_instead_of_refining_
     assert!(prefer(&result, &native, &display));
     assert!((result.sample([0.25; 3])[0] - 0.2475).abs() < 1e-7);
 }
+
+#[test]
+fn new_fit_must_beat_the_existing_paired_artifact() {
+    let rows: Vec<_> = observations(false)
+        .into_iter()
+        .map(|mut row| {
+            row.source = [0.5; 3];
+            row.target = [0.5; 3];
+            row.baseline = [0.8; 3];
+            row.artifact_weights = corners([0.5; 3]).to_vec();
+            row
+        })
+        .collect();
+    let existing = ColorLut::identity(GRID);
+    let mut candidate = existing.clone();
+    for value in &mut candidate.data {
+        *value += 0.01;
+    }
+    assert!(assess(&candidate, &rows, &rows).compatible);
+    assert!(!assess_against(&candidate, &rows, &rows, Some(&existing)).compatible);
+}

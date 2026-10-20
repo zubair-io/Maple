@@ -1,6 +1,7 @@
 //! JPEG-pixel observations of eval-then-BOX, not LUT(mean(input)) (#5000).
 use super::{
     fit_display::orient_rgb_f32_to_display,
+    fit_registration::Warp,
     lut::ColorLut,
     paired_fit::{corners, corners_at},
     preview::{self, ExtractedPreview},
@@ -17,6 +18,12 @@ pub(super) struct Observation {
     pub validation: bool,
     pub in_bias_region: bool,
     pub region: usize,
+}
+
+pub(super) struct ObservationSet {
+    pub rows: Vec<Observation>,
+    pub grid_width: usize,
+    pub grid_height: usize,
 }
 
 fn mix(mut x: u64) -> u64 {
@@ -62,8 +69,17 @@ pub(super) fn build(
     orientation: ExifOrientation,
     preview: &ExtractedPreview,
     baseline: &ColorLut,
-) -> Option<Vec<Observation>> {
-    build_at_scale(pixels, width, height, orientation, preview, baseline, None)
+) -> Option<ObservationSet> {
+    build_at_scale(
+        pixels,
+        width,
+        height,
+        orientation,
+        preview,
+        baseline,
+        None,
+        None,
+    )
 }
 
 pub(super) fn build_display(
@@ -73,7 +89,7 @@ pub(super) fn build_display(
     orientation: ExifOrientation,
     preview: &ExtractedPreview,
     baseline: &ColorLut,
-) -> Option<Vec<Observation>> {
+) -> Option<ObservationSet> {
     build_at_scale(
         pixels,
         width,
@@ -82,7 +98,46 @@ pub(super) fn build_display(
         preview,
         baseline,
         Some(1024),
+        None,
     )
+}
+
+pub(super) fn build_aligned(
+    pixels: &[f32],
+    width: usize,
+    height: usize,
+    orientation: ExifOrientation,
+    preview: &ExtractedPreview,
+    baseline: &ColorLut,
+    warp: Warp,
+) -> Option<ObservationSet> {
+    build_at_scale(
+        pixels,
+        width,
+        height,
+        orientation,
+        preview,
+        baseline,
+        Some(1024),
+        (warp != Warp::IDENTITY).then_some(warp),
+    )
+}
+
+fn transformed_span(center: f64, extent: f64, limit: usize) -> Option<(usize, usize)> {
+    let support = extent.max(1.) * 0.5;
+    if !center.is_finite()
+        || !extent.is_finite()
+        || extent <= 0.
+        || center - support < -1e-9
+        || center + support > limit as f64 + 1e-9
+    {
+        return None;
+    }
+    let lo = ((center - support + 0.5).max(0.) as usize).min(limit - 1);
+    let hi = ((center + support + 0.5).max(0.) as usize)
+        .min(limit)
+        .max(lo + 1);
+    Some((lo, hi))
 }
 
 fn build_at_scale(
@@ -93,7 +148,8 @@ fn build_at_scale(
     preview: &ExtractedPreview,
     baseline: &ColorLut,
     max_edge: Option<usize>,
-) -> Option<Vec<Observation>> {
+    warp: Option<Warp>,
+) -> Option<ObservationSet> {
     if width == 0 || height == 0 || pixels.len() != width.checked_mul(height)?.checked_mul(3)? {
         return None;
     }
@@ -130,6 +186,7 @@ fn build_at_scale(
     let target_xs = spans(original_w, tw);
     let target_ys = spans(original_h, th);
     let (nx, ny) = (tw.min(256), th.min(256));
+    let support = warp.map(|w| w.support(cw, ch, tw, th));
     let mut observations = Vec::with_capacity(nx * ny);
     let mut weights = [0.; super::paired_fit::CELLS];
     let mut active = Vec::new();
@@ -142,7 +199,19 @@ fn build_at_scale(
             let (y0, y1) = (gy * th / ny, (gy + 1) * th / ny);
             let x = within(seed, x0, x1);
             let y = within(seed >> 32, y0, y1);
-            let ((sx0, sx1), (sy0, sy1)) = (xs[x], ys[y]);
+            let ((sx0, sx1), (sy0, sy1)) = if let Some(warp) = warp {
+                let center = warp.map((x as f64 + 0.5) / tw as f64, (y as f64 + 0.5) / th as f64);
+                let support = support?;
+                let Some(sx) = transformed_span(center[0] * cw as f64, support[0], cw) else {
+                    continue;
+                };
+                let Some(sy) = transformed_span(center[1] * ch as f64, support[1], ch) else {
+                    continue;
+                };
+                (sx, sy)
+            } else {
+                (xs[x], ys[y])
+            };
             let count = ((sx1 - sx0) * (sy1 - sy0)) as f64;
             let mut base = [0.; 3];
             for sy in sy0..sy1 {
@@ -228,12 +297,65 @@ fn build_at_scale(
             });
         }
     }
-    Some(observations)
+    Some(ObservationSet {
+        rows: observations,
+        grid_width: nx,
+        grid_height: ny,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn aligned_training_samples_corresponding_pixels_without_changing_identity_observations() {
+        let image = image::RgbImage::from_fn(64, 64, |x, y| {
+            image::Rgb([(x * 3) as u8, (y * 3) as u8, 64])
+        });
+        let pixels: Vec<_> = image.as_raw().iter().map(|v| *v as f32 / 255.).collect();
+        let target = image::RgbImage::from_fn(64, 64, |x, y| *image.get_pixel((x + 3).min(63), y));
+        let preview = ExtractedPreview {
+            image: image::DynamicImage::ImageRgb8(target),
+            color_space: preview::JpegColorSpace::SRgb,
+        };
+        let prior = ColorLut::identity(33);
+        let plain = build(&pixels, 64, 64, ExifOrientation::Normal, &preview, &prior).unwrap();
+        let identity = build_aligned(
+            &pixels,
+            64,
+            64,
+            ExifOrientation::Normal,
+            &preview,
+            &prior,
+            Warp::IDENTITY,
+        )
+        .unwrap();
+        for (a, b) in plain.rows.iter().zip(&identity.rows) {
+            assert_eq!(a.weights, b.weights);
+            assert_eq!(a.artifact_weights, b.artifact_weights);
+            assert_eq!(a.baseline, b.baseline);
+            assert_eq!(a.target, b.target);
+        }
+        let aligned = build_aligned(
+            &pixels,
+            64,
+            64,
+            ExifOrientation::Normal,
+            &preview,
+            &prior,
+            Warp {
+                coefficients: [1., 0., 3. / 64., 0., 1., 0.],
+            },
+        )
+        .unwrap();
+        assert_eq!(aligned.rows.len(), 61 * 64);
+        for row in aligned.rows {
+            for c in 0..3 {
+                assert!((row.source[c] - row.target[c]).abs() < 1e-6);
+            }
+        }
+    }
+
     #[test]
     fn legacy_bias_window_uses_exact_native_pixel_bounds_and_ties_even() {
         for (width, height, bx, by) in [(1616, 1080, 162, 108), (25, 35, 2, 4), (35, 25, 4, 2)] {
@@ -304,8 +426,10 @@ mod tests {
                 &preview,
                 &ColorLut::identity(33),
                 Some(edge),
+                None,
             )
-            .unwrap();
+            .unwrap()
+            .rows;
             assert_eq!(rows.len(), (expected.width() * expected.height()) as usize);
             for (row, pixel) in rows.iter().zip(expected.pixels()) {
                 for c in 0..3 {
@@ -335,7 +459,8 @@ mod tests {
             &preview,
             &ColorLut::identity(33),
         )
-        .unwrap();
+        .unwrap()
+        .rows;
         let bounds = spans(42, 17);
         for row in rows {
             let x = (row.target[0] * 255.).round() as usize;
