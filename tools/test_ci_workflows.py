@@ -214,12 +214,12 @@ class WorkflowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate(needs("false", "success"), rules, "pull_request")
 
-    def test_readiness_uses_a_runner_only_for_release_prs(self):
+    def test_readiness_uses_a_runner_only_for_release_prs_and_merge_groups(self):
         job = workflow("version-sync")["jobs"]["release-readiness"]
         self.assertEqual(job["name"], "Release readiness")
         self.assertEqual(
             job["if"],
-            "github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/next-v')",
+            "(github.event_name == 'pull_request' && startsWith(github.head_ref, 'release/next-v')) || github.event_name == 'merge_group'",
         )
 
     def test_aggregate_checks_have_unique_stable_names(self):
