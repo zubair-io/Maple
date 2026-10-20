@@ -171,3 +171,69 @@ test('a refresh that waited out another process renews with the credentials it c
   expect(mock.refreshTokensSent).toEqual(['rotated-refresh']);
   expect((await loadConnection(id)).config.refreshToken).toBe('rotated-refresh');
 });
+
+async function holdLease(id: string) {
+  const { epoch } = await loadConnection(id);
+  await sqliteDb().write(
+    `UPDATE backup_google_connections SET refresh_owner='other-process', refresh_until=?
+     WHERE destination_id=? AND epoch=?`,
+    [Date.now() + 60_000, id, epoch],
+  );
+  return () =>
+    sqliteDb().write(
+      `UPDATE backup_google_connections SET refresh_owner=NULL, refresh_until=0 WHERE destination_id=?`,
+      [id],
+    );
+}
+
+test('one caller stopping does not fail the others sharing its refresh', async () => {
+  const { db, id } = await connectedDestination();
+  using _db = db;
+  const release = await holdLease(id);
+  const mock = google();
+  const stopped = new AbortController();
+
+  const first = googleAccessToken(id, mock.transport, stopped.signal);
+  const second = googleAccessToken(id, mock.transport);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  stopped.abort();
+  await release();
+
+  await expect(first).rejects.toThrow();
+  expect(await second).toBe('access-1');
+});
+
+test('a caller waiting on a refresh stops promptly when it is cancelled', async () => {
+  const { db, id } = await connectedDestination();
+  using _db = db;
+  const release = await holdLease(id);
+  const mock = google();
+  const stopped = new AbortController();
+  const leader = googleAccessToken(id, mock.transport);
+  const follower = googleAccessToken(id, mock.transport, stopped.signal);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  stopped.abort();
+
+  await expect(follower).rejects.toThrow();
+  await release();
+  expect(await leader).toBe('access-1');
+});
+
+test('a reconnect while waiting for the refresh lease ends the wait quickly', async () => {
+  const { db, id } = await connectedDestination();
+  using _db = db;
+  await holdLease(id);
+  const mock = google();
+  const started = Date.now();
+
+  const pending = googleAccessToken(id, mock.transport);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  await sqliteDb().write(
+    `UPDATE backup_google_connections SET epoch=epoch+1 WHERE destination_id=?`,
+    [id],
+  );
+
+  await expect(pending).rejects.toThrow(/reconnect/i);
+  expect(Date.now() - started).toBeLessThan(5_000);
+});
