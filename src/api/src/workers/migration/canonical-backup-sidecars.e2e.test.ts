@@ -56,8 +56,9 @@ function divergences(library: MigrationLibrary) {
 
 function stamped(library: MigrationLibrary, id: string): boolean {
   return (
-    library.db.query(`SELECT 1 FROM backup_sidecar_names_migrated WHERE asset_id = ?`).get(id) !==
-    null
+    library.db
+      .query(`SELECT 1 FROM backup_sidecar_name_checks WHERE asset_id = ? AND checked = 1`)
+      .get(id) !== null
   );
 }
 
@@ -225,6 +226,23 @@ describe('canonical-backup-sidecars', () => {
     await runTick();
 
     expect(await read(library, 'IMG_12.xmp')).toBe(older);
+  });
+
+  it('checks a merge survivor that no longer carries a PhotoKit link', async () => {
+    using library = await backupLibrary('canon-merged-');
+    await write(library, 'IMG_13.HEIC', 'pixels');
+    await write(library, 'IMG_13.HEIC.xmp', maple('backup edit'));
+    const id = seedAsset(library.db, {
+      location: { libraryId: library.folderId, path: DIR, filename: 'IMG_13.HEIC' },
+    });
+    library.db
+      .query('INSERT INTO backup_sidecar_name_checks (asset_id, checked) VALUES (?, 0)')
+      .run(id);
+
+    await runTick();
+
+    expect(await read(library, 'IMG_13.xmp')).toBe(maple('backup edit'));
+    expect(stamped(library, id)).toBe(true);
   });
 
   it('counts down to nothing remaining once every backup photo is handled', async () => {

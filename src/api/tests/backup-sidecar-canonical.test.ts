@@ -312,3 +312,15 @@ describe('a target with no file extension (#5021)', () => {
     expect(await read('2024/08/01/.xmp')).toBeNull();
   });
 });
+
+describe('a send without a base is bound to the photo it names (#5021)', () => {
+  test("a target that is another photo's file is refused and that photo's sidecar untouched", async () => {
+    const photo = await seedUpload('2024/09/01/IMG_50.HEIC');
+    const other = await seedUpload('2024/09/01/IMG_51.HEIC');
+
+    const res = await post({ ...photo, relPath: other.relPath }, mapleXmp('stray'), undefined);
+
+    expect(res.status).toBe(404);
+    expect(await read('2024/09/01/IMG_51.xmp')).toBeNull();
+  });
+});
