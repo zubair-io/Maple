@@ -166,3 +166,28 @@ test('an infrastructure skip retries a transient status failure and then passes'
   assert.equal(outcome.state, 'success');
   assert.equal(outcome.failJob, false);
 });
+
+test('FAILED_PRECONDITION on session creation reports a precise non-blocking reason', () => {
+  const message =
+    'Jules API error: HTTP 400 {"error":{"code":400,"message":"Precondition check failed.","status":"FAILED_PRECONDITION"}}';
+  const outcome = resolveOutcome({ kind: 'failure', error: new Error(message) });
+  assert.equal(outcome.state, 'success');
+  assert.equal(outcome.failJob, false);
+  assert.match(outcome.description, /Jules account quota or source precondition/);
+  assert.match(outcome.description, /FAILED_PRECONDITION/);
+  assert.ok(outcome.description.length <= 140);
+});
+
+test('quota exhaustion wording reports the quota reason', () => {
+  for (const message of ['HTTP 429 Too Many Requests', 'RESOURCE_EXHAUSTED: daily session limit']) {
+    const outcome = resolveOutcome({ kind: 'failure', error: new Error(message) });
+    assert.match(outcome.description, /Jules account quota or source precondition/, message);
+    assert.equal(outcome.failJob, false);
+  }
+});
+
+test('other infrastructure errors keep their own message', () => {
+  const outcome = resolveOutcome({ kind: 'failure', error: new Error('socket hang up') });
+  assert.match(outcome.description, /socket hang up/);
+  assert.doesNotMatch(outcome.description, /quota/);
+});
