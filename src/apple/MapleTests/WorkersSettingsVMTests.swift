@@ -25,9 +25,10 @@ final class WorkersSettingsVMTests: XCTestCase {
 
   // MARK: - statusTone
 
-  func test_statusTone_mapsRunningErrorAndEverythingElse() {
+  func test_statusTone_mapsRunningFaultsAndEverythingElse() {
     XCTAssertEqual(WorkersSettingsVM.statusTone(.running), .active)
     XCTAssertEqual(WorkersSettingsVM.statusTone(.error), .fault)
+    XCTAssertEqual(WorkersSettingsVM.statusTone(.stalled), .fault)
     for idle: StageRunState in [.idle, .paused, .starting, .restarting, .stopped, .unknown] {
       XCTAssertEqual(WorkersSettingsVM.statusTone(idle), .idle, "\(idle) should read as idle")
     }
