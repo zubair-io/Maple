@@ -21,17 +21,19 @@ interface SidecarDivergence {
   incomingSha256: string;
 }
 
+/** Returns the new row's id. */
 export async function recordSidecarDivergence(
   divergence: SidecarDivergence,
   dbOverride?: SqliteDb,
-): Promise<void> {
+): Promise<string> {
+  const id = newObjectIdHex();
   await sqliteDb(dbOverride).write(
     `INSERT INTO sidecar_divergences
        (id, asset_id, library_id, sidecar_rel_path, device_id, base_sha256,
         displaced_sha256, displaced_xmp, incoming_sha256, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      newObjectIdHex(),
+      id,
       divergence.assetId.toHexString(),
       divergence.libraryId.toHexString(),
       divergence.sidecarRelPath,
@@ -43,4 +45,9 @@ export async function recordSidecarDivergence(
       nowIso(),
     ],
   );
+  return id;
+}
+
+export async function forgetSidecarDivergence(id: string, dbOverride?: SqliteDb): Promise<void> {
+  await sqliteDb(dbOverride).write(`DELETE FROM sidecar_divergences WHERE id = ?`, [id]);
 }

@@ -21,7 +21,10 @@
  *                             the write never skips: a matching base
  *                             overwrites; a stale one still lands the edit and
  *                             keeps the displaced XMP in `sidecar_divergences`.
- *                             Absent → the legacy skip-if-exists rule.
+ *                             The target must be a live location of the
+ *                             resolved asset. Absent → the legacy rule: written
+ *                             only when no sidecar exists (create-only, on the
+ *                             same write barrier).
  *
  * Body: raw XMP string (utf-8). Max size: 256 KB.
  *
@@ -30,25 +33,28 @@
  *   200 — { target_rel_path: "...xmp", skipped: true } — already on disk, not overwritten (no base header)
  *   200 — { target_rel_path: "...xmp", unchanged: true } — the server already holds this XMP
  *   200 — { target_rel_path: "...xmp", diverged: true } — written over a version the base didn't name
- *   400 — missing/invalid headers (including a malformed base), body too large, unsafe path
- *   404 — library not found, or no prior upload (neither maple_id nor device+phasset matched)
+ *   400 — missing/invalid headers (including a malformed base), empty body, unsafe path,
+ *         or a destination outside the library (e.g. through a symlinked folder)
+ *   404 — library not found, no prior upload (neither maple_id nor device+phasset matched),
+ *         or (with a base) the target path is not a live location of that asset
  *   413 — body exceeds 256 KB
+ *   500 — the sidecar could not be written
  */
 import { backupId, backupLibrary, backupLibraryId, isSafeRelPath } from './backup-id.ts';
 import { Elysia, t } from 'elysia';
 import type { ObjectId } from '../db/object-id.ts';
 import { findLiveAssetIdByMapleId, findLiveAssetIdByPhassetLink } from '../db/repos/assets.repo.ts';
 import { child as childLogger } from '../log.ts';
-// Mirror-aware drop-in: directory creation for the sidecar publish
-// replicates to the library's backup root(s).
-import fs from '../fs/mirrored.ts';
 import path from 'node:path';
 import {
   parseSidecarBase,
   publishSidecarCas,
   publishSidecarIfAbsent,
 } from '../backup/sidecar-cas.ts';
-import { recordSidecarDivergence } from '../db/repos/sidecar-divergences.repo.ts';
+import {
+  forgetSidecarDivergence,
+  recordSidecarDivergence,
+} from '../db/repos/sidecar-divergences.repo.ts';
 import { isLiveLocationOfAsset } from '../db/repos/backup.repo.ts';
 
 const log = childLogger('backup-sidecar');
@@ -73,7 +79,6 @@ async function publishLegacySidecar(
   libraryRoot: string,
   phid: string,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  await fs.mkdir(path.dirname(finalPath), { recursive: true });
   const outcome = await publishSidecarIfAbsent(finalPath, buf.toString('utf8'), libraryRoot);
   if (outcome === 'written' || outcome === 'skipped') {
     log.debug({ phid, sidecarRelPath, outcome }, 'sidecar legacy publish');
@@ -86,7 +91,9 @@ async function publishLegacySidecar(
     };
   }
   log.error({ phid, sidecarRelPath, outcome }, 'sidecar legacy publish failed');
-  return { status: 500, body: { error: 'sidecar write failed' } };
+  return outcome.kind === 'refused'
+    ? { status: 400, body: { error: 'sidecar path not allowed' } }
+    : { status: 500, body: { error: 'sidecar write failed' } };
 }
 
 interface BackupSidecarCasRequest {
@@ -117,13 +124,12 @@ async function publishBackupSidecarCas(
   if (!(await isLiveLocationOfAsset(req.assetId, req.libraryId, req.targetRelPath))) {
     return { status: 404, body: { error: 'no prior upload of this asset at this path' } };
   }
-  await fs.mkdir(path.dirname(req.finalPath), { recursive: true });
   const outcome = await publishSidecarCas(
     req.finalPath,
     req.xmp,
     base,
-    (displaced) =>
-      recordSidecarDivergence({
+    async (displaced) => {
+      const id = await recordSidecarDivergence({
         assetId: req.assetId,
         libraryId: req.libraryId,
         sidecarRelPath: req.sidecarRelPath,
@@ -132,7 +138,9 @@ async function publishBackupSidecarCas(
         displacedSha256: displaced.sha256,
         displacedXmp: displaced.xmp,
         incomingSha256: displaced.incomingSha256,
-      }),
+      });
+      return () => forgetSidecarDivergence(id);
+    },
     req.libraryRoot,
   );
   log.debug(

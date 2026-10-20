@@ -283,4 +283,37 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
     expect((await res.json()).skipped).toBe(true);
     expect(await onDisk(target.relPath)).toBe(xmp('edit'));
   });
+  test('a publish that fails leaves no divergence row behind (#5023)', async () => {
+    const target = await seedUpload('failed-publish');
+    expect((await post(target, xmp('v1'), 'none')).status).toBe(200);
+    expect((await post(target, xmp('other device'), sha256(xmp('v1')))).status).toBe(200);
+    const dir = path.dirname(path.join(tmpLib, target.relPath));
+    await fs.chmod(dir, 0o555);
+    try {
+      const res = await post(target, xmp('v2'), sha256(xmp('v1')));
+      expect(res.status).toBe(500);
+    } finally {
+      await fs.chmod(dir, 0o755);
+    }
+    expect(await onDisk(target.relPath)).toBe(xmp('other device'));
+    expect(divergences(target.relPath)).toEqual([]);
+  });
+
+  test('a legacy upload through an outward symlink is a 400 and creates nothing outside (#5023)', async () => {
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-sidecar-legacy-outside-'));
+    try {
+      await fs.mkdir(path.join(tmpLib, '2024/CAS'), { recursive: true });
+      await fs.symlink(outside, path.join(tmpLib, '2024/CAS/legacy-link'));
+      const owner = await seedUpload('legacy-link-owner');
+      const res = await post(
+        { relPath: '2024/CAS/legacy-link/new/IMG.HEIC', phid: owner.phid },
+        xmp('incoming'),
+        undefined,
+      );
+      expect(res.status).toBe(400);
+      expect(await fs.readdir(outside)).toEqual([]);
+    } finally {
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
 });
