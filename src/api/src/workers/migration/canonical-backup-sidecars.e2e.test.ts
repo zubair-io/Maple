@@ -101,7 +101,9 @@ describe('canonical-backup-sidecars', () => {
     expect(divergences(library)).toEqual([]);
   });
 
-  it('lands the backup edit on top of a server edit and keeps the server version', async () => {
+  // The worker can't overwrite across processes safely; a live device's re-send
+  // still puts its edit on top through the API process.
+  it('keeps an existing server edit active and records the backup edit aside', async () => {
     using library = await backupLibrary('canon-diverge-');
     await write(library, 'IMG_3.HEIC', 'pixels');
     await write(library, 'IMG_3.HEIC.xmp', maple('backup edit'));
@@ -110,10 +112,10 @@ describe('canonical-backup-sidecars', () => {
 
     await runTick();
 
-    expect(await read(library, 'IMG_3.xmp')).toBe(maple('backup edit'));
+    expect(await read(library, 'IMG_3.xmp')).toBe(maple('server edit'));
     expect(await read(library, 'IMG_3.HEIC.xmp')).toBeNull();
     expect(divergences(library)).toEqual([
-      { sidecar_rel_path: `${DIR}/IMG_3.xmp`, displaced_xmp: maple('server edit') },
+      { sidecar_rel_path: `${DIR}/IMG_3.xmp`, displaced_xmp: maple('backup edit') },
     ]);
   });
 
