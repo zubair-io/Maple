@@ -36,19 +36,7 @@ Previews have their own agreed parameters: **1280 px long edge, AVIF quality ~0.
 
 ## No pipeline version
 
-<<<<<<< HEAD
-`PIPELINE_OUTPUT_VERSION` (`src/raw-pipeline/raw-core/src/version.rs`, currently **30**) is the single monotonic counter for the develop pipeline described in [pipeline](pipeline.md). It answers one question: "the pipeline now produces different pixels for the same RAW + sidecar — how does every derived artifact know it's stale?". A raw-core change bumps it by one whenever it alters develop output for any input, or silently reinterprets an already-stored slider value with no load-time converter. Adding a slider at its identity default, or fixing a non-output-visible bug, does not bump it.
-
-The `codegen` crate (`tools/codegen.sh`) emits the mirrors, and the `codegen-drift` CI job fails if a hand edit makes them diverge:
-
-- Swift: `AdjustmentModel.pipelineOutputVersion` in `src/apple/Packages/MapleCore/Sources/MapleCore/Generated/AdjustmentModel+Generated.swift`
-- TypeScript: `PIPELINE_OUTPUT_VERSION` in `src/web/projects/maple-common/src/lib/generated/adjustment-model.generated.ts`
-
-# The counter is **not** part of any shared thumbnail or preview (#4793). A pipeline bump must never regenerate, re-sync or reject one:
-
 There is no pipeline output version. The monotonic counter that once answered "the pipeline now produces different pixels for the same RAW + sidecar — how does every derived artifact know it's stale?" was retired in #5007: shared derivatives had already been decoupled from it in #4793, and its remaining consumers (evidence records, generated mirrors) cost more in re-recording and PR serialisation than they returned. Derivatives are refreshed only when the original or its sidecar changes; a colour-only pipeline change deliberately does not invalidate a shared thumb or preview until that asset is next edited or regenerated. What remains is the state #4793 established, and it must not be re-coupled:
-
-> > > > > > > a334618e5b (feat(core): retire PIPELINE_OUTPUT_VERSION)
 
 - **Shared thumb and preview filenames** carry no `.v<N>`, and neither do Web's JPEG/WebP/PNG fallback artifacts, descriptors and source identities. Legacy versioned names are renamed into place by readers on a miss (see [Legacy names and rename-on-miss](#legacy-names-and-rename-on-miss)).
 - **HTTP.** Clients send no `?pv=` and no `X-Maple-Pipeline-Version` upload header. The server ignores `pv` if an old client sends it, never answers a derivative read with `409` for a version, and accepts `PUT /api/preview` with or without the header. Derivative responses carry no version header, and ETags are content-based only.

@@ -175,9 +175,9 @@ class ClassificationTests(unittest.TestCase):
     def test_codegen_evidence_corpora_remain_covered(self):
         registry = (
             SCRIPT.parent.parent
-            / "src/raw-pipeline/raw-core/src/capability_registry/mod.rs"
+            / "src/raw-pipeline/raw-core/src/capability_registry/corpora.rs"
         )
-        source = registry.read_text().split("fn corpus(", 1)[1]
+        source = registry.read_text().split("fn corpus_paths(", 1)[1]
         paths = set(re.findall(r'"((?:src|test-fixtures)/[^"\n]+)"', source))
         self.assertIn("src/api/src/routes/xmp.sidecar-contract.test.ts", paths)
         for path in paths:

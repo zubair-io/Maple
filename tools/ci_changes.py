@@ -174,9 +174,16 @@ def dependencies(path):
     codegen = (
         {"codegen"}
         if generated
+        or path.startswith("src/api/src/xmp/")
         or path
         in (
             "src/api/src/routes/xmp.sidecar-contract.test.ts",
+            "src/api/src/routes/xmp.ts",
+            "src/api/src/xmp",
+            "src/api/src/fs/sidecar-io.ts",
+            "src/api/src/fs/sidecar-write-order.ts",
+            "src/api/src/fs/xmp-conditional.ts",
+            "src/api/src/fs/xmp.ts",
             "src/android/native/src/fields.rs",
             "src/android/app/src/main/res/values/maple-tokens.xml",
         )
