@@ -200,7 +200,7 @@ pub(super) fn refine(
         if let Ok(file) = std::fs::File::create(dir.join("auto_fine_refinement.json")) {
             let _ = serde_json::to_writer_pretty(
                 file,
-                &serde_json::json!({"selected":best.is_some(),"training_rows":rows.len(),"initial_objective":initial_score,"final_objective":final_score,"selected_artifact":best.as_ref().map(|lut|&lut.data)}),
+                &serde_json::json!({"selected":best.is_some(),"training_rows":rows.len(),"initial_objective":initial_score,"final_objective":final_score,"origin_artifact":&origin.data,"final_artifact":&artifact.data,"selected_artifact":best.as_ref().map(|lut|&lut.data)}),
             );
         }
     }
