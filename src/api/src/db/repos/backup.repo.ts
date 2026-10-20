@@ -231,7 +231,7 @@ export async function isLiveLocationOfAsset(
   const rows = await sqliteDb(dbOverride).read<{ one: number }>(
     `SELECT 1 AS one FROM asset_locations
       WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?
-        AND deleted_at IS NULL
+        AND deleted_at IS NULL AND missing_since IS NULL
       LIMIT 1`,
     [toHex(assetId), toHex(libraryId), dir, filename],
   );

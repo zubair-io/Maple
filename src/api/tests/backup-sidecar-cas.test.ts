@@ -21,6 +21,7 @@ import {
 } from '../src/db/sqlite/test-sqlite.test-helpers.ts';
 import { seedBackupAsset, seedLibrary } from './helpers/sqlite-fixtures.ts';
 import { invalidateLibraryRoots } from '../src/indexer/libraries.cache.ts';
+import { serializeSidecarWrite } from '../src/fs/sidecar-write-order.ts';
 
 const deviceId = 'test-device-cas';
 
@@ -245,5 +246,41 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
     } finally {
       await fs.rm(outside, { recursive: true, force: true });
     }
+  });
+  test('a location marked missing is not a valid target', async () => {
+    const target = await seedUpload('missing');
+    live.db
+      .query(`UPDATE asset_locations SET missing_since = ? WHERE filename = ?`)
+      .run(new Date().toISOString(), 'missing.HEIC');
+
+    const res = await post(target, xmp('v1'), 'none');
+    expect(res.status).toBe(404);
+    await expect(onDisk(target.relPath)).rejects.toThrow();
+  });
+
+  test('a legacy upload waits its turn on the sidecar write barrier', async () => {
+    const target = await seedUpload('legacy-barrier');
+    const sidecar = path.join(tmpLib, `${target.relPath}.xmp`);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const inside = new Promise<void>((resolve) => (entered = resolve));
+    const holder = serializeSidecarWrite(sidecar, async () => {
+      entered();
+      await held;
+      await fs.writeFile(sidecar, xmp('edit'));
+    });
+    await inside;
+
+    const legacy = post(target, xmp('legacy'), undefined);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await expect(fs.access(sidecar)).rejects.toThrow();
+
+    release();
+    await holder;
+    const res = await legacy;
+    expect(res.status).toBe(200);
+    expect((await res.json()).skipped).toBe(true);
+    expect(await onDisk(target.relPath)).toBe(xmp('edit'));
   });
 });

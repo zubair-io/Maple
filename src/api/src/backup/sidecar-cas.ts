@@ -117,3 +117,22 @@ export async function publishSidecarCas(
     },
   );
 }
+
+/** The legacy rule for clients that name no base (#698): publish only when no
+ * sidecar exists. Create-only, and under the same barrier as compare-and-swap
+ * writes, so it can never land over an edit published in the meantime. */
+export async function publishSidecarIfAbsent(
+  destination: string,
+  xmp: string,
+  admissionScope: string,
+): Promise<'written' | 'skipped' | SidecarCasOutcome> {
+  return serializeSidecarWrite(
+    destination,
+    async (resolved) => {
+      const created = await writeSidecarCreateOnly(resolved, xmp, 'sidecar write failed');
+      if (created.ok) return 'written';
+      return 'exists' in created ? 'skipped' : { kind: 'refused', error: created.error };
+    },
+    { admissionScope },
+  );
+}
