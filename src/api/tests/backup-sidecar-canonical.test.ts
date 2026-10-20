@@ -262,3 +262,32 @@ describe('a send without a base never buries an old-name edit (#698, #5021)', ()
     expect(await read('2024/06/01/IMG_20.HEIC.xmp')).toBe(mapleXmp('device A edit'));
   });
 });
+
+describe("the device's one-time re-send never loses a later web edit (#5021)", () => {
+  test('a web edit the re-send lands over is kept in sidecar_divergences', async () => {
+    const photo = await seedUpload('2024/07/01/IMG_30.HEIC');
+    expect((await post(photo, mapleXmp('first backup'), 'none')).status).toBe(200);
+    const webEdit = mapleXmp('web edit');
+    const saved = await authedHandle(
+      new Request(`http://localhost/api/assets/${photo.assetId.toHexString()}/xmp`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'text/plain' },
+        body: webEdit,
+      }),
+    );
+    expect(saved.status).toBe(204);
+    const onDiskWebEdit = (await read('2024/07/01/IMG_30.xmp'))!;
+
+    const res = await post(photo, mapleXmp('re-sent device edit'), 'none');
+
+    expect(await res.json()).toEqual({ target_rel_path: '2024/07/01/IMG_30.xmp', diverged: true });
+    expect(await read('2024/07/01/IMG_30.xmp')).toBe(mapleXmp('re-sent device edit'));
+    expect(keptAside('2024/07/01/IMG_30.xmp')).toEqual([
+      {
+        displaced_xmp: onDiskWebEdit,
+        displaced_sha256: sha256(onDiskWebEdit),
+        incoming_sha256: sha256(mapleXmp('re-sent device edit')),
+      },
+    ]);
+  });
+});
