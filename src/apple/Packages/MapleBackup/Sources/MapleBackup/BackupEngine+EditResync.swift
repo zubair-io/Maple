@@ -99,16 +99,16 @@ extension BackupEngine {
     id: BackupTaskID, targetRelPath: String, mapleId: String?
   ) async throws {
     try Task.checkCancellation()
-    let delivered = try await state.uploadedSidecarDigest(id, targetRelPath: targetRelPath)
+    let delivered = try await state.deliveredSidecar(id, targetRelPath: targetRelPath)
     guard let xmp = try sidecars.read(phassetLocalId: id.phassetLocalId) else { return }
     let digest = Self.digest(of: xmp)
-    guard digest != delivered else { return }
+    guard delivered != DeliveredSidecar(digest: digest, counts: true) else { return }
     let canonical = try await upload.uploadSidecar(
       phassetLocalId: id.phassetLocalId,
       targetRelPath: targetRelPath,
       xmp: xmp,
       mapleId: mapleId,
-      basedOn: delivered)
+      basedOn: delivered?.digest)
     try await state.recordUploadedSidecar(id, digest: digest, canonicalName: canonical)
   }
 }
