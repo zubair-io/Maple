@@ -317,4 +317,34 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
       await fs.rm(outside, { recursive: true, force: true });
     }
   });
+  test('a legacy upload whose folder becomes an outward symlink while it waits is a 400 (#5023)', async () => {
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-sidecar-legacy-swap-'));
+    let release = (): void => {};
+    try {
+      const target = await seedUpload('swapped/IMG');
+      const folder = path.dirname(path.join(tmpLib, target.relPath));
+      const sidecar = path.join(tmpLib, `${target.relPath}.xmp`);
+      const held = new Promise<void>((resolve) => (release = resolve));
+      let entered!: () => void;
+      const inside = new Promise<void>((resolve) => (entered = resolve));
+      const holder = serializeSidecarWrite(sidecar, async () => {
+        entered();
+        await held;
+      });
+      await inside;
+
+      const legacy = post(target, xmp('incoming'), undefined);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await fs.rm(folder, { recursive: true, force: true });
+      await fs.symlink(outside, folder);
+      release();
+      await holder;
+
+      expect((await legacy).status).toBe(400);
+      expect(await fs.readdir(outside)).toEqual([]);
+    } finally {
+      release();
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
 });
