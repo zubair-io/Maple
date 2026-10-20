@@ -1,0 +1,49 @@
+{
+  "binary_sha256": "84469afa41c8c6972df862910be9a90d696f71a49e8372e068ba843f31bed775",
+  "records": [
+    {
+      "fixture": "test_0015",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/3a/3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d.dng",
+      "raw_sha256": "3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d",
+      "command_template": [
+        "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-visual-diagnosis/maple-cli",
+        "render",
+        "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/3a/3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d.dng",
+        "--params",
+        "distortion-{strength}.xmp",
+        "--out",
+        "test_0015-{strength}.png"
+      ]
+    },
+    {
+      "fixture": "test_0006",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/15/159326856c29073e845c3c5a9ecf98c6474f43ca15798a88ad5e2baecd0664b7.DNG",
+      "raw_sha256": "159326856c29073e845c3c5a9ecf98c6474f43ca15798a88ad5e2baecd0664b7",
+      "command_template": [
+        "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-visual-diagnosis/maple-cli",
+        "render",
+        "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/15/159326856c29073e845c3c5a9ecf98c6474f43ca15798a88ad5e2baecd0664b7.DNG",
+        "--params",
+        "distortion-{strength}.xmp",
+        "--out",
+        "test_0006-{strength}.png"
+      ]
+    },
+    {
+      "fixture": "test_0007",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/95/95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1.DNG",
+      "raw_sha256": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+      "command_template": [
+        "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-visual-diagnosis/maple-cli",
+        "render",
+        "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/95/95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1.DNG",
+        "--params",
+        "distortion-{strength}.xmp",
+        "--out",
+        "test_0007-{strength}.png"
+      ]
+    }
+  ],
+  "result": "All six renders completed successfully; original RAW hashes remain unchanged.",
+  "conclusion": "Embedded previews correspond more closely to geometry with distortion disabled in these three fixtures. Preserve production corrections and repair comparison correspondence; optical correctness is not established by matching the preview."
+}
