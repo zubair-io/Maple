@@ -144,6 +144,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
                     &mosaic,
                     raw.cfa,
                     raw.as_shot_neutral,
+                    crate::sensor_gain_maps::ClipGainContext::new(raw, (0, 0), 1),
                     cancel,
                 )
             })

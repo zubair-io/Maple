@@ -60,7 +60,7 @@ impl SensorGainMaps {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{
         decode::decode_bytes,
@@ -68,7 +68,7 @@ mod tests {
         test_support::synth_dng::SyntheticGreyDng,
     };
 
-    fn map(top: u32, left: u32, gain: f32) -> GainMapOpcode {
+    pub(crate) fn map(top: u32, left: u32, gain: f32) -> GainMapOpcode {
         GainMapOpcode {
             top,
             left,
@@ -89,7 +89,7 @@ mod tests {
         }
     }
 
-    fn blob(maps: &[GainMapOpcode]) -> Vec<u8> {
+    pub(crate) fn blob(maps: &[GainMapOpcode]) -> Vec<u8> {
         let mut result = (maps.len() as u32).to_be_bytes().to_vec();
         for m in maps {
             let mut body = Vec::new();

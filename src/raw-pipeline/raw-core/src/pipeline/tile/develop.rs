@@ -150,7 +150,17 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         ));
     }
     mosaic.assert_space(crate::image::ColorSpace::CameraNativeMosaic);
-    let mut camera_rgb = super::prefix::from_mosaic(mosaic, raw, model, quality, cancel);
+    let mut camera_rgb = super::prefix::from_mosaic(
+        mosaic,
+        raw,
+        model,
+        quality,
+        (
+            tile_origin.0 * effective_quality_divisor(quality, raw.cfa),
+            tile_origin.1 * effective_quality_divisor(quality, raw.cfa),
+        ),
+        cancel,
+    );
 
     stage("tile_highlight_recovery", || {
         highlight_recovery::apply_in_sensor_space(
