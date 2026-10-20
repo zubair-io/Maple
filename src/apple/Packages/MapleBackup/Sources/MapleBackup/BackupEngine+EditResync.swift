@@ -60,17 +60,38 @@ extension BackupEngine {
   /// a newer send (#5023).
   func sendLatestEdit(id: BackupTaskID, targetRelPath: String, mapleId: String?) async throws {
     let previous = sidecarSends[id]
-    let send = Task {
-      if let previous { await waitUnlessCancelled(for: previous) }
-      try await sendLatestEditNow(id: id, targetRelPath: targetRelPath, mapleId: mapleId)
+    let token = UUID()
+    // The link stays in the chain even when its caller gives up: it still
+    // waits for the send ahead of it, then skips its own if cancelled.
+    let link = Task {
+      _ = await previous?.result
+      try Task.checkCancellation()
+      try await sendNow(id: id, token: token, targetRelPath: targetRelPath, mapleId: mapleId)
     }
-    sidecarSends[id] = send
-    defer { if sidecarSends[id] == send { sidecarSends[id] = nil } }
+    sidecarSends[id] = link
+    Task { await retire(link, for: id) }
     try await withTaskCancellationHandler {
-      try await send.value
+      await waitUnlessCancelled(for: link)
+      // Cancelled while still queued: return now. Cancelled while sending:
+      // wait for the request to unwind, so nothing outlives a Stop (#4988).
+      if Task.isCancelled, sidecarSending[id] != token { throw CancellationError() }
+      try await link.value
     } onCancel: {
-      send.cancel()
+      link.cancel()
     }
+  }
+
+  private func sendNow(
+    id: BackupTaskID, token: UUID, targetRelPath: String, mapleId: String?
+  ) async throws {
+    sidecarSending[id] = token
+    defer { if sidecarSending[id] == token { sidecarSending[id] = nil } }
+    try await sendLatestEditNow(id: id, targetRelPath: targetRelPath, mapleId: mapleId)
+  }
+
+  private func retire(_ link: Task<Void, Error>, for id: BackupTaskID) async {
+    _ = await link.result
+    if sidecarSends[id] == link { sidecarSends[id] = nil }
   }
 
   private func sendLatestEditNow(
@@ -91,47 +112,14 @@ extension BackupEngine {
   }
 }
 
-/// Waits for `previous` to finish, or returns as soon as the calling task is
-/// cancelled: a cancelled send must not keep Stop waiting on a stalled request
-/// queued ahead of it (#5023).
-private func waitUnlessCancelled(for previous: Task<Void, Error>) async {
-  let gate = OnceGate()
-  await withTaskCancellationHandler {
-    await withCheckedContinuation { continuation in
-      gate.arm(continuation)
-      Task {
-        _ = await previous.result
-        gate.open()
-      }
-    }
-  } onCancel: {
-    gate.open()
+/// Waits for `send` to finish, or returns as soon as the calling task is
+/// cancelled: a cancelled caller must not keep Stop waiting on a stalled
+/// request queued ahead of its send (#5023).
+private func waitUnlessCancelled(for send: Task<Void, Error>) async {
+  let finished = RetryWakeSignal()
+  Task {
+    _ = await send.result
+    await finished.signal()
   }
-}
-
-/// Resumes its continuation exactly once, whichever side opens it first.
-private final class OnceGate: @unchecked Sendable {
-  private let lock = NSLock()
-  private var continuation: CheckedContinuation<Void, Never>?
-  private var opened = false
-
-  func arm(_ continuation: CheckedContinuation<Void, Never>) {
-    lock.lock()
-    guard !opened else {
-      lock.unlock()
-      continuation.resume()
-      return
-    }
-    self.continuation = continuation
-    lock.unlock()
-  }
-
-  func open() {
-    lock.lock()
-    opened = true
-    let waiting = continuation
-    continuation = nil
-    lock.unlock()
-    waiting?.resume()
-  }
+  await finished.wait()
 }
