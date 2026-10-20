@@ -219,6 +219,7 @@ final class BackupEngineEditResyncTests: XCTestCase {
     let delivered = try await state.uploadedSidecarDigest(photo)
     XCTAssertEqual(delivered, BackupEngine.digest(of: "<x:edit>A</x:edit>"))
   }
+
   func testSendsForOnePhotoNeverOverlap() async throws {
     let tmpRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
