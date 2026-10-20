@@ -34,10 +34,15 @@ import {
   recordSidecarDivergence,
 } from '../../db/repos/sidecar-divergences.repo.ts';
 import { publishSidecarCas } from '../../backup/sidecar-cas.ts';
-import { readSidecarBytes, sidecarStemClaimedBySibling } from '../../fs/sidecar-ownership.ts';
-import { serializeSidecarWrite } from '../../fs/sidecar-write-order.ts';
+import {
+  legacyBackupSidecar,
+  readLegacyBackupEdit,
+  removeLegacyBackupSidecar,
+} from '../../backup/legacy-sidecar.ts';
+import { sidecarStemClaimedBySibling } from '../../fs/sidecar-ownership.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
-import * as fs from '../../fs/mirrored.ts';
+import { publishSidecarChange } from '../../routes/xmp-change.ts';
+import { libraryRootAvailable } from '../missing-reaper.helpers.ts';
 import { isLiveFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
 import { child as childLogger } from '../../log.ts';
@@ -60,7 +65,7 @@ function candidateScope(): CandidateScope {
   return unstamped(BACKED_UP_WITH_LIVE_LOCATION, MARKER, BACKUP_SIDECAR_NAME_VERSION);
 }
 
-type LocationOutcome = 'done' | 'error';
+type LocationOutcome = 'done' | 'kept' | 'error';
 
 async function publishCanonical(
   assetId: ObjectId,
@@ -91,22 +96,25 @@ async function publishCanonical(
     root,
     await sidecarStemClaimedBySibling(primary),
   );
-  if (outcome.kind === 'refused' || outcome.kind === 'error') {
+  if (outcome.kind === 'refused') {
+    // Retrying cannot make an out-of-library path safe; leave the file and move on.
     log.warn(
-      { _id: String(assetId), sidecarRelPath, outcome: outcome.kind, error: outcome.error },
+      { _id: String(assetId), sidecarRelPath, error: outcome.error },
+      'sidecar path refused',
+    );
+    return 'kept';
+  }
+  if (outcome.kind === 'error') {
+    log.warn(
+      { _id: String(assetId), sidecarRelPath, error: outcome.error },
       'canonical sidecar not published — old-name sidecar left for retry',
     );
     return 'error';
   }
+  if (outcome.kind === 'written' || outcome.kind === 'diverged') {
+    await publishSidecarChange(primary, true);
+  }
   return 'done';
-}
-
-/** Drop the old-name file, unless a write changed it after it was published. */
-async function removeLegacy(legacy: string, published: Buffer): Promise<void> {
-  await serializeSidecarWrite(legacy, async () => {
-    const current = await readSidecarBytes(legacy);
-    if (current?.equals(published)) await fs.unlink(legacy);
-  });
 }
 
 async function canonicalizeLocation(
@@ -115,10 +123,10 @@ async function canonicalizeLocation(
   root: string,
 ): Promise<LocationOutcome> {
   const primary = path.join(root, location.path, location.filename);
-  const legacy = `${primary}.xmp`;
+  const legacy = legacyBackupSidecar(primary);
   try {
-    const legacyBytes = await readSidecarBytes(legacy);
-    if (legacyBytes === null) return 'done';
+    const legacyBytes = legacy ? await readLegacyBackupEdit(legacy) : null;
+    if (!legacy || !legacyBytes) return 'done';
     const published = await publishCanonical(
       assetId,
       location,
@@ -126,7 +134,7 @@ async function canonicalizeLocation(
       root,
       legacyBytes.toString('utf8'),
     );
-    if (published === 'done') await removeLegacy(legacy, legacyBytes);
+    if (published === 'done') await removeLegacyBackupSidecar(legacy, legacyBytes);
     return published;
   } catch (err) {
     log.error(
@@ -164,6 +172,9 @@ async function canonicalizeAsset(
     .map((location) => ({ location, root: libs.get(location.library_id.toHexString()) }))
     .filter((entry): entry is RootedLocation => entry.root !== undefined);
   if (rooted.length !== photos.length) return 'skipped-no-root';
+  // An unmounted volume reads like a missing file; never stamp on that reading.
+  const mounted = await Promise.all(rooted.map(({ root }) => libraryRootAvailable(root)));
+  if (mounted.includes(false)) return 'skipped-no-root';
   if ((await canonicalizeAll(doc.id, rooted)) === 'error') return 'error';
   await stampMarker(MARKER, BACKUP_SIDECAR_NAME_VERSION, [doc.id]);
   return 'processed';
