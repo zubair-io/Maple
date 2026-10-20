@@ -87,7 +87,7 @@ async function stillCurrent(edit: LegacyEdit): Promise<boolean> {
   );
 }
 
-/** The canonical sidecar exists, so keep the old-name edit aside (once) and remove the file. */
+/** Re-checked first, so a photo moved since leaves its old-name file in place. */
 async function keepAsideAndRemove(edit: LegacyEdit): Promise<void> {
   await serializeSidecarWrite(xmpSidecarPath(edit.primary), async () => {
     if (!(await stillCurrent(edit))) return;
@@ -126,14 +126,8 @@ async function publishCanonical(edit: LegacyEdit): Promise<LocationOutcome> {
     root,
     { precondition: () => stillCurrent(edit), beforeWrite: () => recordSidecarEditAhead(primary) },
   ).catch(errorOutcome);
-  if (outcome === 'written') {
-    await announceSidecarLanded(primary);
-    await serializeSidecarWrite(xmpSidecarPath(primary), () =>
-      removeLegacyIfUnchanged(edit.legacy, edit.bytes),
-    );
-    return 'done';
-  }
-  if (outcome === 'skipped') {
+  if (outcome === 'written') await announceSidecarLanded(primary);
+  if (outcome === 'written' || outcome === 'skipped') {
     await keepAsideAndRemove(edit);
     return 'done';
   }
