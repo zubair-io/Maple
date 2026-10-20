@@ -7,7 +7,6 @@ pub mod hamilton_adams;
 pub mod lmmse;
 pub mod policy;
 pub mod rcd;
-mod sensor_gain;
 pub mod vng4;
 pub mod xtrans;
 
@@ -117,17 +116,16 @@ pub(crate) fn camera_demosaic_cancellable(
     }
     let minimum = neutral.into_iter().fold(f32::INFINITY, f32::min);
     let scales = Some(neutral)
-        .filter(|n| n.iter().all(|n| n.is_finite() && *n > 0.0))
+        .filter(|n| n.iter().all(|v| v.is_finite() && *v > 0.0))
         .map(|n| n.map(|n| minimum / n))
         .filter(|s| s.iter().all(|v| *v > 0.0))
         .unwrap_or([1.0; 3]);
-    let reconstruct = |mosaic: &Image| match algo {
-        DemosaicAlgorithm::Amaze => amaze::amaze_with_gains(mosaic, cfa, scales),
-        _ => dual::dual_amaze_vng4_with_gains(mosaic, cfa, scales),
-    };
-    match gains {
-        Some(gains) => sensor_gain::reconstruct_ungained(mosaic, cfa, gains, reconstruct),
-        None => reconstruct(mosaic),
+    let site_gains = gains.map(|g| g.site_gains(mosaic.width, mosaic.height));
+    match algo {
+        DemosaicAlgorithm::Amaze => {
+            amaze::amaze_with_sensor_gains(mosaic, cfa, scales, site_gains.as_deref())
+        }
+        _ => dual::dual_amaze_vng4_with_gains(mosaic, cfa, scales, site_gains.as_deref()),
     }
 }
 
@@ -150,3 +148,7 @@ pub(crate) fn flatten_mosaic(mosaic: &Image, cfa: CfaPattern) -> Vec<f32> {
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "sensor_gain_tests.rs"]
+mod sensor_gain_tests;

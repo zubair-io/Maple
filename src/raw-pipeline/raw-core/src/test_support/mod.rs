@@ -6,6 +6,7 @@
 pub mod canon_dcp;
 pub mod colorchecker;
 pub mod fixtures;
+pub mod gain_map;
 pub mod hasselblad_dcp;
 pub mod predictions;
 pub mod predictions_display;

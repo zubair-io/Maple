@@ -78,6 +78,19 @@ pub fn amaze(mosaic: &Image, cfa: CfaPattern) -> Image {
 /// Scales must be finite positive values at most one. Measured CFA samples are
 /// restored exactly after reversing the reconstruction preconditioner.
 pub fn amaze_with_gains(mosaic: &Image, cfa: CfaPattern, scales: [f32; 3]) -> Image {
+    amaze_with_sensor_gains(mosaic, cfa, scales, None)
+}
+
+/// [`amaze_with_gains`] for a mosaic whose sites carry a spatial sensor gain
+/// (DNG OpcodeList2). AMaZE bounds reconstruction against one ceiling derived
+/// from the [0, 1] sensor range, so sites are reconstructed with `site_gains`
+/// divided out and each channel's gain is re-applied afterwards (#5000).
+pub(crate) fn amaze_with_sensor_gains(
+    mosaic: &Image,
+    cfa: CfaPattern,
+    scales: [f32; 3],
+    site_gains: Option<&[f32]>,
+) -> Image {
     assert!(scales
         .iter()
         .all(|v| v.is_finite() && *v > 0.0 && *v <= 1.0));
@@ -96,7 +109,9 @@ pub fn amaze_with_gains(mosaic: &Image, cfa: CfaPattern, scales: [f32; 3]) -> Im
     // Flatten the sparse 3-channel mosaic to a single float per CFA site.
     let mut cfa_flat = flatten_mosaic(mosaic, cfa);
     for (i, value) in cfa_flat.iter_mut().enumerate() {
-        *value *= scales[cfa.color_at((i % w) as u32, (i / w) as u32) as usize];
+        let gain = site_gains.map_or(1.0, |g| g[i]);
+        let ungained = if gain > 0.0 { *value / gain } else { *value };
+        *value = ungained * scales[cfa.color_at((i % w) as u32, (i / w) as u32) as usize];
     }
 
     let mut out = Image::new(w as u32, h as u32, ColorSpace::CameraNativeLinearRgb);
@@ -146,11 +161,34 @@ pub fn amaze_with_gains(mosaic: &Image, cfa: CfaPattern, scales: [f32; 3]) -> Im
     fcs::suppress_false_colour(&mut out, &cfa_flat, &green_plane, w, h, cfa, fcs_strength);
 
     for (i, pixel) in out.pixels.iter_mut().enumerate() {
+        let gains = site_gains.map_or([1.0; 3], |g| quad_channel_gains(g, i, w, h, cfa));
         for c in 0..3 {
-            pixel[c] /= scales[c];
+            pixel[c] = pixel[c] / scales[c] * gains[c];
         }
         let sampled = cfa.color_at((i % w) as u32, (i / w) as u32) as usize;
         pixel[sampled] = mosaic.pixels[i][sampled];
     }
     out
+}
+
+/// Per-channel gain at pixel `i`: the mean gain of that channel's sites in
+/// the 2×2 Bayer quad containing `i`. Gain maps are smooth, so the quad
+/// stands in for the gain the reconstructed channel would have measured.
+fn quad_channel_gains(gains: &[f32], i: usize, w: usize, h: usize, cfa: CfaPattern) -> [f32; 3] {
+    let (x0, y0) = ((i % w) & !1, (i / w) & !1);
+    let sites = [(0, 0), (1, 0), (0, 1), (1, 1)]
+        .map(|(dx, dy)| ((x0 + dx).min(w - 1), (y0 + dy).min(h - 1)));
+    std::array::from_fn(|c| {
+        let (sum, count) = sites
+            .iter()
+            .filter(|(x, y)| cfa.color_at(*x as u32, *y as u32) as usize == c)
+            .fold((0.0, 0u32), |(sum, count), (x, y)| {
+                (sum + gains[y * w + x], count + 1)
+            });
+        if count > 0 {
+            sum / count as f32
+        } else {
+            1.0
+        }
+    })
 }
