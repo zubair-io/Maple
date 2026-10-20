@@ -395,7 +395,12 @@ fn cached_fit_skips_file_read_and_decode_and_respects_quality() {
     let cpath = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
 
     // Pre-insert BOTH artifacts under the file's Full-quality key.
-    let cached_curve = non_identity_curve();
+    let legacy = raw_core::view::auto_profile::apply_pipeline::auto1_enabled_by_env();
+    let cached_curve = if legacy {
+        non_identity_curve()
+    } else {
+        ProfileCurve::identity()
+    };
     let cached_residual = non_identity_residual(5);
     let key = auto_cache::CacheKey::from_path(&path, RenderQuality::Full)
         .expect("temp file is stattable");
@@ -425,12 +430,13 @@ fn cached_fit_skips_file_read_and_decode_and_respects_quality() {
         rc, 0,
         "a fully-cached fit must succeed without touching the (undecodable) file"
     );
-    assert_eq!(present, 1, "the cached curve must be surfaced");
-    assert_eq!(
-        &curve[..],
-        &cached_curve.to_flat()[..],
-        "surfaced curve must be byte-identical to the cached artifact"
-    );
+    if legacy {
+        assert_eq!(present, 1, "the Auto 1 curve must be surfaced");
+        assert_eq!(&curve[..], &cached_curve.to_flat()[..]);
+    } else {
+        assert_eq!(present, 0, "the Auto 2 cache marker is not an active curve");
+        assert_eq!(curve, [0.; PROFILE_CURVE_FLAT_LEN]);
+    }
     assert_eq!(size, 5, "the cached residual edge must be surfaced");
     assert_eq!(
         &lut[..],
