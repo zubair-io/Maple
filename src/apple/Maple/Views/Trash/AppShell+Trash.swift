@@ -42,12 +42,15 @@ extension AppShell {
         }
         let targets = resolved.compactMap { assetsByID[$0] }
         guard !targets.isEmpty else { return }
+        // The whole batch stays on the share it started on (#4987): a share switch
+        // mid-batch must not send the remaining paths to the newly connected share.
+        let smbSource = browseVM.currentSource as? SMBSource
 
         assetTrashTask = Task { @MainActor in
             var results: [AssetTrashItemResult] = []
             var trashedIDs: Set<AssetRef.ID> = []
             for asset in targets {
-                let outcome = await performAssetTrash(asset)
+                let outcome = await performAssetTrash(asset, smbSource: smbSource)
                 results.append(AssetTrashItemResult(id: asset.id, displayName: asset.displayName, outcome: outcome))
                 if case .trashed = outcome { trashedIDs.insert(asset.id) }
             }
@@ -65,7 +68,9 @@ extension AppShell {
 
     // MARK: - Per-item routing
 
-    private func performAssetTrash(_ asset: AssetRef) async -> AssetTrashItemResult.Outcome {
+    private func performAssetTrash(
+        _ asset: AssetRef, smbSource: SMBSource?
+    ) async -> AssetTrashItemResult.Outcome {
         if isPhotoKitAsset(asset) {
             return .failed("PhotoKit photos have no file on disk Maple can trash — delete them from the Photos app instead.")
         }
@@ -75,8 +80,8 @@ extension AppShell {
         if let url = asset.primaryURL {
             return await performLocalTrash(asset, url: url)
         }
-        if browseVM.currentSource is SMBSource {
-            return await performSMBTrash(asset)
+        if let smbSource {
+            return await performSMBTrash(asset, source: smbSource)
         }
         return .failed("This source doesn't support Trash yet.")
     }
@@ -101,8 +106,10 @@ extension AppShell {
 
     // MARK: - SMB
 
-    private func performSMBTrash(_ asset: AssetRef) async -> AssetTrashItemResult.Outcome {
-        guard let source = browseVM.currentSource as? SMBSource, let ref = asset.smbMutationRef else {
+    private func performSMBTrash(
+        _ asset: AssetRef, source: SMBSource
+    ) async -> AssetTrashItemResult.Outcome {
+        guard let ref = asset.smbMutationRef else {
             return .failed("SMB share is not connected")
         }
         do {

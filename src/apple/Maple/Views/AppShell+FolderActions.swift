@@ -323,11 +323,11 @@ extension AppShell {
     await session.loadSidecar()
   }
 
-  func browseSession(for asset: AssetRef) -> EditSession {
+  func browseSession(for asset: AssetRef, smbSource: SMBSource? = nil) -> EditSession {
     AppShellVM.ensureSession(
       for: asset,
       in: &sessions,
-      remoteStore: { remoteSidecarStore(for: asset) },
+      remoteStore: { remoteSidecarStore(for: asset, smbSource: smbSource) },
       remotePreviewSink: { remotePreviewSink(for: asset) }
     ).session
   }
@@ -339,8 +339,10 @@ extension AppShell {
   /// SMB asset can never get a store-less session by taking a different
   /// door. A `nil` here for a sourced asset is a lost-edits condition, so
   /// it is logged.
-  func remoteSidecarStore(for asset: AssetRef) -> (any SidecarStoreProtocol)? {
-    let store = resolveRemoteSidecarStore(for: asset)
+  func remoteSidecarStore(
+    for asset: AssetRef, smbSource: SMBSource? = nil
+  ) -> (any SidecarStoreProtocol)? {
+    let store = resolveRemoteSidecarStore(for: asset, smbSource: smbSource)
     if store == nil, asset.primaryURL == nil, asset.stableID != nil {
       let provenance = String(describing: asset.thumbnailProvenance)
       folderActionsLog.error(
@@ -374,7 +376,9 @@ extension AppShell {
       })
   }
 
-  private func resolveRemoteSidecarStore(for asset: AssetRef) -> (any SidecarStoreProtocol)? {
+  private func resolveRemoteSidecarStore(
+    for asset: AssetRef, smbSource: SMBSource?
+  ) -> (any SidecarStoreProtocol)? {
     guard let assetID = asset.stableID else { return nil }
     switch asset.thumbnailProvenance {
     case .cloud(let server):
@@ -424,7 +428,8 @@ extension AppShell {
       // the edit stays session-local — same degrade-to-nil
       // contract `PhotoKit`'s `try?` above already accepts on its
       // own rare failure path.
-      guard let smb = browseVM.currentSource as? SMBSource, let ref = asset.smbMutationRef
+      guard let smb = smbSource ?? browseVM.currentSource as? SMBSource,
+        let ref = asset.smbMutationRef
       else { return nil }
       return SMBSidecarStore(source: smb, ref: ref)
     case nil:

@@ -175,6 +175,8 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
   /// The listed share-relative SMB location. Content ids are shared by
   /// byte-identical copies, so SMB mutations must name the file (#4705).
   public let smbPath: String?
+  /// The SMB connection that listed `smbPath`; any other connection refuses its mutations (#4987).
+  public let smbSourceID: UUID?
 
   /// The editor's selected sibling; RAW identity and byte providers stay shared (#4063).
   public internal(set) var selectedSidecarURL: URL? = nil
@@ -358,6 +360,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.thumbnailProvenance = nil
     self.catalog = nil
     self.smbPath = nil
+    self.smbSourceID = nil
   }
 
   /// Construct an `AssetRef` for a source without a filesystem URL
@@ -387,6 +390,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     displayPreviewProvider: DisplayPreviewProvider? = nil,
     catalog: CatalogRef? = nil,
     smbPath: String? = nil,
+    smbSourceID: UUID? = nil,
     originalFileWriter: OriginalFileWriter? = nil,
     bytesProvider: @escaping BytesProvider
   ) {
@@ -404,6 +408,7 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     self.thumbnailProvenance = thumbnailProvenance
     self.catalog = catalog
     self.smbPath = smbPath
+    self.smbSourceID = smbSourceID
   }
 
   public static func == (lhs: AssetRef, rhs: AssetRef) -> Bool {
