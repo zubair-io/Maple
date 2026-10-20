@@ -123,20 +123,25 @@ export async function publishSidecarCas(
   if (refused) return refused;
   return serializeSidecarWrite<SidecarCasOutcome>(
     destination,
-    async (resolved) => {
-      const existing = await readCurrent(resolved);
-      const created = existing === null ? await createIfAbsent(resolved, xmp) : null;
+    async () => {
+      // Re-checked now, after waiting on the barrier: a folder swapped for an
+      // outward symlink meanwhile must not be read, kept or answered from.
+      const allowed = await authorizeSidecarWrite(destination);
+      if (!allowed.ok) return { kind: 'refused', error: allowed.error ?? 'path not allowed' };
+      const target = allowed.data ?? destination;
+      const existing = await readCurrent(target);
+      const created = existing === null ? await createIfAbsent(target, xmp) : null;
       if (created) return created;
       // A writer outside the barrier can create the file between the read and
       // the create-only publish; compare against what is actually there.
-      const current = existing ?? (await readCurrent(resolved));
+      const current = existing ?? (await readCurrent(target));
       if (current === null) return { kind: 'error', error: 'sidecar vanished during write' };
-      return publishOver(resolved, current, xmp, base, recordDisplaced);
+      return publishOver(target, current, xmp, base, recordDisplaced);
     },
     {
       admissionScope,
-      // Read only the jail-resolved file: a symlinked parent must not let the
-      // compare step read (and keep) a sidecar outside the library.
+      // Reserves the barrier keys of the resolved path too, so an alias of
+      // this sidecar queues behind the same writes.
       resolveDestination: async () => {
         const recheck = await authorizeSidecarWrite(destination);
         if (!recheck.ok) throw new RefusedPath(recheck.error ?? 'path not allowed');
