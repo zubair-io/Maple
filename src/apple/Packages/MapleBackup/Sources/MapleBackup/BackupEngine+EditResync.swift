@@ -54,13 +54,32 @@ extension BackupEngine {
     }
   }
 
-  /// Sends the current local edit unless the server already has it. Both are
-  /// read at send time, so a delayed retry never sends an older edit with a
-  /// newer revision as its base (#5023).
+  /// Sends the current local edit unless the server already has it. Sends for
+  /// one photo run one at a time and read the delivered revision before the
+  /// edit, so a slower send can never land an older edit, or record one, over
+  /// a newer send (#5023).
   func sendLatestEdit(id: BackupTaskID, targetRelPath: String, mapleId: String?) async throws {
+    let previous = sidecarSends[id]
+    let send = Task {
+      _ = await previous?.result
+      try await sendLatestEditNow(id: id, targetRelPath: targetRelPath, mapleId: mapleId)
+    }
+    sidecarSends[id] = send
+    defer { if sidecarSends[id] == send { sidecarSends[id] = nil } }
+    try await withTaskCancellationHandler {
+      try await send.value
+    } onCancel: {
+      send.cancel()
+    }
+  }
+
+  private func sendLatestEditNow(
+    id: BackupTaskID, targetRelPath: String, mapleId: String?
+  ) async throws {
+    try Task.checkCancellation()
+    let delivered = try await state.uploadedSidecarDigest(id)
     guard let xmp = try sidecars.read(phassetLocalId: id.phassetLocalId) else { return }
     let digest = Self.digest(of: xmp)
-    let delivered = try await state.uploadedSidecarDigest(id)
     guard digest != delivered else { return }
     try await upload.uploadSidecar(
       phassetLocalId: id.phassetLocalId,

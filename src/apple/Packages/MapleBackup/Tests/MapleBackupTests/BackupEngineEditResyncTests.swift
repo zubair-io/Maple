@@ -6,6 +6,40 @@ import XCTest
 
 @testable import MapleBackup
 
+/// Sidecar endpoint that holds its first POST open until released, counting
+/// how many sidecar requests are in flight at once.
+private actor GatedSidecarServer {
+  private(set) var maxInFlight = 0
+  private var inFlight = 0
+  private var posts = 0
+  private var gate: CheckedContinuation<Void, Never>?
+  private var released = false
+  let firstPostStarted: XCTestExpectation
+
+  init(firstPostStarted: XCTestExpectation) { self.firstPostStarted = firstPostStarted }
+
+  func release() {
+    released = true
+    gate?.resume()
+    gate = nil
+  }
+
+  func respond(to request: URLRequest) async throws -> (Data, URLResponse) {
+    let url = request.url!
+    inFlight += 1
+    maxInFlight = max(maxInFlight, inFlight)
+    posts += 1
+    if posts == 1 {
+      firstPostStarted.fulfill()
+      if !released { await withCheckedContinuation { gate = $0 } }
+    }
+    inFlight -= 1
+    return (
+      Data(), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+    )
+  }
+}
+
 final class BackupEngineEditResyncTests: XCTestCase {
 
   override func setUp() {
@@ -133,6 +167,7 @@ final class BackupEngineEditResyncTests: XCTestCase {
       sidecarPosts().first?.value(forHTTPHeaderField: "X-Maple-Sidecar-Base"),
       BackupEngine.digest(of: "<x:edit>old</x:edit>"))
   }
+
   func testADelayedFirstUploadRetrySendsTheLatestEditNotTheOneItStartedWith() async throws {
     StubURLProtocol.stub = .sequence([
       .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
@@ -183,5 +218,35 @@ final class BackupEngineEditResyncTests: XCTestCase {
 
     let delivered = try await state.uploadedSidecarDigest(photo)
     XCTAssertEqual(delivered, BackupEngine.digest(of: "<x:edit>A</x:edit>"))
+  }
+  func testSendsForOnePhotoNeverOverlap() async throws {
+    let tmpRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
+    try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let state = try BackupStateStore(databaseURL: tmpRoot.appendingPathComponent("state.sqlite"))
+    let sidecars = AppSupportSidecarStore(root: sidecarRoot)
+    let server = GatedSidecarServer(firstPostStarted: expectation(description: "first send held"))
+    let upload = UploadClient(
+      baseURL: URL(string: "https://server.example")!, libraryId: "lib", deviceId: "d",
+      transport: { try await server.respond(to: $0) })
+    let engine = BackupEngine(
+      queue: InProcessBackupQueue(), state: state, upload: upload,
+      sidecars: sidecars, reader: StubAssetReader())
+    try sidecars.write(phassetLocalId: photo.phassetLocalId, xmp: "<x:edit>v1</x:edit>")
+
+    let first = Task { await engine.resendNewerEdits([held]) }
+    await fulfillment(of: [server.firstPostStarted], timeout: 5)
+    try sidecars.write(phassetLocalId: photo.phassetLocalId, xmp: "<x:edit>v2</x:edit>")
+    let second = Task { await engine.resendNewerEdits([held]) }
+    try await Task.sleep(for: .milliseconds(200))
+    await server.release()
+    await first.value
+    await second.value
+
+    let maxInFlight = await server.maxInFlight
+    XCTAssertEqual(maxInFlight, 1, "two sends for one photo were in flight at once")
+    let delivered = try await state.uploadedSidecarDigest(photo)
+    XCTAssertEqual(delivered, BackupEngine.digest(of: "<x:edit>v2</x:edit>"))
   }
 }

@@ -267,10 +267,14 @@ A device that edits a photo after backing it up re-sends the sidecar, naming the
 
 The check and the publish run under the shared sidecar write barrier, so two edits racing on one base serialise: one overwrites, the other diverges, and neither version is lost. If the publish itself fails, the divergence row is dropped again, so retries don't pile up copies.
 
-Guards:
+Guards on both paths (with or without the header):
+
+- the destination is checked against the library roots, resolving symlinked folders, before anything is read or any directory is created; a destination outside the library is a `400`, including one swapped in while the write waits on the barrier;
+- a write that fails is a `500`, and nothing is recorded for it.
+
+Guards with a base only:
 
 - the target path must be a live (not deleted, not missing) location of the asset the request resolved; otherwise `404`;
-- the destination is checked against the library roots, resolving symlinked folders, before anything is read or any directory is created; a destination outside the library is a `400`;
 - a malformed base is a `400`.
 
 A request without the header keeps the original rule: the sidecar is written only when none exists (#698). That write is create-only and runs under the same barrier, so it can never land over a compare-and-swap edit. Merging duplicate assets moves their divergence rows to the surviving asset.
