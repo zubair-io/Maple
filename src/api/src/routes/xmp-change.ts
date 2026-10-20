@@ -40,10 +40,13 @@ export async function recordSidecarEditAhead(rawAbsPath: string): Promise<void> 
   await announce(asset, rawAbsPath, recordAndPublishAssetChangeOrThrow);
 }
 
-/** Best effort: announce again once the bytes are on disk, so an early refetch is corrected. */
+/** Best effort, once the bytes are on disk: bump and announce again, so a cloud-backup
+ * capture or refetch that ran ahead of the write is redone. */
 export async function announceSidecarLanded(rawAbsPath: string): Promise<void> {
   const asset = await assetAt(rawAbsPath).catch(() => null);
-  if (asset) await announce(asset, rawAbsPath).catch(() => undefined);
+  if (!asset) return;
+  await recordSidecarEdit(asset.id).catch(() => undefined);
+  await announce(asset, rawAbsPath).catch(() => undefined);
 }
 
 export async function publishSidecarChange(rawAbsPath: string, edited: boolean): Promise<void> {

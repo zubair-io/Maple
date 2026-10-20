@@ -219,7 +219,7 @@ describe('canonical-backup-sidecars', () => {
 
     expect(
       library.db.query(`SELECT has_xmp, sidecar_ver FROM assets WHERE id = ?`).get(id),
-    ).toEqual({ has_xmp: 1, sidecar_ver: 1 });
+    ).toEqual({ has_xmp: 1, sidecar_ver: 2 });
   });
 
   it('moves an edit written under an older Maple namespace', async () => {
