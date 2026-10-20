@@ -21,7 +21,6 @@ import * as path from 'node:path';
 import type { ObjectId } from '../../db/object-id.ts';
 import type { FileInfo } from '../../db/schema.ts';
 import {
-  BACKUP_ORIGIN,
   countCandidates,
   HAS_LIVE_LOCATION,
   type CandidateScope,
@@ -32,9 +31,9 @@ import {
   recordSidecarDivergence,
 } from '../../db/repos/sidecar-divergences.repo.ts';
 import {
-  markBackupSidecarNamesMigrated,
-  NOT_YET_MIGRATED,
-} from '../../db/repos/backup-sidecar-names.repo.ts';
+  markCanonicalSidecarsChecked,
+  NEEDS_CANONICAL_SIDECAR_CHECK,
+} from '../../db/repos/backup-sidecar-name-checks.repo.ts';
 import { publishSidecarCas } from '../../backup/sidecar-cas.ts';
 import {
   legacyBackupSidecar,
@@ -58,7 +57,7 @@ const MIGRATION_ID = 'canonical-backup-sidecars';
 const DIVERGENCE_SOURCE = `migration:${MIGRATION_ID}`;
 
 const CANDIDATES: CandidateScope = {
-  sql: `${BACKUP_ORIGIN} AND ${HAS_LIVE_LOCATION} AND ${NOT_YET_MIGRATED}`,
+  sql: `${HAS_LIVE_LOCATION} AND ${NEEDS_CANONICAL_SIDECAR_CHECK}`,
 };
 
 type LocationOutcome = 'done' | 'kept' | 'error';
@@ -171,7 +170,7 @@ async function canonicalizeAsset(
   const mounted = await Promise.all(rooted.map(({ root }) => libraryRootAvailable(root)));
   if (mounted.includes(false)) return 'skipped-no-root';
   if ((await canonicalizeAll(doc.id, rooted)) === 'error') return 'error';
-  await markBackupSidecarNamesMigrated(doc.id);
+  await markCanonicalSidecarsChecked(doc.id);
   return 'processed';
 }
 

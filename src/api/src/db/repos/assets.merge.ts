@@ -180,9 +180,12 @@ export async function mergeIntoSurvivor(args: {
       params: [args.survivorId, args.condemnedId],
     },
     {
-      // The duplicate's locations may still hold pre-#5021 `IMG.HEIC.xmp` sidecars.
-      sql: `DELETE FROM backup_sidecar_names_migrated WHERE asset_id=?`,
-      params: [args.survivorId],
+      // Moved backup locations may still hold pre-#5021 `IMG.HEIC.xmp` sidecars,
+      // and the condemned links that made them eligible go with the delete below.
+      sql: `INSERT INTO backup_sidecar_name_checks (asset_id, checked)
+        SELECT ?, 0 WHERE EXISTS (SELECT 1 FROM asset_phasset_links WHERE asset_id IN (?, ?))
+        ON CONFLICT (asset_id) DO UPDATE SET checked = 0`,
+      params: [args.survivorId, args.survivorId, args.condemnedId],
     },
     { sql: `DELETE FROM assets WHERE id = ?`, params: [args.condemnedId] },
     // Strictly after the delete, which is what frees the unique key — but inside
