@@ -16,6 +16,8 @@ use projection::constrain_to_prior;
 mod bands;
 #[path = "paired_correspondence.rs"]
 mod correspondence;
+#[path = "paired_refinement.rs"]
+mod refinement;
 #[path = "paired_step.rs"]
 mod step;
 use step::select_step;
@@ -496,7 +498,8 @@ pub(super) fn fit(
             let _ = serde_json::to_writer(std::io::BufWriter::new(file), &snapshot);
         }
     }
-    chosen
+    let base = chosen?;
+    refinement::refine(&base, matched_native_rows, matched_display_rows).or(Some(base))
 }
 
 #[cfg(test)]
