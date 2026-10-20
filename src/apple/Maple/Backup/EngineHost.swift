@@ -108,11 +108,11 @@ public final class EngineHost {
       return
     }
     lastStartError = nil
-    // A newer start supersedes one still waiting for the helper's lock. The
-    // generation is captured now, so a Stop issued while this start is still
-    // queued supersedes it too.
-    engineLockWait?.cancel()
+    // A newer start supersedes any earlier one, queued, tearing down or waiting
+    // for the helper's lock; a Stop issued after this call supersedes it too.
+    generation = UUID()
     let generation = self.generation
+    engineLockWait?.cancel()
     await lifecycle.run {
       await self.performStart(
         settings: settings, serverBaseURL: serverBaseURL, retryFailed: retryFailed,
@@ -291,6 +291,9 @@ public final class EngineHost {
     in storageRoot: URL, generation: UUID
   ) async throws -> BackupEngineLock? {
     if let free = try BackupEngineLock.acquire(in: storageRoot) { return free }
+    // Never start waiting once superseded: the newer start or stop is queued
+    // behind this one and would be stuck until the helper finishes.
+    guard generation == self.generation else { return nil }
     lastStartError =
       "The background helper is finishing a backup. Maple will take over when it's done."
     let wait = Task {
