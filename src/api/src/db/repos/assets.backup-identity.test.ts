@@ -416,3 +416,26 @@ test('a merge with a backed-up duplicate queues the survivor for the canonical-s
     [{ asset_id: survivor, checked: 0 }],
   );
 });
+
+test('a due canonical-sidecar check survives a second merge before the migration runs (#5021)', async () => {
+  const f = await fixture();
+  using _database = f.live;
+  const third = insertAsset(f.live.db);
+  const survivor = insertAsset(f.live.db);
+  insertLocation(f.live.db, { assetId: third, libraryId: f.libraryId });
+  insertLocation(f.live.db, { assetId: survivor, libraryId: f.libraryId });
+  f.live.db
+    .query('INSERT INTO backup_sidecar_name_checks (asset_id, checked) VALUES (?, 0)')
+    .run(survivor);
+
+  await mergeIntoSurvivor({
+    survivorId: third,
+    condemnedId: survivor,
+    mapleId: 'merged-twice',
+    dbOverride: f.live.handle,
+  });
+
+  expect(f.live.db.query('SELECT asset_id, checked FROM backup_sidecar_name_checks').all()).toEqual(
+    [{ asset_id: third, checked: 0 }],
+  );
+});
