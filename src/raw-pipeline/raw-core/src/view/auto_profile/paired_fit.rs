@@ -14,6 +14,11 @@ mod projection;
 use projection::constrain_to_prior;
 #[path = "paired_bands.rs"]
 mod bands;
+#[path = "paired_correspondence.rs"]
+mod correspondence;
+#[path = "paired_step.rs"]
+mod step;
+use step::select_step;
 #[path = "paired_population.rs"]
 mod population;
 #[path = "paired_quality_budget.rs"]
@@ -384,17 +389,52 @@ pub(super) fn fit(
         .as_ref()
         .map(|s| s.rows.as_slice())
         .unwrap_or(native_rows);
+    let matched_native = registration.as_ref().and_then(|r| {
+        if !correspondence::supported_both_directions(r.warp) {
+            return None;
+        }
+        let matched = paired_observations::build_native_aligned(
+            pixels,
+            width,
+            height,
+            orientation,
+            preview,
+            current,
+            r.warp,
+        )?;
+        (correspondence::retains_population(&observations, &matched)
+            && aligned.as_ref().is_some_and(|set| {
+                correspondence::retains_population(display.as_ref().unwrap_or(&observations), set)
+            }))
+        .then_some(matched)
+    });
+    let matched_native_rows = matched_native.as_ref().map_or(native_rows, |s| &s.rows);
+    let matched_display_rows = if matched_native.is_some() {
+        aligned.as_ref().map_or(display_rows, |s| &s.rows)
+    } else {
+        display_rows
+    };
     let original_solution = solve_observations(display_rows, current)?;
     let original_choice = select_step(&original_solution.0, current, native_rows, display_rows);
     let aligned_solution = aligned
         .as_ref()
         .and_then(|set| solve_observations(&set.rows, current));
-    let aligned_choice = aligned_solution
-        .as_ref()
-        .and_then(|solution| select_step(&solution.0, current, native_rows, display_rows));
+    let aligned_choice = aligned_solution.as_ref().and_then(|solution| {
+        select_step(
+            &solution.0,
+            current,
+            matched_native_rows,
+            matched_display_rows,
+        )
+    });
     let use_registered = match (&aligned_choice, &original_choice) {
         (Some(candidate), Some(existing)) => {
-            let assessment = assess_against(candidate, native_rows, display_rows, Some(existing));
+            let assessment = assess_against(
+                candidate,
+                matched_native_rows,
+                matched_display_rows,
+                Some(existing),
+            );
             assessment.compatible && assessment.native_bands_preserved
         }
         (Some(_), None) => true,
@@ -415,13 +455,18 @@ pub(super) fn fit(
         if let Ok(file) = std::fs::File::create(dir.join("auto_fit_registration.json")) {
             let _ = serde_json::to_writer_pretty(
                 std::io::BufWriter::new(file),
-                &serde_json::json!({"registration":registration,"selected_fit":if chosen.is_none() {"camera-calibration"} else if use_registered {"registered-paired"} else {"original-paired"}}),
+                &serde_json::json!({"registration":registration,"matched_validation":matched_native.is_some(),"selected_fit":if chosen.is_none() {"camera-calibration"} else if use_registered {"registered-paired"} else {"original-paired"}}),
             );
         }
     }
     #[cfg(feature = "stage-dump")]
     if let Some(dir) = crate::stage_dump::dump_dir() {
-        let _ = select_step(result, current, native_rows, display_rows);
+        let (selected_native, selected_display) = if use_registered {
+            (matched_native_rows, matched_display_rows)
+        } else {
+            (native_rows, display_rows)
+        };
+        let _ = select_step(result, current, selected_native, selected_display);
         #[derive(serde::Serialize)]
         struct Snapshot<'a> {
             width: usize,
@@ -439,8 +484,8 @@ pub(super) fn fit(
             width,
             height,
             grid: GRID,
-            native: native_rows,
-            display: display.as_ref().map(|s| s.rows.as_slice()),
+            native: selected_native,
+            display: Some(selected_display),
             aligned: aligned.as_ref().map(|s| s.rows.as_slice()),
             prior_size: current.size,
             prior: &current.data,
@@ -452,77 +497,6 @@ pub(super) fn fit(
         }
     }
     chosen
-}
-
-fn select_step(
-    proposed: &ColorLut,
-    current: &ColorLut,
-    native: &[Observation],
-    display: &[Observation],
-) -> Option<ColorLut> {
-    let blend = |fraction: f32| {
-        let mut candidate = proposed.clone();
-        if fraction != 1. {
-            for ((value, &before), &after) in candidate
-                .data
-                .iter_mut()
-                .zip(&current.data)
-                .zip(&proposed.data)
-            {
-                *value = before + fraction * (after - before);
-            }
-        }
-        candidate
-    };
-    let mut upper = 1.;
-    let mut selected = None;
-    for fraction in [1., 0.5, 0.25, 0.125, 0.0625] {
-        let candidate = blend(fraction);
-        if assess(&candidate, native, display).compatible {
-            selected = Some((fraction, candidate));
-            break;
-        }
-        upper = fraction;
-    }
-    let (mut lower, mut result) = selected?;
-    if lower != 1. {
-        for _ in 0..8 {
-            let fraction = (lower + upper) * 0.5;
-            let candidate = blend(fraction);
-            if assess(&candidate, native, display).compatible {
-                lower = fraction;
-                result = candidate;
-            } else {
-                upper = fraction;
-            }
-        }
-    }
-    let native_band_backtracked = !assess(&result, native, display).native_bands_preserved;
-    if native_band_backtracked {
-        let original = lower;
-        let mut safe = None;
-        // Sampled band limits need interior slack, not a refinement to their estimated boundary.
-        for fraction in [0.5, 0.25, 0.125, 0.0625] {
-            let fraction = original * fraction;
-            let candidate = blend(fraction);
-            if prefer(&candidate, native, display) {
-                safe = Some((fraction, candidate));
-                break;
-            }
-        }
-        (lower, result) = safe?;
-    }
-    #[cfg(feature = "stage-dump")]
-    if let Some(dir) = crate::stage_dump::dump_dir() {
-        let _ = prefer(&result, native, display);
-        if let Ok(file) = std::fs::File::create(dir.join("auto_fit_step.json")) {
-            let _ = serde_json::to_writer(
-                file,
-                &serde_json::json!({"fraction":lower,"native_band_backtracked":native_band_backtracked}),
-            );
-        }
-    }
-    Some(result)
 }
 
 #[cfg(test)]

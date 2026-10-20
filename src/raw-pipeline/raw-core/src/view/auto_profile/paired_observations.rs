@@ -124,6 +124,27 @@ pub(super) fn build_aligned(
     )
 }
 
+pub(super) fn build_native_aligned(
+    pixels: &[f32],
+    width: usize,
+    height: usize,
+    orientation: ExifOrientation,
+    preview: &ExtractedPreview,
+    baseline: &ColorLut,
+    warp: Warp,
+) -> Option<ObservationSet> {
+    build_at_scale(
+        pixels,
+        width,
+        height,
+        orientation,
+        preview,
+        baseline,
+        None,
+        (warp != Warp::IDENTITY).then_some(warp),
+    )
+}
+
 fn transformed_span(center: f64, extent: f64, limit: usize) -> Option<(usize, usize)> {
     let support = extent.max(1.) * 0.5;
     if !center.is_finite()
