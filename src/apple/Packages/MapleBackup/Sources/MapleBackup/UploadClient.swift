@@ -147,7 +147,6 @@ public actor UploadClient {
   ///   a newer edit always lands, and a version it replaces without having
   ///   been based on is kept server-side rather than lost.
   /// - Returns: whether the server stored it under the canonical name it reads (#5021).
-  @discardableResult
   public func uploadSidecar(
     phassetLocalId: String,
     targetRelPath: String,
@@ -192,13 +191,18 @@ public actor UploadClient {
       throw UploadError.sidecarNotStored
     }
     // A server from before #5021 reports the old `IMG.HEIC.xmp`, which it never reads.
-    return reply?.target_rel_path.map { $0 == BackupSidecarName.canonical(for: targetRelPath) }
+    return reply?.targetRelPath.map { $0 == BackupSidecarName.canonical(for: targetRelPath) }
       ?? true
   }
 
   private struct SidecarReply: Decodable {
     let skipped: Bool?
-    let target_rel_path: String?
+    let targetRelPath: String?
+
+    enum CodingKeys: String, CodingKey {
+      case skipped
+      case targetRelPath = "target_rel_path"
+    }
   }
 
   /// Upload `bytes` to the ingest endpoint, splitting into `chunkSize`

@@ -307,10 +307,10 @@ final class BackupEngineTests: XCTestCase {
         // canonical local edit is still on disk (#4719).
         await wait { self.requestCount(containing: "backup/sidecar") >= 2 }
         let deadline = Date().addingTimeInterval(2)
-        while try await state.uploadedSidecarDigest(id) == nil, Date() < deadline {
+        while try await state.uploadedSidecarDigest(id, targetRelPath: "IMG.heic") == nil, Date() < deadline {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        let recorded = try await state.uploadedSidecarDigest(id)
+        let recorded = try await state.uploadedSidecarDigest(id, targetRelPath: "IMG.heic")
         XCTAssertNotNil(recorded)
         XCTAssertNotNil(try sidecars.read(phassetLocalId: "P1"),
             "the local edit must survive its upload")

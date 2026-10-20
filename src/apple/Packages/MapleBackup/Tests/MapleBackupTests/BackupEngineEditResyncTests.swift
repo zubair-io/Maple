@@ -65,7 +65,7 @@ final class BackupEngineEditResyncTests: XCTestCase {
     let (engine, _, state, sidecars, _, tmpRoot) = try freshHarness()
     defer { try? FileManager.default.removeItem(at: tmpRoot) }
     try await state.recordUploadedSidecar(
-      photo, digest: BackupEngine.digest(of: "<x:edit>A</x:edit>"))
+      photo, digest: BackupEngine.digest(of: "<x:edit>A</x:edit>"), canonicalName: true)
     try sidecars.write(phassetLocalId: photo.phassetLocalId, xmp: "<x:edit>B</x:edit>")
 
     await engine.resendNewerEdits([held])
@@ -79,7 +79,7 @@ final class BackupEngineEditResyncTests: XCTestCase {
       posts.first?.value(forHTTPHeaderField: "X-Maple-Target-Rel-Path"), "2024/03/15/IMG.heic")
     XCTAssertEqual(posts.first?.value(forHTTPHeaderField: "X-Maple-Id"), "hash-P1")
     XCTAssertEqual(posts.first?.httpBody, Data("<x:edit>B</x:edit>".utf8))
-    let delivered = try await state.uploadedSidecarDigest(photo)
+    let delivered = try await state.uploadedSidecarDigest(photo, targetRelPath: "IMG.heic")
     XCTAssertEqual(delivered, BackupEngine.digest(of: "<x:edit>B</x:edit>"))
   }
 
@@ -92,7 +92,7 @@ final class BackupEngineEditResyncTests: XCTestCase {
     await engine.resendNewerEdits([held])
 
     XCTAssertEqual(sidecarPosts().first?.value(forHTTPHeaderField: "X-Maple-Sidecar-Base"), "none")
-    let delivered = try await state.uploadedSidecarDigest(photo)
+    let delivered = try await state.uploadedSidecarDigest(photo, targetRelPath: "IMG.heic")
     XCTAssertEqual(delivered, BackupEngine.digest(of: "<x:edit>first</x:edit>"))
   }
 
@@ -102,7 +102,7 @@ final class BackupEngineEditResyncTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: tmpRoot) }
     try sidecars.write(phassetLocalId: photo.phassetLocalId, xmp: "<x:edit>A</x:edit>")
     try await state.recordUploadedSidecar(
-      photo, digest: BackupEngine.digest(of: "<x:edit>A</x:edit>"))
+      photo, digest: BackupEngine.digest(of: "<x:edit>A</x:edit>"), canonicalName: true)
 
     await engine.resendNewerEdits([held])
 
@@ -124,13 +124,13 @@ final class BackupEngineEditResyncTests: XCTestCase {
     let (engine, _, state, sidecars, _, tmpRoot) = try freshHarness()
     defer { try? FileManager.default.removeItem(at: tmpRoot) }
     try await state.recordUploadedSidecar(
-      photo, digest: BackupEngine.digest(of: "<x:edit>A</x:edit>"))
+      photo, digest: BackupEngine.digest(of: "<x:edit>A</x:edit>"), canonicalName: true)
     try sidecars.write(phassetLocalId: photo.phassetLocalId, xmp: "<x:edit>B</x:edit>")
 
     await engine.resendNewerEdits([held])
 
     XCTAssertEqual(sidecarPosts().count, 1)
-    let delivered = try await state.uploadedSidecarDigest(photo)
+    let delivered = try await state.uploadedSidecarDigest(photo, targetRelPath: "IMG.heic")
     XCTAssertEqual(delivered, BackupEngine.digest(of: "<x:edit>A</x:edit>"))
   }
 
@@ -155,7 +155,7 @@ final class BackupEngineEditResyncTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: tmpRoot) }
     let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
     try await state.recordUploadedSidecar(
-      id, digest: BackupEngine.digest(of: "<x:edit>old</x:edit>"))
+      id, digest: BackupEngine.digest(of: "<x:edit>old</x:edit>"), canonicalName: true)
     try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit>new</x:edit>")
     let task = BackupTask(id: id, state: .pending, priority: .background)
     try await state.upsert(task)
@@ -201,7 +201,7 @@ final class BackupEngineEditResyncTests: XCTestCase {
     XCTAssertFalse(
       bodies.dropFirst().contains("<x:edit>v1</x:edit>"),
       "a retry re-sent the older edit after the newer one: \(bodies)")
-    let delivered = try await state.uploadedSidecarDigest(id)
+    let delivered = try await state.uploadedSidecarDigest(id, targetRelPath: "IMG.heic")
     XCTAssertEqual(delivered, BackupEngine.digest(of: "<x:edit>v2</x:edit>"))
   }
 
@@ -211,12 +211,12 @@ final class BackupEngineEditResyncTests: XCTestCase {
     let (engine, _, state, sidecars, _, tmpRoot) = try freshHarness()
     defer { try? FileManager.default.removeItem(at: tmpRoot) }
     try await state.recordUploadedSidecar(
-      photo, digest: BackupEngine.digest(of: "<x:edit>A</x:edit>"))
+      photo, digest: BackupEngine.digest(of: "<x:edit>A</x:edit>"), canonicalName: true)
     try sidecars.write(phassetLocalId: photo.phassetLocalId, xmp: "<x:edit>B</x:edit>")
 
     await engine.resendNewerEdits([held])
 
-    let delivered = try await state.uploadedSidecarDigest(photo)
+    let delivered = try await state.uploadedSidecarDigest(photo, targetRelPath: "IMG.heic")
     XCTAssertEqual(delivered, BackupEngine.digest(of: "<x:edit>A</x:edit>"))
   }
 
@@ -247,7 +247,7 @@ final class BackupEngineEditResyncTests: XCTestCase {
 
     let maxInFlight = await server.maxInFlight
     XCTAssertEqual(maxInFlight, 1, "two sends for one photo were in flight at once")
-    let delivered = try await state.uploadedSidecarDigest(photo)
+    let delivered = try await state.uploadedSidecarDigest(photo, targetRelPath: "IMG.heic")
     XCTAssertEqual(delivered, BackupEngine.digest(of: "<x:edit>v2</x:edit>"))
   }
 
@@ -323,7 +323,7 @@ final class BackupEngineEditResyncTests: XCTestCase {
 
     let maxInFlight = await server.maxInFlight
     XCTAssertEqual(maxInFlight, 1, "a send started while an earlier one was still in flight")
-    let delivered = try await state.uploadedSidecarDigest(photo)
+    let delivered = try await state.uploadedSidecarDigest(photo, targetRelPath: "IMG.heic")
     XCTAssertEqual(delivered, BackupEngine.digest(of: "<x:edit>v2</x:edit>"))
   }
 }
