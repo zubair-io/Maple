@@ -28,7 +28,6 @@ import {
   type MigrationCandidate,
 } from '../../db/repos/assets.migrations.ts';
 import {
-  forgetSidecarDivergence,
   hasSidecarDivergence,
   recordSidecarDivergence,
 } from '../../db/repos/sidecar-divergences.repo.ts';
@@ -37,14 +36,14 @@ import {
   markCanonicalSidecarsChecked,
   NEEDS_CANONICAL_SIDECAR_CHECK,
 } from '../../db/repos/backup-sidecar-name-checks.repo.ts';
-import { publishSidecarCas } from '../../backup/sidecar-cas.ts';
+import { publishSidecarIfAbsent } from '../../backup/sidecar-cas.ts';
 import { isLiveLocationOfAsset } from '../../db/repos/backup.repo.ts';
 import {
   legacyBackupSidecar,
   readLegacyBackupEdit,
   removeLegacyIfUnchanged,
 } from '../../backup/legacy-sidecar.ts';
-import { sidecarStemClaimedBySibling } from '../../fs/sidecar-ownership.ts';
+import { readSidecarBytes } from '../../fs/sidecar-ownership.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
 import { announceSidecarLanded, recordSidecarEditAhead } from '../../routes/xmp-change.ts';
 import { libraryRootAvailable } from '../missing-reaper.helpers.ts';
@@ -66,52 +65,82 @@ const CANDIDATES: CandidateScope = {
 
 type LocationOutcome = 'done' | 'kept' | 'error';
 
-async function publishCanonical(
-  assetId: ObjectId,
-  location: FileInfo,
-  primary: string,
-  root: string,
-  legacy: string,
-  legacyBytes: Buffer,
-): Promise<LocationOutcome> {
-  const canonical = xmpSidecarPath(primary);
-  const sidecarRelPath = path.posix.join(location.path, path.basename(canonical));
-  const outcome = await publishSidecarCas(
-    canonical,
-    legacyBytes.toString('utf8'),
-    null,
-    async (displaced) => {
-      const id = await recordSidecarDivergence({
-        assetId,
-        libraryId: location.library_id,
-        sidecarRelPath,
+interface LegacyEdit {
+  assetId: ObjectId;
+  location: FileInfo;
+  primary: string;
+  root: string;
+  legacy: string;
+  bytes: Buffer;
+}
+
+const canonicalRelPath = (edit: LegacyEdit): string =>
+  path.posix.join(edit.location.path, path.basename(xmpSidecarPath(edit.primary)));
+
+/** The scan's reading still holds: the photo is at this location and its old-name file is unchanged. */
+async function stillCurrent(edit: LegacyEdit): Promise<boolean> {
+  const { assetId, location, primary, bytes } = edit;
+  return (
+    (await isLiveLocationOfAsset(
+      assetId,
+      location.library_id,
+      path.posix.join(location.path, location.filename),
+    )) && (await readLegacyBackupEdit(primary).catch(() => null))?.equals(bytes) === true
+  );
+}
+
+/** The canonical sidecar exists, so keep the old-name edit aside (once) and remove the file. */
+async function keepAsideAndRemove(edit: LegacyEdit): Promise<void> {
+  await serializeSidecarWrite(xmpSidecarPath(edit.primary), async () => {
+    if (!(await stillCurrent(edit))) return;
+    const current = await readSidecarBytes(xmpSidecarPath(edit.primary));
+    const xmp = edit.bytes.toString('utf8');
+    const digest = createHash('sha256').update(xmp, 'utf8').digest('hex');
+    const kept = {
+      assetId: edit.assetId,
+      libraryId: edit.location.library_id,
+      sidecarRelPath: canonicalRelPath(edit),
+      displacedSha256: digest,
+      incomingSha256: digest,
+    };
+    if (!current?.equals(edit.bytes) && !(await hasSidecarDivergence(kept))) {
+      await recordSidecarDivergence({
+        ...kept,
         deviceId: DIVERGENCE_SOURCE,
         baseSha256: null,
-        displacedSha256: displaced.sha256,
-        displacedXmp: displaced.xmp,
-        incomingSha256: displaced.incomingSha256,
+        displacedXmp: xmp,
       });
-      return () => forgetSidecarDivergence(id);
-    },
+    }
+    await removeLegacyIfUnchanged(edit.legacy, edit.bytes);
+  });
+}
+
+/** Create-only: the migration runs in the worker child, outside the API process's
+ * in-memory barrier, so it never overwrites a canonical sidecar. A live device's
+ * re-send still lands its edit on top through the API (#5021). */
+async function publishCanonical(edit: LegacyEdit): Promise<LocationOutcome> {
+  const { assetId, primary, root } = edit;
+  const sidecarRelPath = canonicalRelPath(edit);
+  const outcome = await publishSidecarIfAbsent(
+    xmpSidecarPath(primary),
+    edit.bytes.toString('utf8'),
     root,
-    {
-      shared: () => sidecarStemClaimedBySibling(primary),
-      // A device send may have retired the file, or the photo moved, since the scan.
-      precondition: async () =>
-        (await isLiveLocationOfAsset(
-          assetId,
-          location.library_id,
-          path.posix.join(location.path, location.filename),
-        )) && (await readLegacyBackupEdit(primary).catch(() => null))?.equals(legacyBytes) === true,
-      beforeWrite: () => recordSidecarEditAhead(primary),
-      afterLanded: async (landed) => {
-        if (landed.kind === 'written' || landed.kind === 'diverged') {
-          await announceSidecarLanded(primary);
-        }
-        await removeLegacyIfUnchanged(legacy, legacyBytes);
-      },
-    },
-  );
+    { precondition: () => stillCurrent(edit), beforeWrite: () => recordSidecarEditAhead(primary) },
+  ).catch((error: unknown) => ({
+    kind: 'error' as const,
+    error: error instanceof Error ? error.message : String(error),
+  }));
+  if (outcome === 'written') {
+    await announceSidecarLanded(primary);
+    await serializeSidecarWrite(xmpSidecarPath(primary), () =>
+      removeLegacyIfUnchanged(edit.legacy, edit.bytes),
+    );
+    return 'done';
+  }
+  if (outcome === 'skipped') {
+    await keepAsideAndRemove(edit);
+    return 'done';
+  }
   if (outcome.kind === 'refused') {
     // Retrying cannot make an out-of-library path safe; leave the file and move on.
     log.warn(
@@ -120,14 +149,16 @@ async function publishCanonical(
     );
     return 'kept';
   }
-  if (outcome.kind === 'error') {
-    log.warn(
-      { _id: String(assetId), sidecarRelPath, error: outcome.error },
-      'canonical sidecar not published — old-name sidecar left for retry',
-    );
-    return 'error';
-  }
-  return 'done';
+  if (outcome.kind === 'abandoned') return 'done';
+  log.warn(
+    {
+      _id: String(assetId),
+      sidecarRelPath,
+      error: 'error' in outcome ? outcome.error : outcome.kind,
+    },
+    'canonical sidecar not published — old-name sidecar left for retry',
+  );
+  return 'error';
 }
 
 function supersededByASend(
@@ -163,7 +194,7 @@ async function canonicalizeLocation(
       );
       return 'done';
     }
-    return await publishCanonical(assetId, location, primary, root, legacy, legacyBytes);
+    return await publishCanonical({ assetId, location, primary, root, legacy, bytes: legacyBytes });
   } catch (err) {
     log.error(
       { _id: String(assetId), legacy, err: err instanceof Error ? err.message : err },

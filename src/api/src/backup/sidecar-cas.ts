@@ -244,7 +244,8 @@ export async function publishSidecarIfAbsent(
     destination,
     async (resolved) => {
       if (!(await hooks.precondition())) return { kind: 'abandoned' };
-      if ((await readCurrent(resolved)) !== null) return 'skipped';
+      // Anything already at the name, readable or not, is an existing sidecar.
+      if ((await readCurrent(resolved).catch(() => 'unreadable')) !== null) return 'skipped';
       await hooks.beforeWrite();
       const created = await writeSidecarCreateOnly(resolved, xmp, 'sidecar write failed');
       if (created.ok) return 'written';

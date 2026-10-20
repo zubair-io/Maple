@@ -214,7 +214,7 @@ describe('a canonical send is a server-visible edit (#5021)', () => {
       live.db
         .query(`SELECT has_xmp, sidecar_ver FROM assets WHERE id = ?`)
         .get(photo.assetId.toHexString()),
-    ).toEqual({ has_xmp: 1, sidecar_ver: before.sidecar_ver + 1 });
+    ).toEqual({ has_xmp: 1, sidecar_ver: before.sidecar_ver + 2 });
     expect(
       live.db
         .query(`SELECT kind FROM asset_changes WHERE asset_id = ?`)
