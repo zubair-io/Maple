@@ -388,14 +388,22 @@ test('a takeover or deleted journal fences both trash and restore commits before
   expect(f.live.db.query('SELECT * FROM asset_locations').all()).toEqual(locations);
 });
 
-test('a merge sends the survivor back through the canonical-backup-sidecars migration (#5021)', async () => {
+test('a merge with a backed-up duplicate queues the survivor for the canonical-sidecar check (#5021)', async () => {
   const f = await fixture();
   using _database = f.live;
   const survivor = insertAsset(f.live.db);
   const condemned = insertAsset(f.live.db);
   insertLocation(f.live.db, { assetId: survivor, libraryId: f.libraryId });
   insertLocation(f.live.db, { assetId: condemned, libraryId: f.libraryId });
-  f.live.db.query('INSERT INTO backup_sidecar_names_migrated (asset_id) VALUES (?)').run(survivor);
+  f.live.db
+    .query(
+      `INSERT INTO asset_phasset_links (asset_id, device_id, phasset_local_id, first_seen)
+       VALUES (?, 'phone', 'P1', '2024-01-01')`,
+    )
+    .run(condemned);
+  f.live.db
+    .query('INSERT INTO backup_sidecar_name_checks (asset_id, checked) VALUES (?, 1)')
+    .run(survivor);
 
   await mergeIntoSurvivor({
     survivorId: survivor,
@@ -404,5 +412,7 @@ test('a merge sends the survivor back through the canonical-backup-sidecars migr
     dbOverride: f.live.handle,
   });
 
-  expect(f.live.db.query('SELECT asset_id FROM backup_sidecar_names_migrated').all()).toEqual([]);
+  expect(f.live.db.query('SELECT asset_id, checked FROM backup_sidecar_name_checks').all()).toEqual(
+    [{ asset_id: survivor, checked: 0 }],
+  );
 });
