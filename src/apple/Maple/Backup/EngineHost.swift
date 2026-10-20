@@ -108,17 +108,22 @@ public final class EngineHost {
       return
     }
     lastStartError = nil
-    // A newer start supersedes one still waiting for the helper's lock.
+    // A newer start supersedes one still waiting for the helper's lock. The
+    // generation is captured now, so a Stop issued while this start is still
+    // queued supersedes it too.
     engineLockWait?.cancel()
+    let generation = self.generation
     await lifecycle.run {
       await self.performStart(
-        settings: settings, serverBaseURL: serverBaseURL, retryFailed: retryFailed)
+        settings: settings, serverBaseURL: serverBaseURL, retryFailed: retryFailed,
+        generation: generation)
     }
   }
 
   private func performStart(
-    settings: BackupSettings, serverBaseURL: URL, retryFailed: Bool
+    settings: BackupSettings, serverBaseURL: URL, retryFailed: Bool, generation: UUID
   ) async {
+    guard generation == self.generation else { return }
     if progress.phase == .running && activeSettings == settings { return }
 
     // Surface "Starting…" to the panel before the (potentially slow)
@@ -126,9 +131,9 @@ public final class EngineHost {
     // tap registered. Flipped to `.running` once the runner is launched.
     progress.setPhase(.starting)
 
-    // Tear down any previous run (cancels retry tasks, then the runner).
+    // Tear down any previous run (cancels the runner, then its retries).
     await tearDown()
-    let generation = self.generation
+    guard generation == self.generation else { return }
     progress.setPhase(.starting)
 
     do {
@@ -180,7 +185,7 @@ public final class EngineHost {
       }
 
       await LocalNetworkResolver.shared.resolve(identity: serverBaseURL)
-      guard generation == self.generation, !Task.isCancelled else { return }
+      guard generation == self.generation else { return }
       let effectiveServerURL = LocalNetworkResolver.shared.effectiveURL(for: serverBaseURL)
       uploadAddress = effectiveServerURL
       usesLocalAddress =
@@ -216,11 +221,11 @@ public final class EngineHost {
       startPeriodicWalk(
         deviceId: deviceId, settings: settings,
         libraryId: settings.libraryId, serverBaseURL: serverBaseURL)
-      // Runner is live — flip the user-visible phase to Running.
+      // Runner is live — flip the user-visible phase to Running, clearing
+      // any failure an earlier, superseded start reported.
+      lastStartError = nil
       progress.setPhase(.running)
       // Own initial discovery here, after the queue and runner are ready.
-      // A second caller can return early while startup is in progress; it
-      // must not subscribe early and lose the initial walk to the phase gate.
       ChangeObserverWiring.start(
         deviceId: deviceId, settings: settings,
         libraryId: settings.libraryId, serverBaseURL: serverBaseURL,
@@ -298,6 +303,7 @@ public final class EngineHost {
     let waited = try await wait.value
     guard generation == self.generation else {
       waited.release()
+      lastStartError = nil
       return nil
     }
     lastStartError = nil
