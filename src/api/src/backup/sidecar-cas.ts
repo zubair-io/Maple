@@ -123,12 +123,15 @@ export async function publishSidecarCas(
   if (refused) return refused;
   return serializeSidecarWrite<SidecarCasOutcome>(
     destination,
-    async () => {
-      // Re-checked now, after waiting on the barrier: a folder swapped for an
-      // outward symlink meanwhile must not be read, kept or answered from.
+    async (resolved) => {
+      // Re-authorized after the barrier wait: the folder may now be an outward symlink.
       const allowed = await authorizeSidecarWrite(destination);
       if (!allowed.ok) return { kind: 'refused', error: allowed.error ?? 'path not allowed' };
       const target = allowed.data ?? destination;
+      // A path re-routed while queued wasn't the one these barrier keys cover.
+      if (path.resolve(target) !== path.resolve(resolved)) {
+        return { kind: 'error', error: 'sidecar path changed while waiting; retry' };
+      }
       const existing = await readCurrent(target);
       const created = existing === null ? await createIfAbsent(target, xmp) : null;
       if (created) return created;
@@ -140,8 +143,7 @@ export async function publishSidecarCas(
     },
     {
       admissionScope,
-      // Reserves the barrier keys of the resolved path too, so an alias of
-      // this sidecar queues behind the same writes.
+      // Also reserves the resolved path's barrier keys so aliases queue together.
       resolveDestination: async () => {
         const recheck = await authorizeSidecarWrite(destination);
         if (!recheck.ok) throw new RefusedPath(recheck.error ?? 'path not allowed');
