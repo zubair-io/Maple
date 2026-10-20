@@ -12,6 +12,10 @@ import { lstat, readFile, readlink, realpath, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { loadJailLibraryRoots } from '../indexer/libraries.cache.ts';
 import { parseRootList } from './root-list.ts';
+import {
+  mirrorGeneration as currentMirrorGeneration,
+  snapshotMirrorRoots,
+} from './mirror-registry.ts';
 
 export interface OpResult<T = undefined> {
   ok: boolean;
@@ -34,6 +38,165 @@ export function isWithinRoot(root: string, filePath: string): boolean {
  * cache is invalidated across the API and worker processes.
  */
 const _registeredRoots = new Set<string>();
+const MIRROR_PROBE_TIMEOUT_MS = 2_000;
+const MIRROR_RETRY_MS = 60_000;
+const PRIMARY_ALIAS_TIMEOUT_MS = 3_000;
+let mirrorGeneration = -1;
+const canonicalMirrors = new Map<string, string>();
+const mirrorProbes = new Map<string, { generation: number; bounded: Promise<string | null> }>();
+const benchedMirrors = new Map<string, number>();
+type RegistryPrimaryProbe = {
+  generation: number;
+  raw: Promise<string>;
+  bounded: Promise<string | null>;
+};
+const registryPrimaryProbes = new Map<string, RegistryPrimaryProbe>();
+
+function enabledRoots(): { primaries: string[]; mirrors: string[] } {
+  const snapshot = snapshotMirrorRoots();
+  const generation = currentMirrorGeneration();
+  if (generation !== mirrorGeneration) {
+    mirrorGeneration = generation;
+    canonicalMirrors.clear();
+    benchedMirrors.clear();
+  }
+  return {
+    primaries: Object.keys(snapshot),
+    mirrors: [...new Set(Object.values(snapshot).flat())],
+  };
+}
+
+async function primaryProbe(root: string): Promise<RegistryPrimaryProbe | null> {
+  const pending = registryPrimaryProbes.get(root);
+  if (pending) {
+    if (pending.generation !== mirrorGeneration) return null;
+    // A shared probe may have captured an alias target before this request began.
+    const canonical = await pending.bounded;
+    if (canonical === null || pending.generation !== mirrorGeneration) return null;
+    return primaryProbe(root);
+  }
+  const raw = resolveRealPathThroughAncestors(root);
+  const bounded = new Promise<string | null>((resolve) => {
+    const timer = setTimeout(() => resolve(null), PRIMARY_ALIAS_TIMEOUT_MS);
+    void raw.then(
+      (canonical) => {
+        clearTimeout(timer);
+        resolve(canonical);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });
+  const probe = { generation: mirrorGeneration, raw, bounded };
+  registryPrimaryProbes.set(root, probe);
+  void raw.then(
+    () => {
+      if (registryPrimaryProbes.get(root) === probe) registryPrimaryProbes.delete(root);
+    },
+    () => {
+      if (registryPrimaryProbes.get(root) === probe) registryPrimaryProbes.delete(root);
+    },
+  );
+  return probe;
+}
+
+async function canonicalPrimaryAllowed(
+  real: string,
+  requested: string,
+  roots: string[],
+): Promise<boolean> {
+  const lexical = roots.filter((root) => isWithinRoot(root, requested));
+  const candidates = lexical.length ? lexical : roots;
+  if (candidates.length === 0) return false;
+  return Promise.any(
+    candidates.map(async (root) => {
+      const probe = await primaryProbe(root);
+      if (!probe) throw new Error('Stale primary root probe');
+      const canonical = await (lexical.length ? probe.raw : probe.bounded);
+      if (canonical && isWithinRoot(canonical, real)) return true;
+      throw new Error('Not within primary root');
+    }),
+  ).catch(() => false);
+}
+
+/** An OS realpath call cannot be cancelled. Share one settling deadline per
+ * root so repeated requests cannot pile up calls or reactions on a wedged mount. */
+async function canonicalMirror(root: string): Promise<string | null> {
+  if ((benchedMirrors.get(root) ?? 0) > Date.now()) return Promise.resolve(null);
+  const pending = mirrorProbes.get(root);
+  if (pending) {
+    if (pending.generation !== mirrorGeneration) return null;
+    // Only a fresh probe can authorize after an in-place alias retarget.
+    const canonical = await pending.bounded;
+    if (canonical === null || pending.generation !== mirrorGeneration) return null;
+    return canonicalMirror(root);
+  }
+  const generationAtStart = mirrorGeneration;
+  const raw = resolveRealPath(root);
+  const deadline = new Promise<string | null>((resolve, reject) => {
+    const timer = setTimeout(() => resolve(null), MIRROR_PROBE_TIMEOUT_MS);
+    void raw.then(
+      (canonical) => {
+        clearTimeout(timer);
+        resolve(canonical);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+  const bounded = deadline.then(
+    (canonical) => {
+      if (canonical === null && mirrorGeneration === generationAtStart) {
+        benchedMirrors.set(root, Date.now() + MIRROR_RETRY_MS);
+      }
+      if (canonical !== null && mirrorGeneration === generationAtStart)
+        canonicalMirrors.set(root, canonical);
+      return canonical;
+    },
+    () => {
+      if (mirrorGeneration === generationAtStart)
+        benchedMirrors.set(root, Date.now() + MIRROR_RETRY_MS);
+      return null;
+    },
+  );
+  mirrorProbes.set(root, { generation: generationAtStart, bounded });
+  void raw.then(
+    () => {
+      if (mirrorProbes.get(root)?.bounded === bounded) mirrorProbes.delete(root);
+    },
+    () => {
+      if (mirrorProbes.get(root)?.bounded === bounded) mirrorProbes.delete(root);
+    },
+  );
+  return bounded;
+}
+
+async function allowedByMirror(real: string, requested: string, roots: string[]): Promise<boolean> {
+  const candidate = roots.filter((root) =>
+    [root, canonicalMirrors.get(root)].some(
+      (known) => known && (isWithinRoot(known, real) || isWithinRoot(known, requested)),
+    ),
+  );
+  const matches = (selected: string[]) =>
+    Promise.any(
+      selected.map(async (root) => {
+        const canonical = await canonicalMirror(root);
+        if (canonical && isWithinRoot(canonical, real)) return true;
+        throw new Error('Not within mirror root');
+      }),
+    ).catch(() => false);
+  if (candidate.length === 0) return roots.length > 0 && matches(roots);
+  if (candidate.length === roots.length) return matches(candidate);
+  // Prefer known candidates without letting a stale, stalled alias serialize
+  // healthy fallback roots. Mirror probes share their bounded work per root.
+  const first = matches(candidate);
+  if ((await Promise.race([first, Bun.sleep(25).then(() => null)])) === true) return true;
+  return matches(roots);
+}
 let envRootsCache:
   | {
       value: string | undefined;
@@ -270,6 +433,8 @@ async function resolvePathAndLanding(
  * Fails closed when no roots are known.
  */
 export async function checkAllowed(filePath: string): Promise<OpResult<string>> {
+  const { primaries, mirrors } = enabledRoots();
+  const generationAtStart = mirrorGeneration;
   const resolution = await resolvePathAndLanding(filePath);
   if (resolution === null) return { ok: false, error: `Cannot resolve "${filePath}".` };
   const { real, landing } = resolution;
@@ -285,12 +450,26 @@ export async function checkAllowed(filePath: string): Promise<OpResult<string>> 
   const allowedRoots = [
     ...explicitRoots,
     ...[...libraryRoots.values()].map((root) => path.resolve(root)),
+    ...primaries,
+    ...mirrors,
   ];
-  const results = await Promise.all(
-    requiresPrimary.map((candidate) => allowedByPrimary(candidate, requested, libraryRoots)),
-  );
+  const permitted = (candidate: string) =>
+    Promise.any(
+      [
+        allowedByPrimary(candidate, requested, libraryRoots),
+        canonicalPrimaryAllowed(candidate, requested, primaries),
+        allowedByMirror(candidate, requested, mirrors),
+      ].map(async (work) => {
+        if (await work) return true;
+        throw new Error('Configured root does not contain path');
+      }),
+    ).catch(() => false);
+  const results = await Promise.all(requiresPrimary.map(permitted));
   if ((await loadJailLibraryRoots().catch(() => null)) !== libraryRoots)
     return { ok: false, error: 'Library roots changed during authorization' };
+  enabledRoots();
+  if (mirrorGeneration !== generationAtStart)
+    return { ok: false, error: 'Mirror configuration changed during authorization' };
   const outside = requiresPrimary.find((_, index) => !results[index]);
   if (outside === undefined) return { ok: true, data: real };
   return {
