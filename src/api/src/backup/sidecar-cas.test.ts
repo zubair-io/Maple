@@ -8,7 +8,7 @@ import { expect, test } from 'bun:test';
 import path from 'node:path';
 import * as fs from '../fs/mirrored.ts';
 import { createTempLibrary } from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { publishSidecarCas } from './sidecar-cas.ts';
+import { publishSidecarCas, publishSidecarIfAbsent } from './sidecar-cas.ts';
 
 const keepNothing = async () => async () => undefined;
 
@@ -40,4 +40,14 @@ test('the after-landing hook sees the published sidecar before the next publish 
   await Promise.all([first, second]);
 
   expect(seen).toEqual(['first']);
+});
+
+test('a create-only publish whose precondition no longer holds writes nothing', async () => {
+  using library = await createTempLibrary('maple-cas-hooks-');
+  const sidecar = path.join(library.root, 'IMG.xmp');
+
+  const outcome = await publishSidecarIfAbsent(sidecar, 'stale', library.root, async () => false);
+
+  expect(outcome).toEqual({ kind: 'abandoned' });
+  await expect(fs.access(sidecar)).rejects.toThrow();
 });
