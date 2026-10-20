@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { GoogleConnectionError } from './google/config.ts';
-import { isDriveConnectionFailure } from './google/client.ts';
+import { GoogleDriveError, isDriveConnectionFailure } from './google/client.ts';
 import * as path from 'node:path';
 import { BackupRepository, type BackupDestination, type BackupEntry } from './repository.ts';
 import {
@@ -118,7 +118,14 @@ async function removeStaleEntryObject(
 function connectionFailure(error: unknown): boolean {
   return error instanceof GoogleConnectionError || isDriveConnectionFailure(error);
 }
+function destinationOutage(error: unknown): boolean {
+  return (
+    error instanceof GoogleConnectionError ||
+    (error instanceof GoogleDriveError && (error.status === 0 || error.status >= 500))
+  );
+}
 export class BackupEngine {
+  private readonly probeHealthy = new Map<string, boolean>();
   constructor(
     readonly provider: ProviderFactory,
     readonly repo: BackupRepository = new BackupRepository(),
@@ -362,6 +369,7 @@ export class BackupEngine {
       await this.validateCurrentInventory(ctx, location, files);
       return await this.publishCatalog(ctx, location, objects);
     } catch (error) {
+      if (destinationOutage(error)) this.probeHealthy.delete(destination.id);
       await repo.fail(
         initial,
         owner,
@@ -385,7 +393,6 @@ export class BackupEngine {
       return;
     }
   }
-  private readonly probeHealthy = new Map<string, boolean>();
   /** Re-arms parked entries on a probe's recovery edge only; failing ones keep backoff (#5038). */
   async rearmParkedConnections(signal?: AbortSignal): Promise<void> {
     for (const destination of await this.repo.destinations()) {
