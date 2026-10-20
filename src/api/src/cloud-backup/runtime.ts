@@ -11,6 +11,8 @@ export async function maintainBackup(signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted();
   await reconcileLifecycle(backupEngine.repo);
   signal?.throwIfAborted();
+  await backupEngine.rearmParkedConnections(signal);
+  signal?.throwIfAborted();
   const destinations = await backupEngine.repo.destinations();
   for (const destination of destinations) {
     signal?.throwIfAborted();
