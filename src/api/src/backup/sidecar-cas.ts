@@ -212,7 +212,7 @@ export async function publishSidecarIfAbsent(
   destination: string,
   xmp: string,
   admissionScope: string,
-  precondition: () => Promise<boolean> = async () => true,
+  precondition: () => Promise<boolean>,
 ): Promise<'written' | 'skipped' | SidecarCasOutcome> {
   const refused = await prepareDestination(destination);
   if (refused) return refused;
