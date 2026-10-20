@@ -97,25 +97,126 @@ fn recovers_a_pixel_isotropic_lens_residual_on_square_and_wide_frames() {
 #[test]
 fn affine_keystone_and_projective_scenes_keep_a_zero_radial_term() {
     let (tw, th) = (1024, 683);
-    let affine = |u: f64, v: f64| [1.016 * u - 0.0079, 1.016 * v - 0.0071];
-    let shift = |u: f64, v: f64| [u + 3. / 1024., v];
-    let keystone = |u: f64, v: f64| [0.5 + (u - 0.5) * (1. + 0.03 * (v - 0.5)), v];
+    let scale = |[u, v]: [f64; 2]| [1.016 * u - 0.0079, 1.016 * v - 0.0071];
+    let keystone = |u: f64, v: f64| scale([0.5 + (u - 0.5) * (1. + 0.03 * (v - 0.5)), v]);
     let projective = |u: f64, v: f64| {
         let w = 1. + 0.02 * (u - 0.5) + 0.015 * (v - 0.5);
-        [0.5 + (u - 0.5) / w, 0.5 + (v - 0.5) / w]
+        scale([0.5 + (u - 0.5) / w, 0.5 + (v - 0.5) / w])
     };
+    let affine = |u: f64, v: f64| scale([u, v]);
     for (name, truth) in [
         ("affine", &affine as &dyn Fn(f64, f64) -> [f64; 2]),
-        ("shift", &shift),
         ("keystone", &keystone),
         ("projective", &projective),
     ] {
-        if let Some(found) = register_frame(tw, th, |u, v| truth(u, v)) {
-            assert_eq!(found.radial, 0., "{name}: {found:?}");
-        }
+        let found = register_frame(tw, th, truth).expect("the scaled scene must register");
+        assert_eq!(found.radial, 0., "{name}: {found:?}");
     }
     let found = register_frame(tw, th, affine).expect("an affine scene must register");
     assert!(worst_error_px(found, affine, tw, th) < 0.3, "{found:?}");
+}
+
+#[test]
+fn keystone_on_top_of_a_lens_residual_is_rejected_or_still_helps() {
+    let (tw, th) = (1024, 683);
+    let truth = Warp {
+        coefficients: [1.016, 0., -0.0079, 0., 1.016, -0.0071],
+        radial: -0.008,
+        aspect: Warp::aspect_of(tw, th),
+    };
+    let composite = |u: f64, v: f64| truth.map(0.5 + (u - 0.5) * (1. + 0.02 * (v - 0.5)), v);
+    let found = register_frame(tw, th, composite).expect("the scaled scene must register");
+    let without_radial = Warp {
+        radial: 0.,
+        ..found
+    };
+    // Unmodelled keystone may bias k; an accepted term must still help.
+    assert!(
+        found.radial == 0.
+            || (found.radial * truth.radial > 0.
+                && worst_error_px(found, composite, tw, th)
+                    < worst_error_px(without_radial, composite, tw, th)),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_texture_poor_half_does_not_veto_a_lens_residual() {
+    let (tw, th) = (1024, 683);
+    let truth = Warp {
+        coefficients: [1.016, 0., -0.0079, 0., 1.016, -0.0071],
+        radial: -0.008,
+        aspect: Warp::aspect_of(tw, th),
+    };
+    let sky = |u: f64, v: f64| {
+        if v < 0.45 {
+            0.8 + 0.002 * (u * 40.).sin()
+        } else {
+            0.7 * scene(u, v) + 0.1
+        }
+    };
+    let image = |map: &dyn Fn(f64, f64) -> [f64; 2]| {
+        let (nx, ny) = (256, 256);
+        let pixels = (0..ny)
+            .flat_map(|gy| (0..nx).map(move |gx| (gx, gy)))
+            .map(|(gx, gy)| {
+                let (u, v) = (
+                    ((2 * gx + 1) * tw / (2 * nx)) as f64 / tw as f64,
+                    ((2 * gy + 1) * th / (2 * ny)) as f64 / th as f64,
+                );
+                let p = map(u, v);
+                sky(p[0], p[1])
+            })
+            .collect();
+        Gray {
+            width: nx,
+            height: ny,
+            pixels,
+        }
+    };
+    let found = register(
+        image(&|u, v| [u, v]),
+        image(&|u, v| truth.map(u, v)),
+        Warp::aspect_of(tw, th),
+    )
+    .expect("the scene must register")
+    .warp;
+    assert!(
+        (found.radial - truth.radial).abs() < 0.15 * truth.radial.abs(),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn jacobian_matches_finite_differences_of_the_map() {
+    for i in 0..500u64 {
+        let r = |k: u64| (hash(i * 7 + k) % 10_000) as f64 / 10_000.;
+        let warp = Warp {
+            coefficients: [
+                0.98 + 0.04 * r(1),
+                0.01 * (r(2) - 0.5),
+                0.01 * (r(3) - 0.5),
+                0.01 * (r(4) - 0.5),
+                0.98 + 0.04 * r(5),
+                0.01 * (r(6) - 0.5),
+            ],
+            radial: 0.05 * (r(7) - 0.5),
+            aspect: [0.5 + 0.5 * r(8), 0.5 + 0.5 * r(9)],
+        };
+        let (u, v) = (r(10), r(11));
+        let h = 1e-6;
+        let [du0, du1] = [warp.map(u + h, v), warp.map(u - h, v)];
+        let [dv0, dv1] = [warp.map(u, v + h), warp.map(u, v - h)];
+        let numeric = [
+            (du0[0] - du1[0]) / (2. * h),
+            (dv0[0] - dv1[0]) / (2. * h),
+            (du0[1] - du1[1]) / (2. * h),
+            (dv0[1] - dv1[1]) / (2. * h),
+        ];
+        for (a, b) in warp.jacobian(u, v).iter().zip(numeric) {
+            assert!((a - b).abs() < 1e-7, "{warp:?} at ({u}, {v})");
+        }
+    }
 }
 
 #[test]
