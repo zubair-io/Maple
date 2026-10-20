@@ -146,13 +146,15 @@ public actor UploadClient {
   ///   `X-Maple-Sidecar-Base`, which opts into the server's compare-and-swap:
   ///   a newer edit always lands, and a version it replaces without having
   ///   been based on is kept server-side rather than lost.
+  /// - Returns: whether the server stored it under the canonical name it reads (#5021).
+  @discardableResult
   public func uploadSidecar(
     phassetLocalId: String,
     targetRelPath: String,
     xmp: String,
     mapleId: String? = nil,
     basedOn: String?
-  ) async throws {
+  ) async throws -> Bool {
     let url =
       baseURL
       .appendingPathComponent("api")
@@ -185,12 +187,19 @@ public actor UploadClient {
       )
       throw UploadError.httpError(statusCode: http.statusCode, body: snippet)
     }
-    if (try? JSONDecoder().decode(SidecarReply.self, from: data))?.skipped == true {
+    let reply = try? JSONDecoder().decode(SidecarReply.self, from: data)
+    if reply?.skipped == true {
       throw UploadError.sidecarNotStored
     }
+    // A server from before #5021 reports the old `IMG.HEIC.xmp`, which it never reads.
+    return reply?.target_rel_path.map { $0 == BackupSidecarName.canonical(for: targetRelPath) }
+      ?? true
   }
 
-  private struct SidecarReply: Decodable { let skipped: Bool? }
+  private struct SidecarReply: Decodable {
+    let skipped: Bool?
+    let target_rel_path: String?
+  }
 
   /// Upload `bytes` to the ingest endpoint, splitting into `chunkSize`
   /// chunks. The final chunk carries `X-Maple-Maple-Id` for dedup;
