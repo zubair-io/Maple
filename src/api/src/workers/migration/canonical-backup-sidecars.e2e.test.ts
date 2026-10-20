@@ -218,6 +218,18 @@ describe('canonical-backup-sidecars', () => {
     ).toEqual({ has_xmp: 1, sidecar_ver: 1 });
   });
 
+  it('moves an edit written under an older Maple namespace', async () => {
+    using library = await backupLibrary('canon-old-ns-');
+    const older = '<x:xmpmeta xmlns:maple="https://maple.app/ns/1.0/">older</x:xmpmeta>';
+    await write(library, 'IMG_12.HEIC', 'pixels');
+    await write(library, 'IMG_12.HEIC.xmp', older);
+    backupPhoto(library, 'IMG_12.HEIC');
+
+    await runTick();
+
+    expect(await read(library, 'IMG_12.xmp')).toBe(older);
+  });
+
   it('counts down to nothing remaining once every backup photo is handled', async () => {
     using library = await backupLibrary('canon-count-');
     await write(library, 'IMG_7.HEIC', 'pixels');
