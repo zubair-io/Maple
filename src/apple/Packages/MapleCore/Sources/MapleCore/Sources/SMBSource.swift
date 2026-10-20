@@ -68,6 +68,7 @@ public actor SMBSource {
   var client: SMB2Manager?
   private var credentials: Credentials?
   private var _assets: [SMBAsset] = []
+  nonisolated let listingID = UUID()
 
   /// Per-share maple_id cache (#1995), rooted at the connected
   /// `remotePath` — `<remotePath>/.maple/id-cache-apple.json`. `nil` until
@@ -505,7 +506,7 @@ extension SMBSource: ImageSource {
       let id = await mapleId(for: a) ?? a.path
       if freshPathByMapleId[id] != nil { freshAmbiguousIds.insert(id) }
       freshPathByMapleId[id] = a.path
-      refs.append(ImageRef(id: id, displayName: a.name, smbPath: a.path))
+      refs.append(ImageRef(id: id, displayName: a.name, smbPath: a.path, smbSourceID: listingID))
     }
     pathByMapleId = freshPathByMapleId
     ambiguousMapleIds = freshAmbiguousIds
@@ -547,23 +548,4 @@ extension SMBSource: ImageSource {
 
   /// SMB shares have no server-side index.
   public func search(_ query: SearchQuery) async throws -> [ImageRef]? { nil }
-}
-
-// MARK: - SMBError
-
-public enum SMBError: Error, LocalizedError {
-  case invalidServerURL(String)
-  case notConnected
-  case writeFailedAfterRetries
-  case ambiguousLocation(String)
-
-  public var errorDescription: String? {
-    switch self {
-    case .invalidServerURL(let h): return "Invalid SMB server URL: \(h)"
-    case .notConnected: return "Not connected to SMB share"
-    case .writeFailedAfterRetries: return "SMB sidecar write failed after retries"
-    case .ambiguousLocation(let name):
-      return "\(name) has identical copies on this share. Reopen the folder and try again."
-    }
-  }
 }

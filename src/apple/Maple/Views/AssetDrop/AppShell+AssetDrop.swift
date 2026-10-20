@@ -80,11 +80,19 @@ extension AppShell {
         }
         let dragged = ids.compactMap { assetsByID[$0] }
         guard !dragged.isEmpty else { return }
+        // The whole batch stays on the share it started on (#4987).
+        let smbBinding: SMBDropBinding? = {
+            guard let source = browseVM.currentSource as? SMBSource,
+                case .smbShare(let share) = librarySelection
+            else { return nil }
+            return SMBDropBinding(source: source, share: share)
+        }()
         assetDropTask = Task { @MainActor in
             var results: [AssetDropItemResult] = []
             var movedOutIDs: Set<AssetRef.ID> = []
             for asset in dragged {
-                let outcome = await performAssetDropItem(asset, destination: destination, mode: mode)
+                let outcome = await performAssetDropItem(
+                    asset, destination: destination, mode: mode, smbBinding: smbBinding)
                 results.append(AssetDropItemResult(id: asset.id, displayName: asset.displayName, outcome: outcome))
                 if mode == .move, outcome == .moved {
                     movedOutIDs.insert(asset.id)
@@ -114,7 +122,8 @@ extension AppShell {
     /// (out of scope: the design doc's routing table names three ENGINES,
     /// not a general file-copy-between-any-two-sources capability).
     private func performAssetDropItem(
-        _ asset: AssetRef, destination: AssetDropDestination, mode: RelocateMode
+        _ asset: AssetRef, destination: AssetDropDestination, mode: RelocateMode,
+        smbBinding: SMBDropBinding?
     ) async -> AssetDropItemResult.Outcome {
         if isPhotoKitAsset(asset) {
             return .failed(
@@ -132,11 +141,11 @@ extension AppShell {
             }
             return await performLocalDrop(asset, url: url, destination: destination, mode: mode)
         }
-        if browseVM.currentSource is SMBSource {
+        if let smbBinding {
             guard case .smb = destination else {
                 return .failed("This photo is on an SMB share — it can only be dropped onto that share.")
             }
-            return await performSMBDrop(asset, destination: destination, mode: mode)
+            return await performSMBDrop(asset, destination: destination, mode: mode, binding: smbBinding)
         }
         return .failed("This source doesn't support move or copy yet.")
     }
@@ -202,13 +211,15 @@ extension AppShell {
     /// destination is the connected share's root ("/") — enforced by
     /// `AssetDropDestination.smb` carrying only a `SavedShare`, no path.
     private func performSMBDrop(
-        _ asset: AssetRef, destination: AssetDropDestination, mode: RelocateMode
+        _ asset: AssetRef, destination: AssetDropDestination, mode: RelocateMode,
+        binding: SMBDropBinding
     ) async -> AssetDropItemResult.Outcome {
         guard case .smb(let share) = destination else { return .failed("Invalid SMB destination") }
-        guard case .smbShare(let currentShare) = librarySelection, currentShare == share else {
+        guard binding.share == share else {
             return .failed("Dragging between different SMB shares isn't supported yet.")
         }
-        guard let source = browseVM.currentSource as? SMBSource, let ref = asset.smbMutationRef else {
+        let source = binding.source
+        guard let ref = asset.smbMutationRef else {
             return .failed("SMB share is not connected")
         }
         do {

@@ -14,6 +14,11 @@ extension SMBSource {
   /// location-less reference whose content id was listed at several paths
   /// would otherwise resolve to whichever copy was listed last (#4705).
   func mutationPath(for ref: ImageRef) throws -> String {
+    // A path names a file only on the share that listed it; the app opens one source per
+    // share, so a ref from another source may name a stranger at the same path (#4987).
+    guard ref.smbSourceID == nil || ref.smbSourceID == listingID else {
+      throw SMBError.foreignShare(ref.displayName)
+    }
     if let located = relocatedPaths[ref] ?? ref.smbPath { return located }
     guard !ambiguousMapleIds.contains(ref.id) else {
       throw SMBError.ambiguousLocation(ref.displayName)

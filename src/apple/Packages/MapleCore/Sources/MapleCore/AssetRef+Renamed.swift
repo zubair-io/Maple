@@ -5,7 +5,9 @@ extension AssetRef {
   /// to `SMBSource`, carrying the listed location so a byte-identical copy
   /// elsewhere on the share is never the one touched (#4705).
   public var smbMutationRef: ImageRef? {
-    stableID.map { ImageRef(id: $0, displayName: displayName, smbPath: smbPath) }
+    stableID.map {
+      ImageRef(id: $0, displayName: displayName, smbPath: smbPath, smbSourceID: smbSourceID)
+    }
   }
 
   /// Bind original delivery to the rename engine's confirmed share-relative
@@ -14,12 +16,13 @@ extension AssetRef {
   {
     guard let stableID, let bytesProvider else { throw ImageSourceError.notFound(displayName) }
     let ext = (filename as NSString).pathExtension.lowercased()
-    let ref = ImageRef(id: stableID, displayName: filename, smbPath: path)
+    let ref = ImageRef(id: stableID, displayName: filename, smbPath: path, smbSourceID: smbSourceID)
     return AssetRef(
       displayName: filename, hintExtension: ext.isEmpty ? nil : ext,
       stableID: stableID, captureDate: captureDate, explicitIsRaw: explicitIsRaw,
       thumbnailProvenance: thumbnailProvenance, displayPreviewProvider: displayPreviewProvider,
       smbPath: path,
+      smbSourceID: smbSourceID,
       originalFileWriter: { try await source.writeOriginal(for: ref, to: $0) },
       bytesProvider: bytesProvider)
   }

@@ -41,6 +41,9 @@ public struct ImageRef: Sendable, Hashable, Identifiable, Codable {
   /// remote I/O must address the specific listed file without a synthetic URL.
   public let smbPath: String?
 
+  /// The SMB connection that listed `smbPath`. A path names a file only on its own share.
+  public let smbSourceID: UUID?
+
   /// Bookmark-resolved ancestor URL that grants security-scoped access to
   /// `url`. Populated by filesystem-shaped sources (FilesystemSource) so
   /// downstream consumers (ImageEditPipeline, ThumbnailLoader) can wrap
@@ -104,6 +107,7 @@ public struct ImageRef: Sendable, Hashable, Identifiable, Codable {
     displayName: String,
     url: URL? = nil,
     smbPath: String? = nil,
+    smbSourceID: UUID? = nil,
     scopeParentURL: URL? = nil,
     captureDate: Date? = nil,
     phassetLink: String? = nil,
@@ -115,6 +119,7 @@ public struct ImageRef: Sendable, Hashable, Identifiable, Codable {
     self.displayName = displayName
     self.url = url
     self.smbPath = smbPath
+    self.smbSourceID = smbSourceID
     self.scopeParentURL = scopeParentURL
     self.captureDate = captureDate
     self.phassetLink = phassetLink
