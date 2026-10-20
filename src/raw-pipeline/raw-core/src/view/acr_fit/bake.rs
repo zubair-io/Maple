@@ -126,9 +126,9 @@ pub fn bake_acr_model_lut(model: &AcrModel, n: usize) -> ColorLut {
 /// `ColorLut` carrying the model's full tonescale+field correction. A host
 /// composing/sampling this pair via `bake_auto_profile_lut` /
 /// `apply_curve`-then-`ColorLut::apply` gets exactly [`bake_acr_model_lut`]'s
-/// output — the identity curve is a no-op at every node (verified by
-/// `auto_profile::bake`'s own
-/// `compose_with_identity_residual_matches_curve_only_within_epsilon`).
+/// output only when the artifact boundary omits the identity cache marker.
+/// `apply_curve` retains its legacy highlight knee even for identity anchors;
+/// Auto 2 therefore exposes only the residual as an active rendering stage.
 pub fn acr_model_as_profile_artifacts(
     model: &AcrModel,
     n: usize,

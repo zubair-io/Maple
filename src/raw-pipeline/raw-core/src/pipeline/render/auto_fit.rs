@@ -21,6 +21,7 @@ use crate::pipeline::develop_sized::develop_scene_linear_sized_from_raw_with_qua
 use crate::pipeline::{stage, RenderQuality};
 use crate::stages::{color_grade, grain};
 use crate::types::adjustment::Profile;
+use crate::view::auto_profile::apply_pipeline::render_curve;
 use crate::view::auto_profile::cache::{CacheKey, FitOrigin};
 use crate::view::auto_profile::curve::ProfileCurve;
 use crate::view::auto_profile::lut::ColorLut;
@@ -355,6 +356,7 @@ pub fn fit_auto_profile_from_raw_at_cap(
         }
     };
 
+    let curve = render_curve(curve);
     if curve.is_none() && residual.is_none() {
         return None;
     }
@@ -412,7 +414,7 @@ pub fn cached_auto_profile_fit(
     } else {
         cached_lut.map(|l| l.with_strength(k))
     };
-    Some((Some(cached_curve), residual))
+    Some((render_curve(Some(cached_curve)), residual))
 }
 
 /// The CPU render path's Auto Profile stage (#1085): obtain the (pinned-fit)
@@ -504,14 +506,14 @@ fn fit_artifacts_from_pinned_develop(
     let cached_lut = if lut_disabled { None } else { cached_lut };
     // Everything needed is cached → no develop.
     if cached_curve.is_some() && (lut_disabled || cached_lut.is_some()) {
-        return (cached_curve, cached_lut);
+        return (render_curve(cached_curve), cached_lut);
     }
     // No embedded preview → nothing beyond the cache can be fit.
     let Some(preview) = preview else {
-        return (cached_curve, cached_lut);
+        return (render_curve(cached_curve), cached_lut);
     };
     let Ok(mut side) = develop_display_for_auto_fit(raw, model, quality, max_long_edge) else {
-        return (cached_curve, cached_lut);
+        return (render_curve(cached_curve), cached_lut);
     };
     let (w, h) = (side.width as usize, side.height as usize);
     let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut side.pixels);

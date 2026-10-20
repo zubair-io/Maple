@@ -45,6 +45,11 @@ pub fn auto1_enabled_by_env() -> bool {
         .unwrap_or(false)
 }
 
+pub(crate) fn render_curve(curve: Option<ProfileCurve>) -> Option<ProfileCurve> {
+    // Auto 2 caches an identity marker, whose legacy highlight knee is not part of its fitted tail.
+    curve.filter(|_| auto1_enabled_by_env())
+}
+
 /// Fit (or reuse from cache) the Auto Profile artifacts from the pinned fit
 /// buffer `pixels` (interleaved RGB f32, `DisplayEncodedSrgb`, `w × h`,
 /// sensor-oriented), applying the CURVE in place along the way:
@@ -171,8 +176,8 @@ fn fit_via_acr2(
     cached_curve: Option<ProfileCurve>,
     cached_lut: Option<ColorLut>,
 ) -> (Option<ProfileCurve>, Option<ColorLut>) {
-    if let (Some(c), Some(l)) = (&cached_curve, &cached_lut) {
-        return (Some(c.clone()), Some(l.clone()));
+    if let (Some(_), Some(l)) = (&cached_curve, &cached_lut) {
+        return (None, Some(l.clone()));
     }
     let Some(p) = preview else {
         return (None, None);
@@ -206,7 +211,7 @@ fn fit_via_acr2(
         cache::insert(key.clone(), c.clone());
         cache::insert_lut(key.clone(), l.clone());
     }
-    (curve, residual)
+    (None, residual)
 }
 
 /// Apply the FULL Auto Profile tail in place to `pixels` — the CPU render

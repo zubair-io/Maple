@@ -253,11 +253,9 @@ fn fixture_fit_matches_cube_when_present() {
     };
 
     // Reconstruct the two-pass artifacts and compare on the probe set.
-    let parsed_curve = if present == 1 {
-        ProfileCurve::from_flat(&curve).expect("surfaced curve must parse")
-    } else {
-        ProfileCurve::identity()
-    };
+    assert_eq!(present, 0, "Auto 2 has no separate curve pass");
+    let parsed_curve =
+        (present == 1).then(|| ProfileCurve::from_flat(&curve).expect("surfaced curve must parse"));
     let residual = if size > 0 {
         let nn = size as usize;
         ColorLut {
@@ -271,7 +269,9 @@ fn fixture_fit_matches_cube_when_present() {
     let mut max_delta = 0.0f32;
     for p in probe_values() {
         let mut rgb = p.to_vec();
-        raw_core::view::auto_profile::apply_curve(&mut rgb, &parsed_curve);
+        if let Some(curve) = &parsed_curve {
+            raw_core::view::auto_profile::apply_curve(&mut rgb, curve);
+        }
         let two_pass = if size > 0 {
             residual.sample([rgb[0], rgb[1], rgb[2]])
         } else {

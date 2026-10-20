@@ -8,7 +8,6 @@
 //! expected bytes is possible only via the cache. No fixture needed.
 
 use super::*;
-use raw_core::view::auto_profile::bake_auto_profile_lut;
 use raw_core::view::auto_profile::curve::ProfileCurve;
 use raw_core::view::auto_profile::lut::ColorLut;
 
@@ -60,11 +59,13 @@ fn cached_fit_bakes_without_file_read_and_respects_quality() {
         rc, 0,
         "a fully-cached fit must bake without touching the (undecodable) file"
     );
-    let expected = bake_auto_profile_lut(&cached_curve, &cached_residual, 9);
+    let mut expected = ColorLut::identity(9).data;
+    cached_residual.apply(&mut expected);
     assert_eq!(
         out, expected,
-        "the baked cube must compose exactly the cached artifacts"
+        "Auto 2 must apply its residual without the cache marker's highlight knee"
     );
+    assert_eq!(&out[out.len() - 3..], &[1.; 3]);
 
     // Preview quality → DIFFERENT key (the #2035 discriminant) → miss → the
     // real read+decode runs and fails on the garbage bytes. Pre-#2035 this
