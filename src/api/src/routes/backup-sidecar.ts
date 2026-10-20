@@ -53,6 +53,7 @@ import { child as childLogger } from '../log.ts';
 import path from 'node:path';
 import { xmpSidecarPath } from '../fs/xmp.ts';
 import { sidecarStemClaimedBySibling } from '../fs/sidecar-ownership.ts';
+import { settleBackupSidecarSend, type LandedBackupSidecar } from '../backup/legacy-sidecar.ts';
 import {
   parseSidecarBase,
   publishSidecarCas,
@@ -176,6 +177,16 @@ async function publishBackupSidecarCas(
   return { status: 200, body };
 }
 
+/** Every 200 but a skip leaves the device's edit on disk or kept aside (#5021). */
+async function settleLanded(
+  result: { status: number; body: Record<string, unknown> },
+  landed: Omit<LandedBackupSidecar, 'changed'>,
+): Promise<void> {
+  if (result.status !== 200 || 'skipped' in result.body) return;
+  const changed = !('unchanged' in result.body) && !('shared' in result.body);
+  await settleBackupSidecarSend({ ...landed, changed });
+}
+
 export const backupSidecarRoutes = new Elysia().post(
   '/api/libraries/:libraryId/backup/sidecar',
   async ({ params, headers, body, set }) => {
@@ -250,28 +261,33 @@ export const backupSidecarRoutes = new Elysia().post(
       return { error: 'path escape detected' };
     }
 
+    const xmp = buf.toString('utf8');
     const baseHeader = headers['x-maple-sidecar-base'];
-    if (baseHeader !== undefined) {
-      const result = await publishBackupSidecarCas({
-        finalPath,
-        targetRelPath,
-        sidecarRelPath,
-        xmp: buf.toString('utf8'),
-        baseHeader,
-        assetId: asset,
-        libraryId,
-        deviceId,
-        libraryRoot: folder.path,
-        phid,
-      });
-      set.status = result.status;
-      return result.body;
-    }
-
-    // SKIP-IF-EXISTS: a dedup re-upload from a second device must not clobber
-    // the first device's (possibly already-edited) sidecar (#698). Clients that
-    // name a base take the compare-and-swap path above instead.
-    const result = await publishLegacySidecar(finalPath, sidecarRelPath, buf, folder.path, phid);
+    // SKIP-IF-EXISTS without a base: a dedup re-upload from a second device must
+    // not clobber the first device's (possibly already-edited) sidecar (#698).
+    const result =
+      baseHeader === undefined
+        ? await publishLegacySidecar(finalPath, sidecarRelPath, buf, folder.path, phid)
+        : await publishBackupSidecarCas({
+            finalPath,
+            targetRelPath,
+            sidecarRelPath,
+            xmp,
+            baseHeader,
+            assetId: asset,
+            libraryId,
+            deviceId,
+            libraryRoot: folder.path,
+            phid,
+          });
+    await settleLanded(result, {
+      primary: path.join(folder.path, targetRelPath),
+      xmp,
+      assetId: asset,
+      libraryId,
+      sidecarRelPath,
+      deviceId,
+    });
     set.status = result.status;
     return result.body;
   },
