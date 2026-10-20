@@ -191,3 +191,43 @@ test('other infrastructure errors keep their own message', () => {
   assert.match(outcome.description, /socket hang up/);
   assert.doesNotMatch(outcome.description, /quota/);
 });
+
+test('auth status nested on cause, response.data or error still fails loudly', () => {
+  const nested = [
+    new Error('Jules API error: request failed', { cause: { status: 403 } }),
+    Object.assign(new Error('request failed'), { response: { data: { error: { status: 401 } } } }),
+    Object.assign(new Error('request failed'), { error: { status: 403 } }),
+    Object.assign(new Error('request failed'), { cause: { response: { status: 401 } } }),
+  ];
+  for (const error of nested) {
+    const outcome = resolveOutcome({ kind: 'failure', error });
+    assert.equal(outcome.failJob, true);
+    assert.equal(outcome.state, 'error');
+  }
+});
+
+test('a cyclic error graph does not hang detection', () => {
+  const error = new Error('request failed');
+  error.cause = error;
+  assert.equal(resolveOutcome({ kind: 'failure', error }).failJob, false);
+});
+
+test('unrelated errors are not labeled as quota', () => {
+  for (const message of [
+    'HTTP 502 Bad Gateway: unexpected quotation in upstream response',
+    'Jules session timed out after 429 s',
+    'socket hang up for session sessions/1234/429/x',
+  ]) {
+    const outcome = resolveOutcome({ kind: 'failure', error: new Error(message) });
+    assert.doesNotMatch(outcome.description, /quota or source precondition/, message);
+  }
+});
+
+test('spelling variants and bare quota get the matching precise label', () => {
+  const label = (message) =>
+    resolveOutcome({ kind: 'failure', error: new Error(message) }).description;
+  assert.match(label('failed precondition'), /\(FAILED_PRECONDITION\)/);
+  assert.match(label('Resource exhausted'), /\(quota\)/);
+  assert.match(label('HTTP 429 Too Many Requests'), /\(quota\)/);
+  assert.match(label('daily quota exceeded'), /\(quota\)/);
+});
