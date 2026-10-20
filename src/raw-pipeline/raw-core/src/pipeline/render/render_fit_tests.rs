@@ -169,3 +169,60 @@ fn display_p3_render_cannot_fit_the_shared_auto_tail_from_p3_pixels() {
     );
     assert_eq!(std::fs::read(path).expect("original reread"), bytes);
 }
+
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn display_p3_default_render_applies_the_same_auto_tail_as_srgb() {
+    use crate::view::encode::TargetPrimaries;
+    let _guard = cache::test_lock();
+    let path = crate::test_support::fixtures::require_raw("test_0002.dng");
+    let bytes = std::fs::read(&path).expect("physical RAW");
+    let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode fixture");
+    let model = AdjustmentModel::default();
+    let quality = RenderQuality::Preview;
+    cache::clear_for_test();
+    cache::clear_lut_for_test();
+    let (rendered, context) = super::super::render_display_scene_with_context(
+        &raw,
+        &model,
+        quality,
+        Some(RawInput::Bytes {
+            bytes: &bytes,
+            ext: "dng",
+        }),
+        Some(768),
+        TargetPrimaries::P3,
+        None,
+    )
+    .expect("P3 render");
+    cache::clear_for_test();
+    cache::clear_lut_for_test();
+    let lut = context.profile_lut.expect("physical residual fit");
+    let mut expected =
+        crate::pipeline::develop_sized::develop_scene_linear_sized_from_raw_with_quality(
+            &raw,
+            &fit_develop_model(&model),
+            quality,
+            768,
+        )
+        .expect("pinned develop");
+    let full = (expected.width, expected.height);
+    super::super::display_prefix::apply(
+        &mut expected,
+        &model,
+        None,
+        TargetPrimaries::P3,
+        ((0, 0), full),
+    );
+    let curve_applies = auto_profile::apply_pipeline::auto1_enabled_by_env();
+    let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut expected.pixels);
+    if let Some(curve) = context.profile_curve.as_ref().filter(|_| curve_applies) {
+        auto_profile::apply_curve(pixels, curve);
+    }
+    lut.apply_with_strength(pixels, auto_profile::lut::lut_strength_from_env());
+    encode::gamut_guard_display_encoded_srgb(&mut expected);
+    assert_eq!(
+        rendered.pixels, expected.pixels,
+        "a default-model P3 render must apply the tail exactly as the sRGB render route does"
+    );
+}
