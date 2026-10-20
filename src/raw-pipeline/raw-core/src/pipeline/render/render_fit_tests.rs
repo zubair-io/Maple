@@ -102,3 +102,70 @@ fn render_cap_fit_matches_native_renderer_and_ignores_edits() {
     cache::clear_for_test();
     cache::clear_lut_for_test();
 }
+
+#[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
+fn display_p3_render_cannot_fit_the_shared_auto_tail_from_p3_pixels() {
+    use crate::pipeline::{render_export_from_raw, ExportDepth, ExportPixels};
+    use crate::view::encode::TargetPrimaries;
+    let _guard = cache::test_lock();
+    let path = crate::test_support::fixtures::require_raw("test_0002.dng");
+    let bytes = std::fs::read(&path).expect("physical RAW");
+    let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode fixture");
+    let model = AdjustmentModel::default();
+    let source = || {
+        Some(RawInput::Bytes {
+            bytes: &bytes,
+            ext: "dng",
+        })
+    };
+    let srgb = || {
+        crate::pipeline::render_from_raw_with_auto_fit(
+            &raw,
+            &model,
+            RenderQuality::Preview,
+            source(),
+            Some(768),
+            None,
+        )
+        .expect("sRGB render")
+    };
+    let p3 = || match render_export_from_raw(
+        &raw,
+        &model,
+        RenderQuality::Preview,
+        source(),
+        Some(768),
+        TargetPrimaries::P3,
+        ExportDepth::Eight,
+    )
+    .expect("P3 render")
+    {
+        (_, _, ExportPixels::Eight(pixels)) => pixels,
+        _ => unreachable!("eight-bit export requested"),
+    };
+    let cold = || {
+        cache::clear_for_test();
+        cache::clear_lut_for_test();
+    };
+    cold();
+    let srgb_cold = srgb();
+    assert_eq!(srgb_cold.3, Some(true), "physical Auto fit must engage");
+    let p3_after_srgb = p3();
+    cold();
+    let p3_cold = p3();
+    let srgb_after_p3 = srgb();
+    cold();
+    let differing = |a: &[u8], b: &[u8]| a.iter().zip(b).filter(|(x, y)| x != y).count();
+    assert_eq!(
+        differing(&srgb_cold.2, &srgb_after_p3.2),
+        0,
+        "a P3-first render must not change the sRGB render's Auto fit"
+    );
+    assert_eq!(
+        differing(&p3_cold, &p3_after_srgb),
+        0,
+        "a cold P3 render must fit the same Auto tail an sRGB render caches"
+    );
+    assert_eq!(std::fs::read(path).expect("original reread"), bytes);
+}
