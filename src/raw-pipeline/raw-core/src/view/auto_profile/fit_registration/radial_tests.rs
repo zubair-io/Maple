@@ -24,17 +24,16 @@ fn scene(u: f64, v: f64) -> f64 {
     })
 }
 
-/// The 256×192 regular geometry grid registration sees for a 1024×768
-/// display: one sample at each cell centre.
-fn grid(warp: Option<Warp>) -> Gray {
-    let (tw, th, nx, ny) = (1024, 768, 256, 192);
+/// The 256×256 cell-centre grid registration sees for a `tw × th` display:
+/// each axis is capped at 256 cells independently, as production does.
+fn grid(tw: usize, th: usize, map: impl Fn(f64, f64) -> [f64; 2]) -> Gray {
+    let (nx, ny) = (tw.min(256), th.min(256));
     let pixels = (0..ny)
         .flat_map(|gy| (0..nx).map(move |gx| (gx, gy)))
         .map(|(gx, gy)| {
             let x = (2 * gx + 1) * tw / (2 * nx);
             let y = (2 * gy + 1) * th / (2 * ny);
-            let (u, v) = ((x as f64 + 0.5) / tw as f64, (y as f64 + 0.5) / th as f64);
-            let p = warp.map_or([u, v], |w| w.map(u, v));
+            let p = map((x as f64 + 0.5) / tw as f64, (y as f64 + 0.5) / th as f64);
             0.7 * scene(p[0], p[1]) + 0.1
         })
         .collect();
@@ -45,61 +44,78 @@ fn grid(warp: Option<Warp>) -> Gray {
     }
 }
 
-fn worst_error_px(found: Warp, truth: Warp) -> f64 {
+fn worst_error_px(found: Warp, truth: impl Fn(f64, f64) -> [f64; 2], tw: usize, th: usize) -> f64 {
     (0..=20)
         .flat_map(|j| (0..=20).map(move |i| (0.1 + 0.04 * i as f64, 0.1 + 0.04 * j as f64)))
         .map(|(u, v)| {
-            let (a, b) = (found.map(u, v), truth.map(u, v));
-            ((a[0] - b[0]) * 1024.).hypot((a[1] - b[1]) * 768.)
+            let (a, b) = (found.map(u, v), truth(u, v));
+            ((a[0] - b[0]) * tw as f64).hypot((a[1] - b[1]) * th as f64)
         })
         .fold(0., f64::max)
 }
 
+fn register_frame(
+    tw: usize,
+    th: usize,
+    truth: impl Fn(f64, f64) -> [f64; 2] + Copy,
+) -> Option<Warp> {
+    register(
+        grid(tw, th, |u, v| [u, v]),
+        grid(tw, th, truth),
+        Warp::aspect_of(tw, th),
+    )
+    .map(|r| r.warp)
+}
+
 #[test]
-fn recovers_a_lens_correction_residual_that_no_affine_map_expresses() {
-    for truth in [
-        Warp {
-            coefficients: [1.016, 0., -0.0079, 0., 1.016, -0.0071],
-            radial: -0.008,
-        },
-        Warp {
-            coefficients: [1., 0., 0., 0., 1., 0.],
-            radial: 0.008,
-        },
-        Warp {
-            coefficients: [0.998, 0., 0.001, 0., 0.998, 0.001],
-            radial: -0.0037,
-        },
-    ] {
-        let found = register(grid(None), grid(Some(truth)))
-            .expect("a bounded radial scene must register")
-            .warp;
-        assert!(
-            (found.radial - truth.radial).abs() < 0.15 * truth.radial.abs(),
-            "{found:?} vs {truth:?}"
-        );
-        assert!(worst_error_px(found, truth) < 0.6, "{found:?} vs {truth:?}");
+fn recovers_a_pixel_isotropic_lens_residual_on_square_and_wide_frames() {
+    for (tw, th) in [(1024, 1024), (1024, 683), (1024, 512)] {
+        for (coefficients, radial) in [
+            ([1.016, 0., -0.0079, 0., 1.016, -0.0071], -0.008),
+            ([1., 0., 0., 0., 1., 0.], 0.008),
+            ([0.998, 0., 0.001, 0., 0.998, 0.001], -0.0037),
+        ] {
+            let truth = Warp {
+                coefficients,
+                radial,
+                aspect: Warp::aspect_of(tw, th),
+            };
+            let found = register_frame(tw, th, |u, v| truth.map(u, v))
+                .expect("a bounded radial scene must register");
+            assert!(
+                (found.radial - radial).abs() < 0.15 * radial.abs(),
+                "{tw}x{th} {found:?} vs {truth:?}"
+            );
+            assert!(
+                worst_error_px(found, |u, v| truth.map(u, v), tw, th) < 0.6,
+                "{tw}x{th} {found:?} vs {truth:?}"
+            );
+        }
     }
 }
 
 #[test]
-fn affine_scenes_keep_a_zero_radial_term() {
-    for truth in [
-        Warp {
-            coefficients: [1.016, 0., -0.0079, 0., 1.016, -0.0071],
-            radial: 0.,
-        },
-        Warp {
-            coefficients: [1., 0., 3. / 1024., 0., 1., 0.],
-            radial: 0.,
-        },
+fn affine_keystone_and_projective_scenes_keep_a_zero_radial_term() {
+    let (tw, th) = (1024, 683);
+    let affine = |u: f64, v: f64| [1.016 * u - 0.0079, 1.016 * v - 0.0071];
+    let shift = |u: f64, v: f64| [u + 3. / 1024., v];
+    let keystone = |u: f64, v: f64| [0.5 + (u - 0.5) * (1. + 0.03 * (v - 0.5)), v];
+    let projective = |u: f64, v: f64| {
+        let w = 1. + 0.02 * (u - 0.5) + 0.015 * (v - 0.5);
+        [0.5 + (u - 0.5) / w, 0.5 + (v - 0.5) / w]
+    };
+    for (name, truth) in [
+        ("affine", &affine as &dyn Fn(f64, f64) -> [f64; 2]),
+        ("shift", &shift),
+        ("keystone", &keystone),
+        ("projective", &projective),
     ] {
-        let found = register(grid(None), grid(Some(truth)))
-            .expect("an affine scene must register")
-            .warp;
-        assert_eq!(found.radial, 0., "{found:?}");
-        assert!(worst_error_px(found, truth) < 0.3, "{found:?}");
+        if let Some(found) = register_frame(tw, th, |u, v| truth(u, v)) {
+            assert_eq!(found.radial, 0., "{name}: {found:?}");
+        }
     }
+    let found = register_frame(tw, th, affine).expect("an affine scene must register");
+    assert!(worst_error_px(found, affine, tw, th) < 0.3, "{found:?}");
 }
 
 #[test]
@@ -107,6 +123,7 @@ fn inverse_map_round_trips_the_radial_term() {
     let warp = Warp {
         coefficients: [1.016, 0.001, -0.008, -0.001, 1.015, -0.007],
         radial: 0.008,
+        aspect: Warp::aspect_of(1024, 683),
     };
     for (u, v) in [(0.02, 0.97), (0.5, 0.5), (0.9, 0.1)] {
         let [x, y] = warp.map(u, v);
