@@ -19,7 +19,7 @@
  * The trailing `/v25` is a frozen literal, not a pipeline version (#4793):
  * it is the suffix every object already in the bucket was uploaded under, so
  * keeping it leaves the whole edge cache addressable with no mass re-upload.
- * It must never change with `PIPELINE_OUTPUT_VERSION`.
+ * It must never change with the develop pipeline output.
  */
 
 /** Suffix of every current R2 thumbnail key. `0` addresses the bare key

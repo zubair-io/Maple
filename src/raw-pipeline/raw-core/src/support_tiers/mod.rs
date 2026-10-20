@@ -31,7 +31,7 @@
 //! `Qualified` is a total function of the committed evidence records under
 //! `test-fixtures/qualification/`, judged by the same
 //! [`judge`](crate::capability_registry::judge) the capability registry
-//! uses (#2430): a pipeline-version bump, a corpus edit, a missing record
+//! uses (#2430): a corpus edit, a missing record
 //! or a single failed case demotes the body on the next `tools/codegen.sh`
 //! run, and `codegen-drift` then blocks until the demotion is committed.
 //!

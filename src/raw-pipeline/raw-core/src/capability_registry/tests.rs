@@ -317,9 +317,7 @@ fn skipped_failed_and_short_runs_do_not_count() {
 
 #[test]
 fn legacy_version_fields_in_a_record_are_ignored() {
-    // Records written before #5007 carry pipeline_version / schema_version.
-    // They must parse, and neither field may stale the record: only corpus,
-    // backend, and counts judge it now.
+    // Pre-#5007 records still carry the retired version fields.
     let cap = &APPLE_ONLY;
     let mut evidence = empty_evidence();
     let source = cap.integration[0];
