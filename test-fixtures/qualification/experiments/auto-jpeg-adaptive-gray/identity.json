@@ -1,0 +1,17 @@
+{
+  "status": "Experimental full-corpus qualification running; runtime source restored to verified HEAD. Not accepted or merged.",
+  "changes": [
+    "Allow fine gray-axis adaptation while retaining channel/gray monotonic projection",
+    "Apply unchanged acceptance guards during line-search backtracking"
+  ],
+  "separate_pilots": {
+    "backtracking_only": "test_0015 byte-identical; five gradients pass",
+    "gray_adaptation_only": "test_0015 byte-identical; five gradients pass"
+  },
+  "binary_sha256": "46bb88436d93f667cbf497471b5a79495b31cd82c6e6fb09a0940c44a25e3b7c",
+  "source_base": "40f0c8fc48",
+  "full_suite": "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-adaptive-gray/full-suite",
+  "unit_tests": "Candidate unqualified: existing exact neutral-anchor assertion is incompatible with gray adaptation; tests have not been changed.",
+  "limits_changed": false,
+  "pipeline_version_changed": false
+}
