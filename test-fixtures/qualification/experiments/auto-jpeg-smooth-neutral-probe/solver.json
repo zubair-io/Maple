@@ -1,0 +1,10 @@
+{
+  "diagnostic_only": true,
+  "source_fixture": "test_0010",
+  "success": true,
+  "message": "Optimization terminated successfully",
+  "iterations": 13,
+  "seconds": 1.6347114169911947,
+  "minimum_constraint": -2.6103251504761005e-15,
+  "objective": 0.035116120954640256
+}

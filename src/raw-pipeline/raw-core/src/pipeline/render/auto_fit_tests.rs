@@ -146,7 +146,9 @@ fn cached_fit_probe_hits_only_when_fully_cached() {
     cache::insert_lut(full.clone(), lut.clone());
     let (curve, residual) =
         cached_auto_profile_fit(&auto, Some(&full)).expect("fully-cached key must hit");
-    assert_eq!(curve, None);
+    let expected_curve =
+        auto_profile::apply_pipeline::auto1_enabled_by_env().then(ProfileCurve::identity);
+    assert_eq!(curve, expected_curve);
     assert_eq!(residual, Some(lut));
 
     // Not Profile::Auto → no tail regardless of cache state.
