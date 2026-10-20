@@ -132,8 +132,11 @@ function supersededByASend(
 ): Promise<boolean> {
   return hasSidecarDivergence({
     assetId,
+    libraryId: location.library_id,
     sidecarRelPath: path.posix.join(location.path, path.basename(xmpSidecarPath(primary))),
-    displacedSha256: createHash('sha256').update(legacyBytes).digest('hex'),
+    displacedSha256: createHash('sha256')
+      .update(legacyBytes.toString('utf8'), 'utf8')
+      .digest('hex'),
   });
 }
 

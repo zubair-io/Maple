@@ -61,10 +61,7 @@ export interface LandedBackupSidecar {
   deviceId: string;
 }
 
-/** A device's send now holds its current edit, which supersedes the old-name
- * file: keep that file's edit aside when it differs, then remove it. Runs
- * inside the canonical sidecar's barrier; a failure fails the send, so the
- * device retries rather than the stale file outliving it. */
+/** A failure fails the send, so the device retries instead of leaving a stale file to replay. */
 export async function retireLegacyBackupSidecar(landed: LandedBackupSidecar): Promise<void> {
   const legacy = legacyBackupSidecar(landed.primary);
   const bytes = legacy ? await readLegacyBackupEdit(legacy) : null;
@@ -72,6 +69,7 @@ export async function retireLegacyBackupSidecar(landed: LandedBackupSidecar): Pr
   const legacyXmp = bytes.toString('utf8');
   const kept = {
     assetId: landed.assetId,
+    libraryId: landed.libraryId,
     sidecarRelPath: landed.sidecarRelPath,
     displacedSha256: sha256(legacyXmp),
     incomingSha256: sha256(landed.xmp),
@@ -80,7 +78,6 @@ export async function retireLegacyBackupSidecar(landed: LandedBackupSidecar): Pr
   if (legacyXmp !== landed.xmp && !(await hasSidecarDivergence(kept))) {
     await recordSidecarDivergence({
       ...kept,
-      libraryId: landed.libraryId,
       deviceId: landed.deviceId,
       baseSha256: null,
       displacedXmp: legacyXmp,
