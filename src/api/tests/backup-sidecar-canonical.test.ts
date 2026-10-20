@@ -70,8 +70,8 @@ function post(target: Upload, body: string, base: string | undefined): Promise<R
     'X-Maple-Device-Id': deviceId,
     'X-Maple-Phasset-Id': target.phid,
     'X-Maple-Target-Rel-Path': target.relPath,
+    ...(base === undefined ? {} : { 'X-Maple-Sidecar-Base': base }),
   };
-  if (base !== undefined) headers['X-Maple-Sidecar-Base'] = base;
   return authedHandle(
     new Request(`http://localhost/api/libraries/${libId.toHexString()}/backup/sidecar`, {
       method: 'POST',
@@ -195,5 +195,57 @@ describe('a same-stem pair shares one sidecar (#4692)', () => {
       skipped: true,
     });
     expect(await read('2024/04/04/IMG_6.xmp')).toBe(xmp('jpeg edit'));
+  });
+});
+
+const mapleXmp = (label: string) =>
+  `<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:papp="http://ns.justmaple.app/photo/1.0/">${label}</x:xmpmeta>`;
+
+describe('a canonical send is a server-visible edit (#5021)', () => {
+  test('it marks the asset edited and announces the change', async () => {
+    const photo = await seedUpload('2024/05/01/IMG_10.HEIC');
+    const before = live.db
+      .query(`SELECT sidecar_ver FROM assets WHERE id = ?`)
+      .get(photo.assetId.toHexString()) as { sidecar_ver: number };
+
+    await post(photo, xmp('device edit'), 'none');
+
+    expect(
+      live.db
+        .query(`SELECT has_xmp, sidecar_ver FROM assets WHERE id = ?`)
+        .get(photo.assetId.toHexString()),
+    ).toEqual({ has_xmp: 1, sidecar_ver: before.sidecar_ver + 1 });
+    expect(
+      live.db
+        .query(`SELECT kind FROM asset_changes WHERE asset_id = ?`)
+        .all(photo.assetId.toHexString()),
+    ).toEqual([{ kind: 'update' }]);
+  });
+
+  test("it retires the photo's old-name sidecar, keeping a different version aside", async () => {
+    const photo = await seedUpload('2024/05/02/IMG_11.HEIC');
+    await fs.writeFile(path.join(tmpLib, '2024/05/02/IMG_11.HEIC.xmp'), mapleXmp('older send'));
+
+    await post(photo, mapleXmp('newer edit'), 'none');
+
+    expect(await read('2024/05/02/IMG_11.xmp')).toBe(mapleXmp('newer edit'));
+    expect(await read('2024/05/02/IMG_11.HEIC.xmp')).toBeNull();
+    expect(keptAside('2024/05/02/IMG_11.xmp')).toEqual([
+      {
+        displaced_xmp: mapleXmp('older send'),
+        displaced_sha256: sha256(mapleXmp('older send')),
+        incoming_sha256: sha256(mapleXmp('newer edit')),
+      },
+    ]);
+  });
+
+  test('an old-name file another tool wrote is left alone', async () => {
+    const photo = await seedUpload('2024/05/03/IMG_12.JPG');
+    const foreign = '<x:xmpmeta xmlns:darktable="http://darktable.sf.net/">dt</x:xmpmeta>';
+    await fs.writeFile(path.join(tmpLib, '2024/05/03/IMG_12.JPG.xmp'), foreign);
+
+    await post(photo, mapleXmp('device edit'), 'none');
+
+    expect(await read('2024/05/03/IMG_12.JPG.xmp')).toBe(foreign);
   });
 });

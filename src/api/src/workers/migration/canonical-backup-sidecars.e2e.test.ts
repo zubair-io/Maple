@@ -17,6 +17,8 @@ import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import { createLibrary, seedAsset, type MigrationLibrary } from './migration.test-helpers.ts';
 
 const MIGRATION_ID = 'canonical-backup-sidecars';
+const maple = (label: string) =>
+  `<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">${label}</x:xmpmeta>`;
 const DIR = '2024/Kyoto';
 
 afterEach(() => {
@@ -72,12 +74,12 @@ describe('canonical-backup-sidecars', () => {
   it('moves a backup sidecar to the canonical name when none exists', async () => {
     using library = await backupLibrary('canon-move-');
     await write(library, 'IMG_1.HEIC', 'pixels');
-    await write(library, 'IMG_1.HEIC.xmp', 'backup edit');
+    await write(library, 'IMG_1.HEIC.xmp', maple('backup edit'));
     const id = backupPhoto(library, 'IMG_1.HEIC');
 
     await runTick();
 
-    expect(await read(library, 'IMG_1.xmp')).toBe('backup edit');
+    expect(await read(library, 'IMG_1.xmp')).toBe(maple('backup edit'));
     expect(await read(library, 'IMG_1.HEIC.xmp')).toBeNull();
     expect(divergences(library)).toEqual([]);
     expect(stamped(library, id)).toBe(1);
@@ -86,13 +88,13 @@ describe('canonical-backup-sidecars', () => {
   it('drops the backup copy when the canonical sidecar already holds the same edit', async () => {
     using library = await backupLibrary('canon-same-');
     await write(library, 'IMG_2.HEIC', 'pixels');
-    await write(library, 'IMG_2.HEIC.xmp', 'same edit');
-    await write(library, 'IMG_2.xmp', 'same edit');
+    await write(library, 'IMG_2.HEIC.xmp', maple('same edit'));
+    await write(library, 'IMG_2.xmp', maple('same edit'));
     backupPhoto(library, 'IMG_2.HEIC');
 
     await runTick();
 
-    expect(await read(library, 'IMG_2.xmp')).toBe('same edit');
+    expect(await read(library, 'IMG_2.xmp')).toBe(maple('same edit'));
     expect(await read(library, 'IMG_2.HEIC.xmp')).toBeNull();
     expect(divergences(library)).toEqual([]);
   });
@@ -100,16 +102,16 @@ describe('canonical-backup-sidecars', () => {
   it('lands the backup edit on top of a server edit and keeps the server version', async () => {
     using library = await backupLibrary('canon-diverge-');
     await write(library, 'IMG_3.HEIC', 'pixels');
-    await write(library, 'IMG_3.HEIC.xmp', 'backup edit');
-    await write(library, 'IMG_3.xmp', 'server edit');
+    await write(library, 'IMG_3.HEIC.xmp', maple('backup edit'));
+    await write(library, 'IMG_3.xmp', maple('server edit'));
     backupPhoto(library, 'IMG_3.HEIC');
 
     await runTick();
 
-    expect(await read(library, 'IMG_3.xmp')).toBe('backup edit');
+    expect(await read(library, 'IMG_3.xmp')).toBe(maple('backup edit'));
     expect(await read(library, 'IMG_3.HEIC.xmp')).toBeNull();
     expect(divergences(library)).toEqual([
-      { sidecar_rel_path: `${DIR}/IMG_3.xmp`, displaced_xmp: 'server edit' },
+      { sidecar_rel_path: `${DIR}/IMG_3.xmp`, displaced_xmp: maple('server edit') },
     ]);
   });
 
@@ -117,24 +119,24 @@ describe('canonical-backup-sidecars', () => {
     using library = await backupLibrary('canon-shared-');
     await write(library, 'IMG_4.jpg', 'pixels');
     await write(library, 'IMG_4.cr2', 'raw pixels');
-    await write(library, 'IMG_4.xmp', 'jpeg edit');
-    await write(library, 'IMG_4.cr2.xmp', 'raw backup edit');
+    await write(library, 'IMG_4.xmp', maple('jpeg edit'));
+    await write(library, 'IMG_4.cr2.xmp', maple('raw backup edit'));
     backupPhoto(library, 'IMG_4.jpg');
     backupPhoto(library, 'IMG_4.cr2');
 
     await runTick();
 
-    expect(await read(library, 'IMG_4.xmp')).toBe('jpeg edit');
+    expect(await read(library, 'IMG_4.xmp')).toBe(maple('jpeg edit'));
     expect(await read(library, 'IMG_4.cr2.xmp')).toBeNull();
     expect(divergences(library)).toEqual([
-      { sidecar_rel_path: `${DIR}/IMG_4.xmp`, displaced_xmp: 'raw backup edit' },
+      { sidecar_rel_path: `${DIR}/IMG_4.xmp`, displaced_xmp: maple('raw backup edit') },
     ]);
   });
 
   it("leaves a video's full-name sidecar alone, since that is its canonical name", async () => {
     using library = await backupLibrary('canon-video-');
     await write(library, 'IMG_5.MOV', 'frames');
-    await write(library, 'IMG_5.MOV.xmp', 'clip edit');
+    await write(library, 'IMG_5.MOV.xmp', maple('clip edit'));
     const id = seedAsset(library.db, {
       mediaKind: 'video',
       phassetDevices: ['phone'],
@@ -143,27 +145,83 @@ describe('canonical-backup-sidecars', () => {
 
     await runTick();
 
-    expect(await read(library, 'IMG_5.MOV.xmp')).toBe('clip edit');
+    expect(await read(library, 'IMG_5.MOV.xmp')).toBe(maple('clip edit'));
     expect(stamped(library, id)).toBe(1);
   });
 
   it('leaves a photo whose library is offline for a later tick', async () => {
     using library = await backupLibrary('canon-offline-');
     await write(library, 'IMG_6.HEIC', 'pixels');
-    await write(library, 'IMG_6.HEIC.xmp', 'backup edit');
+    await write(library, 'IMG_6.HEIC.xmp', maple('backup edit'));
     const id = backupPhoto(library, 'IMG_6.HEIC');
     setLibraryRootsForTests(new Map());
 
     await runTick();
 
-    expect(await read(library, 'IMG_6.HEIC.xmp')).toBe('backup edit');
+    expect(await read(library, 'IMG_6.HEIC.xmp')).toBe(maple('backup edit'));
     expect(stamped(library, id)).toBeNull();
+  });
+
+  it('leaves a photo whose mount is gone for a later tick', async () => {
+    using library = await backupLibrary('canon-unmounted-');
+    await write(library, 'IMG_8.HEIC', 'pixels');
+    await write(library, 'IMG_8.HEIC.xmp', maple('backup edit'));
+    const id = backupPhoto(library, 'IMG_8.HEIC');
+    setLibraryRootsForTests(
+      new Map([[library.folderId.toHexString(), path.join(library.root, 'unmounted')]]),
+    );
+
+    await runTick();
+
+    expect(stamped(library, id)).toBeNull();
+  });
+
+  it('leaves an old-name sidecar another tool wrote untouched', async () => {
+    using library = await backupLibrary('canon-foreign-');
+    const foreign = '<x:xmpmeta xmlns:darktable="http://darktable.sf.net/">dt</x:xmpmeta>';
+    await write(library, 'IMG_9.JPG', 'pixels');
+    await write(library, 'IMG_9.JPG.xmp', foreign);
+    const id = backupPhoto(library, 'IMG_9.JPG');
+
+    await runTick();
+
+    expect(await read(library, 'IMG_9.JPG.xmp')).toBe(foreign);
+    expect(await read(library, 'IMG_9.xmp')).toBeNull();
+    expect(stamped(library, id)).toBe(1);
+  });
+
+  it('stamps a photo whose old-name sidecar is a link and leaves the link', async () => {
+    using library = await backupLibrary('canon-link-');
+    await write(library, 'IMG_10.HEIC', 'pixels');
+    await fs.symlink(
+      path.join(library.root, DIR, 'IMG_10.HEIC'),
+      path.join(library.root, DIR, 'IMG_10.HEIC.xmp'),
+    );
+    const id = backupPhoto(library, 'IMG_10.HEIC');
+
+    await runTick();
+
+    expect(await read(library, 'IMG_10.xmp')).toBeNull();
+    expect(stamped(library, id)).toBe(1);
+  });
+
+  it('marks a moved edit as a server edit of the photo', async () => {
+    using library = await backupLibrary('canon-bookkeeping-');
+    await write(library, 'IMG_11.HEIC', 'pixels');
+    await write(library, 'IMG_11.HEIC.xmp', maple('backup edit'));
+    const id = backupPhoto(library, 'IMG_11.HEIC');
+
+    await runTick();
+
+    expect(
+      library.db.query(`SELECT has_xmp, sidecar_ver FROM assets WHERE id = ?`).get(id),
+    ).toEqual({ has_xmp: 1, sidecar_ver: 1 });
   });
 
   it('counts down to nothing remaining once every backup photo is handled', async () => {
     using library = await backupLibrary('canon-count-');
     await write(library, 'IMG_7.HEIC', 'pixels');
-    await write(library, 'IMG_7.HEIC.xmp', 'backup edit');
+    await write(library, 'IMG_7.HEIC.xmp', maple('backup edit'));
     backupPhoto(library, 'IMG_7.HEIC');
     const migration = getMigration(MIGRATION_ID)!;
     expect(await migration.countRemaining()).toBe(1);
