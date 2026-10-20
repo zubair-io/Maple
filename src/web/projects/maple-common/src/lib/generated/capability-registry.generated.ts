@@ -4,8 +4,8 @@
 //
 // Release state is COMPUTED from harness evidence, never asserted: a
 // capability reads `released` only when every declared evidence source
-// has a record on the current pipeline + schema version, over the
-// current corpus, on an accepted backend, with executed == expected
+// has a record over the current corpus, on an accepted backend,
+// with executed == expected
 // cases, zero failures, and zero skips. See docs/capability-registry.md.
 
 export type CapabilitySurface = 'apple' | 'web' | 'windows';
@@ -57,7 +57,6 @@ export interface CapabilityRecord {
 
 /** The build the release states were computed for. */
 export const CAPABILITY_REGISTRY_BUILD = {
-  pipelineOutputVersion: 30,
   schemaVersion: 5,
 } as const;
 

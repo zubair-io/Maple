@@ -18,10 +18,9 @@
 //! persistence / render path) and *qualified* (its output is numerically
 //! proven). A source is satisfied only by an [`EvidenceRecord`] that a
 //! harness wrote — `test-fixtures/qualification/<source>.json`, produced by
-//! `tools/qualification/record.sh` — whose pipeline version, schema
-//! version, corpus hash, backend, and executed case count all still match
-//! what the registry declares today. Anything else (no record, a record
-//! from an older pipeline, a re-touched corpus, a skipped or failing case,
+//! `tools/qualification/record.sh` — whose corpus hash, backend, and
+//! executed case count all still match what the registry declares today.
+//! Anything else (no record, a re-touched corpus, a skipped or failing case,
 //! or an executed count that does not equal the declared expected count)
 //! leaves the capability at the state below. See `evidence.rs` for the
 //! exact rule and `docs/testing.md` § "Capability registry" for the
@@ -35,8 +34,7 @@ mod tests;
 
 pub use color_corpus::hash_manifest as hash_color_manifest;
 pub use evidence::{
-    classify, hash_corpus, judge, BuildIdentity, Classification, Evidence, EvidenceRecord, Finding,
-    RecordStatus,
+    classify, hash_corpus, judge, Classification, Evidence, EvidenceRecord, Finding, RecordStatus,
 };
 pub use registry::CAPABILITY_REGISTRY;
 
@@ -223,8 +221,7 @@ pub enum ReleaseState {
     /// declared qualification source is missing, stale, vacuous, or red.
     Integrated,
     /// Every declared integration *and* qualification source is satisfied
-    /// on every declared surface, against the current pipeline version,
-    /// schema version, and corpus.
+    /// on every declared surface, against the current corpus.
     Released,
 }
 
@@ -489,15 +486,61 @@ impl EvidenceSource {
                 "src/scripts/acr-reference/verify_settings.py",
                 "src/scripts/acr-reference/write_xmp.py",
             ],
+            // The contract tests plus the sidecar/XMP implementation they
+            // exercise (#5016 review): a semantics change in the reader or
+            // writer must stale the record even when no test file moved.
             EvidenceSource::SidecarContractApple => &[
                 "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarContractSupport.swift",
                 "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractCloudTests.swift",
                 "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractFilesystemTests.swift",
                 "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractPhotoKitTests.swift",
                 "src/apple/Packages/MapleCore/Tests/MapleCoreTests/SidecarTransactionContractSMBTests.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/PhotoKitSidecarStore.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/SMBSidecarStore.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/SidecarPath.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/SidecarStoreProtocol.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/WorkflowSidecarCore.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPLocalAdjustmentOrder.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPMaskGroupNamespaces.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPMaskGroupSources.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPPassthrough.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPPassthroughScanner.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Attrs.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+BlackWhite.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Canonical.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+HSL.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Helpers.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+LocalAdjustments.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+LocalAdjustmentsBrush.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+MaskGroups.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Metadata.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+MetadataWrite.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+ParseAttrs.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Passthrough.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+Retouch.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+ToneCurves.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+VideoWrite.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+WhiteBalance.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarStore.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/Cloud/CloudSidecarStore.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/Cloud/CloudSidecarStore+Variants.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/Sources/SMBSource.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/Sources/SMBSource+Sidecar.swift",
+                "src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPCanonicalFormatTests.swift",
+                "src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPPassthroughTests.swift",
+                "src/apple/Packages/MapleCore/Sources/MapleCore/XmpMetadata+Empty.swift",
             ],
             EvidenceSource::SidecarContractApi => {
-                &["src/api/src/routes/xmp.sidecar-contract.test.ts"]
+                &[
+                    "src/api/src/routes/xmp.sidecar-contract.test.ts",
+                    "src/api/src/routes/xmp.ts",
+                    "src/api/src/xmp",
+                    "src/api/src/fs/sidecar-io.ts",
+                    "src/api/src/fs/sidecar-write-order.ts",
+                    "src/api/src/fs/xmp-conditional.ts",
+                    "src/api/src/fs/xmp.ts",
+                ]
             }
             EvidenceSource::GpuChainParityLavapipe | EvidenceSource::GpuChainParityMetal => &[
                 "src/raw-pipeline/raw-wasm/src/gpu_render.rs",
@@ -512,10 +555,12 @@ impl EvidenceSource {
     }
 }
 
-/// The sidecar schema version the registry evaluates evidence against —
-/// the only semantics version the XMP schema carries
-/// (`papp:WbScaleVersion`, see `docs/xmp-canonical-format.md` § "Schema
-/// versioning"). A record written before a bump is stale.
+/// The sidecar schema version — the only semantics version the XMP
+/// schema carries (`papp:WbScaleVersion`, see
+/// `docs/xmp-canonical-format.md` § "Schema versioning"). Emitted into
+/// the generated build stamps; since #5007 it no longer gates evidence
+/// records (a bump must instead re-record the sidecar contract suites —
+/// see CLAUDE.md).
 pub fn current_schema_version() -> u32 {
     match WbScaleVersion::default() {
         WbScaleVersion::V1 => 1,

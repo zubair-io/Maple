@@ -4,8 +4,7 @@
 //! A harness wrapper (`tools/qualification/record.sh`) runs a suite, parses
 //! its pass/fail/skip counts, and calls this binary, which stamps the
 //! record with the facts only the Rust crate knows for certain: the
-//! current `PIPELINE_OUTPUT_VERSION`, the sidecar schema version, the
-//! source's declared expected case count, and a blake3 hash of the
+//! source's declared expected case count and a blake3 hash of the
 //! source's declared corpus. The registry generator then judges the record
 //! against the same declarations — see
 //! `raw_core::capability_registry::judge`.
@@ -20,10 +19,7 @@ use std::path::PathBuf;
 use std::process::exit;
 
 use clap::Parser;
-use raw_core::capability_registry::{
-    current_schema_version, hash_color_manifest, EvidenceRecord, EvidenceSource,
-};
-use raw_core::PIPELINE_OUTPUT_VERSION;
+use raw_core::capability_registry::{hash_color_manifest, EvidenceRecord, EvidenceSource};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -126,8 +122,6 @@ fn main() {
     let record = EvidenceRecord {
         source,
         backend: cli.backend,
-        pipeline_version: PIPELINE_OUTPUT_VERSION,
-        schema_version: current_schema_version(),
         corpus_hash,
         expected_cases: source.expected_cases(),
         executed_cases: cli.executed,

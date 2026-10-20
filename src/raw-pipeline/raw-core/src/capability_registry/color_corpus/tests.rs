@@ -1,5 +1,5 @@
 use super::*;
-use crate::capability_registry::{judge, BuildIdentity, Evidence, EvidenceRecord, RecordStatus};
+use crate::capability_registry::{judge, Evidence, EvidenceRecord, RecordStatus};
 use serde_json::json;
 
 fn fixture(absolute: bool) -> tempfile::TempDir {
@@ -144,12 +144,9 @@ fn missing_inputs_empty_cases_and_ambiguous_protocols_fail_explicitly() {
 fn real_record_loading_demotes_changed_pixels_with_unchanged_budgets_and_counts() {
     let dir = fixture(false);
     let source = EvidenceSource::ColorHarness;
-    let build = BuildIdentity::current();
     let record = EvidenceRecord {
         source,
         backend: "cpu-reference".into(),
-        pipeline_version: build.pipeline_version,
-        schema_version: build.schema_version,
         corpus_hash: source.corpus_hash(dir.path()).unwrap(),
         expected_cases: source.expected_cases(),
         executed_cases: source.expected_cases(),
@@ -212,12 +209,9 @@ fn decoder_extension_changes_identity_but_directory_locations_do_not() {
 fn failed_physical_record_remains_failed_without_installed_corpus() {
     let dir = tempfile::tempdir().unwrap();
     let source = EvidenceSource::ColorHarness;
-    let build = BuildIdentity::current();
     let record = EvidenceRecord {
         source,
         backend: "cpu-reference".into(),
-        pipeline_version: build.pipeline_version,
-        schema_version: build.schema_version,
         corpus_hash: format!("blake3:{}", "a".repeat(64)),
         expected_cases: source.expected_cases(),
         executed_cases: source.expected_cases(),

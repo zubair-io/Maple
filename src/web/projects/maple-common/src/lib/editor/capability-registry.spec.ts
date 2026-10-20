@@ -1,7 +1,7 @@
 // The Web consumer of the generated capability registry (#2430). The
 // registry is reviewed Rust (raw-core/src/capability_registry/) emitted by
 // tools/codegen.sh; this spec pins what the web shell relies on: the
-// registry's build matches the pipeline version the web caches key on,
+// registry's build carries a live sidecar schema version,
 // every field a capability owns is a real AdjustmentModel key, and a
 // release state is never asserted — no Web-covering qualification source
 // exists yet, so nothing shipped on Web may read `released`.
@@ -11,7 +11,6 @@ import {
   CAPABILITY_REGISTRY_BUILD,
   type CapabilityEvidenceSource,
 } from '../generated/capability-registry.generated';
-import { PIPELINE_OUTPUT_VERSION } from '../generated/adjustment-model.generated';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
 
 /** Schema fields raw-core carries that the web `AdjustmentModel` does not
@@ -42,9 +41,9 @@ function camelCase(snake: string): string {
 }
 
 describe('capability registry (generated)', () => {
-  it('is built for the same pipeline version the web caches key on', () => {
-    expect(CAPABILITY_REGISTRY_BUILD.pipelineOutputVersion).toBe(PIPELINE_OUTPUT_VERSION);
+  it('carries a live sidecar schema version and no pipeline version', () => {
     expect(CAPABILITY_REGISTRY_BUILD.schemaVersion).toBeGreaterThan(0);
+    expect('pipelineOutputVersion' in CAPABILITY_REGISTRY_BUILD).toBe(false);
   });
 
   it('has unique, stable ids and every web-shipped develop capability', () => {
