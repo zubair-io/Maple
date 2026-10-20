@@ -43,12 +43,16 @@ const MIRROR_RETRY_MS = 60_000;
 const PRIMARY_ALIAS_TIMEOUT_MS = 3_000;
 let mirrorGeneration = -1;
 const canonicalMirrors = new Map<string, string>();
-const mirrorProbes = new Map<string, { generation: number; bounded: Promise<string | null> }>();
+const mirrorProbes = new Map<
+  string,
+  { generation: number; bounded: Promise<string | null>; successor?: Promise<string | null> }
+>();
 const benchedMirrors = new Map<string, number>();
 type RegistryPrimaryProbe = {
   generation: number;
   raw: Promise<string>;
   bounded: Promise<string | null>;
+  successor?: Promise<RegistryPrimaryProbe | null>;
 };
 const registryPrimaryProbes = new Map<string, RegistryPrimaryProbe>();
 
@@ -70,11 +74,16 @@ async function primaryProbe(root: string): Promise<RegistryPrimaryProbe | null> 
   const pending = registryPrimaryProbes.get(root);
   if (pending) {
     if (pending.generation !== mirrorGeneration) return null;
-    // A shared probe may have captured an alias target before this request began.
-    const canonical = await pending.bounded;
-    if (canonical === null || pending.generation !== mirrorGeneration) return null;
-    return primaryProbe(root);
+    // Waiters need one fresh lookup because the predecessor may have captured an old alias target.
+    return (pending.successor ??= pending.bounded.then((canonical) => {
+      if (canonical === null || pending.generation !== mirrorGeneration) return null;
+      return registryPrimaryProbes.get(root) ?? startPrimaryProbe(root);
+    }));
   }
+  return startPrimaryProbe(root);
+}
+
+function startPrimaryProbe(root: string): RegistryPrimaryProbe {
   const raw = resolveRealPathThroughAncestors(root);
   const bounded = new Promise<string | null>((resolve) => {
     const timer = setTimeout(() => resolve(null), PRIMARY_ALIAS_TIMEOUT_MS);
@@ -128,11 +137,16 @@ async function canonicalMirror(root: string): Promise<string | null> {
   const pending = mirrorProbes.get(root);
   if (pending) {
     if (pending.generation !== mirrorGeneration) return null;
-    // Only a fresh probe can authorize after an in-place alias retarget.
-    const canonical = await pending.bounded;
-    if (canonical === null || pending.generation !== mirrorGeneration) return null;
-    return canonicalMirror(root);
+    // Waiters need one fresh lookup because the predecessor may have captured an old alias target.
+    return (pending.successor ??= pending.bounded.then((canonical) => {
+      if (canonical === null || pending.generation !== mirrorGeneration) return null;
+      return mirrorProbes.get(root)?.bounded ?? startMirrorProbe(root);
+    }));
   }
+  return startMirrorProbe(root);
+}
+
+function startMirrorProbe(root: string): Promise<string | null> {
   const generationAtStart = mirrorGeneration;
   const raw = resolveRealPath(root);
   const deadline = new Promise<string | null>((resolve, reject) => {
