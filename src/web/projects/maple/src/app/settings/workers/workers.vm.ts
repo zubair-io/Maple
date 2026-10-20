@@ -218,6 +218,8 @@ export function statusLabel(s: StageStatus): string {
       return 'Restarting';
     case 'stopped':
       return 'Stopped';
+    case 'stalled':
+      return 'Stalled';
   }
 }
 
@@ -234,6 +236,8 @@ export function statusDotColor(s: StageStatus): string {
       return '#a8a29e';
     case 'error':
       return '#f87171';
+    case 'stalled':
+      return '#fbbf24';
   }
 }
 
@@ -262,6 +266,11 @@ export function pendingTitle(s: StageStatus): string {
 export function pauseReason(s: StageStatus): string | null {
   const reason = s.config?.pause_reason?.trim() ?? '';
   return s.config?.paused === true && reason.length > 0 ? reason : null;
+}
+
+/** Tooltip for the status pill: why a stage is paused, or why it is stalled. */
+export function statusTitle(s: StageStatus): string | null {
+  return s.status === 'stalled' ? s.lastError : pauseReason(s);
 }
 
 /** Format a byte count compactly: 13478912 → "12.9 MB". */

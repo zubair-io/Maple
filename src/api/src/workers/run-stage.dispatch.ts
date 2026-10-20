@@ -60,6 +60,7 @@ import { dispatchPool } from './dispatch-pool.ts';
 import { resolveStageDeps } from './stage-config.ts';
 import type { ImageDoc, StageConfig, StageContext, WorkerConfig } from './stage-config.ts';
 import type { ThroughputWindow } from './throughput-window.ts';
+import type { StallWatch } from './stall-watch.ts';
 
 /** Cap a stored error so a verbose decoder dump cannot bloat the row or the log. */
 const MAX_REASON_LEN = 500;
@@ -80,6 +81,7 @@ interface TickContext {
   updates: ImageDoc[];
   dropped: FailedWriteback[];
   throughput?: ThroughputWindow;
+  stallWatch?: StallWatch;
 }
 
 /** Retain failures from automatic flushes as well as the tick's final flush. */
@@ -251,6 +253,7 @@ async function runClaimedAsset(tick: TickContext, row: ClaimedStageRow): Promise
       row.asset_id,
     );
     if ('patch' in result || 'wrote' in result) tick.updates.push(doc);
+    if (!('defer' in result)) tick.stallWatch?.progressed();
     tick.throughput?.record(new Date());
   } catch (err) {
     if (tick.stage.tagsMissingOnEnoent === true && isEnoentError(err)) {
@@ -278,6 +281,7 @@ export async function runOnce(
   inFlightSet?: Set<string>,
   throughput?: ThroughputWindow,
   dbOverride?: SqliteDb,
+  stallWatch?: StallWatch,
 ): Promise<number> {
   if (config.paused) return 0;
 
@@ -315,7 +319,9 @@ export async function runOnce(
     updates: [],
     dropped: [],
     throughput,
+    stallWatch,
   };
+  stallWatch?.claimed(outcome.claimed.length);
 
   await dispatchPool([...outcome.claimed], config.concurrency, async (row) => {
     inFlightSet?.add(row.asset_id);

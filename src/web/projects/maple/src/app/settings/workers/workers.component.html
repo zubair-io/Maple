@@ -110,7 +110,7 @@
                 <span class="mono set-mono">{{ s.name }}</span>
               </span>
 
-              <span class="status-pill" [attr.title]="pauseReason(s)">
+              <span class="status-pill" [attr.title]="statusTitle(s)">
                 <span class="status-dot" [style.background]="statusDotColor(s)"></span>
                 <span class="status-label" data-testid="status">{{ statusLabel(s) }}</span>
               </span>

@@ -30,7 +30,15 @@ export interface WorkerConfig {
 /** API status payload — one entry per stage from GET /api/workers/status. */
 export interface StageStatus {
   name: string;
-  status: 'running' | 'idle' | 'paused' | 'error' | 'starting' | 'restarting' | 'stopped';
+  status:
+    | 'running'
+    | 'idle'
+    | 'paused'
+    | 'error'
+    | 'starting'
+    | 'restarting'
+    | 'stopped'
+    | 'stalled';
   /** Dispatched but not yet completed docs. */
   inFlight: number;
   /** Configured concurrency (= config.concurrency). */
