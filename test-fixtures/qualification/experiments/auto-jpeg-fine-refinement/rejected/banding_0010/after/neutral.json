@@ -1,0 +1,48 @@
+{
+  "stage": "18_auto_tail",
+  "ramp_axis": "luma",
+  "shape": [
+    8,
+    1024,
+    3
+  ],
+  "second_difference": {
+    "max_abs_d2": 0.012419361115366678,
+    "mean_abs_d2": 6.630180375823879e-05,
+    "max_spike_ratio": 0.3588954060536894,
+    "mean_spike_ratio": 0.3588954060536894
+  },
+  "flat_run": {
+    "max_flat_run_frac": 0.06158357771260997,
+    "flat_eps": 1e-06
+  },
+  "rgb_drift": {
+    "max_abs_rg": 0.1298580765724182,
+    "max_abs_rb": 0.061132729053497314,
+    "max_abs_gb": 0.08294662833213806,
+    "mean_abs_rg": 0.1298580765724182,
+    "mean_abs_rb": 0.061132729053497314,
+    "mean_abs_gb": 0.08294662833213806
+  },
+  "shadow_gaps": {
+    "r": {
+      "gap_bins": 0,
+      "n_samples": 8
+    },
+    "g": {
+      "gap_bins": 0,
+      "n_samples": 8
+    },
+    "b": {
+      "gap_bins": 0,
+      "n_samples": 8
+    }
+  },
+  "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma",
+  "budget": {
+    "max_abs_d2": 0.004007,
+    "max_spike_ratio": 1.2,
+    "max_flat_run_frac": 0.02
+  },
+  "passed": false
+}
