@@ -10,9 +10,6 @@ import { recordSidecarDivergence } from '../db/repos/sidecar-divergences.repo.ts
 import { readSidecarBytes, SidecarNotRegularFileError } from '../fs/sidecar-ownership.ts';
 import { xmpSidecarPath } from '../fs/xmp.ts';
 import * as fs from '../fs/mirrored.ts';
-import { child as childLogger } from '../log.ts';
-
-const log = childLogger('backup-legacy-sidecar');
 
 /** Only Maple writes these namespaces (current, legacy and early bindings),
  * so another tool's `<name>.<ext>.xmp` is never touched. */
@@ -62,31 +59,25 @@ export interface LandedBackupSidecar {
 }
 
 /** A device's send now holds its current edit, which supersedes the old-name
- * file: keep that file's edit aside when it differs, then remove it. Best
- * effort; runs inside the canonical sidecar's barrier. */
+ * file: keep that file's edit aside when it differs, then remove it. Runs
+ * inside the canonical sidecar's barrier; a failure fails the send, so the
+ * device retries rather than the stale file outliving it. */
 export async function retireLegacyBackupSidecar(landed: LandedBackupSidecar): Promise<void> {
-  try {
-    const legacy = legacyBackupSidecar(landed.primary);
-    const bytes = legacy ? await readLegacyBackupEdit(legacy) : null;
-    if (!legacy || !bytes) return;
-    const legacyXmp = bytes.toString('utf8');
-    if (legacyXmp !== landed.xmp) {
-      await recordSidecarDivergence({
-        assetId: landed.assetId,
-        libraryId: landed.libraryId,
-        sidecarRelPath: landed.sidecarRelPath,
-        deviceId: landed.deviceId,
-        baseSha256: null,
-        displacedSha256: sha256(legacyXmp),
-        displacedXmp: legacyXmp,
-        incomingSha256: sha256(landed.xmp),
-      });
-    }
-    await removeLegacyIfUnchanged(legacy, bytes);
-  } catch (err) {
-    log.warn(
-      { sidecarRelPath: landed.sidecarRelPath, err: err instanceof Error ? err.message : err },
-      'old-name backup sidecar not retired — left for the canonical-backup-sidecars migration',
-    );
+  const legacy = legacyBackupSidecar(landed.primary);
+  const bytes = legacy ? await readLegacyBackupEdit(legacy) : null;
+  if (!legacy || !bytes) return;
+  const legacyXmp = bytes.toString('utf8');
+  if (legacyXmp !== landed.xmp) {
+    await recordSidecarDivergence({
+      assetId: landed.assetId,
+      libraryId: landed.libraryId,
+      sidecarRelPath: landed.sidecarRelPath,
+      deviceId: landed.deviceId,
+      baseSha256: null,
+      displacedSha256: sha256(legacyXmp),
+      displacedXmp: legacyXmp,
+      incomingSha256: sha256(landed.xmp),
+    });
   }
+  await removeLegacyIfUnchanged(legacy, bytes);
 }
