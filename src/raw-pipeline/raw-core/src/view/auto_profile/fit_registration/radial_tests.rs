@@ -67,6 +67,21 @@ fn register_frame(
     .map(|r| r.warp)
 }
 
+/// The best affine-only registration at the full grid: what the fit would
+/// use without the radial term.
+fn affine_only(tw: usize, th: usize, truth: impl Fn(f64, f64) -> [f64; 2]) -> Warp {
+    let (source, target) = (grid(tw, th, |u, v| [u, v]), grid(tw, th, truth));
+    let start = Warp {
+        aspect: Warp::aspect_of(tw, th),
+        ..Warp::IDENTITY
+    };
+    [64, 128, 256].into_iter().fold(start, |warp, edge| {
+        let (src, dst) = (source.normalized(edge), target.normalized(edge));
+        super::optimizer::stage(&src, &dst, warp, false, Pixels::All, Pixels::All)
+            .map_or(warp, |stage| stage.warp)
+    })
+}
+
 #[test]
 fn recovers_a_pixel_isotropic_lens_residual_on_square_and_wide_frames() {
     for (tw, th) in [(1024, 1024), (1024, 683), (1024, 512)] {
@@ -126,16 +141,32 @@ fn keystone_on_top_of_a_lens_residual_is_rejected_or_still_helps() {
     };
     let composite = |u: f64, v: f64| truth.map(0.5 + (u - 0.5) * (1. + 0.02 * (v - 0.5)), v);
     let found = register_frame(tw, th, composite).expect("the scaled scene must register");
-    let without_radial = Warp {
-        radial: 0.,
-        ..found
-    };
     // Unmodelled keystone may bias k; an accepted term must still help.
     assert!(
         found.radial == 0.
             || (found.radial * truth.radial > 0.
                 && worst_error_px(found, composite, tw, th)
-                    < worst_error_px(without_radial, composite, tw, th)),
+                    <= worst_error_px(affine_only(tw, th, composite), composite, tw, th)),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_half_the_term_makes_worse_vetoes_it() {
+    let (tw, th) = (1024, 683);
+    let [sx, sy] = Warp::aspect_of(tw, th);
+    let truth = |u: f64, v: f64| {
+        let (nx, ny) = (2. * u - 1., 2. * v - 1.);
+        [
+            u + 0.01 * nx * ((nx * sx).powi(2) + (ny * sy).powi(2)),
+            0.5 + (v - 0.5) * (1. + 0.03 * (u - 0.5)),
+        ]
+    };
+    let found = register_frame(tw, th, truth).expect("the scene must register");
+    assert!(
+        found.radial == 0.
+            || worst_error_px(found, truth, tw, th)
+                <= worst_error_px(affine_only(tw, th, truth), truth, tw, th),
         "{found:?}"
     );
 }
