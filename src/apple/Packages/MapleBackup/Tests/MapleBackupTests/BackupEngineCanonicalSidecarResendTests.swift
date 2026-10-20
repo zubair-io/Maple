@@ -119,6 +119,19 @@ final class BackupEngineCanonicalSidecarResendTests: XCTestCase {
     XCTAssertEqual(sidecarPosts().count, 2)
   }
 
+  /// A 2xx reply that doesn't say where the server stored the edit proves nothing,
+  /// so the delivery isn't recorded and the next walk sends again.
+  func testAReplyThatDoesNotNameTheStoredSidecarIsSentAgain() async throws {
+    StubURLProtocol.stub = .sequence([.ok(json: "not json"), .ok(json: "{}")])
+    let (engine, tmpRoot) = try harness()
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+
+    await engine.resendNewerEdits([held])
+    await engine.resendNewerEdits([held])
+
+    XCTAssertEqual(sidecarPosts().count, 2)
+  }
+
   /// Against a server that hasn't upgraded, each re-send still names the last
   /// delivered revision as its base, so a newer edit isn't taken for a divergence.
   func testReSendsToAnOldServerStayBasedOnTheLastDeliveredEdit() async throws {

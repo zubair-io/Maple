@@ -463,3 +463,16 @@ describe('a version kept aside by both the route and the migration is recorded o
     expect(keptAside('2024/12/03/IMG_82.xmp')).toHaveLength(1);
   });
 });
+
+describe('a retried shared send is kept aside once (#4692, #5021)', () => {
+  test('sending the same set-aside edit twice records one row', async () => {
+    const jpeg = await seedUpload('2024/12/04/IMG_83.jpg');
+    const raw = await seedUpload('2024/12/04/IMG_83.cr2');
+    await post(jpeg, xmp('jpeg edit'), 'none');
+
+    await post(raw, xmp('raw edit'), 'none');
+    await post(raw, xmp('raw edit'), 'none');
+
+    expect(keptAside('2024/12/04/IMG_83.xmp')).toHaveLength(1);
+  });
+});
