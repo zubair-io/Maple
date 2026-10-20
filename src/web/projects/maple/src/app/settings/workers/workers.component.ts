@@ -68,6 +68,7 @@ import {
   throughputLabel,
   pendingTitle,
   pauseReason,
+  statusTitle,
   formatBytes,
   formatDate,
   countsAsOfLabel,
@@ -508,6 +509,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
   throughputLabel = throughputLabel;
   pendingTitle = pendingTitle;
   pauseReason = pauseReason;
+  statusTitle = statusTitle;
   formatBytes = formatBytes;
   formatDate = formatDate;
 

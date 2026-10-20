@@ -40,6 +40,7 @@ import {
   stageMeta,
   statusDotColor,
   statusLabel,
+  statusTitle,
   summarizeStages,
   throughputLabel,
 } from './workers.vm';
@@ -332,6 +333,15 @@ describe('statusLabel', () => {
     expect(statusLabel(stage({ status: 'starting' }))).toBe('Starting');
     expect(statusLabel(stage({ status: 'restarting' }))).toBe('Restarting');
     expect(statusLabel(stage({ status: 'stopped' }))).toBe('Stopped');
+    expect(statusLabel(stage({ status: 'stalled' }))).toBe('Stalled');
+  });
+});
+
+describe('statusTitle', () => {
+  it('explains a stall, and otherwise shows the pause reason', () => {
+    const note = 'No progress for 20 minutes while work is waiting';
+    expect(statusTitle(stage({ status: 'stalled', lastError: note }))).toBe(note);
+    expect(statusTitle(stage({ status: 'running', lastError: 'boom' }))).toBeNull();
   });
 });
 
@@ -342,6 +352,7 @@ describe('statusDotColor', () => {
     expect(statusDotColor(stage({ status: 'paused' }))).toBe('#a8a29e');
     expect(statusDotColor(stage({ status: 'starting' }))).toBe('#a8a29e');
     expect(statusDotColor(stage({ status: 'error' }))).toBe('#f87171');
+    expect(statusDotColor(stage({ status: 'stalled' }))).toBe('#fbbf24');
   });
 });
 

@@ -13,7 +13,7 @@
  * level singleton — there is only one API server.
  */
 
-export type StageStatus = 'running' | 'idle' | 'paused' | 'stopped' | 'error';
+export type StageStatus = 'running' | 'idle' | 'paused' | 'stopped' | 'error' | 'stalled';
 
 /** A stage's upstream dependency, resolved to its concrete minimum version.
  * Mirrors the shape `buildClaimQuery` consumes in run-stage.ts. */
@@ -32,6 +32,9 @@ export interface StageRegistryEntry {
   getInFlight: () => number;
   getThroughput: () => number;
   getPaused: () => boolean;
+  /** How long the stage has held or claimed work without progress, once that
+   * passes the stall threshold; `null` otherwise (#5038). */
+  getStalledForMs?: () => number | null;
   /** Re-read worker_config from the database and apply to the live config. */
   reloadConfig: () => Promise<void>;
   pause: () => Promise<void>;
@@ -129,14 +132,26 @@ class StageRegistry {
     }
     for (const [name, entry] of this.entries) {
       const inFlight = entry.getInFlight();
-      const status: StageStatus = entry.getPaused() ? 'paused' : inFlight > 0 ? 'running' : 'idle';
+      const paused = entry.getPaused();
+      const stalledFor = paused ? null : (entry.getStalledForMs?.() ?? null);
+      const status: StageStatus = paused
+        ? 'paused'
+        : stalledFor !== null
+          ? 'stalled'
+          : inFlight > 0
+            ? 'running'
+            : 'idle';
+      const stallNote =
+        stalledFor === null
+          ? null
+          : `No progress for ${Math.round(stalledFor / 60_000)} minutes while work is waiting`;
       out[name] = {
         status,
         inFlight,
         throughput: entry.getThroughput(),
         targetVersion: entry.targetVersion,
         dependsOn: entry.dependsOn,
-        lastError: this.lastErrors.get(name) ?? null,
+        lastError: this.lastErrors.get(name) ?? stallNote,
       };
     }
     return out;

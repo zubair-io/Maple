@@ -21,6 +21,7 @@
 
 import { child as childLogger } from '../log.ts';
 import { ThroughputWindow } from './throughput-window.ts';
+import { StallWatch } from './stall-watch.ts';
 import { stageRegistry } from './registry.ts';
 import { POLL_INTERVAL_MS, nextPollDelay } from './loop-policy.ts';
 import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
@@ -119,6 +120,7 @@ export async function runStage<TPatch>(stage: StageConfig<TPatch>): Promise<RunS
   }
 
   const throughput = new ThroughputWindow();
+  const stallWatch = new StallWatch();
   const inFlightSet = new Set<string>();
   const abortController = new AbortController();
 
@@ -130,6 +132,7 @@ export async function runStage<TPatch>(stage: StageConfig<TPatch>): Promise<RunS
     getInFlight: () => inFlightSet.size,
     getThroughput: () => throughput.countInWindow(),
     getPaused: () => config.paused,
+    getStalledForMs: () => stallWatch.stalledForMs(inFlightSet.size),
     reloadConfig: async () => {
       const updated = await repo.load(stage.name);
       if (updated) {
@@ -205,6 +208,8 @@ export async function runStage<TPatch>(stage: StageConfig<TPatch>): Promise<RunS
         abortController.signal,
         inFlightSet,
         throughput,
+        undefined,
+        stallWatch,
       );
       consecutiveErrors = 0;
       delay = nextPollDelay({
