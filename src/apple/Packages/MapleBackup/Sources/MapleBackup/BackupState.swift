@@ -51,6 +51,13 @@ public actor BackupStateStore {
         t.column("uploaded_at", .double).notNull()
         t.primaryKey(["device_id", "phasset_local_id"])
       }
+      // Revisions delivered before #5021 landed as `IMG.HEIC.xmp`, which the
+      // server never reads; they keep 0 here and don't count as delivered.
+      let sidecarColumns = try db.columns(in: "uploaded_sidecars").map(\.name)
+      if !sidecarColumns.contains("canonical_name") {
+        try db.execute(
+          sql: "ALTER TABLE uploaded_sidecars ADD COLUMN canonical_name INTEGER NOT NULL DEFAULT 0")
+      }
     }
   }
 
@@ -58,10 +65,13 @@ public actor BackupStateStore {
     try dbQueue.write { db in
       try db.execute(
         literal: """
-          INSERT INTO uploaded_sidecars (device_id, phasset_local_id, digest, uploaded_at)
-          VALUES (\(id.deviceId), \(id.phassetLocalId), \(digest), \(Date().timeIntervalSince1970))
+          INSERT INTO uploaded_sidecars
+            (device_id, phasset_local_id, digest, uploaded_at, canonical_name)
+          VALUES
+            (\(id.deviceId), \(id.phassetLocalId), \(digest), \(Date().timeIntervalSince1970), 1)
           ON CONFLICT(device_id, phasset_local_id)
-          DO UPDATE SET digest = excluded.digest, uploaded_at = excluded.uploaded_at
+          DO UPDATE SET digest = excluded.digest, uploaded_at = excluded.uploaded_at,
+            canonical_name = 1
           """)
     }
   }
@@ -70,7 +80,10 @@ public actor BackupStateStore {
     try dbQueue.read { db in
       try String.fetchOne(
         db,
-        sql: "SELECT digest FROM uploaded_sidecars WHERE device_id = ? AND phasset_local_id = ?",
+        sql: """
+          SELECT digest FROM uploaded_sidecars
+           WHERE device_id = ? AND phasset_local_id = ? AND canonical_name = 1
+          """,
         arguments: [id.deviceId, id.phassetLocalId])
     }
   }
