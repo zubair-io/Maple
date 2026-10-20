@@ -190,6 +190,23 @@ async function publishBackupSidecarCas(
   return { status: 200, body };
 }
 
+/** SKIP-IF-EXISTS without a base: a dedup re-upload from a second device must
+ * not clobber the first device's sidecar (#698), including one still under the
+ * pre-#5021 name. */
+async function publishWithoutBase(
+  primary: string,
+  finalPath: string,
+  sidecarRelPath: string,
+  buf: Buffer,
+  libraryRoot: string,
+  phid: string,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  if (await hasLegacyBackupEdit(primary)) {
+    return { status: 200, body: { target_rel_path: sidecarRelPath, skipped: true } };
+  }
+  return publishLegacySidecar(finalPath, sidecarRelPath, buf, libraryRoot, phid);
+}
+
 /** A send that changed the canonical sidecar is a server edit of the photo (#5021). */
 function changedSidecar(result: { status: number; body: Record<string, unknown> }): boolean {
   if (result.status !== 200) return false;
@@ -270,22 +287,16 @@ export const backupSidecarRoutes = new Elysia().post(
       return { error: 'path escape detected' };
     }
 
-    const xmp = buf.toString('utf8');
     const baseHeader = headers['x-maple-sidecar-base'];
-    // SKIP-IF-EXISTS without a base: a dedup re-upload from a second device must
-    // not clobber the first device's (possibly already-edited) sidecar (#698).
     const primary = path.join(folder.path, targetRelPath);
-    // Without a base, an edit still under the pre-#5021 name counts as existing.
     const result =
       baseHeader === undefined
-        ? (await hasLegacyBackupEdit(primary))
-          ? { status: 200, body: { target_rel_path: sidecarRelPath, skipped: true } }
-          : await publishLegacySidecar(finalPath, sidecarRelPath, buf, folder.path, phid)
+        ? await publishWithoutBase(primary, finalPath, sidecarRelPath, buf, folder.path, phid)
         : await publishBackupSidecarCas({
             finalPath,
             targetRelPath,
             sidecarRelPath,
-            xmp,
+            xmp: buf.toString('utf8'),
             baseHeader,
             assetId: asset,
             libraryId,
