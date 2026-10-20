@@ -38,6 +38,7 @@ import {
   NEEDS_CANONICAL_SIDECAR_CHECK,
 } from '../../db/repos/backup-sidecar-name-checks.repo.ts';
 import { publishSidecarCas } from '../../backup/sidecar-cas.ts';
+import { isLiveLocationOfAsset } from '../../db/repos/backup.repo.ts';
 import {
   legacyBackupSidecar,
   readLegacyBackupEdit,
@@ -95,9 +96,13 @@ async function publishCanonical(
     root,
     {
       shared: () => sidecarStemClaimedBySibling(primary),
-      // A device send may have retired the file since it was read.
+      // A device send may have retired the file, or the photo moved, since the scan.
       precondition: async () =>
-        (await readLegacyBackupEdit(legacy).catch(() => null))?.equals(legacyBytes) === true,
+        (await isLiveLocationOfAsset(
+          assetId,
+          location.library_id,
+          path.posix.join(location.path, location.filename),
+        )) && (await readLegacyBackupEdit(legacy).catch(() => null))?.equals(legacyBytes) === true,
       afterLanded: async (landed) => {
         if (landed.kind === 'written' || landed.kind === 'diverged') {
           await publishSidecarChange(primary, true);
