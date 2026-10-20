@@ -49,7 +49,7 @@ import { isLiveFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
 import { child as childLogger } from '../../log.ts';
 import { runCandidateBatch, type CandidateOutcome, type LibraryRoots } from './candidate-batch.ts';
-import type { Migration, MigrationBatchResult } from './types.ts';
+import { MigrationBlockedError, type Migration, type MigrationBatchResult } from './types.ts';
 
 const log = childLogger('migration:canonical-backup-sidecars');
 
@@ -234,6 +234,17 @@ async function canonicalizeAsset(
   return (await markCanonicalSidecarsChecked(doc.id, live)) ? 'processed' : 'retry-later';
 }
 
+/** One batch of the migration's work, independent of the #5063 gate below. */
+export function runCanonicalBackupSidecarsBatch(batchSize: number): Promise<MigrationBatchResult> {
+  return runCandidateBatch({
+    scope: CANDIDATES,
+    batchSize,
+    log,
+    skippedWarning: 'canonical backup sidecars: assets skipped — library root not resolved',
+    process: canonicalizeAsset,
+  });
+}
+
 export const canonicalBackupSidecars: Migration = {
   id: MIGRATION_ID,
   title: 'Canonical backup sidecars',
@@ -241,19 +252,16 @@ export const canonicalBackupSidecars: Migration = {
     'Moves backed-up photo edits saved as IMG_1234.HEIC.xmp to the IMG_1234.xmp the server ' +
     'reads (#5021). Where an IMG_1234.xmp already exists it stays the active edit and the ' +
     'backup edit is kept as a divergence; nothing is overwritten or deleted without being ' +
-    'recorded. Videos are unchanged. Do not enable until #5063 lands. One-time; idempotent.',
+    'recorded. Videos are unchanged. Blocked until #5063 lands. One-time; idempotent.',
 
   countRemaining(): Promise<number> {
     return countCandidates(CANDIDATES);
   },
 
-  runBatch(batchSize: number): Promise<MigrationBatchResult> {
-    return runCandidateBatch({
-      scope: CANDIDATES,
-      batchSize,
-      log,
-      skippedWarning: 'canonical backup sidecars: assets skipped — library root not resolved',
-      process: canonicalizeAsset,
-    });
+  // Staged behind #5063: until movers carry old-name sidecars, a moved photo's edit would strand.
+  async runBatch(): Promise<MigrationBatchResult> {
+    throw new MigrationBlockedError(
+      'Blocked until #5063 lands: movers must carry old-name IMG.HEIC.xmp sidecars first.',
+    );
   },
 };
