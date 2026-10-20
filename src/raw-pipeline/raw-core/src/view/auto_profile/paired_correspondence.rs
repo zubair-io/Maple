@@ -1,16 +1,15 @@
 use super::super::{fit_registration::Warp, paired_observations::ObservationSet};
 
-fn supported(warp: Warp) -> bool {
-    if !warp.coefficients.iter().all(|v| v.is_finite()) {
-        return false;
-    }
+fn supported(map: impl Fn(f64, f64) -> Option<[f64; 2]>) -> bool {
     let mut total = 0;
     for gy in 0..8 {
         for gx in 0..8 {
             let mut covered = 0;
             for y in gy * 16..(gy + 1) * 16 {
                 for x in gx * 16..(gx + 1) * 16 {
-                    let p = warp.map((x as f64 + 0.5) / 128., (y as f64 + 0.5) / 128.);
+                    let Some(p) = map((x as f64 + 0.5) / 128., (y as f64 + 0.5) / 128.) else {
+                        return false;
+                    };
                     if p.iter().all(|v| (0. ..=1.).contains(v)) {
                         covered += 1;
                     }
@@ -26,22 +25,19 @@ fn supported(warp: Warp) -> bool {
 }
 
 pub(super) fn supported_both_directions(warp: Warp) -> bool {
-    let [a, b, x, c, d, y] = warp.coefficients;
-    let determinant = a * d - b * c;
-    if !determinant.is_finite() || determinant <= 0. {
+    if !warp
+        .coefficients
+        .iter()
+        .chain([&warp.radial])
+        .all(|v| v.is_finite())
+    {
         return false;
     }
-    let inverse = Warp {
-        coefficients: [
-            d / determinant,
-            -b / determinant,
-            (b * y - d * x) / determinant,
-            -c / determinant,
-            a / determinant,
-            (c * x - a * y) / determinant,
-        ],
+    let forward = |u, v| {
+        let [a, b, c, d] = warp.jacobian(u, v);
+        (a * d - b * c > 0.).then(|| warp.map(u, v))
     };
-    supported(warp) && supported(inverse)
+    supported(forward) && supported(|x, y| warp.inverse_map(x, y))
 }
 
 pub(super) fn retains_population(original: &ObservationSet, matched: &ObservationSet) -> bool {
@@ -71,6 +67,7 @@ mod tests {
         assert!(supported_both_directions(Warp::IDENTITY));
         assert!(supported_both_directions(Warp {
             coefficients: [1.016, 0., -0.008, 0., 1.016, -0.008],
+            radial: 0.,
         }));
     }
     #[test]
@@ -81,7 +78,10 @@ mod tests {
             [0., 0., 0., 0., 0., 0.],
             [f64::NAN, 0., 0., 0., 1., 0.],
         ] {
-            assert!(!supported_both_directions(Warp { coefficients }));
+            assert!(!supported_both_directions(Warp {
+                coefficients,
+                radial: 0.
+            }));
         }
     }
     #[test]
