@@ -1,0 +1,14 @@
+[
+  {
+    "fixture": "test_0008",
+    "diagnostic_matches_physical_full_run": true
+  },
+  {
+    "fixture": "test_0010",
+    "diagnostic_matches_physical_full_run": true
+  },
+  {
+    "fixture": "test_0015",
+    "diagnostic_matches_physical_full_run": true
+  }
+]
