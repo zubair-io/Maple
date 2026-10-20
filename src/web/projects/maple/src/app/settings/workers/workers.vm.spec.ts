@@ -150,23 +150,32 @@ describe('runtimeFormToPatch', () => {
     const patch = runtimeFormToPatch({
       concurrency: '250', // > 100 → 100
       maxAttempts: 'oops',
+      stallAfterMinutes: '2', // < 5 → 5
     });
     expect(patch).toEqual({
       concurrency: 100,
       maxAttempts: DEFAULT_RUNTIME.maxAttempts,
+      stallAfterMinutes: 5,
     });
     expect('pollIntervalMs' in patch).toBe(false);
     expect('batchSize' in patch).toBe(false);
   });
 
   it('clamps a sane concurrency through unchanged', () => {
-    const patch = runtimeFormToPatch({ concurrency: '64', maxAttempts: '7' });
-    expect(patch).toEqual({ concurrency: 64, maxAttempts: 7 });
+    const patch = runtimeFormToPatch({
+      concurrency: '64',
+      maxAttempts: '7',
+      stallAfterMinutes: '120',
+    });
+    expect(patch).toEqual({ concurrency: 64, maxAttempts: 7, stallAfterMinutes: 120 });
   });
 
   it('admits concurrency up to the new 100 ceiling', () => {
     expect(CONCURRENCY_MAX).toBe(100);
-    expect(runtimeFormToPatch({ concurrency: '100', maxAttempts: '5' }).concurrency).toBe(100);
+    expect(
+      runtimeFormToPatch({ concurrency: '100', maxAttempts: '5', stallAfterMinutes: '60' })
+        .concurrency,
+    ).toBe(100);
   });
 });
 
@@ -181,6 +190,7 @@ describe('blankRuntime', () => {
     );
     expect(form.concurrency).toBe('12');
     expect(form.maxAttempts).toBe('5');
+    expect(form.stallAfterMinutes).toBe('60');
     expect(form.version).toBe('v1.2.3');
     expect(form.prompt_text).toBe('hello prompt');
   });
@@ -289,12 +299,20 @@ describe('summarizeStages', () => {
       stage({ status: 'running', pending: 50, dead: 2 }),
       stage({ status: 'paused', pending: 0, dead: 1 }),
       stage({ status: 'error', pending: 10, dead: 0 }),
+      stage({ status: 'stalled', pending: 5, dead: 0 }),
     ]);
-    expect(sum).toEqual({ running: 2, idle: 1, paused: 1, dead: 3, pending: 180 });
+    expect(sum).toEqual({ running: 2, idle: 1, paused: 1, stalled: 1, dead: 3, pending: 185 });
   });
 
   it('returns zeros when no stages are reported', () => {
-    expect(summarizeStages([])).toEqual({ running: 0, idle: 0, paused: 0, dead: 0, pending: 0 });
+    expect(summarizeStages([])).toEqual({
+      running: 0,
+      idle: 0,
+      paused: 0,
+      stalled: 0,
+      dead: 0,
+      pending: 0,
+    });
   });
 });
 
