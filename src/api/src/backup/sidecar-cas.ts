@@ -44,6 +44,11 @@ interface DisplacedSidecar {
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 
+/** A publish that threw, as an outcome the caller can report. */
+export function errorOutcome(error: unknown): { kind: 'error'; error: string } {
+  return { kind: 'error', error: error instanceof Error ? error.message : String(error) };
+}
+
 /** `X-Maple-Sidecar-Base`: absent → `undefined` (legacy skip-if-exists),
  * `none` → `null`, a SHA-256 hex digest → itself, anything else → `'invalid'`. */
 export function parseSidecarBase(
