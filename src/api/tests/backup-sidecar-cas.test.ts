@@ -291,6 +291,34 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
     expect(await onDisk(target.relPath)).toBe(xmp('edit'));
   });
 
+  test('a sibling that arrives while a send waits on the barrier still shares the sidecar (#4692)', async () => {
+    const target = await seedUpload('late-sibling');
+    const sidecar = path.join(tmpLib, xmpSidecarPath(target.relPath));
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const inside = new Promise<void>((resolve) => (entered = resolve));
+    const holder = serializeSidecarWrite(sidecar, async () => {
+      entered();
+      await held;
+      await fs.writeFile(path.join(tmpLib, '2024/CAS/late-sibling.cr2'), Buffer.alloc(8));
+      await fs.writeFile(sidecar, xmp('sibling edit'));
+    });
+    await inside;
+
+    const send = post(target, xmp('incoming'), 'none');
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    release();
+    await holder;
+    const res = await send;
+
+    expect(await res.json()).toEqual({
+      target_rel_path: xmpSidecarPath(target.relPath),
+      shared: true,
+    });
+    expect(await onDisk(target.relPath)).toBe(xmp('sibling edit'));
+  });
+
   test('a publish that fails leaves no divergence row behind (#5023)', async () => {
     const target = await seedUpload('failed-publish');
     expect((await post(target, xmp('v1'), 'none')).status).toBe(200);
