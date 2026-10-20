@@ -74,8 +74,9 @@ export class GoogleDriveProvider implements BackupProvider {
     readonly rootId: string,
     token: () => Promise<string>,
     transport: GoogleFetch = fetch,
+    onUnauthorized?: () => void,
   ) {
-    this.client = new DriveClient(token, transport);
+    this.client = new DriveClient(token, transport, onUnauthorized);
   }
   async probe(signal?: AbortSignal) {
     await validateGoogleRoot(this.client, this.rootId, signal);
