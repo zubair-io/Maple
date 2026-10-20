@@ -16,6 +16,8 @@ use projection::constrain_to_prior;
 mod bands;
 #[path = "paired_population.rs"]
 mod population;
+#[path = "paired_quality_budget.rs"]
+mod quality_budget;
 
 pub(super) const GRID: usize = 9;
 pub(super) const CELLS: usize = GRID * GRID * GRID;
@@ -294,27 +296,37 @@ fn assess_against(
                 || regional_rgb[0][r][c] / populations[r].max(1) as f64 <= 0.05
         })
     });
-    let rgb_tails_preserved = (0..3).all(|c| {
-        let p95: Vec<f64> = rgb_tails
-            .iter()
-            .map(|rows| {
-                let mut values: Vec<_> = rows.iter().map(|(v, weight)| (v[c], *weight)).collect();
-                population::p95(&mut values)
-            })
-            .collect();
-        p95[1] > 0.1 || p95[0] <= 0.1
+    let rgb_p95: [[f64; 3]; 2] = std::array::from_fn(|side| {
+        std::array::from_fn(|c| {
+            let mut values: Vec<_> = rgb_tails[side]
+                .iter()
+                .map(|(v, weight)| (v[c], *weight))
+                .collect();
+            population::p95(&mut values)
+        })
     });
+    let rgb_tails_preserved = (0..3).all(|c| rgb_p95[1][c] > 0.1 || rgb_p95[0][c] <= 0.1);
+    let worst_ratios = quality_budget::worst_ratios(
+        native_bands.worst_ratios(),
+        perceptual,
+        &p95,
+        &regional_rgb,
+        &populations,
+        &rgb_p95,
+    );
+    let reduces_failure = worst_ratios[1] > 1. && worst_ratios[0] < worst_ratios[1];
     let native_bands_preserved = native_bands.preserved();
     let compatible = regions_improve
         && rgb_regions_preserved
         && rgb_tails_preserved
         && perceptual[0] < perceptual[1]
-        && p95[0] <= p95[1]
-        && (0..3).all(|c| squared[0][c] <= squared[1][c] && absolute[0][c] <= absolute[1][c]);
+        && quality_budget::tail_preserved(p95[1], p95[0], worst_ratios)
+        && (0..3).all(|c| absolute[0][c] <= absolute[1][c])
+        && ((0..3).all(|c| squared[0][c] <= squared[1][c]) || reduces_failure);
     #[cfg(feature = "stage-dump")]
     if let Some(dir) = crate::stage_dump::dump_dir() {
         let regions:Vec<_>=(0..64).map(|r|serde_json::json!({"region":r,"count":counts[r],"represented_pixels":populations[r],"candidate_mean":(counts[r]>0).then(||regional[0][r]/populations[r].max(1) as f64),"baseline_mean":(counts[r]>0).then(||regional[1][r]/populations[r].max(1) as f64)})).collect();
-        let report = serde_json::json!({"accepted":compatible && native_bands_preserved,"regions_improve":regions_improve,"native_bands_preserved":native_bands_preserved,"rgb_regions_preserved":rgb_regions_preserved,"rgb_tails_preserved":rgb_tails_preserved,"native_squared_rgb":squared,"native_absolute_rgb":absolute,"display_perceptual_sum":perceptual,"display_p95":p95,"native_validation_samples":validation_count,"display_samples":display.len(),"regions":regions});
+        let report = serde_json::json!({"accepted":compatible && native_bands_preserved,"regions_improve":regions_improve,"native_bands_preserved":native_bands_preserved,"rgb_regions_preserved":rgb_regions_preserved,"rgb_tails_preserved":rgb_tails_preserved,"native_squared_rgb":squared,"native_absolute_rgb":absolute,"display_perceptual_sum":perceptual,"display_p95":p95,"worst_normalized_errors":worst_ratios,"reduces_worst_failure":reduces_failure,"native_validation_samples":validation_count,"display_samples":display.len(),"regions":regions});
         if let Ok(file) = std::fs::File::create(dir.join(if reference.is_some() {
             "auto_fit_selection_against_existing.json"
         } else {

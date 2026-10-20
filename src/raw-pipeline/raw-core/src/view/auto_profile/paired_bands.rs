@@ -54,6 +54,20 @@ impl NativeBands {
         }
     }
 
+    pub(super) fn worst_ratios(&self) -> [f64; 2] {
+        std::array::from_fn(|side| {
+            (0..5)
+                .flat_map(|band| (0..3).map(move |c| (band, c)))
+                .map(|(band, c)| {
+                    let absolute = self.absolute[side][band][c] / self.counts[band].max(1) as f64;
+                    let signed = self.inner_signed[side][band][c].abs()
+                        / self.inner_counts[band].max(1) as f64;
+                    absolute.max(signed) / 0.05
+                })
+                .fold(0., f64::max)
+        })
+    }
+
     pub(super) fn preserved(&self) -> bool {
         (0..5).all(|band| {
             (0..3).all(|c| {

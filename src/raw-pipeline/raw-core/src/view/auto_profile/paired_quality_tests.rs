@@ -172,3 +172,34 @@ fn new_fit_must_beat_the_existing_paired_artifact() {
     assert!(assess(&candidate, &rows, &rows).compatible);
     assert!(!assess_against(&candidate, &rows, &rows, Some(&existing)).compatible);
 }
+
+#[test]
+fn an_already_failed_de_tail_does_not_veto_fewer_smaller_budget_violations() {
+    let mut rows = Vec::new();
+    for region in 0..64 {
+        for i in 0..64 {
+            let (source, target, baseline) = if region == 0 {
+                (0.8, 0.8, 0.2)
+            } else if i % 16 == 0 {
+                (0.169, 0.35, 0.17)
+            } else {
+                (0.5, 0.5, 0.52)
+            };
+            rows.push(Observation {
+                weights: corners([source; 3]).to_vec(),
+                artifact_weights: corners([source; 3]).to_vec(),
+                source: [source as f64; 3],
+                target: [target; 3],
+                baseline: [baseline; 3],
+                population: 1,
+                validation: true,
+                in_bias_region: true,
+                region,
+            });
+        }
+    }
+    let before = ciede2000(lab([0.17; 3]), lab([0.35; 3]));
+    let after = ciede2000(lab([0.169; 3]), lab([0.35; 3]));
+    assert!(before > 10. && after > before);
+    assert!(prefer(&ColorLut::identity(GRID), &rows, &rows));
+}
