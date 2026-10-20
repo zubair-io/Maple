@@ -107,5 +107,5 @@
     }
   ],
   "fallback_checks": 4,
-  "banding_0005": "New blue-ramp failure: d2 .00112886 > .001, spike1.22743 >1.2; old blue passed. Neutral already failed .0053528 and still fails .00491683 >.004007. No tolerances changed. Reference fix is correct; fitted artifact not fully qualified."
+  "banding_0005": "Full/RCD before/after: blue changes from pass to fail; neutral fails both. Corrected AMaZE instrument also fails blue and neutral, and its LUT exactly matches the photograph. Prior AMaZE ramps were not measured, so a new AMaZE regression is not established. No tolerances changed; artifact remains unqualified."
 }

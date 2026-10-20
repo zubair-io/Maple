@@ -5,10 +5,12 @@
 //! Profile tail: the tail is fitted per-image against the RAW's own embedded
 //! JPEG, and a synthetic ramp has no embedded JPEG, so the Auto stage no-ops
 //! there. This command closes that gap: it fits the SHIPPING Auto Profile
-//! tail from a real RAW (through the production entry point
+//! tail at native AMaZE quality, matching the default photographic CLI render.
+//! This does not qualify proxy-sized host fits. The tail comes from a real RAW
+//! through the production entry point
 //! `auto_profile::apply_pipeline::fit_auto_profile_artifacts`, so
 //! `MAPLE_AUTO1` selects Auto 1.0 vs the default Auto 2.0 exactly as it
-//! does in the app), applies that fitted tail to smooth display-space
+//! does in the app. It applies that fitted tail to smooth display-space
 //! ramps, and dumps
 //! the results as `18_auto_tail.exr` stage dumps that
 //! `src/scripts/banding_check.py` gates with the standard second-difference
