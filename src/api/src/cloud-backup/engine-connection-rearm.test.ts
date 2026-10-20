@@ -82,3 +82,34 @@ test('a destination that is still unreachable keeps its entries parked', async (
     attempts: 9,
   });
 });
+
+test('a destination that stays healthy re-arms once, so failing entries keep their backoff', async () => {
+  using live = await createLiveTestDatabase();
+  const { repo, destination, assetId, provider } = await parkedDestination(live);
+  const engine = new BackupEngine(async () => provider, repo);
+  await engine.rearmParkedConnections();
+  const [entry] = await repo.entries(destination.id, assetId);
+  await repo.db.write(
+    `UPDATE backup_entries SET last_error='quota', error_kind='connection', attempts=9, retry_at=?
+     WHERE id=?`,
+    [Date.now() + 3_600_000, entry!.id],
+  );
+
+  await engine.rearmParkedConnections();
+
+  expect((await repo.entries(destination.id, assetId))[0]).toMatchObject({ attempts: 9 });
+});
+
+test('a destination that recovers from an outage re-arms its parked entries', async () => {
+  using live = await createLiveTestDatabase();
+  const { repo, destination, assetId, provider } = await parkedDestination(live);
+  const healthyProbe = provider.probe.bind(provider);
+  provider.probe = () => Promise.reject(new GoogleDriveError(0, null));
+  const engine = new BackupEngine(async () => provider, repo);
+  await engine.rearmParkedConnections();
+  provider.probe = healthyProbe;
+
+  await engine.rearmParkedConnections();
+
+  expect((await repo.entries(destination.id, assetId))[0]).toMatchObject({ attempts: 0 });
+});
