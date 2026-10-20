@@ -66,8 +66,13 @@ export async function hasLegacyBackupEdit(primary: string): Promise<boolean> {
   return edit !== null;
 }
 
-/** Unlink `legacy` only if it still holds `expected`; the bytes, not a lock, decide. */
-export async function removeLegacyIfUnchanged(legacy: string, expected: Buffer): Promise<void> {
+/** Unlink `legacy` only if no other file claims it yet and it still holds `expected`. */
+export async function removeLegacyIfUnchanged(
+  primary: string,
+  legacy: string,
+  expected: Buffer,
+): Promise<void> {
+  if (await claimedByAnotherFile(primary, legacy)) return;
   const current = await readSidecarBytes(legacy).catch(() => null);
   if (!current?.equals(expected)) return;
   // The other process (route or migration) may have removed it first.
@@ -110,5 +115,5 @@ export async function retireLegacyBackupSidecar(landed: LandedBackupSidecar): Pr
       displacedXmp: legacyXmp,
     });
   }
-  await removeLegacyIfUnchanged(legacy, bytes);
+  await removeLegacyIfUnchanged(landed.primary, legacy, bytes);
 }

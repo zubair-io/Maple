@@ -65,6 +65,7 @@ import {
 } from '../backup/sidecar-cas.ts';
 import {
   forgetSidecarDivergence,
+  hasSidecarDivergence,
   recordSidecarDivergence,
 } from '../db/repos/sidecar-divergences.repo.ts';
 import { isLiveLocationOfAsset } from '../db/repos/backup.repo.ts';
@@ -155,6 +156,16 @@ async function publishBackupSidecarCas(
     req.xmp,
     base,
     async (displaced) => {
+      // A retried shared send keeps the same edit aside; record it once.
+      const setAside = displaced.sha256 === displaced.incomingSha256;
+      const kept = {
+        assetId: req.assetId,
+        libraryId: req.libraryId,
+        sidecarRelPath: req.sidecarRelPath,
+        displacedSha256: displaced.sha256,
+        incomingSha256: displaced.incomingSha256,
+      };
+      if (setAside && (await hasSidecarDivergence(kept))) return async () => undefined;
       const id = await recordSidecarDivergence({
         assetId: req.assetId,
         libraryId: req.libraryId,
