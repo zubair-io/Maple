@@ -95,7 +95,12 @@ async function publishCanonical(
       // A device send may have retired the file since it was read.
       precondition: async () =>
         (await readLegacyBackupEdit(legacy).catch(() => null))?.equals(legacyBytes) === true,
-      afterLanded: () => removeLegacyIfUnchanged(legacy, legacyBytes),
+      afterLanded: async (landed) => {
+        if (landed.kind === 'written' || landed.kind === 'diverged') {
+          await publishSidecarChange(primary, true);
+        }
+        await removeLegacyIfUnchanged(legacy, legacyBytes);
+      },
     },
   );
   if (outcome.kind === 'refused') {
@@ -112,9 +117,6 @@ async function publishCanonical(
       'canonical sidecar not published — old-name sidecar left for retry',
     );
     return 'error';
-  }
-  if (outcome.kind === 'written' || outcome.kind === 'diverged') {
-    await publishSidecarChange(primary, true);
   }
   return 'done';
 }
@@ -170,8 +172,8 @@ async function canonicalizeAsset(
   const mounted = await Promise.all(rooted.map(({ root }) => libraryRootAvailable(root)));
   if (mounted.includes(false)) return 'skipped-no-root';
   if ((await canonicalizeAll(doc.id, rooted)) === 'error') return 'error';
-  await markCanonicalSidecarsChecked(doc.id);
-  return 'processed';
+  const live = doc.fileinfo.filter(isLiveFileInfo).length;
+  return (await markCanonicalSidecarsChecked(doc.id, live)) ? 'processed' : 'retry-later';
 }
 
 export const canonicalBackupSidecars: Migration = {

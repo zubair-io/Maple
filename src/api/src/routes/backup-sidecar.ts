@@ -153,17 +153,24 @@ async function publishBackupSidecarCas(
     req.libraryRoot,
     {
       shared: () => sidecarStemClaimedBySibling(primary),
-      afterLanded: () =>
-        retireLegacyBackupSidecar({
+      afterLanded: async (landed) => {
+        if (landed.kind === 'written' || landed.kind === 'diverged') {
+          await publishSidecarChange(primary, true);
+        }
+        await retireLegacyBackupSidecar({
           primary,
           xmp: req.xmp,
           assetId: req.assetId,
           libraryId: req.libraryId,
           sidecarRelPath: req.sidecarRelPath,
           deviceId: req.deviceId,
-        }),
+        });
+      },
     },
-  );
+  ).catch((error: unknown) => ({
+    kind: 'error' as const,
+    error: error instanceof Error ? error.message : String(error),
+  }));
   log.debug(
     { phid: req.phid, sidecarRelPath: req.sidecarRelPath, outcome: outcome.kind },
     'sidecar compare-and-swap',
@@ -203,7 +210,10 @@ async function publishWithoutBase(
   if (await hasLegacyBackupEdit(primary)) {
     return { status: 200, body: { target_rel_path: sidecarRelPath, skipped: true } };
   }
-  return publishLegacySidecar(finalPath, sidecarRelPath, buf, libraryRoot, phid);
+  const result = await publishLegacySidecar(finalPath, sidecarRelPath, buf, libraryRoot, phid);
+  if (result.status === 200 && !('skipped' in result.body))
+    await publishSidecarChange(primary, true);
+  return result;
 }
 
 /** Why `targetRelPath` can't take this asset's canonical sidecar, if it can't. */
@@ -219,12 +229,6 @@ async function targetRefusal(
   return (await isLiveLocationOfAsset(assetId, libraryId, targetRelPath))
     ? null
     : { status: 404, error: 'no prior upload of this asset at this path' };
-}
-
-/** A send that changed the canonical sidecar is a server edit of the photo (#5021). */
-function changedSidecar(result: { status: number; body: Record<string, unknown> }): boolean {
-  if (result.status !== 200) return false;
-  return !['skipped', 'unchanged', 'shared'].some((outcome) => outcome in result.body);
 }
 
 export const backupSidecarRoutes = new Elysia().post(
@@ -323,7 +327,6 @@ export const backupSidecarRoutes = new Elysia().post(
             libraryRoot: folder.path,
             phid,
           });
-    if (changedSidecar(result)) await publishSidecarChange(primary, true);
     set.status = result.status;
     return result.body;
   },
