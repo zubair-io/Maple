@@ -11,6 +11,7 @@ fn recovers_bounded_scene_correspondences_despite_brightness_and_contrast_differ
     let (width, height) = (128, 128);
     let expected = Warp {
         coefficients: [1.025, 0.003, -0.012, -0.002, 0.983, 0.008],
+        radial: 0.,
     };
     let mut a = Vec::new();
     let mut b = Vec::new();
@@ -95,13 +96,15 @@ fn unrelated_structure_is_not_accepted_as_a_correspondence() {
 fn aligned_support_bounds_the_rotated_footprint_along_source_axes() {
     let warp = Warp {
         coefficients: [0.6, 0.8, 0., -0.8, 0.6, 0.],
+        radial: 0.,
     };
-    let [x, y] = warp.support(400, 300, 100, 50);
+    let [x, y] = warp.support(400, 300, 100, 50, 0.3, 0.7);
     assert!((x - 400. * (0.6 / 100. + 0.8 / 50.)).abs() < 1e-12);
     assert!((y - 300. * (0.8 / 100. + 0.6 / 50.)).abs() < 1e-12);
     let unrotated = Warp {
         coefficients: [1.016, 0., 0., 0., 0.99, 0.],
+        radial: 0.,
     };
-    let [x, y] = unrotated.support(400, 300, 100, 50);
+    let [x, y] = unrotated.support(400, 300, 100, 50, 0.3, 0.7);
     assert!((x - 1.016 * 400. / 100.).abs() < 1e-12 && (y - 0.99 * 300. / 50.).abs() < 1e-12);
 }
