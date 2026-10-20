@@ -1,0 +1,380 @@
+{
+  "target": "camera-embedded-jpeg",
+  "profile": "auto",
+  "metric": "display-sRGB signed channel bias in five reference-luma bands",
+  "budget": 0.05,
+  "binary": "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-nodefit-pilot/maple-cli",
+  "binary_sha256": "7157f887ce15d4c951e46de2eb09c4732370623bca88901b37c247c9221e58cf",
+  "geometry": "default render; aspect center-crop, BOX resize, inner 80% comparison",
+  "reference_decode": "extract-preview: display-oriented, Adobe RGB converted to sRGB",
+  "runner_sha256": "2d92a543236d299c956e8ace642755bed78495b2fa3b6b08229ad57f9bc8c275",
+  "comparator_sha256": "0622267f4d5e881ad0cf6c9489b43b2581bfaac7df5c4d4c9be53bcb7a45be77",
+  "selected": 12,
+  "cases": [
+    {
+      "fixture": "test_0000",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/f4/f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5.DNG",
+      "raw_sha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "bands": {
+        "0.00-0.10": {
+          "n": 9478,
+          "R": 0.0071405814910897895,
+          "G": 0.0009466711352192288,
+          "B": 0.0008581275937258213
+        },
+        "0.10-0.25": {
+          "n": 71369,
+          "R": 0.0014183672319969746,
+          "G": 8.890551975249197e-05,
+          "B": 3.219940332197776e-05
+        },
+        "0.25-0.50": {
+          "n": 137020,
+          "R": 6.585556423708071e-05,
+          "G": -4.9999856897948154e-05,
+          "B": -6.416696002587216e-05
+        },
+        "0.50-0.75": {
+          "n": 125978,
+          "R": -2.3720294766686706e-05,
+          "G": -5.198542291386755e-05,
+          "B": -8.734796209360016e-05
+        },
+        "0.75-1.00": {
+          "n": 49371,
+          "R": -3.582320493772465e-05,
+          "G": -5.2980216615216233e-05,
+          "B": -0.00014090990146235457
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "30c87ac2cf661f436af983d55c7dd7e5d74bd2c56d46e554586404fa862a060d",
+      "reference_sha256": "f7100cf9e597a5e73719fb4660c89cf5143913f596c3248b4809f67025993ce6"
+    },
+    {
+      "fixture": "test_0001",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/c4/c4aebea165cf2e782ac976ebafb986f356fdb7fa05834392ad7a8169cbeaf184.RAW",
+      "raw_sha256": "c4aebea165cf2e782ac976ebafb986f356fdb7fa05834392ad7a8169cbeaf184",
+      "status": "no-preview",
+      "reason": "explicit CLI no-preview sentinel; not a pass"
+    },
+    {
+      "fixture": "test_0005",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/a7/a7124d13910e0241a6b035154bc1fcdb7be4439371d043b1e1950a0251feb51e.RAF",
+      "raw_sha256": "a7124d13910e0241a6b035154bc1fcdb7be4439371d043b1e1950a0251feb51e",
+      "bands": {
+        "0.00-0.10": {
+          "n": 51232,
+          "R": 0.028238937673757826,
+          "G": 0.028536316150445187,
+          "B": 0.0372893473441844
+        },
+        "0.10-0.25": {
+          "n": 643614,
+          "R": 0.005314079069558009,
+          "G": 0.005319221598964716,
+          "B": 0.006513129261437116
+        },
+        "0.25-0.50": {
+          "n": 2846591,
+          "R": 0.002000294249452463,
+          "G": 0.002033367177048742,
+          "B": 0.0020015107027813914
+        },
+        "0.50-0.75": {
+          "n": 4119396,
+          "R": 0.0018751035631551468,
+          "G": 0.0018699857369152881,
+          "B": 0.0018969618980311572
+        },
+        "0.75-1.00": {
+          "n": 19167,
+          "R": 0.0015187459655433095,
+          "G": 0.0015351139673274146,
+          "B": 0.0015424795681302718
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "4e2c0fabf864310eee7d793f88edf21af8de2a5db29a5caa41a912dfeb8e3402",
+      "reference_sha256": "882b270ca1594a801ecc236fcb7a985c2c8aa881d9008ed155de03678ad613b2"
+    },
+    {
+      "fixture": "test_0006",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/15/159326856c29073e845c3c5a9ecf98c6474f43ca15798a88ad5e2baecd0664b7.DNG",
+      "raw_sha256": "159326856c29073e845c3c5a9ecf98c6474f43ca15798a88ad5e2baecd0664b7",
+      "bands": {
+        "0.00-0.10": {
+          "n": 30226,
+          "R": 0.00039674971424419743,
+          "G": 0.00041387560118998957,
+          "B": 0.00031086079637969146
+        },
+        "0.10-0.25": {
+          "n": 39662,
+          "R": 0.0003974763219795504,
+          "G": 0.0004071660432616398,
+          "B": 0.00039411458194290634
+        },
+        "0.25-0.50": {
+          "n": 171022,
+          "R": 0.0004054976529794009,
+          "G": 0.00040137021701828904,
+          "B": 0.0004040759805927949
+        },
+        "0.50-0.75": {
+          "n": 144827,
+          "R": 0.0004011818292467137,
+          "G": 0.000402671097646318,
+          "B": 0.00040370004672241137
+        },
+        "0.75-1.00": {
+          "n": 62803,
+          "R": -0.0004392196825866611,
+          "G": -0.00019182298335316557,
+          "B": -0.00021280362215742165
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "cd15db1eb8795d1be81325150588e514baef076314004ac97f25cd1c8715818c",
+      "reference_sha256": "62564f3d7b0242b319d1c4e54c62d30d03af2d47848f61e44ec8233f0c82c15b"
+    },
+    {
+      "fixture": "test_0007",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/95/95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1.DNG",
+      "raw_sha256": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+      "bands": {
+        "0.00-0.10": {
+          "n": 30226,
+          "R": 0.00041647043254541296,
+          "G": 0.001108901179740076,
+          "B": 0.0013881050335836052
+        },
+        "0.10-0.25": {
+          "n": 39662,
+          "R": 0.00041042890859132187,
+          "G": 0.0004294128523276582,
+          "B": 0.0005193888356613388
+        },
+        "0.25-0.50": {
+          "n": 171022,
+          "R": 0.0004090059735463453,
+          "G": 0.00040795118435628315,
+          "B": 0.0004157703824826109
+        },
+        "0.50-0.75": {
+          "n": 144827,
+          "R": 0.00039969256084710817,
+          "G": 0.00041106515589864844,
+          "B": 0.0004117691736875517
+        },
+        "0.75-1.00": {
+          "n": 62803,
+          "R": -1.4986170574460588e-05,
+          "G": 0.00035948076665502773,
+          "B": 0.00038389573621592257
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "76e0283944acdde6f97b20887f82731761ee6312c81375522a402702ac529769",
+      "reference_sha256": "5611d486a58214103a54654de18ca79edea619ee47ad29b502ac2819a3e3fc65"
+    },
+    {
+      "fixture": "test_0008",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/95/95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754.RAF",
+      "raw_sha256": "95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754",
+      "bands": {
+        "0.00-0.10": {
+          "n": 1090984,
+          "R": 0.001332281719269657,
+          "G": 0.0014965011618221842,
+          "B": 0.001418830678201926
+        },
+        "0.10-0.25": {
+          "n": 1197464,
+          "R": 0.0007767198994266707,
+          "G": 0.0008003679147814709,
+          "B": 0.0008193459301506833
+        },
+        "0.25-0.50": {
+          "n": 1797909,
+          "R": 0.0007851081123552229,
+          "G": 0.0007854854570220287,
+          "B": 0.0007883667998246201
+        },
+        "0.50-0.75": {
+          "n": 1496491,
+          "R": 0.0007832335515444566,
+          "G": 0.0007835218075707311,
+          "B": 0.0007847875135770229
+        },
+        "0.75-1.00": {
+          "n": 2738544,
+          "R": 0.000701493417025718,
+          "G": 0.0007103173416668311,
+          "B": 0.0007142825229928991
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "c197b062001e43543e3bf02dac70e4493f65a541815e3043bde25ba251bce639",
+      "reference_sha256": "d4b3dea1d1712d9c7b35dc8e4df265358a2c19970f7d1082cbe80b7e4de8e554"
+    },
+    {
+      "fixture": "test_0011",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/34/3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e.ARW",
+      "raw_sha256": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+      "bands": {
+        "0.00-0.10": {
+          "n": 297528,
+          "R": 0.0008141201144489416,
+          "G": 0.0006521185549318544,
+          "B": 0.0008031275751407283
+        },
+        "0.10-0.25": {
+          "n": 312351,
+          "R": 0.0005837324412750592,
+          "G": 0.0005728221412047669,
+          "B": 0.0005838203263159013
+        },
+        "0.25-0.50": {
+          "n": 107194,
+          "R": 0.000571549402640697,
+          "G": 0.0005704518873056608,
+          "B": 0.00056573257136502
+        },
+        "0.50-0.75": {
+          "n": 10251,
+          "R": -0.00022647240537028597,
+          "G": -0.00016029043555769348,
+          "B": -0.00043075663589013153
+        },
+        "0.75-1.00": {
+          "n": 388964,
+          "R": 0.0013663445036800638,
+          "G": 0.0005922620793980439,
+          "B": 0.0014876622484947999
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "cd152bf247a14681514dd995a9b65bc0953e411a91242dc81f3eafb64edde0ef",
+      "reference_sha256": "dde686e9852185784a4bc67242fabb040ce2c5befe73c525b65fe27d3c15fcd3"
+    },
+    {
+      "fixture": "test_0013",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/e9/e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2.DNG",
+      "raw_sha256": "e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2",
+      "bands": {
+        "0.00-0.10": {
+          "n": 507564,
+          "R": 0.0009724109359878268,
+          "G": 0.0006296820136349851,
+          "B": 0.000880800736652007
+        },
+        "0.10-0.25": {
+          "n": 1115570,
+          "R": 8.366425534339427e-07,
+          "G": 2.5978102814598693e-06,
+          "B": 1.4201831579282595e-05
+        },
+        "0.25-0.50": {
+          "n": 1917898,
+          "R": 0.00015717370645097664,
+          "G": 3.055428390872545e-05,
+          "B": 3.9330231612432485e-05
+        },
+        "0.50-0.75": {
+          "n": 2986755,
+          "R": 7.742418069896262e-05,
+          "G": 8.727420450178528e-06,
+          "B": 7.915994868979122e-06
+        },
+        "0.75-1.00": {
+          "n": 1279133,
+          "R": -0.00033226856493773427,
+          "G": -1.4228387509372514e-05,
+          "B": -1.3400620944492671e-05
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "a266b89928a17e0d61910ecd8db14bd7b1674d535feb06e2dd258c518e41d927",
+      "reference_sha256": "3e28203da1be426f6c86fa063c0e8c262102b4947484d04470cc3f31c7dd0aca"
+    },
+    {
+      "fixture": "test_0014",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/0c/0c9438258ddae5260b9f5a1aace6658a723f1cb1acace3a6cb507116dc6da4f2.NEF",
+      "raw_sha256": "0c9438258ddae5260b9f5a1aace6658a723f1cb1acace3a6cb507116dc6da4f2",
+      "bands": {
+        "0.00-0.10": {
+          "n": 6053326,
+          "R": 0.00046471098018238715,
+          "G": -3.984197622730163e-07,
+          "B": 0.0009441000035417252
+        },
+        "0.10-0.25": {
+          "n": 15818707,
+          "R": 0.00021421224783503011,
+          "G": -9.445257738576188e-08,
+          "B": 0.00014693325552126845
+        },
+        "0.25-0.50": {
+          "n": 3186344,
+          "R": -9.575175788168904e-07,
+          "G": -1.0867455296851971e-06,
+          "B": 5.069427901215738e-06
+        },
+        "0.50-0.75": {
+          "n": 3909381,
+          "R": 1.8437300271459353e-06,
+          "G": -2.6161305281817682e-06,
+          "B": -8.777278420894731e-07
+        },
+        "0.75-1.00": {
+          "n": 116258,
+          "R": -2.0576277440963664e-06,
+          "G": -2.7896035153740462e-05,
+          "B": 9.30992225202907e-06
+        }
+      },
+      "breaches": [],
+      "status": "passed",
+      "candidate_sha256": "2a11f08419bf4bd41230264304b05f5b10839fa42d9061eaadaba9d2a074485b",
+      "reference_sha256": "40204dea96ed3989974becef40c6a66a1dd0fb8d170554070e01870d72a20771"
+    },
+    {
+      "fixture": "test_0018",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/2a/2a44135ce4f3beb064b72aad3d30cbf0e9313c729fa3a28db7f6b258f41eb6df.dng",
+      "raw_sha256": "2a44135ce4f3beb064b72aad3d30cbf0e9313c729fa3a28db7f6b258f41eb6df",
+      "status": "no-preview",
+      "reason": "explicit CLI no-preview sentinel; not a pass"
+    },
+    {
+      "fixture": "test_0019",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/8e/8e4a4681b5297c09e78974fdb36bb4b3268e271a54eb16892cc382260db9d064.dng",
+      "raw_sha256": "8e4a4681b5297c09e78974fdb36bb4b3268e271a54eb16892cc382260db9d064",
+      "status": "no-preview",
+      "reason": "explicit CLI no-preview sentinel; not a pass"
+    },
+    {
+      "fixture": "test_0020",
+      "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/00/000883c07a8f722a8ddde450ac656a5d01e629a3be39216e43cfd32a2c42d8ff.dng",
+      "raw_sha256": "000883c07a8f722a8ddde450ac656a5d01e629a3be39216e43cfd32a2c42d8ff",
+      "status": "no-preview",
+      "reason": "explicit CLI no-preview sentinel; not a pass"
+    }
+  ],
+  "complete": true,
+  "counts": {
+    "passed": 8,
+    "failed": 0,
+    "no-preview": 4,
+    "error": 0
+  },
+  "binary_unchanged": true,
+  "status": "passed"
+}

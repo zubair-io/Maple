@@ -1,0 +1,34 @@
+[
+  {
+    "compared": 1,
+    "breaches": 1,
+    "skipped_no_raw": 0,
+    "skipped_no_candidate": 0,
+    "skipped_no_reference": 0,
+    "errors": 0,
+    "grand_mean_deltaE": 12.525199867132956,
+    "grand_bias_r": 0.0008166426016614037,
+    "grand_bias_g": -0.05760425544535587,
+    "grand_bias_b": -0.07401136030462906,
+    "cases": [
+      {
+        "fixture": "test_0015",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_B -0.0740>0.0734"
+        ],
+        "mean": 12.525199867132956,
+        "p95": 24.738310185848878,
+        "max": 51.23532547327914,
+        "bR": 0.0008166426016614037,
+        "bG": -0.05760425544535587,
+        "bB": -0.07401136030462906,
+        "n_pixels": 12032000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    ]
+  }
+]

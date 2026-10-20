@@ -26,10 +26,14 @@ pub mod bake;
 pub mod cache;
 pub mod curve;
 pub mod fit_display;
+mod fit_registration;
 pub mod lut;
 mod lut_fit;
+mod paired_fit;
+mod paired_observations;
 pub mod pairs;
 pub mod preview;
+mod preview_raf_color;
 mod solve;
 
 pub use apply::{apply_curve, compress_input};

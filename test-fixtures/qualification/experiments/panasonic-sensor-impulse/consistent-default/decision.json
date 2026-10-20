@@ -1,0 +1,14 @@
+{
+  "status": "candidate rejected by physical anchor",
+  "comparisons": 1,
+  "planned": 91,
+  "new_failures": [
+    [
+      "test_0002",
+      "baseline_auto",
+      "auto"
+    ]
+  ],
+  "original_inputs_unchanged": true,
+  "production_changed": false
+}

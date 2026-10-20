@@ -1,0 +1,158 @@
+diff --git a/src/raw-pipeline/raw-core/src/stages/highlight_recovery.rs b/src/raw-pipeline/raw-core/src/stages/highlight_recovery.rs
+index 5e3b2ca4bb..b559e6de76 100644
+--- a/src/raw-pipeline/raw-core/src/stages/highlight_recovery.rs
++++ b/src/raw-pipeline/raw-core/src/stages/highlight_recovery.rs
+@@ -7,7 +7,8 @@
+ //! For each partial clip, normalize each fully known 7×7 witness by the mean
+ //! of the target's surviving channels, using the SAME channel mask throughout.
+ //! Reject negative or non-finite witnesses without changing their pixels.
+-//! Average the missing-channel ratios and multiply by the target's known
++//! Weight local ratios by surviving-channel chromaticity (the same matcher
++//! as tier 2), normalize by their weight, and multiply by the target's known
+ //! mean. Blend this estimate with the existing brightest-known neutral fallback
+ //! at count/49 confidence (<4 witnesses means zero confidence). This treats channel permutations equally
+ //! and avoids both a preferred green denominator and ratios of averaged ratios.
+@@ -25,7 +26,7 @@
+ //! returns before allocating the mask.
+ //!
+ //! Guided extension (#1690): the 7×7 pass above is tier 1 and is bit-identical
+-//! to the pre-#1690 behavior whenever it finds ≥4 witnesses. Pixels it cannot
++//! to the local estimator whenever it finds ≥4 valid witnesses. Pixels it cannot
+ //! support (fewer than 4 witnesses — interiors of clipped regions wider than
+ //! 7 px, where the old code collapsed to a neutral fallback) are deferred to
+ //! two further tiers in `highlight_recovery/guided.rs`. Tier 2 estimates the
+@@ -57,7 +58,6 @@ mod frame;
+ #[path = "highlight_recovery/guided.rs"]
+ mod guided;
+ pub(crate) use frame::{FrameAnchor, ScenePrior, SceneSamples};
+-#[cfg(test)]
+ use guided::chroma_weight;
+ use guided::{resolve_deferred, scene_median, CellField, SkipGrid, SKIP_GRID_TRIGGER};
+ 
+@@ -351,6 +351,7 @@ fn apply_chromatic_adaptation(
+                 skip_grid = Some(SkipGrid::build(&clip_mask, img.width, img.height));
+             }
+             let mut sum_ratio = [0.0f32; 3];
++            let mut ratio_weight = 0.0f32;
+             let mut count = 0u32;
+             let scan = skip_grid
+                 .as_ref()
+@@ -379,18 +380,30 @@ fn apply_chromatic_adaptation(
+                         }
+                         let witness_level = known_mean(np);
+                         if witness_level > denominator_floor {
++                            let weight = chroma_weight(
++                                np,
++                                witness_level,
++                                p_in,
++                                known_level,
++                                m,
++                                3 - clipped_count,
++                            );
+                             for c in 0..3 {
+                                 if (m >> c) & 1 == 1 {
+-                                    sum_ratio[c] += np[c] / witness_level;
++                                    sum_ratio[c] += weight * (np[c] / witness_level);
+                                 }
+                             }
++                            ratio_weight += weight;
+                             count += 1;
+                         }
+                     }
+                 }
+             }
+-            if count >= 4 {
+-                // Tier 1 has solid support: the pre-#1690 formula, unchanged.
++            if count >= 4 && ratio_weight > 0.0 && ratio_weight.is_finite() {
++                // Coverage confidence stays tied to valid local samples. The
++                // missing-channel ratio uses the same surviving-channel hue
++                // matcher as tier 2; a neighboring colored surface must not
++                // dominate merely because it shares this spatial window.
+                 let neutral_level = (0..3)
+                     .filter(|c| (m >> c) & 1 == 0)
+                     .map(|c| p_in[c])
+@@ -399,7 +412,7 @@ fn apply_chromatic_adaptation(
+                 let mut p_out = p_in;
+                 for c in 0..3 {
+                     if (m >> c) & 1 == 1 {
+-                        let ratio = sum_ratio[c] / count as f32;
++                        let ratio = sum_ratio[c] / ratio_weight;
+                         p_out[c] =
+                             neutral_level + confidence * (known_level * ratio - neutral_level);
+                     }
+@@ -456,3 +469,7 @@ mod tests_guided;
+ #[cfg(test)]
+ #[path = "highlight_recovery/tests_ripple.rs"]
+ mod tests_ripple;
++
++#[cfg(test)]
++#[path = "highlight_recovery/tests_local_matching.rs"]
++mod tests_local_matching;
+diff --git a/src/raw-pipeline/raw-core/src/stages/highlight_recovery/tests_local_matching.rs b/src/raw-pipeline/raw-core/src/stages/highlight_recovery/tests_local_matching.rs
+new file mode 100644
+index 0000000000..c8b462477a
+--- /dev/null
++++ b/src/raw-pipeline/raw-core/src/stages/highlight_recovery/tests_local_matching.rs
+@@ -0,0 +1,62 @@
++//! A local witness's surviving channels identify whether its missing-channel
++//! ratio belongs to the target surface. Spatial proximity alone is insufficient.
++use super::*;
++
++#[test]
++fn local_recovery_downweights_foreign_hue_without_changing_known_channels() {
++    for permutation in [
++        [0, 1, 2],
++        [0, 2, 1],
++        [1, 0, 2],
++        [1, 2, 0],
++        [2, 0, 1],
++        [2, 1, 0],
++    ] {
++        for baseline in [-3.0_f32, 0.0, 2.0] {
++            let gain = baseline.exp2();
++            let permute = |p: [f32; 3]| permutation.map(|c| p[c] * gain);
++            let mut image = Image::new(11, 11, ColorSpace::CameraNativeLinearRgb);
++            for (i, p) in image.pixels.iter_mut().enumerate() {
++                // The upper surface's R/G differs from the target. Its high
++                // B/known-energy ratio must not paint the target blue.
++                *p = permute(if i / 11 < 5 {
++                    [0.1, 0.4, 0.8]
++                } else {
++                    [0.45, 0.3, 0.6]
++                });
++            }
++            let index = 5 * 11 + 5;
++            image.pixels[index] = permute([0.9, 0.6, 1.0]);
++            let before = image.pixels.clone();
++            apply(
++                &mut image,
++                HighlightRecoveryMode::ChromaticAdaptation,
++                [1.0; 3],
++                baseline,
++            );
++            let clipped = permutation.iter().position(|&c| c == 2).unwrap();
++            // Matching donors predict B=1.2; retain the existing 48/49 spatial
++            // coverage blend. Foreign-donor influence must remain below 0.001.
++            let expected = (0.9 + (48.0 / 49.0) * (1.2 - 0.9)) * gain;
++            assert!(
++                (image.pixels[index][clipped] - expected).abs() < 0.001 * gain,
++                "permutation={permutation:?} BE={baseline}: {:?}, expected near {expected}",
++                image.pixels[index]
++            );
++            for c in 0..3 {
++                if c != clipped {
++                    assert_eq!(image.pixels[index][c].to_bits(), before[index][c].to_bits());
++                }
++            }
++            for (i, p) in image.pixels.iter().enumerate() {
++                if i != index {
++                    assert_eq!(*p, before[i], "unclipped donor changed");
++                }
++            }
++            assert!(
++                image.pixels[index][clipped] > gain,
++                "retain scene-linear headroom"
++            );
++        }
++    }
++}

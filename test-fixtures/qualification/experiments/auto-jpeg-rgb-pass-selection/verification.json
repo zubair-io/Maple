@@ -1,0 +1,20 @@
+{
+  "source": "4cfbe3881207d8a982a9676ace1f8d9542423267",
+  "counts": {
+    "passed": 5,
+    "failed": 11,
+    "no-preview": 4,
+    "error": 0
+  },
+  "all_20_raw_hashes_unchanged": true,
+  "all_16_reference_hashes_unchanged": true,
+  "frozen_binary_unchanged": true,
+  "exact_fallback_passes": 4,
+  "new_quality_breaches_vs_clean_ed": {},
+  "new_native_absolute_breaches_vs_ed": {
+    "test_0011": 1
+  },
+  "new_legacy_bias_breaches_vs_ed": {
+    "test_0011": 1
+  }
+}

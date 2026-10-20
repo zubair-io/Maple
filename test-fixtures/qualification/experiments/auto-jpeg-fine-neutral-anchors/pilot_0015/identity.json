@@ -1,0 +1,11 @@
+{
+  "source_commit": "9ebc50a4c1ca7244ceb0662d5e3e77af3c568c0e",
+  "renderer_tree": "cb14ec1aba42b2559b7a8a3529d14889e7317c16",
+  "binary": "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-fine-neutral-anchors/maple-cli",
+  "binary_sha256": "3826347bf3b00ca9f5ca31e16f278ec86853c3787a270154f8757286fe13d72c",
+  "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/3a/3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d.dng",
+  "raw_sha256": "3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d",
+  "pipeline_output_version": 37,
+  "fit_version": 7,
+  "status": "unqualified neutral-axis protected fine refinement; accepted baseline remains91fa8pass8fail4fallback"
+}

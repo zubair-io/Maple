@@ -1,0 +1,18 @@
+{
+  "source": "87b1dc14cedcd1fc697cdb73489de3292984c639",
+  "all_16_visually_inspected": true,
+  "contact_sheets": [
+    "contact-1.jpg",
+    "contact-2.jpg",
+    "contact-3.jpg",
+    "contact-4.jpg"
+  ],
+  "only_changed_png_vs_4cf": "test_0011",
+  "five_passing_controls_byte_identical_to_4cf": true,
+  "remaining_concerns": [
+    "0015 foreground still lacks JPEG contrast",
+    "0017 remains faded",
+    "0005 sky partially improved but image still fails",
+    "Framing differences remain visible in several photographs; no normalization applied"
+  ]
+}

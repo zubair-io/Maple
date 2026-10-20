@@ -1,0 +1,8 @@
+{
+  "source_commit": "1f654b2f83af48a91ff063a14e5090343b9b94a9",
+  "binary_sha256": "15ccd12c3e174d53a3bb839e6fd5c46f47443b52ec4d48244415585baa6defd1",
+  "renderer_tree": "3e247e44882f659c0d4288aae24e26735a5e8fb6",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "status": "unqualified denser display-region safety check"
+}

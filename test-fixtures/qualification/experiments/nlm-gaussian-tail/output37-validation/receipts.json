@@ -1,0 +1,101 @@
+[
+  {
+    "name": "nlm-cpu",
+    "kind": "tests",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-core",
+      "--lib",
+      "stages::nlm"
+    ],
+    "exit_code": 0,
+    "passed": 20
+  },
+  {
+    "name": "auto-fit-cache",
+    "kind": "tests",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-core",
+      "--lib",
+      "view::auto_profile::cache::tests::"
+    ],
+    "exit_code": 0,
+    "passed": 15
+  },
+  {
+    "name": "noise-reduction-caller",
+    "kind": "tests",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-core",
+      "--lib",
+      "noise_reduction"
+    ],
+    "exit_code": 0,
+    "passed": 10
+  },
+  {
+    "name": "noise-reduction-gpu",
+    "kind": "tests",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-gpu",
+      "--lib",
+      "noise_reduction"
+    ],
+    "exit_code": 0,
+    "passed": 22
+  },
+  {
+    "name": "composed-gpu-cpu",
+    "kind": "tests",
+    "command": [
+      "cargo",
+      "test",
+      "-p",
+      "raw-gpu",
+      "--lib",
+      "full_gpu_chain_matches_composed_cpu_oracle"
+    ],
+    "exit_code": 0,
+    "passed": 1
+  },
+  {
+    "name": "wasm-simd-check",
+    "kind": "compile",
+    "command": [
+      "cargo",
+      "check",
+      "-p",
+      "raw-wasm",
+      "--target",
+      "wasm32-unknown-unknown"
+    ],
+    "RUSTFLAGS": "-C target-feature=+simd128",
+    "exit_code": 101
+  },
+  {
+    "name": "wasm-simd-retry",
+    "kind": "compile",
+    "command": [
+      "cargo",
+      "check",
+      "-p",
+      "raw-wasm",
+      "--target",
+      "wasm32-unknown-unknown"
+    ],
+    "RUSTFLAGS": "-C target-feature=+simd128",
+    "exit_code": 0,
+    "prerequisite": "Installed missing wasm target for repository Rust 1.98.1; first failed attempt retained."
+  }
+]

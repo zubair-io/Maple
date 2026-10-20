@@ -42,6 +42,10 @@ if [[ $# -lt 4 || "$3" != "--" ]]; then
 	exit 2
 fi
 source_id="$1"
+if [[ "$source_id" == "color_harness" ]]; then
+	echo "qualification: ACR color_harness is retired; use test_color_pipeline.sh for Auto vs embedded JPEG. Historical ACR records are not current Auto evidence." >&2
+	exit 2
+fi
 backend="$2"
 shift 3
 

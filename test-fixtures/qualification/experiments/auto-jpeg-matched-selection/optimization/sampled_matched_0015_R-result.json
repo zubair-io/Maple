@@ -1,0 +1,455 @@
+{
+  "case": "0015",
+  "channel": "R",
+  "qualification": "cached training-operator feasibility diagnostic, NOT physical qualification or a complete image pass",
+  "scipy": "1.17.1",
+  "success": true,
+  "status": 0,
+  "message": "Optimization terminated successfully. (HiGHS Status 7: Optimal)",
+  "seconds": 21.321307749996777,
+  "source_observations_sha256": "e32da50d43d28915afdd099bda4ffb3a4dd15cd9262af7386a2b287bca7d5e7d",
+  "source_renderer": "91fa556d44",
+  "projection_constraints_included": true,
+  "float_projection_rounding_tolerance": 1e-07,
+  "training_stride": 4,
+  "bounds_included": true,
+  "heldout_used_for_training": false,
+  "optimal_training_worst_ratio": 2.4487064954830684,
+  "maximum_constraint_residual": 9.999703141628781e-08,
+  "node_min_max": [
+    -9.999703141628781e-08,
+    1.0
+  ],
+  "sets": [
+    {
+      "name": "native",
+      "groups": [
+        {
+          "group": "full",
+          "before": 0.053677727635210934,
+          "after": 0.05907912672950096,
+          "represented_pixels": 335876
+        },
+        {
+          "group": "band0",
+          "before": 0.10326985143061809,
+          "after": 0.1050519797473063,
+          "represented_pixels": 25010
+        },
+        {
+          "group": "band1",
+          "before": 0.07429863159130284,
+          "after": 0.08005062655520216,
+          "represented_pixels": 61242
+        },
+        {
+          "group": "band2",
+          "before": 0.05909409364589548,
+          "after": 0.05982639006269033,
+          "represented_pixels": 91152
+        },
+        {
+          "group": "band3",
+          "before": 0.0305488984403616,
+          "after": 0.04032267114447223,
+          "represented_pixels": 152566
+        },
+        {
+          "group": "band4",
+          "before": 0.14372106392599163,
+          "after": 0.11992660541858119,
+          "represented_pixels": 5906
+        }
+      ]
+    },
+    {
+      "name": "display",
+      "groups": [
+        {
+          "group": "tile0",
+          "before": 0.0064566425981099195,
+          "after": 0.01815560441381627,
+          "represented_pixels": 4764
+        },
+        {
+          "group": "tile1",
+          "before": 0.004426452733291335,
+          "after": 0.01972921266823799,
+          "represented_pixels": 5100
+        },
+        {
+          "group": "tile2",
+          "before": 0.0043547511532500355,
+          "after": 0.016873314840161965,
+          "represented_pixels": 5100
+        },
+        {
+          "group": "tile3",
+          "before": 0.0035462101774702266,
+          "after": 0.01908392029993942,
+          "represented_pixels": 5100
+        },
+        {
+          "group": "tile4",
+          "before": 0.003967256768361494,
+          "after": 0.020408713753541984,
+          "represented_pixels": 5100
+        },
+        {
+          "group": "tile5",
+          "before": 0.004074855831311741,
+          "after": 0.020679033610106118,
+          "represented_pixels": 5100
+        },
+        {
+          "group": "tile6",
+          "before": 0.005081047023314371,
+          "after": 0.022603314471121964,
+          "represented_pixels": 5060
+        },
+        {
+          "group": "tile7",
+          "before": 0.009914583685599831,
+          "after": 0.01728476964093413,
+          "represented_pixels": 4642
+        },
+        {
+          "group": "tile8",
+          "before": 0.007914423957056493,
+          "after": 0.028052559380652112,
+          "represented_pixels": 5044
+        },
+        {
+          "group": "tile9",
+          "before": 0.004801288952860416,
+          "after": 0.02398651364106991,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile10",
+          "before": 0.0034238506876493767,
+          "after": 0.017440359913122323,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile11",
+          "before": 0.004025284680210654,
+          "after": 0.01322864262445923,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile12",
+          "before": 0.003781022121833722,
+          "after": 0.01428347062785583,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile13",
+          "before": 0.0038026009174282026,
+          "after": 0.02034795201718742,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile14",
+          "before": 0.0060366542390660975,
+          "after": 0.028297643531448882,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile15",
+          "before": 0.009666240269497266,
+          "after": 0.03436203701137257,
+          "represented_pixels": 5056
+        },
+        {
+          "group": "tile16",
+          "before": 0.02309713810613293,
+          "after": 0.037535987047664976,
+          "represented_pixels": 5072
+        },
+        {
+          "group": "tile17",
+          "before": 0.006726522498046201,
+          "after": 0.022554703913779985,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile18",
+          "before": 0.003882766624756746,
+          "after": 0.017825878801262938,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile19",
+          "before": 0.004223026571241321,
+          "after": 0.01383809501349563,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile20",
+          "before": 0.02684760408000472,
+          "after": 0.025721460238932913,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile21",
+          "before": 0.02079870232742382,
+          "after": 0.029079427379497622,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile22",
+          "before": 0.008191410188622288,
+          "after": 0.0267257748745924,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile23",
+          "before": 0.012933909954588542,
+          "after": 0.033127573922297184,
+          "represented_pixels": 5056
+        },
+        {
+          "group": "tile24",
+          "before": 0.07361781455014145,
+          "after": 0.0726961119777361,
+          "represented_pixels": 5060
+        },
+        {
+          "group": "tile25",
+          "before": 0.050793029377654335,
+          "after": 0.052172595748800385,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile26",
+          "before": 0.04085473967124937,
+          "after": 0.04595238360921013,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile27",
+          "before": 0.039356651110087834,
+          "after": 0.044040519778293166,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile28",
+          "before": 0.036234814407843687,
+          "after": 0.048388184581938415,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile29",
+          "before": 0.027936736220067725,
+          "after": 0.03914257666719126,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile30",
+          "before": 0.038447353615862566,
+          "after": 0.03841437551136352,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile31",
+          "before": 0.049792321001746985,
+          "after": 0.05206319764890007,
+          "represented_pixels": 5056
+        },
+        {
+          "group": "tile32",
+          "before": 0.09288750133015844,
+          "after": 0.09298910208951752,
+          "represented_pixels": 5056
+        },
+        {
+          "group": "tile33",
+          "before": 0.07879070859383955,
+          "after": 0.0732544470138464,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile34",
+          "before": 0.08747545095973283,
+          "after": 0.08950716274781831,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile35",
+          "before": 0.05756624246395513,
+          "after": 0.06174000313148333,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile36",
+          "before": 0.05389121173884043,
+          "after": 0.05315611460743925,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile37",
+          "before": 0.0703492867592411,
+          "after": 0.06825943401381043,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile38",
+          "before": 0.07399358397640671,
+          "after": 0.07474770647792355,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile39",
+          "before": 0.07122266894590257,
+          "after": 0.06962655764359914,
+          "represented_pixels": 5056
+        },
+        {
+          "group": "tile40",
+          "before": 0.10139169465776489,
+          "after": 0.10169502079072937,
+          "represented_pixels": 5064
+        },
+        {
+          "group": "tile41",
+          "before": 0.0860929756116604,
+          "after": 0.08300164536724686,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile42",
+          "before": 0.09728570727930036,
+          "after": 0.09169278641790203,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile43",
+          "before": 0.10798963823944807,
+          "after": 0.1073886555936044,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile44",
+          "before": 0.10374926201838293,
+          "after": 0.10348287784072203,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile45",
+          "before": 0.12413249222400947,
+          "after": 0.12407058245625965,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile46",
+          "before": 0.11010333825234903,
+          "after": 0.10706336409060768,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile47",
+          "before": 0.10832510240514444,
+          "after": 0.10779276015542913,
+          "represented_pixels": 5056
+        },
+        {
+          "group": "tile48",
+          "before": 0.09986232680672427,
+          "after": 0.09614579651639822,
+          "represented_pixels": 5060
+        },
+        {
+          "group": "tile49",
+          "before": 0.09783035946220296,
+          "after": 0.0945298707583528,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile50",
+          "before": 0.07908568738785103,
+          "after": 0.07661422379456717,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile51",
+          "before": 0.09907948193512991,
+          "after": 0.09831937531122069,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile52",
+          "before": 0.09823057937314414,
+          "after": 0.09819319183821261,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile53",
+          "before": 0.08875976968992044,
+          "after": 0.08774902893863215,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile54",
+          "before": 0.08727607804042989,
+          "after": 0.08724237089184929,
+          "represented_pixels": 5440
+        },
+        {
+          "group": "tile55",
+          "before": 0.12656551303211,
+          "after": 0.12759908893681474,
+          "represented_pixels": 5056
+        },
+        {
+          "group": "tile56",
+          "before": 0.11504712773620841,
+          "after": 0.10655244639020882,
+          "represented_pixels": 4642
+        },
+        {
+          "group": "tile57",
+          "before": 0.09718384558306645,
+          "after": 0.09346141678141597,
+          "represented_pixels": 5028
+        },
+        {
+          "group": "tile58",
+          "before": 0.09335205059293049,
+          "after": 0.09204608399699334,
+          "represented_pixels": 5014
+        },
+        {
+          "group": "tile59",
+          "before": 0.07521962751001902,
+          "after": 0.07435633756321061,
+          "represented_pixels": 5028
+        },
+        {
+          "group": "tile60",
+          "before": 0.07270510030042121,
+          "after": 0.07118132185650865,
+          "represented_pixels": 4994
+        },
+        {
+          "group": "tile61",
+          "before": 0.06332693479945839,
+          "after": 0.06373278164280982,
+          "represented_pixels": 5010
+        },
+        {
+          "group": "tile62",
+          "before": 0.08181615399254395,
+          "after": 0.08297327148485158,
+          "represented_pixels": 5000
+        },
+        {
+          "group": "tile63",
+          "before": 0.09080910746892812,
+          "after": 0.09205177179720685,
+          "represented_pixels": 4662
+        }
+      ]
+    }
+  ]
+}

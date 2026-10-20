@@ -1,0 +1,9 @@
+{
+  "base_commit": "28287b9f4f0390e86bbccb17f6246526969860f7",
+  "processing_base": "95fc03d6819b34f46f928ba93de58188a4014022",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "binary_sha256": "4377f930bfa1a922dcb9d6670fd9d01ce01454f85a2f53cd8b888741ac71a411",
+  "source_patch_sha256": "c5c0ead2e3f99240b3947dfe045a508c1d02a2cde50c7d82e3b681566cf0b484",
+  "status": "Isolated experiment: native dispatch plus mathematically qualified affine continuity fix. No production adoption. First physical target is native-only Panasonic minimum-exposure regression. No numerical tolerance/input/version changes."
+}

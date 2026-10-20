@@ -1,0 +1,10 @@
+{
+  "source_commit": "4cfbe3881207d8a982a9676ace1f8d9542423267",
+  "renderer_tree": "072226bf1a09243b84cdce99884d980d5dd9675a",
+  "binary_sha256": "67742b8599f0dc9179a02efd01165794db829bed49e7d1430391932b8744c49e",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "status": "0011 native luminance-band diagnostic; full-frame samples, tiny EXR ROI only",
+  "binary": "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-rgb-pass-selection/maple-cli",
+  "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/34/3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e.ARW"
+}

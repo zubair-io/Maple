@@ -1,0 +1,95 @@
+[
+  {
+    "fixture": "test_0005",
+    "status": "registration from existing sparse fit observations; geometry diagnostic, not physical qualification",
+    "affine_source_to_reference": [
+      [
+        1.0012531566213605,
+        0.0007900126625683952,
+        -0.9467910644221533
+      ],
+      [
+        -1.7977296540199816e-05,
+        1.0004810775924342,
+        0.14510498094948793
+      ]
+    ],
+    "levels": [
+      {
+        "correlation": 0.9809454014385626,
+        "iterations": 17
+      },
+      {
+        "correlation": 0.9340961048131404,
+        "iterations": 11
+      },
+      {
+        "correlation": 0.760380467951342,
+        "iterations": 12
+      }
+    ],
+    "max_grid_difference_from_root_sift_pixels": 2.4668756782656307
+  },
+  {
+    "fixture": "test_0015",
+    "status": "registration from existing sparse fit observations; geometry diagnostic, not physical qualification",
+    "affine_source_to_reference": [
+      [
+        0.9840545821459807,
+        0.0015054809825332742,
+        4.866229451348542
+      ],
+      [
+        0.0005546308596950611,
+        0.9812507854931647,
+        4.403927423310627
+      ]
+    ],
+    "levels": [
+      {
+        "correlation": 0.9153142732459425,
+        "iterations": 9
+      },
+      {
+        "correlation": 0.8261929303938339,
+        "iterations": 6
+      },
+      {
+        "correlation": 0.619911287043162,
+        "iterations": 15
+      }
+    ],
+    "max_grid_difference_from_root_sift_pixels": 1.5825364180641994
+  },
+  {
+    "fixture": "test_0011",
+    "status": "registration from existing sparse fit observations; geometry diagnostic, not physical qualification",
+    "affine_source_to_reference": [
+      [
+        0.9854309675129161,
+        -0.0005778353955781366,
+        7.648821586588812
+      ],
+      [
+        2.5617331863586086e-05,
+        0.9892590549225986,
+        3.533104738228633
+      ]
+    ],
+    "levels": [
+      {
+        "correlation": 0.9792798111988466,
+        "iterations": 10
+      },
+      {
+        "correlation": 0.9161424813797149,
+        "iterations": 12
+      },
+      {
+        "correlation": 0.7435945230533284,
+        "iterations": 7
+      }
+    ],
+    "max_grid_difference_from_root_sift_pixels": 1.6473808082137162
+  }
+]

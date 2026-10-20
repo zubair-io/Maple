@@ -1,0 +1,410 @@
+[
+  {
+    "fixture": "test_0017",
+    "scale": "native",
+    "width": 5952,
+    "height": 3968,
+    "samples": 65536,
+    "represented_pixels": 23617536,
+    "cell_population_histogram": {
+      "345": 24576,
+      "360": 8192,
+      "368": 24576,
+      "384": 8192
+    }
+  },
+  {
+    "fixture": "test_0017",
+    "scale": "display",
+    "width": 1024,
+    "height": 683,
+    "samples": 65536,
+    "represented_pixels": 699392,
+    "cell_population_histogram": {
+      "8": 21760,
+      "12": 43776
+    }
+  },
+  {
+    "fixture": "test_0015",
+    "scale": "native",
+    "width": 680,
+    "height": 512,
+    "samples": 65536,
+    "represented_pixels": 348160,
+    "cell_population_histogram": {
+      "4": 22528,
+      "6": 43008
+    }
+  },
+  {
+    "fixture": "test_0015",
+    "scale": "display",
+    "width": 680,
+    "height": 512,
+    "samples": 65536,
+    "represented_pixels": 348160,
+    "cell_population_histogram": {
+      "4": 22528,
+      "6": 43008
+    }
+  },
+  {
+    "fixture": "test_0011",
+    "scale": "native",
+    "width": 1616,
+    "height": 1080,
+    "samples": 65536,
+    "represented_pixels": 1745280,
+    "cell_population_histogram": {
+      "24": 35200,
+      "28": 16000,
+      "30": 9856,
+      "35": 4480
+    }
+  },
+  {
+    "fixture": "test_0011",
+    "scale": "display",
+    "width": 1024,
+    "height": 684,
+    "samples": 65536,
+    "represented_pixels": 700416,
+    "cell_population_histogram": {
+      "8": 21504,
+      "12": 44032
+    }
+  },
+  {
+    "fixture": "test_0013",
+    "scale": "native",
+    "width": 3024,
+    "height": 4032,
+    "samples": 65536,
+    "represented_pixels": 12192768,
+    "cell_population_histogram": {
+      "165": 3072,
+      "176": 9216,
+      "180": 13312,
+      "192": 39936
+    }
+  },
+  {
+    "fixture": "test_0013",
+    "scale": "display",
+    "width": 768,
+    "height": 1024,
+    "samples": 65536,
+    "represented_pixels": 786432,
+    "cell_population_histogram": {
+      "12": 65536
+    }
+  },
+  {
+    "fixture": "test_0004",
+    "scale": "native",
+    "width": 1217,
+    "height": 913,
+    "samples": 65536,
+    "represented_pixels": 1111121,
+    "cell_population_histogram": {
+      "12": 6993,
+      "15": 21423,
+      "16": 9135,
+      "20": 27985
+    }
+  },
+  {
+    "fixture": "test_0004",
+    "scale": "display",
+    "width": 1024,
+    "height": 768,
+    "samples": 65536,
+    "represented_pixels": 786432,
+    "cell_population_histogram": {
+      "12": 65536
+    }
+  },
+  {
+    "fixture": "test_0009",
+    "scale": "native",
+    "width": 6720,
+    "height": 4480,
+    "samples": 65536,
+    "represented_pixels": 30105600,
+    "cell_population_histogram": {
+      "442": 24576,
+      "459": 8192,
+      "468": 24576,
+      "486": 8192
+    }
+  },
+  {
+    "fixture": "test_0009",
+    "scale": "display",
+    "width": 1024,
+    "height": 683,
+    "samples": 65536,
+    "represented_pixels": 699392,
+    "cell_population_histogram": {
+      "8": 21760,
+      "12": 43776
+    }
+  },
+  {
+    "fixture": "test_0014",
+    "scale": "native",
+    "width": 8256,
+    "height": 5504,
+    "samples": 65536,
+    "represented_pixels": 45441024,
+    "cell_population_histogram": {
+      "672": 24576,
+      "693": 8192,
+      "704": 24576,
+      "726": 8192
+    }
+  },
+  {
+    "fixture": "test_0014",
+    "scale": "display",
+    "width": 1024,
+    "height": 683,
+    "samples": 65536,
+    "represented_pixels": 699392,
+    "cell_population_histogram": {
+      "8": 21760,
+      "12": 43776
+    }
+  },
+  {
+    "fixture": "test_0002",
+    "scale": "native",
+    "width": 721,
+    "height": 541,
+    "samples": 65536,
+    "represented_pixels": 390061,
+    "cell_population_histogram": {
+      "4": 10669,
+      "6": 48806,
+      "9": 6061
+    }
+  },
+  {
+    "fixture": "test_0002",
+    "scale": "display",
+    "width": 721,
+    "height": 541,
+    "samples": 65536,
+    "represented_pixels": 390061,
+    "cell_population_histogram": {
+      "4": 10669,
+      "6": 48806,
+      "9": 6061
+    }
+  },
+  {
+    "fixture": "test_0005",
+    "scale": "native",
+    "width": 4000,
+    "height": 3000,
+    "samples": 65536,
+    "represented_pixels": 12000000,
+    "cell_population_histogram": {
+      "165": 6912,
+      "176": 11520,
+      "180": 17664,
+      "192": 29440
+    }
+  },
+  {
+    "fixture": "test_0005",
+    "scale": "display",
+    "width": 1024,
+    "height": 768,
+    "samples": 65536,
+    "represented_pixels": 786432,
+    "cell_population_histogram": {
+      "12": 65536
+    }
+  },
+  {
+    "fixture": "test_0000",
+    "scale": "native",
+    "width": 960,
+    "height": 640,
+    "samples": 65536,
+    "represented_pixels": 614400,
+    "cell_population_histogram": {
+      "6": 8192,
+      "8": 24576,
+      "9": 8192,
+      "12": 24576
+    }
+  },
+  {
+    "fixture": "test_0000",
+    "scale": "display",
+    "width": 960,
+    "height": 640,
+    "samples": 65536,
+    "represented_pixels": 614400,
+    "cell_population_histogram": {
+      "6": 8192,
+      "8": 24576,
+      "9": 8192,
+      "12": 24576
+    }
+  },
+  {
+    "fixture": "test_0003",
+    "scale": "native",
+    "width": 5792,
+    "height": 8688,
+    "samples": 65536,
+    "represented_pixels": 50320896,
+    "cell_population_histogram": {
+      "726": 1536,
+      "748": 23040,
+      "759": 2560,
+      "782": 38400
+    }
+  },
+  {
+    "fixture": "test_0003",
+    "scale": "display",
+    "width": 683,
+    "height": 1024,
+    "samples": 65536,
+    "represented_pixels": 699392,
+    "cell_population_histogram": {
+      "8": 21760,
+      "12": 43776
+    }
+  },
+  {
+    "fixture": "test_0006",
+    "scale": "native",
+    "width": 1024,
+    "height": 683,
+    "samples": 65536,
+    "represented_pixels": 699392,
+    "cell_population_histogram": {
+      "8": 21760,
+      "12": 43776
+    }
+  },
+  {
+    "fixture": "test_0006",
+    "scale": "display",
+    "width": 1024,
+    "height": 683,
+    "samples": 65536,
+    "represented_pixels": 699392,
+    "cell_population_histogram": {
+      "8": 21760,
+      "12": 43776
+    }
+  },
+  {
+    "fixture": "test_0007",
+    "scale": "native",
+    "width": 1024,
+    "height": 683,
+    "samples": 65536,
+    "represented_pixels": 699392,
+    "cell_population_histogram": {
+      "8": 21760,
+      "12": 43776
+    }
+  },
+  {
+    "fixture": "test_0007",
+    "scale": "display",
+    "width": 1024,
+    "height": 683,
+    "samples": 65536,
+    "represented_pixels": 699392,
+    "cell_population_histogram": {
+      "8": 21760,
+      "12": 43776
+    }
+  },
+  {
+    "fixture": "test_0008",
+    "scale": "native",
+    "width": 4416,
+    "height": 2944,
+    "samples": 65536,
+    "represented_pixels": 13000704,
+    "cell_population_histogram": {
+      "187": 24576,
+      "198": 8192,
+      "204": 24576,
+      "216": 8192
+    }
+  },
+  {
+    "fixture": "test_0008",
+    "scale": "display",
+    "width": 1024,
+    "height": 683,
+    "samples": 65536,
+    "represented_pixels": 699392,
+    "cell_population_histogram": {
+      "8": 21760,
+      "12": 43776
+    }
+  },
+  {
+    "fixture": "test_0010",
+    "scale": "native",
+    "width": 6720,
+    "height": 4480,
+    "samples": 65536,
+    "represented_pixels": 30105600,
+    "cell_population_histogram": {
+      "442": 24576,
+      "459": 8192,
+      "468": 24576,
+      "486": 8192
+    }
+  },
+  {
+    "fixture": "test_0010",
+    "scale": "display",
+    "width": 1024,
+    "height": 683,
+    "samples": 65536,
+    "represented_pixels": 699392,
+    "cell_population_histogram": {
+      "8": 21760,
+      "12": 43776
+    }
+  },
+  {
+    "fixture": "test_0012",
+    "scale": "native",
+    "width": 4000,
+    "height": 3000,
+    "samples": 65536,
+    "represented_pixels": 12000000,
+    "cell_population_histogram": {
+      "165": 6912,
+      "176": 11520,
+      "180": 17664,
+      "192": 29440
+    }
+  },
+  {
+    "fixture": "test_0012",
+    "scale": "display",
+    "width": 1024,
+    "height": 768,
+    "samples": 65536,
+    "represented_pixels": 786432,
+    "cell_population_histogram": {
+      "12": 65536
+    }
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "purpose": "Exact baked-node fit with monotone separable restart; no budgets/inputs/version changes.",
+  "parent": "9139fcf000caf7c37526b4f5c51ea9ba8ede78b9",
+  "binary_sha256": "65bb5ba6365080c5e21e16905146eb5fcf52c073e4fec09d269ed72b682cf9f5",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "unit_tests": 56,
+  "existing_ignored": 6
+}

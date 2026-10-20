@@ -153,13 +153,21 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     let mut camera_rgb = super::prefix::from_mosaic(mosaic, raw, model, quality, cancel);
 
     stage("tile_highlight_recovery", || {
-        highlight_recovery::apply_in_region_with_anchor(
+        highlight_recovery::apply_in_sensor_space(
             &mut camera_rgb,
             model.highlight_recovery,
             raw.as_shot_neutral,
             raw.baseline_exposure,
             active_area,
             Some(highlight_frame),
+            crate::sensor_gain_maps::ClipGainContext::new(
+                raw,
+                (
+                    tile_origin.0 * effective_quality_divisor(quality, raw.cfa),
+                    tile_origin.1 * effective_quality_divisor(quality, raw.cfa),
+                ),
+                effective_quality_divisor(quality, raw.cfa),
+            ),
         )
     });
     // DNG OpcodeList3 (#376, #4288): vendor corrections applied in

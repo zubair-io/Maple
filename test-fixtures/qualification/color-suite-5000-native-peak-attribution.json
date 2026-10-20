@@ -1,0 +1,121 @@
+{
+  "scope": "Full-frame maximum and exceedance count for sharpen_detail_min; other cases inspected only at that exact coordinate, not their global maxima. All original input snapshots and frozen candidates read-only.",
+  "case": "test_0000/sharpen_detail_min",
+  "pixels_compared": 100663296,
+  "peak": {
+    "x": 182,
+    "y": 6336,
+    "candidate_rgb": [
+      241,
+      37,
+      115
+    ],
+    "reference_rgb": [
+      248,
+      241,
+      198
+    ],
+    "deltaE": 54.1323794913219
+  },
+  "pixels_above_unchanged_max_budget": 1,
+  "shared_coordinate_cases": [
+    {
+      "case": "baseline",
+      "candidate_rgb": [
+        241,
+        37,
+        115
+      ],
+      "reference_rgb": [
+        249,
+        242,
+        198
+      ],
+      "deltaE_at_shared_coordinate": 54.4992692031132
+    },
+    {
+      "case": "nr_color_max",
+      "candidate_rgb": [
+        231,
+        128,
+        115
+      ],
+      "reference_rgb": [
+        249,
+        242,
+        199
+      ],
+      "deltaE_at_shared_coordinate": 36.37316011659051
+    },
+    {
+      "case": "nr_luminance_max",
+      "candidate_rgb": [
+        240,
+        37,
+        114
+      ],
+      "reference_rgb": [
+        249,
+        242,
+        200
+      ],
+      "deltaE_at_shared_coordinate": 53.99387847200087
+    },
+    {
+      "case": "sharpen_detail_max",
+      "candidate_rgb": [
+        241,
+        37,
+        115
+      ],
+      "reference_rgb": [
+        251,
+        244,
+        200
+      ],
+      "deltaE_at_shared_coordinate": 54.7104310947567
+    },
+    {
+      "case": "sharpen_detail_min",
+      "candidate_rgb": [
+        241,
+        37,
+        115
+      ],
+      "reference_rgb": [
+        248,
+        241,
+        198
+      ],
+      "deltaE_at_shared_coordinate": 54.1323794913219
+    },
+    {
+      "case": "sharpen_masking_max",
+      "candidate_rgb": [
+        241,
+        37,
+        115
+      ],
+      "reference_rgb": [
+        248,
+        241,
+        197
+      ],
+      "deltaE_at_shared_coordinate": 54.393688312132205
+    },
+    {
+      "case": "sharpen_radius_max",
+      "candidate_rgb": [
+        241,
+        37,
+        115
+      ],
+      "reference_rgb": [
+        249,
+        243,
+        199
+      ],
+      "deltaE_at_shared_coordinate": 54.835411822869446
+    }
+  ]
+}

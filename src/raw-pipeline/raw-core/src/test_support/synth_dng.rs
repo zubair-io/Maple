@@ -108,6 +108,7 @@ pub struct SyntheticGreyDng {
     /// tag is written unless `active_area` is set, so the opcode's coordinate system
     /// always resolves to the full frame (`ActiveAreaRect::full`, DNG
     /// default — see `pipeline::pano::opcodes::read_opcode_list3`).
+    pub opcode_list2: Option<Vec<u8>>,
     pub opcode_list3: Option<Vec<u8>>,
     /// `BlackLevelRepeatDim` (rows, cols). The writer always emits a SINGLE
     /// `BlackLevel` value, so anything but `None` / `(1, 1)` is a
@@ -146,6 +147,7 @@ impl Default for SyntheticGreyDng {
             analog_balance_override: None,
             linearization_table: None,
             encoded_value_override: None,
+            opcode_list2: None,
             opcode_list3: None,
             black_level_repeat_dim: None,
             black_level_table: None,
@@ -335,13 +337,19 @@ impl SyntheticGreyDng {
             ifd.add_shorts(TAG_ACTIVE_AREA, area.to_vec());
         }
 
-        if let Some(blob) = &self.opcode_list3 {
+        for (tag, blob) in [
+            (51009, &self.opcode_list2),
+            (TAG_OPCODE_LIST_3, &self.opcode_list3),
+        ] {
+            let Some(blob) = blob else {
+                continue;
+            };
             // UNDEFINED per DNG spec — `read_opcode_list3` also accepts
             // BYTE (rawler's `Value::Byte`), but real camera DNGs write
             // UNDEFINED, so this fixture should too: exercising the
             // `Value::Undefined` branch is what makes the end-to-end test
             // representative of a real file (Copilot review on #3133).
-            ifd.add_undefined(TAG_OPCODE_LIST_3, blob.clone());
+            ifd.add_undefined(tag, blob.clone());
         }
 
         ifd

@@ -1,0 +1,625 @@
+{
+  "comparisons": 16,
+  "matched_source37": 16,
+  "cleared": [],
+  "new": [],
+  "rows": [
+    {
+      "name": "test_0001/blacks_min",
+      "before": {
+        "fixture": "test_0001",
+        "case": "blacks_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 27.02805519874364,
+        "p95": 40.466400618057314,
+        "max": 74.50010498380466,
+        "bR": 0.28858170638709196,
+        "bG": 0.27642806105976614,
+        "bB": 0.2806864484469116,
+        "n_pixels": 9000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0001",
+        "case": "blacks_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 27.02041334774157,
+        "p95": 40.467128586662035,
+        "max": 74.50010498380466,
+        "bR": 0.28840648633539046,
+        "bG": 0.2764107712957448,
+        "bB": 0.2805890928871951,
+        "n_pixels": 9000000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0001/clarity_min",
+      "before": {
+        "fixture": "test_0001",
+        "case": "clarity_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 17.63416046554265,
+        "p95": 27.279320533559304,
+        "max": 62.498838750087515,
+        "bR": 0.16037859729897055,
+        "bG": 0.15087298096291435,
+        "bB": 0.16177154219201886,
+        "n_pixels": 9000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0001",
+        "case": "clarity_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 17.617785539696808,
+        "p95": 27.244872950624078,
+        "max": 62.498838750087515,
+        "bR": 0.16016151755115618,
+        "bG": 0.15087313956805562,
+        "bB": 0.16157357486311502,
+        "n_pixels": 9000000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0001/dehaze_min",
+      "before": {
+        "fixture": "test_0001",
+        "case": "dehaze_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 56.67>56.00"
+        ],
+        "mean": 13.84796791081434,
+        "p95": 26.39188045800075,
+        "max": 56.66579339005195,
+        "bR": -0.1033395628619463,
+        "bG": -0.034293364477910926,
+        "bB": -0.062445519309903184,
+        "n_pixels": 9000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0001",
+        "case": "dehaze_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 56.67>56.00"
+        ],
+        "mean": 13.847412032750235,
+        "p95": 26.409299736346746,
+        "max": 56.66579339005195,
+        "bR": -0.10348068400298846,
+        "bG": -0.0342582716692744,
+        "bB": -0.0625390278149719,
+        "n_pixels": 9000000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0001/exposure_min",
+      "before": {
+        "fixture": "test_0001",
+        "case": "exposure_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 0.6838225617311218,
+        "p95": 1.609427524518185,
+        "max": 7.510037896181721,
+        "bR": 0.002130698956815267,
+        "bG": 0.0004906606112511622,
+        "bB": 0.0013703298687790003,
+        "n_pixels": 9000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0001",
+        "case": "exposure_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 0.6831791742048874,
+        "p95": 1.6074526902111181,
+        "max": 7.510037896181721,
+        "bR": 0.0021213394794604326,
+        "bG": 0.000492338606941462,
+        "bB": 0.0013627246398333357,
+        "n_pixels": 9000000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0001/shadows_max",
+      "before": {
+        "fixture": "test_0001",
+        "case": "shadows_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 17.2729799724569,
+        "p95": 28.73229571605383,
+        "max": 65.27729877415514,
+        "bR": 0.15362895065853022,
+        "bG": 0.13998044512456956,
+        "bB": 0.15225092998214335,
+        "n_pixels": 9000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0001",
+        "case": "shadows_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 17.257304076530787,
+        "p95": 28.698103923693587,
+        "max": 65.3469691489104,
+        "bR": 0.15343099683748418,
+        "bG": 0.14001339152984885,
+        "bB": 0.15206024500507742,
+        "n_pixels": 9000000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0002/shadows_max",
+      "before": {
+        "fixture": "test_0002",
+        "case": "shadows_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 45.00>44.30"
+        ],
+        "mean": 15.530303790785652,
+        "p95": 23.757645795007814,
+        "max": 44.99664088765417,
+        "bR": -0.2413547056532932,
+        "bG": -0.20752318334342076,
+        "bB": -0.19054641818282644,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0002",
+        "case": "shadows_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 45.00>44.30"
+        ],
+        "mean": 15.530281007398042,
+        "p95": 23.75753595861666,
+        "max": 44.99664088765417,
+        "bR": -0.24135526284285092,
+        "bG": -0.207523114715936,
+        "bB": -0.1905475377906876,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0002/vibrance_min",
+      "before": {
+        "fixture": "test_0002",
+        "case": "vibrance_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 31.65>31.00"
+        ],
+        "mean": 9.592730239772916,
+        "p95": 12.829900668975005,
+        "max": 31.650413637029114,
+        "bR": -0.14945861859136875,
+        "bG": -0.14139866157252373,
+        "bB": -0.13672696184975933,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0002",
+        "case": "vibrance_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 31.65>31.00"
+        ],
+        "mean": 9.592733839967947,
+        "p95": 12.829900668975005,
+        "max": 31.650413637029114,
+        "bR": -0.14945878297044515,
+        "bG": -0.14139871778168311,
+        "bB": -0.13672714779747308,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0000/dehaze_max",
+      "before": {
+        "fixture": "test_0000",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 49.23>48.70"
+        ],
+        "mean": 8.00341111430042,
+        "p95": 16.80832455187879,
+        "max": 49.23224243686738,
+        "bR": -0.05329783327950077,
+        "bG": -0.05238630392592966,
+        "bB": -0.06464662662139728,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0000",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "max 49.23>48.70"
+        ],
+        "mean": 8.003443269479655,
+        "p95": 16.808207808817908,
+        "max": 49.23224243686738,
+        "bR": -0.05329738921731719,
+        "bG": -0.05238506731573372,
+        "bB": -0.06464597339420772,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0003/wb_auto",
+      "before": {
+        "fixture": "test_0003",
+        "case": "wb_auto",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 9.018989970643542,
+        "p95": 12.615869703941845,
+        "max": 21.308507920278192,
+        "bR": -0.017861151469779825,
+        "bG": 0.018321921518606156,
+        "bB": 0.07736838019282377,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0003",
+        "case": "wb_auto",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "passed",
+        "breaches": [],
+        "mean": 9.018994609494756,
+        "p95": 12.615869703941845,
+        "max": 21.308507920278192,
+        "bR": -0.01786119447911169,
+        "bG": 0.018321897624533245,
+        "bB": 0.0773683257878542,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0003/dehaze_max",
+      "before": {
+        "fixture": "test_0003",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "p95 19.10>18.90"
+        ],
+        "mean": 7.4652913361490025,
+        "p95": 19.103110095463283,
+        "max": 33.560515067965135,
+        "bR": -0.03579801791969733,
+        "bG": -0.01260568318931056,
+        "bB": 0.008215331912749242,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0003",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "p95 19.10>18.90"
+        ],
+        "mean": 7.465303827858903,
+        "p95": 19.103174142543846,
+        "max": 33.560515067965135,
+        "bR": -0.03579749519096123,
+        "bG": -0.012604946149060036,
+        "bB": 0.008216372591515688,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0004/highlights_min",
+      "before": {
+        "fixture": "test_0004",
+        "case": "highlights_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_G -0.0029>0.0029"
+        ],
+        "mean": 4.554593844365854,
+        "p95": 9.149958317895575,
+        "max": 31.96802590370864,
+        "bR": -0.0021643041767301814,
+        "bG": -0.002900183232031258,
+        "bB": 0.0003708335305065848,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0004",
+        "case": "highlights_min",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_G -0.0029>0.0029"
+        ],
+        "mean": 4.554570913303572,
+        "p95": 9.14985826332676,
+        "max": 31.96802590370864,
+        "bR": -0.0021651656146369253,
+        "bG": -0.0029004590490265595,
+        "bB": 0.00037009431480589165,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0004/dehaze_max",
+      "before": {
+        "fixture": "test_0004",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "p95 17.27>16.80",
+          "max 51.63>49.00",
+          "bias_R -0.0465>0.0451"
+        ],
+        "mean": 7.467298390507174,
+        "p95": 17.274275731160508,
+        "max": 51.627881859458284,
+        "bR": -0.04648345564365255,
+        "bG": -0.03724565254952343,
+        "bB": -0.01584058454605452,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0004",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "p95 17.27>16.80",
+          "max 51.63>49.00",
+          "bias_R -0.0465>0.0451"
+        ],
+        "mean": 7.467237497534485,
+        "p95": 17.274351592331602,
+        "max": 51.627881859458284,
+        "bR": -0.04648373897699484,
+        "bG": -0.03724530451031464,
+        "bB": -0.015840538794421242,
+        "n_pixels": 12000000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0007/dehaze_max",
+      "before": {
+        "fixture": "test_0007",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 7.81>7.80",
+          "p95 18.55>17.40",
+          "bias_R -0.0275>0.0274",
+          "bias_G -0.0316>0.0274",
+          "bias_B -0.0393>0.0274"
+        ],
+        "mean": 7.806541162199018,
+        "p95": 18.55307075289008,
+        "max": 48.805454401265656,
+        "bR": -0.027484567796055657,
+        "bG": -0.03160913850021979,
+        "bB": -0.03931303299204588,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0007",
+        "case": "dehaze_max",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "mean 7.81>7.80",
+          "p95 18.55>17.40",
+          "bias_R -0.0275>0.0274",
+          "bias_G -0.0316>0.0274",
+          "bias_B -0.0393>0.0274"
+        ],
+        "mean": 7.806517023199349,
+        "p95": 18.55303338256424,
+        "max": 48.805454401265656,
+        "bR": -0.027484903048257577,
+        "bG": -0.03160895469966379,
+        "bB": -0.039313138126006716,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0011/wb_tungsten",
+      "before": {
+        "fixture": "test_0011",
+        "case": "wb_tungsten",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0450>0.0450"
+        ],
+        "mean": 10.188131588434517,
+        "p95": 18.035042388762804,
+        "max": 43.9174422498782,
+        "bR": 0.04500839389825352,
+        "bG": -0.007510233053224265,
+        "bB": 0.034934312010333604,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0011",
+        "case": "wb_tungsten",
+        "profile": "neutral",
+        "resolution": "down",
+        "status": "breach",
+        "breaches": [
+          "bias_R +0.0450>0.0450"
+        ],
+        "mean": 10.1881492840126,
+        "p95": 18.035042388762804,
+        "max": 43.9174422498782,
+        "bR": 0.045008389119438864,
+        "bG": -0.007510257682499087,
+        "bB": 0.03493390029708063,
+        "n_pixels": 10668000,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0014/sharpen_detail_min",
+      "before": {
+        "fixture": "test_0014",
+        "case": "sharpen_detail_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 43.33>43.10"
+        ],
+        "mean": 15.73746373872928,
+        "p95": 26.860365829779145,
+        "max": 43.33407871996412,
+        "bR": 0.18949795180110876,
+        "bG": 0.17459834098674407,
+        "bB": 0.17666573792970464,
+        "n_pixels": 45441024,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0014",
+        "case": "sharpen_detail_min",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 43.33>43.10"
+        ],
+        "mean": 15.737332736749073,
+        "p95": 26.86037646961048,
+        "max": 43.33407871996412,
+        "bR": 0.18949506471472707,
+        "bG": 0.1745976410059741,
+        "bB": 0.1766613754553082,
+        "n_pixels": 45441024,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    },
+    {
+      "name": "test_0014/sharpen_radius_max",
+      "before": {
+        "fixture": "test_0014",
+        "case": "sharpen_radius_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 43.92>43.40"
+        ],
+        "mean": 15.43356031093628,
+        "p95": 26.862670091208155,
+        "max": 43.9176222687422,
+        "bR": 0.18563190062927468,
+        "bG": 0.1706300834516774,
+        "bB": 0.17362574250840937,
+        "n_pixels": 45441024,
+        "reference_protocol": "legacy-direct-reference"
+      },
+      "after": {
+        "fixture": "test_0014",
+        "case": "sharpen_radius_max",
+        "profile": "detail-fullres",
+        "resolution": "full",
+        "status": "breach",
+        "breaches": [
+          "max 43.92>43.40"
+        ],
+        "mean": 15.433431123969921,
+        "p95": 26.86271269835002,
+        "max": 43.9176222687422,
+        "bR": 0.18562933984388413,
+        "bG": 0.17062956815334618,
+        "bB": 0.17362182810454688,
+        "n_pixels": 45441024,
+        "reference_protocol": "legacy-direct-reference"
+      }
+    }
+  ],
+  "decision": "Complete matched parent37 join; no additional physical clear. No rerenders or production adoption."
+}

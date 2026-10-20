@@ -83,13 +83,13 @@ fn tiled_partial_workgroups_preserve_profile_radius_gates() {
 }
 
 #[test]
-fn tiled_weight_lookup_preserves_interpolation_and_cutoff() {
+fn tiled_weight_lookup_preserves_interpolation_and_gaussian_tail() {
     let ctx = GpuContext::new_blocking().expect("GPU required");
     let (width, height) = (19, 17);
     let params = chroma_params(25.0);
     let center = 8 * width + 8;
     // Odd shifts compare constant differences across the full patch, making
-    // SSD/(h²·area) land on both sides of interpolation knots and the x=8 cutoff.
+    // SSD/(h²·area) land on both sides of interpolation knots and the x=8 lookup boundary.
     for energy in [0.001f32, 0.015624, 0.015626, 3.999, 4.001, 7.999, 8.001] {
         let amplitude = params.h * energy.sqrt();
         let plane: Vec<f32> = (0..width * height)
@@ -107,10 +107,17 @@ fn tiled_weight_lookup_preserves_interpolation_and_cutoff() {
         );
         let (error, index) = max_diff_at(&reference, &gpu);
         assert!(error < 1e-7, "energy={energy}: {error} at {index}");
-        if energy < 8.0 {
-            assert!(reference[center] - plane[center] > 1e-6);
-        } else {
-            assert!((gpu[center] - plane[center]).abs() < 1e-7);
-        }
+        assert!(reference[center] - plane[center] > 1e-6);
+        // Twenty even-shift neighbors and the max-weight center have weight
+        // one; twenty-eight odd-shift neighbors have the same Gaussian weight.
+        let delta = f64::from(plane[center + 1] - plane[center]);
+        let exponent = delta * delta / f64::from(params.h).powi(2);
+        let weight = (-exponent).exp();
+        let expected = f64::from(plane[center]) + delta * 28.0 * weight / (21.0 + 28.0 * weight);
+        assert!(
+            (f64::from(gpu[center]) - expected).abs() < 1e-7,
+            "energy={energy}: {} != Gaussian mean {expected}",
+            gpu[center]
+        );
     }
 }

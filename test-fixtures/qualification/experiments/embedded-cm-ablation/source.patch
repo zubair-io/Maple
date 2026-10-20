@@ -1,0 +1,20 @@
+diff --git a/src/raw-pipeline/raw-core/src/color/dcp.rs b/src/raw-pipeline/raw-core/src/color/dcp.rs
+index 0fc7247a21..ed4f7714ef 100644
+--- a/src/raw-pipeline/raw-core/src/color/dcp.rs
++++ b/src/raw-pipeline/raw-core/src/color/dcp.rs
+@@ -903,6 +903,15 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
+         return Ok((profile, ProfileSource::EmbeddedFull { illuminant }));
+     }
+ 
++    // Diagnostic ablation only; not a proposed selection policy.
++    if std::env::var_os("MAPLE_DIAGNOSTIC_EMBEDDED_CM")
++        .is_some_and(|v| v == "1")
++    {
++        if let Some((profile, illuminant)) = profile_from_embedded_cm_only(raw, wb_already_baked) {
++            return Ok((profile, ProfileSource::EmbeddedCmOnly { illuminant }));
++        }
++    }
++
+     // ── 2. Bundled profile ────────────────────────────────────────────────
+     if let Some(bundled) = crate::color::profile_loader::lookup_profile(raw) {
+         if let Some(p) = crate::color::profile_loader::to_dcp_profile(bundled, raw) {

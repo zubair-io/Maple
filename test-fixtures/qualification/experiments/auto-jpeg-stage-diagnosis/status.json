@@ -1,0 +1,17 @@
+{
+  "complete": false,
+  "evidence_root": "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-stage-diagnosis",
+  "confirmed": "Ramp tool used Full/RCD while photographic gate uses AMaZE. Tool now uses AMaZE, and records actual fitted artifact. test0005render/ramp107811floats match exactly.",
+  "photographic_full_run": {
+    "passed": 9,
+    "failed": 7,
+    "fallback": 4,
+    "errors": 0,
+    "only_changed_image": "test_0005",
+    "all20_original_RAW_hashes_verified": true
+  },
+  "current_0005_ramps": "AMaZE artifact fails neutral andblue; foliage/magenta/skin pass. Prior before/afterFull probes are retained as Full evidence, not AMaZE before/after proof. No shipping qualification claim.",
+  "test0015": "Pre-Auto stage retains tree contrast; Auto lifts/flattens foliage shadows. Gray artifact maps0.125to~0.31, and0.375..0.5to~0.48 withverylittlecontrast. Need trace tonemapping before adding spatial processing. Color-only nearestneighbor diagnostic on8bitprefix stillfailsheldouttiles; notproofglobalmappingimpossible.",
+  "all16_ramps": "Live, sourcebinaryfrozen; includes0000canonicalceilings without relaxation.",
+  "ramp_binary_sha256": "abcd83ceb0d2653b2c1a15140a3838a54960fc8dc87b8345c996bb6b9e346656"
+}

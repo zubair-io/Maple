@@ -380,6 +380,7 @@ pub(crate) fn largest_embedded_jpeg(bytes: &[u8]) -> Option<DynamicImage> {
 ///   - Standard EXIF `ColorSpace = Uncalibrated (0xFFFF)` AND make
 ///     is "Canon" → Adobe RGB (Canon's non-standard convention — they
 ///     write Uncalibrated and stuff the truth in the Canon makernote)
+///   - RAF Uncalibrated/missing EXIF: embedded JPEG R03 → Adobe RGB, R98 → sRGB
 ///   - Anything else → sRGB (the DCF default)
 ///
 /// Why Canon needs special-casing: when set to Adobe RGB the body writes
@@ -413,6 +414,12 @@ fn detect_jpeg_color_space_from_rawsource(raw_src: &RawSource) -> JpegColorSpace
         Ok(m) => m,
         Err(_) => return JpegColorSpace::SRgb,
     };
+    if matches!(meta.exif.color_space, Some(0xFFFF) | None) {
+        if let Some(color_space) = super::preview_raf_color::raf_preview_color_space(raw_src.buf())
+        {
+            return color_space;
+        }
+    }
     let make_is_canon = meta.make.eq_ignore_ascii_case("Canon");
     match meta.exif.color_space {
         Some(1) => JpegColorSpace::SRgb,

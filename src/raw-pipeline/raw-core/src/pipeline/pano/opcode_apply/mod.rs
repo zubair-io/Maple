@@ -252,7 +252,7 @@ pub fn apply_gain_map(image: &mut Image, gm: &GainMapOpcode, aa: ActiveAreaRect,
 
 /// Bilinear lattice lookup at fractional grid coords, edge-clamped
 /// (dng_sdk `dng_gain_map_interpolator` semantics).
-fn sample_lattice(gm: &GainMapOpcode, grid_v: f64, grid_h: f64, map_plane: u32) -> f32 {
+pub(crate) fn sample_lattice(gm: &GainMapOpcode, grid_v: f64, grid_h: f64, map_plane: u32) -> f32 {
     let max_v = (gm.points_v - 1) as f64;
     let max_h = (gm.points_h - 1) as f64;
     let v = grid_v.clamp(0.0, max_v);

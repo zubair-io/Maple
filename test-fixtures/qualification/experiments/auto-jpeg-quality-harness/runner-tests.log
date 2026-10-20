@@ -1,0 +1,22 @@
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+test_0000: no-preview
+....{"status": "failed", "compared": 0, "passed": 0, "failed": 0, "no-preview": 1, "error": 0, "evidence": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/tmpckehhgyd/evidence"}
+test_0000: failed
+..{"status": "failed", "compared": 1, "passed": 0, "failed": 1, "no-preview": 0, "error": 0, "evidence": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/tmptqlgopf3/evidence"}
+test_0000: passed
+..{"status": "passed", "compared": 1, "passed": 1, "failed": 0, "no-preview": 0, "error": 0, "evidence": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/tmpkai4x81n/evidence"}
+test_0000: no-preview
+.{"status": "failed", "compared": 0, "passed": 0, "failed": 0, "no-preview": 1, "error": 0, "evidence": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/tmp1_sqn0rk/evidence"}
+test_0000: error
+.{"status": "failed", "compared": 0, "passed": 0, "failed": 0, "no-preview": 0, "error": 1, "evidence": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/tmp6n92v2z8/evidence"}
+test_0000: error
+.{"status": "failed", "compared": 0, "passed": 0, "failed": 0, "no-preview": 0, "error": 1, "evidence": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/tmpylstitg_/evidence"}
+test_0000: error
+..
+----------------------------------------------------------------------
+Ran 13 tests in 0.457s
+
+OK
+{"status": "failed", "compared": 0, "passed": 0, "failed": 0, "no-preview": 0, "error": 1, "evidence": "/var/folders/qn/gpgsv1591kz40pfbjgnnvzxm0000gn/T/tmp9s28pvka/evidence"}

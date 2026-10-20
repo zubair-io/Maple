@@ -1,0 +1,12 @@
+{
+  "commit": "95fc03d6819b34f46f928ba93de58188a4014022",
+  "renderer_tree": "dd486b622cbeb3fb240a1eeca5ec7bbf782dc7e1",
+  "binary_sha256": "bd23444c334ca520cb634fa92622bd7c41452c70569f095d7f1e995683f6e96c",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "features": [
+    "stage-dump"
+  ],
+  "built_at": "2026-10-19T13:49:01.099480+00:00",
+  "source_clean": true
+}

@@ -1,0 +1,95 @@
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
+index 5094fade4a..18f9ec810d 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/fcs.rs
+@@ -290,6 +290,15 @@ pub(super) fn suppress_false_colour(
+                     // BOTH fire.
+                     let alpha = (strength * ghf * disagree).clamp(0.0, 1.0);
+                     let blended = ((1.0 - alpha) * c_hue + alpha * c_val).max(0.0);
++                    // With uncertain green, only restore the measured floor.
++                    // Going beyond it imports a brighter donor mean, then
++                    // jumps back to the kernel at the guard boundary above.
++                    // Include zero so the nonnegative path stays continuous.
++                    let blended = if px[t] >= 0.0 && !guide_supported {
++                        blended.min(measured_floor)
++                    } else {
++                        blended
++                    };
+                     px[t] = if px[t] < 0.0 {
+                         supported_chroma_ceiling(x, y, w, cfa_flat, green)
+                             .map_or(blended, |ceiling| blended.min(ceiling))
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_measured_floor.rs b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_measured_floor.rs
+index be9472698e..296aba4eaa 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_measured_floor.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/amaze/tests_fcs_measured_floor.rs
+@@ -98,3 +98,70 @@ fn unsupported_green_keeps_positive_chroma_inside_the_measured_envelope() {
+         }
+     }
+ }
++
++#[test]
++fn unsupported_green_value_correction_is_continuous_at_measured_floor() {
++    for pattern in PATTERNS {
++        for centre_colour in [0, 2] {
++            for exposure in [0.01_f32, 1.0, 16.0] {
++                let i = (10..14)
++                    .flat_map(|y| (10..14).map(move |x| y * SIDE + x))
++                    .find(|&i| sampled(pattern, i) == centre_colour)
++                    .unwrap();
++                let target = 2 - centre_colour;
++                let mut green = vec![0.07 * exposure; SIDE * SIDE];
++                let mut cfa = green.clone();
++                for (offset, value) in [
++                    (-1_isize, 0.06),
++                    (1, 0.73),
++                    (-(SIDE as isize), 0.06),
++                    (SIDE as isize, 0.30),
++                ] {
++                    let n = (i as isize + offset) as usize;
++                    green[n] = value * exposure;
++                    cfa[n] = green[n];
++                }
++                for ((dx, dy), value) in [(-1_isize, -1_isize), (1, -1), (-1, 1), (1, 1)]
++                    .into_iter()
++                    .zip([0.1, 0.3, 0.5, 0.7])
++                {
++                    cfa[(i as isize + dy * SIDE as isize + dx) as usize] = value * exposure;
++                }
++                let floor = 0.1 * exposure;
++                let before = f32::from_bits(floor.to_bits() - 1);
++                let run = |value| {
++                    let mut image =
++                        Image::new(SIDE as u32, SIDE as u32, ColorSpace::CameraNativeLinearRgb);
++                    image.pixels.fill([0.07 * exposure; 3]);
++                    image.pixels[i][target] = value;
++                    let sampled_before = image.pixels[i][centre_colour];
++                    let green_before = image.pixels[i][1];
++                    fcs::suppress_false_colour(
++                        &mut image,
++                        &cfa,
++                        &green,
++                        SIDE,
++                        SIDE,
++                        pattern,
++                        fcs::FALSE_COLOUR_SUPPRESS_STRENGTH,
++                    );
++                    assert_eq!(image.pixels[i][centre_colour], sampled_before);
++                    assert_eq!(image.pixels[i][1], green_before);
++                    image.pixels[i][target]
++                };
++                let below = run(before);
++                let at = run(floor);
++                let zero = run(0.0);
++                let positive_zero = run(f32::from_bits(1));
++                assert!(
++                    zero.to_bits().abs_diff(positive_zero.to_bits()) <= 1,
++                    "The nonnegative correction must stay continuous at zero"
++                );
++                assert!(below.to_bits().abs_diff(at.to_bits()) <= 1,
++                    "{pattern:?} colour={centre_colour} exposure={exposure}: one-ulp input step must not jump from {below} to {at}");
++                assert!(below >= before && below <= floor,
++                    "Uncertain green can restore the measured floor, not import a brighter donor mean");
++            }
++        }
++    }
++}

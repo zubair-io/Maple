@@ -1,0 +1,9 @@
+{
+  "source_processing_commit": "3a916a21663ea8d96df20f6b82994e9a3605ad98",
+  "renderer_tree": "37444b29d6520ccea40ff456976df029ef93ea55",
+  "binary_sha256": "4b07fe8e797c0fd282e0bdaa10ed41f4a499a2692096213493c58ef1e1953611",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "quality_policy": "src/scripts/auto_profile_quality.py",
+  "status": "unqualified direct RGB-pair LUT candidate"
+}

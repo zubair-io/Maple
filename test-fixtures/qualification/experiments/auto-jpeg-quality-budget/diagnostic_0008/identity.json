@@ -1,0 +1,10 @@
+{
+  "source_commit": "15d26545dd9abc50cc9160e2d300c5cb6f9bd9f7",
+  "renderer_tree": "260506cb4f6f0fc521e7b8a3c926d7169d41be9e",
+  "binary_sha256": "82f0adaa4dd595bdd6f2db1e76a018b62cf0826725779de605dc860fdfe8ecfe",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "status": "fixed-budget quality ranking checkpoint; full20 physical suite pending",
+  "binary": "/Users/riabuz/.codex/color-suite-evidence/5000/auto-jpeg-quality-budget/maple-cli",
+  "raw": "/Users/riabuz/.codex/color-suite-evidence/5000/input-snapshot/95/95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754.RAF"
+}

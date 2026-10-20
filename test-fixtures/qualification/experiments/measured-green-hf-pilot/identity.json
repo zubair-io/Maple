@@ -1,0 +1,8 @@
+{
+  "status": "isolated experiment, not adopted",
+  "base_commit": "80c0532a0e01e57ee78f91fd29e3e0ca043bb177",
+  "source_patch_sha256": "045f39336389050b30867d5d9df40cf6a1c24f721fe3f893c1469e7352d6c28d",
+  "hypothesis": "FCS high-frequency guide at measured G sites should use diagonal measured G samples instead of cardinal reconstructed G. Existing thresholds, value estimates, green reconstruction and sampled CFA unchanged. Regression fails original source35.",
+  "binary_sha256": "ffa8eae7afa4bf212bfe9ede70d06c92ec83ae8270850e5546d341075fdf14d3",
+  "amaze_tests_passed": 28
+}

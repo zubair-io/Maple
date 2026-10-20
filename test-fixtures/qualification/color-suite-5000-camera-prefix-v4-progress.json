@@ -1,0 +1,117 @@
+{
+  "status": "Experiment running, not adopted; no physical outcome claimed before completion.",
+  "identity": {
+    "phase": "58 focused comparisons starting",
+    "base_commit": "61f7dd65abb12ce15693aae7242b1eebd28d4a27",
+    "pipeline_output_version": "34 plus experimental WB and local recovery patches",
+    "binary_sha256": "5e6bae0eec5db76adaa24d3a2b2a217927133dae1f02c4dc6346ea96a4cb3879",
+    "source_patch_sha256": "5669eb8111d566ce73aa40ca4d08357e2a870baeb675f40c021ce0d35a6cd3df",
+    "driver_sha256": "563cc160a3e46e10d224e6383d89e8632c7ac07aa389d32ff9792f1f7938d24e",
+    "scope": "Fused AMaZE with green-support FCS guard, metadata WB preconditioning and local chromaticity-weighted HR. All original inputs/budgets and existing assertions unchanged. Experimental processing, not adopted.",
+    "amaze_unit_tests_passed": 27,
+    "highlight_filtered_tests_passed": 107,
+    "highlight_filtered_tests_ignored": 1
+  },
+  "patch": "test-fixtures/qualification/experiments/amaze-white-balance/fused-order-with-local-recovery-v3.patch",
+  "patch_sha256": "5669eb8111d566ce73aa40ca4d08357e2a870baeb675f40c021ce0d35a6cd3df",
+  "base_processing": "61f7dd65ab/output34, green-support guard. This trial adds metadata-balanced reconstruction plus local donor chromaticity weighting. Their exact source/tests were already preserved, and all original assertions and inputs remain unchanged.",
+  "reason": "Prior experiments isolate two failures: an unbalanced CFA violates the scalar input contract; tier1local hue estimates ignored a surviving hue match used by tier2. Either correction alone/combined without green support regressed controls. A matched58case experiment now tests their interaction with the guard, including all previous regressions.",
+  "first_glint_attribution": {
+    "scope": "Read-only extraction of four native sensor sites around the bilinearly warped display witness. Source is frozen captured-main baseline stage trace, not the current output33 renderer. Do not treat interpolated channels as independent measured CFA evidence.",
+    "records": [
+      {
+        "raw_position": [
+          228,
+          6318
+        ],
+        "stages": {
+          "00_sensor_linearized": [
+            0.07464324682950974,
+            0.0,
+            0.0
+          ],
+          "00a_baseline_exposure": [
+            0.15032485127449036,
+            0.24928857386112213,
+            0.28399208188056946
+          ],
+          "00b_highlight_recovery": [
+            0.40374112129211426,
+            0.24928857386112213,
+            0.42030274868011475
+          ]
+        }
+      },
+      {
+        "raw_position": [
+          229,
+          6318
+        ],
+        "stages": {
+          "00_sensor_linearized": [
+            0.0,
+            0.2809584140777588,
+            0.0
+          ],
+          "00a_baseline_exposure": [
+            0.4628543257713318,
+            0.5658252239227295,
+            0.37959688901901245
+          ],
+          "00b_highlight_recovery": [
+            1.2431299686431885,
+            0.5658252239227295,
+            0.5617960095405579
+          ]
+        }
+      },
+      {
+        "raw_position": [
+          228,
+          6319
+        ],
+        "stages": {
+          "00_sensor_linearized": [
+            0.0,
+            0.3705406188964844,
+            0.0
+          ],
+          "00a_baseline_exposure": [
+            0.4544382691383362,
+            0.7462358474731445,
+            0.48877403140068054
+          ],
+          "00b_highlight_recovery": [
+            1.2205262184143066,
+            0.7462358474731445,
+            0.7233760356903076
+          ]
+        }
+      },
+      {
+        "raw_position": [
+          229,
+          6319
+        ],
+        "stages": {
+          "00_sensor_linearized": [
+            0.0,
+            0.0,
+            0.4413762390613556
+          ],
+          "00a_baseline_exposure": [
+            1.0229216814041138,
+            1.1569973230361938,
+            0.8888924717903137
+          ],
+          "00b_highlight_recovery": [
+            2.7473537921905518,
+            1.1569973230361938,
+            1.315543532371521
+          ]
+        }
+      }
+    ]
+  },
+  "attribution_note": "The selected first-glint quad is not sensor-clipped; recovery there equals ordinary WB. This frozen original-baseline witness must not be used as evidence that another recovery estimator can repair that quad. The original nr_color_max peak is elsewhere."
+}

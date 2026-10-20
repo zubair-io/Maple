@@ -1,0 +1,11 @@
+{
+  "settings_verified": true,
+  "original_and_staged_inputs_unchanged": true,
+  "down_rgb_exactly_matches_original": true,
+  "difference": {
+    "changed_pixels": 0,
+    "max_code_difference": 0
+  },
+  "photoshop_script_logged_complete": true,
+  "process_note": "Owned osascript81605 printed its result but remains in ps state?E; independently verify already completed immutable captures without rerendering."
+}

@@ -1,0 +1,8 @@
+{
+  "source_commit": "27f00506a23bf76d6a5f1e9e6562758d951feb74",
+  "renderer_tree": "be48f71a5033611874b87efb742df86fe8c23933",
+  "binary_sha256": "bbc0a0e1636f2ca4ecbe2761017bf9697a244cdd8411f0e5123972b4b2b6a35a",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "status": "complete 20-fixture qualification: 5 JPEG passes, 11 failures, 4 exact fallback passes, 0 errors; full goal incomplete"
+}

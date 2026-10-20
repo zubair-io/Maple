@@ -1,0 +1,109 @@
+{
+  "status": "Open regression introduced by the combined camera-prefix fix; do not merge.",
+  "case": "test_0002/vibrance_min",
+  "unchanged_max_limit": 31.0,
+  "candidate_max": 31.360391524316046,
+  "pixels_above_limit": 4,
+  "interpretation": "The same peak appears in the guard-only control at29.66387; the combined prefix shifts it to31.36039. Candidate[144,89,135] versus reference[186,183,195] is a chromatic/brightness error, not just a decimal rounding difference. Locate its source before altering any operator or reference protocol.",
+  "measurements": [
+    {
+      "experiment": "amaze-ordering-original-fcs-controls",
+      "native_dimensions": [
+        7216,
+        5412
+      ],
+      "comparison_size": [
+        4000,
+        3000
+      ],
+      "position": [
+        2325,
+        1204
+      ],
+      "native_position_estimate": [
+        4194.702,
+        2172.418
+      ],
+      "max": 30.12206202799111,
+      "candidate_rgb": [
+        128,
+        101,
+        146
+      ],
+      "reference_rgb": [
+        187,
+        187,
+        194
+      ],
+      "pixels_above_31": 0
+    },
+    {
+      "experiment": "fcs-green-support-pilot",
+      "native_dimensions": [
+        7216,
+        5412
+      ],
+      "comparison_size": [
+        4000,
+        3000
+      ],
+      "position": [
+        2136,
+        1353
+      ],
+      "native_position_estimate": [
+        3853.746,
+        2441.214
+      ],
+      "max": 29.663873990770824,
+      "candidate_rgb": [
+        139,
+        95,
+        134
+      ],
+      "reference_rgb": [
+        186,
+        183,
+        195
+      ],
+      "pixels_above_31": 0
+    },
+    {
+      "experiment": "fcs-green-support-wb-recovery-v4",
+      "native_dimensions": [
+        7216,
+        5412
+      ],
+      "comparison_size": [
+        4000,
+        3000
+      ],
+      "position": [
+        2136,
+        1353
+      ],
+      "native_position_estimate": [
+        3853.746,
+        2441.214
+      ],
+      "max": 31.360391524316046,
+      "candidate_rgb": [
+        144,
+        89,
+        135
+      ],
+      "reference_rgb": [
+        186,
+        183,
+        195
+      ],
+      "pixels_above_31": 4
+    }
+  ],
+  "provenance": "Frozen V4 candidates and original immutable reference; exact canonical legacy direct comparison, every pixel retained. This is not a passing full gate.",
+  "fit_cache_update": {
+    "model_version": 5,
+    "cache_tests_passed": 15,
+    "reason": "The pinned develop feeding Auto fits changed with the camera reconstruction; bump its model key as well as pipeline output35. Physical tasks each launch a fresh CLI process, so in-process LRU entries cannot cross candidate binaries."
+  }
+}

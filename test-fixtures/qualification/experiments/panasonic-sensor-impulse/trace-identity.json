@@ -1,0 +1,18 @@
+{
+  "binary_source": "b4523b79e616f2745f3b0a7e8e1c60b9bff08424",
+  "roi": [
+    2400,
+    128,
+    512,
+    256
+  ],
+  "scope": "Full-frame renders with local f32 stage dumps. No-FCS branch is diagnostic only, not qualification.",
+  "current": {
+    "sha256": "960565fd363e74186eb68fcac0ef8414bff46e09e23aa0436d42bd9f603dd9be",
+    "fcs_strength_override": null
+  },
+  "kernel-no-fcs": {
+    "sha256": "6010335048397e1f6f698aa294791a92726f30da893a557a8081e72a3eae8e52",
+    "fcs_strength_override": "0"
+  }
+}

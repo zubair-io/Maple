@@ -1,0 +1,13 @@
+{
+  "scope": "all16 before/after/embedded-JPEG triplets; four contact sheets inspected",
+  "findings": {
+    "0012": "Contrast in tower, foreground road and building shadow now much closer to camera JPEG; all gates pass.",
+    "0017": "Wall/sky colors and contrast closer; bottom grass/corners remain visibly wrong and fail seven tile checks.",
+    "0015": "Unchanged and still visibly flat; preserved as failure.",
+    "0005": "Unchanged and still visibly low contrast in sky/foreground; remains failure.",
+    "0007": "Small brightness/cast improvement; remains failure.",
+    "0011_and0008": "Previously passing images change subtly and remain passing; no obvious new broad visual defect.",
+    "other11_images": "Output PNG bytes unchanged."
+  },
+  "goal_incomplete": true
+}

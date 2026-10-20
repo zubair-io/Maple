@@ -1,0 +1,18 @@
+{
+  "registration": {
+    "aligned_correlation": 0.9247144977315458,
+    "identity_correlation": 0.8519141138306219,
+    "maximum_grid_displacement": 2.112190487676328,
+    "warp": {
+      "coefficients": [
+        0.9884879551383988,
+        -0.00028839960453647204,
+        0.005926668543492619,
+        -0.000018535779768856125,
+        0.9885338848934802,
+        0.005690383504622374
+      ]
+    }
+  },
+  "selected_fit": "registered-paired"
+}

@@ -1,0 +1,9 @@
+{
+  "source_commit": "91fa556d44ec7e35f91a5f5710b62a190d40b47a",
+  "status": "under full physical qualification; no acceptance claim",
+  "pipeline_output_version": 37,
+  "fit_version": 7,
+  "previous_renderer": "15d26545dd",
+  "binary_sha256": "9dd3d62a6c9fd87b86c3eaac216842915b53a04bfa69dc2a011d9f5d93601328",
+  "renderer_tree": "55b4458d7d802f795b6ff3833c8647b2dc9a8184"
+}

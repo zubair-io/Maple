@@ -1,0 +1,333 @@
+{
+  "candidate_commit": "bad547f3d6",
+  "decision": "Remove ineffective candidate from active branch; preserve history and evidence. All three renders and gradient outcomes unchanged.",
+  "cases": [
+    {
+      "fixture": "test_0015",
+      "candidate_sha256": "2821b2b4d07f0b011ed39e9b1f56062bc9b5578a057d8850c1d03bced5a54e2d",
+      "identical_to_baseline": true,
+      "status": "failed",
+      "photographic_metrics": {
+        "mean_absolute_channel_error": [
+          0.03814930621293376,
+          0.03847253525426156,
+          0.04132012928933602
+        ],
+        "p95_absolute_channel_error": [
+          0.12205743680968922,
+          0.12155682255944598,
+          0.12999168594873867
+        ],
+        "mean_delta_e_2000": 4.2063349293655135,
+        "p95_delta_e_2000": 12.039111337460945,
+        "newly_clipped_channel_fraction": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "gradient_mean_absolute_channel_error": [
+          0.02919980209352604,
+          0.028369713229424574,
+          0.03157092215283122
+        ]
+      },
+      "gradients": {
+        "status": "passed",
+        "provenance_sha256": "cb9a8549a12fb615b4a78fb062c651c1ab0fc88f3ed3e7f9d127603d912ab2e3",
+        "budgets_sha256": "55317ed32b782131578af7e3518a7397af8d20bde5a4d26d8ce03964aadc7067",
+        "implementation_sha256": "81bfc0c208652b4845b4ec671b52cfbf5ceee8d385abc443dc184a7a90cb4816",
+        "checker_sha256": "ccf6c31be2c98ce6085b7d25869540d6689df250280af47f77d5a1a084ec659b",
+        "ramps": [
+          {
+            "name": "neutral",
+            "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma",
+            "passed": true,
+            "metrics": {
+              "max_abs_d2": 0.0025810742434590472,
+              "mean_abs_d2": 2.806184870783456e-05,
+              "max_spike_ratio": 0.28749554410779893,
+              "mean_spike_ratio": 0.28749554410779893,
+              "max_flat_run_frac": 0.0,
+              "flat_eps": 1e-06
+            },
+            "report_sha256": "1206609fab67c23723c7d36e9bdee9ae266de0ff3fa8baabe92a8ecd91d576f4"
+          },
+          {
+            "name": "foliage",
+            "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma",
+            "passed": true,
+            "metrics": {
+              "max_abs_d2": 5.8290406594274646e-05,
+              "mean_abs_d2": 1.3416291461487661e-06,
+              "max_spike_ratio": 0.2056515950708232,
+              "mean_spike_ratio": 0.2056515950708232,
+              "max_flat_run_frac": 0.0,
+              "flat_eps": 1e-06
+            },
+            "report_sha256": "9e2a93830666df21943bb9ee3a6e8799fde81674b542f4584bd1ea1fc7124620"
+          },
+          {
+            "name": "blue",
+            "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma",
+            "passed": true,
+            "metrics": {
+              "max_abs_d2": 0.0003093990206997216,
+              "mean_abs_d2": 4.442235225030311e-06,
+              "max_spike_ratio": 0.2849109700809499,
+              "mean_spike_ratio": 0.2849109700809499,
+              "max_flat_run_frac": 0.0,
+              "flat_eps": 1e-06
+            },
+            "report_sha256": "5cbf339dc517c18235cc5e49154b2301cdd4e9f5e9fa6ae25f6f1a4196867f4e"
+          },
+          {
+            "name": "magenta",
+            "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma",
+            "passed": true,
+            "metrics": {
+              "max_abs_d2": 7.100785773658455e-05,
+              "mean_abs_d2": 1.5502500296405154e-06,
+              "max_spike_ratio": 0.13408656626871732,
+              "mean_spike_ratio": 0.13408656626871732,
+              "max_flat_run_frac": 0.0,
+              "flat_eps": 1e-06
+            },
+            "report_sha256": "66c8dd7ae54fe57ea5b9750a86dc53a0b932db3f6f1e14e7d3c4a636b8b5e8fb"
+          },
+          {
+            "name": "skin",
+            "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma",
+            "passed": true,
+            "metrics": {
+              "max_abs_d2": 4.3145851994681045e-05,
+              "mean_abs_d2": 8.058451690067238e-07,
+              "max_spike_ratio": 0.20397945081175178,
+              "mean_spike_ratio": 0.20397945081175178,
+              "max_flat_run_frac": 0.0,
+              "flat_eps": 1e-06
+            },
+            "report_sha256": "6dd0ef90b93b3d49b5d01fc7d73f5afd52306010ca6486b077528d2088322c46"
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "test_0005",
+      "candidate_sha256": "24e4344758c9de0a859e43ec8301ab762decaecb59620aba05d250f408591a25",
+      "identical_to_baseline": true,
+      "status": "failed",
+      "photographic_metrics": {
+        "mean_absolute_channel_error": [
+          0.018186512142627946,
+          0.017623346928111554,
+          0.018506434197932395
+        ],
+        "p95_absolute_channel_error": [
+          0.07082213785596683,
+          0.07326059244948958,
+          0.07543567760414328
+        ],
+        "mean_delta_e_2000": 2.0711721327603843,
+        "p95_delta_e_2000": 7.0461148091491745,
+        "newly_clipped_channel_fraction": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "gradient_mean_absolute_channel_error": [
+          0.016684709473314213,
+          0.015935507099958845,
+          0.016651585843634024
+        ]
+      },
+      "gradients": {
+        "status": "failed",
+        "provenance_sha256": "e306f2abb03d570dc939a0dc86e4f81ef449ee9c628808794f0ff67ff7030308",
+        "budgets_sha256": "55317ed32b782131578af7e3518a7397af8d20bde5a4d26d8ce03964aadc7067",
+        "implementation_sha256": "81bfc0c208652b4845b4ec671b52cfbf5ceee8d385abc443dc184a7a90cb4816",
+        "checker_sha256": "ccf6c31be2c98ce6085b7d25869540d6689df250280af47f77d5a1a084ec659b",
+        "ramps": [
+          {
+            "name": "neutral",
+            "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma",
+            "passed": false,
+            "metrics": {
+              "max_abs_d2": 0.004822900570327785,
+              "mean_abs_d2": 2.6874658919603214e-05,
+              "max_spike_ratio": 0.44597930645575773,
+              "mean_spike_ratio": 0.44597930645575773,
+              "max_flat_run_frac": 0.0,
+              "flat_eps": 1e-06
+            },
+            "report_sha256": "a97d77ccfd9323abda5755c80391b9222e5f900bfbd032636a6ffc97dfe8d60f"
+          },
+          {
+            "name": "foliage",
+            "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma",
+            "passed": true,
+            "metrics": {
+              "max_abs_d2": 0.00013711130747941572,
+              "mean_abs_d2": 1.6582960159399477e-06,
+              "max_spike_ratio": 0.35706992377337204,
+              "mean_spike_ratio": 0.35706992377337204,
+              "max_flat_run_frac": 0.0,
+              "flat_eps": 1e-06
+            },
+            "report_sha256": "5182c25b7d302acbd79a00bfefd9eb6ef3af7ec8056e0409717933475db57297"
+          },
+          {
+            "name": "blue",
+            "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma",
+            "passed": false,
+            "metrics": {
+              "max_abs_d2": 0.0010594910841440473,
+              "mean_abs_d2": 6.1531369246317054e-06,
+              "max_spike_ratio": 1.1245322589244955,
+              "mean_spike_ratio": 1.1245322589244955,
+              "max_flat_run_frac": 0.0009775171065493646,
+              "flat_eps": 1e-06
+            },
+            "report_sha256": "05463e65dca2eb043d469d27a4c4a4322755c25b98f454ebc9ff05b36b724b59"
+          },
+          {
+            "name": "magenta",
+            "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma",
+            "passed": true,
+            "metrics": {
+              "max_abs_d2": 9.386187310285454e-05,
+              "mean_abs_d2": 1.4780218727770543e-06,
+              "max_spike_ratio": 0.13251848302992783,
+              "mean_spike_ratio": 0.13251848302992783,
+              "max_flat_run_frac": 0.0,
+              "flat_eps": 1e-06
+            },
+            "report_sha256": "fec43ff05fb1b52900ad21fb571c4373679a546406c51406cdf5848b85b7126c"
+          },
+          {
+            "name": "skin",
+            "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma",
+            "passed": true,
+            "metrics": {
+              "max_abs_d2": 0.00016239287326902732,
+              "mean_abs_d2": 1.3234025503097382e-06,
+              "max_spike_ratio": 0.4913591072318596,
+              "mean_spike_ratio": 0.4913591072318596,
+              "max_flat_run_frac": 0.0009775171065493646,
+              "flat_eps": 1e-06
+            },
+            "report_sha256": "9e27d833fa956d990fb6b3c0a623f7831bde61351e04e8cf83baedeb569e11d9"
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "test_0007",
+      "candidate_sha256": "6456d87ddf2b1bfea0f437b7eefc5c6e14630c4fa5fd2beabe2d617379721bf4",
+      "identical_to_baseline": true,
+      "status": "failed",
+      "photographic_metrics": {
+        "mean_absolute_channel_error": [
+          0.0338925479998545,
+          0.029532702125524772,
+          0.028581671512564612
+        ],
+        "p95_absolute_channel_error": [
+          0.08414106681201337,
+          0.07197792044498698,
+          0.08235294117647052
+        ],
+        "mean_delta_e_2000": 3.15654094599381,
+        "p95_delta_e_2000": 6.889341116269888,
+        "newly_clipped_channel_fraction": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "gradient_mean_absolute_channel_error": [
+          0.007321393181933128,
+          0.005887977850807201,
+          0.007287805218178368
+        ]
+      },
+      "gradients": {
+        "status": "passed",
+        "provenance_sha256": "019e0d231de0b8186bdea96259df8820acc051ba26307ac835452d29475285c8",
+        "budgets_sha256": "55317ed32b782131578af7e3518a7397af8d20bde5a4d26d8ce03964aadc7067",
+        "implementation_sha256": "81bfc0c208652b4845b4ec671b52cfbf5ceee8d385abc443dc184a7a90cb4816",
+        "checker_sha256": "ccf6c31be2c98ce6085b7d25869540d6689df250280af47f77d5a1a084ec659b",
+        "ramps": [
+          {
+            "name": "neutral",
+            "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma",
+            "passed": true,
+            "metrics": {
+              "max_abs_d2": 0.0015782510379880547,
+              "mean_abs_d2": 1.2088971310610283e-05,
+              "max_spike_ratio": 0.27954621711104166,
+              "mean_spike_ratio": 0.27954621711104166,
+              "max_flat_run_frac": 0.0,
+              "flat_eps": 1e-06
+            },
+            "report_sha256": "d94a68b696c6e6454cb5fd90aa390506423aa5f94d7b51cd48f0b5ae2fd44469"
+          },
+          {
+            "name": "foliage",
+            "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma",
+            "passed": true,
+            "metrics": {
+              "max_abs_d2": 1.3721914397999552e-05,
+              "mean_abs_d2": 3.055019443130648e-07,
+              "max_spike_ratio": 0.0618256835169123,
+              "mean_spike_ratio": 0.0618256835169123,
+              "max_flat_run_frac": 0.0,
+              "flat_eps": 1e-06
+            },
+            "report_sha256": "6e90563c3f838c41729aa892f10a37e60dd67a26dc90bfb0976bbf56fae68ba0"
+          },
+          {
+            "name": "blue",
+            "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma",
+            "passed": true,
+            "metrics": {
+              "max_abs_d2": 7.054915915730153e-05,
+              "mean_abs_d2": 1.1032315589936846e-06,
+              "max_spike_ratio": 0.2174153051547027,
+              "mean_spike_ratio": 0.2174153051547027,
+              "max_flat_run_frac": 0.0,
+              "flat_eps": 1e-06
+            },
+            "report_sha256": "09b427dd64eaef6c00dad69e15cdcc3171fd99a1e4e3e653eb718bb3100bff5a"
+          },
+          {
+            "name": "magenta",
+            "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma",
+            "passed": true,
+            "metrics": {
+              "max_abs_d2": 0.00044599376384450696,
+              "mean_abs_d2": 1.5524873161574496e-06,
+              "max_spike_ratio": 1.0938722730193018,
+              "mean_spike_ratio": 1.0938722730193018,
+              "max_flat_run_frac": 0.0,
+              "flat_eps": 1e-06
+            },
+            "report_sha256": "f6236257a28659cad53c3858f59d063ac14cd612a829fe09e43f768c1aeae466"
+          },
+          {
+            "name": "skin",
+            "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma",
+            "passed": true,
+            "metrics": {
+              "max_abs_d2": 3.619030225966019e-05,
+              "mean_abs_d2": 7.942599211246513e-07,
+              "max_spike_ratio": 0.2288339393440278,
+              "mean_spike_ratio": 0.2288339393440278,
+              "max_flat_run_frac": 0.0,
+              "flat_eps": 1e-06
+            },
+            "report_sha256": "e915043d0eb68c00ba691dd8feafa273329134ea51793a1115e5b62b448479c7"
+          }
+        ]
+      }
+    }
+  ]
+}

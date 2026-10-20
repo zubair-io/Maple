@@ -1,0 +1,166 @@
+{
+  "origin": {
+    "mean_de": 5.424567345463124
+  },
+  "fine": {
+    "mean_de": 5.430061196885863
+  },
+  "rejected_regions": [
+    {
+      "region": 1,
+      "mean_de_regression": 0.399634847527461,
+      "training_regression": 0.3965034305121905,
+      "validation_regression": 0.40809285487930186
+    },
+    {
+      "region": 2,
+      "mean_de_regression": 1.1307679244570679,
+      "training_regression": 1.125334994239923,
+      "validation_regression": 1.1459203910507996
+    },
+    {
+      "region": 3,
+      "mean_de_regression": 0.5340481375645975,
+      "training_regression": 0.5266351217497638,
+      "validation_regression": 0.5557617632410197
+    },
+    {
+      "region": 4,
+      "mean_de_regression": 0.5486087026248901,
+      "training_regression": 0.5462209477731237,
+      "validation_regression": 0.5551882156258553
+    },
+    {
+      "region": 5,
+      "mean_de_regression": 1.238458714159258,
+      "training_regression": 1.2416887430642798,
+      "validation_regression": 1.2293953494705392
+    },
+    {
+      "region": 6,
+      "mean_de_regression": 0.22921995231043557,
+      "training_regression": 0.2419202615238406,
+      "validation_regression": 0.19271385676133634
+    },
+    {
+      "region": 9,
+      "mean_de_regression": 0.6265682775843159,
+      "training_regression": 0.6293793637993588,
+      "validation_regression": 0.6187891221027981
+    },
+    {
+      "region": 10,
+      "mean_de_regression": 0.7101450496955926,
+      "training_regression": 0.7257435387591494,
+      "validation_regression": 0.6656473769278822
+    },
+    {
+      "region": 11,
+      "mean_de_regression": 0.5657208299658592,
+      "training_regression": 0.569499068128426,
+      "validation_regression": 0.5540684257828071
+    },
+    {
+      "region": 12,
+      "mean_de_regression": 0.5034464920190972,
+      "training_regression": 0.4996003593961435,
+      "validation_regression": 0.5148725940449523
+    },
+    {
+      "region": 13,
+      "mean_de_regression": 0.6992255652405488,
+      "training_regression": 0.708458995609714,
+      "validation_regression": 0.6708054264880805
+    },
+    {
+      "region": 14,
+      "mean_de_regression": 0.5166155988104411,
+      "training_regression": 0.5220713587557569,
+      "validation_regression": 0.4997895763965083
+    },
+    {
+      "region": 16,
+      "mean_de_regression": 0.41251798865303346,
+      "training_regression": 0.43459226086842007,
+      "validation_regression": 0.3476662448152834
+    },
+    {
+      "region": 17,
+      "mean_de_regression": 0.8412297614577315,
+      "training_regression": 0.8538631463188766,
+      "validation_regression": 0.8064661713915455
+    },
+    {
+      "region": 18,
+      "mean_de_regression": 0.5829654677415359,
+      "training_regression": 0.5678204735549139,
+      "validation_regression": 0.6317869086288457
+    },
+    {
+      "region": 19,
+      "mean_de_regression": 0.20568674594942526,
+      "training_regression": 0.20388290375126616,
+      "validation_regression": 0.21100402244356276
+    },
+    {
+      "region": 20,
+      "mean_de_regression": 0.1144498572486774,
+      "training_regression": 0.07273094399513846,
+      "validation_regression": 0.24466343497942233
+    },
+    {
+      "region": 21,
+      "mean_de_regression": 0.56825266072287,
+      "training_regression": 0.5726811997348218,
+      "validation_regression": 0.5568108095997641
+    },
+    {
+      "region": 22,
+      "mean_de_regression": 0.803041150460042,
+      "training_regression": 0.7937459612734664,
+      "validation_regression": 0.8285230102246164
+    },
+    {
+      "region": 23,
+      "mean_de_regression": 0.914492473584865,
+      "training_regression": 0.8379817925012174,
+      "validation_regression": 1.1641521159067143
+    },
+    {
+      "region": 31,
+      "mean_de_regression": 0.18245496649437598,
+      "training_regression": 0.25207340772519515,
+      "validation_regression": -0.04272628981501825
+    },
+    {
+      "region": 32,
+      "mean_de_regression": 0.1866166813067256,
+      "training_regression": 0.21628350689362463,
+      "validation_regression": 0.09413735854887051
+    },
+    {
+      "region": 55,
+      "mean_de_regression": 0.15262975090197628,
+      "training_regression": 0.09349320061687827,
+      "validation_regression": 0.33776966976838985
+    },
+    {
+      "region": 63,
+      "mean_de_regression": 0.27054809833145477,
+      "training_regression": 0.3101956421958274,
+      "validation_regression": 0.15768999079674018
+    }
+  ],
+  "provenance": {
+    "source": "auto-jpeg-radial-fitter/diagnostic-0015/auto_fit_observations.json",
+    "source_sha256": "955da014a5efbe72fc8e72f136b39ce9a6c52d61e35cf75c0f3e6fc88a5573b0",
+    "coordinates": "refinement_display, matching the final refinement invocation",
+    "metric": "Python colour CIEDE2000 replay of actual population-weighted footprint LUT predictions; diagnostic, not replacement gate"
+  },
+  "backtracking_candidate": {
+    "decision": "Rejected; physical test_0015 byte-identical current output, no quality improvement",
+    "test_result": "102 passed, 1 failed, 6 ignored; failed existing exact fallback assertion; test untouched",
+    "gradients": "all five pass",
+    "png_sha256": "2821b2b4d07f0b011ed39e9b1f56062bc9b5578a057d8850c1d03bced5a54e2d"
+  }
+}

@@ -1,0 +1,371 @@
+[
+  {
+    "fixture": "test_0005",
+    "new_subcheck_breaches": [],
+    "removed_subcheck_breaches": 0,
+    "old_status": "failed",
+    "new_status": "failed",
+    "mean_deltaE_before": 3.866891360496677,
+    "mean_deltaE_after": 3.866891360496677
+  },
+  {
+    "fixture": "test_0015",
+    "new_subcheck_breaches": [],
+    "removed_subcheck_breaches": 0,
+    "old_status": "failed",
+    "new_status": "failed",
+    "mean_deltaE_before": 9.316857196753883,
+    "mean_deltaE_after": 9.316857196753883
+  },
+  {
+    "fixture": "test_0017",
+    "new_subcheck_breaches": [],
+    "removed_subcheck_breaches": 0,
+    "old_status": "failed",
+    "new_status": "failed",
+    "mean_deltaE_before": 9.540507249664941,
+    "mean_deltaE_after": 9.540507249664941
+  },
+  {
+    "fixture": "test_0002",
+    "new_subcheck_breaches": [],
+    "removed_subcheck_breaches": 0,
+    "old_status": "passed",
+    "new_status": "passed",
+    "mean_deltaE_before": 2.5710702983251226,
+    "mean_deltaE_after": 2.5710702983251226
+  },
+  {
+    "fixture": "test_0014",
+    "new_subcheck_breaches": [],
+    "removed_subcheck_breaches": 0,
+    "old_status": "failed",
+    "new_status": "failed",
+    "mean_deltaE_before": 2.352015409857704,
+    "mean_deltaE_after": 2.352015409857704
+  },
+  {
+    "fixture": "test_0000",
+    "new_subcheck_breaches": [],
+    "removed_subcheck_breaches": 0,
+    "old_status": "failed",
+    "new_status": "failed",
+    "mean_deltaE_before": 7.812931327619799,
+    "mean_deltaE_after": 7.812931327619799
+  },
+  {
+    "fixture": "test_0003",
+    "new_subcheck_breaches": [],
+    "removed_subcheck_breaches": 16,
+    "old_status": "failed",
+    "new_status": "failed",
+    "mean_deltaE_before": 4.017032164890779,
+    "mean_deltaE_after": 3.213613210839506
+  },
+  {
+    "fixture": "test_0004",
+    "new_subcheck_breaches": [],
+    "removed_subcheck_breaches": 15,
+    "old_status": "failed",
+    "new_status": "passed",
+    "mean_deltaE_before": 4.366175792759509,
+    "mean_deltaE_after": 2.60401937904888
+  },
+  {
+    "fixture": "test_0006",
+    "new_subcheck_breaches": [
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "B",
+        1,
+        5,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "B",
+        2,
+        5,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "G",
+        1,
+        3,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "G",
+        2,
+        3,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "G",
+        3,
+        3,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "G",
+        4,
+        3,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "G",
+        5,
+        3,
+        null
+      ]
+    ],
+    "removed_subcheck_breaches": 99,
+    "old_status": "failed",
+    "new_status": "failed",
+    "mean_deltaE_before": 6.649730509053831,
+    "mean_deltaE_after": 5.233079785104911
+  },
+  {
+    "fixture": "test_0007",
+    "new_subcheck_breaches": [],
+    "removed_subcheck_breaches": 0,
+    "old_status": "failed",
+    "new_status": "failed",
+    "mean_deltaE_before": 3.708891213151388,
+    "mean_deltaE_after": 3.708891213151388
+  },
+  {
+    "fixture": "test_0008",
+    "new_subcheck_breaches": [
+      [
+        "native_absolute",
+        "native_mean_absolute_channel_error",
+        "G",
+        null,
+        null,
+        "band-3"
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "G",
+        2,
+        5,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "G",
+        3,
+        4,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "R",
+        3,
+        2,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "R",
+        6,
+        1,
+        null
+      ]
+    ],
+    "removed_subcheck_breaches": 61,
+    "old_status": "failed",
+    "new_status": "failed",
+    "mean_deltaE_before": 6.592924194366219,
+    "mean_deltaE_after": 5.191956141988954
+  },
+  {
+    "fixture": "test_0009",
+    "new_subcheck_breaches": [],
+    "removed_subcheck_breaches": 0,
+    "old_status": "failed",
+    "new_status": "failed",
+    "mean_deltaE_before": 2.08831756916834,
+    "mean_deltaE_after": 2.08831756916834
+  },
+  {
+    "fixture": "test_0010",
+    "new_subcheck_breaches": [
+      [
+        "bias",
+        "0.25-0.50",
+        "R"
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "B",
+        0,
+        1,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "B",
+        0,
+        2,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "B",
+        0,
+        3,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "B",
+        0,
+        4,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "B",
+        1,
+        0,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "B",
+        1,
+        1,
+        null
+      ]
+    ],
+    "removed_subcheck_breaches": 92,
+    "old_status": "failed",
+    "new_status": "failed",
+    "mean_deltaE_before": 5.556251608713614,
+    "mean_deltaE_after": 3.708216487008779
+  },
+  {
+    "fixture": "test_0011",
+    "new_subcheck_breaches": [
+      [
+        "bias",
+        "0.50-0.75",
+        "G"
+      ],
+      [
+        "native_absolute",
+        "native_mean_absolute_channel_error",
+        "B",
+        null,
+        null,
+        "band-3"
+      ],
+      [
+        "native_absolute",
+        "native_mean_absolute_channel_error",
+        "G",
+        null,
+        null,
+        "band-3"
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "G",
+        1,
+        0,
+        null
+      ]
+    ],
+    "removed_subcheck_breaches": 4,
+    "old_status": "failed",
+    "new_status": "failed",
+    "mean_deltaE_before": 3.558835370089915,
+    "mean_deltaE_after": 3.31013133223553
+  },
+  {
+    "fixture": "test_0012",
+    "new_subcheck_breaches": [
+      [
+        "bias",
+        "0.50-0.75",
+        "B"
+      ],
+      [
+        "bias",
+        "0.50-0.75",
+        "G"
+      ],
+      [
+        "native_absolute",
+        "native_mean_absolute_channel_error",
+        "B",
+        null,
+        null,
+        "band-3"
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "G",
+        2,
+        2,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "R",
+        2,
+        1,
+        null
+      ],
+      [
+        "quality",
+        "tile_mean_absolute_channel_error",
+        "R",
+        2,
+        2,
+        null
+      ]
+    ],
+    "removed_subcheck_breaches": 61,
+    "old_status": "failed",
+    "new_status": "failed",
+    "mean_deltaE_before": 8.954307456787687,
+    "mean_deltaE_after": 6.536257091079368
+  },
+  {
+    "fixture": "test_0013",
+    "new_subcheck_breaches": [],
+    "removed_subcheck_breaches": 135,
+    "old_status": "failed",
+    "new_status": "failed",
+    "mean_deltaE_before": 5.420694289224445,
+    "mean_deltaE_after": 3.216570556419292
+  }
+]

@@ -1,0 +1,996 @@
+[
+  {
+    "fixture": "test_0009",
+    "status": "failed",
+    "unchanged_render": false,
+    "new_breaches": [],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.022586654537697277,
+        0.014178303665103597,
+        0.01162304222108754
+      ],
+      "p95_absolute_channel_error": [
+        0.0980392156862745,
+        0.04313725490196085,
+        0.03137254901960784
+      ],
+      "mean_delta_e_2000": 2.08831756916834,
+      "p95_delta_e_2000": 4.504040801450879,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.003949780058647615,
+        0.003260155441389329,
+        0.00406880936911897
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.013182228418537403,
+        0.008555980499806005,
+        0.00785892687967613
+      ],
+      "p95_absolute_channel_error": [
+        0.05098039215686273,
+        0.02352941176470591,
+        0.0196078431372549
+      ],
+      "mean_delta_e_2000": 1.4557438840335042,
+      "p95_delta_e_2000": 2.947057119746292,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.003773682437682452,
+        0.003025075155609512,
+        0.00397615669840496
+      ]
+    }
+  },
+  {
+    "fixture": "test_0015",
+    "status": "failed",
+    "unchanged_render": false,
+    "new_breaches": [
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "R",
+        "row": 0,
+        "column": 0,
+        "value": 0.10093353517878513,
+        "limit": 0.05
+      },
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "R",
+        "row": 0,
+        "column": 1,
+        "value": 0.09392156862744437,
+        "limit": 0.05
+      },
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "R",
+        "row": 0,
+        "column": 2,
+        "value": 0.08791089965397135,
+        "limit": 0.05
+      },
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "R",
+        "row": 0,
+        "column": 5,
+        "value": 0.08502667243367283,
+        "limit": 0.05
+      },
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "R",
+        "row": 0,
+        "column": 6,
+        "value": 0.09092920991925749,
+        "limit": 0.05
+      },
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "R",
+        "row": 0,
+        "column": 7,
+        "value": 0.09470876585928464,
+        "limit": 0.05
+      },
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "R",
+        "row": 1,
+        "column": 0,
+        "value": 0.08379108996539321,
+        "limit": 0.05
+      },
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "R",
+        "row": 1,
+        "column": 1,
+        "value": 0.08055002883506002,
+        "limit": 0.05
+      },
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "R",
+        "row": 1,
+        "column": 6,
+        "value": 0.07902681660899355,
+        "limit": 0.05
+      },
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "R",
+        "row": 1,
+        "column": 7,
+        "value": 0.0789280565167219,
+        "limit": 0.05
+      },
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "R",
+        "row": 2,
+        "column": 0,
+        "value": 0.07936995386389933,
+        "limit": 0.05
+      },
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "R",
+        "row": 2,
+        "column": 1,
+        "value": 0.07733924452133592,
+        "limit": 0.05
+      },
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "B",
+        "row": 2,
+        "column": 4,
+        "value": 0.06354671280276832,
+        "limit": 0.05
+      },
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "R",
+        "row": 2,
+        "column": 6,
+        "value": 0.07581459054209572,
+        "limit": 0.05
+      },
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "R",
+        "row": 2,
+        "column": 7,
+        "value": 0.07931228373702229,
+        "limit": 0.05
+      }
+    ],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.09327482969308154,
+        0.08884463757946366,
+        0.10556327494259937
+      ],
+      "p95_absolute_channel_error": [
+        0.24705882352941178,
+        0.24705882352941178,
+        0.25098039215686274
+      ],
+      "mean_delta_e_2000": 9.316857196753883,
+      "p95_delta_e_2000": 22.669480921751386,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.06075474508911222,
+        0.06028216604943474,
+        0.05855680225363526
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.10465699790968626,
+        0.0818505915694867,
+        0.08630280421008217
+      ],
+      "p95_absolute_channel_error": [
+        0.23529411764705882,
+        0.23529411764705882,
+        0.22352941176470587
+      ],
+      "mean_delta_e_2000": 8.300661117153913,
+      "p95_delta_e_2000": 21.117738662843227,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.0613209844776969,
+        0.06070900398847969,
+        0.05886267964085134
+      ]
+    }
+  },
+  {
+    "fixture": "test_0005",
+    "status": "failed",
+    "unchanged_render": true,
+    "new_breaches": [],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.03327058779672299,
+        0.03226983064162353,
+        0.036594984266760354
+      ],
+      "p95_absolute_channel_error": [
+        0.09803921568627452,
+        0.09803921568627451,
+        0.10196078431372552
+      ],
+      "mean_delta_e_2000": 3.866891360496677,
+      "p95_delta_e_2000": 10.042091990231844,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.022053407853161226,
+        0.02174578246103069,
+        0.02237103602450449
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.03327058779672299,
+        0.03226983064162353,
+        0.036594984266760354
+      ],
+      "p95_absolute_channel_error": [
+        0.09803921568627452,
+        0.09803921568627451,
+        0.10196078431372552
+      ],
+      "mean_delta_e_2000": 3.866891360496677,
+      "p95_delta_e_2000": 10.042091990231844,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.022053407853161226,
+        0.02174578246103069,
+        0.02237103602450449
+      ]
+    }
+  },
+  {
+    "fixture": "test_0007",
+    "status": "failed",
+    "unchanged_render": false,
+    "new_breaches": [
+      {
+        "metric": "tile_mean_absolute_channel_error",
+        "channel": "B",
+        "row": 5,
+        "column": 4,
+        "value": 0.05093569780853227,
+        "limit": 0.05
+      }
+    ],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.04038208873438403,
+        0.03552996956037051,
+        0.03456058416252857
+      ],
+      "p95_absolute_channel_error": [
+        0.10980392156862742,
+        0.09019607843137256,
+        0.10588235294117643
+      ],
+      "mean_delta_e_2000": 3.708891213151388,
+      "p95_delta_e_2000": 8.840214136966676,
+      "newly_clipped_channel_fraction": [
+        4.289439970717423e-05,
+        0.0,
+        5.719253294289898e-06
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.008648650863340115,
+        0.007671779763952148,
+        0.009052180141660583
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.03960470203391144,
+        0.03486477554535388,
+        0.03434403753289612
+      ],
+      "p95_absolute_channel_error": [
+        0.10588235294117648,
+        0.09019607843137256,
+        0.10588235294117643
+      ],
+      "mean_delta_e_2000": 3.6471008457350242,
+      "p95_delta_e_2000": 8.704282755169185,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        1.4298133235724744e-06
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.00869968055089351,
+        0.007660650174653088,
+        0.00902002674694495
+      ]
+    }
+  },
+  {
+    "fixture": "test_0004",
+    "status": "passed",
+    "unchanged_render": true,
+    "new_breaches": [],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.017265793545010115,
+        0.012798269434039321,
+        0.013943725785533071
+      ],
+      "p95_absolute_channel_error": [
+        0.07058823529411762,
+        0.050980392156862675,
+        0.04705882352941182
+      ],
+      "mean_delta_e_2000": 2.39567779409473,
+      "p95_delta_e_2000": 7.722979956388439,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.01661223760629611,
+        0.012544597777296057,
+        0.013587018392057493
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.017265793545010115,
+        0.012798269434039321,
+        0.013943725785533071
+      ],
+      "p95_absolute_channel_error": [
+        0.07058823529411762,
+        0.050980392156862675,
+        0.04705882352941182
+      ],
+      "mean_delta_e_2000": 2.39567779409473,
+      "p95_delta_e_2000": 7.722979956388439,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.01661223760629611,
+        0.012544597777296057,
+        0.013587018392057493
+      ]
+    }
+  },
+  {
+    "fixture": "test_0014",
+    "status": "passed",
+    "unchanged_render": true,
+    "new_breaches": [],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.005353602367003622,
+        0.003416648275339343,
+        0.009016873815770123
+      ],
+      "p95_absolute_channel_error": [
+        0.01568627450980392,
+        0.007843137254901988,
+        0.023529411764705882
+      ],
+      "mean_delta_e_2000": 1.1429121293504108,
+      "p95_delta_e_2000": 2.592027476529735,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.005347992076923658,
+        0.003295399787599793,
+        0.0063785986923334025
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.005353602367003622,
+        0.003416648275339343,
+        0.009016873815770123
+      ],
+      "p95_absolute_channel_error": [
+        0.01568627450980392,
+        0.007843137254901988,
+        0.023529411764705882
+      ],
+      "mean_delta_e_2000": 1.1429121293504108,
+      "p95_delta_e_2000": 2.592027476529735,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.005347992076923658,
+        0.003295399787599793,
+        0.0063785986923334025
+      ]
+    }
+  },
+  {
+    "fixture": "test_0017",
+    "status": "failed",
+    "unchanged_render": false,
+    "new_breaches": [],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.07430635550367713,
+        0.08352829819272885,
+        0.0843500203204639
+      ],
+      "p95_absolute_channel_error": [
+        0.22352941176470587,
+        0.21960784313725493,
+        0.2156862745098039
+      ],
+      "mean_delta_e_2000": 9.540507249664941,
+      "p95_delta_e_2000": 21.44476258481266,
+      "newly_clipped_channel_fraction": [
+        1.0008693265007321e-05,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.0478576719821686,
+        0.05851592148982017,
+        0.062172603645820744
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.07352409622368582,
+        0.08315858210991878,
+        0.08387436348104202
+      ],
+      "p95_absolute_channel_error": [
+        0.21960784313725493,
+        0.2196078431372549,
+        0.21176470588235297
+      ],
+      "mean_delta_e_2000": 9.468942370117567,
+      "p95_delta_e_2000": 21.316317233235722,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.047440531381425025,
+        0.05821073939132016,
+        0.061702667687564196
+      ]
+    }
+  },
+  {
+    "fixture": "test_0000",
+    "status": "failed",
+    "unchanged_render": false,
+    "new_breaches": [],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.07950335095004245,
+        0.0794830601514317,
+        0.0794724456191564
+      ],
+      "p95_absolute_channel_error": [
+        0.2588235294117647,
+        0.2588235294117647,
+        0.25490196078431376
+      ],
+      "mean_delta_e_2000": 7.812931327619799,
+      "p95_delta_e_2000": 23.375781040342968,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.0986358786217652,
+        0.09806111860826443,
+        0.09722637321375907
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.07844514016572621,
+        0.07837298304766963,
+        0.07797971558443308
+      ],
+      "p95_absolute_channel_error": [
+        0.25490196078431376,
+        0.25490196078431376,
+        0.2549019607843137
+      ],
+      "mean_delta_e_2000": 7.718942164304679,
+      "p95_delta_e_2000": 23.112166880214147,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.0984006202848536,
+        0.0978388563456975,
+        0.09713471702573843
+      ]
+    }
+  },
+  {
+    "fixture": "test_0002",
+    "status": "passed",
+    "unchanged_render": true,
+    "new_breaches": [],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.0070008155084396685,
+        0.0062630525713108474,
+        0.005798731028039073
+      ],
+      "p95_absolute_channel_error": [
+        0.03529411764705881,
+        0.03137254901960784,
+        0.027450980392156876
+      ],
+      "mean_delta_e_2000": 0.8248913310189966,
+      "p95_delta_e_2000": 3.0917235163552568,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.010666431082592702,
+        0.00956187404104607,
+        0.008795913723873788
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.0070008155084396685,
+        0.0062630525713108474,
+        0.005798731028039073
+      ],
+      "p95_absolute_channel_error": [
+        0.03529411764705881,
+        0.03137254901960784,
+        0.027450980392156876
+      ],
+      "mean_delta_e_2000": 0.8248913310189966,
+      "p95_delta_e_2000": 3.0917235163552568,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.010666431082592702,
+        0.00956187404104607,
+        0.008795913723873788
+      ]
+    }
+  },
+  {
+    "fixture": "test_0003",
+    "status": "failed",
+    "unchanged_render": true,
+    "new_breaches": [],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.02230485795642415,
+        0.02060474262935671,
+        0.023498253048790056
+      ],
+      "p95_absolute_channel_error": [
+        0.0745098039215687,
+        0.0745098039215687,
+        0.09019607843137256
+      ],
+      "mean_delta_e_2000": 2.7825377356232615,
+      "p95_delta_e_2000": 8.3806368868034,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.009876714082117417,
+        0.007897326831812603,
+        0.010106589017569174
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.02230485795642415,
+        0.02060474262935671,
+        0.023498253048790056
+      ],
+      "p95_absolute_channel_error": [
+        0.0745098039215687,
+        0.0745098039215687,
+        0.09019607843137256
+      ],
+      "mean_delta_e_2000": 2.7825377356232615,
+      "p95_delta_e_2000": 8.3806368868034,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.009876714082117417,
+        0.007897326831812603,
+        0.010106589017569174
+      ]
+    }
+  },
+  {
+    "fixture": "test_0006",
+    "status": "failed",
+    "unchanged_render": false,
+    "new_breaches": [],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.06640103538702756,
+        0.06370357199919705,
+        0.04564695296155477
+      ],
+      "p95_absolute_channel_error": [
+        0.1647058823529412,
+        0.14509803921568631,
+        0.10588235294117643
+      ],
+      "mean_delta_e_2000": 6.649730509053831,
+      "p95_delta_e_2000": 14.978336618802734,
+      "newly_clipped_channel_fraction": [
+        0.00010580618594436311,
+        2.859626647144949e-06,
+        0.0008164234077598829
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.010271279308140866,
+        0.008695190477197728,
+        0.009714598472262014
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.06298580010365999,
+        0.05989077011235246,
+        0.04374810479673522
+      ],
+      "p95_absolute_channel_error": [
+        0.1568627450980392,
+        0.1411764705882353,
+        0.10196078431372557
+      ],
+      "mean_delta_e_2000": 6.298521975776036,
+      "p95_delta_e_2000": 14.256518604054246,
+      "newly_clipped_channel_fraction": [
+        2.573663982430454e-05,
+        1.4298133235724744e-06,
+        0.0004289439970717423
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.01025364454370037,
+        0.008530528249586434,
+        0.009686662192361506
+      ]
+    }
+  },
+  {
+    "fixture": "test_0008",
+    "status": "failed",
+    "unchanged_render": false,
+    "new_breaches": [],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.07478241044798911,
+        0.063324133185761,
+        0.0631774567671885
+      ],
+      "p95_absolute_channel_error": [
+        0.23137254901960785,
+        0.1764705882352941,
+        0.16078431372549018
+      ],
+      "mean_delta_e_2000": 6.592924194366219,
+      "p95_delta_e_2000": 19.76222850543668,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.01750108933409942,
+        0.01671711685420299,
+        0.016430032767263462
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.06839120096271718,
+        0.057712867243578006,
+        0.05628271188623179
+      ],
+      "p95_absolute_channel_error": [
+        0.20392156862745098,
+        0.17254901960784313,
+        0.15294117647058825
+      ],
+      "mean_delta_e_2000": 6.011773924803727,
+      "p95_delta_e_2000": 19.36109040474407,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.017335484191010032,
+        0.01666240530621811,
+        0.01637518090447628
+      ]
+    }
+  },
+  {
+    "fixture": "test_0010",
+    "status": "failed",
+    "unchanged_render": false,
+    "new_breaches": [],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.05868782050277548,
+        0.02937432041834673,
+        0.040104716163758
+      ],
+      "p95_absolute_channel_error": [
+        0.1215686274509804,
+        0.09411764705882353,
+        0.12941176470588237
+      ],
+      "mean_delta_e_2000": 5.556251608713614,
+      "p95_delta_e_2000": 13.62725746932089,
+      "newly_clipped_channel_fraction": [
+        0.06425152132137628,
+        0.06470477214494876,
+        0.07860541727672035
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.005877821367728316,
+        0.005051832428537106,
+        0.006322180916345218
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.044721970276342185,
+        0.023863803047956208,
+        0.03136488970606383
+      ],
+      "p95_absolute_channel_error": [
+        0.09803921568627452,
+        0.0784313725490196,
+        0.10980392156862745
+      ],
+      "mean_delta_e_2000": 4.6267145010388875,
+      "p95_delta_e_2000": 12.153306520596418,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.005670963743813799,
+        0.004873862745009706,
+        0.006129994536978279
+      ]
+    }
+  },
+  {
+    "fixture": "test_0011",
+    "status": "failed",
+    "unchanged_render": false,
+    "new_breaches": [],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.027649753020933542,
+        0.029640021213402822,
+        0.02720797074793287
+      ],
+      "p95_absolute_channel_error": [
+        0.08235294117647057,
+        0.07450980392156863,
+        0.07058823529411765
+      ],
+      "mean_delta_e_2000": 3.558835370089915,
+      "p95_delta_e_2000": 9.01926674297081,
+      "newly_clipped_channel_fraction": [
+        1.4277229532163742e-06,
+        0.0,
+        2.8554459064327484e-06
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.01677715479046627,
+        0.016313418669167523,
+        0.01553119863894255
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.023812817570559103,
+        0.025945007023484137,
+        0.02290590555502728
+      ],
+      "p95_absolute_channel_error": [
+        0.0784313725490196,
+        0.07058823529411765,
+        0.06666666666666667
+      ],
+      "mean_delta_e_2000": 3.1873145529875497,
+      "p95_delta_e_2000": 8.845778957267482,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        1.4277229532163742e-06
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.016586316765100088,
+        0.016124475847344447,
+        0.015383871795502576
+      ]
+    }
+  },
+  {
+    "fixture": "test_0012",
+    "status": "failed",
+    "unchanged_render": false,
+    "new_breaches": [],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.11919129315567965,
+        0.0792973138151654,
+        0.07332437054030728
+      ],
+      "p95_absolute_channel_error": [
+        0.2392156862745098,
+        0.2235294117647059,
+        0.2352941176470588
+      ],
+      "mean_delta_e_2000": 8.954307456787687,
+      "p95_delta_e_2000": 21.184145036257792,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.03499805571280865,
+        0.03401430823728537,
+        0.03471878535081677
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.09944610097078245,
+        0.06820290758749069,
+        0.0629264831545248
+      ],
+      "p95_absolute_channel_error": [
+        0.21960784313725493,
+        0.2117647058823529,
+        0.21568627450980393
+      ],
+      "mean_delta_e_2000": 7.5616162489222605,
+      "p95_delta_e_2000": 20.212311477790887,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.034033062071936016,
+        0.0337708229479614,
+        0.03433535031937231
+      ]
+    }
+  },
+  {
+    "fixture": "test_0013",
+    "status": "failed",
+    "unchanged_render": false,
+    "new_breaches": [],
+    "before_metrics": {
+      "mean_absolute_channel_error": [
+        0.06408156351352856,
+        0.05907943326687228,
+        0.05414538913329175
+      ],
+      "p95_absolute_channel_error": [
+        0.16470588235294115,
+        0.14901960784313728,
+        0.1333333333333333
+      ],
+      "mean_delta_e_2000": 5.420694289224445,
+      "p95_delta_e_2000": 12.724343928255651,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.021090780113075906,
+        0.02262736472900044,
+        0.022347965742298012
+      ]
+    },
+    "after_metrics": {
+      "mean_absolute_channel_error": [
+        0.0379107955237403,
+        0.03535470401569559,
+        0.03512085559351588
+      ],
+      "p95_absolute_channel_error": [
+        0.09411764705882353,
+        0.09019607843137256,
+        0.0862745098039216
+      ],
+      "mean_delta_e_2000": 3.712277893500041,
+      "p95_delta_e_2000": 8.112514916355591,
+      "newly_clipped_channel_fraction": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "gradient_mean_absolute_channel_error": [
+        0.016326881640651915,
+        0.017294026603889633,
+        0.017486205748274725
+      ]
+    }
+  }
+]

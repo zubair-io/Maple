@@ -1,0 +1,8 @@
+{
+  "source_commit": "f297e3b1f7f43207cc03e051b9a80e686e8e59ea",
+  "renderer_tree": "480ff034e7e359d0fd2a8ef68814e5cd4831a561",
+  "binary_sha256": "3a7aef062522618fde46a39bb09c03e12be588c32f8a2de5532031c8de8dfc4a",
+  "pipeline_output_version": 37,
+  "auto_fit_model_version": 7,
+  "status": "unqualified confidence-weighted LUT projection; full 20-fixture physical run"
+}

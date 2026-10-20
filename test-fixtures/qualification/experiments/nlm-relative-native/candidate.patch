@@ -1,0 +1,423 @@
+diff --git a/src/raw-pipeline/raw-core/src/demosaic/mod.rs b/src/raw-pipeline/raw-core/src/demosaic/mod.rs
+index 223504a0c6..2fb6d046ef 100644
+--- a/src/raw-pipeline/raw-core/src/demosaic/mod.rs
++++ b/src/raw-pipeline/raw-core/src/demosaic/mod.rs
+@@ -106,19 +106,10 @@ pub(crate) fn camera_demosaic_cancellable(
+     neutral: [f32; 3],
+     cancel: crate::cancel::CancelToken<'_>,
+ ) -> Image {
+-    if !neutral.iter().all(|n| n.is_finite() && *n > 0.0) {
+-        return demosaic_cancellable(algo, mosaic, cfa, cancel);
+-    }
+-    let minimum = neutral.into_iter().fold(f32::INFINITY, f32::min);
+-    let scales = neutral.map(|n| minimum / n);
+-    if scales.iter().any(|v| *v <= 0.0) {
+-        return demosaic_cancellable(algo, mosaic, cfa, cancel);
+-    }
+-    match algo {
+-        DemosaicAlgorithm::Amaze => amaze::amaze_with_gains(mosaic, cfa, scales),
+-        DemosaicAlgorithm::DualAmazeVng4 => dual::dual_amaze_vng4_with_gains(mosaic, cfa, scales),
+-        _ => demosaic_cancellable(algo, mosaic, cfa, cancel),
+-    }
++    // Experimental control: re-evaluate the native camera-domain contract
++    // after restoring normalized NLM tails. No metadata or settings edited.
++    let _ = neutral;
++    demosaic_cancellable(algo, mosaic, cfa, cancel)
+ }
+ 
+ /// Flatten the sparse 3-channel mosaic to a single float per CFA position.
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm.rs b/src/raw-pipeline/raw-core/src/stages/nlm.rs
+index c0a9d87b13..06765c5e47 100644
+--- a/src/raw-pipeline/raw-core/src/stages/nlm.rs
++++ b/src/raw-pipeline/raw-core/src/stages/nlm.rs
+@@ -62,6 +62,8 @@ use rayon::prelude::*;
+ mod accumulate;
+ #[path = "nlm_chroma.rs"]
+ mod chroma;
++#[path = "nlm_relative.rs"]
++mod relative;
+ #[path = "nlm_tiled.rs"]
+ mod tiled;
+ pub(crate) use chroma::denoise_chroma_pair_cancellable;
+@@ -248,7 +250,7 @@ fn denoise_prepared(
+     let mut sqdiff = vec![0.0f32; n];
+     let mut acc = vec![0.0f32; n];
+     let mut wsum = vec![0.0f32; n];
+-    let mut max_w = vec![0.0f32; n];
++    let mut max_w = vec![f32::INFINITY; n];
+ 
+     for dy in -s..=s {
+         for dx in -s..=s {
+@@ -286,10 +288,7 @@ fn denoise_prepared(
+     // self-similarity correction), then divide.
+     let mut out = vec![0.0f32; n];
+     out.par_iter_mut().enumerate().for_each(|(i, dst)| {
+-        let mw_i = max_w[i].max(1e-12);
+-        let total_w = wsum[i] + mw_i;
+-        let total_acc = acc[i] + mw_i * plane[i];
+-        *dst = total_acc / total_w;
++        *dst = relative::finish(acc[i], wsum[i], plane[i]);
+     });
+     out
+ }
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm_shift.rs b/src/raw-pipeline/raw-core/src/stages/nlm_shift.rs
+index 3abd373310..467c07948f 100644
+--- a/src/raw-pipeline/raw-core/src/stages/nlm_shift.rs
++++ b/src/raw-pipeline/raw-core/src/stages/nlm_shift.rs
+@@ -187,7 +187,7 @@ fn process_shift(
+                         let shifted_start = (x_lo as isize + dx) as usize;
+                         let source = y * w + x_lo;
+                         let count = x_hi + 1 - x_lo;
+-                        accumulate::accumulate_dynamic(
++                        relative::accumulate_dynamic(
+                             &colsum[range.clone()],
+                             &shift_row[shifted_start..shifted_start + count],
+                             &mut acc_row[range.clone()],
+@@ -207,13 +207,8 @@ fn process_shift(
+                             let ssd = colsum[x].max(0.0);
+                             let patch_area = ((2 * p + 1) * (2 * p + 1)) as f32;
+                             let inv_norm = 1.0 / (params.h * params.h * patch_area);
+-                            let weight = fast_neg_exp(ssd * inv_norm);
+                             let sx = (x as isize + dx) as usize;
+-                            acc_row[x] += weight * shift_row[sx];
+-                            wsum_row[x] += weight;
+-                            if weight > max_w_row[x] {
+-                                max_w_row[x] = weight;
+-                            }
++                            relative::add(ssd * inv_norm, shift_row[sx], &mut acc_row[x], &mut wsum_row[x], &mut max_w_row[x]);
+                         } else {
+                             // Dynamic variance-scaled NLM
+                             let idx = y * w + x;
+@@ -224,13 +219,8 @@ fn process_shift(
+                             }
+ 
+                             let ssd = colsum[x].max(0.0);
+-                            let weight = fast_neg_exp(ssd * local_inv_norm_plane[idx]);
+                             let sx = (x as isize + dx) as usize;
+-                            acc_row[x] += weight * shift_row[sx];
+-                            wsum_row[x] += weight;
+-                            if weight > max_w_row[x] {
+-                                max_w_row[x] = weight;
+-                            }
++                            relative::add(ssd * local_inv_norm_plane[idx], shift_row[sx], &mut acc_row[x], &mut wsum_row[x], &mut max_w_row[x]);
+                         }
+                     }
+                 }
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm_tests_box.rs b/src/raw-pipeline/raw-core/src/stages/nlm_tests_box.rs
+index 2ab8eb9d39..21fd7574be 100644
+--- a/src/raw-pipeline/raw-core/src/stages/nlm_tests_box.rs
++++ b/src/raw-pipeline/raw-core/src/stages/nlm_tests_box.rs
+@@ -310,8 +310,11 @@ fn denoise_plane_f64_truth(plane: &[f32], w: usize, h: usize, params: NlmParams)
+                     max_w = max_w.max(wgt);
+                 }
+             }
+-            let mw = max_w.max(1e-12);
+-            ((acc + mw * plane[idx] as f64) / (wsum + mw)) as f32
++            if wsum > 0.0 {
++                ((acc + max_w * plane[idx] as f64) / (wsum + max_w)) as f32
++            } else {
++                plane[idx]
++            }
+         })
+         .collect()
+ }
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm_tests_tail.rs b/src/raw-pipeline/raw-core/src/stages/nlm_tests_tail.rs
+index f630c0ddea..8f73c39d8c 100644
+--- a/src/raw-pipeline/raw-core/src/stages/nlm_tests_tail.rs
++++ b/src/raw-pipeline/raw-core/src/stages/nlm_tests_tail.rs
+@@ -67,3 +67,74 @@ fn vector_and_scalar_tail_weights_match_the_gaussian() {
+         }
+     }
+ }
++
++// All eight noncentral patch distances are equal, so their Gaussian weights
++// and the maximum-neighbor center weight are equal. Their absolute magnitude
++// cancels: the normalized center must be 1/9, for any finite equal weights.
++#[test]
++fn equal_tiny_gaussian_weights_keep_the_normalized_nine_sample_mean() {
++    use super::{denoise_plane, NlmParams};
++    let mut plane = vec![0.0_f32; 9];
++    plane[4] = 1.0;
++    let expected = (1.0_f64 / 9.0) as f32;
++    for squared_distance_over_h2 in [8.0_f32, 16.0, 32.0, 64.0, 128.0, 1024.0] {
++        let params = NlmParams {
++            patch_radius: 0,
++            search_radius: 1,
++            h: squared_distance_over_h2.sqrt().recip(),
++        };
++        let actual = denoise_plane(&plane, 3, 3, params)[4];
++        assert!((actual - expected).abs() <= 5e-6,
++            "equal weights at exponent {squared_distance_over_h2}: expected {expected}, got {actual}");
++    }
++}
++
++#[test]
++fn normalized_extreme_impulses_agree_across_general_tiled_and_dynamic_paths() {
++    use super::{denoise_plane_cancellable, CancelToken};
++    for (w, h) in [(17, 17), (129, 129)] {
++        for exponent in [32.0_f32, 128.0, 1024.0] {
++            let mut plane = vec![0.02_f32; w * h];
++            let i = (h / 2) * w + w / 2;
++            plane[i] = 0.14;
++            let delta = plane[i] - plane[0];
++            let bandwidth = (2.0 * delta * delta / (25.0 * exponent)).sqrt();
++            let expected = (8.0 * plane[0] + plane[i]) / 9.0;
++            let fixed = denoise_plane(
++                &plane,
++                w,
++                h,
++                NlmParams {
++                    patch_radius: 2,
++                    search_radius: 1,
++                    h: bandwidth,
++                },
++            );
++            assert!(
++                (fixed[i] - expected).abs() < 2e-6,
++                "fixed {w} exponent{exponent}: {} != {expected}",
++                fixed[i]
++            );
++            let dynamic = denoise_plane_cancellable(
++                &plane,
++                w,
++                h,
++                NlmParams {
++                    patch_radius: 2,
++                    search_radius: 1,
++                    h: bandwidth / 0.1,
++                },
++                CancelToken::never(),
++                &vec![0.0; w * h],
++                Some(&[0.0; 6]),
++                100,
++                true,
++            );
++            assert!(
++                (dynamic[i] - expected).abs() < 2e-6,
++                "dynamic {w} exponent{exponent}: {} != {expected}",
++                dynamic[i]
++            );
++        }
++    }
++}
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm_tiled.rs b/src/raw-pipeline/raw-core/src/stages/nlm_tiled.rs
+index 1d0d411107..8dc9fe22d7 100644
+--- a/src/raw-pipeline/raw-core/src/stages/nlm_tiled.rs
++++ b/src/raw-pipeline/raw-core/src/stages/nlm_tiled.rs
+@@ -1,4 +1,4 @@
+-use super::{accumulate::accumulate, CancelToken, NlmParams};
++use super::{relative::accumulate, CancelToken, NlmParams};
+ use rayon::prelude::*;
+ 
+ pub(super) fn denoise(
+@@ -27,7 +27,7 @@ pub(super) fn denoise(
+             }
+             let mut acc = vec![0.0; 256 * 32];
+             let mut weights = vec![0.0; 256 * 32];
+-            let mut maxima = vec![0.0; 256 * 32];
++            let mut maxima = vec![f32::INFINITY; 256 * 32];
+             let mut horizontal = vec![0.0; 256 * 36];
+             let mut differences = vec![0.0; 260];
+             let mut sums = vec![0.0; 256];
+@@ -43,7 +43,7 @@ pub(super) fn denoise(
+                     }
+                     acc[..count].fill(0.0);
+                     weights[..count].fill(0.0);
+-                    maxima[..count].fill(0.0);
++                    maxima[..count].fill(f32::INFINITY);
+                     let search = params.search_radius as isize;
+                     for dy in -search..=search {
+                         for dx in -search..=search {
+@@ -114,9 +114,8 @@ pub(super) fn denoise(
+                     for y in y0..y1 {
+                         for x in x0..x1 {
+                             let i = (y - y0) * stride + x - x0;
+-                            let mw = maxima[i].max(1e-12);
+                             out[(y - y0) * width + x] =
+-                                (acc[i] + mw * plane[y * width + x]) / (weights[i] + mw);
++                                super::relative::finish(acc[i], weights[i], plane[y * width + x]);
+                         }
+                     }
+                 }
+@@ -155,7 +154,7 @@ mod tests {
+                 let mut diff = vec![0.0; n];
+                 let mut acc = vec![0.0; n];
+                 let mut weights = vec![0.0; n];
+-                let mut maxima = vec![0.0; n];
++                let mut maxima = vec![f32::INFINITY; n];
+                 let s = search_radius as isize;
+                 for dy in -s..=s {
+                     for dx in -s..=s {
+@@ -182,8 +181,7 @@ mod tests {
+                 }
+                 let got = denoise(&plane, w, h, params, CancelToken::never());
+                 for i in 0..n {
+-                    let mw = maxima[i].max(1e-12);
+-                    let expected = (acc[i] + mw * plane[i]) / (weights[i] + mw);
++                    let expected = super::super::relative::finish(acc[i], weights[i], plane[i]);
+                     assert!(
+                         (got[i] - expected).abs() < 1e-5,
+                         "{w}x{h} s={s} pixel={i}: {} != {expected}",
+diff --git a/src/raw-pipeline/raw-gpu/src/noise_reduction.wgsl b/src/raw-pipeline/raw-gpu/src/noise_reduction.wgsl
+index 37c37d9c2c..7355c5ec4e 100644
+--- a/src/raw-pipeline/raw-gpu/src/noise_reduction.wgsl
++++ b/src/raw-pipeline/raw-gpu/src/noise_reduction.wgsl
+@@ -159,7 +159,7 @@ fn denoise_plane(
+     let inv_norm = 1.0 / (local_h * local_h * patch_area);
+     var acc = 0.0;
+     var wsum = 0.0;
+-    var max_w = 0.0;
++    var minimum_x = 3.402823466e+38;
+ 
+     // All lanes execute the same shift/barrier sequence, even in partial tiles
+     // and when their profile rejects a shift. Only the final accumulation is
+@@ -202,11 +202,17 @@ fn denoise_plane(
+                 ssd += nlm_horizontal[row + 16u];
+                 ssd += nlm_horizontal[row + 24u];
+                 ssd += nlm_horizontal[row + 32u];
+-                let weight = fast_neg_exp(ssd * inv_norm);
++                let exponent = max(ssd, 0.0) * inv_norm;
++                if (exponent < minimum_x) {
++                    let scale = fast_neg_exp(minimum_x - exponent);
++                    acc *= scale;
++                    wsum *= scale;
++                    minimum_x = exponent;
++                }
++                let weight = fast_neg_exp(exponent - minimum_x);
+                 let shifted = nlm_tile[u32((ty + dy) * 18 + tx + dx)];
+                 acc += weight * shifted;
+                 wsum += weight;
+-                max_w = max(max_w, weight);
+             }
+             // The next shift's first barrier finishes these horizontal reads
+             // before any lane overwrites horizontal sums. No third barrier is
+@@ -214,9 +220,10 @@ fn denoise_plane(
+         }
+     }
+     // Preserve Buades' center contribution and arithmetic for untouched borders.
+-    let mw = max(max_w, 1e-12);
+     if (valid) {
+-        nlm_out[idx] = (acc + mw * center) / (wsum + mw);
++        var normalized = center;
++        if (wsum > 0.0) { normalized = (acc + center) / (wsum + 1.0); }
++        nlm_out[idx] = normalized;
+     }
+ }
+ 
+diff --git a/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tail.rs b/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tail.rs
+index 3e1e6e258a..6f042ff675 100644
+--- a/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tail.rs
++++ b/src/raw-pipeline/raw-gpu/src/noise_reduction/tests_tail.rs
+@@ -30,3 +30,35 @@ fn normalized_gaussian_tail_denoises_the_impulse_on_gpu() {
+     let cpu = raw_core_denoise_plane(&plane, w, h, params);
+     assert!((gpu[i] - cpu[i]).abs() < 1e-5);
+ }
++
++#[test]
++fn normalized_extreme_gaussian_weights_keep_the_mean_on_gpu() {
++    let ctx = GpuContext::new_blocking().expect("GPU required");
++    let (w, h) = (17usize, 17usize);
++    let background = 0.02_f32;
++    let center = 0.14_f32;
++    let delta = center - background;
++    let mut plane = vec![background; w * h];
++    let i = 8 * w + 8;
++    plane[i] = center;
++    for exponent in [32.0_f32, 128.0, 1024.0] {
++        let params = NlmParams {
++            patch_radius: 2,
++            search_radius: 1,
++            h: (2.0 * delta * delta / (25.0 * exponent)).sqrt(),
++        };
++        let gpu = denoise_plane_gpu(
++            &ctx,
++            &plane,
++            &plane,
++            w as u32,
++            h as u32,
++            params,
++            NoiseModulation::from_profile(None, 100, false),
++        );
++        let expected = (8.0 * background + center) / 9.0;
++        assert!((gpu[i] - expected).abs() < 2e-6, "{} != {expected}", gpu[i]);
++        let cpu = raw_core_denoise_plane(&plane, w, h, params);
++        assert!((gpu[i] - cpu[i]).abs() < 1e-5);
++    }
++}
+diff --git a/src/raw-pipeline/raw-core/src/stages/nlm_relative.rs b/src/raw-pipeline/raw-core/src/stages/nlm_relative.rs
+new file mode 100644
+index 0000000000..33a05644a3
+--- /dev/null
++++ b/src/raw-pipeline/raw-core/src/stages/nlm_relative.rs
+@@ -0,0 +1,71 @@
++//! Correctness-first normalized Gaussian reduction. SIMD qualification pending.
++use super::fast_neg_exp;
++
++/// Keep all weights relative to the largest accepted weight (smallest
++/// exponent). Rescaling both sums cancels the common Gaussian factor and
++/// avoids an absolute center floor or underflow of all neighbor weights.
++#[inline]
++pub(super) fn add(x: f32, sample: f32, acc: &mut f32, sum: &mut f32, minimum: &mut f32) {
++    if !x.is_finite() {
++        return;
++    }
++    if x < *minimum {
++        let scale = fast_neg_exp(*minimum - x);
++        *acc *= scale;
++        *sum *= scale;
++        *minimum = x;
++    }
++    let weight = fast_neg_exp(x - *minimum);
++    *acc += weight * sample;
++    *sum += weight;
++}
++
++#[inline]
++pub(super) fn finish(acc: f32, sum: f32, center: f32) -> f32 {
++    if sum > 0.0 {
++        (acc + center) / (sum + 1.0)
++    } else {
++        center
++    }
++}
++
++pub(super) fn accumulate(
++    sums: &[f32],
++    shifted: &[f32],
++    acc: &mut [f32],
++    weights: &mut [f32],
++    minima: &mut [f32],
++    inv_norm: f32,
++) {
++    for i in 0..sums.len() {
++        add(
++            sums[i].max(0.0) * inv_norm,
++            shifted[i],
++            &mut acc[i],
++            &mut weights[i],
++            &mut minima[i],
++        );
++    }
++}
++
++pub(super) fn accumulate_dynamic(
++    sums: &[f32],
++    shifted: &[f32],
++    acc: &mut [f32],
++    weights: &mut [f32],
++    minima: &mut [f32],
++    dynamic: (&[f32], &[isize], isize),
++) {
++    let (norms, search, distance) = dynamic;
++    for i in 0..sums.len() {
++        if search[i] >= distance {
++            add(
++                sums[i].max(0.0) * norms[i],
++                shifted[i],
++                &mut acc[i],
++                &mut weights[i],
++                &mut minima[i],
++            );
++        }
++    }
++}

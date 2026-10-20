@@ -188,22 +188,20 @@ fn fit_auto_profile_rejects_null_args() {
     assert_eq!(rc, -1, "null lut_size must return -1");
 }
 
-/// FIXTURE-GATED real-RAW round-trip: `maple_gpu_fit_auto_profile` on a real RAW
-/// surfaces a curve + residual whose two-pass application matches the cube the
-/// default `maple_compute_auto_profile_lut` bakes (within the grid-interp
-/// tolerance). Skips cleanly when the gitignored RAW is absent (CI without
-/// fixtures), mirroring `render_tests.rs`'s fixture gate.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn fixture_fit_matches_cube_when_present() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        return; // skip-pass: no fixture (CI without RAWs)
-    }
-    // An XMP forcing Profile::Auto is required for a non-`1` fit. The fixtures dir
-    // may not ship a matching sidecar; without one the model defaults to Neutral
-    // and the fit returns `1` (no tail). Treat a `1` here as a soft skip — this
-    // test's value is the parity when a tail EXISTS, not forcing one.
+    let path = std::env::var_os("MAPLE_RENDER_FIT_TEST_RAW")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../test-fixtures/raws/test_0002.dng")
+        });
+    assert!(
+        path.is_file(),
+        "required RAW fixture missing: {}",
+        path.display()
+    );
     let cpath = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
 
     let mut curve = [0f32; PROFILE_CURVE_FLAT_LEN];
@@ -224,11 +222,7 @@ fn fixture_fit_matches_cube_when_present() {
             &mut size,
         )
     };
-    if rc == 1 {
-        eprintln!("A2 FIXTURE: no Auto tail for test_0002.dng (Neutral default) — soft skip");
-        return;
-    }
-    assert_eq!(rc, 0, "fit returned {rc} (expected 0 or the soft-skip 1)");
+    assert_eq!(rc, 0, "the fixture must produce an Auto tail");
     assert!(
         present == 1 || size > 0,
         "a successful fit must surface a curve or a residual"
@@ -253,11 +247,9 @@ fn fixture_fit_matches_cube_when_present() {
     };
 
     // Reconstruct the two-pass artifacts and compare on the probe set.
-    let parsed_curve = if present == 1 {
-        ProfileCurve::from_flat(&curve).expect("surfaced curve must parse")
-    } else {
-        ProfileCurve::identity()
-    };
+    assert_eq!(present, 0, "Auto 2 has no separate curve pass");
+    let parsed_curve =
+        (present == 1).then(|| ProfileCurve::from_flat(&curve).expect("surfaced curve must parse"));
     let residual = if size > 0 {
         let nn = size as usize;
         ColorLut {
@@ -271,7 +263,9 @@ fn fixture_fit_matches_cube_when_present() {
     let mut max_delta = 0.0f32;
     for p in probe_values() {
         let mut rgb = p.to_vec();
-        raw_core::view::auto_profile::apply_curve(&mut rgb, &parsed_curve);
+        if let Some(curve) = &parsed_curve {
+            raw_core::view::auto_profile::apply_curve(&mut rgb, curve);
+        }
         let two_pass = if size > 0 {
             residual.sample([rgb[0], rgb[1], rgb[2]])
         } else {
@@ -283,7 +277,7 @@ fn fixture_fit_matches_cube_when_present() {
         }
     }
     eprintln!(
-        "A2 FIXTURE [test_0002, curve_present={present}, lut_size={size}]: \
+        "A2 FIXTURE [curve_present={present}, lut_size={size}]: \
          max |two-pass − cube| = {max_delta:e} (< {DECOMPOSE_TOL:e})"
     );
     assert!(
@@ -309,15 +303,26 @@ fn fixture_fit_matches_cube_when_present() {
 /// decode runs BEFORE the Auto/Neutral tail decision, so an `rc` of 0 (tail)
 /// or 1 (no tail) both mean the decode executed.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn fixture_gpu_fit_routes_decode_through_shared_cache() {
-    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0017.dng");
-    if !fixture.exists() {
-        return; // skip-pass: no fixture (CI without RAWs)
-    }
+    let fixture = std::env::var_os("MAPLE_RENDER_FIT_TEST_RAW")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../test-fixtures/raws/test_0017.dng")
+        });
+    assert!(
+        fixture.is_file(),
+        "required RAW fixture missing: {}",
+        fixture.display()
+    );
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("test_0017_1662.dng");
-    std::fs::copy(&fixture, &path).expect("copy fixture into tempdir");
+    std::io::copy(
+        &mut std::fs::File::open(&fixture).expect("open fixture"),
+        &mut std::fs::File::create(&path).expect("create writable temporary copy"),
+    )
+    .expect("copy fixture into tempdir");
 
     let cpath = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
     let mut curve = [0f32; PROFILE_CURVE_FLAT_LEN];
@@ -395,7 +400,12 @@ fn cached_fit_skips_file_read_and_decode_and_respects_quality() {
     let cpath = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
 
     // Pre-insert BOTH artifacts under the file's Full-quality key.
-    let cached_curve = non_identity_curve();
+    let legacy = raw_core::view::auto_profile::apply_pipeline::auto1_enabled_by_env();
+    let cached_curve = if legacy {
+        non_identity_curve()
+    } else {
+        ProfileCurve::identity()
+    };
     let cached_residual = non_identity_residual(5);
     let key = auto_cache::CacheKey::from_path(&path, RenderQuality::Full)
         .expect("temp file is stattable");
@@ -425,12 +435,13 @@ fn cached_fit_skips_file_read_and_decode_and_respects_quality() {
         rc, 0,
         "a fully-cached fit must succeed without touching the (undecodable) file"
     );
-    assert_eq!(present, 1, "the cached curve must be surfaced");
-    assert_eq!(
-        &curve[..],
-        &cached_curve.to_flat()[..],
-        "surfaced curve must be byte-identical to the cached artifact"
-    );
+    if legacy {
+        assert_eq!(present, 1, "the Auto 1 curve must be surfaced");
+        assert_eq!(&curve[..], &cached_curve.to_flat()[..]);
+    } else {
+        assert_eq!(present, 0, "the Auto 2 cache marker is not an active curve");
+        assert_eq!(curve, [0.; PROFILE_CURVE_FLAT_LEN]);
+    }
     assert_eq!(size, 5, "the cached residual edge must be surfaced");
     assert_eq!(
         &lut[..],
