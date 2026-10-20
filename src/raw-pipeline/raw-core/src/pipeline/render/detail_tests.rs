@@ -237,7 +237,7 @@ fn detail_keeps_the_exact_auto_pair_and_film_of_the_base() {
     // Auto 2's cached curve is a marker that render contexts omit (#5000).
     assert_eq!(
         context.profile_curve,
-        crate::view::auto_profile::apply_pipeline::render_curve(Some(curve))
+        crate::view::auto_profile::apply_pipeline::auto1_enabled_by_env().then_some(curve)
     );
     assert_eq!(context.profile_lut, Some(lut));
     assert_eq!(context.ae_gain, 1.0, "Auto fitted base must pin AE off");
