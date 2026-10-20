@@ -109,5 +109,58 @@ namespace Maple.WinUI.Tests
             Assert.Equal(FileOperationErrorKind.SameFile, ex.Kind);
             Assert.True(File.Exists(path));
         }
+
+        [Fact]
+        public async Task Relocate_ReplaceThroughLinkedAncestor_ThrowsSameFileAndKeepsFile()
+        {
+            var realRoot = Path.Combine(_dir, "root");
+            var realSub = Path.Combine(realRoot, "sub");
+            Directory.CreateDirectory(realSub);
+            var alias = Path.Combine(_dir, "alias");
+            Directory.CreateSymbolicLink(alias, realRoot);
+            var path = Path.Combine(realSub, "img.cr3");
+            File.WriteAllText(path, "only copy");
+
+            Assert.Equal(
+                SameFileClassification.Identical,
+                LocalFileOperations.ClassifySameFile(path, Path.Combine(alias, "sub", "img.cr3")));
+
+            var ex = await Assert.ThrowsAsync<FileOperationException>(() =>
+                LocalFileOperations.RelocateAsync(
+                    path, Path.Combine(alias, "sub"), "img.cr3", RelocateMode.Move, CollisionPolicy.Replace));
+
+            Assert.Equal(FileOperationErrorKind.SameFile, ex.Kind);
+            Assert.Equal("only copy", File.ReadAllText(path));
+        }
+
+        [Fact]
+        public void ClassifySameFile_LinkedAncestorWithCaseOnlyName_IsCaseOnlyRename()
+        {
+            var realRoot = Path.Combine(_dir, "root");
+            Directory.CreateDirectory(Path.Combine(realRoot, "sub"));
+            var alias = Path.Combine(_dir, "alias");
+            Directory.CreateSymbolicLink(alias, realRoot);
+
+            Assert.Equal(
+                SameFileClassification.CaseOnlyRename,
+                LocalFileOperations.ClassifySameFile(
+                    Path.Combine(realRoot, "sub", "img.cr3"), Path.Combine(alias, "sub", "IMG.CR3")));
+        }
+
+        [Fact]
+        public void ClassifySameFile_SiblingUnderOtherLinkTarget_IsDifferent()
+        {
+            var a = Path.Combine(_dir, "a");
+            var b = Path.Combine(_dir, "b");
+            Directory.CreateDirectory(Path.Combine(a, "sub"));
+            Directory.CreateDirectory(Path.Combine(b, "sub"));
+            var alias = Path.Combine(_dir, "alias");
+            Directory.CreateSymbolicLink(alias, b);
+
+            Assert.Equal(
+                SameFileClassification.Different,
+                LocalFileOperations.ClassifySameFile(
+                    Path.Combine(a, "sub", "img.cr3"), Path.Combine(alias, "sub", "img.cr3")));
+        }
     }
 }
