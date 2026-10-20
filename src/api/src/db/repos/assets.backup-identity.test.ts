@@ -387,3 +387,22 @@ test('a takeover or deleted journal fences both trash and restore commits before
   expect(f.live.db.query('SELECT * FROM assets').all()).toEqual(assets);
   expect(f.live.db.query('SELECT * FROM asset_locations').all()).toEqual(locations);
 });
+
+test('a merge sends the survivor back through the canonical-backup-sidecars migration (#5021)', async () => {
+  const f = await fixture();
+  using _database = f.live;
+  const survivor = insertAsset(f.live.db);
+  const condemned = insertAsset(f.live.db);
+  insertLocation(f.live.db, { assetId: survivor, libraryId: f.libraryId });
+  insertLocation(f.live.db, { assetId: condemned, libraryId: f.libraryId });
+  f.live.db.query('INSERT INTO backup_sidecar_names_migrated (asset_id) VALUES (?)').run(survivor);
+
+  await mergeIntoSurvivor({
+    survivorId: survivor,
+    condemnedId: condemned,
+    mapleId: 'merged-photo',
+    dbOverride: f.live.handle,
+  });
+
+  expect(f.live.db.query('SELECT asset_id FROM backup_sidecar_names_migrated').all()).toEqual([]);
+});
