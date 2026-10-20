@@ -35,17 +35,19 @@
  *   413 — body exceeds 256 KB
  */
 import { backupId, backupLibrary, backupLibraryId, isSafeRelPath } from './backup-id.ts';
-import { atomicMove } from '../backup/fs-util.ts';
 import { Elysia, t } from 'elysia';
 import type { ObjectId } from '../db/object-id.ts';
 import { findLiveAssetIdByMapleId, findLiveAssetIdByPhassetLink } from '../db/repos/assets.repo.ts';
 import { child as childLogger } from '../log.ts';
-// Mirror-aware drop-in: the sidecar publish (atomicMove → rename/copyFile)
+// Mirror-aware drop-in: directory creation for the sidecar publish
 // replicates to the library's backup root(s).
 import fs from '../fs/mirrored.ts';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
-import { parseSidecarBase, publishSidecarCas } from '../backup/sidecar-cas.ts';
+import {
+  parseSidecarBase,
+  publishSidecarCas,
+  publishSidecarIfAbsent,
+} from '../backup/sidecar-cas.ts';
 import { recordSidecarDivergence } from '../db/repos/sidecar-divergences.repo.ts';
 import { isLiveLocationOfAsset } from '../db/repos/backup.repo.ts';
 
@@ -60,6 +62,31 @@ function readSidecarBody(body: unknown): { buf: Buffer } | { status: number; err
     return { status: 413, error: 'sidecar body exceeds 256 KB limit' };
   }
   return { buf };
+}
+
+/** The no-base rule: write only when no sidecar exists. Create-only and on
+ * the shared write barrier, so it never lands over a compare-and-swap edit. */
+async function publishLegacySidecar(
+  finalPath: string,
+  sidecarRelPath: string,
+  buf: Buffer,
+  libraryRoot: string,
+  phid: string,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  await fs.mkdir(path.dirname(finalPath), { recursive: true });
+  const outcome = await publishSidecarIfAbsent(finalPath, buf.toString('utf8'), libraryRoot);
+  if (outcome === 'written' || outcome === 'skipped') {
+    log.debug({ phid, sidecarRelPath, outcome }, 'sidecar legacy publish');
+    return {
+      status: 200,
+      body:
+        outcome === 'written'
+          ? { target_rel_path: sidecarRelPath }
+          : { target_rel_path: sidecarRelPath, skipped: true },
+    };
+  }
+  log.error({ phid, sidecarRelPath, outcome }, 'sidecar legacy publish failed');
+  return { status: 500, body: { error: 'sidecar write failed' } };
 }
 
 interface BackupSidecarCasRequest {
@@ -227,29 +254,11 @@ export const backupSidecarRoutes = new Elysia().post(
     }
 
     // SKIP-IF-EXISTS: a dedup re-upload from a second device must not clobber
-    // the first device's (possibly already-edited) sidecar. If `<path>.xmp`
-    // already exists on disk, treat the write as a no-op (#698). Clients that
+    // the first device's (possibly already-edited) sidecar (#698). Clients that
     // name a base take the compare-and-swap path above instead.
-    try {
-      await fs.access(finalPath);
-      log.debug({ phid, sidecarRelPath }, 'sidecar already exists — skipping write');
-      set.status = 200;
-      return { target_rel_path: sidecarRelPath, skipped: true };
-    } catch {
-      // Not present (ENOENT) — proceed to write.
-    }
-
-    await fs.mkdir(path.dirname(finalPath), { recursive: true });
-
-    // Atomic write: sibling temp file next to final destination, then rename.
-    // The `.tmp.` marker prevents mirroring churn (see fs/mirrored.ts).
-    const tmpFile = `${finalPath}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
-    await fs.writeFile(tmpFile, buf);
-    await atomicMove(tmpFile, finalPath);
-
-    log.debug({ phid, sidecarRelPath }, 'sidecar written');
-    set.status = 200;
-    return { target_rel_path: sidecarRelPath };
+    const result = await publishLegacySidecar(finalPath, sidecarRelPath, buf, folder.path, phid);
+    set.status = result.status;
+    return result.body;
   },
   {
     params: t.Object({ libraryId: t.String() }),
