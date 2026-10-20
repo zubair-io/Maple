@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import * as nodeFs from 'node:fs/promises';
 import { join } from 'node:path';
+import { setImmediate as nextTurn } from 'node:timers/promises';
 import {
   checkAllowed,
   getRegisteredRoots,
@@ -239,6 +240,85 @@ test('a canonical mirror match is independent of unrelated stalled roots', async
 }, 10_000);
 
 for (const kind of ['mirror', 'primary'] as const) {
+  test.each(['stable', 'retargeted'] as const)(
+    `${kind} waiters share successor probes for a %s alias`,
+    async (mode) => {
+      using _live = await createLiveTestDatabase();
+      const fixture = await realpath(await mkdtemp(join(tmpdir(), 'maple-root-waiters-')));
+      temporaryRoots.push(fixture);
+      const former = join(fixture, 'former');
+      const current = join(fixture, 'current');
+      const primary = join(fixture, 'primary');
+      const alias = join(fixture, 'alias');
+      await Promise.all([mkdir(former), mkdir(current), mkdir(primary)]);
+      await Promise.all(
+        [former, current].map((root) => writeFile(join(root, 'photo.xmp'), '<xmpmeta/>')),
+      );
+      await symlink(former, alias);
+      delete process.env.MAPLE_ROOTS;
+      setMirrorRoots(kind === 'primary' ? { [alias]: [primary] } : { [primary]: [alias] });
+      const captured = Array.from({ length: 3 }, () => Promise.withResolvers<void>());
+      const held = Array.from({ length: 3 }, () => Promise.withResolvers<void>());
+      const actualRealpath = nodeFs.realpath.bind(nodeFs);
+      const calls: string[] = [];
+      const probe = spyOn(nodeFs, 'realpath').mockImplementation((async (
+        requested: Parameters<typeof nodeFs.realpath>[0],
+      ) => {
+        if (
+          requested === primary ||
+          requested === join(former, 'photo.xmp') ||
+          requested === join(current, 'photo.xmp')
+        )
+          return requested;
+        if (requested !== alias) return actualRealpath(requested);
+        const index = calls.push(alias) - 1;
+        const target = await actualRealpath(requested);
+        captured[index]?.resolve();
+        await held[index]?.promise;
+        return target;
+      }) as typeof nodeFs.realpath);
+      const requests: Promise<unknown>[] = [];
+      try {
+        const original = checkAllowed(join(former, 'photo.xmp'));
+        requests.push(original);
+        await captured[0].promise;
+        if (mode === 'retargeted') {
+          await rm(alias);
+          await symlink(current, alias);
+        }
+        const waiters = Promise.all(
+          Array.from({ length: 5 }, () => checkAllowed(join(former, 'photo.xmp'))),
+        );
+        requests.push(waiters);
+        await nextTurn();
+        expect(calls.length).toBe(1);
+        held[0].resolve();
+        await captured[1].promise;
+        const target = mode === 'retargeted' ? current : former;
+        const later = Promise.all(
+          Array.from({ length: 5 }, () => checkAllowed(join(target, 'photo.xmp'))),
+        );
+        requests.push(later);
+        await nextTurn();
+        expect(calls.length).toBe(2);
+        held[1].resolve();
+        await captured[2].promise;
+        const results = await waiters;
+        expect(results?.map((result) => result.ok)).toEqual(
+          Array.from({ length: 5 }, () => mode === 'stable'),
+        );
+        held[2].resolve();
+        expect((await later).every((result) => result.ok)).toBe(true);
+        expect(calls.length).toBe(3);
+        await original;
+      } finally {
+        held.forEach((gate) => gate.resolve());
+        await Promise.allSettled(requests);
+        probe.mockRestore();
+      }
+    },
+  );
+
   for (const nested of [false, true]) {
     test(`${kind} probes revalidate a retargeted ${nested ? 'ancestor' : 'root'} alias`, async () => {
       using live = await createLiveTestDatabase('file');

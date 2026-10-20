@@ -104,6 +104,8 @@
         "src/fs/root.primary.test.ts",
         // #4981: mirror jail regressions stage symlinks and XMP only in owned temporary directories.
         "src/fs/root.mirror.test.ts",
+        // #4981: successor probes use disposable temporary root fixtures.
+        "src/fs/root.successor.test.ts",
         "src/job-runner/batch-scope.integration.test.ts",
         "src/fs/browse.registered-roots.test.ts",
         "src/fs/root-connectivity.ts",
