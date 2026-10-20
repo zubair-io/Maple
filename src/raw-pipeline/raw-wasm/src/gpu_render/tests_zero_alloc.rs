@@ -199,7 +199,9 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
             develop_prefix_rgba(&raw, &bytes, "dng", &model, 64).unwrap();
         let gpu = ctx.map(|ctx| (ctx, raw_gpu::LiveSession::new(ctx, &rgba, w, h).unwrap()));
         let mut cached = LiveProfile::new(&raw, &bytes, "dng", &model, None, 0, anchor);
-        assert_eq!(cached.auto_fit, Some(state > 0));
+        // A curve-only entry is Auto 2's cache marker: nothing is applied, so
+        // the achieved outcome is unfitted (#5000).
+        assert_eq!(cached.auto_fit, Some(state == 2));
         let curve = cached.inputs.profile_curve_flat.as_ptr();
         let lut = cached.inputs.residual_lut_data.as_ptr();
         model.exposure = 0.5;
@@ -314,7 +316,7 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
             let rebuilt = LiveProfile::new(&raw, &bytes, "dng", &changed, None, 0, anchor);
             assert_eq!(
                 rebuilt.auto_fit,
-                (changed.profile == Profile::Auto).then_some(state > 0)
+                (changed.profile == Profile::Auto).then_some(state == 2)
             );
         }
     }
