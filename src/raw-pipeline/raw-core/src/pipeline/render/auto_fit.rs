@@ -449,11 +449,10 @@ pub(super) fn run_auto_profile_stage(
 ) -> (Option<ProfileCurve>, Option<ColorLut>) {
     scene.assert_space(ColorSpace::DisplayEncodedSrgb);
     let (w, h) = (scene.width as usize, scene.height as usize);
+    let pinned_pixels = uses_pinned_fit_pixels(active_model, fit_develop_model(model), film_lut);
     // A P3-encoded buffer carries the same space tag, so only the target says
     // whether these pixels are the sRGB fit domain (#4741).
-    if target == encode::TargetPrimaries::Srgb
-        && uses_pinned_fit_pixels(active_model, fit_develop_model(model), film_lut)
-    {
+    if pinned_pixels && target == encode::TargetPrimaries::Srgb {
         let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
         let artifacts = auto_profile::apply_pipeline::fit_auto_profile_artifacts(
             pixels,
@@ -481,7 +480,8 @@ pub(super) fn run_auto_profile_stage(
         cached_lut,
     );
     let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-    if let Some(c) = &curve {
+    let curve_applied = !pinned_pixels || auto_profile::apply_pipeline::auto1_enabled_by_env();
+    if let Some(c) = curve.as_ref().filter(|_| curve_applied) {
         auto_profile::apply_curve(pixels, c);
     }
     if let Some(l) = &residual {
