@@ -110,7 +110,7 @@ async function keepAsideAndRemove(edit: LegacyEdit): Promise<void> {
         displacedXmp: xmp,
       });
     }
-    await removeLegacyIfUnchanged(edit.legacy, edit.bytes);
+    await removeLegacyIfUnchanged(edit.primary, edit.legacy, edit.bytes);
   });
 }
 
@@ -180,7 +180,7 @@ async function canonicalizeLocation(
     if (await supersededByASend(assetId, location, primary, legacyBytes)) {
       // A device send landed and kept this edit aside, but couldn't remove the file.
       await serializeSidecarWrite(xmpSidecarPath(primary), () =>
-        removeLegacyIfUnchanged(legacy, legacyBytes),
+        removeLegacyIfUnchanged(primary, legacy, legacyBytes),
       );
       return 'done';
     }
