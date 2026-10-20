@@ -17,8 +17,32 @@ test('a removal that loses the race to the other process is not an error', async
     throw Object.assign(new Error('gone'), { code: 'ENOENT' });
   });
   try {
-    await expect(removeLegacyIfUnchanged(legacy, Buffer.from('old edit'))).resolves.toBeUndefined();
+    await expect(
+      removeLegacyIfUnchanged(path.join(library.root, 'IMG.HEIC'), legacy, Buffer.from('old edit')),
+    ).resolves.toBeUndefined();
   } finally {
     unlink.mockRestore();
   }
+});
+
+test('a file another photo started claiming since it was read is not removed', async () => {
+  using library = await createTempLibrary('maple-legacy-claimed-');
+  const legacy = path.join(library.root, 'IMG.HEIC.xmp');
+  await fs.writeFile(legacy, 'old edit');
+  await fs.writeFile(path.join(library.root, 'IMG.HEIC.JPG'), 'converted');
+
+  await removeLegacyIfUnchanged(
+    path.join(library.root, 'IMG.HEIC'),
+    legacy,
+    Buffer.from('old edit'),
+  );
+
+  expect(await fs.readFile(legacy, 'utf8')).toBe('old edit');
+  await fs.unlink(path.join(library.root, 'IMG.HEIC.JPG'));
+  await removeLegacyIfUnchanged(
+    path.join(library.root, 'IMG.HEIC'),
+    legacy,
+    Buffer.from('old edit'),
+  );
+  await expect(fs.access(legacy)).rejects.toThrow();
 });
