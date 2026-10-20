@@ -423,3 +423,17 @@ describe('a send only succeeds once the server has recorded the edit (#5021)', (
     ).toEqual([{ kind: 'update' }, { kind: 'update' }]);
   });
 });
+
+describe('a no-base send over something that is not a regular sidecar (#5021)', () => {
+  test('a link at the sidecar name is skipped, as before, rather than failing every retry', async () => {
+    const photo = await seedUpload('2024/12/02/IMG_81.HEIC');
+    const dir = path.join(tmpLib, '2024/12/02');
+    await fs.writeFile(path.join(dir, 'elsewhere.xmp'), mapleXmp('linked'));
+    await fs.symlink(path.join(dir, 'elsewhere.xmp'), path.join(dir, 'IMG_81.xmp'));
+
+    const res = await post(photo, mapleXmp('device edit'), undefined);
+
+    expect(res.status).not.toBe(500);
+    expect(await fs.readFile(path.join(dir, 'elsewhere.xmp'), 'utf8')).toBe(mapleXmp('linked'));
+  });
+});
