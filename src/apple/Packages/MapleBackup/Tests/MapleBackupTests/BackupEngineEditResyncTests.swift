@@ -34,8 +34,11 @@ private actor GatedSidecarServer {
       if !released { await withCheckedContinuation { gate = $0 } }
     }
     inFlight -= 1
+    let target = request.value(forHTTPHeaderField: "X-Maple-Target-Rel-Path") ?? ""
+    let reply = #"{"target_rel_path":"\#(BackupSidecarName.canonical(for: target))"}"#
     return (
-      Data(), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+      Data(reply.utf8),
+      HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
     )
   }
 }

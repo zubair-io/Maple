@@ -190,9 +190,11 @@ public actor UploadClient {
     if reply?.skipped == true {
       throw UploadError.sidecarNotStored
     }
+    guard let stored = reply?.targetRelPath else {
+      throw UploadError.badResponse(reason: "sidecar reply did not say where it was stored")
+    }
     // A server from before #5021 reports the old `IMG.HEIC.xmp`, which it never reads.
-    return reply?.targetRelPath.map { $0 == BackupSidecarName.canonical(for: targetRelPath) }
-      ?? true
+    return stored == BackupSidecarName.canonical(for: targetRelPath)
   }
 
   private struct SidecarReply: Decodable {
