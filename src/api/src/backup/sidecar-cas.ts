@@ -139,6 +139,20 @@ async function publishAt(
   return publishOver(target, current, xmp, base, recordDisplaced, shared);
 }
 
+/** Re-authorized after the barrier wait: the folder may now be an outward symlink. */
+async function authorizedTarget(
+  destination: string,
+  resolved: string,
+): Promise<string | SidecarCasOutcome> {
+  const allowed = await authorizeSidecarWrite(destination);
+  if (!allowed.ok) return { kind: 'refused', error: allowed.error ?? 'path not allowed' };
+  const target = allowed.data ?? destination;
+  // A path re-routed while queued wasn't the one these barrier keys cover.
+  return path.resolve(target) === path.resolve(resolved)
+    ? target
+    : { kind: 'error', error: 'sidecar path changed while waiting; retry' };
+}
+
 export interface SidecarCasOptions {
   /** A same-stem sibling shares the sidecar (#4692). */
   shared?: boolean;
@@ -168,14 +182,8 @@ export async function publishSidecarCas(
   return serializeSidecarWrite<SidecarCasOutcome>(
     destination,
     async (resolved) => {
-      // Re-authorized after the barrier wait: the folder may now be an outward symlink.
-      const allowed = await authorizeSidecarWrite(destination);
-      if (!allowed.ok) return { kind: 'refused', error: allowed.error ?? 'path not allowed' };
-      const target = allowed.data ?? destination;
-      // A path re-routed while queued wasn't the one these barrier keys cover.
-      if (path.resolve(target) !== path.resolve(resolved)) {
-        return { kind: 'error', error: 'sidecar path changed while waiting; retry' };
-      }
+      const target = await authorizedTarget(destination, resolved);
+      if (typeof target !== 'string') return target;
       if (options.precondition && !(await options.precondition())) return { kind: 'abandoned' };
       const outcome = await publishAt(target, xmp, base, recordDisplaced, options.shared ?? false);
       if (LANDED.has(outcome.kind)) await options.afterLanded?.();
