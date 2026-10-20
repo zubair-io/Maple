@@ -25,23 +25,29 @@ fn preserves(before: f64, after: f64, count: usize) -> bool {
 }
 
 impl NativeBands {
-    pub(super) fn observe(&mut self, target: [f64; 3], inner: bool, outputs: [[f64; 3]; 2]) {
+    pub(super) fn observe(
+        &mut self,
+        target: [f64; 3],
+        inner: bool,
+        outputs: [[f64; 3]; 2],
+        population: usize,
+    ) {
         let band = band(target);
-        self.counts[band] += 1;
-        self.inner_counts[band] += usize::from(inner);
+        self.counts[band] += population;
+        self.inner_counts[band] += if inner { population } else { 0 };
         for (i, output) in outputs.into_iter().enumerate() {
             for c in 0..3 {
                 let error = output[c] - target[c];
                 accumulate(
                     &mut self.absolute[i][band][c],
                     &mut self.absolute_correction[i][band][c],
-                    error.abs(),
+                    population as f64 * error.abs(),
                 );
                 if inner {
                     accumulate(
                         &mut self.inner_signed[i][band][c],
                         &mut self.signed_correction[i][band][c],
-                        error,
+                        population as f64 * error,
                     );
                 }
             }
@@ -70,15 +76,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn population_weighted_band_cannot_hide_a_large_cell_regression() {
+        let mut weighted = NativeBands::default();
+        weighted.observe([0.625; 3], true, [[0.685; 3], [0.665; 3]], 19);
+        weighted.observe([0.625; 3], true, [[0.625; 3], [0.665; 3]], 1);
+        assert!(!weighted.preserved());
+        let mut expanded = NativeBands::default();
+        for _ in 0..19 {
+            expanded.observe([0.625; 3], true, [[0.685; 3], [0.665; 3]], 1);
+        }
+        expanded.observe([0.625; 3], true, [[0.625; 3], [0.665; 3]], 1);
+        assert_eq!(weighted.preserved(), expanded.preserved());
+        let mut equal_samples = NativeBands::default();
+        equal_samples.observe([0.625; 3], true, [[0.685; 3], [0.665; 3]], 1);
+        equal_samples.observe([0.625; 3], true, [[0.625; 3], [0.665; 3]], 1);
+        assert!(equal_samples.preserved());
+    }
+
+    #[test]
     fn accumulation_does_not_invent_a_threshold_crossing() {
         let mut bands = NativeBands::default();
         for _ in 0..10_000 {
-            bands.observe([0.175; 3], true, [[0.125; 3], [0.175; 3]]);
+            bands.observe([0.175; 3], true, [[0.125; 3], [0.175; 3]], 1);
         }
         assert!(bands.preserved());
         let mut failed = NativeBands::default();
         for _ in 0..10_000 {
-            failed.observe([0.175; 3], true, [[0.1249; 3], [0.175; 3]]);
+            failed.observe([0.175; 3], true, [[0.1249; 3], [0.175; 3]], 1);
         }
         assert!(!failed.preserved());
     }
@@ -99,7 +123,7 @@ mod tests {
                 } else {
                     0.
                 };
-            bands.observe([target; 3], false, [[after; 3], [before; 3]]);
+            bands.observe([target; 3], false, [[after; 3], [before; 3]], 1);
         }
         assert!(!bands.preserved());
         assert!(
@@ -112,15 +136,15 @@ mod tests {
     fn inner_signed_band_bias_is_protected_even_when_full_frame_absolute_error_improves() {
         let mut bands = NativeBands::default();
         for _ in 0..100 {
-            bands.observe([0.625; 3], true, [[0.535; 3], [0.585; 3]]);
-            bands.observe([0.625; 3], false, [[0.625; 3], [0.825; 3]]);
+            bands.observe([0.625; 3], true, [[0.535; 3], [0.585; 3]], 1);
+            bands.observe([0.625; 3], false, [[0.625; 3], [0.825; 3]], 1);
         }
         assert!(bands.absolute[0][3][0] < bands.absolute[1][3][0]);
         assert!(!bands.preserved());
         let mut outside_only = NativeBands::default();
         for _ in 0..100 {
-            outside_only.observe([0.625; 3], false, [[0.535; 3], [0.585; 3]]);
-            outside_only.observe([0.625; 3], true, [[0.625; 3], [0.825; 3]]);
+            outside_only.observe([0.625; 3], false, [[0.535; 3], [0.585; 3]], 1);
+            outside_only.observe([0.625; 3], true, [[0.625; 3], [0.825; 3]], 1);
         }
         assert!(outside_only.preserved());
     }
@@ -128,7 +152,7 @@ mod tests {
     #[test]
     fn existing_failed_band_does_not_discard_a_useful_correction() {
         let mut bands = NativeBands::default();
-        bands.observe([0.625; 3], true, [[0.725; 3], [0.685; 3]]);
+        bands.observe([0.625; 3], true, [[0.725; 3], [0.685; 3]], 1);
         assert!(bands.preserved());
         assert!(NativeBands::default().preserved());
         assert_eq!(band([1.; 3]), 4);

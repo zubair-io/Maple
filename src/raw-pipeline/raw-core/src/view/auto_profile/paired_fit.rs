@@ -14,6 +14,8 @@ mod projection;
 use projection::constrain_to_prior;
 #[path = "paired_bands.rs"]
 mod bands;
+#[path = "paired_population.rs"]
+mod population;
 
 pub(super) const GRID: usize = 9;
 pub(super) const CELLS: usize = GRID * GRID * GRID;
@@ -101,28 +103,36 @@ fn solve_observations(
     if count < 128 || prior.size < 2 {
         return None;
     }
+    let population: f64 = observations
+        .iter()
+        .filter(|r| !r.validation)
+        .map(|r| r.population as f64)
+        .sum();
+    if population <= 0. {
+        return None;
+    }
     let mut a = vec![0.; CELLS * CELLS];
     let mut b = vec![[0.; 3]; CELLS];
     let mut confidence = vec![0.; prior.size.pow(3)];
     for row in observations.iter().filter(|row| !row.validation) {
         for &(j, w) in &row.artifact_weights {
-            confidence[j] += w * w;
+            confidence[j] += row.population as f64 * w * w;
         }
         for &(j, u) in &row.weights {
             for &(k, v) in &row.weights {
-                a[j * CELLS + k] += u * v;
+                a[j * CELLS + k] += row.population as f64 * u * v;
             }
             for c in 0..3 {
-                b[j][c] += u * (row.target[c] - row.baseline[c]);
+                b[j][c] += row.population as f64 * u * (row.target[c] - row.baseline[c]);
             }
         }
     }
     for v in &mut a {
-        *v /= count as f64;
+        *v /= population;
     }
     for row in &mut b {
         for v in row {
-            *v /= count as f64;
+            *v /= population;
         }
     }
     for i in 0..CELLS {
@@ -163,7 +173,7 @@ fn solve_observations(
         }
     }
     for weight in &mut confidence {
-        *weight = *weight / count as f64 + 1e-8;
+        *weight = *weight / population + 1e-8;
     }
     constrain_to_prior(&mut result.data, prior, &confidence);
     Some((result, coarse))
@@ -214,12 +224,18 @@ fn assess_against(
     let mut rgb_tails = [Vec::new(), Vec::new()];
     let mut regional_rgb = [[[0.; 3]; 64]; 2];
     let mut counts = [0usize; 64];
+    let mut populations = [0usize; 64];
     let mut validation_count = 0;
     let mut native_bands = bands::NativeBands::default();
     for row in observations {
         let prediction = predict(candidate, row);
         let baseline = reference.map_or(row.baseline, |lut| predict(lut, row));
-        native_bands.observe(row.target, row.in_bias_region, [prediction, baseline]);
+        native_bands.observe(
+            row.target,
+            row.in_bias_region,
+            [prediction, baseline],
+            row.population,
+        );
         if !row.validation {
             continue;
         }
@@ -227,8 +243,8 @@ fn assess_against(
         for (i, output) in [prediction, baseline].into_iter().enumerate() {
             for c in 0..3 {
                 let error = output[c] - row.target[c];
-                squared[i][c] += error * error;
-                absolute[i][c] += error.abs();
+                squared[i][c] += row.population as f64 * error * error;
+                absolute[i][c] += row.population as f64 * error.abs();
             }
         }
     }
@@ -240,19 +256,20 @@ fn assess_against(
     }
     for row in display {
         counts[row.region] += 1;
+        populations[row.region] += row.population;
         let prediction = predict(candidate, row);
         let baseline = reference.map_or(row.baseline, |lut| predict(lut, row));
         let target = lab(row.target.map(|v| v as f32));
         for (i, output) in [prediction, baseline].into_iter().enumerate() {
             let error: [f64; 3] = std::array::from_fn(|c| (output[c] - row.target[c]).abs());
             for c in 0..3 {
-                regional_rgb[i][row.region][c] += error[c];
+                regional_rgb[i][row.region][c] += row.population as f64 * error[c];
             }
-            rgb_tails[i].push(error);
+            rgb_tails[i].push((error, row.population));
             let de = f64::from(ciede2000(lab(output.map(|v| v as f32)), target));
-            regional[i][row.region] += de;
-            perceptual[i] += de;
-            tails[i].push(de);
+            regional[i][row.region] += row.population as f64 * de;
+            perceptual[i] += row.population as f64 * de;
+            tails[i].push((de, row.population));
         }
     }
     if tails[0].len() < 32 {
@@ -261,28 +278,28 @@ fn assess_against(
             native_bands_preserved: true,
         };
     }
-    let index = (tails[0].len() * 95 / 100).min(tails[0].len() - 1);
     let p95: Vec<f64> = tails
         .iter_mut()
-        .map(|values| *values.select_nth_unstable_by(index, f64::total_cmp).1)
+        .map(|values| population::p95(values))
         .collect();
     let regions_improve = (0..64).all(|r| {
         counts[r] >= 32
-            && (regional[0][r] - regional[1][r]) / counts[r] as f64 <= REGIONAL_SELECTION_MARGIN_DE
+            && (regional[0][r] - regional[1][r]) / populations[r].max(1) as f64
+                <= REGIONAL_SELECTION_MARGIN_DE
     });
     // Do not introduce RGB failures while improving perceptual averages (#5000).
     let rgb_regions_preserved = (0..64).all(|r| {
         (0..3).all(|c| {
-            regional_rgb[1][r][c] / counts[r].max(1) as f64 > 0.05
-                || regional_rgb[0][r][c] / counts[r].max(1) as f64 <= 0.05
+            regional_rgb[1][r][c] / populations[r].max(1) as f64 > 0.05
+                || regional_rgb[0][r][c] / populations[r].max(1) as f64 <= 0.05
         })
     });
     let rgb_tails_preserved = (0..3).all(|c| {
         let p95: Vec<f64> = rgb_tails
             .iter()
             .map(|rows| {
-                let mut values: Vec<_> = rows.iter().map(|v| v[c]).collect();
-                *values.select_nth_unstable_by(index, f64::total_cmp).1
+                let mut values: Vec<_> = rows.iter().map(|(v, weight)| (v[c], *weight)).collect();
+                population::p95(&mut values)
             })
             .collect();
         p95[1] > 0.1 || p95[0] <= 0.1
@@ -296,7 +313,7 @@ fn assess_against(
         && (0..3).all(|c| squared[0][c] <= squared[1][c] && absolute[0][c] <= absolute[1][c]);
     #[cfg(feature = "stage-dump")]
     if let Some(dir) = crate::stage_dump::dump_dir() {
-        let regions:Vec<_>=(0..64).map(|r|serde_json::json!({"region":r,"count":counts[r],"candidate_mean":(counts[r]>0).then(||regional[0][r]/counts[r] as f64),"baseline_mean":(counts[r]>0).then(||regional[1][r]/counts[r] as f64)})).collect();
+        let regions:Vec<_>=(0..64).map(|r|serde_json::json!({"region":r,"count":counts[r],"represented_pixels":populations[r],"candidate_mean":(counts[r]>0).then(||regional[0][r]/populations[r].max(1) as f64),"baseline_mean":(counts[r]>0).then(||regional[1][r]/populations[r].max(1) as f64)})).collect();
         let report = serde_json::json!({"accepted":compatible && native_bands_preserved,"regions_improve":regions_improve,"native_bands_preserved":native_bands_preserved,"rgb_regions_preserved":rgb_regions_preserved,"rgb_tails_preserved":rgb_tails_preserved,"native_squared_rgb":squared,"native_absolute_rgb":absolute,"display_perceptual_sum":perceptual,"display_p95":p95,"native_validation_samples":validation_count,"display_samples":display.len(),"regions":regions});
         if let Ok(file) = std::fs::File::create(dir.join(if reference.is_some() {
             "auto_fit_selection_against_existing.json"
@@ -503,3 +520,7 @@ mod tests;
 #[cfg(test)]
 #[path = "paired_quality_tests.rs"]
 mod quality_tests;
+
+#[cfg(test)]
+#[path = "paired_population_tests.rs"]
+mod population_tests;
