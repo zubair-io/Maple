@@ -198,7 +198,7 @@ async function canonicalizeAsset(
   const mounted = await Promise.all(rooted.map(({ root }) => libraryRootAvailable(root)));
   if (mounted.includes(false)) return 'skipped-no-root';
   if ((await canonicalizeAll(doc.id, rooted)) === 'error') return 'error';
-  const live = doc.fileinfo.filter(isLiveFileInfo).length;
+  const live = doc.fileinfo.filter(isLiveFileInfo);
   return (await markCanonicalSidecarsChecked(doc.id, live)) ? 'processed' : 'retry-later';
 }
 
