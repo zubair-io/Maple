@@ -83,23 +83,26 @@ function resumableProgress(url: URL, init: RequestInit, response: Response): boo
 }
 export class DriveClient {
   constructor(
-    private token: () => Promise<string>,
+    private token: (signal?: AbortSignal) => Promise<string>,
     readonly transport: GoogleFetch = fetch,
-    private readonly onUnauthorized: () => void = () => {},
+    private readonly onUnauthorized: (rejected: string) => void = () => {},
   ) {}
   async request(url: string, init: RequestInit = {}, signal?: AbortSignal): Promise<Response> {
-    const response = await this.send(url, init, signal);
-    if (response.status !== 401) return response;
-    // A token Drive rejects is dropped and replaced once; every body this
-    // client sends is buffered, so the retry is safe (#5038).
-    this.onUnauthorized();
+    const first = await this.send(url, init, signal);
+    if (first.response.status !== 401) return first.response;
+    // Drop the rejected token and retry once; every body sent here is buffered (#5038).
+    this.onUnauthorized(first.token);
     const retried = await this.send(url, init, signal);
-    if (retried.status === 401) throw new GoogleDriveError(401, null);
-    return retried;
+    if (retried.response.status === 401) throw new GoogleDriveError(401, null);
+    return retried.response;
   }
-  private async send(url: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
+  private async send(
+    url: string,
+    init: RequestInit,
+    signal?: AbortSignal,
+  ): Promise<{ response: Response; token: string }> {
     const parsed = driveEndpoint(url);
-    const token = await this.token();
+    const token = await this.token(signal);
     const response = await this.transport(parsed, {
       ...init,
       // Native Bun rejects 308 even without Location under redirect:'error'.
@@ -117,13 +120,13 @@ export class DriveClient {
     });
     if (response.status === 401) {
       await response.body?.cancel().catch(() => {});
-      return response;
+      return { response, token };
     }
     if (!response.ok && !resumableProgress(parsed, init, response)) {
       await response.body?.cancel().catch(() => {});
       throw new GoogleDriveError(response.status, retryAfter(response));
     }
-    return response;
+    return { response, token };
   }
   async json<T>(url: string, init: RequestInit = {}, signal?: AbortSignal): Promise<T> {
     return (await this.request(url, init, signal)).json() as Promise<T>;

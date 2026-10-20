@@ -72,9 +72,9 @@ export class GoogleDriveProvider implements BackupProvider {
   private readonly folders = new Map<string, string>();
   constructor(
     readonly rootId: string,
-    token: () => Promise<string>,
+    token: (signal?: AbortSignal) => Promise<string>,
     transport: GoogleFetch = fetch,
-    onUnauthorized?: () => void,
+    onUnauthorized?: (rejected: string) => void,
   ) {
     this.client = new DriveClient(token, transport, onUnauthorized);
   }

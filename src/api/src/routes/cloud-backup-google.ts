@@ -10,9 +10,10 @@ import {
 } from '../cloud-backup/google/config.ts';
 import { loadConnection, reserveRoot, saveConfig } from '../cloud-backup/google/repo.ts';
 import {
-  startGoogleFlow,
   finishGoogleFlow,
+  forgetGoogleAccessToken,
   googleAccessToken,
+  startGoogleFlow,
   type GoogleFetch,
 } from '../cloud-backup/google/oauth.ts';
 import {
@@ -117,7 +118,11 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
           'Connect Google Drive before attaching an existing backup folder.',
         );
       await validateGoogleRoot(
-        new DriveClient(() => googleAccessToken(id, deps.transport), deps.transport),
+        new DriveClient(
+          () => googleAccessToken(id, deps.transport),
+          deps.transport,
+          (rejected) => forgetGoogleAccessToken(id, rejected),
+        ),
         body.rootId,
       );
       await deps.attachRoot(id, body.rootId, config.accountId!, destination.generation);
@@ -133,7 +138,10 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
     const connection = await loadConnection(id);
     const token = () => googleAccessToken(id, deps.transport);
     if (existingRoot) {
-      await validateGoogleRoot(new DriveClient(token, deps.transport), existingRoot);
+      await validateGoogleRoot(
+        new DriveClient(token, deps.transport, (rejected) => forgetGoogleAccessToken(id, rejected)),
+        existingRoot,
+      );
       if ((await loadConnection(id)).epoch !== connection.epoch)
         throw new GoogleConnectionError(
           'Connection changed; reconnect before attaching the backup.',
@@ -144,7 +152,9 @@ export function buildGoogleBackupRoutes(deps: GoogleRouteDependencies) {
     const reserved = await reserveRoot(
       id,
       connection.epoch,
-      await new DriveClient(token, deps.transport).reserveId(),
+      await new DriveClient(token, deps.transport, (rejected) =>
+        forgetGoogleAccessToken(id, rejected),
+      ).reserveId(),
     );
     const rootId = await createGoogleRoot(token, deps.transport, reserved);
     if ((await loadConnection(id)).epoch !== connection.epoch)

@@ -10,7 +10,7 @@ export function providerForDestination(destination: BackupDestination): GoogleDr
     throw new Error('Connect Google Drive and select its Maple backup folder.');
   return new GoogleDriveProvider(
     destination.rootId,
-    async () => {
+    async (signal?: AbortSignal) => {
       const current = await new BackupRepository().destination(destination.id);
       if (
         !current ||
@@ -19,7 +19,7 @@ export function providerForDestination(destination: BackupDestination): GoogleDr
       ) {
         throw new Error('Google backup destination changed; retry with current settings.');
       }
-      const token = await googleAccessToken(destination.id);
+      const token = await googleAccessToken(destination.id, fetch, signal);
       const connection = await loadConnection(destination.id);
       if (destination.accountId && connection.config.accountId !== destination.accountId)
         throw new Error('Reconnect the original Google account for this destination.');
@@ -33,6 +33,6 @@ export function providerForDestination(destination: BackupDestination): GoogleDr
       return token;
     },
     fetch,
-    () => forgetGoogleAccessToken(destination.id),
+    (rejected) => forgetGoogleAccessToken(destination.id, rejected),
   );
 }
