@@ -102,7 +102,7 @@ async function publishCanonical(
           assetId,
           location.library_id,
           path.posix.join(location.path, location.filename),
-        )) && (await readLegacyBackupEdit(legacy).catch(() => null))?.equals(legacyBytes) === true,
+        )) && (await readLegacyBackupEdit(primary).catch(() => null))?.equals(legacyBytes) === true,
       afterLanded: async (landed) => {
         if (landed.kind === 'written' || landed.kind === 'diverged') {
           await publishSidecarChange(primary, true);
@@ -153,7 +153,7 @@ async function canonicalizeLocation(
   const primary = path.join(root, location.path, location.filename);
   const legacy = legacyBackupSidecar(primary);
   try {
-    const legacyBytes = legacy ? await readLegacyBackupEdit(legacy) : null;
+    const legacyBytes = legacy ? await readLegacyBackupEdit(primary) : null;
     if (!legacy || !legacyBytes) return 'done';
     if (await supersededByASend(assetId, location, primary, legacyBytes)) {
       // A device send landed and kept this edit aside, but couldn't remove the file.
@@ -188,6 +188,11 @@ async function canonicalizeAll(
   return 'done';
 }
 
+async function allMounted(rooted: readonly RootedLocation[]): Promise<boolean> {
+  const mounted = await Promise.all(rooted.map(({ root }) => libraryRootAvailable(root)));
+  return !mounted.includes(false);
+}
+
 async function canonicalizeAsset(
   libs: LibraryRoots,
   doc: MigrationCandidate,
@@ -199,10 +204,10 @@ async function canonicalizeAsset(
     .map((location) => ({ location, root: libs.get(location.library_id.toHexString()) }))
     .filter((entry): entry is RootedLocation => entry.root !== undefined);
   if (rooted.length !== photos.length) return 'skipped-no-root';
-  // An unmounted volume reads like a missing file; never stamp on that reading.
-  const mounted = await Promise.all(rooted.map(({ root }) => libraryRootAvailable(root)));
-  if (mounted.includes(false)) return 'skipped-no-root';
+  // An unmounted volume reads like a missing file, so it is checked on both sides of the scan.
+  if (!(await allMounted(rooted))) return 'skipped-no-root';
   if ((await canonicalizeAll(doc.id, rooted)) === 'error') return 'error';
+  if (!(await allMounted(rooted))) return 'skipped-no-root';
   const live = doc.fileinfo.filter(isLiveFileInfo);
   return (await markCanonicalSidecarsChecked(doc.id, live)) ? 'processed' : 'retry-later';
 }
