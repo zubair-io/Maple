@@ -179,6 +179,11 @@ export async function mergeIntoSurvivor(args: {
       sql: `UPDATE sidecar_divergences SET asset_id=? WHERE asset_id=?`,
       params: [args.survivorId, args.condemnedId],
     },
+    {
+      // The duplicate's locations may still hold pre-#5021 `IMG.HEIC.xmp` sidecars.
+      sql: `DELETE FROM backup_sidecar_names_migrated WHERE asset_id=?`,
+      params: [args.survivorId],
+    },
     { sql: `DELETE FROM assets WHERE id = ?`, params: [args.condemnedId] },
     // Strictly after the delete, which is what frees the unique key — but inside
     // the same transaction, so no crash can leave the survivor on its fallback id.
