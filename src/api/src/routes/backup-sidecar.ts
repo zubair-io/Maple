@@ -23,10 +23,12 @@
  *                             the write never skips: a matching base
  *                             overwrites; a stale one still lands the edit and
  *                             keeps the displaced XMP in `sidecar_divergences`.
- *                             The target must be a live location of the
- *                             resolved asset. Absent → the legacy rule: written
+ *                             Absent → the legacy rule: written
  *                             only when no sidecar exists (create-only, on the
  *                             same write barrier).
+ *
+ * Either way the target must be a live location of the resolved asset, since
+ * the canonical sidecar it names is the one that photo's edits are read from.
  *
  * Body: raw XMP string (utf-8). Max size: 256 KB.
  *
@@ -41,7 +43,7 @@
  *   400 — missing/invalid headers (including a malformed base), empty body, unsafe path,
  *         or a destination outside the library (e.g. through a symlinked folder)
  *   404 — library not found, no prior upload (neither maple_id nor device+phasset matched),
- *         or (with a base) the target path is not a live location of that asset
+ *         or the target path is not a live location of that asset
  *   413 — body exceeds 256 KB
  *   500 — the sidecar could not be written
  */
@@ -130,9 +132,6 @@ async function publishBackupSidecarCas(
       body: { error: 'X-Maple-Sidecar-Base must be a SHA-256 hex digest or "none"' },
     };
   }
-  if (!(await isLiveLocationOfAsset(req.assetId, req.libraryId, req.targetRelPath))) {
-    return { status: 404, body: { error: 'no prior upload of this asset at this path' } };
-  }
   const primary = path.join(req.libraryRoot, req.targetRelPath);
   const outcome = await publishSidecarCas(
     req.finalPath,
@@ -207,6 +206,22 @@ async function publishWithoutBase(
   return publishLegacySidecar(finalPath, sidecarRelPath, buf, libraryRoot, phid);
 }
 
+/** Why `targetRelPath` can't take this asset's canonical sidecar, if it can't. */
+async function targetRefusal(
+  assetId: ObjectId,
+  libraryId: ObjectId,
+  targetRelPath: string,
+): Promise<{ status: number; error: string } | null> {
+  // `xmpSidecarPath` maps every extensionless name to one folder-wide `.xmp` (#5060).
+  if (path.extname(targetRelPath) === '') {
+    return { status: 400, error: 'X-Maple-Target-Rel-Path has no file extension' };
+  }
+  // Both branches publish the photo's canonical sidecar, so the path must be that photo's.
+  return (await isLiveLocationOfAsset(assetId, libraryId, targetRelPath))
+    ? null
+    : { status: 404, error: 'no prior upload of this asset at this path' };
+}
+
 /** A send that changed the canonical sidecar is a server edit of the photo (#5021). */
 function changedSidecar(result: { status: number; body: Record<string, unknown> }): boolean {
   if (result.status !== 200) return false;
@@ -236,11 +251,6 @@ export const backupSidecarRoutes = new Elysia().post(
     if (!isSafeRelPath(targetRelPath)) {
       set.status = 400;
       return { error: 'unsafe X-Maple-Target-Rel-Path' };
-    }
-    // `xmpSidecarPath` maps every extensionless name to one folder-wide `.xmp`.
-    if (path.extname(targetRelPath) === '') {
-      set.status = 400;
-      return { error: 'X-Maple-Target-Rel-Path has no file extension' };
     }
 
     // Check library exists.
@@ -292,6 +302,11 @@ export const backupSidecarRoutes = new Elysia().post(
       return { error: 'path escape detected' };
     }
 
+    const refusal = await targetRefusal(asset, libraryId, targetRelPath);
+    if (refusal) {
+      set.status = refusal.status;
+      return { error: refusal.error };
+    }
     const baseHeader = headers['x-maple-sidecar-base'];
     const primary = path.join(folder.path, targetRelPath);
     const result =

@@ -47,7 +47,14 @@ beforeAll(async () => {
   seedBackupAsset(live.db, {
     mapleId,
     size: 64,
-    locations: [{ libraryId: libId, relPath: targetRelPath }],
+    // Each test writes beside its own location of this photo.
+    locations: [
+      targetRelPath,
+      '2024/Tokyo/03-15/IMG_XML_CTYPE.HEIC',
+      '2024/Tokyo/03-15/IMG_NOCLOBBER.HEIC',
+      '2024/Tokyo/03-15/IMG_DEDUP.HEIC',
+      '2024/Tokyo/03-15/IMG_FALLBACK.HEIC',
+    ].map((relPath) => ({ libraryId: libId, relPath })),
     links: [{ deviceId, phassetLocalId: phid }],
   });
 });

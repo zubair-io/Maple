@@ -312,12 +312,16 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
     try {
       await fs.mkdir(path.join(tmpLib, '2024/CAS'), { recursive: true });
       await fs.symlink(outside, path.join(tmpLib, '2024/CAS/legacy-link'));
-      const owner = await seedUpload('legacy-link-owner');
-      const res = await post(
-        { relPath: '2024/CAS/legacy-link/new/IMG.HEIC', phid: owner.phid },
-        xmp('incoming'),
-        undefined,
-      );
+      // Only the database row: writing the original would itself follow the link.
+      const relPath = '2024/CAS/legacy-link/new/IMG.HEIC';
+      const phid = 'CAS/legacy-link-owner/L0/001';
+      seedBackupAsset(live.db, {
+        mapleId: createHash('md5').update('legacy-link-owner').digest('hex'),
+        size: 64,
+        locations: [{ libraryId: libId, relPath }],
+        links: [{ deviceId, phassetLocalId: phid }],
+      });
+      const res = await post({ relPath, phid }, xmp('incoming'), undefined);
       expect(res.status).toBe(400);
       expect(await fs.readdir(outside)).toEqual([]);
     } finally {
