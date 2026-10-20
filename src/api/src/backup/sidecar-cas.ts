@@ -32,6 +32,7 @@ type SidecarCasOutcome =
   | { kind: 'unchanged' }
   | { kind: 'diverged' }
   | { kind: 'shared' }
+  | { kind: 'abandoned' }
   | { kind: 'refused'; error: string }
   | { kind: 'error'; error: string };
 
@@ -121,13 +122,46 @@ async function prepareDestination(destination: string): Promise<SidecarCasOutcom
   return null;
 }
 
+async function publishAt(
+  target: string,
+  xmp: string,
+  base: string | null,
+  recordDisplaced: RecordDisplaced,
+  shared: boolean,
+): Promise<SidecarCasOutcome> {
+  const existing = await readCurrent(target);
+  const created = existing === null ? await createIfAbsent(target, xmp) : null;
+  if (created) return created;
+  // A writer outside the barrier can create the file between the read and
+  // the create-only publish; compare against what is actually there.
+  const current = existing ?? (await readCurrent(target));
+  if (current === null) return { kind: 'error', error: 'sidecar vanished during write' };
+  return publishOver(target, current, xmp, base, recordDisplaced, shared);
+}
+
+export interface SidecarCasOptions {
+  /** A same-stem sibling shares the sidecar (#4692). */
+  shared?: boolean;
+  /** Checked inside the barrier before publishing; `false` abandons the write. */
+  precondition?: () => Promise<boolean>;
+  /** Runs inside the barrier once the edit landed or was kept aside. */
+  afterLanded?: () => Promise<void>;
+}
+
+const LANDED: ReadonlySet<SidecarCasOutcome['kind']> = new Set([
+  'written',
+  'unchanged',
+  'diverged',
+  'shared',
+]);
+
 export async function publishSidecarCas(
   destination: string,
   xmp: string,
   base: string | null,
   recordDisplaced: RecordDisplaced,
   admissionScope: string,
-  shared = false,
+  options: SidecarCasOptions = {},
 ): Promise<SidecarCasOutcome> {
   const refused = await prepareDestination(destination);
   if (refused) return refused;
@@ -142,14 +176,10 @@ export async function publishSidecarCas(
       if (path.resolve(target) !== path.resolve(resolved)) {
         return { kind: 'error', error: 'sidecar path changed while waiting; retry' };
       }
-      const existing = await readCurrent(target);
-      const created = existing === null ? await createIfAbsent(target, xmp) : null;
-      if (created) return created;
-      // A writer outside the barrier can create the file between the read and
-      // the create-only publish; compare against what is actually there.
-      const current = existing ?? (await readCurrent(target));
-      if (current === null) return { kind: 'error', error: 'sidecar vanished during write' };
-      return publishOver(target, current, xmp, base, recordDisplaced, shared);
+      if (options.precondition && !(await options.precondition())) return { kind: 'abandoned' };
+      const outcome = await publishAt(target, xmp, base, recordDisplaced, options.shared ?? false);
+      if (LANDED.has(outcome.kind)) await options.afterLanded?.();
+      return outcome;
     },
     {
       admissionScope,

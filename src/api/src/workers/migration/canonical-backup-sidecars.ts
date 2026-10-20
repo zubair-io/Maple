@@ -37,7 +37,7 @@ import { publishSidecarCas } from '../../backup/sidecar-cas.ts';
 import {
   legacyBackupSidecar,
   readLegacyBackupEdit,
-  removeLegacyBackupSidecar,
+  removeLegacyIfUnchanged,
 } from '../../backup/legacy-sidecar.ts';
 import { sidecarStemClaimedBySibling } from '../../fs/sidecar-ownership.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
@@ -72,13 +72,14 @@ async function publishCanonical(
   location: FileInfo,
   primary: string,
   root: string,
-  legacyXmp: string,
+  legacy: string,
+  legacyBytes: Buffer,
 ): Promise<LocationOutcome> {
   const canonical = xmpSidecarPath(primary);
   const sidecarRelPath = path.posix.join(location.path, path.basename(canonical));
   const outcome = await publishSidecarCas(
     canonical,
-    legacyXmp,
+    legacyBytes.toString('utf8'),
     null,
     async (displaced) => {
       const id = await recordSidecarDivergence({
@@ -94,7 +95,13 @@ async function publishCanonical(
       return () => forgetSidecarDivergence(id);
     },
     root,
-    await sidecarStemClaimedBySibling(primary),
+    {
+      shared: await sidecarStemClaimedBySibling(primary),
+      // A device send may have retired the file since it was read.
+      precondition: async () =>
+        (await readLegacyBackupEdit(legacy).catch(() => null))?.equals(legacyBytes) === true,
+      afterLanded: () => removeLegacyIfUnchanged(legacy, legacyBytes),
+    },
   );
   if (outcome.kind === 'refused') {
     // Retrying cannot make an out-of-library path safe; leave the file and move on.
@@ -127,15 +134,7 @@ async function canonicalizeLocation(
   try {
     const legacyBytes = legacy ? await readLegacyBackupEdit(legacy) : null;
     if (!legacy || !legacyBytes) return 'done';
-    const published = await publishCanonical(
-      assetId,
-      location,
-      primary,
-      root,
-      legacyBytes.toString('utf8'),
-    );
-    if (published === 'done') await removeLegacyBackupSidecar(legacy, legacyBytes);
-    return published;
+    return await publishCanonical(assetId, location, primary, root, legacy, legacyBytes);
   } catch (err) {
     log.error(
       { _id: String(assetId), legacy, err: err instanceof Error ? err.message : err },
