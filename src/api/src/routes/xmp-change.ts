@@ -10,8 +10,7 @@ import {
 import { child as childLogger } from '../log';
 const log = childLogger('xmp-routes');
 
-/** The indexed asset at `rawAbsPath`; `MAPLE_ROOTS` env and test roots carry
- * synthetic keys, so only registered libraries resolve. */
+/** Only registered libraries resolve; env and test roots carry synthetic keys. */
 async function assetAt(rawAbsPath: string): Promise<{ id: ObjectId; libraryId: ObjectId } | null> {
   const hit = mostSpecificRoot(rawAbsPath, await loadLibraryRoots());
   if (!hit || hit.relPath === '' || !ObjectId.isValid(hit.key)) return null;
