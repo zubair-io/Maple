@@ -6,7 +6,7 @@ import {
 
 /** Shared derivatives are unversioned (#4793). The only other layout a client
  * ever probes is this one frozen name segment, written for a short window as
- * `<name>.v25.<ext>`; it must never track `PIPELINE_OUTPUT_VERSION`. */
+ * `<name>.v25.<ext>`; it must never track the develop pipeline output. */
 export const LEGACY_DERIVATIVE_SEGMENT = '.v25';
 
 export type DerivativeNaming = '' | typeof LEGACY_DERIVATIVE_SEGMENT;
