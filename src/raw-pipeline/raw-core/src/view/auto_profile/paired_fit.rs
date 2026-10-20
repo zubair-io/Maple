@@ -58,15 +58,31 @@ pub(super) fn corners_at(rgb: [f32; 3], size: usize) -> [(usize, f64); 4] {
     ]
 }
 
-fn multiply(a: &[f64], x: &[f64]) -> Vec<f64> {
-    a.chunks_exact(CELLS)
-        .map(|row| row.iter().zip(x).map(|(u, v)| u * v).sum())
-        .collect()
-}
 fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(u, v)| u * v).sum()
 }
+fn normal_rows(a: &[f64]) -> Vec<Vec<(usize, f64)>> {
+    // Footprint interpolation and adjacent-node regularization leave most
+    // entries zero. Keep column order so dropping zeros preserves summation.
+    a.chunks_exact(CELLS)
+        .map(|row| {
+            row.iter()
+                .copied()
+                .enumerate()
+                .filter(|(_, v)| *v != 0.)
+                .collect()
+        })
+        .collect()
+}
+
+fn multiply(rows: &[Vec<(usize, f64)>], x: &[f64]) -> Vec<f64> {
+    rows.iter()
+        .map(|row| row.iter().map(|&(i, v)| v * x[i]).sum())
+        .collect()
+}
+
 fn solve(a: &[f64], b: &[f64]) -> Vec<f64> {
+    let rows = normal_rows(a);
     let mut x = vec![0.; CELLS];
     let mut r = b.to_vec();
     let inverse: Vec<_> = (0..CELLS).map(|i| 1. / a[i * CELLS + i]).collect();
@@ -78,7 +94,7 @@ fn solve(a: &[f64], b: &[f64]) -> Vec<f64> {
         return x;
     }
     for _ in 0..256 {
-        let ap = multiply(a, &p);
+        let ap = multiply(&rows, &p);
         let denominator = dot(&p, &ap);
         if denominator <= 0. {
             break;

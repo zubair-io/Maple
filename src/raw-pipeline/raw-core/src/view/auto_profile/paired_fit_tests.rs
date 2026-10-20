@@ -504,3 +504,22 @@ fn geometric_training_preserves_colors_and_retains_the_existing_fit_when_guards_
     let existing = select_step(&original_solution, &prior, &original.rows, &original.rows);
     assert_eq!(result.map(|lut| lut.data), existing.map(|lut| lut.data));
 }
+
+#[test]
+fn sparse_normal_product_preserves_dense_summation() {
+    let mut dense = vec![0.; CELLS * CELLS];
+    for i in 0..CELLS {
+        for offset in [0, 1, GRID, GRID * GRID, CELLS / 2] {
+            let j = (i + offset) % CELLS;
+            dense[i * CELLS + j] = (i as f64 * 0.13 - j as f64 * 0.07).sin();
+        }
+    }
+    let x: Vec<_> = (0..CELLS).map(|i| (i as f64 * 0.37).cos()).collect();
+    let expected: Vec<f64> = dense
+        .chunks_exact(CELLS)
+        .map(|row| row.iter().zip(&x).map(|(a, b)| a * b).sum())
+        .collect();
+    let sparse = normal_rows(&dense);
+    assert!(sparse.iter().map(Vec::len).sum::<usize>() < dense.len() / 10);
+    assert_eq!(multiply(&sparse, &x), expected);
+}
