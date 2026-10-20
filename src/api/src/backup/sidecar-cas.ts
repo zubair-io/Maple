@@ -154,8 +154,8 @@ async function authorizedTarget(
 }
 
 export interface SidecarCasOptions {
-  /** A same-stem sibling shares the sidecar (#4692). */
-  shared?: boolean;
+  /** Whether a same-stem sibling shares the sidecar (#4692), asked inside the barrier. */
+  shared?: () => Promise<boolean>;
   /** Checked inside the barrier before publishing; `false` abandons the write. */
   precondition?: () => Promise<boolean>;
   /** Runs inside the barrier once the edit landed or was kept aside. */
@@ -185,7 +185,8 @@ export async function publishSidecarCas(
       const target = await authorizedTarget(destination, resolved);
       if (typeof target !== 'string') return target;
       if (options.precondition && !(await options.precondition())) return { kind: 'abandoned' };
-      const outcome = await publishAt(target, xmp, base, recordDisplaced, options.shared ?? false);
+      const shared = (await options.shared?.()) ?? false;
+      const outcome = await publishAt(target, xmp, base, recordDisplaced, shared);
       if (LANDED.has(outcome.kind)) await options.afterLanded?.();
       return outcome;
     },
