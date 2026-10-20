@@ -57,3 +57,15 @@ observation snapshots and all before/after images. LP arrays/logs/scripts are
 in `5000/auto-jpeg-absolute-objective/`. The verified NAS checkpoint preserves
 these large files. Next: diagnose and fix remaining0000,0003,0005,0006,0007,
 0010,0015,0017 using the same entire-corpus gate; no merge or version bump.
+
+## Spatial residual follow-up
+
+A separate all16-image diagnostic compares a global quadratic RGB model with the
+same model plus radius-squared/radius-fourth and radius-times-RGB terms. Training
+and validation use alternating8-by-8 scene regions; no evaluated images or gate
+scores are changed. On0007 the worst heldout RGB region falls from0.0823 to0.0423;
+on0006 from0.0467 to0.0391. It barely helps0015/0017 and worsens0005 slightly.
+This is evidence for more than one remaining cause; it is not proof of an optical
+vignetting fault, a physical pass, or an adopted spatial correction. A bounded
+spatial-illumination experiment for0007/0006 should be evaluated across all16;
+0015/0017 require a separate contrast/detail diagnosis. All original guards stay.

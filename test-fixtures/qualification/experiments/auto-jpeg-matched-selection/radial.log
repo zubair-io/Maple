@@ -1,0 +1,21 @@
+/opt/homebrew/lib/python3.14/site-packages/colour/utilities/verbose.py:340: ColourUsageWarning: "Matplotlib" related API features are not available: "No module named 'matplotlib'".
+See the installation guide for more information: https://www.colour-science.org/installation-guide/
+  warn(*args, **kwargs)
+test_0017 [('global_polynomial', 0.063399999999999998), ('global_plus_radial', 0.063100000000000003)]
+test_0015 [('global_polynomial', 0.1101), ('global_plus_radial', 0.10829999999999999)]
+test_0011 [('global_polynomial', 0.012200000000000001), ('global_plus_radial', 0.0123)]
+test_0013 [('global_polynomial', 0.0385), ('global_plus_radial', 0.0373)]
+test_0004 [('global_polynomial', 0.034099999999999998), ('global_plus_radial', 0.034000000000000002)]
+test_0009 [('global_polynomial', 0.018700000000000001), ('global_plus_radial', 0.020899999999999998)]
+test_0014 [('global_polynomial', 0.0101), ('global_plus_radial', 0.0101)]
+test_0002 [('global_polynomial', 0.0138), ('global_plus_radial', 0.0138)]
+test_0005 [('global_polynomial', 0.1079), ('global_plus_radial', 0.1089)]
+/Users/riabuz/Library/Python/3.14/lib/python/site-packages/PIL/Image.py:3574: DecompressionBombWarning: Image size (100663296 pixels) exceeds limit of 89478485 pixels, could be decompression bomb DOS attack.
+  warnings.warn(
+test_0000 [('global_polynomial', 0.057099999999999998), ('global_plus_radial', 0.057099999999999998)]
+test_0003 [('global_polynomial', 0.054800000000000001), ('global_plus_radial', 0.050500000000000003)]
+test_0006 [('global_polynomial', 0.046699999999999998), ('global_plus_radial', 0.039100000000000003)]
+test_0007 [('global_polynomial', 0.082299999999999998), ('global_plus_radial', 0.042299999999999997)]
+test_0008 [('global_polynomial', 0.043499999999999997), ('global_plus_radial', 0.0395)]
+test_0010 [('global_polynomial', 0.046199999999999998), ('global_plus_radial', 0.045499999999999999)]
+test_0012 [('global_polynomial', 0.034200000000000001), ('global_plus_radial', 0.031699999999999999)]
