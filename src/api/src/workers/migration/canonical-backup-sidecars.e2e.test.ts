@@ -6,7 +6,8 @@
  * that sidecar (#4692), in which case it is kept and the backup edit recorded.
  * Real files in a temp library, driven through one migration tick.
  */
-import { describe, it, expect, afterEach } from 'bun:test';
+import { describe, it, expect, afterEach, spyOn } from 'bun:test';
+import * as rootHelpers from '../missing-reaper.helpers.ts';
 import * as fs from '../../fs/mirrored.ts';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -301,6 +302,37 @@ describe('canonical-backup-sidecars', () => {
 
     expect(await read(library, 'IMG_15.xmp')).toBeNull();
     expect(await read(library, 'IMG_15.HEIC.xmp')).toBe(maple('backup edit'));
+    expect(stamped(library, id)).toBe(false);
+  });
+
+  it("leaves another photo's sidecar alone when its name looks like an old-name file", async () => {
+    using library = await backupLibrary('canon-lookalike-');
+    await write(library, 'IMG_16.HEIC', 'pixels');
+    await write(library, 'IMG_16.HEIC.JPG', 'converted');
+    await write(library, 'IMG_16.HEIC.xmp', maple('edit of the JPG'));
+    backupPhoto(library, 'IMG_16.HEIC');
+
+    await runTick();
+
+    expect(await read(library, 'IMG_16.HEIC.xmp')).toBe(maple('edit of the JPG'));
+    expect(await read(library, 'IMG_16.xmp')).toBeNull();
+  });
+
+  it('does not stamp a photo whose volume went away during the scan', async () => {
+    using library = await backupLibrary('canon-unmounted-mid-');
+    const emptyMountPoint = path.join(library.root, 'unmounted');
+    await fs.mkdir(emptyMountPoint);
+    const id = backupPhoto(library, 'IMG_17.HEIC');
+    setLibraryRootsForTests(new Map([[library.folderId.toHexString(), emptyMountPoint]]));
+    const mounted = spyOn(rootHelpers, 'libraryRootAvailable')
+      .mockImplementationOnce(async () => true)
+      .mockImplementation(async () => false);
+    try {
+      await runTick();
+    } finally {
+      mounted.mockRestore();
+    }
+
     expect(stamped(library, id)).toBe(false);
   });
 
