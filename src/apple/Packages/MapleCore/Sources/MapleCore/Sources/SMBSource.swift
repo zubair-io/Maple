@@ -68,7 +68,7 @@ public actor SMBSource {
   var client: SMB2Manager?
   private var credentials: Credentials?
   private var _assets: [SMBAsset] = []
-  nonisolated let listingID = UUID()
+  private(set) var listingID = UUID()
 
   /// Per-share maple_id cache (#1995), rooted at the connected
   /// `remotePath` — `<remotePath>/.maple/id-cache-apple.json`. `nil` until
@@ -108,6 +108,12 @@ public actor SMBSource {
       || self.credentials?.username != credentials.username
     {
       relocatedPaths = [:]
+    }
+    // Another share retires every earlier ref; an address change alone keeps them (#4987).
+    if self.credentials?.share != credentials.share
+      || self.credentials?.username != credentials.username
+    {
+      listingID = UUID()
     }
     self.credentials = credentials
 

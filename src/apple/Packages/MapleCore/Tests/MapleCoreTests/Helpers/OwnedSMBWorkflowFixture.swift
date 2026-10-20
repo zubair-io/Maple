@@ -18,7 +18,7 @@ final class OwnedSMBWorkflowFixture {
   private var termination: Task<Void, Never>?
   private let output: FileHandle
 
-  private init(testCase: XCTestCase, initialXML: String?) throws {
+  private init(testCase: XCTestCase, initialXML: String?, shareName: String) throws {
     diagnostics = OwnedSMBDiagnostics(testCase: testCase)
     let files = try NativeWorkflowControlFixture.files()
     defer { try? FileManager.default.removeItem(at: files.directory) }
@@ -40,7 +40,7 @@ final class OwnedSMBWorkflowFixture {
     let port = try Self.unusedPort()
     let username = NSUserName()
     credentials = .init(
-      host: "127.0.0.1:\(port)", share: "WORKFLOW", username: username,
+      host: "127.0.0.1:\(port)", share: shareName, username: username,
       password: "owned-loopback-fixture")
     let passwordFile = directory.appendingPathComponent("private", isDirectory: true)
       .appendingPathComponent("smbpasswd")
@@ -76,7 +76,7 @@ final class OwnedSMBWorkflowFixture {
       printing = bsd
       printcap name = /dev/null
       disable spoolss = yes
-      [WORKFLOW]
+      [\(shareName)]
       path = \(share.path)
       read only = no
       guest ok = no
@@ -104,11 +104,12 @@ final class OwnedSMBWorkflowFixture {
     process.standardInput = input
   }
 
-  static func open(testCase: XCTestCase, initialXML: String? = NativeWorkflowControlFixture.input())
-    async throws
-    -> OwnedSMBWorkflowFixture
-  {
-    let fixture = try OwnedSMBWorkflowFixture(testCase: testCase, initialXML: initialXML)
+  static func open(
+    testCase: XCTestCase, initialXML: String? = NativeWorkflowControlFixture.input(),
+    shareName: String = "WORKFLOW"
+  ) async throws -> OwnedSMBWorkflowFixture {
+    let fixture = try OwnedSMBWorkflowFixture(
+      testCase: testCase, initialXML: initialXML, shareName: shareName)
     let exit = AsyncStream<Void>.makeStream()
     fixture.process.terminationHandler = { _ in exit.continuation.finish() }
     fixture.termination = Task { for await _ in exit.stream {} }
