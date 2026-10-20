@@ -61,7 +61,7 @@ extension BackupEngine {
   func sendLatestEdit(id: BackupTaskID, targetRelPath: String, mapleId: String?) async throws {
     let previous = sidecarSends[id]
     let send = Task {
-      _ = await previous?.result
+      if let previous { await waitUnlessCancelled(for: previous) }
       try await sendLatestEditNow(id: id, targetRelPath: targetRelPath, mapleId: mapleId)
     }
     sidecarSends[id] = send
@@ -88,5 +88,50 @@ extension BackupEngine {
       mapleId: mapleId,
       basedOn: delivered)
     try await state.recordUploadedSidecar(id, digest: digest)
+  }
+}
+
+/// Waits for `previous` to finish, or returns as soon as the calling task is
+/// cancelled: a cancelled send must not keep Stop waiting on a stalled request
+/// queued ahead of it (#5023).
+private func waitUnlessCancelled(for previous: Task<Void, Error>) async {
+  let gate = OnceGate()
+  await withTaskCancellationHandler {
+    await withCheckedContinuation { continuation in
+      gate.arm(continuation)
+      Task {
+        _ = await previous.result
+        gate.open()
+      }
+    }
+  } onCancel: {
+    gate.open()
+  }
+}
+
+/// Resumes its continuation exactly once, whichever side opens it first.
+private final class OnceGate: @unchecked Sendable {
+  private let lock = NSLock()
+  private var continuation: CheckedContinuation<Void, Never>?
+  private var opened = false
+
+  func arm(_ continuation: CheckedContinuation<Void, Never>) {
+    lock.lock()
+    guard !opened else {
+      lock.unlock()
+      continuation.resume()
+      return
+    }
+    self.continuation = continuation
+    lock.unlock()
+  }
+
+  func open() {
+    lock.lock()
+    opened = true
+    let waiting = continuation
+    continuation = nil
+    lock.unlock()
+    waiting?.resume()
   }
 }

@@ -250,4 +250,37 @@ final class BackupEngineEditResyncTests: XCTestCase {
     let delivered = try await state.uploadedSidecarDigest(photo)
     XCTAssertEqual(delivered, BackupEngine.digest(of: "<x:edit>v2</x:edit>"))
   }
+  func testACancelledSendQueuedBehindAStalledOneReturnsPromptly() async throws {
+    let tmpRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
+    try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let state = try BackupStateStore(databaseURL: tmpRoot.appendingPathComponent("state.sqlite"))
+    let sidecars = AppSupportSidecarStore(root: sidecarRoot)
+    let server = GatedSidecarServer(firstPostStarted: expectation(description: "first send held"))
+    let upload = UploadClient(
+      baseURL: URL(string: "https://server.example")!, libraryId: "lib", deviceId: "d",
+      transport: { try await server.respond(to: $0) })
+    let engine = BackupEngine(
+      queue: InProcessBackupQueue(), state: state, upload: upload,
+      sidecars: sidecars, reader: StubAssetReader())
+    try sidecars.write(phassetLocalId: photo.phassetLocalId, xmp: "<x:edit>v1</x:edit>")
+    let stalled = Task { await engine.resendNewerEdits([held]) }
+    await fulfillment(of: [server.firstPostStarted], timeout: 5)
+
+    let queued = Task {
+      try await engine.sendLatestEdit(
+        id: photo, targetRelPath: held.targetRelPath, mapleId: held.mapleId)
+    }
+    try await Task.sleep(for: .milliseconds(100))
+    queued.cancel()
+    let returned = await awaitBounded(timeout: 1) {
+      _ = await queued.result
+      return true
+    }
+    XCTAssertNotNil(returned, "a cancelled send kept waiting for a stalled send ahead of it")
+
+    await server.release()
+    await stalled.value
+  }
 }
