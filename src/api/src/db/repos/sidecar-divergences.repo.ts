@@ -21,7 +21,6 @@ interface SidecarDivergence {
   incomingSha256: string;
 }
 
-/** Returns the new row's id. */
 export async function recordSidecarDivergence(
   divergence: SidecarDivergence,
   dbOverride?: SqliteDb,

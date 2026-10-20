@@ -49,6 +49,10 @@ export function parseSidecarBase(
   return SHA256_HEX.test(header) ? header : 'invalid';
 }
 
+/** The destination stopped passing the library-root check after the
+ * up-front one, e.g. a parent folder was swapped for a symlink. */
+class RefusedPath extends Error {}
+
 /** Keeps a displaced sidecar; the returned function drops that record again
  * when the publish it was made for fails. */
 type RecordDisplaced = (displaced: DisplacedSidecar) => Promise<() => Promise<void>>;
@@ -83,8 +87,10 @@ async function publishOver(
     : null;
   const written = await writeSidecarAtomic(destination, xmp, 'sidecar write failed');
   if (!written.ok) {
-    // Nothing was displaced after all; a retry must not pile up copies (#5023).
-    await forget?.();
+    // Drop the record only while the displaced version is still on disk, so a
+    // retry doesn't pile up copies (#5023). A leftover row is harmless.
+    const stillThere = (await readCurrent(destination).catch(() => null)) === current;
+    if (stillThere) await forget?.().catch(() => undefined);
     return { kind: 'error', error: written.error };
   }
   return { kind: diverged ? 'diverged' : 'written' };
@@ -133,11 +139,14 @@ export async function publishSidecarCas(
       // compare step read (and keep) a sidecar outside the library.
       resolveDestination: async () => {
         const recheck = await authorizeSidecarWrite(destination);
-        if (!recheck.ok) throw new Error(recheck.error ?? 'path not allowed');
+        if (!recheck.ok) throw new RefusedPath(recheck.error ?? 'path not allowed');
         return recheck.data ?? destination;
       },
     },
-  );
+  ).catch((error: unknown) => {
+    if (error instanceof RefusedPath) return { kind: 'refused', error: error.message };
+    throw error;
+  });
 }
 
 /** The legacy rule for clients that name no base (#698): publish only when no
@@ -155,7 +164,12 @@ export async function publishSidecarIfAbsent(
     async (resolved) => {
       const created = await writeSidecarCreateOnly(resolved, xmp, 'sidecar write failed');
       if (created.ok) return 'written';
-      return 'exists' in created ? 'skipped' : { kind: 'error', error: created.error };
+      if ('exists' in created) return 'skipped';
+      // A symlink swapped in after the up-front check is still a refusal.
+      const recheck = await authorizeSidecarWrite(destination);
+      return recheck.ok
+        ? { kind: 'error', error: created.error }
+        : { kind: 'refused', error: recheck.error ?? 'path not allowed' };
     },
     { admissionScope },
   );

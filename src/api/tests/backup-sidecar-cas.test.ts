@@ -283,6 +283,7 @@ describe('backup sidecar compare-and-swap (#4719)', () => {
     expect((await res.json()).skipped).toBe(true);
     expect(await onDisk(target.relPath)).toBe(xmp('edit'));
   });
+
   test('a publish that fails leaves no divergence row behind (#5023)', async () => {
     const target = await seedUpload('failed-publish');
     expect((await post(target, xmp('v1'), 'none')).status).toBe(200);

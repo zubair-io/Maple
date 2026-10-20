@@ -51,6 +51,8 @@ public actor BackupEngine {
   /// ordering is load-bearing — see `finishRetry(_:)`.
   var retryTasks: [UUID: Task<Void, Never>] = [:]
   private var stopping: Task<Void, Never>?
+  /// The sidecar send in flight per photo; the next one waits for it (#5023).
+  var sidecarSends: [BackupTaskID: Task<Void, Error>] = [:]
 
   /// Wakes `run()` when a sleeping retry re-enqueues, so it can park
   /// instead of polling on a fixed interval while retries are outstanding
