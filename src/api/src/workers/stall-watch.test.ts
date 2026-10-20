@@ -12,39 +12,46 @@ const threshold = 60 * 60_000;
 
 describe('StallWatch', () => {
   it('is not stalled while work keeps completing', () => {
-    const watch = new StallWatch(start);
+    const watch = new StallWatch(() => threshold, start);
     watch.polled(start + threshold);
-    watch.claimed(5, start + threshold - 1000);
+    watch.claimed(5, 0, start + threshold - 1000);
     watch.progressed(start + threshold - 1000);
-    expect(watch.stalledForMs(3, threshold, start + threshold + 1000)).toBeNull();
+    expect(watch.stalledForMs(3, start + threshold + 1000)).toBeNull();
   });
 
   it('is stalled when work is held but nothing completes', () => {
-    const watch = new StallWatch(start);
-    watch.claimed(3, start);
+    const watch = new StallWatch(() => threshold, start);
+    watch.claimed(3, 0, start);
     watch.polled(start + threshold);
-    expect(watch.stalledForMs(3, threshold, start + threshold)).toBe(threshold);
+    expect(watch.stalledForMs(3, start + threshold)).toBe(threshold);
   });
 
   it('is stalled when every claim keeps deferring', () => {
-    const watch = new StallWatch(start);
+    const watch = new StallWatch(() => threshold, start);
     for (let t = start; t <= start + threshold; t += 60_000) {
       watch.polled(t);
-      watch.claimed(10, t);
+      watch.claimed(10, 0, t);
     }
-    expect(watch.stalledForMs(0, threshold, start + threshold)).toBe(threshold);
+    expect(watch.stalledForMs(0, start + threshold)).toBe(threshold);
   });
 
   it('is stalled when the poll loop stops turning', () => {
-    const watch = new StallWatch(start);
+    const watch = new StallWatch(() => threshold, start);
     watch.polled(start);
-    expect(watch.stalledForMs(0, threshold, start + threshold)).toBe(threshold);
+    expect(watch.stalledForMs(0, start + threshold)).toBe(threshold);
+  });
+
+  it('is not stalled when an idle stage picks up its first work', () => {
+    const watch = new StallWatch(() => threshold, start);
+    for (let t = start; t <= start + 2 * threshold; t += 60_000) watch.polled(t);
+    watch.claimed(1, 0, start + 2 * threshold);
+    expect(watch.stalledForMs(1, start + 2 * threshold + 1000)).toBeNull();
   });
 
   it('is not stalled when there is simply no work', () => {
-    const watch = new StallWatch(start);
+    const watch = new StallWatch(() => threshold, start);
     for (let t = start; t <= start + 3 * threshold; t += 60_000) watch.polled(t);
-    expect(watch.stalledForMs(0, threshold, start + 3 * threshold)).toBeNull();
+    expect(watch.stalledForMs(0, start + 3 * threshold)).toBeNull();
   });
 });
 

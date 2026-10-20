@@ -120,7 +120,9 @@ export async function runStage<TPatch>(stage: StageConfig<TPatch>): Promise<RunS
   }
 
   const throughput = new ThroughputWindow();
-  const stallWatch = new StallWatch();
+  const stallWatch = new StallWatch(
+    () => (config.stallAfterMinutes ?? DEFAULT_STALL_AFTER_MINUTES) * 60_000,
+  );
   const inFlightSet = new Set<string>();
   const abortController = new AbortController();
 
@@ -132,11 +134,7 @@ export async function runStage<TPatch>(stage: StageConfig<TPatch>): Promise<RunS
     getInFlight: () => inFlightSet.size,
     getThroughput: () => throughput.countInWindow(),
     getPaused: () => config.paused,
-    getStalledForMs: () =>
-      stallWatch.stalledForMs(
-        inFlightSet.size,
-        (config.stallAfterMinutes ?? DEFAULT_STALL_AFTER_MINUTES) * 60_000,
-      ),
+    getStalledForMs: () => stallWatch.stalledForMs(inFlightSet.size),
     reloadConfig: async () => {
       const updated = await repo.load(stage.name);
       if (updated) {
