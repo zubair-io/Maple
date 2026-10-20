@@ -24,8 +24,6 @@ import {
   BACKUP_ORIGIN,
   countCandidates,
   HAS_LIVE_LOCATION,
-  stampMarker,
-  unstamped,
   type CandidateScope,
   type MigrationCandidate,
 } from '../../db/repos/assets.migrations.ts';
@@ -33,6 +31,10 @@ import {
   forgetSidecarDivergence,
   recordSidecarDivergence,
 } from '../../db/repos/sidecar-divergences.repo.ts';
+import {
+  markBackupSidecarNamesMigrated,
+  NOT_YET_MIGRATED,
+} from '../../db/repos/backup-sidecar-names.repo.ts';
 import { publishSidecarCas } from '../../backup/sidecar-cas.ts';
 import {
   legacyBackupSidecar,
@@ -52,18 +54,12 @@ import type { Migration, MigrationBatchResult } from './types.ts';
 const log = childLogger('migration:canonical-backup-sidecars');
 
 const MIGRATION_ID = 'canonical-backup-sidecars';
-const MARKER = 'backup_sidecar_name_version';
-const BACKUP_SIDECAR_NAME_VERSION = 1;
 /** Recorded as the divergence's device: the migration, not a phone, kept it. */
 const DIVERGENCE_SOURCE = `migration:${MIGRATION_ID}`;
 
-const BACKED_UP_WITH_LIVE_LOCATION: CandidateScope = {
-  sql: `${BACKUP_ORIGIN} AND ${HAS_LIVE_LOCATION}`,
+const CANDIDATES: CandidateScope = {
+  sql: `${BACKUP_ORIGIN} AND ${HAS_LIVE_LOCATION} AND ${NOT_YET_MIGRATED}`,
 };
-
-function candidateScope(): CandidateScope {
-  return unstamped(BACKED_UP_WITH_LIVE_LOCATION, MARKER, BACKUP_SIDECAR_NAME_VERSION);
-}
 
 type LocationOutcome = 'done' | 'kept' | 'error';
 
@@ -175,7 +171,7 @@ async function canonicalizeAsset(
   const mounted = await Promise.all(rooted.map(({ root }) => libraryRootAvailable(root)));
   if (mounted.includes(false)) return 'skipped-no-root';
   if ((await canonicalizeAll(doc.id, rooted)) === 'error') return 'error';
-  await stampMarker(MARKER, BACKUP_SIDECAR_NAME_VERSION, [doc.id]);
+  await markBackupSidecarNamesMigrated(doc.id);
   return 'processed';
 }
 
@@ -189,12 +185,12 @@ export const canonicalBackupSidecars: Migration = {
     'kept and the backup edit recorded instead. Videos are unchanged. One-time; idempotent.',
 
   countRemaining(): Promise<number> {
-    return countCandidates(candidateScope());
+    return countCandidates(CANDIDATES);
   },
 
   runBatch(batchSize: number): Promise<MigrationBatchResult> {
     return runCandidateBatch({
-      scope: candidateScope(),
+      scope: CANDIDATES,
       batchSize,
       log,
       skippedWarning: 'canonical backup sidecars: assets skipped — library root not resolved',

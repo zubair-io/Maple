@@ -54,14 +54,11 @@ function divergences(library: MigrationLibrary) {
     .all();
 }
 
-function stamped(library: MigrationLibrary, id: string): unknown {
+function stamped(library: MigrationLibrary, id: string): boolean {
   return (
-    library.db
-      .query(`SELECT backup_sidecar_name_version AS v FROM assets WHERE id = ?`)
-      .get(id) as {
-      v: number | null;
-    }
-  ).v;
+    library.db.query(`SELECT 1 FROM backup_sidecar_names_migrated WHERE asset_id = ?`).get(id) !==
+    null
+  );
 }
 
 async function runTick(): Promise<void> {
@@ -82,7 +79,7 @@ describe('canonical-backup-sidecars', () => {
     expect(await read(library, 'IMG_1.xmp')).toBe(maple('backup edit'));
     expect(await read(library, 'IMG_1.HEIC.xmp')).toBeNull();
     expect(divergences(library)).toEqual([]);
-    expect(stamped(library, id)).toBe(1);
+    expect(stamped(library, id)).toBe(true);
   });
 
   it('drops the backup copy when the canonical sidecar already holds the same edit', async () => {
@@ -146,7 +143,7 @@ describe('canonical-backup-sidecars', () => {
     await runTick();
 
     expect(await read(library, 'IMG_5.MOV.xmp')).toBe(maple('clip edit'));
-    expect(stamped(library, id)).toBe(1);
+    expect(stamped(library, id)).toBe(true);
   });
 
   it('leaves a photo whose library is offline for a later tick', async () => {
@@ -159,7 +156,7 @@ describe('canonical-backup-sidecars', () => {
     await runTick();
 
     expect(await read(library, 'IMG_6.HEIC.xmp')).toBe(maple('backup edit'));
-    expect(stamped(library, id)).toBeNull();
+    expect(stamped(library, id)).toBe(false);
   });
 
   it('leaves a photo whose mount is gone for a later tick', async () => {
@@ -173,7 +170,7 @@ describe('canonical-backup-sidecars', () => {
 
     await runTick();
 
-    expect(stamped(library, id)).toBeNull();
+    expect(stamped(library, id)).toBe(false);
   });
 
   it('leaves an old-name sidecar another tool wrote untouched', async () => {
@@ -187,7 +184,7 @@ describe('canonical-backup-sidecars', () => {
 
     expect(await read(library, 'IMG_9.JPG.xmp')).toBe(foreign);
     expect(await read(library, 'IMG_9.xmp')).toBeNull();
-    expect(stamped(library, id)).toBe(1);
+    expect(stamped(library, id)).toBe(true);
   });
 
   it('stamps a photo whose old-name sidecar is a link and leaves the link', async () => {
@@ -202,7 +199,7 @@ describe('canonical-backup-sidecars', () => {
     await runTick();
 
     expect(await read(library, 'IMG_10.xmp')).toBeNull();
-    expect(stamped(library, id)).toBe(1);
+    expect(stamped(library, id)).toBe(true);
   });
 
   it('marks a moved edit as a server edit of the photo', async () => {

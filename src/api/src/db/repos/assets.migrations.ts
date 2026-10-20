@@ -53,8 +53,7 @@ export type MigrationMarker =
   | 'video_meta_version'
   | 'video_poster_rearm_version'
   | 'video_screenshot_clear_version'
-  | 'preview_missing_redrive_version'
-  | 'backup_sidecar_name_version';
+  | 'preview_missing_redrive_version';
 
 /** A location whose file is still where the asset says it is. */
 export const LIVE_LOCATION = `l.deleted_at IS NULL AND l.missing_since IS NULL`;
