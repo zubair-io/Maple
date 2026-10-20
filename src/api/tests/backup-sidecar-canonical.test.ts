@@ -277,11 +277,17 @@ describe("the device's one-time re-send never loses a later web edit (#5021)", (
     );
     expect(saved.status).toBe(204);
     const onDiskWebEdit = (await read('2024/07/01/IMG_30.xmp'))!;
+    expect(onDiskWebEdit).toContain('web edit');
 
     const res = await post(photo, mapleXmp('re-sent device edit'), 'none');
 
     expect(await res.json()).toEqual({ target_rel_path: '2024/07/01/IMG_30.xmp', diverged: true });
     expect(await read('2024/07/01/IMG_30.xmp')).toBe(mapleXmp('re-sent device edit'));
+    expect(
+      live.db
+        .query(`SELECT asset_id, base_sha256 FROM sidecar_divergences WHERE sidecar_rel_path = ?`)
+        .all('2024/07/01/IMG_30.xmp'),
+    ).toEqual([{ asset_id: photo.assetId.toHexString(), base_sha256: null }]);
     expect(keptAside('2024/07/01/IMG_30.xmp')).toEqual([
       {
         displaced_xmp: onDiskWebEdit,
