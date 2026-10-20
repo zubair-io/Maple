@@ -437,3 +437,29 @@ describe('a no-base send over something that is not a regular sidecar (#5021)', 
     expect(await fs.readFile(path.join(dir, 'elsewhere.xmp'), 'utf8')).toBe(mapleXmp('linked'));
   });
 });
+
+describe('a version kept aside by both the route and the migration is recorded once (#5021)', () => {
+  test("a send's retirement and the migration agree on the kept-aside key", async () => {
+    const photo = await seedUpload('2024/12/03/IMG_82.HEIC');
+    const legacy = path.join(tmpLib, '2024/12/03/IMG_82.HEIC.xmp');
+    live.db
+      .query(
+        `INSERT INTO sidecar_divergences
+           (id, asset_id, library_id, sidecar_rel_path, device_id, base_sha256,
+            displaced_sha256, displaced_xmp, incoming_sha256, created_at)
+         VALUES ('bbbbbbbbbbbbbbbbbbbbbbbb', ?, ?, '2024/12/03/IMG_82.xmp', 'migration', NULL, ?, ?, ?, '2024-01-01')`,
+      )
+      .run(
+        photo.assetId.toHexString(),
+        libId.toHexString(),
+        sha256(mapleXmp('older send')),
+        mapleXmp('older send'),
+        sha256(mapleXmp('older send')),
+      );
+    await fs.writeFile(legacy, mapleXmp('older send'));
+
+    expect((await post(photo, mapleXmp('newer edit'), 'none')).status).toBe(200);
+
+    expect(keptAside('2024/12/03/IMG_82.xmp')).toHaveLength(1);
+  });
+});
