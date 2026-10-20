@@ -216,7 +216,6 @@ async function targetRefusal(
   if (path.extname(targetRelPath) === '') {
     return { status: 400, error: 'X-Maple-Target-Rel-Path has no file extension' };
   }
-  // Both branches publish the photo's canonical sidecar, so the path must be that photo's.
   return (await isLiveLocationOfAsset(assetId, libraryId, targetRelPath))
     ? null
     : { status: 404, error: 'no prior upload of this asset at this path' };

@@ -1,8 +1,6 @@
 import type { Migration, MigrationDb } from '../migrate.ts';
 
-/** 0034 — the canonical-backup-sidecars migration's per-asset state (#5021):
- * `checked = 1` done, `0` due again (e.g. after a merge). Its own table, so the
- * `assets` schema is unchanged. */
+/** 0034 — canonical-backup-sidecars state per asset (#5021): `checked` 1 done, 0 due again. */
 export const backupSidecarNameChecksMigration: Migration = {
   id: '0034-backup-sidecar-name-checks',
   async up(db: MigrationDb): Promise<void> {

@@ -3,7 +3,7 @@ import { runMigrations } from '../migrate.ts';
 import { ALL_MIGRATIONS } from './index.ts';
 import { createBlankTestDatabase } from '../test-sqlite.test-helpers.ts';
 
-test('adds the canonical-backup-sidecars done table and leaves assets unchanged', async () => {
+test('adds the canonical-backup-sidecars per-asset check table and leaves assets unchanged', async () => {
   using handle = createBlankTestDatabase('file');
   const result = await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
   expect(result.applied).toContain('0034-backup-sidecar-name-checks');
