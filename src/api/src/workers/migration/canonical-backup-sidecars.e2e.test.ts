@@ -16,6 +16,7 @@ import { getMigration } from './index.ts';
 import { resetMigrationState, setMigrationEnabled } from '../migration-config.repo.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import { createLibrary, seedAsset, type MigrationLibrary } from './migration.test-helpers.ts';
+import { serializeSidecarWrite } from '../../fs/sidecar-write-order.ts';
 
 const MIGRATION_ID = 'canonical-backup-sidecars';
 const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
@@ -273,6 +274,34 @@ describe('canonical-backup-sidecars', () => {
 
     expect(await read(library, 'IMG_14.xmp')).toBe(maple('newer edit'));
     expect(await read(library, 'IMG_14.HEIC.xmp')).toBeNull();
+  });
+
+  it('leaves an old-name file alone when its photo moves while the migration waits', async () => {
+    using library = await backupLibrary('canon-moved-');
+    await write(library, 'IMG_15.HEIC', 'pixels');
+    await write(library, 'IMG_15.HEIC.xmp', maple('backup edit'));
+    const id = backupPhoto(library, 'IMG_15.HEIC');
+    const canonical = path.join(library.root, DIR, 'IMG_15.xmp');
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const inside = new Promise<void>((resolve) => (entered = resolve));
+    const holder = serializeSidecarWrite(canonical, async () => {
+      entered();
+      await held;
+    });
+    await inside;
+
+    const tick = runTick();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    library.db.query(`UPDATE asset_locations SET path = '2024/Moved' WHERE asset_id = ?`).run(id);
+    release();
+    await holder;
+    await tick;
+
+    expect(await read(library, 'IMG_15.xmp')).toBeNull();
+    expect(await read(library, 'IMG_15.HEIC.xmp')).toBe(maple('backup edit'));
+    expect(stamped(library, id)).toBe(false);
   });
 
   it('counts down to nothing remaining once every backup photo is handled', async () => {
