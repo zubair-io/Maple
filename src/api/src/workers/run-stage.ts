@@ -21,7 +21,7 @@
 
 import { child as childLogger } from '../log.ts';
 import { ThroughputWindow } from './throughput-window.ts';
-import { StallWatch } from './stall-watch.ts';
+import { DEFAULT_STALL_AFTER_MINUTES, StallWatch } from './stall-watch.ts';
 import { stageRegistry } from './registry.ts';
 import { POLL_INTERVAL_MS, nextPollDelay } from './loop-policy.ts';
 import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
@@ -132,7 +132,11 @@ export async function runStage<TPatch>(stage: StageConfig<TPatch>): Promise<RunS
     getInFlight: () => inFlightSet.size,
     getThroughput: () => throughput.countInWindow(),
     getPaused: () => config.paused,
-    getStalledForMs: () => stallWatch.stalledForMs(inFlightSet.size),
+    getStalledForMs: () =>
+      stallWatch.stalledForMs(
+        inFlightSet.size,
+        (config.stallAfterMinutes ?? DEFAULT_STALL_AFTER_MINUTES) * 60_000,
+      ),
     reloadConfig: async () => {
       const updated = await repo.load(stage.name);
       if (updated) {
@@ -196,6 +200,7 @@ export async function runStage<TPatch>(stage: StageConfig<TPatch>): Promise<RunS
 
   const poll = async (): Promise<void> => {
     if (shuttingDown) return;
+    stallWatch.polled();
     await reloadConfigIfDue();
     // The global idle cadence, unless a full batch (→ 0, drain the backlog) or
     // an error (→ exponential backoff) overrides it. See `nextPollDelay`.

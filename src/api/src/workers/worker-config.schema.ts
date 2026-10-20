@@ -4,6 +4,7 @@ import { t } from 'elysia';
 export const WorkerConfigBody = t.Object({
   concurrency: t.Optional(t.Integer({ minimum: 1, maximum: 100 })),
   maxAttempts: t.Optional(t.Integer({ minimum: 1, maximum: 20 })),
+  stallAfterMinutes: t.Optional(t.Integer({ minimum: 5, maximum: 1440 })),
   paused: t.Optional(t.Boolean()),
   pollIntervalMs: t.Optional(t.Unknown()),
   batchSize: t.Optional(t.Unknown()),

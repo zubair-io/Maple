@@ -73,6 +73,8 @@ export interface WorkerConfig {
   pause_reason?: string | null;
   /** Operator-assigned semver version string, e.g. "v0.2.1". */
   version?: string | null;
+  /** Minutes without progress before Settings → Workers shows the stage as stalled. */
+  stallAfterMinutes?: number;
   /** Operator custom prompt instructions (text only, schema is excluded). */
   prompt_text?: string | null;
   /** Assigned AI provider, e.g. "ollama", "openai", "anthropic", "gemini". */
