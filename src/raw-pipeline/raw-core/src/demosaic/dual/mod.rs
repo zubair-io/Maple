@@ -78,8 +78,9 @@ pub(crate) fn dual_amaze_vng4_with_gains(
     mosaic: &Image,
     cfa: CfaPattern,
     scales: [f32; 3],
+    site_gains: Option<&[f32]>,
 ) -> Image {
-    let detailed = super::amaze::amaze_with_gains(mosaic, cfa, scales);
+    let detailed = super::amaze::amaze_with_sensor_gains(mosaic, cfa, scales, site_gains);
     blend_vng4_into(detailed, mosaic, cfa, CancelToken::never())
 }
 

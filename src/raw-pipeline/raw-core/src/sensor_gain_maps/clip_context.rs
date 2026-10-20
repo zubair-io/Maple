@@ -1,4 +1,5 @@
 use crate::image::{CfaPattern, RawImage};
+use rayon::prelude::*;
 
 #[derive(Clone, Copy)]
 pub(crate) struct ClipGainContext<'a> {
@@ -22,6 +23,19 @@ impl<'a> ClipGainContext<'a> {
             divisor: divisor.max(1),
             minimum_scale: (minimum * (1. - 1e-6)).max(0.),
         })
+    }
+
+    /// Each site's own gain over a full-resolution `width × height` window,
+    /// exactly as `sensor_linearize` applied it.
+    pub(crate) fn site_gains(self, width: u32, height: u32) -> Vec<f32> {
+        let maps = self.raw.sensor_gain_maps.as_ref().unwrap();
+        (0..width as usize * height as usize)
+            .into_par_iter()
+            .map(|i| {
+                let (x, y) = (i as u32 % width, i as u32 / width);
+                maps.gain_at(self.origin.0 + x, self.origin.1 + y, 0)
+            })
+            .collect()
     }
 
     pub(crate) fn minimum_scale(self) -> f32 {

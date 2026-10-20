@@ -150,17 +150,10 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         ));
     }
     mosaic.assert_space(crate::image::ColorSpace::CameraNativeMosaic);
-    let mut camera_rgb = super::prefix::from_mosaic(
-        mosaic,
-        raw,
-        model,
-        quality,
-        (
-            tile_origin.0 * effective_quality_divisor(quality, raw.cfa),
-            tile_origin.1 * effective_quality_divisor(quality, raw.cfa),
-        ),
-        cancel,
-    );
+    let divisor = effective_quality_divisor(quality, raw.cfa);
+    let sensor_origin = (tile_origin.0 * divisor, tile_origin.1 * divisor);
+    let mut camera_rgb =
+        super::prefix::from_mosaic(mosaic, raw, model, quality, sensor_origin, cancel);
 
     stage("tile_highlight_recovery", || {
         highlight_recovery::apply_in_sensor_space(
@@ -170,14 +163,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
             raw.baseline_exposure,
             active_area,
             Some(highlight_frame),
-            crate::sensor_gain_maps::ClipGainContext::new(
-                raw,
-                (
-                    tile_origin.0 * effective_quality_divisor(quality, raw.cfa),
-                    tile_origin.1 * effective_quality_divisor(quality, raw.cfa),
-                ),
-                effective_quality_divisor(quality, raw.cfa),
-            ),
+            crate::sensor_gain_maps::ClipGainContext::new(raw, sensor_origin, divisor),
         )
     });
     // DNG OpcodeList3 (#376, #4288): vendor corrections applied in
