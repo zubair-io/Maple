@@ -358,23 +358,27 @@ describe('a failed old-name retirement is retried, never left to replay (#5021)'
 });
 
 describe('a retirement that keeps failing records its kept-aside edit once (#5021)', () => {
-  test('repeated failing sends do not pile up identical divergence rows', async () => {
-    const photo = await seedUpload('2024/10/02/IMG_61.HEIC');
-    const dir = path.join(tmpLib, '2024/10/02');
-    await fs.writeFile(path.join(dir, 'IMG_61.HEIC.xmp'), mapleXmp('older send'));
-    await fs.writeFile(path.join(dir, 'IMG_61.xmp'), mapleXmp('newer edit'));
-    await fs.chmod(dir, 0o555);
-    const statuses = await (async () => {
-      try {
-        const first = await post(photo, mapleXmp('newer edit'), 'none');
-        const second = await post(photo, mapleXmp('newer edit'), 'none');
-        return [first.status, second.status];
-      } finally {
-        await fs.chmod(dir, 0o755);
-      }
-    })();
+  // A read-only folder can't block root's unlink, so the failure can't be forced there.
+  test.skipIf(process.getuid?.() === 0)(
+    'repeated failing sends do not pile up identical divergence rows',
+    async () => {
+      const photo = await seedUpload('2024/10/02/IMG_61.HEIC');
+      const dir = path.join(tmpLib, '2024/10/02');
+      await fs.writeFile(path.join(dir, 'IMG_61.HEIC.xmp'), mapleXmp('older send'));
+      await fs.writeFile(path.join(dir, 'IMG_61.xmp'), mapleXmp('newer edit'));
+      await fs.chmod(dir, 0o555);
+      const statuses = await (async () => {
+        try {
+          const first = await post(photo, mapleXmp('newer edit'), 'none');
+          const second = await post(photo, mapleXmp('newer edit'), 'none');
+          return [first.status, second.status];
+        } finally {
+          await fs.chmod(dir, 0o755);
+        }
+      })();
 
-    expect(statuses).toEqual([500, 500]);
-    expect(keptAside('2024/10/02/IMG_61.xmp')).toHaveLength(1);
-  });
+      expect(statuses).toEqual([500, 500]);
+      expect(keptAside('2024/10/02/IMG_61.xmp')).toHaveLength(1);
+    },
+  );
 });
