@@ -280,7 +280,7 @@ Guards with a base only:
 
 - a malformed base is a `400`.
 
-A request without the header keeps the original rule: the sidecar is written only when none exists (#698). That write is create-only and runs under the same barrier, so it can never land over a compare-and-swap edit. Merging duplicate assets moves their divergence rows to the surviving asset.
+A request without the header keeps the original rule: the sidecar is written only when none exists (#698). That write is create-only and runs under the same barrier, so it can never land over a compare-and-swap edit. Merging duplicate assets moves their divergence rows to the surviving asset. When either asset came from a backup, the merge also sets the survivor due again for the `canonical-backup-sidecars` check, since its moved locations may still hold pre-#5021 sidecars.
 
 ## Library backup destinations
 

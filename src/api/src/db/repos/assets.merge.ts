@@ -180,8 +180,7 @@ export async function mergeIntoSurvivor(args: {
       params: [args.survivorId, args.condemnedId],
     },
     {
-      // Moved backup locations may still hold pre-#5021 `IMG.HEIC.xmp` sidecars,
-      // and the condemned links that made them eligible go with the delete below.
+      // Moved locations may hold pre-#5021 `IMG.HEIC.xmp`; the links that qualified them go below.
       sql: `INSERT INTO backup_sidecar_name_checks (asset_id, checked)
         SELECT ?, 0 WHERE EXISTS (SELECT 1 FROM asset_phasset_links WHERE asset_id IN (?, ?))
           OR EXISTS (SELECT 1 FROM backup_sidecar_name_checks WHERE asset_id = ? AND checked = 0)
