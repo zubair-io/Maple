@@ -9,6 +9,7 @@
 import { describe, it, expect, afterEach } from 'bun:test';
 import * as fs from '../../fs/mirrored.ts';
 import * as path from 'node:path';
+import { createHash } from 'node:crypto';
 import { stageRegistry } from '../registry.ts';
 import { runMigrationTickOnce } from '../migration.ts';
 import { getMigration } from './index.ts';
@@ -17,6 +18,7 @@ import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import { createLibrary, seedAsset, type MigrationLibrary } from './migration.test-helpers.ts';
 
 const MIGRATION_ID = 'canonical-backup-sidecars';
+const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
 const maple = (label: string) =>
   `<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">${label}</x:xmpmeta>`;
 const DIR = '2024/Kyoto';
@@ -243,6 +245,34 @@ describe('canonical-backup-sidecars', () => {
 
     expect(await read(library, 'IMG_13.xmp')).toBe(maple('backup edit'));
     expect(stamped(library, id)).toBe(true);
+  });
+
+  it('removes an old-name file a device send already superseded, without replaying it', async () => {
+    using library = await backupLibrary('canon-superseded-');
+    await write(library, 'IMG_14.HEIC', 'pixels');
+    await write(library, 'IMG_14.HEIC.xmp', maple('older send'));
+    await write(library, 'IMG_14.xmp', maple('newer edit'));
+    const id = backupPhoto(library, 'IMG_14.HEIC');
+    library.db
+      .query(
+        `INSERT INTO sidecar_divergences
+           (id, asset_id, library_id, sidecar_rel_path, device_id, base_sha256,
+            displaced_sha256, displaced_xmp, incoming_sha256, created_at)
+         VALUES ('aaaaaaaaaaaaaaaaaaaaaaaa', ?, ?, ?, 'phone', NULL, ?, ?, ?, '2024-01-01')`,
+      )
+      .run(
+        id,
+        library.folderId.toHexString(),
+        `${DIR}/IMG_14.xmp`,
+        sha256(maple('older send')),
+        maple('older send'),
+        sha256(maple('newer edit')),
+      );
+
+    await runTick();
+
+    expect(await read(library, 'IMG_14.xmp')).toBe(maple('newer edit'));
+    expect(await read(library, 'IMG_14.HEIC.xmp')).toBeNull();
   });
 
   it('counts down to nothing remaining once every backup photo is handled', async () => {
