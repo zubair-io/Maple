@@ -385,9 +385,11 @@ export class BackupEngine {
       return;
     }
   }
-  /** Re-arms entries parked on connection failures once a cheap probe shows
-   * Google reachable again, so recovery never waits on a transfer that cannot
-   * be claimed until its backoff expires (#5038). */
+  private readonly probeHealthy = new Map<string, boolean>();
+  /** Re-arms entries parked on connection failures when a cheap probe shows
+   * Google reachable again after it was not (or for the first time since
+   * boot), so recovery never waits on a transfer that cannot be claimed until
+   * its backoff expires, and still-failing entries keep their backoff (#5038). */
   async rearmParkedConnections(signal?: AbortSignal): Promise<void> {
     for (const destination of await this.repo.destinations()) {
       if (destination.kind !== 'google-drive' || !destination.enabled) continue;
@@ -396,7 +398,10 @@ export class BackupEngine {
         .then((provider) => provider.probe(signal))
         .then(() => true)
         .catch(() => false);
-      if (healthy) await this.repo.clearResolvedConnectionErrors(destination.id);
+      const wasHealthy = this.probeHealthy.get(destination.id);
+      this.probeHealthy.set(destination.id, healthy);
+      if (healthy && wasHealthy !== true)
+        await this.repo.clearResolvedConnectionErrors(destination.id);
     }
   }
   async backupAsset(assetId: string, signal?: AbortSignal): Promise<boolean> {
