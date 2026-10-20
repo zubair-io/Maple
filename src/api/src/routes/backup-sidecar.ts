@@ -53,7 +53,8 @@ import { child as childLogger } from '../log.ts';
 import path from 'node:path';
 import { xmpSidecarPath } from '../fs/xmp.ts';
 import { sidecarStemClaimedBySibling } from '../fs/sidecar-ownership.ts';
-import { settleBackupSidecarSend, type LandedBackupSidecar } from '../backup/legacy-sidecar.ts';
+import { hasLegacyBackupEdit, retireLegacyBackupSidecar } from '../backup/legacy-sidecar.ts';
+import { publishSidecarChange } from './xmp-change.ts';
 import {
   parseSidecarBase,
   publishSidecarCas,
@@ -132,6 +133,7 @@ async function publishBackupSidecarCas(
   if (!(await isLiveLocationOfAsset(req.assetId, req.libraryId, req.targetRelPath))) {
     return { status: 404, body: { error: 'no prior upload of this asset at this path' } };
   }
+  const primary = path.join(req.libraryRoot, req.targetRelPath);
   const outcome = await publishSidecarCas(
     req.finalPath,
     req.xmp,
@@ -150,7 +152,18 @@ async function publishBackupSidecarCas(
       return () => forgetSidecarDivergence(id);
     },
     req.libraryRoot,
-    await sidecarStemClaimedBySibling(path.join(req.libraryRoot, req.targetRelPath)),
+    {
+      shared: await sidecarStemClaimedBySibling(primary),
+      afterLanded: () =>
+        retireLegacyBackupSidecar({
+          primary,
+          xmp: req.xmp,
+          assetId: req.assetId,
+          libraryId: req.libraryId,
+          sidecarRelPath: req.sidecarRelPath,
+          deviceId: req.deviceId,
+        }),
+    },
   );
   log.debug(
     { phid: req.phid, sidecarRelPath: req.sidecarRelPath, outcome: outcome.kind },
@@ -177,14 +190,10 @@ async function publishBackupSidecarCas(
   return { status: 200, body };
 }
 
-/** Every 200 but a skip leaves the device's edit on disk or kept aside (#5021). */
-async function settleLanded(
-  result: { status: number; body: Record<string, unknown> },
-  landed: Omit<LandedBackupSidecar, 'changed'>,
-): Promise<void> {
-  if (result.status !== 200 || 'skipped' in result.body) return;
-  const changed = !('unchanged' in result.body) && !('shared' in result.body);
-  await settleBackupSidecarSend({ ...landed, changed });
+/** A send that changed the canonical sidecar is a server edit of the photo (#5021). */
+function changedSidecar(result: { status: number; body: Record<string, unknown> }): boolean {
+  if (result.status !== 200) return false;
+  return !['skipped', 'unchanged', 'shared'].some((outcome) => outcome in result.body);
 }
 
 export const backupSidecarRoutes = new Elysia().post(
@@ -265,9 +274,13 @@ export const backupSidecarRoutes = new Elysia().post(
     const baseHeader = headers['x-maple-sidecar-base'];
     // SKIP-IF-EXISTS without a base: a dedup re-upload from a second device must
     // not clobber the first device's (possibly already-edited) sidecar (#698).
+    const primary = path.join(folder.path, targetRelPath);
+    // Without a base, an edit still under the pre-#5021 name counts as existing.
     const result =
       baseHeader === undefined
-        ? await publishLegacySidecar(finalPath, sidecarRelPath, buf, folder.path, phid)
+        ? (await hasLegacyBackupEdit(primary))
+          ? { status: 200, body: { target_rel_path: sidecarRelPath, skipped: true } }
+          : await publishLegacySidecar(finalPath, sidecarRelPath, buf, folder.path, phid)
         : await publishBackupSidecarCas({
             finalPath,
             targetRelPath,
@@ -280,14 +293,7 @@ export const backupSidecarRoutes = new Elysia().post(
             libraryRoot: folder.path,
             phid,
           });
-    await settleLanded(result, {
-      primary: path.join(folder.path, targetRelPath),
-      xmp,
-      assetId: asset,
-      libraryId,
-      sidecarRelPath,
-      deviceId,
-    });
+    if (changedSidecar(result)) await publishSidecarChange(primary, true);
     set.status = result.status;
     return result.body;
   },
