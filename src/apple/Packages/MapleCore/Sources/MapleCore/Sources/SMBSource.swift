@@ -93,7 +93,7 @@ public actor SMBSource {
   /// Matches `raw_core::SHA1_HEAD_BYTES` (`id.rs`) and
   /// `FilesystemSource.mapleIdHeadByteCount`; duplicated as a literal
   /// rather than threaded across the FFI boundary for a single integer.
-  private static let mapleIdHeadByteCount = 64 * 1024
+  static let mapleIdHeadByteCount = 64 * 1024
 
   public var assets: [SMBAsset] { _assets }
 
@@ -103,20 +103,6 @@ public actor SMBSource {
 
   /// Connect to an SMB share and enumerate RAW files in a path.
   public func connect(credentials: Credentials, remotePath: String = "/") async throws {
-    if self.credentials?.host != credentials.host
-      || self.credentials?.share != credentials.share
-      || self.credentials?.username != credentials.username
-    {
-      relocatedPaths = [:]
-    }
-    // Another share retires every earlier ref; an address change alone keeps them (#4987).
-    if self.credentials?.share != credentials.share
-      || self.credentials?.username != credentials.username
-    {
-      listingID = UUID()
-    }
-    self.credentials = credentials
-
     guard let serverURL = URL(string: "smb://\(credentials.host)") else {
       throw SMBError.invalidServerURL(credentials.host)
     }
@@ -131,8 +117,23 @@ public actor SMBSource {
     }
 
     try await mgr.connectShare(name: credentials.share)
+    let listed: [SMBAsset]
+    do { listed = try await listRAWFiles(at: remotePath, client: mgr) } catch {
+      try? await mgr.disconnectShare(gracefully: false)
+      throw error
+    }
+    // One unsuspended swap, compared against the connection live NOW (a concurrent connect
+    // may have finished meanwhile): no reentrant call mixes two shares' state. Another share
+    // retires every earlier ref; an address change alone keeps them (#4987).
+    let switchesShare =
+      self.credentials?.share != credentials.share
+      || self.credentials?.username != credentials.username
+    let switchesServer = switchesShare || self.credentials?.host != credentials.host
+    if switchesServer { relocatedPaths = [:] }
+    if switchesShare { listingID = UUID() }
+    self.credentials = credentials
     self.client = mgr
-    _assets = try await listRAWFiles(at: remotePath, client: mgr)
+    _assets = listed
     self.idCache = MapleIdCacheStore(
       storage: SMBIdCacheStorage(client: mgr, remotePath: remotePath))
   }
@@ -179,11 +180,13 @@ public actor SMBSource {
   ) async throws -> String {
     guard let client else { throw SMBError.notConnected }
     let sourcePath = try mutationPath(for: ref)
+    let identity = listingID
     let destinationDir = (sourcePath as NSString).deletingLastPathComponent
     let outcome = try await SMBFileOperations.relocate(
       sourcePath, to: destinationDir, newBasename: newFilename,
       mode: .move, collision: collision, transport: client)
-    recordRelocation(ref, from: sourcePath, to: outcome.primaryPath)
+    guard recordRelocation(ref, from: sourcePath, to: outcome.primaryPath, listedAs: identity)
+    else { return outcome.primaryPath }
     if let idx = _assets.firstIndex(where: { $0.path == sourcePath }) {
       let old = _assets[idx]
       _assets[idx] = SMBAsset(path: outcome.primaryPath, size: old.size, mtime: old.mtime)
@@ -203,10 +206,12 @@ public actor SMBSource {
   ) async throws -> RelocateOutcome {
     guard let client else { throw SMBError.notConnected }
     let sourcePath = try mutationPath(for: ref)
+    let identity = listingID
     let outcome = try await SMBFileOperations.relocate(
       sourcePath, to: destinationDir, mode: mode, collision: collision, transport: client)
-    guard mode == .move else { return outcome }
-    recordRelocation(ref, from: sourcePath, to: outcome.primaryPath)
+    guard mode == .move,
+      recordRelocation(ref, from: sourcePath, to: outcome.primaryPath, listedAs: identity)
+    else { return outcome }
     if let idx = _assets.firstIndex(where: { $0.path == sourcePath }) {
       let old = _assets[idx]
       _assets[idx] = SMBAsset(path: outcome.primaryPath, size: old.size, mtime: old.mtime)
@@ -223,8 +228,10 @@ public actor SMBSource {
   public func trashAsset(_ ref: ImageRef) async throws -> RelocateOutcome {
     guard let client else { throw SMBError.notConnected }
     let sourcePath = try mutationPath(for: ref)
+    let identity = listingID
     let outcome = try await SMBFileOperations.trash(sourcePath, transport: client)
-    recordRelocation(ref, from: sourcePath, to: outcome.primaryPath)
+    guard recordRelocation(ref, from: sourcePath, to: outcome.primaryPath, listedAs: identity)
+    else { return outcome }
     _assets.removeAll { $0.path == sourcePath }
     return outcome
   }
@@ -346,85 +353,6 @@ public actor SMBSource {
     }
     throw lastError ?? SMBError.writeFailedAfterRetries
   }
-
-  // MARK: - maple_id derivation (#1995)
-
-  /// Resolve a maple_id for `asset`, consulting the share's id-cache first
-  /// (`MapleIdCacheStore.lookup`) and only re-deriving (then persisting) on
-  /// a cache miss or a stale entry (size/mtime mismatch — the file was
-  /// replaced at this path since the id was last computed). Returns `nil`
-  /// when not connected or derivation itself fails; `images()` falls back
-  /// to the share-relative path in that case.
-  ///
-  /// Staleness scope: `asset.size`/`asset.mtime` come from the listing
-  /// snapshot taken at `connect()` (`listRAWFiles`), not a fresh
-  /// `attributesOfItem` stat per call — an intentional trade-off, unlike
-  /// `FilesystemSource.mapleId(for:)`, which DOES re-stat on every call
-  /// (cheap: a local syscall). Re-statting every asset over SMB on every
-  /// `images()` call would reintroduce a per-file network round-trip on
-  /// every UI refresh — exactly the cost this cache exists to avoid. A
-  /// file replaced at the same path is still correctly detected across
-  /// browses (each `connect()` re-lists and captures fresh size/mtime),
-  /// just not for a replacement that happens to land between two
-  /// `images()` calls on the SAME still-open connection without an
-  /// intervening reconnect.
-  private func mapleId(for asset: SMBAsset) async -> String? {
-    guard let client, let idCache else { return nil }
-    if let cached = await idCache.lookup(
-      path: asset.path, size: asset.size, mtime: asset.mtime.timeIntervalSince1970)
-    {
-      return cached
-    }
-    guard let derived = await deriveMapleId(for: asset, client: client) else { return nil }
-    await idCache.record(
-      path: asset.path, mapleId: derived,
-      size: asset.size, mtime: asset.mtime.timeIntervalSince1970)
-    return derived
-  }
-
-  /// Derive a maple_id from scratch over SMB: a single bounded range read
-  /// (`0..<64KB`) supplies BOTH the primary-form head hash input and the
-  /// EXIF extraction buffer (real camera RAWs — all TIFF-based — keep
-  /// their EXIF IFD near the start of the file, well within 64 KB; when
-  /// that assumption doesn't hold for a given file, EXIF extraction simply
-  /// finds nothing and this correctly falls through to fallback form
-  /// rather than mis-deriving). Only when primary form isn't viable does
-  /// this stream the WHOLE file — via AMSMB2's native
-  /// `AsyncThrowingStream` range-read API, never materialised as one
-  /// buffer — through `FallbackFormHasher`.
-  private func deriveMapleId(for asset: SMBAsset, client: SMB2Manager) async -> String? {
-    guard
-      let headBytes = try? await client.contents(
-        atPath: asset.path, range: UInt64(0)..<UInt64(Self.mapleIdHeadByteCount))
-    else { return nil }
-    guard !headBytes.isEmpty else { return nil }
-
-    let dates = ImageMetadataReader.readRawCaptureDateStrings(from: headBytes)
-
-    // ONE stream, ONE iterator, shared by reference across every
-    // `nextChunk()` call — `client.contents(atPath:)` opens a fresh
-    // `SMB2FileHandle` and starts reading from byte 0 each time it's
-    // called, so calling it again per chunk would silently re-read the
-    // same leading bytes forever instead of advancing through the file.
-    var iterator: AsyncThrowingStream<Data, any Error>.Iterator?
-
-    // `try?`: a mid-stream SMB read failure (dropped connection, etc.)
-    // must not surface a partial/wrong id — `derive` is `rethrows`
-    // because `nextChunk` can throw, so a thrown error here correctly
-    // collapses to `nil`, matching this function's established
-    // fail-safe-to-nil contract (see the `headBytes` guard above).
-    return try? await MapleIdDerivation.derive(
-      headBytes: headBytes,
-      exifDateTimeOriginal: dates.dateTimeOriginal,
-      exifCreateDate: dates.createDate,
-      filesize: UInt64(asset.size),
-      nextChunk: {
-        // Primary-form identity never requests a whole-file stream.
-        if iterator == nil { iterator = client.contents(atPath: asset.path).makeAsyncIterator() }
-        return (try await iterator?.next()) ?? Data()
-      }
-    )
-  }
 }
 
 // MARK: - SMBIdCacheStorage
@@ -504,16 +432,20 @@ extension SMBSource: ImageSource {
   /// can't open an `smb://` URL as a file URL, so the prior synthetic URL
   /// caused decodes to fail silently downstream.
   public func images() async throws -> [ImageRef] {
+    // Hashing suspends; a reconnect must not stamp these paths with the next share's id,
+    // nor hash them through, or cache them on, the next share's connection (#4987).
+    let (identity, client, idCache) = (listingID, client, idCache)
     var refs: [ImageRef] = []
     refs.reserveCapacity(_assets.count)
     var freshPathByMapleId: [String: String] = [:]
     var freshAmbiguousIds: Set<String> = []
     for a in _assets {
-      let id = await mapleId(for: a) ?? a.path
+      let id = await mapleId(for: a, client: client, idCache: idCache) ?? a.path
       if freshPathByMapleId[id] != nil { freshAmbiguousIds.insert(id) }
       freshPathByMapleId[id] = a.path
-      refs.append(ImageRef(id: id, displayName: a.name, smbPath: a.path, smbSourceID: listingID))
+      refs.append(ImageRef(id: id, displayName: a.name, smbPath: a.path, smbSourceID: identity))
     }
+    guard identity == listingID else { throw CancellationError() }
     pathByMapleId = freshPathByMapleId
     ambiguousMapleIds = freshAmbiguousIds
     // A path listed again holds whatever file is there now, not the one moved away (#4992).
@@ -544,10 +476,15 @@ extension SMBSource: ImageSource {
     try await writeWithRetry(data: data, to: sidecarPath, client: client)
   }
 
-  private func recordRelocation(_ ref: ImageRef, from oldPath: String, to newPath: String) {
+  /// `false` when the source moved to another share while the file op ran.
+  private func recordRelocation(
+    _ ref: ImageRef, from oldPath: String, to newPath: String, listedAs identity: UUID
+  ) -> Bool {
+    guard identity == listingID else { return false }
     relocatedPaths = relocatedPaths.mapValues { $0 == oldPath ? newPath : $0 }
     relocatedPaths[ref] = newPath
     pathByMapleId[ref.id] = newPath
+    return true
   }
 
   // path(for:) / mutationPath(for:) live in SMBSource+Paths.swift.

@@ -201,7 +201,7 @@ public final class BrowseViewModel {
       photosAuthNeeded = false
       listingGeneration &+= 1
     } catch {
-      guard gen == loadGeneration else { return }
+      guard gen == loadGeneration, !(error is CancellationError) else { return }
       loadError = error
     }
   }
