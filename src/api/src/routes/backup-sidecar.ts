@@ -237,6 +237,11 @@ export const backupSidecarRoutes = new Elysia().post(
       set.status = 400;
       return { error: 'unsafe X-Maple-Target-Rel-Path' };
     }
+    // `xmpSidecarPath` maps every extensionless name to one folder-wide `.xmp`.
+    if (path.extname(targetRelPath) === '') {
+      set.status = 400;
+      return { error: 'X-Maple-Target-Rel-Path has no file extension' };
+    }
 
     // Check library exists.
     const folder = await backupLibrary(libraryId);
