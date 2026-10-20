@@ -6,16 +6,14 @@
  * canonical sidecar swaps the extension (`IMG_1234.xmp`). Videos already used
  * their canonical full-name sidecar, so only photos move.
  *
- * Per backed-up photo location, the old file is published to the canonical
- * name through the same compare-and-swap the route uses, based on no version:
- *   - no canonical sidecar yet → it is moved there;
- *   - the canonical sidecar holds the same edit → the old copy is dropped;
- *   - it holds a different (server) edit → the backup edit lands on top and the
- *     server version is kept in `sidecar_divergences`;
- *   - a same-stem sibling shares it (#4692) → it is kept, and the backup edit
- *     is recorded in `sidecar_divergences` instead.
- * The old file is removed only once its edit is safe, and only if it still
- * holds the bytes that were published.
+ * The migration runs in the worker child, outside the API process's in-memory
+ * sidecar barrier, so it never overwrites a canonical sidecar:
+ *   - none yet → the old-name edit is published there, create-only;
+ *   - one exists (a server edit, or one shared with a same-stem photo) → it
+ *     stays active and the old-name edit is kept in `sidecar_divergences`.
+ * A live device's re-send still lands its edit on top through the API. The
+ * old-name file is removed only once its edit is safe, and only if it still
+ * holds the bytes that were read.
  */
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
@@ -103,7 +101,8 @@ async function keepAsideAndRemove(edit: LegacyEdit): Promise<void> {
       displacedSha256: digest,
       incomingSha256: digest,
     };
-    if (!current?.equals(edit.bytes) && !(await hasSidecarDivergence(kept))) {
+    const already = await hasSidecarDivergence({ ...kept, incomingSha256: undefined });
+    if (!current?.equals(edit.bytes) && !already) {
       await recordSidecarDivergence({
         ...kept,
         deviceId: DIVERGENCE_SOURCE,
@@ -246,9 +245,9 @@ export const canonicalBackupSidecars: Migration = {
   title: 'Canonical backup sidecars',
   description:
     'Moves backed-up photo edits saved as IMG_1234.HEIC.xmp to the IMG_1234.xmp the server ' +
-    'reads (#5021). Where a server edit already exists, the backup edit is placed on top and ' +
-    'the server version is kept as a divergence; a sidecar shared with a same-stem photo is ' +
-    'kept and the backup edit recorded instead. Videos are unchanged. One-time; idempotent.',
+    'reads (#5021). Where an IMG_1234.xmp already exists it stays the active edit and the ' +
+    'backup edit is kept as a divergence; nothing is overwritten or deleted without being ' +
+    'recorded. Videos are unchanged. Do not enable until #5063 lands. One-time; idempotent.',
 
   countRemaining(): Promise<number> {
     return countCandidates(CANDIDATES);

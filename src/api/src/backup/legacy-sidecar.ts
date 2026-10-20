@@ -11,6 +11,7 @@ import {
   recordSidecarDivergence,
 } from '../db/repos/sidecar-divergences.repo.ts';
 import { readSidecarBytes, SidecarNotRegularFileError } from '../fs/sidecar-ownership.ts';
+import { errnoCode } from '../fs/relocate-publish.ts';
 import { xmpSidecarPath } from '../fs/xmp.ts';
 import * as fs from '../fs/mirrored.ts';
 
@@ -69,7 +70,11 @@ export async function hasLegacyBackupEdit(primary: string): Promise<boolean> {
  * the canonical sidecar's barrier, which every old-name change runs under. */
 export async function removeLegacyIfUnchanged(legacy: string, expected: Buffer): Promise<void> {
   const current = await readSidecarBytes(legacy).catch(() => null);
-  if (current?.equals(expected)) await fs.unlink(legacy);
+  if (!current?.equals(expected)) return;
+  // The other process (route or migration) may have removed it first.
+  await fs.unlink(legacy).catch((err: unknown) => {
+    if (errnoCode(err) !== 'ENOENT') throw err;
+  });
 }
 
 export interface LandedBackupSidecar {
@@ -94,8 +99,11 @@ export async function retireLegacyBackupSidecar(landed: LandedBackupSidecar): Pr
     displacedSha256: sha256(legacyXmp),
     incomingSha256: sha256(landed.xmp),
   };
-  // A retry after a failed unlink must not record the same version again.
-  if (legacyXmp !== landed.xmp && !(await hasSidecarDivergence(kept))) {
+  // Keyed on the displaced version alone, as the migration's own record is.
+  if (
+    legacyXmp !== landed.xmp &&
+    !(await hasSidecarDivergence({ ...kept, incomingSha256: undefined }))
+  ) {
     await recordSidecarDivergence({
       ...kept,
       deviceId: landed.deviceId,
