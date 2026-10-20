@@ -336,17 +336,16 @@ export class BackupRepository {
   async clearResolvedConnectionErrors(destinationId: string): Promise<void> {
     if (!(await this.hasParkedConnectionErrors(destinationId))) return;
     const now = Date.now();
-    const resolved = RESOLVABLE_CONNECTION_ERRORS;
     await this.db.transaction([
       {
         sql: `UPDATE stage_state SET version=0,attempts=0,dead=0,next_attempt_at=NULL
         WHERE stage='cloud-backup' AND asset_id IN (
-          SELECT DISTINCT asset_id FROM backup_entries WHERE ${resolved})`,
+          SELECT DISTINCT asset_id FROM backup_entries WHERE ${RESOLVABLE_CONNECTION_ERRORS})`,
         params: [destinationId, now],
       },
       {
         sql: `UPDATE backup_entries SET retry_at=0,attempts=0,last_error=NULL,error_kind=NULL,
-          lease_owner=NULL,lease_until=0 WHERE ${resolved}`,
+          lease_owner=NULL,lease_until=0 WHERE ${RESOLVABLE_CONNECTION_ERRORS}`,
         params: [destinationId, now],
       },
     ]);

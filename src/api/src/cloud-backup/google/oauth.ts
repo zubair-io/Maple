@@ -313,11 +313,12 @@ export async function finishGoogleFlow(
   return { destinationId: flow.destinationId, rootId: flow.rootId ?? null };
 }
 
-/** Internal machine-to-machine renewal; Bun exposes no browser-accessible renewal route. */
 /** Drops the cached token, unless a fresher one has already replaced the rejected one (#5038). */
 export function forgetGoogleAccessToken(id: string, rejected?: string): void {
   if (rejected === undefined || cache.get(id)?.token === rejected) cache.delete(id);
 }
+
+/** Internal machine-to-machine renewal; Bun exposes no browser-accessible renewal route. */
 
 export async function googleAccessToken(
   id: string,
@@ -328,24 +329,45 @@ export async function googleAccessToken(
   const cached = cache.get(id);
   if (cached && cached.epoch === connection.epoch && cached.expires > Date.now())
     return cached.token;
-  // Concurrent transfers share one refresh instead of failing as connection errors (#5038).
-  const running = refreshing.get(id);
-  if (running) return running;
-  const refresh = renewAccessToken(id, connection.epoch, transport, signal).finally(() => {
-    if (refreshing.get(id) === refresh) refreshing.delete(id);
+  // Concurrent transfers share one refresh instead of failing as connection errors (#5038);
+  // it runs unbound to any one caller, so a caller's Stop never fails the others.
+  const key = `${id}:${connection.epoch}`;
+  return abortable(
+    refreshing.get(key) ?? sharedRefresh(key, id, connection.epoch, transport),
+    signal,
+  );
+}
+
+function sharedRefresh(
+  key: string,
+  id: string,
+  epoch: number,
+  transport: GoogleFetch,
+): Promise<string> {
+  const refresh = renewAccessToken(id, epoch, transport).finally(() => {
+    if (refreshing.get(key) === refresh) refreshing.delete(key);
   });
-  refreshing.set(id, refresh);
+  refreshing.set(key, refresh);
   return refresh;
+}
+
+function abortable<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(signal.reason);
+    signal.addEventListener('abort', stop, { once: true });
+    void work.then(resolve, reject).then(() => signal.removeEventListener('abort', stop));
+  });
 }
 
 async function renewAccessToken(
   id: string,
   epoch: number,
   transport: GoogleFetch,
-  signal?: AbortSignal,
 ): Promise<string> {
   const lease = randomBytes(32).toString('base64url');
-  await claimRefreshWhenFree(id, epoch, lease, signal);
+  await claimRefreshWhenFree(id, epoch, lease);
   try {
     // Read after claiming: another process may have rotated the grant while we waited.
     const connection = await loadConnection(id);
@@ -399,15 +421,13 @@ async function renewWithLease(
 }
 
 /** Another process's refresh lease lasts at most a minute, so wait it out rather than fail. */
-async function claimRefreshWhenFree(
-  id: string,
-  epoch: number,
-  lease: string,
-  signal?: AbortSignal,
-): Promise<void> {
+async function claimRefreshWhenFree(id: string, epoch: number, lease: string): Promise<void> {
   const deadline = Date.now() + REFRESH_LEASE_WAIT_MS;
   while (!(await claimRefresh(id, epoch, lease))) {
-    signal?.throwIfAborted();
+    if ((await loadConnection(id)).epoch !== epoch)
+      throw new GoogleConnectionError(
+        'Google Drive was reconnected; retry with the new connection.',
+      );
     if (Date.now() >= deadline)
       throw new GoogleConnectionError(
         'Google token renewal is already in progress; retry shortly.',
