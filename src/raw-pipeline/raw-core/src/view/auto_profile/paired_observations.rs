@@ -21,6 +21,16 @@ pub(super) struct Observation {
     pub region: usize,
 }
 
+/// Where each grid cell is sampled. Colour training uses one pseudo-random
+/// pixel per cell; registration reads its grid as a regular image, so it
+/// samples cell centres — jitter there misplaces sub-cell structure (#5000).
+#[derive(Clone, Copy)]
+enum Sampling {
+    Jittered,
+    Aligned(Warp),
+    Geometry,
+}
+
 pub(super) struct ObservationSet {
     pub rows: Vec<Observation>,
     pub grid_width: usize,
@@ -79,7 +89,7 @@ pub(super) fn build(
         preview,
         baseline,
         None,
-        None,
+        Sampling::Jittered,
     )
 }
 
@@ -99,7 +109,29 @@ pub(super) fn build_display(
         preview,
         baseline,
         Some(1024),
-        None,
+        Sampling::Jittered,
+    )
+}
+
+/// Regular cell-centre samples for registration at the display scale used
+/// by `build_display` when the preview is larger, else at preview scale.
+pub(super) fn build_geometry(
+    pixels: &[f32],
+    width: usize,
+    height: usize,
+    orientation: ExifOrientation,
+    preview: &ExtractedPreview,
+    baseline: &ColorLut,
+) -> Option<ObservationSet> {
+    build_at_scale(
+        pixels,
+        width,
+        height,
+        orientation,
+        preview,
+        baseline,
+        Some(1024),
+        Sampling::Geometry,
     )
 }
 
@@ -120,7 +152,11 @@ pub(super) fn build_aligned(
         preview,
         baseline,
         Some(1024),
-        (warp != Warp::IDENTITY).then_some(warp),
+        if warp == Warp::IDENTITY {
+            Sampling::Jittered
+        } else {
+            Sampling::Aligned(warp)
+        },
     )
 }
 
@@ -141,7 +177,11 @@ pub(super) fn build_native_aligned(
         preview,
         baseline,
         None,
-        (warp != Warp::IDENTITY).then_some(warp),
+        if warp == Warp::IDENTITY {
+            Sampling::Jittered
+        } else {
+            Sampling::Aligned(warp)
+        },
     )
 }
 
@@ -170,7 +210,7 @@ fn build_at_scale(
     preview: &ExtractedPreview,
     baseline: &ColorLut,
     max_edge: Option<usize>,
-    warp: Option<Warp>,
+    sampling: Sampling,
 ) -> Option<ObservationSet> {
     if width == 0 || height == 0 || pixels.len() != width.checked_mul(height)?.checked_mul(3)? {
         return None;
@@ -208,7 +248,10 @@ fn build_at_scale(
     let target_xs = spans(original_w, tw);
     let target_ys = spans(original_h, th);
     let (nx, ny) = (tw.min(256), th.min(256));
-    let support = warp.map(|w| w.support(cw, ch, tw, th));
+    let support = match sampling {
+        Sampling::Aligned(warp) => Some(warp.support(cw, ch, tw, th)),
+        _ => None,
+    };
     let mut observations = Vec::with_capacity(nx * ny);
     let mut weights = [0.; super::paired_fit::CELLS];
     let mut active = Vec::new();
@@ -219,9 +262,11 @@ fn build_at_scale(
             let seed = mix((gx as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15) ^ (gy as u64 + 1));
             let (x0, x1) = (gx * tw / nx, (gx + 1) * tw / nx);
             let (y0, y1) = (gy * th / ny, (gy + 1) * th / ny);
-            let x = within(seed, x0, x1);
-            let y = within(seed >> 32, y0, y1);
-            let ((sx0, sx1), (sy0, sy1)) = if let Some(warp) = warp {
+            let (x, y) = match sampling {
+                Sampling::Geometry => ((x0 + x1) / 2, (y0 + y1) / 2),
+                _ => (within(seed, x0, x1), within(seed >> 32, y0, y1)),
+            };
+            let ((sx0, sx1), (sy0, sy1)) = if let Sampling::Aligned(warp) = sampling {
                 let center = warp.map((x as f64 + 0.5) / tw as f64, (y as f64 + 0.5) / th as f64);
                 let support = support?;
                 let Some(sx) = transformed_span(center[0] * cw as f64, support[0], cw) else {
@@ -449,7 +494,7 @@ mod tests {
                 &preview,
                 &ColorLut::identity(33),
                 Some(edge),
-                None,
+                Sampling::Jittered,
             )
             .unwrap()
             .rows;
@@ -503,3 +548,7 @@ mod tests {
         assert_eq!(spans(3, 5), vec![(0, 1), (0, 1), (1, 2), (2, 3), (2, 3)]);
     }
 }
+
+#[cfg(test)]
+#[path = "paired_observations_geometry_tests.rs"]
+mod geometry_tests;

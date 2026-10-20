@@ -390,7 +390,9 @@ pub(super) fn fit(
     } else {
         None
     };
-    let registration = super::fit_registration::estimate(display.as_ref().unwrap_or(&observations));
+    let geometry =
+        paired_observations::build_geometry(pixels, width, height, orientation, preview, current)?;
+    let registration = super::fit_registration::estimate(&geometry);
     let aligned = registration.as_ref().and_then(|r| {
         paired_observations::build_aligned(
             pixels,
