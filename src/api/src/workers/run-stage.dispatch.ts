@@ -321,7 +321,7 @@ export async function runOnce(
     throughput,
     stallWatch,
   };
-  stallWatch?.claimed(outcome.claimed.length);
+  stallWatch?.claimed(outcome.claimed.length, inFlightSet?.size ?? 0);
 
   await dispatchPool([...outcome.claimed], config.concurrency, async (row) => {
     inFlightSet?.add(row.asset_id);
