@@ -50,6 +50,7 @@ public actor BackupEngine {
   /// retire its OWN entry from inside its closure, before it signals. That
   /// ordering is load-bearing — see `finishRetry(_:)`.
   var retryTasks: [UUID: Task<Void, Never>] = [:]
+  private var stopping: Task<Void, Never>?
 
   /// Wakes `run()` when a sleeping retry re-enqueues, so it can park
   /// instead of polling on a fixed interval while retries are outstanding
@@ -198,30 +199,44 @@ public actor BackupEngine {
   /// uploading or writing state when the caller hands the engine lock to the
   /// other backup host (#4988).
   public func stop() async {
-    let cancelled = Array(retryTasks.values)
-    for task in cancelled {
-      task.cancel()
+    // One drain at a time: a concurrent caller waits for the drain already in
+    // progress, because its caller releases the engine lock next (#5022).
+    if let stopping {
+      await stopping.value
+      return
     }
-    retryTasks.removeAll()
-    // Wake a parked runner so it observes teardown promptly. Without this,
-    // `run()`'s doc claim that it parks "until a retry re-enqueues (or
-    // teardown signals us)" is not actually true: a caller that invokes
-    // `stop()` WITHOUT also cancelling the runner Task would leave it
-    // parked forever on a `retryTasks` that is now empty. The cancelled
-    // retries above do each signal on their way out, but only once their
-    // sleep unwinds — and if `retryTasks` was already empty there is
-    // nothing to unwind at all.
-    Task { await retryWake.signal() }
-    // Cancelled companion retries won't reach their decrement, so clear the
-    // outstanding-companion counters too — a fresh run starts clean and we
-    // never re-emit a stale `.companionsResolved` for a torn-down task (#702).
-    outstandingCompanions.removeAll()
-    for task in cancelled {
-      await task.value
-    }
-    // A retry registered while the cancelled ones drained (stop() is
-    // reentrant at each await) is torn down the same way.
-    if !retryTasks.isEmpty { await stop() }
+    let drain = Task { await drainRetries() }
+    stopping = drain
+    await drain.value
+    stopping = nil
+  }
+
+  private func drainRetries() async {
+    // A retry registered while the cancelled ones drain (the actor is
+    // reentrant at each await) is torn down by the next pass.
+    repeat {
+      let cancelled = Array(retryTasks.values)
+      for task in cancelled {
+        task.cancel()
+      }
+      retryTasks.removeAll()
+      // Wake a parked runner so it observes teardown promptly. Without this,
+      // `run()`'s doc claim that it parks "until a retry re-enqueues (or
+      // teardown signals us)" is not actually true: a caller that invokes
+      // `stop()` WITHOUT also cancelling the runner Task would leave it
+      // parked forever on a `retryTasks` that is now empty. The cancelled
+      // retries above do each signal on their way out, but only once their
+      // sleep unwinds — and if `retryTasks` was already empty there is
+      // nothing to unwind at all.
+      Task { await retryWake.signal() }
+      // Cancelled companion retries won't reach their decrement, so clear the
+      // outstanding-companion counters too — a fresh run starts clean and we
+      // never re-emit a stale `.companionsResolved` for a torn-down task (#702).
+      outstandingCompanions.removeAll()
+      for task in cancelled {
+        await task.value
+      }
+    } while !retryTasks.isEmpty
   }
 
   /// Process the next task in the queue, or return without throwing if

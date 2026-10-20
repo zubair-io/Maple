@@ -61,6 +61,9 @@ public final class EngineHost {
   public let progress = BackupProgressViewModel()
 
   private var generation = UUID()
+  /// Every start and stop runs here, one at a time (#5022): a second Stop, a
+  /// BGTask expiry or a new Start never interleaves with a teardown.
+  private let lifecycle = SerialOperationQueue()
   private var activeSettings: BackupSettings?
   public private(set) var uploadAddress: URL?
   public private(set) var usesLocalAddress = false
@@ -105,8 +108,17 @@ public final class EngineHost {
       return
     }
     lastStartError = nil
+    // A newer start supersedes one still waiting for the helper's lock.
+    engineLockWait?.cancel()
+    await lifecycle.run {
+      await self.performStart(
+        settings: settings, serverBaseURL: serverBaseURL, retryFailed: retryFailed)
+    }
+  }
 
-    guard progress.phase != .starting else { return }
+  private func performStart(
+    settings: BackupSettings, serverBaseURL: URL, retryFailed: Bool
+  ) async {
     if progress.phase == .running && activeSettings == settings { return }
 
     // Surface "Starting…" to the panel before the (potentially slow)
@@ -115,42 +127,29 @@ public final class EngineHost {
     progress.setPhase(.starting)
 
     // Tear down any previous run (cancels retry tasks, then the runner).
-    await stop()
+    await tearDown()
     let generation = self.generation
     progress.setPhase(.starting)
 
     do {
       let storageRoot = try BackupStorage.sharedRoot()
-      // One engine per shared state DB (#4988): the backup helper may be
-      // working through the backlog; never rehydrate rows it is uploading.
-      // Wait for it to finish and take over, rather than staying stopped.
-      let engineLock: BackupEngineLock
-      if let free = try BackupEngineLock.acquire(in: storageRoot) {
-        engineLock = free
-      } else {
-        lastStartError =
-          "The background helper is finishing a backup. Maple will take over when it's done."
-        let wait = Task {
-          try await BackupEngineLock.acquireWhenFree(in: storageRoot, pollInterval: .seconds(2))
-        }
-        engineLockWait = wait
-        // Cleared however the wait ends — a failed poll must not leave the
-        // panel offering Stop for an engine that never started.
-        defer { if engineLockWait == wait { engineLockWait = nil } }
-        let waited = try await wait.value
-        guard generation == self.generation else {
-          waited.release()
-          return
-        }
-        lastStartError = nil
-        engineLock = waited
-      }
+      #if os(macOS)
+        // One engine per shared state DB (#4988): the backup helper may be
+        // working through the backlog; never rehydrate rows it is uploading.
+        guard let acquired = try await acquireEngineLock(in: storageRoot, generation: generation)
+        else { return }
+        let engineLock: BackupEngineLock? = acquired
+      #else
+        // Only macOS has a second backup host; holding a file lock in the App
+        // Group container through suspension gets an iOS app killed (#5022).
+        let engineLock: BackupEngineLock? = nil
+      #endif
       // This start owns the lock until a running engine takes it. If stop()
       // supersedes it mid-startup, it keeps the lock while it still touches
       // the state DB and gives it back only when it bails, so the helper can
       // never start rehydrating alongside it.
       var lockHandedToEngine = false
-      defer { if !lockHandedToEngine { engineLock.release() } }
+      defer { if !lockHandedToEngine { engineLock?.release() } }
       let deviceId = try DeviceIdentity.current(
         storageURL: DeviceIdentity.storageURL(in: storageRoot))
       let sidecars = AppSupportSidecarStore(
@@ -249,7 +248,10 @@ public final class EngineHost {
   public func stop() async {
     generation = UUID()
     engineLockWait?.cancel()
-    engineLockWait = nil
+    await lifecycle.run { await self.tearDown() }
+  }
+
+  private func tearDown() async {
     // Stop uploads first, so an explicit Stop takes effect at once even while
     // a library scan is still winding down.
     let runner = runnerTask
@@ -276,6 +278,30 @@ public final class EngineHost {
     progress.stop()
     progress.setPhase(.stopped)
     progress.setWalkPhase(.idle)
+  }
+
+  /// The engine lock, waiting for the background helper to finish when it holds
+  /// it; `nil` when a stop or newer start superseded this one while waiting.
+  private func acquireEngineLock(
+    in storageRoot: URL, generation: UUID
+  ) async throws -> BackupEngineLock? {
+    if let free = try BackupEngineLock.acquire(in: storageRoot) { return free }
+    lastStartError =
+      "The background helper is finishing a backup. Maple will take over when it's done."
+    let wait = Task {
+      try await BackupEngineLock.acquireWhenFree(in: storageRoot, pollInterval: .seconds(2))
+    }
+    engineLockWait = wait
+    // Cleared however the wait ends — a failed poll must not leave the
+    // panel offering Stop for an engine that never started.
+    defer { if engineLockWait == wait { engineLockWait = nil } }
+    let waited = try await wait.value
+    guard generation == self.generation else {
+      waited.release()
+      return nil
+    }
+    lastStartError = nil
+    return waited
   }
 
   /// Start (or restart) the periodic safety walk timer.

@@ -8,52 +8,54 @@ import Foundation
 /// root serialises them across processes. The kernel drops the lock when
 /// the holding process exits or crashes, so a dead host never strands it.
 public final class BackupEngineLock: @unchecked Sendable {
-    private let lock = NSLock()
-    private var descriptor: Int32
+  private let lock = NSLock()
+  private var descriptor: Int32
 
-    private init(descriptor: Int32) {
-        self.descriptor = descriptor
+  private init(descriptor: Int32) {
+    self.descriptor = descriptor
+  }
+
+  deinit { release() }
+
+  static func lockURL(in root: URL) -> URL {
+    root.appendingPathComponent("backup-engine.lock")
+  }
+
+  /// The lock, or `nil` when another host is already running an engine.
+  /// Any other failure (the shared folder is unwritable, descriptors are
+  /// exhausted) throws: it is not contention, and waiting would never end.
+  public static func acquire(in root: URL) throws -> BackupEngineLock? {
+    let fd = open(lockURL(in: root).path, O_CREAT | O_RDWR | O_CLOEXEC, 0o644)
+    guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+    guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+      let code = errno
+      close(fd)
+      guard code == EWOULDBLOCK else { throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO) }
+      return nil
     }
+    return BackupEngineLock(descriptor: fd)
+  }
 
-    deinit { release() }
-
-    public static func lockURL(in root: URL) -> URL {
-        root.appendingPathComponent("backup-engine.lock")
+  /// Waits until the other host lets go, so whichever host loses the race
+  /// takes over when the winner finishes instead of staying idle until a
+  /// manual restart. Cancelling the wait stops it without holding the lock.
+  public static func acquireWhenFree(in root: URL, pollInterval: Duration) async throws
+    -> BackupEngineLock
+  {
+    while true {
+      try Task.checkCancellation()
+      if let lock = try acquire(in: root) { return lock }
+      try await Task.sleep(for: pollInterval)
     }
+  }
 
-    /// The lock, or `nil` when another host is already running an engine.
-    /// Any other failure (the shared folder is unwritable, descriptors are
-    /// exhausted) throws: it is not contention, and waiting would never end.
-    public static func acquire(in root: URL) throws -> BackupEngineLock? {
-        let fd = open(lockURL(in: root).path, O_CREAT | O_RDWR | O_CLOEXEC, 0o644)
-        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
-            let code = errno
-            close(fd)
-            guard code == EWOULDBLOCK else { throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO) }
-            return nil
-        }
-        return BackupEngineLock(descriptor: fd)
-    }
-
-    /// Waits until the other host lets go, so whichever host loses the race
-    /// takes over when the winner finishes instead of staying idle until a
-    /// manual restart. Cancelling the wait stops it without holding the lock.
-    public static func acquireWhenFree(in root: URL, pollInterval: Duration) async throws -> BackupEngineLock {
-        while true {
-            try Task.checkCancellation()
-            if let lock = try acquire(in: root) { return lock }
-            try await Task.sleep(for: pollInterval)
-        }
-    }
-
-    /// Hands the engine slot back on a clean stop. Idempotent.
-    public func release() {
-        lock.lock()
-        defer { lock.unlock() }
-        guard descriptor >= 0 else { return }
-        flock(descriptor, LOCK_UN)
-        close(descriptor)
-        descriptor = -1
-    }
+  /// Hands the engine slot back on a clean stop. Idempotent.
+  public func release() {
+    lock.lock()
+    defer { lock.unlock() }
+    guard descriptor >= 0 else { return }
+    flock(descriptor, LOCK_UN)
+    close(descriptor)
+    descriptor = -1
+  }
 }
