@@ -57,7 +57,7 @@ final class BackupEngineCanonicalSidecarResendTests: XCTestCase {
       reader: StubAssetReader())
   }
 
-  func testAnEditDeliveredUnderTheOldSidecarNameIsSentAgainOnce() async throws {
+  func testAnEditDeliveredUnderTheOldSidecarNameIsSentAgainOnceBasedOnItsDigest() async throws {
     let tmpRoot = FileManager.default.temporaryDirectory
       .appendingPathComponent("canonical-resend-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: tmpRoot) }
@@ -74,7 +74,8 @@ final class BackupEngineCanonicalSidecarResendTests: XCTestCase {
 
     let posts = sidecarPosts()
     XCTAssertEqual(posts.count, 1)
-    XCTAssertEqual(posts.first?.value(forHTTPHeaderField: "X-Maple-Sidecar-Base"), "none")
+    XCTAssertEqual(
+      posts.first?.value(forHTTPHeaderField: "X-Maple-Sidecar-Base"), BackupEngine.digest(of: edit))
     XCTAssertEqual(posts.first?.httpBody, Data(edit.utf8))
   }
 
@@ -116,5 +117,26 @@ final class BackupEngineCanonicalSidecarResendTests: XCTestCase {
     await engine.resendNewerEdits([held])
 
     XCTAssertEqual(sidecarPosts().count, 2)
+  }
+
+  /// Against a server that hasn't upgraded, each re-send still names the last
+  /// delivered revision as its base, so a newer edit isn't taken for a divergence.
+  func testReSendsToAnOldServerStayBasedOnTheLastDeliveredEdit() async throws {
+    let oldName = #"{"target_rel_path":"2024/03/15/IMG.HEIC.xmp"}"#
+    StubURLProtocol.stub = .sequence([.ok(json: oldName), .ok(json: oldName)])
+    let (engine, tmpRoot) = try harness()
+    defer { try? FileManager.default.removeItem(at: tmpRoot) }
+    let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
+    await engine.resendNewerEdits([held])
+    let newer = "<x:edit>newer</x:edit>"
+    try AppSupportSidecarStore(root: sidecarRoot).write(
+      phassetLocalId: photo.phassetLocalId, xmp: newer)
+
+    await engine.resendNewerEdits([held])
+
+    let posts = sidecarPosts()
+    XCTAssertEqual(posts.count, 2)
+    XCTAssertEqual(
+      posts.last?.value(forHTTPHeaderField: "X-Maple-Sidecar-Base"), BackupEngine.digest(of: edit))
   }
 }
