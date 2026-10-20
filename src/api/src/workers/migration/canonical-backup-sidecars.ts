@@ -48,7 +48,7 @@ const log = childLogger('migration:canonical-backup-sidecars');
 
 const MIGRATION_ID = 'canonical-backup-sidecars';
 const MARKER = 'backup_sidecar_name_version';
-export const BACKUP_SIDECAR_NAME_VERSION = 1;
+const BACKUP_SIDECAR_NAME_VERSION = 1;
 /** Recorded as the divergence's device: the migration, not a phone, kept it. */
 const DIVERGENCE_SOURCE = `migration:${MIGRATION_ID}`;
 
