@@ -68,6 +68,17 @@ final class WorkerStatusDecodingTests: XCTestCase {
     XCTAssertEqual(s.status, .unknown)
   }
 
+  func test_decode_stalledStatus() throws {
+    let json = """
+      {"name":"cloud-backup","status":"stalled","inFlight":2,"configured":1,"pending":9,
+       "ready":9,"blocked":0,"dead":0,"throughput":0,
+       "lastError":"No progress for 80 minutes while work is waiting",
+       "config":null,"batchSize":5}
+      """
+    let s = try JSONDecoder().decode(StageStatus.self, from: Data(json.utf8))
+    XCTAssertEqual(s.status, .stalled)
+  }
+
   func test_decode_payloadDefaultsDamagedToZero() throws {
     let json = #"{"stages":[]}"#
     let p = try JSONDecoder().decode(WorkersStatusPayload.self, from: Data(json.utf8))
@@ -136,6 +147,7 @@ final class StageCatalogTests: XCTestCase {
     XCTAssertEqual(StageCatalog.statusLabel(.starting), "Starting")
     XCTAssertEqual(StageCatalog.statusLabel(.restarting), "Restarting")
     XCTAssertEqual(StageCatalog.statusLabel(.stopped), "Stopped")
+    XCTAssertEqual(StageCatalog.statusLabel(.stalled), "Stalled")
     XCTAssertEqual(StageCatalog.statusLabel(.unknown), "Unknown")
   }
 

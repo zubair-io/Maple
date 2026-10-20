@@ -134,6 +134,7 @@ public enum StageCatalog {
     case .starting: return "Starting"
     case .restarting: return "Restarting"
     case .stopped: return "Stopped"
+    case .stalled: return "Stalled"
     case .unknown: return "Unknown"
     }
   }

@@ -9,9 +9,9 @@ import Foundation
 
 /// A stage's run state.
 ///
-/// The server's own union is `running | paused | stopped | error`, but the
-/// web client also models `starting` and `restarting`, so both are accepted
-/// here. Anything unrecognised decodes to `.unknown` rather than failing the
+/// The server's own union is `running | idle | paused | stopped | error |
+/// stalled`, and the web client also models `starting` and `restarting`, so
+/// both are accepted here. Anything unrecognised decodes to `.unknown` rather than failing the
 /// whole payload — one new state on the server must not blank the table.
 public enum StageRunState: String, Decodable, Sendable, Equatable {
   case running
@@ -21,6 +21,7 @@ public enum StageRunState: String, Decodable, Sendable, Equatable {
   case error
   case starting
   case restarting
+  case stalled
   case unknown
 
   public init(from decoder: Decoder) throws {
