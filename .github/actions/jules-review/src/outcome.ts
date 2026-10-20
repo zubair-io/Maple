@@ -25,10 +25,21 @@ export function parseVerdict(message: string): Verdict {
 const AUTH_MESSAGE =
   /\b(?:401|403)\b|bad credentials|unauthenticated|unauthorized|permission[_ ]denied|api key not valid|invalid api key|resource not accessible|check jules_api_key/i;
 
-function statusOf(error: unknown): unknown {
-  if (typeof error !== 'object' || error === null) return undefined;
-  const { status, response } = error as { status?: unknown; response?: { status?: unknown } };
-  return status ?? response?.status;
+const NESTED_ERROR_KEYS = ['response', 'data', 'error', 'cause'] as const;
+const MAX_ERROR_DEPTH = 5;
+
+function hasAuthStatus(error: unknown, depth = 0, seen = new Set<unknown>()): boolean {
+  if (typeof error !== 'object' || error === null || depth > MAX_ERROR_DEPTH || seen.has(error)) {
+    return false;
+  }
+  seen.add(error);
+  const record = error as Record<string, unknown>;
+  const status = Number(record.status);
+  return (
+    status === 401 ||
+    status === 403 ||
+    NESTED_ERROR_KEYS.some((key) => hasAuthStatus(record[key], depth + 1, seen))
+  );
 }
 
 // Bad credentials or missing token permissions are misconfiguration the operator must fix;
@@ -36,9 +47,11 @@ function statusOf(error: unknown): unknown {
 // infrastructure and must not hold up a PR. Mirrors isAuthError in cleanup.ts, which cannot
 // import this module because manual recovery runs it standalone.
 export function isAuthFailure(error: unknown): boolean {
-  const status = Number(statusOf(error));
-  if (status === 401 || status === 403) return true;
-  return AUTH_MESSAGE.test(error instanceof Error ? error.message : String(error));
+  return hasAuthStatus(error) || AUTH_MESSAGE.test(errorText(error));
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function isInfrastructureFailure(error: unknown): boolean {
@@ -77,7 +90,7 @@ export function resolveOutcome(result: ReviewResult): Outcome {
   if (result.kind === 'timeout') {
     return skipped(`Jules returned no review within ${result.minutes} minutes`);
   }
-  const message = result.error instanceof Error ? result.error.message : String(result.error);
+  const message = errorText(result.error);
   return isInfrastructureFailure(result.error)
     ? skipped(describeInfrastructureFailure(message))
     : { state: 'error', description: truncate(message), failJob: true };
@@ -103,16 +116,18 @@ function verdictOutcome(verdict: Verdict, failOn: FailOn): Outcome {
   };
 }
 
-// Jules answers a session-creation request past its rolling daily task allowance with a bare
-// HTTP 400 FAILED_PRECONDITION ("Precondition check failed."), indistinguishable from a source
-// precondition, so name both rather than asserting one.
-const QUOTA_OR_PRECONDITION =
-  /FAILED_PRECONDITION|Precondition check failed|RESOURCE_EXHAUSTED|\b429\b|quota/i;
+// Jules signals an exhausted daily task allowance as a bare 400 FAILED_PRECONDITION, so the reason names both causes.
+const PRECONDITION = /FAILED[_ ]PRECONDITION|Precondition check failed/i;
+const QUOTA =
+  /RESOURCE[_ ]EXHAUSTED|\bHTTP\s*429\b|\bstatus:?\s*429\b|too many requests|\bquota\b/i;
 
 function describeInfrastructureFailure(message: string): string {
-  return QUOTA_OR_PRECONDITION.test(message)
-    ? `Jules account quota or source precondition (${/RESOURCE_EXHAUSTED|\b429\b/i.test(message) ? 'quota' : 'FAILED_PRECONDITION'}); no review`
-    : message;
+  const label = PRECONDITION.test(message)
+    ? 'FAILED_PRECONDITION'
+    : QUOTA.test(message)
+      ? 'quota'
+      : '';
+  return label ? `Jules account quota or source precondition (${label}); no review` : message;
 }
 
 function skipped(reason: string): Outcome {
