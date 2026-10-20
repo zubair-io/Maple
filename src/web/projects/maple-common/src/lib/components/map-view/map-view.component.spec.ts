@@ -72,6 +72,17 @@ describe('MapViewComponent', () => {
     expect(fixture.nativeElement.querySelector('.map-canvas')).toBe(container);
   });
 
+  it('sizes the map container by its own box, not by a position MapLibre overrides', () => {
+    const fixture = TestBed.createComponent(MapViewComponent);
+    fixture.detectChanges();
+
+    const classes = (fixture.nativeElement.querySelector('.map-canvas') as HTMLElement).classList;
+    expect(classes.contains('h-full')).toBe(true);
+    expect(classes.contains('w-full')).toBe(true);
+    expect(classes.contains('absolute')).toBe(false);
+    expect(classes.contains('fixed')).toBe(false);
+  });
+
   it('tears the map down when the component is destroyed', () => {
     const fixture = TestBed.createComponent(MapViewComponent);
     fixture.detectChanges();
