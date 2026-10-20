@@ -212,12 +212,14 @@ export async function publishSidecarIfAbsent(
   destination: string,
   xmp: string,
   admissionScope: string,
+  precondition: () => Promise<boolean> = async () => true,
 ): Promise<'written' | 'skipped' | SidecarCasOutcome> {
   const refused = await prepareDestination(destination);
   if (refused) return refused;
   return serializeSidecarWrite(
     destination,
     async (resolved) => {
+      if (!(await precondition())) return { kind: 'abandoned' };
       const created = await writeSidecarCreateOnly(resolved, xmp, 'sidecar write failed');
       if (created.ok) return 'written';
       if ('exists' in created) return 'skipped';

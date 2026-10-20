@@ -84,13 +84,12 @@ function readSidecarBody(body: unknown): { buf: Buffer } | { status: number; err
 /** The no-base rule: write only when no sidecar exists. Create-only and on
  * the shared write barrier, so it never lands over a compare-and-swap edit. */
 async function publishLegacySidecar(
-  finalPath: string,
-  sidecarRelPath: string,
-  buf: Buffer,
-  libraryRoot: string,
-  phid: string,
+  send: BackupSidecarSend,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  const outcome = await publishSidecarIfAbsent(finalPath, buf.toString('utf8'), libraryRoot);
+  const { sidecarRelPath, phid } = send;
+  const outcome = await publishSidecarIfAbsent(send.finalPath, send.xmp, send.libraryRoot, () =>
+    stillOwned(send),
+  );
   if (outcome === 'written' || outcome === 'skipped') {
     log.debug({ phid, sidecarRelPath, outcome }, 'sidecar legacy publish');
     return {
@@ -101,24 +100,38 @@ async function publishLegacySidecar(
           : { target_rel_path: sidecarRelPath, skipped: true },
     };
   }
+  if (outcome.kind === 'abandoned') return GONE_WHILE_WAITING;
   log.error({ phid, sidecarRelPath, outcome }, 'sidecar legacy publish failed');
   return outcome.kind === 'refused'
     ? { status: 400, body: { error: 'sidecar path not allowed' } }
     : { status: 500, body: { error: 'sidecar write failed' } };
 }
 
-interface BackupSidecarCasRequest {
+interface BackupSidecarSend {
   finalPath: string;
   targetRelPath: string;
   sidecarRelPath: string;
   xmp: string;
-  baseHeader: string;
   assetId: ObjectId;
   libraryId: ObjectId;
   deviceId: string;
   libraryRoot: string;
   phid: string;
 }
+
+interface BackupSidecarCasRequest extends BackupSidecarSend {
+  baseHeader: string;
+}
+
+/** Checked again inside the barrier: the location may have moved on while the send waited. */
+function stillOwned(send: BackupSidecarSend): Promise<boolean> {
+  return isLiveLocationOfAsset(send.assetId, send.libraryId, send.targetRelPath);
+}
+
+const GONE_WHILE_WAITING = {
+  status: 404,
+  body: { error: 'no prior upload of this asset at this path' },
+};
 
 /** The compare-and-swap branch (#4719): publish, keep a displaced version in
  * `sidecar_divergences`, and say which of the outcomes happened. */
@@ -153,6 +166,7 @@ async function publishBackupSidecarCas(
     req.libraryRoot,
     {
       shared: () => sidecarStemClaimedBySibling(primary),
+      precondition: () => stillOwned(req),
       afterLanded: async (landed) => {
         if (landed.kind === 'written' || landed.kind === 'diverged') {
           await publishSidecarChange(primary, true);
@@ -182,6 +196,7 @@ async function publishBackupSidecarCas(
     );
     return { status: 400, body: { error: 'sidecar path not allowed' } };
   }
+  if (outcome.kind === 'abandoned') return GONE_WHILE_WAITING;
   if (outcome.kind === 'error') {
     log.error(
       { phid: req.phid, sidecarRelPath: req.sidecarRelPath, error: outcome.error },
@@ -201,16 +216,12 @@ async function publishBackupSidecarCas(
  * pre-#5021 name. */
 async function publishWithoutBase(
   primary: string,
-  finalPath: string,
-  sidecarRelPath: string,
-  buf: Buffer,
-  libraryRoot: string,
-  phid: string,
+  send: BackupSidecarSend,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   if (await hasLegacyBackupEdit(primary)) {
-    return { status: 200, body: { target_rel_path: sidecarRelPath, skipped: true } };
+    return { status: 200, body: { target_rel_path: send.sidecarRelPath, skipped: true } };
   }
-  const result = await publishLegacySidecar(finalPath, sidecarRelPath, buf, libraryRoot, phid);
+  const result = await publishLegacySidecar(send);
   if (result.status === 200 && !('skipped' in result.body)) {
     await publishSidecarChange(primary, true);
   }
@@ -313,21 +324,21 @@ export const backupSidecarRoutes = new Elysia().post(
     }
     const baseHeader = headers['x-maple-sidecar-base'];
     const primary = path.join(folder.path, targetRelPath);
+    const send: BackupSidecarSend = {
+      finalPath,
+      targetRelPath,
+      sidecarRelPath,
+      xmp: buf.toString('utf8'),
+      assetId: asset,
+      libraryId,
+      deviceId,
+      libraryRoot: folder.path,
+      phid,
+    };
     const result =
       baseHeader === undefined
-        ? await publishWithoutBase(primary, finalPath, sidecarRelPath, buf, folder.path, phid)
-        : await publishBackupSidecarCas({
-            finalPath,
-            targetRelPath,
-            sidecarRelPath,
-            xmp: buf.toString('utf8'),
-            baseHeader,
-            assetId: asset,
-            libraryId,
-            deviceId,
-            libraryRoot: folder.path,
-            phid,
-          });
+        ? await publishWithoutBase(primary, send)
+        : await publishBackupSidecarCas({ ...send, baseHeader });
     set.status = result.status;
     return result.body;
   },
