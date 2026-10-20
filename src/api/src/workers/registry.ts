@@ -55,6 +55,32 @@ export interface StageStatusSnapshot {
   lastError: string | null;
 }
 
+/** One running stage's status row: paused wins, then a stall, then busy or idle. */
+function liveSnapshot(entry: StageRegistryEntry, lastError: string | null): StageStatusSnapshot {
+  const inFlight = entry.getInFlight();
+  const paused = entry.getPaused();
+  const stalledFor = paused ? null : (entry.getStalledForMs?.() ?? null);
+  const status: StageStatus = paused
+    ? 'paused'
+    : stalledFor !== null
+      ? 'stalled'
+      : inFlight > 0
+        ? 'running'
+        : 'idle';
+  const stallNote =
+    stalledFor === null
+      ? null
+      : `No progress for ${Math.round(stalledFor / 60_000)} minutes while work is waiting`;
+  return {
+    status,
+    inFlight,
+    throughput: entry.getThroughput(),
+    targetVersion: entry.targetVersion,
+    dependsOn: entry.dependsOn,
+    lastError: lastError ?? stallNote,
+  };
+}
+
 class StageRegistry {
   private readonly entries = new Map<string, StageRegistryEntry>();
   private readonly lastErrors = new Map<string, string>();
@@ -131,28 +157,7 @@ class StageRegistry {
       };
     }
     for (const [name, entry] of this.entries) {
-      const inFlight = entry.getInFlight();
-      const paused = entry.getPaused();
-      const stalledFor = paused ? null : (entry.getStalledForMs?.() ?? null);
-      const status: StageStatus = paused
-        ? 'paused'
-        : stalledFor !== null
-          ? 'stalled'
-          : inFlight > 0
-            ? 'running'
-            : 'idle';
-      const stallNote =
-        stalledFor === null
-          ? null
-          : `No progress for ${Math.round(stalledFor / 60_000)} minutes while work is waiting`;
-      out[name] = {
-        status,
-        inFlight,
-        throughput: entry.getThroughput(),
-        targetVersion: entry.targetVersion,
-        dependsOn: entry.dependsOn,
-        lastError: this.lastErrors.get(name) ?? stallNote,
-      };
+      out[name] = liveSnapshot(entry, this.lastErrors.get(name) ?? null);
     }
     return out;
   }
