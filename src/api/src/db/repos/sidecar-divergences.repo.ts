@@ -51,11 +51,10 @@ export async function forgetSidecarDivergence(id: string, dbOverride?: SqliteDb)
   await sqliteDb(dbOverride).write(`DELETE FROM sidecar_divergences WHERE id = ?`, [id]);
 }
 
-/** Whether this asset's sidecar already has `displacedSha256` kept aside,
- * optionally for this exact incoming edit. */
 export async function hasSidecarDivergence(
   query: {
     assetId: ObjectId;
+    libraryId: ObjectId;
     sidecarRelPath: string;
     displacedSha256: string;
     incomingSha256?: string;
@@ -64,10 +63,11 @@ export async function hasSidecarDivergence(
 ): Promise<boolean> {
   const rows = await sqliteDb(dbOverride).read<{ found: number }>(
     `SELECT 1 AS found FROM sidecar_divergences
-      WHERE asset_id = ? AND sidecar_rel_path = ? AND displaced_sha256 = ?
+      WHERE asset_id = ? AND library_id = ? AND sidecar_rel_path = ? AND displaced_sha256 = ?
         AND (? IS NULL OR incoming_sha256 = ?) LIMIT 1`,
     [
       query.assetId.toHexString(),
+      query.libraryId.toHexString(),
       query.sidecarRelPath,
       query.displacedSha256,
       query.incomingSha256 ?? null,
