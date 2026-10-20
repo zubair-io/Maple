@@ -45,14 +45,20 @@ public sealed partial class MainWindow
             handler.HoldViewport = true;
             map.SetQuery(new() { MinimumRating = 3 });
             await handler.ViewportEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            for (var duplicate = 0; duplicate < 50; duplicate++)
+            for (var duplicate = 0; duplicate < 25; duplicate++) SendDuplicateViewport(map);
+            handler.ViewportRelease.TrySetResult();
+            var completionDeadline = DateTime.UtcNow.AddSeconds(30);
+            do
             {
-                if (duplicate == 25) handler.ViewportRelease.TrySetResult();
+                if (DateTime.UtcNow >= completionDeadline)
+                    throw new TimeoutException("Held Map request did not complete during duplicate viewport updates");
                 SendDuplicateViewport(map);
                 await Task.Delay(1);
             }
+            while (map.RequestInFlight);
             handler.HoldViewport = false;
-            await WaitAsync(() => !map.RequestInFlight && map.AppliedCellCount == 1, "In-flight Map request did not complete after duplicate viewport updates");
+            for (var duplicate = 0; duplicate < 25; duplicate++) SendDuplicateViewport(map);
+            await WaitAsync(() => !map.RequestInFlight && map.AppliedCellCount == 1, "Map request did not settle after duplicate viewport updates");
             for (var duplicate = 0; duplicate < 50; duplicate++)
             {
                 SendDuplicateViewport(map);
