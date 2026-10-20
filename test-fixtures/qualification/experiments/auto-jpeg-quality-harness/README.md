@@ -72,3 +72,18 @@ covered. Actual no-preview physical renders remain to be run; a mocked contract
 is not reported as physical qualification.
 
 The direct CLI is also tested with balanced +/-0.2 errors that have zero signed bias but must exit nonzero. Workflow path filters include the photographic corpus, so changing a regression PNG alone triggers these checks.
+
+## Approved coordinate-policy update (2026-10-19)
+
+The user explicitly chose to keep renderer lens corrections and align comparison
+coordinates. `auto_profile_alignment.py` now permits bounded affine structural
+correspondence, retaining every numeric color/detail limit above. It resamples
+only the reference, leaves candidate pixels unchanged, and records the transform,
+confidence, bidirectional overlap, every tile's support and implementation hashes.
+At least 95% of each image and 75% of each tile must overlap. Color/exposure
+normalization and content/error-dependent masks remain prohibited. Unaligned
+results and the original regression labels remain available as historical tests.
+The original test_0011 derivative clears after coordinate alignment; the other
+28 historical negative derivatives remain failures. This policy supersedes the
+original prohibition on alignment above; it does not certify the remaining
+physical suite or change the renderer, pipeline version or fit version.

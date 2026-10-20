@@ -134,7 +134,7 @@ class PhotographicRegressions(unittest.TestCase):
                 )
             for variant in ["original", "rejected"]:
                 with self.subTest(fixture=row["fixture"], variant=variant):
-                    result = quality.compare(
+                    result = quality.compare_unaligned(
                         root / row["files"][variant]["path"], reference
                     )
                     self.assertEqual(result["status"], row[variant + "_expected"])

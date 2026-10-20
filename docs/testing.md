@@ -166,7 +166,14 @@ and compared against its own camera-embedded JPEG, never an Adobe render.
 severe visible defects. The runner and direct comparator now ALSO require
 non-cancelling full-frame/per-band RGB error at the JPEG grid, full-frame and
 8-by-8 regional error at display scale, perceptual mean/tail color error,
-clipping and gradient checks. No borders are omitted from the added checks.
+clipping and gradient checks. Lens corrections remain enabled. A bounded
+structural affine fit maps reference scene coordinates to the untouched candidate
+grid; no evaluated colors, exposure or contrast are fitted. Only coordinates
+outside the geometric overlap are excluded. Both image directions must retain
+95% overlap and every 8-by-8 tile must retain 75%; insufficient support or
+structural confidence fails. Gradients use supported adjacent pixel pairs.
+The normalized transform is shared by native and display checks. Original
+unaligned metrics are retained alongside aligned acceptance scores.
 The fixed shared policy is in `src/scripts/auto_profile_quality.py`; its
 rationale and saved physical replay are in
 `test-fixtures/qualification/experiments/auto-jpeg-quality-harness/`.
@@ -180,7 +187,8 @@ they remain excluded from JPEG-match pass counts.
 The established metric is signed channel bias in five reference-luma bands,
 with the unchanged 0.05 limit. Preview extraction normalizes orientation and
 Adobe-RGB previews to display sRGB. Geometry uses the established aspect
-center-crop, BOX resize and inner80% measurement.
+center-crop and BOX resize followed by structural reference-coordinate alignment;
+only the legacy signed-bias metric uses its established inner80% measurement.
 
 ```bash
 src/scripts/test_color_pipeline.sh

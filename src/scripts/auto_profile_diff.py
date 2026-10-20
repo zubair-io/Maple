@@ -99,7 +99,7 @@ def match_shape(src, tgt):
     return np.asarray(pil).astype(np.float64) / 255.0
 
 
-def per_band_bias(cand, ref):
+def per_band_bias(cand, ref, valid=None):
     """Signed mean per-channel bias inside each luma band of `ref`.
 
     Both inputs are display-encoded sRGB (the Auto Profile render and the
@@ -120,6 +120,10 @@ def per_band_bias(cand, ref):
             m = (luma >= lo) & (luma <= hi)
         else:
             m = (luma >= lo) & (luma < hi)
+        if valid is not None:
+            if valid.shape != luma.shape:
+                raise ValueError("invalid band comparison support")
+            m &= valid
         if m.sum() < 100:
             continue
         out[f"{lo:.2f}-{hi:.2f}"] = {

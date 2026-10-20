@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """Non-cancelling, full-frame Auto/JPEG checks alongside the legacy bias gate.
 
-The fixed policy is shared by every fixture. No registration, color fitting,
-exposure compensation, border exclusion or reference-dependent threshold is
-allowed here. A geometry mismatch is a failure to diagnose, not to normalize
-away with a fitted transform. This display-scale gate does not qualify native
-resolution detail or replace visual review.
+The fixed color/detail policy is shared by every fixture. Geometry-only affine
+correspondence is allowed by the session's explicit lens-correction policy.
+Candidate colors are never fitted or resampled; unsupported scene coordinates
+are reported and subject to fixed overlap gates. Unaligned scores are retained.
 """
 
 import hashlib
+from itertools import pairwise
 from pathlib import Path
 
+import auto_profile_alignment as alignment
 import colour
 import numpy as np
 from PIL import Image
@@ -61,35 +62,56 @@ def load_display_pair(candidate, reference):
     return cand, ref
 
 
-def evaluate(cand, ref):
+def evaluate(cand, ref, valid=None):
     if cand.shape != ref.shape or min(ref.shape[:2]) < 16:
         raise ValueError("no measurable aligned RGB image")
     if not (np.isfinite(cand).all() and np.isfinite(ref).all()):
         raise ValueError("nonfinite display pixels")
     if cand.min() < 0 or ref.min() < 0 or cand.max() > 1 or ref.max() > 1:
         raise ValueError("display pixels outside [0,1]")
+    if valid is None:
+        valid = np.ones(ref.shape[:2], dtype=bool)
+    if valid.shape != ref.shape[:2] or not valid.any():
+        raise ValueError("no measurable comparison support")
     absolute = np.abs(cand - ref)
     lab_c = colour.XYZ_to_Lab(colour.sRGB_to_XYZ(cand))
     lab_r = colour.XYZ_to_Lab(colour.sRGB_to_XYZ(ref))
     delta = colour.delta_E(lab_c, lab_r, method="CIE 2000")
     tiles = []
-    for y, row in enumerate(np.array_split(absolute, POLICY["tile_grid"], axis=0)):
-        for x, tile in enumerate(np.array_split(row, POLICY["tile_grid"], axis=1)):
-            tiles.append(
-                {"row": y, "column": x, "mae_rgb": tile.mean(axis=(0, 1)).tolist()}
-            )
+    for y, rows in enumerate(
+        np.array_split(np.arange(ref.shape[0]), POLICY["tile_grid"])
+    ):
+        for x, columns in enumerate(
+            np.array_split(np.arange(ref.shape[1]), POLICY["tile_grid"])
+        ):
+            tile_valid = valid[np.ix_(rows, columns)]
+            if not tile_valid.any():
+                raise ValueError("empty comparison tile")
+            tile = absolute[np.ix_(rows, columns)][tile_valid]
+            tiles.append({"row": y, "column": x, "mae_rgb": tile.mean(axis=0).tolist()})
     newly_clipped = (
         ((cand <= 1 / 255) & (ref > 0.05)) | ((cand >= 254 / 255) & (ref < 0.95))
-    ).mean(axis=(0, 1))
-    gradients = np.maximum(
-        np.abs(np.diff(cand, axis=0) - np.diff(ref, axis=0)).mean(axis=(0, 1)),
-        np.abs(np.diff(cand, axis=1) - np.diff(ref, axis=1)).mean(axis=(0, 1)),
-    )
+    )[valid].mean(axis=0)
+    gradient_errors = []
+    for axis in (0, 1):
+        adjacent = (
+            (valid[:-1] & valid[1:]) if axis == 0 else (valid[:, :-1] & valid[:, 1:])
+        )
+        if not adjacent.any():
+            raise ValueError("no adjacent comparison support")
+        gradient_errors.append(
+            np.abs(np.diff(cand, axis=axis) - np.diff(ref, axis=axis))[adjacent].mean(
+                axis=0
+            )
+        )
+    gradients = np.maximum(*gradient_errors)
     values = {
-        "mean_absolute_channel_error": absolute.mean(axis=(0, 1)).tolist(),
-        "p95_absolute_channel_error": np.quantile(absolute, 0.95, axis=(0, 1)).tolist(),
-        "mean_delta_e_2000": float(delta.mean()),
-        "p95_delta_e_2000": float(np.quantile(delta, 0.95)),
+        "mean_absolute_channel_error": absolute[valid].mean(axis=0).tolist(),
+        "p95_absolute_channel_error": np.quantile(
+            absolute[valid], 0.95, axis=0
+        ).tolist(),
+        "mean_delta_e_2000": float(delta[valid].mean()),
+        "p95_delta_e_2000": float(np.quantile(delta[valid], 0.95)),
         "newly_clipped_channel_fraction": newly_clipped.tolist(),
         "gradient_mean_absolute_channel_error": gradients.tolist(),
     }
@@ -126,27 +148,32 @@ def evaluate(cand, ref):
     }
 
 
-def native_absolute(cand, ref, budget):
+def native_absolute(cand, ref, budget, valid=None):
     if (
         cand.shape != ref.shape
         or not np.isfinite(cand).all()
         or not np.isfinite(ref).all()
     ):
         raise ValueError("invalid native comparison pixels")
+    if valid is None:
+        valid = np.ones(ref.shape[:2], dtype=bool)
+    if valid.shape != ref.shape[:2] or not valid.any():
+        raise ValueError("no native comparison support")
     sums = np.zeros(3, dtype=np.float64)
     band_sums = np.zeros((5, 3), dtype=np.float64)
     counts = np.zeros(5, dtype=np.int64)
     for start in range(0, ref.shape[0], 64):
         target = ref[start : start + 64]
         error = np.abs(cand[start : start + 64] - target)
-        sums += error.sum(axis=(0, 1), dtype=np.float64)
+        support = valid[start : start + 64]
+        sums += error[support].sum(axis=0, dtype=np.float64)
         luma = target @ np.array([0.2126, 0.7152, 0.0722])
         edges = [0, 0.10, 0.25, 0.50, 0.75, 1.000001]
-        for i, (lo, hi) in enumerate(zip(edges, edges[1:])):
-            mask = (luma >= lo) & (luma < hi)
+        for i, (lo, hi) in enumerate(pairwise(edges)):
+            mask = (luma >= lo) & (luma < hi) & support
             counts[i] += mask.sum()
             band_sums[i] += error[mask].sum(axis=0, dtype=np.float64)
-    means = {"full-frame": (sums / (ref.shape[0] * ref.shape[1])).tolist()}
+    means = {"full-frame": (sums / valid.sum()).tolist()}
     for i, count in enumerate(counts):
         if count >= 100:
             means[f"band-{i}"] = (band_sums[i] / count).tolist()
@@ -170,7 +197,7 @@ def native_absolute(cand, ref, budget):
     }
 
 
-def compare(candidate, reference):
+def compare_unaligned(candidate, reference):
     cand, ref = load_display_pair(candidate, reference)
     return {
         "size": [ref.shape[1], ref.shape[0]],
@@ -179,4 +206,22 @@ def compare(candidate, reference):
             Path(__file__).read_bytes()
         ).hexdigest(),
         **evaluate(cand, ref),
+    }
+
+
+def compare(candidate, reference):
+    cand, ref = load_display_pair(candidate, reference)
+    aligned, valid, geometry = alignment.align(cand, ref)
+    measured = evaluate(cand, aligned, valid)
+    measured["breaches"].extend(geometry["breaches"])
+    measured["status"] = "failed" if measured["breaches"] else "passed"
+    return {
+        "size": [ref.shape[1], ref.shape[0]],
+        "policy": POLICY,
+        "implementation_sha256": hashlib.sha256(
+            Path(__file__).read_bytes()
+        ).hexdigest(),
+        "alignment": geometry,
+        "unaligned": evaluate(cand, ref),
+        **measured,
     }

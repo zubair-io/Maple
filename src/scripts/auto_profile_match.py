@@ -16,6 +16,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import auto_profile_alignment as alignment
 import auto_profile_diff as diff
 import auto_profile_quality as quality
 import numpy as np
@@ -75,9 +76,20 @@ def fixtures(raw_dir, manifest, name_filter):
 def compare(candidate, reference, budget):
     ref = diff.load(reference)
     cand = diff.match_shape(diff.load(candidate), ref)
+    spatial = quality.compare(candidate, reference)
+    warp = np.asarray(spatial["alignment"]["candidate_to_reference_normalized"])
+    unaligned_native = quality.native_absolute(cand, ref, budget)
     h, w = ref.shape[:2]
     y, x = round(h * 0.1), round(w * 0.1)
-    bands = diff.per_band_bias(cand[y : h - y, x : w - x], ref[y : h - y, x : w - x])
+    unaligned_bands = diff.per_band_bias(
+        cand[y : h - y, x : w - x], ref[y : h - y, x : w - x]
+    )
+    ref, valid = alignment.resample_reference(ref, warp)
+    bands = diff.per_band_bias(
+        cand[y : h - y, x : w - x],
+        ref[y : h - y, x : w - x],
+        valid[y : h - y, x : w - x],
+    )
     if not bands or not all(
         math.isfinite(v[ch]) for v in bands.values() for ch in "RGB"
     ):
@@ -88,10 +100,10 @@ def compare(candidate, reference, budget):
         for ch in "RGB"
         if abs(v[ch]) > budget
     ]
-    native = quality.native_absolute(cand, ref, budget)
-    spatial = quality.compare(candidate, reference)
+    native = quality.native_absolute(cand, ref, budget, valid)
     return {
         "quality": spatial,
+        "unaligned": {"native_absolute": unaligned_native, "bands": unaligned_bands},
         "native_absolute": native,
         "bands": bands,
         "breaches": breaches,
@@ -153,7 +165,10 @@ def qualify(cli, selected, out, budget):
         "budget": budget,
         "binary": str(cli),
         "binary_sha256": sha(cli),
-        "geometry": "default render; aspect center-crop, BOX resize, inner 80% comparison",
+        "geometry": "default lens-corrected render; structural affine reference coordinates; full overlap plus inner 80% bias",
+        "alignment_policy": alignment.POLICY,
+        "alignment_implementation_sha256": sha(alignment.__file__),
+        "registration_implementation_sha256": sha(alignment.registration.__file__),
         "reference_decode": "extract-preview: display-oriented, Adobe RGB converted to sRGB",
         "runner_sha256": sha(__file__),
         "comparator_sha256": sha(diff.__file__),
