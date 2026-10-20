@@ -51,7 +51,11 @@ for index, row in enumerate(cases):
         sheet = Image.new("RGB", (1350, 1450), "#202124")
         draw = ImageDraw.Draw(sheet)
         for column, label in enumerate(
-            ["Previous checkpoint (91fa)", "Neutral-protected fine fit (9eb)", "Embedded JPEG"]
+            [
+                "Previous checkpoint (91fa)",
+                "Neutral-protected fine fit (9eb)",
+                "Embedded JPEG",
+            ]
         ):
             draw.text((column * 450 + 10, 10), label, fill="white")
         sheets.append(sheet)
