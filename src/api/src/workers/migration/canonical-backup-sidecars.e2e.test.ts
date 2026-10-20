@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, afterEach, spyOn } from 'bun:test';
 import * as rootHelpers from '../missing-reaper.helpers.ts';
+import * as xmpChange from '../../routes/xmp-change.ts';
 import * as fs from '../../fs/mirrored.ts';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -336,6 +337,23 @@ describe('canonical-backup-sidecars', () => {
     }
 
     expect(stamped(library, id)).toBe(false);
+  });
+
+  it('keeps the old-name file when its photo moves between the create and the removal', async () => {
+    using library = await backupLibrary('canon-moved-after-create-');
+    await write(library, 'IMG_18.HEIC', 'pixels');
+    await write(library, 'IMG_18.HEIC.xmp', maple('backup edit'));
+    const id = backupPhoto(library, 'IMG_18.HEIC');
+    const landed = spyOn(xmpChange, 'announceSidecarLanded').mockImplementation(async () => {
+      library.db.query(`UPDATE asset_locations SET path = '2024/Moved' WHERE asset_id = ?`).run(id);
+    });
+    try {
+      await runTick();
+    } finally {
+      landed.mockRestore();
+    }
+
+    expect(await read(library, 'IMG_18.HEIC.xmp')).toBe(maple('backup edit'));
   });
 
   it('counts down to nothing remaining once every backup photo is handled', async () => {
