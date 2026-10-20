@@ -1,0 +1,570 @@
+{
+  "complete": true,
+  "binary_sha256": "abcd83ceb0d2653b2c1a15140a3838a54960fc8dc87b8345c996bb6b9e346656",
+  "selected": 16,
+  "scope": "All JPEG-bearing fixtures, AMaZE native fit. Unchanged test0000 ceilings applied to all cameras; diagnostic failures cannot be waived as image passes.",
+  "cases": [
+    {
+      "fixture": "test_0015",
+      "raw_sha256": "3a859e917a91698a3e15ce3b3721a48a1fb1296873e0697d3bf7c2793297200d",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "cb9a8549a12fb615b4a78fb062c651c1ab0fc88f3ed3e7f9d127603d912ab2e3",
+      "raw_unchanged": true,
+      "passed": true
+    },
+    {
+      "fixture": "test_0000",
+      "raw_sha256": "f4b60b3672bdf7ff7f4376fba9da1b1d22c925ebc3e16baa5fd4a64fa1045aa5",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "077a630f1aa5a3a9356e98b18275144a25d41cf1d625d4025a1cf2a87894f14a",
+      "raw_unchanged": true,
+      "passed": true
+    },
+    {
+      "fixture": "test_0002",
+      "raw_sha256": "4a4154b2595dc76a7d5e10cdcb65a386319e31647a585c23e262fe62b969c0fe",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "7492fca74dd575b730f39be6a1fbfebcccd021212c2cf53c834e599e8749d98e",
+      "raw_unchanged": true,
+      "passed": true
+    },
+    {
+      "fixture": "test_0003",
+      "raw_sha256": "195e1caf17a622c08323a76e8b0cfff9a9c5f76dbc5fa058af15273aa0eacf50",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "581a05a776bf89956ccaae338e8f3d704ffbf915122b21aa81e1263ce4d35f41",
+      "raw_unchanged": true,
+      "passed": true
+    },
+    {
+      "fixture": "test_0004",
+      "raw_sha256": "209d464e13702de5f4fdb830ac26ac140c98a8d0dc3e81c5ba61d93677330832",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "9fd6bad5e6bce3bdc47ade0b043a62ec31c10a6c211dd011d7cb46fbb996ed62",
+      "raw_unchanged": true,
+      "passed": true
+    },
+    {
+      "fixture": "test_0005",
+      "raw_sha256": "a7124d13910e0241a6b035154bc1fcdb7be4439371d043b1e1950a0251feb51e",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 1,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 1,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "e306f2abb03d570dc939a0dc86e4f81ef449ee9c628808794f0ff67ff7030308",
+      "raw_unchanged": true,
+      "passed": false
+    },
+    {
+      "fixture": "test_0006",
+      "raw_sha256": "159326856c29073e845c3c5a9ecf98c6474f43ca15798a88ad5e2baecd0664b7",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "88a384fc22a4f210ddb96e983b29315543b9837c8788ffde73022c4e3c56b6c7",
+      "raw_unchanged": true,
+      "passed": true
+    },
+    {
+      "fixture": "test_0007",
+      "raw_sha256": "95dc76a2f255e623acaa5149b320389f7da7c995da890c3e0d511c0ff681b2e1",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "019e0d231de0b8186bdea96259df8820acc051ba26307ac835452d29475285c8",
+      "raw_unchanged": true,
+      "passed": true
+    },
+    {
+      "fixture": "test_0008",
+      "raw_sha256": "95b33021160b239ceb1a09d46a1b29cb60cb7dd47581feb126b337c219091754",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 1,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "1fe4be4a6ceea2d4ab41dd685761a4db719c86717de4b3481fcdee76dbc054f5",
+      "raw_unchanged": true,
+      "passed": false
+    },
+    {
+      "fixture": "test_0009",
+      "raw_sha256": "85bfec149261ffbae90797e45caae5e204e1e61ac62b92783925b5ee0f267d76",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 1,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "8db19dd2ed4f9646d29c74cec3e0bca683236928d5b654fc7de23d18f127aae1",
+      "raw_unchanged": true,
+      "passed": false
+    },
+    {
+      "fixture": "test_0010",
+      "raw_sha256": "3ea2d03556747afcafa24f13fee69106f383dfaf3a2f436f8331f14518f20037",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 1,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "a23bf488ad221a2723f0e6366c40f7748bdc465814872694e6f9131c8cfb55bc",
+      "raw_unchanged": true,
+      "passed": false
+    },
+    {
+      "fixture": "test_0011",
+      "raw_sha256": "3421b919ee81224d59f78872ee099a021bff0e2a47ae5fbbac385b182ac7241e",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "da5bce8b6ed60747e4e849949fefb5772944574d4cb84a64ddfd1248fb9b6c5f",
+      "raw_unchanged": true,
+      "passed": true
+    },
+    {
+      "fixture": "test_0012",
+      "raw_sha256": "35109fc20a849026c43c47674902431ef5a2d54b09b616995263dc75df17912f",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 1,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "81bbe116971929821ab0a8394a94726d967abad7d13debcecacc786bcefd31bd",
+      "raw_unchanged": true,
+      "passed": false
+    },
+    {
+      "fixture": "test_0013",
+      "raw_sha256": "e91e77a4533ed7cce551d83330676ea5c47dd5e55fb38adda7819366afdbdfc2",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "de8c51c15c380ecfcea02e90db2a19c11bf7328cdf8cbeb76e2991f6a34fb75e",
+      "raw_unchanged": true,
+      "passed": true
+    },
+    {
+      "fixture": "test_0014",
+      "raw_sha256": "0c9438258ddae5260b9f5a1aace6658a723f1cb1acace3a6cb507116dc6da4f2",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "161dc3d6e0e6ac8bfd9692fd07aa97d7325f74bf7a35f69e2b407385421a19c5",
+      "raw_unchanged": true,
+      "passed": true
+    },
+    {
+      "fixture": "test_0017",
+      "raw_sha256": "26be5e06dfb53a2938dab3ca8f06024533a9c0dd0c652938f39eb48bc325f95e",
+      "ramps": [
+        {
+          "name": "neutral",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_neutral/18_auto_tail/luma"
+        },
+        {
+          "name": "foliage",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_foliage/18_auto_tail/chroma"
+        },
+        {
+          "name": "blue",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_blue/18_auto_tail/chroma"
+        },
+        {
+          "name": "magenta",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_magenta/18_auto_tail/chroma"
+        },
+        {
+          "name": "skin",
+          "exit": 0,
+          "budget_key": "test_0000_auto2_skin/18_auto_tail/chroma"
+        }
+      ],
+      "producer_exit": 0,
+      "provenance_sha256": "5e6c4f726f661f3d52d964b96457f986ae5f88ad64a64a41fec0b5ae234b24b6",
+      "raw_unchanged": true,
+      "passed": true
+    }
+  ],
+  "binary_unchanged": true,
+  "passed": 11
+}
