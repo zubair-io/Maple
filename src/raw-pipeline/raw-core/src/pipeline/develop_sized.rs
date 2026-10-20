@@ -207,6 +207,7 @@ pub(super) fn develop_sized_prefix(
                     &mosaic,
                     raw.cfa,
                     raw.as_shot_neutral,
+                    crate::sensor_gain_maps::ClipGainContext::new(raw, (0, 0), 1),
                     cancel,
                 )
             })

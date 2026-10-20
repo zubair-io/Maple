@@ -17,11 +17,13 @@ impl Warp {
         let [a, b, x, c, d, y] = self.coefficients;
         [a * u + b * v + x, c * u + d * v + y]
     }
+    /// Axis-aligned source extent, in source pixels, of one target pixel.
     pub(super) fn support(self, width: usize, height: usize, tw: usize, th: usize) -> [f64; 2] {
         let [a, b, _, c, d, _] = self.coefficients;
+        let (tw, th) = (tw as f64, th as f64);
         [
-            ((a * width as f64).powi(2) + (c * height as f64).powi(2)).sqrt() / tw as f64,
-            ((b * width as f64).powi(2) + (d * height as f64).powi(2)).sqrt() / th as f64,
+            width as f64 * (a.abs() / tw + b.abs() / th),
+            height as f64 * (c.abs() / tw + d.abs() / th),
         ]
     }
 }

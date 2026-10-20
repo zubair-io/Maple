@@ -7,6 +7,7 @@ pub mod hamilton_adams;
 pub mod lmmse;
 pub mod policy;
 pub mod rcd;
+mod sensor_gain;
 pub mod vng4;
 pub mod xtrans;
 
@@ -98,26 +99,35 @@ pub fn demosaic_cancellable(
 }
 
 /// Camera-aware AMaZE input conditioning. All other kernels keep their
-/// existing native-domain contract. Invalid metadata takes the original path.
+/// existing native-domain contract. Invalid metadata reconstructs at unit
+/// scales, which is the plain kernel.
 pub(crate) fn camera_demosaic_cancellable(
     algo: DemosaicAlgorithm,
     mosaic: &Image,
     cfa: CfaPattern,
     neutral: [f32; 3],
+    gains: Option<crate::sensor_gain_maps::ClipGainContext<'_>>,
     cancel: crate::cancel::CancelToken<'_>,
 ) -> Image {
-    if !neutral.iter().all(|n| n.is_finite() && *n > 0.0) {
+    if !matches!(
+        algo,
+        DemosaicAlgorithm::Amaze | DemosaicAlgorithm::DualAmazeVng4
+    ) {
         return demosaic_cancellable(algo, mosaic, cfa, cancel);
     }
     let minimum = neutral.into_iter().fold(f32::INFINITY, f32::min);
-    let scales = neutral.map(|n| minimum / n);
-    if scales.iter().any(|v| *v <= 0.0) {
-        return demosaic_cancellable(algo, mosaic, cfa, cancel);
-    }
-    match algo {
+    let scales = Some(neutral)
+        .filter(|n| n.iter().all(|n| n.is_finite() && *n > 0.0))
+        .map(|n| n.map(|n| minimum / n))
+        .filter(|s| s.iter().all(|v| *v > 0.0))
+        .unwrap_or([1.0; 3]);
+    let reconstruct = |mosaic: &Image| match algo {
         DemosaicAlgorithm::Amaze => amaze::amaze_with_gains(mosaic, cfa, scales),
-        DemosaicAlgorithm::DualAmazeVng4 => dual::dual_amaze_vng4_with_gains(mosaic, cfa, scales),
-        _ => demosaic_cancellable(algo, mosaic, cfa, cancel),
+        _ => dual::dual_amaze_vng4_with_gains(mosaic, cfa, scales),
+    };
+    match gains {
+        Some(gains) => sensor_gain::reconstruct_ungained(mosaic, cfa, gains, reconstruct),
+        None => reconstruct(mosaic),
     }
 }
 

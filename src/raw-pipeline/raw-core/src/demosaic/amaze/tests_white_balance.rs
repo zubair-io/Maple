@@ -94,6 +94,7 @@ fn invalid_metadata_preserves_original_camera_dispatch() {
             &m,
             cfa,
             neutral,
+            None,
             CancelToken::never(),
         );
         assert_eq!(actual.pixels, expected.pixels);
@@ -116,7 +117,8 @@ fn other_kernels_keep_the_native_domain_contract() {
         DemosaicAlgorithm::HalfRes,
     ] {
         let expected = demosaic(algorithm, &m, cfa);
-        let actual = camera_demosaic_cancellable(algorithm, &m, cfa, neutral, CancelToken::never());
+        let actual =
+            camera_demosaic_cancellable(algorithm, &m, cfa, neutral, None, CancelToken::never());
         assert_eq!(actual.pixels, expected.pixels);
     }
 }

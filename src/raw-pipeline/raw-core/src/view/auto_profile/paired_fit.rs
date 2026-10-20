@@ -470,6 +470,13 @@ pub(super) fn fit(
     } else {
         original_choice
     };
+    // Refine on the correspondence the selected fit was accepted on; aligned
+    // rows the guards rejected must not reshape the fallback (#5000).
+    let (selected_native, selected_display) = if use_registered {
+        (matched_native_rows, matched_display_rows)
+    } else {
+        (native_rows, display_rows)
+    };
     #[cfg(feature = "stage-dump")]
     if let Some(dir) = crate::stage_dump::dump_dir() {
         if let Ok(file) = std::fs::File::create(dir.join("auto_fit_registration.json")) {
@@ -481,11 +488,6 @@ pub(super) fn fit(
     }
     #[cfg(feature = "stage-dump")]
     if let Some(dir) = crate::stage_dump::dump_dir() {
-        let (selected_native, selected_display) = if use_registered {
-            (matched_native_rows, matched_display_rows)
-        } else {
-            (native_rows, display_rows)
-        };
         let _ = select_step(result, current, selected_native, selected_display);
         #[derive(serde::Serialize)]
         struct Snapshot<'a> {
@@ -509,8 +511,8 @@ pub(super) fn fit(
             native: selected_native,
             display: Some(selected_display),
             aligned: aligned.as_ref().map(|s| s.rows.as_slice()),
-            refinement_native: matched_native_rows,
-            refinement_display: matched_display_rows,
+            refinement_native: selected_native,
+            refinement_display: selected_display,
             prior_size: current.size,
             prior: &current.data,
             coarse: &coarse.data,
@@ -521,7 +523,7 @@ pub(super) fn fit(
         }
     }
     let base = chosen?;
-    refinement::refine(&base, matched_native_rows, matched_display_rows).or(Some(base))
+    refinement::refine(&base, selected_native, selected_display).or(Some(base))
 }
 
 #[cfg(test)]
