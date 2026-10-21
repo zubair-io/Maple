@@ -7,7 +7,7 @@
 //!
 //!   1. **Index hoisted out of the compressed region.** The header, the pool
 //!      offset directory, and every profile record live uncompressed in the
-//!      *index region* (`profiles.idx`, ~263 KB class). A body's matrices +
+//!      *index region* (`profiles.idx`, ~273 KB class). A body's matrices +
 //!      HSM pool-index refs resolve without inflating any HSM.
 //!   2. **Uncompressed pool offset directory.** `pool_count` entries of
 //!      `(offset, compressed_len, dims, encoding)` so the exact byte range of

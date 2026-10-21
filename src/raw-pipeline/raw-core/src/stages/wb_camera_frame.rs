@@ -23,8 +23,9 @@ use crate::{
 /// ACR means by them, because that is the scale the reference renders (and
 /// any ACR-authored XMP) encoded.
 ///
-/// Measured on test_0000 (DJI L3D-100c DNG): the bundle-frame as-shot CCT
-/// is 7471.6 K but the embedded-frame as-shot is 5507.7 K — ACR's own
+/// Measured on test_0000 (DJI L3D-100c DNG) while it was aliased to the
+/// Mavic 3 Pro's FC4382 profile (before #4661): the bundle-frame as-shot
+/// CCT was 7471.6 K but the embedded-frame as-shot is 5507.7 K — ACR's own
 /// "Daylight" preset (5500 K) is a near-no-op for that image
 /// (embedded-frame gain ≈ `[1.04, 1, 1.06]`). Interpreting 5500 K in the
 /// bundle frame instead applied a spurious ~48-mired cool shift — the
