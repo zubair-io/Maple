@@ -229,9 +229,9 @@ fn solve_tint_for_level(cct: f32, target_r: f32) -> f32 {
 /// between this specific camera's two calibration illuminants — a
 /// camera-specific curve, NOT the generic Hernández-Andrés Planckian locus
 /// `cct_to_xy` describes. Measured against real fixtures (test_0000.DNG,
-/// Hasselblad L3D-100c) the resulting `scene_white_xyz` can sit far from the
-/// generic locus (`x,y ≈ 0.387, 0.260` vs. the generic locus's `y ≥ 0.29` at
-/// any CCT in range) even though `compute_as_shot_cct`'s own converged CCT
+/// Hasselblad L3D-100c, via its pre-#4661 aliased profile) the resulting
+/// `scene_white_xyz` can sit far from the generic locus (`x,y ≈ 0.387, 0.260`
+/// vs. the locus's `y ≥ 0.29`) even though `compute_as_shot_cct`'s own CCT
 /// (7472 K) is perfectly plausible daylight — re-deriving CCT via the
 /// generic locus against that same XYZ gave 2354 K, wildly wrong. The ticket
 /// (#1725) calls this out directly: "dcp.rs compute_as_shot_cct does the CCT
@@ -568,7 +568,7 @@ mod tests {
     /// `estimate_tint_from_scene_xyz`'s module doc).
     ///
     /// Measured (2026-07, this exact fixture): 7472 K through the BUNDLE
-    /// profile's frame pre-#1727, 5507.7 K through the DNG's own embedded
+    /// alias's frame pre-#1727 and pre-#4661, 5507.7 K through the embedded
     /// dual-CM pair once #1727 re-anchored the slider frame on it (see
     /// `wb_camera::SliderFrame` — the embedded frame is the scale ACR's
     /// own slider reads for this DNG, and 5508 K is ordinary daylight,

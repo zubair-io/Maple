@@ -88,7 +88,7 @@ pub struct PoolDirEntry {
 
 /// One parsed v3 **index record** — matrices, illuminants, baseline-exposure
 /// offset, and the *references* (`u32` pool indices) to this body's HSM
-/// tables. Crucially carries NO HSM bytes: the index region is the ~263 KB
+/// tables. Crucially carries NO HSM bytes: the index region is the ~273 KB
 /// matrices-class part that resolves a body fully without inflating any pool
 /// entry. The actual `HsmTable`s are materialized later, on demand, by reading
 /// the referenced pool entries through the directory (the #828 lazy path; in
