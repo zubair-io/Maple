@@ -43,6 +43,10 @@ Build provenance keys (`MapleBuildGitSHA` and `MapleBuildDate`) are stamped dire
 
 The app's entitlements (`Maple/Maple.entitlements`) request the sandbox, the App Group `group.app.justmaple.aperture`, app-scope bookmarks, user-selected read/write, network client, the `…aperture.shared` keychain group, extended virtual addressing and increased memory limit (100 MP RAWs), and `com.apple.security.cs.disable-library-validation` — needed because panorama stitching `dlopen`s a Microsoft-signed ONNX Runtime dylib.
 
+## Colour grading and curves
+
+`ColorGradingPanel.swift` draws the wheels, `Blending` and the tonal-zone strip; edge drags are measured in the strip's own named coordinate space and mapped by `ColorGradeZoneEdge` (MapleCore, tested) so the pivot follows the pointer, not the 22pt handle. `ToneCurveSection` adds the parametric split diamonds and mode toggle (`ToneCurveSplits`), and `ColorCurvesRibbonView` is the `8-Band Mixer | Color Curves` switch with six pills, knots, Lock Skin and the eyedropper, whose model is `ColorCurvePicker` (MapleCore). The eyedropper calls `maple_sample_color_curve_oriented` through `ColorCurveSample`.
+
 ## Local packages
 
 ### MapleCore

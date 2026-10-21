@@ -118,7 +118,8 @@ Four point curves — `toneCurveLuma`, `toneCurveRed`, `toneCurveGreen`, `toneCu
 - `vibrance`, `saturation`: −100 … 100.
 - **HSL**: eight bands (red, orange, yellow, green, aqua, blue, purple, magenta) × hue / saturation / luminance = 24 sliders, each −100 … 100.
 - **Black & white**: `blackWhite` (`Off` / `On`) plus eight `grayMixer*` weights. Turning it on routes the same eight-band stage into a monochrome path and makes the 24 HSL sliders inert.
-- **Color grading**: four wheels. Shadows and highlights use the `splitToneShadowHue`/`Saturation` and `splitToneHighlightHue`/`Saturation` pairs (hue 0–360°, saturation 0–100); midtone and global have their own hue/saturation; all four zones have a luminance offset (−100 … 100); `splitToneBalance` warps the tonal axis.
+- **Color grading**: four wheels. Shadows and highlights use the `splitToneShadowHue`/`Saturation` and `splitToneHighlightHue`/`Saturation` pairs (hue 0–360°, saturation 0–100); midtone and global have their own hue/saturation; all four zones have a luminance offset (−100 … 100); `splitToneBalance` warps the tonal axis. `colorGradeBlending` (0–100, default 100) and the shadow and highlight pivots `colorGradeShadowEdge` / `colorGradeHighlightEdge` set how the three zones overlap; the panel draws the resulting weights as a strip with draggable pivot handles on Apple, Web and Windows.
+- **Color Curves**: six Oklab secondary curves — Hue vs Hue / Sat / Luma, Luma vs Sat, Sat vs Sat / Luma — behind a `8-Band Mixer | Color Curves` switch in the HSL section on Apple, Web and Windows. Six quick hue anchors, Lock Skin (guard knots at 38°, 55° and 72°) and a stage-input eyedropper place knots. Android and Linux have no panel.
 - `highlightRecovery` picks the reconstruction mode (`Off`, `Blend`, `Luminance`, `ChromaticAdaptation` — the default — or `OklabChromaReduction`).
 - `profile` chooses the render shaping: `Auto` (default) fits a per-image curve from the RAW's embedded JPEG preview; `Neutral` runs the plain scene-referred AgX view transform.
 
@@ -316,7 +317,9 @@ Web is split into its two deployments because they differ substantially. Every c
 | Editor (develop)                   | yes                                              | yes               | yes                | yes                       | no        |
 | Tone curve (point)                 | yes                                              | yes               | yes                | yes                       | no        |
 | Parametric tone curve              | via curve panel                                  | via curve panel   | via curve panel    | dedicated sliders         | no        |
+| Parametric split-point handles     | yes                                              | yes               | yes                | yes                       | no        |
 | HSL / B&W mixer                    | yes                                              | yes               | yes                | yes                       | no        |
+| Oklab secondary Color Curves       | yes                                              | yes               | yes                | yes                       | no        |
 | Color grading wheels               | yes                                              | yes               | yes                | yes                       | no        |
 | Film looks                         | yes                                              | yes               | yes                | no                        | no        |
 | Presets                            | yes                                              | yes               | yes                | no                        | no        |

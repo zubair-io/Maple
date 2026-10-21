@@ -169,7 +169,9 @@ export class CanvasZoomGestures {
       const target = e.target;
       if (
         target instanceof Element &&
-        target.closest('button, a, input, select, textarea, [role="button"], [role="slider"]')
+        target.closest(
+          'button, a, input, select, textarea, [role="button"], [role="slider"], [data-owns-pointer]',
+        )
       ) {
         return;
       }
