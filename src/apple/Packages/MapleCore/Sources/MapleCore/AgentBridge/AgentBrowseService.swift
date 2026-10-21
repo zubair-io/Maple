@@ -327,8 +327,8 @@ enum AgentBrowseService {
       let claimed = scope?.startAccessingSecurityScopedResource() ?? false
       defer { if claimed { scope?.stopAccessingSecurityScopedResource() } }
       let dates = ImageMetadataReader.readRawCaptureDateStrings(from: url)
-      return dates.dateTimeOriginal.flatMap(ExifCaptureDate.iso8601UTC(fromExifString:))
-        ?? dates.createDate.flatMap(ExifCaptureDate.iso8601UTC(fromExifString:))
+      return ExifCaptureDate.capturedAt(
+        dateTimeOriginal: dates.dateTimeOriginal, createDate: dates.createDate)
     }.value
   }
 

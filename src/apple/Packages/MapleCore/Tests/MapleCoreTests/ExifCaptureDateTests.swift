@@ -1,27 +1,12 @@
 // ExifCaptureDateTests.swift — golden-vector parity for ExifCaptureDate
-// (#1995).
+// (#1995, #5082).
 //
-// The expected outputs below were NOT hand-computed from reading the
-// algorithm — they were captured by actually running the real TypeScript
-// `normalizeExif` (`src/api/src/indexer/exif.ts`) under `bun run` against
-// each case's raw EXIF string, with `TZ=UTC` forced on the process:
-//
-//   TZ=UTC bun run <script calling normalizeExif({ DateTimeOriginal: <case> })>
-//
-// `TZ=UTC` matters: EXIF `DateTimeOriginal` has no timezone designator, and
-// both the server's `asIsoDate` string-fallback path AND exifr's own
-// `reviveDate` (the path most real photos take) interpret those wall-clock
-// components as LOCAL time of whatever process parses them — confirmed
-// empirically during #1995 by running the same script under
-// `TZ=America/New_York`, which shifted every `captured_at` by exactly the
-// zone's UTC offset (e.g. "2024:06:01 12:34:56" -> "...T16:34:56.000Z"
-// instead of "...T12:34:56.000Z"). `ExifCaptureDate` assumes the server
-// process runs in UTC — see its doc comment for the evidence and the
-// explicit caveat that this is an assumption, not a proven fact about the
-// deployed host. These golden vectors encode THAT assumption; if the
-// assumption is ever wrong, the fix is in `ExifCaptureDate`'s timezone
-// handling, and these vectors should be regenerated the same way (real
-// `bun run` against the real TS, not by hand).
+// Every `iso8601UTC` expectation and every dated `capturedAt` expectation was
+// captured by running the real `normalizeExif` (`src/api/src/indexer/exif.ts`)
+// on the same raw EXIF string; its `Date.UTC` reading does not depend on the
+// process timezone. The `capturedAt` cases that yield no date are a deliberate
+// device-side divergence, not server output: the device cannot reproduce
+// JavaScript's `new Date(...)` fallback, so it derives a fallback id there.
 
 import XCTest
 @testable import MapleCore
@@ -98,25 +83,113 @@ final class ExifCaptureDateTests: XCTestCase {
         XCTAssertNil(ExifCaptureDate.iso8601UTC(fromExifString: "not a date"))
     }
 
-    func testOutOfRangeMonthReturnsNil() {
-        XCTAssertNil(ExifCaptureDate.iso8601UTC(fromExifString: "2024:13:01 12:00:00"))
+    // MARK: - JavaScript `Date.UTC` semantics (#5082)
+    //
+    // The server's `asIsoDate` feeds each matched field to `Date.UTC`, which
+    // rolls out-of-range values forward, maps years 0–99 to 1900–1999 and uses
+    // the proleptic Gregorian calendar. Rejecting these on the device (the
+    // pre-#5082 behaviour) derived a fallback id where the server stamps a
+    // primary one.
+
+    func testOutOfRangeValuesRollForwardLikeTheServer() {
+        let expected = [
+            "2024:13:01 12:00:00": "2025-01-01T12:00:00.000Z",
+            "2024:06:01 24:00:00": "2024-06-02T00:00:00.000Z",
+            "2024:06:01 25:00:00": "2024-06-02T01:00:00.000Z",
+            "2023:02:30 12:00:00": "2023-03-02T12:00:00.000Z",
+            "2024:02:30 12:00:00": "2024-03-01T12:00:00.000Z",
+            "2024:00:10 12:00:00": "2023-12-10T12:00:00.000Z",
+            "2024:00:01 12:00:00": "2023-12-01T12:00:00.000Z",
+            "2024:06:00 12:00:00": "2024-05-31T12:00:00.000Z",
+            "2024:06:01 12:60:00": "2024-06-01T13:00:00.000Z",
+            "2024:06:01 12:00:61": "2024-06-01T12:01:01.000Z",
+        ]
+        for (exif, iso) in expected {
+            XCTAssertEqual(ExifCaptureDate.iso8601UTC(fromExifString: exif), iso, exif)
+        }
     }
 
-    func testOutOfRangeHourReturnsNil() {
-        XCTAssertNil(ExifCaptureDate.iso8601UTC(fromExifString: "2024:06:01 25:00:00"))
+    func testTwoDigitYearsAndTheZeroPlaceholderMatchTheServer() {
+        let expected = [
+            "0000:00:00 00:00:00": "1899-11-30T00:00:00.000Z",
+            "0024:06:01 12:34:56": "1924-06-01T12:34:56.000Z",
+            "0099:12:31 23:59:59": "1999-12-31T23:59:59.000Z",
+            "0100:01:01 00:00:00": "0100-01-01T00:00:00.000Z",
+            "9999:99:99 99:99:99": "+010007-06-11T04:40:39.000Z",
+        ]
+        for (exif, iso) in expected {
+            XCTAssertEqual(ExifCaptureDate.iso8601UTC(fromExifString: exif), iso, exif)
+        }
     }
 
-    func testInvalidDayForMonthReturnsNil() {
-        // February never has a 30th, leap year or not.
-        XCTAssertNil(ExifCaptureDate.iso8601UTC(fromExifString: "2024:02:30 12:00:00"))
+    // MARK: - Field order (#5082)
+
+    func testOriginalDateWinsOverDigitized() {
+        XCTAssertEqual(
+            ExifCaptureDate.capturedAt(
+                dateTimeOriginal: "2024:06:01 12:34:56", createDate: "2020:01:01 00:00:00"),
+            "2024-06-01T12:34:56.000Z")
     }
 
-    func testZeroMonthReturnsNil() {
-        XCTAssertNil(ExifCaptureDate.iso8601UTC(fromExifString: "2024:00:01 12:00:00"))
+    func testAnOriginalDateWithoutDigitsFallsBackToDigitizedLikeTheServer() {
+        for original in [nil, "", "    :  :     :  :  ", "unknown"] as [String?] {
+            XCTAssertEqual(
+                ExifCaptureDate.capturedAt(
+                    dateTimeOriginal: original, createDate: "2024:06:01 12:34:56"),
+                "2024-06-01T12:34:56.000Z", String(describing: original))
+        }
     }
 
-    func testZeroDayReturnsNil() {
-        XCTAssertNil(ExifCaptureDate.iso8601UTC(fromExifString: "2024:06:00 12:00:00"))
+    /// The server hands these to JavaScript's `Date` parser, whose answer the
+    /// device cannot reproduce; it may date the photo from them, so falling
+    /// back to the digitized date could derive a different primary id.
+    func testAnOriginalDateOnlyJavaScriptCouldReadYieldsNoDate() {
+        for original in ["2024-06-01T12:34:56", "2024:06:01", "06/01/2024 12:34"] {
+            XCTAssertNil(
+                ExifCaptureDate.capturedAt(
+                    dateTimeOriginal: original, createDate: "2020:01:01 00:00:00"),
+                original)
+        }
+    }
+
+    /// exifr strips NUL termination and surrounding spaces before the server's
+    /// `asIsoDate` sees the string.
+    func testSurroundingSpacesAndNulsAreTrimmedLikeExifr() {
+        let padded = [
+            " 2024:06:01 12:34:56", "2024:06:01 12:34:56 ", "2024:06:01 12:34:56\u{0}\u{0}",
+        ]
+        for original in padded {
+            XCTAssertEqual(
+                ExifCaptureDate.capturedAt(
+                    dateTimeOriginal: original, createDate: "2020:01:01 00:00:00"),
+                "2024-06-01T12:34:56.000Z", original.debugDescription)
+        }
+    }
+
+    func testNoUsableFieldYieldsNoDate() {
+        XCTAssertNil(ExifCaptureDate.capturedAt(dateTimeOriginal: nil, createDate: nil))
+        XCTAssertNil(ExifCaptureDate.capturedAt(dateTimeOriginal: "", createDate: "unknown"))
+    }
+
+    // MARK: - Shared goldens (also pinned by tests/maple-id-contract.test.ts and raw-core)
+
+    private func deviceId(_ name: String) throws -> String? {
+        let url = try WorkflowFixture.root().appendingPathComponent("ids/\(name)")
+        let dates = ImageMetadataReader.readRawCaptureDateStrings(from: url)
+        let captured = ExifCaptureDate.capturedAt(
+            dateTimeOriginal: dates.dateTimeOriginal, createDate: dates.createDate)
+        let head = try Data(contentsOf: url).prefix(64 * 1024)
+        return captured.flatMap { MapleId.primary(headBytes: Data(head), capturedAtISO8601: $0) }
+    }
+
+    func testABlankOriginalDateDerivesTheServersDigitizedDatedId() throws {
+        XCTAssertEqual(
+            try deviceId("still-blank-original-date.jpg"), "01b070aac318b20a45cf629b2d2f1709")
+    }
+
+    func testTheZeroOriginalDatePlaceholderDerivesTheServersId() throws {
+        XCTAssertEqual(
+            try deviceId("still-zero-original-date.jpg"), "012f4ad811f9fb08900967db02879d0d")
     }
 
     // MARK: - Determinism

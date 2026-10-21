@@ -48,3 +48,23 @@ test('dated-video golden: QuickTime creationdate drives the primary id', async (
     '01b176338229c1cb8b9ddfc6235e829d',
   );
 });
+
+test('placeholder original-date stills: the server falls back to CreateDate or rolls the zero date', async () => {
+  const goldens = {
+    'still-blank-original-date.jpg': [
+      '2024-06-01T12:34:56.000Z',
+      '01b070aac318b20a45cf629b2d2f1709',
+    ],
+    'still-zero-original-date.jpg': [
+      '1899-11-30T00:00:00.000Z',
+      '012f4ad811f9fb08900967db02879d0d',
+    ],
+  };
+  for (const [name, [capturedAt, id]] of Object.entries(goldens)) {
+    const file = join(import.meta.dir, '../../../test-fixtures/ids', name);
+    const exif = await readExif(file);
+    expect(exif?.captured_at).toBe(capturedAt);
+    const head = new Uint8Array(await readFile(file)).subarray(0, 65536);
+    expect(api.deriveId(head, capturedAt, null, null).hex).toBe(id);
+  }
+});
