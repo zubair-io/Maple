@@ -14,7 +14,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import {
@@ -313,6 +313,24 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
       await writeFile(sidecar, PREVIOUS);
       expect((await upload('photo.xmp', REPLACEMENT)).status).toBe(409);
       expect(new Uint8Array(await readFile(sidecar))).toEqual(PREVIOUS);
+    });
+
+    it("keeps a sidecar upload's client mtime", async () => {
+      const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
+      const res = await app.handle(
+        new Request(`http://localhost/api/folders/${folderId}/upload`, {
+          method: 'POST',
+          headers: {
+            'X-Maple-Target-Path': 'stamped.xmp',
+            'X-Maple-File-Mtime': '1700000000',
+            'Content-Type': 'application/octet-stream',
+          },
+          body: REPLACEMENT,
+        }),
+      );
+      expect(res.status).toBe(201);
+      const { mtimeMs } = await stat(nodePath.join(folderPath, 'stamped.xmp'));
+      expect(Math.round(mtimeMs / 1000)).toBe(1700000000);
     });
 
     it('never replaces a sidecar an XMP save wrote while the upload waited (#5067)', async () => {

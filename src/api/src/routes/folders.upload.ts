@@ -155,18 +155,17 @@ async function publishUploadedBody(input: UploadTarget): Promise<void> {
  * XMP routes that landed after the existence check is never replaced. */
 async function publishUploadedSidecar(input: UploadTarget): Promise<void> {
   await serializeSidecarWrite(input.absPath, async () => {
-    // Stamped before the link, so a save after the barrier never gets the upload's mtime.
-    await preserveUploadMtime(input.tmp, input.mtimeHeader);
     try {
       await publishExclusive(input.tmp, input.absPath);
     } catch (error) {
       if (!(error instanceof PublishCollisionError)) throw uploadError('publish', error);
-      throw new UploadConflictError(
-        `A sidecar already exists at "${input.target}"; write sidecars through the XMP routes`,
-      );
+      refuseSidecarReplacement(input.target, input.filename);
+      throw error;
     } finally {
       await unlink(input.tmp).catch(() => {});
     }
+    // Stamped inside the barrier, and after the publish so a copy fallback keeps it too.
+    await preserveUploadMtime(input.absPath, input.mtimeHeader);
   });
 }
 async function preserveUploadMtime(filename: string, value: string | undefined): Promise<void> {
