@@ -39,7 +39,9 @@ final class LocalSidecarOwnershipTests: XCTestCase {
       else { return nil }
       let rel = file.resolvingSymlinksInPath().standardizedFileURL.pathComponents
         .dropFirst(base.pathComponents.count)
-      guard !rel.contains(".maple") || rel.contains("trash") else { return nil }
+      guard rel.filter({ $0 == ".maple" }).count <= (rel.contains("trash") ? 1 : 0) else {
+        return nil
+      }
       guard !rel.last!.hasPrefix(".") else { return nil }
       return (rel.joined(separator: "/"), FileOperationsTestSupport.contents(file) ?? "<binary>")
     }
@@ -319,9 +321,9 @@ final class LocalSidecarOwnershipTests: XCTestCase {
       "on a case-folding volume a case-different exclusion names the same file")
     XCTAssertTrue(
       SidecarOwnership.stemClaimedBySibling(
-        primaryPath: "/d/IMG_1.CR3", siblingNames: ["img_1.JPG", "IMG_1.JPG"],
-        excluding: ["/d/IMG_1.JPG"], foldsCase: false),
-      "on a case-sensitive volume a case-different sibling is a separate photo")
+        primaryPath: "/d/IMG_1.CR3", siblingNames: ["IMG_1.JPG"], excluding: ["/d/img_1.jpg"],
+        foldsCase: false),
+      "on a case-sensitive volume a case-different exclusion is a separate file")
   }
 
   func testAnUnlistableFolderCountsAsClaimed() {
