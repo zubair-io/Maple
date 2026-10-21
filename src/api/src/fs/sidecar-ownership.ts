@@ -14,7 +14,6 @@
  */
 import * as fs from './mirrored.ts';
 import * as path from 'node:path';
-import * as crypto from 'node:crypto';
 import { listPairedSidecars } from './xmp-conflict.ts';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { serializeSidecarWrite, serializeSidecarWrites } from './sidecar-write-order.ts';
@@ -23,6 +22,7 @@ import { child as childLogger } from '../log.ts';
 import {
   errnoCode,
   PublishCollisionError,
+  privateSiblingOf,
   publishExclusive,
   type RelocatePublication,
 } from './relocate-publish.ts';
@@ -191,7 +191,7 @@ async function linkExclusive(tmp: string, dest: string): Promise<RelocatePublica
 }
 
 export async function writeVerifiedTemp(dest: string, bytes: Buffer): Promise<string> {
-  const tmp = `${dest}.tmp.${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+  const tmp = privateSiblingOf(dest);
   await fs.writeFile(tmp, bytes);
   if (!bytes.equals(await fs.readFile(tmp))) {
     await fs.unlink(tmp).catch(() => {});

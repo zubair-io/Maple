@@ -34,7 +34,7 @@ export function errnoCode(err: unknown): string | undefined {
 /** `.tmp.` in the basename keeps `mirrored.ts` from replicating the name. A
  * destination name too long for the suffix gets a short hidden sibling instead,
  * so a long file name stays inside the 255-byte limit. */
-function privateSiblingOf(destination: string): string {
+export function privateSiblingOf(destination: string): string {
   const suffix = `.tmp.${process.pid}-${randomBytes(8).toString('hex')}`;
   const beside = `${destination}${suffix}`;
   return Buffer.byteLength(path.basename(beside)) <= 255

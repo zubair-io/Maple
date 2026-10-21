@@ -255,9 +255,10 @@ describe('refile sidecar barrier (#5061)', () => {
     expect(await read('2024/03-15/IMG.HEIC')).toBe('pixels');
   });
 
-  test('a photo with a long file name still refiles', async () => {
+  test('a photo with a long file name still refiles, with its sidecar', async () => {
     const name = `${'x'.repeat(240)}.HEIC`;
     await write(`2024/03-15/${name}`, 'pixels');
+    await write(`2024/03-15/${'x'.repeat(240)}.xmp`, 'edit');
 
     const plan = await planAndPlace({
       libRoot: root,
@@ -269,5 +270,6 @@ describe('refile sidecar barrier (#5061)', () => {
 
     expect(plan.newRelPath).toBe(`2024/${name}`);
     expect(await read(`2024/${name}`)).toBe('pixels');
+    expect(await read(`2024/${'x'.repeat(240)}.xmp`)).toBe('edit');
   });
 });
