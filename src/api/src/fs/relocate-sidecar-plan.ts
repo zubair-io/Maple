@@ -38,9 +38,10 @@ export interface SidecarPlan {
   destinationClaimedBySibling: boolean;
   /** A photo sat at the destination before the move, so Replace displaces one. */
   destinationHadPrimary: boolean;
-  /** The displaced photo's old-name edit, unless the incoming one lands on it;
-   * removed once the new photo is in place, so it is never read as the new photo's. */
-  staleDisplacedOldName: { legacy: string; bytes: Buffer } | null;
+  /** The displaced photo's old-name edits, every spelling but one the incoming edit lands on;
+   * removed once the new photo is in place while unchanged since the plan, so it is
+   * never read as the new photo's. */
+  staleDisplacedOldNames: readonly { legacy: string; bytes: Buffer }[];
   replace: boolean;
 }
 
@@ -121,13 +122,20 @@ async function oldNameFate(
 /** Replace retires the displaced photo's old-name edit (#5063), or the
  * incoming photo's own takes it over. One that can't be read would survive and
  * later be read as the incoming photo's, so the move is refused before any byte moves. */
-async function displacedOldNameEdit(
+async function displacedOldNameEdits(
   req: SidecarPlanRequest,
-): Promise<{ legacy: string; bytes: Buffer } | null> {
+): Promise<{ legacy: string; bytes: Buffer }[]> {
   if (await oldNameEditUnreadable(req.finalDest)) {
     throw new Error("relocate: the displaced photo's old-name backup edit can't be read");
   }
-  return locateLegacyBackupEdit(req.finalDest).catch(() => null);
+  // Every spelling a case- or normalization-sensitive volume holds, first one first.
+  const found: { legacy: string; bytes: Buffer }[] = [];
+  for (;;) {
+    const skip = new Set(found.map((edit) => edit.legacy));
+    const next = await locateLegacyBackupEdit(req.finalDest, skip).catch(() => null);
+    if (next === null) return found;
+    found.push(next);
+  }
 }
 
 /** One sidecar's plan; `null` leaves it at the source. */
@@ -178,8 +186,9 @@ export async function planSidecars(req: SidecarPlanRequest): Promise<SidecarPlan
     req.sourceAbsPath,
   ]);
   const destinationHadPrimary = await exists(req.finalDest);
-  const displacedOldName =
-    req.replace && destinationHadPrimary ? await displacedOldNameEdit(req) : null;
+  const displacedOldNames =
+    req.replace && destinationHadPrimary ? await displacedOldNameEdits(req) : [];
+  const displacedOldName = displacedOldNames[0] ?? null;
   const entries: SidecarPlanEntry[] = [];
   for (const source of req.sourceSidecars) {
     const entry = await planEntry(req, source, {
@@ -198,7 +207,7 @@ export async function planSidecars(req: SidecarPlanRequest): Promise<SidecarPlan
     sourceClaimedBySibling,
     destinationClaimedBySibling,
     destinationHadPrimary,
-    staleDisplacedOldName: takenOver ? null : displacedOldName,
+    staleDisplacedOldNames: takenOver ? displacedOldNames.slice(1) : displacedOldNames,
     replace: req.replace,
   };
 }
@@ -281,10 +290,7 @@ export async function carryPlannedSidecars(
 
 /** The previous occupant's old-name edit (#5063) when the incoming photo
  * brings sidecars but none by that name; the migration would hand it on. */
-async function removeStaleOldNameEdit(
-  stale: { legacy: string; bytes: Buffer } | null,
-): Promise<void> {
-  if (stale === null) return;
+async function removeStaleOldNameEdit(stale: { legacy: string; bytes: Buffer }): Promise<void> {
   const { legacy, bytes } = stale;
   // Only the bytes the plan read: a save since then is kept. Never throws, past a Replace.
   await serializeSidecarWrite(legacy, async () => {
@@ -318,7 +324,9 @@ export async function removeStaleDestinationSidecars(
   replacesWithoutSidecar: boolean,
   replacing: boolean,
 ): Promise<void> {
-  if (replacing) await removeStaleOldNameEdit(plan.staleDisplacedOldName);
+  if (replacing) {
+    for (const stale of plan.staleDisplacedOldNames) await removeStaleOldNameEdit(stale);
+  }
   if (!replacesWithoutSidecar || plan.destinationClaimedBySibling) return;
   for (const stale of await listPairedSidecars(finalDest)) {
     // Old-name edits (#5063) are handled above: a displaced one only while unchanged, a stranded one never.
