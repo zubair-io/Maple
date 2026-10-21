@@ -3,7 +3,7 @@
  * save that lands on the old `IMG.xmp` between the copy and the cleanup is
  * carried to the new path, never deleted. Real files in a temp library.
  */
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from '../../fs/mirrored.ts';
@@ -157,5 +157,19 @@ describe('refile sidecar barrier (#5061)', () => {
     await cleanUp(await placed!);
 
     expect(await read('2024/IMG.xmp')).toBe('edit 2');
+  });
+
+  test('a late save whose replace fails leaves no temp file and keeps the source', async () => {
+    const plan = await place();
+    await write('2024/03-15/IMG.xmp', 'edit 2');
+    const rename = spyOn(fs, 'rename').mockRejectedValueOnce(new Error('EBUSY'));
+    try {
+      await cleanUp(plan);
+    } finally {
+      rename.mockRestore();
+    }
+
+    expect((await fs.readdir(abs('2024'))).filter((name) => name.includes('.tmp.'))).toEqual([]);
+    expect(await read('2024/03-15/IMG.xmp')).toBe('edit 2');
   });
 });

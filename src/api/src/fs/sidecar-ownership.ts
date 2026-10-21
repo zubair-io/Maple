@@ -262,6 +262,9 @@ async function carryLateSave(current: Buffer, dest: string, snapshot: Buffer): P
   const atDest = await readSidecarBytes(dest);
   if (atDest === null || !atDest.equals(snapshot)) return false;
   const tmp = await writeVerifiedTemp(dest, current);
-  await fs.rename(tmp, dest);
+  await fs.rename(tmp, dest).catch(async (err: unknown) => {
+    await fs.unlink(tmp).catch(() => {});
+    throw err;
+  });
   return true;
 }
