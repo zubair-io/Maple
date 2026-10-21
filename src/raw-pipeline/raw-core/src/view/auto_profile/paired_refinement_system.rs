@@ -4,10 +4,10 @@ use rayon::prelude::*;
 
 const CHUNK: usize = 2048;
 
-/// The training rows' sparsity laid out twice: row-major for the per-row dot
-/// products, node-major (rows in their original order) for the per-node sums.
-/// Every output element is computed by one thread in the original order, so a
-/// parallel product is byte-identical to the sequential row walk (#5104).
+/// The training rows' sparsity laid out row-major (to assemble the normal
+/// matrix) and node-major with rows in their original order, so `scatter` and
+/// the Jacobi diagonal keep the row walk's bits. The assembled product sums in
+/// a different order than the old row walk, moving Auto by ≤ 1/255 (#5104).
 pub(super) struct Pattern {
     row_start: Vec<usize>,
     row_nodes: Vec<usize>,
@@ -164,6 +164,7 @@ impl<'a> System<'a> {
                 *value += coefficients[k] * pattern.node_weights[k];
             }
         }
+        // One λ per edge, not degree·λ: the repeated sum keeps the diagonal's bits.
         for (node, value) in diagonal.iter_mut().enumerate() {
             for _ in pattern.edge_start[node]..pattern.edge_start[node + 1] {
                 *value += lambda;
@@ -224,12 +225,11 @@ impl<'a> System<'a> {
             });
     }
 
-    /// Multiply-adds in one product, so a test can pin the solver's work.
-    pub(super) fn product_terms(&self) -> usize {
+    #[cfg(test)]
+    fn product_terms(&self) -> usize {
         self.normal.len() + self.pattern.edge_peers.len() + self.diagonal.len()
     }
 
-    /// The solution and the number of operator products it took.
     pub(super) fn solve(&self, rhs: &[f64], initial: Vec<f64>) -> Option<(Vec<f64>, usize)> {
         let dot = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(u, v)| u * v).sum::<f64>();
         let mut ap = vec![0.; rhs.len()];
@@ -302,6 +302,8 @@ pub(super) fn prediction(lut: &[f32], row: &Observation) -> [f64; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const PRODUCT_CEILING: usize = 110;
+    const TERMS_CEILING: usize = 40_512;
     #[test]
     fn matrix_free_solution_matches_its_independent_normal_equation_residual() {
         let row = Observation {
@@ -340,5 +342,70 @@ mod tests {
         assert_eq!(solved[0], 0.);
         assert_eq!(solved[7], 0.);
         assert!(residual.iter().zip(rhs).all(|(a, b)| (a - b).abs() < 1e-6));
+    }
+    fn synthetic_rows(count: usize, size: usize) -> Vec<Observation> {
+        (0..count)
+            .map(|i| {
+                let mut artifact_weights: Vec<(usize, f64)> = Vec::new();
+                for pixel in 0..4 {
+                    let seed = ((i * 4 + pixel) as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+                    let cluster = (i % 24) as f32 / 23.;
+                    let rgb: [f32; 3] = std::array::from_fn(|c| {
+                        let jitter = ((seed >> (13 + 17 * c)) % 1000) as f32 / 999. - 0.5;
+                        (cluster * [1., 0.8, 0.6][c] + 0.08 * jitter).clamp(0., 1.)
+                    });
+                    for (node, w) in super::super::super::corners_at(rgb, size) {
+                        match artifact_weights.iter_mut().find(|(n, _)| *n == node) {
+                            Some(entry) => entry.1 += w / 4.,
+                            None => artifact_weights.push((node, w / 4.)),
+                        }
+                    }
+                }
+                Observation {
+                    weights: vec![],
+                    artifact_weights,
+                    source: [0.; 3],
+                    target: [((i * 37) % 101) as f64 / 100.; 3],
+                    baseline: [0.; 3],
+                    population: 1,
+                    validation: false,
+                    in_bias_region: true,
+                    region: 0,
+                }
+            })
+            .collect()
+    }
+    // Pure IEEE +,*,/ with fixed reduction order: the counts are identical on
+    // every platform, so any solver change that inflates them fails here.
+    #[test]
+    fn solver_work_on_a_synthetic_observation_set_stays_pinned() {
+        let size = 17;
+        let observations = synthetic_rows(20_000, size);
+        let rows: Vec<_> = observations
+            .iter()
+            .map(|row| TrainingRow {
+                row,
+                groups: [0, 1],
+                count: 2,
+            })
+            .collect();
+        let weights: Vec<_> = (0..rows.len())
+            .map(|i| 1. + (i % 7) as f64 * 0.25)
+            .collect();
+        let edges = edges(size);
+        let pattern = Pattern::new(&rows, size, &edges);
+        let system = System::new(&pattern, &weights, size);
+        let residuals: Vec<_> = observations.iter().map(|r| r.target[0] - 0.5).collect();
+        let mut rhs = vec![0.; size.pow(3)];
+        pattern.scatter(system.coefficients(), &residuals, &mut rhs);
+        let (_, products) = system.solve(&rhs, vec![0.; size.pow(3)]).unwrap();
+        let row_walk_terms = 2 * pattern.row_nodes.len();
+        eprintln!(
+            "products {products}, terms per product {}, row-walk terms {row_walk_terms}",
+            system.product_terms()
+        );
+        assert!(products <= PRODUCT_CEILING);
+        assert!(system.product_terms() <= TERMS_CEILING);
+        assert!(system.product_terms() < row_walk_terms + edges.len() * 2 + size.pow(3));
     }
 }

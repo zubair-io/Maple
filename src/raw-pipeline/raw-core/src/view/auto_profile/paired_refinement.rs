@@ -83,16 +83,6 @@ pub(super) fn refine(
     native: &[Observation],
     display: &[Observation],
 ) -> Option<ColorLut> {
-    refine_counting_work(origin, native, display, &mut 0)
-}
-
-/// `work` accumulates the multiply-adds spent in operator products (#5104).
-fn refine_counting_work(
-    origin: &ColorLut,
-    native: &[Observation],
-    display: &[Observation],
-    work: &mut usize,
-) -> Option<ColorLut> {
     if origin.size < 2 {
         return None;
     }
@@ -172,15 +162,12 @@ fn refine_counting_work(
             let start = (0..count)
                 .map(|i| f64::from(artifact.data[i * 3 + c] - origin.data[i * 3 + c]))
                 .collect();
-            system
-                .solve(&rhs, start)
-                .map(|(delta, products)| (delta, products * system.product_terms()))
+            system.solve(&rhs, start).map(|(delta, _)| delta)
         };
         let deltas: Vec<_> = (0..3).into_par_iter().map(solve_channel).collect();
         let mut candidate = origin.clone();
         for (c, delta) in deltas.into_iter().enumerate() {
-            let (delta, terms) = delta?;
-            *work += terms;
+            let delta = delta?;
             for i in 0..count {
                 candidate.data[i * 3 + c] += delta[i] as f32;
             }
@@ -239,7 +226,6 @@ fn refine_counting_work(
 #[cfg(test)]
 mod tests {
     use super::*;
-    const WORK_CEILING: usize = 139_400_000;
     fn row(population: usize, validation: bool) -> Observation {
         Observation {
             weights: vec![],
@@ -275,58 +261,6 @@ mod tests {
             assert!((groups[0][c] - 0.19).abs() < 1e-12);
         }
         assert!((objective(&groups, &mass) - 3. * (3.8 + 2f64.ln() / 16.)).abs() < 1e-12);
-    }
-    fn synthetic(count: usize, display: bool) -> Vec<Observation> {
-        (0..count)
-            .map(|i| {
-                let mut weights: Vec<(usize, f64)> = Vec::new();
-                let mut mean = [0f64; 3];
-                for pixel in 0..4 {
-                    let seed = ((i * 4 + pixel) as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
-                    let rgb: [f32; 3] =
-                        std::array::from_fn(|c| ((seed >> (13 + 17 * c)) % 1000) as f32 / 999.);
-                    for (node, w) in super::super::corners_at(rgb, 9) {
-                        match weights.iter_mut().find(|(n, _)| *n == node) {
-                            Some(entry) => entry.1 += w / 4.,
-                            None => weights.push((node, w / 4.)),
-                        }
-                    }
-                    for c in 0..3 {
-                        mean[c] += f64::from(rgb[c]) / 4.;
-                    }
-                }
-                let luma = mean[0] * 0.2126 + mean[1] * 0.7152 + mean[2] * 0.0722;
-                Observation {
-                    weights: vec![],
-                    artifact_weights: weights,
-                    source: mean,
-                    target: mean.map(|v| (luma + 1.2 * (v - luma)).clamp(0., 1.).powf(0.9)),
-                    baseline: mean,
-                    population: 1 + i % 3,
-                    validation: i % 4 == 0,
-                    in_bias_region: true,
-                    region: if display { i % 64 } else { 0 },
-                }
-            })
-            .collect()
-    }
-    #[test]
-    fn refinement_solver_work_stays_pinned_on_a_synthetic_observation_set() {
-        let native = synthetic(3000, false);
-        let display = synthetic(1000, true);
-        let row_terms: usize = native
-            .iter()
-            .chain(&display)
-            .map(|r| r.artifact_weights.len())
-            .sum();
-        let mut work = 0;
-        refine_counting_work(&ColorLut::identity(9), &native, &display, &mut work);
-        eprintln!("refinement work {work} multiply-adds; training row terms {row_terms}");
-        assert!(work > 0);
-        assert!(
-            work <= WORK_CEILING,
-            "refinement solver work {work} exceeds the pinned {WORK_CEILING}"
-        );
     }
     #[test]
     fn insufficient_training_cannot_replace_an_existing_lut() {

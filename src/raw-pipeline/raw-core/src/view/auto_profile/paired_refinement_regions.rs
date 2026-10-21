@@ -26,10 +26,7 @@ impl<'a> Regions<'a> {
             members[row.region].push(index);
             populations[row.region] += row.population;
         }
-        let mut baseline = region_sums(&rows, &targets, origin);
-        for r in 0..64 {
-            baseline[r] /= populations[r].max(1) as f64;
-        }
+        let baseline = region_means(&rows, &targets, &populations, origin);
         Self {
             rows,
             targets,
@@ -50,10 +47,7 @@ impl<'a> Regions<'a> {
         let mut touched = vec![false; nodes];
         let mut active = Vec::new();
         for _ in 0..12 {
-            let mut current = region_sums(&self.rows, &self.targets, candidate);
-            for r in 0..64 {
-                current[r] /= self.populations[r].max(1) as f64;
-            }
+            let current = region_means(&self.rows, &self.targets, &self.populations, candidate);
             let bad: Vec<_> = (0..64)
                 .filter(|&r| current[r] > self.baseline[r] + 0.06)
                 .collect();
@@ -118,7 +112,12 @@ impl<'a> Regions<'a> {
     }
 }
 
-fn region_sums(rows: &[&Observation], targets: &[[f32; 3]], lut: &ColorLut) -> [f64; 64] {
+fn region_means(
+    rows: &[&Observation],
+    targets: &[[f32; 3]],
+    populations: &[usize; 64],
+    lut: &ColorLut,
+) -> [f64; 64] {
     let errors: Vec<f64> = rows
         .par_iter()
         .zip(targets)
@@ -128,7 +127,7 @@ fn region_sums(rows: &[&Observation], targets: &[[f32; 3]], lut: &ColorLut) -> [
     for (row, e) in rows.iter().zip(errors) {
         sums[row.region] += e;
     }
-    sums
+    std::array::from_fn(|r| sums[r] / populations[r].max(1) as f64)
 }
 
 fn error(rgb: [f64; 3], target: [f32; 3]) -> f64 {

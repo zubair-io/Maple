@@ -5,26 +5,14 @@ fn minimum(prior: &[f32], i: usize, j: usize, epsilon: f64) -> f64 {
     (f64::from(prior[j]) - f64::from(prior[i])).min(epsilon)
 }
 
-#[cfg(test)]
 fn project_edge(
     data: &mut [f32],
     prior: &[f32],
-    confidence: &[f64],
+    [wi, wj]: [f64; 2],
     i: usize,
     j: usize,
     epsilon: f64,
 ) {
-    project(
-        data,
-        prior,
-        [confidence[i / 3], confidence[j / 3]],
-        i,
-        j,
-        epsilon,
-    );
-}
-
-fn project(data: &mut [f32], prior: &[f32], [wi, wj]: [f64; 2], i: usize, j: usize, epsilon: f64) {
     let lower = minimum(prior, i, j, epsilon);
     let deficit = lower - (f64::from(data[j]) - f64::from(data[i]));
     if deficit <= 0. {
@@ -74,7 +62,7 @@ fn constrain_channel(data: &mut [f32], prior: &[f32], confidence: &[f64], n: usi
         for node in 0..data.len() {
             if node / stride % n + 1 < n {
                 let j = node + stride;
-                project(
+                project_edge(
                     data,
                     prior,
                     [confidence[node], confidence[j]],
@@ -87,7 +75,7 @@ fn constrain_channel(data: &mut [f32], prior: &[f32], confidence: &[f64], n: usi
         for k in 0..n - 1 {
             let i = k * diagonal;
             let j = i + diagonal;
-            project(data, prior, [confidence[i], confidence[j]], i, j, epsilon);
+            project_edge(data, prior, [confidence[i], confidence[j]], i, j, epsilon);
         }
     }
     feasible_closure(data, prior, n, stride, epsilon);
@@ -137,12 +125,12 @@ mod tests {
     fn supported_nodes_move_only_as_far_as_the_unchanged_constraint_requires() {
         let prior = [0., 0., 0., 1., 1., 1.];
         let mut data = [0.9, 0., 0., 0.1, 1., 1.];
-        project_edge(&mut data, &prior, &[1., 1e-8], 0, 3, 0.01);
+        project_edge(&mut data, &prior, [1., 1e-8], 0, 3, 0.01);
         assert!((data[0] - 0.9).abs() < 1e-7);
         assert!(data[3] - data[0] >= 0.01 - 1e-7);
         data[0] = 1.;
         data[3] = 0.5;
-        project_edge(&mut data, &prior, &[1., 1e-8], 0, 3, 0.01);
+        project_edge(&mut data, &prior, [1., 1e-8], 0, 3, 0.01);
         assert_eq!(data[3], 1.);
         assert!((data[0] - 0.99).abs() < 1e-7);
     }
