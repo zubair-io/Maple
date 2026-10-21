@@ -32,6 +32,7 @@ import { Elysia, t } from 'elysia';
 import type { ObjectId } from '../../db/object-id.ts';
 import { unlink } from 'node:fs/promises';
 import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
+import { oldNameEditUnreadable } from '../../fs/legacy-backup-sidecar.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { trashAssetById, restoreAssetById } from '../../library/asset-trash.ts';
 import { prepareTrashPurge } from '../../cloud-backup/lifecycle.ts';
@@ -122,6 +123,12 @@ async function purgeTrashedAsset(
   const located = await resolveAssetAbsPathOrRespond(info, set);
   if ('error' in located) return located;
   const { absPath, libs } = located;
+  // A purge would strand an old-name edit it can't read (#5063); the user retries.
+  // Not 409: clients read that as "restored elsewhere".
+  if (await oldNameEditUnreadable(absPath)) {
+    set.status = 500;
+    return { error: "The photo's old-name backup edit can't be read — retry once it can" };
+  }
   if (!(await admitTrashPurge(id, info, set)))
     return { error: 'Trash state changed — refresh before deleting' };
   try {

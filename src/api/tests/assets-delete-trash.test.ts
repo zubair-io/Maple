@@ -149,6 +149,28 @@ describe('DELETE /api/assets/:id (trash + permanent purge)', () => {
     await fs.stat(other);
   });
 
+  test.skipIf(process.getuid?.() === 0)(
+    "permanent purge refuses while the photo's old-name edit can't be read",
+    async () => {
+      const { app } = await import('../src/index.ts');
+      const { assetId } = await makeAsset('IMG_5.HEIC', Buffer.from('photo'));
+      await app.handle(del(assetId));
+      const trashed = primaryAbsPath(live.db, ROOT, assetId)!;
+      await fs.writeFile(
+        `${trashed}.xmp`,
+        '<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">backup</x:xmpmeta>',
+      );
+      await fs.chmod(`${trashed}.xmp`, 0o000);
+      try {
+        expect((await app.handle(del(assetId))).status).toBe(500);
+      } finally {
+        await fs.chmod(`${trashed}.xmp`, 0o644);
+      }
+      await fs.stat(trashed);
+      expect(assetRow(live.db, assetId)).not.toBeNull();
+    },
+  );
+
   test('404 on unknown asset id', async () => {
     const { app } = await import('../src/index.ts');
     const res = await app.handle(del(newObjectIdHex()));
