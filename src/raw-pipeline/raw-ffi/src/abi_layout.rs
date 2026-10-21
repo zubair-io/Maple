@@ -146,6 +146,8 @@ pub(crate) fn describe(name: &str) -> Option<String> {
                 color_grade_blending,
                 color_grade_shadow_edge,
                 color_grade_highlight_edge,
+                wb_hsm_ptr,
+                wb_hsm_len,
             }))
         }
         "MapleToneCurves" => Some(layout!(crate::scene_linear_chain_curves::MapleToneCurves {
@@ -219,6 +221,8 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             camera_support_json,
             whites_anchor_ev,
             nr_sampling_scale,
+            wb_hsm_data,
+            wb_hsm_len,
         })),
         "MapleAutoAdjustments" => Some(layout!(crate::auto_adjustments::MapleAutoAdjustments {
             exposure,
@@ -406,6 +410,8 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             color_curve_sat_vs_sat_len,
             color_curve_sat_vs_luma_ptr,
             color_curve_sat_vs_luma_len,
+            wb_hsm_ptr,
+            wb_hsm_len,
         })),
         #[cfg(feature = "gpu")]
         "MapleGpuLiveSession" => Some(layout!(crate::gpu_live::MapleGpuLiveSession { inner })),

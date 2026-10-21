@@ -24,7 +24,7 @@
 
 use crate::chain::Pass;
 use crate::context::GpuContext;
-use crate::spatial::encode_simple;
+use crate::spatial::{encode_simple, pool_data_storage};
 
 /// `repr(C)` params uniform shared by the WGSL kernel (`white_balance.wgsl`).
 /// The 3×3 WB matrix is stored as three `[f32; 4]` rows (xyz = the matrix row,
@@ -65,18 +65,83 @@ pub fn apply_white_balance(buf: &mut [f32], matrix: [[f32; 3]; 3]) {
     }
 }
 
+/// The white-balance-retargeted HueSatMap of a dual-illuminant profile on the
+/// live drag (#5099): the per-tick constants of raw-core's
+/// `wb_camera::HsmRetargetView::live_delta` plus the session-constant
+/// endpoint tables. With it the WB pass runs `white_balance_hsm.wgsl`
+/// instead of the plain matmul.
+#[derive(Clone, Debug)]
+pub struct WbHsmInputs<'a> {
+    /// `[hue_divs, sat_divs, val_divs]` of each table.
+    pub dims: [u32; 3],
+    /// The value axis is indexed sRGB-encoded (`HsmEncoding::Srgb`).
+    pub srgb: bool,
+    /// Cold table then warm table, each laid out as `HsmTable::data`.
+    pub tables: WbHsmTables<'a>,
+    /// Rec.2020 → linear ProPhoto D50.
+    pub to_pro: [[f32; 3]; 3],
+    /// The WB delta in ProPhoto.
+    pub delta_pro: [[f32; 3]; 3],
+    /// Linear ProPhoto D50 → Rec.2020.
+    pub from_pro: [[f32; 3]; 3],
+    /// Table blend weight at the slider target and at the buffer's anchor.
+    pub w_target: f32,
+    pub w_anchor: f32,
+}
+
+/// The endpoint tables, borrowed from an FFI host for one call or shared
+/// with a session that owns them (the WASM live session keeps its chain
+/// inputs `'static`), so neither copies the tables per tick.
+#[derive(Clone, Debug)]
+pub enum WbHsmTables<'a> {
+    Borrowed(&'a [f32]),
+    Shared(std::sync::Arc<[f32]>),
+}
+
+impl WbHsmTables<'_> {
+    pub fn as_slice(&self) -> &[f32] {
+        match self {
+            WbHsmTables::Borrowed(tables) => tables,
+            WbHsmTables::Shared(tables) => tables,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct HsmParams {
+    to_pro: [[f32; 4]; 3],
+    delta_pro: [[f32; 4]; 3],
+    from_pro: [[f32; 4]; 3],
+    count: u32,
+    hue_divs: u32,
+    sat_divs: u32,
+    val_divs: u32,
+    srgb: u32,
+    table_len: u32,
+    w_target: f32,
+    w_anchor: f32,
+}
+
+fn rows(m: &[[f32; 3]; 3]) -> [[f32; 4]; 3] {
+    m.map(|r| [r[0], r[1], r[2], 0.0])
+}
+
 /// A GPU-resident white-balance stage. Carries the **already-derived** 3×3
 /// linear-Rec.2020 WB matrix (CAT16 or diagonal — both collapse to a single
-/// matmul). The device, pipeline, and ping-pong buffers come from the
-/// [`GpuContext`] / [`ChainRunner`]; the matrix is uploaded as three `vec4` rows
-/// inside `encode`.
-pub struct WhiteBalancePass {
+/// matmul), and on a dual-HueSatMap profile the retargeted-HueSatMap inputs.
+/// The device, pipeline, and ping-pong buffers come from the [`GpuContext`] /
+/// [`ChainRunner`]; the matrix is uploaded as three `vec4` rows inside `encode`.
+pub struct WhiteBalancePass<'a> {
     /// Row-major 3×3 WB matrix (the output of raw-core's `wb_cat16_matrix`, or a
     /// diagonal built from `wb_gains`).
     pub matrix: [[f32; 3]; 3],
+    /// `Some` routes the pass through `white_balance_hsm.wgsl`; `matrix` is
+    /// then unused (the delta rides `hsm.delta_pro`).
+    pub hsm: Option<&'a WbHsmInputs<'a>>,
 }
 
-impl Pass for WhiteBalancePass {
+impl Pass for WhiteBalancePass<'_> {
     fn encode(
         &self,
         ctx: &GpuContext,
@@ -87,6 +152,38 @@ impl Pass for WhiteBalancePass {
     ) {
         let (width, height) = dims;
         let pixel_count = width * height;
+
+        if let Some(hsm) = self.hsm {
+            let params = HsmParams {
+                to_pro: rows(&hsm.to_pro),
+                delta_pro: rows(&hsm.delta_pro),
+                from_pro: rows(&hsm.from_pro),
+                count: pixel_count,
+                hue_divs: hsm.dims[0],
+                sat_divs: hsm.dims[1],
+                val_divs: hsm.dims[2],
+                srgb: hsm.srgb as u32,
+                table_len: (hsm.tables.as_slice().len() / 2) as u32,
+                w_target: hsm.w_target,
+                w_anchor: hsm.w_anchor,
+            };
+            // Session-constant tables: pooled by content, uploaded once.
+            let tables = pool_data_storage(
+                ctx,
+                bytemuck::cast_slice(hsm.tables.as_slice()),
+                "wb-hsm-tables",
+            );
+            encode_simple(
+                ctx,
+                encoder,
+                ctx.white_balance_hsm_pipeline(),
+                bytemuck::bytes_of(&params),
+                &[src, dst, tables.as_ref()],
+                pixel_count,
+                "white-balance-hsm",
+            );
+            return;
+        }
 
         let m = &self.matrix;
         let params = Params {
@@ -110,6 +207,10 @@ impl Pass for WhiteBalancePass {
         );
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "white_balance_hsm_tests.rs"]
+mod hsm_tests;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
@@ -207,7 +308,7 @@ mod tests {
 
                 let img = GpuImage::upload(&ctx, &input, count, 1);
                 let runner = ChainRunner::new(&ctx, &img);
-                let gpu = runner.run_blocking(&[&WhiteBalancePass { matrix }]);
+                let gpu = runner.run_blocking(&[&WhiteBalancePass { matrix, hsm: None }]);
 
                 let max_diff = reference
                     .iter()
@@ -264,7 +365,10 @@ mod tests {
         let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         let img = GpuImage::upload(&ctx, &input, count, 1);
         let runner = ChainRunner::new(&ctx, &img);
-        let gpu = runner.run_blocking(&[&WhiteBalancePass { matrix: identity }]);
+        let gpu = runner.run_blocking(&[&WhiteBalancePass {
+            matrix: identity,
+            hsm: None,
+        }]);
         let max_diff = input
             .iter()
             .zip(&gpu)
@@ -287,7 +391,10 @@ mod tests {
         let input = vec![0.2_f32, 0.4, 0.6, 1.0];
         let img = GpuImage::upload(&ctx, &input, 1, 1);
         let runner = ChainRunner::new(&ctx, &img);
-        let gpu = runner.run_blocking(&[&WhiteBalancePass { matrix: m }]);
+        let gpu = runner.run_blocking(&[&WhiteBalancePass {
+            matrix: m,
+            hsm: None,
+        }]);
 
         // Expected = row-major M · rgb.
         let expected = [

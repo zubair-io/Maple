@@ -60,6 +60,19 @@ impl GpuContext {
         })
     }
 
+    /// The cached white-balance pipeline carrying the retargeted HueSatMap
+    /// (#5099, `white_balance_hsm.wgsl`). Standalone: its matrices and the
+    /// endpoint tables arrive per pass.
+    pub fn white_balance_hsm_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.white_balance_hsm_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "white-balance-hsm",
+                include_str!("white_balance_hsm.wgsl"),
+            )
+        })
+    }
+
     /// The cached scene-tone-controls POINT compute pipeline (epic #925 P2 /
     /// #990, reshaped at #1103).
     ///

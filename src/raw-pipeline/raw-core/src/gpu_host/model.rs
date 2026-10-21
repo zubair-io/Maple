@@ -153,6 +153,7 @@ fn build_with_storage(
         wb_matrix,
         wb_temperature: model.temperature,
         wb_tint: model.tint,
+        wb_hsm: None,
         tone: [
             model.exposure,
             model.brightness,

@@ -201,6 +201,23 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             }
         }
     };
+    // Retargeted HueSatMap (#5099): only on the frame-anchored delta, where
+    // the decode exported both the frame and the profile's endpoint tables.
+    let wb_hsm = if frame_delta_engaged {
+        crate::wb_frame_flat::wb_hsm_from_flat(p.wb_hsm_ptr, p.wb_hsm_len).and_then(|view| {
+            raw_core::gpu_host::white_balance::wb_hsm_inputs(
+                view,
+                raw_gpu::WbHsmTables::Borrowed(view.tables),
+                &wb_frame,
+                (
+                    (p.temperature, p.tint),
+                    (p.decoded_temperature, p.decoded_tint),
+                ),
+            )
+        })
+    } else {
+        None
+    };
     // Live-builder WB gate values (#1781). `build_live_chain` gates the WB
     // pass on `wb_is_noop(wb_temperature, wb_tint)` — the ABSOLUTE 6500/0
     // short-circuit predicate. Under the frame-anchored DELTA contract the
@@ -250,6 +267,7 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         wb_matrix,
         wb_temperature: gate_temperature,
         wb_tint: gate_tint,
+        wb_hsm,
         tone: [
             p.exposure,
             p.brightness,

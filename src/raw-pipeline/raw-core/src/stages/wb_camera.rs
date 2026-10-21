@@ -225,6 +225,12 @@ mod frame_delta;
 pub use frame::SliderFrame;
 pub use frame_delta::SliderFrameExport;
 
+#[path = "wb_hsm_retarget.rs"]
+mod hsm_retarget;
+pub use hsm_retarget::{
+    HsmLiveDelta, HsmRetargetView, WbHsmRetarget, HSM_INVERSE_ITERATIONS, HSM_RETARGET_HEADER_LEN,
+};
+
 // WB slider-scale migration (#1780): converts pre-#1756 (V1) stored
 // temperature/tint into this module's slider frame at develop time. Split
 // into a sibling file for the 600-line budget; re-exported so callers
@@ -524,12 +530,9 @@ pub fn retargeted_render_profile(
     let Some(e) = profile.cm_endpoints else {
         return profile; // single-calibration render profile: nothing to re-interpolate
     };
-    if is_as_shot_target(frame, temperature, tint) {
+    let Some(render_cct) = retarget_render_cct(frame, &e, temperature, tint) else {
         return profile;
-    }
-    let target_neutral = camera_neutral_for(frame.cm_for_cct(temperature), temperature, tint);
-    let render_cct =
-        dcp::compute_as_shot_cct(target_neutral, e.m_cold, e.cct_cold, e.m_warm, e.cct_warm);
+    };
     let forward_matrix = profile.forward_matrix_for_cct(render_cct);
     let hsm = match (&profile.hsm_endpoints, forward_matrix) {
         (Some(h), Some(_)) => dcp::lerp_hsm_for_cct(
@@ -548,6 +551,29 @@ pub fn retargeted_render_profile(
     }
 }
 
+/// The render profile's own CCT for a slider target — the illuminant its
+/// dual calibration reads the target's camera neutral as
+/// ([`retargeted_render_profile`] doc). `None` at the as-shot target, where
+/// the render profile passes through untouched.
+pub(crate) fn retarget_render_cct(
+    frame: &SliderFrame,
+    e: &dcp::CmEndpoints,
+    temperature: f32,
+    tint: f32,
+) -> Option<f32> {
+    if is_as_shot_target(frame, temperature, tint) {
+        return None;
+    }
+    let target_neutral = camera_neutral_for(frame.cm_for_cct(temperature), temperature, tint);
+    Some(dcp::compute_as_shot_cct(
+        target_neutral,
+        e.m_cold,
+        e.cct_cold,
+        e.m_warm,
+        e.cct_warm,
+    ))
+}
+
 #[cfg(test)]
 #[path = "wb_camera_tests.rs"]
 mod tests;
@@ -559,3 +585,7 @@ mod frame_tests;
 #[cfg(test)]
 #[path = "wb_camera_continuity_tests.rs"]
 mod continuity_tests;
+
+#[cfg(test)]
+#[path = "wb_hsm_live_fixture_tests.rs"]
+mod hsm_live_fixture_tests;

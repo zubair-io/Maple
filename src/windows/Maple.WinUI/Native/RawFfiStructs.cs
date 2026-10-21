@@ -53,6 +53,10 @@ namespace Maple.WinUI.Native
         public byte* camera_support_json;
         public float whites_anchor_ev;
         public float nr_sampling_scale;
+        // HueSatMap endpoint wire (#5099): kept by the core for the life of
+        // the process (not freed with this buffer), so hosts keep the pointer.
+        public float* wb_hsm_data;
+        public nuint wb_hsm_len;
     }
 
     /// <summary>

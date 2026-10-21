@@ -285,6 +285,9 @@ mod gpu_live_wb_frame_tests;
 #[path = "gpu_live_chain_parity_tests.rs"]
 mod gpu_live_chain_parity_tests;
 #[cfg(test)]
+#[path = "gpu_live_wb_hsm_tests.rs"]
+mod gpu_live_wb_hsm_tests;
+#[cfg(test)]
 #[path = "gpu_live_wb_seam_tests.rs"]
 mod gpu_live_wb_seam_tests;
 // Film-look tail host parity (epic #2683, Task 8) — split out per the

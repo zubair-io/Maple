@@ -67,6 +67,14 @@ public struct WbSliderFrame: Sendable, Equatable {
     public let renderFmCold: [Float]
     public let renderFmWarm: [Float]
 
+    /// The profile's HueSatMap endpoint wire (#5099): the address and float
+    /// count of `MapleSceneLinearBufferF32.wb_hsm_data`, which the Rust
+    /// core keeps for the life of the process, so the frame carries the
+    /// pointer itself and every tick passes it back unchanged. Zero ⇒ the
+    /// profile's HueSatMap does not move with white balance.
+    public let hueSatMapAddress: UInt
+    public let hueSatMapCount: Int
+
     /// Whether the export carries a real frame (`sceneCCT > 0`). All-zero
     /// exports read as absent — consumers keep legacy behaviour.
     public var isPresent: Bool { sceneCCT.isFinite && sceneCCT > 0 }
@@ -84,7 +92,9 @@ public struct WbSliderFrame: Sendable, Equatable {
         renderCmWarm: [Float] = [],
         renderCctWarm: Float = 0,
         renderFmCold: [Float] = [],
-        renderFmWarm: [Float] = []
+        renderFmWarm: [Float] = [],
+        hueSatMapAddress: UInt = 0,
+        hueSatMapCount: Int = 0
     ) {
         self.mCold = mCold
         self.cctCold = cctCold
@@ -102,6 +112,8 @@ public struct WbSliderFrame: Sendable, Equatable {
         self.renderCctWarm = renderCctWarm
         self.renderFmCold = renderFmCold
         self.renderFmWarm = renderFmWarm
+        self.hueSatMapAddress = hueSatMapAddress
+        self.hueSatMapCount = hueSatMapCount
     }
 
     /// Read the export off a decode buffer. Returns `nil` when the buffer
@@ -125,6 +137,8 @@ public struct WbSliderFrame: Sendable, Equatable {
         self.renderCctWarm = buffer.wb_frame_render_cct_warm
         self.renderFmCold = Self.array9(buffer.wb_frame_render_fm_cold)
         self.renderFmWarm = Self.array9(buffer.wb_frame_render_fm_warm)
+        self.hueSatMapAddress = UInt(bitPattern: buffer.wb_hsm_data)
+        self.hueSatMapCount = Int(buffer.wb_hsm_len)
     }
 
     /// The imported C `float[9]` (a 9-tuple in Swift) as an array.
@@ -176,6 +190,8 @@ extension WbSliderFrame {
         p.wb_frame_render_cct_warm = renderCctWarm
         p.wb_frame_render_fm_cold = Self.tuple9(renderFmCold)
         p.wb_frame_render_fm_warm = Self.tuple9(renderFmWarm)
+        p.wb_hsm_ptr = hueSatMap
+        p.wb_hsm_len = UInt(hueSatMapCount)
     }
 
     /// Fill the `wb_frame_*` tail fields of the GPU live params.
@@ -196,6 +212,13 @@ extension WbSliderFrame {
         p.wb_frame_render_cct_warm = renderCctWarm
         p.wb_frame_render_fm_cold = Self.tuple9(renderFmCold)
         p.wb_frame_render_fm_warm = Self.tuple9(renderFmWarm)
+        p.wb_hsm_ptr = hueSatMap
+        p.wb_hsm_len = UInt(hueSatMapCount)
+    }
+
+    /// The interned HueSatMap wire, or nil when the frame carries none.
+    var hueSatMap: UnsafePointer<Float>? {
+        hueSatMapCount > 0 ? UnsafePointer(bitPattern: hueSatMapAddress) : nil
     }
 
     // NOTE (#1976): there is deliberately NO decode-bake constant here.
