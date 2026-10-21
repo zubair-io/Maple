@@ -34,4 +34,17 @@ public class ColorGradeZoneWeightsTests
         Assert.Equal(wantMid, mid, 4);
         Assert.Equal(wantHighlight, highlight, 4);
     }
+
+    [Theory]
+    [InlineData(0.5601, 0.10, 0.564622, 0.564622)]
+    [InlineData(0.9, 0.10, 0.564622, 0.564622)]
+    [InlineData(0.5602, 0.564622, 0.90, 0.564622)]
+    [InlineData(0.2514, 0.10, 0.564622, 0.251)]
+    [InlineData(0.02, 0.10, 0.564622, 0.10)]
+    [InlineData(0.95, 0.564622, 0.90, 0.90)]
+    public void EdgeDragRoundsSnapsToTheAnchorAndClampsLikeTheOtherPlatforms(
+        double norm, double min, double max, double want)
+    {
+        Assert.Equal(want, MuiColorGradeZoneWeightsMath.SnapEdge(norm, min, max), 9);
+    }
 }
