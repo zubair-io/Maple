@@ -110,7 +110,13 @@ export async function discardIdenticalReplacement(
   )
     return false;
   for (const filename of files) await unlinkPurgedPrimary(filename);
-  await carryLateEditsToReplacement(trashedPath, replacementPath);
+  // Never skips the row's deletion: the photo is already gone.
+  await carryLateEditsToReplacement(trashedPath, replacementPath).catch((err: unknown) => {
+    log.error(
+      { trashedPath, err: err instanceof Error ? err.message : err },
+      'identical replacement: checking for late edits failed',
+    );
+  });
   await hardDelete(assetId);
   return true;
 }

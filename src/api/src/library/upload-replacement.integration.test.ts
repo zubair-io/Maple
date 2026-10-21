@@ -15,6 +15,7 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { mkdir, writeFile, readFile, stat } from '../fs/mirrored.ts';
 import * as assetsRepo from '../db/repos/assets.repo.ts';
+import * as xmpConflict from '../fs/xmp-conflict.ts';
 import { discardIdenticalReplacement } from './upload-replacement.ts';
 
 async function fixture(bytes = 'old-original') {
@@ -295,6 +296,29 @@ test('a late sidecar a trashed same-stem sibling shares stays with that sibling 
       prepare.mockRestore();
     }
     expect(await readFile(late, 'utf8')).toBe('shared edit');
+  } finally {
+    await f.close();
+  }
+});
+
+test("a failed late-edit check never skips the purged row's deletion (#5069)", async () => {
+  const f = await fixture();
+  const source = path.join(f.library, '.maple/trash/photo.dng');
+  try {
+    expect((await f.upload('different')).status).toBe(201);
+    await writeFile(f.original, 'old-original');
+    const realList = xmpConflict.listPairedSidecars;
+    const list = spyOn(xmpConflict, 'listPairedSidecars').mockImplementation(async (p) =>
+      String(p) === source ? Promise.reject(new Error('EIO')) : realList(p),
+    );
+    try {
+      expect(
+        await discardIdenticalReplacement(new ObjectId(f.id), f.library, source, f.original),
+      ).toBe(true);
+    } finally {
+      list.mockRestore();
+    }
+    expect(f.live.db.query('SELECT id FROM assets WHERE id=?').get(f.id)).toBeNull();
   } finally {
     await f.close();
   }
