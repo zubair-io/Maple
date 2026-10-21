@@ -83,6 +83,7 @@ async function readCurrent(destination: string): Promise<string | null> {
  * the named base, and keep anything else before landing the edit on top. */
 async function publishOver(
   destination: string,
+  publishPath: string,
   current: string,
   xmp: string,
   base: string | null,
@@ -102,7 +103,7 @@ async function publishOver(
   const forget = diverged
     ? await recordDisplaced({ xmp: current, sha256: currentSha256, incomingSha256 })
     : null;
-  const written = await writeSidecarAtomic(destination, xmp, 'sidecar write failed');
+  const written = await writeSidecarAtomic(publishPath, xmp, 'sidecar write failed');
   if (!written.ok) {
     // Drop the record only while the displaced version is still on disk, so a
     // retry doesn't pile up copies (#5023). A leftover row is harmless.
@@ -115,12 +116,12 @@ async function publishOver(
 
 /** Create the sidecar when none exists; `null` when one appeared first. */
 async function createIfAbsent(
-  destination: string,
+  publishPath: string,
   xmp: string,
   beforeWrite: () => Promise<void>,
 ): Promise<SidecarCasOutcome | null> {
   await beforeWrite();
-  const created = await writeSidecarCreateOnly(destination, xmp, 'sidecar write failed');
+  const created = await writeSidecarCreateOnly(publishPath, xmp, 'sidecar write failed');
   if (created.ok) return { kind: 'written' };
   return 'exists' in created ? null : { kind: 'error', error: created.error };
 }
@@ -130,12 +131,13 @@ async function createIfAbsent(
 async function prepareDestination(destination: string): Promise<SidecarCasOutcome | null> {
   const allowed = await authorizeSidecarWrite(destination);
   if (!allowed.ok) return { kind: 'refused', error: allowed.error ?? 'path not allowed' };
-  await fs.mkdir(path.dirname(allowed.data ?? destination), { recursive: true });
+  await fs.mkdir(path.dirname(destination), { recursive: true });
   return null;
 }
 
 async function publishAt(
   target: string,
+  publishPath: string,
   xmp: string,
   base: string | null,
   recordDisplaced: RecordDisplaced,
@@ -145,13 +147,13 @@ async function publishAt(
   // Once only: a create that lost the race goes on to publish over the newcomer.
   const ahead = once(beforeWrite);
   const existing = await readCurrent(target);
-  const created = existing === null ? await createIfAbsent(target, xmp, ahead) : null;
+  const created = existing === null ? await createIfAbsent(publishPath, xmp, ahead) : null;
   if (created) return created;
   // A writer outside the barrier can create the file between the read and
   // the create-only publish; compare against what is actually there.
   const current = existing ?? (await readCurrent(target));
   if (current === null) return { kind: 'error', error: 'sidecar vanished during write' };
-  return publishOver(target, current, xmp, base, recordDisplaced, shared, ahead);
+  return publishOver(target, publishPath, current, xmp, base, recordDisplaced, shared, ahead);
 }
 
 function once(run: () => Promise<void>): () => Promise<void> {
@@ -210,6 +212,7 @@ export async function publishSidecarCas(
       const shared = (await options.shared?.()) ?? false;
       const outcome = await publishAt(
         target,
+        destination,
         xmp,
         base,
         recordDisplaced,

@@ -5,9 +5,16 @@
  * Real files in a registered temp library.
  */
 import { expect, test } from 'bun:test';
+import os from 'node:os';
 import path from 'node:path';
 import * as fs from '../fs/mirrored.ts';
-import { createTempLibrary } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { flushPendingMirrorOps } from '../fs/mirrored.ts';
+import { clearMirrorRoots, setMirrorRoots } from '../fs/mirror-registry.ts';
+import {
+  createLiveTestDatabase,
+  createTempLibrary,
+  insertFolder,
+} from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { publishSidecarCas, publishSidecarIfAbsent } from './sidecar-cas.ts';
 
 const keepNothing = async () => async () => undefined;
@@ -53,4 +60,30 @@ test('a create-only publish whose precondition no longer holds writes nothing', 
 
   expect(outcome).toEqual({ kind: 'abandoned' });
   await expect(fs.access(sidecar)).rejects.toThrow();
+});
+
+test('a sidecar published into a library reached through a symlinked root replicates to its mirror (#5027)', async () => {
+  const live = await createLiveTestDatabase();
+  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-cas-symlink-'));
+  try {
+    const realRoot = path.join(scratch, 'real-library');
+    const linkedRoot = path.join(scratch, 'linked-library');
+    const mirror = path.join(scratch, 'mirror');
+    await fs.mkdir(realRoot, { recursive: true });
+    await fs.mkdir(mirror, { recursive: true });
+    await fs.symlink(realRoot, linkedRoot);
+    insertFolder(live.db, { path: linkedRoot });
+    setMirrorRoots({ [linkedRoot]: [mirror] });
+
+    const sidecar = path.join(linkedRoot, '2026', '10', 'x.xmp');
+    const outcome = await publishSidecarCas(sidecar, '<xmp/>', null, keepNothing, linkedRoot);
+    await flushPendingMirrorOps();
+
+    expect(outcome).toEqual({ kind: 'written' });
+    expect(await fs.readFile(path.join(mirror, '2026', '10', 'x.xmp'), 'utf8')).toBe('<xmp/>');
+  } finally {
+    clearMirrorRoots();
+    live.close();
+    await fs.rm(scratch, { recursive: true, force: true });
+  }
 });
