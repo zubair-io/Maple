@@ -211,6 +211,14 @@ struct ToneCurveSection: View {
           state.session.model.parametricHighlightSplit = ToneCurveSplits.defaultHighlight
         }
         state.session.endEdit()
+      },
+      onResetAll: {
+        keyboardBridge?.resign?()
+        state.commit(description: "Reset Tone Curve splits")
+        state.session.model.parametricShadowSplit = ToneCurveSplits.defaultShadow
+        state.session.model.parametricMidtoneSplit = ToneCurveSplits.defaultMidtone
+        state.session.model.parametricHighlightSplit = ToneCurveSplits.defaultHighlight
+        state.session.endEdit()
       }
     )
   }

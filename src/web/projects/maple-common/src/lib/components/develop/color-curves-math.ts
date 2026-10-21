@@ -126,7 +126,13 @@ export function lockSkinToneCurve(desc: ColorCurveDescriptor, curve: ToneCurve):
   const pts: ToneCurvePoint[] = curve.points.map((p: ToneCurvePoint) => [p[0], p[1]]);
   for (const deg of SKIN_TONE_GUARD_DEG) {
     const x = deg / 360;
-    if (!pts.some((p: ToneCurvePoint) => Math.abs(p[0] - x) < 0.015)) {
+    const idx = pts.findIndex((p: ToneCurvePoint) => {
+      const d = Math.abs(p[0] - x);
+      return Math.min(d, 1 - d) < 0.015;
+    });
+    if (idx >= 0) {
+      pts[idx] = [x, 0.5];
+    } else {
       pts.push([x, 0.5]);
     }
   }
@@ -203,16 +209,42 @@ export function evaluateColorCurve(
 
 function evalHermite(x: number, xs: readonly number[], ys: readonly number[]): number {
   const n = xs.length;
+  const hs = new Array<number>(n - 1).fill(0);
   const deltas = new Array<number>(n - 1).fill(0);
   for (let k = 0; k < n - 1; k++) {
-    const h = xs[k + 1] - xs[k];
-    deltas[k] = h > 1e-6 ? (ys[k + 1] - ys[k]) / h : 0;
+    const h = Math.max(xs[k + 1] - xs[k], 1e-6);
+    hs[k] = h;
+    deltas[k] = (ys[k + 1] - ys[k]) / h;
   }
   const m = new Array<number>(n).fill(0);
   m[0] = deltas[0];
   m[n - 1] = deltas[n - 2];
   for (let k = 1; k < n - 1; k++) {
-    m[k] = deltas[k - 1] * deltas[k] <= 0 ? 0 : 0.5 * (deltas[k - 1] + deltas[k]);
+    const dl = deltas[k - 1];
+    const dr = deltas[k];
+    if (dl * dr > 0) {
+      const hl = hs[k - 1];
+      const hr = hs[k];
+      const w1 = 2 * hr + hl;
+      const w2 = hr + 2 * hl;
+      m[k] = (w1 + w2) / (w1 / dl + w2 / dr);
+    }
+  }
+  for (let k = 0; k < n - 1; k++) {
+    const dk = deltas[k];
+    if (Math.abs(dk) < 1e-7) {
+      m[k] = 0;
+      m[k + 1] = 0;
+    } else {
+      const alpha = m[k] / dk;
+      const beta = m[k + 1] / dk;
+      const r2 = alpha * alpha + beta * beta;
+      if (r2 > 9) {
+        const tau = 3 / Math.sqrt(r2);
+        m[k] = tau * alpha * dk;
+        m[k + 1] = tau * beta * dk;
+      }
+    }
   }
   let seg = 0;
   for (let k = 0; k < n - 1; k++) {
@@ -221,9 +253,8 @@ function evalHermite(x: number, xs: readonly number[], ys: readonly number[]): n
       break;
     }
   }
-  const h = xs[seg + 1] - xs[seg];
-  if (h <= 1e-6) return Math.min(1, Math.max(0, ys[seg]));
-  const t = (x - xs[seg]) / h;
+  const h = hs[seg];
+  const t = Math.min(1, Math.max(0, (x - xs[seg]) / h));
   const t2 = t * t;
   const t3 = t2 * t;
   const h00 = 2 * t3 - 3 * t2 + 1;

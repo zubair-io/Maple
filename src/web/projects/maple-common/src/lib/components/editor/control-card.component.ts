@@ -390,7 +390,8 @@ export class ControlCardComponent {
     if (!current) return;
     const id = this.libraryState.focusedAssetId();
     if (!id) return;
-    const tools = this.slidersFor(this.activeGroup());
+    const group = this.activeGroup();
+    const tools = this.slidersFor(group);
     if (tools.length === 0) return;
     this.editorState.commit();
     const patch: Partial<AdjustmentModel> = {};
@@ -399,6 +400,18 @@ export class ControlCardComponent {
       if (field) {
         (patch as Record<string, number>)[field] = defaultDisplayValue(tool);
       }
+    }
+    if (group === 'color') {
+      patch.colorCurveHueVsHue = { points: [] };
+      patch.colorCurveHueVsSat = { points: [] };
+      patch.colorCurveHueVsLuma = { points: [] };
+      patch.colorCurveLumaVsSat = { points: [] };
+      patch.colorCurveSatVsSat = { points: [] };
+      patch.colorCurveSatVsLuma = { points: [] };
+    } else if (group === 'effects') {
+      patch.colorGradeBlending = 100;
+      patch.colorGradeShadowEdge = 0.564622;
+      patch.colorGradeHighlightEdge = 0.564622;
     }
     this.libraryState.updateAdjustment(id, manualAdjustmentPatch(patch, current));
     this.editorState.haptic('reset');

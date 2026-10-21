@@ -24,17 +24,17 @@ namespace Maple.UI
             double highlightEdge)
         {
             var lClamped = Math.Clamp(l, 0.0, 1.0);
-            var b = Math.Clamp(balance, -100.0, 100.0) / 100.0;
-            var lMid = DefaultShadowEdge - 0.18 * b;
-            var lLow = ClampShadowEdge(shadowEdge);
-            var lHigh = ClampHighlightEdge(highlightEdge);
-            var w = Math.Clamp(blending, 0.0, 100.0) / 100.0;
-            var sh0 = Math.Max(lLow * (1.0 - w), 0.0);
-            var sh1 = Math.Max(Math.Min(lLow + (lMid - lLow) * w, 1.0), sh0 + 1e-4);
-            var hi0 = Math.Min(Math.Max(lMid + (lHigh - lMid) * (1.0 - w), 0.0), 1.0 - 1e-4);
-            var hi1 = Math.Max(Math.Min(lHigh + (1.0 - lHigh) * w, 1.0), hi0 + 1e-4);
-            var wSh = 1.0 - Smoothstep(sh0, sh1, lClamped);
-            var wHi = Smoothstep(hi0, hi1, lClamped);
+            var balanceExp = Math.Pow(2.0, -Math.Clamp(balance, -100.0, 100.0) / 100.0);
+            var lb = Math.Pow(lClamped, balanceExp);
+            var b = Math.Clamp(blending, 0.0, 100.0) / 100.0;
+            var ls = ClampShadowEdge(shadowEdge);
+            var lh = ClampHighlightEdge(highlightEdge);
+            var s0 = (1.0 - b) * Math.Max(ls - 0.04, 0.0);
+            var s1 = ls;
+            var h0 = lh;
+            var h1 = 1.0 - (1.0 - b) * Math.Max(1.0 - lh - 0.04, 0.0);
+            var wSh = 1.0 - Smoothstep(s0, s1, lb);
+            var wHi = Smoothstep(h0, h1, lb);
             var wMid = Math.Max(1.0 - wSh - wHi, 0.0);
             return (wSh, wMid, wHi);
         }

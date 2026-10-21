@@ -6,7 +6,9 @@
 //! but before AgX and Color Grading), averages a 5x5 patch around `(nx, ny)`,
 //! and returns normalized `(u_h, u_c, u_l)` in `[0, 1]` plus Oklab `(l, c, hue_deg)`.
 
-use raw_core::stages::color_curve_sample::{sample_color_curve_input, ColorCurveSampleError};
+use raw_core::stages::color_curve_sample::{
+    display_point_to_sensor, sample_color_curve_input, ColorCurveSampleError,
+};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -42,6 +44,7 @@ pub fn sample_color_curve_from_bytes(
         Some(x) => raw_core::xmp::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
         None => raw_core::xmp::AdjustmentModel::default(),
     };
+    let (nx, ny) = display_point_to_sensor(raw_img.orientation, nx, ny);
     sample_color_curve_input(&raw_img, &model, nx, ny)
         .map(|s| ColorCurveSampleOut {
             u_h: s.u_h,

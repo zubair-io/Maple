@@ -20,6 +20,7 @@ import SwiftUI
 
 struct ColorGradingPanel: View {
   @Bindable var state: EditorState
+  @State private var isDraggingEdge = false
 
   private struct Zone {
     let title: String
@@ -173,8 +174,9 @@ struct ColorGradingPanel: View {
               state.session.model.colorGradeShadowEdge = min(max(norm, 0.10), 0.564622)
             },
             onReset: {
+              state.commit(description: "Reset Shadow Edge")
               state.session.model.colorGradeShadowEdge = 0.564622
-              state.commit()
+              state.session.endEdit()
             }
           )
 
@@ -186,8 +188,9 @@ struct ColorGradingPanel: View {
               state.session.model.colorGradeHighlightEdge = min(max(norm, 0.564622), 0.90)
             },
             onReset: {
+              state.commit(description: "Reset Highlight Edge")
               state.session.model.colorGradeHighlightEdge = 0.564622
-              state.commit()
+              state.session.endEdit()
             }
           )
         }
@@ -221,10 +224,17 @@ struct ColorGradingPanel: View {
     .gesture(
       DragGesture(minimumDistance: 0)
         .onChanged { g in
+          if !isDraggingEdge {
+            isDraggingEdge = true
+            state.commit(description: "Adjust \(label)")
+          }
           onDrag(g.location.x)
         }
         .onEnded { _ in
-          state.endGesture()
+          if isDraggingEdge {
+            isDraggingEdge = false
+            state.endGesture()
+          }
         }
     )
     .onTapGesture(count: 2, perform: onReset)
@@ -241,18 +251,18 @@ struct ColorGradingPanel: View {
     highlightEdge: Double
   ) -> (sh: Double, mid: Double, hi: Double) {
     let lClamped = min(max(l, 0), 1)
-    let b = min(max(balance, -100), 100) / 100.0
-    let lMid = 0.564622 - 0.18 * b
-    let lLow = min(max(shadowEdge, 0.10), 0.564622)
-    let lHigh = min(max(highlightEdge, 0.564622), 0.90)
-    let w = min(max(blending, 0), 100) / 100.0
-    let sh0 = max(lLow * (1 - w), 0)
-    let sh1 = max(min(lLow + (lMid - lLow) * w, 1), sh0 + 1e-4)
-    let hi0 = min(max(lMid + (lHigh - lMid) * (1 - w), 0), 1 - 1e-4)
-    let hi1 = max(min(lHigh + (1 - lHigh) * w, 1), hi0 + 1e-4)
-    let wSh = 1 - smoothstep(sh0, sh1, lClamped)
-    let wHi = smoothstep(hi0, hi1, lClamped)
-    let wMid = max(1 - wSh - wHi, 0)
+    let balanceExp = exp2(-min(max(balance, -100), 100) / 100.0)
+    let lb = pow(lClamped, balanceExp)
+    let b = min(max(blending, 0), 100) / 100.0
+    let ls = min(max(shadowEdge, 0.10), 0.564622)
+    let lh = min(max(highlightEdge, 0.564622), 0.90)
+    let s0 = (1.0 - b) * max(ls - 0.04, 0.0)
+    let s1 = ls
+    let h0 = lh
+    let h1 = 1.0 - (1.0 - b) * max(1.0 - lh - 0.04, 0.0)
+    let wSh = 1.0 - smoothstep(s0, s1, lb)
+    let wHi = smoothstep(h0, h1, lb)
+    let wMid = max(1.0 - wSh - wHi, 0.0)
     return (wSh, wMid, wHi)
   }
 
