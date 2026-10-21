@@ -52,7 +52,7 @@ Passkey ceremonies are two-step throughout: an `options` call returns the WebAut
 | POST   | `/api/auth/invites`             | owner +step-up  | Mint an 8-character, single-use, 15-minute invite for a new email-free passkey account                           |
 | GET    | `/api/auth/invites`             | owner           | List invites with their expiry and consumption state                                                             |
 | DELETE | `/api/auth/invites/:code`       | owner +step-up  | Rescind an invite                                                                                                |
-| POST   | `/api/auth/device-sessions`     | bearer          | Mint a paired-device session (Maple TV) on proof of a refresh token                                              |
+| POST   | `/api/auth/device-sessions`     | bearer          | Mint a paired-device session (Maple TV or Maple Watch) on proof of a refresh token                               |
 | GET    | `/api/auth/device-sessions`     | bearer          | List paired devices                                                                                              |
 | DELETE | `/api/auth/device-sessions/:id` | bearer +step-up | Revoke a paired device                                                                                           |
 | POST   | `/api/auth/native-code`         | bearer          | Issue a one-time PKCE code for a native shell, bound to its S256 challenge and opaque state                      |

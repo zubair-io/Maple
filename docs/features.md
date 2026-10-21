@@ -275,7 +275,7 @@ Web Self Hosted's settings shell (`src/web/projects/maple/src/app/settings/`) is
 
 | Page                        | What it configures                                                                                                                                                           |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Account                     | Signed-in identity, registered passkeys (with per-credential delete), paired devices (e.g. an Apple TV) with revoke, sign out                                                |
+| Account                     | Signed-in identity, registered passkeys (with per-credential delete), paired devices (an Apple TV or Apple Watch) with revoke, sign out                                      |
 | Users                       | Member roster, per-member file-access toggle, invite codes (issue / rescind / share with QR)                                                                                 |
 | Workers                     | Every pipeline stage: pause/resume, concurrency, max attempts, live counters and dead-letter, plus enrichment config (vision model endpoint, geocoder, face-model directory) |
 | Sources                     | Registered library roots with live connection status; add a source                                                                                                           |
