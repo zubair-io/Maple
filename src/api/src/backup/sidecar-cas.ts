@@ -216,8 +216,10 @@ export async function publishSidecarCas(
         shared,
         options.beforeWrite ?? (async () => undefined),
       );
-      if (outcome.kind === 'written' || outcome.kind === 'diverged') {
-        // The write is pinned to the resolved target; mirrors are keyed by the configured root.
+      const landed = outcome.kind === 'written' || outcome.kind === 'diverged';
+      // The write is pinned to the resolved target; mirrors are keyed by the configured root.
+      // An unaliased path was already replicated by the mirrored write itself.
+      if (landed && path.resolve(target) !== path.resolve(destination)) {
         replicatePathUnder(target, destination);
       }
       if (LANDED.has(outcome.kind)) await options.afterLanded?.(outcome);
