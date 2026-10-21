@@ -222,9 +222,11 @@ namespace Maple.WinUI
         private List<CurvePoint> ActiveColorCurvePoints() =>
             ColorCurveMath.CurvePoints(ViewModel.Adjustments, _activeColorCurve);
 
-        private void WriteActiveColorCurvePoints(List<CurvePoint> next)
+        private void WriteActiveColorCurvePoints(List<CurvePoint> next) =>
+            WriteColorCurvePoints(_activeColorCurve, next);
+
+        private void WriteColorCurvePoints(ColorCurveKind kind, List<CurvePoint> next)
         {
-            var kind = _activeColorCurve;
             ViewModel.ApplyDecodeFieldEdit(model =>
             {
                 var target = ColorCurveMath.CurvePoints(model, kind);
@@ -466,9 +468,9 @@ namespace Maple.WinUI
                 if (sample is not { } s) return;
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    var x = kind.SampleX(s);
-                    var next = ColorCurveMath.InsertAnchor(ActiveColorCurvePoints(), x, kind);
-                    WriteActiveColorCurvePoints(next);
+                    if (!ReferenceEquals(ViewModel.SelectedPhoto, photo)) return;
+                    var current = ColorCurveMath.CurvePoints(ViewModel.Adjustments, kind);
+                    WriteColorCurvePoints(kind, ColorCurveMath.InsertAnchor(current, kind.SampleX(s), kind));
                 });
             });
         }

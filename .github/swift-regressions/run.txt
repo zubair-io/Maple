@@ -104,7 +104,10 @@ ChangeFeedClientDateDecodingTests
 ChangeFeedClientRestartTests
 SSELineDecoderTests
 CollisionResolverTests
+ColorCurvePickerTests
+ColorGradeZoneEdgeTests
 ColorGradingXMPTests
+ToneCurveSplitsTests
 
 # KTLO qualification batch 2 (#3655): generated/temporary inputs, stubbed
 # HTTP and the committed synthetic RAW; no private fixtures or UI auth.
