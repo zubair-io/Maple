@@ -252,6 +252,7 @@ test('the duplicates mover completes the move when a new file took the old path 
       await fs.writeFile(dest, maple('saved at the new path'));
       await realSettle(source, dest, snapshot, keepSource);
       await fs.writeFile(raw, 'a new arrival');
+      await fs.writeFile(path.join(dir, 'IMG_15.xmp'), maple("the arrival's edit"));
     },
   );
   try {
@@ -264,4 +265,5 @@ test('the duplicates mover completes the move when a new file took the old path 
     settle.mockRestore();
   }
   expect(await fs.readFile(raw, 'utf8')).toBe('a new arrival');
+  expect(await fs.readFile(path.join(dir, 'IMG_15.xmp'), 'utf8')).toBe(maple("the arrival's edit"));
 });
