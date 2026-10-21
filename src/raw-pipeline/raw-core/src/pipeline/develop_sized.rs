@@ -242,7 +242,7 @@ pub(super) fn develop_sized_prefix(
     // See unsized variant (ticket #325, skip_pre_gain identity branch).
     stage("sized_highlight_recovery", || {
         super::tile::recover_full_frame(&mut camera_rgb, raw, model, crop_divisor, cancel)
-    });
+    })?;
     dump_after("00b_highlight_recovery", &camera_rgb);
 
     // Stage 2a (#1695): OpcodeList3 still precedes DefaultCrop, so its
