@@ -207,7 +207,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             effective_quality_divisor(quality, raw.cfa),
             cancel,
         )
-    });
+    })?;
     dump_after("00b_highlight_recovery", &camera_rgb);
 
     // Stage 2a (#1695): DNG OpcodeList3 on the demosaiced linear data, in

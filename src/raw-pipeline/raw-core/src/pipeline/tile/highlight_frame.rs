@@ -124,14 +124,15 @@ pub(super) fn anchor<'a>(
 
 /// Full-frame recovery at native Bayer density takes the Preview-density
 /// prior a native tile takes, so the two agree. A Preview render already
-/// samples exactly that prior from its own buffer.
+/// samples exactly that prior from its own buffer. A cancel that cut the
+/// prior short is reported, never rendered with the fallback.
 pub(in crate::pipeline) fn recover_full_frame(
     img: &mut Image,
     raw: &RawImage,
     model: &AdjustmentModel,
     divisor: u32,
     cancel: crate::CancelToken<'_>,
-) {
+) -> crate::error::Result<()> {
     let tileable =
         raw.cfa.is_bayer_2x2() && divisor == 1 && model.auto_lateral_ca != AutoLateralCa::On;
     let lazy = LazyScene::new(raw, model, cancel);
@@ -142,6 +143,10 @@ pub(in crate::pipeline) fn recover_full_frame(
         divisor,
         tileable.then_some(&lazy as &dyn ScenePrior),
     );
+    if cancel.is_cancelled() {
+        return Err(crate::error::Error::Cancelled);
+    }
+    Ok(())
 }
 
 /// A cancelled sampling stops early; its render is discarded as cancelled.
@@ -191,5 +196,5 @@ pub(super) fn scene_prior(
             }
         }
     }
-    samples.finish()
+    (!cancel.is_cancelled()).then(|| samples.finish()).flatten()
 }

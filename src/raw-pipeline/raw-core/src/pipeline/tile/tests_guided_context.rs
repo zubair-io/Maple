@@ -245,10 +245,10 @@ fn guided_textured_frame_phase_preview() {
 fn guided_textured_frame_phase_with_sensor_gain_maps() {
     use crate::{
         pipeline::pano::opcodes::{ActiveAreaRect, GainMapOpcode},
-        sensor_gain_maps::SensorGainMaps,
+        sensor_gain_maps::{SensorGainMaps, SensorStep},
     };
     let mut raw = textured_raw();
-    let maps = (0..4)
+    let maps: Vec<GainMapOpcode> = (0..4)
         .map(|phase| GainMapOpcode {
             top: phase / 2,
             left: phase % 2,
@@ -271,7 +271,7 @@ fn guided_textured_frame_phase_with_sensor_gain_maps() {
         })
         .collect();
     raw.sensor_gain_maps = Some(SensorGainMaps {
-        maps,
+        steps: maps.into_iter().map(SensorStep::Gain).collect(),
         active_area: ActiveAreaRect::full(raw.width, raw.height),
     });
     for quality in [RenderQuality::Preview, RenderQuality::Full] {
@@ -539,4 +539,30 @@ fn guided_scene_prior_is_sampled_at_preview_density_for_every_quality() {
     ] {
         assert_eq!(prior(quality), preview, "{quality:?}");
     }
+}
+
+#[test]
+fn guided_full_frame_cancelled_while_sampling_the_prior_reports_cancelled() {
+    let raw = textured_raw();
+    let model = neutral_model();
+    let mut camera = super::prefix::from_window(
+        &raw,
+        &model,
+        RenderQuality::Full,
+        (0, 0, raw.width, raw.height),
+        crate::CancelToken::never(),
+    );
+    let mut uncancelled = camera.clone();
+    assert!(super::recover_full_frame(
+        &mut uncancelled,
+        &raw,
+        &model,
+        1,
+        crate::CancelToken::never()
+    )
+    .is_ok());
+    let flag = std::sync::atomic::AtomicBool::new(true);
+    let result =
+        super::recover_full_frame(&mut camera, &raw, &model, 1, crate::CancelToken::new(&flag));
+    assert!(matches!(result, Err(crate::error::Error::Cancelled)));
 }

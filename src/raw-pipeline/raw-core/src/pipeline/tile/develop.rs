@@ -166,6 +166,9 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
             crate::sensor_gain_maps::ClipGainContext::new(raw, sensor_origin, divisor),
         )
     });
+    if cancel.is_cancelled() {
+        return Err(crate::error::Error::Cancelled);
+    }
     // DNG OpcodeList3 (#376, #4288): vendor corrections applied in
     // ActiveArea coordinates after baseline exposure, AsShot pre-gain and
     // highlight recovery, before DefaultCrop and DCP, matching full develop.
