@@ -20,6 +20,15 @@ const caseSensitiveTmp = (() => {
   return sensitive;
 })();
 
+const normalizationSensitiveTmp = (() => {
+  const probe = realFs.mkdtempSync(path.join(os.tmpdir(), 'maple-nfd-probe-'));
+  realFs.writeFileSync(path.join(probe, '\u00e9'), '');
+  realFs.writeFileSync(path.join(probe, 'e\u0301'), '');
+  const sensitive = realFs.readdirSync(probe).length === 2;
+  realFs.rmSync(probe, { recursive: true, force: true });
+  return sensitive;
+})();
+
 const maple = (label: string) =>
   `<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">${label}</x:xmpmeta>`;
 
@@ -304,4 +313,31 @@ describe('listPairedSidecars', () => {
       await fs.rm(dir, { recursive: true, force: true });
     }
   });
+
+  // ext4 keeps NFC and NFD apart: another tool's file at one spelling never hides a Maple edit at the other.
+  test.skipIf(!normalizationSensitiveTmp)(
+    'an old-name edit at the other Unicode spelling of a foreign file is still found',
+    async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-paired-old-name-nfc-nfd-'));
+      try {
+        const composed = 'Caf\u00e9.HEIC';
+        const decomposed = 'Cafe\u0301.HEIC';
+        await fs.writeFile(path.join(dir, composed), 'photo');
+        await fs.writeFile(
+          path.join(dir, `${composed}.xmp`),
+          '<x:xmpmeta xmlns:darktable="http://darktable.sf.net/"/>',
+        );
+        await fs.writeFile(path.join(dir, `${decomposed}.xmp`), maple('backup edit'));
+
+        const paired = await pairedLegacyBackupSidecar(
+          path.join(dir, composed),
+          await fs.readdir(dir),
+        );
+
+        expect(paired).toBe(path.join(dir, `${decomposed}.xmp`));
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });
