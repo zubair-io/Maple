@@ -10,7 +10,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from './mirrored.ts';
 import { relocateFile } from './relocate.ts';
-import { moveToTrash } from './trash.ts';
+import { moveFileToTrash, moveToTrash } from './trash.ts';
 import * as xmpConflict from './xmp-conflict.ts';
 import * as ownership from './sidecar-ownership.ts';
 
@@ -180,5 +180,17 @@ describe('an old-name edit that stays behind after a move (#5063, #5075)', () =>
 
     expect(await read('b/IMG (conflict from move).xmp')).toBe(maple('saved at the old path'));
     expect(await read('a/IMG.HEIC')).toBe('pixels');
+  });
+
+  test('a move that carries no sidecars leaves a full-name .xmp alone', async () => {
+    await write('2024/notes.txt', 'plain file');
+    await write('2024/notes.txt.xmp', maple('not this file'));
+
+    const trashed = await moveFileToTrash(abs('2024/notes.txt'), root);
+
+    expect(trashed.kind).toBe('ok');
+    expect(await read('2024/notes.txt')).toBeNull();
+    expect(await read('2024/notes.txt.xmp')).toBe(maple('not this file'));
+    expect(await read('.maple/trash/2024/notes (conflict from move).xmp')).toBeNull();
   });
 });

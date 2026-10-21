@@ -504,6 +504,7 @@ async function copyRepointDelete(
     await deleteOriginals(
       req.sourceAbsPath,
       finalDest,
+      req.carrySidecars !== false,
       [...movedSidecars, ...late],
       movedCompanionSources,
       req.beforeSourceDelete,
