@@ -92,7 +92,7 @@ export const CAMERA_SUPPORT_BUILD = {
   schemaVersion: 1,
   bundledModelCount: 1459,
   profileBundleFormat: 1,
-  profileBundleDigest: 'blake3:a05149467e0d8d78a67d2b0344968bd1553185c25a8fc773fc6f658fcfc59869',
+  profileBundleDigest: 'blake3:23340aa7a8a0075e4a18bcccca60c859ae2de3cd713ec74c9e3603ae29969255',
 } as const;
 
 /**

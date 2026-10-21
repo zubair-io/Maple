@@ -374,20 +374,14 @@ fn transcode_rejects_bad_magic() {
     assert!(transcode_v1_to_v3(b"NOPExxxxxxxxxxxx").is_none());
 }
 
-/// Staged-work marker (#829 foundation only): once #825 lands the HSM
-/// application math and the shipped bundle is regenerated WITH HSM data, this
-/// asserts the shipped v3 index references a non-empty pool (HSM resolvable).
-/// It is intentionally ignored today because #829 ships the v1 matrices-only
-/// bundle (HSM disabled, no behavior change, no web bloat) — transcoding it
-/// yields an EMPTY pool, which is the correct foundation state. Un-ignore when
-/// #825 flips HSM on.
+/// The shipped bundle carries HSM for the GFX 50S (#4645), so its v3
+/// transcode must reference a non-empty pool.
 #[test]
-#[ignore = "HSM disabled until #825 lands application-layer apply; foundation only per #829"]
 fn shipped_bundle_v3_references_hsm_pool() {
     let enc = transcode_v1_to_v3(PROFILES_BIN).expect("shipped bundle transcodes");
     assert!(
         enc.pool_count > 0,
-        "shipped v3 bundle must reference HSM pool entries once #825 enables HSM"
+        "shipped v3 bundle must reference the GFX 50S HSM pool entries"
     );
     let index = parse_index(&enc.idx);
     assert!(

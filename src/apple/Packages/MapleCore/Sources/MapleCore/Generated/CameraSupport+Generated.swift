@@ -118,7 +118,7 @@ public enum CameraSupportRegistry {
   /// The profile data every tier here was computed against.
   public static let profileBundleFormat: UInt16 = 1
   public static let profileBundleDigest: String =
-    "blake3:a05149467e0d8d78a67d2b0344968bd1553185c25a8fc773fc6f658fcfc59869"
+    "blake3:23340aa7a8a0075e4a18bcccca60c859ae2de3cd713ec74c9e3603ae29969255"
 
   /// Every body with a physical fixture — the only bodies that can
   /// ever reach `.qualified`.

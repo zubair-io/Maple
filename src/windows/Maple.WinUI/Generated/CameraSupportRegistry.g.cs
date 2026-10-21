@@ -31,7 +31,7 @@ namespace Maple.WinUI.Generated
     {
         public const uint SchemaVersion = 1;
         public const uint BundledModelCount = 1459;
-        public const string ProfileBundleDigest = "blake3:a05149467e0d8d78a67d2b0344968bd1553185c25a8fc773fc6f658fcfc59869";
+        public const string ProfileBundleDigest = "blake3:23340aa7a8a0075e4a18bcccca60c859ae2de3cd713ec74c9e3603ae29969255";
 
         public static string Id(CameraTier value) => value switch
         {
