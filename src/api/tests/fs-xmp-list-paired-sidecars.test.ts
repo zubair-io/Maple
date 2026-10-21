@@ -340,4 +340,33 @@ describe('listPairedSidecars', () => {
       }
     },
   );
+
+  test.skipIf(!normalizationSensitiveTmp)(
+    "each Unicode spelling's old-name edit stays with its own photo",
+    async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-paired-old-name-two-photos-'));
+      try {
+        const composed = 'Caf\u00e9.HEIC';
+        const decomposed = 'Cafe\u0301.HEIC';
+        await fs.writeFile(path.join(dir, composed), 'photo one');
+        await fs.writeFile(path.join(dir, decomposed), 'photo two');
+        await fs.writeFile(path.join(dir, `${composed}.xmp`), maple('edit one'));
+        await fs.writeFile(path.join(dir, `${decomposed}.xmp`), maple('edit two'));
+        const listed = await fs.readdir(dir);
+
+        expect(await pairedLegacyBackupSidecar(path.join(dir, composed), listed)).toBe(
+          path.join(dir, `${composed}.xmp`),
+        );
+        expect(
+          await pairedLegacyBackupSidecar(
+            path.join(dir, composed),
+            listed,
+            new Set([path.join(dir, `${composed}.xmp`)]),
+          ),
+        ).toBeNull();
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });

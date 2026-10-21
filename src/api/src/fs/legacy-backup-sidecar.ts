@@ -164,8 +164,19 @@ function legacyEntries(legacy: string, listed: readonly string[]): string[] {
   // Every stored spelling: a volume that keeps NFC and NFD apart can hold both,
   // and another tool's file at one never hides a Maple edit at the other.
   const byteExact = path.basename(legacy);
+  const ownName = byteExact.slice(0, -'.xmp'.length);
+  const stored = new Set(listed);
+  // A normalization-sensitive volume can hold both spellings of the photo too;
+  // each spelling's edit then belongs to its own byte-spelled photo.
+  const ownPhoto = stored.has(ownName)
+    ? ownName
+    : listed.find((name) => name.normalize('NFC') === ownName.normalize('NFC'));
   const exactMatches = listed
     .filter((name) => name.normalize('NFC') === exact)
+    .filter((name) => {
+      const itsPhoto = name.slice(0, -'.xmp'.length);
+      return itsPhoto === ownPhoto || !stored.has(itsPhoto);
+    })
     .sort((a, b) => Number(b === byteExact) - Number(a === byteExact));
   return [...exactMatches, ...variants];
 }
