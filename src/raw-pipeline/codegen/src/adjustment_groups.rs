@@ -13,10 +13,7 @@ use crate::camel_case;
 const SWIFT_HEADER: &str = "\
 // MARK: - Copy / paste / sync groups (#944, canonical, generated)
 
-/// A user-selectable bundle of `AdjustmentModel` fields for copy / paste /
-/// sync (#944). Cases are declared in the order the selective-paste UI
-/// presents them; raw values are the canonical storage / wire keys shared
-/// with the Web client.
+/// A user-selectable bundle of `AdjustmentModel` fields for copy / paste / sync (#944).
 public enum AdjustmentGroup: String, CaseIterable, Sendable, Hashable {
 ";
 
@@ -54,11 +51,7 @@ pub fn emit_swift() -> String {
     }
     s.push_str("        }\n    }\n\n");
 
-    s.push_str(
-        "    /// Canonical snake_case `AdjustmentModel` field names this group\n\
-         \x20   /// carries. Names the Swift model does not mirror are simply skipped\n\
-         \x20   /// by the merge — same passthrough rule the preset bridge uses.\n",
-    );
+    s.push_str("    /// Canonical snake_case `AdjustmentModel` field names this group carries.\n");
     s.push_str("    public var fieldNames: [String] {\n");
     s.push_str("        switch self {\n");
     for group in AdjustmentGroup::ALL {
@@ -72,11 +65,7 @@ pub fn emit_swift() -> String {
     s.push_str("        }\n    }\n");
     s.push_str("}\n\n");
 
-    s.push_str(
-        "/// `AdjustmentModel` fields deliberately never moved by copy / paste /\n\
-         /// sync. See `raw_core::types::adjustment::schema::groups` for the\n\
-         /// per-field rationale (notably the mask decision).\n",
-    );
+    s.push_str("/// `AdjustmentModel` fields never moved by copy / paste / sync.\n");
     s.push_str("public let adjustmentNonCopyableFields: [String] = [\n");
     for name in NON_COPYABLE_FIELDS {
         s.push_str(&format!("    \"{}\",\n", name));

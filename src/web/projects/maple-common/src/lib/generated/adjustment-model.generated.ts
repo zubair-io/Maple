@@ -294,6 +294,18 @@ export interface GeneratedAdjustmentModel {
   colorGradeShadowEdge: number;
   /** Colour-grading highlight zone lower Oklab-L edge (#5040); defaults to MIDTONE_ANCHOR_L (cbrt(0.18) ≈ 0.564622). XMP: papp:ColorGradeHighlightEdge. Range: [0.564622, 0.9]. */
   colorGradeHighlightEdge: number;
+  /** Oklab Hue vs Hue secondary curve (#5041, `papp:ColorCurveHueVsHue`). Periodic over [0, 1); y = 0.5 is neutral (0 deg shift, full range +/-60 deg). Identity (empty) by default. */
+  colorCurveHueVsHue: ToneCurve;
+  /** Oklab Hue vs Sat secondary curve (#5041, `papp:ColorCurveHueVsSat`). Periodic over [0, 1); y = 0.5 is neutral (1x chroma, full range [0x, 2x]). Identity (empty) by default. */
+  colorCurveHueVsSat: ToneCurve;
+  /** Oklab Hue vs Luma secondary curve (#5041, `papp:ColorCurveHueVsLuma`). Periodic over [0, 1); y = 0.5 is neutral (1x L, full range [0.7x, 1.3x]). Identity (empty) by default. */
+  colorCurveHueVsLuma: ToneCurve;
+  /** Oklab Luma vs Sat secondary curve (#5041, `papp:ColorCurveLumaVsSat`). Scene-referred log-EV lightness axis; y = 0.5 is neutral (1x chroma, full range [0x, 2x]). Identity (empty) by default. */
+  colorCurveLumaVsSat: ToneCurve;
+  /** Oklab Sat vs Sat secondary curve (#5041, `papp:ColorCurveSatVsSat`). Normalized Oklab chroma axis (C / 0.32); y = 0.5 is neutral (1x chroma, full range [0x, 2x]). Identity (empty) by default. */
+  colorCurveSatVsSat: ToneCurve;
+  /** Oklab Sat vs Luma secondary curve (#5041, `papp:ColorCurveSatVsLuma`). Normalized Oklab chroma axis (C / 0.32); y = 0.5 is neutral (1x L, full range [0.7x, 1.3x]). Identity (empty) by default. */
+  colorCurveSatVsLuma: ToneCurve;
 }
 
 /** Canonical raw-core defaults, generated from `ADJUSTMENT_SCHEMA`. */
@@ -426,5 +438,11 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     colorGradeBlending: 100.0,
     colorGradeShadowEdge: 0.564622,
     colorGradeHighlightEdge: 0.564622,
+    colorCurveHueVsHue: { points: [] },
+    colorCurveHueVsSat: { points: [] },
+    colorCurveHueVsLuma: { points: [] },
+    colorCurveLumaVsSat: { points: [] },
+    colorCurveSatVsSat: { points: [] },
+    colorCurveSatVsLuma: { points: [] },
   };
 }

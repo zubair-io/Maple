@@ -64,6 +64,7 @@ use crate::agx::AgxPass;
 use crate::auto_profile_curve::{profile_curve_is_active, AutoProfileCurvePass};
 use crate::capture_sharpening::CaptureSharpeningPass;
 use crate::clarity::ClarityPass;
+use crate::color_curves::{color_curves_is_identity, ColorCurvesPass};
 use crate::color_grade::{color_grade_is_identity, ColorGradePass};
 use crate::defringe::DefringePass;
 use crate::dehaze::{AirlightSource, DehazePass};

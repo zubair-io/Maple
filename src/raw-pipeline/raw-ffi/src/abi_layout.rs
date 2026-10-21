@@ -173,6 +173,18 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             parametric_shadow_split,
             parametric_midtone_split,
             parametric_highlight_split,
+            color_curve_hue_vs_hue_ptr,
+            color_curve_hue_vs_hue_len,
+            color_curve_hue_vs_sat_ptr,
+            color_curve_hue_vs_sat_len,
+            color_curve_hue_vs_luma_ptr,
+            color_curve_hue_vs_luma_len,
+            color_curve_luma_vs_sat_ptr,
+            color_curve_luma_vs_sat_len,
+            color_curve_sat_vs_sat_ptr,
+            color_curve_sat_vs_sat_len,
+            color_curve_sat_vs_luma_ptr,
+            color_curve_sat_vs_luma_len,
         })),
         "MapleSceneLinearBufferF32" => Some(layout!(crate::buffers::MapleSceneLinearBufferF32 {
             f32_rgba,
@@ -382,6 +394,18 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             color_grade_blending,
             color_grade_shadow_edge,
             color_grade_highlight_edge,
+            color_curve_hue_vs_hue_ptr,
+            color_curve_hue_vs_hue_len,
+            color_curve_hue_vs_sat_ptr,
+            color_curve_hue_vs_sat_len,
+            color_curve_hue_vs_luma_ptr,
+            color_curve_hue_vs_luma_len,
+            color_curve_luma_vs_sat_ptr,
+            color_curve_luma_vs_sat_len,
+            color_curve_sat_vs_sat_ptr,
+            color_curve_sat_vs_sat_len,
+            color_curve_sat_vs_luma_ptr,
+            color_curve_sat_vs_luma_len,
         })),
         #[cfg(feature = "gpu")]
         "MapleGpuLiveSession" => Some(layout!(crate::gpu_live::MapleGpuLiveSession { inner })),
@@ -389,20 +413,8 @@ pub(crate) fn describe(name: &str) -> Option<String> {
     }
 }
 
-/// Write the layout description of the `#[repr(C)]` struct named
-/// `struct_name` (e.g. `"MapleGpuLiveParams"`) into the caller-owned
-/// `out_buf` (UTF-8, NOT NUL-terminated) and its byte length into
-/// `out_len`.
-///
-/// Returns 0 on success; 1 when `struct_name` is not a struct this build
-/// exports a layout for (`out_len` is set to 0); 2 when `out_cap` is too
-/// small (`out_len` carries the required length, `out_buf` is untouched);
-/// -1 when `struct_name`, `out_buf` or `out_len` is null or `struct_name`
-/// is not valid UTF-8. 4 KiB is ample for every struct today.
-///
-/// # Safety
-/// `struct_name` must be a NUL-terminated string; `out_buf` must be valid
-/// for `out_cap` writes; `out_len` must be valid for one write.
+/// Write the layout description of `struct_name` into `out_buf` and `out_len`.
+/// Returns 0 on success; 1 if unknown; 2 if `out_cap` is too small; -1 on null/invalid UTF-8.
 #[no_mangle]
 pub unsafe extern "C" fn maple_abi_layout(
     struct_name: *const c_char,
@@ -497,24 +509,9 @@ mod tests {
             Some("color_grade_highlight_edge")
         );
         let (_, curve_fields) = parse(&describe("MapleToneCurves").unwrap());
-        let tail: Vec<&str> = curve_fields
-            .iter()
-            .rev()
-            .take(7)
-            .map(|f| f.0.as_str())
-            .collect();
         assert_eq!(
-            tail,
-            [
-                "parametric_highlight_split",
-                "parametric_midtone_split",
-                "parametric_shadow_split",
-                "parametric_shadows",
-                "parametric_darks",
-                "parametric_lights",
-                "parametric_highlights",
-            ],
-            "the parametric regions and splits are the MapleToneCurves tail (#4738)"
+            curve_fields.last().map(|f| f.0.as_str()),
+            Some("color_curve_sat_vs_luma_len")
         );
     }
 

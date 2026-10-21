@@ -84,22 +84,11 @@ fn rewrite_doc_identifiers(doc: &str, schema: &[FieldSpec]) -> String {
 pub(crate) fn emit_swift(schema: &[FieldSpec]) -> String {
     let mut s = String::new();
     s.push_str(BANNER_SWIFT);
-    s.push_str("//\n");
-    s.push_str("// Emits range constants and a canonical field-name enum for\n");
-    s.push_str("// `AdjustmentModel`. The struct itself + defaults + init stay\n");
-    s.push_str("// hand-written in `AdjustmentModel.swift`; Apple's defaults\n");
-    s.push_str("// match raw-core's canonical values (per #326, sharpen converges\n");
-    s.push_str("// to the reference renderer's import baseline: 40 / 1.0 / 25 / 0).\n");
-    s.push_str("// Point-curve fields (#366) contribute a `FieldName` case and no\n");
-    s.push_str("// range; the `ToneCurve` value type is hand-written in\n");
-    s.push_str("// `ToneCurve.swift`.\n\n");
     s.push_str("import Foundation\n\n");
 
     // FieldName enum — canonical snake_case names from the schema.
     s.push_str("extension AdjustmentModel {\n");
-    s.push_str("    /// Canonical field identifiers, snake_case as recorded in\n");
-    s.push_str("    /// `raw_core::types::ADJUSTMENT_SCHEMA`. Use these when you need\n");
-    s.push_str("    /// a stable string key independent of Swift's camelCase property names.\n");
+    s.push_str("    /// Canonical snake_case field identifiers from `ADJUSTMENT_SCHEMA`.\n");
     s.push_str("    public enum FieldName: String, CaseIterable, Sendable, Hashable {\n");
     for spec in schema {
         // case <camel> = "<snake>"

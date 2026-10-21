@@ -402,6 +402,12 @@ namespace Maple.WinUI.Services.Xmp
                 ("crs:ToneCurvePV2012Red", a => a.DisplayToneCurveRed),
                 ("crs:ToneCurvePV2012Green", a => a.DisplayToneCurveGreen),
                 ("crs:ToneCurvePV2012Blue", a => a.DisplayToneCurveBlue),
+                ("papp:ColorCurveHueVsHue", a => a.ColorCurveHueVsHue),
+                ("papp:ColorCurveHueVsSat", a => a.ColorCurveHueVsSat),
+                ("papp:ColorCurveHueVsLuma", a => a.ColorCurveHueVsLuma),
+                ("papp:ColorCurveLumaVsSat", a => a.ColorCurveLumaVsSat),
+                ("papp:ColorCurveSatVsSat", a => a.ColorCurveSatVsSat),
+                ("papp:ColorCurveSatVsLuma", a => a.ColorCurveSatVsLuma),
             };
 
         /// <summary>The six-color label vocabulary (#1657).</summary>

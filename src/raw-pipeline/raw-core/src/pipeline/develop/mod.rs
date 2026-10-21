@@ -32,10 +32,10 @@ use crate::{
     image::RawImage,
     linearize,
     stages::{
-        auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, defringe, dehaze,
-        highlight_recovery_oklab, hot_pixel, hsl, local_adjustments, noise_reduction, retouch,
-        saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance, vignette,
-        wb_camera, white_balance,
+        auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, color_curves, defringe,
+        dehaze, highlight_recovery_oklab, hot_pixel, hsl, local_adjustments, noise_reduction,
+        retouch, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
+        vignette, wb_camera, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -465,6 +465,10 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     // after saturation, before clarity. Identity short-circuit on all-default.
     stage("hsl", || hsl::apply_model(&mut scene, model));
     dump_after("09b_hsl", &scene);
+    stage("color_curves", || {
+        color_curves::apply_model(&mut scene, model)
+    });
+    dump_after("09c_color_curves", &scene);
     stage("clarity", || clarity::apply(&mut scene, model.clarity));
     dump_after("10_clarity", &scene);
     stage("texture", || texture::apply(&mut scene, model.texture));

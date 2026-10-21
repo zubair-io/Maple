@@ -472,6 +472,14 @@ pub(super) fn direct_raw_gpu(
             green: model.display_tone_curve_green.points.clone(),
             blue: model.display_tone_curve_blue.points.clone(),
         },
+        color_curves: raw_gpu::ColorCurveInputs {
+            hue_vs_hue: model.color_curve_hue_vs_hue.points.clone(),
+            hue_vs_sat: model.color_curve_hue_vs_sat.points.clone(),
+            hue_vs_luma: model.color_curve_hue_vs_luma.points.clone(),
+            luma_vs_sat: model.color_curve_luma_vs_sat.points.clone(),
+            sat_vs_sat: model.color_curve_sat_vs_sat.points.clone(),
+            sat_vs_luma: model.color_curve_sat_vs_luma.points.clone(),
+        },
     };
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let session = LiveSession::new(&ctx, input, w, h).expect("session");

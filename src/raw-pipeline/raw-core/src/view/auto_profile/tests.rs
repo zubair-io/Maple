@@ -257,7 +257,11 @@ mod apply_tests {
         let lab = srgb_linear_to_oklab(lin);
         let scaled = [lab[0], lab[1] * 1.3, lab[2] * 1.3];
         let back = oklab_to_srgb_linear(scaled);
-        let expected = [srgb_gamma(back[0]), srgb_gamma(back[1]), srgb_gamma(back[2])];
+        let expected = [
+            srgb_gamma(back[0]),
+            srgb_gamma(back[1]),
+            srgb_gamma(back[2]),
+        ];
 
         let mut rgb = input.to_vec();
         apply_curve(&mut rgb, &curve);
@@ -271,8 +275,11 @@ mod apply_tests {
         // difference is not a reliable saturation proxy: the boost redistributes
         // across channels, so it can shrink even when chroma grows.)
         let oklab_chroma = |p: [f32; 3]| -> f32 {
-            let lab =
-                srgb_linear_to_oklab([srgb_gamma_inv(p[0]), srgb_gamma_inv(p[1]), srgb_gamma_inv(p[2])]);
+            let lab = srgb_linear_to_oklab([
+                srgb_gamma_inv(p[0]),
+                srgb_gamma_inv(p[1]),
+                srgb_gamma_inv(p[2]),
+            ]);
             (lab[1] * lab[1] + lab[2] * lab[2]).sqrt()
         };
         let chroma_in = oklab_chroma(input);

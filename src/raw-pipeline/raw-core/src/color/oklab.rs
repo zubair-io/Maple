@@ -288,8 +288,14 @@ mod tests {
                 back
             );
             // Stays on the neutral axis.
-            assert!((back[0] - back[1]).abs() < 1e-4, "neutral drift G: {back:?}");
-            assert!((back[1] - back[2]).abs() < 1e-4, "neutral drift B: {back:?}");
+            assert!(
+                (back[0] - back[1]).abs() < 1e-4,
+                "neutral drift G: {back:?}"
+            );
+            assert!(
+                (back[1] - back[2]).abs() < 1e-4,
+                "neutral drift B: {back:?}"
+            );
         }
     }
 

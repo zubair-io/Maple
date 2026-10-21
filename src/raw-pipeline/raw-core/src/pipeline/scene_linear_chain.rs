@@ -114,9 +114,9 @@ pub fn apply_scene_linear_chain(
         whites_anchor_ev,
     } = *opts;
     use crate::stages::{
-        clarity, color_grade, defringe, dehaze, display_tone_curve, grain, hsl, local_adjustments,
-        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
-        vignette, white_balance,
+        clarity, color_curves, color_grade, defringe, dehaze, display_tone_curve, grain, hsl,
+        local_adjustments, noise_reduction, saturation, scene_tone_controls, sharpen, texture,
+        tone_curves, vibrance, vignette, white_balance,
     };
     use crate::view::agx;
 
@@ -200,6 +200,9 @@ pub fn apply_scene_linear_chain(
     // after saturation, before clarity. All-defaults is a bit-identical no-op
     // (the whole-stage short-circuit in hsl::apply guards this).
     stage("ffi_chain_hsl", || hsl::apply_model(&mut img, model));
+    stage("ffi_chain_color_curves", || {
+        color_curves::apply_model(&mut img, model)
+    });
     stage("ffi_chain_clarity", || {
         clarity::apply(&mut img, model.clarity)
     });

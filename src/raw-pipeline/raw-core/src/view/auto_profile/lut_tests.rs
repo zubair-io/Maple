@@ -30,7 +30,10 @@ fn trilinear_recovers_node_values() {
 #[test]
 fn sparse_pairs_stay_identity() {
     // A lone neutral pair leaves distant corner nodes at identity.
-    let pairs = vec![DisplayPair { maple: [0.5, 0.5, 0.5], jpeg: [0.5, 0.5, 0.5] }];
+    let pairs = vec![DisplayPair {
+        maple: [0.5, 0.5, 0.5],
+        jpeg: [0.5, 0.5, 0.5],
+    }];
     let lut = fit_lut_from_pairs(&pairs, 9, 1.0);
     let id = ColorLut::identity(9);
     assert!((lut.node(0, 0, 0)[0] - id.node(0, 0, 0)[0]).abs() < 1e-3);
@@ -102,14 +105,20 @@ fn recovers_uniform_shift() {
     let pairs: Vec<_> = (0..200)
         .map(|i| {
             let v = i as f32 / 199.0;
-            DisplayPair { maple: [v, v, v], jpeg: [(v + 0.1).min(1.0), v, v] }
+            DisplayPair {
+                maple: [v, v, v],
+                jpeg: [(v + 0.1).min(1.0), v, v],
+            }
         })
         .collect();
     let lut = fit_lut_from_pairs(&pairs, 9, 1.0);
     let mut px = vec![0.5f32, 0.5, 0.5];
     lut.apply(&mut px);
     assert!(px[0] > 0.55, "red not boosted: {}", px[0]);
-    assert!((px[1] - 0.5).abs() < 0.03 && (px[2] - 0.5).abs() < 0.03, "green/blue drifted");
+    assert!(
+        (px[1] - 0.5).abs() < 0.03 && (px[2] - 0.5).abs() < 0.03,
+        "green/blue drifted"
+    );
 }
 
 /// #1737 (b): out-of-gamut feathering + smoothness regularization.

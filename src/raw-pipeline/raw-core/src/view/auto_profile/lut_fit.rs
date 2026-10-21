@@ -165,8 +165,14 @@ pub fn fit_lut_from_preview(
     cs: JpegColorSpace,
     orientation: ExifOrientation,
 ) -> Option<ColorLut> {
-    let pairs =
-        super::pairs::sample_display_pairs(source_rgb, source_w, source_h, preview, cs, orientation);
+    let pairs = super::pairs::sample_display_pairs(
+        source_rgb,
+        source_w,
+        source_h,
+        preview,
+        cs,
+        orientation,
+    );
     if pairs.len() < MIN_LUT_PAIRS {
         return None;
     }
@@ -196,7 +202,8 @@ fn smooth3(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
                 let whi = if populated[hi] { 0.25 } else { 0.0 };
                 let wsum = wlo + 0.5 + whi;
                 for c in 0..3 {
-                    tmp[cu][c] = (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
+                    tmp[cu][c] =
+                        (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
                 }
             }
         }
@@ -216,7 +223,8 @@ fn smooth3(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
                 let whi = if populated[hi] { 0.25 } else { 0.0 };
                 let wsum = wlo + 0.5 + whi;
                 for c in 0..3 {
-                    tmp[cu][c] = (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
+                    tmp[cu][c] =
+                        (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
                 }
             }
         }
@@ -236,7 +244,8 @@ fn smooth3(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
                 let whi = if populated[hi] { 0.25 } else { 0.0 };
                 let wsum = wlo + 0.5 + whi;
                 for c in 0..3 {
-                    tmp[cu][c] = (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
+                    tmp[cu][c] =
+                        (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
                 }
             }
         }

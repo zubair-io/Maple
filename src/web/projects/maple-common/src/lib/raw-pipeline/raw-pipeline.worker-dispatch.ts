@@ -21,7 +21,7 @@ import type { DecodedImage, ScopeSnapshot, WorkerResponse } from './raw-pipeline
 import type { LensProfileFetch, LensProfileStatus } from '../lens/lens-profile.types';
 import type { PendingHandler } from './raw-pipeline.service-internals';
 import { WbSampleRejected } from './raw-pipeline.sample-wb.types';
-import { RangeSampleRejected } from './raw-pipeline.sample-range.types';
+import { ColorCurveSampleRejected, RangeSampleRejected } from './raw-pipeline.sample-range.types';
 
 // Module-local: this was a private method on `RawPipelineService` and has no
 // consumer outside this file. Exporting it would be dead surface area.
@@ -182,9 +182,19 @@ const settleSampleRange: Settler<'sample-range'> = (msg, handler) => {
     return true;
   }
   if (msg.type === 'sample-range-error') {
-    // The kind survives the boundary the same way the WB sampler's does: the
-    // UI phrases "pick a coloured area" from it, not from the message (#362).
     handler.reject(new RangeSampleRejected(msg.kind, msg.message));
+    return true;
+  }
+  return false;
+};
+
+const settleSampleColorCurve: Settler<'sample-color-curve'> = (msg, handler) => {
+  if (msg.type === 'sample-color-curve-success') {
+    handler.resolve(msg.sample);
+    return true;
+  }
+  if (msg.type === 'sample-color-curve-error') {
+    handler.reject(new ColorCurveSampleRejected(msg.kind, msg.message));
     return true;
   }
   return false;
@@ -308,6 +318,7 @@ const SETTLERS: { [K in NonNativeKind]: Settler<K> } = {
   'auto-adjust': settleAutoAdjust,
   'sample-wb': settleSampleWb,
   'sample-range': settleSampleRange,
+  'sample-color-curve': settleSampleColorCurve,
   'guided-geometry': settleGuidedGeometry,
   'register-mask-raster': settleRegisterMaskRaster,
   'register-brush-raster': settleRegisterBrushRaster,

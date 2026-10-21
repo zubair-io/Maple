@@ -47,6 +47,7 @@ const DECODING_REQUESTS = new Set([
   'auto-adjust',
   'sample-wb',
   'sample-range',
+  'sample-color-curve',
   'import-lens-profile',
   'lens-profile-compatible',
   'lens-profile-evidence',

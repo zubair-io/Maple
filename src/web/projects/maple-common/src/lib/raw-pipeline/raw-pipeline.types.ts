@@ -348,6 +348,8 @@ export type WorkerResponse =
   | SampleWbError
   | import('./raw-pipeline.sample-range.types').SampleRangeSuccess
   | import('./raw-pipeline.sample-range.types').SampleRangeError
+  | import('./raw-pipeline.sample-range.types').SampleColorCurveSuccess
+  | import('./raw-pipeline.sample-range.types').SampleColorCurveError
   | RegisterMaskRasterSuccess
   | RegisterMaskRasterError
   | RegisterBrushRasterSuccess
@@ -453,6 +455,7 @@ export type WorkerRequest =
   | AutoAdjustRequest
   | SampleWbRequest
   | import('./raw-pipeline.sample-range.types').SampleRangeRequest
+  | import('./raw-pipeline.sample-range.types').SampleColorCurveRequest
   | RegisterMaskRasterRequest
   | ReleaseMaskRasterRequest
   | RegisterBrushRasterRequest

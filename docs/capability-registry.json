@@ -37,8 +37,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -136,8 +136,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -258,6 +258,12 @@
         "color_grade_blending",
         "color_grade_shadow_edge",
         "color_grade_highlight_edge",
+        "color_curve_hue_vs_hue",
+        "color_curve_hue_vs_sat",
+        "color_curve_hue_vs_luma",
+        "color_curve_luma_vs_sat",
+        "color_curve_sat_vs_sat",
+        "color_curve_sat_vs_luma",
         "highlight_recovery",
         "look",
         "profile"
@@ -265,8 +271,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -368,8 +374,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -450,8 +456,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -513,8 +519,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -630,8 +636,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -682,8 +688,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -694,8 +700,8 @@
       "qualification": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -895,8 +901,8 @@
         "src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPPassthroughTests.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/XmpMetadata+Empty.swift"
       ],
-      "corpus_hash": "blake3:e96f3ad2644648967d0d9f8da685eba15825d77b5f2acde69af8591a83e931bd",
-      "status": "satisfied",
+      "corpus_hash": "blake3:036bc992b8360d407299becd9d0d813a27069386816a6bc343ed1b3e427205ba",
+      "status": "stale_corpus",
       "record": {
         "backend": "xctest-macos",
         "corpus_hash": "blake3:e96f3ad2644648967d0d9f8da685eba15825d77b5f2acde69af8591a83e931bd",
@@ -964,7 +970,7 @@
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:1c31a9ef3635388c6154dbca1f4044a0a54985209ea1cd396e472388a5f1bb7a",
+      "corpus_hash": "blake3:e6e4937998a3e2377c894536af992774b920a567cc93f7922ca841f323a3ec51",
       "status": "stale_corpus",
       "record": {
         "backend": "metal",

@@ -152,6 +152,12 @@ fn all_struct_field_names() -> Vec<&'static str> {
         color_grade_blending: _,
         color_grade_shadow_edge: _,
         color_grade_highlight_edge: _,
+        color_curve_hue_vs_hue: _,
+        color_curve_hue_vs_sat: _,
+        color_curve_hue_vs_luma: _,
+        color_curve_luma_vs_sat: _,
+        color_curve_sat_vs_sat: _,
+        color_curve_sat_vs_luma: _,
     } = AdjustmentModel::default();
 
     vec![
@@ -290,6 +296,12 @@ fn all_struct_field_names() -> Vec<&'static str> {
         "color_grade_blending",
         "color_grade_shadow_edge",
         "color_grade_highlight_edge",
+        "color_curve_hue_vs_hue",
+        "color_curve_hue_vs_sat",
+        "color_curve_hue_vs_luma",
+        "color_curve_luma_vs_sat",
+        "color_curve_sat_vs_sat",
+        "color_curve_sat_vs_luma",
     ]
 }
 

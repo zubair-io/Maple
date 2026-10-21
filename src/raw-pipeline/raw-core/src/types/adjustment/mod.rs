@@ -339,6 +339,14 @@ pub struct AdjustmentModel {
     pub color_grade_blending: f32,       // 0..100, default 100
     pub color_grade_shadow_edge: f32,    // 0.10..0.564622, default 0.564622 (MIDTONE_ANCHOR_L)
     pub color_grade_highlight_edge: f32, // 0.564622..0.90, default 0.564622 (MIDTONE_ANCHOR_L)
+
+    // Oklab secondary color curves (#5041, `papp:ColorCurve*`, pre-AgX after `stages::hsl`).
+    pub color_curve_hue_vs_hue: ToneCurve,
+    pub color_curve_hue_vs_sat: ToneCurve,
+    pub color_curve_hue_vs_luma: ToneCurve,
+    pub color_curve_luma_vs_sat: ToneCurve,
+    pub color_curve_sat_vs_sat: ToneCurve,
+    pub color_curve_sat_vs_luma: ToneCurve,
 }
 
 /// Fresh-import defaults. Split into a sibling module (#376) so this
