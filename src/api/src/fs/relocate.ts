@@ -524,7 +524,13 @@ async function copyRepointDelete(
     const late =
       req.carrySidecars === false
         ? []
-        : await carryLateSidecars(req.sourceAbsPath, finalDest, ownSidecars, movedCompanionSources);
+        : await carryLateSidecars({
+            sourceAbsPath: req.sourceAbsPath,
+            finalDest,
+            listed: ownSidecars,
+            movedCompanions: movedCompanionSources,
+            publications: createdPaths,
+          });
     await deleteOriginals(
       req.sourceAbsPath,
       [...movedSidecars, ...late],

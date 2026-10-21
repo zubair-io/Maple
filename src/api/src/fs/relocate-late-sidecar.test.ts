@@ -9,6 +9,7 @@ import * as path from 'node:path';
 import * as fs from './mirrored.ts';
 import { relocateFile } from './relocate.ts';
 import * as ownership from './sidecar-ownership.ts';
+import * as xmpConflict from './xmp-conflict.ts';
 import { moveToTrash } from './trash.ts';
 
 let root: string;
@@ -167,6 +168,56 @@ describe('a sidecar created mid-move (#5062)', () => {
       expect(await read('a/IMG.xmp')).toBeNull();
     } finally {
       join.mockRestore();
+    }
+  });
+
+  test('a move rolled back before its repoint withdraws a late sidecar it published', async () => {
+    await write('a/IMG.HEIC', 'pixels');
+    let calls = 0;
+
+    const outcome = await relocateFile({
+      sourceAbsPath: abs('a/IMG.HEIC'),
+      destAbsPath: abs('b/IMG.HEIC'),
+      mode: 'move',
+      collision: 'auto-suffix',
+      onDestinationPrepared: () => write('a/IMG.xmp', 'late edit'),
+      beforeSourceDelete: async () => {
+        calls += 1;
+        if (calls === 2) throw new Error('lease expired');
+      },
+    });
+
+    expect(outcome.kind).toBe('error');
+    expect(await read('b/IMG.xmp')).toBeNull();
+    expect(await read('a/IMG.xmp')).toBe('late edit');
+    expect(await read('a/IMG.HEIC')).toBe('pixels');
+  });
+
+  test('a late conflict name taken in a race moves on to the next free one', async () => {
+    await write('a/IMG.HEIC', 'pixels');
+    const raced = abs('b/IMG (conflict from move).xmp');
+    const pick = spyOn(xmpConflict, 'pickFreeConflictPath').mockImplementationOnce(async () => {
+      await write('b/IMG (conflict from move).xmp', 'another writer');
+      return raced;
+    });
+    try {
+      const outcome = await relocateFile({
+        sourceAbsPath: abs('a/IMG.HEIC'),
+        destAbsPath: abs('b/IMG.HEIC'),
+        mode: 'move',
+        collision: 'auto-suffix',
+        onVerified: async () => {
+          await write('a/IMG.xmp', 'late edit');
+          await write('b/IMG.xmp', 'save at the new path');
+        },
+      });
+
+      expect(outcome.kind).toBe('relocated');
+      expect(await read('b/IMG (conflict from move).xmp')).toBe('another writer');
+      expect(await read('b/IMG (conflict from move) (2).xmp')).toBe('late edit');
+      expect(await read('a/IMG.xmp')).toBeNull();
+    } finally {
+      pick.mockRestore();
     }
   });
 });

@@ -83,15 +83,45 @@ export async function planSidecars(req: SidecarPlanRequest): Promise<SidecarPlan
   return { entries, sourceClaimedBySibling, destinationClaimedBySibling };
 }
 
+export interface LateCarry {
+  sourceAbsPath: string;
+  finalDest: string;
+  listed: readonly string[];
+  movedCompanions: readonly string[];
+  /** The move's rollback list: a late publication is withdrawn with the rest. */
+  publications: RelocatePublication[];
+}
+
+const LATE_CONFLICT_ATTEMPTS = 5;
+
+/** Another writer can take the picked conflict name first; pick again. */
+async function publishLateConflict(
+  source: string,
+  carry: LateCarry,
+): Promise<{ dest: string; snapshot: Buffer }> {
+  for (let attempt = 0; attempt < LATE_CONFLICT_ATTEMPTS; attempt++) {
+    const conflict = await pickFreeConflictPath(carry.finalDest, 'move');
+    const snapshot = await publishSidecarSnapshot(source, conflict, carry.publications).catch(
+      (err: unknown) => {
+        if (err instanceof SidecarCollisionError) return null;
+        throw err;
+      },
+    );
+    if (snapshot) return { dest: conflict, snapshot };
+  }
+  throw new Error(`relocate: no free conflict name for ${carry.finalDest}`);
+}
+
 /** A newcomer whose own name is taken lands beside the photo as
- * `<stem> (conflict from move).xmp`, never stranded with no photo. */
+ * `<stem> (conflict from move).xmp`, never stranded with no photo; one whose
+ * destination already holds the same bytes joins it. */
 async function publishLateSidecar(
   source: string,
   dest: string,
-  finalDest: string,
+  carry: LateCarry,
 ): Promise<{ dest: string; snapshot: Buffer }> {
   try {
-    return { dest, snapshot: await publishSidecarSnapshot(source, dest) };
+    return { dest, snapshot: await publishSidecarSnapshot(source, dest, carry.publications) };
   } catch (err) {
     if (!(err instanceof SidecarCollisionError)) throw err;
     const joined = (await sidecarAlreadyCarried(source, dest))
@@ -102,8 +132,7 @@ async function publishLateSidecar(
         })
       : null;
     if (joined) return { dest, snapshot: joined };
-    const conflict = await pickFreeConflictPath(finalDest, 'move');
-    return { dest: conflict, snapshot: await publishSidecarSnapshot(source, conflict) };
+    return publishLateConflict(source, carry);
   }
 }
 
@@ -111,13 +140,8 @@ async function publishLateSidecar(
  * such as a first backup send or web save landing mid-move. Carried the same
  * exclusive way; one that can't be published stays at the source. Never
  * throws: the move has already been repointed. */
-export async function carryLateSidecars(
-  sourceAbsPath: string,
-  finalDest: string,
-  listed: readonly string[],
-  movedCompanions: readonly string[],
-): Promise<MovedSidecar[]> {
-  return carryNewcomers(sourceAbsPath, finalDest, listed, movedCompanions).catch((err: unknown) => {
+export async function carryLateSidecars(carry: LateCarry): Promise<MovedSidecar[]> {
+  return carryNewcomers(carry).catch((err: unknown) => {
     log.warn(
       { err: err instanceof Error ? err.message : err },
       'relocate: re-listing sidecars after the repoint failed',
@@ -126,27 +150,23 @@ export async function carryLateSidecars(
   });
 }
 
-async function carryNewcomers(
-  sourceAbsPath: string,
-  finalDest: string,
-  listed: readonly string[],
-  movedCompanions: readonly string[],
-): Promise<MovedSidecar[]> {
-  const known = new Set(listed.map((sidecar) => path.resolve(sidecar)));
+async function carryNewcomers(carry: LateCarry): Promise<MovedSidecar[]> {
+  const { sourceAbsPath, finalDest } = carry;
+  const known = new Set(carry.listed.map((sidecar) => path.resolve(sidecar)));
   const late = (await listPairedSidecars(sourceAbsPath)).filter(
     (sidecar) => !known.has(path.resolve(sidecar)),
   );
   if (late.length === 0) return [];
   const keepSource = await sidecarStemClaimedBySibling(sourceAbsPath, [
     finalDest,
-    ...movedCompanions,
+    ...carry.movedCompanions,
   ]);
   const moved: MovedSidecar[] = [];
   for (const source of late) {
     const dest = sidecarRenameTarget(sourceAbsPath, finalDest, source);
     // An extension-only rename maps a sidecar onto itself: it already belongs to the photo.
     if (!dest || (await sameSidecarFile(source, dest))) continue;
-    const published = await publishLateSidecar(source, dest, finalDest).catch((err: unknown) => {
+    const published = await publishLateSidecar(source, dest, carry).catch((err: unknown) => {
       log.warn(
         { source, dest, err: err instanceof Error ? err.message : err },
         'relocate: sidecar created mid-move left in place',
