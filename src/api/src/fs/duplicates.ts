@@ -25,10 +25,11 @@ import {
   assetDestinationOccupied,
   publishSidecarSnapshot,
   settleCarriedSidecar,
-  writeVerifiedTemp,
+  publishBytesExclusive,
+  publishConflictBytes,
 } from './sidecar-ownership.ts';
 import { readSidecarBytes } from './sidecar-bytes.ts';
-import { listPairedSidecars, pickFreeConflictPath } from './xmp-conflict.ts';
+import { listPairedSidecars } from './xmp-conflict.ts';
 import {
   hasLegacyBackupEdit,
   isLegacyBackupSidecarOf,
@@ -176,18 +177,9 @@ async function publishCaptured(
   for (const { source, bytes } of captured) {
     const dest = sidecarRenameTarget(absPath, movedTo, source);
     if (dest === null) continue;
-    await publishBytes(dest, bytes).catch((err: unknown) => {
+    await publishBytesExclusive(dest, bytes).catch((err: unknown) => {
       log.warn({ source, dest, err: String(err) }, 'moveToDuplicates: sidecar copy failed');
     });
-  }
-}
-
-async function publishBytes(dest: string, bytes: Buffer): Promise<void> {
-  const tmp = await writeVerifiedTemp(dest, bytes);
-  try {
-    await publishExclusive(tmp, dest);
-  } finally {
-    await fs.unlink(tmp).catch(() => {});
   }
 }
 
@@ -235,10 +227,10 @@ async function returnCarriedEdit(
   if (bytes === 'unreadable') return false;
   if (bytes === null) return true;
   const returned =
-    (await publishBytes(carried.source, bytes).then(
+    (await publishBytesExclusive(carried.source, bytes).then(
       () => true,
       () => false,
-    )) || (await publishConflictCopy(absPath, bytes));
+    )) || (await publishConflictBytes(absPath, bytes));
   if (returned) {
     await fs.unlink(carried.dest).catch(() => {});
     return true;
@@ -247,21 +239,6 @@ async function returnCarriedEdit(
     { dest: carried.dest },
     'moveToDuplicates: the carried old-name edit could not go back — the quarantined photo is kept with it',
   );
-  return false;
-}
-
-const RETURN_ATTEMPTS = 5;
-
-/** Another writer can take the picked conflict name first; pick again. */
-async function publishConflictCopy(beside: string, bytes: Buffer): Promise<boolean> {
-  for (let attempt = 0; attempt < RETURN_ATTEMPTS; attempt++) {
-    const conflict = await pickFreeConflictPath(beside, 'move');
-    const published = await publishBytes(conflict, bytes).then(
-      () => true,
-      () => false,
-    );
-    if (published) return true;
-  }
   return false;
 }
 
@@ -274,7 +251,7 @@ async function carryRetainedOldNameEdit(legacy: string, movedTo: string): Promis
   await serializeSidecarWrite(legacy, async () => {
     const bytes = await readSidecarBytes(legacy).catch(() => null);
     if (bytes === null) return;
-    if (!(await publishConflictCopy(movedTo, bytes))) {
+    if (!(await publishConflictBytes(movedTo, bytes))) {
       log.error(
         { legacy },
         'moveToDuplicates: the retained old-name edit could not follow the photo',
