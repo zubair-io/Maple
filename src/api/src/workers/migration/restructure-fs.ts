@@ -35,6 +35,7 @@ import {
   hasLegacyBackupEdit,
   isLegacyBackupSidecarOf,
   oldNameSlotTaken,
+  removePhotoUnlessOldNameEditStays,
 } from '../../fs/legacy-backup-sidecar.ts';
 import { carrySidecar, settleRefiledSidecar, type CarriedSidecar } from './refile-sidecar.ts';
 import {
@@ -375,12 +376,11 @@ export async function finalize(args: {
   }
   // Last, so an old-name edit left behind keeps its photo, the only place the migration looks (#5063).
   const primary = path.join(args.oldDirAbs, args.filename);
-  const keepPrimary = await hasLegacyBackupEdit(primary);
-  if (keepPrimary) {
-    log.error({ primary }, 'refile: an old-name backup edit stayed behind — the original is kept');
-  }
   for (const src of args.sourcesToDelete) {
-    if (keepPrimary && src === primary) continue;
+    if (src === primary) {
+      await removePhotoUnlessOldNameEditStays(primary, 'refile');
+      continue;
+    }
     await fs.unlink(src).catch((err) => {
       log.warn({ src, err: err instanceof Error ? err.message : err }, 'source unlink failed');
     });

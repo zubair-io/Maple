@@ -9,6 +9,9 @@ import { isVideoFilename } from '../indexer/media-types.ts';
 import * as fs from './mirrored.ts';
 import { readSidecarBytes, SidecarNotRegularFileError } from './sidecar-bytes.ts';
 import { errnoCode } from './relocate-publish.ts';
+import { child as childLogger } from '../log.ts';
+
+const log = childLogger('fs/legacy-backup-sidecar');
 
 /** Only Maple writes these namespaces (current, legacy and early bindings),
  * so another tool's `<name>.<ext>.xmp` is never touched. */
@@ -193,4 +196,26 @@ export async function pairedLegacyBackupSidecar(
     if ((await readLegacyAt(primary, stored, listed)) !== null) return stored;
   }
   return null;
+}
+
+/** A mover's last step: remove the original photo, unless an old-name edit of
+ * it is still beside it, the only place the migration looks for that edit
+ * (#5063). Keeping it leaves a duplicate rather than a disconnected edit. */
+export async function removePhotoUnlessOldNameEditStays(
+  primary: string,
+  mover: string,
+): Promise<void> {
+  if (await hasLegacyBackupEdit(primary)) {
+    log.error(
+      { primary, mover },
+      'an old-name backup edit stayed beside the original — photo kept',
+    );
+    return;
+  }
+  await fs.unlink(primary).catch((err: unknown) => {
+    log.warn(
+      { primary, mover, err: err instanceof Error ? err.message : err },
+      'original photo unlink failed after a verified copy — duplicate kept',
+    );
+  });
 }
