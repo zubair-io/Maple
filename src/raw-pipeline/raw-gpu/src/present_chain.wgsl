@@ -58,6 +58,13 @@ struct Params {
     geom_row0: vec4<f32>,
     geom_row1: vec4<f32>,
     geom_row2: vec4<f32>,
+    // Second resampling stage (#3982): cropped frame → display frame, affine,
+    // `crop_row0.w` its active flag. `geom_*` then maps display → chain, and
+    // `display_size` is the display frame the crop samples.
+    crop_row0: vec4<f32>,
+    crop_row1: vec4<f32>,
+    crop_row2: vec4<f32>,       // padding: the crop stage is affine
+    display_size: vec4<u32>,    // .xy are the dims; .zw are padding
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -131,9 +138,9 @@ fn sample_chain_warped(sx: f32, sy: f32, sw: u32, sh: u32) -> vec4<f32> {
 // that belongs there. Mirrors `raw_core::stages::perspective::warp`'s
 // `source_for` + sampler, including the `w`-near-zero arm that renders a
 // destination beyond the projective horizon as surround rather than dividing.
-fn warped_chain_sample(px: u32, py: u32, sw: u32, sh: u32) -> vec4<f32> {
-    let nx = (f32(px) + 0.5) / (f32(params.width) * 0.5) - 1.0;
-    let ny = (f32(py) + 0.5) / (f32(params.height) * 0.5) - 1.0;
+fn warped_chain_sample(px: u32, py: u32, dw: u32, dh: u32, sw: u32, sh: u32) -> vec4<f32> {
+    let nx = (f32(px) + 0.5) / (f32(dw) * 0.5) - 1.0;
+    let ny = (f32(py) + 0.5) / (f32(dh) * 0.5) - 1.0;
     let hw = params.geom_row2.x * nx + params.geom_row2.y * ny + params.geom_row2.z;
     if (abs(hw) < 1.0e-6) {
         return vec4<f32>(0.0, 0.0, 0.0, 1.0);
@@ -143,6 +150,40 @@ fn warped_chain_sample(px: u32, py: u32, sw: u32, sh: u32) -> vec4<f32> {
     let sx = (sxn + 1.0) * (f32(sw) * 0.5) - 0.5;
     let sy = (syn + 1.0) * (f32(sh) * 0.5) - 0.5;
     return sample_chain_warped(sx, sy, sw, sh);
+}
+
+// The crop stage over the warped display frame, matching the CPU's second
+// resample: `sample_chain_warped`'s footprint rule, with each tap being the
+// warp's output at that display pixel rather than a stored value.
+fn cropped_warped_sample(px: u32, py: u32, sw: u32, sh: u32) -> vec4<f32> {
+    let dw = params.display_size.x;
+    let dh = params.display_size.y;
+    let nx = (f32(px) + 0.5) / (f32(params.width) * 0.5) - 1.0;
+    let ny = (f32(py) + 0.5) / (f32(params.height) * 0.5) - 1.0;
+    let dxn = params.crop_row0.x * nx + params.crop_row0.y * ny + params.crop_row0.z;
+    let dyn = params.crop_row1.x * nx + params.crop_row1.y * ny + params.crop_row1.z;
+    let sx = (dxn + 1.0) * (f32(dw) * 0.5) - 0.5;
+    let sy = (dyn + 1.0) * (f32(dh) * 0.5) - 0.5;
+    let wi = i32(dw);
+    let hi = i32(dh);
+    let x0f = floor(sx);
+    let y0f = floor(sy);
+    let x0 = i32(x0f);
+    let y0 = i32(y0f);
+    if (x0 + 1 < 0 || y0 + 1 < 0 || x0 >= wi || y0 >= hi) {
+        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
+    let fx = sx - x0f;
+    let fy = sy - y0f;
+    let cx0 = u32(clamp(x0, 0, wi - 1));
+    let cy0 = u32(clamp(y0, 0, hi - 1));
+    let cx1 = u32(clamp(x0 + 1, 0, wi - 1));
+    let cy1 = u32(clamp(y0 + 1, 0, hi - 1));
+    let c00 = warped_chain_sample(cx0, cy0, dw, dh, sw, sh);
+    let c10 = warped_chain_sample(cx1, cy0, dw, dh, sw, sh);
+    let c01 = warped_chain_sample(cx0, cy1, dw, dh, sw, sh);
+    let c11 = warped_chain_sample(cx1, cy1, dw, dh, sw, sh);
+    return mix(mix(c00, c10, fx), mix(c01, c11, fx), fy);
 }
 
 fn present_color(in: VsOut) -> vec4<f32> {
@@ -159,12 +200,14 @@ fn present_color(in: VsOut) -> vec4<f32> {
     var c: vec4<f32>;
     let src_w = select(params.src_width, params.width, params.src_width == 0u);
     let src_h = select(params.src_height, params.height, params.src_width == 0u);
-    if (params.geom_row0.w != 0.0) {
+    if (params.crop_row0.w != 0.0) {
+        c = cropped_warped_sample(px, py, src_w, src_h);
+    } else if (params.geom_row0.w != 0.0) {
         // Manual geometry armed: ONE resample from the chain grid, whatever
         // the surface/chain size relationship is — the normalized space the
         // homography lives in already absorbs a half-res chain buffer, so this
         // arm subsumes the upscale below rather than stacking on top of it.
-        c = warped_chain_sample(px, py, src_w, src_h);
+        c = warped_chain_sample(px, py, params.width, params.height, src_w, src_h);
     } else if (params.src_width == 0u
         || (params.src_width == params.width && params.src_height == params.height)) {
         // 1:1 — the original path, untouched (parity-critical for Apple/web).

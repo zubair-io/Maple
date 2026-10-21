@@ -238,3 +238,24 @@ fn source_geometry_and_layout_changes_never_reuse_stale_dispatches() {
 
 #[path = "tests/retirement.rs"]
 mod retirement;
+
+#[test]
+fn uniform_layout_matches_the_shader_and_other_hosts_leave_the_crop_stage_zero() {
+    assert_eq!(std::mem::size_of::<PresentParams>(), 128);
+
+    let single = present_params((8, 6), (0, 0), PresentGeometry::from_inverse([1.0; 9]));
+    assert_eq!(single.geometry[0][3], 1.0);
+    assert_eq!(single.crop, [[0.0; 4]; 3]);
+    assert_eq!(single.display, [0; 4]);
+
+    let staged = present_params(
+        (8, 6),
+        (0, 0),
+        PresentGeometry::from_stages([1.0; 9], [2.0; 9], (12, 9)),
+    );
+    assert_eq!(staged.geometry[0][3], 1.0);
+    assert_eq!(staged.crop[0], [2.0, 2.0, 2.0, 1.0]);
+    assert_eq!(staged.crop[1], [2.0, 2.0, 2.0, 0.0]);
+    assert_eq!(staged.crop[2], [0.0; 4]);
+    assert_eq!(staged.display, [12, 9, 0, 0]);
+}
