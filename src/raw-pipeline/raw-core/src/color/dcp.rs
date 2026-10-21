@@ -94,6 +94,18 @@ pub struct DcpProfile {
     /// [`DcpProfile::color_matrix_for_cct`] then returns `color_matrix`
     /// unchanged.
     pub cm_endpoints: Option<CmEndpoints>,
+    /// Both dual-illuminant HueSatMaps `hsm` was lerped from, so a white
+    /// balance retarget resolves the table at the same CCT as the
+    /// ForwardMatrix (#4633). `None` unless both tables are present.
+    pub hsm_endpoints: Option<std::sync::Arc<HsmEndpoints>>,
+}
+
+/// The cold- and warm-illuminant HueSatMaps of a dual-illuminant profile,
+/// paired with [`CmEndpoints`]' CCTs.
+#[derive(Clone, Debug)]
+pub struct HsmEndpoints {
+    pub cold: HsmTable,
+    pub warm: HsmTable,
 }
 
 /// The two calibration endpoints of a dual-illuminant profile, in the
@@ -149,6 +161,7 @@ impl DcpProfile {
             look_table: None,
             tone_curve: None,
             cm_endpoints: None,
+            hsm_endpoints: None,
         }
     }
 
@@ -602,6 +615,12 @@ pub fn interpolated_profile(
             fm_cold,
             fm_warm,
         }),
+        hsm_endpoints: hsm_cold.zip(hsm_warm).map(|(cold, warm)| {
+            std::sync::Arc::new(HsmEndpoints {
+                cold: cold.clone(),
+                warm: warm.clone(),
+            })
+        }),
     }
 }
 
@@ -613,7 +632,7 @@ pub fn interpolated_profile(
 /// Returns `None` only when both inputs are `None` or when a dual table
 /// pair has incompatible dims/encoding (in which case we conservatively
 /// pick the cold table; HSM failure shouldn't break decode).
-fn lerp_hsm_for_cct(
+pub(crate) fn lerp_hsm_for_cct(
     hsm_cold: Option<&HsmTable>,
     hsm_warm: Option<&HsmTable>,
     cct_cold: f32,
@@ -947,6 +966,7 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
             look_table: None, // PLT wiring to DNG source deferred (#1691 Phase 2)
             tone_curve: raw.profile_tone_curve.clone(),
             cm_endpoints: None,
+            hsm_endpoints: None,
         },
         ProfileSource::RawlerFallback,
     ))
@@ -1143,8 +1163,10 @@ fn profile_from_embedded_cm_only(
     wb_already_baked: bool,
 ) -> Option<(DcpProfile, Illuminant)> {
     let (mut profile, illuminant) = profile_from_embedded(raw, wb_already_baked)?;
-    // Enforce the tier's "no HSM" contract — see fn-level doc.
+    // Enforce the tier's "no HSM" contract — see fn-level doc — including
+    // the endpoints a white-balance retarget would re-lerp (#4633).
     profile.hsm = None;
+    profile.hsm_endpoints = None;
     Some((profile, illuminant))
 }
 
@@ -1202,6 +1224,7 @@ pub(crate) fn single_illuminant_profile(
         look_table,
         tone_curve,
         cm_endpoints: None,
+        hsm_endpoints: None,
     }
 }
 
@@ -1441,6 +1464,7 @@ mod tests {
             look_table: None,
             tone_curve: None,
             cm_endpoints: None,
+            hsm_endpoints: None,
         };
         let mut img = Image::new(2, 2, ColorSpace::CameraNativeLinearRgb);
         for p in &mut img.pixels {
@@ -1654,6 +1678,7 @@ mod tests {
             look_table: None,
             tone_curve: None,
             cm_endpoints: None,
+            hsm_endpoints: None,
         };
 
         // Run a neutral 0.18 mid-gray camera-RGB patch through both.
@@ -2834,6 +2859,48 @@ mod tests {
         );
     }
 
+    /// #4633: the tier also drops the dual endpoints, so a white-balance
+    /// retarget cannot re-lerp a HueSatMap the tier removed.
+    #[test]
+    fn embedded_cm_only_clears_dual_hsm_endpoints() {
+        let table = |hue: f32| {
+            crate::color::hsm::HsmTable::new(
+                [1, 1, 1],
+                vec![hue, 1.0, 1.0],
+                crate::color::hsm::HsmEncoding::Linear,
+            )
+            .expect("valid 1x1x1 HSM")
+        };
+        let cm_warm = Matrix3([
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
+        ]);
+        let cm_cold = Matrix3([
+            [0.7234, 0.0231, -0.0542],
+            [-0.3956, 1.1998, 0.2239],
+            [-0.0512, 0.1892, 0.5231],
+        ]);
+        let cms = std::collections::HashMap::from([
+            (Illuminant::StdA, cm_cold),
+            (Illuminant::D65, cm_warm),
+        ]);
+        let hsms = std::collections::HashMap::from([
+            (Illuminant::StdA, table(0.0)),
+            (Illuminant::D65, table(15.0)),
+        ]);
+        let raw = make_raw_with_ucm(
+            "Hypothetical Uncovered Body",
+            cms,
+            std::collections::HashMap::new(),
+            hsms,
+        );
+        let (profile, source) = profile_for_with_source(&raw).expect("resolver should succeed");
+        assert!(matches!(source, ProfileSource::EmbeddedCmOnly { .. }));
+        assert!(profile.cm_endpoints.is_some());
+        assert!(profile.hsm.is_none() && profile.hsm_endpoints.is_none());
+    }
+
     #[test]
     fn test_apply_look_table_shifts() {
         let mut table_data = Vec::new();
@@ -2907,6 +2974,7 @@ mod tests {
             look_table: None,
             tone_curve: None,
             cm_endpoints: None,
+            hsm_endpoints: None,
         };
         // Profile B: wb_already_baked=true + FM present → takes FM path.
         let profile_wb_true = DcpProfile {

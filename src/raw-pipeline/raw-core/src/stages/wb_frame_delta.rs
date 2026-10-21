@@ -344,6 +344,7 @@ impl SliderFrameExport {
             look_table: None,
             tone_curve: None,
             cm_endpoints,
+            hsm_endpoints: None,
         }
     }
 
