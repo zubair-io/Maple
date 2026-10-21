@@ -91,6 +91,21 @@ export async function sidecarStemClaimedBySibling(
   );
 }
 
+/** The photo's own sidecar that would land on `sidecar`; same-file aware, so a
+ * case-folding volume matches `IMG.xmp` to an existing `img.xmp`. */
+async function incomingSidecarFor(
+  sourceAbsPath: string,
+  candidate: string,
+  ownSidecars: readonly string[],
+  sidecar: string,
+): Promise<string | undefined> {
+  for (const own of ownSidecars) {
+    const target = sidecarRenameTarget(sourceAbsPath, candidate, own);
+    if (target !== null && (await sameSidecarFile(target, sidecar))) return own;
+  }
+  return undefined;
+}
+
 async function isOwnSidecar(ownSidecars: readonly string[], sidecar: string): Promise<boolean> {
   for (const own of ownSidecars) {
     if (await sameSidecarFile(own, sidecar)) return true;
@@ -131,10 +146,7 @@ export async function assetDestinationOccupied(
     for (const sidecar of paired) {
       if (await isOwnSidecar(ownSidecars, sidecar)) continue;
       const incoming = sourceAbsPath
-        ? ownSidecars.find((own) => {
-            const target = sidecarRenameTarget(sourceAbsPath, candidate, own);
-            return target !== null && path.resolve(target) === path.resolve(sidecar);
-          })
+        ? await incomingSidecarFor(sourceAbsPath, candidate, ownSidecars, sidecar)
         : undefined;
       if (incoming && (await sidecarAlreadyCarried(incoming, sidecar))) continue;
       return true;
