@@ -248,6 +248,9 @@ export interface RenderSessionSuccess {
   id: number;
   type: 'render-session-success';
   colorSpace: string;
+  /** Presented frame dims after this render — they change with the model's crop. */
+  width: number;
+  height: number;
   /** See `DecodeSuccess.lensProfile` (#3479) — refreshed when the prefix
    *  re-developed for a new selection; absent on a scalar-params tick. */
   lensProfile?: LensProfileResolution;

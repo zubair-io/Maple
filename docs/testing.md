@@ -321,6 +321,14 @@ Chrome WebGPU adapter. It fails if either is absent. It compares upright canvas,
 native dimensions, crop bounds and a radial mask's pixel changes against its
 handle, then reopens the real OPFS sidecar through the CPU path.
 
+The physical crop regression (`cd src/web && bun x playwright test
+--config=playwright.crop-live.config.ts`) has the same prerequisites and fails
+the same way. On the same Rotate90 RAW it applies a rectangle, a quarter-turn
+and a free-angle crop to the live WebGPU canvas, then reopens the OPFS sidecar
+through the CPU path. The two canvases must have identical presented dimensions
+and agree within a coarse spatial budget, the canvas colour space must survive
+the resize, and clearing the crop must restore the full frame.
+
 Real hardware — locally, and through the Apple UITest harness — remains the deeper signal for both surfaces; these two jobs are the cheap, always-on backstop against a divergence reaching `main` with every existing check green.
 
 ---

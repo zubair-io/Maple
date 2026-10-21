@@ -102,6 +102,8 @@ export interface GpuPresentHost {
    * `width`/`height` are no longer the native dims.
    */
   recordNativeDims(w: number, h: number): void;
+  /** Record the presented frame's dims — the cropped aspect drives layout. */
+  recordPaintedDims(w: number, h: number): void;
 }
 
 /**
@@ -317,6 +319,7 @@ export class ImageCanvasGpuPresent {
     const nativeH = info.nativeHeight ?? info.height;
     this.host.state.updateAssetDimensions(assetId, nativeW, nativeH);
     this.host.recordNativeDims(nativeW, nativeH);
+    this.host.recordPaintedDims(info.width, info.height);
     this.host.state.seedAsShotWhiteBalance(
       assetId,
       info.asShotTemperature,
@@ -371,6 +374,10 @@ export class ImageCanvasGpuPresent {
     }
     try {
       const rendered = await this.host.pipeline.renderLiveSession(xmp, fastParams);
+      // The surface already has these dims, stale or not: a crop change resizes it.
+      this.host.recordPaintedDims(rendered.width, rendered.height);
+      // A crop-driven resize re-tags the canvas, so the tag can change.
+      this.colorSpace.set(rendered.colorSpace);
       // Stale guard (same intent as the 2D path's generation check): a newer edit
       // bumped the generation while this render was in flight — drop its result so
       // a stale scope readback can't overwrite a fresher frame's.
