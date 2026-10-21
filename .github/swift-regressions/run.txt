@@ -261,6 +261,7 @@ ToneCurveXMPTests
 TranscribeSettingsFormTests
 URLPathHierarchyTests
 UploadRetryIdempotencyTests
+VideoCaptureDateTests
 WbDngTemperatureTests
 WbProvenanceXMPTests
 WbScaleVersionTests
