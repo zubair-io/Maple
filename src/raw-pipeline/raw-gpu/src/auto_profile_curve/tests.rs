@@ -93,6 +93,28 @@ fn identity_matrix_curve() -> ProfileCurve {
     c
 }
 
+/// Per-channel curves with a flat run and a sharp knot (#4636), so both the
+/// zero-tangent branch and the harmonic-mean tangents of the cubic run on the GPU.
+fn kinked_flat_curve() -> ProfileCurve {
+    let channel = |knee: usize, low: f32, high: f32| ChannelCurve {
+        anchors: std::array::from_fn(|i| {
+            let x = i as f32 / 31.0;
+            let k = knee as f32 / 31.0;
+            let y = match i {
+                i if i < 6 => 0.0,
+                i if i <= knee => low * (x - 6.0 / 31.0),
+                _ => low * (k - 6.0 / 31.0) + high * (x - k),
+            };
+            (x, y.min(1.0))
+        }),
+    };
+    let mut c = ProfileCurve::identity();
+    c.r = channel(12, 0.4, 1.8);
+    c.g = channel(20, 0.6, 1.6);
+    c.b = channel(26, 1.1, 0.3);
+    c
+}
+
 /// A NON-identity curve carrying per-channel curves, a non-identity cross-channel
 /// matrix, a chroma boost, an (a, b) offset, an L offset, and non-zero L-band and
 /// ab-band LUTs. Forces `identity == false` AND `apply_chroma == true`, so the
@@ -130,6 +152,7 @@ fn wgsl_auto_profile_curve_matches_raw_core_within_1e_4() {
     for (label, curve) in [
         ("identity-matrix", identity_matrix_curve()),
         ("full-non-identity", full_curve()),
+        ("kinked-flat", kinked_flat_curve()),
     ] {
         let flat = curve.to_flat();
         assert_eq!(flat.len(), PROFILE_CURVE_FLAT_LEN);
