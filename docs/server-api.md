@@ -102,6 +102,8 @@ A library is a registered root folder with a slug. `:id` is the folder's 24-char
 | POST   | `/api/mirror/retry-dead`          | owner  | Re-arm dead-lettered mirror copies                                                                                                        |
 | GET    | `/api/mirror/orphans`             | owner  | Dry-run report of mirror files with no primary counterpart. Deletes nothing                                                               |
 
+A `.xmp` uploaded through `/api/folders/:id/upload` never replaces a sidecar: when the name is already taken, including by a save through `PUT /api/assets/:id/xmp` or `POST /backup/sidecar` that lands while the upload is in flight, the route answers 409 and the existing sidecar is kept. Edit sidecars through the XMP routes.
+
 Media uploaded through `/api/folders/:id/upload` is attributed to the authenticated uploader, including when the filesystem watcher creates the asset first. Client-supplied owner headers are ignored. Internal writers without a principal preserve existing attribution; a principal whose user row is absent leaves new assets unassigned and keeps an existing asset's owner.
 
 ## Unified addressing (`slug:relPath`)
