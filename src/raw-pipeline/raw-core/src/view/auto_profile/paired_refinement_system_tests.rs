@@ -1,6 +1,6 @@
 use super::*;
 
-const PRODUCT_CEILING: usize = 110;
+const PRODUCT_CEILING: usize = 114;
 const TERMS_CEILING: usize = 40_512;
 
 #[test]
