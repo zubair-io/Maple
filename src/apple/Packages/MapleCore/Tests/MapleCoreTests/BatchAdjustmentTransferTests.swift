@@ -224,6 +224,13 @@ final class BatchAdjustmentTransferTests: XCTestCase {
         scopeID: "smb", request: request, targets: stems.compactMap(\.adjustmentTransferTarget))
       XCTFail("Two SMB originals must not overwrite the same sidecar")
     } catch BatchAdjustmentError.sharedSidecar {}
+
+    // A video keeps its full-name sidecar (#5053), so it never shares the photo's.
+    let liveLedger = BatchAdjustmentTransfer(directory: root.appendingPathComponent("live"))
+    let live = [smb("/Photos/IMG.HEIC"), smb("/Photos/IMG.MOV")]
+    let liveOperation = try await liveLedger.create(
+      scopeID: "smb", request: request, targets: live.compactMap(\.adjustmentTransferTarget))
+    XCTAssertEqual(liveOperation.targets.count, 2)
   }
 
   func testWrongLibraryAndUnknownPreparedGroupsAreRejected() async throws {

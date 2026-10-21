@@ -362,6 +362,7 @@ SMBWhiteBalanceAcceptanceTests # #4085: all WB modes, actual SMB variants/reconn
 SMBWorkflowRecoveryTests # #4065: drop actual accepted SMB rename acknowledgement
 SMBDuplicateContentMutationTests # #4705: identical copies on owned Samba; mutations address the listed file
 SMBCrossShareMutationTests # #4987: two owned Samba shares; a ref never mutates the same path on another share
+SMBVideoSidecarTests # #5053: owned Samba share; a video and its same-stem photo keep separate sidecars
 # Decode sampling density, render parameter forwarding and chain-cache identity.
 NoiseSamplingScaleHostTests
 AgentEditServiceTests # live AI agent bridge: revision, undo, reject-not-clamp, real HTTP + .xmp

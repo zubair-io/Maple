@@ -268,9 +268,7 @@ public actor SMBSource {
   /// Write XMP sidecar bytes over SMB with retry (3 attempts, exponential back-off).
   public func writeSidecar(_ data: Data, for asset: SMBAsset) async throws {
     guard let client else { throw SMBError.notConnected }
-    let sidecarPath = (asset.path as NSString)
-      .deletingPathExtension
-      .appending(".xmp")
+    let sidecarPath = SMBFileOperations.sidecarPath(for: asset.path)
     try await writeWithRetry(data: data, to: sidecarPath, client: client)
   }
 
@@ -470,9 +468,7 @@ extension SMBSource: ImageSource {
     guard let data = xml.data(using: .utf8) else {
       throw XMPStoreError.encodingError
     }
-    let sidecarPath = (try mutationPath(for: ref) as NSString)
-      .deletingPathExtension
-      .appending(".xmp")
+    let sidecarPath = SMBFileOperations.sidecarPath(for: try mutationPath(for: ref))
     try await writeWithRetry(data: data, to: sidecarPath, client: client)
   }
 

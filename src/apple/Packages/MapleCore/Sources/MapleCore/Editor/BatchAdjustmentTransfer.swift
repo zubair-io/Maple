@@ -270,7 +270,9 @@ public actor BatchAdjustmentTransfer {
           ? URL(fileURLWithPath: String(target.id.dropFirst(3))) : nil)
       let smbSidecar =
         target.id.hasPrefix(BatchAdjustmentTarget.smbIDPrefix)
-        ? (target.id as NSString).deletingPathExtension + ".xmp" : nil
+        ? BatchAdjustmentTarget.smbIDPrefix
+          + SMBFileOperations.sidecarPath(
+            for: String(target.id.dropFirst(BatchAdjustmentTarget.smbIDPrefix.count))) : nil
       return original.map { SidecarPath.sidecarURL(for: $0).standardizedFileURL.absoluteString }
         ?? smbSidecar ?? target.id
     }

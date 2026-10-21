@@ -24,9 +24,7 @@ extension SMBSource {
     /// so a caller can't mistake a transient failure for "fresh asset."
     public func readSidecar(for asset: SMBAsset) async throws -> Data? {
         guard let client else { throw SMBError.notConnected }
-        let sidecarPath = (asset.path as NSString)
-            .deletingPathExtension
-            .appending(".xmp")
+        let sidecarPath = SMBFileOperations.sidecarPath(for: asset.path)
         do {
             return try await client.contents(atPath: sidecarPath, range: Range<UInt64>?.none)
         } catch let error as POSIXError where error.code == .ENOENT {
