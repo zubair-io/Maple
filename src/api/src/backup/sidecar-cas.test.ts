@@ -87,3 +87,44 @@ test('a sidecar published into a library reached through a symlinked root replic
     await fs.rm(scratch, { recursive: true, force: true });
   }
 });
+
+test('a library root retargeted after the comparison fails closed instead of writing into another library (#5027)', async () => {
+  const live = await createLiveTestDatabase();
+  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-cas-retarget-'));
+  try {
+    const realRoot = path.join(scratch, 'real-library');
+    const otherRoot = path.join(scratch, 'other-library');
+    const linkedRoot = path.join(scratch, 'linked-library');
+    const mirror = path.join(scratch, 'mirror');
+    await Promise.all(
+      [realRoot, otherRoot, mirror].map((dir) => fs.mkdir(dir, { recursive: true })),
+    );
+    await fs.symlink(realRoot, linkedRoot);
+    insertFolder(live.db, { path: linkedRoot });
+    insertFolder(live.db, { path: otherRoot });
+    setMirrorRoots({ [linkedRoot]: [mirror] });
+
+    const outcome = await publishSidecarCas(
+      path.join(linkedRoot, 'x.xmp'),
+      '<xmp/>',
+      null,
+      keepNothing,
+      linkedRoot,
+      {
+        beforeWrite: async () => {
+          await fs.rm(linkedRoot);
+          await fs.symlink(otherRoot, linkedRoot);
+        },
+      },
+    );
+    await flushPendingMirrorOps();
+
+    expect(outcome.kind).toBe('error');
+    await expect(fs.access(path.join(otherRoot, 'x.xmp'))).rejects.toThrow();
+    await expect(fs.access(path.join(mirror, 'x.xmp'))).rejects.toThrow();
+  } finally {
+    clearMirrorRoots();
+    live.close();
+    await fs.rm(scratch, { recursive: true, force: true });
+  }
+});
