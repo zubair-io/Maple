@@ -4,7 +4,7 @@
 // A P2 view-transform stage (epic #925 / #990). This is the per-pixel CLOSED-FORM
 // curve evaluation ONLY — NOT the residual 3D LUT (that is a later, LUT-template
 // wave). The whole `ProfileCurve` is per-image data: three 32-anchor monotone
-// piecewise-linear channel curves (only the OUTPUT values vary — inputs are the
+// cubic channel curves (only the OUTPUT values vary — inputs are the
 // implicit even spacing i/31), an optional 3×3 cross-channel matrix, and a set of
 // Oklab corrections (chroma scale, (a,b) offset, an L offset, and two 5-anchor
 // L-band correction LUTs). It is uploaded once as a flat f32 STORAGE buffer (the
@@ -142,16 +142,41 @@ fn compress_input(x_in: f32) -> f32 {
 // input, so the fractional anchor index is `v * (ANCHORS-1)` directly — no search.
 // Only the OUTPUT values are stored (interleaved as (input, output) in the flat
 // buffer); we read output at offset `base + 2*idx + 1`. Mirrors
-// raw_core::view::auto_profile::curve::eval_channel.
+// raw_core::view::auto_profile::curve::eval_channel: a monotone cubic Hermite
+// with harmonic-mean knot tangents (#4636).
+fn curve_output(base: u32, i: u32) -> f32 {
+    return curve[base + 2u * i + 1u];
+}
+
+fn curve_secant(base: u32, k: u32) -> f32 {
+    return curve_output(base, k + 1u) - curve_output(base, k);
+}
+
+fn curve_tangent(base: u32, k: u32) -> f32 {
+    if (k == 0u) {
+        return curve_secant(base, 0u);
+    }
+    if (k == ANCHORS - 1u) {
+        return curve_secant(base, ANCHORS - 2u);
+    }
+    let before = curve_secant(base, k - 1u);
+    let after = curve_secant(base, k);
+    if (before * after <= 0.0) {
+        return 0.0;
+    }
+    return 2.0 * before * after / (before + after);
+}
+
 fn eval_channel(base: u32, v_in: f32) -> f32 {
-    let v = clamp(v_in, 0.0, 1.0);
-    let scaled = v * f32(ANCHORS - 1u);
-    let lo = u32(floor(scaled));
-    let hi = min(lo + 1u, ANCHORS - 1u);
+    let scaled = clamp(v_in, 0.0, 1.0) * f32(ANCHORS - 1u);
+    let lo = min(u32(floor(scaled)), ANCHORS - 2u);
     let t = scaled - f32(lo);
-    let lo_y = curve[base + 2u * lo + 1u];
-    let hi_y = curve[base + 2u * hi + 1u];
-    return lo_y + (hi_y - lo_y) * t;
+    let t2 = t * t;
+    let t3 = t * t * t;
+    return (2.0 * t3 - 3.0 * t2 + 1.0) * curve_output(base, lo)
+        + (t3 - 2.0 * t2 + t) * curve_tangent(base, lo)
+        + (3.0 * t2 - 2.0 * t3) * curve_output(base, lo + 1u)
+        + (t3 - t2) * curve_tangent(base, lo + 1u);
 }
 
 @compute @workgroup_size(64)

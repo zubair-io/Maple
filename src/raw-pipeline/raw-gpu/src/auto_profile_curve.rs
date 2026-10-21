@@ -4,7 +4,7 @@
 //! the per-pixel, CLOSED-FORM evaluation of a fitted `ProfileCurve`. This is the
 //! per-image tone curve, NOT the residual 3D LUT (that is a later, LUT-template
 //! wave) — the whole curve is a small fixed-size bundle of per-image data:
-//!   - three 32-anchor monotone piecewise-linear channel curves,
+//!   - three 32-anchor monotone cubic channel curves,
 //!   - an optional 3×3 cross-channel matrix (applied after the curves),
 //!   - Oklab corrections: a chroma multiplier, an (a, b) offset, an L offset,
 //!     and two 5-anchor L-band correction LUTs (interpolated on Rec.709 luma).
@@ -182,14 +182,28 @@ fn compress_input(x: f32) -> f32 {
 /// Mirrors `curve::eval_channel`.
 #[inline]
 fn eval_channel(flat: &[f32], base: usize, v: f32) -> f32 {
-    let v = v.clamp(0.0, 1.0);
-    let scaled = v * (ANCHORS - 1) as f32;
-    let lo = scaled.floor() as usize;
-    let hi = (lo + 1).min(ANCHORS - 1);
+    let output = |i: usize| flat[base + 2 * i + 1];
+    let scaled = v.clamp(0.0, 1.0) * (ANCHORS - 1) as f32;
+    let lo = (scaled.floor() as usize).min(ANCHORS - 2);
     let t = scaled - lo as f32;
-    let lo_y = flat[base + 2 * lo + 1];
-    let hi_y = flat[base + 2 * hi + 1];
-    lo_y + (hi_y - lo_y) * t
+    let secant = |k: usize| output(k + 1) - output(k);
+    let tangent = |k: usize| match k {
+        0 => secant(0),
+        k if k == ANCHORS - 1 => secant(ANCHORS - 2),
+        k => {
+            let (before, after) = (secant(k - 1), secant(k));
+            if before * after <= 0.0 {
+                0.0
+            } else {
+                2.0 * before * after / (before + after)
+            }
+        }
+    };
+    let (t2, t3) = (t * t, t * t * t);
+    (2.0 * t3 - 3.0 * t2 + 1.0) * output(lo)
+        + (t3 - 2.0 * t2 + t) * tangent(lo)
+        + (3.0 * t2 - 2.0 * t3) * output(lo + 1)
+        + (t3 - t2) * tangent(lo + 1)
 }
 
 /// Whether the flat curve's matrix slice is the identity matrix (skip the matmul).

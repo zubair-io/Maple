@@ -58,8 +58,9 @@ use super::lut::ColorLut;
 // changes the AgX tail used to fit the pinned scene/JPEG pair (#4635);
 // version 5 changes the DCP HueSatMap colours the fit develops (#4631);
 // version 6 changes the pinned camera reconstruction, NR prefix and paired
-// JPEG fit (#5000).
-pub const AUTO_FIT_MODEL_VERSION: u32 = 6;
+// JPEG fit (#5000); version 7 evaluates the curve as a monotone cubic, which
+// the Auto 1.0 residual is fit on (#4636).
+pub const AUTO_FIT_MODEL_VERSION: u32 = 7;
 
 /// Shared capacity, in entries, of BOTH the curve and LUT caches. The two
 /// stores are touched with the same keys in the same order (a fit inserts

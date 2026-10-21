@@ -50,7 +50,7 @@
 //!   branch.
 //! - [`AutoProfileCurvePass`] + [`apply_auto_profile_curve`] — a P2 view-transform
 //!   stage (#990): the per-pixel fitted Auto Profile tone CURVE (`compress_input`
-//!   soft-knee + a 32-anchor per-channel piecewise-linear curve + an optional 3×3
+//!   soft-knee + a 32-anchor per-channel monotone cubic curve + an optional 3×3
 //!   matrix + Oklab chroma/offset/band corrections), NOT the residual 3D LUT. The
 //!   whole per-image curve rides a flat-f32 STORAGE buffer; the matrix/Oklab skip
 //!   flags are computed in-crate (replicating apply.rs's predicates) so the Pass
