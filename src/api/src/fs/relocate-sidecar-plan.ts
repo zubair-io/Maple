@@ -1,7 +1,8 @@
 import * as fs from './mirrored.ts';
+import * as path from 'node:path';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { child as childLogger } from '../log.ts';
-import { listPairedSidecars } from './xmp-conflict.ts';
+import { listPairedSidecars, pickFreeConflictPath } from './xmp-conflict.ts';
 import {
   SidecarCollisionError,
   joinCarriedSidecar,
@@ -80,6 +81,81 @@ export async function planSidecars(req: SidecarPlanRequest): Promise<SidecarPlan
     });
   }
   return { entries, sourceClaimedBySibling, destinationClaimedBySibling };
+}
+
+/** A newcomer whose own name is taken lands beside the photo as
+ * `<stem> (conflict from move).xmp`, never stranded with no photo. */
+async function publishLateSidecar(
+  source: string,
+  dest: string,
+  finalDest: string,
+): Promise<{ dest: string; snapshot: Buffer }> {
+  try {
+    return { dest, snapshot: await publishSidecarSnapshot(source, dest) };
+  } catch (err) {
+    if (!(err instanceof SidecarCollisionError)) throw err;
+    const joined = (await sidecarAlreadyCarried(source, dest))
+      ? await joinCarriedSidecar(source, dest).catch((joinErr: unknown) => {
+          // The destination changed before the join's re-check: fall through to a conflict copy.
+          if (joinErr instanceof SidecarCollisionError) return null;
+          throw joinErr;
+        })
+      : null;
+    if (joined) return { dest, snapshot: joined };
+    const conflict = await pickFreeConflictPath(finalDest, 'move');
+    return { dest: conflict, snapshot: await publishSidecarSnapshot(source, conflict) };
+  }
+}
+
+/** Sidecars that appeared at the source after the move listed them (#5062),
+ * such as a first backup send or web save landing mid-move. Carried the same
+ * exclusive way; one that can't be published stays at the source. Never
+ * throws: the move has already been repointed. */
+export async function carryLateSidecars(
+  sourceAbsPath: string,
+  finalDest: string,
+  listed: readonly string[],
+  movedCompanions: readonly string[],
+): Promise<MovedSidecar[]> {
+  return carryNewcomers(sourceAbsPath, finalDest, listed, movedCompanions).catch((err: unknown) => {
+    log.warn(
+      { err: err instanceof Error ? err.message : err },
+      'relocate: re-listing sidecars after the repoint failed',
+    );
+    return [];
+  });
+}
+
+async function carryNewcomers(
+  sourceAbsPath: string,
+  finalDest: string,
+  listed: readonly string[],
+  movedCompanions: readonly string[],
+): Promise<MovedSidecar[]> {
+  const known = new Set(listed.map((sidecar) => path.resolve(sidecar)));
+  const late = (await listPairedSidecars(sourceAbsPath)).filter(
+    (sidecar) => !known.has(path.resolve(sidecar)),
+  );
+  if (late.length === 0) return [];
+  const keepSource = await sidecarStemClaimedBySibling(sourceAbsPath, [
+    finalDest,
+    ...movedCompanions,
+  ]);
+  const moved: MovedSidecar[] = [];
+  for (const source of late) {
+    const dest = sidecarRenameTarget(sourceAbsPath, finalDest, source);
+    // An extension-only rename maps a sidecar onto itself: it already belongs to the photo.
+    if (!dest || (await sameSidecarFile(source, dest))) continue;
+    const published = await publishLateSidecar(source, dest, finalDest).catch((err: unknown) => {
+      log.warn(
+        { source, dest, err: err instanceof Error ? err.message : err },
+        'relocate: sidecar created mid-move left in place',
+      );
+      return null;
+    });
+    if (published) moved.push({ source, ...published, keepSource });
+  }
+  return moved;
 }
 
 /** A companion that failed to copy still sits at the source and still claims
