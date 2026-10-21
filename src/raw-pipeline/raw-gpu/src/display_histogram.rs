@@ -64,17 +64,18 @@ impl DisplayHistogram {
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("display-histogram-dims"),
-                // The histogram kernel is CONCATENATED onto `present_chain.wgsl`
-                // and shares its `Params` struct, so this buffer must be as big
-                // as that struct — wgpu enforces the shader's minimum binding
-                // size, and #3410 grew `Params` by the manual-geometry rows.
-                // Only the leading dims are read here; the rest is zeroed,
-                // which is also the "no warp" encoding, so the histogram keeps
-                // counting the chain buffer's own pixels.
-                contents: bytemuck::cast_slice(&[
-                    width, height, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32,
-                    0u32, 0u32, 0u32, 0u32,
-                ]),
+                // The kernel shares `present_chain.wgsl`'s `Params`, and wgpu
+                // enforces that struct's size as the minimum binding size. Only
+                // the leading dims are read; zeroed geometry means no warp.
+                contents: bytemuck::cast_slice(&std::array::from_fn::<
+                    u32,
+                    { std::mem::size_of::<crate::present_chain_pipeline::PresentParams>() / 4 },
+                    _,
+                >(|i| match i {
+                    0 => width,
+                    1 => height,
+                    _ => 0,
+                })),
                 usage: wgpu::BufferUsages::UNIFORM,
             });
         let layout = pipeline.get_bind_group_layout(0);

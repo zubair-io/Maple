@@ -24,6 +24,8 @@ use std::sync::Arc;
 /// Three `vec4` rows of the DESTINATION → SOURCE matrix in the centred,
 /// half-extent-normalized `[-1, 1]` space `raw-core`'s
 /// `stages::perspective::matrix` defines; `rows[0][3]` is the active flag.
+/// [`Self::from_stages`] adds a second, separately resampled crop stage, in
+/// which case `rows` maps the display frame to the chain buffer.
 /// `raw-gpu` does not depend on `raw-core` (the dependency runs the other way,
 /// through raw-core's optional `gpu` feature), so the matrix is *built* by the
 /// core and *carried* here as plain numbers — one implementation of the math,
@@ -31,6 +33,10 @@ use std::sync::Arc;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PresentGeometry {
     rows: [[f32; 4]; 3],
+    /// Second, separately resampled stage: cropped frame → display frame, plus
+    /// the display frame's dims. `crop[0][3]` is its active flag.
+    crop: [[f32; 4]; 3],
+    display: [u32; 2],
 }
 
 impl PresentGeometry {
@@ -38,6 +44,8 @@ impl PresentGeometry {
     /// paths, byte for byte.
     pub const IDENTITY: Self = Self {
         rows: [[0.0; 4]; 3],
+        crop: [[0.0; 4]; 3],
+        display: [0; 2],
     };
 
     /// Wrap a row-major destination → source homography. Callers pass
@@ -49,11 +57,31 @@ impl PresentGeometry {
                 [m[3], m[4], m[5], 0.0],
                 [m[6], m[7], m[8], 0.0],
             ],
+            ..Self::IDENTITY
         }
     }
 
-    /// True when this actually warps — i.e. the shader will take the resample
-    /// arm rather than the direct load.
+    /// An off-axis crop over an already warped display frame is two bilinear
+    /// resamples on the CPU, and one composed resample cannot reproduce that.
+    /// `display_to_source` is the first stage (display frame → chain buffer),
+    /// `crop_to_display` the second (affine, cropped frame → display frame of
+    /// `display_dims`). The shader evaluates the first stage at the four display
+    /// pixels the second stage's bilinear footprint touches.
+    pub fn from_stages(
+        display_to_source: [f32; 9],
+        crop_to_display: [f32; 9],
+        display_dims: (u32, u32),
+    ) -> Self {
+        let m = crop_to_display;
+        Self {
+            crop: [[m[0], m[1], m[2], 1.0], [m[3], m[4], m[5], 0.0], [0.0; 4]],
+            display: [display_dims.0, display_dims.1],
+            ..Self::from_inverse(display_to_source)
+        }
+    }
+
+    /// True when this actually warps — i.e. the shader will take a resample
+    /// arm (single or two-stage) rather than the direct load.
     pub fn is_active(&self) -> bool {
         self.rows[0][3] != 0.0
     }
@@ -68,9 +96,10 @@ impl Default for PresentGeometry {
 /// `repr(C)` uniform for `present_chain.wgsl`: the surface width/height, the
 /// chain-buffer dims when they differ from the surface (#2587's half-res
 /// fast pass — the shader bilinearly upscales), and the manual-geometry
-/// homography (#3410). `src_* = 0` selects the exact 1:1 load path and a
-/// zeroed `geometry` selects no warp, so a present that wants neither writes
-/// the same bytes the pre-#2587 uniform did in its first two fields.
+/// homography (#3410), and the optional second crop stage (#3982). `src_* = 0`
+/// selects the exact 1:1 load path and a zeroed `geometry` selects no warp, so
+/// a present that wants neither writes the same bytes the pre-#2587 uniform did
+/// in its first two fields.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct PresentParams {
@@ -81,6 +110,10 @@ pub(crate) struct PresentParams {
     /// `PresentGeometry::rows`. A `vec4` per row: the only 16-byte-aligned row
     /// shape a uniform block accepts without an implicit-stride surprise.
     pub geometry: [[f32; 4]; 3],
+    /// `PresentGeometry::crop`, then the display-frame dims it samples (padded
+    /// to a 16-byte row).
+    pub crop: [[f32; 4]; 3],
+    pub display: [u32; 4],
 }
 
 /// Pick the surface format: the first *non-sRGB* BGRA/RGBA 8-bit the surface
@@ -295,6 +328,8 @@ fn present_params(
         src_width: src_dims.0,
         src_height: src_dims.1,
         geometry: geometry.rows,
+        crop: geometry.crop,
+        display: [geometry.display[0], geometry.display[1], 0, 0],
     }
 }
 

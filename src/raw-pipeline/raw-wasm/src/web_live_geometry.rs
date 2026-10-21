@@ -26,14 +26,22 @@ pub(crate) fn presentation(
     sensor_dims: (u32, u32),
     model: &AdjustmentModel,
 ) -> Presentation {
-    let (dims, composed) = inverse(orientation, sensor_dims, model);
+    let (w, h) = display_dims(orientation, sensor_dims);
+    let crop = CropPresentation::new(&model.crop, w, h);
+    let perspective = Perspective::from_model(model);
+    let display_to_sensor = Homography(orientation.display_to_sensor_matrix())
+        .mul(&perspective.inverse_matrix(aspect_ratio(w, h)));
+    let composed = display_to_sensor.mul(&crop.inverse);
+    let geometry = if crop.resamples && !perspective.is_identity() {
+        raw_gpu::PresentGeometry::from_stages(display_to_sensor.0, crop.inverse.0, (w, h))
+    } else if composed == Homography::IDENTITY {
+        raw_gpu::PresentGeometry::IDENTITY
+    } else {
+        raw_gpu::PresentGeometry::from_inverse(composed.0)
+    };
     Presentation {
-        dims,
-        geometry: if composed == Homography::IDENTITY {
-            raw_gpu::PresentGeometry::IDENTITY
-        } else {
-            raw_gpu::PresentGeometry::from_inverse(composed.0)
-        },
+        dims: crop.dims,
+        geometry,
     }
 }
 
@@ -201,6 +209,60 @@ mod tests {
                 let actual = composed.project(point.0, point.1).unwrap();
                 assert!((expected.0 - actual.0).abs() < 1e-5, "EXIF {tag}");
                 assert!((expected.1 - actual.1).abs() < 1e-5, "EXIF {tag}");
+            }
+        }
+    }
+
+    #[test]
+    fn only_an_off_axis_crop_over_active_perspective_takes_the_two_stage_present() {
+        let sensor = (1200, 800);
+        let perspective = AdjustmentModel {
+            perspective_vertical: 12.0,
+            ..Default::default()
+        };
+        let crop = |angle| raw_core::types::Crop {
+            left: 0.1,
+            top: 0.2,
+            right: 0.8,
+            bottom: 0.9,
+            angle,
+        };
+        for tag in 1..=8 {
+            let orientation = ExifOrientation::from_u16(tag);
+            let (w, h) = display_dims(orientation, sensor);
+            for (model, staged) in [
+                (
+                    AdjustmentModel {
+                        crop: crop(4.0),
+                        ..perspective.clone()
+                    },
+                    true,
+                ),
+                (
+                    AdjustmentModel {
+                        crop: crop(90.0),
+                        ..perspective.clone()
+                    },
+                    false,
+                ),
+                (
+                    AdjustmentModel {
+                        crop: crop(4.0),
+                        ..Default::default()
+                    },
+                    false,
+                ),
+            ] {
+                let presented = presentation(orientation, sensor, &model).geometry;
+                let cropped = CropPresentation::new(&model.crop, w, h);
+                let first = Homography(orientation.display_to_sensor_matrix())
+                    .mul(&Perspective::from_model(&model).inverse_matrix(aspect_ratio(w, h)));
+                let expected = if staged {
+                    raw_gpu::PresentGeometry::from_stages(first.0, cropped.inverse.0, (w, h))
+                } else {
+                    raw_gpu::PresentGeometry::from_inverse(first.mul(&cropped.inverse).0)
+                };
+                assert_eq!(presented, expected, "EXIF {tag}, staged {staged}");
             }
         }
     }

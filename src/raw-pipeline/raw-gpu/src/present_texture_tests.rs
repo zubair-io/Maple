@@ -106,6 +106,8 @@ fn native_texture_matches_present_and_reuses_dispatch() {
             (-12.0, identity),
             (0.0, corrected),
             (90.0, corrected),
+            (3.5, corrected),
+            (-12.0, corrected),
         ] {
             let crop = raw_core::types::Crop {
                 left: 0.125,
@@ -134,18 +136,15 @@ fn native_texture_matches_present_and_reuses_dispatch() {
             let cropped = crop_targets
                 .entry(mapping.dims)
                 .or_insert_with(|| crate::PresentTexture::new(&ctx, mapping.dims).unwrap());
-            let inverse =
+            let display_to_sensor =
                 raw_core::stages::perspective::Homography(orientation.display_to_sensor_matrix())
-                    .mul(&geometry_inverse)
-                    .mul(&mapping.inverse);
-            cropped
-                .present(
-                    &ctx,
-                    &session,
-                    idx,
-                    PresentGeometry::from_inverse(inverse.0),
-                )
-                .unwrap();
+                    .mul(&geometry_inverse);
+            let geometry = if mapping.resamples && !perspective.is_identity() {
+                PresentGeometry::from_stages(display_to_sensor.0, mapping.inverse.0, (dw, dh))
+            } else {
+                PresentGeometry::from_inverse(display_to_sensor.mul(&mapping.inverse).0)
+            };
+            cropped.present(&ctx, &session, idx, geometry).unwrap();
             let actual_crop = read_rgb(&ctx, &cropped);
             for (i, (actual, expected)) in actual_crop.iter().zip(&expected_crop).enumerate() {
                 assert!(
