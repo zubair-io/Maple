@@ -59,6 +59,48 @@ final class SMBCrossShareMutationTests: EditorTestCase {
     XCTAssertTrue(FileManager.default.fileExists(atPath: other.raw.path))
   }
 
+  /// #5051: a thumbnail write-back or a read through a ref listed on another
+  /// share never lands on, or reads, the same path here.
+  func testThumbnailsAndReadsStayOnTheShareThatListedTheReference() async throws {
+    let listing = try await OwnedSMBWorkflowFixture.open(testCase: self)
+    let other = try await OwnedSMBWorkflowFixture.open(testCase: self)
+    let ref = try await listing.image()
+
+    await other.source.writeThumb(Data("share A's picture".utf8), for: ref)
+
+    XCTAssertFalse(
+      FileManager.default.fileExists(
+        atPath: other.share.appendingPathComponent(".maple/thumbs").path),
+      "a thumbnail for share A's photo was cached on share B")
+    let thumb = try await other.source.thumb(for: ref)
+    XCTAssertNil(thumb)
+    try await assertRefused("rawBytes") { _ = try await other.source.rawBytes(for: ref) }
+    try await assertRefused("sidecar read") { _ = try await other.source.readSidecarData(for: ref) }
+  }
+
+  /// #5051: reconnecting the same share through another address keeps a
+  /// rename's relocation, so a later sidecar write follows the renamed file.
+  func testReconnectingAtAnotherAddressKeepsRelocations() async throws {
+    let listing = try await OwnedSMBWorkflowFixture.open(testCase: self, initialXML: nil)
+    let ref = try await listing.image()
+    _ = try await listing.source.renameAsset(ref, to: "renamed.dng")
+    let port = try XCTUnwrap(listing.credentials.host.split(separator: ":").last)
+    await listing.source.disconnect()
+    try await listing.source.connect(
+      credentials: .init(
+        host: "127.1:\(port)", share: listing.credentials.share,
+        username: listing.credentials.username, password: listing.credentials.password))
+
+    try await listing.source.writeXMP(
+      Sidecar(model: .default, culling: CullingState()), for: ref)
+
+    XCTAssertTrue(
+      FileManager.default.fileExists(
+        atPath: listing.share.appendingPathComponent("renamed.xmp").path))
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: listing.share.appendingPathComponent("photo.xmp").path))
+  }
+
   private func assertRefused(_ label: String, _ mutation: () async throws -> Void) async throws {
     do {
       try await mutation()

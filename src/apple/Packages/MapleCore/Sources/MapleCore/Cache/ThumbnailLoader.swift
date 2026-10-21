@@ -383,9 +383,13 @@ public actor ThumbnailLoader {
     let provider = asset.bytesProvider
     let hint = asset.hintExtension ?? ""
     // Built once, reused by both the source.thumb() branch and the
-    // fallback's write-back call below — only id+displayName are
-    // needed; URL is unused for sourceless adapters.
-    let ref = stableID.map { ImageRef(id: $0, displayName: displayName) }
+    // fallback's write-back call below. The SMB location pins the read and
+    // write-back to the copy and share that listed it (#5051).
+    let smbPath = asset.smbPath
+    let smbSourceID = asset.smbSourceID
+    let ref = stableID.map {
+      ImageRef(id: $0, displayName: displayName, smbPath: smbPath, smbSourceID: smbSourceID)
+    }
     let task = Task.detached(priority: .utility) { () -> Data? in
       do { try await self.acquireDecodeSlot() } catch { return nil }
       let result = await self.produceSourcelessThumbnail(

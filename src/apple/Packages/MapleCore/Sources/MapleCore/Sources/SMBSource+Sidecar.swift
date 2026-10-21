@@ -51,6 +51,6 @@ extension SMBSource {
     /// counterpart to `writeSidecarData`, resolving through the same
     /// `SMBAsset`-keyed `readSidecar`.
     public func readSidecarData(for ref: ImageRef) async throws -> Data? {
-        try await readSidecar(for: SMBAsset(path: path(for: ref)))
+        try await readSidecar(for: SMBAsset(path: try listedPath(for: ref)))
     }
 }
