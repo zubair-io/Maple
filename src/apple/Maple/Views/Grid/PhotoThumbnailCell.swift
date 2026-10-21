@@ -187,7 +187,7 @@ struct PhotoThumbnailCell: View {
     .onAppear { onAppear?() }
     .modifier(OptionalContextMenu(items: contextMenuItems))
     // Accessibility: UITest harness resolves cells by displayName via
-    // `app.otherElements["thumb-<displayName>"]` — mirrors LibraryCell's
+    // `app.buttons["thumb-<displayName>"]` — mirrors LibraryCell's
     // `.accessibilityIdentifier("thumb-\(asset.displayName)")`.
     .accessibilityElement(children: .ignore)
     .accessibilityAddTraits(.isButton)
