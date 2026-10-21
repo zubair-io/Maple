@@ -287,10 +287,10 @@ fn tile_vs_full_large_blown_region_matches_full_frame() {
 fn tile_vs_full_highlights_with_sensor_gain_maps_match_the_same_frame() {
     use crate::{
         pipeline::pano::opcodes::{ActiveAreaRect, GainMapOpcode},
-        sensor_gain_maps::SensorGainMaps,
+        sensor_gain_maps::{SensorGainMaps, SensorStep},
     };
     let mut raw = blown_chart_raw();
-    let maps = (0..4)
+    let maps: Vec<GainMapOpcode> = (0..4)
         .map(|phase| {
             let factor = 1. + phase as f32 * 0.03;
             GainMapOpcode {
@@ -314,7 +314,7 @@ fn tile_vs_full_highlights_with_sensor_gain_maps_match_the_same_frame() {
         })
         .collect();
     raw.sensor_gain_maps = Some(SensorGainMaps {
-        maps,
+        steps: maps.into_iter().map(SensorStep::Gain).collect(),
         active_area: ActiveAreaRect::full(raw.width, raw.height),
     });
     let model = AdjustmentModel {

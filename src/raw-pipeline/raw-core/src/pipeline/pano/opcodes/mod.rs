@@ -1,10 +1,12 @@
-//! DNG OpcodeList3 parsing for the pano ingest path (#1159).
+//! DNG opcode-list parsing (OpcodeList1/2/3) for every decode, first written
+//! for the pano ingest path (#1159).
 //!
 //! The DJI pano fixtures carry their lens corrections as DNG opcodes in
 //! `OpcodeList3` (tag 51022, raw IFD): the L2D-20c writes a `GainMap`
 //! (vignette / shading) followed by a `WarpRectilinear` (geometric
 //! distortion + lateral CA); the L3D-100c writes `WarpRectilinear` only.
-//! Neither body ships `OpcodeList1`/`OpcodeList2`. Uncorrected, the
+//! Neither body ships `OpcodeList1`/`OpcodeList2` (lossy and Pixel DNGs do:
+//! see `crate::sensor_gain_maps`). Uncorrected, the
 //! distortion inflates pano reprojection residuals far past the spec
 //! §5.3 gates and the vignette bands at stitch seams (stitching spec
 //! §5.1 requires vignette correction *before* matching).
@@ -42,24 +44,30 @@
 //! optical center (cx, cy) in normalized image coordinates — a fixed
 //! 56-byte block (dng_sdk `dng_vignette_radial_params::kNumTerms * 8 + 16`).
 //!
-//! ## Error policy
+//! ## Error policy (#4647)
 //!
-//! Unknown opcode ids are **skipped with a count**, never an error —
-//! including ids whose spec `flags` bit 0 (optional) is unset, where the
-//! DNG spec says a reader "should not process the image". For pano
-//! ingest a slightly-imperfect stitch input beats refusing the frame;
-//! the deviation is deliberate and scoped to this path. A structurally
-//! truncated / malformed blob parses to `None` and application no-ops —
-//! same degrade-to-uncorrected policy as
-//! [`crate::color::profile_gain_table_map::ProfileGainTableMap::from_bytes`].
+//! A list never fails as a whole. Each entry this list kind does not
+//! execute — an unsupported id, an id that is not valid in this list, or a
+//! supported id whose parameters are malformed — is recorded as a
+//! [`SkippedOpcode`] and parsing resumes at the next entry, so one bad entry
+//! cannot drop the lens corrections around it. Only broken framing (a
+//! truncated header or parameter block, an implausible count) stops the
+//! walk, keeping the entries already parsed and recording the break. The
+//! DNG spec says a reader should not process an image with a required
+//! (`flags` bit 0 clear) opcode it cannot apply; Maple renders it anyway and
+//! surfaces those entries on `RawImage::skipped_required_opcodes`.
 
-use rawler::decoders::WellKnownIFD;
-use rawler::rawsource::RawSource;
-use rawler::tags::DngTag;
+mod list;
+mod map_polynomial;
+#[cfg(test)]
+pub use list::parse_opcode_list;
+pub use list::{read_opcode_list3, read_opcode_lists, OpcodeListKind, SkipReason, SkippedOpcode};
+pub use map_polynomial::MapPolynomialOpcode;
 
 /// DNG opcode ids this module understands (DNG 1.4 § "Opcode Lists").
 const OPCODE_ID_WARP_RECTILINEAR: u32 = 1;
 const OPCODE_ID_FIX_VIGNETTE_RADIAL: u32 = 3;
+pub(crate) const OPCODE_ID_MAP_POLYNOMIAL: u32 = 8;
 const OPCODE_ID_GAIN_MAP: u32 = 9;
 
 /// Number of radial coefficients in a `FixVignetteRadial` opcode
@@ -142,15 +150,16 @@ pub enum PanoOpcode {
     GainMap(GainMapOpcode),
     WarpRectilinear(WarpRectilinearOpcode),
     FixVignetteRadial(FixVignetteRadialOpcode),
+    MapPolynomial(MapPolynomialOpcode),
 }
 
-/// A parsed `OpcodeList3`: the supported opcodes **in list order** (the
-/// DNG spec mandates in-order execution) plus a count of skipped
-/// unknown-id opcodes for diagnostics.
+/// A parsed opcode list (any of OpcodeList1/2/3, despite the name): the
+/// opcodes this list kind executes **in list order** (the DNG spec mandates
+/// in-order execution), plus every entry it does not, in list order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct OpcodeList3 {
     pub opcodes: Vec<PanoOpcode>,
-    pub skipped_unknown: u32,
+    pub skipped: Vec<SkippedOpcode>,
 }
 
 /// The `ActiveArea` rectangle (tag 50829) expressed against the decoded
@@ -205,65 +214,6 @@ impl<'a> Cursor<'a> {
         self.pos += 8;
         Some(f64::from_be_bytes(b.try_into().expect("8-byte slice")))
     }
-
-    fn skip(&mut self, n: usize) -> Option<()> {
-        if self.bytes.len() - self.pos < n {
-            return None;
-        }
-        self.pos += n;
-        Some(())
-    }
-}
-
-/// Parse an opcode-list blob (the bytes of tag 51008/51009/51022).
-/// Returns `None` only on structural corruption; unknown opcode ids are
-/// counted and skipped (see module docs for the policy).
-pub fn parse_opcode_list(bytes: &[u8]) -> Option<OpcodeList3> {
-    let mut cur = Cursor::new(bytes);
-    let count = cur.read_u32()?;
-    // A count beyond any plausible list is corruption, not a list — bail
-    // before the loop can spin on garbage.
-    if count > 1024 {
-        return None;
-    }
-    let mut opcodes = Vec::new();
-    let mut skipped_unknown = 0u32;
-    for _ in 0..count {
-        let id = cur.read_u32()?;
-        let _dng_version = cur.read_u32()?;
-        let _flags = cur.read_u32()?;
-        let param_len = cur.read_u32()? as usize;
-        let param_end = cur.pos.checked_add(param_len)?;
-        if param_end > cur.bytes.len() {
-            return None; // truncated parameter block
-        }
-        match id {
-            OPCODE_ID_GAIN_MAP => {
-                opcodes.push(PanoOpcode::GainMap(parse_gain_map(&mut cur, param_len)?));
-            }
-            OPCODE_ID_WARP_RECTILINEAR => {
-                opcodes.push(PanoOpcode::WarpRectilinear(parse_warp_rectilinear(
-                    &mut cur, param_len,
-                )?));
-            }
-            OPCODE_ID_FIX_VIGNETTE_RADIAL => {
-                opcodes.push(PanoOpcode::FixVignetteRadial(parse_fix_vignette_radial(
-                    &mut cur, param_len,
-                )?));
-            }
-            _ => {
-                skipped_unknown += 1;
-                cur.skip(param_len)?;
-            }
-        }
-        if cur.pos != param_end {
-            return None; // parameter length disagrees with the payload
-        }
-    }
-    Some(OpcodeList3 {
-        opcodes,
-        skipped_unknown,
-    })
 }
 
 fn parse_gain_map(cur: &mut Cursor<'_>, param_len: usize) -> Option<GainMapOpcode> {
@@ -393,92 +343,6 @@ fn parse_fix_vignette_radial(
         center_x,
         center_y,
     })
-}
-
-/// Locate and parse `OpcodeList3` for a RAW source, plus the
-/// `ActiveArea` rect that anchors the opcode coordinate system.
-///
-/// Reads the raw IFD via rawler (`WellKnownIFD::Raw`, falling back to a
-/// recursive walk from Root for decoders that don't expose it).
-/// Best-effort like the pano metadata pass: any miss — no decoder, no
-/// tag, malformed blob — degrades to `None` (frame develops
-/// uncorrected) rather than failing the decode.
-///
-/// `raw_width` / `raw_height` are the decoded raw buffer dims; the
-/// returned [`ActiveAreaRect`] is clamped against them and falls back to
-/// full-frame when the tag is absent (the DNG default).
-pub fn read_opcode_list3(
-    bytes: &[u8],
-    ext: &str,
-    raw_width: u32,
-    raw_height: u32,
-) -> Option<(OpcodeList3, ActiveAreaRect)> {
-    read_opcode_list(bytes, ext, raw_width, raw_height, DngTag::OpcodeList3)
-}
-
-pub(crate) fn read_opcode_list(
-    bytes: &[u8],
-    ext: &str,
-    raw_width: u32,
-    raw_height: u32,
-    tag: DngTag,
-) -> Option<(OpcodeList3, ActiveAreaRect)> {
-    let hint_path = format!("rawfile.{}", ext);
-    let source = RawSource::new_from_slice(bytes).with_path(std::path::Path::new(&hint_path));
-    let decoder = rawler::get_decoder(&source).ok()?;
-
-    // The raw image's IFD is the one that carries OpcodeList3 + ActiveArea.
-    let raw_ifd = decoder.ifd(WellKnownIFD::Raw).ok().flatten();
-    let root_ifd = decoder.ifd(WellKnownIFD::Root).ok().flatten();
-    let (entry, ifd) = match raw_ifd
-        .as_ref()
-        .and_then(|ifd| ifd.get_entry(tag).map(|e| (e, ifd.as_ref())))
-    {
-        Some(found) => found,
-        None => {
-            let root = root_ifd.as_ref()?;
-            let ifd = crate::dng_ifd_walker::find_ifd_with_tag(
-                root.as_ref(),
-                tag,
-                crate::dng_ifd_walker::DEFAULT_MAX_DEPTH,
-            )?;
-            (ifd.get_entry(tag)?, ifd)
-        }
-    };
-    let blob: &[u8] = match &entry.value {
-        rawler::formats::tiff::Value::Undefined(v) => v.as_slice(),
-        rawler::formats::tiff::Value::Byte(v) => v.as_slice(),
-        _ => return None,
-    };
-    let list = parse_opcode_list(blob)?;
-    if list.opcodes.is_empty() {
-        return None;
-    }
-
-    // ActiveArea (tag 50829: top, left, bottom, right) from the same IFD,
-    // clamped to the decoded buffer; absent ⇒ full frame (DNG default).
-    let aa = ifd
-        .get_entry(DngTag::ActiveArea)
-        .and_then(|e| {
-            if e.value.count() < 4 {
-                return None;
-            }
-            let top = e.value.force_u32(0).min(raw_height);
-            let left = e.value.force_u32(1).min(raw_width);
-            let bottom = e.value.force_u32(2).clamp(top, raw_height);
-            let right = e.value.force_u32(3).clamp(left, raw_width);
-            if bottom <= top || right <= left {
-                return None;
-            }
-            Some(ActiveAreaRect {
-                top,
-                left,
-                width: right - left,
-                height: bottom - top,
-            })
-        })
-        .unwrap_or_else(|| ActiveAreaRect::full(raw_width, raw_height));
-    Some((list, aa))
 }
 
 #[cfg(test)]

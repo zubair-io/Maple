@@ -296,6 +296,9 @@ pub struct RawImage {
         crate::pipeline::pano::opcodes::OpcodeList3,
         crate::pipeline::pano::opcodes::ActiveAreaRect,
     )>,
+    /// Every OpcodeList1/2/3 entry the parser skipped, required or not
+    /// (#4647). See [`RawImage::skipped_required_opcodes`].
+    pub opcode_skips: Vec<crate::pipeline::pano::opcodes::SkippedOpcode>,
     /// Lens aperture (f-number) extracted from EXIF.
     pub aperture: Option<f32>,
     /// Focal length in mm extracted from EXIF.
@@ -305,6 +308,13 @@ pub struct RawImage {
 }
 
 impl RawImage {
+    /// Required DNG opcodes this image renders without (#4647): the DNG spec
+    /// says a reader should refuse such an image; Maple renders it and
+    /// reports them here instead.
+    pub fn skipped_required_opcodes(&self) -> Vec<crate::pipeline::pano::opcodes::SkippedOpcode> {
+        crate::sensor_gain_maps::skipped_required(self)
+    }
+
     /// Whether this RAW carries a parsed `OpcodeList3` at all — the signal
     /// the lens-correction inspector panel (#2231) uses to disable/hide
     /// itself when there is nothing for `lens_profile_enable` /

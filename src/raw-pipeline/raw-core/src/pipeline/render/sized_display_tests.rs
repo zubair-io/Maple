@@ -38,6 +38,7 @@ fn raw_with(w: u32, h: u32, orientation: ExifOrientation, crop_rect: Option<Crop
         noise_profile: None,
         sensor_gain_maps: None,
         opcode_list3: None,
+        opcode_skips: Vec::new(),
         aperture: None,
         focal_length: None,
         lens_metadata: Default::default(),

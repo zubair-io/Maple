@@ -149,7 +149,7 @@ fn warp_only_list_takes_the_bundled_vignette() {
     let list = (
         OpcodeList3 {
             opcodes: vec![identity_warp],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         ActiveAreaRect::full(raw.width, raw.height),
     );

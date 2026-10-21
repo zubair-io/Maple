@@ -36,6 +36,7 @@ fn grey_raw(width: u32, height: u32) -> RawImage {
         noise_profile: None,
         sensor_gain_maps: None,
         opcode_list3: None,
+        opcode_skips: Vec::new(),
         aperture: None,
         focal_length: None,
         lens_metadata: Default::default(),

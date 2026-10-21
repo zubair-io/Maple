@@ -144,6 +144,7 @@ fn fake_raw_with_opcodes(
         noise_profile: None,
         sensor_gain_maps: None,
         opcode_list3,
+        opcode_skips: Vec::new(),
         aperture: None,
         focal_length: None,
         lens_metadata: Default::default(),
@@ -196,7 +197,7 @@ fn single_coefficient_warp_has_corrections_but_ca_is_inert() {
     let raw = fake_raw_with_opcodes(Some((
         OpcodeList3 {
             opcodes: vec![warp(1)],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         active_area(),
     )));
@@ -217,7 +218,7 @@ fn multi_plane_warp_has_corrections_and_ca_is_live() {
     let raw = fake_raw_with_opcodes(Some((
         OpcodeList3 {
             opcodes: vec![warp(3)],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         active_area(),
     )));
@@ -235,7 +236,7 @@ fn vignette_only_has_corrections_and_ca_is_inert() {
     let raw = fake_raw_with_opcodes(Some((
         OpcodeList3 {
             opcodes: vec![vignette_only()],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         active_area(),
     )));
@@ -261,7 +262,7 @@ fn warp_and_vignette_together_distortion_is_live() {
     let raw = fake_raw_with_opcodes(Some((
         OpcodeList3 {
             opcodes: vec![vignette_only(), warp(1)],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         active_area(),
     )));
