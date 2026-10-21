@@ -507,4 +507,24 @@ describe('relocate — old-name backup edits (#5063)', () => {
       expect(await read('dst/img.heic.xmp')).toBeNull();
     },
   );
+
+  test.skipIf(process.getuid?.() === 0 || !caseSensitive)(
+    "Replace refuses when it can't list the destination to find a displaced edit in another case",
+    async () => {
+      await write('src/IMG.HEIC', 'new');
+      await write('src/IMG.xmp', maple('incoming edit'));
+      await write('dst/IMG.HEIC', 'old');
+      await write('dst/img.heic.xmp', maple('previous edit'));
+      await fs.chmod(abs('dst'), 0o311);
+      try {
+        const outcome = await move('replace');
+
+        expect(outcome.kind).toBe('error');
+      } finally {
+        await fs.chmod(abs('dst'), 0o755);
+      }
+      expect(await read('dst/IMG.HEIC')).toBe('old');
+      expect(await read('dst/img.heic.xmp')).toBe(maple('previous edit'));
+    },
+  );
 });
