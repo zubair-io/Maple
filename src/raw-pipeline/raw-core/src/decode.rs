@@ -526,18 +526,14 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
                     Some((illum, m))
                 };
             // ForwardMatrix maps *reference* white-balanced camera RGB →
-            // XYZ-D50, but the sensor buffer is *individual* camera RGB. Fold
-            // `individualToReference = inv(diag(AB) × CameraCalibrationN)` into
-            // FM so it consumes this unit's RGB directly — matching the DNG SDK
-            // `fCameraToPCS = forwardMatrix * Invert(refCameraWhite) *
-            // individualToReference`. Exactly `FM` when the calibration is
-            // identity (i.e. every FM-shipping body today — Apple etc.), so no
-            // fixture moves; a singular correction leaves FM untouched.
+            // XYZ-D50; resolve this unit's calibration for the as-shot
+            // pre-gained buffer DCP receives (#4646, `forward_calibration`).
             let fold_i2r = |illum: CoreIlluminant, fm: Matrix3| -> Matrix3 {
-                match individual_correction(illum).inverse() {
-                    Some(i2r) => fm.mul_mat(&i2r),
-                    None => fm,
-                }
+                crate::color::forward_calibration::balanced_forward_matrix(
+                    fm,
+                    individual_correction(illum),
+                    as_shot_neutral,
+                )
             };
             if let Some((illum, m)) =
                 read_fm(DngTag::ForwardMatrix1, DngTag::CalibrationIlluminant1)
@@ -2322,8 +2318,8 @@ mod tests {
 
     /// #1947: a per-unit-calibrated body ships non-identity `AnalogBalance`
     /// and `CameraCalibrationN`. Decode must fold them into the stored matrices
-    /// per the DNG SDK: `CM' = diag(AB) × CC × CM` (individual XYZ→camera) and
-    /// `FM' = FM × inv(diag(AB) × CC)` (individual → reference before FM).
+    /// per the DNG SDK: `CM' = diag(AB) × CC × CM` (individual XYZ→camera), and
+    /// FM resolved for the as-shot pre-gained buffer (`forward_calibration`).
     #[test]
     fn decode_folds_analog_balance_and_camera_calibration() {
         use crate::test_support::synth_dng::SyntheticGreyDng;
@@ -2354,12 +2350,31 @@ mod tests {
         // Tags round-trip through 1e-6 rationals; allow a loose fp tolerance.
         assert_matrix_close(got_cm, &want_cm, 1e-3, "folded ColorMatrix");
 
-        let want_fm = fm.mul_mat(&correction.inverse().expect("correction invertible"));
+        // #4646: dng_sdk maps unbalanced RGB `p` with `FM · diag(R·w)⁻¹ · R`,
+        // R = correction⁻¹; DCP receives `p / w`, so a neutral (`p = w`) must
+        // land on FM's own white and a coloured sample on the SDK's XYZ.
         let got_fm = raw
             .forward_matrices
             .get(&CoreIlluminant::D65)
             .expect("D65 forward matrix present");
-        assert_matrix_close(got_fm, &want_fm, 1e-3, "folded ForwardMatrix");
+        let white = raw.as_shot_neutral;
+        let to_reference = correction.inverse().expect("correction invertible");
+        let reference_white = to_reference.mul_vec(white);
+        let sdk = |p: [f32; 3]| {
+            let reference = to_reference.mul_vec(p);
+            fm.mul_vec(std::array::from_fn(|c| reference[c] / reference_white[c]))
+        };
+        for p in [white, [0.3, 0.6, 0.1], [0.7, 0.2, 0.5]] {
+            let balanced = got_fm.mul_vec(std::array::from_fn(|c| p[c] / white[c]));
+            let want = sdk(p);
+            assert!(
+                balanced
+                    .iter()
+                    .zip(&want)
+                    .all(|(a, b)| (a - b).abs() < 1e-3),
+                "{p:?}: {balanced:?} vs {want:?}"
+            );
+        }
     }
 
     /// #1947 safety: with the calibration tags at their default identity (the
