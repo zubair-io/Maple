@@ -176,7 +176,7 @@ extension AppShell {
       guard let asset = absPathMap[abs], let owningServer = server(asset) else { return nil }
       return cloudAssetRef(asset, server: owningServer, cloudSourcesByServer: &cloudSourcesByServer)
     case .localOnly(let local):
-      return photoKitAssetRef(local, photoKitSource: &photoKitSource)
+      return AssetRef(fileBacked: local) ?? photoKitAssetRef(local, photoKitSource: &photoKitSource)
     }
   }
 

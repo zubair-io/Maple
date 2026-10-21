@@ -95,7 +95,7 @@ extension ThumbnailLoader {
     // happens INSIDE the task instead of before the insert (which would
     // suspend the actor mid-registration and reopen the race — Jules
     // review, PR #1907).
-    let coalescingKey = "display-preview:" + ThumbnailDiskCache.cacheKey(for: url)
+    let coalescingKey = "display-preview:" + ThumbnailDiskCache.memoryKey(for: url)
     if let existing = inFlight[coalescingKey], !existing.isCancelled {
       return await awaitThumbnail(existing)
     }

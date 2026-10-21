@@ -402,3 +402,7 @@ PanoMergePreviewTests
 
 # RGB bias precision (#4667): generated large images, no external fixtures.
 CIEDE2000BiasTests
+
+# Thumbnail cache keys and locations (#5033): hash vectors and small writes
+# into a temp dir, no render or decode; was mis-tagged slow in excluded.txt.
+ThumbnailDiskCacheKeyTests

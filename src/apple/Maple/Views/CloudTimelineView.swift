@@ -28,10 +28,10 @@ struct CloudTimelineView: View {
   /// behavior across both grids.
   let displayMode: GridDisplayMode
   let onSelectAsset: (SearchAsset) -> Void
-  /// Tap target for `.localOnly` merged cells — these are PhotoKit photos
-  /// the backup hasn't uploaded yet, so they have no `SearchAsset` to
-  /// route through `onSelectAsset`. AppShell opens them via PhotoKit
-  /// using the local identifier carried on the `ImageRef`.
+  /// Tap target for `.localOnly` merged cells — local assets (PhotoKit
+  /// photos or a saved Folder's files) not on the server yet, so they have
+  /// no `SearchAsset` to route through `onSelectAsset`. AppShell opens them
+  /// from the `ImageRef` (`openLocalTimelineAsset`).
   let onSelectLocalAsset: (ImageRef) -> Void
 
   /// Shared provider wired to the cloud thumb infrastructure, created once
@@ -255,8 +255,8 @@ struct CloudTimelineMonthSection: View {
       onTap: { cell, _ in
         // Cloud-side cells route through the SearchAsset map so the
         // editor opens via CloudSource. `.localOnly` cells aren't on
-        // the server yet — open the PhotoKit asset directly via the
-        // local identifier carried on the local ImageRef. The
+        // the server yet — open the local asset (PhotoKit or a saved
+        // Folder's file) from its local ImageRef. The
         // routing decision is encoded as a pure switch in the VM.
         switch CloudTimelineViewVM.selectionTarget(
           for: cell, absPathMap: absPathToAsset
