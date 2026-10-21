@@ -25,10 +25,11 @@ class SwiftRegressionRunnerTests(unittest.TestCase):
         self.log = self.root / "tests.log"
         self.diagnostics = self.root / "diagnostics"
 
-    def run_child(self, source):
+    def run_child(self, source, recapture=0.25):
         with (
             contextlib.redirect_stdout(io.StringIO()),
             patch.object(runner, "IDLE_SECONDS", 0.12),
+            patch.object(runner, "RECAPTURE_SECONDS", recapture),
             patch.object(runner, "POLL_SECONDS", 0.02),
         ):
             return runner.run(
@@ -69,9 +70,38 @@ class SwiftRegressionRunnerTests(unittest.TestCase):
                 "import time; print(\"Test Case '-[Suite test]' started.\"); time.sleep(.3)"
             )
         self.assertEqual(status, 0)
-        self.assertIn(
-            "sample unavailable", (self.diagnostics / "capture-error.txt").read_text()
+        (error,) = self.diagnostics.glob("capture-01-*/capture-error.txt")
+        self.assertIn("sample unavailable", error.read_text())
+
+    def test_a_long_silence_is_sampled_again_not_only_once(self):
+        """#4991: the first sample lands on a healthy long test; a later stall
+        in the same silence must still be captured."""
+        with patch.object(runner, "capture_stacks") as capture:
+            status = self.run_child(
+                "import time; print(\"Test Case '-[Suite test]' started.\"); time.sleep(.8)"
+            )
+        self.assertEqual(status, 0)
+        destinations = [call.args[1] for call in capture.call_args_list]
+        self.assertGreaterEqual(len(destinations), 2, destinations)
+        self.assertEqual(len(set(destinations)), len(destinations), destinations)
+
+    def test_output_rearms_capture_for_the_next_silence(self):
+        """A new silence after output is sampled at IDLE_SECONDS, not only
+        once RECAPTURE_SECONDS has passed since the previous sample."""
+        source = (
+            "import time; print(\"Test Case '-[Suite test]' started.\"); time.sleep(.2); "
+            "print('progress'); time.sleep(.3)"
         )
+        with patch.object(runner, "capture_stacks") as capture:
+            self.assertEqual(self.run_child(source, recapture=10), 0)
+        self.assertEqual(capture.call_count, 2)
+
+    def test_child_environment_requests_unbuffered_foundation_output(self):
+        """#4991: block-buffered XCTest output left tests.log ending tests
+        before the one actually running."""
+        status = self.run_child("import os; print(os.environ.get('NSUnbufferedIO'))")
+        self.assertEqual(status, 0)
+        self.assertEqual(self.log.read_text(), "YES\n")
 
     def test_signal_exit_cannot_be_reported_as_success(self):
         self.assertEqual(
@@ -92,12 +122,13 @@ class SwiftRegressionRunnerTests(unittest.TestCase):
         )
         try:
             self.assertEqual(self.run_child(source), 0)
-            processes = (self.diagnostics / "processes.txt").read_text().splitlines()
+            capture = min(self.diagnostics.iterdir())
+            processes = (capture / "processes.txt").read_text().splitlines()
             pids = {int(line.split()[0]) for line in processes}
             self.assertEqual(len(pids), 2, processes)
             self.assertNotIn(unrelated.pid, pids)
             for pid in pids:
-                stack = (self.diagnostics / f"stack-{pid}.txt").read_text()
+                stack = (capture / f"stack-{pid}.txt").read_text()
                 self.assertIn("Call graph:", stack)
             self.assertIn("passed.", self.log.read_text())
         finally:

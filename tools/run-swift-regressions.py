@@ -3,9 +3,14 @@
 
 Diagnostics never cancel, retry, skip, or change the test command's exit status.
 The existing workflow validates complete XCTest execution after this returns.
+
+A silence is sampled again every RECAPTURE_SECONDS (#4991): the first sample
+can land on a healthy test that is merely quiet for minutes, and a real stall
+that starts later in the same silence must still be captured.
 """
 
 import argparse
+import os
 import subprocess
 import sys
 import threading
@@ -13,6 +18,7 @@ import time
 from pathlib import Path
 
 IDLE_SECONDS = 120
+RECAPTURE_SECONDS = 600
 POLL_SECONDS = 5
 
 
@@ -48,32 +54,32 @@ def capture_stacks(root_pid, destination):
             for pid, (parent, command) in processes.items()
         )
     )
-    # Sample the launcher too: it can be waiting for XCTest or holding a lock.
-    for pid, (_, command) in processes.items():
-        if pid == root_pid or "xctest" in command.lower():
-            with (destination / f"sample-{pid}.log").open("w") as log:
-                try:
-                    subprocess.run(
-                        [
-                            "sample",
-                            str(pid),
-                            "5",
-                            "1",
-                            "-file",
-                            str(destination / f"stack-{pid}.txt"),
-                        ],
-                        stdout=log,
-                        stderr=subprocess.STDOUT,
-                        timeout=15,
-                        check=False,
-                    )
-                except (OSError, subprocess.TimeoutExpired) as error:
-                    log.write(f"Unable to sample {pid}: {error}\n")
+    # Every owned process: the launcher can be waiting for XCTest or holding a
+    # lock, and a test's helper server can be what XCTest is waiting on.
+    for pid in processes:
+        with (destination / f"sample-{pid}.log").open("w") as log:
+            try:
+                subprocess.run(
+                    [
+                        "sample",
+                        str(pid),
+                        "5",
+                        "1",
+                        "-file",
+                        str(destination / f"stack-{pid}.txt"),
+                    ],
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    timeout=15,
+                    check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired) as error:
+                log.write(f"Unable to sample {pid}: {error}\n")
 
 
 def run(command, log_path, destination):
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    state = {"started": False, "last_output": time.monotonic()}
+    state = {"started": False, "last_output": time.monotonic(), "last_capture": None}
     lock = threading.Lock()
     stopped = threading.Event()
     with (
@@ -84,27 +90,46 @@ def run(command, log_path, destination):
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            # stdio block-buffers XCTest's output into a pipe, so tests.log
+            # could end tests before the one actually running; NSUnbufferedIO
+            # makes Foundation unbuffer it (#4991).
+            env={**os.environ, "NSUnbufferedIO": "YES"},
         ) as process,
     ):
 
         def watch():
+            captures = 0
             while not stopped.wait(POLL_SECONDS):
+                now = time.monotonic()
                 with lock:
-                    stalled = (
-                        state["started"]
-                        and time.monotonic() - state["last_output"] >= IDLE_SECONDS
+                    last_output, last_capture = (
+                        state["last_output"],
+                        state["last_capture"],
                     )
-                if stalled and process.poll() is None:
+                    due = (
+                        state["started"]
+                        and now - last_output >= IDLE_SECONDS
+                        and (
+                            last_capture is None
+                            or last_capture < last_output
+                            or now - last_capture >= RECAPTURE_SECONDS
+                        )
+                    )
+                    if due:
+                        state["last_capture"] = now
+                if due and process.poll() is None:
+                    captures += 1
+                    silent = int(now - last_output)
                     print(
-                        "XCTest output stalled; capturing owned process stacks",
+                        f"XCTest output stalled for {silent}s; capturing owned process stacks",
                         flush=True,
                     )
+                    capture_dir = destination / f"capture-{captures:02d}-{silent}s"
                     try:
-                        capture_stacks(process.pid, destination)
+                        capture_stacks(process.pid, capture_dir)
                     except (OSError, subprocess.SubprocessError) as error:
-                        destination.mkdir(parents=True, exist_ok=True)
-                        (destination / "capture-error.txt").write_text(str(error))
-                    return
+                        capture_dir.mkdir(parents=True, exist_ok=True)
+                        (capture_dir / "capture-error.txt").write_text(str(error))
 
         watcher = threading.Thread(target=watch, daemon=True)
         watcher.start()
