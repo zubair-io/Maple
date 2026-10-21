@@ -162,11 +162,13 @@ test('the duplicates mover carries a save that lands after it copied the old-nam
   const legacy = path.join(dir, 'IMG_12.HEIC.xmp');
   await fs.writeFile(raw, 'photo');
   await fs.writeFile(legacy, maple('backup edit'));
-  const realRename = fs.rename;
-  const rename = spyOn(fs, 'rename').mockImplementationOnce(async (from, to) => {
-    await fs.writeFile(legacy, maple('late save'));
-    return realRename(from, to);
-  });
+  const realSettle = ownership.settleCarriedSidecar;
+  const rename = spyOn(ownership, 'settleCarriedSidecar').mockImplementationOnce(
+    async (source, dest, snapshot, keepSource) => {
+      await fs.writeFile(legacy, maple('late save'));
+      return realSettle(source, dest, snapshot, keepSource);
+    },
+  );
   try {
     const moved = await moveToDuplicates(raw, tmpRoot);
 
@@ -177,4 +179,56 @@ test('the duplicates mover carries a save that lands after it copied the old-nam
     rename.mockRestore();
   }
   await expect(fs.stat(legacy)).rejects.toThrow();
+});
+
+test('restore keeps the trashed photo while its old-name edit stays in the trash', async () => {
+  const dir = path.join(tmpRoot, 'old-name-restore-kept');
+  await fs.mkdir(dir, { recursive: true });
+  const photo = path.join(dir, 'IMG_13.HEIC');
+  await fs.writeFile(photo, 'photo');
+  await fs.writeFile(`${photo}.xmp`, maple('backup edit'));
+  const trashed = await moveToTrash(photo, tmpRoot);
+  expect(trashed.kind).toBe('ok');
+  if (trashed.kind !== 'ok') return;
+
+  const restored = await moveOutOfTrash(
+    trashed.newAbsPath,
+    photo,
+    undefined,
+    undefined,
+    async () => {
+      await fs.writeFile(`${trashed.newAbsPath}.xmp`, maple('saved in the trash'));
+      await fs.writeFile(`${photo}.xmp`, maple('saved at the restored path'));
+    },
+  );
+
+  expect(restored.kind).toBe('ok');
+  expect(await fs.readFile(`${trashed.newAbsPath}.xmp`, 'utf8')).toBe(maple('saved in the trash'));
+  expect(await fs.readFile(trashed.newAbsPath, 'utf8')).toBe('photo');
+});
+
+test('the duplicates mover keeps the photo while its old-name edit stays behind', async () => {
+  const dir = path.join(tmpRoot, 'old-name-duplicate-kept');
+  await fs.mkdir(dir, { recursive: true });
+  const raw = path.join(dir, 'IMG_14.HEIC');
+  const legacy = `${raw}.xmp`;
+  await fs.writeFile(raw, 'photo');
+  await fs.writeFile(legacy, maple('backup edit'));
+  const realSettle = ownership.settleCarriedSidecar;
+  const settle = spyOn(ownership, 'settleCarriedSidecar').mockImplementationOnce(
+    async (source, dest, snapshot, keepSource) => {
+      await fs.writeFile(source, maple('saved at the old path'));
+      await fs.writeFile(dest, maple('saved at the new path'));
+      return realSettle(source, dest, snapshot, keepSource);
+    },
+  );
+  try {
+    const moved = await moveToDuplicates(raw, tmpRoot);
+
+    expect(moved.kind).toBe('ok');
+  } finally {
+    settle.mockRestore();
+  }
+  expect(await fs.readFile(legacy, 'utf8')).toBe(maple('saved at the old path'));
+  expect(await fs.readFile(raw, 'utf8')).toBe('photo');
 });
