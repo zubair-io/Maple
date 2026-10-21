@@ -53,6 +53,7 @@ import { isLegacyBackupSidecarOf } from './legacy-backup-sidecar.ts';
 import {
   PublishCollisionError,
   copyVerifiedIntoPlace,
+  releaseDisplaced,
   revertCreated,
   type RelocatePublication,
 } from './relocate-publish.ts';
@@ -459,6 +460,10 @@ async function relocateOnce(
     if (!progress.repointed) await revertCreated(createdPaths);
     if (err instanceof PublishCollisionError && !progress.repointed) throw err;
     return errorOutcome(err);
+  } finally {
+    // A revert empties the list after restoring each displaced photo; what is
+    // left belongs to a move that committed.
+    await releaseDisplaced(createdPaths);
   }
 }
 
