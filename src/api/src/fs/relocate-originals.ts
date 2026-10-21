@@ -25,6 +25,7 @@ const log = childLogger('fs/relocate');
 export async function deleteOriginals(
   sourceAbsPath: string,
   movedTo: string,
+  carriesSidecars: boolean,
   movedSidecars: MovedSidecar[],
   movedCompanionSources: string[],
   beforeSourceDelete?: () => Promise<void>,
@@ -51,6 +52,17 @@ export async function deleteOriginals(
   }
   // Sidecars have settled, so a lost lease keeps the original; throwing would revert their copies.
   if (!(await leaseStillHeld(sourceAbsPath, beforeSourceDelete))) return;
+  // A move that carries no sidecars (`moveFileToTrash`) leaves every .xmp where
+  // it is, and so never keeps the original for one.
+  if (!carriesSidecars) {
+    await fs.unlink(sourceAbsPath).catch((err: unknown) => {
+      log.warn(
+        { sourceAbsPath, err: err instanceof Error ? err.message : err },
+        'relocate: source unlink failed after a verified copy — a duplicate is left on disk',
+      );
+    });
+    return;
+  }
   await carryLeftoverOldNameEdits(sourceAbsPath, movedTo);
   // Re-checked: carrying a left-behind edit can wait on a save.
   if (!(await leaseStillHeld(sourceAbsPath, beforeSourceDelete))) return;
