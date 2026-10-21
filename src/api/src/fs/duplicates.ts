@@ -28,8 +28,8 @@ import {
 } from './sidecar-ownership.ts';
 import { listPairedSidecars } from './xmp-conflict.ts';
 import {
-  isLegacyBackupSidecarOf,
   hasLegacyBackupEdit,
+  isLegacyBackupSidecarOf,
   oldNameEditUnlisted,
 } from './legacy-backup-sidecar.ts';
 import { publishExclusive, revertCreated, type RelocatePublication } from './relocate-publish.ts';
@@ -136,25 +136,33 @@ export async function moveToDuplicates(absPath: string, folderRoot: string): Pro
       log.warn({ source: ahead.source, err: String(err) }, 'old-name sidecar settle failed');
     });
   }
+  const kept = await keepPhotoWithOldNameEdit(absPath, freeTarget);
+  if (kept) return kept;
   await moveSidecarsAlongside(absPath, freeTarget);
-  return (
-    (await keepPhotoWithOldNameEdit(absPath, freeTarget)) ?? { kind: 'ok', newAbsPath: freeTarget }
-  );
+  return { kind: 'ok', newAbsPath: freeTarget };
 }
 
 /** An old-name edit still at the old path (a settle that kept its source) is
- * found only beside its photo (#5063), so the photo is linked back next to it
- * and the move reported failed, which keeps the asset's location there. */
+ * found only beside its photo (#5063). Checked before the other sidecars move,
+ * the photo goes back beside it and the move reports failure, so the asset
+ * keeps that location with all its sidecars. Never throws. */
 async function keepPhotoWithOldNameEdit(
   absPath: string,
   movedTo: string,
 ): Promise<MoveResult | null> {
   if (!(await hasLegacyBackupEdit(absPath))) return null;
-  await publishExclusive(movedTo, absPath);
-  log.error(
-    { absPath, movedTo },
-    'moveToDuplicates: an old-name backup edit stayed behind — photo kept',
+  const back = await publishExclusive(movedTo, absPath).then(
+    () => true,
+    (err: unknown) => {
+      log.error(
+        { absPath, movedTo, err: err instanceof Error ? err.message : err },
+        'moveToDuplicates: the photo could not go back beside its old-name edit',
+      );
+      return false;
+    },
   );
+  if (back) await fs.unlink(movedTo).catch(() => {});
+  log.error({ absPath }, 'moveToDuplicates: an old-name backup edit stayed behind — move undone');
   return {
     kind: 'error',
     error: "moveToDuplicates: the photo's old-name backup edit stayed behind",

@@ -374,7 +374,6 @@ export async function finalize(args: {
       );
     });
   }
-  // Last, so an old-name edit left behind keeps its photo, the only place the migration looks (#5063).
   const primary = path.join(args.oldDirAbs, args.filename);
   for (const src of args.sourcesToDelete) {
     if (src === primary) {

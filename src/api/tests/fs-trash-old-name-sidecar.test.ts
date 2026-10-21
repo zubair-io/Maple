@@ -214,6 +214,7 @@ test('the duplicates mover keeps the photo while its old-name edit stays behind'
   const legacy = `${raw}.xmp`;
   await fs.writeFile(raw, 'photo');
   await fs.writeFile(legacy, maple('backup edit'));
+  await fs.writeFile(path.join(dir, 'IMG_14.xmp'), maple('current edit'));
   const realSettle = ownership.settleCarriedSidecar;
   const settle = spyOn(ownership, 'settleCarriedSidecar').mockImplementationOnce(
     async (source, dest, snapshot, keepSource) => {
@@ -231,4 +232,8 @@ test('the duplicates mover keeps the photo while its old-name edit stays behind'
   }
   expect(await fs.readFile(legacy, 'utf8')).toBe(maple('saved at the old path'));
   expect(await fs.readFile(raw, 'utf8')).toBe('photo');
+  expect(await fs.readFile(path.join(dir, 'IMG_14.xmp'), 'utf8')).toBe(maple('current edit'));
+  await expect(
+    fs.stat(path.join(tmpRoot, '_duplicates', 'old-name-duplicate-kept', 'IMG_14.HEIC')),
+  ).rejects.toThrow();
 });
