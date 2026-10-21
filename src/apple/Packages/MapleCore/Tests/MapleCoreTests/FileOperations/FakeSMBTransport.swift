@@ -27,6 +27,12 @@ actor FakeSMBTransport: SMBFileTransport {
   private var files: [String: Entry] = [:]
   private var directories: Set<String> = ["/"]
 
+  /// Some servers leave the file index number at 0; when `false`, every
+  /// `documentIdentifierKey` reads 0 so tests can pin the fail-safe side.
+  var reportsFileIdentity = true
+
+  func setReportsFileIdentity(_ reports: Bool) { reportsFileIdentity = reports }
+
   /// Fault injection for the crash-safety test: when set, `copyItem`
   /// throws instead of succeeding the next time `toPath` matches. This is
   /// a seam on the FAKE transport only — production `SMBFileOperations`
@@ -87,6 +93,7 @@ actor FakeSMBTransport: SMBFileTransport {
     files.filter { !$0.key.contains("/.maple/") }
       .mapValues { String(decoding: $0.data, as: UTF8.self) }
   }
+
   func directoryExists(at path: String) -> Bool { directories.contains(path) }
 
   // MARK: - SMBFileTransport
@@ -95,7 +102,8 @@ actor FakeSMBTransport: SMBFileTransport {
     if let entry = files[path] {
       return [
         .fileSizeKey: NSNumber(value: entry.data.count), .contentModificationDateKey: entry.mtime,
-        .documentIdentifierKey: NSNumber(value: entry.inode), .isRegularFileKey: true,
+        .documentIdentifierKey: NSNumber(value: reportsFileIdentity ? entry.inode : 0),
+        .isRegularFileKey: true,
         .isSymbolicLinkKey: false,
       ]
     }
