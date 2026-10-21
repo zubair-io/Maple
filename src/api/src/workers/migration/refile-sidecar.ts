@@ -14,6 +14,7 @@ import {
 } from '../../fs/sidecar-ownership.ts';
 import {
   PublishCollisionError,
+  privateSiblingOf,
   publishExclusive,
   type RelocatePublication,
 } from '../../fs/relocate-publish.ts';
@@ -71,14 +72,7 @@ async function atFreeConflictName<T>(
 }
 
 async function publishConflictCopy(carried: CarriedSidecar, bytes: Buffer): Promise<void> {
-  await atFreeConflictName(carried.primary, async (conflict) => {
-    const tmp = await writeVerifiedTemp(conflict, bytes);
-    try {
-      await publishExclusive(tmp, conflict);
-    } finally {
-      await fs.unlink(tmp).catch(() => {});
-    }
-  });
+  await atFreeConflictName(carried.primary, (conflict) => publishVerified(conflict, bytes));
 }
 
 /** Sidecars that first appeared at the old path after `planAndPlace` listed
@@ -131,11 +125,67 @@ async function carryLateSave(carried: CarriedSidecar, late: Buffer): Promise<voi
   if (atDest === null || !atDest.equals(carried.snapshot)) {
     return publishConflictCopy(carried, late);
   }
+  await replaceSnapshotAtDest(carried, late);
+}
+
+/** The save barrier is process-local, so an API save can land on `dest` after
+ * the check. `dest` is moved aside first, and only a file that still holds the
+ * snapshot is replaced; anything else is put back and the late save becomes a
+ * conflict copy. A failure leaves the aside file in place rather than lose it. */
+async function replaceSnapshotAtDest(carried: CarriedSidecar, late: Buffer): Promise<void> {
+  // Staged first, so readers find no sidecar only between the rename and the link.
   const tmp = await writeVerifiedTemp(carried.dest, late);
-  await fs.rename(tmp, carried.dest).catch(async (err: unknown) => {
+  try {
+    await swapIfSnapshot(carried, tmp, late);
+  } finally {
     await fs.unlink(tmp).catch(() => {});
-    throw err;
-  });
+  }
+}
+
+async function swapIfSnapshot(carried: CarriedSidecar, tmp: string, late: Buffer): Promise<void> {
+  const aside = privateSiblingOf(carried.dest);
+  await fs.rename(carried.dest, aside);
+  const moved = await readSidecarBytes(aside).catch(() => null);
+  if (!moved?.equals(carried.snapshot)) {
+    await putBack(carried, aside);
+    return publishConflictCopy(carried, late);
+  }
+  const published = await publishExclusive(tmp, carried.dest).then(
+    () => true,
+    async (err: unknown) => {
+      if (err instanceof PublishCollisionError) return false;
+      await putBack(carried, aside);
+      throw err;
+    },
+  );
+  await fs.unlink(aside).catch(() => {});
+  if (!published) await publishConflictCopy(carried, late);
+}
+
+/** Return the moved-aside file to `dest`, or beside it when a writer took `dest` meanwhile. */
+async function putBack(carried: CarriedSidecar, aside: string): Promise<void> {
+  await publishExclusive(aside, carried.dest)
+    .catch((err: unknown) => {
+      if (!(err instanceof PublishCollisionError)) throw err;
+      return atFreeConflictName(carried.primary, (conflict) => publishExclusive(aside, conflict));
+    })
+    .catch((err: unknown) => {
+      log.error(
+        { aside, dest: carried.dest, err: err instanceof Error ? err.message : err },
+        'refile: a sidecar moved aside could not be put back — kept at the aside path',
+      );
+      throw err;
+    });
+  await fs.unlink(aside).catch(() => {});
+}
+
+async function publishVerified(dest: string, bytes: Buffer): Promise<void> {
+  const tmp = await writeVerifiedTemp(dest, bytes);
+  try {
+    await publishExclusive(tmp, dest);
+  } finally {
+    await fs.unlink(tmp).catch(() => {});
+  }
 }
 
 /** Retire the source once the row points at the new path. A failure keeps it. */
