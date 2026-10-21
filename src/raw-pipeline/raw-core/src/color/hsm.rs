@@ -186,7 +186,7 @@ pub fn apply_one_blended(
 /// The interpolated (hueDelta, satScale, valScale) of the `t`-blend of two
 /// same-shape tables at `(hue, sat, val)`. See [`apply_one_blended`].
 #[inline]
-pub fn lookup_blended(
+fn lookup_blended(
     dims: [u32; 3],
     tables: (&[f32], &[f32]),
     t: f32,

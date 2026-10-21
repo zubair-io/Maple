@@ -15,30 +15,31 @@ pub struct GpuWhiteBalance {
         wb_camera::SliderFrame,
         wb_camera::SliderFrameExport,
     )>,
+    /// The HueSatMap endpoints (#5099) and their two tables, shared with
+    /// every tick's GPU inputs rather than copied.
     hsm: Option<(wb_camera::WbHsmRetarget, std::sync::Arc<[f32]>)>,
     as_shot_neutral: [f32; 3],
 }
 
-/// The GPU WB pass inputs carrying the retargeted HueSatMap (#5099) for a
-/// drag from `decoded` to `target`; `None` inside the identity band.
+/// The GPU WB pass inputs carrying the retargeted HueSatMap (#5099): the
+/// view's table shape and one tick's constants, over `tables` (the view's
+/// own tables, borrowed or shared).
 pub fn wb_hsm_inputs<'a>(
-    view: wb_camera::HsmRetargetView<'_>,
+    view: &wb_camera::HsmRetargetView<'_>,
     tables: raw_gpu::WbHsmTables<'a>,
-    frame: &wb_camera::SliderFrameExport,
-    slider: ((f32, f32), (f32, f32)),
-) -> Option<raw_gpu::WbHsmInputs<'a>> {
-    let (target, decoded) = slider;
-    let d = view.live_delta(frame, target, decoded)?;
-    Some(raw_gpu::WbHsmInputs {
+    delta: &wb_camera::HsmLiveDelta,
+) -> raw_gpu::WbHsmInputs<'a> {
+    raw_gpu::WbHsmInputs {
         dims: view.dims,
         srgb: view.encoding == crate::color::hsm::HsmEncoding::Srgb,
         tables,
-        to_pro: d.to_pro.0,
-        delta_pro: d.delta_pro.0,
-        from_pro: d.from_pro.0,
-        w_target: d.w_target,
-        w_anchor: d.w_anchor,
-    })
+        to_pro: delta.to_pro.0,
+        delta_pro: delta.delta_pro.0,
+        from_pro: delta.from_pro.0,
+        w_target: delta.w_target,
+        w_anchor: delta.w_anchor,
+        inverse_iterations: delta.inverse_iterations,
+    }
 }
 
 impl GpuWhiteBalance {
@@ -67,7 +68,7 @@ impl GpuWhiteBalance {
             .as_ref()
             .and_then(|(profile, _, _)| wb_camera::WbHsmRetarget::resolve(profile))
             .map(|hsm| {
-                let tables = std::sync::Arc::from(hsm.view().tables);
+                let tables = std::sync::Arc::from(hsm.view(1.0).tables);
                 (hsm, tables)
             });
         Ok(Self {
@@ -77,18 +78,24 @@ impl GpuWhiteBalance {
         })
     }
 
-    pub fn apply(&self, model: &AdjustmentModel, inputs: &mut raw_gpu::FullChainInputs<'_>) {
+    /// `exposure_gain`: the auto-exposure gain the prefix develop baked into
+    /// the uploaded buffer after DCP.
+    pub fn apply(
+        &self,
+        model: &AdjustmentModel,
+        exposure_gain: f32,
+        inputs: &mut raw_gpu::FullChainInputs<'_>,
+    ) {
         if let Some((_, _, export)) = &self.calibration {
             let target = self.slider_values(model);
             let anchor = (export.scene_cct, export.as_shot_tint);
-            inputs.wb_matrix = export.rec2020_delta_matrix(target, anchor).0;
+            let delta = export.rec2020_delta_matrix(target, anchor);
+            inputs.wb_matrix = delta.0;
             inputs.wb_hsm = self.hsm.as_ref().and_then(|(hsm, tables)| {
-                wb_hsm_inputs(
-                    hsm.view(),
-                    raw_gpu::WbHsmTables::Shared(tables.clone()),
-                    export,
-                    (target, anchor),
-                )
+                let view = hsm.view(exposure_gain);
+                let tick = view.live_delta(export, delta, target, anchor)?;
+                let shared = raw_gpu::WbHsmTables::Shared(tables.clone());
+                Some(wb_hsm_inputs(&view, shared, &tick))
             });
             // The GPU gate is expressed relative to its 6500/0 identity; the
             // matrix itself uses the actual camera frame, exactly as Apple.
@@ -150,7 +157,7 @@ mod tests {
                         0.0,
                         1,
                     );
-                    cached.apply(&model, &mut inputs);
+                    cached.apply(&model, 1.7, &mut inputs);
                     let target = wb_camera::resolve_target_versioned(
                         &model,
                         &frame,
@@ -214,7 +221,7 @@ mod tests {
                 0.0,
                 1,
             );
-            cached.apply(&model, &mut inputs);
+            cached.apply(&model, 1.7, &mut inputs);
             (model, inputs)
         };
 
@@ -224,8 +231,20 @@ mod tests {
             .wb_hsm
             .as_ref()
             .expect("a drag carries the HueSatMap");
-        let delta = hsm.view().live_delta(&export, target, anchor).unwrap();
-        assert_eq!(live.tables.as_slice(), hsm.view().tables);
+        let view = hsm.view(1.7);
+        let delta = view
+            .live_delta(
+                &export,
+                export.rec2020_delta_matrix(target, anchor),
+                target,
+                anchor,
+            )
+            .unwrap();
+        assert_eq!(live.tables.as_slice(), view.tables);
+        assert_eq!(
+            live.to_pro, delta.to_pro.0,
+            "the exposure gain reaches the pass"
+        );
         assert_eq!(
             (live.w_target, live.w_anchor),
             (delta.w_target, delta.w_anchor)

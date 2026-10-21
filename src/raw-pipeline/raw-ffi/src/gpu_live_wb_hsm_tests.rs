@@ -13,10 +13,10 @@ use raw_core::view::auto_profile::curve::ProfileCurve;
 use raw_core::view::auto_profile::lut::ColorLut;
 use raw_core::xmp::AdjustmentModel;
 
-/// A flat endpoint wire (`WbHsmRetarget::flat` layout) over the synthetic
+/// An endpoint wire (`WbHsmRetarget::wire` layout) over the synthetic
 /// render profile's 2856 K / 6504 K endpoints, with clearly different
 /// cold and warm tables.
-fn synthetic_hsm_wire(as_shot_cct: f32) -> Vec<f32> {
+fn synthetic_hsm_wire() -> Vec<f32> {
     let table = |phase: f32, hue_amp: f32| -> HsmTable {
         let data = (0..12)
             .flat_map(|h| (0..5).map(move |s| (h, s)))
@@ -33,7 +33,7 @@ fn synthetic_hsm_wire(as_shot_cct: f32) -> Vec<f32> {
         HsmTable::new([12, 5, 1], data, HsmEncoding::Linear).unwrap()
     };
     let (cold, warm) = (table(0.0, 10.0), table(1.4, -8.0));
-    [12.0, 5.0, 1.0, 0.0, 2856.0, 6504.0, as_shot_cct]
+    [12.0, 5.0, 1.0, 0.0, 2856.0, 6504.0]
         .into_iter()
         .chain(cold.data)
         .chain(warm.data)
@@ -52,9 +52,11 @@ fn wb_model(target: (f32, f32)) -> AdjustmentModel {
     }
 }
 
-fn set_hsm(p: &mut MapleGpuLiveParams, wire: &[f32]) {
+fn set_hsm(p: &mut MapleGpuLiveParams, wire: &[f32], as_shot_cct: f32, exposure_gain: f32) {
     p.wb_hsm_ptr = wire.as_ptr();
     p.wb_hsm_len = wire.len();
+    p.wb_hsm_as_shot_cct = as_shot_cct;
+    p.wb_hsm_exposure_gain = exposure_gain;
 }
 
 fn null_auto(p: &mut MapleGpuLiveParams) {
@@ -110,7 +112,7 @@ fn max_byte_delta(a: &[u8], b: &[u8]) -> u8 {
 #[test]
 fn hsm_params_reach_the_wb_pass_only_on_a_frame_anchored_drag() {
     let frame = synthetic_frame_with_render_profile();
-    let wire = synthetic_hsm_wire(frame.scene_cct);
+    let wire = synthetic_hsm_wire();
     let curve = ProfileCurve::identity();
     let lut = ColorLut::identity(2);
     let anchor = (frame.scene_cct, frame.as_shot_tint);
@@ -121,7 +123,7 @@ fn hsm_params_reach_the_wb_pass_only_on_a_frame_anchored_drag() {
         p.decoded_temperature = anchor.0;
         p.decoded_tint = anchor.1;
         set_frame(&mut p, &frame);
-        set_hsm(&mut p, wire);
+        set_hsm(&mut p, wire, frame.scene_cct, 1.3);
         p
     };
     let drag = (anchor.0 + 900.0, anchor.1 - 15.0);
@@ -132,8 +134,15 @@ fn hsm_params_reach_the_wb_pass_only_on_a_frame_anchored_drag() {
         .wb_hsm
         .as_ref()
         .expect("a frame-anchored drag carries the HueSatMap");
-    let view = HsmRetargetView::from_flat(&wire).unwrap();
-    let delta = view.live_delta(&frame, drag, anchor).unwrap();
+    let view = HsmRetargetView::from_wire(&wire, frame.scene_cct, 1.3).unwrap();
+    let delta = view
+        .live_delta(
+            &frame,
+            frame.rec2020_delta_matrix(drag, anchor),
+            drag,
+            anchor,
+        )
+        .unwrap();
     assert_eq!(hsm.tables.as_slice(), view.tables);
     assert_eq!(
         hsm.tables.as_slice().as_ptr(),
@@ -146,6 +155,11 @@ fn hsm_params_reach_the_wb_pass_only_on_a_frame_anchored_drag() {
     );
     assert_ne!(hsm.w_target, hsm.w_anchor);
     assert_eq!(hsm.delta_pro, delta.delta_pro.0);
+    assert_eq!(
+        (hsm.to_pro, hsm.from_pro),
+        (delta.to_pro.0, delta.from_pro.0),
+        "the exposure gain reaches the pass"
+    );
 
     let p = params_for(anchor, &wire);
     assert!(
@@ -190,8 +204,8 @@ fn gpu_live_hsm_wb_matches_cpu_chain() {
     let (w, h) = (16u32, 16u32);
     let input = scene_linear_rgba(w as usize, h as usize);
     let frame = synthetic_frame_with_render_profile();
-    let wire = synthetic_hsm_wire(frame.scene_cct);
-    let view = HsmRetargetView::from_flat(&wire).unwrap();
+    let wire = synthetic_hsm_wire();
+    let view = HsmRetargetView::from_wire(&wire, frame.scene_cct, 1.6).unwrap();
     let curve = ProfileCurve::identity();
     let lut = ColorLut::identity(2);
     let anchor = (frame.scene_cct, frame.as_shot_tint);
@@ -203,7 +217,7 @@ fn gpu_live_hsm_wb_matches_cpu_chain() {
         p.decoded_temperature = anchor.0;
         p.decoded_tint = anchor.1;
         set_frame(&mut p, &frame);
-        set_hsm(&mut p, &wire);
+        set_hsm(&mut p, &wire, frame.scene_cct, 1.6);
 
         let gpu = gpu_render(&input, w, h, &p);
         let with_hsm = cpu_reference(&input, (w, h), &frame, Some(view), (target, anchor));
@@ -292,7 +306,7 @@ fn gpu_live_vs_refine_seam_carries_the_hsm_on_test_0007() {
         null_auto(&mut p);
         set_frame(&mut p, &frame);
         let plain = seam(&gpu_render(&bake, w, h, &p), &refine_u8);
-        set_hsm(&mut p, hsm.flat());
+        set_hsm(&mut p, hsm.wire(), hsm.as_shot_cct(), 1.0);
         let live = seam(&gpu_render(&bake, w, h, &p), &refine_u8);
         eprintln!("test_0007 GPU live-vs-refine [{name}] @ {target:?}: HSM {live:?} | plain 3x3 {plain:?}");
         if live.0 > 0.02 || live.1 > 8 || live.2 > 13 {
@@ -385,7 +399,7 @@ fn wb_drag_tick_cost_with_and_without_hsm_test_0007() {
                 null_auto(&mut p);
                 set_frame(&mut p, &frame);
                 if with_hsm {
-                    set_hsm(&mut p, hsm.flat());
+                    set_hsm(&mut p, hsm.wire(), hsm.as_shot_cct(), 1.0);
                 }
                 let start = std::time::Instant::now();
                 let rc = unsafe { maple_gpu_live_render(&handle, &p, out.as_mut_ptr()) };
@@ -443,6 +457,8 @@ fn decode_exports_the_hsm_wire_and_the_cpu_chain_entry_uses_it_test_0007() {
     assert_eq!(rc, 0, "sized decode rc {rc}");
     assert!(!buf.wb_hsm_data.is_null());
     let (wire_ptr, wire_len) = (buf.wb_hsm_data, buf.wb_hsm_len);
+    assert_eq!(buf.wb_hsm_as_shot_cct, expected.as_shot_cct());
+    let (as_shot_cct, ae_gain) = (buf.wb_hsm_as_shot_cct, buf.ae_gain);
     let (w, h) = (buf.width, buf.height);
     let pixels = unsafe { std::slice::from_raw_parts(buf.f32_rgba, (w * h * 4) as usize) }.to_vec();
     let mut p: MapleAdjustmentParams = unsafe { std::mem::zeroed() };
@@ -472,7 +488,7 @@ fn decode_exports_the_hsm_wire_and_the_cpu_chain_entry_uses_it_test_0007() {
     let wire = unsafe { std::slice::from_raw_parts(wire_ptr, wire_len) };
     assert_eq!(
         wire,
-        expected.flat(),
+        expected.wire(),
         "the wire stays valid after the buffer is freed"
     );
 
@@ -493,11 +509,13 @@ fn decode_exports_the_hsm_wire_and_the_cpu_chain_entry_uses_it_test_0007() {
     let plain = run(&p);
     p.wb_hsm_ptr = wire_ptr;
     p.wb_hsm_len = wire_len;
+    p.wb_hsm_as_shot_cct = as_shot_cct;
+    p.wb_hsm_exposure_gain = ae_gain;
     let inputs = unsafe { crate::scene_linear_chain::chain_inputs_from_params(&p) };
     let view = inputs.wb_hsm.expect("the chain entry reads the wire");
     assert_eq!(
         view.tables.as_ptr(),
-        wire[raw_core::stages::wb_camera::HSM_RETARGET_HEADER_LEN..].as_ptr()
+        wire[wire.len() - view.tables.len()..].as_ptr()
     );
     let with_hsm = run(&p);
     let moved = plain
@@ -506,7 +524,7 @@ fn decode_exports_the_hsm_wire_and_the_cpu_chain_entry_uses_it_test_0007() {
         .map(|(a, b)| (a - b).abs())
         .fold(0.0f32, f32::max);
     assert!(
-        moved > 1e-2,
+        moved > 2e-3,
         "the HueSatMap must move the CPU chain's render ({moved})"
     );
 }

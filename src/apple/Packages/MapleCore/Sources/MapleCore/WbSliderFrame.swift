@@ -74,6 +74,11 @@ public struct WbSliderFrame: Sendable, Equatable {
     /// profile's HueSatMap does not move with white balance.
     public let hueSatMapAddress: UInt
     public let hueSatMapCount: Int
+    /// This photo's render-profile as-shot CCT (the anchor table's weight)
+    /// and the auto-exposure gain the decode baked in after DCP; per photo,
+    /// so they ride beside the shared wire.
+    public let hueSatMapAsShotCCT: Float
+    public let hueSatMapExposureGain: Float
 
     /// Whether the export carries a real frame (`sceneCCT > 0`). All-zero
     /// exports read as absent — consumers keep legacy behaviour.
@@ -94,7 +99,9 @@ public struct WbSliderFrame: Sendable, Equatable {
         renderFmCold: [Float] = [],
         renderFmWarm: [Float] = [],
         hueSatMapAddress: UInt = 0,
-        hueSatMapCount: Int = 0
+        hueSatMapCount: Int = 0,
+        hueSatMapAsShotCCT: Float = 0,
+        hueSatMapExposureGain: Float = 1
     ) {
         self.mCold = mCold
         self.cctCold = cctCold
@@ -114,6 +121,8 @@ public struct WbSliderFrame: Sendable, Equatable {
         self.renderFmWarm = renderFmWarm
         self.hueSatMapAddress = hueSatMapAddress
         self.hueSatMapCount = hueSatMapCount
+        self.hueSatMapAsShotCCT = hueSatMapAsShotCCT
+        self.hueSatMapExposureGain = hueSatMapExposureGain
     }
 
     /// Read the export off a decode buffer. Returns `nil` when the buffer
@@ -139,6 +148,8 @@ public struct WbSliderFrame: Sendable, Equatable {
         self.renderFmWarm = Self.array9(buffer.wb_frame_render_fm_warm)
         self.hueSatMapAddress = UInt(bitPattern: buffer.wb_hsm_data)
         self.hueSatMapCount = Int(buffer.wb_hsm_len)
+        self.hueSatMapAsShotCCT = buffer.wb_hsm_as_shot_cct
+        self.hueSatMapExposureGain = buffer.ae_gain
     }
 
     /// The imported C `float[9]` (a 9-tuple in Swift) as an array.
@@ -192,6 +203,8 @@ extension WbSliderFrame {
         p.wb_frame_render_fm_warm = Self.tuple9(renderFmWarm)
         p.wb_hsm_ptr = hueSatMap
         p.wb_hsm_len = UInt(hueSatMapCount)
+        p.wb_hsm_as_shot_cct = hueSatMapAsShotCCT
+        p.wb_hsm_exposure_gain = hueSatMapExposureGain
     }
 
     /// Fill the `wb_frame_*` tail fields of the GPU live params.
@@ -214,6 +227,8 @@ extension WbSliderFrame {
         p.wb_frame_render_fm_warm = Self.tuple9(renderFmWarm)
         p.wb_hsm_ptr = hueSatMap
         p.wb_hsm_len = UInt(hueSatMapCount)
+        p.wb_hsm_as_shot_cct = hueSatMapAsShotCCT
+        p.wb_hsm_exposure_gain = hueSatMapExposureGain
     }
 
     /// The interned HueSatMap wire, or nil when the frame carries none.

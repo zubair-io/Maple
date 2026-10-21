@@ -57,6 +57,7 @@ namespace Maple.WinUI.Native
         // the process (not freed with this buffer), so hosts keep the pointer.
         public float* wb_hsm_data;
         public nuint wb_hsm_len;
+        public float wb_hsm_as_shot_cct;
     }
 
     /// <summary>

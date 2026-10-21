@@ -78,7 +78,8 @@ final class WbSliderFrameTests: XCTestCase {
         let f = WbSliderFrame(
             mCold: base.mCold, cctCold: base.cctCold, mWarm: base.mWarm, cctWarm: base.cctWarm,
             sceneCCT: base.sceneCCT, asShotTint: base.asShotTint,
-            hueSatMapAddress: UInt(bitPattern: wire), hueSatMapCount: 4
+            hueSatMapAddress: UInt(bitPattern: wire), hueSatMapCount: 4,
+            hueSatMapAsShotCCT: 4100, hueSatMapExposureGain: 1.8
         )
         var cpu = MapleAdjustmentParams()
         var gpu = MapleGpuLiveParams()
@@ -88,6 +89,10 @@ final class WbSliderFrameTests: XCTestCase {
         XCTAssertEqual(cpu.wb_hsm_len, 4)
         XCTAssertEqual(gpu.wb_hsm_ptr, UnsafePointer(wire))
         XCTAssertEqual(gpu.wb_hsm_len, 4)
+        XCTAssertEqual(cpu.wb_hsm_as_shot_cct, 4100)
+        XCTAssertEqual(gpu.wb_hsm_as_shot_cct, 4100)
+        XCTAssertEqual(cpu.wb_hsm_exposure_gain, 1.8)
+        XCTAssertEqual(gpu.wb_hsm_exposure_gain, 1.8)
 
         var none = MapleGpuLiveParams()
         base.fill(&none)

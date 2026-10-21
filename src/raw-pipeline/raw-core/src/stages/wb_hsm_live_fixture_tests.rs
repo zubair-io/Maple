@@ -1,9 +1,8 @@
-//! Fixture-gated live-vs-refine white-balance seam on a dual-HueSatMap
-//! ForwardMatrix body (#5099). test_0007 (Canon 5D Mark III DNG) carries
-//! both HueSatMaps and both ForwardMatrices, so since #4633 a fresh develop
-//! re-lerps its HueSatMap at the white-balance target. The CPU per-tick
-//! chain runs over a buffer developed at the as-shot white and must land on
-//! that develop too, HueSatMap included.
+//! Fixture-gated live-vs-refine white-balance seam on dual-HueSatMap
+//! ForwardMatrix bodies (#5099), such as test_0007 (Canon 5D Mark III DNG):
+//! since #4633 a fresh develop re-lerps the HueSatMap at the white-balance
+//! target. The CPU per-tick chain runs over a buffer developed at the
+//! as-shot white and must land on that develop too, HueSatMap included.
 
 use crate::color::dcp;
 use crate::image::{ColorSpace, Image};
@@ -87,14 +86,14 @@ pub(crate) fn seam_stats(a: &[u8], b: &[u8]) -> SeamStats {
     }
 }
 
-/// Realistic and extreme drags off test_0007's as-shot `anchor`, each with
+/// Realistic and extreme drags off a fixture's as-shot `anchor`, each with
 /// its ceiling. Measured with the HueSatMap carried (#5099, 512 px long
 /// edge): every drag sits at mean/p95 0.000 with at most 2 of 174,592
 /// pixels past 1 ΔE00 (max 3.0, 11 u8 steps, at the extremes, where the
 /// table's saturation clamp has no exact inverse). Before, the plain 3×3
 /// kept the as-shot table: mean 0.11 (warm 500 K) to 1.78 (2000 K), p95 up
 /// to 2.6, max channel up to 27.
-pub(crate) fn test_0007_cases(anchor: (f32, f32)) -> [(&'static str, (f32, f32), SeamStats); 6] {
+pub(crate) fn seam_cases(anchor: (f32, f32)) -> [(&'static str, (f32, f32), SeamStats); 6] {
     let drag = SeamStats {
         mean: 0.02,
         p95: 0.05,
@@ -122,23 +121,19 @@ pub(crate) fn test_0007_cases(anchor: (f32, f32)) -> [(&'static str, (f32, f32),
     ]
 }
 
-#[test]
-#[cfg_attr(
-    not(feature = "fixtures"),
-    ignore = "needs test-fixtures/raws (fixtures feature)"
-)]
-fn cpu_live_wb_drag_matches_refine_on_dual_hsm_fm_body_test_0007() {
-    let path = crate::test_support::fixtures::require_raw("test_0007.DNG");
-    let raw = crate::decode::decode(&path).expect("decode test_0007");
-    let (profile, _) = dcp::profile_for_with_source(&raw).expect("profile");
-    assert!(
-        profile.hsm_endpoints.is_some() && profile.forward_matrix.is_some(),
-        "test_0007 must resolve a dual-HueSatMap ForwardMatrix profile"
-    );
-    let frame = SliderFrameExport::resolve(&raw, &profile);
-    let hsm = WbHsmRetarget::resolve(&profile).expect("test_0007 HueSatMap endpoints");
+/// The case failures of one fixture, or `None` when its profile's HueSatMap
+/// does not move with white balance (the plain 3×3 is then the whole story).
+fn seam_failures(raw: &crate::image::RawImage, name: &str) -> Option<Vec<String>> {
+    let (profile, source) = dcp::profile_for_with_source(raw).ok()?;
+    // The decode exports no frame for these tiers (`wb_exports`), so no live
+    // HueSatMap either.
+    let lossy = matches!(raw.cfa, crate::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
+    if lossy || matches!(source, dcp::ProfileSource::RawlerFallback) {
+        return None;
+    }
+    let hsm = WbHsmRetarget::resolve(&profile)?;
+    let frame = SliderFrameExport::resolve(raw, &profile);
     let anchor = (frame.scene_cct, frame.as_shot_tint);
-
     let bake_model = AdjustmentModel {
         auto_exposure: AutoExposureMode::Off,
         sharpen_amount: 0.0,
@@ -146,18 +141,20 @@ fn cpu_live_wb_drag_matches_refine_on_dual_hsm_fm_body_test_0007() {
         nr_luminance: 0.0,
         ..AdjustmentModel::default()
     };
-    let (w, h, bake) = render_scene_linear_sized_from_raw_with_quality_f32_cancellable(
-        &raw,
-        &bake_model,
-        RenderQuality::Preview,
-        LONG_EDGE,
-        CancelToken::never(),
-    )
-    .expect("as-shot bake");
-
-    let failures: Vec<String> = test_0007_cases(anchor)
+    let develop = |model: &AdjustmentModel| {
+        render_scene_linear_sized_from_raw_with_quality_f32_cancellable(
+            raw,
+            model,
+            RenderQuality::Preview,
+            LONG_EDGE,
+            CancelToken::never(),
+        )
+        .expect("develop")
+    };
+    let (w, h, bake) = develop(&bake_model);
+    let failures = seam_cases(anchor)
         .into_iter()
-        .filter_map(|(name, target, ceiling)| {
+        .filter_map(|(case, target, ceiling)| {
             let model = AdjustmentModel {
                 temperature: target.0,
                 tint: target.1,
@@ -165,14 +162,7 @@ fn cpu_live_wb_drag_matches_refine_on_dual_hsm_fm_body_test_0007() {
                 tint_seen: true,
                 ..bake_model.clone()
             };
-            let (_, _, refine) = render_scene_linear_sized_from_raw_with_quality_f32_cancellable(
-                &raw,
-                &model,
-                RenderQuality::Preview,
-                LONG_EDGE,
-                CancelToken::never(),
-            )
-            .expect("refine develop");
+            let (_, _, refine) = develop(&model);
             let live = apply_scene_linear_chain_f32(
                 &bake,
                 w,
@@ -182,17 +172,51 @@ fn cpu_live_wb_drag_matches_refine_on_dual_hsm_fm_body_test_0007() {
                     decoded_temp: anchor.0,
                     decoded_tint: anchor.1,
                     wb_frame: Some(&frame),
-                    wb_hsm: Some(hsm.view()),
+                    wb_hsm: Some(hsm.view(1.0)),
                     skip_agx: true,
                     ..ChainOptions::default()
                 },
             )
             .expect("live chain");
             let s = seam_stats(&display_u8(&live, w, h), &display_u8(&refine, w, h));
-            eprintln!("test_0007 CPU live-vs-refine [{name}] @ {target:?}: {s:?}");
-            (!s.within(&ceiling)).then(|| format!("[{name}] {s:?} over {ceiling:?}"))
+            eprintln!("{name} CPU live-vs-refine [{case}] @ {target:?}: {s:?}");
+            (!s.within(&ceiling)).then(|| format!("{name} [{case}] {s:?} over {ceiling:?}"))
         })
         .collect();
+    Some(failures)
+}
+
+/// Every fixture whose profile moves its HueSatMap with white balance;
+/// test_0007 (Canon 5D Mark III, dual HSM + FM) must be among them.
+#[test]
+#[cfg_attr(
+    not(feature = "fixtures"),
+    ignore = "needs test-fixtures/raws (fixtures feature)"
+)]
+fn cpu_live_wb_drag_matches_refine_on_every_moving_hsm_fixture() {
+    let root = crate::test_support::fixtures::require(crate::test_support::fixtures::raws_root());
+    let mut names: Vec<String> = std::fs::read_dir(&root)
+        .expect("raws dir")
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter(|n| n.starts_with("test_") && !n.contains(".xmp"))
+        .collect();
+    names.sort();
+    let engaged: Vec<(String, Vec<String>)> = names
+        .iter()
+        .filter_map(|name| {
+            let raw = crate::decode::decode(&root.join(name)).ok()?;
+            Some((name.clone(), seam_failures(&raw, name)?))
+        })
+        .collect();
+    eprintln!(
+        "fixtures with a moving HueSatMap: {:?}",
+        engaged.iter().map(|(n, _)| n).collect::<Vec<_>>()
+    );
+    assert!(
+        engaged.iter().any(|(n, _)| n.starts_with("test_0007")),
+        "test_0007 must carry a moving HueSatMap"
+    );
+    let failures: Vec<&String> = engaged.iter().flat_map(|(_, f)| f).collect();
     assert!(
         failures.is_empty(),
         "live-vs-refine seam over budget: {failures:#?}"

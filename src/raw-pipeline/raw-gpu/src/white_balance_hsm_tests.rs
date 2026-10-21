@@ -36,7 +36,6 @@ fn wire(dims: [u32; 3], srgb: bool) -> Vec<f32> {
         if srgb { 1.0 } else { 0.0 },
         2856.0,
         6504.0,
-        4100.0,
     ];
     header
         .into_iter()
@@ -66,16 +65,20 @@ fn pixels() -> Vec<f32> {
     out
 }
 
-fn delta(w_target: f32, w_anchor: f32) -> HsmLiveDelta {
+/// One tick's constants with an exposure gain folded into the ProPhoto
+/// round trip, as `HsmRetargetView::live_delta` builds them.
+fn delta(w_target: f32, w_anchor: f32, gain: f32) -> HsmLiveDelta {
     let from_pro = m_pro_to_rec2020();
     let to_pro = from_pro.inverse().unwrap();
     let wb = Matrix3([[1.18, 0.04, -0.02], [0.01, 0.99, 0.0], [-0.03, 0.02, 0.82]]);
+    let scaled = |m: Matrix3, k: f32| Matrix3(m.0.map(|row| row.map(|v| v * k)));
     HsmLiveDelta {
-        to_pro,
+        to_pro: scaled(to_pro, 1.0 / gain),
         delta_pro: to_pro.mul_mat(&wb).mul_mat(&from_pro),
-        from_pro,
+        from_pro: scaled(from_pro, gain),
         w_target,
         w_anchor,
+        inverse_iterations: raw_core::stages::wb_camera::HSM_INVERSE_ITERATIONS,
     }
 }
 
@@ -89,6 +92,7 @@ fn inputs<'a>(view: &HsmRetargetView<'a>, d: &HsmLiveDelta) -> WbHsmInputs<'a> {
         from_pro: d.from_pro.0,
         w_target: d.w_target,
         w_anchor: d.w_anchor,
+        inverse_iterations: d.inverse_iterations,
     }
 }
 
@@ -110,9 +114,9 @@ fn wgsl_hsm_white_balance_matches_raw_core() {
         ([6, 4, 3], false),
     ] {
         let flat = wire(dims, srgb);
-        let view = HsmRetargetView::from_flat(&flat).expect("valid wire");
-        for (w_target, w_anchor) in [(0.0, 0.62), (1.0, 0.3), (0.45, 0.45)] {
-            let d = delta(w_target, w_anchor);
+        let view = HsmRetargetView::from_wire(&flat, 4100.0, 1.0).expect("valid wire");
+        for (w_target, w_anchor, gain) in [(0.0, 0.62, 1.0), (1.0, 0.3, 2.3), (0.45, 0.45, 0.6)] {
+            let d = delta(w_target, w_anchor, gain);
             let hsm = inputs(&view, &d);
             let img = GpuImage::upload(&ctx, &input, count, 1);
             let runner = ChainRunner::new(&ctx, &img);
@@ -132,7 +136,7 @@ fn wgsl_hsm_white_balance_matches_raw_core() {
                 })
                 .fold(0.0_f32, f32::max);
             eprintln!(
-                "HSM WB parity {dims:?} srgb={srgb} w=({w_target}, {w_anchor}): max diff {max_diff:e}"
+                "HSM WB parity {dims:?} srgb={srgb} w=({w_target}, {w_anchor}) gain {gain}: max diff {max_diff:e}"
             );
             assert!(
                 max_diff < PARITY_TOLERANCE,

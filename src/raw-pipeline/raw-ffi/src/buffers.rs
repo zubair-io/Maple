@@ -218,6 +218,9 @@ pub struct MapleSceneLinearBufferF32 {
     /// buffer, so a host keeps the pointer itself rather than a copy.
     pub wb_hsm_data: *const f32,
     pub wb_hsm_len: usize,
+    /// This photo's render-profile as-shot CCT, the anchor table's weight
+    /// (`WbHsmRetarget::as_shot_cct`); per photo, so not in the shared wire.
+    pub wb_hsm_as_shot_cct: f32,
 }
 
 impl MapleSceneLinearBufferF32 {
@@ -252,6 +255,7 @@ impl MapleSceneLinearBufferF32 {
             nr_sampling_scale: 1.0,
             wb_hsm_data: std::ptr::null(),
             wb_hsm_len: 0,
+            wb_hsm_as_shot_cct: 0.0,
             ae_gain: 1.0,
             has_lens_corrections: 0,
             lens_correction_ca_inert: 1,

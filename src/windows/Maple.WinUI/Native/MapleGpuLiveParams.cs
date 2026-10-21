@@ -223,6 +223,8 @@ namespace Maple.WinUI.Native
         // passed back verbatim (process-lifetime, no pinning needed).
         public float* wb_hsm_ptr;
         public nuint wb_hsm_len;
+        public float wb_hsm_as_shot_cct;
+        public float wb_hsm_exposure_gain;
 
         /// <summary>
         /// Build live-chain params from the canonical model + decode exports.
@@ -342,6 +344,8 @@ namespace Maple.WinUI.Native
             WriteWbFrame(ref p, image.WbFrame);
             p.wb_hsm_ptr = (float*)image.WbHueSatMap;
             p.wb_hsm_len = image.WbHueSatMapLength;
+            p.wb_hsm_as_shot_cct = image.WbHueSatMapAsShotCct;
+            p.wb_hsm_exposure_gain = image.AeGain;
             return p;
         }
 

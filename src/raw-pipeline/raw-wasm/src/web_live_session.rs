@@ -105,6 +105,8 @@ pub struct WebLiveSession {
     whites_anchor_ev: f32,
     white_balance: GpuWhiteBalance,
     nr_sampling_scale: f32,
+    /// Auto-exposure gain baked into the uploaded prefix after DCP (#5099).
+    ae_gain: f32,
     /// The EFFECTIVE develop long-edge cap (#1080): the caller's viewport target
     /// normalized + clamped to the device texture cap in `open`. Fixed for the
     /// session's lifetime, so a prefix re-develop reproduces the same dims and
@@ -230,7 +232,7 @@ impl WebLiveSession {
         // cached for the re-develop check. Native dims ride the handle so the
         // editor's zoom math stays full-res-aware (#1101 contract).
         let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
-        let (rgba, width, height, prefix_model, whites_anchor_ev, nr_sampling_scale) =
+        let (rgba, width, height, prefix_model, whites_anchor_ev, nr_sampling_scale, ae_gain) =
             develop_prefix_rgba(&raw_img, &raw, &ext, &model, target_long_edge)
                 .map_err(|e| JsError::new(&e))?;
 
@@ -268,6 +270,7 @@ impl WebLiveSession {
             whites_anchor_ev,
             white_balance,
             nr_sampling_scale,
+            ae_gain,
             target_long_edge,
             width,
             height,
@@ -449,7 +452,7 @@ impl WebLiveSession {
             &self.ext,
             &mut self.auto_will_fit_cache,
         ) {
-            let (rgba, w, h, prefix_model, whites_anchor_ev, nr_sampling_scale) =
+            let (rgba, w, h, prefix_model, whites_anchor_ev, nr_sampling_scale, ae_gain) =
                 develop_prefix_rgba(
                     &self.raw_img,
                     &self.raw,
@@ -473,6 +476,7 @@ impl WebLiveSession {
             self.live_profile = None;
             self.whites_anchor_ev = whites_anchor_ev;
             self.nr_sampling_scale = nr_sampling_scale;
+            self.ae_gain = ae_gain;
             self.lens_profile_json = crate::lens_profile::metadata(&self.raw_img, model);
         }
         self.present_for_model(model)
@@ -496,7 +500,7 @@ impl WebLiveSession {
         profile.update(model);
         let auto_fit = profile.auto_fit;
         let inputs = &mut profile.inputs;
-        self.white_balance.apply(model, inputs);
+        self.white_balance.apply(model, self.ae_gain, inputs);
         inputs.nr_sampling_scale = self.nr_sampling_scale;
         // Masks are authored upright; the resident chain remains sensor-framed.
         inputs.mask_orientation = self.raw_img.orientation.exif_tag();

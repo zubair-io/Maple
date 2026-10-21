@@ -145,7 +145,7 @@ pub struct SliderFrameExport {
     pub render_wb_already_baked: f32,
     /// `profile.cm_endpoints.m_cold/cct_cold` — the render profile's OWN
     /// dual-illuminant CM pair (distinct from `m_cold`/`cct_cold` above,
-    /// which are the VALUE frame's). `render_cct_warm - render_cct_cold <
+    /// which are the VALUE frame's). `|render_cct_warm - render_cct_cold| <
     /// 1.0` ⇒ no render-profile endpoints (single-illuminant profile —
     /// `c_at` is then constant across every target/anchor, matching
     /// `retargeted_render_profile`'s own single-calibration short-circuit).
@@ -306,7 +306,7 @@ impl SliderFrameExport {
             .iter()
             .flatten()
             .all(|v| *v == 0.0);
-        let endpoints_present = self.render_cct_warm - self.render_cct_cold >= 1.0;
+        let endpoints_present = (self.render_cct_warm - self.render_cct_cold).abs() >= 1.0;
         fm_present || endpoints_present
     }
 
@@ -327,7 +327,7 @@ impl SliderFrameExport {
         let fm_cold_present = !self.render_fm_cold.0.iter().flatten().all(|v| *v == 0.0);
         let fm_warm_present = !self.render_fm_warm.0.iter().flatten().all(|v| *v == 0.0);
         let cm_endpoints =
-            (self.render_cct_warm - self.render_cct_cold >= 1.0).then(|| CmEndpoints {
+            ((self.render_cct_warm - self.render_cct_cold).abs() >= 1.0).then(|| CmEndpoints {
                 m_cold: self.render_cm_cold,
                 cct_cold: self.render_cct_cold,
                 m_warm: self.render_cm_warm,
@@ -430,7 +430,8 @@ impl SliderFrameExport {
         decoded: (f32, f32),
         hsm: Option<HsmRetargetView<'_>>,
     ) {
-        match hsm.and_then(|view| Some((view, view.live_delta(self, target, decoded)?))) {
+        let delta = || self.rec2020_delta_matrix(target, decoded);
+        match hsm.and_then(|view| Some((view, view.live_delta(self, delta(), target, decoded)?))) {
             Some((view, delta)) => view.apply_image(&delta, img),
             None => self.apply_delta_rec2020(img, target, decoded),
         }

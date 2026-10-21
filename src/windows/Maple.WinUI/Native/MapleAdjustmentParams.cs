@@ -7,7 +7,7 @@ namespace Maple.WinUI.Native
     /// C-ABI mirror of raw-ffi's MapleAdjustmentParams (scene_linear_chain.rs).
     /// Field order matches the Rust declaration byte-for-byte; fields are only
     /// ever appended at the tail (offset-stable ABI convention). Expected size
-    /// on x64: 712 bytes — asserted at startup by RawFfi.VerifyAbi().
+    /// on x64: 744 bytes — asserted at startup by RawFfi.VerifyAbi().
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct MapleAdjustmentParams
@@ -134,6 +134,8 @@ namespace Maple.WinUI.Native
         // passed back verbatim (process-lifetime, no pinning needed).
         public float* wb_hsm_ptr;
         public nuint wb_hsm_len;
+        public float wb_hsm_as_shot_cct;
+        public float wb_hsm_exposure_gain;
 
         /// <summary>
         /// Build params from the canonical model, mirroring the Swift reference

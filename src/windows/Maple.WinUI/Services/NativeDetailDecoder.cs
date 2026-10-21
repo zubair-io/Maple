@@ -113,6 +113,7 @@ public sealed class NativeDetailDecoder : IAsyncDisposable
                 DecodedTemperature = anchor.DecodedTemperature, DecodedTint = anchor.DecodedTint,
                 WbFrame = anchor.WbFrame,
                 WbHueSatMap = anchor.WbHueSatMap, WbHueSatMapLength = anchor.WbHueSatMapLength,
+                WbHueSatMapAsShotCct = anchor.WbHueSatMapAsShotCct,
                 CameraSupport = anchor.CameraSupport, LensProfile = anchor.LensProfile,
                 ProfileCurve = anchor.ProfileCurve, ResidualLut = anchor.ResidualLut, ResidualLutSize = anchor.ResidualLutSize,
                 DisplayLut = anchor.DisplayLut, DisplayLutN = anchor.DisplayLutN,
