@@ -20,16 +20,6 @@ namespace Maple.WinUI
         private string? _activeGroup;
         private string _colorTab = "Basic";
         private string _effectsTab = "Basic";
-        private string _curveChannel = "Luma";
-        private readonly Dictionary<string, MuiColorWheel> _gradeWheels = new();
-
-        private static readonly Dictionary<string, Windows.UI.Color> CurveChannelColors = new()
-        {
-            ["Luma"] = Windows.UI.Color.FromArgb(0xFF, 0xC4, 0x49, 0x3A),   // --pro-accent
-            ["Red"] = Windows.UI.Color.FromArgb(0xFF, 0xD1, 0x58, 0x4A),
-            ["Green"] = Windows.UI.Color.FromArgb(0xFF, 0x5A, 0xA3, 0x61),
-            ["Blue"] = Windows.UI.Color.FromArgb(0xFF, 0x4F, 0x7F, 0xC4),
-        };
 
         // --- Tool rail ---
         // Icons come from the shared Maple stroke family (MapleIconShapes) \u2014
@@ -192,63 +182,6 @@ namespace Maple.WinUI
                 RefreshCurvePlot();
         }
 
-        // --- Tone curve plot (#2576) ---
-
-        private List<Models.CurvePoint> CurveChannelPoints() => _curveChannel switch
-        {
-            "Red" => ViewModel.Adjustments.ToneCurveRed,
-            "Green" => ViewModel.Adjustments.ToneCurveGreen,
-            "Blue" => ViewModel.Adjustments.ToneCurveBlue,
-            _ => ViewModel.Adjustments.ToneCurveLuma,
-        };
-
-        private void OnCurveChannel(object sender, RoutedEventArgs e)
-        {
-            _curveChannel = ReferenceEquals(sender, CurveTabRed) ? "Red"
-                : ReferenceEquals(sender, CurveTabGreen) ? "Green"
-                : ReferenceEquals(sender, CurveTabBlue) ? "Blue"
-                : "Luma";
-            RefreshCurvePlot();
-        }
-
-        private void OnCurvePointsChanged(object? sender, IReadOnlyList<MuiCurvePoint> points)
-        {
-            var target = CurveChannelPoints();
-            target.Clear();
-            target.AddRange(points.Select(p => new Models.CurvePoint(p.X, p.Y)));
-            ViewModel.NotifyAdjustmentEdited();
-            CurveResetButton.IsEnabled = points.Count > 0;
-        }
-
-        private void OnCurveReset(object sender, RoutedEventArgs e)
-        {
-            CurveChannelPoints().Clear();
-            ViewModel.NotifyAdjustmentEdited();
-            RefreshCurvePlot();
-        }
-
-        private void RefreshCurvePlot()
-        {
-            CurveTabLuma.Selected = _curveChannel == "Luma";
-            CurveTabRed.Selected = _curveChannel == "Red";
-            CurveTabGreen.Selected = _curveChannel == "Green";
-            CurveTabBlue.Selected = _curveChannel == "Blue";
-            var points = CurveChannelPoints();
-            CurvePlot.AccentBrush = new SolidColorBrush(CurveChannelColors[_curveChannel]);
-            CurvePlot.Points = points.Select(p => new MuiCurvePoint(p.X, p.Y)).ToList();
-            CurveResetButton.IsEnabled = points.Count > 0;
-            UpdateCurveHistogram();
-        }
-
-        /// <summary>Feed the luma bins (ComputeHistogram tail) to the plot
-        /// backdrop; called whenever new histogram bins arrive.</summary>
-        private void UpdateCurveHistogram()
-        {
-            if (PanelCurveHost.Visibility != Visibility.Visible || _lastHistogramBins is not { Length: >= 1024 } bins)
-                return;
-            CurvePlot.HistogramBins = bins[768..1024];
-        }
-
         private void CloseGroupPanel()
         {
             if (_activeGroup == "Crop")
@@ -327,84 +260,6 @@ namespace Maple.WinUI
                 SyncGradeWheels();
         }
 
-        /// <summary>Build the four wheel cells (wheel + caption + luminance
-        /// slider) and the balance slider. Wheels are code-built per zone so
-        /// each MuiColorWheel wires straight to its zone view model.</summary>
-        private void BuildGradePanel()
-        {
-            var cells = new Dictionary<string, StackPanel>
-            {
-                ["Shadows"] = GradeCellShadows,
-                ["Midtones"] = GradeCellMidtones,
-                ["Highlights"] = GradeCellHighlights,
-                ["Global"] = GradeCellGlobal,
-            };
-            var gradeSliders = AdjustmentSections.Section(ViewModel.Sections, "Grade").Sliders;
-            foreach (var zone in ViewModel.GradeZones)
-            {
-                var wheel = new MuiColorWheel
-                {
-                    WheelSize = 108,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    AccessibleLabel = $"{zone.Name} color wheel",
-                };
-                var vm = zone;
-                wheel.ValueChanged += (_, v) => vm.ApplyWheel(v.Hue, v.Saturation);
-                wheel.ResetRequested += (_, _) => vm.Reset();
-                _gradeWheels[zone.Name] = wheel;
-
-                var label = new TextBlock
-                {
-                    Text = zone.Name,
-                    FontSize = 11,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    Foreground = (SolidColorBrush)Application.Current.Resources["MapleTextMain"],
-                };
-                var value = new TextBlock
-                {
-                    FontSize = 10,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    Foreground = (SolidColorBrush)Application.Current.Resources["MapleTextMuted"],
-                };
-                void SyncCaption()
-                {
-                    value.Text = vm.ValueText;
-                    wheel.Hue = vm.Hue;
-                    wheel.Saturation = vm.Saturation;
-                }
-                vm.PropertyChanged += (_, _) => SyncCaption();
-                SyncCaption();
-
-                var cell = cells[zone.Name];
-                cell.Children.Add(wheel);
-                cell.Children.Add(label);
-                cell.Children.Add(value);
-                var lum = gradeSliders.FirstOrDefault(s => s.Label == $"{zone.Name} Lum");
-                if (lum != null)
-                {
-                    cell.Children.Add(new ContentControl
-                    {
-                        Content = lum,
-                        ContentTemplate = (DataTemplate)((FrameworkElement)Content).Resources["SliderRowTemplate"],
-                        HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                    });
-                }
-            }
-            GradeBalanceHost.Content = gradeSliders.First(s => s.Label == "Balance");
-        }
-
-        private void SyncGradeWheels()
-        {
-            foreach (var zone in ViewModel.GradeZones)
-            {
-                if (_gradeWheels.TryGetValue(zone.Name, out var wheel))
-                {
-                    wheel.Hue = zone.Hue;
-                    wheel.Saturation = zone.Saturation;
-                }
-            }
-        }
-
         private void OnResetGroup(object sender, RoutedEventArgs e)
         {
             if (_activeGroup == null)
@@ -460,6 +315,10 @@ namespace Maple.WinUI
                     model.ToneCurveRed.Clear();
                     model.ToneCurveGreen.Clear();
                     model.ToneCurveBlue.Clear();
+                    model.ToneCurveMode = Models.ToneCurveMode.PerChannel;
+                    model.ParametricShadowSplit = MuiToneCurveSplitsMath.DefaultShadowSplit;
+                    model.ParametricMidtoneSplit = MuiToneCurveSplitsMath.DefaultMidtoneSplit;
+                    model.ParametricHighlightSplit = MuiToneCurveSplitsMath.DefaultHighlightSplit;
                     foreach (var slider in AdjustmentSections.Section(ViewModel.Sections, "Tone Curve").Sliders)
                         slider.ResetModelValue(model);
                 });
