@@ -30,7 +30,10 @@ fn trilinear_recovers_node_values() {
 #[test]
 fn sparse_pairs_stay_identity() {
     // A lone neutral pair leaves distant corner nodes at identity.
-    let pairs = vec![DisplayPair { maple: [0.5, 0.5, 0.5], jpeg: [0.5, 0.5, 0.5] }];
+    let pairs = vec![DisplayPair {
+        maple: [0.5, 0.5, 0.5],
+        jpeg: [0.5, 0.5, 0.5],
+    }];
     let lut = fit_lut_from_pairs(&pairs, 9, 1.0);
     let id = ColorLut::identity(9);
     assert!((lut.node(0, 0, 0)[0] - id.node(0, 0, 0)[0]).abs() < 1e-3);
@@ -102,14 +105,20 @@ fn recovers_uniform_shift() {
     let pairs: Vec<_> = (0..200)
         .map(|i| {
             let v = i as f32 / 199.0;
-            DisplayPair { maple: [v, v, v], jpeg: [(v + 0.1).min(1.0), v, v] }
+            DisplayPair {
+                maple: [v, v, v],
+                jpeg: [(v + 0.1).min(1.0), v, v],
+            }
         })
         .collect();
     let lut = fit_lut_from_pairs(&pairs, 9, 1.0);
     let mut px = vec![0.5f32, 0.5, 0.5];
     lut.apply(&mut px);
     assert!(px[0] > 0.55, "red not boosted: {}", px[0]);
-    assert!((px[1] - 0.5).abs() < 0.03 && (px[2] - 0.5).abs() < 0.03, "green/blue drifted");
+    assert!(
+        (px[1] - 0.5).abs() < 0.03 && (px[2] - 0.5).abs() < 0.03,
+        "green/blue drifted"
+    );
 }
 
 /// #1737 (b): out-of-gamut feathering + smoothness regularization.
@@ -253,4 +262,93 @@ mod gamut_feathering {
             }
         }
     }
+}
+
+/// #5101: an empty node with fitted data on both sides is a gap in the data,
+/// not the edge of it. Left at identity it becomes a pit in the residual
+/// field, which interpolation turns into a curvature spike (a banding kink)
+/// along any ramp that passes it; it takes its neighbours' correction instead.
+/// A node just past the edge of the data takes half of it, so the correction
+/// reaches identity over two cells rather than in one step, and a node far
+/// outside the data stays identity.
+#[test]
+fn an_empty_node_between_fitted_nodes_takes_their_correction() {
+    const SIZE: usize = 9;
+    let last = (SIZE - 1) as f32;
+    let shift = -0.06;
+    let hole = (4, 4, 4);
+    let pairs: Vec<DisplayPair> = (2..=6)
+        .flat_map(|b| (2..=6).flat_map(move |g| (2..=6).map(move |r| (r, g, b))))
+        .filter(|&node| node != hole)
+        .flat_map(|(r, g, b)| {
+            let maple = [r as f32 / last, g as f32 / last, b as f32 / last];
+            let jpeg = maple.map(|v| v + shift);
+            std::iter::repeat(DisplayPair { maple, jpeg }).take(64)
+        })
+        .collect();
+    let lut = fit_lut_from_pairs(&pairs, SIZE, 1.0);
+    let id = ColorLut::identity(SIZE);
+    let delta = |(r, g, b): (usize, usize, usize)| lut.node(r, g, b)[1] - id.node(r, g, b)[1];
+    let neighbour = delta((3, 4, 4));
+    assert!(neighbour < -0.04, "fitted neighbour {neighbour}");
+    assert!(
+        (delta(hole) - neighbour).abs() < 0.01,
+        "hole {} vs neighbour {neighbour}",
+        delta(hole)
+    );
+    let edge = delta((7, 4, 4));
+    assert!(
+        edge < 0.0 && edge > neighbour,
+        "edge {edge} sits between identity and the data edge {}",
+        delta((6, 4, 4))
+    );
+    assert_eq!(
+        delta((0, 0, 0)),
+        0.0,
+        "a node far outside the data stays identity"
+    );
+}
+
+/// #5101 follow-up: a lone fitted cell, which feathering removes entirely,
+/// leaves no ring of correction in the empty nodes around it, and the empty
+/// neighbours of a fitted region never chain the softening further out.
+#[test]
+fn softening_never_rings_a_lone_cell_or_spreads_past_one_node() {
+    const SIZE: usize = 9;
+    let last = (SIZE - 1) as f32;
+    let id = ColorLut::identity(SIZE);
+    let lone = [4.0 / last; 3];
+    let pairs = vec![
+        DisplayPair {
+            maple: lone,
+            jpeg: lone.map(|v| v - 0.06)
+        };
+        64
+    ];
+    let lut = fit_lut_from_pairs(&pairs, SIZE, 1.0);
+    for node in [(4, 4, 4), (3, 4, 4), (5, 4, 4), (4, 3, 4), (4, 4, 5)] {
+        let (r, g, b) = node;
+        assert_eq!(lut.node(r, g, b), id.node(r, g, b), "{node:?}");
+    }
+    let block: Vec<DisplayPair> = (2..=6)
+        .flat_map(|b| (2..=6).flat_map(move |g| (2..=6).map(move |r| (r, g, b))))
+        .flat_map(|(r, g, b)| {
+            let maple = [r as f32 / last, g as f32 / last, b as f32 / last];
+            std::iter::repeat(DisplayPair {
+                maple,
+                jpeg: maple.map(|v| v - 0.06),
+            })
+            .take(64)
+        })
+        .collect();
+    let lut = fit_lut_from_pairs(&block, SIZE, 1.0);
+    assert!(
+        lut.node(7, 4, 4)[1] < id.node(7, 4, 4)[1],
+        "edge node softened"
+    );
+    assert_eq!(
+        lut.node(8, 4, 4),
+        id.node(8, 4, 4),
+        "two nodes past the data"
+    );
 }

@@ -52,9 +52,9 @@ const MIN_LUT_PAIRS: usize = 256;
 ///
 /// Hard-bins every pair into its nearest grid cell, takes the per-cell mean shift
 /// toward the JPEG, damps sparse cells toward identity by a count confidence
-/// (`c = count / (count + FIT_CONF_COUNT)`), smooths the delta grid for cell-to-cell
-/// coherence (confidence-masked — populated cells aren't diluted by empty
-/// neighbours; trilinear interpolation fills empty cells at apply time), and
+/// (`c = count / (count + FIT_CONF_COUNT)`), smooths the delta grid for
+/// cell-to-cell coherence (confidence-masked — populated cells aren't diluted by
+/// empty neighbours), feathers it, softens the empty nodes beside it, and
 /// composes onto identity with `strength`. This is the O(pixels) limit of the
 /// former Gaussian RBF gather — at the resolved σ the kernel had collapsed to
 /// nearest-cell — so it uses ALL pairs for free in ms (no subsample, no σ). Grid
@@ -128,6 +128,7 @@ pub fn fit_lut_from_pairs(pairs: &[DisplayPair], size: usize, strength: f32) -> 
     // of dropping to zero in one step. Cells with no populated neighbour within
     // the radius are untouched (already zero).
     feather_to_identity(&mut delta, &populated, n);
+    soften_unfitted_neighbours(&mut delta, &populated, n);
 
     let mut lut = id.clone();
     for i in 0..n * n * n {
@@ -136,6 +137,57 @@ pub fn fit_lut_from_pairs(pairs: &[DisplayPair], size: usize, strength: f32) -> 
         }
     }
     lut
+}
+
+/// Interpolation only blends between nodes, so an empty node left at identity
+/// beside fitted data is a pit or a one-cell step that becomes a curvature
+/// spike along any ramp passing it (#5101). After feathering, an empty node
+/// with fitted nodes on both sides along some axis takes their mean
+/// correction, and one with a fitted face neighbour on one side only takes
+/// half of it. Reads only the feathered values of fitted nodes, so a cell
+/// feathering zeroed leaves zeros and nothing reaches further than one node.
+fn soften_unfitted_neighbours(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
+    let at = |p: [usize; 3]| (p[2] * n + p[1]) * n + p[0];
+    let fitted = |p: [usize; 3]| populated[at(p)];
+    let fills: Vec<(usize, [f32; 3])> = (0..n * n * n)
+        .filter(|&i| !populated[i])
+        .filter_map(|i| {
+            let node = [i % n, (i / n) % n, i / (n * n)];
+            let step = |axis: usize, up: bool| {
+                let v = node[axis];
+                (if up {
+                    (v + 1 < n).then_some(v + 1)
+                } else {
+                    v.checked_sub(1)
+                })
+                .map(|w| {
+                    let mut p = node;
+                    p[axis] = w;
+                    p
+                })
+            };
+            let bracketed = (0..3).any(|axis| {
+                [false, true]
+                    .iter()
+                    .all(|&up| step(axis, up).is_some_and(fitted))
+            });
+            let neighbours: Vec<[usize; 3]> = (0..3)
+                .flat_map(|axis| [step(axis, false), step(axis, true)])
+                .flatten()
+                .filter(|&p| fitted(p))
+                .collect();
+            (!neighbours.is_empty()).then(|| {
+                let weight = if bracketed { 1.0 } else { 0.5 } / neighbours.len() as f32;
+                let mean = neighbours.iter().fold([0.0f32; 3], |acc, &p| {
+                    std::array::from_fn(|c| acc[c] + weight * delta[at(p)][c])
+                });
+                (i, mean)
+            })
+        })
+        .collect();
+    for (i, value) in fills {
+        delta[i] = value;
+    }
 }
 
 /// Fit a per-image color [`ColorLut`] from an ALREADY-extracted embedded
@@ -165,8 +217,14 @@ pub fn fit_lut_from_preview(
     cs: JpegColorSpace,
     orientation: ExifOrientation,
 ) -> Option<ColorLut> {
-    let pairs =
-        super::pairs::sample_display_pairs(source_rgb, source_w, source_h, preview, cs, orientation);
+    let pairs = super::pairs::sample_display_pairs(
+        source_rgb,
+        source_w,
+        source_h,
+        preview,
+        cs,
+        orientation,
+    );
     if pairs.len() < MIN_LUT_PAIRS {
         return None;
     }
@@ -175,7 +233,7 @@ pub fn fit_lut_from_preview(
 
 /// In-place separable 1-2-1 smoothing of the per-cell delta grid over each RGB
 /// axis, **confidence-masked**: empty cells (no pairs) are left at identity-delta
-/// (trilinear interpolation fills them at apply time) and are excluded from their
+/// (filled later by `soften_unfitted_neighbours`) and are excluded from their
 /// neighbours' blends with renormalisation, so a populated cell at the colour-
 /// volume boundary isn't dragged toward identity by the empty cells outside the
 /// gamut. Borders replicate (clamp).
@@ -196,7 +254,8 @@ fn smooth3(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
                 let whi = if populated[hi] { 0.25 } else { 0.0 };
                 let wsum = wlo + 0.5 + whi;
                 for c in 0..3 {
-                    tmp[cu][c] = (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
+                    tmp[cu][c] =
+                        (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
                 }
             }
         }
@@ -216,7 +275,8 @@ fn smooth3(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
                 let whi = if populated[hi] { 0.25 } else { 0.0 };
                 let wsum = wlo + 0.5 + whi;
                 for c in 0..3 {
-                    tmp[cu][c] = (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
+                    tmp[cu][c] =
+                        (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
                 }
             }
         }
@@ -236,7 +296,8 @@ fn smooth3(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
                 let whi = if populated[hi] { 0.25 } else { 0.0 };
                 let wsum = wlo + 0.5 + whi;
                 for c in 0..3 {
-                    tmp[cu][c] = (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
+                    tmp[cu][c] =
+                        (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
                 }
             }
         }
