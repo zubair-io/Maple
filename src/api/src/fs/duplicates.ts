@@ -145,7 +145,8 @@ export async function moveToDuplicates(absPath: string, folderRoot: string): Pro
 /** An old-name edit still at the old path (a settle that kept its source) is
  * found only beside its photo (#5063). Checked before the other sidecars move,
  * the photo goes back beside it and the move reports failure, so the asset
- * keeps that location with all its sidecars. Never throws. */
+ * keeps that location with all its sidecars. When a new file has taken the old
+ * path, the move completes instead, so the asset follows its photo. Never throws. */
 async function keepPhotoWithOldNameEdit(
   absPath: string,
   movedTo: string,
@@ -156,12 +157,13 @@ async function keepPhotoWithOldNameEdit(
     (err: unknown) => {
       log.error(
         { absPath, movedTo, err: err instanceof Error ? err.message : err },
-        'moveToDuplicates: the photo could not go back beside its old-name edit',
+        'moveToDuplicates: the photo could not go back beside its old-name edit — move completed, edit left behind',
       );
       return false;
     },
   );
-  if (back) await fs.unlink(movedTo).catch(() => {});
+  if (!back) return null;
+  await fs.unlink(movedTo).catch(() => {});
   log.error({ absPath }, 'moveToDuplicates: an old-name backup edit stayed behind — move undone');
   return {
     kind: 'error',
