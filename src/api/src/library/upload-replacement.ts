@@ -4,10 +4,16 @@ import { findCoreInfoById } from '../db/repos/assets.repo.ts';
 import { hardDelete } from '../db/repos/assets.trash.ts';
 import { fileHash, jailedFile } from '../cloud-backup/inventory.ts';
 import { prepareIdenticalReplacementPurge } from '../cloud-backup/lifecycle.ts';
-import { unlinkPrimaryForPurge } from '../fs/mirrored.ts';
-import { listPairedSidecarsStrict } from '../fs/xmp-conflict.ts';
+import { unlink, unlinkPrimaryForPurge } from '../fs/mirrored.ts';
+import { listPairedSidecars, listPairedSidecarsStrict } from '../fs/xmp-conflict.ts';
 import { trashAssetById } from './asset-trash.ts';
+import { publishConflictBytes, sidecarStemClaimedBySibling } from '../fs/sidecar-ownership.ts';
+import { readSidecarBytes } from '../fs/sidecar-bytes.ts';
+import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
+import { child as childLogger } from '../log.ts';
 import { moveFileToTrash, moveToTrash } from '../fs/trash.ts';
+
+const log = childLogger('library/upload-replacement');
 
 /** Indexed replacement uses the same leased, durable Trash workflow as DELETE.
  * An unindexed file has no catalog or backup identity to fence: media that is
@@ -49,6 +55,32 @@ async function unlinkPurgedPrimary(filename: string): Promise<void> {
   }
 }
 
+/** Equal bytes don't make an edit redundant: a sidecar first written beside the
+ * trashed photo after the purge checked (#5069) follows the replacement as a
+ * `(conflict from move)` copy, and leaves the trash under its barrier once
+ * copied. One a trashed same-stem sibling still shares stays with that sibling. */
+async function carryLateEditsToReplacement(
+  trashedPath: string,
+  replacementPath: string,
+): Promise<void> {
+  if (await sidecarStemClaimedBySibling(trashedPath)) return;
+  for (const sidecar of await listPairedSidecars(trashedPath)) {
+    await serializeSidecarWrite(sidecar, async () => {
+      const bytes = await readSidecarBytes(sidecar);
+      if (bytes === null) return;
+      if (!(await publishConflictBytes(replacementPath, bytes))) {
+        throw new Error('no conflict copy could be published');
+      }
+      await unlink(sidecar);
+    }).catch((err: unknown) => {
+      log.error(
+        { sidecar, err: err instanceof Error ? err.message : err },
+        'identical replacement: a late edit could not follow — kept in Trash',
+      );
+    });
+  }
+}
+
 /** Prefix hashes are insufficient for erasure: compare the complete files.
  * Keep multi-location identities and their other surviving copies intact. */
 export async function discardIdenticalReplacement(
@@ -78,6 +110,7 @@ export async function discardIdenticalReplacement(
   )
     return false;
   for (const filename of files) await unlinkPurgedPrimary(filename);
+  await carryLateEditsToReplacement(trashedPath, replacementPath);
   await hardDelete(assetId);
   return true;
 }
