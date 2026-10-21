@@ -31,6 +31,7 @@ import { deleteReapedWithoutActiveBackup, hardDelete } from '../db/repos/assets.
 import { prepareTrashPurge } from '../cloud-backup/lifecycle.ts';
 import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
 import { listPairedSidecars } from '../fs/xmp-conflict.ts';
+import { oldNameEditUnreadable } from '../fs/legacy-backup-sidecar.ts';
 import { assetAbsPath, assetLibraryPath } from '../indexer/images.repo.ts';
 import { resolvePurgeCompanion } from '../library/purge-rendered-companion.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
@@ -116,6 +117,14 @@ async function purgeTrashedAsset(
     return { purged: false, errors: 1 };
   }
 
+  // A purge would strand an old-name edit it can't read (#5063); keep both for a retry.
+  if (await oldNameEditUnreadable(absPath)) {
+    log.warn(
+      { _id: doc._id.toHexString() },
+      "purge skip — the photo's old-name edit can't be read",
+    );
+    return { purged: false, errors: 1 };
+  }
   if (!(await prepareTrashPurge(doc._id.toHexString(), capturedTrashPurge(doc)))) {
     log.info(
       { assetId: doc._id.toHexString() },
