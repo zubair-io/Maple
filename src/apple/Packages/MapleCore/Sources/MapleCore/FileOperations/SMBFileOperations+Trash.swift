@@ -147,7 +147,7 @@ extension SMBFileOperations {
       guard !entry.name.lowercased().hasSuffix(FilenameVocabulary.originalPathMarkerSuffix) else {
         continue
       }
-      let sidecarPath = (entry.path as NSString).deletingPathExtension.appending(".xmp")
+      let sidecarPath = Self.sidecarPath(for: entry.path)
       let rel =
         entry.path.hasPrefix(trashPrefix)
         ? String(entry.path.dropFirst(trashPrefix.count)) : entry.path
