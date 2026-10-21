@@ -97,6 +97,9 @@ extension AdjustmentModel.FieldName {
     case .colorGradeGlobalHue: return \.colorGradeGlobalHue
     case .colorGradeGlobalSaturation: return \.colorGradeGlobalSaturation
     case .colorGradeGlobalLuminance: return \.colorGradeGlobalLuminance
+    case .colorGradeBlending: return \.colorGradeBlending
+    case .colorGradeShadowEdge: return \.colorGradeShadowEdge
+    case .colorGradeHighlightEdge: return \.colorGradeHighlightEdge
     // HSL 8-band per-channel adjustments (#1112).
     case .hueAdjustmentRed: return \.hueAdjustmentRed
     case .hueAdjustmentOrange: return \.hueAdjustmentOrange
@@ -256,6 +259,9 @@ extension AdjustmentModel.FieldName {
     case .colorGradeGlobalHue: return AdjustmentModel.colorGradeGlobalHueRange
     case .colorGradeGlobalSaturation: return AdjustmentModel.colorGradeGlobalSaturationRange
     case .colorGradeGlobalLuminance: return AdjustmentModel.colorGradeGlobalLuminanceRange
+    case .colorGradeBlending: return AdjustmentModel.colorGradeBlendingRange
+    case .colorGradeShadowEdge: return AdjustmentModel.colorGradeShadowEdgeRange
+    case .colorGradeHighlightEdge: return AdjustmentModel.colorGradeHighlightEdgeRange
     // HSL 8-band per-channel adjustments (#1112).
     case .hueAdjustmentRed: return AdjustmentModel.hueAdjustmentRedRange
     case .hueAdjustmentOrange: return AdjustmentModel.hueAdjustmentOrangeRange

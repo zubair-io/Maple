@@ -133,6 +133,9 @@ namespace Maple.WinUI.Models
         public double ColorGradeGlobalHue = 0.0;
         public double ColorGradeGlobalSaturation = 0.0;
         public double ColorGradeGlobalLuminance = 0.0;
+        public double ColorGradeBlending = 100.0;
+        public double ColorGradeShadowEdge = 0.564622;
+        public double ColorGradeHighlightEdge = 0.564622;
 
         // --- HSL 8-band (hue / sat / lum), all [-100, 100] ---
         public double HueAdjustmentRed, HueAdjustmentOrange, HueAdjustmentYellow, HueAdjustmentGreen,

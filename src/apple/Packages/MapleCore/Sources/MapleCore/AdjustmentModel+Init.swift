@@ -64,6 +64,9 @@ extension AdjustmentModel {
     colorGradeGlobalHue: Double = 0,
     colorGradeGlobalSaturation: Double = 0,
     colorGradeGlobalLuminance: Double = 0,
+    colorGradeBlending: Double = 100,
+    colorGradeShadowEdge: Double = 0.564622,
+    colorGradeHighlightEdge: Double = 0.564622,
     hueAdjustmentRed: Double = 0,
     hueAdjustmentOrange: Double = 0,
     hueAdjustmentYellow: Double = 0,
@@ -179,6 +182,9 @@ extension AdjustmentModel {
     self.colorGradeGlobalHue = colorGradeGlobalHue
     self.colorGradeGlobalSaturation = colorGradeGlobalSaturation
     self.colorGradeGlobalLuminance = colorGradeGlobalLuminance
+    self.colorGradeBlending = colorGradeBlending
+    self.colorGradeShadowEdge = colorGradeShadowEdge
+    self.colorGradeHighlightEdge = colorGradeHighlightEdge
     self.hueAdjustmentRed = hueAdjustmentRed
     self.hueAdjustmentOrange = hueAdjustmentOrange
     self.hueAdjustmentYellow = hueAdjustmentYellow

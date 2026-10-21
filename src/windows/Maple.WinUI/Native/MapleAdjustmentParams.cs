@@ -127,6 +127,9 @@ namespace Maple.WinUI.Native
         public float nr_sampling_scale;
         /// <summary>#4738: 0 = CAT16 (default), 1 = diagonal Rec.2020 gains.</summary>
         public uint wb_method;
+        public float color_grade_blending;
+        public float color_grade_shadow_edge;
+        public float color_grade_highlight_edge;
 
         /// <summary>
         /// Build params from the canonical model, mirroring the Swift reference
@@ -214,6 +217,9 @@ namespace Maple.WinUI.Native
                 color_grade_global_hue = (float)m.ColorGradeGlobalHue,
                 color_grade_global_saturation = (float)m.ColorGradeGlobalSaturation,
                 color_grade_global_luminance = (float)m.ColorGradeGlobalLuminance,
+                color_grade_blending = (float)m.ColorGradeBlending,
+                color_grade_shadow_edge = (float)m.ColorGradeShadowEdge,
+                color_grade_highlight_edge = (float)m.ColorGradeHighlightEdge,
                 sharpen_amount = (float)m.SharpenAmount,
                 sharpen_radius = (float)m.SharpenRadius,
                 sharpen_detail = (float)m.SharpenDetail,

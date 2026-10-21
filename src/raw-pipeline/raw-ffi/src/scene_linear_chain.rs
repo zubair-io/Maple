@@ -295,6 +295,11 @@ pub struct MapleAdjustmentParams {
     /// default, also what a zero-initialised or older host sends), `1` =
     /// legacy diagonal Rec.2020 gains. Unknown values fall back to CAT16.
     pub wb_method: u32,
+    /// Colour-grading zone-isolation controls (#5040). Zero-filled `(0, 0, 0)`
+    /// resolves to `(100.0, MIDTONE_ANCHOR_L, MIDTONE_ANCHOR_L)`.
+    pub color_grade_blending: f32,
+    pub color_grade_shadow_edge: f32,
+    pub color_grade_highlight_edge: f32,
 }
 
 /// Decode the local-adjustment layer stack (#1698) out of the C params, and

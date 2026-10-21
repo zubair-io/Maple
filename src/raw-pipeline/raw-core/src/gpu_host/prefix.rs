@@ -212,6 +212,9 @@ prefix_policy! {
         color_grade_global_hue: 0.0,
         color_grade_global_saturation: 0.0,
         color_grade_global_luminance: 0.0,
+        color_grade_blending: 100.0,
+        color_grade_shadow_edge: 0.564622,
+        color_grade_highlight_edge: 0.564622,
         // Display-referred point curves (#2232) — display-tail like grain /
         // color_grade, entirely inside the GPU chain (post-AgX); pin so
         // dragging a display-curve control can't spuriously re-develop.

@@ -168,6 +168,12 @@ extension _XMPParserDelegate {
       model.colorGradeGlobalSaturation = d(value) ?? model.colorGradeGlobalSaturation
     case "crs:ColorGradeGlobalLum":
       model.colorGradeGlobalLuminance = d(value) ?? model.colorGradeGlobalLuminance
+    case "papp:ColorGradeBlending":
+      model.colorGradeBlending = d(value) ?? model.colorGradeBlending
+    case "papp:ColorGradeShadowEdge":
+      model.colorGradeShadowEdge = d(value) ?? model.colorGradeShadowEdge
+    case "papp:ColorGradeHighlightEdge":
+      model.colorGradeHighlightEdge = d(value) ?? model.colorGradeHighlightEdge
     case "crs:WhiteBalance":
       model.whiteBalancePreset = WhiteBalancePreset(rawValue: value) ?? .custom
       if let (t, ti) = model.whiteBalancePreset.pair {

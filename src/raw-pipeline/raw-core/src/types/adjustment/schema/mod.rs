@@ -529,6 +529,9 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.0, 0.0), default_f32: 0.0, enum_name: "",
         doc: "Versioned LCP content reference (#2435), empty for embedded-only corrections. lcp1:<BLAKE3> requires an in-range match; lcp1-ack:<BLAKE3> records explicit acceptance of reported approximations. XMP key papp:LensProfile. Part of the decoded-image cache key.",
     },
+    color_grade::COLOR_GRADE_BLENDING,
+    color_grade::COLOR_GRADE_SHADOW_EDGE,
+    color_grade::COLOR_GRADE_HIGHLIGHT_EDGE,
 ];
 
 #[cfg(test)]

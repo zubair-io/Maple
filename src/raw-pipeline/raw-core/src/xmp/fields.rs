@@ -169,6 +169,12 @@ pub(super) fn set_field(
         "crs:ColorGradeGlobalHue" => m.color_grade_global_hue = v()?,
         "crs:ColorGradeGlobalSat" => m.color_grade_global_saturation = v()?,
         "crs:ColorGradeGlobalLum" => m.color_grade_global_luminance = v()?,
+        // Zone-isolation controls (#5040): Maple-proprietary `papp:ColorGrade*`
+        // keys (deliberately ignoring `crs:ColorGradeBlending` so Lightroom
+        // sidecars do not alter Maple's zone weights).
+        "papp:ColorGradeBlending" => m.color_grade_blending = v()?,
+        "papp:ColorGradeShadowEdge" => m.color_grade_shadow_edge = v()?,
+        "papp:ColorGradeHighlightEdge" => m.color_grade_highlight_edge = v()?,
         // HSL 8-band (#1112, tone/zoom design § 10.4). ACR/Lightroom-compatible
         // `crs:` keys for direct sidecar interchange. Band order: Red, Orange,
         // Yellow, Green, Aqua, Blue, Purple, Magenta.

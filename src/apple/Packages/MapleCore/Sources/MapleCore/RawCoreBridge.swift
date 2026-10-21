@@ -314,6 +314,9 @@ public enum RawCoreBridge {
     m.colorGradeGlobalHue = d.colorGradeGlobalHue
     m.colorGradeGlobalSaturation = d.colorGradeGlobalSaturation
     m.colorGradeGlobalLuminance = d.colorGradeGlobalLuminance
+    m.colorGradeBlending = d.colorGradeBlending
+    m.colorGradeShadowEdge = d.colorGradeShadowEdge
+    m.colorGradeHighlightEdge = d.colorGradeHighlightEdge
     m.grainAmount = d.grainAmount
     m.grainSize = d.grainSize
     m.grainRoughness = d.grainRoughness

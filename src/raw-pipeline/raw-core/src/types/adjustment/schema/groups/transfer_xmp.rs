@@ -81,6 +81,12 @@ pub const TRANSFER_XMP_ATTRIBUTES: &[(&str, &[&str])] = &[
         &["crs:ColorGradeGlobalSat"],
     ),
     ("color_grade_global_luminance", &["crs:ColorGradeGlobalLum"]),
+    ("color_grade_blending", &["papp:ColorGradeBlending"]),
+    ("color_grade_shadow_edge", &["papp:ColorGradeShadowEdge"]),
+    (
+        "color_grade_highlight_edge",
+        &["papp:ColorGradeHighlightEdge"],
+    ),
     ("hue_adjustment_red", &["crs:HueAdjustmentRed"]),
     ("hue_adjustment_orange", &["crs:HueAdjustmentOrange"]),
     ("hue_adjustment_yellow", &["crs:HueAdjustmentYellow"]),

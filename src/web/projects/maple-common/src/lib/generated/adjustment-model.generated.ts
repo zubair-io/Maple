@@ -288,6 +288,12 @@ export interface GeneratedAdjustmentModel {
   defringeGreenHueHi: number;
   /** Versioned LCP content reference (#2435), empty for embedded-only corrections. lcp1:<BLAKE3> requires an in-range match; lcp1-ack:<BLAKE3> records explicit acceptance of reported approximations. XMP key papp:LensProfile. Part of the decoded-image cache key. */
   lensProfile: string;
+  /** Colour-grading zone transition blending (#5040); 100 = full smooth ramp across [0, shadow_edge] and [highlight_edge, 1], 0 = crisp step near the edges. XMP: papp:ColorGradeBlending. Range: [0.0, 100.0]. */
+  colorGradeBlending: number;
+  /** Colour-grading shadow zone upper Oklab-L edge (#5040); defaults to MIDTONE_ANCHOR_L (cbrt(0.18) ≈ 0.564622). XMP: papp:ColorGradeShadowEdge. Range: [0.1, 0.564622]. */
+  colorGradeShadowEdge: number;
+  /** Colour-grading highlight zone lower Oklab-L edge (#5040); defaults to MIDTONE_ANCHOR_L (cbrt(0.18) ≈ 0.564622). XMP: papp:ColorGradeHighlightEdge. Range: [0.564622, 0.9]. */
+  colorGradeHighlightEdge: number;
 }
 
 /** Canonical raw-core defaults, generated from `ADJUSTMENT_SCHEMA`. */
@@ -417,5 +423,8 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     defringeGreenHueLo: 40.0,
     defringeGreenHueHi: 60.0,
     lensProfile: '',
+    colorGradeBlending: 100.0,
+    colorGradeShadowEdge: 0.564622,
+    colorGradeHighlightEdge: 0.564622,
   };
 }

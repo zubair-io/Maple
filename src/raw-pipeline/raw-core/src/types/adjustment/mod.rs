@@ -194,104 +194,46 @@ pub struct AdjustmentModel {
     pub sharpen_detail: f32, // 0..100, default 25 (edge-attenuation strength)
     pub sharpen_masking: f32, // 0..100, default 0 (edge-mask threshold)
     pub capture_sharpening_amount: f32, // 0..100, default 0 (Richardson–Lucy strength; 0 = stage skipped)
-    /// Capture-sharpening Gaussian PSF sigma in pixels (range 0.5..2.0, default 1.0).
-    ///
-    /// PR #452 swapped the integer-radius tripled-box-blur PSF for a true
-    /// Gaussian parameterised by float sigma. The XMP/model field was kept
-    /// as `capture_sharpening_radius` at that point — a silent semantic
-    /// shift. #456 renames the canonical model field to
-    /// `capture_sharpening_sigma`; the legacy `capture_sharpening_radius`
-    /// is retained as a `#[deprecated]` alias so external Rust callers
-    /// still compile (with a warning) and the XMP parser still reads
-    /// `papp:CaptureSharpeningRadius` for back-compat with existing sidecars.
+    /// Capture-sharpening Gaussian PSF sigma in pixels (0.5..2.0, default 1.0; #456).
     pub capture_sharpening_sigma: f32,
-    /// Deprecated: use [`AdjustmentModel::capture_sharpening_sigma`].
-    ///
-    /// The field's interpretation changed in PR #452 from integer radius
-    /// (tripled-box-blur taps) to float Gaussian sigma in pixels — same
-    /// numeric type, different units. #456 renames the canonical field;
-    /// this alias remains so source constructing `AdjustmentModel` by name
-    /// keeps compiling. No code reads this field anymore — the XMP
-    /// back-compat read-path writes `papp:CaptureSharpeningRadius` into
-    /// `capture_sharpening_sigma` directly, with no rescale (no shipping
-    /// sidecar carries a non-zero value, so rescaling would be a guess).
+    /// Deprecated alias for [`AdjustmentModel::capture_sharpening_sigma`] (#456).
     #[deprecated(
         since = "0.0.0",
         note = "use `capture_sharpening_sigma`; the field's meaning changed from \
                 integer radius to float Gaussian sigma in PR #452"
     )]
-    pub capture_sharpening_radius: f32, // 0.5..2.0, default 1.0 (kept as a deprecated alias; see field doc)
+    pub capture_sharpening_radius: f32,
     pub nr_luminance: f32, // 0..100, default 0 (spec § 3.11)
     pub nr_color: f32,     // 0..100, default 25 (default = the reference renderer's default)
     pub dehaze: f32,       // -100..100, default 0
 
-    // S5 effects fields (ticket #643 model/UI). Defaults are chosen so an
-    // absent-attribute sidecar (or a freshly-created model) produces
-    // bit-identical output to the pre-#643 pipeline. All three tools are
-    // real pipeline stages now: vignette (#1109), grain (#1110), split
-    // tone (#1111).
-    //
-    // Vignette (#1109, tone/zoom design § 10.1): scene-linear radial EV
-    // gain, `stages::vignette`. Drag-bar drives `vignette_amount`;
-    // `vignette_feather` maps onto the mask transition width.
+    // S5 effects (#643): vignette (#1109), grain (#1110), film (#2683), color grade (#275).
     pub vignette_amount: f32, // -100..100, default 0 (negative = darken corners)
     pub vignette_feather: f32, // 0..100, default 50 (transition softness)
-
-    // Grain (#1110, tone/zoom design § 10.2): display-linear deterministic
-    // film grain, `stages::grain`. Drag-bar drives `grain_amount`; size +
-    // roughness ride the sub-param row.
     pub grain_amount: f32,    // 0..100, default 0
     pub grain_size: f32,      // 0..100, default 25
     pub grain_roughness: f32, // 0..100, default 50
+    /// Film emulation look id from the film catalog (#2683); empty = none (`papp:FilmLook`).
+    pub film_look: String,
+    /// Film look blend strength in percent; 100 = full look (`papp:FilmStrength`).
+    pub film_strength: f32,
 
-    /// Film emulation look id from the film catalog (film design
-    /// 2026-08-06, epic #2683) — selects a baked `.mlut` grade
-    /// (`raw_core::film`) applied between `color_grade` and `grain`. Empty (default) = none;
-    /// the stage is a no-op. An id the catalog doesn't recognise resolves
-    /// as identity at render time rather than erroring the parse, so a
-    /// sidecar authored against a newer catalog still opens. XMP key
-    /// `papp:FilmLook`.
-    pub film_look: String, // default "" (none)
-    /// Film look blend strength in percent; 100 (default) = full look,
-    /// lerped in display-linear against the pre-look value. Meaningless
-    /// while `film_look` is empty. XMP key `papp:FilmStrength`.
-    pub film_strength: f32, // 0..100, default 100
-
-    // Colour grading (#275): display-linear Oklab three-zone tint,
-    // `stages::color_grade`. Supersedes split toning (#1111) the way
-    // Lightroom's Color Grading panel superseded the Split Toning panel —
-    // the shadow/highlight hue+saturation pairs and the balance ARE the
-    // split-toning sliders, and keep writing ACR's own `crs:SplitToning*`
-    // keys, exactly as ACR does from its Color Grading panel.
-    // Hue is in degrees (Lightroom convention); saturation is `[0, 100]`.
+    // Colour grading (#275): display-linear Oklab three-zone tint (`stages::color_grade`).
     pub split_tone_shadow_hue: f32,           // 0..360, default 0
     pub split_tone_shadow_saturation: f32,    // 0..100, default 0
     pub split_tone_highlight_hue: f32,        // 0..360, default 0
     pub split_tone_highlight_saturation: f32, // 0..100, default 0
     pub split_tone_balance: f32,              // -100..100, default 0
-
-    // The rest of the Color Grading panel (#275): the midtone zone, the
-    // three per-zone luminance offsets, and the unweighted global wheel.
-    // ACR namespaces these under `crs:ColorGrade*`.
-    pub color_grade_shadow_luminance: f32, // -100..100, default 0
-    pub color_grade_midtone_hue: f32,      // 0..360, default 0
-    pub color_grade_midtone_saturation: f32, // 0..100, default 0
-    pub color_grade_midtone_luminance: f32, // -100..100, default 0
+    pub color_grade_shadow_luminance: f32,    // -100..100, default 0
+    pub color_grade_midtone_hue: f32,         // 0..360, default 0
+    pub color_grade_midtone_saturation: f32,  // 0..100, default 0
+    pub color_grade_midtone_luminance: f32,   // -100..100, default 0
     pub color_grade_highlight_luminance: f32, // -100..100, default 0
-    pub color_grade_global_hue: f32,       // 0..360, default 0
-    pub color_grade_global_saturation: f32, // 0..100, default 0
-    pub color_grade_global_luminance: f32, // -100..100, default 0
+    pub color_grade_global_hue: f32,          // 0..360, default 0
+    pub color_grade_global_saturation: f32,   // 0..100, default 0
+    pub color_grade_global_luminance: f32,    // -100..100, default 0
 
-    // HSL 8-band hue/saturation/luminance (#1112, tone/zoom design § 10.4).
-    // 24 ACR `crs:` fields: 8 hue adjustments, 8 saturation adjustments,
-    // 8 luminance adjustments. All default to 0 (identity). Range −100..+100.
-    // Scene-linear Oklab stage positioned after saturation, before clarity.
-    // Chroma-gated so the neutral axis is exactly stable.
-    // XMP keys: `crs:HueAdjustmentRed` … `crs:HueAdjustmentMagenta`,
-    //           `crs:SaturationAdjustmentRed` … `crs:SaturationAdjustmentMagenta`,
-    //           `crs:LuminanceAdjustmentRed` … `crs:LuminanceAdjustmentMagenta`.
-    // Band order: Red(0), Orange(1), Yellow(2), Green(3),
-    //             Aqua(4), Blue(5), Purple(6), Magenta(7).
+    // HSL 8-band hue/saturation/luminance (#1112, `stages::hsl`, `crs:*Adjustment*`).
     pub hue_adjustment_red: f32,            // -100..100, default 0
     pub hue_adjustment_orange: f32,         // -100..100, default 0
     pub hue_adjustment_yellow: f32,         // -100..100, default 0
@@ -317,15 +259,7 @@ pub struct AdjustmentModel {
     pub luminance_adjustment_purple: f32,   // -100..100, default 0
     pub luminance_adjustment_magenta: f32,  // -100..100, default 0
 
-    // Black & white mix (#276). `black_white` toggles the 8-band Oklab
-    // stage into its monochrome path; the eight `gray_mixer_*` weights
-    // then drive the `L` plane over the SAME hue bands as the HSL panel
-    // (`stages::hsl::HUE_CENTERS_DEG` / `BAND_HALF_WIDTH_DEG` /
-    // `CHROMA_GATE_C0` — deliberately not a second set of constants) and
-    // chroma is forced to zero everywhere. The 24 HSL sliders above are
-    // inert while `black_white` is `On`.
-    // XMP keys: `crs:ConvertToGrayscale`, `crs:GrayMixerRed` …
-    //           `crs:GrayMixerMagenta` (ACR/Lightroom-compatible).
+    // Black & white mix (#276, `crs:ConvertToGrayscale` + `crs:GrayMixer*`).
     pub black_white: BlackWhiteMode,
     pub gray_mixer_red: f32,     // -100..100, default 0
     pub gray_mixer_orange: f32,  // -100..100, default 0
@@ -337,193 +271,51 @@ pub struct AdjustmentModel {
     pub gray_mixer_magenta: f32, // -100..100, default 0
 
     pub highlight_recovery: HighlightRecoveryMode,
-
-    /// Per-image auto-exposure mode (ticket #429). Default `On` — places
-    /// scene mid-gray at 0.18 before AgX so every camera/scene lands at
-    /// the same point on the AgX sigmoid by default. `exposure` stacks
-    /// additively in EV on top: `final = scene * anchor_gain * 2^exposure`.
-    /// Set to `Off` for strict scene-referred output.
+    /// Per-image auto-exposure mode (#429). Default `On` anchors mid-gray at 0.18 before AgX.
     pub auto_exposure: AutoExposureMode,
-
-    /// DisplayLookCurve (ticket #371; **retired #443** — Wave-3 closing
-    /// step of #416). The empirical 1D u8→u8 LUT was removed; both
-    /// `Look::Default` and `Look::Neutral` are now identical no-ops at the
-    /// pipeline level. The field is kept so `papp:Look` in pre-#443
-    /// sidecars round-trips. Setting this field has **no effect on
-    /// rendered output** — gated by `tests::look_field_is_no_op` in the
-    /// render module.
+    /// Retired DisplayLookCurve (#371/#443); kept as a no-op for `papp:Look` round-trip.
     pub look: Look,
-
-    /// Render-shaping profile (Auto Profile Phase 1, ticket #536). Selects
-    /// between the per-image curve fit (`Auto`, default) and the
-    /// scene-referred AgX view transform (`Neutral`). Pipeline dispatch
-    /// is wired in T6; until then this field is parsed and round-trips
-    /// through XMP but has no effect on rendered output. See [`Profile`].
+    /// Render-shaping profile (#536): `Auto` (default) vs `Neutral` (scene-referred AgX).
     pub profile: Profile,
-
-    /// Local adjustment layers (ticket #280). Each entry pairs a `Mask`
-    /// (linear / radial gradient) with a `PartialAdjustments` payload, and
-    /// is applied between `dehaze` and `sharpen` in the develop chain. An
-    /// empty `Vec` (the default) means the stage short-circuits — bit-for-bit
-    /// identical to the pre-#280 pipeline. **Not part of `ADJUSTMENT_SCHEMA`**
-    /// (see `schema` module-level doc).
+    /// Local adjustment layers (#280, not part of `ADJUSTMENT_SCHEMA`).
     pub local_adjustments: Vec<super::local_adjustment::LocalAdjustment>,
-
-    /// Registered rasters `local_adjustments`' `Mask::Bitmap` layers refer
-    /// to by id (#3271, spec §5.3). Derived data, populated by the host
-    /// (`raw-ffi`'s mask-raster registry) from a process-wide store keyed
-    /// by digest — never parsed from or written to the sidecar, and never
-    /// copied by copy/paste settings, same as `local_adjustments` itself.
-    /// **Not part of `ADJUSTMENT_SCHEMA`.**
+    /// Registered bitmap-mask rasters (#3271, not part of `ADJUSTMENT_SCHEMA`).
     pub mask_rasters: Vec<std::sync::Arc<super::local_adjustment::MaskRaster>>,
-
-    /// Baked AI-removal layers (ticket #1486). Each carries a mask region, a
-    /// content-hash reference to the synthetic-raw patch
-    /// (`.maple/inpaint/<patch_ref>.f16`), and the bake-grade snapshot. The
-    /// patch pixels are out-of-band; only this metadata round-trips through XMP
-    /// (`papp:InpaintRemovals`). **Not part of `ADJUSTMENT_SCHEMA`** (same
-    /// rationale as `local_adjustments`). Empty `Vec` (the default) is a no-op —
-    /// the compositor short-circuits.
+    /// Baked AI-removal layers (#1486, not part of `ADJUSTMENT_SCHEMA`).
     pub inpaint_removals: Vec<super::inpaint::Removal>,
-
-    /// Clone / heal repair spots (#3409), applied in list order — see
-    /// [`super::retouch`] for the model and `stages::retouch` for the apply.
-    /// A **decode-product** edit, so it joins `deep_denoise`'s cache-key
-    /// family; **not part of `ADJUSTMENT_SCHEMA`** (it rides the nested
-    /// `crs:RetouchAreas` element, same rationale as `local_adjustments`).
-    /// An empty `Vec` (the default) is a bit-identical skip.
+    /// Clone / heal repair spots (#3409, not part of `ADJUSTMENT_SCHEMA`).
     pub retouch_spots: Vec<super::retouch::RetouchSpot>,
-
-    /// Tone-curve application mode (ticket #436). Controls how the
-    /// three per-channel `tone_curve_{red,green,blue}` curves are applied:
-    /// `PerChannel` (default) treats them as three independent 1-D LUTs
-    /// per RGB lane (hue shifts on saturated input); `RatioPreserving`
-    /// folds them through Rec.2020 luma to produce one scale factor (hue
-    /// preserved). See [`ToneCurveMode`].
+    /// Tone-curve application mode (#436): `PerChannel` (default) vs `RatioPreserving`.
     pub tone_curve_mode: ToneCurveMode,
 
-    // Per-channel point curves. Each is a `ToneCurve` of control points in
-    // `[0, 1]` × `[0, 1]` authoring space; identity == empty `Vec`. Applied
-    // in the same stage as the parametric curve above:
-    //
-    //   `tone_curve_luma` applies in scene-linear, channels-uniformly via the
-    //   Rec.2020 luma weights — like `highlights` step 2, hue is preserved
-    //   by construction (uniform scalar from `Y_new / Y_old`).
-    //
-    //   `tone_curve_red`, `tone_curve_green`, `tone_curve_blue` apply per
-    //   `tone_curve_mode` above — `PerChannel` (hue-shifting) or
-    //   `RatioPreserving` (hue-preserving via Rec.2020 luma fold).
-    //
-    // All four short-circuit when the curve is identity (`Vec::is_empty()`).
+    // Scene-linear point curves (#273, pre-AgX; `tone_curve_luma` is luma-coupled).
     pub tone_curve_luma: ToneCurve,
     pub tone_curve_red: ToneCurve,
     pub tone_curve_green: ToneCurve,
     pub tone_curve_blue: ToneCurve,
 
-    // Display-referred point curves (ticket #2232) — Adobe's
-    // `crs:ToneCurvePV2012*`. A DIFFERENT quantity from the four
-    // `tone_curve_*` fields above: those apply pre-AgX in scene-linear
-    // light; these apply POST-AgX in display-linear `[0, 1]`, evaluated by
-    // `stages::display_tone_curve`. Both families can carry an authored
-    // curve on the same image at once (a Lightroom import keeps its
-    // display-referred curve; a Maple-only edit uses the scene-linear one).
-    //
-    //   `display_tone_curve_luma` (the PV2012 "master" curve) applies to
-    //   R, G and B INDEPENDENTLY with the same curve function — NOT
-    //   luma-coupled. This mirrors Adobe Camera Raw's own point-curve
-    //   behaviour (the same per-channel application every RGB "Curves"
-    //   tool uses), which is why a strong PV2012 curve can slightly
-    //   desaturate — that is the target Lightroom rendering, not a defect.
-    //
-    //   `display_tone_curve_red/green/blue` apply per-channel on top,
-    //   independently — display-referred RGB curves have no hue-preserving
-    //   mode (unlike `tone_curve_mode` above, PV2012 has no ratio-preserving
-    //   concept).
-    //
-    // All four short-circuit when identity (`ToneCurve::is_identity()`).
+    // Display-referred point curves (#2232, `crs:ToneCurvePV2012*`, post-AgX per-channel).
     pub display_tone_curve_luma: ToneCurve,
     pub display_tone_curve_red: ToneCurve,
     pub display_tone_curve_green: ToneCurve,
     pub display_tone_curve_blue: ToneCurve,
 
-    /// Decode-time chroma pre-filter strength (#1104, tone/zoom design
-    /// § 3.1). Luma-guided sparse cross-bilateral on opponent chroma,
-    /// applied inside the decode product (post-DCP, pre auto-exposure) —
-    /// see `stages::chroma_prefilter`. 0 (default) is an exact
-    /// bit-identical skip. Because it is a decode-product parameter,
-    /// changing it invalidates the decoded-image caches (Apple keys the
-    /// decode on the baked/stripped model, web on the stripped prefix
-    /// model — both carry this field). XMP key `papp:ChromaPrefilter`.
-    ///
-    /// Declared at the struct tail (not next to `nr_color`) so schema
-    /// additions stay append-only — keeps parallel schema PRs (#1129 /
-    /// #1133) rebase-mechanical.
-    pub chroma_prefilter: f32, // 0..100, default 0
-
-    /// Hot/dead-pixel suppression (#1106, tone/zoom design § 10.6).
-    /// Pre-demosaic same-color-neighbor outlier replacement — see
-    /// [`HotPixelSuppressionMode`] and `stages::hot_pixel`. `Off`
-    /// (default) is an exact bit-identical skip. A decode-product
-    /// parameter: carried by the same decoded-image cache keys as
-    /// `chroma_prefilter`. XMP key `papp:HotPixelSuppression`.
+    /// Decode-time chroma pre-filter strength (#1104, 0..100, default 0, `papp:ChromaPrefilter`).
+    pub chroma_prefilter: f32,
+    /// Pre-demosaic hot/dead-pixel suppression (#1106, `papp:HotPixelSuppression`).
     pub hot_pixel_suppression: HotPixelSuppressionMode,
-
-    /// BM3D deep denoise strength (#1105, tone/zoom design § 3.2).
-    /// Two-stage collaborative filtering on opponent channels, applied
-    /// input-referred immediately after `chroma_prefilter` inside the
-    /// decode product — see `stages::bm3d`. 0 (default) is an exact
-    /// bit-identical skip. A decode-product parameter: the decoded-image
-    /// caches key on it like `chroma_prefilter` (Apple #950 baked model,
-    /// web stripped prefix model); NOT keyed on sidecar mtime. Never runs
-    /// on the tile path (the tile FFI rejects it like dehaze). XMP key
-    /// `papp:DeepDenoise`.
-    pub deep_denoise: f32, // 0..100, default 0
-
-    /// Geometry — crop rect (normalised to display-oriented dimensions) plus
-    /// straighten angle. Default is [`Crop::IDENTITY`] (full frame, 0°), in
-    /// which case the crop stage is skipped and the XMP serializer omits the
-    /// whole `crs:Crop*` group + `crs:HasCrop` marker per spec § 01 invariant 3.
-    /// See [`Crop`] and `stages::crop` for the geometry math.
+    /// BM3D deep denoise strength (#1105, 0..100, default 0, `papp:DeepDenoise`).
+    pub deep_denoise: f32,
+    /// Geometry — crop rect plus straighten angle (#277, default [`Crop::IDENTITY`]).
     pub crop: Crop,
 
-    // DNG-embedded lens corrections (#376). The vendor's own distortion /
-    // lateral-CA / vignetting corrections travel inside the DNG as
-    // `OpcodeList3` opcodes (`WarpRectilinear`, `FixVignetteRadial`,
-    // `GainMap`); these four fields scale them. They are **decode-product**
-    // parameters — the opcodes are resampled/multiplied into the demosaiced
-    // camera-RGB buffer before DCP, upstream of every per-tick GPU stage —
-    // so they belong to the same cache-key family as `chroma_prefilter`,
-    // `deep_denoise` and `hot_pixel_suppression`, and there is deliberately
-    // no WGSL/Metal mirror of them.
-    //
-    // Declared at the struct tail so schema additions stay append-only.
-    /// Master on/off for the DNG's embedded lens corrections. `Off`
-    /// overrides all three scales below. XMP key `crs:LensProfileEnable`.
+    // DNG-embedded lens corrections (#376, `crs:LensProfile*`, decode-product parameters).
     pub lens_profile_enable: LensProfileEnable,
-    /// Geometric-distortion correction strength — the `WarpRectilinear`
-    /// component common to all three planes. XMP key
-    /// `crs:LensProfileDistortionScale`.
     pub lens_correction_distortion: f32, // 0..100, default 100
-    /// Lateral chromatic-aberration correction strength — each plane's
-    /// `WarpRectilinear` deviation from the green reference plane. A DNG
-    /// carrying a single coefficient set encodes no CA, so this field has
-    /// no effect there. XMP key
-    /// `crs:LensProfileChromaticAberrationScale`.
-    pub lens_correction_ca: f32, // 0..100, default 100
-    /// Vignetting / lens-shading correction strength — the
-    /// `FixVignetteRadial` and `GainMap` gain opcodes. XMP key
-    /// `crs:LensProfileVignettingScale`.
+    pub lens_correction_ca: f32,         // 0..100, default 100
     pub lens_correction_vignetting: f32, // 0..100, default 100
 
-    // Manual geometry (#3410) — Adobe's `crs:Perspective*` seven, composed
-    // into ONE homography by `stages::perspective` and applied between EXIF
-    // orientation and the user crop on the CPU tail and the GPU present path
-    // alike, so canvas and export frame identically. All seven at default
-    // compose to the exact identity matrix, which the stage short-circuits, so
-    // the parity-harness baseline pays nothing. Per-field semantics and the
-    // normalized coefficients each unit maps to: `schema/perspective.rs` and
-    // `stages::perspective::matrix`. Declared at the struct tail so schema
-    // additions stay append-only.
+    // Manual geometry (#3410, `crs:Perspective*`, composed into `stages::perspective`).
     pub perspective_vertical: f32,   // -100..100, default 0
     pub perspective_horizontal: f32, // -100..100, default 0
     pub perspective_rotate: f32,     // -10..10 degrees, clockwise-positive, default 0
@@ -531,23 +323,9 @@ pub struct AdjustmentModel {
     pub perspective_aspect: f32,     // -100..100, default 0
     pub perspective_x: f32,          // -100..100, default 0
     pub perspective_y: f32,          // -100..100, default 0
-    /// Bayer demosaic kernel override (#3413). `Auto` (default) lets
-    /// `crate::demosaic::policy` pick from the frame's noise profile and
-    /// size; every other value pins one kernel. A decode-product parameter,
-    /// in the same cache-key family as `chroma_prefilter` and
-    /// `hot_pixel_suppression`. XMP key `papp:Demosaic`. See
-    /// [`DemosaicChoice`].
+    /// Bayer demosaic kernel override (#3413, decode-product parameter, `papp:Demosaic`).
     pub demosaic: DemosaicChoice,
-    // Profile-free lens corrections (#3411). The block above scales what a
-    // DNG's `OpcodeList3` already encodes; these seven measure the
-    // aberration from the image itself, so they are the only lateral-CA or
-    // fringe control a CR2 / RAF / ARW / NEF ever gets. `auto_lateral_ca`
-    // is a DECODE-PRODUCT parameter (raw-domain, between `hot_pixel` and
-    // `demosaic`) riding the same cache keys as `chroma_prefilter`, with
-    // deliberately no WGSL mirror; the six `defringe_*` fields are PER-TICK
-    // sliders that do have one. All seven default to inert, and sit at the
-    // struct tail so schema additions stay append-only. Field docs live on
-    // their `ADJUSTMENT_SCHEMA` entries in `schema/lens_auto.rs`.
+    // Profile-free lens corrections (#3411, `schema/lens_auto.rs`).
     pub auto_lateral_ca: AutoLateralCa,
     pub defringe_purple_amount: f32, // 0..20, default 0
     pub defringe_purple_hue_lo: f32, // 0..100, default 30
@@ -555,11 +333,12 @@ pub struct AdjustmentModel {
     pub defringe_green_amount: f32,  // 0..20, default 0
     pub defringe_green_hue_lo: f32,  // 0..100, default 40
     pub defringe_green_hue_hi: f32,  // 0..100, default 60
-    /// Versioned content-addressed LCP selection. Empty keeps embedded-only
-    /// correction. `lcp1-ack:` records explicit acceptance of approximations.
-    /// The referenced profile must be cached before rendering; missing data
-    /// is an error, never an unannounced change of optical correction.
+    /// Versioned content-addressed LCP selection (#2435, `papp:LensProfile`).
     pub lens_profile: String,
+    // Colour-grading zone-isolation controls (#5040, `papp:ColorGrade*`).
+    pub color_grade_blending: f32,       // 0..100, default 100
+    pub color_grade_shadow_edge: f32,    // 0.10..0.564622, default 0.564622 (MIDTONE_ANCHOR_L)
+    pub color_grade_highlight_edge: f32, // 0.564622..0.90, default 0.564622 (MIDTONE_ANCHOR_L)
 }
 
 /// Fresh-import defaults. Split into a sibling module (#376) so this

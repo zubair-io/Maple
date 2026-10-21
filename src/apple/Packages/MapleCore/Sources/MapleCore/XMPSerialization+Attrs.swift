@@ -196,6 +196,15 @@ extension XMPSerializer {
     if model.colorGradeGlobalLuminance != 0 {
       attrs.append(("crs:ColorGradeGlobalLum", fmtNum(model.colorGradeGlobalLuminance)))
     }
+    if fmtNum(model.colorGradeBlending) != fmtNum(100) {
+      attrs.append(("papp:ColorGradeBlending", fmtNum(model.colorGradeBlending)))
+    }
+    if fmtNum(model.colorGradeShadowEdge) != fmtNum(0.564622) {
+      attrs.append(("papp:ColorGradeShadowEdge", fmtNum(model.colorGradeShadowEdge)))
+    }
+    if fmtNum(model.colorGradeHighlightEdge) != fmtNum(0.564622) {
+      attrs.append(("papp:ColorGradeHighlightEdge", fmtNum(model.colorGradeHighlightEdge)))
+    }
     attrs += XMPSerializer.hslAttrs(model: model)
     // Black & white mix (#276) — toggle + eight gray-mixer weights.
     attrs += XMPSerializer.blackWhiteAttrs(model: model)
