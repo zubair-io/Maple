@@ -16,11 +16,32 @@
 // `preserveAspectRatio="none"` scales user space non-uniformly, so every
 // stroke has to opt out of that scaling or the grid goes anisotropic.
 .hist,
+.region-window,
 .grid,
 .identity,
 .curve,
-.knot {
+.knot,
+.split-diamond {
   vector-effect: non-scaling-stroke;
+}
+
+.region-window {
+  fill: var(--pro-accent-28);
+  stroke: var(--pro-accent);
+  stroke-width: 0.5;
+  pointer-events: none;
+}
+
+.split-diamond {
+  fill: var(--pro-text);
+  stroke: var(--pro-accent);
+  stroke-width: 1.25;
+  cursor: ew-resize;
+  outline: none;
+
+  &:focus-visible {
+    stroke-width: 2.25;
+  }
 }
 
 .hist {

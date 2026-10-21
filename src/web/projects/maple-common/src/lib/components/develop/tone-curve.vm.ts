@@ -17,10 +17,20 @@ import {
   ADJUSTMENT_RANGES,
   type AdjustmentModel,
   type ToneCurve,
+  type ToneCurveMode,
   type ToneCurvePoint,
 } from '../../models/adjustment-model';
 import { curvePathData } from './tone-curve-math';
 import { materializeCurve } from './tone-curve-edit';
+import {
+  DEFAULT_HIGHLIGHT_SPLIT,
+  DEFAULT_MIDTONE_SPLIT,
+  DEFAULT_SHADOW_SPLIT,
+  activeRegionWindowPath,
+  orderedSplits,
+  type ParametricRegionId,
+  type ParametricSplitHandle,
+} from './tone-curve-splits';
 
 /** The four curves the channel selector switches between. */
 export type CurveChannel = 'luma' | 'r' | 'g' | 'b';
@@ -76,6 +86,29 @@ export interface FamilyTab {
 const FAMILY_TABS: readonly FamilyTab[] = [
   { id: 'sceneLinear', label: 'Scene' },
   { id: 'display', label: 'Display' },
+];
+
+export interface CurveModeTab {
+  readonly id: ToneCurveMode;
+  readonly label: string;
+}
+
+const MODE_TABS: readonly CurveModeTab[] = [
+  { id: 'PerChannel', label: 'Per-Channel' },
+  { id: 'RatioPreserving', label: 'Ratio-Preserving' },
+];
+
+export interface PlottedSplitDiamond {
+  readonly id: ParametricSplitHandle;
+  readonly label: string;
+  readonly value: number;
+  readonly cx: number;
+}
+
+const SPLIT_HANDLES: readonly { id: ParametricSplitHandle; label: string }[] = [
+  { id: 'shadow', label: 'Shadow split' },
+  { id: 'midtone', label: 'Midtone split' },
+  { id: 'highlight', label: 'Highlight split' },
 ];
 
 /** One parametric region slider. */
@@ -142,6 +175,8 @@ export function buildToneCurveViewModel(
   const channel = signal<CurveChannel>('luma');
   const family = signal<CurveFamily>('sceneLinear');
   const dragOverride = signal<readonly ToneCurvePoint[] | null>(null);
+  const activeRegion = signal<ParametricRegionId | null>(null);
+  const selectedKnotIndex = signal<number | null>(null);
 
   /** The active family's tab list — the four scene-linear or the four
    * display-referred curves (#2232). */
@@ -214,10 +249,66 @@ export function buildToneCurveViewModel(
    * scene-linear family. */
   const showParametric = computed<boolean>(() => family() === 'sceneLinear');
 
+  const toneCurveMode = computed<ToneCurveMode>(() => model()?.toneCurveMode ?? 'PerChannel');
+
+  const shadowSplit = computed<number>(
+    () => model()?.parametricShadowSplit ?? DEFAULT_SHADOW_SPLIT,
+  );
+  const midtoneSplit = computed<number>(
+    () => model()?.parametricMidtoneSplit ?? DEFAULT_MIDTONE_SPLIT,
+  );
+  const highlightSplit = computed<number>(
+    () => model()?.parametricHighlightSplit ?? DEFAULT_HIGHLIGHT_SPLIT,
+  );
+
+  const splitsModified = computed<boolean>(
+    () =>
+      shadowSplit() !== DEFAULT_SHADOW_SPLIT ||
+      midtoneSplit() !== DEFAULT_MIDTONE_SPLIT ||
+      highlightSplit() !== DEFAULT_HIGHLIGHT_SPLIT,
+  );
+
+  const splitDiamonds = computed<readonly PlottedSplitDiamond[]>(() => {
+    const [s, m, h] = orderedSplits(shadowSplit(), midtoneSplit(), highlightSplit());
+    const values: Record<ParametricSplitHandle, number> = {
+      shadow: Math.round(s),
+      midtone: Math.round(m),
+      highlight: Math.round(h),
+    };
+    return SPLIT_HANDLES.map((item) => ({
+      id: item.id,
+      label: item.label,
+      value: values[item.id],
+      cx: (values[item.id] / 100) * PLOT_SIZE,
+    }));
+  });
+
+  const activeRegionPath = computed<string>(() => {
+    const region = activeRegion();
+    if (!region || !showParametric()) return '';
+    return activeRegionWindowPath(
+      region,
+      shadowSplit(),
+      midtoneSplit(),
+      highlightSplit(),
+      PLOT_SIZE,
+    );
+  });
+
+  const selectedKnot = computed<PlottedKnot | null>(() => {
+    const idx = selectedKnotIndex();
+    if (idx === null) return null;
+    const list = knots();
+    return list[idx] ?? null;
+  });
+
   return {
     channel,
     family,
     dragOverride,
+    activeRegion,
+    selectedKnotIndex,
+    selectedKnot,
     activeTab,
     points,
     curvePath,
@@ -226,8 +317,16 @@ export function buildToneCurveViewModel(
     histogramPath,
     parametricValue,
     showParametric,
+    toneCurveMode,
+    shadowSplit,
+    midtoneSplit,
+    highlightSplit,
+    splitsModified,
+    splitDiamonds,
+    activeRegionPath,
     tabs,
     familyTabs: FAMILY_TABS,
+    modeTabs: MODE_TABS,
     sliders: PARAMETRIC_SLIDERS,
     plotSize: PLOT_SIZE,
     parametricMin: PARAMETRIC_RANGE[0],
