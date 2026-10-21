@@ -240,10 +240,6 @@ async function targetRefusal(
   libraryId: ObjectId,
   targetRelPath: string,
 ): Promise<{ status: number; error: string } | null> {
-  // `xmpSidecarPath` maps every extensionless name to one folder-wide `.xmp` (#5060).
-  if (path.extname(targetRelPath) === '') {
-    return { status: 400, error: 'X-Maple-Target-Rel-Path has no file extension' };
-  }
   return (await isLiveLocationOfAsset(assetId, libraryId, targetRelPath))
     ? null
     : { status: 404, error: 'no prior upload of this asset at this path' };
