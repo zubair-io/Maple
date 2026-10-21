@@ -104,7 +104,7 @@ extension AppShell {
     // A folder reopen left over from an earlier, abandoned sign-in must not
     // replay and pull the user off the Map.
     pendingCloudReopen = nil
-    addCloudSheetTarget = .prefilled(server.host ?? server.absoluteString)
+    addCloudSheetTarget = .prefilled(CloudHost.signInPrefill(for: server))
   }
 
   /// Called after any completed sign-in, from the Map's own button or the
