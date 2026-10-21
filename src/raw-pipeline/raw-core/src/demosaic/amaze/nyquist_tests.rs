@@ -13,7 +13,7 @@ fn diagonal_direction_weights_are_read_from_the_stage_b_snapshot() {
             rr1: 48,
             cc1: 48,
         };
-        let weight = |i: usize| ((i * 2_654_435_761) % 1000) as f32 / 1000.0;
+        let weight = |i: usize| (i.wrapping_mul(2_654_435_761) % 1000) as f32 / 1000.0;
         for (i, w) in s.hvwt.iter_mut().enumerate() {
             *w = weight(i);
         }
