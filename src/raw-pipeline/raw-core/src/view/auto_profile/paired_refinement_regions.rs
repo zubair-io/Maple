@@ -7,7 +7,8 @@ use rayon::prelude::*;
 /// parallel; every sum still folds in the original row order (#5104).
 pub(super) struct Regions<'a> {
     rows: Vec<&'a Observation>,
-    members: [Vec<&'a Observation>; 64],
+    targets: Vec<[f32; 3]>,
+    members: [Vec<usize>; 64],
     populations: [usize; 64],
     baseline: [f64; 64],
 }
@@ -15,18 +16,23 @@ pub(super) struct Regions<'a> {
 impl<'a> Regions<'a> {
     pub(super) fn new(origin: &ColorLut, display: &'a [Observation]) -> Self {
         let rows: Vec<_> = display.iter().filter(|r| !r.validation).collect();
-        let mut members: [Vec<&Observation>; 64] = std::array::from_fn(|_| Vec::new());
+        let targets: Vec<_> = rows
+            .par_iter()
+            .map(|row| lab(row.target.map(|v| v as f32)))
+            .collect();
+        let mut members: [Vec<usize>; 64] = std::array::from_fn(|_| Vec::new());
         let mut populations = [0usize; 64];
-        for &row in &rows {
-            members[row.region].push(row);
+        for (index, row) in rows.iter().enumerate() {
+            members[row.region].push(index);
             populations[row.region] += row.population;
         }
-        let mut baseline = region_sums(&rows, origin);
+        let mut baseline = region_sums(&rows, &targets, origin);
         for r in 0..64 {
             baseline[r] /= populations[r].max(1) as f64;
         }
         Self {
             rows,
+            targets,
             members,
             populations,
             baseline,
@@ -44,7 +50,7 @@ impl<'a> Regions<'a> {
         let mut touched = vec![false; nodes];
         let mut active = Vec::new();
         for _ in 0..12 {
-            let mut current = region_sums(&self.rows, candidate);
+            let mut current = region_sums(&self.rows, &self.targets, candidate);
             for r in 0..64 {
                 current[r] /= self.populations[r].max(1) as f64;
             }
@@ -57,18 +63,20 @@ impl<'a> Regions<'a> {
             for region in bad {
                 let derivatives: Vec<[f64; 3]> = self.members[region]
                     .par_iter()
-                    .map(|row| {
+                    .map(|&index| {
+                        let (row, target) = (self.rows[index], self.targets[index]);
                         let rgb = prediction(&candidate.data, row);
                         std::array::from_fn(|c| {
                             let mut plus = rgb;
                             let mut minus = rgb;
                             plus[c] += 1e-4;
                             minus[c] -= 1e-4;
-                            (error(plus, row.target) - error(minus, row.target)) / 2e-4
+                            (error(plus, target) - error(minus, target)) / 2e-4
                         })
                     })
                     .collect();
-                for (row, derivative) in self.members[region].iter().zip(&derivatives) {
+                for (&index, derivative) in self.members[region].iter().zip(&derivatives) {
+                    let row = self.rows[index];
                     let mass = row.population as f64 / self.populations[region] as f64;
                     for &(i, w) in &row.artifact_weights {
                         if super::projection::is_neutral_node(i, origin.size) {
@@ -110,10 +118,11 @@ impl<'a> Regions<'a> {
     }
 }
 
-fn region_sums(rows: &[&Observation], lut: &ColorLut) -> [f64; 64] {
+fn region_sums(rows: &[&Observation], targets: &[[f32; 3]], lut: &ColorLut) -> [f64; 64] {
     let errors: Vec<f64> = rows
         .par_iter()
-        .map(|row| row.population as f64 * error(prediction(&lut.data, row), row.target))
+        .zip(targets)
+        .map(|(row, &target)| row.population as f64 * error(prediction(&lut.data, row), target))
         .collect();
     let mut sums = [0.; 64];
     for (row, e) in rows.iter().zip(errors) {
@@ -122,9 +131,6 @@ fn region_sums(rows: &[&Observation], lut: &ColorLut) -> [f64; 64] {
     sums
 }
 
-fn error(rgb: [f64; 3], target: [f64; 3]) -> f64 {
-    f64::from(ciede2000(
-        lab(rgb.map(|v| v as f32)),
-        lab(target.map(|v| v as f32)),
-    ))
+fn error(rgb: [f64; 3], target: [f32; 3]) -> f64 {
+    f64::from(ciede2000(lab(rgb.map(|v| v as f32)), target))
 }
