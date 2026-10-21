@@ -170,10 +170,40 @@ async function canonicalizeLocation(
   root: string,
 ): Promise<LocationOutcome> {
   const primary = path.join(root, location.path, location.filename);
-  try {
+  // A case- or normalization-sensitive volume can hold more than one spelling;
+  // each is handled before the photo is stamped, the first one landing canonical.
+  const handled = new Set<string>();
+  for (;;) {
     // Case-aware, and a folder that can't be listed throws for a retry (#5063).
-    const found = await locateLegacyBackupEdit(primary);
-    if (found === null) return 'done';
+    const located = await locateLegacyBackupEdit(primary).then(
+      (edit) => ({ edit }),
+      (err: unknown) => ({ err }),
+    );
+    if ('err' in located) return locationFailed(assetId, primary, located.err);
+    const { edit } = located;
+    if (edit === null || handled.has(edit.legacy)) return 'done';
+    handled.add(edit.legacy);
+    const outcome = await canonicalizeEdit(assetId, location, primary, root, edit);
+    if (outcome !== 'done') return outcome;
+  }
+}
+
+function locationFailed(assetId: ObjectId, primary: string, err: unknown): LocationOutcome {
+  log.error(
+    { _id: String(assetId), primary, err: err instanceof Error ? err.message : err },
+    'canonical sidecar migration failed — left for retry',
+  );
+  return 'error';
+}
+
+async function canonicalizeEdit(
+  assetId: ObjectId,
+  location: FileInfo,
+  primary: string,
+  root: string,
+  found: { legacy: string; bytes: Buffer },
+): Promise<LocationOutcome> {
+  try {
     const { legacy, bytes: legacyBytes } = found;
     if (await supersededByASend(assetId, location, primary, legacyBytes)) {
       // A device send landed and kept this edit aside, but couldn't remove the file.
@@ -184,11 +214,7 @@ async function canonicalizeLocation(
     }
     return await publishCanonical({ assetId, location, primary, root, legacy, bytes: legacyBytes });
   } catch (err) {
-    log.error(
-      { _id: String(assetId), primary, err: err instanceof Error ? err.message : err },
-      'canonical sidecar migration failed — left for retry',
-    );
-    return 'error';
+    return locationFailed(assetId, primary, err);
   }
 }
 

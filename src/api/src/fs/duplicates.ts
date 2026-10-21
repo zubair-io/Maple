@@ -210,8 +210,9 @@ async function keepPhotoWithOldNameEdit(
     },
   );
   if (!back) return 'blocked';
-  await fs.unlink(movedTo).catch(() => {});
-  if (carried) await returnCarriedEdit(carried, absPath);
+  // The quarantined copy stays until the carried edit is back beside the photo.
+  const returned = carried === null || (await returnCarriedEdit(carried, absPath));
+  if (returned) await fs.unlink(movedTo).catch(() => {});
   log.error({ absPath }, 'moveToDuplicates: an old-name backup edit stayed behind — move undone');
   return {
     kind: 'error',
@@ -220,28 +221,45 @@ async function keepPhotoWithOldNameEdit(
 }
 
 /** The old-name edit already carried ahead goes back with the photo, never
- * left alone in `_duplicates/`; a taken name gets a conflict copy beside it. */
+ * left alone in `_duplicates/`; a taken name gets a conflict copy beside it,
+ * retried if another writer takes the picked name first. */
 async function returnCarriedEdit(
   carried: { source: string; dest: string },
   absPath: string,
-): Promise<void> {
+): Promise<boolean> {
   const bytes = await readSidecarBytes(carried.dest).catch(() => null);
-  if (bytes === null) return;
-  const returned = await publishBytes(carried.source, bytes).then(
-    () => true,
-    async () => {
-      const conflict = await pickFreeConflictPath(absPath, 'move');
-      return publishBytes(conflict, bytes).then(
-        () => true,
-        (err: unknown) => {
-          log.error(
-            { dest: carried.dest, err: String(err) },
-            'moveToDuplicates: the carried old-name edit could not go back — kept in _duplicates',
-          );
-          return false;
-        },
-      );
-    },
+  if (bytes === null) return true;
+  const returned = await publishAtOneOf(
+    [carried.source, ...Array.from({ length: RETURN_ATTEMPTS }, () => null)],
+    absPath,
+    bytes,
   );
-  if (returned) await fs.unlink(carried.dest).catch(() => {});
+  if (returned) {
+    await fs.unlink(carried.dest).catch(() => {});
+    return true;
+  }
+  log.error(
+    { dest: carried.dest },
+    'moveToDuplicates: the carried old-name edit could not go back — the quarantined photo is kept with it',
+  );
+  return false;
+}
+
+const RETURN_ATTEMPTS = 5;
+
+/** `null` picks a fresh conflict name beside the photo. */
+async function publishAtOneOf(
+  names: readonly (string | null)[],
+  absPath: string,
+  bytes: Buffer,
+): Promise<boolean> {
+  for (const name of names) {
+    const dest = name ?? (await pickFreeConflictPath(absPath, 'move'));
+    const published = await publishBytes(dest, bytes).then(
+      () => true,
+      () => false,
+    );
+    if (published) return true;
+  }
+  return false;
 }

@@ -276,3 +276,37 @@ test('the duplicates mover completes the move when a new file took the old path 
   expect(await fs.readFile(raw, 'utf8')).toBe('a new arrival');
   expect(await fs.readFile(path.join(dir, 'IMG_15.xmp'), 'utf8')).toBe(maple("the arrival's edit"));
 });
+
+test('an undone duplicates move keeps the quarantined photo while its carried edit cannot go back', async () => {
+  const dir = path.join(tmpRoot, 'old-name-duplicate-return-fails');
+  await fs.mkdir(dir, { recursive: true });
+  const raw = path.join(dir, 'IMG_16.HEIC');
+  await fs.writeFile(raw, 'photo');
+  await fs.writeFile(`${raw}.xmp`, maple('backup edit'));
+  const realSettle = ownership.settleCarriedSidecar;
+  const settle = spyOn(ownership, 'settleCarriedSidecar').mockImplementationOnce(
+    async (source, dest, snapshot, keepSource) => {
+      await fs.writeFile(source, maple('saved at the old path'));
+      await fs.writeFile(dest, maple('saved at the new path'));
+      return realSettle(source, dest, snapshot, keepSource);
+    },
+  );
+  const realTemp = ownership.writeVerifiedTemp;
+  const temp = spyOn(ownership, 'writeVerifiedTemp').mockImplementation(async (dest, bytes) =>
+    path.dirname(dest) === dir ? Promise.reject(new Error('EIO')) : realTemp(dest, bytes),
+  );
+  try {
+    const moved = await moveToDuplicates(raw, tmpRoot);
+
+    expect(moved.kind).toBe('error');
+  } finally {
+    settle.mockRestore();
+    temp.mockRestore();
+  }
+  const quarantined = path.join(tmpRoot, '_duplicates', 'old-name-duplicate-return-fails');
+  expect(await fs.readFile(path.join(quarantined, 'IMG_16.HEIC'), 'utf8')).toBe('photo');
+  expect(await fs.readFile(path.join(quarantined, 'IMG_16.HEIC.xmp'), 'utf8')).toBe(
+    maple('saved at the new path'),
+  );
+  expect(await fs.readFile(raw, 'utf8')).toBe('photo');
+});

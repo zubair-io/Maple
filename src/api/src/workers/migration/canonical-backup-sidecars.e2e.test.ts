@@ -10,6 +10,7 @@ import { describe, it, expect, afterEach, spyOn } from 'bun:test';
 import * as rootHelpers from '../missing-reaper.helpers.ts';
 import * as xmpChange from '../../routes/xmp-change.ts';
 import * as fs from '../../fs/mirrored.ts';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { stageRegistry } from '../registry.ts';
@@ -26,6 +27,18 @@ import { createLibrary, seedAsset, type MigrationLibrary } from './migration.tes
 import { serializeSidecarWrite } from '../../fs/sidecar-write-order.ts';
 
 const MIGRATION_ID = 'canonical-backup-sidecars';
+const caseSensitiveTmp = await (async () => {
+  const probe = await fs.mkdtemp(path.join(os.tmpdir(), 'canon-case-probe-'));
+  try {
+    await fs.writeFile(path.join(probe, 'a'), '');
+    return !(await fs.lstat(path.join(probe, 'A')).then(
+      () => true,
+      () => false,
+    ));
+  } finally {
+    await fs.rm(probe, { recursive: true, force: true });
+  }
+})();
 const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex');
 const maple = (label: string) =>
   `<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">${label}</x:xmpmeta>`;
@@ -387,6 +400,27 @@ describe('canonical-backup-sidecars', () => {
     expect(await read(library, 'img_11.heic.xmp')).toBeNull();
     expect(stamped(library, id)).toBe(true);
   });
+
+  it.skipIf(!caseSensitiveTmp)(
+    'handles every spelling of an old-name edit before stamping the photo',
+    async () => {
+      using library = await backupLibrary('canon-two-spellings-');
+      await write(library, 'IMG_12.HEIC', 'pixels');
+      await write(library, 'IMG_12.HEIC.xmp', maple('exact spelling'));
+      await write(library, 'img_12.heic.xmp', maple('other spelling'));
+      const id = backupPhoto(library, 'IMG_12.HEIC');
+
+      await runTick();
+
+      expect(await read(library, 'IMG_12.xmp')).toBe(maple('exact spelling'));
+      expect(await read(library, 'IMG_12.HEIC.xmp')).toBeNull();
+      expect(await read(library, 'img_12.heic.xmp')).toBeNull();
+      expect(divergences(library)).toEqual([
+        { sidecar_rel_path: `${DIR}/IMG_12.xmp`, displaced_xmp: maple('other spelling') },
+      ]);
+      expect(stamped(library, id)).toBe(true);
+    },
+  );
 
   // Root lists a directory without read permission anyway.
   it.skipIf(process.getuid?.() === 0)(
