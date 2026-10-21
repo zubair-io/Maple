@@ -12,9 +12,9 @@ import Foundation
 
 public enum VideoCaptureDate {
   /// ISO 8601 UTC with milliseconds (`2026-04-05T18:26:20.000Z`), or nil
-  /// when the file has no `moov` box or no date the server would also read
-  /// identically. Reads `bytes` in place: a backup already holds the whole
-  /// original, and a second copy of a multi-GB clip risks a jetsam kill.
+  /// when the file has no `moov` box or no usable date. Reads `bytes` in
+  /// place: a backup already holds the whole original, and a second copy of
+  /// a multi-GB clip risks a jetsam kill.
   public static func iso8601UTC(fromVideoBytes bytes: Data) -> String? {
     guard let moov = children(of: bytes).first(where: { $0.type == "moov" })?.payload
     else { return nil }
@@ -35,7 +35,6 @@ public enum VideoCaptureDate {
     // the server.
     switch metas.compactMap(creationDateKey(inMeta:)).last {
     case .date(let iso): return iso
-    case .ambiguous: return nil
     case .cleared, nil: return mvhdDate
     }
   }
@@ -120,16 +119,15 @@ public enum VideoCaptureDate {
   private enum KeyDate {
     /// The server and the device read this value to the same instant.
     case date(String)
-    /// No ASCII digit (including empty), which no JavaScript `Date` parse
-    /// accepts, so the server's `normalizeCreationDate` yields null and it
-    /// falls back to `mvhd` — as the device does.
+    /// Any other value: the device falls back to `mvhd`. Where JavaScript
+    /// rejects it (no ASCII digit, full-width digits, an out-of-range offset)
+    /// the server's `normalizeCreationDate` yields null and it falls back to
+    /// `mvhd` too. Where JavaScript reads it in a way Swift cannot reproduce
+    /// (offset-less in the server's own zone, loose formats, a year past
+    /// 9999) the dates differ whatever the device does (#5092 review).
+    /// Distinct from no key: a later meta's unusable value overrides an
+    /// earlier meta's date, because the server's `keysDate` assignment does.
     case cleared
-    /// Any other value. JavaScript's `Date` parser accepts strings Swift
-    /// cannot, rejects some Swift accepts, and reads offset-less ones in the
-    /// server's own zone, so the device cannot know whether the server used
-    /// this key or `mvhd`. It derives no date (a fallback id) rather than a
-    /// possibly different one.
-    case ambiguous
   }
 
   /// nil when this meta carries no creationdate value.
@@ -202,20 +200,16 @@ public enum VideoCaptureDate {
 
   private static func keyDate(_ raw: String) -> KeyDate {
     // JavaScript's `trim()` and Swift's whitespace set differ (U+0085,
-    // U+FEFF); anything outside plain ASCII whitespace is left in place:
-    // alone it holds no digit and clears, beside a date the strict pattern
-    // rejects it as ambiguous.
+    // U+FEFF); anything outside plain ASCII whitespace is left in place for
+    // the strict pattern to reject.
     let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: " \t\n\r"))
-    guard trimmed.unicodeScalars.contains(where: { ("0"..."9").contains($0) }) else {
-      return .cleared
-    }
     let normalized = trimmed.replacingOccurrences(
       of: #"([+-][0-9]{2})([0-9]{2})\z"#, with: "$1:$2", options: .regularExpression)
     let ns = normalized as NSString
     guard
       let match = strictInstant.firstMatch(
         in: normalized, range: NSRange(location: 0, length: ns.length))
-    else { return .ambiguous }
+    else { return .cleared }
     let text = { (index: Int) -> String? in
       let range = match.range(at: index)
       return range.location == NSNotFound ? nil : ns.substring(with: range)
@@ -230,7 +224,7 @@ public enum VideoCaptureDate {
         from: DateComponents(
           year: number(1), month: number(2), day: number(3),
           hour: number(4), minute: number(5), second: number(6)))
-    else { return .ambiguous }
+    else { return .cleared }
     // `toISOString` keeps the first three fraction digits; never round-trip
     // them through a Double.
     let millis = String((text(7) ?? "").prefix(3))
@@ -238,7 +232,7 @@ public enum VideoCaptureDate {
     let instant = local.addingTimeInterval(TimeInterval(-offsetSeconds))
     // An offset can carry 9999-12-31 into year 10000, which `toISOString`
     // writes as `+010000`.
-    guard gregorianUTC.component(.year, from: instant) <= 9999 else { return .ambiguous }
+    guard gregorianUTC.component(.year, from: instant) <= 9999 else { return .cleared }
     return .date(utcISO(instant, millis: millis))
   }
 

@@ -203,8 +203,8 @@ actor PhotoKitAssetReader: AssetReader {
   /// through to the digitized one, and placeholders like
   /// `0000:00:00 00:00:00` date the photo the way the server does.
   ///
-  /// Returns nil when neither key gives a date the device can reproduce —
-  /// callers fall through to fallback-form derivation.
+  /// Returns nil when neither key matches the EXIF date form — callers fall
+  /// through to fallback-form derivation.
   private static func readExifCaptureDateISO8601UTC(from data: Data) -> String? {
     guard let src = CGImageSourceCreateWithData(data as CFData, nil),
       let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
