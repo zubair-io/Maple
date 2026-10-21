@@ -119,11 +119,12 @@ final class VideoCaptureDateTests: XCTestCase {
     }
   }
 
-  func testAnEmptyKeyFallsBackToMvhdLikeTheServer() {
-    for key in ["", "   "] {
+  func testAKeyWithoutDigitsFallsBackToMvhdLikeTheServer() {
+    for key in ["", "   ", "not-a-date", "Jan", "\u{85}", "\u{FEFF}"] {
       let bytes = video(mvhd(unix: 1_700_000_000) + meta(creationDate: key))
       XCTAssertEqual(
-        VideoCaptureDate.iso8601UTC(fromVideoBytes: bytes), "2023-11-14T22:13:20.000Z", key)
+        VideoCaptureDate.iso8601UTC(fromVideoBytes: bytes), "2023-11-14T22:13:20.000Z",
+        "no JavaScript Date parse succeeds without an ASCII digit, so the server uses mvhd: \(key)")
     }
   }
 

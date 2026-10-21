@@ -120,7 +120,8 @@ public enum VideoCaptureDate {
   private enum KeyDate {
     /// The server and the device read this value to the same instant.
     case date(String)
-    /// Empty, so the server's `normalizeCreationDate` yields null and it
+    /// No ASCII digit (including empty), which no JavaScript `Date` parse
+    /// accepts, so the server's `normalizeCreationDate` yields null and it
     /// falls back to `mvhd` — as the device does.
     case cleared
     /// Any other value. JavaScript's `Date` parser accepts strings Swift
@@ -201,10 +202,13 @@ public enum VideoCaptureDate {
 
   private static func keyDate(_ raw: String) -> KeyDate {
     // JavaScript's `trim()` and Swift's whitespace set differ (U+0085,
-    // U+FEFF); anything outside plain ASCII whitespace is left in place,
-    // which the strict pattern then rejects as ambiguous.
+    // U+FEFF); anything outside plain ASCII whitespace is left in place:
+    // alone it holds no digit and clears, beside a date the strict pattern
+    // rejects it as ambiguous.
     let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: " \t\n\r"))
-    guard !trimmed.isEmpty else { return .cleared }
+    guard trimmed.unicodeScalars.contains(where: { ("0"..."9").contains($0) }) else {
+      return .cleared
+    }
     let normalized = trimmed.replacingOccurrences(
       of: #"([+-][0-9]{2})([0-9]{2})\z"#, with: "$1:$2", options: .regularExpression)
     let ns = normalized as NSString
