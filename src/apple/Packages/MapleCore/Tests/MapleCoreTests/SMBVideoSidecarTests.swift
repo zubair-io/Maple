@@ -45,6 +45,29 @@ final class SMBVideoSidecarTests: XCTestCase {
     XCTAssertEqual(variant, "/photo.mov.v\(variantId).xmp")
   }
 
+  func testATrashedVideoNeverClaimsItsSameStemPhotosSidecar() async throws {
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self, initialXML: nil)
+    let trash = fixture.share.appendingPathComponent(".maple/trash", isDirectory: true)
+    try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+    for name in ["clip.jpg", "clip.mov"] {
+      try Data(name.utf8).write(to: trash.appendingPathComponent(name))
+    }
+    try edit(exposure: 1).write(to: trash.appendingPathComponent("clip.xmp"))
+    try edit(exposure: -1).write(to: trash.appendingPathComponent("clip.mov.xmp"))
+
+    let items = try await fixture.source.listTrash()
+    let still = try XCTUnwrap(items.first { $0.primaryPath.hasSuffix("/clip.jpg") })
+    let video = try XCTUnwrap(items.first { $0.primaryPath.hasSuffix("/clip.mov") })
+    XCTAssertEqual(still.sidecarPath, "/.maple/trash/clip.xmp")
+    XCTAssertEqual(video.sidecarPath, "/.maple/trash/clip.mov.xmp")
+
+    try await fixture.source.permanentlyDelete(video)
+
+    XCTAssertTrue(FileManager.default.fileExists(atPath: trash.appendingPathComponent("clip.xmp").path))
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: trash.appendingPathComponent("clip.mov.xmp").path))
+  }
+
   private func edit(exposure: Double) -> Data {
     var model = AdjustmentModel.default
     model.exposure = exposure
