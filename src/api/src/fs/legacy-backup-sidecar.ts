@@ -163,7 +163,10 @@ function legacyEntries(legacy: string, listed: readonly string[]): string[] {
   });
   // Every stored spelling: a volume that keeps NFC and NFD apart can hold both,
   // and another tool's file at one never hides a Maple edit at the other.
-  const exactMatches = listed.filter((name) => name.normalize('NFC') === exact);
+  const byteExact = path.basename(legacy);
+  const exactMatches = listed
+    .filter((name) => name.normalize('NFC') === exact)
+    .sort((a, b) => Number(b === byteExact) - Number(a === byteExact));
   return [...exactMatches, ...variants];
 }
 

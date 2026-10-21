@@ -233,6 +233,12 @@ test('the duplicates mover keeps the photo while its old-name edit stays behind'
   expect(await fs.readFile(legacy, 'utf8')).toBe(maple('saved at the old path'));
   expect(await fs.readFile(raw, 'utf8')).toBe('photo');
   expect(await fs.readFile(path.join(dir, 'IMG_14.xmp'), 'utf8')).toBe(maple('current edit'));
+  expect(await fs.readFile(path.join(dir, 'IMG_14 (conflict from move).xmp'), 'utf8')).toBe(
+    maple('saved at the new path'),
+  );
+  await expect(
+    fs.stat(path.join(tmpRoot, '_duplicates', 'old-name-duplicate-kept', 'IMG_14.HEIC.xmp')),
+  ).rejects.toThrow();
   await expect(
     fs.stat(path.join(tmpRoot, '_duplicates', 'old-name-duplicate-kept', 'IMG_14.HEIC')),
   ).rejects.toThrow();
