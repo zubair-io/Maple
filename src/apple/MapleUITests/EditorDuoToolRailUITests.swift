@@ -1,5 +1,5 @@
-// Open-Duo landscape gate: primary editor destinations fit in the native
-// rail beneath the clock, and taps select the inspector state.
+// Duo editor tool reachability: the rail (regular width) or the phone
+// controls (compact width) expose every tool, and taps select the inspector.
 
 import XCTest
 
@@ -7,7 +7,9 @@ import XCTest
   import UIKit
 
   final class EditorDuoToolRailUITests: XCTestCase {
-    func testMoreMenuOpensHealAndPresetsOnWidePhone() throws {
+    /// A compact width keeps the phone controls in either orientation, and they
+    /// carry no rail tools or More (#4607), so the width decides the path.
+    func testHealAndPresetsAreReachableInLandscape() throws {
       let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .appendingPathComponent("Fixtures")
         .appendingPathComponent("layout")
@@ -28,21 +30,58 @@ import XCTest
       app.launch()
       defer { app.terminate() }
 
+      let phoneControls = app.descendants(matching: .any)
+        .matching(identifier: "editor-iphone-controls").firstMatch
       let more = app.buttons["editor-dock-more"]
-      XCTAssertTrue(more.waitForExistence(timeout: 10), "Wide phone Editor tool rail missing More")
-      XCTAssertTrue(more.isHittable)
-      more.tap()
-      let heal = app.buttons["editor-dock-tool-heal"]
-      XCTAssertTrue(heal.waitForExistence(timeout: 5), "More did not open Heal")
-      heal.tap()
+      let either = XCTNSPredicateExpectation(
+        predicate: NSPredicate { _, _ in phoneControls.exists || more.exists }, object: nil)
+      XCTAssertEqual(
+        XCTWaiter.wait(for: [either], timeout: 10), .completed,
+        "Editor shows neither the phone controls nor the Duo rail")
+
+      let openHeal: () -> Void
+      let openPresets: () -> Void
+      if phoneControls.exists {
+        guard UIDevice.current.name.localizedCaseInsensitiveContains("duo") else {
+          throw XCTSkip("The Duo postures require an iPhone Duo simulator")
+        }
+        XCTAssertFalse(more.exists, "The closed Duo keeps rail tools out of the toolbar")
+        let detail = app.buttons["editor-dock-group-detail"]
+        let strip = app.descendants(matching: .any)
+          .matching(identifier: "editor-tool-row").firstMatch
+        // The Detail strip overflows here; Heal and Presets may sit off-screen.
+        let reveal = { (tool: XCUIElement, name: String) in
+          detail.tap()
+          XCTAssertTrue(tool.waitForExistence(timeout: 5), "Detail strip missing \(name)")
+          let window = app.windows.firstMatch.frame
+          for _ in 0..<4 where !window.contains(tool.frame) { strip.swipeLeft() }
+          XCTAssertTrue(window.contains(tool.frame), "\(name) cannot be scrolled into reach")
+          XCTAssertTrue(tool.isHittable, "\(name) is covered")
+          tool.tap()
+        }
+        openHeal = { reveal(app.buttons["editor-tool-heal"], "Heal") }
+        openPresets = { reveal(app.buttons["editor-tool-presets"], "Presets") }
+      } else {
+        XCTAssertTrue(more.isHittable)
+        openHeal = {
+          more.tap()
+          let heal = app.buttons["editor-dock-tool-heal"]
+          XCTAssertTrue(heal.waitForExistence(timeout: 5), "More did not open Heal")
+          heal.tap()
+        }
+        openPresets = {
+          more.tap()
+          let presets = app.buttons["editor-dock-tool-presets"]
+          XCTAssertTrue(presets.waitForExistence(timeout: 5), "More did not open Presets")
+          presets.tap()
+        }
+      }
+
+      openHeal()
       XCTAssertTrue(
         app.descendants(matching: .any)
           .matching(identifier: "editor-retouch-panel").firstMatch.waitForExistence(timeout: 5))
-
-      more.tap()
-      let presets = app.buttons["editor-dock-tool-presets"]
-      XCTAssertTrue(presets.waitForExistence(timeout: 5), "More did not open Presets")
-      presets.tap()
+      openPresets()
       XCTAssertTrue(
         app.descendants(matching: .any)
           .matching(identifier: "editor-presets-panel").firstMatch.waitForExistence(timeout: 5))
