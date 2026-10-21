@@ -27,7 +27,7 @@
  * the asset without relocating the file.
  *
  * Mirror replication: every filesystem op here is delegated to `restructure-fs.ts`
- * (`planAndPlace`/`finalize`/`revertCreated`), which imports the mirror-aware
+ * (`planAndPlace`/`finalize`/`revertPlaced`), which imports the mirror-aware
  * drop-in `fs/mirrored.ts`. So a relocation's copy/unlink/rmdir fan out to the
  * library's configured backup mirror(s) automatically — there is no raw
  * `node:fs` write in this module to swap.
@@ -37,7 +37,7 @@ import type { FileInfo } from '../../db/schema.ts';
 import type { MigrationCandidate, MigrationMarker } from '../../db/repos/assets.migrations.ts';
 import { repointBackupLocation, stampMarkerIfUnmoved } from '../../db/repos/assets.refile.ts';
 import { child as childLogger } from '../../log.ts';
-import { finalize, planAndPlace, revertCreated } from './restructure-fs.ts';
+import { finalize, planAndPlace, revertPlaced } from './restructure-fs.ts';
 
 /**
  * Return the primary active file info for an asset (ignoring missing_since).
@@ -125,7 +125,7 @@ export async function moveBackupAsset(
     // copies we made (the source + row are still consistent) and skip; a later
     // pass re-attempts from the current state. Crucially, we never reach
     // finalize/delete on this path.
-    await revertCreated(plan.createdPaths);
+    await revertPlaced(plan);
     log.warn(
       { _id: String(doc.id) },
       'move: fileinfo entry changed concurrently — reverted copy, left original + row intact',

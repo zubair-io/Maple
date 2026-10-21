@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { planAndPlace, finalize, revertCreated, SourceMissingError } from './restructure-fs.ts';
+import { planAndPlace, finalize, revertPlaced, SourceMissingError } from './restructure-fs.ts';
 import { conflictCopyPath } from '../../fs/xmp-conflict.ts';
 
 let root: string;
@@ -170,7 +170,7 @@ describe('planAndPlace — crash-safe ordering', () => {
     expect(await exists('2024/Tokyo/IMG.rendered.JPEG')).toBe(true);
   });
 
-  test('reports createdPaths; revertCreated rolls them back leaving sources intact', async () => {
+  test('reports createdPaths; revertPlaced rolls them back leaving sources intact', async () => {
     await write('2024/Tokyo/03-15/IMG.HEIC', 'pixels');
     await write('2024/Tokyo/03-15/IMG.xmp', 'edits');
 
@@ -181,12 +181,15 @@ describe('planAndPlace — crash-safe ordering', () => {
       newDir: '2024/Tokyo',
       renderedRelOld: null,
     });
-    // The new copies are tracked for rollback (primary + sidecar).
+    // The new copies are tracked for rollback: the primary by path, the sidecar
+    // by the identity it was published with.
     expect(plan.createdPaths).toContain(path.join(root, '2024/Tokyo/IMG.HEIC'));
-    expect(plan.createdPaths).toContain(path.join(root, '2024/Tokyo/IMG.xmp'));
+    expect(plan.sidecarPublications.map((p) => p.path)).toContain(
+      path.join(root, '2024/Tokyo/IMG.xmp'),
+    );
 
     // Simulate a failed DB repoint: roll back. Originals must survive.
-    await revertCreated(plan.createdPaths);
+    await revertPlaced(plan);
     expect(await exists('2024/Tokyo/IMG.HEIC')).toBe(false);
     expect(await exists('2024/Tokyo/IMG.xmp')).toBe(false);
     expect(await read('2024/Tokyo/03-15/IMG.HEIC')).toBe('pixels'); // source intact

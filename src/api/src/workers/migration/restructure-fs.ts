@@ -30,6 +30,10 @@ import { pickFreePath } from '../../fs/trash.ts';
 import { sha256Prefix16 } from '../../fs/xmp.ts';
 import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
 import { carrySidecar, settleRefiledSidecar, type CarriedSidecar } from './refile-sidecar.ts';
+import {
+  revertCreated as withdrawPublications,
+  type RelocatePublication,
+} from '../../fs/relocate-publish.ts';
 import { child as childLogger } from '../../log.ts';
 
 const log = childLogger('migration:restructure-fs');
@@ -50,6 +54,9 @@ export interface PlacePlan {
   sourcesToDelete: string[];
   /** Sidecars published at the new path, settled (not plain-unlinked) in `finalize`. */
   carriedSidecars: CarriedSidecar[];
+  /** Sidecars published at the new path, withdrawn by identity on a revert, so
+   * a save another writer made there since is never removed. */
+  sidecarPublications: RelocatePublication[];
   /** Absolute paths of the NEW copies this call created (primary + companions).
    * Empty for a dedupe (no copy made). Used to revert cleanly if the DB repoint
    * turns out to be a no-op (concurrent change) — we delete these instead of the
@@ -80,7 +87,16 @@ async function exists(p: string): Promise<boolean> {
  * repoint turns out to be a no-op (a concurrent change moved the fileinfo entry
  * between our read and write), so the original + row are left untouched and we
  * don't strand an orphan at the new path. Best-effort. */
-export async function revertCreated(createdPaths: string[]): Promise<void> {
+/** Undo a placement: the primary and companions by path, sidecars only while
+ * they are still the files this placement published (the list is emptied). */
+export async function revertPlaced(
+  placed: Pick<PlacePlan, 'createdPaths' | 'sidecarPublications'>,
+): Promise<void> {
+  await removeCreatedPaths(placed.createdPaths);
+  await withdrawPublications(placed.sidecarPublications);
+}
+
+async function removeCreatedPaths(createdPaths: string[]): Promise<void> {
   for (const p of createdPaths) {
     await fs.unlink(p).catch((err) => {
       log.warn({ p, err: err instanceof Error ? err.message : err }, 'revert unlink failed');
@@ -145,6 +161,7 @@ export async function planAndPlace(args: {
         newRenderedRel: renderedRelOld, // no rendered move on a dedupe of a bare original
         sourcesToDelete: [oldAbs],
         carriedSidecars: [],
+        sidecarPublications: [],
         createdPaths: [], // no copy made — nothing to revert
         oldDirAbs,
       };
@@ -156,15 +173,16 @@ export async function planAndPlace(args: {
   }
 
   const createdPaths: string[] = [];
+  const sidecarPublications: RelocatePublication[] = [];
   // A throw past this point reverts every copy, so a retry starts clean (#5061).
   try {
     const placed = await copyIntoPlace(
       { libRoot, oldAbs, targetAbs, sidecars, renderedAbsOld, renderedRelOld },
-      createdPaths,
+      { createdPaths, sidecarPublications },
     );
-    return { outcome, ...placed, createdPaths, oldDirAbs };
+    return { outcome, ...placed, createdPaths, sidecarPublications, oldDirAbs };
   } catch (err) {
-    await revertCreated(createdPaths);
+    await revertPlaced({ createdPaths, sidecarPublications });
     throw err;
   }
 }
@@ -180,14 +198,14 @@ async function copyIntoPlace(
     renderedAbsOld: string | null;
     renderedRelOld: string | null;
   },
-  createdPaths: string[],
+  created: Pick<PlacePlan, 'createdPaths' | 'sidecarPublications'>,
 ): Promise<
   Pick<PlacePlan, 'newRelPath' | 'newRenderedRel' | 'sourcesToDelete' | 'carriedSidecars'>
 > {
   const { libRoot, oldAbs, targetAbs, renderedAbsOld, renderedRelOld } = args;
   // ── Copy + verify primary ───────────────────────────────────────────────
   await fs.mkdir(path.dirname(targetAbs), { recursive: true });
-  createdPaths.push(targetAbs);
+  created.createdPaths.push(targetAbs);
   await copyVerified(oldAbs, targetAbs);
 
   const oldBase = path.basename(oldAbs, path.extname(oldAbs));
@@ -203,10 +221,9 @@ async function copyIntoPlace(
       path.join(path.dirname(targetAbs), renamed),
       'migration:sidecar',
     );
-    const carried = await carrySidecar(sidecar, dst, targetAbs);
+    const carried = await carrySidecar(sidecar, dst, targetAbs, created.sidecarPublications);
     if (carried === null) continue;
     carriedSidecars.push(carried);
-    createdPaths.push(dst);
   }
 
   // ── Copy + verify the apple_rendered_path companion ──────────────────────
@@ -221,7 +238,7 @@ async function copyIntoPlace(
   const rName = path.basename(renderedAbsOld);
   const renamed = rName.startsWith(oldBase) ? newBase + rName.slice(oldBase.length) : rName;
   const dst = await pickFreePath(path.join(path.dirname(targetAbs), renamed), 'migration:rendered');
-  createdPaths.push(dst);
+  created.createdPaths.push(dst);
   await copyVerified(renderedAbsOld, dst);
   return {
     newRelPath: toPosixRel(libRoot, targetAbs),
