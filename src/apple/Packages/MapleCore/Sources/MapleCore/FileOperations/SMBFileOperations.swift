@@ -320,11 +320,34 @@ public enum SMBFileOperations {
     if hadSidecar {
       let targetSidecarPath = sidecarPath(for: target)
       resolvedSourceSidecarPath = sourceSidecarPath
+      // The transport reports no case sensitivity, so a case-only rename on a
+      // share that does not fold case names a second file: the sidecar then
+      // follows the shared-sidecar rule instead of the re-spelling (#4707).
+      let sameFile = await SidecarOwnership.sameSMBFile(
+        sourceSidecarPath, targetSidecarPath, transport: transport)
+      let occupied = sameFile ? false : await exists(targetSidecarPath, transport: transport)
+      let claimed =
+        sameFile || occupied
+        ? false
+        : await SidecarOwnership.smbStemClaimedBySibling(
+          source, excluding: [target], transport: transport)
       do {
-        try await transport.moveItem(atPath: sourceSidecarPath, toPath: targetSidecarPath)
+        switch (sameFile, occupied, claimed) {
+        case (true, _, _):
+          try await transport.moveItem(atPath: sourceSidecarPath, toPath: targetSidecarPath)
+        case (false, true, _):
+          fileOpsLog.notice(
+            "performCaseOnlyRename: destination sidecar already exists, leaving the source sidecar in place (\(targetSidecarPath, privacy: .public))"
+          )
+        case (false, false, true):
+          try await copyVerified(
+            from: sourceSidecarPath, to: targetSidecarPath, transport: transport)
+        case (false, false, false):
+          try await transport.moveItem(atPath: sourceSidecarPath, toPath: targetSidecarPath)
+        }
       } catch {
         fileOpsLog.error(
-          "performCaseOnlyRename: sidecar moveItem failed (\(sourceSidecarPath, privacy: .public)): \(error.localizedDescription, privacy: .public)"
+          "performCaseOnlyRename: sidecar follow failed (\(sourceSidecarPath, privacy: .public)): \(error.localizedDescription, privacy: .public)"
         )
       }
       finalSidecarPath =
