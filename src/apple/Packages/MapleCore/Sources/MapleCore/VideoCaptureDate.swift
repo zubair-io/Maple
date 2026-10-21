@@ -199,10 +199,7 @@ public enum VideoCaptureDate {
   }()
 
   private static func keyDate(_ raw: String) -> KeyDate {
-    // JavaScript's `trim()` and Swift's whitespace set differ (U+0085,
-    // U+FEFF); anything outside plain ASCII whitespace is left in place for
-    // the strict pattern to reject.
-    let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: " \t\n\r"))
+    let trimmed = raw.trimmingCharacters(in: .ecmaScriptWhitespace)
     let normalized = trimmed.replacingOccurrences(
       of: #"([+-][0-9]{2})([0-9]{2})\z"#, with: "$1:$2", options: .regularExpression)
     let ns = normalized as NSString

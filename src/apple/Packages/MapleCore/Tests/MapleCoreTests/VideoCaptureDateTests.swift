@@ -126,6 +126,18 @@ final class VideoCaptureDateTests: XCTestCase {
     }
   }
 
+  /// `trim()` strips ECMAScript's whitespace, not just ASCII, before the
+  /// server reads the key (#5092 review).
+  func testAKeyPaddedWithJavaScriptWhitespaceReadsToTheKeyDate() {
+    for pad in ["\u{A0}", "\u{3000}", "\u{2028}", "\u{FEFF}", "\u{B}", "\u{C}"] {
+      let bytes = video(
+        mvhd(unix: 1_700_000_000) + meta(creationDate: pad + "2024-03-01T10:00:00Z" + pad))
+      XCTAssertEqual(
+        VideoCaptureDate.iso8601UTC(fromVideoBytes: bytes), "2024-03-01T10:00:00.000Z",
+        pad.debugDescription)
+    }
+  }
+
   /// JavaScript rejects these, so the server dates the clip from mvhd; the
   /// device must too (#5092 review).
   func testKeysJavaScriptRejectsFallBackToMvhdLikeTheServer() {
@@ -154,7 +166,7 @@ final class VideoCaptureDateTests: XCTestCase {
   func testKeysOnlyJavaScriptReadsAlsoFallBackToMvhd() {
     let javaScriptOnly = [
       "March 1, 2024", "2024-03-01", "2024-03-01T24:00:00Z", "1899-12-31T00:00:00Z",
-      "\u{FEFF}2024-03-01T10:00:00Z", "9999-12-31T23:00:00-05:00",
+      "9999-12-31T23:00:00-05:00",
     ]
     for key in javaScriptOnly {
       let bytes = video(mvhd(unix: 1_700_000_000) + meta(creationDate: key))
