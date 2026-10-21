@@ -128,3 +128,33 @@ test('a library root retargeted after the comparison fails closed instead of wri
     await fs.rm(scratch, { recursive: true, force: true });
   }
 });
+
+test('a legacy create-only sidecar in a symlinked-root library replicates to its mirror (#5027)', async () => {
+  const live = await createLiveTestDatabase();
+  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-cas-legacy-'));
+  try {
+    const realRoot = path.join(scratch, 'real-library');
+    const linkedRoot = path.join(scratch, 'linked-library');
+    const mirror = path.join(scratch, 'mirror');
+    await fs.mkdir(realRoot, { recursive: true });
+    await fs.mkdir(mirror, { recursive: true });
+    await fs.symlink(realRoot, linkedRoot);
+    insertFolder(live.db, { path: linkedRoot });
+    setMirrorRoots({ [linkedRoot]: [mirror] });
+
+    const outcome = await publishSidecarIfAbsent(
+      path.join(linkedRoot, '2026', 'y.xmp'),
+      '<legacy/>',
+      linkedRoot,
+      { precondition: async () => true, beforeWrite: async () => undefined },
+    );
+    await fs.flushPendingMirrorOps();
+
+    expect(outcome).toBe('written');
+    expect(await fs.readFile(path.join(mirror, '2026', 'y.xmp'), 'utf8')).toBe('<legacy/>');
+  } finally {
+    clearMirrorRoots();
+    live.close();
+    await fs.rm(scratch, { recursive: true, force: true });
+  }
+});
