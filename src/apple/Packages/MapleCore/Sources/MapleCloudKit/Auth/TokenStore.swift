@@ -47,7 +47,10 @@ public enum TokenStore {
   }
 
   private static let processHasSharedAccessGroup: Bool = {
-    #if os(macOS)
+    #if os(watchOS)
+      // The Watch holds its own device session in its private keychain (#3617).
+      return false
+    #elseif os(macOS)
       guard let task = SecTaskCreateFromSelf(nil),
         let value = SecTaskCopyValueForEntitlement(
           task,
@@ -400,7 +403,7 @@ public enum TokenStore {
 
   #if canImport(Darwin)
     private static func openRefreshLockDescriptor(server: URL) throws -> Int32 {
-      #if os(tvOS)
+      #if os(tvOS) || os(watchOS)
         // tvOS runs no auth-capable extension processes (no File Provider,
         // no QuickLook) — this app is the only refresh actor, and the
         // in-process single-flight task already serializes concurrent
@@ -412,7 +415,9 @@ public enum TokenStore {
         // refresh ever reached the server and every session died at
         // access-token expiry (#2380 — every tvOS refresh family in
         // production sat un-rotated). The app-private temporary directory
-        // is always available.
+        // is always available. The Watch is likewise its session's only
+        // refresh actor (#3617), and an app-private lock file is safe to hold
+        // across suspension where an App Group one is not (#5022).
         let container = FileManager.default.temporaryDirectory
       #else
         // A test process gets the app-private temporary directory BEFORE the

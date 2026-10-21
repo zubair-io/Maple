@@ -59,6 +59,17 @@ describe('PairedDevicesComponent', () => {
     );
   });
 
+  it('labels a Watch session as Apple Watch, never the raw wire value', async () => {
+    await setup({
+      listDeviceSessions: () =>
+        of([session({ id: 'watch-1', label: 'Wrist', platform: 'watchos' })]),
+    });
+    fixture.detectChanges();
+
+    expect(el().textContent).toContain('Apple Watch ·');
+    expect(el().textContent).not.toContain('watchos');
+  });
+
   it('shows the empty-state copy when the list is empty', async () => {
     await setup({ listDeviceSessions: () => of([]) });
     fixture.detectChanges();

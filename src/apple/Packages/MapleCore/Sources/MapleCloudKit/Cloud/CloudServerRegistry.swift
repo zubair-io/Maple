@@ -28,23 +28,28 @@ public final class CloudServerRegistry {
 
   /// The shared suite, with a one-time migration of `cloud.*` keys from
   /// `.standard`. Falls back to `.standard` only if the suite cannot be
-  /// created (missing entitlement — e.g. unit tests without a host app).
+  /// created (missing entitlement — e.g. unit tests without a host app). The
+  /// Watch app joins no App Group (#3617), so it always uses `.standard`.
   public static func appGroupDefaults() -> UserDefaults {
-    guard let group = UserDefaults(suiteName: appGroupID) else { return .standard }
-    let migratedKey = "cloud.migratedToAppGroup"
-    if !group.bool(forKey: migratedKey) {
-      let standard = UserDefaults.standard
-      for (key, value) in standard.dictionaryRepresentation()
-      where key.hasPrefix("cloud.") {
-        // Only fill gaps: if the group already has a value (a fresh install
-        // that never touched .standard, or a re-run), leave it alone.
-        if group.object(forKey: key) == nil {
-          group.set(value, forKey: key)
+    #if os(watchOS)
+      return .standard
+    #else
+      guard let group = UserDefaults(suiteName: appGroupID) else { return .standard }
+      let migratedKey = "cloud.migratedToAppGroup"
+      if !group.bool(forKey: migratedKey) {
+        let standard = UserDefaults.standard
+        for (key, value) in standard.dictionaryRepresentation()
+        where key.hasPrefix("cloud.") {
+          // Only fill gaps: if the group already has a value (a fresh install
+          // that never touched .standard, or a re-run), leave it alone.
+          if group.object(forKey: key) == nil {
+            group.set(value, forKey: key)
+          }
         }
+        group.set(true, forKey: migratedKey)
       }
-      group.set(true, forKey: migratedKey)
-    }
-    return group
+      return group
+    #endif
   }
 
   /// Currently-connected servers, in registration order.

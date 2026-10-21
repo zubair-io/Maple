@@ -193,7 +193,8 @@ final class PairAppleTVViewModel {
         // token — exactly what the server's mint-proof check wants (see
         // AuthClient.mintDeviceSession doc comment).
         mint = try await client.mintDeviceSession(
-          accessToken: refreshed.access, refreshToken: refreshed.refresh, label: label)
+          accessToken: refreshed.access, refreshToken: refreshed.refresh, label: label,
+          platform: .tvOS)
         // Same unconditional-persistence reasoning as the token save above:
         // cache the mint BEFORE the generation check, or a stale task would
         // leave a truly untracked orphaned device session server-side

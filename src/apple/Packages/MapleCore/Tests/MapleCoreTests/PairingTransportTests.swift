@@ -462,7 +462,7 @@ final class AuthClientMintDeviceSessionTests: XCTestCase {
     }
 
     let mint = try await client.mintDeviceSession(
-      accessToken: "A1", refreshToken: "R1", label: "Living Room TV")
+      accessToken: "A1", refreshToken: "R1", label: "Living Room TV", platform: .tvOS)
 
     XCTAssertEqual(mint.id, "ds_1")
     XCTAssertEqual(mint.access_token, "A_TV")
@@ -486,7 +486,8 @@ final class AuthClientMintDeviceSessionTests: XCTestCase {
     StubURLProtocol.responder = { _ in .http(status: 403, body: Data(#"{"error":"family_revoked"}"#.utf8)) }
 
     do {
-      _ = try await client.mintDeviceSession(accessToken: "A1", refreshToken: "R1", label: "Bedroom TV")
+      _ = try await client.mintDeviceSession(
+        accessToken: "A1", refreshToken: "R1", label: "Bedroom TV", platform: .tvOS)
       XCTFail("expected AuthClientError.forbidden")
     } catch let error as AuthClientError {
       guard case .forbidden = error else {

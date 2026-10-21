@@ -50,7 +50,7 @@ Auth is passkey-first. There are no passwords anywhere in the codebase.
 - _LAN handoff codes_ (`auth/lan_handoff_store.ts`): the same shape without PKCE, used when a session on the public URL needs to continue on the plain-HTTP LAN origin, where WebAuthn's secure-context requirement makes repeating the ceremony impossible.
 - _Service API keys_ (`auth/service-api-keys.ts`): `maple_sk_<keyid>_<secret>`, scoped (today only `assets:search`), compared in constant time. They authenticate `POST /api/search/assets` for machine callers, entirely separate from user JWTs.
 
-Paired-device sessions back Maple TV: a device proves possession of a refresh token to mint a long-lived session, and the owner can list and step-up-revoke them (`routes/auth-device-sessions.ts`).
+Paired-device sessions back Maple TV and Maple Watch: a device proves possession of a refresh token to mint a long-lived session, and the owner can list and step-up-revoke them (`routes/auth-device-sessions.ts`).
 
 **The signing secret is not an env var.** `auth/jwt-bootstrap.ts` resolves it from the database (`server_state`, row `jwt_secret`), creating it on first boot. Keeping it there is what stops it rotating: the database file sits on a persistent volume, so it survives a container recreate and every instance opening that file signs with the same key. A file at `MAPLE_JWT_SECRET_FILE` is the fallback only when the database cannot be opened at boot, and an in-memory random secret is the last resort — that one logs loudly, because it means every restart signs everyone out. Boot logs a 12-hex-character fingerprint of the active secret so two instances disagreeing about `bad signature` can be diagnosed by eye.
 

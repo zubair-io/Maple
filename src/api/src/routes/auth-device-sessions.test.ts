@@ -146,6 +146,30 @@ describe('device-session routes (#2075)', () => {
     expect(rot.status).toBe(200);
   });
 
+  it('accepts a watchos device-session platform', async () => {
+    const userId = seedOwner('watch-owner@maple.test');
+    const bearer = await bearerFor(userId, 'watch-owner@maple.test');
+    const own = await issueRefreshToken(userId, 'Safari on iPhone');
+
+    const res = await mint(bearer, {
+      label: 'Apple Watch',
+      platform: 'watchos',
+      refresh_token: own.raw,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string };
+    const listed = await list(bearer);
+    const listedBody = (await listed.json()) as {
+      sessions: { id: string; label: string; platform: string }[];
+    };
+    expect(listedBody.sessions).toHaveLength(1);
+    expect(listedBody.sessions[0]).toMatchObject({
+      id: body.id,
+      label: 'Apple Watch',
+      platform: 'watchos',
+    });
+  });
+
   it('rejects mint with a bogus, expired, or other-user refresh_token (403); nothing is minted', async () => {
     const userId = seedOwner('owner2@maple.test');
     const bearer = await bearerFor(userId, 'owner2@maple.test');
@@ -201,6 +225,19 @@ describe('device-session routes (#2075)', () => {
     // Only the seeded TV family exists — no second session was minted from it.
     expect(listedBody.sessions).toHaveLength(1);
     expect(listedBody.sessions[0].label).toBe('Living Room');
+  });
+
+  it("rejects mint when the proof is a Watch session's own token (403)", async () => {
+    const userId = seedOwner('owner2w@maple.test');
+    const bearer = await bearerFor(userId, 'owner2w@maple.test');
+
+    const watch = await issueRefreshToken(userId, 'Apple Watch', { platform: 'watchos' });
+    const res = await mint(bearer, {
+      label: 'Second Watch',
+      platform: 'watchos',
+      refresh_token: watch.raw,
+    });
+    expect(res.status).toBe(403);
   });
 
   it('rejects mint when the proof token belongs to a logged-out (family-revoked) session (403)', async () => {
