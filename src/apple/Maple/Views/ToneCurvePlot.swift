@@ -59,6 +59,7 @@ struct ToneCurvePlot: View {
   private static let keyStep = 1.0 / 64.0
 
   @FocusState private var focusedKnot: Int?
+  @Environment(\.mapleLayout) private var layout
   #if os(iOS)
     @State private var knotResponders = ToneCurveKnotResponders()
   #endif
@@ -79,7 +80,7 @@ struct ToneCurvePlot: View {
     GeometryReader { geo in
       // Keep the endpoint glyph and its focus ring inside the inspector's clip.
       // Canvas drawing and pointer conversion share the same inner square.
-      let ringMargin: CGFloat = 10
+      let ringMargin: CGFloat = layout == .phone ? 6 : 10
       let size = max(0, min(geo.size.width, geo.size.height) - ringMargin * 2)
       ZStack {
         ZStack {
@@ -105,6 +106,10 @@ struct ToneCurvePlot: View {
       .frame(maxWidth: .infinity, alignment: .center)
     }
     .aspectRatio(1, contentMode: .fit)
+    .frame(
+      maxWidth: layout == .phone ? 176 : .infinity,
+      maxHeight: layout == .phone ? 176 : .infinity
+    )
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-tone-curve-plot")
     .onChange(of: dragGestureActive) { old, new in
