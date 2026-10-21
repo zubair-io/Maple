@@ -32,11 +32,12 @@ import type { CompatibleLensProfile, LensProfileEvidence } from '../lens/lens-pr
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import type { SampleQueue } from './raw-pipeline.samplers';
 import {
+  sampleColorCurve as runColorCurveSample,
   sampleMaskRange as runMaskRangeSample,
   sampleWhiteBalance as runWhiteBalanceSample,
 } from './raw-pipeline.samplers';
 import type { WbSampleResult } from './raw-pipeline.sample-wb.types';
-import type { MaskRangeSeed } from './raw-pipeline.sample-range.types';
+import type { ColorCurveSampleResult, MaskRangeSeed } from './raw-pipeline.sample-range.types';
 import {
   dispatchGuidedGeometry,
   type GuidedCorrection,
@@ -489,6 +490,16 @@ export class RawPipelineService implements OnDestroy {
     return runMaskRangeSample(this.sampleQueue, bytes, ext, xmp, nx, ny);
   }
 
+  sampleColorCurve(
+    bytes: Uint8Array,
+    ext: string,
+    xmp: string | undefined,
+    nx: number,
+    ny: number,
+  ): Promise<ColorCurveSampleResult> {
+    return runColorCurveSample(this.sampleQueue, bytes, ext, xmp, nx, ny);
+  }
+
   /** Chains one request after the in-flight decode work: every sampler, the
    *  AUTO probe and a lens-profile import develop their own decode, so two
    *  must never sit in the WASM heap at once. */
@@ -508,16 +519,7 @@ export class RawPipelineService implements OnDestroy {
     }
   };
 
-  /**
-   * Render a RAW at export quality and encode it to a deliverable file (#943).
-   *
-   * Runs behind the same `decodeChain` gate as `decode()`: a full-resolution
-   * export is by far the largest thing the WASM heap ever holds, so it must not
-   * overlap another decode competing for the same 4 GiB address space.
-   *
-   * The reply is a `Blob` — the worker drains the encoded bytes out of the WASM
-   * heap in chunks, so neither thread ever holds a second copy of the file.
-   */
+  /** Render a RAW at export quality and encode it to a deliverable file (#943). */
   exportImage(
     bytes: Uint8Array,
     ext: string,

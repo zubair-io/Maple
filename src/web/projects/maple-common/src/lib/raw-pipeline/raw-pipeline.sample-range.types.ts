@@ -70,3 +70,46 @@ export class RangeSampleRejected extends Error {
     this.name = 'RangeSampleRejected';
   }
 }
+
+/** Main thread → worker: sample the Stage 22b Oklab color curve input (#5041). */
+export interface SampleColorCurveRequest {
+  id: number;
+  type: 'sample-color-curve';
+  bytes: ArrayBuffer;
+  ext: string;
+  xmp?: string;
+  nx: number;
+  ny: number;
+}
+
+export interface ColorCurveSampleResult {
+  uH: number;
+  uC: number;
+  uL: number;
+  l: number;
+  c: number;
+  hueDeg: number;
+}
+
+export interface SampleColorCurveSuccess {
+  id: number;
+  type: 'sample-color-curve-success';
+  sample: ColorCurveSampleResult;
+}
+
+export interface SampleColorCurveError {
+  id: number;
+  type: 'sample-color-curve-error';
+  kind: RangeSampleErrorKind;
+  message: string;
+}
+
+export class ColorCurveSampleRejected extends Error {
+  constructor(
+    readonly kind: RangeSampleErrorKind,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ColorCurveSampleRejected';
+  }
+}

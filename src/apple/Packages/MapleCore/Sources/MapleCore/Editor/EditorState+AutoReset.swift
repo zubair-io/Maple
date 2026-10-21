@@ -74,6 +74,13 @@ extension EditorState {
           reset.parametricShadowSplit = AdjustmentModel.default.parametricShadowSplit
           reset.parametricMidtoneSplit = AdjustmentModel.default.parametricMidtoneSplit
           reset.parametricHighlightSplit = AdjustmentModel.default.parametricHighlightSplit
+        } else if tool == .hsl {
+          reset.colorCurveHueVsHue = .identity
+          reset.colorCurveHueVsSat = .identity
+          reset.colorCurveHueVsLuma = .identity
+          reset.colorCurveLumaVsSat = .identity
+          reset.colorCurveSatVsSat = .identity
+          reset.colorCurveSatVsLuma = .identity
         }
       }
     }

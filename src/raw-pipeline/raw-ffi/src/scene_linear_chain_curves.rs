@@ -67,6 +67,20 @@ pub struct MapleToneCurves {
     pub parametric_shadow_split: f32,
     pub parametric_midtone_split: f32,
     pub parametric_highlight_split: f32,
+    // --- #5041: Oklab secondary color curves (Stage 22b). Same flat `(x, y)`
+    //     pair wire shape as `luma_ptr` above. Null/zero-length = identity. ---
+    pub color_curve_hue_vs_hue_ptr: *const f32,
+    pub color_curve_hue_vs_hue_len: usize,
+    pub color_curve_hue_vs_sat_ptr: *const f32,
+    pub color_curve_hue_vs_sat_len: usize,
+    pub color_curve_hue_vs_luma_ptr: *const f32,
+    pub color_curve_hue_vs_luma_len: usize,
+    pub color_curve_luma_vs_sat_ptr: *const f32,
+    pub color_curve_luma_vs_sat_len: usize,
+    pub color_curve_sat_vs_sat_ptr: *const f32,
+    pub color_curve_sat_vs_sat_len: usize,
+    pub color_curve_sat_vs_luma_ptr: *const f32,
+    pub color_curve_sat_vs_luma_len: usize,
 }
 
 /// # Safety
@@ -106,6 +120,18 @@ pub(crate) unsafe fn inject_tone_curves(
     model.parametric_shadow_split = shadow;
     model.parametric_midtone_split = midtone;
     model.parametric_highlight_split = highlight;
+    model.color_curve_hue_vs_hue =
+        curve_from_flat(c.color_curve_hue_vs_hue_ptr, c.color_curve_hue_vs_hue_len);
+    model.color_curve_hue_vs_sat =
+        curve_from_flat(c.color_curve_hue_vs_sat_ptr, c.color_curve_hue_vs_sat_len);
+    model.color_curve_hue_vs_luma =
+        curve_from_flat(c.color_curve_hue_vs_luma_ptr, c.color_curve_hue_vs_luma_len);
+    model.color_curve_luma_vs_sat =
+        curve_from_flat(c.color_curve_luma_vs_sat_ptr, c.color_curve_luma_vs_sat_len);
+    model.color_curve_sat_vs_sat =
+        curve_from_flat(c.color_curve_sat_vs_sat_ptr, c.color_curve_sat_vs_sat_len);
+    model.color_curve_sat_vs_luma =
+        curve_from_flat(c.color_curve_sat_vs_luma_ptr, c.color_curve_sat_vs_luma_len);
 }
 
 unsafe fn curve_from_flat(ptr: *const f32, len: usize) -> ToneCurve {

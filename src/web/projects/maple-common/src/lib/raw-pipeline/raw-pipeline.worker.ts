@@ -39,7 +39,7 @@ import { selectLegacyDecodeRoute } from './raw-pipeline.decode-route';
 import { markStart, markEnd } from './raw-pipeline.perf';
 import { handleExport } from './raw-pipeline.export-handler';
 import { handleSampleWb } from './raw-pipeline.sample-wb-handler';
-import { handleSampleRange } from './raw-pipeline.sample-range-handler';
+import { handleSampleColorCurve, handleSampleRange } from './raw-pipeline.sample-range-handler';
 import { handleGuidedGeometry } from './raw-pipeline.guided-geometry-handler';
 import {
   handleRegisterBrushRaster,
@@ -139,18 +139,18 @@ async function handleMessage(req: WorkerRequest, dispatchedEpoch?: number): Prom
     case 'auto-adjust':
       await handleAutoAdjust(req);
       return;
-    // Neutral WB sampler (#2434) — one-shot, same shape as auto-adjust; the
-    // handler owns its own error reply (a rejected sample is a normal
-    // outcome, not a worker failure).
+    // Cold one-shot samplers (#2434 WB, #362 mask range, #5041 color curves).
     case 'sample-wb':
       await ensureReady();
       handleSampleWb(req);
       return;
-    // Mask colour-range eyedropper (#362) — same one-shot shape as the WB
-    // sampler above; the handler owns its own error reply.
     case 'sample-range':
       await ensureReady();
       handleSampleRange(req);
+      return;
+    case 'sample-color-curve':
+      await ensureReady();
+      handleSampleColorCurve(req);
       return;
     case 'guided-geometry':
       await handleGuidedGeometry(req, ensureReady);

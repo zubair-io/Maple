@@ -403,16 +403,25 @@ mod tests {
         let mut last = 0.0_f64;
         for name in tiers {
             let px = RADIUS_TOKENS.iter().find(|t| t.name == name).unwrap().px;
-            assert!(px > last, "radius `{name}` ({px}) should exceed the previous tier");
+            assert!(
+                px > last,
+                "radius `{name}` ({px}) should exceed the previous tier"
+            );
             last = px;
         }
         let full = RADIUS_TOKENS.iter().find(|t| t.name == "full").unwrap().px;
-        assert!(full > last, "radius `full` should exceed every numeric tier");
+        assert!(
+            full > last,
+            "radius `full` should exceed every numeric tier"
+        );
 
         let mut last = 0;
         for name in tiers {
             let px = SPACING_TOKENS.iter().find(|t| t.name == name).unwrap().px;
-            assert!(px > last, "spacing `{name}` ({px}) should exceed the previous tier");
+            assert!(
+                px > last,
+                "spacing `{name}` ({px}) should exceed the previous tier"
+            );
             last = px;
         }
     }
@@ -421,9 +430,21 @@ mod tests {
     fn known_radius_and_spacing_values_match_the_unified_guide() {
         // Spot-check the values the unified-style-guide design spec called
         // out explicitly (docs/superpowers/specs/2026-08-22-maple-ui-design-system-design.md).
-        assert_eq!(RADIUS_TOKENS.iter().find(|t| t.name == "md").unwrap().px, 8.0);
-        assert_eq!(RADIUS_TOKENS.iter().find(|t| t.name == "xs").unwrap().px, 4.0);
-        assert_eq!(SPACING_TOKENS.iter().find(|t| t.name == "md").unwrap().px, 16);
-        assert_eq!(SPACING_TOKENS.iter().find(|t| t.name == "xxl").unwrap().px, 48);
+        assert_eq!(
+            RADIUS_TOKENS.iter().find(|t| t.name == "md").unwrap().px,
+            8.0
+        );
+        assert_eq!(
+            RADIUS_TOKENS.iter().find(|t| t.name == "xs").unwrap().px,
+            4.0
+        );
+        assert_eq!(
+            SPACING_TOKENS.iter().find(|t| t.name == "md").unwrap().px,
+            16
+        );
+        assert_eq!(
+            SPACING_TOKENS.iter().find(|t| t.name == "xxl").unwrap().px,
+            48
+        );
     }
 }

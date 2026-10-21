@@ -123,6 +123,18 @@ public enum AdjustmentGroupMerge {
       merged.displayToneCurveGreen = source.displayToneCurveGreen
     case .displayToneCurveBlue:
       merged.displayToneCurveBlue = source.displayToneCurveBlue
+    case .colorCurveHueVsHue:
+      merged.colorCurveHueVsHue = source.colorCurveHueVsHue
+    case .colorCurveHueVsSat:
+      merged.colorCurveHueVsSat = source.colorCurveHueVsSat
+    case .colorCurveHueVsLuma:
+      merged.colorCurveHueVsLuma = source.colorCurveHueVsLuma
+    case .colorCurveLumaVsSat:
+      merged.colorCurveLumaVsSat = source.colorCurveLumaVsSat
+    case .colorCurveSatVsSat:
+      merged.colorCurveSatVsSat = source.colorCurveSatVsSat
+    case .colorCurveSatVsLuma:
+      merged.colorCurveSatVsLuma = source.colorCurveSatVsLuma
     case .filmLook:
       merged.filmLook = source.filmLook
     default:

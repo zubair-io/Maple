@@ -195,6 +195,11 @@ pub(crate) fn visit_live_chain<'a>(
             sink.push(hsl_pass);
         }
     }
+    if !color_curves_is_identity(&inputs.color_curves) {
+        sink.push(ColorCurvesPass {
+            inputs: &inputs.color_curves,
+        });
+    }
     if inputs.clarity.abs() >= SLIDER_EPS {
         sink.push(ClarityPass {
             clarity: inputs.clarity,

@@ -217,6 +217,19 @@ namespace Maple.WinUI.Native
             float ny,
             out MapleWbSample outSample);
 
+        /// <summary>
+        /// Stage-input eyedropper for the Oklab secondary color curves (#5041).
+        /// Evaluates upstream stages through 8-band HSL and returns normalized
+        /// Oklab coordinates at (nx, ny) in the uncropped oriented frame.
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_sample_color_curve_oriented(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string? xmpPath,
+            float nx,
+            float ny,
+            out MapleColorCurveSample outSample);
+
         // --- Filename-template engine (#2628): shared with Apple (C-FFI) and
         //     the Self Hosted API (bun:ffi) via the same raw-ffi symbol.
         //     Pure string logic, no filesystem access. Used directly (no

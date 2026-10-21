@@ -50,9 +50,9 @@ pub(super) fn apply_scene_linear_chain_f32_inner_cancellable(
         whites_anchor_ev,
     } = *opts;
     use crate::stages::{
-        clarity, color_grade, defringe, dehaze, display_tone_curve, grain, hsl, local_adjustments,
-        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
-        vignette, white_balance,
+        clarity, color_curves, color_grade, defringe, dehaze, display_tone_curve, grain, hsl,
+        local_adjustments, noise_reduction, saturation, scene_tone_controls, sharpen, texture,
+        tone_curves, vibrance, vignette, white_balance,
     };
     use crate::view::agx;
 
@@ -122,6 +122,9 @@ pub(super) fn apply_scene_linear_chain_f32_inner_cancellable(
     // HSL 8-band (#1112) — same position as the fp16 sibling.
     cancellable_stage("ffi_chain_hsl", cancel, || {
         hsl::apply_model(&mut img, model)
+    })?;
+    cancellable_stage("ffi_chain_color_curves", cancel, || {
+        color_curves::apply_model(&mut img, model)
     })?;
     cancellable_stage("ffi_chain_clarity", cancel, || {
         clarity::apply(&mut img, model.clarity)

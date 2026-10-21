@@ -122,14 +122,8 @@ fn temperature_seen_set_when_explicit() {
     let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
         crs:WhiteBalance="Custom" crs:Temperature="5500" crs:Tint="20"/></x>"#;
     let m = parse(xml).unwrap();
-    assert!(
-        m.temperature_seen,
-        "temperature_seen must be true when crs:Temperature is present"
-    );
-    assert!(
-        m.tint_seen,
-        "tint_seen must be true when crs:Tint is present"
-    );
+    assert!(m.temperature_seen, "crs:Temperature present");
+    assert!(m.tint_seen, "crs:Tint present");
 }
 
 /// (#1729) — tint-only Custom XMP: temperature_seen=false, tint_seen=true.
@@ -138,14 +132,8 @@ fn tint_only_custom_wb_temperature_seen_false() {
     let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
         crs:WhiteBalance="Custom" crs:Tint="150"/></x>"#;
     let m = parse(xml).unwrap();
-    assert!(
-        !m.temperature_seen,
-        "temperature_seen must be false when crs:Temperature is absent"
-    );
-    assert!(
-        m.tint_seen,
-        "tint_seen must be true when crs:Tint is present"
-    );
+    assert!(!m.temperature_seen, "crs:Temperature absent");
+    assert!(m.tint_seen, "crs:Tint present");
     // The model's temperature field still holds the default (6500); the
     // develop pipeline resolves it to as-shot at render time.
     assert_eq!(m.temperature, 6500.0);
@@ -158,14 +146,8 @@ fn temperature_only_custom_wb_tint_seen_false() {
     let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
         crs:WhiteBalance="Custom" crs:Temperature="4500"/></x>"#;
     let m = parse(xml).unwrap();
-    assert!(
-        m.temperature_seen,
-        "temperature_seen must be true when crs:Temperature is present"
-    );
-    assert!(
-        !m.tint_seen,
-        "tint_seen must be false when crs:Tint is absent"
-    );
+    assert!(m.temperature_seen, "crs:Temperature present");
+    assert!(!m.tint_seen, "crs:Tint absent");
     assert_eq!(m.temperature, 4500.0);
     assert_eq!(m.tint, 0.0);
 }
@@ -177,11 +159,8 @@ fn as_shot_wb_both_seen_flags_false() {
     let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
         crs:WhiteBalance="As Shot"/></x>"#;
     let m = parse(xml).unwrap();
-    assert!(
-        !m.temperature_seen,
-        "temperature_seen must be false for As Shot"
-    );
-    assert!(!m.tint_seen, "tint_seen must be false for As Shot");
+    assert!(!m.temperature_seen, "false for As Shot");
+    assert!(!m.tint_seen, "false for As Shot");
 }
 
 /// (#1729) — default model: both seen-flags false.

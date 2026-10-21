@@ -371,4 +371,18 @@ pub struct MapleGpuLiveParams {
     pub color_grade_blending: f32,
     pub color_grade_shadow_edge: f32,
     pub color_grade_highlight_edge: f32,
+    /// Oklab secondary color curves (#5041, Stage 22b): flat `(x, y)` f32 pairs;
+    /// `len` = float count (`2 * points`). Null/zero = identity.
+    pub color_curve_hue_vs_hue_ptr: *const f32,
+    pub color_curve_hue_vs_hue_len: usize,
+    pub color_curve_hue_vs_sat_ptr: *const f32,
+    pub color_curve_hue_vs_sat_len: usize,
+    pub color_curve_hue_vs_luma_ptr: *const f32,
+    pub color_curve_hue_vs_luma_len: usize,
+    pub color_curve_luma_vs_sat_ptr: *const f32,
+    pub color_curve_luma_vs_sat_len: usize,
+    pub color_curve_sat_vs_sat_ptr: *const f32,
+    pub color_curve_sat_vs_sat_len: usize,
+    pub color_curve_sat_vs_luma_ptr: *const f32,
+    pub color_curve_sat_vs_luma_len: usize,
 }

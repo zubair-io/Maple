@@ -165,6 +165,15 @@ namespace Maple.WinUI.Models
         public List<CurvePoint> DisplayToneCurveGreen = new();
         public List<CurvePoint> DisplayToneCurveBlue = new();
 
+        // --- Oklab secondary color curves (#5041, papp:ColorCurve*).
+        //     Applied in scene-linear Oklab after 8-band HSL. Identity = empty. ---
+        public List<CurvePoint> ColorCurveHueVsHue = new();
+        public List<CurvePoint> ColorCurveHueVsSat = new();
+        public List<CurvePoint> ColorCurveHueVsLuma = new();
+        public List<CurvePoint> ColorCurveLumaVsSat = new();
+        public List<CurvePoint> ColorCurveSatVsSat = new();
+        public List<CurvePoint> ColorCurveSatVsLuma = new();
+
         // --- Local adjustments (#280/#358): masked, per-region edits. A
         //     hand-written mirror of raw-core's `LocalAdjustment`, outside
         //     codegen because it is a nested list (Models/LocalAdjustment.cs).
@@ -237,6 +246,12 @@ namespace Maple.WinUI.Models
             c.DisplayToneCurveRed = new List<CurvePoint>(DisplayToneCurveRed);
             c.DisplayToneCurveGreen = new List<CurvePoint>(DisplayToneCurveGreen);
             c.DisplayToneCurveBlue = new List<CurvePoint>(DisplayToneCurveBlue);
+            c.ColorCurveHueVsHue = new List<CurvePoint>(ColorCurveHueVsHue);
+            c.ColorCurveHueVsSat = new List<CurvePoint>(ColorCurveHueVsSat);
+            c.ColorCurveHueVsLuma = new List<CurvePoint>(ColorCurveHueVsLuma);
+            c.ColorCurveLumaVsSat = new List<CurvePoint>(ColorCurveLumaVsSat);
+            c.ColorCurveSatVsSat = new List<CurvePoint>(ColorCurveSatVsSat);
+            c.ColorCurveSatVsLuma = new List<CurvePoint>(ColorCurveSatVsLuma);
             c.LocalAdjustments = new List<LocalAdjustment>(LocalAdjustments);
             return c;
         }

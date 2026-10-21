@@ -63,6 +63,9 @@ pub mod brush;
 pub mod cpu_budget;
 mod cpu_live_session;
 pub use cpu_live_session::CpuLiveSession;
+/// Colour-range eyedropper for the mask panel (#362) — the render worker's
+/// `sample_mask_range_from_bytes`.
+pub mod color_curve_sample;
 /// Edited-image export — full-res render + in-wasm encode, drained in chunks
 /// so a 100 MP deliverable never lands on the JS heap in one piece (#943).
 pub mod export;
@@ -76,8 +79,6 @@ pub mod id;
 /// clear bindings plus the sidecar-selection accessor the worker restores
 /// against before a decode.
 pub mod lens_profile;
-/// Colour-range eyedropper for the mask panel (#362) — the render worker's
-/// `sample_mask_range_from_bytes`.
 pub mod mask_range_sample;
 /// Instance-wide bitmap-mask raster registry (#3300) — `mask_raster_register`
 /// / `mask_raster_release`, the web mirror of raw-ffi's

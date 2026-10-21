@@ -259,6 +259,16 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   public var displayToneCurveGreen: ToneCurve  // default .identity (empty)
   public var displayToneCurveBlue: ToneCurve  // default .identity (empty)
 
+  // Secondary Oklab color curves (#5041) — applied in scene-linear Oklab
+  // right after the 8-band HSL mixer. Carried with inline defaults to keep
+  // AdjustmentModel+Init within the 570-line headroom budget.
+  public var colorCurveHueVsHue: ToneCurve = .identity
+  public var colorCurveHueVsSat: ToneCurve = .identity
+  public var colorCurveHueVsLuma: ToneCurve = .identity
+  public var colorCurveLumaVsSat: ToneCurve = .identity
+  public var colorCurveSatVsSat: ToneCurve = .identity
+  public var colorCurveSatVsLuma: ToneCurve = .identity
+
   /// Decode-time chroma pre-filter (#1104, tone/zoom design § 3.1).
   /// Luma-guided sparse cross-bilateral on opponent chroma, baked into
   /// the Rust decode product (post-DCP, pre auto-exposure) — there is

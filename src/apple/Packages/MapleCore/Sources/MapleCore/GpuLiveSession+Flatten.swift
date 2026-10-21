@@ -74,10 +74,9 @@ extension GpuLiveSession {
 }
 
 extension GpuLiveSession {
-  /// Bind the display-referred curves (`crs:ToneCurvePV2012*`) into a
-  /// copy of `params` for the duration of `body` (#4738). The live path
-  /// never bound these, so an imported ACR curve rendered on export and
-  /// refine but never on the canvas.
+  /// Bind the display-referred curves (`crs:ToneCurvePV2012*`) and the six
+  /// Oklab secondary color curves (`papp:ColorCurve*`, #5041) into a
+  /// copy of `params` for the duration of `body` (#4738).
   static func withDisplayCurvesBound<R>(
     _ params: MapleGpuLiveParams,
     _ model: AdjustmentModel,
@@ -96,7 +95,40 @@ extension GpuLiveSession {
             bind(r, to: &p.display_tone_curve_red_ptr, len: &p.display_tone_curve_red_len)
             bind(g, to: &p.display_tone_curve_green_ptr, len: &p.display_tone_curve_green_len)
             bind(b, to: &p.display_tone_curve_blue_ptr, len: &p.display_tone_curve_blue_len)
-            return body(p)
+            return withColorCurvesBound(p, model, body)
+          }
+        }
+      }
+    }
+  }
+
+  static func withColorCurvesBound<R>(
+    _ params: MapleGpuLiveParams,
+    _ model: AdjustmentModel,
+    _ body: (MapleGpuLiveParams) -> R
+  ) -> R {
+    let hvh = flattened(model.colorCurveHueVsHue)
+    let hvs = flattened(model.colorCurveHueVsSat)
+    let hvl = flattened(model.colorCurveHueVsLuma)
+    let lvs = flattened(model.colorCurveLumaVsSat)
+    let svs = flattened(model.colorCurveSatVsSat)
+    let svl = flattened(model.colorCurveSatVsLuma)
+    return hvh.withUnsafeBufferPointer { pHvh in
+      hvs.withUnsafeBufferPointer { pHvs in
+        hvl.withUnsafeBufferPointer { pHvl in
+          lvs.withUnsafeBufferPointer { pLvs in
+            svs.withUnsafeBufferPointer { pSvs in
+              svl.withUnsafeBufferPointer { pSvl in
+                var p = params
+                bind(pHvh, to: &p.color_curve_hue_vs_hue_ptr, len: &p.color_curve_hue_vs_hue_len)
+                bind(pHvs, to: &p.color_curve_hue_vs_sat_ptr, len: &p.color_curve_hue_vs_sat_len)
+                bind(pHvl, to: &p.color_curve_hue_vs_luma_ptr, len: &p.color_curve_hue_vs_luma_len)
+                bind(pLvs, to: &p.color_curve_luma_vs_sat_ptr, len: &p.color_curve_luma_vs_sat_len)
+                bind(pSvs, to: &p.color_curve_sat_vs_sat_ptr, len: &p.color_curve_sat_vs_sat_len)
+                bind(pSvl, to: &p.color_curve_sat_vs_luma_ptr, len: &p.color_curve_sat_vs_luma_len)
+                return body(p)
+              }
+            }
           }
         }
       }
