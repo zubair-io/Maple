@@ -453,4 +453,22 @@ describe('relocate — old-name backup edits (#5063)', () => {
       expect(await read('src/IMG.HEIC.xmp')).toBe(maple('backup edit'));
     },
   );
+
+  test("Replace keeps the displaced photo's old-name edit when it was saved after the plan read it", async () => {
+    await write('src/IMG.HEIC', 'new');
+    await write('src/IMG.xmp', maple('incoming edit'));
+    await write('dst/IMG.HEIC', 'old');
+    await write('dst/IMG.HEIC.xmp', maple('previous edit'));
+
+    const outcome = await relocateFile({
+      sourceAbsPath: abs('src/IMG.HEIC'),
+      destAbsPath: abs('dst/IMG.HEIC'),
+      mode: 'move',
+      collision: 'replace',
+      onDestinationPrepared: () => write('dst/IMG.HEIC.xmp', maple('saved meanwhile')),
+    });
+
+    expect(outcome.kind).toBe('relocated');
+    expect(await read('dst/IMG.HEIC.xmp')).toBe(maple('saved meanwhile'));
+  });
 });

@@ -164,6 +164,26 @@ describe('rename reconciliation — old-name backup edits (#5063)', () => {
     },
   );
 
+  it.skipIf(!caseSensitive)('moves every spelling of an old-name edit with the photo', async () => {
+    using library = await createDiscoverLibrary('maple-rename-old-name-two-spellings-');
+    await writeFile(path.join(library.root, 'IMG_0004.dng.xmp'), edit);
+    await writeFile(path.join(library.root, 'img_0004.dng.xmp'), edit.replace('backup', 'second'));
+    await writeFile(path.join(library.root, 'trip.dng'), 'pixels');
+
+    await moveLegacySidecarIfPresent(
+      path.join(library.root, 'IMG_0004.dng'),
+      path.join(library.root, 'trip.dng'),
+      library.root,
+    );
+
+    const names = await readdir(library.root);
+    expect(names.filter((name) => name.toLowerCase() === 'img_0004.dng.xmp')).toEqual([]);
+    expect(await readFile(path.join(library.root, 'trip.dng.xmp'), 'utf8')).toBe(edit);
+    expect(await readFile(path.join(library.root, 'trip (conflict from rename).xmp'), 'utf8')).toBe(
+      edit.replace('backup', 'second'),
+    );
+  });
+
   it('a rename that changes only the Unicode form keeps the edit', async () => {
     using library = await createDiscoverLibrary('maple-rename-old-name-nfd-');
     const decomposed = 'cafe\u0301.dng';
