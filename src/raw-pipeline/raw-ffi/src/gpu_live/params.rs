@@ -104,24 +104,9 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         1 => raw_core::types::WbMethod::DiagonalRec2020,
         _ => raw_core::types::WbMethod::Cat16,
     };
-    // Compute the WB matrix (#1240 follow-up). When the host supplies a
-    // `decoded_temperature` (> 0 — the 0/0 sentinel means "no decoded WB"),
-    // build the DELTA `M_net = M_live · M_decoded⁻¹` matching
-    // `raw_core::stages::white_balance::apply_delta`. This handles the editor
-    // decode-boundary contract: the f32 buffer is at D65 (post-DCP), but
-    // Apple's `processSceneLinear` passes `decodedTemp = asShot.temperature`,
-    // so the chain's WB step is the live-vs-asShot delta (identity at default
-    // slider value, where live == asShot). With `M_live` alone, the GPU
-    // canvas baked `wb_cat16(asShot)` into the D65 buffer for every render —
-    // a uniform colour cast on any photo whose as-shot CCT was far from D65
-    // (e.g. test_0002 at asShot=4522K).
-    //
-    // When the host does NOT supply decoded WB (0/0 sentinel), preserve the
-    // pre-#1240 absolute apply: `M_net = M_live`. This is what legacy callers
-    // (and the headless render path) expect — `wb_cat16_matrix(6500, 0)` is
-    // NOT exactly identity, so naively forcing `decoded_temp = 6500` and
-    // composing with its inverse would silently change the legacy output.
-    // (Copilot review on #1262.)
+    // Compute the WB matrix (#1240 follow-up). When `decoded_temperature > 0`,
+    // build `M_net = M_live · M_decoded⁻¹` matching `white_balance::apply_delta`.
+    // When 0/0, preserve the pre-#1240 absolute apply (`M_net = M_live`).
     let use_delta = p.decoded_temperature > 0.0;
     // WB slider frame (#1781): the decode-exported `SliderFrame` data. Only
     // meaningful for RAW input (`input_shape == 0` — a non-RAW buffer has no
@@ -422,6 +407,14 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
                 p.display_tone_curve_green_len,
             ),
             blue: read_points(p.display_tone_curve_blue_ptr, p.display_tone_curve_blue_len),
+        },
+        color_curves: raw_gpu::ColorCurveInputs {
+            hue_vs_hue: read_points(p.color_curve_hue_vs_hue_ptr, p.color_curve_hue_vs_hue_len),
+            hue_vs_sat: read_points(p.color_curve_hue_vs_sat_ptr, p.color_curve_hue_vs_sat_len),
+            hue_vs_luma: read_points(p.color_curve_hue_vs_luma_ptr, p.color_curve_hue_vs_luma_len),
+            luma_vs_sat: read_points(p.color_curve_luma_vs_sat_ptr, p.color_curve_luma_vs_sat_len),
+            sat_vs_sat: read_points(p.color_curve_sat_vs_sat_ptr, p.color_curve_sat_vs_sat_len),
+            sat_vs_luma: read_points(p.color_curve_sat_vs_luma_ptr, p.color_curve_sat_vs_luma_len),
         },
         // Vectorscope scope pass (#3272). `scope_enabled == 0` forces `layer`
         // to -1 regardless of what `p.scope_layer` holds, so a disabled

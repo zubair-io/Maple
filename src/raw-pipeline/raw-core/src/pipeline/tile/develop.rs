@@ -25,9 +25,9 @@ use crate::{
     error::Result,
     image::RawImage,
     stages::{
-        chroma_prefilter, clarity, defringe, highlight_recovery, highlight_recovery_oklab, hsl,
-        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
-        wb_camera, white_balance,
+        chroma_prefilter, clarity, color_curves, defringe, highlight_recovery,
+        highlight_recovery_oklab, hsl, noise_reduction, saturation, scene_tone_controls, sharpen,
+        texture, tone_curves, vibrance, wb_camera, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -457,6 +457,9 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // full-resolution preview. Point op with no neighbour gather, so it is
     // trivially tile-safe; identity short-circuits on the all-default model.
     stage("tile_hsl", || hsl::apply_model(&mut scene, model));
+    stage("tile_color_curves", || {
+        color_curves::apply_model(&mut scene, model)
+    });
     stage("tile_clarity", || clarity::apply(&mut scene, model.clarity));
     stage("tile_texture", || texture::apply(&mut scene, model.texture));
     // dehaze intentionally omitted — global statistics plus a radius-60

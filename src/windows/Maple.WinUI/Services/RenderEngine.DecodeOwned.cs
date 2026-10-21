@@ -52,6 +52,9 @@ namespace Maple.WinUI.Services
             m.ToneCurveGreen.Clear(); m.ToneCurveBlue.Clear();
             m.DisplayToneCurveLuma.Clear(); m.DisplayToneCurveRed.Clear();
             m.DisplayToneCurveGreen.Clear(); m.DisplayToneCurveBlue.Clear();
+            m.ColorCurveHueVsHue.Clear(); m.ColorCurveHueVsSat.Clear();
+            m.ColorCurveHueVsLuma.Clear(); m.ColorCurveLumaVsSat.Clear();
+            m.ColorCurveSatVsSat.Clear(); m.ColorCurveSatVsLuma.Clear();
             m.Crop = Models.CropState.Identity;   // display-side (#2582), never baked at decode
             m.Vibrance = 0; m.Saturation = 0; m.Clarity = 0; m.Texture = 0; m.Dehaze = 0;
             m.HueAdjustmentRed = 0; m.HueAdjustmentOrange = 0; m.HueAdjustmentYellow = 0;

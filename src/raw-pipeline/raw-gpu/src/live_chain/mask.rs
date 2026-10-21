@@ -6,6 +6,7 @@
 
 use super::noop::{scene_tone_is_noop, tone_curves_is_noop, wb_is_noop, SLIDER_EPS};
 use crate::auto_profile_curve::profile_curve_is_active;
+use crate::color_curves::color_curves_is_identity;
 use crate::color_grade::color_grade_is_identity;
 use crate::display_tone_curve::display_tone_curve_is_identity;
 use crate::full_chain::{hsl_pass_for, FullChainInputs, InputShape};
@@ -129,6 +130,9 @@ pub(crate) fn active_mask(inputs: &FullChainInputs) -> u32 {
     }
     if is_raw_shape && residual_lut_is_active(inputs.residual_lut_size, &inputs.residual_lut_data) {
         m |= 1 << 21;
+    }
+    if !color_curves_is_identity(&inputs.color_curves) {
+        m |= 1 << 22;
     }
     m
 }

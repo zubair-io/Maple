@@ -94,6 +94,18 @@ namespace Maple.WinUI.Native
         public float parametric_shadow_split;
         public float parametric_midtone_split;
         public float parametric_highlight_split;
+        public float* color_curve_hue_vs_hue_ptr;
+        public nuint color_curve_hue_vs_hue_len;
+        public float* color_curve_hue_vs_sat_ptr;
+        public nuint color_curve_hue_vs_sat_len;
+        public float* color_curve_hue_vs_luma_ptr;
+        public nuint color_curve_hue_vs_luma_len;
+        public float* color_curve_luma_vs_sat_ptr;
+        public nuint color_curve_luma_vs_sat_len;
+        public float* color_curve_sat_vs_sat_ptr;
+        public nuint color_curve_sat_vs_sat_len;
+        public float* color_curve_sat_vs_luma_ptr;
+        public nuint color_curve_sat_vs_luma_len;
     }
 
     /// <summary>
@@ -136,5 +148,21 @@ namespace Maple.WinUI.Native
         public float temperature;
         public float tint;
         public uint algorithm_version;
+    }
+
+    /// <summary>
+    /// C-ABI mirror of raw-ffi's MapleColorCurveSample (color_curve_sample.rs,
+    /// #5041): stage-input Oklab coordinates for the secondary color curves
+    /// eyedropper.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MapleColorCurveSample
+    {
+        public float u_h;
+        public float u_c;
+        public float u_l;
+        public float l;
+        public float c;
+        public float hue_deg;
     }
 }

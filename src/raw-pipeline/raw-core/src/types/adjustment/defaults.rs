@@ -201,6 +201,13 @@ impl Default for AdjustmentModel {
             color_grade_blending: 100.0,
             color_grade_shadow_edge: 0.564622,
             color_grade_highlight_edge: 0.564622,
+            // Per-#5041: Oklab secondary color curves default to identity (empty `Vec`).
+            color_curve_hue_vs_hue: ToneCurve::default(),
+            color_curve_hue_vs_sat: ToneCurve::default(),
+            color_curve_hue_vs_luma: ToneCurve::default(),
+            color_curve_luma_vs_sat: ToneCurve::default(),
+            color_curve_sat_vs_sat: ToneCurve::default(),
+            color_curve_sat_vs_luma: ToneCurve::default(),
         }
     }
 }

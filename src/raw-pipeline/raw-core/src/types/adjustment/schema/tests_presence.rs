@@ -154,6 +154,38 @@ fn display_tone_curve_fields_present_in_schema() {
     }
 }
 
+/// Oklab secondary color curves (#5041, `papp:ColorCurve*`). All six are
+/// `FieldKind::ToneCurve` entries and default to identity (empty).
+#[test]
+fn color_curve_fields_present_in_schema() {
+    let names = [
+        "color_curve_hue_vs_hue",
+        "color_curve_hue_vs_sat",
+        "color_curve_hue_vs_luma",
+        "color_curve_luma_vs_sat",
+        "color_curve_sat_vs_sat",
+        "color_curve_sat_vs_luma",
+    ];
+    let m = AdjustmentModel::default();
+    let curves = [
+        &m.color_curve_hue_vs_hue,
+        &m.color_curve_hue_vs_sat,
+        &m.color_curve_hue_vs_luma,
+        &m.color_curve_luma_vs_sat,
+        &m.color_curve_sat_vs_sat,
+        &m.color_curve_sat_vs_luma,
+    ];
+    for (name, curve) in names.iter().zip(curves) {
+        let entry = ADJUSTMENT_SCHEMA
+            .iter()
+            .find(|s| s.name == *name)
+            .unwrap_or_else(|| panic!("{name} missing from ADJUSTMENT_SCHEMA"));
+        assert!(matches!(entry.kind, FieldKind::ToneCurve));
+        assert_eq!(entry.enum_name, "");
+        assert!(curve.is_identity());
+    }
+}
+
 /// S5 effects fields (ticket #643): vignette / grain / split-tone scalars,
 /// plus the colour-grading zone scalars that joined them in #275, are
 /// present in the schema with the documented ranges and defaults.

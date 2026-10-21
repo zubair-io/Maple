@@ -250,18 +250,11 @@ namespace Maple.WinUI.Services
             // local adjustments" (raw-core's bit-identical short-circuit).
             var localFlat = LocalAdjustmentFlat.ToFlat(model.LocalAdjustments);
 
-            fixed (float* inPtr = image.Pixels)
-            fixed (float* outPtr = chainScratch)
-            fixed (float* noisePtr = image.NoiseProfile)
-            fixed (float* lumaPtr = flat.Luma)
-            fixed (float* redPtr = flat.Red)
-            fixed (float* greenPtr = flat.Green)
-            fixed (float* bluePtr = flat.Blue)
-            fixed (float* displayLumaPtr = flat.DisplayLuma)
-            fixed (float* displayRedPtr = flat.DisplayRed)
-            fixed (float* displayGreenPtr = flat.DisplayGreen)
-            fixed (float* displayBluePtr = flat.DisplayBlue)
-            fixed (float* localPtr = localFlat)
+            fixed (float* inPtr = image.Pixels, outPtr = chainScratch, noisePtr = image.NoiseProfile, localPtr = localFlat)
+            fixed (float* lumaPtr = flat.Luma, redPtr = flat.Red, greenPtr = flat.Green, bluePtr = flat.Blue)
+            fixed (float* displayLumaPtr = flat.DisplayLuma, displayRedPtr = flat.DisplayRed, displayGreenPtr = flat.DisplayGreen, displayBluePtr = flat.DisplayBlue)
+            fixed (float* ccHH = flat.ColorCurveHueVsHue, ccHS = flat.ColorCurveHueVsSat, ccHL = flat.ColorCurveHueVsLuma)
+            fixed (float* ccLS = flat.ColorCurveLumaVsSat, ccSS = flat.ColorCurveSatVsSat, ccSL = flat.ColorCurveSatVsLuma)
             {
                 if (image.NoiseProfile.Length > 0)
                 {
@@ -290,6 +283,7 @@ namespace Maple.WinUI.Services
                 curves.display_green_len = (nuint)flat.DisplayGreen.Length;
                 curves.display_blue_ptr = displayBluePtr;
                 curves.display_blue_len = (nuint)flat.DisplayBlue.Length;
+                flat.BindColorCurves(ref curves, ccHH, ccHS, ccHL, ccLS, ccSS, ccSL);
                 int rc;
                 if (window is { } detailWindow)
                     rc = string.IsNullOrEmpty(model.FilmLook)

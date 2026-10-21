@@ -151,6 +151,17 @@ impl GpuContext {
             .get_or_init(|| compile_with_matrices(&self.device, "hsl", include_str!("hsl.wgsl")))
     }
 
+    /// The cached Oklab secondary color-curves compute pipeline (#5041, Stage 22b).
+    pub fn color_curves_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.color_curves_pipeline.get_or_init(|| {
+            compile_with_matrices(
+                &self.device,
+                "color-curves",
+                include_str!("color_curves.wgsl"),
+            )
+        })
+    }
+
     /// The cached masked shadows/highlights compute pipeline (#1103, tone/zoom
     /// design § 4.2): one reworked tone step (mode-selected) through the tonal
     /// detail mask, reading the blurred luma plane the host prepares with

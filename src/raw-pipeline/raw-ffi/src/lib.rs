@@ -57,6 +57,7 @@ mod white_balance_sample;
 // Colour-range eyedropper for the mask panel (#362): same transport as the
 // white-balance sampler above, reads the pixel entering the local-adjustments
 // stage and returns a seeded `papp:Range*` quadruple.
+mod color_curve_sample;
 mod mask_range_sample;
 // BM3D deep-denoise progress bridge (#1153): the editor's determinate
 // indicator is fed by the stage's own per-row ticks, so raw-core's progress
@@ -205,6 +206,7 @@ pub use auto_adjustments::MapleAutoAdjustments;
 pub use auto_tone::MapleAutoTone;
 pub use buffers::{MapleImageBuffer, MapleSceneLinearBuffer};
 pub use cancel::MapleCancelFlag;
+pub use color_curve_sample::{maple_sample_color_curve_oriented, MapleColorCurveSample};
 // #1153: cbindgen needs visibility on the callback typedef; the
 // `#[no_mangle]` registration entry is exported regardless.
 pub use deep_denoise_progress::{maple_set_deep_denoise_progress, MapleDeepDenoiseProgressFn};

@@ -337,7 +337,10 @@ fn tile_matches_full_chain_with_non_default_hsl() {
             &[0.0; 8],
             false,
         );
-        assert_ne!(probe.pixels, before, "test model's HSL must be non-identity");
+        assert_ne!(
+            probe.pixels, before,
+            "test model's HSL must be non-identity"
+        );
     }
 
     let (src_x, src_y, side) = (1024u32, 1024u32, 512u32);

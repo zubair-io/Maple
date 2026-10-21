@@ -207,6 +207,18 @@ namespace Maple.WinUI.Native
         public float color_grade_blending;
         public float color_grade_shadow_edge;
         public float color_grade_highlight_edge;
+        public float* color_curve_hue_vs_hue_ptr;
+        public nuint color_curve_hue_vs_hue_len;
+        public float* color_curve_hue_vs_sat_ptr;
+        public nuint color_curve_hue_vs_sat_len;
+        public float* color_curve_hue_vs_luma_ptr;
+        public nuint color_curve_hue_vs_luma_len;
+        public float* color_curve_luma_vs_sat_ptr;
+        public nuint color_curve_luma_vs_sat_len;
+        public float* color_curve_sat_vs_sat_ptr;
+        public nuint color_curve_sat_vs_sat_len;
+        public float* color_curve_sat_vs_luma_ptr;
+        public nuint color_curve_sat_vs_luma_len;
 
         /// <summary>
         /// Build live-chain params from the canonical model + decode exports.

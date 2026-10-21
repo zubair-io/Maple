@@ -305,6 +305,13 @@ final class SceneLinearChainCache: @unchecked Sendable {
     h.combine(model.grayMixerBlue.bitPattern)
     h.combine(model.grayMixerPurple.bitPattern)
     h.combine(model.grayMixerMagenta.bitPattern)
+    // secondary Oklab color curves (#5041) — Stage 22b, right after HSL.
+    h.combine(model.colorCurveHueVsHue)
+    h.combine(model.colorCurveHueVsSat)
+    h.combine(model.colorCurveHueVsLuma)
+    h.combine(model.colorCurveLumaVsSat)
+    h.combine(model.colorCurveSatVsSat)
+    h.combine(model.colorCurveSatVsLuma)
     // clarity / texture / dehaze.
     h.combine(model.clarity.bitPattern)
     h.combine(model.texture.bitPattern)

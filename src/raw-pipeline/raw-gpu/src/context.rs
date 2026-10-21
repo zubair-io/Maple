@@ -86,6 +86,8 @@ pub struct GpuContext {
     /// color matrices). The #1112 scene-linear Oklab HSL stage. Built on first
     /// use via [`GpuContext::hsl_pipeline`].
     pub(crate) hsl_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled Oklab secondary color curves pipeline (`color_curves.wgsl`, #5041).
+    pub(crate) color_curves_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled masked shadows/highlights compute pipeline
     /// (`scene_tone_sh.wgsl`, #1103): one tone step through the tonal detail
     /// mask (blurred-luma regional vs per-pixel mix). Built on first use via
@@ -415,6 +417,7 @@ impl GpuContext {
             grain_pipeline: OnceCell::new(),
             color_grade_pipeline: OnceCell::new(),
             hsl_pipeline: OnceCell::new(),
+            color_curves_pipeline: OnceCell::new(),
             scene_tone_sh_pipeline: OnceCell::new(),
             display_encode_pipeline: OnceCell::new(),
             srgb_gamma_pipeline: OnceCell::new(),

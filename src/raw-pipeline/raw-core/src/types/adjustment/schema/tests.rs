@@ -160,6 +160,12 @@ fn schema_matches_struct() {
         color_grade_blending,
         color_grade_shadow_edge,
         color_grade_highlight_edge,
+        color_curve_hue_vs_hue,
+        color_curve_hue_vs_sat,
+        color_curve_hue_vs_luma,
+        color_curve_luma_vs_sat,
+        color_curve_sat_vs_sat,
+        color_curve_sat_vs_luma,
     } = m;
     let expected_order = [
         "temperature",
@@ -289,6 +295,12 @@ fn schema_matches_struct() {
         "color_grade_blending",
         "color_grade_shadow_edge",
         "color_grade_highlight_edge",
+        "color_curve_hue_vs_hue",
+        "color_curve_hue_vs_sat",
+        "color_curve_hue_vs_luma",
+        "color_curve_luma_vs_sat",
+        "color_curve_sat_vs_sat",
+        "color_curve_sat_vs_luma",
     ];
     assert_eq!(
         ADJUSTMENT_SCHEMA.len(),
@@ -428,6 +440,12 @@ fn schema_matches_struct() {
         color_grade_blending,
         color_grade_shadow_edge,
         color_grade_highlight_edge,
+        color_curve_hue_vs_hue,
+        color_curve_hue_vs_sat,
+        color_curve_hue_vs_luma,
+        color_curve_luma_vs_sat,
+        color_curve_sat_vs_sat,
+        color_curve_sat_vs_luma,
     );
     // `local_adjustments` is allow-listed: it carries structured data
     // (Vec<LocalAdjustment>) and is documented as not part of the schema

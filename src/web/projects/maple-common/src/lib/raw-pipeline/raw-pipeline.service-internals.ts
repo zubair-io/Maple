@@ -13,7 +13,7 @@ import type {
   ExportedFile,
 } from './raw-pipeline.types';
 import type { WbSampleResult } from './raw-pipeline.sample-wb.types';
-import type { MaskRangeSeed } from './raw-pipeline.sample-range.types';
+import type { ColorCurveSampleResult, MaskRangeSeed } from './raw-pipeline.sample-range.types';
 
 /**
  * Result of opening a persistent GPU live session (epic #925, P4b-web / #1038):
@@ -146,6 +146,12 @@ export type PendingHandler =
       kind: 'sample-range';
       /** Resolves with the four seeded `papp:Range*` coordinates (#362). */
       resolve: (seed: MaskRangeSeed) => void;
+      reject: (err: Error) => void;
+    }
+  | {
+      kind: 'sample-color-curve';
+      /** Resolves with the Stage 22b Oklab color curve sample (#5041). */
+      resolve: (sample: ColorCurveSampleResult) => void;
       reject: (err: Error) => void;
     }
   | {

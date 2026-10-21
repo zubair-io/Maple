@@ -71,6 +71,7 @@ use crate::auto_profile_curve::{profile_curve_is_active, AutoProfileCurvePass};
 use crate::capture_sharpening::{CaptureSharpeningParams, CaptureSharpeningPass};
 use crate::chain::Pass;
 use crate::clarity::ClarityPass;
+use crate::color_curves::{color_curves_is_identity, ColorCurveInputs, ColorCurvesPass};
 use crate::defringe::{DefringeInputs, DefringePass};
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
@@ -145,15 +146,8 @@ pub struct FullChainInputs<'a> {
     /// `wb_cat16_matrix` or a diagonal from `wb_gains`).
     pub wb_matrix: [[f32; 3]; 3],
     /// The white-balance temperature (Kelvin) + tint the `wb_matrix` was derived
-    /// from. Carried alongside the matrix so the LIVE builder
-    /// ([`crate::build_live_chain`]) can gate WB on raw-core's EXACT short-circuit
-    /// predicate — `(temp - 6500).abs() < 0.5 && tint.abs() < 0.5` — instead of a
-    /// matrix near-identity test, which is structurally broken here: at 6500K the
-    /// CAT16 round-trip yields a matrix ~6.9e-3 off identity (so a matrix-identity
-    /// gate wrongly fires), and a temp 0.5K past the skip band produces a matrix
-    /// indistinguishable from the 6500K one (no tolerance separates apply from
-    /// skip). The composition builder ([`build_split`]) ignores these — it always
-    /// pushes WB — so they're inert outside the live path.
+    /// from. Carried alongside the matrix so [`crate::build_live_chain`] can gate
+    /// WB on raw-core's exact short-circuit predicate.
     pub wb_temperature: f32,
     pub wb_tint: f32,
     /// Scene-tone-controls sliders (exposure / brightness / highlights /
@@ -318,6 +312,8 @@ pub struct FullChainInputs<'a> {
     pub color_grade_blending: f32,
     pub color_grade_shadow_edge: f32,
     pub color_grade_highlight_edge: f32,
+    /// Oklab secondary color curves (#5041, Stage 22b).
+    pub color_curves: ColorCurveInputs,
 }
 
 mod shape;
@@ -407,6 +403,11 @@ pub fn build_split<'a>(
     // HSL (#1112) / black & white (#276) — scene-linear, after saturation,
     // before clarity.
     prefix.push(Box::new(hsl_pass_for(inputs)));
+    if !color_curves_is_identity(&inputs.color_curves) {
+        prefix.push(Box::new(ColorCurvesPass {
+            inputs: &inputs.color_curves,
+        }));
+    }
     prefix.push(Box::new(ClarityPass {
         clarity: inputs.clarity,
     }));

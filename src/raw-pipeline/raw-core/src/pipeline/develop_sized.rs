@@ -19,8 +19,8 @@ use crate::{
     image::RawImage,
     linearize,
     stages::{
-        auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, defringe, dehaze,
-        highlight_recovery_oklab, hot_pixel, hsl, local_adjustments, retouch, saturation,
+        auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, color_curves, defringe,
+        dehaze, highlight_recovery_oklab, hot_pixel, hsl, local_adjustments, retouch, saturation,
         scene_tone_controls, texture, tone_curves, vibrance, vignette, wb_camera, white_balance,
     },
     xmp::AdjustmentModel,
@@ -437,6 +437,10 @@ pub(super) fn develop_sized_prefix(
     // from the full-resolution render. Identity short-circuits on all-default.
     stage("sized_hsl", || hsl::apply_model(&mut scene, model));
     dump_after("09b_hsl", &scene);
+    stage("sized_color_curves", || {
+        color_curves::apply_model(&mut scene, model)
+    });
+    dump_after("09c_color_curves", &scene);
     stage("sized_clarity", || {
         clarity::apply(&mut scene, model.clarity)
     });

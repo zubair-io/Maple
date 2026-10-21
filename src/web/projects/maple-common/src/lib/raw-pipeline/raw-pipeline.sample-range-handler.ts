@@ -9,8 +9,11 @@
 // `sample-range-error` reply so the UI can phrase an actionable message
 // without parsing prose — `parseRangeSampleError` does the split.
 
-import { sample_mask_range_from_bytes } from './pkg/raw_wasm';
-import type { SampleRangeRequest } from './raw-pipeline.sample-range.types';
+import { sample_color_curve_from_bytes, sample_mask_range_from_bytes } from './pkg/raw_wasm';
+import type {
+  SampleColorCurveRequest,
+  SampleRangeRequest,
+} from './raw-pipeline.sample-range.types';
 import { parseRangeSampleError } from './raw-pipeline.sample-range.types';
 import type { WorkerResponse } from './raw-pipeline.types';
 import { markStart, markEnd } from './raw-pipeline.perf';
@@ -48,6 +51,43 @@ export function handleSampleRange(req: SampleRangeRequest): void {
     const raw = e instanceof Error ? e.message : String(e);
     const { kind, message } = parseRangeSampleError(raw);
     const response: WorkerResponse = { id: req.id, type: 'sample-range-error', kind, message };
+    (self as unknown as Worker).postMessage(response);
+  }
+}
+
+export function handleSampleColorCurve(req: SampleColorCurveRequest): void {
+  const startMark = `maple:sample-color-curve:${req.id}:start`;
+  try {
+    markStart(startMark);
+    const result = sample_color_curve_from_bytes(
+      new Uint8Array(req.bytes),
+      req.ext,
+      req.xmp ?? undefined,
+      req.nx,
+      req.ny,
+    );
+    const sample = {
+      uH: result.u_h,
+      uC: result.u_c,
+      uL: result.u_l,
+      l: result.l,
+      c: result.c,
+      hueDeg: result.hue_deg,
+    };
+    result.free();
+    markEnd(startMark, `maple:sample-color-curve:${req.id}:end`, 'maple:sample-color-curve');
+    const response: WorkerResponse = { id: req.id, type: 'sample-color-curve-success', sample };
+    (self as unknown as Worker).postMessage(response);
+  } catch (e) {
+    markEnd(startMark, `maple:sample-color-curve:${req.id}:end`, 'maple:sample-color-curve');
+    const raw = e instanceof Error ? e.message : String(e);
+    const { kind, message } = parseRangeSampleError(raw);
+    const response: WorkerResponse = {
+      id: req.id,
+      type: 'sample-color-curve-error',
+      kind,
+      message,
+    };
     (self as unknown as Worker).postMessage(response);
   }
 }

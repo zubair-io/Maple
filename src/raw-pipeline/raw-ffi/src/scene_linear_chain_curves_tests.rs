@@ -303,6 +303,18 @@ unsafe fn windows_path_png(
         parametric_shadow_split: 0.0,
         parametric_midtone_split: 0.0,
         parametric_highlight_split: 0.0,
+        color_curve_hue_vs_hue_ptr: std::ptr::null(),
+        color_curve_hue_vs_hue_len: 0,
+        color_curve_hue_vs_sat_ptr: std::ptr::null(),
+        color_curve_hue_vs_sat_len: 0,
+        color_curve_hue_vs_luma_ptr: std::ptr::null(),
+        color_curve_hue_vs_luma_len: 0,
+        color_curve_luma_vs_sat_ptr: std::ptr::null(),
+        color_curve_luma_vs_sat_len: 0,
+        color_curve_sat_vs_sat_ptr: std::ptr::null(),
+        color_curve_sat_vs_sat_len: 0,
+        color_curve_sat_vs_luma_ptr: std::ptr::null(),
+        color_curve_sat_vs_luma_len: 0,
     };
     let mut output = vec![0f32; lanes];
     let rc = maple_apply_chain_and_encode_display_curves_f32(

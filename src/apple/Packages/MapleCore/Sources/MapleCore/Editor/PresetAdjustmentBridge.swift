@@ -191,10 +191,12 @@ extension AdjustmentModel.FieldName {
     // land with the curve editor (#367).
     case .toneCurveLuma, .toneCurveRed, .toneCurveGreen, .toneCurveBlue:
       return nil
-    // Display-referred point curves (#2232) — same structured-`ToneCurve`
-    // reasoning as the scene-linear curves above.
+    // Display-referred point curves (#2232) and secondary Oklab color
+    // curves (#5041) — same structured-`ToneCurve` reasoning as above.
     case .displayToneCurveLuma, .displayToneCurveRed, .displayToneCurveGreen,
-      .displayToneCurveBlue:
+      .displayToneCurveBlue, .colorCurveHueVsHue, .colorCurveHueVsSat,
+      .colorCurveHueVsLuma, .colorCurveLumaVsSat, .colorCurveSatVsSat,
+      .colorCurveSatVsLuma:
       return nil
     // Manual geometry (#3410). The canonical field names stay flat; Swift
     // groups the seven under one nested value type (see `Perspective.swift`),
