@@ -130,6 +130,11 @@ struct HsmParams {
     _pad2: u32,
 }
 
+const _: () = assert!(
+    std::mem::size_of::<HsmParams>() == 192,
+    "HsmParams must match white_balance_hsm.wgsl's Params"
+);
+
 fn rows(m: &[[f32; 3]; 3]) -> [[f32; 4]; 3] {
     m.map(|r| [r[0], r[1], r[2], 0.0])
 }

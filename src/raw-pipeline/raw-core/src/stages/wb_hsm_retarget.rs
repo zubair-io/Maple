@@ -43,7 +43,7 @@ const HEADER_LEN: usize = 6;
 /// Each step shrinks the residual by roughly the table's local slope. Four
 /// leave test_0007 at mean ΔE00 < 1e-4 against a fresh develop, and the
 /// steep synthetic value-axis tables of `wb_hsm_retarget_tests` under 1.7e-3
-/// scene-linear (a third of an 8-bit step), where twelve reach float noise;
+/// scene-linear (under half an 8-bit step at mid-grey), where twelve reach float noise;
 /// each step is one table evaluation per pixel per tick.
 pub const HSM_INVERSE_ITERATIONS: u32 = 4;
 
@@ -148,12 +148,12 @@ pub struct HsmRetargetView<'a> {
     pub encoding: HsmEncoding,
     /// Both tables, cold then warm, as the wire carries them.
     pub tables: &'a [f32],
-    pub cct_cold: f32,
-    pub cct_warm: f32,
-    pub as_shot_cct: f32,
+    pub(crate) cct_cold: f32,
+    pub(crate) cct_warm: f32,
+    pub(crate) as_shot_cct: f32,
     /// The auto-exposure gain the decode applied after DCP (the HueSatMap
     /// saw the buffer before it); 1 when unknown.
-    pub exposure_gain: f32,
+    pub(crate) exposure_gain: f32,
 }
 
 /// Per-tick constants of the live HueSatMap delta. `to_pro`/`from_pro`
@@ -215,7 +215,7 @@ impl<'a> HsmRetargetView<'a> {
     }
 
     /// The reciprocal-CCT blend weight `dcp::lerp_hsm_for_cct` uses at `cct`.
-    pub fn weight_at(&self, cct: f32) -> f32 {
+    fn weight_at(&self, cct: f32) -> f32 {
         if (self.cct_cold - self.cct_warm).abs() < 1.0 {
             return 0.0;
         }
@@ -277,7 +277,7 @@ impl<'a> HsmRetargetView<'a> {
         [out[0] + lift, out[1] + lift, out[2] + lift]
     }
 
-    pub fn apply_image(&self, d: &HsmLiveDelta, img: &mut Image) {
+    pub(crate) fn apply_image(&self, d: &HsmLiveDelta, img: &mut Image) {
         img.assert_space(ColorSpace::SceneLinearRec2020);
         for p in &mut img.pixels {
             *p = self.apply_pixel(d, *p);

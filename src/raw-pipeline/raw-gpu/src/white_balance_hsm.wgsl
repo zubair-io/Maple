@@ -9,8 +9,7 @@
 // `H_w` is the HueSatMap blended between the cold and warm endpoint tables
 // at weight `w` (each table interpolated, then blended, hue on the shorter
 // arc); `H_A⁻¹` is a fixed-point inverse of `inverse_iterations` steps;
-// `floor` lifts a negative
-// channel uniformly, as the develop's DCP exit does. The two tables are
+// `floor` lifts a negative channel uniformly, as the develop's DCP exit does. The two tables are
 // session-constant storage; a tick only changes the uniform.
 //
 // Matrices arrive as vec4 ROWS (see white_balance.wgsl for why not mat3x3).

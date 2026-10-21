@@ -87,12 +87,12 @@ pub(crate) fn seam_stats(a: &[u8], b: &[u8]) -> SeamStats {
 }
 
 /// Realistic and extreme drags off a fixture's as-shot `anchor`, each with
-/// its ceiling. Measured with the HueSatMap carried (#5099, 512 px long
-/// edge): every drag sits at mean/p95 0.000 with at most 2 of 174,592
-/// pixels past 1 ΔE00 (max 3.0, 11 u8 steps, at the extremes, where the
-/// table's saturation clamp has no exact inverse). Before, the plain 3×3
-/// kept the as-shot table: mean 0.11 (warm 500 K) to 1.78 (2000 K), p95 up
-/// to 2.6, max channel up to 27.
+/// its ceiling, for every fixture whose HueSatMap moves. Landing on
+/// test_0007 (512 px long edge) with the HueSatMap carried: mean/p95
+/// 0.000 at every drag, at most 2 pixels past 1 ΔE00 (max 3.0, 11 u8 steps,
+/// at the extremes, where the table's saturation clamp has no exact
+/// inverse). The plain 3×3 it replaces: mean 0.11 (warm 500 K) to 1.78
+/// (2000 K), max channel up to 27.
 pub(crate) fn seam_cases(anchor: (f32, f32)) -> [(&'static str, (f32, f32), SeamStats); 6] {
     let drag = SeamStats {
         mean: 0.02,

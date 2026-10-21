@@ -185,8 +185,9 @@ fn live_delta_with_hsm_matches_a_retargeted_develop() {
                     err_converged < 1e-5,
                     "{shape} gain {gain} {target:?}: the composition itself is off ({err_converged:.2e})"
                 );
+                let ceiling = if val_divs == 1 { 2e-4 } else { 2e-3 };
                 assert!(
-                    err_live < 2e-3 && err_live < err_plain / 10.0,
+                    err_live < ceiling && err_live < err_plain / 10.0,
                     "{shape} gain {gain} {target:?}: live-with-HSM {err_live:.2e} vs a fresh develop"
                 );
             }
