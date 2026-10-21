@@ -31,6 +31,7 @@ import { sha256Prefix16 } from '../../fs/xmp.ts';
 import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
 import { carrySidecar, settleRefiledSidecar, type CarriedSidecar } from './refile-sidecar.ts';
 import {
+  copyVerifiedIntoPlace,
   revertCreated as withdrawPublications,
   type RelocatePublication,
 } from '../../fs/relocate-publish.ts';
@@ -54,14 +55,10 @@ export interface PlacePlan {
   sourcesToDelete: string[];
   /** Sidecars published at the new path, settled (not plain-unlinked) in `finalize`. */
   carriedSidecars: CarriedSidecar[];
-  /** Sidecars published at the new path, withdrawn by identity on a revert, so
-   * a save another writer made there since is never removed. */
-  sidecarPublications: RelocatePublication[];
-  /** Absolute paths of the NEW copies this call created (primary + companions).
-   * Empty for a dedupe (no copy made). Used to revert cleanly if the DB repoint
-   * turns out to be a no-op (concurrent change) — we delete these instead of the
-   * source, leaving the row + original untouched. */
-  createdPaths: string[];
+  /** Every copy published at the new path, withdrawn by identity on a revert,
+   * so a file another writer put there since is never removed. Empty for a
+   * dedupe (no copy made). */
+  publications: RelocatePublication[];
   /** The old day-folder (absolute), for emptiness cleanup in `finalize`. */
   oldDirAbs: string;
 }
@@ -87,31 +84,9 @@ async function exists(p: string): Promise<boolean> {
  * repoint turns out to be a no-op (a concurrent change moved the fileinfo entry
  * between our read and write), so the original + row are left untouched and we
  * don't strand an orphan at the new path. Best-effort. */
-/** Undo a placement: the primary and companions by path, sidecars only while
- * they are still the files this placement published (the list is emptied). */
-export async function revertPlaced(
-  placed: Pick<PlacePlan, 'createdPaths' | 'sidecarPublications'>,
-): Promise<void> {
-  await removeCreatedPaths(placed.createdPaths);
-  await withdrawPublications(placed.sidecarPublications);
-}
-
-async function removeCreatedPaths(createdPaths: string[]): Promise<void> {
-  for (const p of createdPaths) {
-    await fs.unlink(p).catch((err) => {
-      log.warn({ p, err: err instanceof Error ? err.message : err }, 'revert unlink failed');
-    });
-  }
-}
-
-/** Copy `src` → `dst` and verify byte-identical. On a verify failure the bad
- * partial copy is removed and the error propagates (source is left intact). */
-async function copyVerified(src: string, dst: string): Promise<void> {
-  await fs.copyFile(src, dst);
-  if (!(await filesIdentical(src, dst))) {
-    await fs.unlink(dst).catch(() => {});
-    throw new Error(`copy verification failed: ${src} → ${dst}`);
-  }
+/** Undo a placement: only files still proven to be its own are removed (the list is emptied). */
+export async function revertPlaced(placed: Pick<PlacePlan, 'publications'>): Promise<void> {
+  await withdrawPublications(placed.publications);
 }
 
 /**
@@ -161,8 +136,7 @@ export async function planAndPlace(args: {
         newRenderedRel: renderedRelOld, // no rendered move on a dedupe of a bare original
         sourcesToDelete: [oldAbs],
         carriedSidecars: [],
-        sidecarPublications: [],
-        createdPaths: [], // no copy made — nothing to revert
+        publications: [], // no copy made — nothing to revert
         oldDirAbs,
       };
     }
@@ -172,23 +146,22 @@ export async function planAndPlace(args: {
     outcome = 'renamed';
   }
 
-  const createdPaths: string[] = [];
-  const sidecarPublications: RelocatePublication[] = [];
+  const publications: RelocatePublication[] = [];
   // A throw past this point reverts every copy, so a retry starts clean (#5061).
   try {
     const placed = await copyIntoPlace(
       { libRoot, oldAbs, targetAbs, sidecars, renderedAbsOld, renderedRelOld },
-      { createdPaths, sidecarPublications },
+      publications,
     );
-    return { outcome, ...placed, createdPaths, sidecarPublications, oldDirAbs };
+    return { outcome, ...placed, publications, oldDirAbs };
   } catch (err) {
-    await revertPlaced({ createdPaths, sidecarPublications });
+    await revertPlaced({ publications });
     throw err;
   }
 }
 
 /** Copy the primary, its sidecars and its rendered companion next to
- * `targetAbs`, recording each copy in `createdPaths` as it lands. */
+ * `targetAbs`, each published exclusively and recorded in `publications` as it lands. */
 async function copyIntoPlace(
   args: {
     libRoot: string;
@@ -198,15 +171,14 @@ async function copyIntoPlace(
     renderedAbsOld: string | null;
     renderedRelOld: string | null;
   },
-  created: Pick<PlacePlan, 'createdPaths' | 'sidecarPublications'>,
+  publications: RelocatePublication[],
 ): Promise<
   Pick<PlacePlan, 'newRelPath' | 'newRenderedRel' | 'sourcesToDelete' | 'carriedSidecars'>
 > {
   const { libRoot, oldAbs, targetAbs, renderedAbsOld, renderedRelOld } = args;
   // ── Copy + verify primary ───────────────────────────────────────────────
   await fs.mkdir(path.dirname(targetAbs), { recursive: true });
-  created.createdPaths.push(targetAbs);
-  await copyVerified(oldAbs, targetAbs);
+  await copyVerifiedIntoPlace(oldAbs, targetAbs, false, publications);
 
   const oldBase = path.basename(oldAbs, path.extname(oldAbs));
   const newBase = path.basename(targetAbs, path.extname(targetAbs));
@@ -221,7 +193,7 @@ async function copyIntoPlace(
       path.join(path.dirname(targetAbs), renamed),
       'migration:sidecar',
     );
-    const carried = await carrySidecar(sidecar, dst, targetAbs, created.sidecarPublications);
+    const carried = await carrySidecar(sidecar, dst, targetAbs, publications);
     if (carried === null) continue;
     carriedSidecars.push(carried);
   }
@@ -238,8 +210,7 @@ async function copyIntoPlace(
   const rName = path.basename(renderedAbsOld);
   const renamed = rName.startsWith(oldBase) ? newBase + rName.slice(oldBase.length) : rName;
   const dst = await pickFreePath(path.join(path.dirname(targetAbs), renamed), 'migration:rendered');
-  created.createdPaths.push(dst);
-  await copyVerified(renderedAbsOld, dst);
+  await copyVerifiedIntoPlace(renderedAbsOld, dst, false, publications);
   return {
     newRelPath: toPosixRel(libRoot, targetAbs),
     newRenderedRel: toPosixRel(libRoot, dst),
