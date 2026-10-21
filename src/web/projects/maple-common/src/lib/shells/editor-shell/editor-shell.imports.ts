@@ -23,6 +23,7 @@ import { ValueHudComponent } from '../../components/editor/value-hud.component';
 import { ToneCurveComponent } from '../../components/develop/tone-curve.component';
 import { WbPadComponent } from '../../components/develop/wb-pad.component';
 import { ColorGradingPanelComponent } from '../../components/develop/color-grading-panel.component';
+import { ColorCurvesRibbonComponent } from '../../components/develop/color-curves-ribbon.component';
 import { FilmPanelComponent } from '../../components/editor/film-panel.component';
 import { LensCorrectionsPanelComponent } from '../../components/editor/lens-corrections-panel.component';
 import { GeometryPanelComponent } from '../../components/editor/geometry-panel.component';
@@ -53,6 +54,7 @@ export const EDITOR_SHELL_IMPORTS = [
   ToneCurveComponent,
   WbPadComponent,
   ColorGradingPanelComponent,
+  ColorCurvesRibbonComponent,
   FilmPanelComponent,
   LensCorrectionsPanelComponent,
   GeometryPanelComponent,

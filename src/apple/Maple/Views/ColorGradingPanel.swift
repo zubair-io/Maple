@@ -115,7 +115,7 @@ struct ColorGradingPanel: View {
           )
         )
         .font(.system(size: 9, weight: .medium, design: .monospaced))
-        .foregroundStyle(ProTokens.textSecondary)
+        .foregroundStyle(ProTokens.textMuted)
       }
 
       GeometryReader { geo in
