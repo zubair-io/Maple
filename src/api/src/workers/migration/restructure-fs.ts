@@ -29,6 +29,7 @@ import { filesIdentical } from '../../backup/fs-util.ts';
 import { pickFreePath } from '../../fs/trash.ts';
 import { sha256Prefix16 } from '../../fs/xmp.ts';
 import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
+import { carrySidecar, settleRefiledSidecar, type CarriedSidecar } from './refile-sidecar.ts';
 import { child as childLogger } from '../../log.ts';
 
 const log = childLogger('migration:restructure-fs');
@@ -47,6 +48,8 @@ export interface PlacePlan {
   newRenderedRel: string | null;
   /** Absolute source paths to unlink once the DB has been repointed. */
   sourcesToDelete: string[];
+  /** Sidecars published at the new path, settled (not plain-unlinked) in `finalize`. */
+  carriedSidecars: CarriedSidecar[];
   /** Absolute paths of the NEW copies this call created (primary + companions).
    * Empty for a dedupe (no copy made). Used to revert cleanly if the DB repoint
    * turns out to be a no-op (concurrent change) — we delete these instead of the
@@ -141,6 +144,7 @@ export async function planAndPlace(args: {
         newRelPath: `${newDir}/${filename}`,
         newRenderedRel: renderedRelOld, // no rendered move on a dedupe of a bare original
         sourcesToDelete: [oldAbs],
+        carriedSidecars: [],
         createdPaths: [], // no copy made — nothing to revert
         oldDirAbs,
       };
@@ -151,17 +155,47 @@ export async function planAndPlace(args: {
     outcome = 'renamed';
   }
 
+  const createdPaths: string[] = [];
+  // A throw past this point reverts every copy, so a retry starts clean (#5061).
+  try {
+    const placed = await copyIntoPlace(
+      { libRoot, oldAbs, targetAbs, sidecars, renderedAbsOld, renderedRelOld },
+      createdPaths,
+    );
+    return { outcome, ...placed, createdPaths, oldDirAbs };
+  } catch (err) {
+    await revertCreated(createdPaths);
+    throw err;
+  }
+}
+
+/** Copy the primary, its sidecars and its rendered companion next to
+ * `targetAbs`, recording each copy in `createdPaths` as it lands. */
+async function copyIntoPlace(
+  args: {
+    libRoot: string;
+    oldAbs: string;
+    targetAbs: string;
+    sidecars: readonly string[];
+    renderedAbsOld: string | null;
+    renderedRelOld: string | null;
+  },
+  createdPaths: string[],
+): Promise<
+  Pick<PlacePlan, 'newRelPath' | 'newRenderedRel' | 'sourcesToDelete' | 'carriedSidecars'>
+> {
+  const { libRoot, oldAbs, targetAbs, renderedAbsOld, renderedRelOld } = args;
   // ── Copy + verify primary ───────────────────────────────────────────────
   await fs.mkdir(path.dirname(targetAbs), { recursive: true });
+  createdPaths.push(targetAbs);
   await copyVerified(oldAbs, targetAbs);
 
   const oldBase = path.basename(oldAbs, path.extname(oldAbs));
   const newBase = path.basename(targetAbs, path.extname(targetAbs));
-  const sourcesToDelete: string[] = [oldAbs];
-  const createdPaths: string[] = [targetAbs];
 
   // ── Copy + verify sidecars (canonical + conflict copies) ─────────────────
-  for (const sidecar of sidecars) {
+  const carriedSidecars: CarriedSidecar[] = [];
+  for (const sidecar of args.sidecars) {
     const name = path.basename(sidecar);
     if (!name.startsWith(oldBase)) continue; // defensive — listPairedSidecars guarantees this
     const renamed = newBase + name.slice(oldBase.length);
@@ -169,33 +203,31 @@ export async function planAndPlace(args: {
       path.join(path.dirname(targetAbs), renamed),
       'migration:sidecar',
     );
-    await copyVerified(sidecar, dst);
-    sourcesToDelete.push(sidecar);
+    const carried = await carrySidecar(sidecar, dst, targetAbs);
+    if (carried === null) continue;
+    carriedSidecars.push(carried);
     createdPaths.push(dst);
   }
 
   // ── Copy + verify the apple_rendered_path companion ──────────────────────
-  let newRenderedRel: string | null = renderedRelOld;
-  if (renderedPresent && renderedAbsOld) {
-    const rName = path.basename(renderedAbsOld);
-    const renamed = rName.startsWith(oldBase) ? newBase + rName.slice(oldBase.length) : rName;
-    const dst = await pickFreePath(
-      path.join(path.dirname(targetAbs), renamed),
-      'migration:rendered',
-    );
-    await copyVerified(renderedAbsOld, dst);
-    newRenderedRel = toPosixRel(libRoot, dst);
-    sourcesToDelete.push(renderedAbsOld);
-    createdPaths.push(dst);
+  if (renderedAbsOld === null || !(await exists(renderedAbsOld))) {
+    return {
+      newRelPath: toPosixRel(libRoot, targetAbs),
+      newRenderedRel: renderedRelOld,
+      sourcesToDelete: [oldAbs],
+      carriedSidecars,
+    };
   }
-
+  const rName = path.basename(renderedAbsOld);
+  const renamed = rName.startsWith(oldBase) ? newBase + rName.slice(oldBase.length) : rName;
+  const dst = await pickFreePath(path.join(path.dirname(targetAbs), renamed), 'migration:rendered');
+  createdPaths.push(dst);
+  await copyVerified(renderedAbsOld, dst);
   return {
-    outcome,
     newRelPath: toPosixRel(libRoot, targetAbs),
-    newRenderedRel,
-    sourcesToDelete,
-    createdPaths,
-    oldDirAbs,
+    newRenderedRel: toPosixRel(libRoot, dst),
+    sourcesToDelete: [oldAbs, renderedAbsOld],
+    carriedSidecars,
   };
 }
 
@@ -304,10 +336,20 @@ export async function finalize(args: {
   /** Original filename — used to also drop legacy basename-keyed cache files. */
   filename: string;
   sourcesToDelete: string[];
+  carriedSidecars: readonly CarriedSidecar[];
 }): Promise<void> {
   for (const src of args.sourcesToDelete) {
     await fs.unlink(src).catch((err) => {
       log.warn({ src, err: err instanceof Error ? err.message : err }, 'source unlink failed');
+    });
+  }
+  // A save that landed on the source after its snapshot is carried, never deleted (#5061).
+  for (const carried of args.carriedSidecars) {
+    await settleRefiledSidecar(carried).catch((err: unknown) => {
+      log.warn(
+        { src: carried.source, err: err instanceof Error ? err.message : err },
+        'sidecar settle failed — source kept',
+      );
     });
   }
   await dropOldCache(args.oldDirAbs, args.mapleId, args.filename);

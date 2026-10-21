@@ -78,7 +78,9 @@ describe('planAndPlace — crash-safe ordering', () => {
     expect(await exists('2024/Tokyo/03-15/CLIP.mov')).toBe(true);
     expect(await exists('2024/Tokyo/03-15/CLIP.mov.xmp')).toBe(true);
     expect(plan.sourcesToDelete).toContain(path.join(root, '2024/Tokyo/03-15/CLIP.mov'));
-    expect(plan.sourcesToDelete).toContain(path.join(root, '2024/Tokyo/03-15/CLIP.mov.xmp'));
+    expect(plan.carriedSidecars.map((c) => c.source)).toContain(
+      path.join(root, '2024/Tokyo/03-15/CLIP.mov.xmp'),
+    );
   });
 
   test('a video sidecar does not pull in a same-stem photo sidecar (Live Photo pairing safety, #1678)', async () => {
@@ -126,8 +128,8 @@ describe('planAndPlace — crash-safe ordering', () => {
     expect(await exists('2024/Tokyo/CLIP.MOV.xmp')).toBe(true);
     expect(await exists('2024/Tokyo/CLIP.MOV (conflict from MacBook).xmp')).toBe(true);
     expect(await read('2024/Tokyo/CLIP.MOV (conflict from MacBook).xmp')).toBe('conflict-edits');
-    // Source conflict copy is scheduled for deletion, not stranded.
-    expect(plan.sourcesToDelete).toContain(conflictAbs);
+    // Source conflict copy is carried for settling, not stranded.
+    expect(plan.carriedSidecars.map((c) => c.source)).toContain(conflictAbs);
   });
 
   test('a video conflict-copy sidecar is not stolen by a same-stem photo relocation (Live Photo pairing safety, #2481)', async () => {
@@ -281,6 +283,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       mapleId: 'abc123',
       filename: 'IMG.HEIC',
       sourcesToDelete: plan.sourcesToDelete,
+      carriedSidecars: plan.carriedSidecars,
     });
 
     expect(await exists('2024/Tokyo/03-15/IMG.HEIC')).toBe(false);
@@ -308,6 +311,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       mapleId: undefined,
       filename: 'IMG.HEIC',
       sourcesToDelete: plan.sourcesToDelete,
+      carriedSidecars: plan.carriedSidecars,
     });
 
     expect(await exists('2024/Tokyo/03-15')).toBe(true);
@@ -332,6 +336,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       mapleId: 'abc123',
       filename: 'IMG.HEIC',
       sourcesToDelete: plan.sourcesToDelete,
+      carriedSidecars: plan.carriedSidecars,
     });
 
     // Mine dropped, theirs preserved; dir stays because a foreign cache remains.
@@ -348,6 +353,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       mapleId: undefined,
       filename: 'x.HEIC',
       sourcesToDelete: [],
+      carriedSidecars: [],
     });
     expect(await exists('')).toBe(true); // root still there
   });
@@ -372,6 +378,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       mapleId: undefined, // legacy row never got a maple_id-keyed cache
       filename: 'IMG.HEIC',
       sourcesToDelete: plan.sourcesToDelete,
+      carriedSidecars: plan.carriedSidecars,
     });
 
     // Legacy cache cleared and the day-folder reclaimed.

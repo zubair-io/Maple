@@ -147,6 +147,7 @@ export async function moveBackupAsset(
     mapleId: doc.maple_id,
     filename: primary.filename,
     sourcesToDelete: plan.sourcesToDelete,
+    carriedSidecars: plan.carriedSidecars,
   });
   return 'moved';
 }
