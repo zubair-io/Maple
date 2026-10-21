@@ -192,12 +192,16 @@ async function linkExclusive(tmp: string, dest: string): Promise<RelocatePublica
 
 export async function writeVerifiedTemp(dest: string, bytes: Buffer): Promise<string> {
   const tmp = privateSiblingOf(dest);
-  await fs.writeFile(tmp, bytes);
-  if (!bytes.equals(await fs.readFile(tmp))) {
+  try {
+    await fs.writeFile(tmp, bytes);
+    if (!bytes.equals(await fs.readFile(tmp))) {
+      throw new Error(`relocate: sidecar copy verification failed: ${dest}`);
+    }
+    return tmp;
+  } catch (err) {
     await fs.unlink(tmp).catch(() => {});
-    throw new Error(`relocate: sidecar copy verification failed: ${dest}`);
+    throw err;
   }
-  return tmp;
 }
 
 /** Join an identical sidecar already at `dest`: snapshot `source` and confirm
