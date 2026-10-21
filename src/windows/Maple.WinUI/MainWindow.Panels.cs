@@ -317,7 +317,10 @@ namespace Maple.WinUI
                         zone.ResetModelValue(model);
                     foreach (var slider in AdjustmentSections.Section(ViewModel.Sections, "Grade").Sliders)
                         slider.ResetModelValue(model);
+                    model.ColorGradeShadowEdge = MuiColorGradeZoneWeightsMath.DefaultShadowEdge;
+                    model.ColorGradeHighlightEdge = MuiColorGradeZoneWeightsMath.DefaultHighlightEdge;
                 });
+                SyncGradeWheels();
                 return;
             }
             if (_activeGroup == "Tone Curve")

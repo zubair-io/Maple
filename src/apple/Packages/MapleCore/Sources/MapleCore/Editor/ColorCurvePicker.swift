@@ -90,7 +90,12 @@ public enum ColorCurveKind: String, CaseIterable, Sendable, Identifiable {
     var pts = curve.points
     for deg in Self.skinToneGuardDeg {
       let x = deg / 360.0
-      if !pts.contains(where: { abs($0.x - x) < 0.015 }) {
+      if let idx = pts.firstIndex(where: {
+        let d = abs($0.x - x)
+        return min(d, 1.0 - d) < 0.015
+      }) {
+        pts[idx] = (x: x, y: 0.5)
+      } else {
         pts.append((x: x, y: 0.5))
       }
     }
@@ -157,19 +162,41 @@ public enum ColorCurveKind: String, CaseIterable, Sendable, Identifiable {
 
   private static func evalHermite(x: Double, xs: [Double], ys: [Double]) -> Double {
     let n = xs.count
+    var hs = [Double](repeating: 0, count: n - 1)
     var deltas = [Double](repeating: 0, count: n - 1)
     for k in 0..<(n - 1) {
-      let h = xs[k + 1] - xs[k]
-      deltas[k] = h > 1e-6 ? (ys[k + 1] - ys[k]) / h : 0
+      let h = max(xs[k + 1] - xs[k], 1e-6)
+      hs[k] = h
+      deltas[k] = (ys[k + 1] - ys[k]) / h
     }
     var m = [Double](repeating: 0, count: n)
     m[0] = deltas[0]
     m[n - 1] = deltas[n - 2]
     for k in 1..<(n - 1) {
-      if deltas[k - 1] * deltas[k] <= 0 {
+      let dl = deltas[k - 1]
+      let dr = deltas[k]
+      if dl * dr > 0 {
+        let hl = hs[k - 1]
+        let hr = hs[k]
+        let w1 = 2.0 * hr + hl
+        let w2 = hr + 2.0 * hl
+        m[k] = (w1 + w2) / (w1 / dl + w2 / dr)
+      }
+    }
+    for k in 0..<(n - 1) {
+      let dk = deltas[k]
+      if abs(dk) < 1e-7 {
         m[k] = 0
+        m[k + 1] = 0
       } else {
-        m[k] = 0.5 * (deltas[k - 1] + deltas[k])
+        let alpha = m[k] / dk
+        let beta = m[k + 1] / dk
+        let r2 = alpha * alpha + beta * beta
+        if r2 > 9.0 {
+          let tau = 3.0 / r2.squareRoot()
+          m[k] = tau * alpha * dk
+          m[k + 1] = tau * beta * dk
+        }
       }
     }
     var seg = 0
@@ -177,9 +204,8 @@ public enum ColorCurveKind: String, CaseIterable, Sendable, Identifiable {
       seg = k
       break
     }
-    let h = xs[seg + 1] - xs[seg]
-    guard h > 1e-6 else { return min(max(ys[seg], 0.0), 1.0) }
-    let t = (x - xs[seg]) / h
+    let h = hs[seg]
+    let t = min(max((x - xs[seg]) / h, 0.0), 1.0)
     let t2 = t * t
     let t3 = t2 * t
     let h00 = 2 * t3 - 3 * t2 + 1

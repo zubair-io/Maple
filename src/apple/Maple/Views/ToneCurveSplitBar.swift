@@ -68,6 +68,7 @@ struct ToneCurveSplitBar: View {
   let onChange: (ParametricSplitHandle, Double) -> Void
   let onEditingChanged: (ParametricSplitHandle, Bool) -> Void
   let onReset: (ParametricSplitHandle) -> Void
+  var onResetAll: (() -> Void)? = nil
 
   @State private var activeHandle: ParametricSplitHandle?
 
@@ -147,9 +148,13 @@ struct ToneCurveSplitBar: View {
           || highlightSplit != ToneCurveSplits.defaultHighlight
         {
           Button {
-            onReset(.shadow)
-            onReset(.midtone)
-            onReset(.highlight)
+            if let onResetAll {
+              onResetAll()
+            } else {
+              onReset(.shadow)
+              onReset(.midtone)
+              onReset(.highlight)
+            }
           } label: {
             Text("Reset splits")
               .font(.system(size: 9, weight: .regular))

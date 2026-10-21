@@ -23,7 +23,7 @@ namespace Maple.WinUI
     public sealed partial class MainWindow
     {
         private bool _hslCurvesMode;
-        private ColorCurveKind _activeColorCurve = ColorCurveKind.HueVsSat;
+        private ColorCurveKind _activeColorCurve = ColorCurveKind.HueVsHue;
         private int? _dragColorCurveKnot;
         private bool _colorCurvePickArmed;
         private Windows.Foundation.Point? _colorCurvePressPoint;
@@ -301,6 +301,15 @@ namespace Maple.WinUI
             }
         }
 
+        private void SetActiveColorCurvePointsDuringDrag(List<CurvePoint> next)
+        {
+            var target = ColorCurveMath.CurvePoints(ViewModel.Adjustments, _activeColorCurve);
+            target.Clear();
+            target.AddRange(next);
+            ViewModel.NotifyAdjustmentEdited();
+            DrawColorCurveRibbon();
+        }
+
         private void OnColorCurveCanvasPointerPressed(object sender, PointerRoutedEventArgs e)
         {
             var w = Math.Max(_colorCurveCanvas.ActualWidth, 1.0);
@@ -324,6 +333,7 @@ namespace Maple.WinUI
                 }
             }
 
+            ViewModel.BeginAdjustmentGesture(_colorCurveCanvas);
             if (hitIdx < 0)
             {
                 var inserted = ColorCurveMath.InsertAnchor(
@@ -342,7 +352,7 @@ namespace Maple.WinUI
                 var clampedY = ColorCurveMath.ClampY(v, best, inserted, _activeColorCurve);
                 inserted[best] = new CurvePoint(inserted[best].X, clampedY);
                 _dragColorCurveKnot = best;
-                WriteActiveColorCurvePoints(inserted);
+                SetActiveColorCurvePointsDuringDrag(inserted);
             }
             else
             {
@@ -358,14 +368,20 @@ namespace Maple.WinUI
             var pts = ActiveColorCurvePoints();
             if (idx < 0 || idx >= pts.Count) return;
 
+            var w = Math.Max(_colorCurveCanvas.ActualWidth, 1.0);
             var h = Math.Max(_colorCurveCanvas.ActualHeight, 1.0);
             var pos = e.GetCurrentPoint(_colorCurveCanvas).Position;
+            var rawX = Math.Clamp(pos.X / w, 0.0, 1.0);
             var rawY = Math.Clamp(1.0 - pos.Y / h, 0.0, 1.0);
-            var clampedY = ColorCurveMath.ClampY(rawY, idx, pts, _activeColorCurve);
+            var minX = idx > 0 ? pts[idx - 1].X + 0.01 : 0.0;
+            var maxX = idx + 1 < pts.Count ? pts[idx + 1].X - 0.01 : 1.0;
+            var clampedX = Math.Clamp(rawX, minX, maxX);
 
             var next = new List<CurvePoint>(pts);
-            next[idx] = new CurvePoint(next[idx].X, clampedY);
-            WriteActiveColorCurvePoints(next);
+            next[idx] = new CurvePoint(clampedX, next[idx].Y);
+            var clampedY = ColorCurveMath.ClampY(rawY, idx, next, _activeColorCurve);
+            next[idx] = new CurvePoint(clampedX, clampedY);
+            SetActiveColorCurvePointsDuringDrag(next);
             e.Handled = true;
         }
 
@@ -374,6 +390,7 @@ namespace Maple.WinUI
             if (_dragColorCurveKnot == null) return;
             _dragColorCurveKnot = null;
             _colorCurveCanvas.ReleasePointerCaptures();
+            ViewModel.EndAdjustmentGesture(_colorCurveCanvas);
             e.Handled = true;
         }
 
