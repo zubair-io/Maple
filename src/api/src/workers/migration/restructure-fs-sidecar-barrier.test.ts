@@ -8,6 +8,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from '../../fs/mirrored.ts';
 import { serializeSidecarWrite } from '../../fs/sidecar-write-order.ts';
+import * as xmpConflict from '../../fs/xmp-conflict.ts';
 import { finalize, planAndPlace, type PlacePlan } from './restructure-fs.ts';
 
 let root: string;
@@ -171,5 +172,25 @@ describe('refile sidecar barrier (#5061)', () => {
 
     expect((await fs.readdir(abs('2024'))).filter((name) => name.includes('.tmp.'))).toEqual([]);
     expect(await read('2024/03-15/IMG.xmp')).toBe('edit 2');
+  });
+
+  test('a conflict name taken in a race moves on to the next free one', async () => {
+    const plan = await place();
+    await write('2024/03-15/IMG.xmp', 'late save at the old path');
+    await write('2024/IMG.xmp', 'save at the new path');
+    const raced = abs('2024/IMG (conflict from refile).xmp');
+    const pick = spyOn(xmpConflict, 'pickFreeConflictPath').mockImplementationOnce(async () => {
+      await fs.writeFile(raced, 'another writer');
+      return raced;
+    });
+    try {
+      await cleanUp(plan);
+    } finally {
+      pick.mockRestore();
+    }
+
+    expect(await read('2024/IMG (conflict from refile).xmp')).toBe('another writer');
+    expect(await read('2024/IMG (conflict from refile) (2).xmp')).toBe('late save at the old path');
+    expect(await read('2024/03-15/IMG.xmp')).toBeNull();
   });
 });
