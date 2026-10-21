@@ -361,7 +361,10 @@ export function replicatePath(absPath: string): void {
 export function replicatePathUnder(sourcePath: string, mirroredPath: string): void {
   const targets = targetsFor(mirroredPath);
   if (targets.length)
-    schedule(() => Promise.all(targets.map((t) => replicateFile(t, sourcePath))), [mirroredPath]);
+    schedule(
+      () => Promise.all(targets.map((t) => replicateFile(t, sourcePath))),
+      [mirroredPath, sourcePath],
+    );
 }
 
 export async function copyFile(src: string, dest: string, mode?: number): Promise<void> {
