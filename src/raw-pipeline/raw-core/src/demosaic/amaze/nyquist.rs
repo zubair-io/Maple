@@ -201,7 +201,7 @@ pub(super) fn reconstruct_green(s: &mut Scratch, t: &Tile, pattern: CfaPattern) 
                     + s.vcdalt[hf(i, p1)]
                     + s.vcdalt[hf(i, -p1)]
                     + s.vcdalt[hf(i, m1)]);
-            if (0.5 - s.hvwt[i >> 1]).abs() < (0.5 - hvwtalt).abs() {
+            if (0.5 - s.vcdalt[i >> 1]).abs() < (0.5 - hvwtalt).abs() {
                 s.hvwt[i >> 1] = hvwtalt;
             }
             s.dgrb0[i >> 1] = s.hvwt[i >> 1] * s.vcd[i] + (1.0 - s.hvwt[i >> 1]) * s.hcd[i];
