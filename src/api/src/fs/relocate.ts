@@ -322,6 +322,7 @@ async function copyPrimaryAndSidecars(
     plan,
     replacing && sourceSidecars.length === 0,
     replacing,
+    createdPaths,
   );
 
   const keepSource = await sourceSidecarStays(

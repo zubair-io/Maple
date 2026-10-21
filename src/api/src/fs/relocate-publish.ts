@@ -102,8 +102,27 @@ async function keepOccupant(destination: string): Promise<string | null> {
     if (errnoCode(err) === 'ENOENT') return null;
     if (!LINK_UNSUPPORTED.has(errnoCode(err) ?? '')) throw err;
   }
-  await fs.copyFile(destination, kept);
+  await fs.copyFile(destination, kept).catch(async (err: unknown) => {
+    await fs.unlink(kept).catch(() => {});
+    throw err;
+  });
   return kept;
+}
+
+/** Take `file` off its name for the rest of the move: a rollback puts it back,
+ * a commit releases it. */
+export async function setAsideUntilCommit(
+  file: string,
+  publications: RelocatePublication[],
+): Promise<void> {
+  const aside = privateSiblingOf(file);
+  try {
+    await fs.rename(file, aside);
+  } catch (err) {
+    if (errnoCode(err) === 'ENOENT') return;
+    throw err;
+  }
+  publications.push({ path: file, dev: -1, ino: -1, displaced: aside });
 }
 
 /** The move committed: the displaced photos it kept are released. */
@@ -213,10 +232,11 @@ async function writeFully(target: fs.FileHandle, chunk: Buffer, position: number
   return chunk.length;
 }
 
-/** Withdraw every publication. Only an inode proven to be this relocation's
- * is ever removed. */
+/** Withdraw every publication, newest first so a file set aside comes back
+ * only once whatever replaced it is gone. Only an inode proven to be this
+ * relocation's is ever removed. */
 export async function revertCreated(publications: RelocatePublication[]): Promise<void> {
-  for (const publication of publications.splice(0)) await withdraw(publication);
+  for (const publication of publications.splice(0).reverse()) await withdraw(publication);
 }
 
 type Ownership = 'ours' | 'theirs' | 'unproven';
@@ -242,18 +262,15 @@ async function withdraw(publication: RelocatePublication): Promise<void> {
 /** Put the displaced photo back without replacing anything that took the name
  * since; one that can't go back stays at its private name, logged. */
 async function restoreDisplaced(displaced: string, destination: string): Promise<void> {
-  const restored = await fs.link(displaced, destination).then(
-    () => true,
-    () => false,
-  );
-  if (restored) {
-    await fs.unlink(displaced).catch(() => {});
-    return;
+  try {
+    await publishExclusive(displaced, destination);
+    await fs.unlink(displaced);
+  } catch (err) {
+    log.error(
+      { displaced, destination, err: err instanceof Error ? err.message : err },
+      'relocate rollback: a replaced file could not be put back — kept at its private name',
+    );
   }
-  log.error(
-    { displaced, destination },
-    'relocate rollback: the replaced photo could not be put back — kept at its private name',
-  );
 }
 
 /** Same withdrawal when the inode is unknown: a random nonce written through
