@@ -17,7 +17,6 @@ namespace Maple.WinUI
     public sealed partial class MainWindow
     {
         private string _curveChannel = "Luma";
-        private readonly Dictionary<string, MuiColorWheel> _gradeWheels = new();
 
         private MuiActionButton? _curveModePerChannelBtn;
         private MuiActionButton? _curveModeRatioBtn;
@@ -336,84 +335,6 @@ namespace Maple.WinUI
             if (PanelCurveHost.Visibility != Visibility.Visible || _lastHistogramBins is not { Length: >= 1024 } bins)
                 return;
             CurvePlot.HistogramBins = bins[768..1024];
-        }
-
-        /// <summary>Build the four wheel cells (wheel + caption + luminance
-        /// slider) and the balance slider. Wheels are code-built per zone so
-        /// each MuiColorWheel wires straight to its zone view model.</summary>
-        private void BuildGradePanel()
-        {
-            var cells = new Dictionary<string, StackPanel>
-            {
-                ["Shadows"] = GradeCellShadows,
-                ["Midtones"] = GradeCellMidtones,
-                ["Highlights"] = GradeCellHighlights,
-                ["Global"] = GradeCellGlobal,
-            };
-            var gradeSliders = AdjustmentSections.Section(ViewModel.Sections, "Grade").Sliders;
-            foreach (var zone in ViewModel.GradeZones)
-            {
-                var wheel = new MuiColorWheel
-                {
-                    WheelSize = 108,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    AccessibleLabel = $"{zone.Name} color wheel",
-                };
-                var vm = zone;
-                wheel.ValueChanged += (_, v) => vm.ApplyWheel(v.Hue, v.Saturation);
-                wheel.ResetRequested += (_, _) => vm.Reset();
-                _gradeWheels[zone.Name] = wheel;
-
-                var label = new TextBlock
-                {
-                    Text = zone.Name,
-                    FontSize = 11,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    Foreground = (SolidColorBrush)Application.Current.Resources["MapleTextMain"],
-                };
-                var value = new TextBlock
-                {
-                    FontSize = 10,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    Foreground = (SolidColorBrush)Application.Current.Resources["MapleTextMuted"],
-                };
-                void SyncCaption()
-                {
-                    value.Text = vm.ValueText;
-                    wheel.Hue = vm.Hue;
-                    wheel.Saturation = vm.Saturation;
-                }
-                vm.PropertyChanged += (_, _) => SyncCaption();
-                SyncCaption();
-
-                var cell = cells[zone.Name];
-                cell.Children.Add(wheel);
-                cell.Children.Add(label);
-                cell.Children.Add(value);
-                var lum = gradeSliders.FirstOrDefault(s => s.Label == $"{zone.Name} Lum");
-                if (lum != null)
-                {
-                    cell.Children.Add(new ContentControl
-                    {
-                        Content = lum,
-                        ContentTemplate = (DataTemplate)((FrameworkElement)Content).Resources["SliderRowTemplate"],
-                        HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                    });
-                }
-            }
-            GradeBalanceHost.Content = gradeSliders.First(s => s.Label == "Balance");
-        }
-
-        private void SyncGradeWheels()
-        {
-            foreach (var zone in ViewModel.GradeZones)
-            {
-                if (_gradeWheels.TryGetValue(zone.Name, out var wheel))
-                {
-                    wheel.Hue = zone.Hue;
-                    wheel.Saturation = zone.Saturation;
-                }
-            }
         }
     }
 }

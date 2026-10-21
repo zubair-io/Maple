@@ -197,6 +197,10 @@ impl Default for AdjustmentModel {
             defringe_green_hue_lo: 40.0,
             defringe_green_hue_hi: 60.0,
             lens_profile: String::new(),
+            // Per-#5040: zone-isolation defaults reproduce pre-#5040 zone weights bit-for-bit.
+            color_grade_blending: 100.0,
+            color_grade_shadow_edge: 0.564622,
+            color_grade_highlight_edge: 0.564622,
         }
     }
 }

@@ -154,6 +154,15 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
     model.color_grade_global_hue = p.color_grade_global_hue;
     model.color_grade_global_saturation = p.color_grade_global_saturation;
     model.color_grade_global_luminance = p.color_grade_global_luminance;
+    let (cg_blending, cg_shadow_edge, cg_highlight_edge) =
+        raw_core::stages::color_grade::color_grade_zone_or_defaults(
+            p.color_grade_blending,
+            p.color_grade_shadow_edge,
+            p.color_grade_highlight_edge,
+        );
+    model.color_grade_blending = cg_blending;
+    model.color_grade_shadow_edge = cg_shadow_edge;
+    model.color_grade_highlight_edge = cg_highlight_edge;
     model.look = raw_core::view::look::Look::from(p.look_mode);
     // Sharpen + chroma NR (#1043) — set EXPLICITLY from the params tail
     // rather than left at `AdjustmentModel::default()` (40 / 25), so a host

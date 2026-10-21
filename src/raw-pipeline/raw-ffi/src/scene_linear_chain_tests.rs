@@ -69,6 +69,9 @@ pub(super) fn default_params() -> MapleAdjustmentParams {
         color_grade_global_hue: 0.0,
         color_grade_global_saturation: 0.0,
         color_grade_global_luminance: 0.0,
+        color_grade_blending: 100.0,
+        color_grade_shadow_edge: 0.564622,
+        color_grade_highlight_edge: 0.564622,
         // Per-band HSL (identity — these tests only exercise the FFI shim's
         // pointer/geometry guards, not HSL math). Added to keep the struct
         // initializer complete after the 8-band HSL fields landed.

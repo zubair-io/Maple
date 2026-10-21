@@ -113,6 +113,9 @@ export const ADJUSTMENT_RANGES = {
   defringeGreenAmount: [0.0, 20.0] as const,
   defringeGreenHueLo: [0.0, 100.0] as const,
   defringeGreenHueHi: [0.0, 100.0] as const,
+  colorGradeBlending: [0.0, 100.0] as const,
+  colorGradeShadowEdge: [0.1, 0.564622] as const,
+  colorGradeHighlightEdge: [0.564622, 0.9] as const,
 } as const;
 
 /**
@@ -237,6 +240,9 @@ export const ADJUSTMENT_GROUPS: readonly AdjustmentGroupSpec[] = [
       'color_grade_global_hue',
       'color_grade_global_saturation',
       'color_grade_global_luminance',
+      'color_grade_blending',
+      'color_grade_shadow_edge',
+      'color_grade_highlight_edge',
       'highlight_recovery',
       'look',
       'profile',

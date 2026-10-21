@@ -311,29 +311,19 @@ pub struct FullChainInputs<'a> {
     /// bit-identical pre-#3411 output. Appended at the struct tail per the
     /// append-only convention.
     pub defringe: DefringeInputs,
-    /// EXIF tag (1..=8) taking the uploaded buffer to the upright frame the
-    /// masks in `local_adjustments` are authored in (#4426). 1 for a host
-    /// that uploads an already-oriented decode (Apple, Windows); the
-    /// sensor-framed prefix hosts (Web, Linux) pass the RAW's own tag.
+    /// EXIF tag (1..=8) taking the uploaded buffer to the upright frame (#4426).
     pub mask_orientation: u32,
+    /// Colour-grading zone-isolation controls (#5040). Zero-filled `(0, 0, 0)`
+    /// resolves to `(100.0, MIDTONE_ANCHOR_L, MIDTONE_ANCHOR_L)`.
+    pub color_grade_blending: f32,
+    pub color_grade_shadow_edge: f32,
+    pub color_grade_highlight_edge: f32,
 }
 
-// `InputShape` lives in a sibling file to keep this module inside the
-// file-size budget (same split shape as `live_chain`'s `noop` / `signature`).
 mod shape;
 pub use shape::InputShape;
 
-/// Where the scene-linear / view boundary sits in the assembled Vec, expressed
-/// as the count of passes that run BEFORE `dehaze` (the prefix whose output
-/// dehaze's airlight must be measured from). The parity test runs `[..PREFIX]`,
-/// reads back, derives the airlight, then runs `dehaze` + the suffix. This is
-/// computed from the same builder so the split can't drift from the assembly.
-///
-/// Returns `(prefix_passes, dehaze_and_suffix_passes)` where concatenating them
-/// in order is identical to a single full Vec — the canonical assembly artifact.
-/// Gather the thirteen colour-grading sliders off the chain inputs — the
-/// single place the `split_tone_*` / `color_grade_*` field split is
-/// resolved, shared by the full chain, the live chain and the gate.
+/// Gather the sixteen colour-grading sliders off the chain inputs.
 pub fn color_grade_sliders(inputs: &FullChainInputs) -> ColorGradeSliders {
     ColorGradeSliders {
         shadow: [
@@ -357,6 +347,9 @@ pub fn color_grade_sliders(inputs: &FullChainInputs) -> ColorGradeSliders {
             inputs.color_grade_global_luminance,
         ],
         balance: inputs.split_tone_balance,
+        blending: inputs.color_grade_blending,
+        shadow_edge: inputs.color_grade_shadow_edge,
+        highlight_edge: inputs.color_grade_highlight_edge,
     }
 }
 

@@ -149,6 +149,9 @@ fn all_struct_field_names() -> Vec<&'static str> {
         defringe_green_hue_lo: _,
         defringe_green_hue_hi: _,
         lens_profile: _,
+        color_grade_blending: _,
+        color_grade_shadow_edge: _,
+        color_grade_highlight_edge: _,
     } = AdjustmentModel::default();
 
     vec![
@@ -284,6 +287,9 @@ fn all_struct_field_names() -> Vec<&'static str> {
         "defringe_green_hue_lo",
         "defringe_green_hue_hi",
         "lens_profile",
+        "color_grade_blending",
+        "color_grade_shadow_edge",
+        "color_grade_highlight_edge",
     ]
 }
 

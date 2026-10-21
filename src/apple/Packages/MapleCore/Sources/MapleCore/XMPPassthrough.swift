@@ -157,6 +157,7 @@ enum XMPKnownFields {
     "crs:ColorGradeShadowLum", "crs:ColorGradeMidtoneHue", "crs:ColorGradeMidtoneSat",
     "crs:ColorGradeMidtoneLum", "crs:ColorGradeHighlightLum",
     "crs:ColorGradeGlobalHue", "crs:ColorGradeGlobalSat", "crs:ColorGradeGlobalLum",
+    "papp:ColorGradeBlending", "papp:ColorGradeShadowEdge", "papp:ColorGradeHighlightEdge",
     "crs:LensProfileEnable", "crs:LensProfileDistortionScale",
     "crs:LensProfileChromaticAberrationScale", "crs:LensProfileVignettingScale",
     // Profile-free lateral CA + defringe (#3411) — the aberration Maple
