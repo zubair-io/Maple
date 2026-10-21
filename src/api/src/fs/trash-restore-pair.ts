@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { filesIdentical, moveNoClobber } from '../backup/fs-util.ts';
 import { listPairedSidecarsStrict } from './xmp-conflict.ts';
-import { isLegacyBackupSidecarOf } from './legacy-backup-sidecar.ts';
+import { hasLegacyBackupEdit, isLegacyBackupSidecarOf } from './legacy-backup-sidecar.ts';
 
 /** Whether a restore carries an old-name edit (#5063), which can't land on a taken slot. */
 export async function carriesOldNameEdit(source: string): Promise<boolean> {
@@ -121,7 +121,8 @@ async function removeSources(
   sidecarClaimedInTrash: boolean,
   beforeSourceDelete?: () => Promise<void>,
 ): Promise<void> {
-  for (const entry of staged) {
+  const [primary, ...sidecars] = staged;
+  for (const entry of sidecars) {
     await beforeSourceDelete?.();
     const snapshot = snapshots.get(entry);
     const removal = snapshot
@@ -129,7 +130,7 @@ async function removeSources(
           entry.source,
           entry.destination,
           snapshot,
-          sidecarClaimedInTrash && !isLegacyBackupSidecarOf(staged[0]!.source, entry.source),
+          sidecarClaimedInTrash && !isLegacyBackupSidecarOf(primary!.source, entry.source),
         )
       : fs.unlink(entry.source);
     await removal.catch((error) => {
@@ -139,6 +140,30 @@ async function removeSources(
       );
     });
   }
+  await removeTrashedPrimary(primary!.source, beforeSourceDelete);
+}
+
+/** Last, and kept while an old-name edit of it is still beside it in the
+ * trash, the only place the migration looks for that edit (#5063). */
+async function removeTrashedPrimary(
+  source: string,
+  beforeSourceDelete?: () => Promise<void>,
+): Promise<void> {
+  const allowed = await (beforeSourceDelete?.() ?? Promise.resolve()).then(
+    () => true,
+    () => false,
+  );
+  if (!allowed) return;
+  if (await hasLegacyBackupEdit(source)) {
+    log.error({ source }, 'restore: an old-name backup edit stayed in the trash — photo kept');
+    return;
+  }
+  await fs.unlink(source).catch((error) => {
+    log.warn(
+      { source, error: String(error) },
+      'restore: source delete failed after verified publication — duplicate retained',
+    );
+  });
 }
 
 /** Copy and verify the complete pair before publishing any of it. Claim the

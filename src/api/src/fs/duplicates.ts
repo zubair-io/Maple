@@ -27,8 +27,12 @@ import {
   settleCarriedSidecar,
 } from './sidecar-ownership.ts';
 import { listPairedSidecars } from './xmp-conflict.ts';
-import { isLegacyBackupSidecarOf, oldNameEditUnlisted } from './legacy-backup-sidecar.ts';
-import { revertCreated, type RelocatePublication } from './relocate-publish.ts';
+import {
+  hasLegacyBackupEdit,
+  isLegacyBackupSidecarOf,
+  oldNameEditUnlisted,
+} from './legacy-backup-sidecar.ts';
+import { publishExclusive, revertCreated, type RelocatePublication } from './relocate-publish.ts';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { relativeUnderRoot } from './root-match.ts';
 import { child as childLogger } from '../log.ts';
@@ -118,7 +122,8 @@ export async function moveToDuplicates(absPath: string, folderRoot: string): Pro
   const ahead = await (async () => {
     try {
       const carried = await publishOldNameAhead(absPath, freeTarget, ownSidecars, published);
-      await fs.rename(absPath, freeTarget);
+      // Linked rather than renamed, so the original can stay if an old-name edit does.
+      published.push(await publishExclusive(absPath, freeTarget));
       return carried;
     } catch (err) {
       await revertCreated(published);
@@ -133,5 +138,20 @@ export async function moveToDuplicates(absPath: string, folderRoot: string): Pro
     });
   }
   await moveSidecarsAlongside(absPath, freeTarget);
+  await removeOriginal(absPath);
   return { kind: 'ok', newAbsPath: freeTarget };
+}
+
+/** Kept while an old-name edit of it is still beside it, the only place the migration looks (#5063). */
+async function removeOriginal(absPath: string): Promise<void> {
+  if (await hasLegacyBackupEdit(absPath)) {
+    log.error({ absPath }, 'moveToDuplicates: an old-name backup edit stayed behind — photo kept');
+    return;
+  }
+  await fs.unlink(absPath).catch((err) => {
+    log.warn(
+      { absPath, err: String(err) },
+      'moveToDuplicates: original unlink failed — duplicate kept',
+    );
+  });
 }
