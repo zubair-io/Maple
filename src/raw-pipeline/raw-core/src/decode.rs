@@ -332,16 +332,6 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         }
     };
 
-    let white_level = effective_white_level_for_source_data(
-        &raw_data,
-        width,
-        height,
-        &black_level,
-        white_level,
-        has_uniform_declared_white_level,
-        cfa,
-        source_is_float,
-    );
     let raw_data = crate::masked_margin::refill_masked_margins(
         raw_data,
         width as usize,
@@ -356,6 +346,17 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         }),
         &black_level,
         white_level,
+    );
+    // Masked data, refilled above, must not stand in as the clipping plateau.
+    let white_level = effective_white_level_for_source_data(
+        &raw_data,
+        width,
+        height,
+        &black_level,
+        white_level,
+        has_uniform_declared_white_level,
+        cfa,
+        source_is_float,
     );
 
     // ── 6. White balance ──────────────────────────────────────────────────
