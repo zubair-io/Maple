@@ -32,6 +32,7 @@ import { listPairedSidecars, pickFreeConflictPath } from './xmp-conflict.ts';
 import {
   hasLegacyBackupEdit,
   isLegacyBackupSidecarOf,
+  locateLegacyBackupEdit,
   oldNameEditUnlisted,
 } from './legacy-backup-sidecar.ts';
 import { publishExclusive, revertCreated, type RelocatePublication } from './relocate-publish.ts';
@@ -141,9 +142,12 @@ export async function moveToDuplicates(absPath: string, folderRoot: string): Pro
   }
   const kept = await keepPhotoWithOldNameEdit(absPath, freeTarget, ahead);
   if (kept !== 'moved' && kept !== 'blocked') return kept;
-  await (kept === 'blocked'
-    ? publishCaptured(absPath, freeTarget, captured)
-    : moveSidecarsAlongside(absPath, freeTarget));
+  if (kept === 'blocked') {
+    await carryRetainedOldNameEdit(absPath, freeTarget);
+    await publishCaptured(absPath, freeTarget, captured);
+  } else {
+    await moveSidecarsAlongside(absPath, freeTarget);
+  }
   return { kind: 'ok', newAbsPath: freeTarget };
 }
 
@@ -249,9 +253,9 @@ async function returnCarriedEdit(
 const RETURN_ATTEMPTS = 5;
 
 /** Another writer can take the picked conflict name first; pick again. */
-async function publishConflictCopy(absPath: string, bytes: Buffer): Promise<boolean> {
+async function publishConflictCopy(beside: string, bytes: Buffer): Promise<boolean> {
   for (let attempt = 0; attempt < RETURN_ATTEMPTS; attempt++) {
-    const conflict = await pickFreeConflictPath(absPath, 'move');
+    const conflict = await pickFreeConflictPath(beside, 'move');
     const published = await publishBytes(conflict, bytes).then(
       () => true,
       () => false,
@@ -259,4 +263,21 @@ async function publishConflictCopy(absPath: string, bytes: Buffer): Promise<bool
     if (published) return true;
   }
   return false;
+}
+
+/** The old-name edit a settle kept at the old path names this photo, not the
+ * file that took its place, so it follows the quarantined photo as a conflict
+ * copy and leaves the old path once that copy is published unchanged. */
+async function carryRetainedOldNameEdit(absPath: string, movedTo: string): Promise<void> {
+  const retained = await locateLegacyBackupEdit(absPath).catch(() => null);
+  if (retained === null) return;
+  if (!(await publishConflictCopy(movedTo, retained.bytes))) {
+    log.error(
+      { legacy: retained.legacy },
+      'moveToDuplicates: the retained old-name edit could not follow the photo',
+    );
+    return;
+  }
+  const now = await readSidecarBytes(retained.legacy).catch(() => null);
+  if (now?.equals(retained.bytes)) await fs.unlink(retained.legacy).catch(() => {});
 }

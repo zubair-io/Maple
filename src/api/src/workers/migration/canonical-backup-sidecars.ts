@@ -186,7 +186,15 @@ async function canonicalizeLocation(
     handled.add(edit.legacy);
     const outcome = await canonicalizeEdit(assetId, location, primary, root, edit);
     if (outcome !== 'done') return outcome;
+    if (await changedSinceRead(edit)) return 'error';
   }
+}
+
+/** A save that rewrote the old-name file mid-run made its publish or removal
+ * stand down; that newer edit is retried, never stamped as handled. */
+async function changedSinceRead(edit: { legacy: string; bytes: Buffer }): Promise<boolean> {
+  const now = await readSidecarBytes(edit.legacy).catch(() => null);
+  return now !== null && !now.equals(edit.bytes);
 }
 
 function locationFailed(assetId: ObjectId, primary: string, err: unknown): LocationOutcome {
