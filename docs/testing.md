@@ -364,7 +364,7 @@ The visual harnesses in `src/apple/MapleUITests/` all follow one shape: stage a 
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MapleUITests`         | One fixture at default settings vs a committed golden (`Goldens/test_0017-default.png`). Budgets: mean ≤ 5, p95 ≤ 10, max ≤ 30, bias ≤ 0.05. Deleting the PNG re-records it and fails with "baseline written"          |
 | `SyntheticGreyUITests` | The Apple path (Rust FFI scene-linear → Metal AgX → Metal sRGB encode) lands on the same grey the Rust CPU tail produces: every pixel neutral within ±2 LSB, canvas mean within ±3 LSB of six per-case expected values |
-| `CIEDE2000Tests`       | Cross-validates the Swift ΔE₀₀ port against `compare_images.py` on a committed calibration PNG pair                                                                                                                    |
+| `CIEDE2000Tests`       | Cross-validates the Swift ΔE₀₀ port against `compare_images.py` on the committed calibration cases, bundled as the `Goldens` folder                                                                                    |
 
 Fixture-dependent classes call `XCTSkip` when the RAW isn't present at the repo default, mirroring the shell harnesses — and fail when it isn't present at an explicitly named `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT`.
 
