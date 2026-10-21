@@ -175,6 +175,19 @@ describe('mirrored fs fan-out', () => {
     expect(Math.floor(b.mtimeMs)).toBe(Math.floor(a.mtimeMs));
   });
 
+  test('replicatePathUnder copies a resolved file to the mirrors of the configured path', async () => {
+    const resolved = path.join(dir, 'resolved-library', 'x.xmp');
+    await realFs.mkdir(path.dirname(resolved), { recursive: true });
+    await realFs.writeFile(resolved, '<xmp/>');
+
+    fs.replicatePathUnder(resolved, onPrimary('2026/10/x.xmp'));
+    fs.replicatePathUnder(resolved, onPrimary('2026/10/x.xmp.tmp.7'));
+    await fs.flushPendingMirrorOps();
+
+    expect(await realFs.readFile(onMirror('2026/10/x.xmp'), 'utf8')).toBe('<xmp/>');
+    expect(await fileExists(onMirror('2026/10/x.xmp.tmp.7'))).toBe(false);
+  });
+
   test('replicatePath ignores temps and paths outside a mirrored root', async () => {
     const tmp = onPrimary('.maple/thumbs/abc.avif.tmp.42');
     await realFs.mkdir(path.dirname(tmp), { recursive: true });
