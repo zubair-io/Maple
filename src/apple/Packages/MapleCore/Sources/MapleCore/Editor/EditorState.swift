@@ -78,6 +78,8 @@ public final class EditorState {
   public let whiteBalancePicker: WhiteBalancePicker
   /// The mask panel's colour-range eyedropper (#362) — same shape as the WB picker.
   public let maskRangePicker: MaskRangePicker
+  /// The Oklab secondary color curve panel mode + stage-input eyedropper (#5077).
+  public let colorCurvePicker: ColorCurvePicker
   public let retouch: RetouchSession
 
   /// `subParamMemory` defaults to the app-session `.shared` store;
@@ -99,6 +101,7 @@ public final class EditorState {
     self.zoom = CanvasZoomController(session: session)
     self.whiteBalancePicker = WhiteBalancePicker(session: session)
     self.maskRangePicker = MaskRangePicker(session: session)
+    self.colorCurvePicker = ColorCurvePicker(session: session)
     self.retouch = RetouchSession(session: session)
     self.armedSubParamId = Self.resolveSubParamId(
       for: armedTool, memory: memory
@@ -144,6 +147,7 @@ public final class EditorState {
   public func arm(tool: Tool) {
     whiteBalancePicker.cancel()
     maskRangePicker.cancel()
+    colorCurvePicker.cancel()
     // A parked commit-on-release value belongs to the OLD armed pair —
     // committing it now would land on the wrong field (#1153).
     cancelGesture()

@@ -145,6 +145,7 @@ namespace Maple.WinUI
             BuildEditRail();
             BuildToneCurveControls();
             BuildGradePanel();
+            BuildColorCurvesPanel();
             BuildProfilePanel();
             BuildFilmPanel();
             BuildPresetsPanel();
@@ -163,6 +164,7 @@ namespace Maple.WinUI
                 SyncDemosaicPanel();
                 SyncLensPanel();
                 SyncGradeWheels();
+                SyncColorCurvesPanel();
                 if (_activeGroup == "Tone Curve")
                     RefreshCurvePlot();
                 SyncCropFromModel();

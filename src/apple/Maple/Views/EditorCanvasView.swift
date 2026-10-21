@@ -81,6 +81,10 @@ struct EditorCanvasView: View {
           MaskRangePickOverlay(state: state)
             .id(ObjectIdentifier(state.session))
         }
+        if state.colorCurvePicker.isArmed {
+          ColorCurvePickOverlay(state: state)
+            .id(ObjectIdentifier(state.session))
+        }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .background(MapleTokens.bg)

@@ -996,6 +996,7 @@
                                                           IsOn="{Binding AutoLateralCaOn, Mode=TwoWay}"
                                                           AutomationProperties.Name="Remove chromatic aberration toggle" />
                                         </StackPanel>
+                                        <StackPanel x:Name="PanelColorCurvesHost" Visibility="Collapsed" Spacing="6" Margin="0,0,0,8" />
                                         <ItemsControl x:Name="PanelHslBands" Visibility="Collapsed">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:HslBandViewModel">

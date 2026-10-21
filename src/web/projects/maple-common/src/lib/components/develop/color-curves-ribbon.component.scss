@@ -1,0 +1,124 @@
+.mode-btn,
+.curve-pill {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 6px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 0.5px solid var(--pro-border, rgba(255, 255, 255, 0.12));
+  background: transparent;
+  color: var(--pro-text-muted, rgba(255, 255, 255, 0.65));
+  cursor: pointer;
+}
+
+.mode-btn.is-selected,
+.curve-pill.is-selected {
+  color: var(--pro-accent, #f5a623);
+  border-color: var(--pro-accent, #f5a623);
+  background: rgba(245, 166, 35, 0.15);
+  font-weight: 600;
+}
+
+.mod-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--pro-accent, #f5a623);
+}
+
+.ribbon-wrap {
+  position: relative;
+  width: 100%;
+  height: 96px;
+  border-radius: 8px;
+  border: 0.5px solid var(--pro-border, rgba(255, 255, 255, 0.14));
+  overflow: hidden;
+  touch-action: none;
+}
+
+.ribbon-wrap[data-backdrop='hue'] {
+  background: linear-gradient(
+    90deg,
+    rgba(196, 73, 58, 0.28) 0%,
+    rgba(227, 210, 74, 0.28) 25%,
+    rgba(63, 174, 106, 0.28) 42%,
+    rgba(69, 182, 196, 0.28) 58%,
+    rgba(59, 111, 176, 0.28) 75%,
+    rgba(198, 79, 176, 0.28) 91%,
+    rgba(196, 73, 58, 0.28) 100%
+  );
+}
+
+.ribbon-wrap[data-backdrop='luma'] {
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.45), rgba(255, 255, 255, 0.28));
+}
+
+.ribbon-wrap[data-backdrop='sat'] {
+  background: linear-gradient(90deg, rgba(120, 120, 120, 0.2), rgba(245, 166, 35, 0.32));
+}
+
+.ribbon-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: crosshair;
+}
+
+.midline {
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.curve-stroke {
+  fill: none;
+  stroke: var(--pro-accent, #f5a623);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.knot-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  margin-top: -6px;
+  border-radius: 9999px;
+  border: 2px solid var(--pro-accent, #f5a623);
+  background: var(--pro-canvas, #141416);
+  cursor: grab;
+  padding: 0;
+}
+
+.anchor-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  border: 0.5px solid rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+  padding: 0;
+}
+
+.action-pill {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 0.5px solid var(--pro-border, rgba(255, 255, 255, 0.14));
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--pro-text, #f5f5f7);
+  cursor: pointer;
+}
+
+.action-pill.is-active {
+  border-color: var(--pro-accent, #f5a623);
+  color: var(--pro-accent, #f5a623);
+}
+
+.action-pill:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

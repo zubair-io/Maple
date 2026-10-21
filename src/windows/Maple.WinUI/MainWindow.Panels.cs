@@ -89,7 +89,10 @@ namespace Maple.WinUI
             if (_activeGroup == "Crop" && group != "Crop")
                 ExitCropMode();
             if (_activeGroup == "Color" && group != "Color")
+            {
                 CancelWhiteBalancePick();
+                CancelColorCurvePick();
+            }
             if (_activeGroup == "Mask" && group != "Mask")
                 ExitMaskMode();
             if (_activeGroup == "Heal" && group != "Heal") ExitRetouchCanvas();
@@ -101,6 +104,7 @@ namespace Maple.WinUI
             EffectsTabRow.Visibility = group == "Effects" ? Visibility.Visible : Visibility.Collapsed;
             PanelFootnote.Visibility = Visibility.Collapsed;
             PanelGradeHost.Visibility = Visibility.Collapsed;
+            PanelColorCurvesHost.Visibility = Visibility.Collapsed;
             PanelProfileHost.Visibility = group == "Light" ? Visibility.Visible : Visibility.Collapsed;
             PanelWhiteBalanceHost.Visibility = group == "Color" ? Visibility.Visible : Visibility.Collapsed;
             PanelLensHost.Visibility = group == "Lens" ? Visibility.Visible : Visibility.Collapsed;
@@ -187,6 +191,7 @@ namespace Maple.WinUI
             if (_activeGroup == "Crop")
                 ExitCropMode();
             CancelWhiteBalancePick();
+            CancelColorCurvePick();
             if (_activeGroup == "Mask")
                 ExitMaskMode();
             if (_activeGroup == "Heal") ExitRetouchCanvas();
@@ -227,6 +232,7 @@ namespace Maple.WinUI
             PanelDetailHeader.Visibility = Visibility.Collapsed;
             PanelHslBands.Visibility = tab == "HSL" ? Visibility.Visible : Visibility.Collapsed;
             PanelHslBands.ItemsSource = tab == "HSL" ? ViewModel.HslBands : null;
+            ShowColorCurvesHeader(tab == "HSL");
             PanelSliders.Visibility = tab == "HSL" ? Visibility.Collapsed : Visibility.Visible;
             PanelSliders.ItemsSource = tab switch
             {
@@ -279,7 +285,14 @@ namespace Maple.WinUI
                         band.Sat.ResetModelValue(model);
                         band.Lum.ResetModelValue(model);
                     }
+                    model.ColorCurveHueVsHue.Clear();
+                    model.ColorCurveHueVsSat.Clear();
+                    model.ColorCurveHueVsLuma.Clear();
+                    model.ColorCurveLumaVsSat.Clear();
+                    model.ColorCurveSatVsSat.Clear();
+                    model.ColorCurveSatVsLuma.Clear();
                 });
+                SyncColorCurvesPanel();
                 return;
             }
             if (_activeGroup == "Crop")
