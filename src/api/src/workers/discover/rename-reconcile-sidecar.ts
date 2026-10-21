@@ -370,34 +370,17 @@ export async function moveLegacySidecarIfPresent(
 ): Promise<void> {
   const newLegacy = legacyBackupSidecar(newAbsPath);
   if (newLegacy === null) return;
+  // A case- or normalization-sensitive volume can hold more than one spelling;
+  // each follows the photo, the later ones as conflict copies.
+  const handled = new Set<string>();
   try {
-    // As stored, case variant included; a folder that can't be listed throws.
-    const found = await locateLegacyBackupEdit(oldAbsPath);
-    if (found === null) return;
-    const oldLegacy = found.legacy;
-    await withBothSidecarWriteLocks(
-      oldLegacy,
-      newLegacy,
-      root,
-      async (resolvedOld, resolvedNew) => {
-        // The lexical name: the ownership check compares folder entries, which a
-        // symlinked root's realpath would never match.
-        if ((await readLegacyAt(oldAbsPath, oldLegacy)) === null) return;
-        const classification = await classifySameFile(resolvedOld, resolvedNew);
-        if (classification === 'identical') return;
-        if (classification === 'case-only-rename') return fs.rename(resolvedOld, resolvedNew);
-        // On a case-sensitive volume the edit's own spelling counts as taking its slot,
-        // so only the exclusive publish decides: an occupied spelling gets a conflict copy.
-        const ownSpelling =
-          path.basename(oldLegacy).toLowerCase() === path.basename(newLegacy).toLowerCase();
-        const landed =
-          (ownSpelling || !(await oldNameSlotTaken(newAbsPath))) &&
-          (await publishSidecarExclusive(resolvedOld, resolvedNew, root, false)) === 'published';
-        if (landed) return;
-        if (await sidecarAlreadyCarried(resolvedOld, resolvedNew)) return fs.unlink(resolvedOld);
-        await publishRenameConflict(resolvedOld, newAbsPath, root);
-      },
-    );
+    for (;;) {
+      // As stored, case variant included; a folder that can't be listed throws.
+      const found = await locateLegacyBackupEdit(oldAbsPath, handled);
+      if (found === null) return;
+      handled.add(found.legacy);
+      await moveOneLegacySidecar(oldAbsPath, newAbsPath, newLegacy, found.legacy, root);
+    }
   } catch (err) {
     // No retry path: discover re-attaches the renamed photo by content even if
     // this rename were declined, so the edit is kept at the old path and flagged.
@@ -406,4 +389,31 @@ export async function moveLegacySidecarIfPresent(
       'rename-reconcile: old-name sidecar move failed — left in place',
     );
   }
+}
+
+async function moveOneLegacySidecar(
+  oldAbsPath: string,
+  newAbsPath: string,
+  newLegacy: string,
+  oldLegacy: string,
+  root: string,
+): Promise<void> {
+  await withBothSidecarWriteLocks(oldLegacy, newLegacy, root, async (resolvedOld, resolvedNew) => {
+    // The lexical name: the ownership check compares folder entries, which a
+    // symlinked root's realpath would never match.
+    if ((await readLegacyAt(oldAbsPath, oldLegacy)) === null) return;
+    const classification = await classifySameFile(resolvedOld, resolvedNew);
+    if (classification === 'identical') return;
+    if (classification === 'case-only-rename') return fs.rename(resolvedOld, resolvedNew);
+    // On a case-sensitive volume the edit's own spelling counts as taking its slot,
+    // so only the exclusive publish decides: an occupied spelling gets a conflict copy.
+    const ownSpelling =
+      path.basename(oldLegacy).toLowerCase() === path.basename(newLegacy).toLowerCase();
+    const landed =
+      (ownSpelling || !(await oldNameSlotTaken(newAbsPath))) &&
+      (await publishSidecarExclusive(resolvedOld, resolvedNew, root, false)) === 'published';
+    if (landed) return;
+    if (await sidecarAlreadyCarried(resolvedOld, resolvedNew)) return fs.unlink(resolvedOld);
+    await publishRenameConflict(resolvedOld, newAbsPath, root);
+  });
 }

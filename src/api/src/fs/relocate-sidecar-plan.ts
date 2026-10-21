@@ -18,6 +18,8 @@ import {
   sidecarStemClaimedBySibling,
 } from './sidecar-ownership.ts';
 import type { RelocatePublication } from './relocate-publish.ts';
+import { readSidecarBytes } from './sidecar-bytes.ts';
+import { serializeSidecarWrite } from './sidecar-write-order.ts';
 
 export interface SidecarPlanEntry {
   source: string;
@@ -38,7 +40,7 @@ export interface SidecarPlan {
   destinationHadPrimary: boolean;
   /** The displaced photo's old-name edit, unless the incoming one lands on it;
    * removed once the new photo is in place, so it is never read as the new photo's. */
-  staleDisplacedOldName: string | null;
+  staleDisplacedOldName: { legacy: string; bytes: Buffer } | null;
   replace: boolean;
 }
 
@@ -119,11 +121,13 @@ async function oldNameFate(
 /** Replace retires the displaced photo's old-name edit (#5063), or the
  * incoming photo's own takes it over. One that can't be read would survive and
  * later be read as the incoming photo's, so the move is refused before any byte moves. */
-async function displacedOldNameEdit(req: SidecarPlanRequest): Promise<string | null> {
+async function displacedOldNameEdit(
+  req: SidecarPlanRequest,
+): Promise<{ legacy: string; bytes: Buffer } | null> {
   if (await oldNameEditUnreadable(req.finalDest)) {
     throw new Error("relocate: the displaced photo's old-name backup edit can't be read");
   }
-  return (await locateLegacyBackupEdit(req.finalDest).catch(() => null))?.legacy ?? null;
+  return locateLegacyBackupEdit(req.finalDest).catch(() => null);
 }
 
 /** One sidecar's plan; `null` leaves it at the source. */
@@ -180,7 +184,7 @@ export async function planSidecars(req: SidecarPlanRequest): Promise<SidecarPlan
   for (const source of req.sourceSidecars) {
     const entry = await planEntry(req, source, {
       claimedBySibling: destinationClaimedBySibling,
-      displacedOldName,
+      displacedOldName: displacedOldName?.legacy ?? null,
     });
     if (entry) entries.push(entry);
   }
@@ -188,7 +192,7 @@ export async function planSidecars(req: SidecarPlanRequest): Promise<SidecarPlan
   const takenOver =
     incomingOldName !== undefined &&
     displacedOldName !== null &&
-    (await sameSidecarFile(displacedOldName, incomingOldName.dest));
+    (await sameSidecarFile(displacedOldName.legacy, incomingOldName.dest));
   return {
     entries,
     sourceClaimedBySibling,
@@ -277,10 +281,23 @@ export async function carryPlannedSidecars(
 
 /** The previous occupant's old-name edit (#5063) when the incoming photo
  * brings sidecars but none by that name; the migration would hand it on. */
-async function removeStaleOldNameEdit(legacy: string | null): Promise<void> {
-  if (legacy === null) return;
-  // Checked readable before the move, and throwing now would revert past a Replace.
-  await fs.unlink(legacy).catch((err: unknown) => {
+async function removeStaleOldNameEdit(
+  stale: { legacy: string; bytes: Buffer } | null,
+): Promise<void> {
+  if (stale === null) return;
+  const { legacy, bytes } = stale;
+  // Only the bytes the plan read: a save since then is kept. Never throws, past a Replace.
+  await serializeSidecarWrite(legacy, async () => {
+    const now = await readSidecarBytes(legacy).catch(() => null);
+    if (!now?.equals(bytes)) {
+      log.warn(
+        { legacy },
+        "relocate: the displaced photo's old-name edit changed since the plan — kept",
+      );
+      return;
+    }
+    await fs.unlink(legacy);
+  }).catch((err: unknown) => {
     log.error(
       { legacy, err: err instanceof Error ? err.message : err },
       "relocate: the displaced photo's old-name edit couldn't be removed",
@@ -304,8 +321,8 @@ export async function removeStaleDestinationSidecars(
   if (replacing) await removeStaleOldNameEdit(plan.staleDisplacedOldName);
   if (!replacesWithoutSidecar || plan.destinationClaimedBySibling) return;
   for (const stale of await listPairedSidecars(finalDest)) {
-    // Another photo's stranded old-name edit (#5063) isn't stale unless a photo was displaced.
-    if (!plan.destinationHadPrimary && isLegacyBackupSidecarOf(finalDest, stale)) continue;
+    // Old-name edits (#5063) are handled above: a displaced one only while unchanged, a stranded one never.
+    if (isLegacyBackupSidecarOf(finalDest, stale)) continue;
     await fs.unlink(stale).catch(() => {});
   }
 }
