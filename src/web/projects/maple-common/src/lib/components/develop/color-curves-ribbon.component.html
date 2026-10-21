@@ -1,0 +1,147 @@
+<div class="color-curves-shell flex w-full flex-col gap-2 px-3 pt-1">
+  <!-- [8-Band Mixer | Color Curves] segmented toggle -->
+  <div class="mode-switch flex gap-1" role="tablist" aria-label="HSL mode">
+    <button
+      type="button"
+      role="tab"
+      class="mode-btn"
+      [class.is-selected]="!curvesMode()"
+      [attr.aria-selected]="!curvesMode()"
+      data-testid="hsl-mode-bands"
+      (click)="setMode(false)"
+    >
+      8-Band Mixer
+    </button>
+    <button
+      type="button"
+      role="tab"
+      class="mode-btn"
+      [class.is-selected]="curvesMode()"
+      [attr.aria-selected]="curvesMode()"
+      data-testid="hsl-mode-curves"
+      (click)="setMode(true)"
+    >
+      <span>Color Curves</span>
+      @if (anyCurveModified()) {
+        <span class="mod-dot" aria-hidden="true"></span>
+      }
+    </button>
+  </div>
+
+  @if (curvesMode()) {
+    <div class="color-curves-body flex flex-col gap-2" data-testid="color-curves-panel">
+      <!-- 6-curve selector pills -->
+      <div class="curve-pills flex gap-1" role="tablist" aria-label="Oklab secondary curves">
+        @for (c of curves; track c.id) {
+          <button
+            type="button"
+            role="tab"
+            class="curve-pill"
+            [class.is-selected]="activeCurveId() === c.id"
+            [attr.aria-selected]="activeCurveId() === c.id"
+            [attr.aria-label]="c.title"
+            [attr.data-testid]="'color-curve-pill-' + c.id"
+            (click)="selectCurve(c.id)"
+          >
+            <span>{{ c.shortLabel }}</span>
+            @if (isCurveModified(c)) {
+              <span class="mod-dot" aria-hidden="true"></span>
+            }
+          </button>
+        }
+      </div>
+
+      <!-- Horizontal ribbon curve editor -->
+      <div
+        class="ribbon-wrap"
+        [attr.data-backdrop]="
+          activeDescriptor().isPeriodic
+            ? 'hue'
+            : activeDescriptor().id === 'lumaVsSat'
+              ? 'luma'
+              : 'sat'
+        "
+      >
+        <svg
+          #ribbonSvg
+          class="ribbon-svg"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          data-testid="color-curve-ribbon"
+          (pointerdown)="onRibbonPointerDown($event)"
+        >
+          <line x1="0" y1="50" x2="100" y2="50" class="midline" />
+          <path [attr.d]="svgPathD()" class="curve-stroke" />
+        </svg>
+        @for (pt of activePoints(); track $index) {
+          <button
+            type="button"
+            class="knot-handle"
+            [style.left.%]="pt[0] * 100"
+            [style.top.%]="(1 - pt[1]) * 100"
+            [attr.aria-label]="activeDescriptor().title + ' knot ' + ($index + 1)"
+            [attr.data-testid]="'color-curve-knot-' + $index"
+            (dblclick)="removeKnot($index, $event)"
+          ></button>
+        }
+      </div>
+
+      <!-- Bottom toolbar: 6 quick-anchor hue dots + Lock Skin Tone + Eyedropper + Reset -->
+      <div class="bottom-toolbar flex items-center gap-1.5">
+        @if (activeDescriptor().isPeriodic) {
+          <div class="quick-anchors flex items-center gap-1">
+            @for (a of quickAnchors; track a.id) {
+              <button
+                type="button"
+                class="anchor-swatch"
+                [style.background]="a.color"
+                [attr.aria-label]="'Anchor ' + a.label"
+                [attr.data-testid]="'color-curve-anchor-' + a.id"
+                (click)="insertQuickAnchor(a.deg)"
+              ></button>
+            }
+          </div>
+          <button
+            type="button"
+            class="action-pill"
+            data-testid="color-curve-lock-skin"
+            (click)="lockSkinTone()"
+          >
+            Lock Skin
+          </button>
+        }
+        <span class="flex-1"></span>
+        <button
+          type="button"
+          class="action-pill"
+          [class.is-active]="eyedropperActive()"
+          [attr.aria-pressed]="eyedropperActive()"
+          aria-label="Sample color curve anchor from photo"
+          data-testid="color-curve-eyedropper"
+          (click)="onEyedropperClick()"
+        >
+          ⊕
+        </button>
+        <button
+          type="button"
+          class="action-pill"
+          [disabled]="isActiveCurveIdentity()"
+          [attr.aria-label]="'Reset ' + activeDescriptor().title + ' curve'"
+          data-testid="color-curve-reset"
+          (click)="resetActiveCurve()"
+        >
+          Reset
+        </button>
+      </div>
+
+      @if (sampleMessage(); as msg) {
+        <div
+          class="sample-msg text-[11px] text-[color:var(--pro-text-muted)]"
+          data-testid="color-curve-sample-msg"
+        >
+          {{ msg }}
+        </div>
+      }
+    </div>
+  }
+</div>
