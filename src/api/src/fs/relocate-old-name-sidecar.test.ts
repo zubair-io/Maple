@@ -257,7 +257,9 @@ describe('relocate — old-name backup edits (#5063)', () => {
       }
     },
   );
+});
 
+describe('relocate — unreadable and displaced old-name edits (#5063)', () => {
   test('a name with no room for an old-name file is not refused as unreadable', async () => {
     const name = `${'x'.repeat(250)}.HEIC`;
     await write(`src/${name}`, 'new');
