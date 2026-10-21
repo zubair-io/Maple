@@ -19,6 +19,7 @@ struct FrameData {
     prefix: AdjustmentModel,
     inputs: FullChainInputs<'static>,
     sampling: f32,
+    exposure: f32,
 }
 struct Prepared {
     full: FrameData,
@@ -89,7 +90,7 @@ impl Session {
                     fast.height,
                     fast.prefix,
                     fast.inputs,
-                    fast.sampling,
+                    (fast.sampling, fast.exposure),
                 )
             })
             .transpose()?;
@@ -100,6 +101,7 @@ impl Session {
         self.inputs = full.inputs;
         self.prefix = full.prefix;
         self.sampling = full.sampling;
+        self.exposure = full.exposure;
         self.auto_fit = prepared.auto_fit;
         self.profile = self.model.profile;
         if let Some(fast) = fast {
@@ -117,14 +119,15 @@ impl Preparation {
         edge: u32,
         cancel: &CancelToken,
     ) -> Result<FrameData, String> {
-        let (pixels, width, height, prefix, anchor, sampling) = develop_prefix_rgba_cancellable(
-            &self.raw,
-            &self.bytes,
-            &self.ext,
-            model,
-            edge,
-            raw_core::CancelToken::new(cancel.flag()),
-        )?;
+        let (pixels, width, height, prefix, anchor, sampling, exposure) =
+            develop_prefix_rgba_cancellable(
+                &self.raw,
+                &self.bytes,
+                &self.ext,
+                model,
+                edge,
+                raw_core::CancelToken::new(cancel.flag()),
+            )?;
         if cancel.is_cancelled() {
             return Err("Preparation cancelled".into());
         }
@@ -146,6 +149,7 @@ impl Preparation {
             prefix,
             inputs,
             sampling,
+            exposure,
         })
     }
     pub fn run(&mut self, cancel: &CancelToken) -> Result<bool, String> {
