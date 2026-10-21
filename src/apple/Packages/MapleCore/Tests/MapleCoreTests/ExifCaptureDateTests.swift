@@ -4,9 +4,10 @@
 // Every `iso8601UTC` expectation and every dated `capturedAt` expectation was
 // captured by running the real `normalizeExif` (`src/api/src/indexer/exif.ts`)
 // on the same raw EXIF string; its `Date.UTC` reading does not depend on the
-// process timezone. The `capturedAt` cases that yield no date are a deliberate
-// device-side divergence, not server output: the device cannot reproduce
-// JavaScript's `new Date(...)` fallback, so it derives a fallback id there.
+// process timezone. The exception is
+// `testAnOriginalDateOnlyJavaScriptReadsAlsoFallsThrough`, a known mismatch:
+// the server dates those strings with `new Date(...)`, which the device cannot
+// reproduce, so it falls through to CreateDate.
 
 import XCTest
 @testable import MapleCore
@@ -140,15 +141,26 @@ final class ExifCaptureDateTests: XCTestCase {
         }
     }
 
-    /// The server hands these to JavaScript's `Date` parser, whose answer the
-    /// device cannot reproduce; it may date the photo from them, so falling
-    /// back to the digitized date could derive a different primary id.
-    func testAnOriginalDateOnlyJavaScriptCouldReadYieldsNoDate() {
-        for original in ["2024-06-01T12:34:56", "2024:06:01", "06/01/2024 12:34"] {
-            XCTAssertNil(
+    /// The server's `new Date(...)` fallback rejects these, so it moves on to
+    /// CreateDate; the device must too (#5092 review).
+    func testAnOriginalDateJavaScriptRejectsFallsThroughToDigitized() {
+        for original in ["2024:xx:xx", "2024:13:xx 12:00:00", "24:06:01 12:34:56"] {
+            XCTAssertEqual(
                 ExifCaptureDate.capturedAt(
                     dateTimeOriginal: original, createDate: "2020:01:01 00:00:00"),
-                original)
+                "2020-01-01T00:00:00.000Z", original)
+        }
+    }
+
+    /// JavaScript does read these, which the device cannot reproduce, so it
+    /// falls through as well — a known mismatch either way; a wrong date can
+    /// only collide with a file sharing its first 64 KB.
+    func testAnOriginalDateOnlyJavaScriptReadsAlsoFallsThrough() {
+        for original in ["2024-06-01T12:34:56", "2024:06:01", "06/01/2024 12:34"] {
+            XCTAssertEqual(
+                ExifCaptureDate.capturedAt(
+                    dateTimeOriginal: original, createDate: "2020:01:01 00:00:00"),
+                "2020-01-01T00:00:00.000Z", original)
         }
     }
 

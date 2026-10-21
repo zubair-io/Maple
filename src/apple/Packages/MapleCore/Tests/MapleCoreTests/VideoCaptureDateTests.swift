@@ -1,7 +1,9 @@
 // VideoCaptureDateTests.swift — #5001: the device reads a video's capture
 // date exactly as the server's `readVideoMetadata` + `asIsoDate` do, so a
 // backed-up video derives the server's primary-form maple_id. Every expected
-// string here was produced by the server's own `readExif` on the same bytes.
+// string here was produced by the server's own `readExif` on the same bytes,
+// except the timezone-less and JavaScript-only key cases, where the device
+// deliberately uses mvhd and is known to differ.
 
 import Foundation
 import XCTest
@@ -93,11 +95,11 @@ final class VideoCaptureDateTests: XCTestCase {
     XCTAssertEqual(VideoCaptureDate.iso8601UTC(fromVideoBytes: bytes), "2024-03-01T10:00:00.123Z")
   }
 
-  func testATimezonelessKeyYieldsNoDateRatherThanAGuess() {
+  func testATimezonelessKeyFallsBackToMvhdRatherThanGuessingAZone() {
     let bytes = video(mvhd(unix: 1_700_000_000) + meta(creationDate: "2024-03-01T10:00:00"))
-    XCTAssertNil(
-      VideoCaptureDate.iso8601UTC(fromVideoBytes: bytes),
-      "the server parses this in its own local zone; the device must not guess one")
+    XCTAssertEqual(
+      VideoCaptureDate.iso8601UTC(fromVideoBytes: bytes), "2023-11-14T22:13:20.000Z",
+      "the server reads this in its own local zone, which the device cannot know")
   }
 
   func testKeyValuesReadToTheServersInstant() {
@@ -124,15 +126,40 @@ final class VideoCaptureDateTests: XCTestCase {
     }
   }
 
-  func testKeysTheTwoRuntimesMightReadDifferentlyYieldNoDate() {
-    let ambiguous = [
-      "March 1, 2024", "2024-03-01", "2024-03-01T24:00:00Z", "1899-12-31T00:00:00Z",
-      "\u{FEFF}2024-03-01T10:00:00Z", "２０２４-03-01T10:00:00Z", "2024-03-01T10:00:00+24:00",
-      "2024-03-01T10:00:00Z\u{85}", "2026-04-05T11:26:20-0700\u{85}", "9999-12-31T23:00:00-05:00",
+  /// JavaScript rejects these, so the server dates the clip from mvhd; the
+  /// device must too (#5092 review).
+  func testKeysJavaScriptRejectsFallBackToMvhdLikeTheServer() {
+    let rejected = [
+      "２０２４-03-01T10:00:00Z", "2024-03-01T10:00:00+24:00", "2024-03-01T10:00:00Z\u{85}",
+      "2026-04-05T11:26:20-0700\u{85}",
     ]
-    for key in ambiguous {
+    for key in rejected {
       let bytes = video(mvhd(unix: 1_700_000_000) + meta(creationDate: key))
-      XCTAssertNil(VideoCaptureDate.iso8601UTC(fromVideoBytes: bytes), key)
+      XCTAssertEqual(
+        VideoCaptureDate.iso8601UTC(fromVideoBytes: bytes), "2023-11-14T22:13:20.000Z", key)
+    }
+  }
+
+  /// The server's last meta carrying the key decides, even with an unusable
+  /// value (its `keysDate` becomes null and it uses mvhd).
+  func testAnUnusableKeyInALaterMetaOverridesAnEarlierMetasDate() {
+    let bytes = video(
+      mvhd(unix: 1_700_000_000) + meta(creationDate: "2024-03-01T10:00:00Z")
+        + box("udta", meta(creationDate: "garbage")))
+    XCTAssertEqual(VideoCaptureDate.iso8601UTC(fromVideoBytes: bytes), "2023-11-14T22:13:20.000Z")
+  }
+
+  /// JavaScript reads these in ways the device cannot reproduce; mvhd is the
+  /// device's only defensible date — a known mismatch either way.
+  func testKeysOnlyJavaScriptReadsAlsoFallBackToMvhd() {
+    let javaScriptOnly = [
+      "March 1, 2024", "2024-03-01", "2024-03-01T24:00:00Z", "1899-12-31T00:00:00Z",
+      "\u{FEFF}2024-03-01T10:00:00Z", "9999-12-31T23:00:00-05:00",
+    ]
+    for key in javaScriptOnly {
+      let bytes = video(mvhd(unix: 1_700_000_000) + meta(creationDate: key))
+      XCTAssertEqual(
+        VideoCaptureDate.iso8601UTC(fromVideoBytes: bytes), "2023-11-14T22:13:20.000Z", key)
     }
   }
 

@@ -78,21 +78,22 @@ public enum ExifCaptureDate {
     /// for the raw EXIF strings ImageIO reports (`CreateDate` is EXIF
     /// DateTimeDigitized).
     ///
-    /// A field the server's `asIsoDate` provably returns null for — absent,
-    /// or holding no ASCII digit (a blank `    :  :     :  :  ` placeholder),
-    /// which no JavaScript `Date` parse accepts — falls through to the next.
-    /// A field with digits that doesn't match the EXIF prefix goes to the
-    /// server's `new Date(...)` fallback, whose answer the device cannot
-    /// reproduce; the derivation then yields nil (a fallback id) rather than
-    /// a possibly different primary id from the next field.
+    /// A field that is absent or doesn't match the EXIF prefix (including a
+    /// blank `    :  :     :  :  ` placeholder) falls through to the next.
+    /// For a non-prefix field with digits the server tries `new Date(...)`,
+    /// which the device cannot reproduce: when JavaScript rejects it the
+    /// server falls through too and the ids match; when JavaScript reads it
+    /// they differ whatever the device does, and a wrong date can only
+    /// collide with a file sharing its first 64 KB, which the primary form
+    /// also hashes.
     ///
     /// Each field is first trimmed the way exifr's `normalizeString` hands it
     /// to the server: trailing NULs dropped, then surrounding whitespace.
     public static func capturedAt(dateTimeOriginal: String?, createDate: String?) -> String? {
         [dateTimeOriginal, createDate].lazy
             .compactMap { $0.map(exifrNormalized) }
-            .first { $0.unicodeScalars.contains { ("0"..."9").contains($0) } }
-            .flatMap(iso8601UTC(fromExifString:))
+            .compactMap(iso8601UTC(fromExifString:))
+            .first
     }
 
     private static func exifrNormalized(_ raw: String) -> String {
