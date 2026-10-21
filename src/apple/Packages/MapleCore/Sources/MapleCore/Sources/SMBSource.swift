@@ -124,13 +124,15 @@ public actor SMBSource {
     }
     // One unsuspended swap, compared against the connection live NOW (a concurrent connect
     // may have finished meanwhile): no reentrant call mixes two shares' state. Another share
-    // retires every earlier ref; an address change alone keeps them (#4987).
+    // retires every earlier ref and its relocations; an address change alone keeps both
+    // (#4987, #5051).
     let switchesShare =
       self.credentials?.share != credentials.share
       || self.credentials?.username != credentials.username
-    let switchesServer = switchesShare || self.credentials?.host != credentials.host
-    if switchesServer { relocatedPaths = [:] }
-    if switchesShare { listingID = UUID() }
+    if switchesShare {
+      relocatedPaths = [:]
+      listingID = UUID()
+    }
     self.credentials = credentials
     self.client = mgr
     _assets = listed
@@ -459,7 +461,7 @@ extension SMBSource: ImageSource {
 
   public func rawBytes(for ref: ImageRef) async throws -> Data {
     guard let client else { throw SMBError.notConnected }
-    return try await client.contents(atPath: path(for: ref), range: Range<UInt64>?.none)
+    return try await client.contents(atPath: listedPath(for: ref), range: Range<UInt64>?.none)
   }
 
   public func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {

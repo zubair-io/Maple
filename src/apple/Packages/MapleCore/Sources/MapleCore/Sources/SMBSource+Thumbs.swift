@@ -17,8 +17,8 @@ extension SMBSource {
     /// `writeThumb(_:for:)` below persists that fallback's render back to
     /// this same path.
     public func thumb(for ref: ImageRef) async throws -> Data? {
-        guard let client else { return nil }
-        return await SMBThumbCache(transport: client).read(forAssetPath: path(for: ref))
+        guard let client, let path = try? listedPath(for: ref) else { return nil }
+        return await SMBThumbCache(transport: client).read(forAssetPath: path)
     }
 
     /// Write-back for `ThumbnailLoader`'s render-from-bytes fallback
@@ -27,7 +27,7 @@ extension SMBSource {
     /// failure (read-only share, dropped connection). See
     /// `SMBThumbCache.write`.
     public func writeThumb(_ data: Data, for ref: ImageRef) async {
-        guard let client else { return }
-        await SMBThumbCache(transport: client).write(data, forAssetPath: path(for: ref))
+        guard let client, let path = try? listedPath(for: ref) else { return }
+        await SMBThumbCache(transport: client).write(data, forAssetPath: path)
     }
 }

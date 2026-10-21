@@ -7,7 +7,7 @@ extension SMBSource {
   public func writeOriginal(for ref: ImageRef, to destination: URL) async throws {
     guard let client else { throw SMBError.notConnected }
     try Task.checkCancellation()
-    try await client.downloadItem(atPath: path(for: ref), to: destination, progress: nil)
+    try await client.downloadItem(atPath: listedPath(for: ref), to: destination, progress: nil)
     try Task.checkCancellation()
   }
 }
