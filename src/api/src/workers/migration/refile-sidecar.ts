@@ -6,7 +6,9 @@
 import * as path from 'node:path';
 import * as fs from '../../fs/mirrored.ts';
 import {
+  joinCarriedSidecar,
   publishSidecarSnapshot,
+  sidecarAlreadyCarried,
   publishBytesExclusive,
   sidecarStemClaimedBySibling,
   writeVerifiedTemp,
@@ -34,6 +36,8 @@ export interface CarriedSidecar {
   snapshot: Buffer;
   /** The refiled photo's new path, which a conflict copy pairs with. */
   primary: string;
+  /** A same-stem sibling still uses the source (#4692 rule 1): it is copied, never taken. */
+  keepSource: boolean;
 }
 
 /** `null` for a link or other non-regular file, which stays where it is, as relocate leaves it (#4749). */
@@ -42,10 +46,15 @@ export async function carrySidecar(
   dest: string,
   primary: string,
   publications: RelocatePublication[],
+  keepSource = false,
 ): Promise<CarriedSidecar | null> {
   try {
-    const snapshot = await publishSidecarSnapshot(source, dest, publications);
-    return { source, dest, primary, snapshot };
+    // A pair refiled one photo at a time finds its shared sidecar already
+    // copied: it joins those bytes, with no publication a revert could remove.
+    const snapshot = (await sidecarAlreadyCarried(source, dest))
+      ? await joinCarriedSidecar(source, dest)
+      : await publishSidecarSnapshot(source, dest, publications);
+    return { source, dest, primary, snapshot, keepSource };
   } catch (err) {
     if (!(err instanceof SidecarNotRegularFileError)) throw err;
     log.warn({ source }, 'refile: sidecar is not a regular file — left in place');
@@ -197,6 +206,6 @@ export async function settleRefiledSidecar(carried: CarriedSidecar): Promise<voi
     const current = await readSidecarBytes(carried.source);
     if (current === null) return;
     if (!current.equals(carried.snapshot)) await carryLateSave(carried, current);
-    await fs.unlink(carried.source);
+    if (!carried.keepSource) await fs.unlink(carried.source);
   });
 }

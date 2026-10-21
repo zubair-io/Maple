@@ -39,6 +39,10 @@ import {
 } from '../../fs/legacy-backup-sidecar.ts';
 import { carrySidecar, settleRefiledSidecar, type CarriedSidecar } from './refile-sidecar.ts';
 import {
+  assetDestinationOccupied,
+  sidecarStemClaimedBySibling,
+} from '../../fs/sidecar-ownership.ts';
+import {
   copyVerifiedIntoPlace,
   revertCreated as withdrawPublications,
   type RelocatePublication,
@@ -100,23 +104,26 @@ export async function revertPlaced(placed: Pick<PlacePlan, 'publications'>): Pro
 /** Taken: the name itself, another photo's stranded old-name edit (#5063) the
  * migration would hand this one, or, when this photo carries its own old-name
  * edit, a name where that edit can't land. */
-function destinationTaken(carriesOldName: boolean) {
+function destinationTaken(oldAbs: string, sidecars: readonly string[], carriesOldName: boolean) {
+  // An occupied canonical sidecar is a collision for the whole photo (#4692 rule 2), as in relocate.
   return async (candidate: string): Promise<boolean> =>
-    (await exists(candidate)) ||
+    (await assetDestinationOccupied(candidate, sidecars, oldAbs)) ||
     (carriesOldName ? await oldNameSlotTaken(candidate) : await hasLegacyBackupEdit(candidate));
 }
 
 /** Different bytes, a duplicate that carries companions we must not drop, or a
  * taken old-name slot: claim the next free sibling. Never overwrite the occupant. */
 async function claimTarget(
+  oldAbs: string,
   newTargetAbs: string,
+  sidecars: readonly string[],
   carriesOldName: boolean,
 ): Promise<{ targetAbs: string; outcome: PlaceOutcome }> {
   // A folder that exists but can't be listed would read every name as taken.
   await fs.readdir(path.dirname(newTargetAbs)).catch((err: unknown) => {
     if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
   });
-  const taken = destinationTaken(carriesOldName);
+  const taken = destinationTaken(oldAbs, sidecars, carriesOldName);
   if (!(await taken(newTargetAbs))) return { targetAbs: newTargetAbs, outcome: 'copied' };
   const targetAbs = await pickFreePath(newTargetAbs, 'migration:primary', taken);
   return { targetAbs, outcome: 'renamed' };
@@ -182,7 +189,12 @@ export async function planAndPlace(args: {
     };
   }
   const oldNameEdit = sidecars.find((sidecar) => isLegacyBackupSidecarOf(oldAbs, sidecar));
-  const { targetAbs, outcome } = await claimTarget(newTargetAbs, oldNameEdit !== undefined);
+  const { targetAbs, outcome } = await claimTarget(
+    oldAbs,
+    newTargetAbs,
+    sidecars,
+    oldNameEdit !== undefined,
+  );
 
   const publications: RelocatePublication[] = [];
   // A throw past this point reverts every copy, so a retry starts clean (#5061).
@@ -224,15 +236,15 @@ async function copyIntoPlace(
 
   // ── Copy + verify sidecars (canonical + conflict copies) ─────────────────
   const carriedSidecars: CarriedSidecar[] = [];
+  const sharedWithSibling = await sidecarStemClaimedBySibling(oldAbs, [targetAbs]);
   for (const sidecar of args.sidecars) {
     // The shared base swap matches case-insensitively, as the listing does.
     const renamed = sidecarRenameTarget(oldAbs, targetAbs, sidecar);
     if (renamed === null) continue;
-    // The migration finds an old-name edit only at its exact name (#5063), so a
-    // name taken since `claimTarget` fails the refile rather than suffixing it.
-    const dst =
-      sidecar === args.oldNameEdit ? renamed : await pickFreePath(renamed, 'migration:sidecar');
-    const carried = await carrySidecar(sidecar, dst, targetAbs, publications);
+    // Published at its exact name (#4692 rule 2, #5063): `claimTarget` found it
+    // free, and one taken since fails the refile rather than being suffixed.
+    const keepSource = sharedWithSibling && sidecar !== args.oldNameEdit;
+    const carried = await carrySidecar(sidecar, renamed, targetAbs, publications, keepSource);
     if (carried === null) continue;
     carriedSidecars.push(carried);
   }
