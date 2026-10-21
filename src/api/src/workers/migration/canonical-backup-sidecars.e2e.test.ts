@@ -370,6 +370,40 @@ describe('canonical-backup-sidecars', () => {
     expect(stamped(library, id)).toBe(true);
   });
 
+  it.skipIf(process.getuid?.() === 0)(
+    'retries a photo whose old-name edit became unreadable while the migration waited',
+    async () => {
+      using library = await backupLibrary('canon-unreadable-');
+      await write(library, 'IMG_20.HEIC', 'pixels');
+      await write(library, 'IMG_20.HEIC.xmp', maple('backup edit'));
+      const id = backupPhoto(library, 'IMG_20.HEIC');
+      const legacy = path.join(library.root, DIR, 'IMG_20.HEIC.xmp');
+      const canonical = path.join(library.root, DIR, 'IMG_20.xmp');
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      let entered!: () => void;
+      const inside = new Promise<void>((resolve) => (entered = resolve));
+      const holder = serializeSidecarWrite(canonical, async () => {
+        entered();
+        await held;
+      });
+      await inside;
+
+      const tick = runTick();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await fs.chmod(legacy, 0o000);
+      release();
+      await holder;
+      await tick;
+      await fs.chmod(legacy, 0o644);
+
+      expect(stamped(library, id)).toBe(false);
+      await runTick();
+      expect(await read(library, 'IMG_20.xmp')).toBe(maple('backup edit'));
+      expect(stamped(library, id)).toBe(true);
+    },
+  );
+
   it("leaves another photo's sidecar alone when its name looks like an old-name file", async () => {
     using library = await backupLibrary('canon-lookalike-');
     await write(library, 'IMG_16.HEIC', 'pixels');

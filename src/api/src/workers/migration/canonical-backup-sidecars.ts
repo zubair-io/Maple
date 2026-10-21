@@ -196,11 +196,12 @@ async function canonicalizeLocation(
   }
 }
 
-/** A save that rewrote the old-name file mid-run made its publish or removal
- * stand down; that newer edit is retried, never stamped as handled. */
+/** A save that rewrote the old-name file mid-run, or a file that became
+ * unreadable, made its publish or removal stand down; it is retried, never
+ * stamped as handled. Only a file that is gone or unchanged counts as done. */
 async function changedSinceRead(edit: { legacy: string; bytes: Buffer }): Promise<boolean> {
-  const now = await readSidecarBytes(edit.legacy).catch(() => null);
-  return now !== null && !now.equals(edit.bytes);
+  const now = await readSidecarBytes(edit.legacy).catch(() => 'unreadable' as const);
+  return now === 'unreadable' || (now !== null && !now.equals(edit.bytes));
 }
 
 function locationFailed(assetId: ObjectId, primary: string, err: unknown): LocationOutcome {
