@@ -11,18 +11,12 @@ pub(super) fn from_window(
     model: &AdjustmentModel,
     quality: RenderQuality,
     rect: (u32, u32, u32, u32),
+    cancel: crate::CancelToken<'_>,
 ) -> Image {
     let (x, y, w, h) = rect;
     let mut mosaic = crate::linearize::sensor_linearize_region(raw, x, y, w, h);
     hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression);
-    from_mosaic(
-        &mosaic,
-        raw,
-        model,
-        quality,
-        (x, y),
-        crate::CancelToken::never(),
-    )
+    from_mosaic(&mosaic, raw, model, quality, (x, y), cancel)
 }
 
 pub(super) fn from_mosaic(

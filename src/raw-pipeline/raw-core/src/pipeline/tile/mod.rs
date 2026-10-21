@@ -34,6 +34,7 @@ pub use context::{
     render_scene_linear_tile_from_frame_context, render_scene_linear_tile_from_frame_context_f32,
     HighlightFrameContext,
 };
+pub(in crate::pipeline) use highlight_frame::recover_full_frame;
 mod overlap;
 mod prefix;
 mod region;
@@ -283,7 +284,7 @@ fn develop_tile_with_frame(
     // Where this padded crop sits in the developed frame — what vignette and
     // local adjustments anchor their fields to (#1157).
     let window = TileWindow::for_padded_crop(raw, rx, ry, divisor);
-    let lazy_scene = highlight_frame::LazyScene::new(raw, model, quality);
+    let lazy_scene = highlight_frame::LazyScene::new(raw, model, cancel);
     let highlight_frame = match frame {
         Some(context) => context.anchor((rx / divisor, ry / divisor), model)?,
         None => highlight_frame::anchor(raw, quality, (rx / divisor, ry / divisor), &lazy_scene),
