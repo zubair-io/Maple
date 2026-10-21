@@ -56,7 +56,12 @@ export type MoveResult = { kind: 'ok'; newAbsPath: string } | { kind: 'error'; e
  * is never replaced, but an identical one is joined. Best-effort: a sidecar that fails to move is logged and
  * left in place. Used by the DeDuplicate worker's `moveToDuplicates`.
  */
-export async function moveSidecarsAlongside(oldAbsPath: string, newAbsPath: string): Promise<void> {
+/** `keepSources` copies instead: another file now sits at `oldAbsPath` and may own them. */
+export async function moveSidecarsAlongside(
+  oldAbsPath: string,
+  newAbsPath: string,
+  keepSources = false,
+): Promise<void> {
   const sidecars = await listPairedSidecars(oldAbsPath);
   const claimedBySibling = await sidecarStemClaimedBySibling(oldAbsPath, [newAbsPath]);
   for (const sidecar of sidecars) {
@@ -69,7 +74,8 @@ export async function moveSidecarsAlongside(oldAbsPath: string, newAbsPath: stri
       const snapshot = (await sidecarAlreadyCarried(sidecar, destPath))
         ? await joinCarriedSidecar(sidecar, destPath)
         : await publishSidecarSnapshot(sidecar, destPath);
-      const shared = claimedBySibling && !isLegacyBackupSidecarOf(oldAbsPath, sidecar);
+      const shared =
+        keepSources || (claimedBySibling && !isLegacyBackupSidecarOf(oldAbsPath, sidecar));
       await settleCarriedSidecar(sidecar, destPath, snapshot, shared);
     } catch (err) {
       log.warn(
