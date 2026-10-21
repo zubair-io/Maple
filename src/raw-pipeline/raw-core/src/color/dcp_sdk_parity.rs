@@ -21,12 +21,11 @@
 //! `refCameraWhite` is `CM × XYtoXYZ(whiteXY)` normalised to max=1
 //! (`dng_color_spec.cpp:413`). `individualToReference =
 //! inv(AnalogBalance × CameraCalibration)`; Maple folds it into the
-//! ColorMatrix and ForwardMatrix at decode (`decode.rs` §8·pre / §8b), so
-//! by the time DCP runs the profile matrices are already the individual
-//! camera's. For the typical case — `AnalogBalance = CameraCalibration =
-//! Identity`, including all of Maple's fixtures — that fold is an exact
-//! no-op, `individualToReference = Identity`, and the chain collapses to
-//! `forwardMatrix * Diag(refCameraWhite)⁻¹`.
+//! ColorMatrix at decode and resolves it into the ForwardMatrix for the
+//! pre-gained buffer (`color::forward_calibration`, #4646), so by the time
+//! DCP runs the profile matrices are already the individual camera's. For
+//! any diagonal calibration the ForwardMatrix stays the raw one and the
+//! chain collapses to `forwardMatrix * Diag(refCameraWhite)⁻¹`.
 //!
 //! Maple's pipeline (`pipeline::develop`) pre-gains camera RGB by
 //! `AsShotNeutral` BEFORE DCP runs, so by the time DCP sees the buffer
