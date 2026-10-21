@@ -353,6 +353,17 @@ export function replicatePath(absPath: string): void {
     schedule(() => Promise.all(targets.map((t) => replicateFile(t, absPath))), [absPath]);
 }
 
+/**
+ * Replicate the committed file at `sourcePath` to the mirrors of `mirroredPath`
+ * — for a write that had to go through a symlink-resolved path while mirror
+ * roots are keyed by the configured (unresolved) library root.
+ */
+export function replicatePathUnder(sourcePath: string, mirroredPath: string): void {
+  const targets = targetsFor(mirroredPath);
+  if (targets.length)
+    schedule(() => Promise.all(targets.map((t) => replicateFile(t, sourcePath))), [mirroredPath]);
+}
+
 export async function copyFile(src: string, dest: string, mode?: number): Promise<void> {
   await realFs.copyFile(src, dest, mode);
   const targets = targetsFor(dest);
