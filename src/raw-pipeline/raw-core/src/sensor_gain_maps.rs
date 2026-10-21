@@ -179,11 +179,20 @@ impl SensorGainMaps {
             .any(|s| matches!(s, SensorStep::Transfer(_)))
     }
 
+    /// A masked-margin sample carries the data of the nearest same-phase
+    /// active sample (`masked_margin`), so it takes that sample's gains too
+    /// (#4657) instead of a step at the active edge.
     fn site(&self, x: u32, y: u32) -> Option<(u32, u32)> {
         let aa = self.active_area;
-        let x = x.checked_sub(aa.left)?;
-        let y = y.checked_sub(aa.top)?;
-        (x < aa.width && y < aa.height).then_some((x, y))
+        if aa.width < 2 || aa.height < 2 {
+            return None;
+        }
+        let inside = |v: u32, lo: u32, len: u32| {
+            crate::masked_margin::nearest_active(v as usize, lo as usize, (lo + len) as usize, 2)
+                as u32
+                - lo
+        };
+        Some((inside(x, aa.left, aa.width), inside(y, aa.top, aa.height)))
     }
 
     fn lattice_gain(&self, map: &GainMapOpcode, x: u32, y: u32, plane: u32) -> f32 {
@@ -288,6 +297,30 @@ mod tests {
             .iter()
             .flatten()
             .any(|v| *v > 1.));
+    }
+
+    /// #4657: a refilled margin sample copies the nearest same-phase active
+    /// sample, so it takes that sample's gain rather than none at all.
+    #[test]
+    fn margin_sites_take_their_source_sites_gain() {
+        let mut gm = map(0, 0, 1.);
+        gm.gains = vec![1., 3., 5., 7.];
+        let maps = SensorGainMaps {
+            steps: vec![SensorStep::Gain(gm)],
+            active_area: ActiveAreaRect {
+                top: 3,
+                left: 5,
+                width: 8,
+                height: 8,
+            },
+        };
+        for (margin, source) in [((0, 3), (6, 3)), ((1, 4), (5, 4)), ((14, 12), (12, 10))] {
+            assert_eq!(
+                maps.saturation(margin.0, margin.1, 0),
+                maps.saturation(source.0, source.1, 0),
+                "{margin:?} vs {source:?}"
+            );
+        }
     }
 
     #[test]

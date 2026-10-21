@@ -342,6 +342,21 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         cfa,
         source_is_float,
     );
+    let raw_data = crate::masked_margin::refill_masked_margins(
+        raw_data,
+        width as usize,
+        height as usize,
+        &cfa,
+        raw.active_area.map(|r| crate::masked_margin::ActiveArea {
+            left: r.p.x,
+            top: r.p.y,
+            width: r.d.w,
+            height: r.d.h,
+            declared: decoded_as_dng,
+        }),
+        &black_level,
+        white_level,
+    );
 
     // ── 6. White balance ──────────────────────────────────────────────────
     // rawler's `wb_coeffs` are WB *multipliers* (the gains that balance
