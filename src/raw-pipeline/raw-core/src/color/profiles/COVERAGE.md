@@ -30,7 +30,7 @@ therefore load-bearing.
   for `Fujifilm GFX 50S` only (#4645): against their embedded JPEGs they
   improved test_0005, while the GFX 50R and Leica M10 tables made
   test_0012 and test_0017 worse. Source: `Adobe Standard/Fujifilm GFX 50S
-  Adobe Standard.dcp`, sha256 `69959c20dac69b7e6af63966236cce4619de5694871949fa927767685834e1e0`;
+Adobe Standard.dcp`, sha256 `69959c20dac69b7e6af63966236cce4619de5694871949fa927767685834e1e0`;
   regenerate with the `--hsm-ucm "Fujifilm GFX 50S"` command in
   `convert_dcps.py`'s usage, or the tables are dropped),
   `BaselineExposureOffset`. `ProfileToneCurve` and `ProfileLookTable`

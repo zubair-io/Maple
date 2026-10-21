@@ -324,6 +324,12 @@ def extract_profile(path: Path, include_hsm: bool) -> Optional[bytes]:
     return bytes(rec)
 
 
+def record_has_hsm(rec: bytes) -> bool:
+    """Whether a serialized record carries HSM1 or HSM2 (flags bits 4/5)."""
+    (ucm_len,) = struct.unpack_from("<H", rec, 0)
+    return rec[2 + ucm_len] & 0x30 != 0
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 
@@ -419,15 +425,20 @@ def main() -> int:
     if unknown:
         sys.stderr.write(f"error: --hsm-ucm names no bundled body: {sorted(unknown)}\n")
         return 1
+    hsm_missing: list[str] = []
     for ucm, f in selected:
         try:
             rec = extract_profile(f, include_hsm=args.include_hsm or ucm in hsm_ucms)
         except Exception as e:  # noqa: BLE001
             skipped.append((f.name, f"parse error: {e}"))
+            if ucm in hsm_ucms:
+                hsm_missing.append(ucm)
             continue
         if rec is None:
             skipped.append((f.name, "no UniqueCameraModel"))
             continue
+        if ucm in hsm_ucms and not record_has_hsm(rec):
+            hsm_missing.append(ucm)
         records.append(rec)
         if args.manifest:
             # Re-parse to capture manifest fields cheaply.
@@ -453,6 +464,9 @@ def main() -> int:
 
     if not records:
         sys.stderr.write("error: no profiles emitted\n")
+        return 1
+    if hsm_missing:
+        sys.stderr.write(f"error: --hsm-ucm produced no HSM tables for: {sorted(hsm_missing)}\n")
         return 1
 
     header = MAGIC + struct.pack("<HHII", VERSION, 0, len(records), 0)
