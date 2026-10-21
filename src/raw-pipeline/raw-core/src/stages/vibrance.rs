@@ -49,14 +49,17 @@ pub(crate) fn apply_pixel(rgb: [f32; 3], amount: f32) -> [f32; 3] {
         return oklab_to_rec2020([l, a_hat * c_target, b_hat * c_target]);
     }
 
-    // Fast path: scaled target stays in gamut
+    // Fast path: scaled target stays below the compression knee
     let lab_target = [l, a_hat * c_target, b_hat * c_target];
     let rgb_target = oklab_to_rec2020(lab_target);
-    if rgb_target[0].min(rgb_target[1]).min(rgb_target[2]) >= -1e-5 {
+    // #4664: only skip compression below its knee, not at the hull.
+    let c_probe = c_target / GAMUT_KNEE_FRACTION;
+    let rgb_probe = oklab_to_rec2020([l, a_hat * c_probe, b_hat * c_probe]);
+    if rgb_probe[0].min(rgb_probe[1]).min(rgb_probe[2]) >= -1e-5 {
         return rgb_target;
     }
 
-    let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_target);
+    let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_probe);
     let c_floor = chroma;
     let c_out = soft_compress(c_target, c_hull).max(c_floor);
     oklab_to_rec2020([l, a_hat * c_out, b_hat * c_out])

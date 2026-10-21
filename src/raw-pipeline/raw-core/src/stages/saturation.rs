@@ -84,11 +84,14 @@ pub(crate) fn apply_pixel(rgb: [f32; 3], scale: f32) -> [f32; 3] {
         return oklab_to_rec2020([l, a_hat * c_target, b_hat * c_target]);
     }
 
-    // Fast path: scaled target stays in gamut. Most pixels at +saturation
-    // are far enough from the hull that this branch wins.
+    // Fast path: the target is below the compression knee. Most pixels
+    // at positive saturation are far enough from the hull for this path.
     let lab_target = [l, a_hat * c_target, b_hat * c_target];
     let rgb_target = oklab_to_rec2020(lab_target);
-    if rgb_target[0].min(rgb_target[1]).min(rgb_target[2]) >= -GAMUT_EPS {
+    // #4664: only skip compression below its knee, not at the hull.
+    let c_probe = c_target / GAMUT_KNEE_FRACTION;
+    let rgb_probe = oklab_to_rec2020([l, a_hat * c_probe, b_hat * c_probe]);
+    if rgb_probe[0].min(rgb_probe[1]).min(rgb_probe[2]) >= -GAMUT_EPS {
         return rgb_target;
     }
 
@@ -96,8 +99,8 @@ pub(crate) fn apply_pixel(rgb: [f32; 3], scale: f32) -> [f32; 3] {
     // Rec.2020 projection has min channel ≥ -GAMUT_EPS. Lower bracket
     // starts at 0 — neutral is always in gamut (L itself may be > 1 in
     // HDR, but a neutral grey of any luminance is always in [0, ∞)). Upper
-    // bracket is `c_target` (we already know that's out).
-    let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_target);
+    // bracket is `c_probe` (the knee probe is known to be outside).
+    let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_probe);
 
     // If the input chroma is already past the hull (e.g. vibrance pushed
     // the pixel just out of gamut before saturation ran), don't pull it
