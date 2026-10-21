@@ -38,6 +38,7 @@ import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 // Mirror-aware drop-in — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
+import { PublishCollisionError, publishExclusive } from './relocate-publish.ts';
 import {
   checkAllowed,
   getRegisteredRoots,
@@ -236,6 +237,11 @@ export async function writeSidecarAtomic(
   }
 }
 
+type CreateIfAbsentResult =
+  | { ok: true; mtime: Date }
+  | { ok: false; exists: true }
+  | { ok: false; error: string };
+
 /**
  * Atomically publish `content` at `destPath` only if nothing is there yet.
  * Unlike `writeSidecarAtomic`, this can't be raced: the destination is
@@ -244,36 +250,63 @@ export async function writeSidecarAtomic(
  * something else won the race) — there is no separate check step for another
  * writer to land in between. `failureLabel` prefixes any non-`EEXIST` error.
  */
-export async function writeSidecarCreateOnly(
+export function writeSidecarCreateOnly(
   destPath: string,
   content: string,
   failureLabel: string,
   signal?: AbortSignal,
-): Promise<{ ok: true; mtime: Date } | { ok: false; exists: true } | { ok: false; error: string }> {
+): Promise<CreateIfAbsentResult> {
+  return writeSidecarIfAbsent(destPath, content, failureLabel, signal, fs.link, isEexist);
+}
+
+/**
+ * The same, on any volume: `publishExclusive` links the staged file, or where
+ * links aren't supported (SMB) creates the name exclusively and copies the
+ * bytes in (#5071).
+ */
+export function writeSidecarExclusive(
+  destPath: string,
+  content: string,
+  failureLabel: string,
+  signal?: AbortSignal,
+): Promise<CreateIfAbsentResult> {
+  return writeSidecarIfAbsent(
+    destPath,
+    content,
+    failureLabel,
+    signal,
+    async (staged, dest) => {
+      await publishExclusive(staged, dest);
+    },
+    (err) => err instanceof PublishCollisionError,
+  );
+}
+
+async function writeSidecarIfAbsent(
+  destPath: string,
+  content: string,
+  failureLabel: string,
+  signal: AbortSignal | undefined,
+  publish: (tmpPath: string, destPath: string) => Promise<void>,
+  isTaken: (err: unknown) => boolean,
+): Promise<CreateIfAbsentResult> {
   const allowed = await authorizeUnlessAborted(destPath, signal);
   if (!allowed.ok) return { ok: false, error: allowed.error ?? 'Path not allowed' };
 
   const tmp = temporarySidecarPath(destPath);
   try {
-    // `link` is the atomic "create only if absent" primitive: it either
-    // creates `destPath` pointing at the same inode as `tmp`, or fails with
-    // EEXIST without touching whatever is already at `destPath`. There is no
-    // window between "check" and "act" for a concurrent writer to land in —
-    // unlike `stat` followed by `rename`, which are two separate operations.
-    const mtime = await publishStagedSidecar(destPath, tmp, content, signal, fs.link);
+    const mtime = await publishStagedSidecar(destPath, tmp, content, signal, publish);
     return { ok: true, mtime };
   } catch (err) {
-    const alreadyExists = isEexist(err);
-    return alreadyExists
+    return isTaken(err)
       ? { ok: false, exists: true }
       : {
           ok: false,
           error: `${failureLabel}: ${err instanceof Error ? err.message : String(err)}`,
         };
   } finally {
-    // The tmp file is redundant once `link` has published its content under
-    // `destPath` (they're the same inode) — and it's still just clutter on
-    // any failure path. Best-effort: it never existed, or it's already gone.
+    // The tmp file is redundant once the publish put its bytes under `destPath`,
+    // and it's clutter on any failure path. Best-effort: it may never have existed.
     if (signal?.aborted) void removeTemporarySidecar(tmp);
     else await removeTemporarySidecar(tmp);
   }
