@@ -188,7 +188,8 @@ pub struct RawImage {
     /// 2×2 Bayer: per tile position `[TL, TR, BL, BR]`, indexed as
     /// `(y & 1) * 2 + (x & 1)`. X-Trans and `LinearRgb`: per colour
     /// `[R, G, B, B]`, indexed by CFA colour or channel. Reduced from
-    /// rawler's full table by `crate::black_level::reduce_black_levels`.
+    /// rawler's full table by `crate::black_level::reduce_black_levels`;
+    /// 0 for Canon's black-referenced reduced CR2 RGB (#4644).
     pub black_level: [u32; 4],
     pub white_level: u32,
     pub raw_data: Vec<u16>,

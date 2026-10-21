@@ -17,7 +17,8 @@
 //! - Black levels: `blacklevel.{levels, cpp, width, height}` is the full
 //!   per-site table, reduced by `crate::black_level::reduce_black_levels`
 //!   (rawler's own `as_bayer_array()` collapses anything but a 4-entry
-//!   table to `[levels[0]; 4]`, #4730). White levels:
+//!   table to `[levels[0]; 4]`, #4730); Canon's reduced CR2 RGB is already
+//!   black-referenced and decodes with black 0 (#4644). White levels:
 //!   `whitelevel.as_bayer_array() -> [f32; 4]`.
 //! - WB: `wb_coeffs: [f32; 4]` in RGBE order; index 1 is Green, used as the
 //!   normalising channel.
@@ -271,7 +272,13 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         .and_then(|md| md.exif.iso_speed_ratings.map(|v| v as u32))
         .unwrap_or(100);
 
-    {
+    let reconstructed_canon_rgb = crate::black_level::is_reconstructed_canon_rgb(
+        cfa,
+        decoder
+            .as_ref()
+            .is_some_and(|dec| matches!(dec.format_hint(), FormatHint::CR2)),
+    );
+    if !reconstructed_canon_rgb {
         if let Some(lin) =
             crate::camera_calibration::lookup_linearization(&raw.clean_make, &raw.clean_model, iso)
         {
@@ -284,6 +291,12 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
             }
         }
     }
+
+    let black_level = if reconstructed_canon_rgb {
+        [0; 4]
+    } else {
+        black_level
+    };
 
     // ── 5. Raw pixel data ─────────────────────────────────────────────────
     let source_is_float = matches!(&raw.data, RawImageData::Float(_));
@@ -2744,6 +2757,23 @@ mod tests {
             raw.raw_data.len(),
             3 * raw.width as usize * raw.height as usize,
             "LinearRaw raw_data must be interleaved RGB (3 × w × h)"
+        );
+    }
+
+    /// #4644: Canon's reduced CR2 (test_0010, 5D Mark IV sRAW) reconstructs
+    /// black-referenced RGB, so it decodes with black 0 like LibRaw and the
+    /// DNG Converter; the same body's Bayer CR2 (test_0009) keeps its black.
+    #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
+    fn reduced_canon_cr2_is_black_referenced_but_bayer_cr2_is_not() {
+        let reduced = decode_path(&require_raw("test_0010.CR2")).expect("decode sRAW CR2");
+        assert_eq!(reduced.cfa, CfaPattern::LinearRgb);
+        assert_eq!(reduced.black_level, [0; 4]);
+        let bayer = decode_path(&require_raw("test_0009.CR2")).expect("decode Bayer CR2");
+        assert!(
+            bayer.black_level.iter().all(|&b| b > 0),
+            "{:?}",
+            bayer.black_level
         );
     }
 }
