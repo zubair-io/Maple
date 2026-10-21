@@ -42,7 +42,18 @@ export async function deleteOriginals(
       );
     });
   }
-  await removeSourcePrimary(sourceAbsPath);
+  // Sidecars have settled, so a lost lease keeps the original; throwing would revert their copies.
+  const leaseHeld = await (beforeSourceDelete?.() ?? Promise.resolve()).then(
+    () => true,
+    (err: unknown) => {
+      log.warn(
+        { sourceAbsPath, err: err instanceof Error ? err.message : err },
+        'relocate: source delete no longer allowed — the original is kept',
+      );
+      return false;
+    },
+  );
+  if (leaseHeld) await removeSourcePrimary(sourceAbsPath);
 }
 
 /** Last, so an old-name edit left behind for any reason keeps its photo, the

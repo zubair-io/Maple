@@ -20,7 +20,7 @@ import {
 import { serializeSidecarWrites } from '../../fs/sidecar-write-order.ts';
 import { listPairedSidecars, pickFreeConflictPath } from '../../fs/xmp-conflict.ts';
 import { sidecarRenameTarget } from '../../fs/sidecar-rename.ts';
-import { isLegacyBackupSidecarOf } from '../../fs/legacy-backup-sidecar.ts';
+import { isLegacyBackupSidecarOf, oldNameSlotTaken } from '../../fs/legacy-backup-sidecar.ts';
 import { child as childLogger } from '../../log.ts';
 
 const log = childLogger('migration:refile-sidecar');
@@ -95,7 +95,8 @@ export async function carryLateRefileSidecars(
   for (const source of late) {
     const dest = sidecarRenameTarget(oldAbs, newAbs, source);
     if (dest === null) continue;
-    const entry = await carryLate(source, dest, newAbs).catch((err: unknown) => {
+    const oldName = isLegacyBackupSidecarOf(oldAbs, source);
+    const entry = await carryLate(source, dest, newAbs, oldName).catch((err: unknown) => {
       log.warn(
         { source, err: err instanceof Error ? err.message : err },
         'refile: sidecar created mid-refile left in place',
@@ -107,11 +108,17 @@ export async function carryLateRefileSidecars(
   return moved;
 }
 
+/** An old-name edit whose slot is taken or owned at the destination goes
+ * straight to a conflict copy, never onto another file's own sidecar (#5063). */
 async function carryLate(
   source: string,
   dest: string,
   primary: string,
+  oldName: boolean,
 ): Promise<CarriedSidecar | null> {
+  if (oldName && (await oldNameSlotTaken(primary))) {
+    return atFreeConflictName(primary, (conflict) => carrySidecar(source, conflict, primary, []));
+  }
   try {
     return await carrySidecar(source, dest, primary, []);
   } catch (err) {
