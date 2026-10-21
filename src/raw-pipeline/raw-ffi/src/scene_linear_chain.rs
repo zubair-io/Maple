@@ -308,7 +308,7 @@ pub struct MapleAdjustmentParams {
     pub wb_hsm_len: usize,
     /// The decode's `wb_hsm_as_shot_cct` and `ae_gain` (the auto-exposure
     /// gain baked into the buffer after DCP), passed back verbatim. A zero
-    /// gain from a host that predates it reads as 1.
+    /// gain reads as 1; a zero as-shot CCT disables the HueSatMap (plain 3×3).
     pub wb_hsm_as_shot_cct: f32,
     pub wb_hsm_exposure_gain: f32,
 }
