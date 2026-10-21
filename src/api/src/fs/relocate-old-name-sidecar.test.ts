@@ -53,7 +53,7 @@ const move = (collision: 'replace' | 'auto-suffix') =>
   });
 
 describe('relocate — old-name backup edits (#5063)', () => {
-  test("Replace never removes another tool's file where the old-name edit would land, and keeps the edit", async () => {
+  test("Replace never removes another tool's file where the old-name edit would land; the edit follows as a conflict copy", async () => {
     await write('src/IMG.HEIC', 'new');
     await write('src/IMG.HEIC.xmp', maple('backup edit'));
     await write('dst/IMG.HEIC', 'old');
@@ -64,7 +64,8 @@ describe('relocate — old-name backup edits (#5063)', () => {
     expect(outcome.kind).toBe('relocated');
     expect(await read('dst/IMG.HEIC')).toBe('new');
     expect(await read('dst/IMG.HEIC.xmp')).toBe(darktable);
-    expect(await read('src/IMG.HEIC.xmp')).toBe(maple('backup edit'));
+    expect(await read('src/IMG.HEIC.xmp')).toBeNull();
+    expect(await read('dst/IMG (conflict from move).xmp')).toBe(maple('backup edit'));
   });
 
   test("Replace takes over the previous photo's old-name edit", async () => {
@@ -125,7 +126,7 @@ describe('relocate — old-name backup edits (#5063)', () => {
     expect(await read('dst/IMG.1.HEIC.xmp')).toBe(maple('backup edit'));
   });
 
-  test("Replace never removes another file's own sidecar at that name, and keeps the edit", async () => {
+  test("Replace never removes another file's own sidecar at that name; the edit follows as a conflict copy", async () => {
     await write('src/IMG.HEIC', 'new');
     await write('src/IMG.HEIC.xmp', maple('backup edit'));
     await write('dst/IMG.HEIC', 'old');
@@ -136,7 +137,8 @@ describe('relocate — old-name backup edits (#5063)', () => {
 
     expect(outcome.kind).toBe('relocated');
     expect(await read('dst/IMG.HEIC.xmp')).toBe(maple("the export's edit"));
-    expect(await read('src/IMG.HEIC.xmp')).toBe(maple('backup edit'));
+    expect(await read('src/IMG.HEIC.xmp')).toBeNull();
+    expect(await read('dst/IMG (conflict from move).xmp')).toBe(maple('backup edit'));
   });
 
   test("Replace drops the previous photo's old-name edit when the incoming one brings only its own sidecar", async () => {
@@ -152,7 +154,7 @@ describe('relocate — old-name backup edits (#5063)', () => {
     expect(await read('dst/IMG.HEIC.xmp')).toBeNull();
   });
 
-  test('a move to a name with no extension still succeeds and leaves the old-name edit behind', async () => {
+  test('a move to a name with no extension still succeeds and the old-name edit follows as a conflict copy', async () => {
     await write('src/IMG.HEIC', 'new');
     await write('src/IMG.xmp', maple('server edit'));
     await write('src/IMG.HEIC.xmp', maple('backup edit'));
@@ -166,7 +168,8 @@ describe('relocate — old-name backup edits (#5063)', () => {
 
     expect(outcome.kind).toBe('relocated');
     expect(await read('dst/Trip.xmp')).toBe(maple('server edit'));
-    expect(await read('src/IMG.HEIC.xmp')).toBe(maple('backup edit'));
+    expect(await read('src/IMG.HEIC.xmp')).toBeNull();
+    expect(await read('dst/Trip (conflict from move).xmp')).toBe(maple('backup edit'));
   });
 
   test('a copy carries the old-name edit onto the copy and keeps the original', async () => {
@@ -215,7 +218,8 @@ describe('relocate — old-name backup edits (#5063)', () => {
 
     expect(outcome.kind).toBe('relocated');
     expect(await read('dst/IMG.HEIC.xmp')).toBe(maple('stranded edit'));
-    expect(await read('src/IMG.HEIC.xmp')).toBe(maple('incoming edit'));
+    expect(await read('src/IMG.HEIC.xmp')).toBeNull();
+    expect(await read('dst/IMG (conflict from move).xmp')).toBe(maple('incoming edit'));
   });
 
   // Root reads a mode-000 file anyway, so there is nothing to refuse.
@@ -452,7 +456,8 @@ describe('relocate — unreadable and displaced old-name edits (#5063)', () => {
       expect(outcome.kind).toBe('relocated');
       expect(await read('dst/img.heic.xmp')).toBeNull();
       expect(await read('dst/IMG.HEIC.xmp')).toBe(darktable);
-      expect(await read('src/IMG.HEIC.xmp')).toBe(maple('backup edit'));
+      expect(await read('src/IMG.HEIC.xmp')).toBeNull();
+      expect(await read('dst/IMG (conflict from move).xmp')).toBe(maple('backup edit'));
     },
   );
 

@@ -1,13 +1,17 @@
 /**
- * A photo never leaves a folder where its pre-#5021 old-name edit stays behind
- * (#5063): the migration looks for that edit only beside the photo, so a move
- * whose old-name edit can't follow keeps the original. Real files in a temp dir.
+ * A pre-#5021 old-name edit that stays at the old path after a move (#5063)
+ * follows the photo as a `(conflict from move)` copy, and the original goes;
+ * only when that copy can't be made does the original stay with the edit. A
+ * kept original in the library would bring a trashed photo back (#5075).
+ * Real files in a temp dir.
  */
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from './mirrored.ts';
 import { relocateFile } from './relocate.ts';
+import { moveToTrash } from './trash.ts';
+import * as xmpConflict from './xmp-conflict.ts';
 import * as ownership from './sidecar-ownership.ts';
 
 const maple = (label: string) =>
@@ -38,8 +42,8 @@ const move = (hooks: Pick<Parameters<typeof relocateFile>[0], 'onVerified'>) =>
     ...hooks,
   });
 
-describe('relocate keeps the photo with an old-name edit that stays behind (#5063)', () => {
-  test('a late old-name edit that cannot be carried keeps the photo at the old path', async () => {
+describe('an old-name edit that stays behind after a move (#5063, #5075)', () => {
+  test('a late old-name edit that cannot be carried follows the photo as a conflict copy', async () => {
     await write('a/IMG.HEIC', 'pixels');
     const realPublish = ownership.publishSidecarSnapshot;
     const publish = spyOn(ownership, 'publishSidecarSnapshot').mockImplementation(
@@ -58,11 +62,12 @@ describe('relocate keeps the photo with an old-name edit that stays behind (#506
       publish.mockRestore();
     }
     expect(await read('b/IMG.HEIC')).toBe('pixels');
-    expect(await read('a/IMG.HEIC')).toBe('pixels');
-    expect(await read('a/IMG.HEIC.xmp')).toBe(maple('late backup edit'));
+    expect(await read('b/IMG (conflict from move).xmp')).toBe(maple('late backup edit'));
+    expect(await read('a/IMG.HEIC')).toBeNull();
+    expect(await read('a/IMG.HEIC.xmp')).toBeNull();
   });
 
-  test('a carried old-name edit whose source is kept on settle keeps the photo too', async () => {
+  test('a carried old-name edit whose source is kept on settle follows as a conflict copy', async () => {
     await write('a/IMG.HEIC', 'pixels');
     await write('a/IMG.HEIC.xmp', maple('backup edit'));
 
@@ -74,8 +79,53 @@ describe('relocate keeps the photo with an old-name edit that stays behind (#506
     });
 
     expect(outcome.kind).toBe('relocated');
+    expect(await read('b/IMG.HEIC.xmp')).toBe(maple('saved at the new path'));
+    expect(await read('b/IMG (conflict from move).xmp')).toBe(maple('saved at the old path'));
+    expect(await read('a/IMG.HEIC.xmp')).toBeNull();
+    expect(await read('a/IMG.HEIC')).toBeNull();
+  });
+
+  test('an old-name edit that can follow neither way keeps the photo at the old path', async () => {
+    await write('a/IMG.HEIC', 'pixels');
+    await write('a/IMG.HEIC.xmp', maple('backup edit'));
+    const pick = spyOn(xmpConflict, 'pickFreeConflictPath').mockRejectedValue(new Error('EIO'));
+    try {
+      const outcome = await move({
+        onVerified: async () => {
+          await write('a/IMG.HEIC.xmp', maple('saved at the old path'));
+          await write('b/IMG.HEIC.xmp', maple('saved at the new path'));
+        },
+      });
+
+      expect(outcome.kind).toBe('relocated');
+    } finally {
+      pick.mockRestore();
+    }
     expect(await read('a/IMG.HEIC.xmp')).toBe(maple('saved at the old path'));
     expect(await read('a/IMG.HEIC')).toBe('pixels');
+  });
+
+  test('Trash never leaves the original in the library for a stayed-behind edit', async () => {
+    await write('2024/IMG.HEIC', 'pixels');
+    await write('2024/IMG.HEIC.xmp', maple('backup edit'));
+
+    const trashed = await moveToTrash(
+      abs('2024/IMG.HEIC'),
+      root,
+      undefined,
+      undefined,
+      async () => {
+        await write('2024/IMG.HEIC.xmp', maple('saved at the old path'));
+        await write('.maple/trash/2024/IMG.HEIC.xmp', maple('saved in the trash'));
+      },
+    );
+
+    expect(trashed.kind).toBe('ok');
+    expect(await read('2024/IMG.HEIC')).toBeNull();
+    expect(await read('2024/IMG.HEIC.xmp')).toBeNull();
+    expect(await read('.maple/trash/2024/IMG (conflict from move).xmp')).toBe(
+      maple('saved at the old path'),
+    );
   });
 
   test('a move whose old-name edit followed it still removes the original', async () => {
@@ -105,6 +155,30 @@ describe('relocate keeps the photo with an old-name edit that stays behind (#506
     });
 
     expect(await read('b/IMG.xmp')).toBe('edit');
+    expect(await read('a/IMG.HEIC')).toBe('pixels');
+  });
+
+  test('a lease lost while a left-behind edit was being carried keeps the original photo', async () => {
+    await write('a/IMG.HEIC', 'pixels');
+    await write('a/IMG.HEIC.xmp', maple('backup edit'));
+
+    await relocateFile({
+      sourceAbsPath: abs('a/IMG.HEIC'),
+      destAbsPath: abs('b/IMG.HEIC'),
+      mode: 'move',
+      collision: 'auto-suffix',
+      onVerified: async () => {
+        await write('a/IMG.HEIC.xmp', maple('saved at the old path'));
+        await write('b/IMG.HEIC.xmp', maple('saved at the new path'));
+      },
+      // Lost only once the left-behind edit has followed as a conflict copy.
+      beforeSourceDelete: async () => {
+        if ((await read('b/IMG (conflict from move).xmp')) !== null)
+          throw new Error('lease expired');
+      },
+    });
+
+    expect(await read('b/IMG (conflict from move).xmp')).toBe(maple('saved at the old path'));
     expect(await read('a/IMG.HEIC')).toBe('pixels');
   });
 });
