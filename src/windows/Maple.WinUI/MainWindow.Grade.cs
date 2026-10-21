@@ -188,9 +188,11 @@ namespace Maple.WinUI
         {
             var adj = ViewModel.Adjustments;
             if (edge == "shadow")
-                adj.ColorGradeShadowEdge = Math.Round(MuiColorGradeZoneWeightsMath.ClampShadowEdge(norm), 3);
+                adj.ColorGradeShadowEdge = MuiColorGradeZoneWeightsMath.SnapEdge(
+                    norm, MuiColorGradeZoneWeightsMath.MinShadowEdge, MuiColorGradeZoneWeightsMath.DefaultShadowEdge);
             else
-                adj.ColorGradeHighlightEdge = Math.Round(MuiColorGradeZoneWeightsMath.ClampHighlightEdge(norm), 3);
+                adj.ColorGradeHighlightEdge = MuiColorGradeZoneWeightsMath.SnapEdge(
+                    norm, MuiColorGradeZoneWeightsMath.DefaultHighlightEdge, MuiColorGradeZoneWeightsMath.MaxHighlightEdge);
             ViewModel.NotifyAdjustmentEdited();
             RenderGradeZoneStrip();
         }
