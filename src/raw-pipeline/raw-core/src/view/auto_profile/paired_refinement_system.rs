@@ -184,7 +184,9 @@ pub(super) struct System<'a> {
 impl<'a> System<'a> {
     pub(super) fn new(pattern: &'a Pattern, weights: &[f64], size: usize) -> Self {
         let count = size.pow(3);
-        let lambda = 1e-5 * 8. / (size - 1) as f64 * 20.;
+        // The regression-weighted data term pulls on every region at once;
+        // weaker smoothness lets that kink the Auto tail's colour ramps (#5119).
+        let lambda = 1e-5 * 8. / (size - 1) as f64 * 20. * 300.;
         let ridge = 1e-8 * 9f64.powi(3) / count as f64 * 20.;
         let coefficients: Vec<f64> = pattern
             .node_rows
