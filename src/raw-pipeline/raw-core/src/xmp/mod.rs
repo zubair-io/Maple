@@ -443,6 +443,8 @@ mod black_white;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_color_curves;
+#[cfg(test)]
 mod tests_detail;
 #[cfg(test)]
 mod tests_display_tone_curves;

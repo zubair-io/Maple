@@ -105,6 +105,7 @@ ChangeFeedClientRestartTests
 SSELineDecoderTests
 CollisionResolverTests
 ColorCurvePickerTests
+ColorCurveXMPTests
 ColorGradeZoneEdgeTests
 ColorGradingXMPTests
 ToneCurveSplitsTests

@@ -10,7 +10,11 @@ import { TestBed } from '@angular/core/testing';
 import { signal, type Signal } from '@angular/core';
 import { describe, it, expect, beforeEach } from 'vitest';
 
-import { ColorGradingPanelComponent, GRADE_ZONES } from './color-grading-panel.component';
+import {
+  ColorGradingPanelComponent,
+  computeZoneWeights,
+  GRADE_ZONES,
+} from './color-grading-panel.component';
 import { LibraryStateService } from '../../state/library-state.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 
@@ -84,5 +88,70 @@ describe('ColorGradingPanelComponent (#275)', () => {
     panel.onWheelChange(global, { hue: 300, saturation: 18 });
     expect(panel.valueOf(global.hue)).toBe(300);
     expect(panel.valueOf(global.saturation)).toBe(18);
+  });
+
+  // Goldens shared with raw-core (`color_grade_tests.rs`) and the Windows strip.
+  const ZONE_WEIGHT_GOLDENS: [number, number, number, number, number, [number, number, number]][] =
+    [
+      [0.05, 0, 100, 0.564622, 0.564622, [0.977863, 0.022137, 0.0]],
+      [0.3, 0, 100, 0.564622, 0.564622, [0.453068, 0.546932, 0.0]],
+      [0.564622, 0, 100, 0.564622, 0.564622, [0.0, 1.0, 0.0]],
+      [0.8, 0, 100, 0.564622, 0.564622, [0.0, 0.439191, 0.560809]],
+      [0.25, 0, 50, 0.3, 0.7, [0.20863, 0.79137, 0.0]],
+      [0.65, 0, 50, 0.3, 0.7, [0.0, 1.0, 0.0]],
+      [0.7, 20, 60, 0.35, 0.65, [0.0, 0.693957, 0.306043]],
+      [0.15, 0, 25, 0.2, 0.75, [0.683594, 0.316406, 0.0]],
+      [0.9, 0, 0, 0.3, 0.7, [0.0, 0.0, 1.0]],
+      [0.5, -40, 0, 0.2, 0.8, [0.0, 1.0, 0.0]],
+    ];
+
+  it('draws the zone weights the colour-grade stage applies', () => {
+    for (const [l, balance, blending, shadowEdge, highlightEdge, want] of ZONE_WEIGHT_GOLDENS) {
+      const got = computeZoneWeights(l, balance, blending, shadowEdge, highlightEdge);
+      got.forEach((value, i) => expect(value, `l ${l} zone ${i}`).toBeCloseTo(want[i], 4));
+    }
+  });
+
+  it('writes blending and resets it to 100', () => {
+    panel.onBlendingChange(40);
+    expect(lib.model().colorGradeBlending).toBe(40);
+    expect(panel.blending()).toBe(40);
+    panel.onBlendingReset();
+    expect(lib.model().colorGradeBlending).toBe(100);
+  });
+
+  it('maps a pointer position over the strip to a clamped, rounded edge pivot', () => {
+    const strip = { left: 100, width: 200 };
+    const svg = { getBoundingClientRect: () => strip };
+    const event = (clientX: number) =>
+      ({
+        clientX,
+        pointerId: 1,
+        preventDefault: () => undefined,
+        currentTarget: { closest: () => svg, setPointerCapture: () => undefined },
+      }) as unknown as PointerEvent;
+
+    panel.onEdgePointerDown('shadow', event(100 + 0.3 * 200));
+    expect(lib.model().colorGradeShadowEdge).toBe(0.3);
+    panel.onEdgePointerMove(event(100 + 0.95 * 200));
+    expect(lib.model().colorGradeShadowEdge).toBe(0.564622);
+    panel.onEdgePointerMove(event(100));
+    expect(lib.model().colorGradeShadowEdge).toBe(0.1);
+    panel.onEdgePointerUp();
+    panel.onEdgePointerMove(event(100 + 0.4 * 200));
+    expect(lib.model().colorGradeShadowEdge, 'released drag no longer moves the edge').toBe(0.1);
+
+    panel.onEdgePointerDown('highlight', event(100 + 0.75 * 200));
+    expect(lib.model().colorGradeHighlightEdge).toBe(0.75);
+    panel.onEdgePointerMove(event(100 + 200));
+    expect(lib.model().colorGradeHighlightEdge).toBe(0.9);
+    panel.onEdgePointerMove(event(100 + 0.2 * 200));
+    expect(lib.model().colorGradeHighlightEdge).toBe(0.564622);
+    panel.onEdgePointerUp();
+
+    panel.onEdgeReset('shadow');
+    panel.onEdgeReset('highlight');
+    expect(lib.model().colorGradeShadowEdge).toBe(0.564622);
+    expect(lib.model().colorGradeHighlightEdge).toBe(0.564622);
   });
 });

@@ -163,4 +163,22 @@ mod tests {
             Err(RangeSampleError::OutsideImage)
         );
     }
+
+    #[test]
+    fn display_point_to_sensor_agrees_with_the_orientation_matrix_for_every_exif_tag() {
+        use crate::stages::perspective::Homography;
+        for tag in 1..=8 {
+            let orientation = ExifOrientation::from_u16(tag);
+            let to_sensor = Homography(orientation.display_to_sensor_matrix());
+            for (x, y) in [(0.1_f32, 0.2_f32), (0.75, 0.3), (0.5, 0.9), (0.0, 1.0)] {
+                let (sx, sy) = to_sensor.project(x * 2.0 - 1.0, y * 2.0 - 1.0).unwrap();
+                let expected = ((sx + 1.0) * 0.5, (sy + 1.0) * 0.5);
+                let actual = display_point_to_sensor(orientation, x, y);
+                assert!(
+                    (actual.0 - expected.0).abs() < 1e-5 && (actual.1 - expected.1).abs() < 1e-5,
+                    "EXIF {tag}: {actual:?} != {expected:?}"
+                );
+            }
+        }
+    }
 }
