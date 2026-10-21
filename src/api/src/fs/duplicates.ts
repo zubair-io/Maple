@@ -28,7 +28,7 @@ import {
   writeVerifiedTemp,
 } from './sidecar-ownership.ts';
 import { readSidecarBytes } from './sidecar-bytes.ts';
-import { listPairedSidecars } from './xmp-conflict.ts';
+import { listPairedSidecars, pickFreeConflictPath } from './xmp-conflict.ts';
 import {
   hasLegacyBackupEdit,
   isLegacyBackupSidecarOf,
@@ -139,10 +139,11 @@ export async function moveToDuplicates(absPath: string, folderRoot: string): Pro
       log.warn({ source: ahead.source, err: String(err) }, 'old-name sidecar settle failed');
     });
   }
-  const kept = await keepPhotoWithOldNameEdit(absPath, freeTarget);
-  if (kept === 'blocked') await publishCaptured(absPath, freeTarget, captured);
-  else if (kept === 'moved') await moveSidecarsAlongside(absPath, freeTarget);
-  else return kept;
+  const kept = await keepPhotoWithOldNameEdit(absPath, freeTarget, ahead);
+  if (kept !== 'moved' && kept !== 'blocked') return kept;
+  await (kept === 'blocked'
+    ? publishCaptured(absPath, freeTarget, captured)
+    : moveSidecarsAlongside(absPath, freeTarget));
   return { kind: 'ok', newAbsPath: freeTarget };
 }
 
@@ -171,12 +172,18 @@ async function publishCaptured(
   for (const { source, bytes } of captured) {
     const dest = sidecarRenameTarget(absPath, movedTo, source);
     if (dest === null) continue;
-    const tmp = await writeVerifiedTemp(dest, bytes);
-    await publishExclusive(tmp, dest)
-      .catch((err: unknown) => {
-        log.warn({ source, dest, err: String(err) }, 'moveToDuplicates: sidecar copy failed');
-      })
-      .finally(() => fs.unlink(tmp).catch(() => {}));
+    await publishBytes(dest, bytes).catch((err: unknown) => {
+      log.warn({ source, dest, err: String(err) }, 'moveToDuplicates: sidecar copy failed');
+    });
+  }
+}
+
+async function publishBytes(dest: string, bytes: Buffer): Promise<void> {
+  const tmp = await writeVerifiedTemp(dest, bytes);
+  try {
+    await publishExclusive(tmp, dest);
+  } finally {
+    await fs.unlink(tmp).catch(() => {});
   }
 }
 
@@ -189,6 +196,7 @@ async function publishCaptured(
 async function keepPhotoWithOldNameEdit(
   absPath: string,
   movedTo: string,
+  carried: { source: string; dest: string } | null,
 ): Promise<MoveResult | 'moved' | 'blocked'> {
   if (!(await hasLegacyBackupEdit(absPath))) return 'moved';
   const back = await publishExclusive(movedTo, absPath).then(
@@ -203,9 +211,37 @@ async function keepPhotoWithOldNameEdit(
   );
   if (!back) return 'blocked';
   await fs.unlink(movedTo).catch(() => {});
+  if (carried) await returnCarriedEdit(carried, absPath);
   log.error({ absPath }, 'moveToDuplicates: an old-name backup edit stayed behind — move undone');
   return {
     kind: 'error',
     error: "moveToDuplicates: the photo's old-name backup edit stayed behind",
   };
+}
+
+/** The old-name edit already carried ahead goes back with the photo, never
+ * left alone in `_duplicates/`; a taken name gets a conflict copy beside it. */
+async function returnCarriedEdit(
+  carried: { source: string; dest: string },
+  absPath: string,
+): Promise<void> {
+  const bytes = await readSidecarBytes(carried.dest).catch(() => null);
+  if (bytes === null) return;
+  const returned = await publishBytes(carried.source, bytes).then(
+    () => true,
+    async () => {
+      const conflict = await pickFreeConflictPath(absPath, 'move');
+      return publishBytes(conflict, bytes).then(
+        () => true,
+        (err: unknown) => {
+          log.error(
+            { dest: carried.dest, err: String(err) },
+            'moveToDuplicates: the carried old-name edit could not go back — kept in _duplicates',
+          );
+          return false;
+        },
+      );
+    },
+  );
+  if (returned) await fs.unlink(carried.dest).catch(() => {});
 }
