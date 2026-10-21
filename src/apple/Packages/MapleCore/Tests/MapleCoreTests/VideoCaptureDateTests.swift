@@ -9,23 +9,19 @@ import XCTest
 @testable import MapleCore
 
 final class VideoCaptureDateTests: XCTestCase {
-  private var goldenURL: URL {
-    URL(fileURLWithPath: #filePath)
-      .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-      .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-      .deletingLastPathComponent()
-      .appendingPathComponent("test-fixtures/ids/dated-video.mov")
+  private func goldenURL() throws -> URL {
+    try WorkflowFixture.root().appendingPathComponent("ids/dated-video.mov")
   }
 
   // MARK: - Shared golden (also pinned by tests/maple-id-contract.test.ts and raw-core)
 
   func testGoldenVideoDateMatchesTheServer() throws {
-    let bytes = try Data(contentsOf: goldenURL)
+    let bytes = try Data(contentsOf: goldenURL())
     XCTAssertEqual(VideoCaptureDate.iso8601UTC(fromVideoBytes: bytes), "2026-04-05T18:26:20.000Z")
   }
 
   func testGoldenVideoDerivesTheServersPrimaryId() throws {
-    let bytes = try Data(contentsOf: goldenURL)
+    let bytes = try Data(contentsOf: goldenURL())
     let date = try XCTUnwrap(VideoCaptureDate.iso8601UTC(fromVideoBytes: bytes))
     XCTAssertEqual(
       MapleId.primary(headBytes: Data(bytes.prefix(64 * 1024)), capturedAtISO8601: date),
