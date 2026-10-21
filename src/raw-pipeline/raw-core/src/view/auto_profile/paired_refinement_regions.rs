@@ -2,6 +2,10 @@ use super::super::{ciede2000, lab};
 use super::{projection::constrain_to_prior, system::prediction, ColorLut, Observation};
 use rayon::prelude::*;
 
+// Best-effort: assess_against enforces the hard regional margin at selection;
+// passes past 3 cost ~0.2 s on 100 MP without changing any fixture (#5104).
+const REGION_GUARD_PASSES: usize = 3;
+
 /// Training display rows grouped by region, in their original order, with each
 /// region's origin error fixed once per refinement. Per-row ΔE runs in
 /// parallel; every sum still folds in the original row order (#5104).
@@ -46,7 +50,7 @@ impl<'a> Regions<'a> {
         let mut gradient = vec![[0.; 3]; nodes];
         let mut touched = vec![false; nodes];
         let mut active = Vec::new();
-        for _ in 0..12 {
+        for _ in 0..REGION_GUARD_PASSES {
             let current = region_means(&self.rows, &self.targets, &self.populations, candidate);
             let bad: Vec<_> = (0..64)
                 .filter(|&r| current[r] > self.baseline[r] + 0.06)
@@ -132,4 +136,54 @@ fn region_means(
 
 fn error(rgb: [f64; 3], target: [f32; 3]) -> f64 {
     f64::from(ciede2000(lab(rgb.map(|v| v as f32)), target))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rows(target: [f64; 3]) -> Vec<Observation> {
+        (0..40)
+            .map(|_| Observation {
+                weights: vec![],
+                artifact_weights: vec![(1, 1.)],
+                source: [0.; 3],
+                target,
+                baseline: [0.; 3],
+                population: 1,
+                validation: false,
+                in_bias_region: true,
+                region: 0,
+            })
+            .collect()
+    }
+
+    fn region_error(lut: &ColorLut, display: &[Observation]) -> f64 {
+        let regions = Regions::new(lut, display);
+        region_means(&regions.rows, &regions.targets, &regions.populations, lut)[0]
+    }
+
+    #[test]
+    fn a_candidate_within_every_region_margin_is_left_untouched() {
+        let origin = ColorLut::identity(2);
+        let display = rows([1., 0., 0.]);
+        let regions = Regions::new(&origin, &display);
+        let mut candidate = origin.clone();
+        regions.constrain(&mut candidate, &origin, &[1.; 8]);
+        assert_eq!(candidate.data, origin.data);
+    }
+
+    #[test]
+    fn a_region_pushed_past_its_margin_is_pulled_back_toward_its_origin_error() {
+        let origin = ColorLut::identity(2);
+        let display = rows([1., 0., 0.]);
+        let regions = Regions::new(&origin, &display);
+        let mut candidate = origin.clone();
+        candidate.data[3..6].copy_from_slice(&[0.6, 0.2, 0.2]);
+        let before = region_error(&candidate, &display);
+        regions.constrain(&mut candidate, &origin, &[1.; 8]);
+        assert!(region_error(&candidate, &display) < before);
+        assert_eq!(&candidate.data[..3], &origin.data[..3]);
+        assert_eq!(&candidate.data[21..], &origin.data[21..]);
+    }
 }
