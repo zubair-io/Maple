@@ -16,11 +16,28 @@ fn gain_map_params(points_v: u32, points_h: u32, map_planes: u32, gains: &[f32])
     p
 }
 
+fn list3(bytes: &[u8]) -> OpcodeList3 {
+    parse_opcode_list(bytes, OpcodeListKind::List3)
+}
+
+fn skip(id: Option<u32>, required: bool, reason: SkipReason) -> SkippedOpcode {
+    SkippedOpcode {
+        list: OpcodeListKind::List3,
+        id,
+        required,
+        reason,
+    }
+}
+
 fn opcode_entry(id: u32, params: &[u8]) -> Vec<u8> {
+    flagged_entry(id, 1, params)
+}
+
+fn flagged_entry(id: u32, flags: u32, params: &[u8]) -> Vec<u8> {
     let mut e = Vec::new();
     e.extend_from_slice(&id.to_be_bytes());
     e.extend_from_slice(&0x0104_0000u32.to_be_bytes()); // DNG version
-    e.extend_from_slice(&1u32.to_be_bytes()); // flags: optional
+    e.extend_from_slice(&flags.to_be_bytes());
     e.extend_from_slice(&(params.len() as u32).to_be_bytes());
     e.extend_from_slice(params);
     e
@@ -52,8 +69,8 @@ fn warp_params(sets: &[[f64; 6]], cx: f64, cy: f64) -> Vec<u8> {
 fn parses_gain_map_fields_exactly() {
     let gains: Vec<f32> = (0..2 * 3 * 1).map(|i| 1.0 + i as f32 * 0.1).collect();
     let b = blob(&[opcode_entry(9, &gain_map_params(2, 3, 1, &gains))]);
-    let list = parse_opcode_list(&b).expect("parses");
-    assert_eq!(list.skipped_unknown, 0);
+    let list = list3(&b);
+    assert!(list.skipped.is_empty());
     assert_eq!(list.opcodes.len(), 1);
     let PanoOpcode::GainMap(gm) = &list.opcodes[0] else {
         panic!("expected GainMap, got {:?}", list.opcodes[0]);
@@ -75,7 +92,7 @@ fn parses_warp_rectilinear_multi_plane_and_center() {
         [1.002, -0.062, 0.032, -0.052, 0.0, 0.0],
     ];
     let b = blob(&[opcode_entry(1, &warp_params(&sets, 0.5, 0.45))]);
-    let list = parse_opcode_list(&b).expect("parses");
+    let list = list3(&b);
     let PanoOpcode::WarpRectilinear(w) = &list.opcodes[0] else {
         panic!("expected WarpRectilinear");
     };
@@ -102,8 +119,8 @@ fn vignette_radial_params(k: [f64; 5], cx: f64, cy: f64) -> Vec<u8> {
 fn parses_fix_vignette_radial_coefficients_and_center() {
     let k = [0.31, -0.12, 0.05, -0.02, 0.008];
     let b = blob(&[opcode_entry(3, &vignette_radial_params(k, 0.5, 0.48))]);
-    let list = parse_opcode_list(&b).expect("parses");
-    assert_eq!(list.skipped_unknown, 0);
+    let list = list3(&b);
+    assert!(list.skipped.is_empty());
     assert_eq!(list.opcodes.len(), 1);
     let PanoOpcode::FixVignetteRadial(v) = &list.opcodes[0] else {
         panic!("expected FixVignetteRadial, got {:?}", list.opcodes[0]);
@@ -115,19 +132,20 @@ fn parses_fix_vignette_radial_coefficients_and_center() {
 }
 
 /// dng_sdk rejects any FixVignetteRadial whose parameter block is not
-/// exactly `kNumTerms * 8 + 16` = 56 bytes; we degrade the whole list to
-/// `None` (the module's malformed-blob policy) rather than guessing at a
-/// truncated coefficient set.
+/// exactly `kNumTerms * 8 + 16` = 56 bytes; we skip that entry as malformed
+/// rather than guessing at a truncated coefficient set.
 #[test]
-fn fix_vignette_radial_with_wrong_param_length_rejects_the_list() {
+fn fix_vignette_radial_with_wrong_param_length_is_skipped_as_malformed() {
     let k = [0.31, -0.12, 0.05, -0.02, 0.008];
     let mut short = vignette_radial_params(k, 0.5, 0.5);
     short.truncate(48);
-    assert!(parse_opcode_list(&blob(&[opcode_entry(3, &short)])).is_none());
-
     let mut long = vignette_radial_params(k, 0.5, 0.5);
     long.extend_from_slice(&0.0f64.to_be_bytes());
-    assert!(parse_opcode_list(&blob(&[opcode_entry(3, &long)])).is_none());
+    for params in [short, long] {
+        let list = list3(&blob(&[opcode_entry(3, &params)]));
+        assert!(list.opcodes.is_empty());
+        assert_eq!(list.skipped, [skip(Some(3), false, SkipReason::Malformed)]);
+    }
 }
 
 /// A DNG may carry the vignette and the warp together; both must survive
@@ -139,63 +157,118 @@ fn parses_fix_vignette_radial_alongside_warp_in_list_order() {
             3,
             &vignette_radial_params([0.2, 0.0, 0.0, 0.0, 0.0], 0.5, 0.5),
         ),
-        opcode_entry(1, &warp_params(&[[1.0, -0.05, 0.0, 0.0, 0.0, 0.0]], 0.5, 0.5)),
+        opcode_entry(
+            1,
+            &warp_params(&[[1.0, -0.05, 0.0, 0.0, 0.0, 0.0]], 0.5, 0.5),
+        ),
     ]);
-    let list = parse_opcode_list(&b).expect("parses");
-    assert_eq!(list.skipped_unknown, 0);
+    let list = list3(&b);
+    assert!(list.skipped.is_empty());
     assert!(matches!(list.opcodes[0], PanoOpcode::FixVignetteRadial(_)));
     assert!(matches!(list.opcodes[1], PanoOpcode::WarpRectilinear(_)));
 }
 
 #[test]
-fn unknown_opcode_ids_are_skipped_with_count_in_list_order() {
+fn unknown_opcode_ids_are_skipped_with_their_flags_in_list_order() {
     let gains = vec![1.0f32; 4];
-    let unknown = opcode_entry(42, &[0u8; 12]);
     let b = blob(&[
         opcode_entry(9, &gain_map_params(2, 2, 1, &gains)),
-        unknown,
+        opcode_entry(42, &[0u8; 12]),
+        flagged_entry(43, 0, &[0u8; 4]),
         opcode_entry(1, &warp_params(&[[1.0, 0.0, 0.0, 0.0, 0.0, 0.0]], 0.5, 0.5)),
     ]);
-    let list = parse_opcode_list(&b).expect("parses around unknown id");
-    assert_eq!(list.skipped_unknown, 1);
+    let list = list3(&b);
+    assert_eq!(
+        list.skipped,
+        [
+            skip(Some(42), false, SkipReason::Unsupported),
+            skip(Some(43), true, SkipReason::Unsupported),
+        ]
+    );
     assert_eq!(list.opcodes.len(), 2);
     assert!(matches!(list.opcodes[0], PanoOpcode::GainMap(_)));
     assert!(matches!(list.opcodes[1], PanoOpcode::WarpRectilinear(_)));
 }
 
+/// MapPolynomial is an OpcodeList2 transfer; in List3 Maple has nothing to
+/// run it with, so it is reported rather than parsed into a no-op.
 #[test]
-fn truncated_or_malformed_blobs_parse_to_none() {
+fn ids_outside_their_list_are_unsupported_there() {
+    let params: Vec<u8> = [0u32, 0, 4, 4, 0, 1, 1, 1, 1]
+        .iter()
+        .flat_map(|v| v.to_be_bytes())
+        .chain([0f64, 1.].iter().flat_map(|c| c.to_be_bytes()))
+        .collect();
+    let b = blob(&[flagged_entry(8, 0, &params)]);
+    assert_eq!(
+        list3(&b).skipped,
+        [skip(Some(8), true, SkipReason::Unsupported)]
+    );
+    let list2 = parse_opcode_list(&b, OpcodeListKind::List2);
+    assert!(list2.skipped.is_empty());
+    assert!(matches!(list2.opcodes[..], [PanoOpcode::MapPolynomial(_)]));
+    assert!(parse_opcode_list(&b, OpcodeListKind::List1)
+        .opcodes
+        .is_empty());
+}
+
+/// A malformed entry is skipped and its neighbours survive; broken framing
+/// keeps what parsed before the break and records it as required.
+#[test]
+fn malformed_entries_skip_alone_and_broken_framing_keeps_the_prefix() {
     let gains = vec![1.0f32; 4];
-    let good = blob(&[opcode_entry(9, &gain_map_params(2, 2, 1, &gains))]);
-    assert!(
-        parse_opcode_list(&good[..good.len() - 2]).is_none(),
-        "truncated gains"
+    let gain = opcode_entry(9, &gain_map_params(2, 2, 1, &gains));
+    let warp = opcode_entry(
+        1,
+        &warp_params(&[[1.0, -0.05, 0.0, 0.0, 0.0, 0.0]], 0.5, 0.5),
     );
-    assert!(parse_opcode_list(&good[..7]).is_none(), "truncated header");
-    assert!(parse_opcode_list(&[]).is_none(), "empty blob");
-    // Parameter length lies about the payload size.
-    let mut bad_len = good.clone();
-    bad_len[4 + 12..4 + 16].copy_from_slice(&9999u32.to_be_bytes());
-    assert!(
-        parse_opcode_list(&bad_len).is_none(),
-        "param length overrun"
+    let lattice_mismatch = flagged_entry(9, 0, &gain_map_params(4, 4, 3, &gains));
+    let zero_sets = opcode_entry(1, &warp_params(&[], 0.5, 0.5));
+    let list = list3(&blob(&[
+        gain.clone(),
+        lattice_mismatch,
+        zero_sets,
+        warp.clone(),
+    ]));
+    assert_eq!(list.opcodes.len(), 2, "both good lens corrections survive");
+    assert_eq!(
+        list.skipped,
+        [
+            skip(Some(9), true, SkipReason::Malformed),
+            skip(Some(1), false, SkipReason::Malformed),
+        ]
     );
-    // Gain count disagrees with the parameter block size.
-    let short_gains = blob(&[opcode_entry(9, &gain_map_params(4, 4, 3, &gains))]);
-    assert!(
-        parse_opcode_list(&short_gains).is_none(),
-        "lattice/len mismatch"
+
+    let good = blob(&[gain, warp]);
+    let cut_params = list3(&good[..good.len() - 2]);
+    assert_eq!(cut_params.opcodes.len(), 1);
+    assert_eq!(
+        cut_params.skipped,
+        [skip(Some(1), true, SkipReason::Truncated)]
     );
-    // Warp with a zero coefficient-set count.
-    let zero_sets = blob(&[opcode_entry(1, &warp_params(&[], 0.5, 0.5))]);
-    assert!(parse_opcode_list(&zero_sets).is_none(), "warp N=0");
+    let cut_header = list3(&good[..7]);
+    assert!(cut_header.opcodes.is_empty());
+    assert_eq!(
+        cut_header.skipped,
+        [skip(None, true, SkipReason::Truncated)]
+    );
+    assert_eq!(
+        list3(&[]).skipped,
+        [skip(None, true, SkipReason::Truncated)]
+    );
+    let mut overrun = good.clone();
+    overrun[4 + 12..4 + 16].copy_from_slice(&9999u32.to_be_bytes());
+    assert_eq!(
+        list3(&overrun).skipped,
+        [skip(Some(9), true, SkipReason::Truncated)]
+    );
 }
 
 #[test]
-fn implausible_opcode_count_rejected() {
-    let mut b = Vec::new();
-    b.extend_from_slice(&u32::MAX.to_be_bytes());
-    assert!(parse_opcode_list(&b).is_none());
+fn implausible_opcode_count_is_a_truncated_list() {
+    let list = list3(&u32::MAX.to_be_bytes());
+    assert!(list.opcodes.is_empty());
+    assert_eq!(list.skipped, [skip(None, true, SkipReason::Truncated)]);
 }
 
 /// Fixture-gated: the real DJI blobs parse to the documented shapes.
@@ -217,7 +290,7 @@ fn parses_real_dji_opcode_lists() {
         let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
         let (list, aa) =
             read_opcode_list3(&bytes, "dng", raw.width, raw.height).expect("OpcodeList3");
-        assert_eq!(list.skipped_unknown, 0, "{}", path.display());
+        assert!(list.skipped.is_empty(), "{}", path.display());
         if expect_gain_map {
             assert_eq!(list.opcodes.len(), 2);
             let PanoOpcode::GainMap(gm) = &list.opcodes[0] else {

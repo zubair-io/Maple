@@ -553,3 +553,6 @@ fn stripped_prefix_changes_on_genuine_prefix_edits() {
 
 #[path = "tests_opcodes.rs"]
 mod opcodes;
+
+#[path = "tests_lossy_dng.rs"]
+mod lossy_dng;

@@ -138,7 +138,7 @@ pub(super) fn is_supported_tile_opcode_list(
     list: &crate::pipeline::pano::opcodes::OpcodeList3,
 ) -> bool {
     use crate::pipeline::pano::opcodes::PanoOpcode;
-    if list.skipped_unknown > 0 || list.opcodes.len() != 1 {
+    if !list.skipped.is_empty() || list.opcodes.len() != 1 {
         return false;
     }
     match &list.opcodes[0] {

@@ -92,6 +92,7 @@ pub fn sensor_linearize_region(
     // `black_level` is per 2×2 position for Bayer and per CFA colour for
     // X-Trans — see `RawImage::black_level`.
     let black_by_colour = raw.cfa.is_xtrans();
+    let transfers = crate::sensor_gain_maps::transfers_apply(raw);
     img.pixels
         .par_chunks_mut(rw)
         .enumerate()
@@ -110,11 +111,9 @@ pub fn sensor_linearize_region(
                 let denom = (wl - bl).max(1.0);
                 let raw_v = raw_row[abs_x] as f32;
                 let v = ((raw_v - bl) / denom).clamp(0.0, 1.0);
-                let gain = raw
-                    .sensor_gain_maps
-                    .as_ref()
-                    .map_or(1., |maps| maps.gain_at(abs_x as u32, abs_y as u32, 0));
-                px[color] = v * gain;
+                px[color] = raw.sensor_gain_maps.as_ref().map_or(v, |maps| {
+                    maps.apply(abs_x as u32, abs_y as u32, 0, v, transfers)
+                });
             }
         });
     img
@@ -187,37 +186,29 @@ pub fn linearraw_to_camera_rgb(raw: &RawImage) -> crate::Result<Image> {
     // lossy DNGs go through rawler's `apply_linearization` and arrive
     // already linearized at white_level = 65535 (or similar).
     let lossy_8bit = raw.white_level <= 255;
+    let transfers = crate::sensor_gain_maps::transfers_apply(raw);
+    let corrections = raw.sensor_gain_maps.as_ref();
 
     let mut img = Image::new(raw.width, raw.height, ColorSpace::CameraNativeLinearRgb);
     img.pixels.par_iter_mut().enumerate().for_each(|(idx, px)| {
         let off = idx * 3;
-        let r_norm = ((raw.raw_data[off] as f32 - bl_r) / denom_r).clamp(0.0, 1.0);
-        let g_norm = ((raw.raw_data[off + 1] as f32 - bl_g) / denom_g).clamp(0.0, 1.0);
-        let b_norm = ((raw.raw_data[off + 2] as f32 - bl_b) / denom_b).clamp(0.0, 1.0);
-        let (r, g, b) = if lossy_8bit {
-            // 8-bit lossy linear DNG: invert the DNG Converter's gamma 2.4 encoding.
-            // WB stays baked; DCP profile derives `scene_white_xyz` from
-            // `inv(CM) · AsShotNeutral` (legacy path) — empirically this
-            // reaches mean ΔE ≈ 10 vs. the Bayer reference's ΔE ≈ 9.5,
-            // i.e. structural-mismatch parity. Fully principled WB-baked
-            // handling (`wb_already_baked = true`) regressed the harness
-            // (from 14 → 28 ΔE) — investigation deferred; the empirical
-            // path matches the DNG Converter's implicit pipeline closely enough.
-            (r_norm.powf(2.4), g_norm.powf(2.4), b_norm.powf(2.4))
-        } else {
-            // High-bit-depth LinearRaw / sRaw: pass through camera-RGB.
-            // Pre-gain in pipeline/develop.rs handles AsShotNeutral. See
-            // function docs and ticket #373 for rationale.
-            (r_norm, g_norm, b_norm)
-        };
-        *px = [r, g, b];
-        if let Some(maps) = &raw.sensor_gain_maps {
-            let x = (idx % w) as u32;
-            let y = (idx / w) as u32;
-            for (plane, value) in px.iter_mut().enumerate() {
-                *value *= maps.gain_at(x, y, plane as u32);
-            }
-        }
+        let (x, y) = ((idx % w) as u32, (idx / w) as u32);
+        let encoded = [
+            ((raw.raw_data[off] as f32 - bl_r) / denom_r).clamp(0.0, 1.0),
+            ((raw.raw_data[off + 1] as f32 - bl_g) / denom_g).clamp(0.0, 1.0),
+            ((raw.raw_data[off + 2] as f32 - bl_b) / denom_b).clamp(0.0, 1.0),
+        ];
+        *px = std::array::from_fn(|plane| {
+            let value = encoded[plane];
+            // 8-bit lossy LinearRaw is gamma-encoded: invert the DNG
+            // Converter's usual gamma 2.4, even where the file declares its
+            // own OpcodeList2 transfer (`transfers_apply`, #5081). WB stays
+            // baked; DCP derives `scene_white_xyz` from
+            // `inv(CM) · AsShotNeutral` (legacy path), which matched the
+            // reference better than `wb_already_baked = true`.
+            let decoded = if lossy_8bit { value.powf(2.4) } else { value };
+            corrections.map_or(decoded, |c| c.apply(x, y, plane as u32, decoded, transfers))
+        });
     });
     Ok(img)
 }
