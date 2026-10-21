@@ -193,4 +193,35 @@ describe('refile sidecar barrier (#5061)', () => {
     expect(await read('2024/IMG (conflict from refile) (2).xmp')).toBe('late save at the old path');
     expect(await read('2024/03-15/IMG.xmp')).toBeNull();
   });
+
+  test('a rollback keeps a sidecar another writer saved over the one refile published', async () => {
+    await write('2024/03-15/IMG.HEIC', 'pixels');
+    await write('2024/03-15/IMG.xmp', 'edit 1');
+    await write('2024/03-15/IMG-rendered.jpg', 'render');
+    const realCopy = fs.copyFile;
+    let copies = 0;
+    const copy = spyOn(fs, 'copyFile').mockImplementation(async (src, dst, mode) => {
+      copies += 1;
+      if (copies < 2) return realCopy(src, dst, mode);
+      await fs.writeFile(abs('2024/IMG.xmp.saving'), 'newer save');
+      await fs.rename(abs('2024/IMG.xmp.saving'), abs('2024/IMG.xmp'));
+      throw new Error('EIO');
+    });
+    try {
+      await expect(
+        planAndPlace({
+          libRoot: root,
+          oldDir: '2024/03-15',
+          filename: 'IMG.HEIC',
+          newDir: '2024',
+          renderedRelOld: '2024/03-15/IMG-rendered.jpg',
+        }),
+      ).rejects.toThrow('EIO');
+    } finally {
+      copy.mockRestore();
+    }
+
+    expect(await read('2024/IMG.xmp')).toBe('newer save');
+    expect(await read('2024/IMG.HEIC')).toBeNull();
+  });
 });

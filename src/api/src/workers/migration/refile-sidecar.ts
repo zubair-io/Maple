@@ -10,7 +10,11 @@ import {
   SidecarNotRegularFileError,
   writeVerifiedTemp,
 } from '../../fs/sidecar-ownership.ts';
-import { PublishCollisionError, publishExclusive } from '../../fs/relocate-publish.ts';
+import {
+  PublishCollisionError,
+  publishExclusive,
+  type RelocatePublication,
+} from '../../fs/relocate-publish.ts';
 import { serializeSidecarWrites } from '../../fs/sidecar-write-order.ts';
 import { pickFreeConflictPath } from '../../fs/xmp-conflict.ts';
 import { child as childLogger } from '../../log.ts';
@@ -32,9 +36,11 @@ export async function carrySidecar(
   source: string,
   dest: string,
   primary: string,
+  publications: RelocatePublication[],
 ): Promise<CarriedSidecar | null> {
   try {
-    return { source, dest, primary, snapshot: await publishSidecarSnapshot(source, dest) };
+    const snapshot = await publishSidecarSnapshot(source, dest, publications);
+    return { source, dest, primary, snapshot };
   } catch (err) {
     if (!(err instanceof SidecarNotRegularFileError)) throw err;
     log.warn({ source }, 'refile: sidecar is not a regular file — left in place');
