@@ -47,3 +47,6 @@ pub mod white_balance_auto;
 /// Neutral white-balance sampler (#2434): AUTO's probe and judgement, at a
 /// user-picked point.
 pub mod white_balance_sample;
+
+#[cfg(test)]
+mod chroma_continuity_tests;
