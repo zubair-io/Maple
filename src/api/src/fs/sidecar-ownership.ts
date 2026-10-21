@@ -190,7 +190,7 @@ async function linkExclusive(tmp: string, dest: string): Promise<RelocatePublica
   }
 }
 
-async function writeVerifiedTemp(dest: string, bytes: Buffer): Promise<string> {
+export async function writeVerifiedTemp(dest: string, bytes: Buffer): Promise<string> {
   const tmp = `${dest}.tmp.${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
   await fs.writeFile(tmp, bytes);
   if (!bytes.equals(await fs.readFile(tmp))) {

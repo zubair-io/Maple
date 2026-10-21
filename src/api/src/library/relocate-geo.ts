@@ -134,6 +134,7 @@ async function dedupeAt(
     mapleId: doc.maple_id,
     filename: primary.filename,
     sourcesToDelete: [],
+    carriedSidecars: [],
   });
   return 'moved';
 }
@@ -221,6 +222,7 @@ export async function relocateGeoAsset(
     mapleId: doc.maple_id,
     filename: primary.filename,
     sourcesToDelete: [],
+    carriedSidecars: [],
   });
   return 'moved';
 }
