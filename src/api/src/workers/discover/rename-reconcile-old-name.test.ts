@@ -4,8 +4,9 @@
  * files through the real sweep and migration batch.
  */
 import { describe, expect, it, spyOn } from 'bun:test';
+import * as os from 'node:os';
 import * as path from 'node:path';
-import { readdir, readFile, rm, stat, writeFile } from '../../fs/mirrored.ts';
+import { lstat, mkdtemp, readdir, readFile, rm, stat, writeFile } from '../../fs/mirrored.ts';
 import * as xmpConflict from '../../fs/xmp-conflict.ts';
 import { readExif } from '../../indexer/exif.ts';
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
@@ -13,6 +14,21 @@ import { canonicalBackupSidecars } from '../migration/canonical-backup-sidecars.
 import { assetIdAt, createDiscoverLibrary, type DiscoverLibrary } from './discover.test-helpers.ts';
 import { makeExifTiff, onlyLocation, sweepOnce } from './rename-reconcile.test-helpers.ts';
 import { moveLegacySidecarIfPresent } from './rename-reconcile-sidecar.ts';
+
+/** A case-sensitive temp volume keeps `img.dng.xmp` and `IMG.dng.xmp` apart. */
+async function caseSensitiveTmp(): Promise<boolean> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'case-probe-'));
+  try {
+    await writeFile(path.join(dir, 'a'), '');
+    return !(await lstat(path.join(dir, 'A')).then(
+      () => true,
+      () => false,
+    ));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+const caseSensitive = await caseSensitiveTmp();
 
 const edit = '<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">backup</x:xmpmeta>';
 
@@ -126,25 +142,44 @@ describe('rename reconciliation — old-name backup edits (#5063)', () => {
     expect(names.filter((name) => name.toLowerCase() === 'img_0002.dng.xmp')).toHaveLength(1);
   });
 
-  it("a case-only rename never replaces another tool's file at the new spelling", async () => {
-    using library = await createDiscoverLibrary('maple-rename-old-name-case-occupied-');
-    const darktable = '<x:xmpmeta xmlns:darktable="http://darktable.sf.net/"/>';
-    await writeFile(path.join(library.root, 'img_0003.dng.xmp'), edit);
-    await writeFile(path.join(library.root, 'IMG_0003.dng.xmp'), darktable);
-    const caseSensitive = (await readdir(library.root)).length === 2;
-    if (!caseSensitive) return;
-    await writeFile(path.join(library.root, 'IMG_0003.dng'), 'pixels');
+  it.skipIf(!caseSensitive)(
+    "a case-only rename never replaces another tool's file at the new spelling",
+    async () => {
+      using library = await createDiscoverLibrary('maple-rename-old-name-case-occupied-');
+      const darktable = '<x:xmpmeta xmlns:darktable="http://darktable.sf.net/"/>';
+      await writeFile(path.join(library.root, 'img_0003.dng.xmp'), edit);
+      await writeFile(path.join(library.root, 'IMG_0003.dng.xmp'), darktable);
+      await writeFile(path.join(library.root, 'IMG_0003.dng'), 'pixels');
+
+      await moveLegacySidecarIfPresent(
+        path.join(library.root, 'img_0003.dng'),
+        path.join(library.root, 'IMG_0003.dng'),
+        library.root,
+      );
+
+      expect(await readFile(path.join(library.root, 'IMG_0003.dng.xmp'), 'utf8')).toBe(darktable);
+      expect(
+        await readFile(path.join(library.root, 'IMG_0003 (conflict from rename).xmp'), 'utf8'),
+      ).toBe(edit);
+    },
+  );
+
+  it('a rename that changes only the Unicode form keeps the edit', async () => {
+    using library = await createDiscoverLibrary('maple-rename-old-name-nfd-');
+    const decomposed = 'cafe\u0301.dng';
+    const composed = decomposed.normalize('NFC');
+    await writeFile(path.join(library.root, `${decomposed}.xmp`), edit);
+    await writeFile(path.join(library.root, composed), 'pixels');
 
     await moveLegacySidecarIfPresent(
-      path.join(library.root, 'img_0003.dng'),
-      path.join(library.root, 'IMG_0003.dng'),
+      path.join(library.root, decomposed),
+      path.join(library.root, composed),
       library.root,
     );
 
-    expect(await readFile(path.join(library.root, 'IMG_0003.dng.xmp'), 'utf8')).toBe(darktable);
-    expect(
-      await readFile(path.join(library.root, 'IMG_0003 (conflict from rename).xmp'), 'utf8'),
-    ).toBe(edit);
+    const edits = (await readdir(library.root)).filter((name) => name.endsWith('.xmp'));
+    expect(edits).toHaveLength(1);
+    expect(await readFile(path.join(library.root, edits[0]!), 'utf8')).toBe(edit);
   });
 
   // tmpdir() is behind a symlink on macOS; ownership must still hold for the lexical name.
