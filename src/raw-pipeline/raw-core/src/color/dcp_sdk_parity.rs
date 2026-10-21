@@ -81,6 +81,7 @@ fn fm_test_profile(cm: Matrix3, fm: Matrix3) -> DcpProfile {
         look_table: None,
         tone_curve: None,
         cm_endpoints: None,
+        hsm_endpoints: None,
     }
 }
 

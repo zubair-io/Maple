@@ -490,8 +490,10 @@ pub fn apply_delta(
 /// weight for the camera→PCS transform comes from the target xy's own
 /// CCT. On Maple's FM path (`dcp::apply_colorimetry` with
 /// `forward_matrix` present) the camera→PCS transform IS the
-/// ForwardMatrix, so the FM re-interpolates at the target. The non-FM
-/// Bradford fallback deliberately does NOT move: it is Maple's own
+/// ForwardMatrix, so the FM re-interpolates at the target, and the
+/// dual-illuminant HueSatMap with it, as dng_sdk's `HueSatMapForWhite`
+/// does (#4633). The non-FM
+/// Bradford fallback, HueSatMap included, deliberately does NOT move: it is Maple's own
 /// construction (the SDK has no FM-absent WB-divided path), its as-shot
 /// Bradford source is what keeps the camera-space gain the SOLE carrier
 /// of the cast (module doc), and retargeting its CM/white was measured
@@ -529,8 +531,19 @@ pub fn retargeted_render_profile(
     let render_cct =
         dcp::compute_as_shot_cct(target_neutral, e.m_cold, e.cct_cold, e.m_warm, e.cct_warm);
     let forward_matrix = profile.forward_matrix_for_cct(render_cct);
+    let hsm = match (&profile.hsm_endpoints, forward_matrix) {
+        (Some(h), Some(_)) => dcp::lerp_hsm_for_cct(
+            Some(&h.cold),
+            Some(&h.warm),
+            e.cct_cold,
+            e.cct_warm,
+            render_cct,
+        ),
+        _ => profile.hsm.clone(),
+    };
     DcpProfile {
         forward_matrix,
+        hsm,
         ..profile
     }
 }
