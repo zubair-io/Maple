@@ -63,8 +63,7 @@ impl Pattern {
             edge_peers[cursor[j]] = (i, false);
             cursor[j] += 1;
         }
-        let normal = normal_pattern(&row_start, &row_nodes, &node_start, &node_rows, count);
-        Self {
+        let pattern = Self {
             row_start,
             row_nodes,
             row_weights,
@@ -73,7 +72,11 @@ impl Pattern {
             node_weights,
             edge_start,
             edge_peers,
-            normal,
+            normal: None,
+        };
+        Self {
+            normal: normal_pattern(&pattern, count),
+            ..pattern
         }
     }
 
@@ -94,55 +97,35 @@ impl Pattern {
 
 /// Column sets of `Σ wᵣ·aᵣaᵣᵀ`, or `None` when assembling it would cost more
 /// than the budget or hold more entries than the row layout itself.
-fn normal_pattern(
-    row_start: &[usize],
-    row_nodes: &[usize],
-    node_start: &[usize],
-    node_rows: &[usize],
-    count: usize,
-) -> Option<NormalPattern> {
-    let assembly_work: usize = row_start.windows(2).map(|r| (r[1] - r[0]).pow(2)).sum();
-    if assembly_work > ASSEMBLY_WORK_PER_ROW_TERM * row_nodes.len() {
-        return None;
-    }
-    let layout = (row_start, row_nodes, node_start, node_rows);
+fn normal_pattern(pattern: &Pattern, count: usize) -> Option<NormalPattern> {
+    let terms = pattern.row_nodes.len();
+    let budget = (ASSEMBLY_WORK_PER_ROW_TERM as u64).saturating_mul(terms as u64);
+    pattern
+        .row_start
+        .windows(2)
+        .map(|r| ((r[1] - r[0]) as u64).pow(2))
+        .try_fold(0u64, |work, k2| Some(work + k2).filter(|&w| w <= budget))?;
     let mut seen = vec![usize::MAX; count];
-    let mut entries = 0;
-    for node in 0..count {
-        each_column(layout, node, &mut seen, |_| entries += 1);
-    }
-    if entries > row_nodes.len() {
-        return None;
-    }
-    seen.fill(usize::MAX);
     let mut start = Vec::with_capacity(count + 1);
     start.push(0);
-    let mut columns = Vec::with_capacity(entries);
+    let mut columns = Vec::new();
     for node in 0..count {
         let first = columns.len();
-        each_column(layout, node, &mut seen, |j| columns.push(j));
+        for &row in &pattern.node_rows[pattern.node_start[node]..pattern.node_start[node + 1]] {
+            for &j in &pattern.row_nodes[pattern.row_start[row]..pattern.row_start[row + 1]] {
+                if seen[j] != node {
+                    seen[j] = node;
+                    columns.push(j);
+                }
+            }
+        }
+        if columns.len() > terms {
+            return None;
+        }
         columns[first..].sort_unstable();
         start.push(columns.len());
     }
     Some(NormalPattern { start, columns })
-}
-
-type Layout<'a> = (&'a [usize], &'a [usize], &'a [usize], &'a [usize]);
-
-fn each_column(
-    (row_start, row_nodes, node_start, node_rows): Layout<'_>,
-    node: usize,
-    seen: &mut [usize],
-    mut visit: impl FnMut(usize),
-) {
-    for &row in &node_rows[node_start[node]..node_start[node + 1]] {
-        for &j in &row_nodes[row_start[row]..row_start[row + 1]] {
-            if seen[j] != node {
-                seen[j] = node;
-                visit(j);
-            }
-        }
-    }
 }
 
 /// The weighted data term `Σ wᵣ·aᵣaᵣᵀ`, one sorted sparse row per node.
@@ -191,7 +174,7 @@ fn offsets(count: usize, nodes: impl Iterator<Item = usize>) -> Vec<usize> {
 pub(super) struct System<'a> {
     pattern: &'a Pattern,
     coefficients: Vec<f64>,
-    normal: Option<Vec<f64>>,
+    normal: Option<(&'a NormalPattern, Vec<f64>)>,
     pub diagonal: Vec<f64>,
     lambda: f64,
     ridge: f64,
@@ -230,7 +213,7 @@ impl<'a> System<'a> {
         let normal = pattern
             .normal
             .as_ref()
-            .map(|normal| assemble(pattern, normal, &coefficients, count));
+            .map(|normal| (normal, assemble(pattern, normal, &coefficients, count)));
         Self {
             pattern,
             coefficients,
@@ -248,8 +231,7 @@ impl<'a> System<'a> {
 
     fn multiply(&self, values: &[f64], per_row: &mut [f64], result: &mut [f64]) {
         let pattern = self.pattern;
-        let assembled = pattern.normal.as_ref().zip(self.normal.as_ref());
-        if assembled.is_none() {
+        if self.normal.is_none() {
             per_row
                 .par_chunks_mut(CHUNK)
                 .enumerate()
@@ -276,7 +258,7 @@ impl<'a> System<'a> {
                         continue;
                     }
                     *value = values[node] * self.ridge;
-                    match assembled {
+                    match &self.normal {
                         Some((normal, entries)) => {
                             let range = normal.start[node]..normal.start[node + 1];
                             for (&column, &entry) in
@@ -309,21 +291,20 @@ impl<'a> System<'a> {
         let data_terms = self
             .normal
             .as_ref()
-            .map_or(2 * self.pattern.row_nodes.len(), Vec::len);
+            .map_or(2 * self.pattern.row_nodes.len(), |(_, entries)| {
+                entries.len()
+            });
         data_terms + self.pattern.edge_peers.len() + self.diagonal.len()
     }
 
     pub(super) fn solve(&self, rhs: &[f64], initial: Vec<f64>) -> Option<(Vec<f64>, usize)> {
         let dot = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(u, v)| u * v).sum::<f64>();
         let mut ap = vec![0.; rhs.len()];
-        let mut per_row = vec![
-            0.;
-            if self.normal.is_some() {
-                0
-            } else {
-                self.pattern.row_start.len() - 1
-            }
-        ];
+        let walked_rows = self
+            .normal
+            .as_ref()
+            .map_or(self.pattern.row_start.len() - 1, |_| 0);
+        let mut per_row = vec![0.; walked_rows];
         let mut rhs = rhs.to_vec();
         let mut x = initial;
         for i in 0..x.len() {
