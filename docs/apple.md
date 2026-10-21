@@ -1,22 +1,26 @@
 # Apple platform
 
-Everything Apple lives under `src/apple/`: one Xcode project (`Maple.xcodeproj`) that ships a single universal app — product name **Maple**, bundle id `app.justmaple.aperture`, running on macOS, iPhone and iPad from one target — plus a separate tvOS app, four extensions, a macOS LaunchAgent, and two test bundles. Almost none of the interesting code is in the Xcode targets: the domain lives in three local Swift packages under `src/apple/Packages/` (`MapleCore`, `MapleUI`, `MapleBackup`), and all the image math lives in Rust, linked as a static library through `Frameworks/RawPipeline.xcframework`. Those `.a` slices and the generated `RawPipeline.h` headers are gitignored (the static libs are 200–500 MB each), so a fresh clone must build them once with `scripts/build-xcframework.sh` before Xcode can link or SwiftPM can compile. The editor renders through the Rust FFI — either the wgpu GPU path presenting straight into a `CAMetalLayer`, or a CoreImage CPU fallback — never through hand-written Apple render kernels, which were all deleted once the Rust chain subsumed them.
+Everything Apple lives under `src/apple/`: one Xcode project (`Maple.xcodeproj`) that ships a single universal app — product name **Maple**, bundle id `app.justmaple.aperture`, running on macOS, iPhone and iPad from one target — plus a separate tvOS app with its Top Shelf extension, a watchOS companion app, four extensions, a macOS LaunchAgent, and four test bundles. Almost none of the interesting code is in the Xcode targets: the domain lives in three local Swift packages under `src/apple/Packages/` (`MapleCore`, `MapleUI`, `MapleBackup`), and all the image math lives in Rust, linked as a static library through `Frameworks/RawPipeline.xcframework`. Those `.a` slices and the generated `RawPipeline.h` headers are gitignored (the static libs are 200–500 MB each), so a fresh clone must build them once with `scripts/build-xcframework.sh` before Xcode can link or SwiftPM can compile. The editor renders through the Rust FFI — either the wgpu GPU path presenting straight into a `CAMetalLayer`, or a CoreImage CPU fallback — never through hand-written Apple render kernels, which were all deleted once the Rust chain subsumed them.
 
 ## The Xcode project
 
-Nine native targets, two committed schemes.
+Thirteen native targets, three committed schemes.
 
-| Target               | Product           | Bundle id                   | Platforms          | Deployment            |
-| -------------------- | ----------------- | --------------------------- | ------------------ | --------------------- |
-| Maple                | app               | `app.justmaple.aperture`    | macOS, iOS, iPadOS | macOS 14.0 / iOS 26.0 |
-| Maple TV             | app               | `app.justmaple.aperture.tv` | tvOS               | tvOS 17.0             |
-| MapleFileProvider    | app extension     | `…aperture.FileProvider`    | macOS              | macOS 14.0            |
-| MapleFileProviderIOS | app extension     | `…aperture.FileProviderIOS` | iOS                | iOS 26.0              |
-| MapleQuickLook       | app extension     | `…aperture.QuickLook`       | macOS              | macOS 14.0            |
-| MapleWidget          | app extension     | `…aperture.Widget`          | macOS, iOS         | macOS 14.0 / iOS 26.0 |
-| MapleBackupAgent     | command-line tool | —                           | macOS              | macOS 14.0            |
-| MapleTests           | unit-test bundle  | `…aperture.Tests`           | macOS, iOS         | —                     |
-| MapleUITests         | UI-test bundle    | `…aperture.UITests`         | macOS, iOS         | —                     |
+| Target                       | Product           | Bundle id                      | Platforms          | Deployment            |
+| ---------------------------- | ----------------- | ------------------------------ | ------------------ | --------------------- |
+| Maple                        | app               | `app.justmaple.aperture`       | macOS, iOS, iPadOS | macOS 14.0 / iOS 26.0 |
+| Maple TV                     | app               | `app.justmaple.aperture.tv`    | tvOS               | tvOS 17.0             |
+| Maple Watch Watch App        | companion app     | `app.justmaple.aperture.watch` | watchOS            | watchOS 10.0          |
+| MapleTopShelf                | app extension     | `…aperture.tv.MapleTopShelf`   | tvOS               | tvOS 17.0             |
+| MapleFileProvider            | app extension     | `…aperture.FileProvider`       | macOS              | macOS 14.0            |
+| MapleFileProviderIOS         | app extension     | `…aperture.FileProviderIOS`    | iOS                | iOS 26.0              |
+| MapleQuickLook               | app extension     | `…aperture.QuickLook`          | macOS              | macOS 14.0            |
+| MapleWidget                  | app extension     | `…aperture.Widget`             | macOS, iOS         | macOS 14.0 / iOS 26.0 |
+| MapleBackupAgent             | command-line tool | —                              | macOS              | macOS 14.0            |
+| MapleTests                   | unit-test bundle  | `…aperture.Tests`              | macOS, iOS         | —                     |
+| MapleUITests                 | UI-test bundle    | `…aperture.UITests`            | macOS, iOS         | —                     |
+| Maple Watch Watch AppTests   | unit-test bundle  | `…aperture.watch.Tests`        | watchOS            | —                     |
+| Maple Watch Watch AppUITests | UI-test bundle    | `…aperture.watch.UITests`      | watchOS            | —                     |
 
 Which package products each target links (from `Maple.xcodeproj/project.pbxproj`):
 
@@ -24,11 +28,12 @@ Which package products each target links (from `Maple.xcodeproj/project.pbxproj`
 | --------------------------------------------------------- | -------------------------------------------------------------- |
 | Maple                                                     | MapleCore, MapleUI, MapleBackup                                |
 | Maple TV                                                  | MapleCloudKit only — deliberately no RawPipeline, no MapleCore |
+| Maple Watch Watch App                                     | MapleWatch, which links only MapleCloudKit                     |
 | MapleWidget                                               | MapleCloudKit                                                  |
 | MapleFileProvider / MapleFileProviderIOS / MapleQuickLook | MapleCore                                                      |
 | MapleBackupAgent                                          | MapleCore, MapleBackup                                         |
 
-Only two schemes are committed under `Maple.xcodeproj/xcshareddata/xcschemes/`: **Maple** (which also owns the MapleTests + MapleUITests test action, neither skipped) and **MapleBackupAgent**. The Maple scheme's test action pre-sets `MAPLE_UITEST_FIXTURE_ROOT` to the repo's `test-fixtures/raws` and `MAPLE_UITEST_GOLDENS_ROOT` to `MapleUITests/Goldens`, so a test run from Xcode finds fixtures without extra arguments.
+Three schemes are committed under `Maple.xcodeproj/xcshareddata/xcschemes/`: **Maple** (which also owns the MapleTests + MapleUITests test action, neither skipped), **MapleBackupAgent**, and **Maple Watch** (the Watch app and its tests). The Maple scheme's test action pre-sets `MAPLE_UITEST_FIXTURE_ROOT` to the repo's `test-fixtures/raws` and `MAPLE_UITEST_GOLDENS_ROOT` to `MapleUITests/Goldens`, so a test run from Xcode finds fixtures without extra arguments.
 
 ### Info.plist
 
@@ -296,3 +301,18 @@ The pattern shows up in test code too: `MapleUITests.swift`, `SliderMatrixUITest
 Enable Settings → General → AI Agents to serve MCP at `http://127.0.0.1:49157/mcp` from the running app. Choose **Copy setup prompt** and paste it into an AI tool to configure its connection. The prompt includes the actual URL, Keychain-backed bearer credential, Codex/Cursor configurations, and bundled Claude Desktop extension instructions. Settings shows connection status, startup errors and Retry.
 
 The HTTP transport awaits the existing `AgentEditService`, preserving revision checks, undo, and XMP persistence. Its `maple_export_photo` tool reuses `MapleExporter` with default full-resolution JPEG sRGB settings and saves a uniquely named file in the app's Documents/Exports folder (inside its sandbox container), returning the absolute path. A stale revision, changed photo or cancelled render does not publish a file. Disable access to invalidate queued calls and close all listeners and clients. iOS/tvOS do not link the HTTP product. See [MapleMCP](../src/apple/Packages/MapleMCP/README.md) for client setup, transport limits, and signed distribution qualification.
+
+## Maple Watch
+
+Maple Watch is an iPhone-assisted, read-only client for Self Hosted libraries (#3617). The `Maple Watch` shared scheme builds the watchOS app and its tests. The app target links `Packages/MapleWatch`, which consumes only the `MapleCloudKit` product from MapleCore; it never links RawPipeline. It offers library selection, Recent Photos, Memories, thumbnail lists and Crown-controlled photo viewing.
+
+Setup starts in iPhone Settings → Self Hosted → Connect Apple Watch. The user chooses a server and taps Allow Pairing, then taps Connect to iPhone on the Watch. WatchConnectivity carries an immediate request/reply, not a background credential transfer. The phone mints a distinct `watchos` device session through the existing `/api/auth/device-sessions` endpoint and journals the pending request/grant in its private keychain. An ambiguous mint outcome blocks automatic duplicate minting and offers explicit recovery. The Watch checks request ID and local generation before persisting credentials in its private keychain. A late reply after cancellation or disconnect cannot reconnect it. Matching acknowledgements clear only their pending grant.
+
+An installed Watch session is independent of the iPhone login. Web Settings → Account can revoke it. Disconnect on the Watch asks the server to end the session (best effort) and removes the local credentials. The phone must run a server version accepting `watchos` device-session requests. Image reads use existing server derivatives, never original RAWs. Both thumbnail and preview routes currently return AVIF; the larger-preview fallback covers missing/undecodable thumbnails but is not a JPEG codec fallback. Validate ImageIO decoding on physical Watch hardware, as well as pairing, network transitions and token refresh after suspension.
+
+```bash
+xcodebuild -project src/apple/Maple.xcodeproj -scheme "Maple Watch" \
+  -destination 'platform=watchOS Simulator,name=Apple Watch Series 11 (46mm)' test
+```
+
+Watch targets explicitly declare `watchos watchsimulator` to avoid inheriting the universal Apple app's platforms. Embedding and the companion dependency apply only to iOS. The package supports watchOS 10 and later.
