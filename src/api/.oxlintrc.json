@@ -65,6 +65,8 @@
         "src/routes/xmp.workflow-cancel.test.ts",
         // #4722: stages disposable JPEG fixtures under os.tmpdir(), never library files.
         "src/workers/stages/exif.library-reload.test.ts",
+        // #5027: retargets a disposable symlinked library root with real fs so the swap is not itself mirrored.
+        "src/backup/sidecar-cas.test.ts",
         "tests/coverage.instrument.ts",
         "tests/coverage.preload.ts",
         "tests/coverage.preload.test.ts",

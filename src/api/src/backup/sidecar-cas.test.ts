@@ -5,10 +5,10 @@
  * Real files in a registered temp library.
  */
 import { expect, test } from 'bun:test';
+import realFs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import * as fs from '../fs/mirrored.ts';
-import { flushPendingMirrorOps } from '../fs/mirrored.ts';
 import { clearMirrorRoots, setMirrorRoots } from '../fs/mirror-registry.ts';
 import {
   createLiveTestDatabase,
@@ -77,7 +77,7 @@ test('a sidecar published into a library reached through a symlinked root replic
 
     const sidecar = path.join(linkedRoot, '2026', '10', 'x.xmp');
     const outcome = await publishSidecarCas(sidecar, '<xmp/>', null, keepNothing, linkedRoot);
-    await flushPendingMirrorOps();
+    await fs.flushPendingMirrorOps();
 
     expect(outcome).toEqual({ kind: 'written' });
     expect(await fs.readFile(path.join(mirror, '2026', '10', 'x.xmp'), 'utf8')).toBe('<xmp/>');
@@ -112,12 +112,12 @@ test('a library root retargeted after the comparison fails closed instead of wri
       linkedRoot,
       {
         beforeWrite: async () => {
-          await fs.rm(linkedRoot);
-          await fs.symlink(otherRoot, linkedRoot);
+          await realFs.rm(linkedRoot);
+          await realFs.symlink(otherRoot, linkedRoot);
         },
       },
     );
-    await flushPendingMirrorOps();
+    await fs.flushPendingMirrorOps();
 
     expect(outcome.kind).toBe('error');
     await expect(fs.access(path.join(otherRoot, 'x.xmp'))).rejects.toThrow();
