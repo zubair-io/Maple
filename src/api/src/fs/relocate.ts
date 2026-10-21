@@ -509,6 +509,7 @@ async function copyRepointDelete(
           });
     await deleteOriginals(
       req.sourceAbsPath,
+      finalDest,
       [...movedSidecars, ...late],
       movedCompanionSources,
       req.beforeSourceDelete,
