@@ -17,6 +17,8 @@ pub(super) struct Pattern {
     node_weights: Vec<f64>,
     edge_start: Vec<usize>,
     edge_peers: Vec<(usize, bool)>,
+    normal_start: Vec<usize>,
+    normal_columns: Vec<usize>,
 }
 
 impl Pattern {
@@ -52,6 +54,22 @@ impl Pattern {
             edge_peers[cursor[j]] = (i, false);
             cursor[j] += 1;
         }
+        let mut seen = vec![usize::MAX; count];
+        let mut normal_start = vec![0];
+        let mut normal_columns = Vec::new();
+        for node in 0..count {
+            let first = normal_columns.len();
+            for &row in &node_rows[node_start[node]..node_start[node + 1]] {
+                for &j in &row_nodes[row_start[row]..row_start[row + 1]] {
+                    if seen[j] != node {
+                        seen[j] = node;
+                        normal_columns.push(j);
+                    }
+                }
+            }
+            normal_columns[first..].sort_unstable();
+            normal_start.push(normal_columns.len());
+        }
         Self {
             row_start,
             row_nodes,
@@ -61,11 +79,9 @@ impl Pattern {
             node_weights,
             edge_start,
             edge_peers,
+            normal_start,
+            normal_columns,
         }
-    }
-
-    fn rows(&self) -> usize {
-        self.row_start.len() - 1
     }
 
     /// `out[i] = Σ coefficient[k] · per_row[row_k]` over node `i`'s rows, in row order.
@@ -83,6 +99,33 @@ impl Pattern {
     }
 }
 
+/// The weighted data term `Σ wᵣ·aᵣaᵣᵀ`, one sorted sparse row per node.
+fn assemble(pattern: &Pattern, coefficients: &[f64], count: usize) -> Vec<f64> {
+    let rows: Vec<Vec<f64>> = (0..count)
+        .into_par_iter()
+        .map_init(
+            || vec![0.; count],
+            |scratch, node| {
+                for k in pattern.node_start[node]..pattern.node_start[node + 1] {
+                    let row = pattern.node_rows[k];
+                    let range = pattern.row_start[row]..pattern.row_start[row + 1];
+                    for (&j, &w) in pattern.row_nodes[range.clone()]
+                        .iter()
+                        .zip(&pattern.row_weights[range])
+                    {
+                        scratch[j] += coefficients[k] * w;
+                    }
+                }
+                pattern.normal_columns[pattern.normal_start[node]..pattern.normal_start[node + 1]]
+                    .iter()
+                    .map(|&j| std::mem::take(&mut scratch[j]))
+                    .collect()
+            },
+        )
+        .collect();
+    rows.concat()
+}
+
 fn offsets(count: usize, nodes: impl Iterator<Item = usize>) -> Vec<usize> {
     let mut start = vec![0; count + 1];
     for node in nodes {
@@ -97,6 +140,7 @@ fn offsets(count: usize, nodes: impl Iterator<Item = usize>) -> Vec<usize> {
 pub(super) struct System<'a> {
     pattern: &'a Pattern,
     coefficients: Vec<f64>,
+    normal: Vec<f64>,
     pub diagonal: Vec<f64>,
     lambda: f64,
     ridge: f64,
@@ -131,9 +175,11 @@ impl<'a> System<'a> {
                 diagonal[i] = 1.;
             }
         }
+        let normal = assemble(pattern, &coefficients, count);
         Self {
             pattern,
             coefficients,
+            normal,
             fixed,
             diagonal,
             lambda,
@@ -145,26 +191,8 @@ impl<'a> System<'a> {
         &self.coefficients
     }
 
-    fn multiply(&self, values: &[f64], per_row: &mut [f64], result: &mut [f64]) {
+    fn multiply(&self, values: &[f64], result: &mut [f64]) {
         let pattern = self.pattern;
-        per_row
-            .par_chunks_mut(CHUNK)
-            .enumerate()
-            .for_each(|(chunk, out)| {
-                for (offset, value) in out.iter_mut().enumerate() {
-                    let row = chunk * CHUNK + offset;
-                    let range = pattern.row_start[row]..pattern.row_start[row + 1];
-                    *value = pattern.row_nodes[range.clone()]
-                        .iter()
-                        .zip(&pattern.row_weights[range])
-                        .map(|(&i, &w)| w * values[i])
-                        .sum();
-                }
-            });
-        for (value, &v) in result.iter_mut().zip(values) {
-            *value = v * self.ridge;
-        }
-        pattern.scatter(&self.coefficients, per_row, result);
         result
             .par_chunks_mut(CHUNK)
             .enumerate()
@@ -174,6 +202,14 @@ impl<'a> System<'a> {
                     if self.fixed[node] {
                         *value = values[node];
                         continue;
+                    }
+                    *value = values[node] * self.ridge;
+                    let range = pattern.normal_start[node]..pattern.normal_start[node + 1];
+                    for (&column, &entry) in pattern.normal_columns[range.clone()]
+                        .iter()
+                        .zip(&self.normal[range])
+                    {
+                        *value += entry * values[column];
                     }
                     for &(peer, first) in
                         &pattern.edge_peers[pattern.edge_start[node]..pattern.edge_start[node + 1]]
@@ -190,7 +226,6 @@ impl<'a> System<'a> {
 
     pub(super) fn solve(&self, rhs: &[f64], initial: Vec<f64>) -> Option<Vec<f64>> {
         let dot = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(u, v)| u * v).sum::<f64>();
-        let mut per_row = vec![0.; self.pattern.rows()];
         let mut ap = vec![0.; rhs.len()];
         let mut rhs = rhs.to_vec();
         let mut x = initial;
@@ -200,7 +235,7 @@ impl<'a> System<'a> {
                 rhs[i] = 0.;
             }
         }
-        self.multiply(&x, &mut per_row, &mut ap);
+        self.multiply(&x, &mut ap);
         let mut r: Vec<_> = rhs.iter().zip(&ap).map(|(b, a)| b - a).collect();
         let mut z: Vec<_> = r.iter().zip(&self.diagonal).map(|(v, d)| v / d).collect();
         let mut p = z.clone();
@@ -213,7 +248,7 @@ impl<'a> System<'a> {
             if dot(&r, &r) <= norm * 1e-12 {
                 break;
             }
-            self.multiply(&p, &mut per_row, &mut ap);
+            self.multiply(&p, &mut ap);
             let denominator = dot(&p, &ap);
             if !denominator.is_finite() || denominator <= 0. {
                 return None;
