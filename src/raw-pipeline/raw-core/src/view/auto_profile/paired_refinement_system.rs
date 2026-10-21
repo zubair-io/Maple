@@ -1,9 +1,102 @@
 use super::{projection::is_neutral_node, Observation, TrainingRow};
 
+use rayon::prelude::*;
+
+const CHUNK: usize = 2048;
+
+/// The training rows' sparsity laid out twice: row-major for the per-row dot
+/// products, node-major (rows in their original order) for the per-node sums.
+/// Every output element is computed by one thread in the original order, so a
+/// parallel product is byte-identical to the sequential row walk (#5104).
+pub(super) struct Pattern {
+    row_start: Vec<usize>,
+    row_nodes: Vec<usize>,
+    row_weights: Vec<f64>,
+    node_start: Vec<usize>,
+    node_rows: Vec<usize>,
+    node_weights: Vec<f64>,
+    edge_start: Vec<usize>,
+    edge_peers: Vec<(usize, bool)>,
+}
+
+impl Pattern {
+    pub(super) fn new(rows: &[TrainingRow<'_>], size: usize, edges: &[(usize, usize)]) -> Self {
+        let count = size.pow(3);
+        let row_start: Vec<_> = std::iter::once(0)
+            .chain(rows.iter().scan(0, |end, entry| {
+                *end += entry.row.artifact_weights.len();
+                Some(*end)
+            }))
+            .collect();
+        let (row_nodes, row_weights): (Vec<_>, Vec<_>) = rows
+            .iter()
+            .flat_map(|entry| entry.row.artifact_weights.iter().copied())
+            .unzip();
+        let node_start = offsets(count, row_nodes.iter().copied());
+        let mut cursor = node_start.clone();
+        let mut node_rows = vec![0; row_nodes.len()];
+        let mut node_weights = vec![0.; row_nodes.len()];
+        for (row, entry) in rows.iter().enumerate() {
+            for &(i, w) in &entry.row.artifact_weights {
+                node_rows[cursor[i]] = row;
+                node_weights[cursor[i]] = w;
+                cursor[i] += 1;
+            }
+        }
+        let edge_start = offsets(count, edges.iter().flat_map(|&(i, j)| [i, j]));
+        let mut cursor = edge_start.clone();
+        let mut edge_peers = vec![(0, false); edges.len() * 2];
+        for &(i, j) in edges {
+            edge_peers[cursor[i]] = (j, true);
+            cursor[i] += 1;
+            edge_peers[cursor[j]] = (i, false);
+            cursor[j] += 1;
+        }
+        Self {
+            row_start,
+            row_nodes,
+            row_weights,
+            node_start,
+            node_rows,
+            node_weights,
+            edge_start,
+            edge_peers,
+        }
+    }
+
+    fn rows(&self) -> usize {
+        self.row_start.len() - 1
+    }
+
+    /// `out[i] = Σ coefficient[k] · per_row[row_k]` over node `i`'s rows, in row order.
+    pub(super) fn scatter(&self, coefficients: &[f64], per_row: &[f64], out: &mut [f64]) {
+        out.par_chunks_mut(CHUNK)
+            .enumerate()
+            .for_each(|(chunk, out)| {
+                for (offset, value) in out.iter_mut().enumerate() {
+                    let node = chunk * CHUNK + offset;
+                    for k in self.node_start[node]..self.node_start[node + 1] {
+                        *value += coefficients[k] * per_row[self.node_rows[k]];
+                    }
+                }
+            });
+    }
+}
+
+fn offsets(count: usize, nodes: impl Iterator<Item = usize>) -> Vec<usize> {
+    let mut start = vec![0; count + 1];
+    for node in nodes {
+        start[node + 1] += 1;
+    }
+    for i in 0..count {
+        start[i + 1] += start[i];
+    }
+    start
+}
+
 pub(super) struct System<'a> {
-    rows: &'a [TrainingRow<'a>],
-    weights: &'a [f64],
-    edges: &'a [(usize, usize)],
+    pattern: &'a Pattern,
+    coefficients: Vec<f64>,
     pub diagonal: Vec<f64>,
     lambda: f64,
     ridge: f64,
@@ -11,24 +104,26 @@ pub(super) struct System<'a> {
 }
 
 impl<'a> System<'a> {
-    pub(super) fn new(
-        rows: &'a [TrainingRow<'a>],
-        weights: &'a [f64],
-        size: usize,
-        edges: &'a [(usize, usize)],
-    ) -> Self {
+    pub(super) fn new(pattern: &'a Pattern, weights: &[f64], size: usize) -> Self {
         let count = size.pow(3);
         let lambda = 1e-5 * 8. / (size - 1) as f64 * 20.;
         let ridge = 1e-8 * 9f64.powi(3) / count as f64 * 20.;
+        let coefficients: Vec<f64> = pattern
+            .node_rows
+            .iter()
+            .zip(&pattern.node_weights)
+            .map(|(&row, &w)| weights[row] * w)
+            .collect();
         let mut diagonal = vec![ridge; count];
-        for (entry, &weight) in rows.iter().zip(weights) {
-            for &(i, w) in &entry.row.artifact_weights {
-                diagonal[i] += weight * w * w;
+        for (node, value) in diagonal.iter_mut().enumerate() {
+            for k in pattern.node_start[node]..pattern.node_start[node + 1] {
+                *value += coefficients[k] * pattern.node_weights[k];
             }
         }
-        for &(i, j) in edges {
-            diagonal[i] += lambda;
-            diagonal[j] += lambda;
+        for (node, value) in diagonal.iter_mut().enumerate() {
+            for _ in pattern.edge_start[node]..pattern.edge_start[node + 1] {
+                *value += lambda;
+            }
         }
         let fixed: Vec<_> = (0..count).map(|i| is_neutral_node(i, size)).collect();
         for i in 0..count {
@@ -37,44 +132,66 @@ impl<'a> System<'a> {
             }
         }
         Self {
+            pattern,
+            coefficients,
             fixed,
-            rows,
-            weights,
-            edges,
             diagonal,
             lambda,
             ridge,
         }
     }
 
-    fn multiply(&self, values: &[f64]) -> Vec<f64> {
-        let mut result: Vec<_> = values.iter().map(|v| v * self.ridge).collect();
-        for (entry, &weight) in self.rows.iter().zip(self.weights) {
-            let value: f64 = entry
-                .row
-                .artifact_weights
-                .iter()
-                .map(|&(i, w)| w * values[i])
-                .sum();
-            for &(i, w) in &entry.row.artifact_weights {
-                result[i] += weight * w * value;
-            }
+    pub(super) fn coefficients(&self) -> &[f64] {
+        &self.coefficients
+    }
+
+    fn multiply(&self, values: &[f64], per_row: &mut [f64], result: &mut [f64]) {
+        let pattern = self.pattern;
+        per_row
+            .par_chunks_mut(CHUNK)
+            .enumerate()
+            .for_each(|(chunk, out)| {
+                for (offset, value) in out.iter_mut().enumerate() {
+                    let row = chunk * CHUNK + offset;
+                    let range = pattern.row_start[row]..pattern.row_start[row + 1];
+                    *value = pattern.row_nodes[range.clone()]
+                        .iter()
+                        .zip(&pattern.row_weights[range])
+                        .map(|(&i, &w)| w * values[i])
+                        .sum();
+                }
+            });
+        for (value, &v) in result.iter_mut().zip(values) {
+            *value = v * self.ridge;
         }
-        for &(i, j) in self.edges {
-            let delta = self.lambda * (values[i] - values[j]);
-            result[i] += delta;
-            result[j] -= delta;
-        }
-        for i in 0..result.len() {
-            if self.fixed[i] {
-                result[i] = values[i];
-            }
-        }
+        pattern.scatter(&self.coefficients, per_row, result);
         result
+            .par_chunks_mut(CHUNK)
+            .enumerate()
+            .for_each(|(chunk, out)| {
+                for (offset, value) in out.iter_mut().enumerate() {
+                    let node = chunk * CHUNK + offset;
+                    if self.fixed[node] {
+                        *value = values[node];
+                        continue;
+                    }
+                    for &(peer, first) in
+                        &pattern.edge_peers[pattern.edge_start[node]..pattern.edge_start[node + 1]]
+                    {
+                        if first {
+                            *value += self.lambda * (values[node] - values[peer]);
+                        } else {
+                            *value -= self.lambda * (values[peer] - values[node]);
+                        }
+                    }
+                }
+            });
     }
 
     pub(super) fn solve(&self, rhs: &[f64], initial: Vec<f64>) -> Option<Vec<f64>> {
         let dot = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(u, v)| u * v).sum::<f64>();
+        let mut per_row = vec![0.; self.pattern.rows()];
+        let mut ap = vec![0.; rhs.len()];
         let mut rhs = rhs.to_vec();
         let mut x = initial;
         for i in 0..x.len() {
@@ -83,8 +200,8 @@ impl<'a> System<'a> {
                 rhs[i] = 0.;
             }
         }
-        let ax = self.multiply(&x);
-        let mut r: Vec<_> = rhs.iter().zip(ax).map(|(b, a)| b - a).collect();
+        self.multiply(&x, &mut per_row, &mut ap);
+        let mut r: Vec<_> = rhs.iter().zip(&ap).map(|(b, a)| b - a).collect();
         let mut z: Vec<_> = r.iter().zip(&self.diagonal).map(|(v, d)| v / d).collect();
         let mut p = z.clone();
         let mut rz = dot(&r, &z);
@@ -96,7 +213,7 @@ impl<'a> System<'a> {
             if dot(&r, &r) <= norm * 1e-12 {
                 break;
             }
-            let ap = self.multiply(&p);
+            self.multiply(&p, &mut per_row, &mut ap);
             let denominator = dot(&p, &ap);
             if !denominator.is_finite() || denominator <= 0. {
                 return None;
@@ -162,7 +279,8 @@ mod tests {
         }];
         let weights = [2.];
         let edges = edges(2);
-        let system = System::new(&rows, &weights, 2, &edges);
+        let pattern = Pattern::new(&rows, 2, &edges);
+        let system = System::new(&pattern, &weights, 2);
         let rhs = vec![0., 0.5, 1.5, 0., 0., 0., 0., 0.];
         let solved = system.solve(&rhs, vec![0.; 8]).unwrap();
         let mut residual: Vec<_> = solved.iter().map(|v| v * system.ridge).collect();

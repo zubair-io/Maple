@@ -1,4 +1,5 @@
 use super::{assess_against, ColorLut, Observation};
+use rayon::prelude::*;
 #[path = "paired_refinement_projection.rs"]
 mod projection;
 #[path = "paired_refinement_regions.rs"]
@@ -37,7 +38,7 @@ fn training<'a>(native: &'a [Observation], display: &'a [Observation]) -> Vec<Tr
 }
 
 fn errors(lut: &ColorLut, rows: &[TrainingRow<'_>]) -> Vec<[f64; 3]> {
-    rows.iter()
+    rows.par_iter()
         .map(|r| {
             let output = system::prediction(&lut.data, r.row);
             std::array::from_fn(|c| output[c] - r.row.target[c])
@@ -107,15 +108,16 @@ pub(super) fn refine(
         *value = *value / total + 1e-8;
     }
     let baseline: Vec<_> = rows
-        .iter()
+        .par_iter()
         .map(|r| system::prediction(&origin.data, r.row))
         .collect();
+    let pattern = system::Pattern::new(&rows, origin.size, &edges);
     let mut artifact = origin.clone();
     let mut best = None;
-    let initial_score = objective(&group_errors(&rows, &errors(origin, &rows), &mass), &mass);
+    let mut error = errors(origin, &rows);
+    let initial_score = objective(&group_errors(&rows, &error, &mass), &mass);
     let mut final_score = initial_score;
     for _ in 0..6 {
-        let error = errors(&artifact, &rows);
         let groups = group_errors(&rows, &error, &mass);
         let mut dual = [[0.; 3]; 70];
         for c in 0..3 {
@@ -136,8 +138,7 @@ pub(super) fn refine(
                 dual[g][c] /= sum;
             }
         }
-        let mut candidate = origin.clone();
-        for c in 0..3 {
+        let solve_channel = |c: usize| {
             let weights: Vec<_> = rows
                 .iter()
                 .zip(&error)
@@ -149,18 +150,23 @@ pub(super) fn refine(
                     group_weight / (e[c] * e[c] + (1f64 / 255.).powi(2)).sqrt()
                 })
                 .collect();
-            let system = system::System::new(&rows, &weights, origin.size, &edges);
+            let system = system::System::new(&pattern, &weights, origin.size);
+            let residuals: Vec<_> = rows
+                .iter()
+                .zip(&baseline)
+                .map(|(entry, base)| entry.row.target[c] - base[c])
+                .collect();
             let mut rhs = vec![0.; count];
-            for ((entry, base), &weight) in rows.iter().zip(&baseline).zip(&weights) {
-                let residual = entry.row.target[c] - base[c];
-                for &(i, w) in &entry.row.artifact_weights {
-                    rhs[i] += weight * w * residual;
-                }
-            }
+            pattern.scatter(system.coefficients(), &residuals, &mut rhs);
             let start = (0..count)
                 .map(|i| f64::from(artifact.data[i * 3 + c] - origin.data[i * 3 + c]))
                 .collect();
-            let delta = system.solve(&rhs, start)?;
+            system.solve(&rhs, start)
+        };
+        let deltas: Vec<_> = (0..3).into_par_iter().map(solve_channel).collect();
+        let mut candidate = origin.clone();
+        for (c, delta) in deltas.into_iter().enumerate() {
+            let delta = delta?;
             for i in 0..count {
                 candidate.data[i * 3 + c] += delta[i] as f32;
             }
@@ -179,16 +185,18 @@ pub(super) fn refine(
             }
             projection::constrain_to_prior(&mut tested.data, origin, &confidence);
             regions::constrain(&mut tested, origin, display, &confidence);
-            let score = objective(&group_errors(&rows, &errors(&tested, &rows), &mass), &mass);
+            let tested_error = errors(&tested, &rows);
+            let score = objective(&group_errors(&rows, &tested_error, &mass), &mass);
             if score < before {
-                accepted = Some((tested, score));
+                accepted = Some((tested, tested_error, score));
                 break;
             }
         }
-        let Some((tested, score)) = accepted else {
+        let Some((tested, tested_error, score)) = accepted else {
             break;
         };
         artifact = tested;
+        error = tested_error;
         final_score = score;
         let assessment = assess_against(&artifact, native, display, Some(origin));
         if assessment.compatible && assessment.native_bands_preserved {
