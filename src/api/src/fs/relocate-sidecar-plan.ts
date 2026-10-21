@@ -137,7 +137,8 @@ async function displacedOldNameEdits(
   const found: { legacy: string; bytes: Buffer }[] = [];
   for (;;) {
     const skip = new Set(found.map((edit) => edit.legacy));
-    const next = await locateLegacyBackupEdit(req.finalDest, skip).catch(() => null);
+    // A folder that can't be listed throws: a case variant there can't be ruled out.
+    const next = await locateLegacyBackupEdit(req.finalDest, skip);
     if (next === null) return found;
     found.push(next);
   }
