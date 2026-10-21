@@ -92,6 +92,7 @@ struct ToneCurveSection: View {
   @State private var activeRegion: ParametricRegion?
   @State private var selectedKnotIndex: Int?
   @Environment(\.toneCurveKeyboardBridge) private var keyboardBridge
+  @Environment(\.mapleLayout) private var layout
   @State private var curveKeyHandler: ((KeyPress) -> KeyPress.Result)?
 
   private var channels: [Channel] {
@@ -107,7 +108,7 @@ struct ToneCurveSection: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: layout == .phone ? 6 : 10) {
       familyRow
       if selectedFamily == .sceneLinear {
         ToneCurveModeRow(
@@ -122,6 +123,7 @@ struct ToneCurveSection: View {
       }
       channelRow
       curvePlot
+        .frame(maxWidth: .infinity, alignment: .center)
       if let knotInfo = selectedKnotInfo {
         ToneCurveKnotReadout(
           knot: knotInfo.knot,

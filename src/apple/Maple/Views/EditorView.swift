@@ -225,6 +225,7 @@ struct EditorSurface: View {
           VectorscopeHud(state: state)
         }
       }
+      .padding(.top, 60)
     }
     // Mac extends under its hidden window toolbar. iOS keeps the top
     // inset so the editor header stays clear of system status/navigation.

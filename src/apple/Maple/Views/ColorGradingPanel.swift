@@ -21,6 +21,11 @@ import SwiftUI
 struct ColorGradingPanel: View {
   @Bindable var state: EditorState
   @State private var isDraggingEdge = false
+  @Environment(\.mapleLayout) private var layout
+
+  private var isPhone: Bool { layout == .phone }
+  private var wheelSize: CGFloat { isPhone ? 72 : 96 }
+  private var gridSpacing: CGFloat { isPhone ? 10 : 14 }
 
   private struct Zone {
     let title: String
@@ -55,11 +60,13 @@ struct ColorGradingPanel: View {
     ]
   }
 
-  private let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
+  private var columns: [GridItem] {
+    [GridItem(.flexible(), spacing: gridSpacing), GridItem(.flexible(), spacing: gridSpacing)]
+  }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      LazyVGrid(columns: columns, spacing: 16) {
+    VStack(alignment: .leading, spacing: isPhone ? 10 : 14) {
+      LazyVGrid(columns: columns, spacing: isPhone ? 10 : 16) {
         ForEach(zones, id: \.title) { zone in
           zoneCell(zone)
         }
@@ -273,7 +280,7 @@ struct ColorGradingPanel: View {
   }
 
   private func zoneCell(_ zone: Zone) -> some View {
-    VStack(spacing: 8) {
+    VStack(spacing: isPhone ? 4 : 8) {
       Text(zone.title.uppercased())
         .font(.system(size: 9, weight: .semibold))
         .tracking(0.6)
@@ -286,7 +293,8 @@ struct ColorGradingPanel: View {
         onCommit: { state.commit() },
         onEnd: { state.endGesture() }
       )
-      .frame(width: 96, height: 96)
+      .frame(width: wheelSize, height: wheelSize)
+      .padding(4)
 
       LivingSlider(
         label: "Lum",
