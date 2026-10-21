@@ -175,6 +175,26 @@ describe('refile sidecar barrier (#5061)', () => {
     expect(await read('2024/03-15/IMG.xmp')).toBe('edit 2');
   });
 
+  test("another process's save landing on the new path just before the swap is kept", async () => {
+    const plan = await place();
+    await write('2024/03-15/IMG.xmp', 'edit 2');
+    const realRename = fs.rename;
+    const rename = spyOn(fs, 'rename').mockImplementationOnce(async (from, to) => {
+      await fs.writeFile(abs('2024/IMG.xmp'), 'api save');
+      return realRename(from, to);
+    });
+    try {
+      await cleanUp(plan);
+    } finally {
+      rename.mockRestore();
+    }
+
+    expect(await read('2024/IMG.xmp')).toBe('api save');
+    expect(await read('2024/IMG (conflict from refile).xmp')).toBe('edit 2');
+    expect(await read('2024/03-15/IMG.xmp')).toBeNull();
+    expect((await fs.readdir(abs('2024'))).filter((name) => name.includes('.tmp.'))).toEqual([]);
+  });
+
   test('a conflict name taken in a race moves on to the next free one', async () => {
     const plan = await place();
     await write('2024/03-15/IMG.xmp', 'late save at the old path');
