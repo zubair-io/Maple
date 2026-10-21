@@ -267,19 +267,21 @@ async function publishConflictCopy(beside: string, bytes: Buffer): Promise<boole
 
 /** The old-name edit this move carried, kept at the old path by its settle,
  * names this photo, not the file that took its place, so it follows the
- * quarantined photo as a conflict copy and leaves the old path once that copy
- * holds its current bytes. An edit that appeared there later is the newcomer's. */
+ * quarantined photo as a conflict copy and leaves the old path. Only the path
+ * this move carried is considered. */
 async function carryRetainedOldNameEdit(legacy: string, movedTo: string): Promise<void> {
-  const bytes = await readSidecarBytes(legacy).catch(() => null);
-  if (bytes === null) return;
-  if (!(await publishConflictCopy(movedTo, bytes))) {
-    log.error(
-      { legacy },
-      'moveToDuplicates: the retained old-name edit could not follow the photo',
-    );
-    return;
-  }
+  // Read, copied and removed under one barrier, so a save in between is never left behind.
   await serializeSidecarWrite(legacy, async () => {
+    const bytes = await readSidecarBytes(legacy).catch(() => null);
+    if (bytes === null) return;
+    if (!(await publishConflictCopy(movedTo, bytes))) {
+      log.error(
+        { legacy },
+        'moveToDuplicates: the retained old-name edit could not follow the photo',
+      );
+      return;
+    }
+    // Another process can still save without this barrier; such a save stays.
     const now = await readSidecarBytes(legacy).catch(() => null);
     if (now?.equals(bytes)) await fs.unlink(legacy).catch(() => {});
   });
