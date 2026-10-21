@@ -177,16 +177,7 @@ public final class EngineHost {
       // progress VM to miss those events and undercount on restart.
       await progress.start(queue: queue)
 
-      // Rehydrate any persisted pending tasks so the engine resumes work
-      // that was queued before a crash / settings change.
-      for task in try await state.tasks(in: .pending) {
-        await queue.enqueue(task, priority: task.priority)
-      }
-      // Any .uploading rows left by a crashed run go back to .pending.
-      for task in try await state.tasks(in: .uploading) {
-        try await state.transition(task.id, to: .pending)
-        await queue.enqueue(task, priority: task.priority)
-      }
+      try await state.rehydrate(into: queue)
 
       await LocalNetworkResolver.shared.resolve(identity: serverBaseURL)
       guard generation == self.generation else { return }
