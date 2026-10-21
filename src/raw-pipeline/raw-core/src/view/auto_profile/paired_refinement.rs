@@ -112,6 +112,7 @@ pub(super) fn refine(
         .map(|r| system::prediction(&origin.data, r.row))
         .collect();
     let pattern = system::Pattern::new(&rows, origin.size, &edges);
+    let regions = regions::Regions::new(origin, display);
     let mut artifact = origin.clone();
     let mut best = None;
     let mut error = errors(origin, &rows);
@@ -184,7 +185,7 @@ pub(super) fn refine(
                 *v = a + fraction * (b - a);
             }
             projection::constrain_to_prior(&mut tested.data, origin, &confidence);
-            regions::constrain(&mut tested, origin, display, &confidence);
+            regions.constrain(&mut tested, origin, &confidence);
             let tested_error = errors(&tested, &rows);
             let score = objective(&group_errors(&rows, &tested_error, &mass), &mass);
             if score < before {
