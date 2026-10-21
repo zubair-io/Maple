@@ -175,13 +175,14 @@ async function canonicalizeLocation(
   const handled = new Set<string>();
   for (;;) {
     // Case-aware, and a folder that can't be listed throws for a retry (#5063).
-    const located = await locateLegacyBackupEdit(primary).then(
+    // Spellings already handled are skipped, so one that stays never hides the next.
+    const located = await locateLegacyBackupEdit(primary, handled).then(
       (edit) => ({ edit }),
       (err: unknown) => ({ err }),
     );
     if ('err' in located) return locationFailed(assetId, primary, located.err);
     const { edit } = located;
-    if (edit === null || handled.has(edit.legacy)) return 'done';
+    if (edit === null) return 'done';
     handled.add(edit.legacy);
     const outcome = await canonicalizeEdit(assetId, location, primary, root, edit);
     if (outcome !== 'done') return outcome;

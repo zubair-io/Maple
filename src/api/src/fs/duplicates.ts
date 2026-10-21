@@ -227,13 +227,14 @@ async function returnCarriedEdit(
   carried: { source: string; dest: string },
   absPath: string,
 ): Promise<boolean> {
-  const bytes = await readSidecarBytes(carried.dest).catch(() => null);
+  const bytes = await readSidecarBytes(carried.dest).catch(() => 'unreadable' as const);
+  if (bytes === 'unreadable') return false;
   if (bytes === null) return true;
-  const returned = await publishAtOneOf(
-    [carried.source, ...Array.from({ length: RETURN_ATTEMPTS }, () => null)],
-    absPath,
-    bytes,
-  );
+  const returned =
+    (await publishBytes(carried.source, bytes).then(
+      () => true,
+      () => false,
+    )) || (await publishConflictCopy(absPath, bytes));
   if (returned) {
     await fs.unlink(carried.dest).catch(() => {});
     return true;
@@ -247,15 +248,11 @@ async function returnCarriedEdit(
 
 const RETURN_ATTEMPTS = 5;
 
-/** `null` picks a fresh conflict name beside the photo. */
-async function publishAtOneOf(
-  names: readonly (string | null)[],
-  absPath: string,
-  bytes: Buffer,
-): Promise<boolean> {
-  for (const name of names) {
-    const dest = name ?? (await pickFreeConflictPath(absPath, 'move'));
-    const published = await publishBytes(dest, bytes).then(
+/** Another writer can take the picked conflict name first; pick again. */
+async function publishConflictCopy(absPath: string, bytes: Buffer): Promise<boolean> {
+  for (let attempt = 0; attempt < RETURN_ATTEMPTS; attempt++) {
+    const conflict = await pickFreeConflictPath(absPath, 'move');
+    const published = await publishBytes(conflict, bytes).then(
       () => true,
       () => false,
     );

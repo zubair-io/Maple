@@ -175,13 +175,14 @@ function legacyEntries(legacy: string, listed: readonly string[]): string[] {
  * "no edit"; a folder that's gone holds none. */
 export async function locateLegacyBackupEdit(
   primary: string,
+  skip: ReadonlySet<string> = new Set(),
 ): Promise<{ legacy: string; bytes: Buffer } | null> {
   const listed = await fs.readdir(path.dirname(primary)).catch((err: unknown) => {
     if (errnoCode(err) === 'ENOENT') return null;
     throw err;
   });
   if (listed === null) return null;
-  const legacy = await pairedLegacyBackupSidecar(primary, listed);
+  const legacy = await pairedLegacyBackupSidecar(primary, listed, skip);
   if (legacy === null) return null;
   const bytes = await readLegacyAt(primary, legacy, listed);
   return bytes === null ? null : { legacy, bytes };
@@ -192,11 +193,13 @@ export async function locateLegacyBackupEdit(
 export async function pairedLegacyBackupSidecar(
   primary: string,
   listed: readonly string[],
+  skip: ReadonlySet<string> = new Set(),
 ): Promise<string | null> {
   const legacy = legacyBackupSidecar(primary);
   if (legacy === null) return null;
   for (const entry of legacyEntries(legacy, listed)) {
     const stored = path.join(path.dirname(primary), entry);
+    if (skip.has(stored)) continue;
     if ((await readLegacyAt(primary, stored, listed)) !== null) return stored;
   }
   return null;
