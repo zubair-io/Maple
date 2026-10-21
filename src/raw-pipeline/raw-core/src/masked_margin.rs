@@ -31,6 +31,11 @@ pub struct ActiveArea {
 /// and may hold this share of samples above it (hot optical-black photosites).
 const MASKED_TOLERANCE_PERCENT: usize = 1;
 
+/// Refills masked strips and returns the frame with the effective white
+/// `infer_white` finds on it. Inference sees masked strips as zeros, below
+/// black, so neither their original padding nor the cloned edge samples that
+/// replace them can pose as a clipping plateau.
+#[allow(clippy::too_many_arguments)]
 pub fn refill_masked_margins(
     mut data: Vec<u16>,
     width: usize,
@@ -38,26 +43,27 @@ pub fn refill_masked_margins(
     cfa: &CfaPattern,
     area: Option<ActiveArea>,
     black: &[u32; 4],
-    white: u32,
-) -> Vec<u16> {
-    if matches!(cfa, CfaPattern::LinearRgb) {
-        return data;
-    }
+    declared_white: u32,
+    infer_white: impl FnOnce(&[u16]) -> u32,
+) -> (Vec<u16>, u32) {
     let period = cfa_period(cfa);
-    let Some(area) = area else { return data };
+    let usable = area.filter(|a| {
+        !matches!(cfa, CfaPattern::LinearRgb)
+            && data.len() == width * height
+            && a.left + a.width <= width
+            && a.top + a.height <= height
+            && a.width >= period
+            && a.height >= period
+    });
+    let Some(area) = usable else {
+        let white = infer_white(&data);
+        return (data, white);
+    };
     let (right, bottom) = (area.left + area.width, area.top + area.height);
-    if data.len() != width * height
-        || right > width
-        || bottom > height
-        || area.width < period
-        || area.height < period
-    {
-        return data;
-    }
     let black_max = black.iter().copied().max().unwrap_or(0);
-    let threshold =
-        black_max + white.saturating_sub(black_max) * MASKED_TOLERANCE_PERCENT as u32 / 100;
-    let masked = |data: &[u16], rows: std::ops::Range<usize>, cols: std::ops::Range<usize>| {
+    let threshold = black_max
+        + declared_white.saturating_sub(black_max) * MASKED_TOLERANCE_PERCENT as u32 / 100;
+    let masked = |rows: std::ops::Range<usize>, cols: std::ops::Range<usize>| {
         let samples = rows.len() * cols.len();
         if area.declared {
             return samples > 0;
@@ -68,29 +74,35 @@ pub fn refill_masked_margins(
             .count();
         samples > 0 && bright * 100 <= samples * MASKED_TOLERANCE_PERCENT
     };
-    let into_active = |v: usize, lo: usize, hi: usize| nearest_active(v, lo, hi, period);
+    let strip = |on: bool, range: std::ops::Range<usize>| if on { range } else { 0..0 };
+    let columns: Vec<usize> = strip(masked(area.top..bottom, 0..area.left), 0..area.left)
+        .chain(strip(masked(area.top..bottom, right..width), right..width))
+        .collect();
+    let rows: Vec<usize> = strip(masked(0..area.top, 0..width), 0..area.top)
+        .chain(strip(masked(bottom..height, 0..width), bottom..height))
+        .collect();
 
-    let left_masked = masked(&data, area.top..bottom, 0..area.left);
-    let right_masked = masked(&data, area.top..bottom, right..width);
     for y in area.top..bottom {
-        let row = y * width;
-        let left = if left_masked { 0..area.left } else { 0..0 };
-        let right_cols = if right_masked { right..width } else { 0..0 };
-        let columns = left.chain(right_cols);
-        for x in columns {
-            data[row + x] = data[row + into_active(x, area.left, right)];
+        for &x in &columns {
+            data[y * width + x] = 0;
         }
     }
-    let top_masked = masked(&data, 0..area.top, 0..width);
-    let bottom_masked = masked(&data, bottom..height, 0..width);
-    let top_rows = if top_masked { 0..area.top } else { 0..0 };
-    let bottom_rows = if bottom_masked { bottom..height } else { 0..0 };
-    let rows = top_rows.chain(bottom_rows);
-    for y in rows {
+    for &y in &rows {
+        data[y * width..(y + 1) * width].fill(0);
+    }
+    let white = infer_white(&data);
+
+    let into_active = |v: usize, lo: usize, hi: usize| nearest_active(v, lo, hi, period);
+    for y in area.top..bottom {
+        for &x in &columns {
+            data[y * width + x] = data[y * width + into_active(x, area.left, right)];
+        }
+    }
+    for &y in &rows {
         let source = into_active(y, area.top, bottom) * width;
         data.copy_within(source..source + width, y * width);
     }
-    data
+    (data, white)
 }
 
 /// Rows and columns between repeats of the CFA pattern; 1 for LinearRgb.

@@ -1,5 +1,17 @@
 use super::*;
 
+fn refill(
+    data: Vec<u16>,
+    width: usize,
+    height: usize,
+    cfa: &CfaPattern,
+    area: Option<ActiveArea>,
+    black: &[u32; 4],
+    white: u32,
+) -> Vec<u16> {
+    refill_masked_margins(data, width, height, cfa, area, black, white, |_| white).0
+}
+
 const W: usize = 24;
 const H: usize = 16;
 const BLACK: [u32; 4] = [512; 4];
@@ -36,8 +48,8 @@ fn frame(margin: u16) -> Vec<u16> {
 
 #[test]
 fn a_declared_margin_poisoned_at_white_refills_like_a_black_one() {
-    let refill = |margin| {
-        refill_masked_margins(
+    let refilled = |margin| {
+        refill(
             frame(margin),
             W,
             H,
@@ -47,7 +59,7 @@ fn a_declared_margin_poisoned_at_white_refills_like_a_black_one() {
             WHITE,
         )
     };
-    let (from_black, from_white) = (refill(512), refill(16000));
+    let (from_black, from_white) = (refilled(512), refilled(16000));
     assert_eq!(from_black, from_white);
     assert!(
         (0..W * H)
@@ -59,7 +71,7 @@ fn a_declared_margin_poisoned_at_white_refills_like_a_black_one() {
 
 #[test]
 fn refilled_samples_copy_the_nearest_active_sample_of_the_same_phase() {
-    let out = refill_masked_margins(
+    let out = refill(
         frame(512),
         W,
         H,
@@ -91,7 +103,7 @@ fn refilled_samples_copy_the_nearest_active_sample_of_the_same_phase() {
 #[test]
 fn an_undeclared_margin_holding_image_data_is_left_alone() {
     let bright = frame(9000);
-    let out = refill_masked_margins(
+    let out = refill(
         bright.clone(),
         W,
         H,
@@ -114,7 +126,7 @@ fn x_trans_refill_keeps_the_six_by_six_phase() {
         declared: true,
     };
     let src: Vec<u16> = (0..W * H).map(|i| i as u16).collect();
-    let out = refill_masked_margins(
+    let out = refill(
         src.clone(),
         W,
         H,
@@ -143,7 +155,7 @@ fn x_trans_refill_keeps_the_six_by_six_phase() {
 fn linear_rgb_and_missing_areas_pass_through() {
     let src = frame(512);
     assert_eq!(
-        refill_masked_margins(
+        refill(
             src.clone(),
             W,
             H,
@@ -155,7 +167,7 @@ fn linear_rgb_and_missing_areas_pass_through() {
         src
     );
     assert_eq!(
-        refill_masked_margins(src.clone(), W, H, &CfaPattern::Rggb, None, &BLACK, WHITE),
+        refill(src.clone(), W, H, &CfaPattern::Rggb, None, &BLACK, WHITE),
         src
     );
 }
@@ -164,8 +176,8 @@ fn linear_rgb_and_missing_areas_pass_through() {
 fn the_content_gate_uses_the_highest_per_phase_black() {
     let black = [500, 510, 520, 530];
     let margin_at = |level| frame(level);
-    let refill = |data| {
-        refill_masked_margins(
+    let refill_with = |data| {
+        refill(
             data,
             W,
             H,
@@ -176,14 +188,49 @@ fn the_content_gate_uses_the_highest_per_phase_black() {
         )
     };
     assert_ne!(
-        refill(margin_at(530)),
+        refill_with(margin_at(530)),
         margin_at(530),
         "at the highest black: masked"
     );
     let above = 530 + (WHITE - 530) / 100 + 1;
     assert_eq!(
-        refill(margin_at(above as u16)),
+        refill_with(margin_at(above as u16)),
         margin_at(above as u16),
         "above tolerance: kept"
+    );
+}
+
+#[test]
+fn white_is_inferred_with_masked_strips_zeroed() {
+    let (refilled, seen) = refill_masked_margins(
+        frame(16000),
+        W,
+        H,
+        &CfaPattern::Rggb,
+        Some(area(true)),
+        &BLACK,
+        WHITE,
+        |data| u32::from(*data.iter().max().unwrap()),
+    );
+    let active_max = (0..W * H)
+        .filter(|&i| inside(i % W, i / W))
+        .map(|i| u32::from(frame(16000)[i]))
+        .max()
+        .unwrap();
+    assert_eq!(
+        seen, active_max,
+        "inference saw only active samples and zeros"
+    );
+    assert_eq!(
+        refilled,
+        refill(
+            frame(512),
+            W,
+            H,
+            &CfaPattern::Rggb,
+            Some(area(true)),
+            &BLACK,
+            WHITE
+        )
     );
 }

@@ -197,7 +197,12 @@ impl SensorGainMaps {
     /// (#4657) instead of a step at the active edge.
     fn site(&self, x: u32, y: u32) -> Option<(u32, u32)> {
         let aa = self.active_area;
-        let period = self.cfa_period.max(1);
+        let period = self.cfa_period;
+        if period <= 1 {
+            // LinearRaw margins are never refilled; leave their data alone.
+            let (x, y) = (x.checked_sub(aa.left)?, y.checked_sub(aa.top)?);
+            return (x < aa.width && y < aa.height).then_some((x, y));
+        }
         if aa.width < period || aa.height < period {
             return None;
         }
@@ -341,6 +346,14 @@ mod tests {
                 "{margin:?} vs {source:?}"
             );
         }
+        // LinearRaw margins are never refilled, so they take no gain.
+        let linear = SensorGainMaps {
+            cfa_period: 1,
+            steps: maps.steps.clone(),
+            ..maps
+        };
+        assert_eq!(linear.saturation(0, 3, 0), 1.);
+        assert_eq!(linear.saturation(14, 12, 0), 1.);
         // X-Trans repeats every 6 sites; the copy and its gain both step by 6.
         let x_trans = SensorGainMaps {
             cfa_period: 6,
