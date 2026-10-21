@@ -106,6 +106,40 @@ final class SMBSidecarOwnershipTests: XCTestCase {
     XCTAssertEqual(files, ["/Shoot/x.dng": "raw", "/Shoot/x.xmp": "<only/>"])
   }
 
+  func testCaseOnlyRenameOnACaseSensitiveShareKeepsTheSiblingsSidecar() async throws {
+    let t = FakeSMBTransport()
+    await t.seed("raw", at: "/Shoot/IMG.CR3")
+    await t.seed("jpg", at: "/Shoot/IMG.JPG")
+    await t.seed("<shared/>", at: "/Shoot/IMG.xmp")
+
+    let outcome = try await SMBFileOperations.relocate(
+      "/Shoot/IMG.CR3", to: "/Shoot", newBasename: "img.cr3", mode: .move, collision: .fail,
+      transport: t)
+
+    XCTAssertEqual(outcome.sidecarPath, "/Shoot/img.xmp")
+    let files = await t.allFiles()
+    XCTAssertEqual(
+      files,
+      [
+        "/Shoot/IMG.JPG": "jpg", "/Shoot/IMG.xmp": "<shared/>",
+        "/Shoot/img.cr3": "raw", "/Shoot/img.xmp": "<shared/>",
+      ])
+  }
+
+  func testCaseOnlyRenameOnACaseSensitiveShareStillTakesAnUnsharedSidecar() async throws {
+    let t = FakeSMBTransport()
+    await t.seed("raw", at: "/Shoot/IMG.CR3")
+    await t.seed("<only/>", at: "/Shoot/IMG.xmp")
+
+    let outcome = try await SMBFileOperations.relocate(
+      "/Shoot/IMG.CR3", to: "/Shoot", newBasename: "img.cr3", mode: .move, collision: .fail,
+      transport: t)
+
+    XCTAssertEqual(outcome.sidecarPath, "/Shoot/img.xmp")
+    let files = await t.allFiles()
+    XCTAssertEqual(files, ["/Shoot/img.cr3": "raw", "/Shoot/img.xmp": "<only/>"])
+  }
+
   func testMovingBothHalvesOfARawJpegPairKeepsThemOnOneSidecar() async throws {
     let t = FakeSMBTransport()
     await t.seed("raw", at: "/Source/IMG_1.CR3")
