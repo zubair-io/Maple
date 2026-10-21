@@ -32,12 +32,12 @@ import { listPairedSidecars, pickFreeConflictPath } from './xmp-conflict.ts';
 import {
   hasLegacyBackupEdit,
   isLegacyBackupSidecarOf,
-  locateLegacyBackupEdit,
   oldNameEditUnlisted,
 } from './legacy-backup-sidecar.ts';
 import { publishExclusive, revertCreated, type RelocatePublication } from './relocate-publish.ts';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { relativeUnderRoot } from './root-match.ts';
+import { serializeSidecarWrite } from './sidecar-write-order.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('fs/duplicates');
@@ -143,7 +143,7 @@ export async function moveToDuplicates(absPath: string, folderRoot: string): Pro
   const kept = await keepPhotoWithOldNameEdit(absPath, freeTarget, ahead);
   if (kept !== 'moved' && kept !== 'blocked') return kept;
   if (kept === 'blocked') {
-    await carryRetainedOldNameEdit(absPath, freeTarget);
+    if (ahead) await carryRetainedOldNameEdit(ahead.source, freeTarget);
     await publishCaptured(absPath, freeTarget, captured);
   } else {
     await moveSidecarsAlongside(absPath, freeTarget);
@@ -265,19 +265,22 @@ async function publishConflictCopy(beside: string, bytes: Buffer): Promise<boole
   return false;
 }
 
-/** The old-name edit a settle kept at the old path names this photo, not the
- * file that took its place, so it follows the quarantined photo as a conflict
- * copy and leaves the old path once that copy is published unchanged. */
-async function carryRetainedOldNameEdit(absPath: string, movedTo: string): Promise<void> {
-  const retained = await locateLegacyBackupEdit(absPath).catch(() => null);
-  if (retained === null) return;
-  if (!(await publishConflictCopy(movedTo, retained.bytes))) {
+/** The old-name edit this move carried, kept at the old path by its settle,
+ * names this photo, not the file that took its place, so it follows the
+ * quarantined photo as a conflict copy and leaves the old path once that copy
+ * holds its current bytes. An edit that appeared there later is the newcomer's. */
+async function carryRetainedOldNameEdit(legacy: string, movedTo: string): Promise<void> {
+  const bytes = await readSidecarBytes(legacy).catch(() => null);
+  if (bytes === null) return;
+  if (!(await publishConflictCopy(movedTo, bytes))) {
     log.error(
-      { legacy: retained.legacy },
+      { legacy },
       'moveToDuplicates: the retained old-name edit could not follow the photo',
     );
     return;
   }
-  const now = await readSidecarBytes(retained.legacy).catch(() => null);
-  if (now?.equals(retained.bytes)) await fs.unlink(retained.legacy).catch(() => {});
+  await serializeSidecarWrite(legacy, async () => {
+    const now = await readSidecarBytes(legacy).catch(() => null);
+    if (now?.equals(bytes)) await fs.unlink(legacy).catch(() => {});
+  });
 }

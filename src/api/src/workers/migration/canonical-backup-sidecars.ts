@@ -186,7 +186,13 @@ async function canonicalizeLocation(
     handled.add(edit.legacy);
     const outcome = await canonicalizeEdit(assetId, location, primary, root, edit);
     if (outcome !== 'done') return outcome;
-    if (await changedSinceRead(edit)) return 'error';
+    if (await changedSinceRead(edit)) {
+      log.warn(
+        { _id: String(assetId), legacy: edit.legacy },
+        'old-name edit changed mid-run — retrying',
+      );
+      return 'error';
+    }
   }
 }
 
