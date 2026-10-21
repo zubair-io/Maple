@@ -10,6 +10,7 @@ import {
   removePhotoUnlessOldNameEditStays,
 } from './legacy-backup-sidecar.ts';
 import { readSidecarBytes } from './sidecar-bytes.ts';
+import { privateSiblingOf, publishExclusive } from './relocate-publish.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
 import * as fs from './mirrored.ts';
 import type { MovedSidecar } from './relocate-sidecar-plan.ts';
@@ -64,7 +65,7 @@ export async function deleteOriginals(
     });
     return;
   }
-  await carryLeftoverOldNameEdits(sourceAbsPath, movedTo);
+  if (!(await carryLeftoverOldNameEdits(sourceAbsPath, movedTo))) return;
   // Re-checked: carrying a left-behind edit can wait on a save.
   if (!(await leaseStillHeld(sourceAbsPath, beforeSourceDelete))) return;
   await removePhotoUnlessOldNameEditStays(sourceAbsPath, 'relocate');
@@ -90,12 +91,14 @@ async function leaseStillHeld(
  * save the settle kept) lands beside the moved photo as a `(conflict from
  * move)` copy, which the migration never adopts, and leaves the old path under
  * its barrier while it still holds the copied bytes. One that can't follow
- * stays, and keeps the original with it. */
-async function carryLeftoverOldNameEdits(sourceAbsPath: string, movedTo: string): Promise<void> {
+ * stays, and keeps the original with it; false when a replaced file could be
+ * placed nowhere, which keeps the original too. */
+async function carryLeftoverOldNameEdits(sourceAbsPath: string, movedTo: string): Promise<boolean> {
   const handled = new Set<string>();
+  const unplaced: string[] = [];
   for (;;) {
     const leftover = await locateLegacyBackupEdit(sourceAbsPath, handled).catch(() => null);
-    if (leftover === null) return;
+    if (leftover === null) return unplaced.length === 0;
     handled.add(leftover.legacy);
     await serializeSidecarWrite(leftover.legacy, async () => {
       // Re-validated after the wait: another tool's file, or a name another file now owns, isn't this edit.
@@ -108,13 +111,46 @@ async function carryLeftoverOldNameEdits(sourceAbsPath: string, movedTo: string)
         );
         return;
       }
-      const now = await readSidecarBytes(leftover.legacy);
-      if (now?.equals(bytes)) await fs.unlink(leftover.legacy);
+      if (!(await retireIfUnchanged(leftover.legacy, bytes, movedTo)))
+        unplaced.push(leftover.legacy);
     }).catch((err: unknown) => {
+      // Where it ended up is unknown (perhaps only at a private aside name): keep the original.
+      unplaced.push(leftover.legacy);
       log.warn(
         { legacy: leftover.legacy, err: err instanceof Error ? err.message : err },
         'relocate: an old-name edit left behind could not follow the photo',
       );
     });
   }
+}
+
+/** Moved aside before it is checked, so only the file holding the copied bytes
+ * is removed. Another app's atomic save that replaced it is put back, or, if
+ * the name was taken again, lands beside the moved photo as a conflict copy.
+ * False when that save could be placed nowhere: the original photo then stays. */
+async function retireIfUnchanged(
+  legacy: string,
+  copied: Buffer,
+  movedTo: string,
+): Promise<boolean> {
+  const aside = privateSiblingOf(legacy);
+  await fs.rename(legacy, aside);
+  const moved = await readSidecarBytes(aside).catch(() => null);
+  if (moved?.equals(copied)) {
+    await fs.unlink(aside);
+    return true;
+  }
+  const placed = await publishExclusive(aside, legacy).then(
+    () => true,
+    async () => moved !== null && (await publishConflictBytes(movedTo, moved)),
+  );
+  if (!placed) {
+    log.error(
+      { legacy, aside },
+      'relocate: a replaced old-name file could not be put back — kept at the aside path',
+    );
+    return false;
+  }
+  await fs.unlink(aside).catch(() => {});
+  return true;
 }
