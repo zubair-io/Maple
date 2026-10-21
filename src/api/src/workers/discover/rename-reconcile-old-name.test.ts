@@ -126,6 +126,27 @@ describe('rename reconciliation — old-name backup edits (#5063)', () => {
     expect(names.filter((name) => name.toLowerCase() === 'img_0002.dng.xmp')).toHaveLength(1);
   });
 
+  it("a case-only rename never replaces another tool's file at the new spelling", async () => {
+    using library = await createDiscoverLibrary('maple-rename-old-name-case-occupied-');
+    const darktable = '<x:xmpmeta xmlns:darktable="http://darktable.sf.net/"/>';
+    await writeFile(path.join(library.root, 'img_0003.dng.xmp'), edit);
+    await writeFile(path.join(library.root, 'IMG_0003.dng.xmp'), darktable);
+    const caseSensitive = (await readdir(library.root)).length === 2;
+    if (!caseSensitive) return;
+    await writeFile(path.join(library.root, 'IMG_0003.dng'), 'pixels');
+
+    await moveLegacySidecarIfPresent(
+      path.join(library.root, 'img_0003.dng'),
+      path.join(library.root, 'IMG_0003.dng'),
+      library.root,
+    );
+
+    expect(await readFile(path.join(library.root, 'IMG_0003.dng.xmp'), 'utf8')).toBe(darktable);
+    expect(
+      await readFile(path.join(library.root, 'IMG_0003 (conflict from rename).xmp'), 'utf8'),
+    ).toBe(edit);
+  });
+
   // tmpdir() is behind a symlink on macOS; ownership must still hold for the lexical name.
   it("never takes the edit of a file that owns that name, such as IMG_0001.dng.JPG's", async () => {
     using library = await createDiscoverLibrary('maple-rename-old-name-owned-');

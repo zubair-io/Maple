@@ -385,13 +385,13 @@ export async function moveLegacySidecarIfPresent(
         if ((await readLegacyAt(oldAbsPath, oldLegacy)) === null) return;
         const classification = await classifySameFile(resolvedOld, resolvedNew);
         if (classification === 'identical') return;
-        // Its own case variant: a case-sensitive volume sees two names for one edit.
-        const caseOnly =
-          classification === 'case-only-rename' ||
+        if (classification === 'case-only-rename') return fs.rename(resolvedOld, resolvedNew);
+        // On a case-sensitive volume the edit's own spelling counts as taking its slot,
+        // so only the exclusive publish decides: an occupied spelling gets a conflict copy.
+        const ownSpelling =
           path.basename(oldLegacy).toLowerCase() === path.basename(newLegacy).toLowerCase();
-        if (caseOnly) return fs.rename(resolvedOld, resolvedNew);
         const landed =
-          !(await oldNameSlotTaken(newAbsPath)) &&
+          (ownSpelling || !(await oldNameSlotTaken(newAbsPath))) &&
           (await publishSidecarExclusive(resolvedOld, resolvedNew, root, false)) === 'published';
         if (landed) return;
         if (await sidecarAlreadyCarried(resolvedOld, resolvedNew)) return fs.unlink(resolvedOld);
