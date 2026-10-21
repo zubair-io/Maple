@@ -16,6 +16,7 @@ import {
   authorizeUnlessAborted,
   deleteSidecar,
   writeSidecarAtomic,
+  writeSidecarExclusive,
   writeSidecarCreateOnly,
   isMissingSidecar,
   readSidecarNoFollow,
@@ -366,6 +367,8 @@ export type XmpWriteOutcome =
   | { kind: 'conflict'; conflictPath: string; conflictMtime: Date }
   | { kind: 'error'; error: string };
 
+const CONFLICT_COPY_ATTEMPTS = 5;
+
 /**
  * Atomic XMP write with an optional mtime precondition, or a create-only
  * precondition.
@@ -408,19 +411,25 @@ export async function writeXmpWithPrecondition(
       xmpSidecarPath(rawAbsPath),
       async (sidecar) => {
         signal?.throwIfAborted();
+        // Exclusive: the movers publish conflict copies under other barriers (#5071).
         const writeConflictCopy = async (): Promise<XmpWriteOutcome> => {
-          signal?.throwIfAborted();
-          const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName, signal);
-          signal?.throwIfAborted();
-          const written = await writeSidecarAtomic(
-            conflictPath,
-            xmlContent,
-            'Conflict-copy write failed',
-            signal,
-          );
-          return written.ok
-            ? { kind: 'conflict', conflictPath, conflictMtime: written.mtime }
-            : { kind: 'error', error: written.error };
+          for (let attempt = 0; attempt < CONFLICT_COPY_ATTEMPTS; attempt++) {
+            signal?.throwIfAborted();
+            const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName, signal);
+            signal?.throwIfAborted();
+            const written = await writeSidecarExclusive(
+              conflictPath,
+              xmlContent,
+              'Conflict-copy write failed',
+              signal,
+            );
+            if (written.ok) return { kind: 'conflict', conflictPath, conflictMtime: written.mtime };
+            if (!('exists' in written)) return { kind: 'error', error: written.error };
+          }
+          return {
+            kind: 'error',
+            error: `Conflict-copy write failed: no free name beside ${rawAbsPath}`,
+          };
         };
 
         if (requireAbsent) {
