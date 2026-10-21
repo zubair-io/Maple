@@ -49,7 +49,13 @@ Usage:
       --src "<path-to-external-profile-directory>" \
       --out src/raw-pipeline/raw-core/src/color/profiles/profiles.bin
 
-  # Include HSM (HueSatMap data) — adds ~72 MB to the bundle:
+  # The committed bundle (#4645): HSM for the GFX 50S only.
+  python3 src/scripts/convert_dcps.py \
+      --src "<...>/CameraRaw/CameraProfiles" \
+      --out src/raw-pipeline/raw-core/src/color/profiles/profiles.bin \
+      --hsm-ucm "Fujifilm GFX 50S"
+
+  # Include HSM (HueSatMap data) for every body — adds ~72 MB:
   python3 src/scripts/convert_dcps.py --src ... --out ... --include-hsm
 
 `--src` may point to either the parent `CameraProfiles/` directory or
@@ -62,9 +68,9 @@ that ONLY ship under `Camera/`). UCM dedup keeps one record per body
 via `dcp_preference` (Adobe Standard v2 > Adobe Standard >
 Camera Default > Camera/<creative style>).
 
-HSM is OFF by default (`--include-hsm` is opt-in). Most Maple fixtures need
-matrices only to drop ΔE below 8; HSM is a follow-up refinement that costs
-~72 MB in the repo.
+HSM is OFF by default. `--hsm-ucm UCM` (repeatable) opts single bodies in;
+`--include-hsm` opts every body in at ~72 MB. Opt a body in only when its
+embedded-JPEG gate result improves (see profiles/COVERAGE.md).
 """
 
 from __future__ import annotations
@@ -341,6 +347,14 @@ def main() -> int:
         "default off to keep the repo small — matrices alone fix the catastrophic ΔE).",
     )
     ap.add_argument(
+        "--hsm-ucm",
+        action="append",
+        default=[],
+        metavar="UCM",
+        help="Include ProfileHueSatMap data for this UniqueCameraModel only; "
+        "repeatable. Opts in individually calibrated bodies without --include-hsm.",
+    )
+    ap.add_argument(
         "--manifest",
         default=None,
         help="Optional: also emit a human-readable JSON manifest of every "
@@ -400,9 +414,14 @@ def main() -> int:
     skipped: list[tuple[str, str]] = [(f.name, "no UniqueCameraModel") for f in no_ucm]
     manifest_entries: list[dict] = []
 
-    for _ucm, f in selected:
+    hsm_ucms = set(args.hsm_ucm)
+    unknown = hsm_ucms - {ucm for ucm, _ in selected}
+    if unknown:
+        sys.stderr.write(f"error: --hsm-ucm names no bundled body: {sorted(unknown)}\n")
+        return 1
+    for ucm, f in selected:
         try:
-            rec = extract_profile(f, include_hsm=args.include_hsm)
+            rec = extract_profile(f, include_hsm=args.include_hsm or ucm in hsm_ucms)
         except Exception as e:  # noqa: BLE001
             skipped.append((f.name, f"parse error: {e}"))
             continue

@@ -2476,13 +2476,12 @@ mod tests {
     }
 
     /// #825: `BundleConfident` must not silently drop a source DNG's own
-    /// HueSatMap data. The current committed `profiles.bin` ships matrices
-    /// only (no HSM — regenerating it needs the external `.dcp` corpus
-    /// `convert_dcps.py --include-hsm` reads from, not present in this
-    /// repo), so `profile_loader::to_dcp_profile`'s fallback to
-    /// `raw.hsm_data` (keyed by the BUNDLE's own illum1/illum2, per its doc
-    /// comment) is, today, the ONLY path any bundled body's HSM reaches the
-    /// render — exercised for real by `test_0000.DNG` (Hasselblad L3D-100c),
+    /// HueSatMap data. The committed `profiles.bin` carries HSM for the
+    /// `Fujifilm GFX 50S` only (#4645), so for every other bundled body
+    /// `profile_loader::to_dcp_profile`'s fallback to `raw.hsm_data` (keyed
+    /// by the BUNDLE's own illum1/illum2, per its doc comment) is the ONLY
+    /// path its HSM reaches the render — exercised for real by
+    /// `test_0000.DNG` (Hasselblad L3D-100c),
     /// which ships CM + its own HSM but no FM, so it can't qualify for
     /// `EmbeddedFull` and instead resolves `BundleConfident` (per #460)
     /// with its genuine embedded HSM preserved through the fallback. This
