@@ -29,7 +29,7 @@ import * as path from 'node:path';
 import { filesIdentical } from '../../backup/fs-util.ts';
 import { pickFreePath } from '../../fs/trash.ts';
 import { sha256Prefix16 } from '../../fs/xmp.ts';
-import { listPairedSidecarsStrict } from '../../fs/xmp-conflict.ts';
+import { listPairedSidecars, listPairedSidecarsStrict } from '../../fs/xmp-conflict.ts';
 import { sidecarRenameTarget } from '../../fs/sidecar-rename.ts';
 import {
   hasLegacyBackupEdit,
@@ -136,7 +136,11 @@ async function isBareDuplicate(
   hasCompanions: boolean,
 ): Promise<boolean> {
   return (
-    !hasCompanions && (await exists(newTargetAbs)) && (await filesIdentical(oldAbs, newTargetAbs))
+    !hasCompanions &&
+    (await exists(newTargetAbs)) &&
+    (await filesIdentical(oldAbs, newTargetAbs)) &&
+    // A sidecar beside the occupant would become the refiled photo's edit (#4692 rule 2).
+    (await listPairedSidecars(newTargetAbs)).length === 0
   );
 }
 

@@ -9,6 +9,19 @@ import * as path from 'node:path';
 import * as fs from '../../fs/mirrored.ts';
 import { finalize, planAndPlace } from './restructure-fs.ts';
 
+const caseSensitive = await (async () => {
+  const probe = await fs.mkdtemp(path.join(os.tmpdir(), 'refile-case-probe-'));
+  try {
+    await fs.writeFile(path.join(probe, 'a'), '');
+    return !(await fs.lstat(path.join(probe, 'A')).then(
+      () => true,
+      () => false,
+    ));
+  } finally {
+    await fs.rm(probe, { recursive: true, force: true });
+  }
+})();
+
 let root: string;
 
 beforeEach(async () => {
@@ -80,4 +93,26 @@ describe('refile and the shared-sidecar rules (#5066)', () => {
     expect(await read('2024/IMG.1.xmp')).toBeNull();
     expect(await read('2024/03-15/IMG.xmp')).toBeNull();
   });
+
+  test("an identical photo at the destination isn't a dedupe while a stray sidecar sits beside it", async () => {
+    await write('2024/03-15/IMG.HEIC', 'heic');
+    await write('2024/IMG.HEIC', 'heic');
+    await write('2024/IMG.xmp', 'a stray edit');
+
+    expect(await refile('IMG.HEIC')).toBe('2024/IMG.1.HEIC');
+    expect(await read('2024/IMG.xmp')).toBe('a stray edit');
+  });
+
+  test.skipIf(caseSensitive)(
+    'a pair whose stems differ only in case still shares its sidecar when refiled in turn',
+    async () => {
+      await write('2024/03-15/img.HEIC', 'heic');
+      await write('2024/03-15/IMG.JPG', 'jpeg');
+      await write('2024/03-15/img.xmp', 'shared edit');
+
+      expect(await refile('img.HEIC')).toBe('2024/img.HEIC');
+      expect(await refile('IMG.JPG')).toBe('2024/IMG.JPG');
+      expect(await read('2024/img.xmp')).toBe('shared edit');
+    },
+  );
 });
