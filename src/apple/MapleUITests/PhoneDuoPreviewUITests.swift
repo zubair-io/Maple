@@ -41,13 +41,16 @@ import XCTest
       add(screenshot)
     }
 
-    func testWidePhonePreviewInfoStartsClosedAndOpensOnTap() throws {
+    /// Preview's rail follows available width (600pt or more), not orientation;
+    /// the Duo stays under that in landscape and keeps the compact Preview (#5105).
+    func testLandscapePreviewInfoStartsClosedAndOpensOnTap() throws {
       let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .appendingPathComponent("Fixtures")
         .appendingPathComponent("layout")
         .appendingPathComponent("rgb-gradient.png")
       let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("maple-duo-wide-preview-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent(
+          "maple-duo-landscape-preview-\(UUID().uuidString)", isDirectory: true)
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
       defer { try? FileManager.default.removeItem(at: directory) }
       try FileManager.default.copyItem(
@@ -63,16 +66,20 @@ import XCTest
       defer { app.terminate() }
 
       XCTAssertTrue(app.otherElements["preview-view"].waitForExistence(timeout: 10))
-      XCTAssertTrue(app.otherElements["preview-navigation-rail"].exists)
+      // Both layouts mount the header behind the opening reveal's opacity
+      // gate, so waiting for it waits out the reveal before Info is read.
+      XCTAssertTrue(
+        app.otherElements["preview-header"].waitForExistence(timeout: 5),
+        "Landscape Preview header never appeared")
       let info = app.buttons["preview-info"]
-      XCTAssertFalse(info.isSelected, "Wide phone Preview must not restore the Info preference")
+      XCTAssertFalse(info.isSelected, "Landscape Preview must not restore the Info preference")
       let panel = app.scrollViews["info-panel"]
       XCTAssertFalse(panel.exists)
 
       info.tap()
-      XCTAssertTrue(info.isSelected)
-      XCTAssertTrue(panel.waitForExistence(timeout: 5))
-      XCTAssertTrue(panel.isHittable)
+      XCTAssertTrue(info.isSelected, "Info button not selected after tap")
+      XCTAssertTrue(panel.waitForExistence(timeout: 5), "Info panel did not open")
+      XCTAssertTrue(panel.isHittable, "Info panel is covered")
     }
   }
 #endif

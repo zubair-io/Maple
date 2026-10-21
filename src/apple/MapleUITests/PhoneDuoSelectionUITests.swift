@@ -22,7 +22,7 @@ import XCTest
       defer { app.terminate() }
 
       let select = app.buttons["multi-select-toggle"]
-      let tile = app.images["thumb-rgb-gradient"].firstMatch
+      let tile = app.buttons["thumb-rgb-gradient"].firstMatch
       XCTAssertTrue(select.waitForExistence(timeout: 10))
       XCTAssertTrue(tile.waitForExistence(timeout: 10))
       select.tap()

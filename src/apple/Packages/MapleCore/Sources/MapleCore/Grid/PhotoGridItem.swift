@@ -119,7 +119,7 @@ public struct GridCellOverlays: Sendable, Hashable {
 /// the selection key, and the zoom-transition tag (`matchedTransitionSource`).
 /// `displayName` is the human-readable asset name used for the per-cell
 /// accessibility identifier (`"thumb-<displayName>"`) that the UITest harness
-/// resolves — e.g. `app.otherElements["thumb-test_0017"]`. LibraryCell carried
+/// resolves — e.g. `app.buttons["thumb-test_0017"]`. LibraryCell carried
 /// this as `asset.displayName`; the shared cell restores it via this field.
 public struct PhotoGridItem: Identifiable, Sendable {
     public let id: String
