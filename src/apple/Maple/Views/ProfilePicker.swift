@@ -14,6 +14,7 @@ import SwiftUI
 struct ProfilePicker: View {
   @Binding var selection: Profile
   var autoFitStatus: AutoFitStatus
+  var showsStatus = true
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
@@ -25,14 +26,16 @@ struct ProfilePicker: View {
       }
       .labelsHidden()
       .pickerStyle(.segmented)
-      .frame(maxWidth: 160)
+      .frame(width: 148)
       .accessibilityIdentifier("picker-profile")
       .accessibilityLabel("Profile selector")
       .accessibilityValue(autoFitStatus.description(profile: selection))
-      Text(autoFitStatus.description(profile: selection))
-        .font(.caption)
-        .foregroundStyle(MapleTokens.textMuted)
-        .accessibilityIdentifier("profile-auto-fit-status")
+      if showsStatus {
+        Text(autoFitStatus.description(profile: selection))
+          .font(.caption)
+          .foregroundStyle(MapleTokens.textMuted)
+          .accessibilityIdentifier("profile-auto-fit-status")
+      }
     }
   }
 }

@@ -32,14 +32,33 @@ struct ColorAccessoryRow: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: 6) {
       if compactStyle {
-        HStack(spacing: 12) {
-          if state.armedTool == .bwMix {
-            Text("Black & White").font(.caption).accessibilityHidden(true)
-            blackWhiteToggle.labelsHidden().toggleStyle(.switch).fixedSize()
+        VStack(alignment: .leading, spacing: 4) {
+          HStack(spacing: 8) {
+            Text("Profile")
+              .font(.caption.weight(.medium))
+              .foregroundStyle(MapleTokens.textMuted)
+            Spacer(minLength: 4)
+            if state.armedTool == .bwMix {
+              Text("B&W")
+                .font(.caption)
+                .foregroundStyle(MapleTokens.textMuted)
+                .accessibilityHidden(true)
+              blackWhiteToggle.labelsHidden().toggleStyle(.switch).scaleEffect(0.85).fixedSize()
+            }
+            ProfilePicker(
+              selection: profileBinding,
+              autoFitStatus: state.session.autoFitStatus,
+              showsStatus: false
+            )
           }
-          profilePicker
+          Text(state.session.autoFitStatus.description(profile: state.session.model.profile))
+            .font(.caption2)
+            .foregroundStyle(MapleTokens.textMuted)
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
+            .accessibilityIdentifier("profile-auto-fit-status")
         }
       } else {
         profilePicker
@@ -47,7 +66,7 @@ struct ColorAccessoryRow: View {
       }
       WhiteBalanceControls(state: state)
     }
-    .padding(.horizontal, compactStyle ? 24 : 14)
+    .padding(.horizontal, compactStyle ? 16 : 14)
     .padding(.vertical, compactStyle ? 6 : 8)
     .frame(maxWidth: .infinity)
     .background(MapleTokens.bg)

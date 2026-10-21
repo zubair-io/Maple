@@ -53,12 +53,18 @@ struct EditorCanvasView: View {
             WhiteBalancePickOverlay(state: state)
               .id(ObjectIdentifier(state.session))
           }
+          // Colour-range eyedropper (#362): the mask panel's pick target,
+          // same lifetime rule as the WB overlay above.
+          if state.maskRangePicker.isArmed {
+            MaskRangePickOverlay(state: state)
+              .id(ObjectIdentifier(state.session))
+          }
+          if state.colorCurvePicker.isArmed {
+            ColorCurvePickOverlay(state: state)
+              .id(ObjectIdentifier(state.session))
+          }
         }
-        .padding(
-          state.armedTool == .crop
-            ? EditorCropGeometry.insets(
-              size: geometry.size, controlsFrame: wheelExclusionFrame,
-              isRegular: isRegular, hasFilmstrip: hasFilmstrip) : EdgeInsets())
+        .padding(canvasInsets(size: geometry.size))
         // Before/after "BEFORE" badge — surfaced while the session is
         // showing the original (the canvas itself falls back to the
         // placeholder).
@@ -75,16 +81,6 @@ struct EditorCanvasView: View {
           .allowsHitTesting(false)
           .accessibilityIdentifier("editor-before-badge")
         }
-        // Colour-range eyedropper (#362): the mask panel's pick target,
-        // same lifetime rule as the WB overlay above.
-        if state.maskRangePicker.isArmed {
-          MaskRangePickOverlay(state: state)
-            .id(ObjectIdentifier(state.session))
-        }
-        if state.colorCurvePicker.isArmed {
-          ColorCurvePickOverlay(state: state)
-            .id(ObjectIdentifier(state.session))
-        }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .background(MapleTokens.bg)
@@ -92,6 +88,17 @@ struct EditorCanvasView: View {
       // Render-path badge and zoom % have moved to PillHeader — the
       // bottom-trailing GPU/CPU overlay is no longer rendered here.
     }
+  }
+
+  private func canvasInsets(size: CGSize) -> EdgeInsets {
+    if state.armedTool == .crop {
+      return EditorCropGeometry.insets(
+        size: size, controlsFrame: wheelExclusionFrame,
+        isRegular: isRegular, hasFilmstrip: hasFilmstrip)
+    }
+    guard !isRegular, size.height > size.width else { return EdgeInsets() }
+    let coveredHeight = wheelExclusionFrame.map { max(0, size.height - $0.minY) } ?? 0
+    return EdgeInsets(top: 56, leading: 0, bottom: coveredHeight, trailing: 0)
   }
 
 }

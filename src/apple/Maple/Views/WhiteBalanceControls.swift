@@ -19,23 +19,26 @@ struct WhiteBalanceControls: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
-      Picker("White balance", selection: presetSelection) {
-        ForEach(WhiteBalancePreset.allCases, id: \.self) { preset in
-          Text(preset.rawValue).tag(preset)
-            .disabled(
-              (preset == .auto && !state.session.asset.isRaw)
-                || (preset == .asShot
-                  && (state.session.asShotCCT == nil || state.session.asShotTint == nil))
-            )
+      HStack(spacing: 8) {
+        Picker("White balance", selection: presetSelection) {
+          ForEach(WhiteBalancePreset.allCases, id: \.self) { preset in
+            Text(preset.rawValue).tag(preset)
+              .disabled(
+                (preset == .auto && !state.session.asset.isRaw)
+                  || (preset == .asShot
+                    && (state.session.asShotCCT == nil || state.session.asShotTint == nil))
+              )
+          }
         }
-      }
-      .pickerStyle(.menu)
-      .frame(minHeight: 44)
-      .disabled(state.autoInProgress || state.session.showingOriginal)
-      .accessibilityIdentifier("editor-wb-preset")
-      HStack {
+        .pickerStyle(.menu)
+        .frame(minHeight: 34)
+        .disabled(state.autoInProgress || state.session.showingOriginal)
+        .accessibilityIdentifier("editor-wb-preset")
+
+        Spacer(minLength: 4)
+
         MuiButton(
-          label: picker.isArmed ? "Cancel pick" : "Pick white balance",
+          label: picker.isArmed ? "Cancel pick" : "Pick WB",
           variant: .ghost,
           leadingIcon: "eyedropper",
           disabled: !state.session.asset.isRaw || state.session.showingOriginal
@@ -48,8 +51,9 @@ struct WhiteBalanceControls: View {
             picker.arm()
           }
         }
+        .accessibilityLabel(picker.isArmed ? "Cancel pick" : "Pick white balance")
         .accessibilityIdentifier("editor-wb-eyedropper")
-        Spacer(minLength: 0)
+
         if state.session.asShotCCT != nil, state.session.asShotTint != nil {
           MuiButton(label: "As Shot", variant: .ghost) { picker.resetToAsShot() }
             .disabled(state.autoInProgress || state.session.showingOriginal)
@@ -60,7 +64,8 @@ struct WhiteBalanceControls: View {
       Text(picker.provenance)
         .font(.caption2)
         .foregroundStyle(MapleTokens.textMuted)
-        .fixedSize(horizontal: false, vertical: true)
+        .lineLimit(1)
+        .minimumScaleFactor(0.85)
         .accessibilityIdentifier("editor-wb-provenance")
       if !state.session.asset.isRaw {
         Text("The eyedropper requires a RAW photo.")
