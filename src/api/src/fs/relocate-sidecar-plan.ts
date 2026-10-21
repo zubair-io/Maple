@@ -143,6 +143,13 @@ async function displacedOldNameEdits(
   }
 }
 
+async function entryState(source: string, dest: string): Promise<EntryState> {
+  const samePath = await sameSidecarFile(source, dest);
+  const occupied = !samePath && (await exists(dest));
+  const joinsCarried = occupied && (await sidecarAlreadyCarried(source, dest));
+  return { samePath, occupied, joinsCarried };
+}
+
 /** One sidecar's plan; `null` leaves it at the source. */
 async function planEntry(
   req: SidecarPlanRequest,
@@ -151,10 +158,8 @@ async function planEntry(
 ): Promise<SidecarPlanEntry | null> {
   const dest = sidecarRenameTarget(req.sourceAbsPath, req.finalDest, source);
   if (!dest) return null; // defensive — mirrors moveSidecarsAlongside
-  const samePath = await sameSidecarFile(source, dest);
-  const occupied = !samePath && (await exists(dest));
-  const joinsCarried = occupied && (await sidecarAlreadyCarried(source, dest));
-  const state = { samePath, occupied, joinsCarried };
+  const state = await entryState(source, dest);
+  const { samePath, occupied, joinsCarried } = state;
   const oldName = isLegacyBackupSidecarOf(req.sourceAbsPath, source);
   const fate = oldName
     ? await oldNameFate(req, dest, state, destination)

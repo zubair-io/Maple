@@ -7,6 +7,7 @@ import * as path from 'node:path';
 import * as fs from '../../fs/mirrored.ts';
 import {
   publishSidecarSnapshot,
+  publishBytesExclusive,
   sidecarStemClaimedBySibling,
   writeVerifiedTemp,
 } from '../../fs/sidecar-ownership.ts';
@@ -72,7 +73,7 @@ async function atFreeConflictName<T>(
 }
 
 async function publishConflictCopy(carried: CarriedSidecar, bytes: Buffer): Promise<void> {
-  await atFreeConflictName(carried.primary, (conflict) => publishVerified(conflict, bytes));
+  await atFreeConflictName(carried.primary, (conflict) => publishBytesExclusive(conflict, bytes));
 }
 
 /** Sidecars that first appeared at the old path after `planAndPlace` listed
@@ -188,15 +189,6 @@ async function putBack(carried: CarriedSidecar, aside: string): Promise<void> {
       throw err;
     });
   await fs.unlink(aside).catch(() => {});
-}
-
-async function publishVerified(dest: string, bytes: Buffer): Promise<void> {
-  const tmp = await writeVerifiedTemp(dest, bytes);
-  try {
-    await publishExclusive(tmp, dest);
-  } finally {
-    await fs.unlink(tmp).catch(() => {});
-  }
 }
 
 /** Retire the source once the row points at the new path. A failure keeps it. */
