@@ -397,12 +397,12 @@ async fn render_gpu_core_with_status(
         .map_err(|e| format!("render_bytes_gpu: {e}"))?;
     let target = effective_target_long_edge(max_long_edge, &ctx);
 
-    let (rgba, w, h, _prefix_model, whites_anchor_ev, nr_sampling_scale) =
+    let (rgba, w, h, _prefix_model, whites_anchor_ev, nr_sampling_scale, ae_gain) =
         develop_prefix_rgba(raw_img, raw, ext, model, target)?;
     // Film looks are session-resident; one-shot renders have no uploaded LUT.
     let (mut inputs, auto_fit) =
         chain_inputs_with_status(raw_img, raw, ext, model, None, 0, whites_anchor_ev);
-    GpuWhiteBalance::resolve(raw_img)?.apply(model, &mut inputs);
+    GpuWhiteBalance::resolve(raw_img)?.apply(model, ae_gain, &mut inputs);
     inputs.nr_sampling_scale = nr_sampling_scale;
 
     // Upload ONCE, run the gated live chain + the WGSL terminal dither, read the

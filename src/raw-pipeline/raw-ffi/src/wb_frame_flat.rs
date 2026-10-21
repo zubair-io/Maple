@@ -80,11 +80,17 @@ pub(crate) fn wb_frame_from_flat(
 pub(crate) unsafe fn wb_hsm_from_flat<'a>(
     ptr: *const f32,
     len: usize,
+    as_shot_cct: f32,
+    exposure_gain: f32,
 ) -> Option<raw_core::stages::wb_camera::HsmRetargetView<'a>> {
     if ptr.is_null() || len == 0 {
         return None;
     }
-    raw_core::stages::wb_camera::HsmRetargetView::from_flat(std::slice::from_raw_parts(ptr, len))
+    raw_core::stages::wb_camera::HsmRetargetView::from_wire(
+        std::slice::from_raw_parts(ptr, len),
+        as_shot_cct,
+        exposure_gain,
+    )
 }
 
 /// The process-lifetime copy of a HueSatMap endpoint wire (#5099), shared by
@@ -98,7 +104,15 @@ pub(crate) fn intern_hsm_wire(wire: &[f32]) -> &'static [f32] {
     let mut interned = INTERNED
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(existing) = interned.iter().find(|known| **known == wire) {
+    // Bitwise, so a table holding a NaN still finds its earlier copy.
+    let same_bits = |known: &[f32]| {
+        known.len() == wire.len()
+            && known
+                .iter()
+                .zip(wire)
+                .all(|(a, b)| a.to_bits() == b.to_bits())
+    };
+    if let Some(existing) = interned.iter().find(|known| same_bits(known)) {
         return existing;
     }
     let leaked: &'static [f32] = Box::leak(wire.to_vec().into_boxed_slice());
@@ -116,5 +130,10 @@ mod tests {
         assert_eq!(a.as_ptr(), b.as_ptr());
         assert_ne!(a.as_ptr(), c.as_ptr());
         assert_eq!(c, &[1.0, 2.0, 4.0]);
+        let nan = super::intern_hsm_wire(&[f32::NAN, 9.0]);
+        assert_eq!(
+            nan.as_ptr(),
+            super::intern_hsm_wire(&[f32::NAN, 9.0]).as_ptr()
+        );
     }
 }

@@ -148,6 +148,8 @@ pub(crate) fn describe(name: &str) -> Option<String> {
                 color_grade_highlight_edge,
                 wb_hsm_ptr,
                 wb_hsm_len,
+                wb_hsm_as_shot_cct,
+                wb_hsm_exposure_gain,
             }))
         }
         "MapleToneCurves" => Some(layout!(crate::scene_linear_chain_curves::MapleToneCurves {
@@ -223,6 +225,7 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             nr_sampling_scale,
             wb_hsm_data,
             wb_hsm_len,
+            wb_hsm_as_shot_cct,
         })),
         "MapleAutoAdjustments" => Some(layout!(crate::auto_adjustments::MapleAutoAdjustments {
             exposure,
@@ -412,6 +415,8 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             color_curve_sat_vs_luma_len,
             wb_hsm_ptr,
             wb_hsm_len,
+            wb_hsm_as_shot_cct,
+            wb_hsm_exposure_gain,
         })),
         #[cfg(feature = "gpu")]
         "MapleGpuLiveSession" => Some(layout!(crate::gpu_live::MapleGpuLiveSession { inner })),
@@ -507,17 +512,35 @@ mod tests {
         }
         let (size, fields) = parse(&describe("MapleAdjustmentParams").unwrap());
         assert_eq!(
-            size, 720,
-            "RawFfi.VerifyAbi pins MapleAdjustmentParams at 720 bytes (#5040 appended 3 f32s)"
+            size, 744,
+            "RawFfi.VerifyAbi pins MapleAdjustmentParams at 744 bytes (#5040 appended 3 f32s, #5099 the wb_hsm tail)"
         );
         assert_eq!(
             fields.last().map(|f| f.0.as_str()),
-            Some("color_grade_highlight_edge")
+            Some("wb_hsm_exposure_gain")
         );
         let (_, curve_fields) = parse(&describe("MapleToneCurves").unwrap());
         assert_eq!(
             curve_fields.last().map(|f| f.0.as_str()),
             Some("color_curve_sat_vs_luma_len")
+        );
+        let names: Vec<&str> = curve_fields.iter().map(|f| f.0.as_str()).collect();
+        let curves_at = names
+            .iter()
+            .position(|n| *n == "color_curve_hue_vs_hue_ptr")
+            .expect("colour-curve block");
+        assert_eq!(
+            names[curves_at - 7..curves_at],
+            [
+                "parametric_highlights",
+                "parametric_lights",
+                "parametric_darks",
+                "parametric_shadows",
+                "parametric_shadow_split",
+                "parametric_midtone_split",
+                "parametric_highlight_split",
+            ],
+            "the parametric regions and splits precede the colour curves (#4738)"
         );
     }
 

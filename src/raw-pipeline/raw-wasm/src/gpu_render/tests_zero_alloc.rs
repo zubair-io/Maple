@@ -206,7 +206,7 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
             ]),
             ..Default::default()
         };
-        let (rgba, w, h, prefix, anchor, _) =
+        let (rgba, w, h, prefix, anchor, _, _) =
             develop_prefix_rgba(&raw, &bytes, "dng", &model, 64).unwrap();
         let gpu = ctx.map(|ctx| (ctx, raw_gpu::LiveSession::new(ctx, &rgba, w, h).unwrap()));
         let mut cached = LiveProfile::new(&raw, &bytes, "dng", &model, None, 0, anchor);

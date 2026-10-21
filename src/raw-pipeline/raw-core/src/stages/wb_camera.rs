@@ -227,9 +227,8 @@ pub use frame_delta::SliderFrameExport;
 
 #[path = "wb_hsm_retarget.rs"]
 mod hsm_retarget;
-pub use hsm_retarget::{
-    HsmLiveDelta, HsmRetargetView, WbHsmRetarget, HSM_INVERSE_ITERATIONS, HSM_RETARGET_HEADER_LEN,
-};
+use hsm_retarget::retarget_render_cct;
+pub use hsm_retarget::{HsmLiveDelta, HsmRetargetView, WbHsmRetarget, HSM_INVERSE_ITERATIONS};
 
 // WB slider-scale migration (#1780): converts pre-#1756 (V1) stored
 // temperature/tint into this module's slider frame at develop time. Split
@@ -549,29 +548,6 @@ pub fn retargeted_render_profile(
         hsm,
         ..profile
     }
-}
-
-/// The render profile's own CCT for a slider target — the illuminant its
-/// dual calibration reads the target's camera neutral as
-/// ([`retargeted_render_profile`] doc). `None` at the as-shot target, where
-/// the render profile passes through untouched.
-pub(crate) fn retarget_render_cct(
-    frame: &SliderFrame,
-    e: &dcp::CmEndpoints,
-    temperature: f32,
-    tint: f32,
-) -> Option<f32> {
-    if is_as_shot_target(frame, temperature, tint) {
-        return None;
-    }
-    let target_neutral = camera_neutral_for(frame.cm_for_cct(temperature), temperature, tint);
-    Some(dcp::compute_as_shot_cct(
-        target_neutral,
-        e.m_cold,
-        e.cct_cold,
-        e.m_warm,
-        e.cct_warm,
-    ))
 }
 
 #[cfg(test)]

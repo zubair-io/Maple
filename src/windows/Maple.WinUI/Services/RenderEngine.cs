@@ -33,6 +33,7 @@ namespace Maple.WinUI.Services
         /// native core for the life of the process; zero when absent.</summary>
         public IntPtr WbHueSatMap { get; init; }
         public nuint WbHueSatMapLength { get; init; }
+        public float WbHueSatMapAsShotCct { get; init; }
         public bool IsRaster { get; init; }
         public CameraSupportMetadata? CameraSupport { get; init; }
         /// <summary>What the core resolved for the sidecar's lens selection
@@ -142,6 +143,7 @@ namespace Maple.WinUI.Services
                         WbFrame = CopyWbFrame(&buffer),
                         WbHueSatMap = (IntPtr)buffer.wb_hsm_data,
                         WbHueSatMapLength = buffer.wb_hsm_len,
+                        WbHueSatMapAsShotCct = buffer.wb_hsm_as_shot_cct,
                         CameraSupport = CameraSupportMetadata.ReadBuffer((IntPtr)buffer.camera_support_json),
                         // Warm: the develop above left the RAW in the decode
                         // cache, so this is a metadata lookup, not a decode.
@@ -244,9 +246,7 @@ namespace Maple.WinUI.Services
 
             var p = MapleAdjustmentParams.From(
                 model, image.DecodedTemperature, image.DecodedTint, image.Iso, image.WhitesAnchorEv, image.NrSamplingScale);
-            ApplyWbFrame(ref p, image.WbFrame);
-            p.wb_hsm_ptr = (float*)image.WbHueSatMap;
-            p.wb_hsm_len = image.WbHueSatMapLength;
+            ApplyWbExports(ref p, image);
             p.skip_agx = image.IsRaster ? 1u : 0u;
 
             // Point (#2576) and display-referred (#2232) curves ride a
@@ -504,6 +504,7 @@ namespace Maple.WinUI.Services
                 WbFrame = src.WbFrame,
                 WbHueSatMap = src.WbHueSatMap,
                 WbHueSatMapLength = src.WbHueSatMapLength,
+                WbHueSatMapAsShotCct = src.WbHueSatMapAsShotCct,
                 IsRaster = src.IsRaster,
                 ProfileCurve = src.ProfileCurve,
                 ResidualLut = src.ResidualLut,
@@ -513,58 +514,6 @@ namespace Maple.WinUI.Services
                 ProfileSource = src.ProfileSource,
                 ProfileFit = src.ProfileFit,
             };
-        }
-
-        /// <summary>The wb_frame block spans 82 floats in both the buffer
-        /// export and the params struct, in identical field order
-        /// (9+1+9+1+1+1+9+9+3+1+9+1+9+1+9+9).</summary>
-        public const int WbFrameFloatCount = 82;
-
-        private static float[] CopyWbFrame(MapleSceneLinearBufferF32* b)
-        {
-            var f = new float[WbFrameFloatCount];
-            var i = 0;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_m_cold[k];
-            f[i++] = b->wb_frame_cct_cold;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_m_warm[k];
-            f[i++] = b->wb_frame_cct_warm;
-            f[i++] = b->wb_frame_scene_cct;
-            f[i++] = b->wb_frame_as_shot_tint;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_cm[k];
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_forward_matrix[k];
-            for (var k = 0; k < 3; k++) f[i++] = b->wb_frame_render_scene_white_xyz[k];
-            f[i++] = b->wb_frame_render_wb_already_baked;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_cm_cold[k];
-            f[i++] = b->wb_frame_render_cct_cold;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_cm_warm[k];
-            f[i++] = b->wb_frame_render_cct_warm;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_fm_cold[k];
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_fm_warm[k];
-            return f;
-        }
-
-        private static void ApplyWbFrame(ref MapleAdjustmentParams p, float[] f)
-        {
-            var i = 0;
-            fixed (MapleAdjustmentParams* pp = &p)
-            {
-                for (var k = 0; k < 9; k++) pp->wb_frame_m_cold[k] = f[i++];
-                pp->wb_frame_cct_cold = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_m_warm[k] = f[i++];
-                pp->wb_frame_cct_warm = f[i++];
-                pp->wb_frame_scene_cct = f[i++];
-                pp->wb_frame_as_shot_tint = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_cm[k] = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_forward_matrix[k] = f[i++];
-                for (var k = 0; k < 3; k++) pp->wb_frame_render_scene_white_xyz[k] = f[i++];
-                pp->wb_frame_render_wb_already_baked = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_cm_cold[k] = f[i++];
-                pp->wb_frame_render_cct_cold = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_cm_warm[k] = f[i++];
-                pp->wb_frame_render_cct_warm = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_fm_cold[k] = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_fm_warm[k] = f[i++];
-            }
         }
     }
 }

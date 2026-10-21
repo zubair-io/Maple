@@ -8,7 +8,8 @@
 //
 // `H_w` is the HueSatMap blended between the cold and warm endpoint tables
 // at weight `w` (each table interpolated, then blended, hue on the shorter
-// arc); `H_A⁻¹` is a 4-step fixed-point inverse; `floor` lifts a negative
+// arc); `H_A⁻¹` is a fixed-point inverse of `inverse_iterations` steps;
+// `floor` lifts a negative
 // channel uniformly, as the develop's DCP exit does. The two tables are
 // session-constant storage; a tick only changes the uniform.
 //
@@ -32,6 +33,10 @@ struct Params {
     table_len: u32,
     w_target: f32,
     w_anchor: f32,
+    inverse_iterations: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -40,8 +45,6 @@ struct Params {
 // Cold table then warm table, `table_len` floats each, laid out as
 // `HsmTable::data`: ((h * sat_divs + s) * val_divs + v) * 3 + channel.
 @group(0) @binding(3) var<storage, read> tables: array<f32>;
-
-const INVERSE_ITERATIONS: u32 = 4u;
 
 fn mat_rows(r0: vec4<f32>, r1: vec4<f32>, r2: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(dot(r0.xyz, v), dot(r1.xyz, v), dot(r2.xyz, v));
@@ -258,7 +261,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let px = input_buf[i];
     let p = mat_rows(params.to_pro0, params.to_pro1, params.to_pro2, px.rgb);
     var x = p;
-    for (var k = 0u; k < INVERSE_ITERATIONS; k = k + 1u) {
+    for (var k = 0u; k < params.inverse_iterations; k = k + 1u) {
         x = x + p - apply_table(x, params.w_anchor);
     }
     let moved = apply_table(mat_rows(params.delta0, params.delta1, params.delta2, x), params.w_target);

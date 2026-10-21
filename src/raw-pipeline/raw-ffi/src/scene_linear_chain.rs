@@ -306,6 +306,11 @@ pub struct MapleAdjustmentParams {
     /// delta. Borrowed for the call only.
     pub wb_hsm_ptr: *const f32,
     pub wb_hsm_len: usize,
+    /// The decode's `wb_hsm_as_shot_cct` and `ae_gain` (the auto-exposure
+    /// gain baked into the buffer after DCP), passed back verbatim. A zero
+    /// gain from a host that predates it reads as 1.
+    pub wb_hsm_as_shot_cct: f32,
+    pub wb_hsm_exposure_gain: f32,
 }
 
 /// Decode the local-adjustment layer stack (#1698) out of the C params, and

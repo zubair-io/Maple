@@ -285,7 +285,14 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
         wb_frame,
         // SAFETY: the host keeps `wb_hsm_ptr` valid for `wb_hsm_len` f32s
         // for the duration of this call.
-        wb_hsm: unsafe { crate::wb_frame_flat::wb_hsm_from_flat(p.wb_hsm_ptr, p.wb_hsm_len) },
+        wb_hsm: unsafe {
+            crate::wb_frame_flat::wb_hsm_from_flat(
+                p.wb_hsm_ptr,
+                p.wb_hsm_len,
+                p.wb_hsm_as_shot_cct,
+                p.wb_hsm_exposure_gain,
+            )
+        },
         noise_profile: noise_profile_slice,
         iso,
         whites_anchor_ev: p.whites_anchor_ev,

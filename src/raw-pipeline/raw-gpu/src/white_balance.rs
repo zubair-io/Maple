@@ -87,6 +87,9 @@ pub struct WbHsmInputs<'a> {
     /// Table blend weight at the slider target and at the buffer's anchor.
     pub w_target: f32,
     pub w_anchor: f32,
+    /// Fixed-point steps of the anchor-table inverse (raw-core's
+    /// `HsmLiveDelta::inverse_iterations`, the one source of the count).
+    pub inverse_iterations: u32,
 }
 
 /// The endpoint tables, borrowed from an FFI host for one call or shared
@@ -121,6 +124,10 @@ struct HsmParams {
     table_len: u32,
     w_target: f32,
     w_anchor: f32,
+    inverse_iterations: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 fn rows(m: &[[f32; 3]; 3]) -> [[f32; 4]; 3] {
@@ -166,6 +173,10 @@ impl Pass for WhiteBalancePass<'_> {
                 table_len: (hsm.tables.as_slice().len() / 2) as u32,
                 w_target: hsm.w_target,
                 w_anchor: hsm.w_anchor,
+                inverse_iterations: hsm.inverse_iterations,
+                _pad0: 0,
+                _pad1: 0,
+                _pad2: 0,
             };
             // Session-constant tables: pooled by content, uploaded once.
             let tables = pool_data_storage(

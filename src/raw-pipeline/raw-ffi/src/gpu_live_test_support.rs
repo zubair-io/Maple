@@ -151,6 +151,8 @@ pub(super) fn make_params(
         nr_sampling_scale: 1.0,
         wb_hsm_ptr: std::ptr::null(),
         wb_hsm_len: 0,
+        wb_hsm_as_shot_cct: 0.0,
+        wb_hsm_exposure_gain: 0.0,
         whites_anchor_ev: input_whites_anchor(input),
         temperature: model.temperature,
         tint: model.tint,
