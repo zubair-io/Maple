@@ -22,7 +22,7 @@ import XCTest
       defer { app.terminate() }
 
       XCTAssertTrue(app.otherElements["preview-view"].waitForExistence(timeout: 10))
-      XCTAssertTrue(app.otherElements["preview-header"].exists)
+      assertLayoutFollowsWidth(app)
       XCTAssertTrue(app.buttons["preview-back"].exists)
       XCTAssertTrue(app.buttons["preview-edit"].exists)
       XCTAssertTrue(app.buttons["preview-info"].exists)
@@ -66,11 +66,7 @@ import XCTest
       defer { app.terminate() }
 
       XCTAssertTrue(app.otherElements["preview-view"].waitForExistence(timeout: 10))
-      // Both layouts mount the header behind the opening reveal's opacity
-      // gate, so waiting for it waits out the reveal before Info is read.
-      XCTAssertTrue(
-        app.otherElements["preview-header"].waitForExistence(timeout: 5),
-        "Landscape Preview header never appeared")
+      assertLayoutFollowsWidth(app)
       let info = app.buttons["preview-info"]
       XCTAssertFalse(info.isSelected, "Landscape Preview must not restore the Info preference")
       let panel = app.scrollViews["info-panel"]
@@ -80,6 +76,24 @@ import XCTest
       XCTAssertTrue(info.isSelected, "Info button not selected after tap")
       XCTAssertTrue(panel.waitForExistence(timeout: 5), "Info panel did not open")
       XCTAssertTrue(panel.isHittable, "Info panel is covered")
+    }
+
+    /// The header, rail and filmstrip share the opening reveal's opacity
+    /// gate, so once the header is visible the other two are settled.
+    private func assertLayoutFollowsWidth(
+      _ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line
+    ) {
+      XCTAssertTrue(
+        app.otherElements["preview-header"].waitForExistence(timeout: 5),
+        "Preview header never appeared", file: file, line: line)
+      let width = app.otherElements["preview-view"].frame.width
+      let wide = width >= 600
+      XCTAssertEqual(
+        app.otherElements["preview-navigation-rail"].exists, wide,
+        "Navigation rail at \(width)pt", file: file, line: line)
+      XCTAssertEqual(
+        app.descendants(matching: .any)["editor-filmstrip"].exists, !wide,
+        "Bottom filmstrip at \(width)pt", file: file, line: line)
     }
   }
 #endif
