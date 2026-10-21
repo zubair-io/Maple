@@ -12,6 +12,7 @@ import * as fs from './mirrored.ts';
 import { relocateFile } from './relocate.ts';
 import { moveFileToTrash, moveToTrash } from './trash.ts';
 import * as xmpConflict from './xmp-conflict.ts';
+import { serializeSidecarWrite } from './sidecar-write-order.ts';
 import * as ownership from './sidecar-ownership.ts';
 
 const maple = (label: string) =>
@@ -192,5 +193,39 @@ describe('an old-name edit that stays behind after a move (#5063, #5075)', () =>
     expect(await read('2024/notes.txt')).toBeNull();
     expect(await read('2024/notes.txt.xmp')).toBe(maple('not this file'));
     expect(await read('.maple/trash/2024/notes (conflict from move).xmp')).toBeNull();
+  });
+
+  test("a file that took the old-name slot while the carry waited isn't copied or removed", async () => {
+    await write('a/IMG.HEIC', 'pixels');
+    const legacy = abs('a/IMG.HEIC.xmp');
+    const darktable = '<x:xmpmeta xmlns:darktable="http://darktable.sf.net/"/>';
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let holder: Promise<void> | null = null;
+    const realPublish = ownership.publishSidecarSnapshot;
+    const publish = spyOn(ownership, 'publishSidecarSnapshot').mockImplementation(
+      async (source, dest, publications) =>
+        String(source).endsWith('IMG.HEIC.xmp')
+          ? Promise.reject(new Error('EIO'))
+          : realPublish(source, dest, publications),
+    );
+    try {
+      const moving = move({
+        onVerified: async () => {
+          await write('a/IMG.HEIC.xmp', maple('late backup edit'));
+          holder = serializeSidecarWrite(legacy, () => gate);
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await write('a/IMG.HEIC.xmp', darktable);
+      release();
+      await holder;
+      expect((await moving).kind).toBe('relocated');
+    } finally {
+      publish.mockRestore();
+    }
+
+    expect(await read('b/IMG (conflict from move).xmp')).toBeNull();
+    expect(await read('a/IMG.HEIC.xmp')).toBe(darktable);
   });
 });
