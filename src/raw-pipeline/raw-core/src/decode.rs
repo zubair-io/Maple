@@ -694,7 +694,13 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         }
     });
 
-    let opcodes = crate::sensor_gain_maps::read(bytes, ext, width, height);
+    let opcodes = crate::sensor_gain_maps::read(
+        bytes,
+        ext,
+        width,
+        height,
+        crate::masked_margin::cfa_period(&cfa) as u32,
+    );
 
     // Assemble first with a placeholder BE, then resolve the bundled-profile
     // contribution against the fully-populated RawImage (§ 1b compose chain).

@@ -314,6 +314,7 @@ fn tile_vs_full_highlights_with_sensor_gain_maps_match_the_same_frame() {
         })
         .collect();
     raw.sensor_gain_maps = Some(SensorGainMaps {
+        cfa_period: 2,
         steps: maps.into_iter().map(SensorStep::Gain).collect(),
         active_area: ActiveAreaRect::full(raw.width, raw.height),
     });

@@ -40,11 +40,10 @@ pub fn refill_masked_margins(
     black: &[u32; 4],
     white: u32,
 ) -> Vec<u16> {
-    let period = match cfa {
-        CfaPattern::LinearRgb => return data,
-        CfaPattern::XTrans(_) => 6,
-        _ => 2,
-    };
+    if matches!(cfa, CfaPattern::LinearRgb) {
+        return data;
+    }
+    let period = cfa_period(cfa);
     let Some(area) = area else { return data };
     let (right, bottom) = (area.left + area.width, area.top + area.height);
     if data.len() != width * height
@@ -92,6 +91,15 @@ pub fn refill_masked_margins(
         data.copy_within(source..source + width, y * width);
     }
     data
+}
+
+/// Rows and columns between repeats of the CFA pattern; 1 for LinearRgb.
+pub(crate) fn cfa_period(cfa: &CfaPattern) -> usize {
+    match cfa {
+        CfaPattern::LinearRgb => 1,
+        CfaPattern::XTrans(_) => 6,
+        _ => 2,
+    }
 }
 
 /// The nearest index in `lo..hi` of the same phase modulo `period` as `v`;
