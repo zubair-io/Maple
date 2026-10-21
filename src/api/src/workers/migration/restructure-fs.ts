@@ -29,7 +29,13 @@ import * as path from 'node:path';
 import { filesIdentical } from '../../backup/fs-util.ts';
 import { pickFreePath } from '../../fs/trash.ts';
 import { sha256Prefix16 } from '../../fs/xmp.ts';
-import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
+import { listPairedSidecarsStrict } from '../../fs/xmp-conflict.ts';
+import { sidecarRenameTarget } from '../../fs/sidecar-rename.ts';
+import {
+  hasLegacyBackupEdit,
+  isLegacyBackupSidecarOf,
+  oldNameSlotTaken,
+} from '../../fs/legacy-backup-sidecar.ts';
 import { carrySidecar, settleRefiledSidecar, type CarriedSidecar } from './refile-sidecar.ts';
 import {
   copyVerifiedIntoPlace,
@@ -90,6 +96,42 @@ export async function revertPlaced(placed: Pick<PlacePlan, 'publications'>): Pro
   await withdrawPublications(placed.publications);
 }
 
+/** Taken: the name itself, another photo's stranded old-name edit (#5063) the
+ * migration would hand this one, or, when this photo carries its own old-name
+ * edit, a name where that edit can't land. */
+function destinationTaken(carriesOldName: boolean) {
+  return async (candidate: string): Promise<boolean> =>
+    (await exists(candidate)) ||
+    (carriesOldName ? await oldNameSlotTaken(candidate) : await hasLegacyBackupEdit(candidate));
+}
+
+/** Different bytes, a duplicate that carries companions we must not drop, or a
+ * taken old-name slot: claim the next free sibling. Never overwrite the occupant. */
+async function claimTarget(
+  newTargetAbs: string,
+  carriesOldName: boolean,
+): Promise<{ targetAbs: string; outcome: PlaceOutcome }> {
+  // A folder that exists but can't be listed would read every name as taken.
+  await fs.readdir(path.dirname(newTargetAbs)).catch((err: unknown) => {
+    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
+  });
+  const taken = destinationTaken(carriesOldName);
+  if (!(await taken(newTargetAbs))) return { targetAbs: newTargetAbs, outcome: 'copied' };
+  const targetAbs = await pickFreePath(newTargetAbs, 'migration:primary', taken);
+  return { targetAbs, outcome: 'renamed' };
+}
+
+/** A pure-original duplicate: the occupant holds the same bytes and the source has no companions. */
+async function isBareDuplicate(
+  oldAbs: string,
+  newTargetAbs: string,
+  hasCompanions: boolean,
+): Promise<boolean> {
+  return (
+    !hasCompanions && (await exists(newTargetAbs)) && (await filesIdentical(oldAbs, newTargetAbs))
+  );
+}
+
 /**
  * Copy the primary + companions from the old day-folder into `newDir`,
  * verifying each. Handles collisions at the target:
@@ -112,7 +154,8 @@ export async function planAndPlace(args: {
     throw new SourceMissingError(`source original missing: ${oldAbs}`);
   }
   const oldDirAbs = joinRel(libRoot, oldDir);
-  const sidecars = await listPairedSidecars(oldAbs);
+  // Strict: an unreadable sidecar fails this asset for a later retry, never left behind (#5063).
+  const sidecars = await listPairedSidecarsStrict(oldAbs);
   const renderedAbsOld = renderedRelOld ? joinRel(libRoot, renderedRelOld) : null;
   const renderedPresent = renderedAbsOld !== null && (await exists(renderedAbsOld));
   const hasCompanions = sidecars.length > 0 || renderedPresent;
@@ -120,38 +163,31 @@ export async function planAndPlace(args: {
   const newTargetAbs = joinRel(libRoot, `${newDir}/${filename}`);
 
   // ── Collision handling ────────────────────────────────────────────────────
-  let targetAbs = newTargetAbs;
-  let outcome: PlaceOutcome = 'copied';
-  if (await exists(newTargetAbs)) {
-    const identical = await filesIdentical(oldAbs, newTargetAbs);
-    if (identical && !hasCompanions) {
-      // Pure-original duplicate → dedupe. Repoint to the occupant; the source
-      // original is redundant and gets deleted after the DB commit.
-      log.info(
-        { oldAbs, survivor: newTargetAbs },
-        'restructure: byte-identical duplicate — deduping (repoint + delete source)',
-      );
-      return {
-        outcome: 'deduped',
-        newRelPath: `${newDir}/${filename}`,
-        newRenderedRel: renderedRelOld, // no rendered move on a dedupe of a bare original
-        sourcesToDelete: [oldAbs],
-        carriedSidecars: [],
-        publications: [], // no copy made — nothing to revert
-        oldDirAbs,
-      };
-    }
-    // Different bytes, or a duplicate that carries companions we must not drop:
-    // claim the next free sibling. Never overwrite the occupant.
-    targetAbs = await pickFreePath(newTargetAbs, 'migration:primary');
-    outcome = 'renamed';
+  if (await isBareDuplicate(oldAbs, newTargetAbs, hasCompanions)) {
+    // Repoint to the occupant; the source original is redundant and gets
+    // deleted after the DB commit.
+    log.info(
+      { oldAbs, survivor: newTargetAbs },
+      'restructure: byte-identical duplicate — deduping (repoint + delete source)',
+    );
+    return {
+      outcome: 'deduped',
+      newRelPath: `${newDir}/${filename}`,
+      newRenderedRel: renderedRelOld, // no rendered move on a dedupe of a bare original
+      sourcesToDelete: [oldAbs],
+      carriedSidecars: [],
+      publications: [], // no copy made — nothing to revert
+      oldDirAbs,
+    };
   }
+  const oldNameEdit = sidecars.find((sidecar) => isLegacyBackupSidecarOf(oldAbs, sidecar));
+  const { targetAbs, outcome } = await claimTarget(newTargetAbs, oldNameEdit !== undefined);
 
   const publications: RelocatePublication[] = [];
   // A throw past this point reverts every copy, so a retry starts clean (#5061).
   try {
     const placed = await copyIntoPlace(
-      { libRoot, oldAbs, targetAbs, sidecars, renderedAbsOld, renderedRelOld },
+      { libRoot, oldAbs, targetAbs, sidecars, oldNameEdit, renderedAbsOld, renderedRelOld },
       publications,
     );
     return { outcome, ...placed, publications, oldDirAbs };
@@ -169,6 +205,7 @@ async function copyIntoPlace(
     oldAbs: string;
     targetAbs: string;
     sidecars: readonly string[];
+    oldNameEdit: string | undefined;
     renderedAbsOld: string | null;
     renderedRelOld: string | null;
   },
@@ -187,13 +224,13 @@ async function copyIntoPlace(
   // ── Copy + verify sidecars (canonical + conflict copies) ─────────────────
   const carriedSidecars: CarriedSidecar[] = [];
   for (const sidecar of args.sidecars) {
-    const name = path.basename(sidecar);
-    if (!name.startsWith(oldBase)) continue; // defensive — listPairedSidecars guarantees this
-    const renamed = newBase + name.slice(oldBase.length);
-    const dst = await pickFreePath(
-      path.join(path.dirname(targetAbs), renamed),
-      'migration:sidecar',
-    );
+    // The shared base swap matches case-insensitively, as the listing does.
+    const renamed = sidecarRenameTarget(oldAbs, targetAbs, sidecar);
+    if (renamed === null) continue;
+    // The migration finds an old-name edit only at its exact name (#5063), so a
+    // name taken since `claimTarget` fails the refile rather than suffixing it.
+    const dst =
+      sidecar === args.oldNameEdit ? renamed : await pickFreePath(renamed, 'migration:sidecar');
     const carried = await carrySidecar(sidecar, dst, targetAbs, publications);
     if (carried === null) continue;
     carriedSidecars.push(carried);

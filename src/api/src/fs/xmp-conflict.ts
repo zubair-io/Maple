@@ -29,6 +29,7 @@ import { waitForAbortable } from './sidecar-write-order.ts';
 import type { OpResult } from './root.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
 import { workflowSidecarBase } from './workflow-sidecar-pairing';
+import { pairedLegacyBackupSidecar } from './legacy-backup-sidecar.ts';
 import { PAIRED_SIDECAR_SUFFIX_PATTERN } from '../generated/filename-vocabulary.generated';
 
 /** Sanitize a device name for use in a conflict-copy filename. */
@@ -180,28 +181,36 @@ export async function writeConflictSidecarAtomic(
 /**
  * Return absolute paths of every XMP sidecar paired to the given RAW —
  * the canonical `<base>.xmp`, UUID variants (`<base>.v<UUID>.xmp`),
- * and every `<base> (conflict from <device>).xmp`
- * (with optional ` (N)` numeric suffix). Order is unspecified; callers that
+ * every `<base> (conflict from <device>).xmp`
+ * (with optional ` (N)` numeric suffix), and a photo's pre-#5021 Maple
+ * backup edit `<name>.<ext>.xmp` (#5063). Order is unspecified; callers that
  * care about ordering must sort.
  *
  * Reads the RAW's parent directory once and filters by name. Missing
  * directory or read errors return an empty array — the caller is moving
- * sidecars best-effort.
+ * sidecars best-effort — and an unreadable old-name file is left out alone.
  */
 export async function listPairedSidecars(rawAbsPath: string): Promise<string[]> {
-  try {
-    return await listPairedSidecarsStrict(rawAbsPath);
-  } catch {
-    return [];
-  }
+  const entries = await fs.readdir(path.dirname(rawAbsPath)).catch(() => null);
+  if (entries === null) return [];
+  const legacy = await pairedLegacyBackupSidecar(rawAbsPath, entries).catch(() => null);
+  return withLegacy(namedPairedSidecars(rawAbsPath, entries), legacy);
 }
 
 /** Restore must distinguish an unreadable directory from an unedited photo;
  * otherwise it could delete the primary while silently leaving its edits. */
 export async function listPairedSidecarsStrict(rawAbsPath: string): Promise<string[]> {
+  const entries = await fs.readdir(path.dirname(rawAbsPath));
+  const legacy = await pairedLegacyBackupSidecar(rawAbsPath, entries);
+  return withLegacy(namedPairedSidecars(rawAbsPath, entries), legacy);
+}
+
+const withLegacy = (paired: string[], legacy: string | null): string[] =>
+  legacy === null ? paired : [...paired, legacy];
+
+function namedPairedSidecars(rawAbsPath: string, entries: readonly string[]): string[] {
   const dir = path.dirname(rawAbsPath);
   const rawBase = sidecarBase(rawAbsPath);
-  const entries = await fs.readdir(dir);
   // Anchored: name is either `<rawBase>.xmp` (canonical) or
   // `<rawBase> (conflict from <device>)[ (N)].xmp` (variant). The
   // numeric `(N)` suffix is only valid AFTER a conflict-from suffix —

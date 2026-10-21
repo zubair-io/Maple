@@ -184,6 +184,11 @@ describe('runTrashGcOnce', () => {
     // A neighbour that merely starts with the same stem is not a paired
     // sidecar and must survive the purge.
     writeFileSync(join(root, 'shot (2).xmp'), '<xmp/>');
+    // Its pre-#5021 backup edit goes with it (#5063); another tool's never does.
+    const maple = '<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/"/>';
+    writeFileSync(join(root, 'shot.dng.xmp'), maple);
+    writeFileSync(join(root, 'other.dng'), 'y');
+    writeFileSync(join(root, 'other.dng.xmp'), '<x:xmpmeta xmlns:darktable="x"/>');
 
     trashedAsset(live.db, {
       libraryId,
@@ -199,6 +204,8 @@ describe('runTrashGcOnce', () => {
     expect(existsSync(join(root, variant))).toBe(false);
     expect(existsSync(join(root, 'shot.v2.xmp'))).toBe(true);
     expect(existsSync(join(root, 'shot (2).xmp'))).toBe(true);
+    expect(existsSync(join(root, 'shot.dng.xmp'))).toBe(false);
+    expect(existsSync(join(root, 'other.dng.xmp'))).toBe(true);
   });
 
   it('tolerates a file that is already gone', async () => {

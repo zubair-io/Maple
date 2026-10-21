@@ -36,6 +36,7 @@ import type { ObjectId } from '../db/object-id.ts';
 import { uploadSessions } from '../backup/upload-session.ts';
 import { formatBackupPath } from '../backup/path-formatter.ts';
 import { containedJoin } from '../backup/path-safety.ts';
+import { hasLegacyBackupEdit } from '../fs/legacy-backup-sidecar.ts';
 import { filesIdentical, firstFreeSiblingPath, moveNoClobber } from '../backup/fs-util.ts';
 import { resolveBackupLocation } from '../backup/ingest-geocode.ts';
 import { isScreenshotFilename } from '../indexer/screenshot.ts';
@@ -75,6 +76,13 @@ async function isOccupiedOnDisk(absPath: string): Promise<boolean> {
   }
 }
 
+/** A moved photo's old-name edit (#5063) left with no photo beside it: the
+ * canonical-sidecars migration would hand it to whatever lands here. An
+ * edit beside identical bytes is that photo's own, so recovery still adopts. */
+async function holdsStrandedLegacyEdit(absPath: string): Promise<boolean> {
+  return (await hasLegacyBackupEdit(absPath)) && !(await isOccupiedOnDisk(absPath));
+}
+
 /**
  * Place the assembled `tmpFile` into `libraryRoot` starting from `baseRelPath`
  * without ever clobbering or adopting an unrelated file (#4700):
@@ -100,8 +108,9 @@ async function placeUploadOnDisk(args: {
   const containedBase = containedJoin(args.libraryRoot, resolvedRelPath);
   if (!containedBase) return null;
 
-  const isClaimedByOther = (relPath: string) =>
-    isLocationOwnedByOtherAsset(args.libraryId, relPath, args.assetId);
+  const isClaimedByOther = async (relPath: string) =>
+    (await isLocationOwnedByOtherAsset(args.libraryId, relPath, args.assetId)) ||
+    (await holdsStrandedLegacyEdit(path.join(args.libraryRoot, ...relPath.split('/'))));
 
   let finalPath = containedBase;
   for (let attempt = 0; attempt <= 10_000; attempt++) {

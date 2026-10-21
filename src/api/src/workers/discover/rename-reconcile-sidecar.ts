@@ -6,6 +6,8 @@
  * both paths. Publishes exclusively (`link` + `unlink` with `COPYFILE_EXCL`
  * fallback) so an occupied `<newstem>.xmp` is never clobbered — on `EEXIST`,
  * the incoming sidecar lands at `<newstem> (conflict from rename).xmp`.
+ * A pre-#5021 `<name>.<ext>.xmp` follows separately, after those locks are
+ * released, and stays in place when its destination is taken (#5063).
  */
 import * as path from 'node:path';
 import type { ObjectId } from '../../db/object-id.ts';
@@ -17,12 +19,20 @@ import {
   serializeSidecarWrite,
   SidecarWritePathDeniedError,
 } from '../../fs/sidecar-write-order.ts';
+import { sidecarAlreadyCarried } from '../../fs/sidecar-ownership.ts';
 import { pickFreeConflictPath } from '../../fs/xmp-conflict.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
+import {
+  legacyBackupSidecar,
+  locateLegacyBackupEdit,
+  oldNameSlotTaken,
+  readLegacyAt,
+} from '../../fs/legacy-backup-sidecar.ts';
 import { child } from '../../log.ts';
 
 const log = child('discover:rename-reconcile');
 const NON_PRIMARY_EXTENSIONS = new Set(['.xmp', '.hidden']);
+const RENAME_CONFLICT_ATTEMPTS = 5;
 
 function comparablePath(p: string): string {
   return path.resolve(p).normalize('NFC').toLowerCase().normalize('NFC');
@@ -328,5 +338,72 @@ export async function moveSidecarIfPresent(
       'rename-reconcile: sidecar move failed',
     );
     return false;
+  }
+}
+
+/** A taken name, as the canonical move does: the edit lands beside the photo as
+ * `<newstem> (conflict from rename).xmp` rather than staying behind with none. */
+async function publishRenameConflict(source: string, newAbsPath: string, root: string) {
+  // Another writer can take the picked name before the exclusive publish; pick again.
+  for (let attempt = 0; attempt < RENAME_CONFLICT_ATTEMPTS; attempt++) {
+    const conflictPath = await pickFreeConflictPath(newAbsPath, 'rename');
+    const outcome = await serializeSidecarWrite(
+      conflictPath,
+      (authorized) => publishSidecarExclusive(source, authorized, root, false),
+      {
+        admissionScope: root,
+        resolveDestination: () => authorizeSidecarWrite(conflictPath, root),
+      },
+    );
+    if (outcome === 'published') return;
+  }
+  throw new Error(`rename-reconcile: no free conflict name for ${newAbsPath}`);
+}
+
+/** Carries a photo's pre-#5021 `IMG.dng.xmp` to its new full name (#5063), so the
+ * canonical-sidecars migration still finds it. Runs after the canonical move's
+ * locks are released; a taken name gets a conflict copy, and a failure leaves it in place. */
+export async function moveLegacySidecarIfPresent(
+  oldAbsPath: string,
+  newAbsPath: string,
+  root: string,
+): Promise<void> {
+  const newLegacy = legacyBackupSidecar(newAbsPath);
+  if (newLegacy === null) return;
+  try {
+    // As stored, case variant included; a folder that can't be listed throws.
+    const found = await locateLegacyBackupEdit(oldAbsPath);
+    if (found === null) return;
+    const oldLegacy = found.legacy;
+    await withBothSidecarWriteLocks(
+      oldLegacy,
+      newLegacy,
+      root,
+      async (resolvedOld, resolvedNew) => {
+        // The lexical name: the ownership check compares folder entries, which a
+        // symlinked root's realpath would never match.
+        if ((await readLegacyAt(oldAbsPath, oldLegacy)) === null) return;
+        const classification = await classifySameFile(resolvedOld, resolvedNew);
+        if (classification === 'identical') return;
+        // Its own case variant: a case-sensitive volume sees two names for one edit.
+        const caseOnly =
+          classification === 'case-only-rename' ||
+          path.basename(oldLegacy).toLowerCase() === path.basename(newLegacy).toLowerCase();
+        if (caseOnly) return fs.rename(resolvedOld, resolvedNew);
+        const landed =
+          !(await oldNameSlotTaken(newAbsPath)) &&
+          (await publishSidecarExclusive(resolvedOld, resolvedNew, root, false)) === 'published';
+        if (landed) return;
+        if (await sidecarAlreadyCarried(resolvedOld, resolvedNew)) return fs.unlink(resolvedOld);
+        await publishRenameConflict(resolvedOld, newAbsPath, root);
+      },
+    );
+  } catch (err) {
+    // No retry path: discover re-attaches the renamed photo by content even if
+    // this rename were declined, so the edit is kept at the old path and flagged.
+    log.error(
+      { oldAbsPath, newLegacy, err: err instanceof Error ? err.message : err },
+      'rename-reconcile: old-name sidecar move failed — left in place',
+    );
   }
 }

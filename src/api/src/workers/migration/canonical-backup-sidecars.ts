@@ -36,12 +36,9 @@ import {
 } from '../../db/repos/backup-sidecar-name-checks.repo.ts';
 import { errorOutcome, publishSidecarIfAbsent } from '../../backup/sidecar-cas.ts';
 import { isLiveLocationOfAsset } from '../../db/repos/backup.repo.ts';
-import {
-  legacyBackupSidecar,
-  readLegacyBackupEdit,
-  removeLegacyIfUnchanged,
-} from '../../backup/legacy-sidecar.ts';
-import { readSidecarBytes } from '../../fs/sidecar-ownership.ts';
+import { removeLegacyIfUnchanged } from '../../backup/legacy-sidecar.ts';
+import { locateLegacyBackupEdit, readLegacyAt } from '../../fs/legacy-backup-sidecar.ts';
+import { readSidecarBytes } from '../../fs/sidecar-bytes.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
 import { announceSidecarLanded, recordSidecarEditAhead } from '../../routes/xmp-change.ts';
 import { libraryRootAvailable } from '../missing-reaper.helpers.ts';
@@ -49,7 +46,7 @@ import { isLiveFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
 import { child as childLogger } from '../../log.ts';
 import { runCandidateBatch, type CandidateOutcome, type LibraryRoots } from './candidate-batch.ts';
-import { MigrationBlockedError, type Migration, type MigrationBatchResult } from './types.ts';
+import type { Migration, MigrationBatchResult } from './types.ts';
 
 const log = childLogger('migration:canonical-backup-sidecars');
 
@@ -83,7 +80,7 @@ async function stillCurrent(edit: LegacyEdit): Promise<boolean> {
       assetId,
       location.library_id,
       path.posix.join(location.path, location.filename),
-    )) && (await readLegacyBackupEdit(primary).catch(() => null))?.equals(bytes) === true
+    )) && (await readLegacyAt(primary, edit.legacy).catch(() => null))?.equals(bytes) === true
   );
 }
 
@@ -173,10 +170,11 @@ async function canonicalizeLocation(
   root: string,
 ): Promise<LocationOutcome> {
   const primary = path.join(root, location.path, location.filename);
-  const legacy = legacyBackupSidecar(primary);
   try {
-    const legacyBytes = legacy ? await readLegacyBackupEdit(primary) : null;
-    if (!legacy || !legacyBytes) return 'done';
+    // Case-aware, and a folder that can't be listed throws for a retry (#5063).
+    const found = await locateLegacyBackupEdit(primary);
+    if (found === null) return 'done';
+    const { legacy, bytes: legacyBytes } = found;
     if (await supersededByASend(assetId, location, primary, legacyBytes)) {
       // A device send landed and kept this edit aside, but couldn't remove the file.
       await serializeSidecarWrite(xmpSidecarPath(primary), () =>
@@ -187,7 +185,7 @@ async function canonicalizeLocation(
     return await publishCanonical({ assetId, location, primary, root, legacy, bytes: legacyBytes });
   } catch (err) {
     log.error(
-      { _id: String(assetId), legacy, err: err instanceof Error ? err.message : err },
+      { _id: String(assetId), primary, err: err instanceof Error ? err.message : err },
       'canonical sidecar migration failed — left for retry',
     );
     return 'error';
@@ -234,17 +232,6 @@ async function canonicalizeAsset(
   return (await markCanonicalSidecarsChecked(doc.id, live)) ? 'processed' : 'retry-later';
 }
 
-/** One batch of the migration's work, independent of the #5063 gate below. */
-export function runCanonicalBackupSidecarsBatch(batchSize: number): Promise<MigrationBatchResult> {
-  return runCandidateBatch({
-    scope: CANDIDATES,
-    batchSize,
-    log,
-    skippedWarning: 'canonical backup sidecars: assets skipped — library root not resolved',
-    process: canonicalizeAsset,
-  });
-}
-
 export const canonicalBackupSidecars: Migration = {
   id: MIGRATION_ID,
   title: 'Canonical backup sidecars',
@@ -252,16 +239,19 @@ export const canonicalBackupSidecars: Migration = {
     'Moves backed-up photo edits saved as IMG_1234.HEIC.xmp to the IMG_1234.xmp the server ' +
     'reads (#5021). Where an IMG_1234.xmp already exists it stays the active edit and the ' +
     'backup edit is kept as a divergence; nothing is overwritten or deleted without being ' +
-    'recorded. Videos are unchanged. Blocked until #5063 lands. One-time; idempotent.',
+    'recorded. Videos are unchanged. One-time; idempotent.',
 
   countRemaining(): Promise<number> {
     return countCandidates(CANDIDATES);
   },
 
-  // Staged behind #5063: until movers carry old-name sidecars, a moved photo's edit would strand.
-  async runBatch(): Promise<MigrationBatchResult> {
-    throw new MigrationBlockedError(
-      'Blocked until #5063 lands: movers must carry old-name IMG.HEIC.xmp sidecars first.',
-    );
+  runBatch(batchSize: number): Promise<MigrationBatchResult> {
+    return runCandidateBatch({
+      scope: CANDIDATES,
+      batchSize,
+      log,
+      skippedWarning: 'canonical backup sidecars: assets skipped — library root not resolved',
+      process: canonicalizeAsset,
+    });
   },
 };

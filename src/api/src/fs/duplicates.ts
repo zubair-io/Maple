@@ -21,9 +21,19 @@
 import * as fs from './mirrored.ts';
 import * as path from 'node:path';
 import { pickFreePath, moveSidecarsAlongside, type MoveResult } from './trash.ts';
-import { assetDestinationOccupied } from './sidecar-ownership.ts';
+import {
+  assetDestinationOccupied,
+  publishSidecarSnapshot,
+  settleCarriedSidecar,
+} from './sidecar-ownership.ts';
 import { listPairedSidecars } from './xmp-conflict.ts';
+import { isLegacyBackupSidecarOf, oldNameEditUnlisted } from './legacy-backup-sidecar.ts';
+import { revertCreated, type RelocatePublication } from './relocate-publish.ts';
+import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { relativeUnderRoot } from './root-match.ts';
+import { child as childLogger } from '../log.ts';
+
+const log = childLogger('fs/duplicates');
 
 /** Reserved top-level folder (under each library root) holding moved duplicate
  * originals. Excluded from indexing — see the module docstring. */
@@ -68,23 +78,59 @@ export function computeDuplicatesPath(absPath: string, folderRoot: string): stri
   return path.join(folderRoot, DUPLICATES_DIR_NAME, rel);
 }
 
+/** Publish the photo's old-name edit at its destination ahead of the primary. */
+async function publishOldNameAhead(
+  absPath: string,
+  target: string,
+  ownSidecars: readonly string[],
+  published: RelocatePublication[],
+): Promise<{ source: string; dest: string; snapshot: Buffer } | null> {
+  const legacy = ownSidecars.find((sidecar) => isLegacyBackupSidecarOf(absPath, sidecar));
+  if (legacy === undefined) return null;
+  const dest = sidecarRenameTarget(absPath, target, legacy);
+  if (dest === null) return null;
+  return { source: legacy, dest, snapshot: await publishSidecarSnapshot(legacy, dest, published) };
+}
+
 /**
  * Move `absPath` (a duplicate original) and every paired sidecar into
  * `<folderRoot>/_duplicates/<rel>`, creating parent dirs and suffixing `.N` on
  * collision so an existing quarantined file is never overwritten. Returns the
- * new absolute path. Sidecar moves are best-effort (see `moveSidecarsAlongside`).
+ * new absolute path. Sidecar moves are best-effort (see `moveSidecarsAlongside`),
+ * except the old-name edit, which is published first: if that fails, nothing moves.
  */
 export async function moveToDuplicates(absPath: string, folderRoot: string): Promise<MoveResult> {
   const target = computeDuplicatesPath(absPath, folderRoot);
   await fs.mkdir(path.dirname(target), { recursive: true });
   const ownSidecars = await listPairedSidecars(absPath);
+  if (await oldNameEditUnlisted(absPath, ownSidecars)) {
+    return {
+      kind: 'error',
+      error: "moveToDuplicates: the photo's old-name backup edit can't be read",
+    };
+  }
   const freeTarget = await pickFreePath(target, 'moveToDuplicates', (candidate) =>
     assetDestinationOccupied(candidate, ownSidecars, absPath),
   );
-  try {
-    await fs.rename(absPath, freeTarget);
-  } catch (err) {
-    return { kind: 'error', error: err instanceof Error ? err.message : String(err) };
+  // The old-name edit is published before the primary moves: if it can't be,
+  // nothing moves; left behind, nothing would find it again (#5063).
+  const published: RelocatePublication[] = [];
+  const ahead = await (async () => {
+    try {
+      const carried = await publishOldNameAhead(absPath, freeTarget, ownSidecars, published);
+      await fs.rename(absPath, freeTarget);
+      return carried;
+    } catch (err) {
+      await revertCreated(published);
+      return err instanceof Error ? err : new Error(String(err));
+    }
+  })();
+  if (ahead instanceof Error) return { kind: 'error', error: ahead.message };
+  // Settled against its snapshot, so a save since the copy ahead is carried too.
+  if (ahead) {
+    await settleCarriedSidecar(ahead.source, ahead.dest, ahead.snapshot, false).catch((err) => {
+      log.warn({ source: ahead.source, err: String(err) }, 'old-name sidecar settle failed');
+    });
   }
   await moveSidecarsAlongside(absPath, freeTarget);
   return { kind: 'ok', newAbsPath: freeTarget };
