@@ -246,6 +246,28 @@ namespace Maple.WinUI.Services
                 var prev = (i + n - 1) % n;
                 m[i] = FritschCarlsonTangent(h[prev], d[prev], h[i], d[i]);
             }
+            for (var i = 0; i < n; i++)
+            {
+                var next = (i + 1) % n;
+                var dk = d[i];
+                if (Math.Abs(dk) < 1e-7)
+                {
+                    m[i] = 0.0;
+                    m[next] = 0.0;
+                }
+                else
+                {
+                    var alpha = m[i] / dk;
+                    var beta = m[next] / dk;
+                    var r2 = alpha * alpha + beta * beta;
+                    if (r2 > 9.0)
+                    {
+                        var tau = 3.0 / Math.Sqrt(r2);
+                        m[i] = tau * alpha * dk;
+                        m[next] = tau * beta * dk;
+                    }
+                }
+            }
             var xQuery = u < knots[0].X ? u + 1.0 : u;
             var seg = n - 1;
             for (var i = 0; i < n - 1; i++)
@@ -282,8 +304,27 @@ namespace Maple.WinUI.Services
             m[n - 1] = d[n - 2];
             for (var i = 1; i < n - 1; i++)
                 m[i] = FritschCarlsonTangent(h[i - 1], d[i - 1], h[i], d[i]);
-            if (Math.Abs(d[0]) < 1e-6) m[0] = 0.0;
-            if (Math.Abs(d[n - 2]) < 1e-6) m[n - 1] = 0.0;
+            for (var i = 0; i < n - 1; i++)
+            {
+                var dk = d[i];
+                if (Math.Abs(dk) < 1e-7)
+                {
+                    m[i] = 0.0;
+                    m[i + 1] = 0.0;
+                }
+                else
+                {
+                    var alpha = m[i] / dk;
+                    var beta = m[i + 1] / dk;
+                    var r2 = alpha * alpha + beta * beta;
+                    if (r2 > 9.0)
+                    {
+                        var tau = 3.0 / Math.Sqrt(r2);
+                        m[i] = tau * alpha * dk;
+                        m[i + 1] = tau * beta * dk;
+                    }
+                }
+            }
             var seg = 0;
             for (var i = 0; i < n - 1; i++)
             {

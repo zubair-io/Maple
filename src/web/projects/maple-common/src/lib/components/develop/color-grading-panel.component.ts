@@ -86,17 +86,17 @@ export function computeZoneWeights(
   highlightEdge: number,
 ): [number, number, number] {
   const lClamped = Math.min(Math.max(l, 0), 1);
-  const b = Math.min(Math.max(balance, -100), 100) / 100;
-  const lMid = 0.564622 - 0.18 * b;
-  const lLow = Math.min(Math.max(shadowEdge, 0.1), 0.564622);
-  const lHigh = Math.min(Math.max(highlightEdge, 0.564622), 0.9);
-  const w = Math.min(Math.max(blending, 0), 100) / 100;
-  const sh0 = Math.max(lLow * (1 - w), 0);
-  const sh1 = Math.max(Math.min(lLow + (lMid - lLow) * w, 1), sh0 + 1e-4);
-  const hi0 = Math.min(Math.max(lMid + (lHigh - lMid) * (1 - w), 0), 1 - 1e-4);
-  const hi1 = Math.max(Math.min(lHigh + (1 - lHigh) * w, 1), hi0 + 1e-4);
-  const wSh = 1 - smoothstep(sh0, sh1, lClamped);
-  const wHi = smoothstep(hi0, hi1, lClamped);
+  const balanceExp = Math.pow(2, -Math.min(Math.max(balance, -100), 100) / 100);
+  const lb = Math.pow(lClamped, balanceExp);
+  const b = Math.min(Math.max(blending, 0), 100) / 100;
+  const ls = Math.min(Math.max(shadowEdge, 0.1), 0.564622);
+  const lh = Math.min(Math.max(highlightEdge, 0.564622), 0.9);
+  const s0 = (1 - b) * Math.max(ls - 0.04, 0);
+  const s1 = ls;
+  const h0 = lh;
+  const h1 = 1 - (1 - b) * Math.max(1 - lh - 0.04, 0);
+  const wSh = 1 - smoothstep(s0, s1, lb);
+  const wHi = smoothstep(h0, h1, lb);
   const wMid = Math.max(1 - wSh - wHi, 0);
   return [wSh, wMid, wHi];
 }

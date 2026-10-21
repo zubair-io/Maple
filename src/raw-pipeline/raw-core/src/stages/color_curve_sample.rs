@@ -8,7 +8,7 @@
 //! scene-referred log-EV lightness the stage evaluates.
 
 use crate::color::oklab::rec2020_to_oklab;
-use crate::image::{ColorSpace, Image, RawImage};
+use crate::image::{ColorSpace, ExifOrientation, Image, RawImage};
 use crate::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
 use crate::stages::color_curves::{oklab_chroma_norm, oklab_hue_norm, scene_log_luma_norm};
 pub use crate::stages::mask_range_sample::RangeSampleError as ColorCurveSampleError;
@@ -54,6 +54,20 @@ pub fn sample_color_curve_input(
     sample_from_probe(&probe, nx, ny)
 }
 
+/// Map normalised display-oriented coordinates `(x, y)` back to the sensor frame.
+pub fn display_point_to_sensor(orientation: ExifOrientation, x: f32, y: f32) -> (f32, f32) {
+    match orientation {
+        ExifOrientation::Normal => (x, y),
+        ExifOrientation::HorizontalFlip => (1.0 - x, y),
+        ExifOrientation::Rotate180 => (1.0 - x, 1.0 - y),
+        ExifOrientation::VerticalFlip => (x, 1.0 - y),
+        ExifOrientation::Transpose => (y, x),
+        ExifOrientation::Rotate90 => (y, 1.0 - x),
+        ExifOrientation::Transverse => (1.0 - y, 1.0 - x),
+        ExifOrientation::Rotate270 => (1.0 - y, x),
+    }
+}
+
 /// `model` with `color_curves` and every stage downstream of it switched off,
 /// so the scene-linear develop ends with the exact buffer entering Stage 22b.
 pub(crate) fn stage_input_model(model: &AdjustmentModel) -> AdjustmentModel {
@@ -67,6 +81,8 @@ pub(crate) fn stage_input_model(model: &AdjustmentModel) -> AdjustmentModel {
         clarity: 0.0,
         texture: 0.0,
         dehaze: 0.0,
+        defringe_purple_amount: 0.0,
+        defringe_green_amount: 0.0,
         local_adjustments: Vec::new(),
         mask_rasters: Vec::new(),
         vignette_amount: 0.0,

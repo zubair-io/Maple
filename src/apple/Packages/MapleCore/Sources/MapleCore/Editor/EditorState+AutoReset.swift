@@ -81,6 +81,10 @@ extension EditorState {
           reset.colorCurveLumaVsSat = .identity
           reset.colorCurveSatVsSat = .identity
           reset.colorCurveSatVsLuma = .identity
+        } else if tool == .colorGrade {
+          reset.colorGradeBlending = AdjustmentModel.default.colorGradeBlending
+          reset.colorGradeShadowEdge = AdjustmentModel.default.colorGradeShadowEdge
+          reset.colorGradeHighlightEdge = AdjustmentModel.default.colorGradeHighlightEdge
         }
       }
     }

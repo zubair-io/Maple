@@ -258,8 +258,10 @@ export class ColorCurvesRibbonComponent {
       this.library.updateAdjustment(id, { [desc.field]: next });
       this.editor.endEdit();
       this.sampleMessage.set(null);
-    } catch {
-      this.sampleMessage.set('Could not sample color curve point.');
+    } catch (err) {
+      this.sampleMessage.set(
+        err instanceof Error && err.message ? err.message : 'Could not sample color curve point.',
+      );
     }
   }
 }
