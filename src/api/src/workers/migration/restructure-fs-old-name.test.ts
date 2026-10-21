@@ -7,6 +7,8 @@ import * as fs from '../../fs/mirrored.ts';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { planAndPlace, finalize } from './restructure-fs.ts';
+import { carryLateRefileSidecars } from './refile-sidecar.ts';
+import * as ownership from '../../fs/sidecar-ownership.ts';
 let root: string;
 
 beforeEach(async () => {
@@ -221,5 +223,59 @@ describe('planAndPlace — old-name backup edits (#5063)', () => {
     expect(await exists('2024/Tokyo/IMG.HEIC.1.xmp')).toBe(false);
     expect(await exists('2024/Tokyo/IMG.HEIC')).toBe(false);
     expect(await read('2024/Tokyo/03-15/IMG.HEIC.xmp')).toBe(maple('backup edit'));
+  });
+
+  const placeLate = async (late: () => Promise<unknown>) => {
+    const plan = await planAndPlace({
+      libRoot: root,
+      oldDir: '2024/Tokyo/03-15',
+      filename: 'IMG.HEIC',
+      newDir: '2024/Tokyo',
+      renderedRelOld: null,
+    });
+    await late();
+    const carried = await carryLateRefileSidecars(
+      path.join(root, '2024/Tokyo/03-15/IMG.HEIC'),
+      path.join(root, plan.newRelPath),
+      plan.carriedSidecars,
+    );
+    await finalize({
+      libRoot: root,
+      oldDirAbs: plan.oldDirAbs,
+      mapleId: undefined,
+      filename: 'IMG.HEIC',
+      sourcesToDelete: plan.sourcesToDelete,
+      carriedSidecars: [...plan.carriedSidecars, ...carried],
+    });
+  };
+
+  test('a late old-name edit follows the photo even when a same-stem sibling stays', async () => {
+    await write('2024/Tokyo/03-15/IMG.HEIC', 'pixels');
+    await write('2024/Tokyo/03-15/IMG.JPG', 'jpeg');
+
+    await placeLate(() => write('2024/Tokyo/03-15/IMG.HEIC.xmp', maple('late backup edit')));
+
+    expect(await read('2024/Tokyo/IMG.HEIC.xmp')).toBe(maple('late backup edit'));
+    expect(await exists('2024/Tokyo/03-15/IMG.HEIC.xmp')).toBe(false);
+  });
+
+  test('a late old-name edit that cannot be carried keeps the photo at the old path', async () => {
+    await write('2024/Tokyo/03-15/IMG.HEIC', 'pixels');
+    const realPublish = ownership.publishSidecarSnapshot;
+    const publish = spyOn(ownership, 'publishSidecarSnapshot').mockImplementation(
+      async (source, dest, publications) =>
+        String(source).endsWith('IMG.HEIC.xmp')
+          ? Promise.reject(new Error('EIO'))
+          : realPublish(source, dest, publications),
+    );
+    try {
+      await placeLate(() => write('2024/Tokyo/03-15/IMG.HEIC.xmp', maple('late backup edit')));
+    } finally {
+      publish.mockRestore();
+    }
+
+    expect(await read('2024/Tokyo/IMG.HEIC')).toBe('pixels');
+    expect(await read('2024/Tokyo/03-15/IMG.HEIC')).toBe('pixels');
+    expect(await read('2024/Tokyo/03-15/IMG.HEIC.xmp')).toBe(maple('late backup edit'));
   });
 });

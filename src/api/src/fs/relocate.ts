@@ -59,7 +59,7 @@ import {
 import { child as childLogger } from '../log.ts';
 import { sidecarRenameTarget, companionRenameTarget } from './sidecar-rename.ts';
 import { classifySameFile, performCaseOnlyRename } from './relocate-case-only-rename.ts';
-import { assetDestinationOccupied, settleCarriedSidecar } from './sidecar-ownership.ts';
+import { assetDestinationOccupied } from './sidecar-ownership.ts';
 import {
   planSidecars,
   carryPlannedSidecars,
@@ -70,6 +70,7 @@ import {
   ownSidecarsOf,
 } from './relocate-sidecar-plan.ts';
 import { carryLateSidecars } from './relocate-late-sidecar.ts';
+import { deleteOriginals } from './relocate-originals.ts';
 
 export { sidecarRenameTarget };
 
@@ -352,45 +353,6 @@ async function runIdentityRepoint(
   } catch (err) {
     await revertCreated(createdPaths);
     return `identity repoint failed: ${err instanceof Error ? err.message : String(err)}`;
-  }
-}
-
-/** Step 6, move mode only: delete the original primary + every sidecar that
- * was actually copied (one left in place on a copy failure keeps its
- * original, per `tryCopySidecar`'s best-effort contract). Best-effort —
- * a failure here leaves a harmless duplicate on disk, the accepted failure
- * direction, never data loss, so it's logged rather than thrown. */
-async function deleteOriginals(
-  sourceAbsPath: string,
-  movedSidecars: MovedSidecar[],
-  movedCompanionSources: string[],
-  beforeSourceDelete?: () => Promise<void>,
-): Promise<void> {
-  await beforeSourceDelete?.();
-  await fs.unlink(sourceAbsPath).catch((err) => {
-    log.warn(
-      { sourceAbsPath, err: err instanceof Error ? err.message : err },
-      'relocate: source primary unlink failed after a verified copy — a duplicate is left on disk (acceptable failure direction, never data loss)',
-    );
-  });
-  const removals = [
-    ...movedSidecars.map((moved) => ({
-      src: moved.source,
-      remove: () =>
-        settleCarriedSidecar(moved.source, moved.dest, moved.snapshot, moved.keepSource),
-    })),
-    ...movedCompanionSources.map((src) => ({ src, remove: () => fs.unlink(src) })),
-  ];
-  for (const { src, remove } of removals) {
-    await (async () => {
-      await beforeSourceDelete?.();
-      await remove();
-    })().catch((err) => {
-      log.warn(
-        { src, err: err instanceof Error ? err.message : err },
-        'relocate: source sidecar/companion unlink failed after a verified copy',
-      );
-    });
   }
 }
 

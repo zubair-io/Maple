@@ -364,11 +364,6 @@ export async function finalize(args: {
   sourcesToDelete: string[];
   carriedSidecars: readonly CarriedSidecar[];
 }): Promise<void> {
-  for (const src of args.sourcesToDelete) {
-    await fs.unlink(src).catch((err) => {
-      log.warn({ src, err: err instanceof Error ? err.message : err }, 'source unlink failed');
-    });
-  }
   // A save that landed on the source after its snapshot is carried, never deleted (#5061).
   for (const carried of args.carriedSidecars) {
     await settleRefiledSidecar(carried).catch((err: unknown) => {
@@ -376,6 +371,18 @@ export async function finalize(args: {
         { src: carried.source, err: err instanceof Error ? err.message : err },
         'sidecar settle failed — source kept',
       );
+    });
+  }
+  // Last, so an old-name edit left behind keeps its photo, the only place the migration looks (#5063).
+  const primary = path.join(args.oldDirAbs, args.filename);
+  const keepPrimary = await hasLegacyBackupEdit(primary);
+  if (keepPrimary) {
+    log.error({ primary }, 'refile: an old-name backup edit stayed behind — the original is kept');
+  }
+  for (const src of args.sourcesToDelete) {
+    if (keepPrimary && src === primary) continue;
+    await fs.unlink(src).catch((err) => {
+      log.warn({ src, err: err instanceof Error ? err.message : err }, 'source unlink failed');
     });
   }
   await dropOldCache(args.oldDirAbs, args.mapleId, args.filename);

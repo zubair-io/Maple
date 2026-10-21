@@ -20,6 +20,7 @@ import {
 import { serializeSidecarWrites } from '../../fs/sidecar-write-order.ts';
 import { listPairedSidecars, pickFreeConflictPath } from '../../fs/xmp-conflict.ts';
 import { sidecarRenameTarget } from '../../fs/sidecar-rename.ts';
+import { isLegacyBackupSidecarOf } from '../../fs/legacy-backup-sidecar.ts';
 import { child as childLogger } from '../../log.ts';
 
 const log = childLogger('migration:refile-sidecar');
@@ -83,9 +84,13 @@ export async function carryLateRefileSidecars(
   newAbs: string,
   carried: readonly CarriedSidecar[],
 ): Promise<CarriedSidecar[]> {
-  if (await sidecarStemClaimedBySibling(oldAbs, [newAbs])) return [];
+  const sharedWithSibling = await sidecarStemClaimedBySibling(oldAbs, [newAbs]);
   const known = new Set(carried.map((entry) => path.resolve(entry.source)));
-  const late = (await listPairedSidecars(oldAbs)).filter((s) => !known.has(path.resolve(s)));
+  // An old-name edit (#5063) names one photo, so a sibling never keeps it.
+  const late = (await listPairedSidecars(oldAbs)).filter(
+    (s) =>
+      !known.has(path.resolve(s)) && (!sharedWithSibling || isLegacyBackupSidecarOf(oldAbs, s)),
+  );
   const moved: CarriedSidecar[] = [];
   for (const source of late) {
     const dest = sidecarRenameTarget(oldAbs, newAbs, source);
