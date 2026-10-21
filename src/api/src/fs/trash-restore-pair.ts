@@ -3,7 +3,10 @@ import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { filesIdentical, moveNoClobber } from '../backup/fs-util.ts';
 import { listPairedSidecarsStrict } from './xmp-conflict.ts';
-import { hasLegacyBackupEdit, isLegacyBackupSidecarOf } from './legacy-backup-sidecar.ts';
+import {
+  isLegacyBackupSidecarOf,
+  removePhotoUnlessOldNameEditStays,
+} from './legacy-backup-sidecar.ts';
 
 /** Whether a restore carries an old-name edit (#5063), which can't land on a taken slot. */
 export async function carriesOldNameEdit(source: string): Promise<boolean> {
@@ -153,17 +156,7 @@ async function removeTrashedPrimary(
     () => true,
     () => false,
   );
-  if (!allowed) return;
-  if (await hasLegacyBackupEdit(source)) {
-    log.error({ source }, 'restore: an old-name backup edit stayed in the trash — photo kept');
-    return;
-  }
-  await fs.unlink(source).catch((error) => {
-    log.warn(
-      { source, error: String(error) },
-      'restore: source delete failed after verified publication — duplicate retained',
-    );
-  });
+  if (allowed) await removePhotoUnlessOldNameEditStays(source, 'restore');
 }
 
 /** Copy and verify the complete pair before publishing any of it. Claim the

@@ -163,7 +163,7 @@ test('the duplicates mover carries a save that lands after it copied the old-nam
   await fs.writeFile(raw, 'photo');
   await fs.writeFile(legacy, maple('backup edit'));
   const realSettle = ownership.settleCarriedSidecar;
-  const rename = spyOn(ownership, 'settleCarriedSidecar').mockImplementationOnce(
+  const settle = spyOn(ownership, 'settleCarriedSidecar').mockImplementationOnce(
     async (source, dest, snapshot, keepSource) => {
       await fs.writeFile(legacy, maple('late save'));
       return realSettle(source, dest, snapshot, keepSource);
@@ -176,7 +176,7 @@ test('the duplicates mover carries a save that lands after it copied the old-nam
     if (moved.kind !== 'ok') return;
     expect(await fs.readFile(`${moved.newAbsPath}.xmp`, 'utf8')).toBe(maple('late save'));
   } finally {
-    rename.mockRestore();
+    settle.mockRestore();
   }
   await expect(fs.stat(legacy)).rejects.toThrow();
 });
@@ -225,7 +225,7 @@ test('the duplicates mover keeps the photo while its old-name edit stays behind'
   try {
     const moved = await moveToDuplicates(raw, tmpRoot);
 
-    expect(moved.kind).toBe('ok');
+    expect(moved.kind).toBe('error');
   } finally {
     settle.mockRestore();
   }

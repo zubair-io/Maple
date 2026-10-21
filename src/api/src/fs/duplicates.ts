@@ -28,8 +28,8 @@ import {
 } from './sidecar-ownership.ts';
 import { listPairedSidecars } from './xmp-conflict.ts';
 import {
-  hasLegacyBackupEdit,
   isLegacyBackupSidecarOf,
+  hasLegacyBackupEdit,
   oldNameEditUnlisted,
 } from './legacy-backup-sidecar.ts';
 import { publishExclusive, revertCreated, type RelocatePublication } from './relocate-publish.ts';
@@ -122,8 +122,7 @@ export async function moveToDuplicates(absPath: string, folderRoot: string): Pro
   const ahead = await (async () => {
     try {
       const carried = await publishOldNameAhead(absPath, freeTarget, ownSidecars, published);
-      // Linked rather than renamed, so the original can stay if an old-name edit does.
-      published.push(await publishExclusive(absPath, freeTarget));
+      await fs.rename(absPath, freeTarget);
       return carried;
     } catch (err) {
       await revertCreated(published);
@@ -138,20 +137,26 @@ export async function moveToDuplicates(absPath: string, folderRoot: string): Pro
     });
   }
   await moveSidecarsAlongside(absPath, freeTarget);
-  await removeOriginal(absPath);
-  return { kind: 'ok', newAbsPath: freeTarget };
+  return (
+    (await keepPhotoWithOldNameEdit(absPath, freeTarget)) ?? { kind: 'ok', newAbsPath: freeTarget }
+  );
 }
 
-/** Kept while an old-name edit of it is still beside it, the only place the migration looks (#5063). */
-async function removeOriginal(absPath: string): Promise<void> {
-  if (await hasLegacyBackupEdit(absPath)) {
-    log.error({ absPath }, 'moveToDuplicates: an old-name backup edit stayed behind — photo kept');
-    return;
-  }
-  await fs.unlink(absPath).catch((err) => {
-    log.warn(
-      { absPath, err: String(err) },
-      'moveToDuplicates: original unlink failed — duplicate kept',
-    );
-  });
+/** An old-name edit still at the old path (a settle that kept its source) is
+ * found only beside its photo (#5063), so the photo is linked back next to it
+ * and the move reported failed, which keeps the asset's location there. */
+async function keepPhotoWithOldNameEdit(
+  absPath: string,
+  movedTo: string,
+): Promise<MoveResult | null> {
+  if (!(await hasLegacyBackupEdit(absPath))) return null;
+  await publishExclusive(movedTo, absPath);
+  log.error(
+    { absPath, movedTo },
+    'moveToDuplicates: an old-name backup edit stayed behind — photo kept',
+  );
+  return {
+    kind: 'error',
+    error: "moveToDuplicates: the photo's old-name backup edit stayed behind",
+  };
 }

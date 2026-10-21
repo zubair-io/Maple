@@ -3,7 +3,7 @@
  * the companions, then the original photo, which stays when an old-name edit
  * of it is still beside it (#5063).
  */
-import { hasLegacyBackupEdit } from './legacy-backup-sidecar.ts';
+import { removePhotoUnlessOldNameEditStays } from './legacy-backup-sidecar.ts';
 import * as fs from './mirrored.ts';
 import type { MovedSidecar } from './relocate-sidecar-plan.ts';
 import { settleCarriedSidecar } from './sidecar-ownership.ts';
@@ -53,23 +53,5 @@ export async function deleteOriginals(
       return false;
     },
   );
-  if (leaseHeld) await removeSourcePrimary(sourceAbsPath);
-}
-
-/** Last, so an old-name edit left behind for any reason keeps its photo, the
- * only place the migration looks for it (#5063). */
-async function removeSourcePrimary(sourceAbsPath: string): Promise<void> {
-  if (await hasLegacyBackupEdit(sourceAbsPath)) {
-    log.error(
-      { sourceAbsPath },
-      'relocate: an old-name backup edit stayed at the old path — the original is kept with it',
-    );
-    return;
-  }
-  await fs.unlink(sourceAbsPath).catch((err) => {
-    log.warn(
-      { sourceAbsPath, err: err instanceof Error ? err.message : err },
-      'relocate: source primary unlink failed after a verified copy — a duplicate is left on disk (acceptable failure direction, never data loss)',
-    );
-  });
+  if (leaseHeld) await removePhotoUnlessOldNameEditStays(sourceAbsPath, 'relocate');
 }
