@@ -269,6 +269,61 @@ describe('ToneCurveComponent (#367)', () => {
     expect(lib.model().parametricDarks).toBe(0);
   });
 
+  // ── Parametric split points & curve mode (#5039) ────────────────────────
+
+  it('switches toneCurveMode between PerChannel and RatioPreserving', () => {
+    expect(lib.model().toneCurveMode).toBe('PerChannel');
+    fixture.nativeElement.querySelector('[data-testid="tone-curve-mode-RatioPreserving"]').click();
+    fixture.detectChanges();
+    expect(lib.model().toneCurveMode).toBe('RatioPreserving');
+
+    fixture.nativeElement.querySelector('[data-testid="tone-curve-mode-PerChannel"]').click();
+    fixture.detectChanges();
+    expect(lib.model().toneCurveMode).toBe('PerChannel');
+  });
+
+  it('drags and clamps parametric split diamonds and shades active region window', () => {
+    const shadowDiamond: Element = fixture.nativeElement.querySelector(
+      '[data-testid="tone-curve-split-shadow"]',
+    );
+    expect(shadowDiamond).toBeTruthy();
+
+    // Drag shadow split toward 80 -> clamped to midtone (50) - 5 = 45
+    shadowDiamond.dispatchEvent(pointer('pointerdown', 0.25, 0.02));
+    fixture.detectChanges();
+    // Active region shading should appear during split drag
+    expect(fixture.nativeElement.querySelector('.region-window')).toBeTruthy();
+
+    window.dispatchEvent(pointer('pointermove', 0.8, 0.02));
+    window.dispatchEvent(new PointerEvent('pointerup'));
+    fixture.detectChanges();
+
+    expect(lib.model().parametricShadowSplit).toBe(45);
+    expect(fixture.nativeElement.querySelector('.region-window')).toBeNull();
+
+    // Reset splits button resets all 3 to 25 / 50 / 75
+    fixture.nativeElement.querySelector('[data-testid="tone-curve-reset-splits"]').click();
+    fixture.detectChanges();
+    expect(lib.model().parametricShadowSplit).toBe(25);
+  });
+
+  it('shows selected knot readout and deletes interior knot via delete button', () => {
+    plot().dispatchEvent(pointer('pointerdown', 0.5, 0.7));
+    flushFrame();
+    window.dispatchEvent(new PointerEvent('pointerup'));
+    fixture.detectChanges();
+
+    const readout = fixture.nativeElement.querySelector('[data-testid="tone-curve-knot-readout"]');
+    expect(readout?.textContent).toContain('input 50%, output 70%');
+
+    const delBtn = fixture.nativeElement.querySelector('[data-testid="tone-curve-delete-knot"]');
+    expect(delBtn).toBeTruthy();
+    delBtn.click();
+    fixture.detectChanges();
+
+    expect(lib.model().toneCurveLuma.points).toEqual([]);
+  });
+
   // ── Display-referred family (#2232) ─────────────────────────────────────
 
   it('retargets writes to the display-referred fields when the Display tab is selected', () => {

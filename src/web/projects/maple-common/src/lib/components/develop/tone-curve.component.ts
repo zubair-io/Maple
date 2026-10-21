@@ -48,15 +48,25 @@ import { LibraryStateService } from '../../state/library-state.service';
 import { ImageCanvasService } from '../image-canvas/image-canvas.service';
 import { computeRgbHistograms } from '../../raw-pipeline/image-utils';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
-import type { AdjustmentModel, ToneCurvePoint } from '../../models/adjustment-model';
+import type { AdjustmentModel, ToneCurveMode, ToneCurvePoint } from '../../models/adjustment-model';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
 import { hitTest, insertPoint, movePoint, removePoint } from './tone-curve-edit';
+import {
+  DEFAULT_HIGHLIGHT_SPLIT,
+  DEFAULT_MIDTONE_SPLIT,
+  DEFAULT_SHADOW_SPLIT,
+  clampParametricSplit,
+  defaultSplitValue,
+  regionForSplitHandle,
+  type ParametricSplitHandle,
+} from './tone-curve-splits';
 import {
   HIT_RADIUS,
   buildToneCurveViewModel,
   type ChannelTab,
   type CurveChannel,
   type CurveFamily,
+  type CurveModeTab,
   type FamilyTab,
   type ParametricSlider,
   type PlottedKnot,
@@ -118,16 +128,28 @@ export class ToneCurveComponent implements OnDestroy {
 
   selectFamily(tab: FamilyTab): void {
     this.vm.family.set(tab.id);
+    this.vm.selectedKnotIndex.set(null);
   }
 
   isActiveFamily(id: CurveFamily): boolean {
     return this.vm.family() === id;
   }
 
+  // ── Mode selector (#5039) ───────────────────────────────────────────────
+
+  selectMode(tab: CurveModeTab): void {
+    this.patch({ toneCurveMode: tab.id });
+  }
+
+  isActiveMode(id: ToneCurveMode): boolean {
+    return this.vm.toneCurveMode() === id;
+  }
+
   // ── Channel selector ────────────────────────────────────────────────────
 
   selectChannel(tab: ChannelTab): void {
     this.vm.channel.set(tab.id);
+    this.vm.selectedKnotIndex.set(null);
   }
 
   isActiveChannel(id: CurveChannel): boolean {
@@ -161,6 +183,7 @@ export class ToneCurveComponent implements OnDestroy {
     if (index < 0) return;
 
     this.dragIndex = index;
+    this.vm.selectedKnotIndex.set(index);
     this.vm.dragOverride.set(next);
     if (existing < 0) this.queueWrite(next);
 
@@ -181,7 +204,19 @@ export class ToneCurveComponent implements OnDestroy {
   onKnotDoubleClick(knot: PlottedKnot, event: MouseEvent): void {
     event.stopPropagation();
     if (knot.pinned) return;
+    this.vm.selectedKnotIndex.set(null);
     this.commit(removePoint(this.vm.points(), knot.index));
+  }
+
+  deleteSelectedKnot(): void {
+    const selected = this.vm.selectedKnot();
+    if (!selected || selected.pinned) return;
+    this.vm.selectedKnotIndex.set(null);
+    this.commit(removePoint(this.vm.points(), selected.index));
+  }
+
+  onKnotFocus(knot: PlottedKnot): void {
+    this.vm.selectedKnotIndex.set(knot.index);
   }
 
   /**
@@ -206,6 +241,7 @@ export class ToneCurveComponent implements OnDestroy {
       return true;
     }
     if (DELETE_KEYS.has(event.key) && !knot.pinned) {
+      this.vm.selectedKnotIndex.set(null);
       this.commit(removePoint(points, knot.index));
       return true;
     }
@@ -219,6 +255,7 @@ export class ToneCurveComponent implements OnDestroy {
 
   /** Reset the active channel's curve back to identity (the empty list). */
   resetChannel(): void {
+    this.vm.selectedKnotIndex.set(null);
     this.commit([]);
   }
 
@@ -271,18 +308,95 @@ export class ToneCurveComponent implements OnDestroy {
     this.patch({ [this.vm.activeTab().field]: { points: [...points] } });
   }
 
-  // ── Parametric sliders ──────────────────────────────────────────────────
+  // ── Parametric sliders & split handles (#5039) ──────────────────────────
 
   parametricValue(slider: ParametricSlider): number {
     return this.vm.parametricValue(slider.field);
   }
 
   onParametricChange(slider: ParametricSlider, value: number): void {
+    this.vm.activeRegion.set(slider.field);
     this.patch({ [slider.field]: value });
   }
 
   onParametricReset(slider: ParametricSlider): void {
+    this.vm.activeRegion.set(null);
     this.patch({ [slider.field]: 0 });
+  }
+
+  onParametricEnter(slider: ParametricSlider): void {
+    this.vm.activeRegion.set(slider.field);
+  }
+
+  onParametricLeave(): void {
+    this.vm.activeRegion.set(null);
+  }
+
+  onSplitPointerDown(handle: ParametricSplitHandle, event: PointerEvent): void {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    event.preventDefault();
+    this.vm.activeRegion.set(regionForSplitHandle(handle));
+
+    const updateFromEvent = (e: PointerEvent) => {
+      const pos = this.toAuthoring(e);
+      if (!pos) return;
+      this.applySplitValue(handle, pos.x * 100);
+    };
+
+    const move = (e: PointerEvent) => updateFromEvent(e);
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      this.vm.activeRegion.set(null);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }
+
+  onSplitDoubleClick(handle: ParametricSplitHandle, event: MouseEvent): void {
+    event.stopPropagation();
+    this.applySplitValue(handle, defaultSplitValue(handle));
+  }
+
+  onSplitKeyDown(handle: ParametricSplitHandle, event: KeyboardEvent): void {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const delta = (event.key === 'ArrowRight' ? 1 : -1) * (event.shiftKey ? 5 : 1);
+    const current =
+      handle === 'shadow'
+        ? this.vm.shadowSplit()
+        : handle === 'midtone'
+          ? this.vm.midtoneSplit()
+          : this.vm.highlightSplit();
+    this.applySplitValue(handle, current + delta);
+  }
+
+  resetSplits(): void {
+    this.patch({
+      parametricShadowSplit: DEFAULT_SHADOW_SPLIT,
+      parametricMidtoneSplit: DEFAULT_MIDTONE_SPLIT,
+      parametricHighlightSplit: DEFAULT_HIGHLIGHT_SPLIT,
+    });
+  }
+
+  private applySplitValue(handle: ParametricSplitHandle, proposed: number): void {
+    const clamped = clampParametricSplit(
+      handle,
+      proposed,
+      this.vm.shadowSplit(),
+      this.vm.midtoneSplit(),
+      this.vm.highlightSplit(),
+    );
+    const field =
+      handle === 'shadow'
+        ? 'parametricShadowSplit'
+        : handle === 'midtone'
+          ? 'parametricMidtoneSplit'
+          : 'parametricHighlightSplit';
+    this.patch({ [field]: clamped });
   }
 
   // ── Shared plumbing ─────────────────────────────────────────────────────

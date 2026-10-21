@@ -19,6 +19,35 @@
     }
   </div>
 
+  <!-- Mode selector: Per-Channel vs Ratio-Preserving (#5039, scene-linear only) -->
+  @if (vm.showParametric()) {
+    <div
+      class="flex items-center justify-between gap-1.5"
+      role="tablist"
+      aria-label="Tone curve mode"
+    >
+      <span class="text-[9px] text-[color:var(--pro-text-dim)] select-none" aria-hidden="true"
+        >Mode</span
+      >
+      <div class="flex flex-1 justify-end gap-1">
+        @for (mode of vm.modeTabs; track mode.id) {
+          <button
+            type="button"
+            class="cursor-pointer appearance-none rounded-md border-[0.5px] px-2 py-[2px] text-[9px] outline-none transition-[background,color,border-color] duration-100 ease-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--pro-accent)]"
+            [class]="channelTabClass(isActiveMode(mode.id))"
+            role="tab"
+            [attr.aria-selected]="isActiveMode(mode.id)"
+            [attr.aria-label]="mode.label + ' tone curve mode'"
+            [attr.data-testid]="'tone-curve-mode-' + mode.id"
+            (click)="selectMode(mode)"
+          >
+            {{ mode.label }}
+          </button>
+        }
+      </div>
+    </div>
+  }
+
   <!-- Channel selector -->
   <div class="flex gap-1" role="tablist" aria-label="Tone curve channel">
     @for (tab of vm.tabs(); track tab.id) {
@@ -59,6 +88,11 @@
       <path class="hist" [attr.d]="hist" />
     }
 
+    <!-- Active parametric region cosine window shading (#5039) -->
+    @if (vm.activeRegionPath(); as regionPath) {
+      <path class="region-window" [attr.d]="regionPath" />
+    }
+
     <!-- Quarter grid -->
     @for (g of vm.gridLines; track g) {
       <line class="grid" [attr.x1]="g" y1="0" [attr.x2]="g" [attr.y2]="vm.plotSize" />
@@ -94,11 +128,90 @@
           (knot.pinned ? ', endpoint' : '')
         "
         [attr.data-testid]="'tone-curve-knot-' + knot.index"
+        (focus)="onKnotFocus(knot)"
         (dblclick)="onKnotDoubleClick(knot, $event)"
         (keydown)="onKnotKeyDown(knot, $event)"
       />
     }
+
+    <!-- Parametric split-point diamonds along bottom axis (#5039) -->
+    @if (vm.showParametric()) {
+      @for (split of vm.splitDiamonds(); track split.id) {
+        <polygon
+          class="split-diamond"
+          [attr.points]="
+            split.cx +
+            ',' +
+            (vm.plotSize - 5) +
+            ' ' +
+            (split.cx + 2.8) +
+            ',' +
+            (vm.plotSize - 2.2) +
+            ' ' +
+            split.cx +
+            ',' +
+            (vm.plotSize + 0.6) +
+            ' ' +
+            (split.cx - 2.8) +
+            ',' +
+            (vm.plotSize - 2.2)
+          "
+          tabindex="0"
+          role="slider"
+          aria-valuemin="10"
+          aria-valuemax="90"
+          [attr.aria-valuenow]="split.value"
+          [attr.aria-valuetext]="split.value + '%'"
+          [attr.aria-label]="split.label"
+          [attr.data-testid]="'tone-curve-split-' + split.id"
+          (pointerdown)="onSplitPointerDown(split.id, $event)"
+          (dblclick)="onSplitDoubleClick(split.id, $event)"
+          (keydown)="onSplitKeyDown(split.id, $event)"
+        />
+      }
+    }
   </svg>
+
+  @if (vm.selectedKnot(); as selected) {
+    <div
+      class="flex items-center justify-between gap-1.5 text-[9px] text-[color:var(--pro-text-muted)]"
+      data-testid="tone-curve-knot-readout"
+    >
+      <span>{{ selected.valueText }}</span>
+      @if (!selected.pinned) {
+        <button
+          type="button"
+          class="cursor-pointer appearance-none border-0 bg-transparent p-0 text-[9px] text-[color:var(--pro-accent)]"
+          aria-label="Delete selected curve point"
+          data-testid="tone-curve-delete-knot"
+          (click)="deleteSelectedKnot()"
+        >
+          Delete point
+        </button>
+      }
+    </div>
+  }
+
+  @if (vm.showParametric()) {
+    <div class="flex items-center justify-between gap-1.5">
+      <span
+        class="text-[9px] text-[color:var(--pro-text-dim)] tabular-nums select-none"
+        data-testid="tone-curve-splits-readout"
+      >
+        Splits: {{ vm.shadowSplit() }} / {{ vm.midtoneSplit() }} / {{ vm.highlightSplit() }}
+      </span>
+      @if (vm.splitsModified()) {
+        <button
+          type="button"
+          class="cursor-pointer appearance-none rounded-md border-[0.5px] border-[color:var(--pro-border)] bg-transparent px-1.5 py-0.5 text-[9px] text-[color:var(--pro-text-muted)]"
+          data-testid="tone-curve-reset-splits"
+          (click)="resetSplits()"
+        >
+          Reset splits
+        </button>
+      }
+    </div>
+  }
 
   <div class="flex items-center justify-between gap-1.5">
     <span class="text-[9px] text-[color:var(--pro-text-dim)] select-none" aria-hidden="true"
@@ -125,16 +238,18 @@
   @if (vm.showParametric()) {
     <div class="flex flex-col gap-2 pt-1" data-testid="tone-curve-parametric">
       @for (slider of vm.sliders; track slider.field) {
-        <mui-living-slider
-          [attr.data-testid]="'tone-curve-' + slider.field"
-          [label]="slider.label"
-          [value]="parametricValue(slider)"
-          [min]="vm.parametricMin"
-          [max]="vm.parametricMax"
-          [bipolar]="true"
-          (valueChange)="onParametricChange(slider, $event)"
-          (resetRequest)="onParametricReset(slider)"
-        />
+        <div (pointerenter)="onParametricEnter(slider)" (pointerleave)="onParametricLeave()">
+          <mui-living-slider
+            [attr.data-testid]="'tone-curve-' + slider.field"
+            [label]="slider.label"
+            [value]="parametricValue(slider)"
+            [min]="vm.parametricMin"
+            [max]="vm.parametricMax"
+            [bipolar]="true"
+            (valueChange)="onParametricChange(slider, $event)"
+            (resetRequest)="onParametricReset(slider)"
+          />
+        </div>
       }
     </div>
   }

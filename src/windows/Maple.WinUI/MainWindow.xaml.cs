@@ -143,6 +143,7 @@ namespace Maple.WinUI
             BuildStarRow();
             InitializeInspectorFocus();
             BuildEditRail();
+            BuildToneCurveControls();
             BuildGradePanel();
             BuildProfilePanel();
             BuildFilmPanel();
