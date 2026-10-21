@@ -129,7 +129,7 @@ pub(crate) const MAGIC: &[u8; 4] = b"MDCP";
 ///
 ///   * `1` — **inline matrices-only** (v1): 16-byte header then N uncompressed
 ///     records, each carrying its HSM table(s) inline. The historical, and
-///     still SHIPPED, `profiles.bin` (~263 KB, matrices only — HSM flags
+///     still SHIPPED, `profiles.bin` (~273 KB, matrices only — HSM flags
 ///     clear). [`parser::parse_bundle`] reads it.
 ///   * `3` — **v3 split** (ticket #829, PR #831): an uncompressed index region
 ///     (header + pool offset directory + records that reference HSM by pool
@@ -208,8 +208,8 @@ pub fn lookup_profile(raw: &RawImage) -> Option<&'static MapleProfile> {
     }
     // UCM-naming-mismatch fallback (#345 step 3). Some rawler-reported
     // UCMs differ from the bundle's authoring UCM by vendor naming
-    // convention only (Hasselblad medium-format, DJI Mavic 3 Pro's
-    // Hasselblad sensor, etc.). The alias table maps the source string
+    // convention only (Hasselblad medium-format, Pixel per-lens entries,
+    // etc.). The alias table maps the source string
     // to the bundle's string deterministically — no fuzzy matching.
     if let Some(alias) = ucm_mapping::map_to_bundle_ucm(raw, &key.unique_camera_model) {
         if let Some(profile) = table.get(&CameraKey::new(alias)) {
@@ -398,6 +398,9 @@ mod tests {
             "iPhone13,3 back camera",
             "Canon EOS 5D Mark IV",
             "Canon EOS 5D Mark III",
+            // test_0000 (DJI Mavic 4 Pro): resolves by its own UCM since
+            // #4661, not through an alias to the Mavic 3 Pro's FC4382.
+            "Hasselblad L3D-100c",
         ];
         for ucm in expected {
             assert!(

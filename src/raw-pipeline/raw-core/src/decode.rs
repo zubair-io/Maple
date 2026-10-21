@@ -670,7 +670,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         }
     });
 
-    let opcode_list3 = crate::pipeline::pano::opcodes::read_opcode_list3(bytes, ext, width, height);
+    let opcodes = crate::sensor_gain_maps::read(bytes, ext, width, height);
 
     // Assemble first with a placeholder BE, then resolve the bundled-profile
     // contribution against the fully-populated RawImage (§ 1b compose chain).
@@ -700,8 +700,9 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         crop_rect,
         iso,
         noise_profile,
-        sensor_gain_maps: crate::sensor_gain_maps::read(bytes, ext, width, height),
-        opcode_list3,
+        sensor_gain_maps: opcodes.sensor_gain_maps,
+        opcode_list3: opcodes.list3,
+        opcode_skips: opcodes.skipped,
         aperture,
         focal_length,
         lens_metadata: crate::lens_profile::LensMetadata {
@@ -739,6 +740,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         0.0
     };
     image.baseline_exposure = compose_baseline_exposure(be_from_tags, be_from_bundle, be_override);
+    crate::sensor_gain_maps::log_skipped_required_once(&image);
     Ok(image)
 }
 

@@ -1,0 +1,202 @@
+/**
+ * Refile's sidecar carry (#5061): each sidecar is snapshotted and published
+ * under its save barrier, and its source is settled under both barriers once
+ * the row is repointed, so a late save is carried rather than deleted.
+ */
+import * as path from 'node:path';
+import * as fs from '../../fs/mirrored.ts';
+import {
+  publishSidecarSnapshot,
+  publishBytesExclusive,
+  sidecarStemClaimedBySibling,
+  writeVerifiedTemp,
+} from '../../fs/sidecar-ownership.ts';
+import { readSidecarBytes, SidecarNotRegularFileError } from '../../fs/sidecar-bytes.ts';
+import {
+  PublishCollisionError,
+  privateSiblingOf,
+  publishExclusive,
+  type RelocatePublication,
+} from '../../fs/relocate-publish.ts';
+import { serializeSidecarWrites } from '../../fs/sidecar-write-order.ts';
+import { listPairedSidecars, pickFreeConflictPath } from '../../fs/xmp-conflict.ts';
+import { sidecarRenameTarget } from '../../fs/sidecar-rename.ts';
+import { isLegacyBackupSidecarOf, oldNameSlotTaken } from '../../fs/legacy-backup-sidecar.ts';
+import { child as childLogger } from '../../log.ts';
+
+const log = childLogger('migration:refile-sidecar');
+const CONFLICT_ATTEMPTS = 5;
+
+/** A sidecar published at `dest`, with the bytes its source held then. */
+export interface CarriedSidecar {
+  source: string;
+  dest: string;
+  snapshot: Buffer;
+  /** The refiled photo's new path, which a conflict copy pairs with. */
+  primary: string;
+}
+
+/** `null` for a link or other non-regular file, which stays where it is, as relocate leaves it (#4749). */
+export async function carrySidecar(
+  source: string,
+  dest: string,
+  primary: string,
+  publications: RelocatePublication[],
+): Promise<CarriedSidecar | null> {
+  try {
+    const snapshot = await publishSidecarSnapshot(source, dest, publications);
+    return { source, dest, primary, snapshot };
+  } catch (err) {
+    if (!(err instanceof SidecarNotRegularFileError)) throw err;
+    log.warn({ source }, 'refile: sidecar is not a regular file — left in place');
+    return null;
+  }
+}
+
+/** Another writer can take the picked name before the exclusive publish; pick again. */
+async function atFreeConflictName<T>(
+  primary: string,
+  publish: (conflict: string) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 0; attempt < CONFLICT_ATTEMPTS; attempt++) {
+    const conflict = await pickFreeConflictPath(primary, 'refile');
+    const published = await publish(conflict).then(
+      (value) => ({ value }),
+      (err: unknown) => {
+        if (err instanceof PublishCollisionError) return null;
+        throw err;
+      },
+    );
+    if (published) return published.value;
+  }
+  throw new Error(`refile: no free conflict name for ${primary}`);
+}
+
+async function publishConflictCopy(carried: CarriedSidecar, bytes: Buffer): Promise<void> {
+  await atFreeConflictName(carried.primary, (conflict) => publishBytesExclusive(conflict, bytes));
+}
+
+/** Sidecars that first appeared at the old path after `planAndPlace` listed
+ * them (a first backup send or web save) are carried once the row points at the
+ * new path (#5061). A taken name gets a conflict copy beside the photo; a stem
+ * a same-stem sibling still uses stays with that sibling. */
+export async function carryLateRefileSidecars(
+  oldAbs: string,
+  newAbs: string,
+  carried: readonly CarriedSidecar[],
+): Promise<CarriedSidecar[]> {
+  const sharedWithSibling = await sidecarStemClaimedBySibling(oldAbs, [newAbs]);
+  const known = new Set(carried.map((entry) => path.resolve(entry.source)));
+  // An old-name edit (#5063) names one photo, so a sibling never keeps it.
+  const late = (await listPairedSidecars(oldAbs)).filter(
+    (s) =>
+      !known.has(path.resolve(s)) && (!sharedWithSibling || isLegacyBackupSidecarOf(oldAbs, s)),
+  );
+  const moved: CarriedSidecar[] = [];
+  for (const source of late) {
+    const dest = sidecarRenameTarget(oldAbs, newAbs, source);
+    if (dest === null) continue;
+    const oldName = isLegacyBackupSidecarOf(oldAbs, source);
+    const entry = await carryLate(source, dest, newAbs, oldName).catch((err: unknown) => {
+      log.warn(
+        { source, err: err instanceof Error ? err.message : err },
+        'refile: sidecar created mid-refile left in place',
+      );
+      return null;
+    });
+    if (entry) moved.push(entry);
+  }
+  return moved;
+}
+
+/** An old-name edit whose slot is taken or owned at the destination goes
+ * straight to a conflict copy, never onto another file's own sidecar (#5063). */
+async function carryLate(
+  source: string,
+  dest: string,
+  primary: string,
+  oldName: boolean,
+): Promise<CarriedSidecar | null> {
+  if (oldName && (await oldNameSlotTaken(primary))) {
+    return atFreeConflictName(primary, (conflict) => carrySidecar(source, conflict, primary, []));
+  }
+  try {
+    return await carrySidecar(source, dest, primary, []);
+  } catch (err) {
+    if (!(err instanceof PublishCollisionError)) throw err;
+    return atFreeConflictName(primary, (conflict) => carrySidecar(source, conflict, primary, []));
+  }
+}
+
+/** A save on the source after its snapshot replaces `dest` while `dest` still
+ * holds the snapshot; when both ends changed it lands as a conflict copy
+ * beside the photo, never orphaned at the old path. */
+async function carryLateSave(carried: CarriedSidecar, late: Buffer): Promise<void> {
+  const atDest = await readSidecarBytes(carried.dest);
+  if (atDest?.equals(late)) return;
+  if (atDest === null || !atDest.equals(carried.snapshot)) {
+    return publishConflictCopy(carried, late);
+  }
+  await replaceSnapshotAtDest(carried, late);
+}
+
+/** The save barrier is process-local, so an API save can land on `dest` after
+ * the check. `dest` is moved aside first, and only a file that still holds the
+ * snapshot is replaced; anything else is put back and the late save becomes a
+ * conflict copy. A failure leaves the aside file in place rather than lose it. */
+async function replaceSnapshotAtDest(carried: CarriedSidecar, late: Buffer): Promise<void> {
+  // Staged first, so readers find no sidecar only between the rename and the link.
+  const tmp = await writeVerifiedTemp(carried.dest, late);
+  try {
+    await swapIfSnapshot(carried, tmp, late);
+  } finally {
+    await fs.unlink(tmp).catch(() => {});
+  }
+}
+
+async function swapIfSnapshot(carried: CarriedSidecar, tmp: string, late: Buffer): Promise<void> {
+  const aside = privateSiblingOf(carried.dest);
+  await fs.rename(carried.dest, aside);
+  const moved = await readSidecarBytes(aside).catch(() => null);
+  if (!moved?.equals(carried.snapshot)) {
+    await putBack(carried, aside);
+    return publishConflictCopy(carried, late);
+  }
+  const published = await publishExclusive(tmp, carried.dest).then(
+    () => true,
+    async (err: unknown) => {
+      if (err instanceof PublishCollisionError) return false;
+      await putBack(carried, aside);
+      throw err;
+    },
+  );
+  await fs.unlink(aside).catch(() => {});
+  if (!published) await publishConflictCopy(carried, late);
+}
+
+/** Return the moved-aside file to `dest`, or beside it when a writer took `dest` meanwhile. */
+async function putBack(carried: CarriedSidecar, aside: string): Promise<void> {
+  await publishExclusive(aside, carried.dest)
+    .catch((err: unknown) => {
+      if (!(err instanceof PublishCollisionError)) throw err;
+      return atFreeConflictName(carried.primary, (conflict) => publishExclusive(aside, conflict));
+    })
+    .catch((err: unknown) => {
+      log.error(
+        { aside, dest: carried.dest, err: err instanceof Error ? err.message : err },
+        'refile: a sidecar moved aside could not be put back — kept at the aside path',
+      );
+      throw err;
+    });
+  await fs.unlink(aside).catch(() => {});
+}
+
+/** Retire the source once the row points at the new path. A failure keeps it. */
+export async function settleRefiledSidecar(carried: CarriedSidecar): Promise<void> {
+  await serializeSidecarWrites([carried.source, carried.dest], async () => {
+    const current = await readSidecarBytes(carried.source);
+    if (current === null) return;
+    if (!current.equals(carried.snapshot)) await carryLateSave(carried, current);
+    await fs.unlink(carried.source);
+  });
+}

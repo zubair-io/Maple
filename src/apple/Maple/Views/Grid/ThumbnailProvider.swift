@@ -238,17 +238,17 @@ actor ThumbnailProvider {
   /// `CloudThumbCache`) always return `nil` here.
   ///
   /// Key derivation mirrors `ThumbnailLoader.load(for:from:)`:
-  ///   - URL-backed local assets: the asset filename (basename).
+  ///   - URL-backed local assets: `ThumbnailDiskCache.memoryKey(for:)`, a
+  ///     full-path hash.
   ///   - Sourceless assets (PhotoKit, stableID-only): `stableID ?? displayName`.
   nonisolated func cachedThumbnail(for source: ThumbnailSource) -> Data? {
     let backend = source.resolvedBackend()
     switch backend {
     case .thumbnailLoader(let ref, _):
-      let key =
-        ref.primaryURL?.lastPathComponent
-        ?? ref.stableID
-        ?? ref.displayName
-      return ThumbnailDiskCache.shared.syncPeekData(forKey: key)
+      guard let url = ref.primaryURL else {
+        return ThumbnailDiskCache.shared.syncPeekData(forKey: ref.stableID ?? ref.displayName)
+      }
+      return ThumbnailDiskCache.shared.syncPeekData(for: url)
     case .photoKit(let localID):
       return ThumbnailDiskCache.shared.syncPeekData(forKey: localID)
     case .cloudThumb:

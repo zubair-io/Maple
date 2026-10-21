@@ -41,7 +41,7 @@ struct SelfHostedSettingsTab: View {
 
   @State private var registry = CloudServerRegistry.shared
   @State private var localNetwork = LocalNetworkResolver.shared
-  /// Single sheet entry point. `.fresh` for "Add Server…", `.prefilled(host)`
+  /// Single sheet entry point. `.fresh` for "Add Server…", `.prefilled(serverText)`
   /// for a per-server "Sign In" (#1381).
   @State private var sheetTarget: AddCloudSheetTarget?
   /// Parallel sheet trigger for "Pair Apple TV…" (#2082) — see
@@ -153,7 +153,7 @@ struct SelfHostedSettingsTab: View {
               // a server signed out) — offer a way back in (#1381).
               if signedIn[url] == false {
                 Button("Sign In") {
-                  sheetTarget = .prefilled(url.host ?? url.absoluteString)
+                  sheetTarget = .prefilled(CloudHost.signInPrefill(for: url))
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)

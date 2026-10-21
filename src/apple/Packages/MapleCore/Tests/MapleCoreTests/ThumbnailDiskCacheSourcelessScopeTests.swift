@@ -2,8 +2,8 @@
 //
 // Pins that a SOURCELESS thumbnail (PhotoKit / Self-Hosted browse, keyed by
 // stable id rather than a filesystem basename) is written to and read from
-// a fixed on-disk location independent of `configure(folderURL:)` — the
-// LOCAL-folder-scoped `cacheDir` a sourceless asset has no relationship to.
+// a fixed on-disk location independent of `configure(folderURL:)` and of
+// any local folder, which a sourceless asset has no relationship to.
 //
 // Before the fix, `thumbnailData(forKey:)`/`storeThumbnailData(forKey:)`
 // wrote through `cacheDir` anyway. Testing the disk path specifically (not
@@ -62,7 +62,7 @@ final class ThumbnailDiskCacheSourcelessScopeTests: XCTestCase {
 
   /// The actual regression: stored while `folderA` is configured, still
   /// readable — from a FRESH, memory-cold instance — after a LATER
-  /// `configure()` call points `cacheDir` at an entirely different
+  /// `configure()` call for an entirely different
   /// folder (`folderB`), simulating "the app opened a different local
   /// folder since". Before the fix this would have been an unreadable
   /// orphan under `folderA`.

@@ -128,6 +128,7 @@ fn fake_raw(w: u32, h: u32) -> RawImage {
         noise_profile: None,
         sensor_gain_maps: None,
         opcode_list3: None,
+        opcode_skips: Vec::new(),
         aperture: None,
         focal_length: None,
         lens_metadata: Default::default(),
@@ -334,7 +335,7 @@ fn render_scene_linear_tile_rejects_opcode_list3() {
                 center_x: 0.5,
                 center_y: 0.5,
             })],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         ActiveAreaRect::full(2048, 2048),
     ));

@@ -780,8 +780,8 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
 /// through `profile.color_matrix` (the render profile's frame); the slider
 /// frame now prefers the DNG's own embedded calibration when present
 /// (matching ACR's slider scale — see `SliderFrame`'s doc for the
-/// test_0000 7471.6 K-vs-5507.7 K measurement), so the estimate moved with
-/// it.
+/// pre-#4661 test_0000 7471.6 K-vs-5507.7 K measurement), so the estimate
+/// moved with it.
 ///
 /// CCT and tint are now (#1894) a JOINT pair read off the SAME xy point:
 /// `inv(frame CM at scene_cct) · raw.as_shot_neutral`, normalized to Y=1
@@ -800,7 +800,8 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
 /// every non-LinearRaw Bayer source), which represents where a
 /// pipeline-pre-gained NEUTRAL PATCH lands in XYZ post-DCP, not the scene
 /// illuminant's own chromaticity — a completely different quantity
-/// (measured on test_0000.DNG: xy≈(0.387, 0.260), ~0.09 uv units off ANY
+/// (measured on test_0000.DNG through its pre-#4661 aliased profile:
+/// xy≈(0.387, 0.260), ~0.09 uv units off ANY
 /// locus point — 10× the whole tint slider's ±100 range).
 ///
 /// `white_balance_auto::estimate_tint_from_scene_xyz` (the Hernández-Andrés
@@ -909,7 +910,7 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
             return Ok((p, ProfileSource::BundleConfident));
         }
         // to_dcp_profile only fails when the bundle entry has no CMs at
-        // all — never observed in practice across the 1,447-profile set.
+        // all — never observed in practice across the ~1,459-profile set.
         // Fall through to the embedded-CM / rawler-fallback paths for the
         // degenerate case.
     }
@@ -1300,6 +1301,7 @@ mod tests {
             noise_profile: None,
             sensor_gain_maps: None,
             opcode_list3: None,
+            opcode_skips: Vec::new(),
             aperture: None,
             focal_length: None,
             lens_metadata: Default::default(),
@@ -1389,6 +1391,7 @@ mod tests {
             noise_profile: None,
             sensor_gain_maps: None,
             opcode_list3: None,
+            opcode_skips: Vec::new(),
             aperture: None,
             focal_length: None,
             lens_metadata: Default::default(),
@@ -1969,6 +1972,7 @@ mod tests {
             noise_profile: None,
             sensor_gain_maps: None,
             opcode_list3: None,
+            opcode_skips: Vec::new(),
             aperture: None,
             focal_length: None,
             lens_metadata: Default::default(),
@@ -2344,6 +2348,7 @@ mod tests {
             noise_profile: None,
             sensor_gain_maps: None,
             opcode_list3: None,
+            opcode_skips: Vec::new(),
             aperture: None,
             focal_length: None,
             lens_metadata: Default::default(),

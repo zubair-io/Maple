@@ -1,20 +1,20 @@
-// ThumbnailDiskCacheKeyTests.swift — pins `ThumbnailDiskCache.cacheKey(for:)`
-// to the same `sha256(basename)[:16]` derivation used by:
+// ThumbnailDiskCacheKeyTests.swift — pins `ThumbnailDiskCache.cacheKey(for:)`,
+// which names the frozen legacy `<key>.v25.avif` thumb, to the same
+// `sha256(basename)[:16]` derivation used by:
 //   - Web (Maple Hosted Angular): src/web/projects/maple-common/src/lib/maple-cache/sha.ts
 //   - Server (Bun indexer):       src/api/src/fs/xmp.ts (sha256Prefix16)
 //
-// Cross-platform parity is a merge gate. If this test ever fails, any thumb
-// written by one layer will be invisible to the other two — see issue #108.
+// If it drifts, legacy thumbs another layer wrote are no longer adopted —
+// see issue #108. Current thumbs use the unhashed `<filename.ext>.avif`.
 //
 // #2254: the vectors above only pinned the HASH FUNCTION, never whether the
 // code that actually *writes* a thumb agrees with the code that *reads* one
 // back. That gap let the server's `thumb` stage drift onto a `<maple_id>.avif`
 // destination for months while this suite stayed green (#1999 / PR #2252).
 // The "Writer-vs-reader path parity" section below closes the Apple side of
-// that hole: it writes through the real `ThumbnailDiskCache` and reads back
-// through the independently-implemented `MapleSidecarPaths.thumbURL(for:)`
-// (the path `ThumbnailLoader.produceThumbnail` checks before falling back to
-// a local decode — see #1365) and asserts they name the exact same file,
+// that hole: it writes through the real `ThumbnailDiskCache` and asserts the
+// file lands at the pinned `<asset folder>/.maple/thumbs/<filename.ext>.avif`
+// that `ThumbnailLoader.produceThumbnail` and the server read (#1365),
 // directory included — not just that both hash to the same stem.
 
 import XCTest
@@ -81,21 +81,16 @@ final class ThumbnailDiskCacheKeyTests: XCTestCase {
     )
   }
 
-  // MARK: - Path-vs-basename invariant
+  // MARK: - Legacy name is basename-derived
   //
-  // The same filename in DIFFERENT directories must hash to the SAME key —
-  // that's the whole point of basename hashing (so `.maple/` travels with
-  // the photos). Pinning this explicitly so a future refactor can't
-  // silently switch back to path hashing without failing the test.
+  // The frozen legacy thumb name depends only on the filename (so `.maple/`
+  // travels with the photos, issue #108); memory keys are full-path (#5033).
 
-  func testSameBasenameDifferentDirsCollideByDesign() {
+  func testLegacyThumbNameIsTheSameForSameBasenameInAnyFolder() {
     let a = URL(fileURLWithPath: "/folder/A/IMG.dng")
     let b = URL(fileURLWithPath: "/folder/B/IMG.dng")
-    XCTAssertEqual(
-      ThumbnailDiskCache.cacheKey(for: a),
-      ThumbnailDiskCache.cacheKey(for: b),
-      "basename-keyed cache must collapse identical filenames across dirs — that's correct, see issue #108"
-    )
+    XCTAssertEqual(ThumbnailDiskCache.cacheKey(for: a), ThumbnailDiskCache.cacheKey(for: b))
+    XCTAssertNotEqual(ThumbnailDiskCache.memoryKey(for: a), ThumbnailDiskCache.memoryKey(for: b))
   }
 
   func testDifferentBasenamesProduceDifferentKeys() {
@@ -113,7 +108,7 @@ final class ThumbnailDiskCacheKeyTests: XCTestCase {
     let cache = ThumbnailDiskCache()
     await cache.configure(folderURL: tmp)
 
-    let asset = URL(fileURLWithPath: "/tmp/library/IMG_1234.dng")
+    let asset = tmp.appendingPathComponent("IMG_1234.dng")
     let payload = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46])
 
     await cache.storeThumbnailData(payload, for: asset)
@@ -135,7 +130,7 @@ final class ThumbnailDiskCacheKeyTests: XCTestCase {
   func testMissAdoptsTheLegacyV25ThumbByRenaming() async throws {
     let cache = ThumbnailDiskCache()
     await cache.configure(folderURL: tmp)
-    let asset = URL(fileURLWithPath: "/tmp/library/IMG_1234.dng")
+    let asset = tmp.appendingPathComponent("IMG_1234.dng")
     let thumbs = tmp.appendingPathComponent(".maple/thumbs")
     let hash = MapleThumbCacheKey.sha256Prefix16("IMG_1234.dng")
     let legacy = thumbs.appendingPathComponent("\(hash).v25.avif")
@@ -149,40 +144,113 @@ final class ThumbnailDiskCacheKeyTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: thumbs.appendingPathComponent("IMG_1234.dng.avif")), payload)
   }
 
-  func testReadByPathMatchesReadByBasename() async {
+  // MARK: - Files outside the open folder (#5033)
+  //
+  // The unified Timeline shows files from every saved folder at once, so two
+  // folders' `IMG_0001.dng` must not share one thumbnail, and neither may land
+  // in the open folder's `.maple/thumbs/`.
+
+  func testSameNamedFilesOutsideTheOpenFolderKeepTheirOwnThumbnails() async throws {
+    let open = tmp.appendingPathComponent("open")
+    let folderA = tmp.appendingPathComponent("a")
+    let folderB = tmp.appendingPathComponent("b")
+    for dir in [open, folderA, folderB] {
+      try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
     let cache = ThumbnailDiskCache()
-    await cache.configure(folderURL: tmp)
+    await cache.configure(folderURL: open)
+    let assetA = folderA.appendingPathComponent("IMG_0001.dng")
+    let assetB = folderB.appendingPathComponent("IMG_0001.dng")
+    let payloadA = Data([0xA1, 0xA2])
+    let payloadB = Data([0xB1, 0xB2])
 
-    // Two different "asset URLs" sharing the same basename — must
-    // resolve to the same thumb, because the cache is keyed by basename.
-    let writeURL = URL(fileURLWithPath: "/folder/A/IMG_0001.dng")
-    let readURL = URL(fileURLWithPath: "/folder/B/IMG_0001.dng")
-    let payload = Data([0x01, 0x02, 0x03, 0x04])
+    await cache.storeThumbnailData(payloadA, for: assetA)
+    await cache.storeThumbnailData(payloadB, for: assetB)
 
-    await cache.storeThumbnailData(payload, for: writeURL)
+    let readA = await cache.thumbnailData(for: assetA)
+    let readB = await cache.thumbnailData(for: assetB)
+    let readOpen = await cache.thumbnailData(for: open.appendingPathComponent("IMG_0001.dng"))
+    XCTAssertEqual(readA, payloadA)
+    XCTAssertEqual(readB, payloadB)
+    XCTAssertNil(readOpen, "another folder's thumbnail must not answer for the open folder's file")
+    XCTAssertEqual(try Data(contentsOf: MapleSidecarPaths.thumbURL(for: assetA)), payloadA)
+    XCTAssertEqual(try Data(contentsOf: MapleSidecarPaths.thumbURL(for: assetB)), payloadB)
+    XCTAssertFalse(
+      FileManager.default.fileExists(
+        atPath: open.appendingPathComponent(".maple/thumbs/IMG_0001.dng.avif").path))
+  }
 
-    let fetched = await cache.thumbnailData(for: readURL)
-    XCTAssertEqual(
-      fetched, payload,
-      "basename-keyed cache should serve any URL with the same lastPathComponent"
-    )
+  func testSameNamedFilesInSubfoldersOfTheOpenFolderKeepTheirOwnThumbnails() async throws {
+    let parent = tmp.appendingPathComponent("Pictures")
+    let year2024 = parent.appendingPathComponent("2024")
+    let year2025 = parent.appendingPathComponent("2025")
+    for dir in [year2024, year2025] {
+      try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    let cache = ThumbnailDiskCache()
+    await cache.configure(folderURL: parent)
+    let asset2024 = year2024.appendingPathComponent("IMG_0001.dng")
+    let asset2025 = year2025.appendingPathComponent("IMG_0001.dng")
+
+    await cache.storeThumbnailData(Data([0x24]), for: asset2024)
+    await cache.storeThumbnailData(Data([0x25]), for: asset2025)
+
+    let read2024 = await cache.thumbnailData(for: asset2024)
+    let read2025 = await cache.thumbnailData(for: asset2025)
+    XCTAssertEqual(read2024, Data([0x24]))
+    XCTAssertEqual(read2025, Data([0x25]))
+    XCTAssertFalse(
+      FileManager.default.fileExists(
+        atPath: parent.appendingPathComponent(".maple/thumbs/IMG_0001.dng.avif").path))
+  }
+
+  /// A file's thumbnail updated while another folder was open must not be
+  /// shadowed by its pre-edit copy once its own folder is open again.
+  func testAThumbnailUpdatedWhileAnotherFolderWasOpenIsCurrentAfterReturning() async throws {
+    let home = tmp.appendingPathComponent("home")
+    let away = tmp.appendingPathComponent("away")
+    for dir in [home, away] {
+      try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    let cache = ThumbnailDiskCache()
+    let asset = home.appendingPathComponent("X.dng")
+    await cache.configure(folderURL: home)
+    await cache.storeThumbnailData(Data([0x01]), for: asset)
+
+    await cache.configure(folderURL: away)
+    await cache.storeThumbnailData(Data([0x02]), for: asset)
+    await cache.configure(folderURL: home)
+
+    let read = await cache.thumbnailData(for: asset)
+    XCTAssertEqual(read, Data([0x02]))
+    XCTAssertEqual(cache.syncPeekData(for: asset), Data([0x02]))
+  }
+
+  func testSyncPeekForAFileOutsideTheOpenFolderSeesOnlyItsOwnThumbnail() async throws {
+    let open = tmp.appendingPathComponent("open")
+    let other = tmp.appendingPathComponent("other")
+    for dir in [open, other] {
+      try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    let cache = ThumbnailDiskCache()
+    await cache.configure(folderURL: open)
+    let inOpen = open.appendingPathComponent("IMG_0001.dng")
+    let outside = other.appendingPathComponent("IMG_0001.dng")
+
+    await cache.storeThumbnailData(Data([0x01]), for: inOpen)
+
+    XCTAssertEqual(cache.syncPeekData(for: inOpen), Data([0x01]))
+    XCTAssertNil(cache.syncPeekData(for: outside))
   }
 
   // MARK: - Writer-vs-reader path parity (#2254)
   //
-  // `ThumbnailDiskCache` (the writer for locally-generated thumbs) and
-  // `MapleSidecarPaths.thumbURL(for:)` (the independent reader
-  // `ThumbnailLoader.produceThumbnail` consults first, so a thumb dropped
-  // by the API's `thumb` stage or by Web is picked up without a local
-  // re-decode) are two SEPARATE implementations that must resolve to the
-  // identical on-disk file for the same asset. Asserting only that both
-  // reduce to the same hash STEM (as the tests above do) would have missed
-  // the #1999 regression, where the divergence was in the DIRECTORY the
-  // stem was written under, not the stem itself. This is the Apple sibling
-  // of the API's `xmp.test.ts` "agrees with resolveThumbPath for the same
-  // file" (added in PR #2252) — same shape: writer's real destination
-  // compared to the reader's real resolution, not two calls to the same
-  // hash helper.
+  // The writer for locally-generated thumbs must land at the pinned path the
+  // API's `thumb` stage and Web use, so a thumb any layer drops is picked up
+  // without a local re-decode. Asserting only the hash STEM would have missed
+  // the #1999 regression, where the divergence was in the DIRECTORY. This is
+  // the Apple sibling of the API's `xmp.test.ts` "agrees with
+  // resolveThumbPath for the same file" (PR #2252).
   func testStoreWritesToTheExactPathMapleSidecarPathsResolvesForReading() async throws {
     let assetDir = tmp.appendingPathComponent("library")
     // Throwing `try`, not `try?`: if the fixture directory can't be created,

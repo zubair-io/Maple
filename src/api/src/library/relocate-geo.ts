@@ -41,6 +41,7 @@ import type { AssetDoc, FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 import { filesIdentical } from '../backup/fs-util.ts';
 import { listPairedSidecars } from '../fs/xmp-conflict.ts';
+import { hasLegacyBackupEdit } from '../fs/legacy-backup-sidecar.ts';
 import * as fs from '../fs/mirrored.ts';
 import { relocateAsset } from './relocate-asset.ts';
 import { repointAssetLocation } from '../db/repos/assets.relocate.repo.ts';
@@ -134,6 +135,7 @@ async function dedupeAt(
     mapleId: doc.maple_id,
     filename: primary.filename,
     sourcesToDelete: [],
+    carriedSidecars: [],
   });
   return 'moved';
 }
@@ -176,7 +178,9 @@ export async function relocateGeoAsset(
 
   const sidecars = await listPairedSidecars(sourceAbsPath);
   const renderedPresent = renderedAbsPath !== null && (await pathExists(renderedAbsPath));
-  const hasCompanions = sidecars.length > 0 || renderedPresent;
+  // An unreadable old-name edit is left out of the lenient listing but is still an edit (#5063).
+  const hasCompanions =
+    sidecars.length > 0 || renderedPresent || (await hasLegacyBackupEdit(sourceAbsPath));
 
   if (
     !hasCompanions &&
@@ -221,6 +225,7 @@ export async function relocateGeoAsset(
     mapleId: doc.maple_id,
     filename: primary.filename,
     sourcesToDelete: [],
+    carriedSidecars: [],
   });
   return 'moved';
 }

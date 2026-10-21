@@ -134,8 +134,8 @@ struct AppShell: View {
   // Sheet state.
   @State var showSMBSheet = false
   /// Single AddMapleCloudSheet entry point. `nil` means hidden;
-  /// `.fresh` means the user clicked "+"; `.prefilled(host)` means
-  /// they tapped a saved server without restored tokens. Modeling
+  /// `.fresh` means the user clicked "+"; `.prefilled(serverText)` means
+  /// a saved server needs fresh sign-in. Modeling
   /// presentation + payload as one optional eliminates the "what
   /// was the prefill last time?" hazard from a separate `@State`.
   @State var addCloudSheetTarget: AddCloudSheetTarget?
@@ -691,6 +691,7 @@ struct AppShell: View {
             let session = sessionFor(url)
             await session.bootstrapAndRestore()
             addCloudSheetTarget = nil
+            reopenMapIfAwaitingSignIn(to: url)
             // #1381: if this sign-in was triggered by a folder open
             // that hit an auth error, replay that load now so the
             // user lands on their photos, not the error screen.
@@ -920,8 +921,9 @@ struct AppShell: View {
       toolbarContent: { browseToolbarContent },
       onSelectCloudAsset: { asset, server in openCloudAsset(asset, server: server) },
       onSelectMapPlace: { target in selectMapPlace(target) },
+      onSignInForMap: { server in signInForMap(server) },
       onCloseSearch: { deactivateSearch() },
-      onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) },
+      onSelectLocalAsset: { ref in openLocalTimelineAsset(ref) },
       onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
       onNavigateFolder: { url in navigateFolder(url) },
       // #2779: folder-tile drop target in the grid, routed into the
@@ -1235,7 +1237,7 @@ struct AppShell: View {
       onSignInCloudServer: { url in
         // Sidebar "Sign in" — present prefilled re-auth for this
         // server. A pending folder reopen (if any) replays on success.
-        addCloudSheetTarget = .prefilled(url.host ?? url.absoluteString)
+        addCloudSheetTarget = .prefilled(CloudHost.signInPrefill(for: url))
       },
       sessionFor: sessionFor,
       onRemoveCloudServer: { url in
@@ -1350,24 +1352,25 @@ struct AppShell: View {
         pendingSearchSeed: $pendingPhoneSearchSeed,
         sidebar: { sharedSidebar },
         toolbarContent: { browseToolbarContent },
-        // iPhone (#809): resolve the cloud / merged-PhotoKit asset's
+        // iPhone (#809): resolve the cloud / local timeline asset's
         // session and hand its AssetRef back to PhoneTabShell, which pushes
         // the S5 EditorView onto the Library tab's NavigationStack — rather
-        // than the legacy `openCloudAsset` / `openLocalPhotoKitAsset`
+        // than the legacy `openCloudAsset` / `openLocalTimelineAsset`
         // mode-flip handlers used by the Mac / iPad pane shell above. The
         // resolution logic (bytes provider, CloudSidecarStore, histogram
         // client) is identical — only the navigation target differs.
         onSelectCloudAsset: { asset, server in prepareCloudSession(asset, server: server) },
         onSelectMapPlace: { target in selectMapPlace(target) },
+        onSignInForMap: { server in signInForMap(server) },
         onSelectLocalAsset: { ref in
-          // Mirror the legacy `openLocalPhotoKitAsset` error handling
-          // (AppShell+PhotoKitActions.swift): a `PhotoKitSource` init
+          // Mirror the legacy `openLocalTimelineAsset` error handling
+          // (AppShell+PhotoKitActions.swift): a session-preparation
           // failure must surface to the user via `browseVM.loadError`,
           // not be silently swallowed by `try?` (which would turn the
           // tap into a no-op). Returning `nil` tells `PhoneTabShell` not
           // to push the S5 EditorView. (#809)
           do {
-            return try prepareLocalPhotoKitSession(ref)
+            return try prepareLocalTimelineSession(ref)
           } catch {
             browseVM.loadError = error
             return nil

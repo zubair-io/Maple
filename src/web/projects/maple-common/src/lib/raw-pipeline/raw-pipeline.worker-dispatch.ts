@@ -126,6 +126,8 @@ const settleRenderSession: Settler<'render-session'> = (msg, handler) => {
     // 'scope-sample' broadcast so this reply doesn't wait on a GPU sync.
     handler.resolve({
       colorSpace: msg.colorSpace,
+      width: msg.width,
+      height: msg.height,
       lensProfile: msg.lensProfile,
       autoFit: msg.autoFit,
     });

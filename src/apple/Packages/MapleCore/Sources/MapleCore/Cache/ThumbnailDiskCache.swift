@@ -7,29 +7,32 @@
 //   lets `.maple/thumbs/` travel with the photos. A miss adopts the frozen
 //   legacy `<sha256Prefix16(basename)>.v25.avif` by rename, never by
 //   regenerating.
-// Memory key: `sha256Prefix16(basename)` (`cacheKey(for:)`), internal only.
-// Eviction: LRU by file mtime; max 500MB or 10,000 entries (configurable).
+// Location: always the asset's OWN folder's `.maple/thumbs/`, never the most
+// recently configured folder's — the unified Timeline shows every saved folder
+// at once, and a sibling or parent folder's cache must not answer for (or be
+// written by) another folder's same-named file (#5033).
+// Memory key: `memoryKey(for:)`, a hash of the full path, for the same reason;
+// the basename hash (`cacheKey(for:)`) only names the frozen legacy file.
+//
+// Bounds: 100 image + 100 data entries in memory (FIFO), plus a 2000-entry
+// `NSCache` for the sync peek; disk is not evicted.
 //
 // Migration note: pre-2026-05 builds keyed thumbs by `MD5(url.path)`
 // (32 hex chars). Existing entries at the old key are harmless orphans
-// and will be cleaned up by LRU eviction over time — we deliberately do
-// NOT sweep them, since a regex-based cleanup risks deleting unrelated
+// that stay, since nothing evicts disk — we deliberately do NOT sweep them,
+// since a regex-based cleanup risks deleting unrelated
 // files in `.maple/thumbs/`. Same precedent applies to the JPEG→AVIF format
 // migration (thumbnail AVIF epic): existing `.jpg` entries are left as
 // orphans rather than fallback-read — the cache is treated as cold and
 // regenerates under `.avif`.
 //
 // Sourceless assets (PhotoKit, Self-Hosted browse) are the exception to the
-// `.maple/thumbs/` scheme above (#2763): they have no filesystem URL to hash
-// a basename from, so `thumbnailData(forKey:)`/`storeThumbnailData(forKey:)`
-// key by the asset's own stable id instead — and, since that stable id has
-// no relationship to `cacheDir` (whichever LOCAL folder was most recently
-// `configure()`d), those two methods write to a FIXED location under the
-// app's Caches directory (`sourcelessCacheDir`) rather than `cacheDir`.
-// Writing them through `cacheDir` was the #2763 bug: a PhotoKit/Self-Hosted
-// browse that followed a local-folder browse silently wrote into that
-// unrelated folder's `.maple/thumbs/`, unreadable by a fresh session or a
-// later `configure()` call for a third folder.
+// `.maple/thumbs/` scheme above (#2763): they have no filesystem URL, so no
+// folder of their own, and `thumbnailData(forKey:)`/`storeThumbnailData(forKey:)`
+// key by the asset's own stable id instead and, having no folder of their
+// own, live at a FIXED location under the app's Caches directory
+// (`sourcelessCacheDir`). Writing them into whichever local folder was open
+// was the #2763 bug: unreadable by a fresh session or another folder.
 
 import CoreImage
 import Foundation
@@ -40,26 +43,14 @@ public actor ThumbnailDiskCache {
   public static let shared = ThumbnailDiskCache()
 
   private let fm = FileManager.default
-  private var cacheDir: URL?
   private var memCache: [String: CIImage] = [:]  // hot in-memory cache
   private var dataMemCache: [String: Data] = [:]  // hot AVIF-bytes cache (for UI cells)
   private let maxMemEntries = 100
 
   /// On-disk store for SOURCELESS thumbnails (PhotoKit, Self-Hosted browse
-  /// without a local mirror) — #2763. Deliberately independent of
-  /// `cacheDir`: `cacheDir` tracks whichever LOCAL folder was most
-  /// recently `configure()`d, and a sourceless asset has no relationship
-  /// to that folder at all. Before this fix, `thumbnailData(forKey:)`/
-  /// `storeThumbnailData(_:forKey:)` wrote sourceless bytes through
-  /// `cacheDir` anyway — a PhotoKit or Self-Hosted browse that followed a
-  /// local-folder browse in the same session silently wrote into that
-  /// UNRELATED folder's `.maple/thumbs/`, and a fresh session (or a
-  /// `configure()` call for a THIRD folder) could never read it back,
-  /// forcing a full re-render/re-fetch every time. A sourceless asset's
-  /// stable id already makes the cache KEY folder-independent; this
-  /// property makes the on-disk DIRECTORY match that, at a fixed location
-  /// under the app's own Caches directory (same convention as
-  /// `CloudThumbCache`'s `cloud-thumbs`) rather than one hostage to
+  /// without a local mirror) — #2763. A sourceless asset has no folder, so its
+  /// thumbnail lives at a fixed location under the app's own Caches directory
+  /// (same convention as `CloudThumbCache`'s `cloud-thumbs`) rather than in
   /// whatever local folder happens to be open.
   private let sourcelessCacheDir: URL = {
     let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
@@ -78,8 +69,8 @@ public actor ThumbnailDiskCache {
   //
   // NSCache is internally thread-safe, so it can be stored as a `let` on the
   // actor and read from a `nonisolated` context without an actor hop.
-  // Every write to `dataMemCache` also writes here; evictIfNeeded() keeps it
-  // capped at the same `maxMemEntries` limit (NSCache auto-evicts under memory
+  // Every write to `dataMemCache` also writes here; it is capped by its own
+  // `countLimit` below (NSCache auto-evicts under memory
   // pressure as well, so the peek may return nil even for a key that was
   // recently stored — the `.task` async path always fills on a miss, which
   // then populates both caches for subsequent sync peeks).
@@ -87,7 +78,7 @@ public actor ThumbnailDiskCache {
     let c = NSCache<NSString, NSData>()
     // Hold enough that already-seen thumbnails aren't evicted while
     // browsing/zooming a large folder — eviction makes the sync peek miss
-    // and flashes the placeholder on a repacked/rewindowed cell. JPEG
+    // and flashes the placeholder on a repacked/rewindowed cell. AVIF
     // thumbnails are small; NSCache still purges under real memory pressure.
     c.countLimit = 2000
     return c
@@ -95,25 +86,22 @@ public actor ThumbnailDiskCache {
 
   // MARK: - Configure
 
-  /// Set the folder cache base dir (e.g. the open folder's .maple/ subdirectory).
+  /// Prepare the open folder's `.maple/thumbs/`.
   public func configure(folderURL: URL) {
-    let mapleDir = folderURL.appendingPathComponent(".maple")
-    let thumbDir = mapleDir.appendingPathComponent("thumbs")
+    let thumbDir = folderURL.appendingPathComponent(".maple").appendingPathComponent("thumbs")
     try? fm.createDirectory(at: thumbDir, withIntermediateDirectories: true)
-    cacheDir = thumbDir
   }
 
   // MARK: - Read
 
   /// Return a CIImage thumbnail for the given asset URL, or nil if not cached.
   public func thumbnail(for assetURL: URL) -> CIImage? {
-    let key = cacheKey(for: assetURL)
+    let key = Self.memoryKey(for: assetURL)
     // 1. Memory
     if let img = memCache[key] { return img }
     // 2. Disk
-    guard let dir = cacheDir else { return nil }
-    let fileURL = Self.thumbFileURL(in: dir, for: assetURL)
-    guard let data = readThumb(at: fileURL, legacyKey: key), let ci = CIImage(data: data)
+    guard let data = readThumb(at: thumbFileURL(for: assetURL), legacyKey: cacheKey(for: assetURL)),
+      let ci = CIImage(data: data)
     else { return nil }
     // Promote to memory cache
     evictIfNeeded()
@@ -125,18 +113,14 @@ public actor ThumbnailDiskCache {
   /// Preferred entry-point for UI cells that render via `Image(data:)`.
   ///
   /// Does NOT delegate to `thumbnailData(forKey:)` (#2763): that overload
-  /// now reads from `sourcelessCacheDir`, a fixed location independent of
-  /// `cacheDir` — correct for a sourceless (PhotoKit/Self-Hosted) stable
-  /// id, wrong for a URL-backed local asset, which must keep resolving
-  /// against `cacheDir` (the actual asset's folder). The two overloads
-  /// share the same hash function (`cacheKey`/`hashKey`, both
-  /// `MapleThumbCacheKey.sha256Prefix16`) but not the same directory.
+  /// reads from `sourcelessCacheDir`, right for a sourceless stable id and
+  /// wrong for a URL-backed local asset, whose thumbnail lives in its own
+  /// folder's `.maple/thumbs/`.
   public func thumbnailData(for assetURL: URL) -> Data? {
-    let key = cacheKey(for: assetURL)
+    let key = Self.memoryKey(for: assetURL)
     if let d = dataMemCache[key] { return d }
-    guard let dir = cacheDir else { return nil }
-    let fileURL = Self.thumbFileURL(in: dir, for: assetURL)
-    guard let data = readThumb(at: fileURL, legacyKey: key) else { return nil }
+    guard let data = readThumb(at: thumbFileURL(for: assetURL), legacyKey: cacheKey(for: assetURL))
+    else { return nil }
     evictIfNeeded()
     dataMemCache[key] = data
     syncPeekCache.setObject(data as NSData, forKey: key as NSString)
@@ -146,16 +130,10 @@ public actor ThumbnailDiskCache {
   /// Evict an unreadable URL-backed thumbnail so `ThumbnailLoader` can
   /// rebuild the disposable derivative from the source image.
   public func removeThumbnail(for assetURL: URL) {
-    let key = cacheKey(for: assetURL)
+    let key = Self.memoryKey(for: assetURL)
     memCache.removeValue(forKey: key)
     dataMemCache.removeValue(forKey: key)
     syncPeekCache.removeObject(forKey: key as NSString)
-    if let dir = cacheDir {
-      MapleSidecarPaths.removeDerivative(
-        at: Self.thumbFileURL(in: dir, for: assetURL),
-        legacy: dir.appending(path: MapleThumbCacheKey.legacyThumbFilename(forKey: key)),
-        fileManager: fm)
-    }
     MapleSidecarPaths.removeDerivative(
       at: MapleSidecarPaths.thumbURL(for: assetURL),
       legacy: MapleSidecarPaths.legacyThumbURL(for: assetURL), fileManager: fm)
@@ -163,10 +141,10 @@ public actor ThumbnailDiskCache {
 
   /// Return AVIF bytes for an opaque stable key (e.g. an `AssetRef.id` or a
   /// server-provided maple:id hex). Used by sourceless assets (PhotoKit,
-  /// SelfHosted) where there is no filesystem URL to hash by basename.
-  /// Note: pre-2026-05 this overload used MD5 of the key; it now shares
-  /// the same `sha256Prefix16` helper as the URL-keyed path, so any
-  /// pre-existing cloud-thumb entries at the old MD5 path are orphans.
+  /// SelfHosted) with no filesystem URL, so no folder of their own.
+  /// Note: pre-2026-05 this overload used MD5 of the key; it now uses
+  /// `sha256Prefix16`, so any pre-existing entries at the old MD5 path are
+  /// orphans.
   public func thumbnailData(forKey key: String) -> Data? {
     let hashed = hashKey(key)
     if let d = dataMemCache[hashed] { return d }
@@ -187,24 +165,29 @@ public actor ThumbnailDiskCache {
   /// context (nonisolated, main thread, a gesture handler) because NSCache is
   /// internally thread-safe.
   ///
-  /// Key derivation mirrors `thumbnailData(forKey:)`: pass the **basename** for
-  /// URL-backed assets and the stable ID for sourceless assets — the same input
-  /// you would pass to `storeThumbnailData(_:forKey:)`.
+  /// Key derivation mirrors `thumbnailData(forKey:)`: pass the stable ID of a
+  /// sourceless asset, the same input you would pass to
+  /// `storeThumbnailData(_:forKey:)`. URL-backed assets use `syncPeekData(for:)`.
   public nonisolated func syncPeekData(forKey key: String) -> Data? {
     let hashed = MapleThumbCacheKey.sha256Prefix16(key)
     return syncPeekCache.object(forKey: hashed as NSString) as Data?
+  }
+
+  /// `syncPeekData(forKey:)` for a URL-backed asset, keyed the way its
+  /// thumbnail was stored (`memoryKey(for:)`).
+  public nonisolated func syncPeekData(for assetURL: URL) -> Data? {
+    syncPeekCache.object(forKey: Self.memoryKey(for: assetURL) as NSString) as Data?
   }
 
   // MARK: - Write
 
   /// Store a CIImage thumbnail as AVIF (`ThumbnailEncoder.quality`).
   public func storeThumbnail(_ image: CIImage, for assetURL: URL) {
-    let key = cacheKey(for: assetURL)
+    let key = Self.memoryKey(for: assetURL)
     evictIfNeeded()
     memCache[key] = image
 
-    guard let dir = cacheDir else { return }
-    let fileURL = Self.thumbFileURL(in: dir, for: assetURL)
+    let fileURL = thumbFileURL(for: assetURL, creatingDirectory: true)
     let ctx = CIContext()
     guard let data = ThumbnailEncoder.encode(image, ctx: ctx) else { return }
     dataMemCache[key] = data
@@ -216,17 +199,14 @@ public actor ThumbnailDiskCache {
   /// off-actor (avoids blocking the cache actor on the encode round-trip).
   ///
   /// Does NOT delegate to `storeThumbnailData(_:forKey:)` (#2763) — see
-  /// `thumbnailData(for:)`'s doc comment for why the two overloads can no
-  /// longer share an implementation now that they write to different
+  /// `thumbnailData(for:)`'s doc comment: the two write to different
   /// directories.
   public func storeThumbnailData(_ data: Data, for assetURL: URL) {
-    let key = cacheKey(for: assetURL)
+    let key = Self.memoryKey(for: assetURL)
     evictIfNeeded()
     dataMemCache[key] = data
     syncPeekCache.setObject(data as NSData, forKey: key as NSString)
-    guard let dir = cacheDir else { return }
-    let fileURL = Self.thumbFileURL(in: dir, for: assetURL)
-    try? data.write(to: fileURL, options: .atomic)
+    try? data.write(to: thumbFileURL(for: assetURL, creatingDirectory: true), options: .atomic)
   }
 
   /// Store pre-encoded AVIF bytes under an opaque stable key. Sibling of the
@@ -241,10 +221,15 @@ public actor ThumbnailDiskCache {
     try? data.write(to: fileURL, options: .atomic)
   }
 
-  /// `<dir>/<filename.ext>.avif`, the shared unhashed thumb name (#4793).
-  private static func thumbFileURL(in dir: URL, for assetURL: URL) -> URL {
-    dir.appendingPathComponent(
-      MapleThumbCacheKey.thumbFilename(forRawBasename: assetURL.lastPathComponent))
+  /// `<asset folder>/.maple/thumbs/<filename.ext>.avif`, the shared unhashed
+  /// thumb name (#4793) in the asset's own folder (#5033).
+  private func thumbFileURL(for assetURL: URL, creatingDirectory: Bool = false) -> URL {
+    let fileURL = MapleSidecarPaths.thumbURL(for: assetURL)
+    if creatingDirectory {
+      try? fm.createDirectory(
+        at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    }
+    return fileURL
   }
 
   /// One read on a hit; on a miss, adopts the frozen `<legacyKey>.v25.avif`
@@ -259,9 +244,7 @@ public actor ThumbnailDiskCache {
 
   // MARK: - Cache key
 
-  /// In-memory and coalescing key, derived from the **filename only** so
-  /// two URLs sharing a basename resolve to one entry. It also names the
-  /// frozen legacy on-disk thumb (`<key>.v25.avif`).
+  /// Basename hash: names the frozen legacy thumb (`<key>.v25.avif`).
   public static func cacheKey(for url: URL) -> String {
     return MapleThumbCacheKey.sha256Prefix16(url.lastPathComponent)
   }
@@ -270,9 +253,14 @@ public actor ThumbnailDiskCache {
     return Self.cacheKey(for: url)
   }
 
-  /// Hash for opaque stable keys (cloud asset IDs etc.) — shares the
-  /// same `sha256Prefix16` derivation as `cacheKey(for:)`, so a single
-  /// helper governs every on-disk filename this cache writes.
+  /// In-memory, sync-peek and coalescing key for a URL-backed asset: a
+  /// full-path hash, so same-named files from two folders never share an entry
+  /// and a file keeps one key whichever folder is open (#5033).
+  public static func memoryKey(for url: URL) -> String {
+    MapleThumbCacheKey.sha256Prefix16("path:" + url.standardizedFileURL.path)
+  }
+
+  /// File stem and memory key for a sourceless asset's opaque stable id.
   private func hashKey(_ string: String) -> String {
     return MapleThumbCacheKey.sha256Prefix16(string)
   }

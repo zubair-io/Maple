@@ -9,7 +9,8 @@ pub struct CropPresentation {
     /// Normalized cropped-output coordinates to the full display frame.
     pub inverse: Homography,
     /// An off-axis crop samples an already-warped image when manual geometry
-    /// is active. Hosts must preserve that second sampling operation.
+    /// is active. Hosts must preserve that second sampling operation
+    /// (`raw_gpu::PresentGeometry::from_stages` is the GPU present's form).
     pub resamples: bool,
 }
 

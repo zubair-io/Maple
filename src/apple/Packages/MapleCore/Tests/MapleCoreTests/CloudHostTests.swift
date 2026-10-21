@@ -40,4 +40,14 @@ final class CloudHostTests: XCTestCase {
     XCTAssertEqual(CloudHost.parse("https://maple.example")?.displayHost,
                    "maple.example")
   }
+
+  /// #5033: a sign-in sheet prefilled with only the host re-parsed an HTTP or
+  /// non-default-port server as `https://host`, signing in to a different
+  /// server than the one that asked.
+  func test_signInPrefill_roundTripsToTheSameServer() {
+    for raw in ["http://localhost:3000", "https://maple.example.com", "http://192.168.0.244:8080"] {
+      let server = URL(string: raw)!
+      XCTAssertEqual(CloudHost.parse(CloudHost.signInPrefill(for: server))?.url, server, raw)
+    }
+  }
 }

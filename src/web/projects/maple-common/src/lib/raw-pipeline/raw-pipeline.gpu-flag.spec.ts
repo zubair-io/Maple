@@ -343,9 +343,16 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
     expect(msg.type).toBe('render-session');
     expect(msg.xmp).toBe(xmp);
 
-    workerStub.reply({ id: msg.id, type: 'render-session-success', colorSpace: 'srgb' });
+    workerStub.reply({
+      id: msg.id,
+      type: 'render-session-success',
+      colorSpace: 'srgb',
+      width: 1500,
+      height: 1000,
+    });
     const result = await promise;
     expect(result.colorSpace).toBe('srgb');
+    expect([result.width, result.height]).toEqual([1500, 1000]);
     // #3397: the render reply never carries scope pixels — the sample arrives
     // out-of-band, so this promise settles without waiting on a GPU readback.
     expect(service.scopeSample()).toBeNull();
@@ -392,6 +399,8 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
       id: renderMsg.id,
       type: 'render-session-success',
       colorSpace: 'srgb',
+      width: 4000,
+      height: 3000,
     });
     await renderPromise;
     // The reply alone leaves the previous sample in place — no blanking.

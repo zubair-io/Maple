@@ -66,6 +66,9 @@ export interface OpenedLiveSession {
  */
 export interface RenderedLiveSession {
   colorSpace: string;
+  /** Presented frame dims (upright, cropped) — what the canvas now shows. */
+  width: number;
+  height: number;
   /** See `RenderSessionSuccess.lensProfile` (#3479). */
   lensProfile?: LensProfileResolution;
   /** Actual applied Auto artifacts; absent until evaluated or with Neutral. */

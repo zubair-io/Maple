@@ -321,6 +321,18 @@ Chrome WebGPU adapter. It fails if either is absent. It compares upright canvas,
 native dimensions, crop bounds and a radial mask's pixel changes against its
 handle, then reopens the real OPFS sidecar through the CPU path.
 
+The physical crop regression (`cd src/web && bun x playwright test
+--config=playwright.crop-live.config.ts`) has the same prerequisites and fails
+the same way. On the same Rotate90 RAW it applies a rectangle, a quarter-turn,
+a free-angle crop and a free-angle crop over perspective to the live WebGPU
+canvas, then reopens the OPFS sidecar through the CPU path. The two canvases
+must have identical presented dimensions and agree within a coarse spatial
+budget, the canvas colour space must survive the resize, and clearing the crop
+and perspective must restore the full frame. Pixel-exact placement is gated
+natively, not here: `present_texture_tests` compares the GPU present with the
+CPU display tail within 1 LSB for every EXIF orientation, including off-axis
+crops over perspective.
+
 Real hardware — locally, and through the Apple UITest harness — remains the deeper signal for both surfaces; these two jobs are the cheap, always-on backstop against a divergence reaching `main` with every existing check green.
 
 ---
@@ -364,7 +376,7 @@ The visual harnesses in `src/apple/MapleUITests/` all follow one shape: stage a 
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MapleUITests`         | One fixture at default settings vs a committed golden (`Goldens/test_0017-default.png`). Budgets: mean ≤ 5, p95 ≤ 10, max ≤ 30, bias ≤ 0.05. Deleting the PNG re-records it and fails with "baseline written"          |
 | `SyntheticGreyUITests` | The Apple path (Rust FFI scene-linear → Metal AgX → Metal sRGB encode) lands on the same grey the Rust CPU tail produces: every pixel neutral within ±2 LSB, canvas mean within ±3 LSB of six per-case expected values |
-| `CIEDE2000Tests`       | Cross-validates the Swift ΔE₀₀ port against `compare_images.py` on a committed calibration PNG pair                                                                                                                    |
+| `CIEDE2000Tests`       | Cross-validates the Swift ΔE₀₀ port against `compare_images.py` on the committed calibration cases, bundled as the `Goldens` folder                                                                                    |
 
 Fixture-dependent classes call `XCTSkip` when the RAW isn't present at the repo default, mirroring the shell harnesses — and fail when it isn't present at an explicitly named `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT`.
 

@@ -49,7 +49,7 @@
 
 import * as fs from './mirrored.ts';
 import * as path from 'node:path';
-import { listPairedSidecars } from './xmp-conflict.ts';
+import { isLegacyBackupSidecarOf } from './legacy-backup-sidecar.ts';
 import {
   PublishCollisionError,
   copyVerifiedIntoPlace,
@@ -59,7 +59,7 @@ import {
 import { child as childLogger } from '../log.ts';
 import { sidecarRenameTarget, companionRenameTarget } from './sidecar-rename.ts';
 import { classifySameFile, performCaseOnlyRename } from './relocate-case-only-rename.ts';
-import { assetDestinationOccupied, settleCarriedSidecar } from './sidecar-ownership.ts';
+import { assetDestinationOccupied } from './sidecar-ownership.ts';
 import {
   planSidecars,
   carryPlannedSidecars,
@@ -67,7 +67,10 @@ import {
   sourceSidecarStays,
   type MovedSidecar,
   type SidecarPlan,
+  ownSidecarsOf,
 } from './relocate-sidecar-plan.ts';
+import { carryLateSidecars } from './relocate-late-sidecar.ts';
+import { deleteOriginals } from './relocate-originals.ts';
 
 export { sidecarRenameTarget };
 
@@ -312,10 +315,12 @@ async function copyPrimaryAndSidecars(
     finalDest,
     createdPaths,
   );
+  const replacing = req.carrySidecars !== false && req.collision === 'replace';
   await removeStaleDestinationSidecars(
     finalDest,
     plan,
-    sourceSidecars.length === 0 && req.carrySidecars !== false && req.collision === 'replace',
+    replacing && sourceSidecars.length === 0,
+    replacing,
   );
 
   const keepSource = await sourceSidecarStays(
@@ -325,7 +330,10 @@ async function copyPrimaryAndSidecars(
     req.extraCompanionAbsPaths ?? [],
     movedCompanionSources,
   );
-  const movedSidecars = carried.map((entry) => ({ ...entry, keepSource }));
+  const movedSidecars = carried.map((entry) => ({
+    ...entry,
+    keepSource: keepSource && !isLegacyBackupSidecarOf(req.sourceAbsPath, entry.source),
+  }));
   return { copiedSidecars, movedSidecars, companionPaths, movedCompanionSources };
 }
 
@@ -345,45 +353,6 @@ async function runIdentityRepoint(
   } catch (err) {
     await revertCreated(createdPaths);
     return `identity repoint failed: ${err instanceof Error ? err.message : String(err)}`;
-  }
-}
-
-/** Step 6, move mode only: delete the original primary + every sidecar that
- * was actually copied (one left in place on a copy failure keeps its
- * original, per `tryCopySidecar`'s best-effort contract). Best-effort —
- * a failure here leaves a harmless duplicate on disk, the accepted failure
- * direction, never data loss, so it's logged rather than thrown. */
-async function deleteOriginals(
-  sourceAbsPath: string,
-  movedSidecars: MovedSidecar[],
-  movedCompanionSources: string[],
-  beforeSourceDelete?: () => Promise<void>,
-): Promise<void> {
-  await beforeSourceDelete?.();
-  await fs.unlink(sourceAbsPath).catch((err) => {
-    log.warn(
-      { sourceAbsPath, err: err instanceof Error ? err.message : err },
-      'relocate: source primary unlink failed after a verified copy — a duplicate is left on disk (acceptable failure direction, never data loss)',
-    );
-  });
-  const removals = [
-    ...movedSidecars.map((moved) => ({
-      src: moved.source,
-      remove: () =>
-        settleCarriedSidecar(moved.source, moved.dest, moved.snapshot, moved.keepSource),
-    })),
-    ...movedCompanionSources.map((src) => ({ src, remove: () => fs.unlink(src) })),
-  ];
-  for (const { src, remove } of removals) {
-    await (async () => {
-      await beforeSourceDelete?.();
-      await remove();
-    })().catch((err) => {
-      log.warn(
-        { src, err: err instanceof Error ? err.message : err },
-        'relocate: source sidecar/companion unlink failed after a verified copy',
-      );
-    });
   }
 }
 
@@ -432,8 +401,10 @@ async function refuseSameFile(req: RelocateRequest): Promise<RelocateOutcome | n
 }
 
 async function relocateWithCollisionRetry(req: RelocateRequest): Promise<RelocateOutcome> {
-  const ownSidecars =
-    req.carrySidecars === false ? [] : await listPairedSidecars(req.sourceAbsPath);
+  const ownSidecars = await ownSidecarsOf(req.sourceAbsPath, req.mode, req.carrySidecars);
+  if (ownSidecars === null) {
+    return errorOutcome(new Error("relocate: the photo's old-name backup edit can't be read"));
+  }
   for (let attempt = 0; ; attempt++) {
     try {
       return await relocateOnce(req, ownSidecars);
@@ -517,11 +488,22 @@ async function copyRepointDelete(
   if (repointError) return { kind: 'error', error: repointError };
   progress.repointed = req.onVerified !== undefined;
 
-  // 6. Delete the originals — move mode only.
+  // 6. Delete the originals — move mode only. The row now points at the new
+  // path, so a sidecar created since the listing is carried too (#5062).
   if (req.mode === 'move') {
+    const late =
+      req.carrySidecars === false
+        ? []
+        : await carryLateSidecars({
+            sourceAbsPath: req.sourceAbsPath,
+            finalDest,
+            listed: ownSidecars,
+            movedCompanions: movedCompanionSources,
+            publications: createdPaths,
+          });
     await deleteOriginals(
       req.sourceAbsPath,
-      movedSidecars,
+      [...movedSidecars, ...late],
       movedCompanionSources,
       req.beforeSourceDelete,
     );

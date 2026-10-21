@@ -405,7 +405,7 @@ fn guided_clipped_radial_warp_matches_full_order() {
                 center_x: 0.5,
                 center_y: 0.5,
             })],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         ActiveAreaRect::full(raw.width, raw.height),
     ));

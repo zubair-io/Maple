@@ -117,6 +117,28 @@ final class DevelopedImageRevisionTests: XCTestCase {
       revisions.decodedKey(for: localRef.id, source: .photoKit(localID: localRef.id)))
   }
 
+  /// #5033: byte-identical copies in two saved folders share a content-derived
+  /// id, but each has its own sidecar and thumbnail, so their Timeline tiles
+  /// must not share a decoded bitmap.
+  func testIdenticalCopiesInTwoSavedFoldersKeepTheirOwnTimelineBitmap() {
+    let revisions = DevelopedImageRevision()
+    let mapleId = "0123456789abcdef0123456789abcdef"
+    let cells = ["/folderA/IMG.dng", "/folderB/IMG.dng"].map {
+      MergedTimelineCell.localOnly(
+        ImageRef(id: mapleId, displayName: "IMG.dng", url: URL(fileURLWithPath: $0)))
+    }
+    let items = cells.map {
+      PhotoGridItem(merged: $0, host: "", sync: .localOnly, style: .desktop)
+    }
+    XCTAssertNotEqual(cells[0].id, cells[1].id, "two grid cells must not share one identity")
+    XCTAssertEqual(
+      cells[0].id, "/folderA/IMG.dng",
+      "Preview, the filmstrip and the editor seed look the bitmap up by the file's stableID")
+    XCTAssertNotEqual(
+      revisions.decodedKey(for: items[0].id, source: items[0].thumbnailSource),
+      revisions.decodedKey(for: items[1].id, source: items[1].thumbnailSource))
+  }
+
   func testSaveChangesOnlyTheEditedFilesLoadIdentity() {
     let revisions = DevelopedImageRevision()
     let first = URL(fileURLWithPath: "/first/IMG.dng")

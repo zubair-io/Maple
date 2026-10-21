@@ -93,6 +93,15 @@ Object.assign(window, {
     dimensions() {
       return active?.component.instance.canvas?.canvasSvc.nativeDimensions();
     },
+    painted() {
+      return active?.component.instance.canvas?.canvasSvc.paintedAspect();
+    },
+    layout() {
+      return active?.component.instance.canvas?.canvasSvc.effectivePx();
+    },
+    colorSpace() {
+      return active?.component.instance.canvas?.gpuPresent.colorSpace();
+    },
     async geometry(patch: Partial<AdjustmentModel>, tool: 'crop' | 'mask' | 'exposure') {
       if (!active) throw Error('No physical canvas fixture mounted');
       const library = active.app.injector.get(LibraryStateService);

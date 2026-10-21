@@ -114,11 +114,11 @@ public enum CameraSupportRegistry {
   public static let schemaVersion: UInt32 = 1
   /// Camera bodies the bundled profile table covers. Each is at
   /// least `.profiled`; the full list is in docs/camera-support.json.
-  public static let bundledModelCount: Int = 1406
+  public static let bundledModelCount: Int = 1459
   /// The profile data every tier here was computed against.
   public static let profileBundleFormat: UInt16 = 1
   public static let profileBundleDigest: String =
-    "blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a"
+    "blake3:a05149467e0d8d78a67d2b0344968bd1553185c25a8fc773fc6f658fcfc59869"
 
   /// Every body with a physical fixture — the only bodies that can
   /// ever reach `.qualified`.
@@ -305,7 +305,7 @@ public enum CameraSupportRegistry {
     ),
     SupportedCamera(
       key: "Hasselblad L3D-100c",
-      displayName: "DJI Mavic 3 Pro (Hasselblad L3D-100c, 100 MP)",
+      displayName: "DJI Mavic 4 Pro (Hasselblad L3D-100c, 100 MP)",
       fixture: "test_0000.DNG",
       fixtureDigest: "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
       tier: .profiled,

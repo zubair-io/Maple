@@ -92,9 +92,10 @@ actor PhotoKitAssetReader: AssetReader {
     // `findOne({ maple_id })` short-circuits with a `$push` to
     // phasset_links rather than writing a second file).
     //
-    // Primary form when EXIF DateTimeOriginal is present in the
-    // original bytes; fallback (full-file BLAKE3 + filesize) otherwise.
-    guard let mapleId = Self.deriveMapleId(originalBytes: originalBytes) else {
+    // Primary form when the original carries a capture date the server also
+    // reads (EXIF for stills, the QuickTime moov date for videos — #5001);
+    // fallback (full-file BLAKE3 + filesize) otherwise.
+    guard let mapleId = Self.deriveMapleId(originalBytes: originalBytes, filename: filename) else {
       throw ReaderError.hashFailed
     }
 
@@ -154,10 +155,10 @@ actor PhotoKitAssetReader: AssetReader {
   // MARK: - Maple id derivation
 
   /// Compute the 32-character spec-form `maple_id` for an asset's
-  /// original bytes. Reads EXIF DateTimeOriginal from the bytes (matches
-  /// the indexer's `readExif` source of truth) and feeds the primary
-  /// derivation when present; otherwise falls back to full-bytes hash
-  /// plus filesize.
+  /// original bytes. Reads the capture date the way the indexer's
+  /// `readExif` does — EXIF DateTimeOriginal for stills, the QuickTime
+  /// `moov` date for videos (#5001) — and feeds the primary derivation
+  /// when present; otherwise falls back to full-bytes hash plus filesize.
   ///
   /// Camera serial and shutter count are passed as nil/0 to match the
   /// server indexer (`src/api/src/workers/stages/exif.ts:64`), which
@@ -165,8 +166,14 @@ actor PhotoKitAssetReader: AssetReader {
   /// starts persisting them, this helper must update in lockstep —
   /// otherwise dedup will silently regress on cameras that report
   /// shutter counts.
-  private static func deriveMapleId(originalBytes: Data) -> String? {
-    if let ts = readExifCaptureDateISO8601UTC(from: originalBytes) {
+  private static func deriveMapleId(originalBytes: Data, filename: String) -> String? {
+    let isVideo = SidecarPath.videoExtensions.contains(
+      (filename as NSString).pathExtension.lowercased())
+    let capturedAt =
+      isVideo
+      ? VideoCaptureDate.iso8601UTC(fromVideoBytes: originalBytes)
+      : readExifCaptureDateISO8601UTC(from: originalBytes)
+    if let ts = capturedAt {
       // Cap the head slice at the spec's 64 KB. Hashing the whole
       // file is wasted work — `MapleId::primary` ignores everything
       // past `SHA1_HEAD_BYTES`. Use `Data(prefix:)` rather than
