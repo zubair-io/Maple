@@ -4,7 +4,7 @@
  * sidecar is never replaced here — sidecars are written through the XMP routes
  * with their preconditions, so the raw upload answers 409 instead. */
 import * as path from 'node:path';
-import { open, rename, stat, unlink, utimes } from '../fs/mirrored.ts';
+import { link, lstat, open, rename, stat, unlink, utimes } from '../fs/mirrored.ts';
 import {
   RAW_EXTENSIONS,
   BITMAP_EXTENSIONS,
@@ -23,7 +23,7 @@ import {
 import type { FolderWithId } from '../db/schema.ts';
 import type { ObjectId } from '../db/object-id.ts';
 import { child } from '../log.ts';
-import { PublishCollisionError, publishExclusive } from '../fs/relocate-publish.ts';
+import { errnoCode, LINK_UNSUPPORTED, PublishCollisionError } from '../fs/relocate-publish.ts';
 import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
 
 const log = child('folders/upload');
@@ -156,7 +156,7 @@ async function publishUploadedBody(input: UploadTarget): Promise<void> {
 async function publishUploadedSidecar(input: UploadTarget): Promise<void> {
   await serializeSidecarWrite(input.absPath, async () => {
     try {
-      await publishExclusive(input.tmp, input.absPath);
+      await publishWhole(input.tmp, input.absPath);
     } catch (error) {
       if (!(error instanceof PublishCollisionError)) throw uploadError('publish', error);
       refuseSidecarReplacement(input.target, input.filename);
@@ -164,9 +164,26 @@ async function publishUploadedSidecar(input: UploadTarget): Promise<void> {
     } finally {
       await unlink(input.tmp).catch(() => {});
     }
-    // Stamped inside the barrier, and after the publish so a copy fallback keeps it too.
     await preserveUploadMtime(input.absPath, input.mtimeHeader);
   });
+}
+/** Readers never see a partial sidecar: a hard link, or where links aren't
+ * supported (SMB) a rename after an absence check, which the barrier already
+ * guards against every in-process writer. */
+async function publishWhole(tmp: string, destination: string): Promise<void> {
+  try {
+    await link(tmp, destination);
+    return;
+  } catch (error) {
+    if (errnoCode(error) === 'EEXIST') throw new PublishCollisionError(destination);
+    if (!LINK_UNSUPPORTED.has(errnoCode(error) ?? '')) throw error;
+  }
+  const occupied = await lstat(destination).then(
+    () => true,
+    (error: unknown) => (errnoCode(error) === 'ENOENT' ? false : Promise.reject(error)),
+  );
+  if (occupied) throw new PublishCollisionError(destination);
+  await rename(tmp, destination);
 }
 async function preserveUploadMtime(filename: string, value: string | undefined): Promise<void> {
   if (typeof value !== 'string' || !/^\d+$/.test(value)) return;
