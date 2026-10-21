@@ -10,12 +10,13 @@ import {
   SidecarNotRegularFileError,
   writeVerifiedTemp,
 } from '../../fs/sidecar-ownership.ts';
-import { publishExclusive } from '../../fs/relocate-publish.ts';
+import { PublishCollisionError, publishExclusive } from '../../fs/relocate-publish.ts';
 import { serializeSidecarWrites } from '../../fs/sidecar-write-order.ts';
 import { pickFreeConflictPath } from '../../fs/xmp-conflict.ts';
 import { child as childLogger } from '../../log.ts';
 
 const log = childLogger('migration:refile-sidecar');
+const CONFLICT_ATTEMPTS = 5;
 
 /** A sidecar published at `dest`, with the bytes its source held then. */
 export interface CarriedSidecar {
@@ -42,13 +43,20 @@ export async function carrySidecar(
 }
 
 async function publishConflictCopy(carried: CarriedSidecar, bytes: Buffer): Promise<void> {
-  const conflict = await pickFreeConflictPath(carried.primary, 'refile');
-  const tmp = await writeVerifiedTemp(conflict, bytes);
-  try {
-    await publishExclusive(tmp, conflict);
-  } finally {
-    await fs.unlink(tmp).catch(() => {});
+  // Another writer can take the picked name before the exclusive publish; pick again.
+  for (let attempt = 0; attempt < CONFLICT_ATTEMPTS; attempt++) {
+    const conflict = await pickFreeConflictPath(carried.primary, 'refile');
+    const tmp = await writeVerifiedTemp(conflict, bytes);
+    try {
+      await publishExclusive(tmp, conflict);
+      return;
+    } catch (err) {
+      if (!(err instanceof PublishCollisionError)) throw err;
+    } finally {
+      await fs.unlink(tmp).catch(() => {});
+    }
   }
+  throw new Error(`refile: no free conflict name for ${carried.primary}`);
 }
 
 /** A save on the source after its snapshot replaces `dest` while `dest` still
