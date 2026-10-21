@@ -117,7 +117,10 @@ test('same prefix and size with different trailing bytes preserves the old Trash
   }
 });
 
-test.each(['sidecar', 'companion'] as const)(
+const OLD_NAME_EDIT =
+  '<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">unique backup edit</x:xmpmeta>';
+
+test.each(['sidecar', 'old-name backup edit', 'companion'] as const)(
   'identical RAW replacement retains unique %s and its remote history',
   async (paired) => {
     const f = await fixture();
@@ -127,6 +130,8 @@ test.each(['sidecar', 'companion'] as const)(
           path.join(f.library, 'photo.xmp'),
           '<x:xmpmeta>unique exposure edit</x:xmpmeta>',
         );
+      else if (paired === 'old-name backup edit')
+        await writeFile(path.join(f.library, 'photo.dng.xmp'), OLD_NAME_EDIT);
       else {
         await writeFile(path.join(f.library, 'photo-rendered.jpg'), 'unique Apple render');
         await backupEngine.repo.db.write('UPDATE assets SET apple_rendered_path=? WHERE id=?', [
@@ -138,10 +143,12 @@ test.each(['sidecar', 'companion'] as const)(
       expect(await readFile(path.join(f.library, '.maple/trash/photo.dng'), 'utf8')).toBe(
         'old-original',
       );
-      const pairedPath = paired === 'sidecar' ? '.maple/trash/photo.xmp' : 'photo-rendered.jpg';
-      expect(await readFile(path.join(f.library, pairedPath), 'utf8')).toContain(
-        paired === 'sidecar' ? 'unique exposure edit' : 'unique Apple render',
-      );
+      const kept = {
+        sidecar: ['.maple/trash/photo.xmp', 'unique exposure edit'],
+        'old-name backup edit': ['.maple/trash/photo.dng.xmp', 'unique backup edit'],
+        companion: ['photo-rendered.jpg', 'unique Apple render'],
+      }[paired];
+      expect(await readFile(path.join(f.library, kept[0]), 'utf8')).toContain(kept[1]);
       expect(f.backup().state).toBe('trash');
       expect(f.live.db.query('SELECT * FROM backup_purges').all()).toHaveLength(0);
       expect(f.live.db.query('SELECT id FROM assets WHERE id=?').get(f.id)).not.toBeNull();

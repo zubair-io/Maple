@@ -7,11 +7,10 @@ import * as path from 'node:path';
 import * as fs from '../../fs/mirrored.ts';
 import {
   publishSidecarSnapshot,
-  readSidecarBytes,
-  SidecarNotRegularFileError,
   sidecarStemClaimedBySibling,
   writeVerifiedTemp,
 } from '../../fs/sidecar-ownership.ts';
+import { readSidecarBytes, SidecarNotRegularFileError } from '../../fs/sidecar-bytes.ts';
 import {
   PublishCollisionError,
   privateSiblingOf,

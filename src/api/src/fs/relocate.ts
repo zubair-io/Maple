@@ -49,7 +49,7 @@
 
 import * as fs from './mirrored.ts';
 import * as path from 'node:path';
-import { listPairedSidecars } from './xmp-conflict.ts';
+import { isLegacyBackupSidecarOf } from './legacy-backup-sidecar.ts';
 import {
   PublishCollisionError,
   copyVerifiedIntoPlace,
@@ -63,12 +63,13 @@ import { assetDestinationOccupied, settleCarriedSidecar } from './sidecar-owners
 import {
   planSidecars,
   carryPlannedSidecars,
-  carryLateSidecars,
   removeStaleDestinationSidecars,
   sourceSidecarStays,
   type MovedSidecar,
   type SidecarPlan,
+  ownSidecarsOf,
 } from './relocate-sidecar-plan.ts';
+import { carryLateSidecars } from './relocate-late-sidecar.ts';
 
 export { sidecarRenameTarget };
 
@@ -313,10 +314,12 @@ async function copyPrimaryAndSidecars(
     finalDest,
     createdPaths,
   );
+  const replacing = req.carrySidecars !== false && req.collision === 'replace';
   await removeStaleDestinationSidecars(
     finalDest,
     plan,
-    sourceSidecars.length === 0 && req.carrySidecars !== false && req.collision === 'replace',
+    replacing && sourceSidecars.length === 0,
+    replacing,
   );
 
   const keepSource = await sourceSidecarStays(
@@ -326,7 +329,10 @@ async function copyPrimaryAndSidecars(
     req.extraCompanionAbsPaths ?? [],
     movedCompanionSources,
   );
-  const movedSidecars = carried.map((entry) => ({ ...entry, keepSource }));
+  const movedSidecars = carried.map((entry) => ({
+    ...entry,
+    keepSource: keepSource && !isLegacyBackupSidecarOf(req.sourceAbsPath, entry.source),
+  }));
   return { copiedSidecars, movedSidecars, companionPaths, movedCompanionSources };
 }
 
@@ -433,8 +439,10 @@ async function refuseSameFile(req: RelocateRequest): Promise<RelocateOutcome | n
 }
 
 async function relocateWithCollisionRetry(req: RelocateRequest): Promise<RelocateOutcome> {
-  const ownSidecars =
-    req.carrySidecars === false ? [] : await listPairedSidecars(req.sourceAbsPath);
+  const ownSidecars = await ownSidecarsOf(req.sourceAbsPath, req.mode, req.carrySidecars);
+  if (ownSidecars === null) {
+    return errorOutcome(new Error("relocate: the photo's old-name backup edit can't be read"));
+  }
   for (let attempt = 0; ; attempt++) {
     try {
       return await relocateOnce(req, ownSidecars);

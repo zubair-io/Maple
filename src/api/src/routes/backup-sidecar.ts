@@ -55,7 +55,8 @@ import { child as childLogger } from '../log.ts';
 import path from 'node:path';
 import { xmpSidecarPath } from '../fs/xmp.ts';
 import { sidecarStemClaimedBySibling } from '../fs/sidecar-ownership.ts';
-import { hasLegacyBackupEdit, retireLegacyBackupSidecar } from '../backup/legacy-sidecar.ts';
+import { retireLegacyBackupSidecar } from '../backup/legacy-sidecar.ts';
+import { hasLegacyBackupEdit } from '../fs/legacy-backup-sidecar.ts';
 import { announceSidecarLanded, recordSidecarEditAhead } from './xmp-change.ts';
 import {
   errorOutcome,

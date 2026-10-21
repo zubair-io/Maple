@@ -32,7 +32,7 @@ import type { ObjectId } from '../../db/object-id.ts';
 import { readExif } from '../../indexer/exif.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { repointLocation, restoreLocation } from '../../db/repos/assets.discover.sweep.ts';
-import { moveSidecarIfPresent } from './rename-reconcile-sidecar.ts';
+import { moveLegacySidecarIfPresent, moveSidecarIfPresent } from './rename-reconcile-sidecar.ts';
 import { buildFileinfoEntry } from './types.ts';
 import { child } from '../../log.ts';
 import type { AssetExif, FileInfo } from '../../db/schema.ts';
@@ -344,6 +344,7 @@ async function reconcilePair(
     );
     return false;
   }
+  await moveLegacySidecarIfPresent(missing.absPath, fresh.absPath, root);
 
   await recordAndPublishAssetChange({
     kind: 'update',

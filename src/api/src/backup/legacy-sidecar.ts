@@ -1,70 +1,20 @@
-/**
- * The pre-#5021 backup sidecar name: the photo's full file name plus `.xmp`
- * (`IMG_1234.HEIC.xmp`), which the server never reads. Videos are excluded,
- * since their canonical sidecar already has that name.
- */
+/** Retiring a photo's pre-#5021 old-name backup sidecar once a send lands (#5021). */
 import { createHash } from 'node:crypto';
-import path from 'node:path';
 import type { ObjectId } from '../db/object-id.ts';
 import {
   hasSidecarDivergence,
   recordSidecarDivergence,
 } from '../db/repos/sidecar-divergences.repo.ts';
-import { readSidecarBytes, SidecarNotRegularFileError } from '../fs/sidecar-ownership.ts';
+import {
+  claimedByAnotherFile,
+  legacyBackupSidecar,
+  readLegacyAt,
+} from '../fs/legacy-backup-sidecar.ts';
+import { readSidecarBytes } from '../fs/sidecar-bytes.ts';
 import { errnoCode } from '../fs/relocate-publish.ts';
-import { xmpSidecarPath } from '../fs/xmp.ts';
 import * as fs from '../fs/mirrored.ts';
 
-/** Only Maple writes these namespaces (current, legacy and early bindings),
- * so another tool's `<name>.<ext>.xmp` is never touched. */
-const MAPLE_XMP_NAMESPACE = /ns\.justmaple\.app\/|maple\.app\/(?:ns|xmp)\/1\.0\//;
-
 const sha256 = (xmp: string): string => createHash('sha256').update(xmp, 'utf8').digest('hex');
-
-export function legacyBackupSidecar(primary: string): string | null {
-  if (path.extname(primary) === '') return null;
-  const legacy = `${primary}.xmp`;
-  return path.resolve(xmpSidecarPath(primary)) === path.resolve(legacy) ? null : legacy;
-}
-
-const comparable = (p: string): string => path.resolve(p).normalize('NFC').toLowerCase();
-
-/** `IMG.HEIC.JPG`'s own sidecar is also named `IMG.HEIC.xmp`; an unlistable folder counts as claimed. */
-async function claimedByAnotherFile(primary: string, legacy: string): Promise<boolean> {
-  const dir = path.dirname(primary);
-  const entries = await fs.readdir(dir).catch(() => null);
-  if (entries === null) return true;
-  return entries.some(
-    (name) =>
-      comparable(path.join(dir, name)) !== comparable(primary) &&
-      path.extname(name).toLowerCase() !== '.xmp' &&
-      comparable(xmpSidecarPath(path.join(dir, name))) === comparable(legacy),
-  );
-}
-
-/** The Maple edit in `legacy`; `null` when absent, another file's, another tool's, or not a regular file. */
-async function readLegacyAt(primary: string, legacy: string): Promise<Buffer | null> {
-  if (await claimedByAnotherFile(primary, legacy)) return null;
-  try {
-    const bytes = await readSidecarBytes(legacy);
-    return bytes && MAPLE_XMP_NAMESPACE.test(bytes.toString('utf8')) ? bytes : null;
-  } catch (err) {
-    if (err instanceof SidecarNotRegularFileError) return null;
-    throw err;
-  }
-}
-
-/** `primary`'s pre-#5021 Maple edit, if it has one. */
-export async function readLegacyBackupEdit(primary: string): Promise<Buffer | null> {
-  const legacy = legacyBackupSidecar(primary);
-  return legacy === null ? null : readLegacyAt(primary, legacy);
-}
-
-/** An unreadable old-name file counts as an edit, so it is never written past. */
-export async function hasLegacyBackupEdit(primary: string): Promise<boolean> {
-  const edit = await readLegacyBackupEdit(primary).catch(() => 'unreadable');
-  return edit !== null;
-}
 
 /** Unlink `legacy` only if no other file claims it yet and it still holds `expected`. */
 export async function removeLegacyIfUnchanged(

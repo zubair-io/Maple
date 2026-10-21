@@ -3,6 +3,13 @@ import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { filesIdentical, moveNoClobber } from '../backup/fs-util.ts';
 import { listPairedSidecarsStrict } from './xmp-conflict.ts';
+import { isLegacyBackupSidecarOf } from './legacy-backup-sidecar.ts';
+
+/** Whether a restore carries an old-name edit (#5063), which can't land on a taken slot. */
+export async function carriesOldNameEdit(source: string): Promise<boolean> {
+  const sidecars = await listPairedSidecars(source);
+  return sidecars.some((sidecar) => isLegacyBackupSidecarOf(source, sidecar));
+}
 import { workflowSidecarBase } from './workflow-sidecar-pairing';
 import { isVideoFilename } from '../indexer/media-types';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
@@ -118,7 +125,12 @@ async function removeSources(
     await beforeSourceDelete?.();
     const snapshot = snapshots.get(entry);
     const removal = snapshot
-      ? settleCarriedSidecar(entry.source, entry.destination, snapshot, sidecarClaimedInTrash)
+      ? settleCarriedSidecar(
+          entry.source,
+          entry.destination,
+          snapshot,
+          sidecarClaimedInTrash && !isLegacyBackupSidecarOf(staged[0]!.source, entry.source),
+        )
       : fs.unlink(entry.source);
     await removal.catch((error) => {
       log.warn(

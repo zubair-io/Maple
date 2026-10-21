@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { stageRegistry } from '../registry.ts';
 import { runMigrationTickOnce } from '../migration.ts';
 import { getMigration } from './index.ts';
-import { runCanonicalBackupSidecarsBatch } from './canonical-backup-sidecars.ts';
+import { canonicalBackupSidecars } from './canonical-backup-sidecars.ts';
 import {
   loadMigrationState,
   resetMigrationState,
@@ -72,14 +72,14 @@ function stamped(library: MigrationLibrary, id: string): boolean {
   );
 }
 
-/** One batch of the migration's work; the registered migration is blocked until #5063. */
+/** One batch of the migration's work. */
 async function runTick(): Promise<void> {
-  await runCanonicalBackupSidecarsBatch(50);
+  await canonicalBackupSidecars.runBatch(50);
 }
 
 describe('canonical-backup-sidecars', () => {
-  it('is blocked until #5063 lands: enabling it moves nothing and switches it back off', async () => {
-    using library = await backupLibrary('canon-blocked-');
+  it('runs once an operator enables it on Settings', async () => {
+    using library = await backupLibrary('canon-enabled-');
     await write(library, 'IMG_0.HEIC', 'pixels');
     await write(library, 'IMG_0.HEIC.xmp', maple('backup edit'));
     backupPhoto(library, 'IMG_0.HEIC');
@@ -88,11 +88,9 @@ describe('canonical-backup-sidecars', () => {
 
     await runMigrationTickOnce(50, new Date().toISOString());
 
-    expect(await read(library, 'IMG_0.HEIC.xmp')).toBe(maple('backup edit'));
-    expect(await read(library, 'IMG_0.xmp')).toBeNull();
-    const state = await loadMigrationState(MIGRATION_ID);
-    expect(state.enabled).toBe(false);
-    expect(state.last_error).toContain('#5063');
+    expect(await read(library, 'IMG_0.xmp')).toBe(maple('backup edit'));
+    expect(await read(library, 'IMG_0.HEIC.xmp')).toBeNull();
+    expect((await loadMigrationState(MIGRATION_ID)).last_error).toBeNull();
   });
 
   it('moves a backup sidecar to the canonical name when none exists', async () => {
@@ -375,6 +373,52 @@ describe('canonical-backup-sidecars', () => {
     }
 
     expect(await read(library, 'IMG_18.HEIC.xmp')).toBe(maple('backup edit'));
+  });
+
+  it('moves an old-name edit stored in a different case', async () => {
+    using library = await backupLibrary('canon-case-');
+    await write(library, 'IMG_11.HEIC', 'pixels');
+    await write(library, 'img_11.heic.xmp', maple('backup edit'));
+    const id = backupPhoto(library, 'IMG_11.HEIC');
+
+    await runTick();
+
+    expect(await read(library, 'IMG_11.xmp')).toBe(maple('backup edit'));
+    expect(await read(library, 'img_11.heic.xmp')).toBeNull();
+    expect(stamped(library, id)).toBe(true);
+  });
+
+  // Root lists a directory without read permission anyway.
+  it.skipIf(process.getuid?.() === 0)(
+    "doesn't stamp a photo whose folder can't be listed to rule out another owner",
+    async () => {
+      using library = await backupLibrary('canon-unlistable-');
+      await write(library, 'IMG_12.HEIC', 'pixels');
+      await write(library, 'IMG_12.HEIC.xmp', maple('backup edit'));
+      const id = backupPhoto(library, 'IMG_12.HEIC');
+      const dir = path.join(library.root, DIR);
+      await fs.chmod(dir, 0o311);
+      try {
+        await runTick();
+      } finally {
+        await fs.chmod(dir, 0o755);
+      }
+
+      expect(stamped(library, id)).toBe(false);
+      expect(await read(library, 'IMG_12.HEIC.xmp')).toBe(maple('backup edit'));
+    },
+  );
+
+  it('stamps a photo whose folder is gone while its volume is mounted', async () => {
+    using library = await backupLibrary('canon-gone-');
+    const id = seedAsset(library.db, {
+      phassetDevices: ['phone'],
+      location: { libraryId: library.folderId, path: '2024/Gone', filename: 'IMG_13.HEIC' },
+    });
+
+    await runTick();
+
+    expect(stamped(library, id)).toBe(true);
   });
 
   it('counts down to nothing remaining once every backup photo is handled', async () => {

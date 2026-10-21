@@ -130,6 +130,25 @@ describe('DELETE /api/assets/:id (trash + permanent purge)', () => {
     expect(assetRow(live.db, assetId)).toBeNull();
   });
 
+  // #5063: its pre-#5021 backup edit goes with it; another tool's file stays.
+  test("permanent purge removes the photo's old-name backup edit, never another tool's", async () => {
+    const { app } = await import('../src/index.ts');
+    const { assetId } = await makeAsset('IMG_3.HEIC', Buffer.from('photo'));
+    await app.handle(del(assetId));
+    const trashed = primaryAbsPath(live.db, ROOT, assetId)!;
+    await fs.writeFile(
+      `${trashed}.xmp`,
+      '<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">backup</x:xmpmeta>',
+    );
+    const other = path.join(path.dirname(trashed), 'IMG_4.HEIC.xmp');
+    await fs.writeFile(other, '<x:xmpmeta xmlns:darktable="http://darktable.sf.net/"/>');
+
+    expect((await app.handle(del(assetId))).status).toBe(204);
+
+    await expect(fs.stat(`${trashed}.xmp`)).rejects.toThrow();
+    await fs.stat(other);
+  });
+
   test('404 on unknown asset id', async () => {
     const { app } = await import('../src/index.ts');
     const res = await app.handle(del(newObjectIdHex()));

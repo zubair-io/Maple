@@ -220,4 +220,41 @@ describe('a sidecar created mid-move (#5062)', () => {
       pick.mockRestore();
     }
   });
+
+  const maple = (label: string) =>
+    `<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">${label}</x:xmpmeta>`;
+
+  test("a late old-name edit isn't kept behind for a RAW+JPEG sibling", async () => {
+    await write('a/IMG.CR3', 'raw');
+    await write('a/IMG.JPG', 'jpeg');
+
+    const outcome = await relocateFile({
+      sourceAbsPath: abs('a/IMG.CR3'),
+      destAbsPath: abs('b/IMG.CR3'),
+      mode: 'move',
+      collision: 'auto-suffix',
+      onVerified: () => write('a/IMG.CR3.xmp', maple('backup edit')),
+    });
+
+    expect(outcome.kind).toBe('relocated');
+    expect(await read('b/IMG.CR3.xmp')).toBe(maple('backup edit'));
+    expect(await read('a/IMG.CR3.xmp')).toBeNull();
+  });
+
+  test('a late old-name edit never lands on a name another file at the destination owns', async () => {
+    await write('a/IMG.HEIC', 'pixels');
+    await write('b/IMG.HEIC.JPG', 'export');
+
+    const outcome = await relocateFile({
+      sourceAbsPath: abs('a/IMG.HEIC'),
+      destAbsPath: abs('b/IMG.HEIC'),
+      mode: 'move',
+      collision: 'auto-suffix',
+      onVerified: () => write('a/IMG.HEIC.xmp', maple('backup edit')),
+    });
+
+    expect(outcome.kind).toBe('relocated');
+    expect(await read('b/IMG.HEIC.xmp')).toBeNull();
+    expect(await read('b/IMG (conflict from move).xmp')).toBe(maple('backup edit'));
+  });
 });

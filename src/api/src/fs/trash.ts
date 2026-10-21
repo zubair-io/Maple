@@ -19,10 +19,15 @@
 
 import * as path from 'node:path';
 import { listPairedSidecars } from './xmp-conflict.ts';
+import { isLegacyBackupSidecarOf, oldNameSlotTaken } from './legacy-backup-sidecar.ts';
 import { child as childLogger } from '../log.ts';
 import { relocateFile, pickFreePath, sidecarRenameTarget } from './relocate.ts';
 import { classifySameFile } from './relocate-case-only-rename.ts';
-import { restoreDestinationOccupied, restoreFilePair } from './trash-restore-pair.ts';
+import {
+  carriesOldNameEdit,
+  restoreDestinationOccupied,
+  restoreFilePair,
+} from './trash-restore-pair.ts';
 import {
   joinCarriedSidecar,
   publishSidecarSnapshot,
@@ -64,7 +69,8 @@ export async function moveSidecarsAlongside(oldAbsPath: string, newAbsPath: stri
       const snapshot = (await sidecarAlreadyCarried(sidecar, destPath))
         ? await joinCarriedSidecar(sidecar, destPath)
         : await publishSidecarSnapshot(sidecar, destPath);
-      await settleCarriedSidecar(sidecar, destPath, snapshot, claimedBySibling);
+      const shared = claimedBySibling && !isLegacyBackupSidecarOf(oldAbsPath, sidecar);
+      await settleCarriedSidecar(sidecar, destPath, snapshot, shared);
     } catch (err) {
       log.warn(
         { sidecar, destPath, err: err instanceof Error ? err.message : err },
@@ -211,9 +217,11 @@ export async function moveOutOfTrash(
     }
     // One original name, one unsuffixed .restored, and 1000 numbered
     // candidates match pickFreeRestoredPath; publication races consume retries.
+    const carriesOldName = await carriesOldNameEdit(trashAbsPath);
     for (let attempt = 0; attempt < 1002; attempt++) {
       const occupied = async (candidate: string) =>
         (await restoreDestinationOccupied(candidate)) ||
+        (carriesOldName && (await oldNameSlotTaken(candidate))) ||
         (await additionalDestinationOccupied?.(candidate)) === true;
       const freeTarget = (await occupied(targetAbsPath))
         ? await pickFreeRestoredPath(targetAbsPath, occupied)
