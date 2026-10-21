@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import * as path from 'node:path';
 import * as fs from './mirrored.ts';
 import { filesIdentical } from '../backup/fs-util.ts';
 import { child as childLogger } from '../log.ts';
@@ -30,9 +31,15 @@ export function errnoCode(err: unknown): string | undefined {
   return (err as NodeJS.ErrnoException | null)?.code;
 }
 
-/** `.tmp.` in the basename keeps `mirrored.ts` from replicating the name. */
+/** `.tmp.` in the basename keeps `mirrored.ts` from replicating the name. A
+ * destination name too long for the suffix gets a short hidden sibling instead,
+ * so a long file name stays inside the 255-byte limit. */
 function privateSiblingOf(destination: string): string {
-  return `${destination}.tmp.${process.pid}-${randomBytes(8).toString('hex')}`;
+  const suffix = `.tmp.${process.pid}-${randomBytes(8).toString('hex')}`;
+  const beside = `${destination}${suffix}`;
+  return Buffer.byteLength(path.basename(beside)) <= 255
+    ? beside
+    : path.join(path.dirname(destination), suffix);
 }
 
 function samePublication(

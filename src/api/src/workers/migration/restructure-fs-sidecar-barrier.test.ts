@@ -224,4 +224,50 @@ describe('refile sidecar barrier (#5061)', () => {
     expect(await read('2024/IMG.xmp')).toBe('newer save');
     expect(await read('2024/IMG.HEIC')).toBeNull();
   });
+
+  test('a rollback keeps a photo another writer replaced at the new path', async () => {
+    await write('2024/03-15/IMG.HEIC', 'pixels');
+    await write('2024/03-15/IMG-rendered.jpg', 'render');
+    const realLink = fs.link;
+    let links = 0;
+    const link = spyOn(fs, 'link').mockImplementation(async (src, dst) => {
+      links += 1;
+      if (links < 2) return realLink(src, dst);
+      await fs.writeFile(abs('2024/IMG.HEIC.saving'), 'another writer');
+      await fs.rename(abs('2024/IMG.HEIC.saving'), abs('2024/IMG.HEIC'));
+      throw new Error('EIO');
+    });
+    try {
+      await expect(
+        planAndPlace({
+          libRoot: root,
+          oldDir: '2024/03-15',
+          filename: 'IMG.HEIC',
+          newDir: '2024',
+          renderedRelOld: '2024/03-15/IMG-rendered.jpg',
+        }),
+      ).rejects.toThrow('EIO');
+    } finally {
+      link.mockRestore();
+    }
+
+    expect(await read('2024/IMG.HEIC')).toBe('another writer');
+    expect(await read('2024/03-15/IMG.HEIC')).toBe('pixels');
+  });
+
+  test('a photo with a long file name still refiles', async () => {
+    const name = `${'x'.repeat(240)}.HEIC`;
+    await write(`2024/03-15/${name}`, 'pixels');
+
+    const plan = await planAndPlace({
+      libRoot: root,
+      oldDir: '2024/03-15',
+      filename: name,
+      newDir: '2024',
+      renderedRelOld: null,
+    });
+
+    expect(plan.newRelPath).toBe(`2024/${name}`);
+    expect(await read(`2024/${name}`)).toBe('pixels');
+  });
 });
