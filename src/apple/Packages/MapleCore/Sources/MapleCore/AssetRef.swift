@@ -345,6 +345,15 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
     return nil
   }
 
+  /// The file behind a local Timeline ref from a saved Folder (#5033), or
+  /// nil for a PhotoKit ref, which has no file URL. Folder refs reach the
+  /// Timeline as `MergedTimelineCell.localOnly` / `.synced` exactly like
+  /// PhotoKit ones, so this is what tells the two apart.
+  public init?(fileBacked ref: ImageRef) {
+    guard let url = ref.url else { return nil }
+    self.init(url: url, scopeParentURL: ref.scopeParentURL, captureDate: ref.captureDate)
+  }
+
   public init(url: URL, scopeParentURL: URL? = nil, captureDate: Date? = nil) {
     self.id = UUID()
     self.primaryURL = url

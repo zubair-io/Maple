@@ -87,6 +87,7 @@ struct AppShellCenterColumn: View {
   /// Defaults to a no-op — unused wherever `mapVM` is never set (e.g.
   /// Preview's fast-static call site).
   var onSelectMapPlace: (MapPlaceSearchTarget) -> Void = { _ in }
+  var onSignInForMap: (URL) -> Void = { _ in }
   /// Dismiss the cloud search UI.
   let onCloseSearch: () -> Void
   let onSelectLocalAsset: (ImageRef) -> Void
@@ -245,7 +246,7 @@ struct AppShellCenterColumn: View {
         // (#2848) instead of falling through to the Timeline/grid
         // branches below, which would otherwise render silently
         // under a "Map" title with nothing explaining why.
-        MapEmptyState(reason: reason)
+        MapEmptyState(reason: reason, onSignIn: onSignInForMap)
       } else if let allVM = allSourcesTimelineVM,
         let thumbCache = allSourcesTimelineThumbCache
       {

@@ -162,6 +162,7 @@
     /// Forwarded to the Library tab's `AppShellCenterColumn` call site
     /// (#2886) — mirrors `AppShellMacLayout`'s identically-named property.
     let onSelectMapPlace: (MapPlaceSearchTarget) -> Void
+    let onSignInForMap: (URL) -> Void
     let onSelectLocalAsset: (ImageRef) -> AssetRef?
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
@@ -272,8 +273,9 @@
               },
               cloudPreviewSource: cloudPreviewSource,
               onSelectMapPlace: onSelectMapPlace,
-              // Merged-PhotoKit (local-only) timeline cells: same S5
-              // push as cloud assets (#809).
+              onSignInForMap: onSignInForMap,
+              // Local-only timeline cells (PhotoKit or a saved Folder's
+              // file): same S5 push as cloud assets (#809).
               onSelectLocalAsset: { ref in
                 if let assetRef = onSelectLocalAsset(ref) {
                   pushPreview(assetRef)

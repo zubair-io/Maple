@@ -13,7 +13,8 @@
 //
 // `MapUnavailableReason` (MapleCloudKit) carries three cases:
 //   - `.noAccount`      — no cloud account connected at all.
-//   - `.signInRequired` — an account is connected but not signed in.
+//   - `.signInRequired` — an account is connected but not signed in; offers
+//                         a Sign in button for that server (#5033).
 //   - `.connecting`     — bootstrapping an already-persisted token; a
 //                         spinner, not a dead end, so it gets no copy.
 
@@ -23,6 +24,7 @@ import SwiftUI
 
 struct MapEmptyState: View {
   let reason: MapUnavailableReason
+  let onSignIn: (URL) -> Void
 
   var body: some View {
     Group {
@@ -42,12 +44,17 @@ struct MapEmptyState: View {
             .foregroundStyle(MapleTokens.textMuted)
             .multilineTextAlignment(.center)
             .frame(maxWidth: 320)
+          if case .signInRequired(let server) = reason {
+            MuiButton(label: "Sign in", variant: .primary) { onSignIn(server) }
+              .accessibilityIdentifier("map-sign-in")
+          }
         }
         .padding(24)
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(MapleTokens.bg.ignoresSafeArea())
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier(accessibilityIdentifier)
   }
 

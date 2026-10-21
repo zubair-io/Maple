@@ -319,6 +319,37 @@ final class PhotoGridItemTests: XCTestCase {
         XCTAssertEqual(lid, "local-only")
     }
 
+    // #5033: saved Folders join the Timeline as `.localOnly` refs carrying a
+    // file URL; they have no PHAsset, so routing them to PhotoKit left every
+    // folder tile on the placeholder.
+    private let folderRoot = URL(fileURLWithPath: "/Users/me/Pictures/Shoot")
+
+    private var folderRef: ImageRef {
+        ImageRef(
+            id: "0123456789abcdef0123456789abcdef", displayName: "a.dng",
+            url: folderRoot.appendingPathComponent("a.dng"), scopeParentURL: folderRoot)
+    }
+
+    func testBackendRoutingMergedFolderLocalOnlyLoadsTheFile() {
+        let source = ThumbnailSource.merged(.localOnly(folderRef), host: "")
+        guard case .thumbnailLoader(let ref, let box) = source.resolvedBackend() else {
+            XCTFail("Expected the file loader for a folder-backed cell"); return
+        }
+        XCTAssertEqual(ref.primaryURL, folderRef.url)
+        XCTAssertEqual(ref.scopeParentURL, folderRoot)
+        XCTAssertNil(box)
+    }
+
+    func testBackendRoutingMergedFolderSyncedLoadsTheFile() {
+        let cloud = ImageRef(id: "fs:/photos/a.dng", displayName: "a.dng")
+        let cell = MergedTimelineCell.synced(local: folderRef, cloud: cloud)
+        let source = ThumbnailSource.merged(cell, host: "h")
+        guard case .thumbnailLoader(let ref, _) = source.resolvedBackend() else {
+            XCTFail("Expected the file loader for a folder-backed synced cell"); return
+        }
+        XCTAssertEqual(ref.primaryURL, folderRef.url)
+    }
+
     func testBackendRoutingMergedCloudOnlyResolvesToCloudThumb() {
         let cloudRef = ImageRef(id: "fs:/photos/img.dng", displayName: "img.dng")
         let cell = MergedTimelineCell.cloudOnly(cloudRef)
