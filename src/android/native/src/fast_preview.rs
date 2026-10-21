@@ -12,6 +12,9 @@ pub(super) struct FastPreview {
     pub prefix: AdjustmentModel,
     pub inputs: FullChainInputs<'static>,
     pub sampling: f32,
+    /// Auto-exposure gain the prefix develop baked in (the live WB's
+    /// HueSatMap undoes it, #5099); resampling keeps it.
+    pub exposure: f32,
 }
 
 #[allow(deprecated)]
@@ -51,7 +54,7 @@ impl FastPreview {
         h: u32,
         prefix: AdjustmentModel,
         inputs: FullChainInputs<'static>,
-        sampling: f32,
+        (sampling, exposure): (f32, f32),
     ) -> Result<Self, String> {
         let (pixels, w, h, ratio) = bounded_pixels(pixels, w, h);
         let mut preview = Self {
@@ -59,6 +62,7 @@ impl FastPreview {
             prefix,
             inputs,
             sampling: sampling * ratio,
+            exposure,
         };
         preview.inputs.nr_sampling_scale = preview.sampling;
         // Compile and allocate the existing capture pass before the first drag.
@@ -77,7 +81,7 @@ pub(super) fn update_inputs(
     model: &AdjustmentModel,
     inputs: &mut FullChainInputs<'static>,
     wb: Option<&GpuWhiteBalance>,
-    sampling: f32,
+    (sampling, exposure): (f32, f32),
     target: u32,
     capture: bool,
 ) -> Result<(), String> {
@@ -87,7 +91,7 @@ pub(super) fn update_inputs(
     inputs.film_lut_key = film.map_or(0, |f| f.1);
     inputs.film_lut_data = std::borrow::Cow::Borrowed(film.map_or(&[], |f| f.0.data.as_slice()));
     if let Some(wb) = wb {
-        wb.apply(model, inputs);
+        wb.apply(model, exposure, inputs);
     }
     inputs.nr_sampling_scale = sampling;
     inputs.target_primaries = target;

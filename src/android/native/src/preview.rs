@@ -29,6 +29,7 @@ pub struct Session {
     live: LiveSession,
     inputs: FullChainInputs<'static>,
     sampling: f32,
+    exposure: f32,
     edge: u32,
     auto_fit: bool,
     profile: raw_core::types::Profile,
@@ -165,7 +166,7 @@ impl Session {
             None
         };
         let base_model = without_capture(&model);
-        let (pixels, w, h, prefix, anchor, sampling) = if let Some(raw) = &raw {
+        let (pixels, w, h, prefix, anchor, sampling, exposure) = if let Some(raw) = &raw {
             develop_prefix_rgba(raw, &bytes, &ext, &base_model, edge)?
         } else {
             raw_core::pipeline::validate_raster_adjustments(&model).map_err(|e| e.to_string())?;
@@ -175,7 +176,7 @@ impl Session {
                 raw_core::CancelToken::never(),
             )
             .map_err(|e| e.to_string())?;
-            (pixels, w, h, model.clone(), 0.0, 1.0)
+            (pixels, w, h, model.clone(), 0.0, 1.0, 1.0)
         };
         let film = crate::film::resolve(&model.film_look)?;
         let inputs = if let Some(raw) = &raw {
@@ -225,7 +226,15 @@ impl Session {
                     anchor,
                 )
                 .0;
-                FastPreview::new(&ctx, &pixels, w, h, prefix.clone(), inputs, sampling)
+                FastPreview::new(
+                    &ctx,
+                    &pixels,
+                    w,
+                    h,
+                    prefix.clone(),
+                    inputs,
+                    (sampling, exposure),
+                )
             })
             .transpose()?;
         let auto_fit = auto_will_fit(&model, &bytes, &ext);
@@ -242,6 +251,7 @@ impl Session {
             live,
             inputs,
             sampling,
+            exposure,
             edge,
             auto_fit,
             profile,
@@ -275,7 +285,7 @@ impl Session {
                 &self.model,
                 &mut fast.inputs,
                 self.wb.as_ref(),
-                fast.sampling,
+                (fast.sampling, fast.exposure),
                 self.target_primaries,
                 true,
             )?;
@@ -286,7 +296,7 @@ impl Session {
                 &self.model,
                 &mut self.inputs,
                 self.wb.as_ref(),
-                self.sampling,
+                (self.sampling, self.exposure),
                 self.target_primaries,
                 false,
             )?;

@@ -17,6 +17,7 @@ pub struct GpuPreview {
     white_balance: GpuWhiteBalance,
     profile: LiveProfile,
     sampling_scale: f32,
+    ae_gain: f32,
     long_edge: u32,
     uploads: u64,
 }
@@ -66,7 +67,7 @@ impl GpuPreview {
         let long_edge = long_edge
             .max(1)
             .min(ctx.device.limits().max_texture_dimension_2d);
-        let (pixels, width, height, prefix, whites_anchor, sampling_scale) =
+        let (pixels, width, height, prefix, whites_anchor, sampling_scale, ae_gain) =
             develop_prefix_rgba_cancellable(
                 raw,
                 bytes,
@@ -107,6 +108,7 @@ impl GpuPreview {
             white_balance: GpuWhiteBalance::resolve(raw)?,
             profile,
             sampling_scale,
+            ae_gain,
             long_edge,
             uploads: 1,
         })
@@ -197,7 +199,8 @@ impl GpuPreview {
                 film.as_ref().map_or(&[], |film| film.lut.data.as_slice()),
             );
         }
-        self.white_balance.apply(model, &mut self.profile.inputs);
+        self.white_balance
+            .apply(model, self.ae_gain, &mut self.profile.inputs);
         self.profile.inputs.nr_sampling_scale = self.sampling_scale;
         self.profile.inputs.target_primaries = 0; // Native UNORM texture carries sRGB display bytes.
         let Some(index) = self
