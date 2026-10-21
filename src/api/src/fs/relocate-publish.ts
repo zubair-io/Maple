@@ -28,7 +28,7 @@ export class PublishCollisionError extends Error {
   }
 }
 
-const LINK_UNSUPPORTED = new Set(['EXDEV', 'EPERM', 'EOPNOTSUPP', 'ENOTSUP', 'ENOSYS']);
+export const LINK_UNSUPPORTED = new Set(['EXDEV', 'EPERM', 'EOPNOTSUPP', 'ENOTSUP', 'ENOSYS']);
 
 export function errnoCode(err: unknown): string | undefined {
   return (err as NodeJS.ErrnoException | null)?.code;
