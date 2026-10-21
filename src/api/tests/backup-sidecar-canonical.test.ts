@@ -298,16 +298,14 @@ describe("the device's one-time re-send never loses a later web edit (#5021)", (
   });
 });
 
-describe('a target with no file extension (#5021)', () => {
-  test('is refused rather than written to a folder-wide .xmp', async () => {
+describe('a target with no file extension (#5060)', () => {
+  test('gets its own <name>.xmp, never a folder-wide .xmp', async () => {
     const photo = await seedUpload('2024/08/01/IMG_40');
 
     const res = await post(photo, mapleXmp('edit'), 'none');
 
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
-      error: 'X-Maple-Target-Rel-Path has no file extension',
-    });
+    expect(res.status).toBe(200);
+    expect(await read('2024/08/01/IMG_40.xmp')).toBe(mapleXmp('edit'));
     expect(await read('.xmp')).toBeNull();
     expect(await read('2024/08/01/.xmp')).toBeNull();
   });
