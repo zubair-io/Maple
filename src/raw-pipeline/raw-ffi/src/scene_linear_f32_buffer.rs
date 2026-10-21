@@ -15,7 +15,7 @@ pub(crate) fn write_scene_linear_buf_f32(
     f32_rgba: Vec<f32>,
     noise_profile: Option<&[f32]>,
     iso: u32,
-    wb_frame: &raw_core::stages::wb_camera::SliderFrameExport,
+    wb: &crate::scene_linear_f32::WbExports,
     ae_gain: f32,
     whites_anchor_ev: f32,
     nr_sampling_scale: f32,
@@ -33,6 +33,14 @@ pub(crate) fn write_scene_linear_buf_f32(
     });
     // Box the noise profile if present so it's heap-owned and can be freed
     // by `maple_free_scene_linear_buffer_f32`.
+    let wb_frame = &wb.frame;
+    let (hsm_ptr, hsm_len) = match &wb.hsm {
+        Some(hsm) => {
+            let wire = crate::wb_frame_flat::intern_hsm_wire(hsm.flat());
+            (wire.as_ptr(), wire.len())
+        }
+        None => (std::ptr::null(), 0),
+    };
     let (np_ptr, np_len) = if let Some(profile) = noise_profile {
         let mut boxed = profile.to_vec().into_boxed_slice();
         let p = boxed.as_mut_ptr();
@@ -72,6 +80,8 @@ pub(crate) fn write_scene_linear_buf_f32(
             ae_gain,
             whites_anchor_ev,
             nr_sampling_scale,
+            wb_hsm_data: hsm_ptr,
+            wb_hsm_len: hsm_len,
             has_lens_corrections: has_lens_corrections as u32,
             lens_correction_ca_inert: lens_correction_ca_inert as u32,
             lens_correction_distortion_inert: lens_correction_distortion_inert as u32,

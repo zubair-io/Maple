@@ -40,6 +40,7 @@ pub(super) fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs<'static> {
         wb_matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         wb_temperature: 6500.0,
         wb_tint: 0.0,
+        wb_hsm: None,
         tone: [0.0; 6],
         whites_anchor_ev: 0.0,
         tone_curves: ToneCurveInputs {

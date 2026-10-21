@@ -13,6 +13,7 @@ fn bench_inputs(anchor: f32, sampling_scale: f32) -> FullChainInputs<'static> {
         wb_matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         wb_temperature: 6500.0,
         wb_tint: 0.0,
+        wb_hsm: None,
         tone: [0.0; 6],
         whites_anchor_ev: anchor,
         tone_curves: ToneCurveInputs {

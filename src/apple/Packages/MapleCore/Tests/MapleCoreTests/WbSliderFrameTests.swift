@@ -69,6 +69,32 @@ final class WbSliderFrameTests: XCTestCase {
         XCTAssertEqual(WbSliderFrame.array9(p.wb_frame_m_cold), f.mCold)
     }
 
+    /// #5099: the decode's process-lifetime HueSatMap wire rides both
+    /// params tails verbatim, and a frame without one leaves them null.
+    func testFillPassesTheHueSatMapWireThrough() {
+        let wire = UnsafeMutablePointer<Float>.allocate(capacity: 4)
+        defer { wire.deallocate() }
+        let base = frame()
+        let f = WbSliderFrame(
+            mCold: base.mCold, cctCold: base.cctCold, mWarm: base.mWarm, cctWarm: base.cctWarm,
+            sceneCCT: base.sceneCCT, asShotTint: base.asShotTint,
+            hueSatMapAddress: UInt(bitPattern: wire), hueSatMapCount: 4
+        )
+        var cpu = MapleAdjustmentParams()
+        var gpu = MapleGpuLiveParams()
+        f.fill(&cpu)
+        f.fill(&gpu)
+        XCTAssertEqual(cpu.wb_hsm_ptr, UnsafePointer(wire))
+        XCTAssertEqual(cpu.wb_hsm_len, 4)
+        XCTAssertEqual(gpu.wb_hsm_ptr, UnsafePointer(wire))
+        XCTAssertEqual(gpu.wb_hsm_len, 4)
+
+        var none = MapleGpuLiveParams()
+        base.fill(&none)
+        XCTAssertNil(none.wb_hsm_ptr)
+        XCTAssertEqual(none.wb_hsm_len, 0)
+    }
+
     func testMakeParamsLeavesTailZeroWithoutFrame() {
         let p = PipelineRenderer.makeParams(from: .default)
         XCTAssertEqual(p.wb_frame_scene_cct, 0)

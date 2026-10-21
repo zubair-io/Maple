@@ -15,6 +15,8 @@ pub(super) fn default_params() -> MapleAdjustmentParams {
     MapleAdjustmentParams {
         nr_sampling_scale: 1.0,
         wb_method: 0,
+        wb_hsm_ptr: std::ptr::null(),
+        wb_hsm_len: 0,
         whites_anchor_ev: f32::NAN,
         temperature: 5500.0,
         tint: 0.0,

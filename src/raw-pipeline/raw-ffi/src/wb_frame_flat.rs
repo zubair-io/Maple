@@ -71,3 +71,50 @@ pub(crate) fn wb_frame_from_flat(
         render_fm_warm: mat(f.render_fm_warm),
     }
 }
+
+/// The borrowed HueSatMap-endpoint wire (#5099) from a host `(ptr, len)`.
+/// Null, empty or malformed ⇒ `None` ⇒ the plain 3×3 delta.
+///
+/// # Safety
+/// `ptr` must be valid for `len` `f32` reads for `'a`, or null.
+pub(crate) unsafe fn wb_hsm_from_flat<'a>(
+    ptr: *const f32,
+    len: usize,
+) -> Option<raw_core::stages::wb_camera::HsmRetargetView<'a>> {
+    if ptr.is_null() || len == 0 {
+        return None;
+    }
+    raw_core::stages::wb_camera::HsmRetargetView::from_flat(std::slice::from_raw_parts(ptr, len))
+}
+
+/// The process-lifetime copy of a HueSatMap endpoint wire (#5099), shared by
+/// every decode of a body with the same profile tables. The decode buffer
+/// hands hosts this pointer and never frees it, so a host stores it with
+/// its decode and passes it back per tick without copying or pinning, and
+/// no render can outlive it. One entry per distinct profile table pair, so
+/// the set stays as small as the set of camera profiles opened.
+pub(crate) fn intern_hsm_wire(wire: &[f32]) -> &'static [f32] {
+    static INTERNED: std::sync::Mutex<Vec<&'static [f32]>> = std::sync::Mutex::new(Vec::new());
+    let mut interned = INTERNED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(existing) = interned.iter().find(|known| **known == wire) {
+        return existing;
+    }
+    let leaked: &'static [f32] = Box::leak(wire.to_vec().into_boxed_slice());
+    interned.push(leaked);
+    leaked
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn interning_shares_one_copy_per_distinct_wire() {
+        let a = super::intern_hsm_wire(&[1.0, 2.0, 3.0]);
+        let b = super::intern_hsm_wire(&[1.0, 2.0, 3.0]);
+        let c = super::intern_hsm_wire(&[1.0, 2.0, 4.0]);
+        assert_eq!(a.as_ptr(), b.as_ptr());
+        assert_ne!(a.as_ptr(), c.as_ptr());
+        assert_eq!(c, &[1.0, 2.0, 4.0]);
+    }
+}

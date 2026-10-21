@@ -63,7 +63,7 @@ fn synthetic_frame() -> SliderFrameExport {
 /// (distinct matrices + a ForwardMatrix pair) — exercises the #1967 exact
 /// per-CCT `C(target)`/`C(anchor)` path over REAL Metal hardware in the
 /// frame-parity gate below.
-fn synthetic_frame_with_render_profile() -> SliderFrameExport {
+pub(super) fn synthetic_frame_with_render_profile() -> SliderFrameExport {
     let render_cm_cold = raw_core::math::Matrix3([
         [0.7513, -0.0870, 0.1180],
         [-0.4001, 1.1502, 0.2601],

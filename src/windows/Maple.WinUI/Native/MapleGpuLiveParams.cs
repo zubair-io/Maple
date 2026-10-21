@@ -219,6 +219,10 @@ namespace Maple.WinUI.Native
         public nuint color_curve_sat_vs_sat_len;
         public float* color_curve_sat_vs_luma_ptr;
         public nuint color_curve_sat_vs_luma_len;
+        // Retargeted HueSatMap (#5099): the decode's wb_hsm_data/wb_hsm_len,
+        // passed back verbatim (process-lifetime, no pinning needed).
+        public float* wb_hsm_ptr;
+        public nuint wb_hsm_len;
 
         /// <summary>
         /// Build live-chain params from the canonical model + decode exports.
@@ -336,6 +340,8 @@ namespace Maple.WinUI.Native
                 perspective_y = (float)m.PerspectiveY,
             };
             WriteWbFrame(ref p, image.WbFrame);
+            p.wb_hsm_ptr = (float*)image.WbHueSatMap;
+            p.wb_hsm_len = image.WbHueSatMapLength;
             return p;
         }
 

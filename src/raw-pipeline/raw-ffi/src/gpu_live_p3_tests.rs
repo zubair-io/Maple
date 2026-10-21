@@ -81,6 +81,7 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
             wb_matrix,
             wb_temperature: model.temperature,
             wb_tint: model.tint,
+            wb_hsm: None,
             tone: [
                 model.exposure,
                 model.brightness,

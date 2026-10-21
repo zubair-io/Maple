@@ -41,6 +41,7 @@ pub(super) fn apply_scene_linear_chain_f32_inner_cancellable(
         decoded_temp,
         decoded_tint,
         wb_frame,
+        wb_hsm,
         skip_agx,
         target_primaries,
         noise_profile,
@@ -92,10 +93,11 @@ pub(super) fn apply_scene_linear_chain_f32_inner_cancellable(
     // `calibrate_color_pipeline` remains the canonical metric. WB frame
     // dispatch (#1781) — see the fp16 sibling.
     cancellable_stage("ffi_chain_white_balance", cancel, || match wb_frame {
-        Some(frame) if frame.is_present() => frame.apply_delta_rec2020(
+        Some(frame) if frame.is_present() => frame.apply_delta_rec2020_with_hsm(
             &mut img,
             (model.temperature, model.tint),
             (decoded_temp, decoded_tint),
+            wb_hsm,
         ),
         _ => white_balance::apply_delta(
             &mut img,

@@ -81,7 +81,9 @@ use crate::{
     math::{Matrix3, Vec3},
 };
 
-use super::{camera_wb_gain, retargeted_render_profile, SliderFrame};
+use super::{
+    camera_wb_gain, retarget_render_cct, retargeted_render_profile, HsmRetargetView, SliderFrame,
+};
 // #2321: the as-shot tint estimator moved into the frame module (it is
 // what `SliderFrame::scene_tint` is built from); re-imported for the
 // estimator/render invariant tests in `wb_frame_delta_tests`, which keep
@@ -408,6 +410,29 @@ impl SliderFrameExport {
             // Defensive: a singular calibration carries no usable frame —
             // behave exactly like the frame-absent legacy path.
             None => generic_cat16_delta(target, decoded),
+        }
+    }
+
+    /// The render profile's own CCT for a slider target, as a develop's
+    /// retarget reads it. `None` at the as-shot target or when the export
+    /// carries no render-profile calibration endpoints.
+    pub fn render_cct_at(&self, temperature: f32, tint: f32) -> Option<f32> {
+        let e = self.render_profile_shell().cm_endpoints?;
+        retarget_render_cct(&self.to_frame(), &e, temperature, tint)
+    }
+
+    /// [`Self::apply_delta_rec2020`] carrying the white-balance-retargeted
+    /// HueSatMap when the profile has one (#5099, `wb_hsm_retarget`).
+    pub fn apply_delta_rec2020_with_hsm(
+        &self,
+        img: &mut Image,
+        target: (f32, f32),
+        decoded: (f32, f32),
+        hsm: Option<HsmRetargetView<'_>>,
+    ) {
+        match hsm.and_then(|view| Some((view, view.live_delta(self, target, decoded)?))) {
+            Some((view, delta)) => view.apply_image(&delta, img),
+            None => self.apply_delta_rec2020(img, target, decoded),
         }
     }
 

@@ -300,6 +300,12 @@ pub struct MapleAdjustmentParams {
     pub color_grade_blending: f32,
     pub color_grade_shadow_edge: f32,
     pub color_grade_highlight_edge: f32,
+    /// The decode's `MapleSceneLinearBufferF32.wb_hsm_data`/`wb_hsm_len`,
+    /// passed back verbatim (#5099): the HueSatMap endpoints the WB delta
+    /// re-lerps at the target. Null/0 (a stale host) keeps the plain 3×3
+    /// delta. Borrowed for the call only.
+    pub wb_hsm_ptr: *const f32,
+    pub wb_hsm_len: usize,
 }
 
 /// Decode the local-adjustment layer stack (#1698) out of the C params, and

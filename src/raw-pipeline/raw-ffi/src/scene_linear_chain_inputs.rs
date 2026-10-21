@@ -21,6 +21,7 @@ pub(crate) struct ChainInputs<'a> {
     pub decoded_tint: f32,
     pub primaries: raw_core::view::encode::TargetPrimaries,
     pub wb_frame: raw_core::stages::wb_camera::SliderFrameExport,
+    pub wb_hsm: Option<raw_core::stages::wb_camera::HsmRetargetView<'a>>,
     pub noise_profile: Option<&'a [f32]>,
     pub iso: u32,
     pub whites_anchor_ev: f32,
@@ -34,6 +35,7 @@ impl<'a> ChainInputs<'a> {
             decoded_temp: self.decoded_temp,
             decoded_tint: self.decoded_tint,
             wb_frame: Some(&self.wb_frame),
+            wb_hsm: self.wb_hsm,
             skip_agx,
             target_primaries: self.primaries,
             noise_profile: self.noise_profile,
@@ -281,6 +283,9 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
         decoded_tint,
         primaries,
         wb_frame,
+        // SAFETY: the host keeps `wb_hsm_ptr` valid for `wb_hsm_len` f32s
+        // for the duration of this call.
+        wb_hsm: unsafe { crate::wb_frame_flat::wb_hsm_from_flat(p.wb_hsm_ptr, p.wb_hsm_len) },
         noise_profile: noise_profile_slice,
         iso,
         whites_anchor_ev: p.whites_anchor_ev,

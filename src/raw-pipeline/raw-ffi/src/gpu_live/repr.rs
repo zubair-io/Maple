@@ -385,4 +385,11 @@ pub struct MapleGpuLiveParams {
     pub color_curve_sat_vs_sat_len: usize,
     pub color_curve_sat_vs_luma_ptr: *const f32,
     pub color_curve_sat_vs_luma_len: usize,
+    // --- retargeted HueSatMap (#5099) — the decode's
+    //     `MapleSceneLinearBufferF32.wb_hsm_data`/`wb_hsm_len`, passed back
+    //     verbatim. With a present `wb_frame_*` block the WB pass re-lerps
+    //     the HueSatMap at the target, as a develop does. Null/0 (a stale
+    //     host) keeps the plain 3×3, bit-identical. Borrowed for the call. ---
+    pub wb_hsm_ptr: *const f32,
+    pub wb_hsm_len: usize,
 }

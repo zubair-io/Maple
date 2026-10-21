@@ -90,7 +90,7 @@ pub unsafe extern "C" fn maple_decode_raster_base_file_f32(
                     rgba,
                     None,
                     100,
-                    &raw_core::stages::wb_camera::SliderFrameExport::ABSENT,
+                    &crate::scene_linear_f32::WbExports::ABSENT,
                     1.0,
                     f32::NAN,
                     1.0, // Raster develop does not run RAW profile-aware NR.

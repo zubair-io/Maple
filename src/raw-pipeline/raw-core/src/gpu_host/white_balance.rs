@@ -15,7 +15,30 @@ pub struct GpuWhiteBalance {
         wb_camera::SliderFrame,
         wb_camera::SliderFrameExport,
     )>,
+    hsm: Option<(wb_camera::WbHsmRetarget, std::sync::Arc<[f32]>)>,
     as_shot_neutral: [f32; 3],
+}
+
+/// The GPU WB pass inputs carrying the retargeted HueSatMap (#5099) for a
+/// drag from `decoded` to `target`; `None` inside the identity band.
+pub fn wb_hsm_inputs<'a>(
+    view: wb_camera::HsmRetargetView<'_>,
+    tables: raw_gpu::WbHsmTables<'a>,
+    frame: &wb_camera::SliderFrameExport,
+    slider: ((f32, f32), (f32, f32)),
+) -> Option<raw_gpu::WbHsmInputs<'a>> {
+    let (target, decoded) = slider;
+    let d = view.live_delta(frame, target, decoded)?;
+    Some(raw_gpu::WbHsmInputs {
+        dims: view.dims,
+        srgb: view.encoding == crate::color::hsm::HsmEncoding::Srgb,
+        tables,
+        to_pro: d.to_pro.0,
+        delta_pro: d.delta_pro.0,
+        from_pro: d.from_pro.0,
+        w_target: d.w_target,
+        w_anchor: d.w_anchor,
+    })
 }
 
 impl GpuWhiteBalance {
@@ -40,8 +63,16 @@ impl GpuWhiteBalance {
             let export = wb_camera::SliderFrameExport::resolve(raw, &profile);
             Some((profile, frame, export))
         };
+        let hsm = calibration
+            .as_ref()
+            .and_then(|(profile, _, _)| wb_camera::WbHsmRetarget::resolve(profile))
+            .map(|hsm| {
+                let tables = std::sync::Arc::from(hsm.view().tables);
+                (hsm, tables)
+            });
         Ok(Self {
             calibration,
+            hsm,
             as_shot_neutral: raw.as_shot_neutral,
         })
     }
@@ -51,6 +82,14 @@ impl GpuWhiteBalance {
             let target = self.slider_values(model);
             let anchor = (export.scene_cct, export.as_shot_tint);
             inputs.wb_matrix = export.rec2020_delta_matrix(target, anchor).0;
+            inputs.wb_hsm = self.hsm.as_ref().and_then(|(hsm, tables)| {
+                wb_hsm_inputs(
+                    hsm.view(),
+                    raw_gpu::WbHsmTables::Shared(tables.clone()),
+                    export,
+                    (target, anchor),
+                )
+            });
             // The GPU gate is expressed relative to its 6500/0 identity; the
             // matrix itself uses the actual camera frame, exactly as Apple.
             inputs.wb_temperature = 6500.0 + (target.0 - anchor.0);
@@ -66,6 +105,7 @@ impl GpuWhiteBalance {
             };
             inputs.wb_temperature = temperature;
             inputs.wb_tint = tint;
+            inputs.wb_hsm = None;
         }
     }
 }
@@ -133,5 +173,72 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// #5099: on a dual-HueSatMap ForwardMatrix body the cached binding hands
+    /// the WB pass the shared endpoint tables (no per-tick copy) and the
+    /// same per-tick constants the CPU chain derives; inside the identity
+    /// band it hands none.
+    #[test]
+    #[cfg_attr(
+        not(feature = "fixtures"),
+        ignore = "needs test-fixtures/raws (fixtures feature)"
+    )]
+    fn cached_binding_carries_the_retargeted_hue_sat_map_test_0007() {
+        let path = crate::test_support::fixtures::require_raw("test_0007.DNG");
+        let raw = crate::decode::decode(&path).unwrap();
+        let cached = GpuWhiteBalance::resolve(&raw).unwrap();
+        let profile = dcp::profile_for(&raw).unwrap();
+        let export = wb_camera::SliderFrameExport::resolve(&raw, &profile);
+        let hsm = wb_camera::WbHsmRetarget::resolve(&profile).expect("dual HSM + FM");
+        let anchor = (export.scene_cct, export.as_shot_tint);
+        let inputs_for = |temperature: f32, tint: f32| {
+            let model = AdjustmentModel {
+                temperature,
+                tint,
+                temperature_seen: true,
+                tint_seen: true,
+                ..AdjustmentModel::default()
+            };
+            let mut inputs = build_full_chain_inputs(
+                &model,
+                Vec::new(),
+                0,
+                Vec::new(),
+                NoiseProfileInputs {
+                    profile: Vec::new(),
+                    iso: 0,
+                },
+                None,
+                0,
+                0.0,
+                1,
+            );
+            cached.apply(&model, &mut inputs);
+            (model, inputs)
+        };
+
+        let (model, inputs) = inputs_for(2850.0, 0.0);
+        let target = cached.slider_values(&model);
+        let live = inputs
+            .wb_hsm
+            .as_ref()
+            .expect("a drag carries the HueSatMap");
+        let delta = hsm.view().live_delta(&export, target, anchor).unwrap();
+        assert_eq!(live.tables.as_slice(), hsm.view().tables);
+        assert_eq!(
+            (live.w_target, live.w_anchor),
+            (delta.w_target, delta.w_anchor)
+        );
+        assert_eq!(live.delta_pro, delta.delta_pro.0);
+        let (_, again) = inputs_for(2850.0, 0.0);
+        assert_eq!(
+            again.wb_hsm.unwrap().tables.as_slice().as_ptr(),
+            live.tables.as_slice().as_ptr(),
+            "every tick shares one table allocation"
+        );
+
+        let (_, at_anchor) = inputs_for(anchor.0, anchor.1);
+        assert!(at_anchor.wb_hsm.is_none());
     }
 }

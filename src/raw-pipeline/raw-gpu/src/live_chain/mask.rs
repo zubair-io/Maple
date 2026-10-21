@@ -55,6 +55,10 @@ pub(crate) fn active_mask(inputs: &FullChainInputs) -> u32 {
     // band (the builder now includes WB unconditionally for non-RAW too).
     if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
         m |= 1 << 1;
+        // The HueSatMap variant binds a fourth (table) buffer (#5099).
+        if inputs.wb_hsm.is_some() {
+            m |= 1 << 22;
+        }
     }
     if !scene_tone_is_noop(&inputs.tone) {
         m |= 1 << 2;

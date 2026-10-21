@@ -130,6 +130,10 @@ namespace Maple.WinUI.Native
         public float color_grade_blending;
         public float color_grade_shadow_edge;
         public float color_grade_highlight_edge;
+        // Retargeted HueSatMap (#5099): the decode's wb_hsm_data/wb_hsm_len,
+        // passed back verbatim (process-lifetime, no pinning needed).
+        public float* wb_hsm_ptr;
+        public nuint wb_hsm_len;
 
         /// <summary>
         /// Build params from the canonical model, mirroring the Swift reference

@@ -29,6 +29,10 @@ namespace Maple.WinUI.Services
         /// <summary>Raw copy of the wb_frame_* export block, in struct order,
         /// applied verbatim onto MapleAdjustmentParams for each tick.</summary>
         public required float[] WbFrame { get; init; }
+        /// <summary>The decode's HueSatMap endpoint wire (#5099), owned by the
+        /// native core for the life of the process; zero when absent.</summary>
+        public IntPtr WbHueSatMap { get; init; }
+        public nuint WbHueSatMapLength { get; init; }
         public bool IsRaster { get; init; }
         public CameraSupportMetadata? CameraSupport { get; init; }
         /// <summary>What the core resolved for the sidecar's lens selection
@@ -136,6 +140,8 @@ namespace Maple.WinUI.Services
                         DecodedTemperature = framePresent ? buffer.wb_frame_scene_cct : 6500f,
                         DecodedTint = framePresent ? buffer.wb_frame_as_shot_tint : 0f,
                         WbFrame = CopyWbFrame(&buffer),
+                        WbHueSatMap = (IntPtr)buffer.wb_hsm_data,
+                        WbHueSatMapLength = buffer.wb_hsm_len,
                         CameraSupport = CameraSupportMetadata.ReadBuffer((IntPtr)buffer.camera_support_json),
                         // Warm: the develop above left the RAW in the decode
                         // cache, so this is a metadata lookup, not a decode.
@@ -239,6 +245,8 @@ namespace Maple.WinUI.Services
             var p = MapleAdjustmentParams.From(
                 model, image.DecodedTemperature, image.DecodedTint, image.Iso, image.WhitesAnchorEv, image.NrSamplingScale);
             ApplyWbFrame(ref p, image.WbFrame);
+            p.wb_hsm_ptr = (float*)image.WbHueSatMap;
+            p.wb_hsm_len = image.WbHueSatMapLength;
             p.skip_agx = image.IsRaster ? 1u : 0u;
 
             // Point (#2576) and display-referred (#2232) curves ride a
@@ -494,6 +502,8 @@ namespace Maple.WinUI.Services
                 DecodedTemperature = src.DecodedTemperature,
                 DecodedTint = src.DecodedTint,
                 WbFrame = src.WbFrame,
+                WbHueSatMap = src.WbHueSatMap,
+                WbHueSatMapLength = src.WbHueSatMapLength,
                 IsRaster = src.IsRaster,
                 ProfileCurve = src.ProfileCurve,
                 ResidualLut = src.ResidualLut,
