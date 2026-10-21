@@ -246,7 +246,7 @@ On the server, `PanoConfig.enabled` defaults to false and a stitch request retur
 
 ## 6. File management
 
-On the server every durable file operation is built on one crash-safe primitive, `relocateFile` in `src/api/src/fs/relocate.ts`: copy to a temporary sibling, verify byte-for-byte, publish atomically, carry the paired `.xmp` along, repoint the database, then delete the original. A failure anywhere up to and including the repoint leaves the original untouched. Collisions resolve as skip, replace, or keep-both for user-initiated moves, and auto-suffix for unattended ones.
+On the server every durable file operation is built on one crash-safe primitive, `relocateFile` in `src/api/src/fs/relocate.ts`: copy to a temporary sibling, verify byte-for-byte, publish atomically, carry the paired `.xmp` along, repoint the database, then delete the original. A failure anywhere up to and including the repoint leaves the original untouched, and under Replace puts the photo it displaced, and that photo's edits, back at their names; if another file has taken a name since, the displaced file is kept beside it under a private name and the failure is logged. Collisions resolve as skip, replace, or keep-both for user-initiated moves, and auto-suffix for unattended ones.
 
 - **Rename** — inline on a grid tile (F2 or double-click) and in the info panel.
 - **Batch rename** — a template with a live preview list, applied sequentially so each step sees the previous one's result.

@@ -18,7 +18,7 @@ import {
   sidecarStemClaimedBySibling,
   publishConflictBytes,
 } from './sidecar-ownership.ts';
-import type { RelocatePublication } from './relocate-publish.ts';
+import { setAsideUntilCommit, type RelocatePublication } from './relocate-publish.ts';
 import { readSidecarBytes } from './sidecar-bytes.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
 
@@ -293,9 +293,9 @@ export async function carryPlannedSidecars(
     }
     if (entry.takesOver) {
       // A displaced edit that can't be retired stays, and the incoming one with it.
-      if (!(await retireDisplaced(entry.takesOver))) continue;
+      if (!(await retireDisplaced(entry.takesOver, createdPaths))) continue;
     } else if (entry.replacesOccupant) {
-      await fs.unlink(entry.dest).catch(() => {});
+      await setAsideUntilCommit(entry.dest, createdPaths).catch(() => {});
     }
     const snapshot = await tryCopySidecar(entry, createdPaths, plan.replace);
     if (!snapshot) continue;
@@ -309,7 +309,10 @@ export async function carryPlannedSidecars(
  * saved since the plan read it are the old photo's newer edit: they land as a
  * `(conflict from move)` copy, which the migration never adopts, so they are
  * neither lost nor read as the incoming photo's. False when it had to stay. */
-async function retireDisplaced(displaced: DisplacedEdit): Promise<boolean> {
+async function retireDisplaced(
+  displaced: DisplacedEdit,
+  createdPaths: RelocatePublication[],
+): Promise<boolean> {
   const { legacy, bytes } = displaced;
   return serializeSidecarWrite(legacy, async () => {
     const now = await readSidecarBytes(legacy);
@@ -318,7 +321,7 @@ async function retireDisplaced(displaced: DisplacedEdit): Promise<boolean> {
     if (!now.equals(bytes) && !(await publishConflictBytes(photo, now))) {
       throw new Error(`relocate: no free conflict name beside ${photo}`);
     }
-    await fs.unlink(legacy);
+    await setAsideUntilCommit(legacy, createdPaths);
     return true;
   }).catch((err: unknown) => {
     log.error(
@@ -341,14 +344,15 @@ export async function removeStaleDestinationSidecars(
   plan: SidecarPlan,
   replacesWithoutSidecar: boolean,
   replacing: boolean,
+  createdPaths: RelocatePublication[],
 ): Promise<void> {
   if (replacing) {
-    for (const stale of plan.staleDisplacedOldNames) await retireDisplaced(stale);
+    for (const stale of plan.staleDisplacedOldNames) await retireDisplaced(stale, createdPaths);
   }
   if (!replacesWithoutSidecar || plan.destinationClaimedBySibling) return;
   for (const stale of await listPairedSidecars(finalDest)) {
     // Old-name edits (#5063) are handled above: a displaced one only while unchanged, a stranded one never.
     if (isLegacyBackupSidecarOf(finalDest, stale)) continue;
-    await fs.unlink(stale).catch(() => {});
+    await setAsideUntilCommit(stale, createdPaths).catch(() => {});
   }
 }
