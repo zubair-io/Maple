@@ -1,7 +1,7 @@
 import * as fs from './mirrored.ts';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { child as childLogger } from '../log.ts';
-import { listPairedSidecars } from './xmp-conflict.ts';
+import { listPairedSidecars, pickFreeConflictPath } from './xmp-conflict.ts';
 import {
   isLegacyBackupSidecarOf,
   locateLegacyBackupEdit,
@@ -16,8 +16,13 @@ import {
   sameSidecarFile,
   sidecarAlreadyCarried,
   sidecarStemClaimedBySibling,
+  writeVerifiedTemp,
 } from './sidecar-ownership.ts';
-import type { RelocatePublication } from './relocate-publish.ts';
+import {
+  PublishCollisionError,
+  publishExclusive,
+  type RelocatePublication,
+} from './relocate-publish.ts';
 import { readSidecarBytes } from './sidecar-bytes.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
 
@@ -30,6 +35,8 @@ export interface SidecarPlanEntry {
   replacesOccupant: boolean;
   /** A pre-#5021 old-name edit: one that fails to copy fails the move (#5063). */
   oldName: boolean;
+  /** The displaced old-name edit this one takes over, with the bytes the plan read. */
+  takesOver?: DisplacedEdit;
 }
 
 export interface SidecarPlan {
@@ -91,9 +98,11 @@ interface EntryState {
 type Fate = 'carry' | 'stay' | 'collide';
 type DestinationState = {
   claimedBySibling: boolean;
-  /** Replace's displaced photo's old-name edit, as stored. */
-  displacedOldName: string | null;
+  /** Replace's displaced photo's old-name edit, as stored, with the bytes the plan read. */
+  displaced: DisplacedEdit | null;
 };
+
+type DisplacedEdit = { legacy: string; bytes: Buffer };
 
 function sidecarFate(
   req: SidecarPlanRequest,
@@ -113,7 +122,7 @@ async function oldNameFate(
   destination: DestinationState,
 ): Promise<Fate> {
   if (state.samePath || state.joinsCarried) return 'carry';
-  if (await oldNameEditLands(req, dest, state.occupied, destination.displacedOldName)) {
+  if (await oldNameEditLands(req, dest, state.occupied, destination.displaced?.legacy ?? null)) {
     return 'carry';
   }
   return req.replace ? 'stay' : 'collide';
@@ -157,7 +166,16 @@ async function planEntry(
   if (fate === 'collide') throw new SidecarCollisionError(dest);
   if (fate === 'stay') return null;
   const replacesOccupant = occupied && !joinsCarried;
-  return { source, dest, samePath, joinsCarried, replacesOccupant, oldName };
+  const takesOver = oldName && replacesOccupant ? destination.displaced : null;
+  return {
+    source,
+    dest,
+    samePath,
+    joinsCarried,
+    replacesOccupant,
+    oldName,
+    ...(takesOver ? { takesOver } : {}),
+  };
 }
 
 /** The sidecars that travel with the photo, or `null` when its old-name edit
@@ -193,7 +211,7 @@ export async function planSidecars(req: SidecarPlanRequest): Promise<SidecarPlan
   for (const source of req.sourceSidecars) {
     const entry = await planEntry(req, source, {
       claimedBySibling: destinationClaimedBySibling,
-      displacedOldName: displacedOldName?.legacy ?? null,
+      displaced: displacedOldName,
     });
     if (entry) entries.push(entry);
   }
@@ -279,7 +297,12 @@ export async function carryPlannedSidecars(
       carried.push({ source: entry.source, dest: entry.dest, snapshot });
       continue;
     }
-    if (entry.replacesOccupant) await fs.unlink(entry.dest).catch(() => {});
+    if (entry.takesOver) {
+      // A displaced edit that can't be retired stays, and the incoming one with it.
+      if (!(await retireDisplaced(entry.takesOver))) continue;
+    } else if (entry.replacesOccupant) {
+      await fs.unlink(entry.dest).catch(() => {});
+    }
     const snapshot = await tryCopySidecar(entry, createdPaths, plan.replace);
     if (!snapshot) continue;
     copiedSidecars.push(entry.dest);
@@ -288,27 +311,47 @@ export async function carryPlannedSidecars(
   return { copiedSidecars, carried };
 }
 
-/** The previous occupant's old-name edit (#5063) when the incoming photo
- * brings sidecars but none by that name; the migration would hand it on. */
-async function removeStaleOldNameEdit(stale: { legacy: string; bytes: Buffer }): Promise<void> {
-  const { legacy, bytes } = stale;
-  // Only the bytes the plan read: a save since then is kept. Never throws, past a Replace.
-  await serializeSidecarWrite(legacy, async () => {
-    const now = await readSidecarBytes(legacy).catch(() => null);
-    if (!now?.equals(bytes)) {
-      log.warn(
-        { legacy },
-        "relocate: the displaced photo's old-name edit changed since the plan — kept",
-      );
-      return;
-    }
+/** Retire a displaced photo's old-name edit (#5063) under its barrier. Bytes
+ * saved since the plan read it are the old photo's newer edit: they land as a
+ * `(conflict from move)` copy, which the migration never adopts, so they are
+ * neither lost nor read as the incoming photo's. False when it had to stay. */
+async function retireDisplaced(displaced: DisplacedEdit): Promise<boolean> {
+  const { legacy, bytes } = displaced;
+  return serializeSidecarWrite(legacy, async () => {
+    const now = await readSidecarBytes(legacy);
+    if (now === null) return true;
+    if (!now.equals(bytes)) await publishDisplacedConflict(legacy, now);
     await fs.unlink(legacy);
+    return true;
   }).catch((err: unknown) => {
     log.error(
       { legacy, err: err instanceof Error ? err.message : err },
-      "relocate: the displaced photo's old-name edit couldn't be removed",
+      "relocate: the displaced photo's old-name edit couldn't be retired — kept",
     );
+    return false;
   });
+}
+
+const DISPLACED_CONFLICT_ATTEMPTS = 5;
+
+/** Another writer can take the picked conflict name first; pick again. */
+async function publishDisplacedConflict(legacy: string, bytes: Buffer): Promise<void> {
+  const photo = legacy.slice(0, -'.xmp'.length);
+  for (let attempt = 0; attempt < DISPLACED_CONFLICT_ATTEMPTS; attempt++) {
+    const conflict = await pickFreeConflictPath(photo, 'move');
+    const tmp = await writeVerifiedTemp(conflict, bytes);
+    const published = await publishExclusive(tmp, conflict)
+      .then(
+        () => true,
+        (err: unknown) => {
+          if (err instanceof PublishCollisionError) return false;
+          throw err;
+        },
+      )
+      .finally(() => fs.unlink(tmp).catch(() => {}));
+    if (published) return;
+  }
+  throw new Error(`relocate: no free conflict name beside ${photo}`);
 }
 
 /** An incoming asset with no sidecar under `'replace'` means "the destination
@@ -325,7 +368,7 @@ export async function removeStaleDestinationSidecars(
   replacing: boolean,
 ): Promise<void> {
   if (replacing) {
-    for (const stale of plan.staleDisplacedOldNames) await removeStaleOldNameEdit(stale);
+    for (const stale of plan.staleDisplacedOldNames) await retireDisplaced(stale);
   }
   if (!replacesWithoutSidecar || plan.destinationClaimedBySibling) return;
   for (const stale of await listPairedSidecars(finalDest)) {
