@@ -369,4 +369,22 @@ describe('listPairedSidecars', () => {
       }
     },
   );
+
+  test('a folder named like another photo never claims the old-name edit', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-paired-old-name-folder-'));
+    try {
+      await fs.writeFile(path.join(dir, 'IMG.HEIC'), 'photo');
+      await fs.writeFile(path.join(dir, 'IMG.HEIC.xmp'), maple('backup edit'));
+      await fs.mkdir(path.join(dir, 'IMG.HEIC.JPG'));
+
+      const paired = await pairedLegacyBackupSidecar(
+        path.join(dir, 'IMG.HEIC'),
+        await fs.readdir(dir),
+      );
+
+      expect(paired).toBe(path.join(dir, 'IMG.HEIC.xmp'));
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
 });

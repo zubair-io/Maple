@@ -37,17 +37,27 @@ export function isLegacyBackupSidecarOf(primary: string, sidecar: string): boole
   return legacy !== null && folded(path.basename(sidecar)) === folded(path.basename(legacy));
 }
 
-/** Another entry of the folder whose own sidecar is named `legacy`
- * (`IMG.HEIC.JPG` owns `IMG.HEIC.xmp`). Names only, so a symlinked root can't hide it. */
-function ownedByAnotherEntry(primary: string, legacy: string, entries: readonly string[]): boolean {
+/** Another file of the folder whose own sidecar is named `legacy`
+ * (`IMG.HEIC.JPG` owns `IMG.HEIC.xmp`). Matched by name, so a symlinked root
+ * can't hide it; a folder by that name owns nothing, and one that can't be
+ * checked counts as an owner. */
+async function ownedByAnotherEntry(
+  primary: string,
+  legacy: string,
+  entries: readonly string[],
+): Promise<boolean> {
   const self = path.basename(primary).normalize('NFC');
   const target = folded(path.basename(legacy));
-  return entries.some(
+  const named = entries.filter(
     (name) =>
       name.normalize('NFC') !== self &&
       path.extname(name).toLowerCase() !== '.xmp' &&
       folded(canonicalSidecarName(name)) === target,
   );
+  const kinds = await Promise.all(
+    named.map((name) => fs.lstat(path.join(path.dirname(primary), name)).catch(() => null)),
+  );
+  return kinds.some((kind) => kind === null || !kind.isDirectory());
 }
 
 /** An unlistable folder counts as claimed. */
@@ -57,7 +67,7 @@ export async function claimedByAnotherFile(
   listed?: readonly string[],
 ): Promise<boolean> {
   const entries = listed ?? (await fs.readdir(path.dirname(primary)).catch(() => null));
-  return entries === null || ownedByAnotherEntry(primary, legacy, entries);
+  return entries === null || (await ownedByAnotherEntry(primary, legacy, entries));
 }
 
 /** The Maple edit in `legacy`; `null` when absent, another file's, another tool's, or not a regular file. */
@@ -146,7 +156,7 @@ export async function oldNameSlotTaken(primary: string): Promise<boolean> {
   return (
     entries === null ||
     legacyEntries(legacy, entries).length > 0 ||
-    ownedByAnotherEntry(primary, legacy, entries)
+    (await ownedByAnotherEntry(primary, legacy, entries))
   );
 }
 
