@@ -224,7 +224,13 @@ impl<'a> System<'a> {
             });
     }
 
-    pub(super) fn solve(&self, rhs: &[f64], initial: Vec<f64>) -> Option<Vec<f64>> {
+    /// Multiply-adds in one product, so a test can pin the solver's work.
+    pub(super) fn product_terms(&self) -> usize {
+        self.normal.len() + self.pattern.edge_peers.len() + self.diagonal.len()
+    }
+
+    /// The solution and the number of operator products it took.
+    pub(super) fn solve(&self, rhs: &[f64], initial: Vec<f64>) -> Option<(Vec<f64>, usize)> {
         let dot = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(u, v)| u * v).sum::<f64>();
         let mut ap = vec![0.; rhs.len()];
         let mut rhs = rhs.to_vec();
@@ -236,19 +242,21 @@ impl<'a> System<'a> {
             }
         }
         self.multiply(&x, &mut ap);
+        let mut products = 1;
         let mut r: Vec<_> = rhs.iter().zip(&ap).map(|(b, a)| b - a).collect();
         let mut z: Vec<_> = r.iter().zip(&self.diagonal).map(|(v, d)| v / d).collect();
         let mut p = z.clone();
         let mut rz = dot(&r, &z);
         let norm = dot(&rhs, &rhs);
         if norm < 1e-25 {
-            return Some(vec![0.; rhs.len()]);
+            return Some((vec![0.; rhs.len()], products));
         }
         for _ in 0..256 {
             if dot(&r, &r) <= norm * 1e-12 {
                 break;
             }
             self.multiply(&p, &mut ap);
+            products += 1;
             let denominator = dot(&p, &ap);
             if !denominator.is_finite() || denominator <= 0. {
                 return None;
@@ -266,7 +274,7 @@ impl<'a> System<'a> {
             }
             rz = next;
         }
-        x.iter().all(|v| v.is_finite()).then_some(x)
+        x.iter().all(|v| v.is_finite()).then_some((x, products))
     }
 }
 
@@ -317,7 +325,7 @@ mod tests {
         let pattern = Pattern::new(&rows, 2, &edges);
         let system = System::new(&pattern, &weights, 2);
         let rhs = vec![0., 0.5, 1.5, 0., 0., 0., 0., 0.];
-        let solved = system.solve(&rhs, vec![0.; 8]).unwrap();
+        let (solved, _) = system.solve(&rhs, vec![0.; 8]).unwrap();
         let mut residual: Vec<_> = solved.iter().map(|v| v * system.ridge).collect();
         let predicted = 0.25 * solved[1] + 0.75 * solved[2];
         residual[1] += 0.5 * predicted;
