@@ -61,7 +61,10 @@ async function carryLateSave(carried: CarriedSidecar, late: Buffer): Promise<voi
     return publishConflictCopy(carried, late);
   }
   const tmp = await writeVerifiedTemp(carried.dest, late);
-  await fs.rename(tmp, carried.dest);
+  await fs.rename(tmp, carried.dest).catch(async (err: unknown) => {
+    await fs.unlink(tmp).catch(() => {});
+    throw err;
+  });
 }
 
 /** Retire the source once the row points at the new path. A failure keeps it. */
