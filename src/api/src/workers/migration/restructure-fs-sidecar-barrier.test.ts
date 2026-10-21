@@ -341,4 +341,22 @@ describe('refile sidecar barrier (#5061)', () => {
     }
     expect(await read('2024/IMG.xmp')).toBe('already there');
   });
+
+  test('a temp whose verification read fails is removed, and the source kept', async () => {
+    const plan = await place();
+    await write('2024/03-15/IMG.xmp', 'edit 2');
+    const realRead = fs.readFile;
+    const readFile = spyOn(fs, 'readFile').mockImplementation(((file: string, ...rest: []) =>
+      String(file).includes('.tmp.')
+        ? Promise.reject(new Error('EIO'))
+        : realRead(file, ...rest)) as typeof fs.readFile);
+    try {
+      await cleanUp(plan).catch(() => {});
+    } finally {
+      readFile.mockRestore();
+    }
+
+    expect((await fs.readdir(abs('2024'))).filter((name) => name.includes('.tmp.'))).toEqual([]);
+    expect(await read('2024/03-15/IMG.xmp')).toBe('edit 2');
+  });
 });
