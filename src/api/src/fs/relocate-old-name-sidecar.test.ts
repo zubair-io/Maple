@@ -471,4 +471,20 @@ describe('relocate — old-name backup edits (#5063)', () => {
     expect(outcome.kind).toBe('relocated');
     expect(await read('dst/IMG.HEIC.xmp')).toBe(maple('saved meanwhile'));
   });
+
+  test.skipIf(!caseSensitive)(
+    "Replace removes every spelling of the displaced photo's old-name edit",
+    async () => {
+      await write('src/IMG.HEIC', 'new');
+      await write('dst/IMG.HEIC', 'old');
+      await write('dst/IMG.HEIC.xmp', maple('previous edit'));
+      await write('dst/img.heic.xmp', maple('previous edit, other spelling'));
+
+      const outcome = await move('replace');
+
+      expect(outcome.kind).toBe('relocated');
+      expect(await read('dst/IMG.HEIC.xmp')).toBeNull();
+      expect(await read('dst/img.heic.xmp')).toBeNull();
+    },
+  );
 });
