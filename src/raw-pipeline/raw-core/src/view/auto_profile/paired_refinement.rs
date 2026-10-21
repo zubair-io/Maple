@@ -173,8 +173,7 @@ pub(super) fn refine(
             }
         }
         let before = objective(&groups, &mass);
-        let mut accepted = None;
-        for fraction in [1., 0.5, 0.25, 0.125, 0.0625] {
+        let attempt = |fraction: f32| {
             let mut tested = artifact.clone();
             for ((v, &a), &b) in tested
                 .data
@@ -188,11 +187,19 @@ pub(super) fn refine(
             regions.constrain(&mut tested, origin, &confidence);
             let tested_error = errors(&tested, &rows);
             let score = objective(&group_errors(&rows, &tested_error, &mass), &mass);
-            if score < before {
-                accepted = Some((tested, tested_error, score));
-                break;
-            }
-        }
+            (score < before).then_some((tested, tested_error, score))
+        };
+        // The full step is usually accepted; only after it fails are the
+        // shorter steps worth evaluating together. The first in order wins.
+        let accepted = attempt(1.).or_else(|| {
+            [0.5, 0.25, 0.125, 0.0625]
+                .into_par_iter()
+                .map(attempt)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .flatten()
+                .next()
+        });
         let Some((tested, tested_error, score)) = accepted else {
             break;
         };
