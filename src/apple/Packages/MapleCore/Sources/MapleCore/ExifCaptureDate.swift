@@ -97,10 +97,8 @@ public enum ExifCaptureDate {
     }
 
     private static func exifrNormalized(_ raw: String) -> String {
-        let jsWhitespace = CharacterSet.whitespacesAndNewlines
-            .union(CharacterSet(charactersIn: "\u{FEFF}"))
-        return String(raw.reversed().drop { $0 == "\u{0}" }.reversed())
-            .trimmingCharacters(in: jsWhitespace)
+        String(raw.reversed().drop { $0 == "\u{0}" }.reversed())
+            .trimmingCharacters(in: .ecmaScriptWhitespace)
     }
 
     private static func floorDiv(_ a: Int, _ b: Int) -> Int {

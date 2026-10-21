@@ -178,6 +178,36 @@ final class ExifCaptureDateTests: XCTestCase {
         }
     }
 
+    /// `trim()` strips exactly ECMAScript's whitespace and line terminators:
+    /// U+FEFF and U+3000 go, U+0085 stays and makes `asIsoDate` reject the
+    /// field, so the server falls through to CreateDate (#5092 review).
+    func testOnlyJavaScriptWhitespaceIsTrimmed() {
+        for pad in ["\u{A0}", "\u{3000}", "\u{2028}", "\u{FEFF}", "\u{B}", "\u{C}"] {
+            XCTAssertEqual(
+                ExifCaptureDate.capturedAt(
+                    dateTimeOriginal: pad + "2024:06:01 12:34:56" + pad,
+                    createDate: "2020:01:01 00:00:00"),
+                "2024-06-01T12:34:56.000Z", pad.debugDescription)
+        }
+        XCTAssertEqual(
+            ExifCaptureDate.capturedAt(
+                dateTimeOriginal: "\u{85}2024:06:01 12:34:56\u{85}",
+                createDate: "2020:01:01 00:00:00"),
+            "2020-01-01T00:00:00.000Z")
+    }
+
+    /// The 25 BMP code points for which Bun's `String.fromCodePoint(c).trim()`
+    /// is empty; no supplementary code point is ECMAScript whitespace.
+    func testTheTrimSetIsExactlyJavaScriptsWhitespace() {
+        let javaScript: Set<UInt32> = Set(
+            [0x9, 0xA, 0xB, 0xC, 0xD, 0x20, 0xA0, 0x1680, 0x2028, 0x2029, 0x202F, 0x205F]
+                + [0x3000, 0xFEFF] + Array(0x2000...0x200A))
+        let swift = Set(
+            (0...0xFFFF).compactMap(Unicode.Scalar.init)
+                .filter(CharacterSet.ecmaScriptWhitespace.contains).map(\.value))
+        XCTAssertEqual(swift, javaScript)
+    }
+
     func testNoUsableFieldYieldsNoDate() {
         XCTAssertNil(ExifCaptureDate.capturedAt(dateTimeOriginal: nil, createDate: nil))
         XCTAssertNil(ExifCaptureDate.capturedAt(dateTimeOriginal: "", createDate: "unknown"))
