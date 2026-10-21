@@ -60,7 +60,7 @@ export function sha256Prefix16(text: string): string {
 export function xmpSidecarPath(rawAbsPath: string): string {
   if (isVideoFilename(rawAbsPath)) return rawAbsPath + '.xmp';
   const ext = path.extname(rawAbsPath);
-  return rawAbsPath.slice(0, -ext.length) + '.xmp';
+  return (ext ? rawAbsPath.slice(0, -ext.length) : rawAbsPath) + '.xmp';
 }
 
 /**
