@@ -63,6 +63,7 @@ import { assetDestinationOccupied, settleCarriedSidecar } from './sidecar-owners
 import {
   planSidecars,
   carryPlannedSidecars,
+  carryLateSidecars,
   removeStaleDestinationSidecars,
   sourceSidecarStays,
   type MovedSidecar,
@@ -517,11 +518,16 @@ async function copyRepointDelete(
   if (repointError) return { kind: 'error', error: repointError };
   progress.repointed = req.onVerified !== undefined;
 
-  // 6. Delete the originals — move mode only.
+  // 6. Delete the originals — move mode only. The row now points at the new
+  // path, so a sidecar created since the listing is carried too (#5062).
   if (req.mode === 'move') {
+    const late =
+      req.carrySidecars === false
+        ? []
+        : await carryLateSidecars(req.sourceAbsPath, finalDest, ownSidecars, movedCompanionSources);
     await deleteOriginals(
       req.sourceAbsPath,
-      movedSidecars,
+      [...movedSidecars, ...late],
       movedCompanionSources,
       req.beforeSourceDelete,
     );
