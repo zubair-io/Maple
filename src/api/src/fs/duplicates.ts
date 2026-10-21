@@ -25,7 +25,9 @@ import {
   assetDestinationOccupied,
   publishSidecarSnapshot,
   settleCarriedSidecar,
+  writeVerifiedTemp,
 } from './sidecar-ownership.ts';
+import { readSidecarBytes } from './sidecar-bytes.ts';
 import { listPairedSidecars } from './xmp-conflict.ts';
 import {
   hasLegacyBackupEdit,
@@ -116,6 +118,7 @@ export async function moveToDuplicates(absPath: string, folderRoot: string): Pro
   const freeTarget = await pickFreePath(target, 'moveToDuplicates', (candidate) =>
     assetDestinationOccupied(candidate, ownSidecars, absPath),
   );
+  const captured = await captureSidecars(absPath, ownSidecars);
   // The old-name edit is published before the primary moves: if it can't be,
   // nothing moves; left behind, nothing would find it again (#5063).
   const published: RelocatePublication[] = [];
@@ -137,9 +140,44 @@ export async function moveToDuplicates(absPath: string, folderRoot: string): Pro
     });
   }
   const kept = await keepPhotoWithOldNameEdit(absPath, freeTarget);
-  if (kept !== 'moved' && kept !== 'blocked') return kept;
-  await moveSidecarsAlongside(absPath, freeTarget, kept === 'blocked');
+  if (kept === 'blocked') await publishCaptured(absPath, freeTarget, captured);
+  else if (kept === 'moved') await moveSidecarsAlongside(absPath, freeTarget);
+  else return kept;
   return { kind: 'ok', newAbsPath: freeTarget };
+}
+
+/** The photo's other sidecars as they were before it moved, so a move that
+ * can't be undone carries those bytes, never a file that took the old path. */
+async function captureSidecars(
+  absPath: string,
+  ownSidecars: readonly string[],
+): Promise<{ source: string; bytes: Buffer }[]> {
+  const others = ownSidecars.filter((sidecar) => !isLegacyBackupSidecarOf(absPath, sidecar));
+  const read = await Promise.all(
+    others.map(async (source) => ({
+      source,
+      bytes: await readSidecarBytes(source).catch(() => null),
+    })),
+  );
+  return read.flatMap(({ source, bytes }) => (bytes ? [{ source, bytes }] : []));
+}
+
+/** Copies, so the old path keeps whatever is there now. */
+async function publishCaptured(
+  absPath: string,
+  movedTo: string,
+  captured: readonly { source: string; bytes: Buffer }[],
+): Promise<void> {
+  for (const { source, bytes } of captured) {
+    const dest = sidecarRenameTarget(absPath, movedTo, source);
+    if (dest === null) continue;
+    const tmp = await writeVerifiedTemp(dest, bytes);
+    await publishExclusive(tmp, dest)
+      .catch((err: unknown) => {
+        log.warn({ source, dest, err: String(err) }, 'moveToDuplicates: sidecar copy failed');
+      })
+      .finally(() => fs.unlink(tmp).catch(() => {}));
+  }
 }
 
 /** An old-name edit still at the old path (a settle that kept its source) is
@@ -147,7 +185,7 @@ export async function moveToDuplicates(absPath: string, folderRoot: string): Pro
  * the photo goes back beside it and the move reports failure, so the asset
  * keeps that location with all its sidecars. When the photo can't go back (a
  * new file took the old path, an I/O error), the move completes so the asset
- * follows its photo, and its sidecars are copied rather than moved. Never throws. */
+ * follows its photo, and the sidecars it had before it moved are copied. Never throws. */
 async function keepPhotoWithOldNameEdit(
   absPath: string,
   movedTo: string,

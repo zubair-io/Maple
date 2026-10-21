@@ -261,6 +261,9 @@ test('the duplicates mover completes the move when a new file took the old path 
     expect(moved.kind).toBe('ok');
     if (moved.kind !== 'ok') return;
     expect(await fs.readFile(moved.newAbsPath, 'utf8')).toBe('photo');
+    await expect(
+      fs.stat(path.join(path.dirname(moved.newAbsPath), 'IMG_15.xmp')),
+    ).rejects.toThrow();
   } finally {
     settle.mockRestore();
   }

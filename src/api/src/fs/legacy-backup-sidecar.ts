@@ -161,9 +161,10 @@ function legacyEntries(legacy: string, listed: readonly string[]): string[] {
     const photo = nfc.slice(0, -'.xmp'.length);
     return nfc !== exact && folded(nfc) === folded(exact) && !present.has(photo);
   });
-  // The names as stored: a volume that keeps NFD distinct must open the NFD one.
-  const exactMatch = listed.find((name) => name.normalize('NFC') === exact);
-  return exactMatch === undefined ? variants : [exactMatch, ...variants];
+  // Every stored spelling: a volume that keeps NFC and NFD apart can hold both,
+  // and another tool's file at one never hides a Maple edit at the other.
+  const exactMatches = listed.filter((name) => name.normalize('NFC') === exact);
+  return [...exactMatches, ...variants];
 }
 
 /** `primary`'s old-name edit as stored, case variant included. Throws when its
