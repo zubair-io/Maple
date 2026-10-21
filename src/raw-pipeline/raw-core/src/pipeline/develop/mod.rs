@@ -200,11 +200,12 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     // Use identity neutral (1,1,1) when pre-gain was skipped (8-bit lossy
     // LinearRaw); otherwise the detector misses R/B clips and trips on G.
     stage("highlight_recovery", || {
-        crate::pipeline::develop::recover_sensor_highlights(
+        super::tile::recover_full_frame(
             &mut camera_rgb,
             raw,
-            model.highlight_recovery,
+            model,
             effective_quality_divisor(quality, raw.cfa),
+            cancel,
         )
     });
     dump_after("00b_highlight_recovery", &camera_rgb);

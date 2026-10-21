@@ -1,13 +1,21 @@
-//! Exact bounded native-density scene evidence for guided highlight tiles.
-//! No resized proxy or full-frame RGB retention: visit canonical sampling
-//! rows in full-width strips, retaining only the eligible stride-8 samples
-//! that the shared decimation reduces to the full render's selection.
+//! Bayer guided-highlight scene evidence shared by native tiles and the
+//! full frame. The prior is sampled at Preview density whatever the render
+//! quality (#5049): visit full-width half-res strips with prefix support,
+//! retaining only the eligible stride-8 samples that the shared decimation
+//! reduces to at most 4096, so a first zoom tile never demosaics the frame.
 use crate::{
-    image::{CropRect, RawImage},
+    image::{CropRect, Image, RawImage},
     pipeline::RenderQuality,
     stages::highlight_recovery::{FrameAnchor, ScenePrior, SceneSamples},
+    types::adjustment::AutoLateralCa,
     xmp::{AdjustmentModel, HighlightRecoveryMode},
 };
+
+/// Half-res output rows per sampling strip, and prefix rows each side. The
+/// half-res window and hot-pixel stencil reach two rows; a strip spans at
+/// most 368 mosaic rows plus an odd sensor tail, within `scratch_pixels`.
+const BAND_ROWS: u32 = 160;
+const SUPPORT_ROWS: u32 = 12;
 
 fn enabled(model: &AdjustmentModel) -> bool {
     matches!(
@@ -55,7 +63,7 @@ pub(super) fn scratch_pixels(
         return 0;
     }
     let divisor = crate::pipeline::develop::effective_quality_divisor(quality, raw.cfa);
-    // One128-row output band plus128 output rows of prefix support each side.
+    // Admits the Preview-density sampling strip at every quality.
     u64::from(raw.width) * u64::from(raw.height.min(384 * divisor + raw.height % divisor))
 }
 
@@ -63,19 +71,19 @@ pub(super) fn scratch_pixels(
 pub(super) struct LazyScene<'a> {
     raw: &'a RawImage,
     model: &'a AdjustmentModel,
-    quality: RenderQuality,
+    cancel: crate::CancelToken<'a>,
     scene: std::sync::OnceLock<Option<[f32; 3]>>,
 }
 impl<'a> LazyScene<'a> {
     pub(super) fn new(
         raw: &'a RawImage,
         model: &'a AdjustmentModel,
-        quality: RenderQuality,
+        cancel: crate::CancelToken<'a>,
     ) -> Self {
         Self {
             raw,
             model,
-            quality,
+            cancel,
             scene: std::sync::OnceLock::new(),
         }
     }
@@ -84,7 +92,7 @@ impl ScenePrior for LazyScene<'_> {
     fn scene(&self) -> Option<[f32; 3]> {
         *self
             .scene
-            .get_or_init(|| scene_prior(self.raw, self.model, self.quality))
+            .get_or_init(|| scene_prior(self.raw, self.model, self.cancel))
     }
 }
 
@@ -114,56 +122,73 @@ pub(super) fn anchor<'a>(
     }
 }
 
+/// Full-frame recovery at native Bayer density takes the Preview-density
+/// prior a native tile takes, so the two agree. A Preview render already
+/// samples exactly that prior from its own buffer.
+pub(in crate::pipeline) fn recover_full_frame(
+    img: &mut Image,
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    divisor: u32,
+    cancel: crate::CancelToken<'_>,
+) {
+    let tileable =
+        raw.cfa.is_bayer_2x2() && divisor == 1 && model.auto_lateral_ca != AutoLateralCa::On;
+    let lazy = LazyScene::new(raw, model, cancel);
+    crate::pipeline::develop::recover_sensor_highlights(
+        img,
+        raw,
+        model.highlight_recovery,
+        divisor,
+        tileable.then_some(&lazy as &dyn ScenePrior),
+    );
+}
+
+/// A cancelled sampling stops early; its render is discarded as cancelled.
 pub(super) fn scene_prior(
     raw: &RawImage,
     model: &AdjustmentModel,
-    quality: RenderQuality,
+    cancel: crate::CancelToken<'_>,
 ) -> Option<[f32; 3]> {
     if !enabled(model) {
         return None;
     }
+    let quality = RenderQuality::Preview;
     let divisor = crate::pipeline::develop::effective_quality_divisor(quality, raw.cfa);
     let (aa, w, h) = active_area(raw, quality);
-    let mut samples = SceneSamples::new(raw.as_shot_neutral, raw.baseline_exposure);
+    let (left, top) = (aa.x.min(w), aa.y.min(h));
     let right = aa.x.saturating_add(aa.w).min(w);
     let bottom = aa.y.saturating_add(aa.h).min(h);
-    let mut y = aa.y.min(h);
-    while y < bottom {
-        let band = y / 128 * 128;
-        let start = band.saturating_sub(128);
-        let end = (band + 256).min(h);
-        // Strip origins are 128 px phased, preserving both AMaZE's native
-        // tile grid and the 2x2 Bayer phase. Artificial strip boundaries are
-        // beyond the original prefix stencil of every sampled row.
+    let mut samples = SceneSamples::new(raw.as_shot_neutral, raw.baseline_exposure);
+    for band in (top..bottom).step_by(BAND_ROWS as usize) {
+        if cancel.is_cancelled() {
+            return None;
+        }
+        let start = band.saturating_sub(SUPPORT_ROWS);
+        let end = (band + BAND_ROWS + SUPPORT_ROWS).min(h);
+        let rows = if end == h {
+            raw.height - start * divisor
+        } else {
+            (end - start) * divisor
+        };
         let camera = super::prefix::from_window(
             raw,
             model,
             quality,
-            (
-                0,
-                start * divisor,
-                raw.width,
-                if end == h {
-                    raw.height - start * divisor
-                } else {
-                    (end - start) * divisor
-                },
-            ),
+            (0, start * divisor, raw.width, rows),
+            cancel,
         );
         let gains =
             crate::sensor_gain_maps::ClipGainContext::new(raw, (0, start * divisor), divisor);
-        while y < bottom.min(band + 128) {
-            let mut x = aa.x.min(w);
-            while x < right {
+        for y in (band..bottom.min(band + BAND_ROWS)).step_by(8) {
+            for x in (left..right).step_by(8) {
                 let index = ((y - start) * camera.width + x) as usize;
-                if let Some(gains) = gains {
-                    samples.push_with_scale(camera.pixels[index], gains.scale(index, camera.width));
-                } else {
-                    samples.push(camera.pixels[index]);
+                match gains {
+                    Some(gains) => samples
+                        .push_with_scale(camera.pixels[index], gains.scale(index, camera.width)),
+                    None => samples.push(camera.pixels[index]),
                 }
-                x += 8;
             }
-            y += 8;
         }
     }
     samples.finish()

@@ -179,7 +179,10 @@ fn assert_roi(
     }
 }
 fn textured_compare(quality: RenderQuality) {
-    let raw = std::sync::Arc::new(textured_raw());
+    textured_compare_raw(textured_raw(), quality);
+}
+fn textured_compare_raw(raw: crate::image::RawImage, quality: RenderQuality) {
+    let raw = std::sync::Arc::new(raw);
     let d = crate::pipeline::develop::effective_quality_divisor(quality, raw.cfa);
     let base = neutral_model();
     let mut centers = Vec::new();
@@ -237,6 +240,43 @@ fn guided_textured_frame_phase_amaze() {
 #[test]
 fn guided_textured_frame_phase_preview() {
     textured_compare(RenderQuality::Preview);
+}
+#[test]
+fn guided_textured_frame_phase_with_sensor_gain_maps() {
+    use crate::{
+        pipeline::pano::opcodes::{ActiveAreaRect, GainMapOpcode},
+        sensor_gain_maps::SensorGainMaps,
+    };
+    let mut raw = textured_raw();
+    let maps = (0..4)
+        .map(|phase| GainMapOpcode {
+            top: phase / 2,
+            left: phase % 2,
+            bottom: raw.height,
+            right: raw.width,
+            plane: 0,
+            planes: 1,
+            row_pitch: 2,
+            col_pitch: 2,
+            points_v: 2,
+            points_h: 2,
+            spacing_v: 1.,
+            spacing_h: 1.,
+            origin_v: 0.,
+            origin_h: 0.,
+            map_planes: 1,
+            gains: [1.0, 1.1, 1.2, 1.3]
+                .map(|g| g + phase as f32 * 0.02)
+                .to_vec(),
+        })
+        .collect();
+    raw.sensor_gain_maps = Some(SensorGainMaps {
+        maps,
+        active_area: ActiveAreaRect::full(raw.width, raw.height),
+    });
+    for quality in [RenderQuality::Preview, RenderQuality::Full] {
+        textured_compare_raw(raw.clone(), quality);
+    }
 }
 #[test]
 fn guided_context_source_ownership_and_prefix() {
@@ -478,4 +518,25 @@ fn guided_context_samples_frame_only_when_a_tile_defers_to_the_scene_prior() {
     )
     .unwrap();
     assert!(frame.scene_sampled());
+}
+
+#[test]
+fn guided_scene_prior_is_sampled_at_preview_density_for_every_quality() {
+    use crate::stages::highlight_recovery::ScenePrior;
+    let raw = std::sync::Arc::new(textured_raw());
+    let model = neutral_model();
+    let prior = |quality| {
+        pipeline::HighlightFrameContext::prepare(raw.clone(), &model, quality)
+            .unwrap()
+            .scene()
+    };
+    let preview = prior(RenderQuality::Preview);
+    assert!(preview.is_some());
+    for quality in [
+        RenderQuality::Full,
+        RenderQuality::Amaze,
+        RenderQuality::Auto,
+    ] {
+        assert_eq!(prior(quality), preview, "{quality:?}");
+    }
 }

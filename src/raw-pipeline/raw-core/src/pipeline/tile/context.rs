@@ -9,10 +9,11 @@ use crate::{
 };
 use std::sync::{Arc, OnceLock};
 
-/// Exact native-density highlight evidence. The owned immutable source prevents
+/// Native highlight evidence. The owned immutable source prevents
 /// context/source replacement and allocator-address reuse, without copying RAW
 /// samples or retaining full-frame RGB. Requested quality is never relabeled.
-/// The scene prior is sampled once, on the first tile that defers to tier 3.
+/// The Preview-density scene prior is sampled once, on the first tile that
+/// defers to tier 3.
 pub struct HighlightFrameContext {
     raw: Arc<RawImage>,
     quality: RenderQuality,
@@ -99,7 +100,7 @@ impl HighlightFrameContext {
 impl ScenePrior for HighlightFrameContext {
     fn scene(&self) -> Option<[f32; 3]> {
         *self.scene.get_or_init(|| {
-            super::highlight_frame::scene_prior(&self.raw, &self.model, self.quality)
+            super::highlight_frame::scene_prior(&self.raw, &self.model, crate::CancelToken::never())
         })
     }
 }
