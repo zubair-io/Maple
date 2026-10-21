@@ -287,6 +287,7 @@ describe('ToneCurveComponent (#367)', () => {
       '[data-testid="tone-curve-split-shadow"]',
     );
     expect(shadowDiamond).toBeTruthy();
+    plot();
 
     // Drag shadow split toward 80 -> clamped to midtone (50) - 5 = 45
     shadowDiamond.dispatchEvent(pointer('pointerdown', 0.25, 0.02));

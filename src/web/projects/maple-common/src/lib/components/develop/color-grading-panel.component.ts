@@ -78,6 +78,13 @@ function smoothstep(e0: number, e1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
+/** Round to 3 decimals, snap to the shared anchor within 0.005 (as `raw-core`'s `resolve_*_edge` does) so a drag to the end is the default rather than 0.565, then clamp. */
+function snapEdge(norm: number, min: number, max: number): number {
+  const rounded = Math.round(norm * 1000) / 1000;
+  const snapped = Math.abs(rounded - SHADOW_EDGE_DEFAULT) < 0.005 ? SHADOW_EDGE_DEFAULT : rounded;
+  return Math.min(Math.max(snapped, min), max);
+}
+
 export function computeZoneWeights(
   l: number,
   balance: number,
@@ -226,11 +233,9 @@ export class ColorGradingPanelComponent {
     if (rect.width <= 0) return;
     const norm = (event.clientX - rect.left) / rect.width;
     if (edge === 'shadow') {
-      const clamped = Math.min(Math.max(norm, 0.1), SHADOW_EDGE_DEFAULT);
-      this.patch({ colorGradeShadowEdge: Math.round(clamped * 1000) / 1000 });
+      this.patch({ colorGradeShadowEdge: snapEdge(norm, 0.1, SHADOW_EDGE_DEFAULT) });
     } else {
-      const clamped = Math.min(Math.max(norm, HIGHLIGHT_EDGE_DEFAULT), 0.9);
-      this.patch({ colorGradeHighlightEdge: Math.round(clamped * 1000) / 1000 });
+      this.patch({ colorGradeHighlightEdge: snapEdge(norm, HIGHLIGHT_EDGE_DEFAULT, 0.9) });
     }
   }
 

@@ -367,6 +367,7 @@
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiCurvePlotMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiToneCurveMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiToneCurveSplitsMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.UI\MuiColorGradeZoneWeightsMath.cs" LinkBase="MapleUI" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiConnectionGraphMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiHeatmapMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MediaTransportState.cs" LinkBase="MapleUI\Molecules" />
