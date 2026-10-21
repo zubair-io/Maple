@@ -1,17 +1,9 @@
-//! Oklab secondary colour curves + zone-isolation fields in the sidecar
-//! (#5039, #5040, #5041). `CANONICAL_BLOCK` is the cross-language byte-parity
-//! fixture: the same literal appears in the Swift (`ColorCurveXMPTests`),
-//! TypeScript (`color-curves-xmp.spec.ts`) and C# (`ColorCurveXmpTests`)
-//! suites, and every serializer must emit it byte-for-byte from the same model.
-//! Sidecars written before these fields existed must parse to the defaults and
-//! a default model must serialize none of them, so old sidecars render
-//! unchanged.
-
 use super::*;
 use crate::types::adjustment::{ToneCurve, ToneCurveMode};
 
 const INDENT: &str = "      ";
 
+// Byte-parity fixture: the same block is asserted in the Swift, TS and C# suites.
 const CANONICAL_BLOCK: &str = r#"      <papp:ColorCurveHueVsSat>
         <rdf:Seq>
           <rdf:li>0, 128</rdf:li>
@@ -55,8 +47,6 @@ fn edited_model() -> AdjustmentModel {
     }
 }
 
-/// A full sidecar from the two Rust writers: the attribute fragment
-/// (`serialize`) and the nested curve children (`serialize_tone_curves`).
 fn sidecar(model: &AdjustmentModel) -> String {
     format!(
         r#"<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>

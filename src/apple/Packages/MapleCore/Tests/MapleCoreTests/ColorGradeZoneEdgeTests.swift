@@ -1,5 +1,3 @@
-// ColorGradeZoneEdgeTests.swift — pointer position to zone edge pivot (#5040).
-
 import XCTest
 
 @testable import MapleCore

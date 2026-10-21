@@ -1,7 +1,3 @@
-// ColorGradeZoneWeightsTests — the tonal-zone strip draws the weights the
-// colour-grade stage applies (#5040). The golden table is shared with
-// `raw-core/src/stages/color_grade_tests.rs` and `color-grading-panel.spec.ts`.
-
 using Maple.UI;
 using Xunit;
 

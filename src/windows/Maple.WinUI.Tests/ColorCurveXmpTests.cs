@@ -1,12 +1,3 @@
-// ColorCurveXmpTests — Oklab secondary colour curves and the zone-isolation
-// fields in the sidecar (#5039, #5040, #5041).
-//
-// `CanonicalBlock` is the cross-language parity artifact: the same literal
-// appears in `raw-core/src/xmp/tests_color_curves.rs`, `ColorCurveXMPTests.swift`
-// and `color-curves-xmp.spec.ts`. A sidecar written before these fields
-// existed must parse to the defaults, and a default model must serialize none
-// of them, so old sidecars render unchanged.
-
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -26,6 +17,7 @@ public class ColorCurveXmpTests
         "papp:ToneCurveMode",
     };
 
+    // Byte-parity fixture: the same block is asserted in the Rust, Swift and TS suites.
     private static readonly string CanonicalBlock = string.Join("\n", new[]
     {
         "      <papp:ColorCurveHueVsSat>",

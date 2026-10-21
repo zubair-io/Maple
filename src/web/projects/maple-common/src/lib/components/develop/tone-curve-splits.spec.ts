@@ -1,8 +1,3 @@
-// tone-curve-splits.spec.ts — parametric split-point clamping and region
-// windows for the Tone Curve editor (#5039). Mirrors the Swift
-// `ToneCurveSplitsTests` and the `raw_core::stages::tone_curves::parametric`
-// window math the pipeline applies.
-
 import { describe, expect, it } from 'vitest';
 
 import {
