@@ -33,11 +33,11 @@
  * `node:fs` write in this module to swap.
  */
 
+import * as path from 'node:path';
 import type { FileInfo } from '../../db/schema.ts';
 import type { MigrationCandidate, MigrationMarker } from '../../db/repos/assets.migrations.ts';
 import { repointBackupLocation, stampMarkerIfUnmoved } from '../../db/repos/assets.refile.ts';
 import { child as childLogger } from '../../log.ts';
-import * as path from 'node:path';
 import { finalize, planAndPlace, revertPlaced } from './restructure-fs.ts';
 import { carryLateRefileSidecars } from './refile-sidecar.ts';
 

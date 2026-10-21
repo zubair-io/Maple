@@ -9,6 +9,7 @@ import {
   publishSidecarSnapshot,
   readSidecarBytes,
   SidecarNotRegularFileError,
+  sidecarStemClaimedBySibling,
   writeVerifiedTemp,
 } from '../../fs/sidecar-ownership.ts';
 import {
@@ -50,31 +51,46 @@ export async function carrySidecar(
   }
 }
 
-async function publishConflictCopy(carried: CarriedSidecar, bytes: Buffer): Promise<void> {
-  // Another writer can take the picked name before the exclusive publish; pick again.
+/** Another writer can take the picked name before the exclusive publish; pick again. */
+async function atFreeConflictName<T>(
+  primary: string,
+  publish: (conflict: string) => Promise<T>,
+): Promise<T> {
   for (let attempt = 0; attempt < CONFLICT_ATTEMPTS; attempt++) {
-    const conflict = await pickFreeConflictPath(carried.primary, 'refile');
+    const conflict = await pickFreeConflictPath(primary, 'refile');
+    const published = await publish(conflict).then(
+      (value) => ({ value }),
+      (err: unknown) => {
+        if (err instanceof PublishCollisionError) return null;
+        throw err;
+      },
+    );
+    if (published) return published.value;
+  }
+  throw new Error(`refile: no free conflict name for ${primary}`);
+}
+
+async function publishConflictCopy(carried: CarriedSidecar, bytes: Buffer): Promise<void> {
+  await atFreeConflictName(carried.primary, async (conflict) => {
     const tmp = await writeVerifiedTemp(conflict, bytes);
     try {
       await publishExclusive(tmp, conflict);
-      return;
-    } catch (err) {
-      if (!(err instanceof PublishCollisionError)) throw err;
     } finally {
       await fs.unlink(tmp).catch(() => {});
     }
-  }
-  throw new Error(`refile: no free conflict name for ${carried.primary}`);
+  });
 }
 
 /** Sidecars that first appeared at the old path after `planAndPlace` listed
  * them (a first backup send or web save) are carried once the row points at the
- * new path (#5061). A taken name gets a conflict copy beside the photo. */
+ * new path (#5061). A taken name gets a conflict copy beside the photo; a stem
+ * a same-stem sibling still uses stays with that sibling. */
 export async function carryLateRefileSidecars(
   oldAbs: string,
   newAbs: string,
   carried: readonly CarriedSidecar[],
 ): Promise<CarriedSidecar[]> {
+  if (await sidecarStemClaimedBySibling(oldAbs, [newAbs])) return [];
   const known = new Set(carried.map((entry) => path.resolve(entry.source)));
   const late = (await listPairedSidecars(oldAbs)).filter((s) => !known.has(path.resolve(s)));
   const moved: CarriedSidecar[] = [];
@@ -102,8 +118,7 @@ async function carryLate(
     return await carrySidecar(source, dest, primary, []);
   } catch (err) {
     if (!(err instanceof PublishCollisionError)) throw err;
-    const conflict = await pickFreeConflictPath(primary, 'refile');
-    return carrySidecar(source, conflict, primary, []);
+    return atFreeConflictName(primary, (conflict) => carrySidecar(source, conflict, primary, []));
   }
 }
 

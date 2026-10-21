@@ -302,4 +302,43 @@ describe('refile sidecar barrier (#5061)', () => {
     expect(await read('2024/IMG.xmp')).toBe('first edit');
     expect(await read('2024/03-15/IMG.xmp')).toBeNull();
   });
+
+  test('a late sidecar a same-stem sibling still uses stays with it', async () => {
+    await write('2024/03-15/IMG.CR3', 'raw');
+    await write('2024/03-15/IMG.JPG', 'jpeg');
+    await write('2024/03-15/IMG.xmp', 'sibling edit');
+
+    const late = await carryLateRefileSidecars(abs('2024/03-15/IMG.CR3'), abs('2024/IMG.CR3'), []);
+
+    expect(late).toEqual([]);
+    expect(await read('2024/03-15/IMG.xmp')).toBe('sibling edit');
+    expect(await read('2024/IMG.xmp')).toBeNull();
+  });
+
+  test('a late sidecar whose conflict name is taken first picks another one', async () => {
+    await write('2024/03-15/IMG.HEIC', 'pixels');
+    await write('2024/IMG.xmp', 'already there');
+    await write('2024/03-15/IMG.xmp', 'late edit');
+    const realPick = xmpConflict.pickFreeConflictPath;
+    const pick = spyOn(xmpConflict, 'pickFreeConflictPath').mockImplementationOnce(
+      async (primary, label) => {
+        const picked = await realPick(primary, label);
+        await write(path.relative(root, picked), 'raced');
+        return picked;
+      },
+    );
+    try {
+      const late = await carryLateRefileSidecars(
+        abs('2024/03-15/IMG.HEIC'),
+        abs('2024/IMG.HEIC'),
+        [],
+      );
+
+      expect(late).toHaveLength(1);
+      expect(await read(path.relative(root, late[0]!.dest))).toBe('late edit');
+    } finally {
+      pick.mockRestore();
+    }
+    expect(await read('2024/IMG.xmp')).toBe('already there');
+  });
 });

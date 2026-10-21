@@ -10,11 +10,12 @@
  *      new rel-paths plus the list of source files to delete once the DB has
  *      been repointed.
  *   2. <caller writes the new fileinfo / apple_rendered_path to Mongo>
- *   3. `finalize()` — delete the sources, drop the stale `.maple` cache entries,
+ *   3. <caller carries any sidecar first written since step 1 (#5061)>
+ *   4. `finalize()` — delete the sources, drop the stale `.maple` cache entries,
  *      and remove the now-empty old day-folder.
  *
  * Crash between (1) and (2): the new copy is a harmless orphan, the row still
- * points at the (still-present) old file. Crash between (2) and (3): the row
+ * points at the (still-present) old file. Crash between (2) and (4): the row
  * points at the good new file; the old source + cache linger as orphans. Either
  * way no photo is lost. Deleting before the DB repoint is the one ordering that
  * could strand a row on a deleted path — so we never do it.
