@@ -331,3 +331,6 @@ pub fn apply_model(img: &mut Image, model: &AdjustmentModel) {
 #[cfg(test)]
 #[path = "color_grade_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "color_grade_zone_tests.rs"]
+mod zone_tests;

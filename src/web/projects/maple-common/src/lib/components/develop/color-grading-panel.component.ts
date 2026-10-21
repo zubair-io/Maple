@@ -78,7 +78,7 @@ function smoothstep(e0: number, e1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** Round to 3 decimals, snap to the shared anchor within 0.005 (as `raw-core`'s `resolve_*_edge` does) so a drag to the end is the default rather than 0.565, then clamp. */
+// Snap to the anchor like raw-core's resolve_*_edge so a drag to the end equals the default, not 0.565.
 function snapEdge(norm: number, min: number, max: number): number {
   const rounded = Math.round(norm * 1000) / 1000;
   const snapped = Math.abs(rounded - SHADOW_EDGE_DEFAULT) < 0.005 ? SHADOW_EDGE_DEFAULT : rounded;

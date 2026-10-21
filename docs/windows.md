@@ -117,7 +117,7 @@ The live-scopes delivery (#3885) now has a non-blocking collection ABI, `maple_g
 
 ## Colour grading and curves
 
-The Grade panel (`MainWindow.Grade.cs`, `MainWindow.ToneAndGrade.cs`) carries `Blending`, the tonal-zone strip (weights from `MuiColorGradeZoneWeightsMath`) and the tone-curve split handles (`MuiToneCurveSplitsMath`). `MainWindow.ColorCurves.cs` is the `8-Band Mixer | Color Curves` mode with six curve pills, a ribbon, Lock Skin and the eyedropper; `ColorCurveMath` holds the knot, anchor and sampling helpers and calls the native stage-input sampler. A sample that finishes after the photo or curve changed is discarded, and an accepted one is written to the curve it was taken for, not whichever curve is active by then.
+The Grade panel (`MainWindow.Grade.cs`, `MainWindow.ToneAndGrade.cs`) carries `Blending`, the tonal-zone strip (weights from `MuiColorGradeZoneWeightsMath`) and the tone-curve split handles (`MuiToneCurveSplitsMath`). `MainWindow.ColorCurves.cs` is the `8-Band Mixer | Color Curves` mode with six curve pills, a ribbon, Lock Skin and the eyedropper; `ColorCurveMath` holds the knot, anchor and sampling helpers and calls the native stage-input sampler. A sample that finishes after the photo changed is discarded, and an accepted one is written to the curve it was taken for, not whichever curve is active by then.
 
 ## Sidecars
 

@@ -1,6 +1,3 @@
-// ColorGradeZoneEdge.swift — maps a pointer position inside the tonal-zone
-// strip to a Shadow / Highlight edge pivot (#5040).
-
 import Foundation
 
 public enum ColorGradeZoneEdge {

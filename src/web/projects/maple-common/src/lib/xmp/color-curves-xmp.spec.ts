@@ -1,13 +1,3 @@
-// color-curves-xmp.spec.ts — Oklab secondary colour curves and the
-// zone-isolation fields in the sidecar (#5039, #5040, #5041).
-//
-// `CANONICAL_BLOCK` is the cross-language parity artifact: the same literal
-// appears in the Rust suite (`raw-core/src/xmp/tests_color_curves.rs`), the
-// Swift suite (`ColorCurveXMPTests.swift`) and the C# suite
-// (`ColorCurveXmpTests.cs`). A sidecar written before these fields existed
-// must parse to the defaults, and a default model must serialize none of
-// them, so old sidecars render unchanged.
-
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -19,6 +9,7 @@ import type { AdjustmentModel, ToneCurvePoint } from '../models/adjustment-model
 
 const CANONICAL_INDENT = '      ';
 
+// Byte-parity fixture: the same block is asserted in the Rust, Swift and C# suites.
 const CANONICAL_BLOCK = [
   '      <papp:ColorCurveHueVsSat>',
   '        <rdf:Seq>',

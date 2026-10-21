@@ -1,8 +1,3 @@
-// color-curves-ui.spec.ts — the Oklab secondary Color Curves UI in the real
-// Hosted editor (#5077): mode switch, six curve pills, ribbon editing, skin-
-// tone anchors and the stage-input eyedropper, in installed Chrome against the
-// built bundle with the generated gate image.
-
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Page, TestInfo } from '@playwright/test';

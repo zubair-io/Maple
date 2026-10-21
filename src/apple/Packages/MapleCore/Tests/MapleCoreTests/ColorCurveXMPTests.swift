@@ -1,19 +1,10 @@
-// ColorCurveXMPTests.swift — Oklab secondary colour curves and the
-// zone-isolation fields in the sidecar (#5039, #5040, #5041).
-//
-// `canonicalBlock` is the cross-language parity artifact: the same literal
-// appears in the Rust suite (`raw-core/src/xmp/tests_color_curves.rs`), the
-// TypeScript suite (`color-curves-xmp.spec.ts`) and the C# suite
-// (`ColorCurveXmpTests.cs`). A sidecar written before these fields existed
-// must parse to the defaults, and a default model must serialize none of them,
-// so old sidecars render unchanged.
-
 import XCTest
 
 @testable import MapleCore
 
 private let canonicalIndent = "      "
 
+// Byte-parity fixture: the same block is asserted in the Rust, TS and C# suites.
 private let canonicalBlock = [
   "      <papp:ColorCurveHueVsSat>",
   "        <rdf:Seq>",
