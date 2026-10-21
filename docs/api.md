@@ -137,13 +137,13 @@ A library is a registered folder root with a URL-safe slug derived from its name
 
 Originals are never modified. Everything Maple derives lands in a `.maple/` directory beside the photos, and everything the user edits lands in an `.xmp` sidecar (see [xmp-canonical-format](xmp-canonical-format.md)).
 
-| Artefact  | Path                                                                                      | Keyed by                                                                                      |
-| --------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Sidecar   | `<file>.xmp` for video (`clip.mov.xmp`), stem-swap for images (`IMG_1.ARW` → `IMG_1.xmp`) | Filename. Video keeps its extension so a Live Photo's still and clip don't clobber each other |
-| Thumbnail | `<dir>/.maple/thumbs/<basename>.avif`                                                     | The source filename, one unversioned file, so the cache travels when the folder is copied     |
-| Preview   | `<dir>/.maple/previews/<basename>.avif`                                                   | The source filename, one unversioned file overwritten in place. 1280 px long edge             |
-| Histogram | `<dir>/.maple/previews/<basename>.histogram.json`                                         | Same scheme, different suffix                                                                 |
-| Trash     | `<dir>/.maple/trash/<rel>`                                                                | Soft-deleted originals plus their sidecars                                                    |
+| Artefact  | Path                                                                                                                       | Keyed by                                                                                      |
+| --------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Sidecar   | `<file>.xmp` for video (`clip.mov.xmp`), stem-swap for images (`IMG_1.ARW` → `IMG_1.xmp`; extensionless `IMG` → `IMG.xmp`) | Filename. Video keeps its extension so a Live Photo's still and clip don't clobber each other |
+| Thumbnail | `<dir>/.maple/thumbs/<basename>.avif`                                                                                      | The source filename, one unversioned file, so the cache travels when the folder is copied     |
+| Preview   | `<dir>/.maple/previews/<basename>.avif`                                                                                    | The source filename, one unversioned file overwritten in place. 1280 px long edge             |
+| Histogram | `<dir>/.maple/previews/<basename>.histogram.json`                                                                          | Same scheme, different suffix                                                                 |
+| Trash     | `<dir>/.maple/trash/<rel>`                                                                                                 | Soft-deleted originals plus their sidecars                                                    |
 
 Both derived tiers are path-keyed rather than content- or id-keyed, so a client can resolve either from a path alone with no database lookup. The trade-off is that a rename orphans them for one re-render; the missing-reaper, the dedupe cache-removal hook, and the `cache-gc` sweep reclaim the strays. There is deliberately no `size` parameter on the thumb route: one cache file per source means any other requested size would silently serve whatever was written first. Thumbnails also carry no source-mtime staleness check on read — since originals are immutable by design, invalidation happens where changes are observed (the discover watcher, derivative-audit, and the write-time mtime guard), not on every read.
 

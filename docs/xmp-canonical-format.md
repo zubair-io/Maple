@@ -8,7 +8,7 @@ The single rule everything else follows from: a sidecar Maple writes must be a f
 
 A sidecar sits beside the file it describes, with two naming rules:
 
-- **Images** swap the extension: `IMG_1234.ARW` → `IMG_1234.xmp`.
+- **Images** swap the extension: `IMG_1234.ARW` → `IMG_1234.xmp`; a name with no extension appends it (`IMG` → `IMG.xmp`, #5060).
 - **Videos** keep theirs and append: `clip.mov` → `clip.mov.xmp`.
 
 The split exists for Apple Live Photos, which store the still and the motion clip as two same-stem files (`IMG_1234.HEIC` + `IMG_1234.MOV`); under a stem swap both would target `IMG_1234.xmp` and clobber each other. The rule is implemented twice and must stay in sync: `src/apple/Packages/MapleCore/Sources/MapleCore/SidecarPath.swift` and `xmpSidecarPath()` in `src/api/src/fs/xmp.ts` (whose video-extension list mirrors `VIDEO_EXTS` in `src/api/src/indexer/media-types.ts`).
