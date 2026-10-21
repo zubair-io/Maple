@@ -271,6 +271,7 @@ fn guided_textured_frame_phase_with_sensor_gain_maps() {
         })
         .collect();
     raw.sensor_gain_maps = Some(SensorGainMaps {
+        cfa_period: 2,
         steps: maps.into_iter().map(SensorStep::Gain).collect(),
         active_area: ActiveAreaRect::full(raw.width, raw.height),
     });

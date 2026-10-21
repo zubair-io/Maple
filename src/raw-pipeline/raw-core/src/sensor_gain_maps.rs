@@ -23,6 +23,9 @@ pub enum SensorStep {
 pub struct SensorGainMaps {
     pub steps: Vec<SensorStep>,
     pub active_area: ActiveAreaRect,
+    /// The mosaic's CFA period, so a refilled margin site maps to the same
+    /// source site `masked_margin` copied its data from.
+    pub cfa_period: u32,
 }
 
 /// The decode-time view of a source's opcode lists.
@@ -32,7 +35,13 @@ pub(crate) struct DecodedOpcodes {
     pub skipped: Vec<SkippedOpcode>,
 }
 
-pub(crate) fn read(bytes: &[u8], ext: &str, width: u32, height: u32) -> DecodedOpcodes {
+pub(crate) fn read(
+    bytes: &[u8],
+    ext: &str,
+    width: u32,
+    height: u32,
+    cfa_period: u32,
+) -> DecodedOpcodes {
     let lists = opcodes::read_opcode_lists(bytes, ext, width, height);
     let skipped = [&lists.list1, &lists.list2, &lists.list3]
         .into_iter()
@@ -50,7 +59,11 @@ pub(crate) fn read(bytes: &[u8], ext: &str, width: u32, height: u32) -> DecodedO
                     _ => None,
                 })
                 .collect();
-            (!steps.is_empty()).then_some(SensorGainMaps { steps, active_area })
+            (!steps.is_empty()).then_some(SensorGainMaps {
+                steps,
+                active_area,
+                cfa_period,
+            })
         }),
         list3: lists.list3.filter(|(list, _)| !list.opcodes.is_empty()),
         skipped,
@@ -184,12 +197,17 @@ impl SensorGainMaps {
     /// (#4657) instead of a step at the active edge.
     fn site(&self, x: u32, y: u32) -> Option<(u32, u32)> {
         let aa = self.active_area;
-        if aa.width < 2 || aa.height < 2 {
+        let period = self.cfa_period.max(1);
+        if aa.width < period || aa.height < period {
             return None;
         }
         let inside = |v: u32, lo: u32, len: u32| {
-            crate::masked_margin::nearest_active(v as usize, lo as usize, (lo + len) as usize, 2)
-                as u32
+            crate::masked_margin::nearest_active(
+                v as usize,
+                lo as usize,
+                (lo + len) as usize,
+                period as usize,
+            ) as u32
                 - lo
         };
         Some((inside(x, aa.left, aa.width), inside(y, aa.top, aa.height)))
@@ -273,6 +291,7 @@ mod tests {
         let mut gm = map(1, 0, 2.);
         gm.gains = vec![1., 3., 5., 7.];
         let maps = SensorGainMaps {
+            cfa_period: 2,
             steps: vec![SensorStep::Gain(gm)],
             active_area: ActiveAreaRect {
                 top: 3,
@@ -306,6 +325,7 @@ mod tests {
         let mut gm = map(0, 0, 1.);
         gm.gains = vec![1., 3., 5., 7.];
         let maps = SensorGainMaps {
+            cfa_period: 2,
             steps: vec![SensorStep::Gain(gm)],
             active_area: ActiveAreaRect {
                 top: 3,
@@ -321,6 +341,18 @@ mod tests {
                 "{margin:?} vs {source:?}"
             );
         }
+        // X-Trans repeats every 6 sites; the copy and its gain both step by 6.
+        let x_trans = SensorGainMaps {
+            cfa_period: 6,
+            ..maps
+        };
+        for (margin, source) in [((0, 3), (6, 3)), ((4, 4), (10, 4)), ((14, 12), (8, 6))] {
+            assert_eq!(
+                x_trans.saturation(margin.0, margin.1, 0),
+                x_trans.saturation(source.0, source.1, 0),
+                "x-trans {margin:?} vs {source:?}"
+            );
+        }
     }
 
     #[test]
@@ -333,6 +365,7 @@ mod tests {
         gm.col_pitch = 1;
         gm.gains = [2., 3., 4.].repeat(4);
         let maps = |gm: &GainMapOpcode| SensorGainMaps {
+            cfa_period: 2,
             steps: vec![SensorStep::Gain(gm.clone())],
             active_area: ActiveAreaRect::full(64, 64),
         };
@@ -364,6 +397,7 @@ mod tests {
         gm.col_pitch = 1;
         gm.gains = [2., 3., 4.].repeat(4);
         raw.sensor_gain_maps = Some(SensorGainMaps {
+            cfa_period: 2,
             steps: vec![SensorStep::Gain(gm)],
             active_area: ActiveAreaRect::full(raw.width, raw.height),
         });
