@@ -164,7 +164,7 @@ extension AppShell {
           serverID: serverID,
           folderID: folderID,
           libraryPath: libraryPath)
-        addCloudSheetTarget = .prefilled(serverID.host ?? serverID.absoluteString)
+        addCloudSheetTarget = .prefilled(CloudHost.signInPrefill(for: serverID))
         return
       }
 
@@ -229,7 +229,7 @@ extension AppShell {
             folderID: folderID,
             libraryPath: libraryPath)
           if addCloudSheetTarget == nil {
-            addCloudSheetTarget = .prefilled(serverID.host ?? serverID.absoluteString)
+            addCloudSheetTarget = .prefilled(CloudHost.signInPrefill(for: serverID))
           }
           return
         }

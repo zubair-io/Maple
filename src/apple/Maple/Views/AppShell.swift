@@ -134,8 +134,8 @@ struct AppShell: View {
   // Sheet state.
   @State var showSMBSheet = false
   /// Single AddMapleCloudSheet entry point. `nil` means hidden;
-  /// `.fresh` means the user clicked "+"; `.prefilled(host)` means
-  /// they tapped a saved server without restored tokens. Modeling
+  /// `.fresh` means the user clicked "+"; `.prefilled(serverText)` means
+  /// a saved server needs fresh sign-in. Modeling
   /// presentation + payload as one optional eliminates the "what
   /// was the prefill last time?" hazard from a separate `@State`.
   @State var addCloudSheetTarget: AddCloudSheetTarget?
@@ -1237,7 +1237,7 @@ struct AppShell: View {
       onSignInCloudServer: { url in
         // Sidebar "Sign in" — present prefilled re-auth for this
         // server. A pending folder reopen (if any) replays on success.
-        addCloudSheetTarget = .prefilled(url.host ?? url.absoluteString)
+        addCloudSheetTarget = .prefilled(CloudHost.signInPrefill(for: url))
       },
       sessionFor: sessionFor,
       onRemoveCloudServer: { url in

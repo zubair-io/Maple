@@ -29,7 +29,6 @@ CloudCacheTests host talks to a host service (keychain, FileProvider, network, P
 CloudDropEligibilityTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudErrorMessageTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudHistogramClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-CloudHostTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudPathSidecarTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudSearchClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudSearchTypesTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)

@@ -244,7 +244,7 @@ struct CloudTimelineMonthSection: View {
   @ViewBuilder
   private func mergedGrid(cells: [MergedTimelineCell]) -> some View {
     // abs_path → SearchAsset map so each merged cell can find its
-    // cloud-side asset by id (cell.id is "fs:<abs_path>"). Built
+    // cloud-side asset by id (the cloud ref's id is "fs:<abs_path>"). Built
     // once per section render rather than per-cell, via the pure VM helper.
     let absPathToAsset = CloudTimelineViewVM.absPathMap(from: assets)
     PhotoGrid(
