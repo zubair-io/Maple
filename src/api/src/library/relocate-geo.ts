@@ -46,7 +46,7 @@ import {
   removePhotoUnlessOldNameEditStays,
 } from '../fs/legacy-backup-sidecar.ts';
 import { carryLateSidecars } from '../fs/relocate-late-sidecar.ts';
-import { settleCarriedSidecar } from '../fs/sidecar-ownership.ts';
+import { settleCarriedSidecar, sidecarStemClaimedBySibling } from '../fs/sidecar-ownership.ts';
 import * as fs from '../fs/mirrored.ts';
 import { relocateAsset } from './relocate-asset.ts';
 import { repointAssetLocation } from '../db/repos/assets.relocate.repo.ts';
@@ -113,6 +113,13 @@ async function carryLateToSurvivor(sourceAbsPath: string, survivor: string): Pro
   }
 }
 
+/** A sidecar still at the source that no sibling there keeps for itself would
+ * be left with no photo, so the source photo stays with it. */
+async function sidecarLeftBehind(sourceAbsPath: string): Promise<boolean> {
+  if ((await listPairedSidecars(sourceAbsPath)).length === 0) return false;
+  return !(await sidecarStemClaimedBySibling(sourceAbsPath));
+}
+
 /** The dedupe short-circuit: the destination already holds byte-identical
  * content and the source carries no companions to preserve, so there is
  * nothing to copy — just repoint the row to the existing occupant and
@@ -150,8 +157,16 @@ async function dedupeAt(
     { _id: String(doc._id), survivor: path.join(libRoot, newDir, primary.filename) },
     'relocateGeoAsset: byte-identical destination — deduped (repoint + delete source)',
   );
-  await carryLateToSurvivor(sourceAbsPath, path.join(libRoot, newDir, primary.filename));
-  await removePhotoUnlessOldNameEditStays(sourceAbsPath, 'relocateGeoAsset');
+  const survivor = path.join(libRoot, newDir, primary.filename);
+  await carryLateToSurvivor(sourceAbsPath, survivor);
+  if (await sidecarLeftBehind(sourceAbsPath)) {
+    log.error(
+      { sourceAbsPath },
+      'relocateGeoAsset: a late sidecar could not follow — source photo kept',
+    );
+  } else {
+    await removePhotoUnlessOldNameEditStays(sourceAbsPath, 'relocateGeoAsset');
+  }
   await finalize({
     libRoot,
     oldDirAbs,
