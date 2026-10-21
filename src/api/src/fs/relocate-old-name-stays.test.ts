@@ -88,4 +88,23 @@ describe('relocate keeps the photo with an old-name edit that stays behind (#506
     expect(await read('b/IMG.HEIC.xmp')).toBe(maple('backup edit'));
     expect(await read('a/IMG.HEIC')).toBeNull();
   });
+
+  test('a lease lost after the sidecars settle keeps the original photo', async () => {
+    await write('a/IMG.HEIC', 'pixels');
+    await write('a/IMG.xmp', 'edit');
+
+    await relocateFile({
+      sourceAbsPath: abs('a/IMG.HEIC'),
+      destAbsPath: abs('b/IMG.HEIC'),
+      mode: 'move',
+      collision: 'auto-suffix',
+      // Lost once the sidecar has settled, so only the check before the photo sees it.
+      beforeSourceDelete: async () => {
+        if ((await read('a/IMG.xmp')) === null) throw new Error('lease expired');
+      },
+    });
+
+    expect(await read('b/IMG.xmp')).toBe('edit');
+    expect(await read('a/IMG.HEIC')).toBe('pixels');
+  });
 });

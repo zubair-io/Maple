@@ -278,4 +278,14 @@ describe('planAndPlace — old-name backup edits (#5063)', () => {
     expect(await read('2024/Tokyo/03-15/IMG.HEIC')).toBe('pixels');
     expect(await read('2024/Tokyo/03-15/IMG.HEIC.xmp')).toBe(maple('late backup edit'));
   });
+
+  test('a late old-name edit never lands on a name another file at the destination owns', async () => {
+    await write('2024/Tokyo/03-15/IMG.HEIC', 'pixels');
+    await write('2024/Tokyo/IMG.HEIC.JPG', 'export');
+
+    await placeLate(() => write('2024/Tokyo/03-15/IMG.HEIC.xmp', maple('late backup edit')));
+
+    expect(await exists('2024/Tokyo/IMG.HEIC.xmp')).toBe(false);
+    expect(await read('2024/Tokyo/IMG (conflict from refile).xmp')).toBe(maple('late backup edit'));
+  });
 });
