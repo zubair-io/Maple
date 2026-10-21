@@ -12,6 +12,7 @@ import * as fs from './mirrored.ts';
 import { relocateFile } from './relocate.ts';
 import { moveFileToTrash, moveToTrash } from './trash.ts';
 import * as xmpConflict from './xmp-conflict.ts';
+import * as publishing from './relocate-publish.ts';
 import { serializeSidecarWrite } from './sidecar-write-order.ts';
 import * as ownership from './sidecar-ownership.ts';
 
@@ -227,5 +228,64 @@ describe('an old-name edit that stays behind after a move (#5063, #5075)', () =>
 
     expect(await read('b/IMG (conflict from move).xmp')).toBeNull();
     expect(await read('a/IMG.HEIC.xmp')).toBe(darktable);
+  });
+
+  test('a file another app swapped in just before the removal is put back, not deleted', async () => {
+    await write('a/IMG.HEIC', 'pixels');
+    await write('a/IMG.HEIC.xmp', maple('backup edit'));
+    const darktable = '<x:xmpmeta xmlns:darktable="http://darktable.sf.net/"/>';
+    const realRename = fs.rename;
+    const rename = spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+      if (String(from) === abs('a/IMG.HEIC.xmp'))
+        await fs.writeFile(abs('a/IMG.HEIC.xmp'), darktable);
+      return realRename(from, to);
+    });
+    try {
+      await move({
+        onVerified: async () => {
+          await write('a/IMG.HEIC.xmp', maple('saved at the old path'));
+          await write('b/IMG.HEIC.xmp', maple('saved at the new path'));
+        },
+      });
+    } finally {
+      rename.mockRestore();
+    }
+
+    expect(await read('a/IMG.HEIC.xmp')).toBe(darktable);
+    expect(await read('b/IMG (conflict from move).xmp')).toBe(maple('saved at the old path'));
+  });
+
+  test('a swapped-in file that cannot be put back keeps the original photo', async () => {
+    await write('a/IMG.HEIC', 'pixels');
+    await write('a/IMG.HEIC.xmp', maple('backup edit'));
+    const legacy = abs('a/IMG.HEIC.xmp');
+    const realRename = fs.rename;
+    const rename = spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+      if (String(from) === legacy) await fs.writeFile(legacy, maple('newer'));
+      return realRename(from, to);
+    });
+    const realPublish = publishing.publishExclusive;
+    const putBack = spyOn(publishing, 'publishExclusive').mockImplementation(
+      async (tmp, destination) =>
+        destination === legacy ? Promise.reject(new Error('EIO')) : realPublish(tmp, destination),
+    );
+    const realPick = xmpConflict.pickFreeConflictPath;
+    const pick = spyOn(xmpConflict, 'pickFreeConflictPath')
+      .mockImplementationOnce(realPick)
+      .mockRejectedValue(new Error('EIO'));
+    try {
+      await move({
+        onVerified: async () => {
+          await write('a/IMG.HEIC.xmp', maple('saved at the old path'));
+          await write('b/IMG.HEIC.xmp', maple('saved at the new path'));
+        },
+      });
+    } finally {
+      rename.mockRestore();
+      putBack.mockRestore();
+      pick.mockRestore();
+    }
+
+    expect(await read('a/IMG.HEIC')).toBe('pixels');
   });
 });
