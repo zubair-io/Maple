@@ -177,8 +177,8 @@ struct ColorGradingPanel: View {
             x: shX, height: h, color: .cyan,
             label: "Shadow Edge", id: "color-grade-shadow-edge-handle",
             onDrag: { locX in
-              let norm = Double(locX / w)
-              state.session.model.colorGradeShadowEdge = min(max(norm, 0.10), 0.564622)
+              state.session.model.colorGradeShadowEdge = ColorGradeZoneEdge.normalized(
+                x: Double(locX), width: Double(w), range: ColorGradeZoneEdge.shadowRange)
             },
             onReset: {
               state.commit(description: "Reset Shadow Edge")
@@ -191,8 +191,8 @@ struct ColorGradingPanel: View {
             x: hiX, height: h, color: .yellow,
             label: "Highlight Edge", id: "color-grade-highlight-edge-handle",
             onDrag: { locX in
-              let norm = Double(locX / w)
-              state.session.model.colorGradeHighlightEdge = min(max(norm, 0.564622), 0.90)
+              state.session.model.colorGradeHighlightEdge = ColorGradeZoneEdge.normalized(
+                x: Double(locX), width: Double(w), range: ColorGradeZoneEdge.highlightRange)
             },
             onReset: {
               state.commit(description: "Reset Highlight Edge")
@@ -201,11 +201,14 @@ struct ColorGradingPanel: View {
             }
           )
         }
+        .coordinateSpace(name: Self.zoneStripSpace)
       }
       .frame(height: 44)
       .accessibilityIdentifier("editor-color-grading-zone-weights")
     }
   }
+
+  private static let zoneStripSpace = "color-grade-zone-strip"
 
   private func edgeHandle(
     x: CGFloat,
@@ -229,7 +232,7 @@ struct ColorGradingPanel: View {
     .contentShape(Rectangle())
     .position(x: x, y: height / 2)
     .gesture(
-      DragGesture(minimumDistance: 0)
+      DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.zoneStripSpace))
         .onChanged { g in
           if !isDraggingEdge {
             isDraggingEdge = true
