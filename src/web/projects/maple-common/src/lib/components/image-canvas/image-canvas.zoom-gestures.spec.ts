@@ -208,6 +208,29 @@ describe('CanvasZoomGestures controller (#1100)', () => {
   });
 });
 
+describe('pointer ownership by marked descendants', () => {
+  it('does not capture the pointer for a [data-owns-pointer] descendant, so its click is not retargeted', () => {
+    const host = {} as ZoomGestureHost;
+    const g = new CanvasZoomGestures(host);
+    const wrap = document.createElement('div');
+    const overlay = document.createElement('div');
+    overlay.setAttribute('data-owns-pointer', '');
+    wrap.append(overlay);
+    const capture = vi.fn();
+    wrap.setPointerCapture = capture;
+    const pointerDown = vi.spyOn(g, 'onPointerDown').mockImplementation(() => undefined);
+    const detach = g.attach(wrap);
+
+    overlay.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    expect(capture).not.toHaveBeenCalled();
+    expect(pointerDown).not.toHaveBeenCalled();
+
+    wrap.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    expect(capture).toHaveBeenCalledOnce();
+    detach();
+  });
+});
+
 describe('ImageCanvasComponent zoom wiring (#1100)', () => {
   let focused: WritableSignal<Asset | null>;
   let models: Map<AssetId, WritableSignal<AdjustmentModel>>;
