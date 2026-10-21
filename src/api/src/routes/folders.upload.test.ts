@@ -26,6 +26,7 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { foldersRoutes } from './folders.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
+import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
 
 /** One row of the change feed, as the table stores it. */
 interface ChangeRow {
@@ -311,6 +312,28 @@ describe('POST /api/folders/:id/upload → asset_changes emit', () => {
       const sidecar = nodePath.join(folderPath, 'photo.xmp');
       await writeFile(sidecar, PREVIOUS);
       expect((await upload('photo.xmp', REPLACEMENT)).status).toBe(409);
+      expect(new Uint8Array(await readFile(sidecar))).toEqual(PREVIOUS);
+    });
+
+    it('never replaces a sidecar an XMP save wrote while the upload waited (#5067)', async () => {
+      const sidecar = nodePath.join(folderPath, 'photo.xmp');
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      let entered!: () => void;
+      const inside = new Promise<void>((resolve) => (entered = resolve));
+      const save = serializeSidecarWrite(sidecar, async () => {
+        entered();
+        await gate;
+        await writeFile(sidecar, PREVIOUS);
+      });
+      await inside;
+
+      const uploading = upload('photo.xmp', REPLACEMENT);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      release();
+      await save;
+
+      expect((await uploading).status).toBe(409);
       expect(new Uint8Array(await readFile(sidecar))).toEqual(PREVIOUS);
     });
   });

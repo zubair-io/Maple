@@ -23,6 +23,8 @@ import {
 import type { FolderWithId } from '../db/schema.ts';
 import type { ObjectId } from '../db/object-id.ts';
 import { child } from '../log.ts';
+import { PublishCollisionError, publishExclusive } from '../fs/relocate-publish.ts';
+import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
 
 const log = child('folders/upload');
 const mediaExtensions = [
@@ -141,11 +143,28 @@ async function trashExistingUpload(input: UploadTarget): Promise<TrashedReplacem
   }
 }
 async function publishUploadedBody(input: UploadTarget): Promise<void> {
+  if (isSidecarUpload(input.filename)) return publishUploadedSidecar(input);
   try {
     await rename(input.tmp, input.absPath);
   } catch (error) {
     throw uploadError('rename', error);
   }
+}
+
+/** Inside the sidecar's save barrier and exclusive (#5067): a save through the
+ * XMP routes that landed after the existence check is never replaced. */
+async function publishUploadedSidecar(input: UploadTarget): Promise<void> {
+  await serializeSidecarWrite(input.absPath, async () => {
+    try {
+      await publishExclusive(input.tmp, input.absPath);
+    } catch (error) {
+      if (error instanceof PublishCollisionError)
+        refuseSidecarReplacement(input.target, input.filename);
+      throw uploadError('publish', error);
+    } finally {
+      await unlink(input.tmp).catch(() => {});
+    }
+  });
 }
 async function preserveUploadMtime(filename: string, value: string | undefined): Promise<void> {
   if (typeof value !== 'string' || !/^\d+$/.test(value)) return;
