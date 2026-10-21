@@ -10,6 +10,7 @@ import * as fs from '../../fs/mirrored.ts';
 import { serializeSidecarWrite } from '../../fs/sidecar-write-order.ts';
 import * as xmpConflict from '../../fs/xmp-conflict.ts';
 import { finalize, planAndPlace, type PlacePlan } from './restructure-fs.ts';
+import { carryLateRefileSidecars } from './refile-sidecar.ts';
 
 let root: string;
 
@@ -271,5 +272,34 @@ describe('refile sidecar barrier (#5061)', () => {
     expect(plan.newRelPath).toBe(`2024/${name}`);
     expect(await read(`2024/${name}`)).toBe('pixels');
     expect(await read(`2024/${'x'.repeat(240)}.xmp`)).toBe('edit');
+  });
+
+  test('a sidecar first written after refile listed the photo is carried after the repoint', async () => {
+    await write('2024/03-15/IMG.HEIC', 'pixels');
+    const plan = await planAndPlace({
+      libRoot: root,
+      oldDir: '2024/03-15',
+      filename: 'IMG.HEIC',
+      newDir: '2024',
+      renderedRelOld: null,
+    });
+    await write('2024/03-15/IMG.xmp', 'first edit');
+
+    const late = await carryLateRefileSidecars(
+      abs('2024/03-15/IMG.HEIC'),
+      abs('2024/IMG.HEIC'),
+      plan.carriedSidecars,
+    );
+    await finalize({
+      libRoot: root,
+      oldDirAbs: plan.oldDirAbs,
+      mapleId: undefined,
+      filename: 'IMG.HEIC',
+      sourcesToDelete: plan.sourcesToDelete,
+      carriedSidecars: [...plan.carriedSidecars, ...late],
+    });
+
+    expect(await read('2024/IMG.xmp')).toBe('first edit');
+    expect(await read('2024/03-15/IMG.xmp')).toBeNull();
   });
 });

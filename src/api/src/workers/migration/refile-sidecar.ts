@@ -3,6 +3,7 @@
  * under its save barrier, and its source is settled under both barriers once
  * the row is repointed, so a late save is carried rather than deleted.
  */
+import * as path from 'node:path';
 import * as fs from '../../fs/mirrored.ts';
 import {
   publishSidecarSnapshot,
@@ -16,7 +17,8 @@ import {
   type RelocatePublication,
 } from '../../fs/relocate-publish.ts';
 import { serializeSidecarWrites } from '../../fs/sidecar-write-order.ts';
-import { pickFreeConflictPath } from '../../fs/xmp-conflict.ts';
+import { listPairedSidecars, pickFreeConflictPath } from '../../fs/xmp-conflict.ts';
+import { sidecarRenameTarget } from '../../fs/sidecar-rename.ts';
 import { child as childLogger } from '../../log.ts';
 
 const log = childLogger('migration:refile-sidecar');
@@ -63,6 +65,46 @@ async function publishConflictCopy(carried: CarriedSidecar, bytes: Buffer): Prom
     }
   }
   throw new Error(`refile: no free conflict name for ${carried.primary}`);
+}
+
+/** Sidecars that first appeared at the old path after `planAndPlace` listed
+ * them (a first backup send or web save) are carried once the row points at the
+ * new path (#5061). A taken name gets a conflict copy beside the photo. */
+export async function carryLateRefileSidecars(
+  oldAbs: string,
+  newAbs: string,
+  carried: readonly CarriedSidecar[],
+): Promise<CarriedSidecar[]> {
+  const known = new Set(carried.map((entry) => path.resolve(entry.source)));
+  const late = (await listPairedSidecars(oldAbs)).filter((s) => !known.has(path.resolve(s)));
+  const moved: CarriedSidecar[] = [];
+  for (const source of late) {
+    const dest = sidecarRenameTarget(oldAbs, newAbs, source);
+    if (dest === null) continue;
+    const entry = await carryLate(source, dest, newAbs).catch((err: unknown) => {
+      log.warn(
+        { source, err: err instanceof Error ? err.message : err },
+        'refile: sidecar created mid-refile left in place',
+      );
+      return null;
+    });
+    if (entry) moved.push(entry);
+  }
+  return moved;
+}
+
+async function carryLate(
+  source: string,
+  dest: string,
+  primary: string,
+): Promise<CarriedSidecar | null> {
+  try {
+    return await carrySidecar(source, dest, primary, []);
+  } catch (err) {
+    if (!(err instanceof PublishCollisionError)) throw err;
+    const conflict = await pickFreeConflictPath(primary, 'refile');
+    return carrySidecar(source, conflict, primary, []);
+  }
 }
 
 /** A save on the source after its snapshot replaces `dest` while `dest` still
