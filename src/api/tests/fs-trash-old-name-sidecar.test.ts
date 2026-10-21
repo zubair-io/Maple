@@ -270,11 +270,18 @@ test('the duplicates mover completes the move when a new file took the old path 
     await expect(
       fs.stat(path.join(path.dirname(moved.newAbsPath), 'IMG_15.xmp')),
     ).rejects.toThrow();
+    expect(
+      await fs.readFile(
+        path.join(path.dirname(moved.newAbsPath), 'IMG_15 (conflict from move).xmp'),
+        'utf8',
+      ),
+    ).toBe(maple('saved at the old path'));
   } finally {
     settle.mockRestore();
   }
   expect(await fs.readFile(raw, 'utf8')).toBe('a new arrival');
   expect(await fs.readFile(path.join(dir, 'IMG_15.xmp'), 'utf8')).toBe(maple("the arrival's edit"));
+  await expect(fs.stat(legacy)).rejects.toThrow();
 });
 
 test('an undone duplicates move keeps the quarantined photo while its carried edit cannot go back', async () => {
