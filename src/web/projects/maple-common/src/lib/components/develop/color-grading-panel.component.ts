@@ -68,6 +68,38 @@ export const GRADE_ZONES: readonly GradeZone[] = [
 
 const LUM_RANGE = ADJUSTMENT_RANGES.colorGradeMidtoneLuminance;
 const BALANCE_RANGE = ADJUSTMENT_RANGES.splitToneBalance;
+const BLENDING_RANGE = ADJUSTMENT_RANGES.colorGradeBlending;
+const SHADOW_EDGE_DEFAULT = 0.564622;
+const HIGHLIGHT_EDGE_DEFAULT = 0.564622;
+
+function smoothstep(e0: number, e1: number, x: number): number {
+  const span = Math.max(e1 - e0, 1e-5);
+  const t = Math.min(Math.max((x - e0) / span, 0), 1);
+  return t * t * (3 - 2 * t);
+}
+
+export function computeZoneWeights(
+  l: number,
+  balance: number,
+  blending: number,
+  shadowEdge: number,
+  highlightEdge: number,
+): [number, number, number] {
+  const lClamped = Math.min(Math.max(l, 0), 1);
+  const b = Math.min(Math.max(balance, -100), 100) / 100;
+  const lMid = 0.564622 - 0.18 * b;
+  const lLow = Math.min(Math.max(shadowEdge, 0.1), 0.564622);
+  const lHigh = Math.min(Math.max(highlightEdge, 0.564622), 0.9);
+  const w = Math.min(Math.max(blending, 0), 100) / 100;
+  const sh0 = Math.max(lLow * (1 - w), 0);
+  const sh1 = Math.max(Math.min(lLow + (lMid - lLow) * w, 1), sh0 + 1e-4);
+  const hi0 = Math.min(Math.max(lMid + (lHigh - lMid) * (1 - w), 0), 1 - 1e-4);
+  const hi1 = Math.max(Math.min(lHigh + (1 - lHigh) * w, 1), hi0 + 1e-4);
+  const wSh = 1 - smoothstep(sh0, sh1, lClamped);
+  const wHi = smoothstep(hi0, hi1, lClamped);
+  const wMid = Math.max(1 - wSh - wHi, 0);
+  return [wSh, wMid, wHi];
+}
 
 @Component({
   selector: 'pro-color-grading-panel',
@@ -85,6 +117,8 @@ export class ColorGradingPanelComponent {
   readonly lumMax = LUM_RANGE[1];
   readonly balanceMin = BALANCE_RANGE[0];
   readonly balanceMax = BALANCE_RANGE[1];
+  readonly blendingMin = BLENDING_RANGE[0];
+  readonly blendingMax = BLENDING_RANGE[1];
 
   private readonly adj = computed<AdjustmentModel | null>(() => {
     const id = this.library.focusedAssetId();
@@ -92,6 +126,39 @@ export class ColorGradingPanelComponent {
   });
 
   readonly balance = computed<number>(() => this.adj()?.splitToneBalance ?? 0);
+  readonly blending = computed<number>(() => this.adj()?.colorGradeBlending ?? 100);
+  readonly shadowEdge = computed<number>(
+    () => this.adj()?.colorGradeShadowEdge ?? SHADOW_EDGE_DEFAULT,
+  );
+  readonly highlightEdge = computed<number>(
+    () => this.adj()?.colorGradeHighlightEdge ?? HIGHLIGHT_EDGE_DEFAULT,
+  );
+
+  readonly zoneCurves = computed(() => {
+    const bal = this.balance();
+    const bl = this.blending();
+    const shE = this.shadowEdge();
+    const hiE = this.highlightEdge();
+    const shPts: string[] = [];
+    const midPts: string[] = [];
+    const hiPts: string[] = [];
+    const steps = 64;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = (t * 200).toFixed(1);
+      const [wSh, wMid, wHi] = computeZoneWeights(t, bal, bl, shE, hiE);
+      shPts.push(`${x},${((1 - wSh) * 36 + 4).toFixed(1)}`);
+      midPts.push(`${x},${((1 - wMid) * 36 + 4).toFixed(1)}`);
+      hiPts.push(`${x},${((1 - wHi) * 36 + 4).toFixed(1)}`);
+    }
+    return {
+      sh: shPts.join(' '),
+      mid: midPts.join(' '),
+      hi: hiPts.join(' '),
+    };
+  });
+
+  private activeEdgeDrag: 'shadow' | 'highlight' | null = null;
 
   /** Read one numeric field off the focused asset's adjustment model. */
   valueOf(field: keyof AdjustmentModel & string): number {
@@ -117,6 +184,54 @@ export class ColorGradingPanelComponent {
 
   onBalanceReset(): void {
     this.patch({ splitToneBalance: 0 });
+  }
+
+  onBlendingChange(value: number): void {
+    this.patch({ colorGradeBlending: value });
+  }
+
+  onBlendingReset(): void {
+    this.patch({ colorGradeBlending: 100 });
+  }
+
+  onEdgePointerDown(edge: 'shadow' | 'highlight', event: PointerEvent): void {
+    event.preventDefault();
+    this.activeEdgeDrag = edge;
+    (event.currentTarget as Element | null)?.setPointerCapture?.(event.pointerId);
+    this.updateEdgeFromEvent(edge, event);
+  }
+
+  onEdgePointerMove(event: PointerEvent): void {
+    if (!this.activeEdgeDrag) return;
+    this.updateEdgeFromEvent(this.activeEdgeDrag, event);
+  }
+
+  onEdgePointerUp(): void {
+    this.activeEdgeDrag = null;
+  }
+
+  onEdgeReset(edge: 'shadow' | 'highlight'): void {
+    if (edge === 'shadow') {
+      this.patch({ colorGradeShadowEdge: SHADOW_EDGE_DEFAULT });
+    } else {
+      this.patch({ colorGradeHighlightEdge: HIGHLIGHT_EDGE_DEFAULT });
+    }
+  }
+
+  private updateEdgeFromEvent(edge: 'shadow' | 'highlight', event: PointerEvent): void {
+    const target = event.currentTarget as Element | null;
+    const svg = target?.closest('svg') ?? target;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const norm = (event.clientX - rect.left) / rect.width;
+    if (edge === 'shadow') {
+      const clamped = Math.min(Math.max(norm, 0.1), SHADOW_EDGE_DEFAULT);
+      this.patch({ colorGradeShadowEdge: Math.round(clamped * 1000) / 1000 });
+    } else {
+      const clamped = Math.min(Math.max(norm, HIGHLIGHT_EDGE_DEFAULT), 0.9);
+      this.patch({ colorGradeHighlightEdge: Math.round(clamped * 1000) / 1000 });
+    }
   }
 
   private patch(fields: Partial<AdjustmentModel>): void {

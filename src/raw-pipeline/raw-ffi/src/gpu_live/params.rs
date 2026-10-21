@@ -319,6 +319,9 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         color_grade_global_hue: p.color_grade_global_hue,
         color_grade_global_saturation: p.color_grade_global_saturation,
         color_grade_global_luminance: p.color_grade_global_luminance,
+        color_grade_blending: p.color_grade_blending,
+        color_grade_shadow_edge: p.color_grade_shadow_edge,
+        color_grade_highlight_edge: p.color_grade_highlight_edge,
         // HSL 8-band adjustments (#1112).
         hsl_hue: [
             p.hsl_hue_red,

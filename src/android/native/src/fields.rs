@@ -105,6 +105,9 @@ pub fn get(model: &AdjustmentModel, index: usize) -> Option<f32> {
         120 => Some(model.defringe_green_amount),
         121 => Some(model.defringe_green_hue_lo),
         122 => Some(model.defringe_green_hue_hi),
+        124 => Some(model.color_grade_blending),
+        125 => Some(model.color_grade_shadow_edge),
+        126 => Some(model.color_grade_highlight_edge),
         _ => None,
     }
 }
@@ -219,6 +222,9 @@ pub fn set(model: &mut AdjustmentModel, index: usize, value: f32) -> Result<(), 
         120 => model.defringe_green_amount = value,
         121 => model.defringe_green_hue_lo = value,
         122 => model.defringe_green_hue_hi = value,
+        124 => model.color_grade_blending = value,
+        125 => model.color_grade_shadow_edge = value,
+        126 => model.color_grade_highlight_edge = value,
         _ => return Err("Adjustment is not numeric".into()),
     }
     if index < 2 {
@@ -333,6 +339,9 @@ pub fn raster_allowed(index: usize) -> bool {
         120 => true,
         121 => true,
         122 => true,
+        124 => true,
+        125 => true,
+        126 => true,
         _ => false,
     }
 }

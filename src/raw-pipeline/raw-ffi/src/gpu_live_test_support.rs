@@ -179,6 +179,9 @@ pub(super) fn make_params(
         color_grade_global_hue: model.color_grade_global_hue,
         color_grade_global_saturation: model.color_grade_global_saturation,
         color_grade_global_luminance: model.color_grade_global_luminance,
+        color_grade_blending: model.color_grade_blending,
+        color_grade_shadow_edge: model.color_grade_shadow_edge,
+        color_grade_highlight_edge: model.color_grade_highlight_edge,
         // No DNG NoiseProfile in the marshalling fixtures (#1714): a null
         // pointer is the "no profile" encoding, i.e. the flat NLM filter.
         noise_profile_ptr: std::ptr::null(),

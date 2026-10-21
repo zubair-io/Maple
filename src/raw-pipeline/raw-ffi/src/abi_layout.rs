@@ -1,25 +1,6 @@
 //! ABI-layout export for the hand-mirrored C# structs (#3221).
-//!
-//! `src/windows/Maple.WinUI/Native/*.cs` re-declares every `#[repr(C)]`
-//! struct the WinUI shell passes across `raw_ffi.dll` field by field, in
-//! declaration order, and nothing checked that the two agreed: the
-//! `MapleGpuLiveParams` mirror was missing #2683's film-look tail for a
-//! month (the Rust side read those fields past the end of the C#
-//! allocation), and `MapleSceneLinearBufferF32` was missing #2231's two
-//! trailing `u32`s. [`maple_abi_layout`] lets the WinUI test suite
-//! (`RawFfiLayoutTests`) ask the DLL it will actually load for the size and
-//! every field offset of each mirrored struct — computed here with
-//! `core::mem::offset_of!` from the real definitions, never re-typed — and
-//! assert `Marshal.SizeOf` / `Marshal.OffsetOf` against them, field name by
-//! field name, in the existing `windows-x64` job.
-//!
-//! Wire format (UTF-8, no trailing NUL): `size=<bytes>;<field>=<offset>;…`
-//! with the fields in declaration order, so the consumer can also check
-//! that its own field ORDER matches, not just the offsets.
-//!
-//! Adding a field to one of these structs: append it to the matching list
-//! below. Forgetting to does not hide drift — `size=` still moves, and the
-//! C# side also fails when a mirror field has no Rust entry.
+//! Wire format: `size=<bytes>;<field>=<offset>;…` in declaration order.
+//! Asserted against `Marshal.SizeOf` / `Marshal.OffsetOf` in `RawFfiLayoutTests`.
 
 use core::mem::{offset_of, size_of};
 use std::ffi::CStr;
@@ -162,6 +143,9 @@ pub(crate) fn describe(name: &str) -> Option<String> {
                 whites_anchor_ev,
                 nr_sampling_scale,
                 wb_method,
+                color_grade_blending,
+                color_grade_shadow_edge,
+                color_grade_highlight_edge,
             }))
         }
         "MapleToneCurves" => Some(layout!(crate::scene_linear_chain_curves::MapleToneCurves {
@@ -395,6 +379,9 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             defringe_green_hue_hi,
             whites_anchor_ev,
             nr_sampling_scale,
+            color_grade_blending,
+            color_grade_shadow_edge,
+            color_grade_highlight_edge,
         })),
         #[cfg(feature = "gpu")]
         "MapleGpuLiveSession" => Some(layout!(crate::gpu_live::MapleGpuLiveSession { inner })),
@@ -502,10 +489,13 @@ mod tests {
         }
         let (size, fields) = parse(&describe("MapleAdjustmentParams").unwrap());
         assert_eq!(
-            size, 712,
-            "RawFfi.VerifyAbi pins MapleAdjustmentParams at 712 bytes (#4738 appended wb_method)"
+            size, 720,
+            "RawFfi.VerifyAbi pins MapleAdjustmentParams at 720 bytes (#5040 appended 3 f32s)"
         );
-        assert_eq!(fields.last().map(|f| f.0.as_str()), Some("wb_method"));
+        assert_eq!(
+            fields.last().map(|f| f.0.as_str()),
+            Some("color_grade_highlight_edge")
+        );
         let (_, curve_fields) = parse(&describe("MapleToneCurves").unwrap());
         let tail: Vec<&str> = curve_fields
             .iter()

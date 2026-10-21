@@ -162,6 +162,9 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   public var colorGradeGlobalHue: Double  // 0..360, default 0
   public var colorGradeGlobalSaturation: Double  // 0..100, default 0
   public var colorGradeGlobalLuminance: Double  // -100..100, default 0
+  public var colorGradeBlending: Double  // 0..100, default 100
+  public var colorGradeShadowEdge: Double  // 0.10..0.564622, default 0.564622
+  public var colorGradeHighlightEdge: Double  // 0.564622..0.90, default 0.564622
 
   // HSL per-band adjustments (#1112, tone/zoom design spec § 10.4).
   // Scene-linear Oklab, normalized raised-cosine partition of unity.

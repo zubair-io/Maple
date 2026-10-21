@@ -108,6 +108,9 @@ object AdjustmentFields {
         AdjustmentField(120, "defringe_green_amount", 0.0f, 20.0f, 0.0f, "crs:DefringeGreenAmount", true),
         AdjustmentField(121, "defringe_green_hue_lo", 0.0f, 100.0f, 40.0f, "crs:DefringeGreenHueLo", true),
         AdjustmentField(122, "defringe_green_hue_hi", 0.0f, 100.0f, 60.0f, "crs:DefringeGreenHueHi", true),
+        AdjustmentField(124, "color_grade_blending", 0.0f, 100.0f, 100.0f, "papp:ColorGradeBlending", true),
+        AdjustmentField(125, "color_grade_shadow_edge", 0.1f, 0.564622f, 0.564622f, "papp:ColorGradeShadowEdge", true),
+        AdjustmentField(126, "color_grade_highlight_edge", 0.564622f, 0.9f, 0.564622f, "papp:ColorGradeHighlightEdge", true),
     )
     val byName = all.associateBy { it.name }
 }

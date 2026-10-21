@@ -233,6 +233,9 @@ fn build_with_storage(
         color_grade_global_hue: model.color_grade_global_hue,
         color_grade_global_saturation: model.color_grade_global_saturation,
         color_grade_global_luminance: model.color_grade_global_luminance,
+        color_grade_blending: model.color_grade_blending,
+        color_grade_shadow_edge: model.color_grade_shadow_edge,
+        color_grade_highlight_edge: model.color_grade_highlight_edge,
         hsl_hue: [
             model.hue_adjustment_red,
             model.hue_adjustment_orange,

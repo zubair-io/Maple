@@ -76,6 +76,9 @@ namespace Maple.WinUI.Services
             m.ColorGradeMidtoneSaturation = 0; m.ColorGradeMidtoneLuminance = 0;
             m.ColorGradeHighlightLuminance = 0; m.ColorGradeGlobalHue = 0;
             m.ColorGradeGlobalSaturation = 0; m.ColorGradeGlobalLuminance = 0;
+            m.ColorGradeBlending = d.ColorGradeBlending;
+            m.ColorGradeShadowEdge = d.ColorGradeShadowEdge;
+            m.ColorGradeHighlightEdge = d.ColorGradeHighlightEdge;
             m.VignetteAmount = 0; m.VignetteFeather = d.VignetteFeather;
             m.GrainAmount = 0; m.GrainSize = d.GrainSize; m.GrainRoughness = d.GrainRoughness;
             m.FilmLook = ""; m.FilmStrength = d.FilmStrength;

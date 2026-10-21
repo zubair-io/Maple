@@ -366,4 +366,9 @@ pub struct MapleGpuLiveParams {
     pub whites_anchor_ev: f32,
     /// Output pixels per developed full-frame pixel. Nonpositive/nonfinite means native.
     pub nr_sampling_scale: f32,
+    /// Colour-grading zone-isolation controls (#5040). Zero-filled `(0, 0, 0)`
+    /// resolves to `(100.0, MIDTONE_ANCHOR_L, MIDTONE_ANCHOR_L)`.
+    pub color_grade_blending: f32,
+    pub color_grade_shadow_edge: f32,
+    pub color_grade_highlight_edge: f32,
 }

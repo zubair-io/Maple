@@ -141,6 +141,9 @@ extension AdjustmentModel {
     case defringeGreenHueLo = "defringe_green_hue_lo"
     case defringeGreenHueHi = "defringe_green_hue_hi"
     case lensProfile = "lens_profile"
+    case colorGradeBlending = "color_grade_blending"
+    case colorGradeShadowEdge = "color_grade_shadow_edge"
+    case colorGradeHighlightEdge = "color_grade_highlight_edge"
   }
 
   // MARK: - Range constants (canonical, generated)
@@ -349,6 +352,12 @@ extension AdjustmentModel {
   public static let defringeGreenHueLoRange: ClosedRange<Double> = 0.0...100.0
   /// High edge of the green hue band (#3411). XMP key `crs:DefringeGreenHueHi`.
   public static let defringeGreenHueHiRange: ClosedRange<Double> = 0.0...100.0
+  /// Colour-grading zone transition blending (#5040); 100 = full smooth ramp across [0, shadow_edge] and [highlight_edge, 1], 0 = crisp step near the edges. XMP: papp:ColorGradeBlending.
+  public static let colorGradeBlendingRange: ClosedRange<Double> = 0.0...100.0
+  /// Colour-grading shadow zone upper Oklab-L edge (#5040); defaults to MIDTONE_ANCHOR_L (cbrt(0.18) ≈ 0.564622). XMP: papp:ColorGradeShadowEdge.
+  public static let colorGradeShadowEdgeRange: ClosedRange<Double> = 0.1...0.564622
+  /// Colour-grading highlight zone lower Oklab-L edge (#5040); defaults to MIDTONE_ANCHOR_L (cbrt(0.18) ≈ 0.564622). XMP: papp:ColorGradeHighlightEdge.
+  public static let colorGradeHighlightEdgeRange: ClosedRange<Double> = 0.564622...0.9
 }
 
 // MARK: - Copy / paste / sync groups (#944, canonical, generated)
@@ -471,6 +480,9 @@ extension AdjustmentGroup {
         "color_grade_global_hue",
         "color_grade_global_saturation",
         "color_grade_global_luminance",
+        "color_grade_blending",
+        "color_grade_shadow_edge",
+        "color_grade_highlight_edge",
         "highlight_recovery",
         "look",
         "profile",

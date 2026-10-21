@@ -219,6 +219,9 @@ extension PipelineRenderer {
     p.color_grade_global_hue = Float(model.colorGradeGlobalHue)
     p.color_grade_global_saturation = Float(model.colorGradeGlobalSaturation)
     p.color_grade_global_luminance = Float(model.colorGradeGlobalLuminance)
+    p.color_grade_blending = Float(model.colorGradeBlending)
+    p.color_grade_shadow_edge = Float(model.colorGradeShadowEdge)
+    p.color_grade_highlight_edge = Float(model.colorGradeHighlightEdge)
 
     // HSL 8-band adjustments (#1112) — scene-linear Oklab; the chain
     // runs after saturation / before clarity.

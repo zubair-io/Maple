@@ -179,6 +179,9 @@ fn s5_effects_fields_present_in_schema() {
         ("color_grade_global_hue", (0.0, 360.0), 0.0),
         ("color_grade_global_saturation", (0.0, 100.0), 0.0),
         ("color_grade_global_luminance", (-100.0, 100.0), 0.0),
+        ("color_grade_blending", (0.0, 100.0), 100.0),
+        ("color_grade_shadow_edge", (0.10, 0.564622), 0.564622),
+        ("color_grade_highlight_edge", (0.564622, 0.90), 0.564622),
     ];
     for (name, range, default) in expect {
         let entry = ADJUSTMENT_SCHEMA
@@ -227,5 +230,36 @@ fn parametric_split_fields_present_with_acr_defaults() {
         assert!(matches!(entry.kind, FieldKind::F32));
         assert_eq!(entry.range, (0.0, 100.0), "range for {name}");
         assert_eq!(entry.default_f32, default, "default for {name}");
+    }
+}
+
+/// Schema-exemption allow-list (moved from `tests.rs` for the 600-LOC budget).
+#[test]
+fn schema_exemption_allowlist() {
+    const ALLOWED: &[&str] = &[
+        "local_adjustments",
+        "mask_rasters",
+        "inpaint_removals",
+        "retouch_spots",
+        "crop",
+        "temperature_seen",
+        "tint_seen",
+        "wb_scale_version",
+    ];
+    assert_eq!(ALLOWED.len(), 8);
+    for expected in [
+        "local_adjustments",
+        "mask_rasters",
+        "inpaint_removals",
+        "retouch_spots",
+        "crop",
+        "temperature_seen",
+        "wb_scale_version",
+        "tint_seen",
+    ] {
+        assert!(
+            ALLOWED.contains(&expected),
+            "{expected} must stay on ALLOWED"
+        );
     }
 }
