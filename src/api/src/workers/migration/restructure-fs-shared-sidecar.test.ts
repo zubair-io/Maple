@@ -115,4 +115,21 @@ describe('refile and the shared-sidecar rules (#5066)', () => {
       expect(await read('2024/img.xmp')).toBe('shared edit');
     },
   );
+
+  test.skipIf(process.getuid?.() === 0)(
+    'an unlistable destination folder is never taken as sidecar-free for a dedupe',
+    async () => {
+      await write('2024/03-15/IMG.HEIC', 'heic');
+      await write('2024/IMG.HEIC', 'heic');
+      await write('2024/IMG.xmp', 'an edit the listing cannot see');
+      await fs.chmod(abs('2024'), 0o311);
+      try {
+        await expect(refile('IMG.HEIC')).rejects.toThrow();
+      } finally {
+        await fs.chmod(abs('2024'), 0o755);
+      }
+
+      expect(await read('2024/03-15/IMG.HEIC')).toBe('heic');
+    },
+  );
 });
