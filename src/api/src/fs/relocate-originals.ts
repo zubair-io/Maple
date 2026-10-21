@@ -6,6 +6,7 @@
  */
 import {
   locateLegacyBackupEdit,
+  readLegacyAt,
   removePhotoUnlessOldNameEditStays,
 } from './legacy-backup-sidecar.ts';
 import { readSidecarBytes } from './sidecar-bytes.ts';
@@ -97,7 +98,8 @@ async function carryLeftoverOldNameEdits(sourceAbsPath: string, movedTo: string)
     if (leftover === null) return;
     handled.add(leftover.legacy);
     await serializeSidecarWrite(leftover.legacy, async () => {
-      const bytes = await readSidecarBytes(leftover.legacy);
+      // Re-validated after the wait: another tool's file, or a name another file now owns, isn't this edit.
+      const bytes = await readLegacyAt(sourceAbsPath, leftover.legacy);
       if (bytes === null) return;
       if (!(await publishConflictBytes(movedTo, bytes))) {
         log.warn(
