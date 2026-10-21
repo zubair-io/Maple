@@ -20,6 +20,7 @@
 
 import { describe, it, expect, afterEach, spyOn } from 'bun:test';
 import * as relocateRepo from '../db/repos/assets.relocate.repo.ts';
+import * as ownership from '../fs/sidecar-ownership.ts';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -164,6 +165,42 @@ describe('library-relocate end-to-end — companion + dedupe (#2667)', () => {
 
     expect(await fs.readFile(path.join(root, newRel, 'IMG_7.xmp'), 'utf8')).toBe('first edit');
     await expect(fs.stat(path.join(root, oldRel, 'IMG_7.xmp'))).rejects.toThrow();
+  });
+
+  it("a late sidecar that can't follow keeps the source photo beside it (#5069)", async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-dedupe-late-stuck-'));
+    const root = dir;
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(root, ...oldRel.split('/')), { recursive: true });
+    await fs.mkdir(path.join(root, ...newRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(root, oldRel, 'IMG_8.dng'), 'identical-pixels');
+    await fs.writeFile(path.join(root, newRel, 'IMG_8.dng'), 'identical-pixels');
+    seedRelocatableAsset(live.db, {
+      root,
+      relPath: oldRel,
+      filename: 'IMG_8.dng',
+      mapleId: 'relocate-dedupe-stuck-id',
+      metadataOverride: usPlaceText(),
+    });
+    const realRepoint = relocateRepo.repointAssetLocation;
+    const repoint = spyOn(relocateRepo, 'repointAssetLocation').mockImplementation(async (args) => {
+      await fs.writeFile(path.join(root, oldRel, 'IMG_8.xmp'), 'first edit');
+      return realRepoint(args);
+    });
+    const publish = spyOn(ownership, 'publishSidecarSnapshot').mockRejectedValue(new Error('EIO'));
+    try {
+      await postRelocate([`${SLUG}:${oldRel}/IMG_8.dng`]);
+    } finally {
+      repoint.mockRestore();
+      publish.mockRestore();
+    }
+
+    expect(await fs.readFile(path.join(root, oldRel, 'IMG_8.xmp'), 'utf8')).toBe('first edit');
+    expect(await fs.readFile(path.join(root, oldRel, 'IMG_8.dng'), 'utf8')).toBe(
+      'identical-pixels',
+    );
   });
 
   it('a byte-identical destination but a source carrying a sidecar never dedupes — it renames', async () => {
