@@ -38,7 +38,7 @@ extension SMBFileOperations {
           "Restore copy differs from source: \(original.path)")
       }
     }
-    for attempt in -1...CollisionResolver.maxAttempts {
+    attempts: for attempt in -1...CollisionResolver.maxAttempts {
       try Task.checkCancellation()
       let target = RestoreCollisionNaming.candidate(original, attempt: attempt)
       guard !(try await RestoreSMBFile.exists(target, transport: transport)) else { continue }
@@ -49,7 +49,6 @@ extension SMBFileOperations {
       // An occupied sidecar holding exactly the incoming bytes is the pair's
       // already-restored other half: join it instead of colliding (#4707).
       var joined: [Int: String] = [:]
-      var collides = false
       for occupant in try await restorePairedSidecars(target, transport: transport) {
         let match = members.indices.first { index in
           members[index].source != source && joined[index] == nil && planned[index] == occupant
@@ -57,13 +56,9 @@ extension SMBFileOperations {
         guard let match,
           await SidecarOwnership.smbSidecarAlreadyCarried(
             members[match].staged, at: occupant, transport: transport)
-        else {
-          collides = true
-          break
-        }
+        else { continue attempts }
         joined[match] = occupant
       }
-      guard !collides else { continue }
       let destinations = planned.enumerated().map { joined[$0.offset] ?? $0.element }
       var published: [Int] = []
       do {

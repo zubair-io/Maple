@@ -375,6 +375,7 @@ final class LocalSidecarOwnershipTests: XCTestCase {
       try tree(),
       ["Album/IMG_1.CR3": "raw", "Album/IMG_1.JPG": "jpg", "Album/IMG_1.xmp": "<shared/>"])
   }
+
   // MARK: - File identity, not spelling
 
   func testExtensionOnlyRenameThroughASymlinkedFolderKeepsTheSoleSidecar() async throws {
@@ -477,6 +478,21 @@ final class LocalSidecarOwnershipTests: XCTestCase {
     XCTAssertEqual(
       try tree(),
       ["Shoot/IMG_1.CR3": "raw", "Shoot/IMG_1.JPG": "jpg", "Shoot/IMG_1.xmp": "<shared/>"])
+  }
+
+  func testRestoringATrashedVideoTakesItsFullNameSidecarOutOfTheTrash() async throws {
+    write("frames", "Shoot/clip.MOV")
+    write("<clip/>", "Shoot/clip.MOV.xmp")
+    _ = try await LocalFileOperations.trashToMapleFolder(url("Shoot/clip.MOV"), libraryRoot: root)
+    XCTAssertEqual(
+      try tree(),
+      [".maple/trash/Shoot/clip.MOV": "frames", ".maple/trash/Shoot/clip.MOV.xmp": "<clip/>"])
+
+    let outcome = try await LocalFileOperations.restoreFromMapleTrash(
+      url(".maple/trash/Shoot/clip.MOV"), libraryRoot: root)
+
+    XCTAssertTrue(outcome.sidecarFollowed)
+    XCTAssertEqual(try tree(), ["Shoot/clip.MOV": "frames", "Shoot/clip.MOV.xmp": "<clip/>"])
   }
 
   func testRestoreStillAvoidsADestinationSidecarWithDifferentEdits() async throws {

@@ -103,14 +103,19 @@ enum SidecarOwnership {
       && ia[.systemFileNumber] != nil
   }
 
+  /// A server that reports no file id (some NAS firmware leaves the index
+  /// number at 0) cannot distinguish a re-spelling from a second file, so two
+  /// case-folded-equal names that both exist count as one file: the safe side,
+  /// since a sidecar believed shared is neither copied onto itself nor deleted.
   static func sameSMBFile(_ a: String, _ b: String, transport: SMBFileTransport) async -> Bool {
     guard exact(a) != exact(b) else { return true }
     guard folded(a) == folded(b),
       let ia = try? await transport.attributesOfItem(atPath: a),
-      let ib = try? await transport.attributesOfItem(atPath: b),
-      let idA = (ia[.documentIdentifierKey] as? NSNumber)?.uint64Value, idA != 0
+      let ib = try? await transport.attributesOfItem(atPath: b)
     else { return false }
-    return (ib[.documentIdentifierKey] as? NSNumber)?.uint64Value == idA
+    let idA = (ia[.documentIdentifierKey] as? NSNumber)?.uint64Value ?? 0
+    let idB = (ib[.documentIdentifierKey] as? NSNumber)?.uint64Value ?? 0
+    return idA == 0 || idB == 0 || idA == idB
   }
 
   /// The destination already holds exactly the incoming sidecar's bytes — the

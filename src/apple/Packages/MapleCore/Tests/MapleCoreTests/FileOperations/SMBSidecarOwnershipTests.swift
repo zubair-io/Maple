@@ -126,6 +126,41 @@ final class SMBSidecarOwnershipTests: XCTestCase {
       ])
   }
 
+  func testCaseOnlyRenameOnACaseSensitiveShareCollidesWithAnOccupiedSidecar() async throws {
+    let t = FakeSMBTransport()
+    await t.seed("raw", at: "/Shoot/IMG.CR3")
+    await t.seed("<a/>", at: "/Shoot/IMG.xmp")
+    await t.seed("jpg", at: "/Shoot/img.JPG")
+    await t.seed("<b/>", at: "/Shoot/img.xmp")
+    let before = await t.allFiles()
+
+    do {
+      _ = try await SMBFileOperations.relocate(
+        "/Shoot/IMG.CR3", to: "/Shoot", newBasename: "img.cr3", mode: .move, collision: .fail,
+        transport: t)
+      XCTFail("an occupied destination sidecar must collide for the whole photo")
+    } catch FileOperationError.destinationExists {}
+
+    let after = await t.allFiles()
+    XCTAssertEqual(after, before)
+  }
+
+  func testAShareWithoutFileIdsTreatsCaseFoldedEqualSidecarsAsOneFile() async throws {
+    let t = FakeSMBTransport()
+    await t.seed("<a/>", at: "/Shoot/IMG.xmp")
+    await t.seed("<b/>", at: "/Shoot/img.xmp")
+
+    let withIds = await SidecarOwnership.sameSMBFile("/Shoot/IMG.xmp", "/Shoot/img.xmp", transport: t)
+    XCTAssertFalse(withIds)
+
+    await t.setReportsFileIdentity(false)
+    let withoutIds = await SidecarOwnership.sameSMBFile(
+      "/Shoot/IMG.xmp", "/Shoot/img.xmp", transport: t)
+    XCTAssertTrue(withoutIds, "an unknown identity lands on the never-delete side")
+    let different = await SidecarOwnership.sameSMBFile("/Shoot/IMG.xmp", "/Shoot/X.xmp", transport: t)
+    XCTAssertFalse(different)
+  }
+
   func testCaseOnlyRenameOnACaseSensitiveShareStillTakesAnUnsharedSidecar() async throws {
     let t = FakeSMBTransport()
     await t.seed("raw", at: "/Shoot/IMG.CR3")
@@ -243,6 +278,7 @@ final class SMBSidecarOwnershipTests: XCTestCase {
     let files = await t.allFiles()
     XCTAssertEqual(files, ["/Album/IMG_1.1.CR3": "new", "/Album/IMG_1.xmp": "<orphan/>"])
   }
+
   // MARK: - Trash lifecycle of a shared sidecar
 
   private func trashBothHalves(_ t: FakeSMBTransport) async throws {

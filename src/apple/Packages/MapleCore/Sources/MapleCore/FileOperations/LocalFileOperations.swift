@@ -145,7 +145,6 @@ public enum LocalFileOperations {
       primaryDestination: resolvedTargetURL,
       sidecarTmp: sidecarTmp,
       sidecarDestination: sidecarTargetURL,
-      // A stale sidecar another photo at the destination still uses is not stale.
       clearStaleSidecar: !hasSourceSidecar && collision == .replace && !destinationClaimed,
       sourcePrimaryURL: sourcePrimaryURL
     )

@@ -28,9 +28,7 @@ extension LocalFileOperations {
       source.deletingLastPathComponent().appendingPathComponent($0)
     }
     // A sidecar another trashed same-stem photo still uses stays in the trash (#4707).
-    let sidecarClaimedInTrash = SidecarOwnership.stemClaimedBySibling(
-      primaryPath: source.path, siblingNames: names,
-      foldsCase: SidecarOwnership.localVolumeFoldsCase(source.deletingLastPathComponent()))
+    let sidecarClaimedInTrash = SidecarOwnership.localStemClaimedBySibling(source)
     let originals = try (sidecars + [source]).map { try RestoreLocalFile.capture($0) }
     let anchor = try RestoreDirectoryAnchor.establish(directory, under: root)
     let stageName = ".maple-restore.tmp." + UUID().uuidString

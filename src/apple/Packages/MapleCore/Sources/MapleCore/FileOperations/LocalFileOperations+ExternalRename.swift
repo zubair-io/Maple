@@ -107,7 +107,6 @@ extension LocalFileOperations {
                     return false
                 }
                 do {
-                    // A sidecar another same-stem photo still uses is copied, never taken (#4707).
                     let sourceClaimed = SidecarOwnership.localStemClaimedBySibling(
                         oldURL, excluding: [newURL])
                     switch (joinsCarriedSidecar, sourceClaimed) {

@@ -414,6 +414,8 @@ ThumbnailDiskCacheKeyTests
 CloudHostTests
 
 # Shared-sidecar ownership rule (#4707): real temp dirs + in-memory SMB transport.
+# SidecarStemRuleTests attaches a case-sensitive APFS sparse image with hdiutil
+# and fails (never skips) when the host cannot.
 LocalSidecarOwnershipTests
 SMBSidecarOwnershipTests
 SidecarStemRuleTests

@@ -1,7 +1,7 @@
 // SidecarStemRuleTests.swift — which names claim a sidecar stem (#4707):
 // staging copies never do, a real `*.tmp.*` photo does, and stems compare
 // case-sensitively on a case-sensitive volume. The case-sensitive scenarios
-// run on a throwaway case-sensitive APFS sparse image.
+// run on a throwaway case-sensitive APFS sparse image attached with hdiutil.
 
 import XCTest
 
@@ -146,7 +146,8 @@ final class SidecarStemRuleTests: XCTestCase {
   }
 
   /// Attaches a fresh case-sensitive APFS sparse image under `root`, detached
-  /// again on teardown. Skips where `hdiutil` cannot create or attach one.
+  /// again on teardown. A host without a working `hdiutil` fails rather than
+  /// skips: the regression gate rejects skipped cases.
   private func mountCaseSensitiveVolume() throws -> URL {
     let image = root.appendingPathComponent("cs.sparseimage")
     let mountPoint = root.appendingPathComponent("cs-volume")
@@ -157,7 +158,10 @@ final class SidecarStemRuleTests: XCTestCase {
         "-volname", "MapleCS", image.path,
       ]),
       hdiutil(["attach", "-nobrowse", "-mountpoint", mountPoint.path, image.path])
-    else { throw XCTSkip("hdiutil could not create or attach a case-sensitive volume") }
+    else {
+      throw FileOperationError.underlying(
+        "hdiutil could not create or attach a case-sensitive APFS sparse image")
+    }
     addTeardownBlock { _ = self.hdiutil(["detach", mountPoint.path, "-force"]) }
     return mountPoint
   }
