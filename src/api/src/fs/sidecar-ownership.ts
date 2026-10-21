@@ -14,7 +14,7 @@
  */
 import * as fs from './mirrored.ts';
 import * as path from 'node:path';
-import { listPairedSidecars } from './xmp-conflict.ts';
+import { listPairedSidecars, pickFreeConflictPath } from './xmp-conflict.ts';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { serializeSidecarWrite, serializeSidecarWrites } from './sidecar-write-order.ts';
 import { isVideoFilename } from '../indexer/media-types';
@@ -249,4 +249,31 @@ async function carryLateSave(current: Buffer, dest: string, snapshot: Buffer): P
     throw err;
   });
   return true;
+}
+
+/** Publish `bytes` at `dest` exclusively, through a verified temp. */
+export async function publishBytesExclusive(dest: string, bytes: Buffer): Promise<void> {
+  const tmp = await writeVerifiedTemp(dest, bytes);
+  try {
+    await publishExclusive(tmp, dest);
+  } finally {
+    await fs.unlink(tmp).catch(() => {});
+  }
+}
+
+const CONFLICT_ATTEMPTS = 5;
+
+/** `bytes` as a `(conflict from move)` copy beside `photo`, which the
+ * migration never adopts; another writer can take the picked name first, so
+ * it picks again. False when no copy could be published. */
+export async function publishConflictBytes(photo: string, bytes: Buffer): Promise<boolean> {
+  for (let attempt = 0; attempt < CONFLICT_ATTEMPTS; attempt++) {
+    const conflict = await pickFreeConflictPath(photo, 'move');
+    const published = await publishBytesExclusive(conflict, bytes).then(
+      () => true,
+      () => false,
+    );
+    if (published) return true;
+  }
+  return false;
 }
