@@ -5,6 +5,7 @@ import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import { foldersRoutes } from '../routes/folders.ts';
 import { recoveryFixture } from '../cloud-backup/restore.test-helpers.ts';
 import { backupEngine } from '../cloud-backup/runtime.ts';
+import * as lifecycle from '../cloud-backup/lifecycle.ts';
 import { reconcileLifecycle } from '../cloud-backup/lifecycle.ts';
 import { ObjectId } from '../db/object-id.ts';
 import {
@@ -237,6 +238,63 @@ test('location appended during file verification fails atomic redundant-purge ad
     expect(await readFile(source, 'utf8')).toBe('old-original');
     expect(f.backup().state).toBe('trash');
     expect(f.live.db.query('SELECT * FROM backup_purges').all()).toHaveLength(0);
+  } finally {
+    await f.close();
+  }
+});
+
+test('a sidecar first written while an identical replacement purges follows the replacement (#5069)', async () => {
+  const f = await fixture();
+  const source = path.join(f.library, '.maple/trash/photo.dng');
+  const late = path.join(f.library, '.maple/trash/photo.xmp');
+  try {
+    expect((await f.upload('different')).status).toBe(201);
+    await writeFile(f.original, 'old-original');
+    const realPrepare = lifecycle.prepareIdenticalReplacementPurge;
+    const prepare = spyOn(lifecycle, 'prepareIdenticalReplacementPurge').mockImplementation(
+      async (...args) => {
+        await writeFile(late, 'edit');
+        return realPrepare(...args);
+      },
+    );
+    try {
+      expect(
+        await discardIdenticalReplacement(new ObjectId(f.id), f.library, source, f.original),
+      ).toBe(true);
+    } finally {
+      prepare.mockRestore();
+    }
+    await expect(stat(source)).rejects.toThrow();
+    await expect(stat(late)).rejects.toThrow();
+    expect(await readFile(path.join(f.library, 'photo (conflict from move).xmp'), 'utf8')).toBe(
+      'edit',
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test('a late sidecar a trashed same-stem sibling shares stays with that sibling (#5069)', async () => {
+  const f = await fixture();
+  const source = path.join(f.library, '.maple/trash/photo.dng');
+  const late = path.join(f.library, '.maple/trash/photo.xmp');
+  try {
+    expect((await f.upload('different')).status).toBe(201);
+    await writeFile(f.original, 'old-original');
+    await writeFile(path.join(f.library, '.maple/trash/photo.jpg'), 'sibling');
+    const realPrepare = lifecycle.prepareIdenticalReplacementPurge;
+    const prepare = spyOn(lifecycle, 'prepareIdenticalReplacementPurge').mockImplementation(
+      async (...args) => {
+        await writeFile(late, 'shared edit');
+        return realPrepare(...args);
+      },
+    );
+    try {
+      await discardIdenticalReplacement(new ObjectId(f.id), f.library, source, f.original);
+    } finally {
+      prepare.mockRestore();
+    }
+    expect(await readFile(late, 'utf8')).toBe('shared edit');
   } finally {
     await f.close();
   }

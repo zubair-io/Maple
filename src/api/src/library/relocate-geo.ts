@@ -41,7 +41,12 @@ import type { AssetDoc, FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 import { filesIdentical } from '../backup/fs-util.ts';
 import { listPairedSidecars } from '../fs/xmp-conflict.ts';
-import { hasLegacyBackupEdit } from '../fs/legacy-backup-sidecar.ts';
+import {
+  hasLegacyBackupEdit,
+  removePhotoUnlessOldNameEditStays,
+} from '../fs/legacy-backup-sidecar.ts';
+import { carryLateSidecars } from '../fs/relocate-late-sidecar.ts';
+import { settleCarriedSidecar } from '../fs/sidecar-ownership.ts';
 import * as fs from '../fs/mirrored.ts';
 import { relocateAsset } from './relocate-asset.ts';
 import { repointAssetLocation } from '../db/repos/assets.relocate.repo.ts';
@@ -86,6 +91,28 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
+/** A sidecar first written since the dedupe listed none (a first backup send,
+ * a web save) follows the photo to the survivor before the source goes (#5069). */
+async function carryLateToSurvivor(sourceAbsPath: string, survivor: string): Promise<void> {
+  const late = await carryLateSidecars({
+    sourceAbsPath,
+    finalDest: survivor,
+    listed: [],
+    movedCompanions: [],
+    publications: [],
+  });
+  for (const moved of late) {
+    await settleCarriedSidecar(moved.source, moved.dest, moved.snapshot, moved.keepSource).catch(
+      (err: unknown) => {
+        log.warn(
+          { source: moved.source, err: err instanceof Error ? err.message : err },
+          'relocateGeoAsset: late sidecar settle failed — source kept',
+        );
+      },
+    );
+  }
+}
+
 /** The dedupe short-circuit: the destination already holds byte-identical
  * content and the source carries no companions to preserve, so there is
  * nothing to copy — just repoint the row to the existing occupant and
@@ -123,12 +150,8 @@ async function dedupeAt(
     { _id: String(doc._id), survivor: path.join(libRoot, newDir, primary.filename) },
     'relocateGeoAsset: byte-identical destination — deduped (repoint + delete source)',
   );
-  await fs.unlink(sourceAbsPath).catch((err) => {
-    log.warn(
-      { sourceAbsPath, err: err instanceof Error ? err.message : err },
-      'relocateGeoAsset: dedupe source unlink failed',
-    );
-  });
+  await carryLateToSurvivor(sourceAbsPath, path.join(libRoot, newDir, primary.filename));
+  await removePhotoUnlessOldNameEditStays(sourceAbsPath, 'relocateGeoAsset');
   await finalize({
     libRoot,
     oldDirAbs,

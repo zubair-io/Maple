@@ -18,7 +18,8 @@
  * is its own file. Nothing skips (#3787).
  */
 
-import { describe, it, expect, afterEach } from 'bun:test';
+import { describe, it, expect, afterEach, spyOn } from 'bun:test';
+import * as relocateRepo from '../db/repos/assets.relocate.repo.ts';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -130,6 +131,39 @@ describe('library-relocate end-to-end — companion + dedupe (#2667)', () => {
       path: newRel,
       filename: 'IMG_6.dng',
     });
+  });
+
+  it('a sidecar first written while a dedupe repoints follows the photo to the survivor (#5069)', async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-dedupe-late-'));
+    const root = dir;
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(root, ...oldRel.split('/')), { recursive: true });
+    await fs.mkdir(path.join(root, ...newRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(root, oldRel, 'IMG_7.dng'), 'identical-pixels');
+    await fs.writeFile(path.join(root, newRel, 'IMG_7.dng'), 'identical-pixels');
+    seedRelocatableAsset(live.db, {
+      root,
+      relPath: oldRel,
+      filename: 'IMG_7.dng',
+      mapleId: 'relocate-dedupe-late-id',
+      metadataOverride: usPlaceText(),
+    });
+    const realRepoint = relocateRepo.repointAssetLocation;
+    const repoint = spyOn(relocateRepo, 'repointAssetLocation').mockImplementation(async (args) => {
+      await fs.writeFile(path.join(root, oldRel, 'IMG_7.xmp'), 'first edit');
+      return realRepoint(args);
+    });
+    try {
+      const res = await postRelocate([`${SLUG}:${oldRel}/IMG_7.dng`]);
+      expect((await resultsOf(res))[0]!.outcome).toBe('moved');
+    } finally {
+      repoint.mockRestore();
+    }
+
+    expect(await fs.readFile(path.join(root, newRel, 'IMG_7.xmp'), 'utf8')).toBe('first edit');
+    await expect(fs.stat(path.join(root, oldRel, 'IMG_7.xmp'))).rejects.toThrow();
   });
 
   it('a byte-identical destination but a source carrying a sidecar never dedupes — it renames', async () => {
