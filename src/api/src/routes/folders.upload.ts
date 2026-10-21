@@ -155,12 +155,15 @@ async function publishUploadedBody(input: UploadTarget): Promise<void> {
  * XMP routes that landed after the existence check is never replaced. */
 async function publishUploadedSidecar(input: UploadTarget): Promise<void> {
   await serializeSidecarWrite(input.absPath, async () => {
+    // Stamped before the link, so a save after the barrier never gets the upload's mtime.
+    await preserveUploadMtime(input.tmp, input.mtimeHeader);
     try {
       await publishExclusive(input.tmp, input.absPath);
     } catch (error) {
-      if (error instanceof PublishCollisionError)
-        refuseSidecarReplacement(input.target, input.filename);
-      throw uploadError('publish', error);
+      if (!(error instanceof PublishCollisionError)) throw uploadError('publish', error);
+      throw new UploadConflictError(
+        `A sidecar already exists at "${input.target}"; write sidecars through the XMP routes`,
+      );
     } finally {
       await unlink(input.tmp).catch(() => {});
     }
@@ -228,7 +231,8 @@ export async function finalizeUploadedFile(input: UploadTarget) {
     const trashed = await trashExistingUpload(input);
     await publishUploadedBody(input);
     const info = await stat(input.absPath);
-    await preserveUploadMtime(input.absPath, input.mtimeHeader);
+    if (!isSidecarUpload(input.filename))
+      await preserveUploadMtime(input.absPath, input.mtimeHeader);
     await discardRedundantTrash(input, trashed);
     // A replaced asset the indexer had catalogued (e.g. a video) is re-indexed
     // even when the extension is outside the direct-upload set, so the
