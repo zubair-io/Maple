@@ -1,7 +1,10 @@
 use super::*;
+
 const PRODUCT_CEILING: usize = 110;
 const TERMS_CEILING: usize = 40_512;
+
 #[test]
+
 fn matrix_free_solution_matches_its_independent_normal_equation_residual() {
     let row = Observation {
         weights: vec![],
@@ -40,6 +43,18 @@ fn matrix_free_solution_matches_its_independent_normal_equation_residual() {
     assert_eq!(solved[7], 0.);
     assert!(residual.iter().zip(rhs).all(|(a, b)| (a - b).abs() < 1e-6));
 }
+
+fn training(observations: &[Observation]) -> Vec<TrainingRow<'_>> {
+    observations
+        .iter()
+        .map(|row| TrainingRow {
+            row,
+            groups: [0, 1],
+            count: 2,
+        })
+        .collect()
+}
+
 fn synthetic_rows(count: usize, size: usize) -> Vec<Observation> {
     (0..count)
         .map(|i| {
@@ -72,20 +87,16 @@ fn synthetic_rows(count: usize, size: usize) -> Vec<Observation> {
         })
         .collect()
 }
+
 // Pure IEEE +,*,/ with fixed reduction order: the counts are identical on
 // every platform, so any solver change that inflates them fails here.
+
 #[test]
+
 fn solver_work_on_a_synthetic_observation_set_stays_pinned() {
     let size = 17;
     let observations = synthetic_rows(20_000, size);
-    let rows: Vec<_> = observations
-        .iter()
-        .map(|row| TrainingRow {
-            row,
-            groups: [0, 1],
-            count: 2,
-        })
-        .collect();
+    let rows = training(&observations);
     let weights: Vec<_> = (0..rows.len())
         .map(|i| 1. + (i % 7) as f64 * 0.25)
         .collect();
@@ -106,17 +117,9 @@ fn solver_work_on_a_synthetic_observation_set_stays_pinned() {
     assert!(system.product_terms() <= TERMS_CEILING);
     assert!(system.product_terms() < row_walk_terms + edges.len() * 2 + size.pow(3));
 }
-fn training(observations: &[Observation]) -> Vec<TrainingRow<'_>> {
-    observations
-        .iter()
-        .map(|row| TrainingRow {
-            row,
-            groups: [0, 1],
-            count: 2,
-        })
-        .collect()
-}
+
 #[test]
+
 fn rows_too_wide_to_assemble_keep_the_row_walk_without_a_normal_matrix() {
     let size: usize = 17;
     let count = size.pow(3);
@@ -137,7 +140,9 @@ fn rows_too_wide_to_assemble_keep_the_row_walk_without_a_normal_matrix() {
     let rhs: Vec<_> = (0..count).map(|i| (i % 11) as f64 * 1e-3).collect();
     assert!(system.solve(&rhs, vec![0.; count]).is_some());
 }
+
 #[test]
+
 fn row_walk_and_assembled_products_agree() {
     let size = 9;
     let observations = synthetic_rows(2000, size);
@@ -145,6 +150,7 @@ fn row_walk_and_assembled_products_agree() {
     let edges = edges(size);
     let weights: Vec<_> = (0..rows.len()).map(|i| 1. + (i % 5) as f64 * 0.5).collect();
     let assembled = Pattern::new(&rows, size, &edges);
+    assert!(assembled.normal.is_some());
     let walked = Pattern {
         normal: None,
         ..Pattern::new(&rows, size, &edges)
@@ -162,4 +168,22 @@ fn row_walk_and_assembled_products_agree() {
         .iter()
         .zip(&b)
         .all(|(x, y)| (x - y).abs() <= 1e-12 * x.abs().max(1.)));
+}
+
+#[test]
+
+fn rows_within_the_work_budget_but_too_many_distinct_pairs_keep_the_row_walk() {
+    let size: usize = 33;
+    let count = size.pow(3);
+    let observations: Vec<_> = (0..200)
+        .map(|i| Observation {
+            artifact_weights: (0..40)
+                .map(|k| ((i * 40 + k) * 7919 % count, 1. / 40.))
+                .collect(),
+            ..synthetic_rows(1, size).remove(0)
+        })
+        .collect();
+    let rows = training(&observations);
+    let pattern = Pattern::new(&rows, size, &edges(size));
+    assert!(pattern.normal.is_none());
 }
