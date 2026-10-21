@@ -142,7 +142,7 @@ final class RefineDecodeQualityTests: XCTestCase {
     }
 
     /// The fixture's known native pixel size (12288x8192 — a 100 MP
-    /// Hasselblad L3D-100c / DJI Mavic 3 Pro frame). Verified once here so
+    /// Hasselblad L3D-100c / DJI Mavic 4 Pro frame). Verified once here so
     /// a future fixture swap fails loudly instead of silently invalidating
     /// every geometry assertion below.
     private static let nativeSize = CGSize(width: 12288, height: 8192)

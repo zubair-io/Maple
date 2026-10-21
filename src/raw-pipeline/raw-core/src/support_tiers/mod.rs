@@ -306,7 +306,7 @@ const NO_QUALIFICATION: &[EvidenceSource] = &[];
 pub const FIXTURED_BODIES: &[FixturedBody] = &[
     FixturedBody {
         key: "Hasselblad L3D-100c",
-        display_name: "DJI Mavic 3 Pro (Hasselblad L3D-100c, 100 MP)",
+        display_name: "DJI Mavic 4 Pro (Hasselblad L3D-100c, 100 MP)",
         fixture: "test_0000.DNG",
         fixture_digest: "blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107",
         resolution: ProfileResolution::BundleConfident,

@@ -96,7 +96,7 @@ The colour gate that CI runs is `src/scripts/test_color_pipeline.sh`; per-case c
 
 ## Performance
 
-On an Apple M5 Max Mac (Mac17,6), the GPU-live editor's exposure slider ticks at p50 5.3 ms / p95 18.9 ms and its contrast slider at p50 4.1 ms / p95 10.4 ms, both against the 100 MP DJI Mavic 3 Pro reference RAW. The committed, reproducible per-device table — every number sourced to a harness run, with method caveats and a regression ratchet — is [docs/performance.md](docs/performance.md).
+On an Apple M5 Max Mac (Mac17,6), the GPU-live editor's exposure slider ticks at p50 5.3 ms / p95 18.9 ms and its contrast slider at p50 4.1 ms / p95 10.4 ms, both against the 100 MP DJI Mavic 4 Pro reference RAW. The committed, reproducible per-device table — every number sourced to a harness run, with method caveats and a regression ratchet — is [docs/performance.md](docs/performance.md).
 
 ## Documentation
 

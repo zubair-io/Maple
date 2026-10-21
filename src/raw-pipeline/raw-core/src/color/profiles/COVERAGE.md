@@ -20,7 +20,7 @@ therefore load-bearing.
 - Source: the upstream tooling's externally-calibrated profile set
   under `CameraRaw/CameraProfiles/`, re-encoded by
   `src/scripts/convert_dcps.py` into the Maple binary format.
-- Profile count: ~1,406 distinct UCMs (after dedup by
+- Profile count: ~1,459 distinct UCMs (after dedup by
   `dcp_preference`). Includes the upstream `Camera/` subdir of
   per-creative-style variants; UCM dedup keeps one entry per body.
 - Bundled fields: `ColorMatrix1/2`, `ForwardMatrix1/2`,
@@ -36,7 +36,7 @@ The 18 RAW fixtures in `test-fixtures/raws/`:
 
 | Fixture       | Body                       | UCM (rawler-reported)    | Bundle hit  | Notes                                                                                                                                                                         |
 | ------------- | -------------------------- | ------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| test_0000.DNG | DJI Mavic 3 Pro (100 MP)   | `Hasselblad L3D-100c`    | HIT (alias) | Aliased to `DJI FC4382 Mavic3Pro` (drone body code, same Hasselblad sensor).                                                                                                  |
+| test_0000.DNG | DJI Mavic 4 Pro (100 MP)   | `Hasselblad L3D-100c`    | HIT         | Bundled under its own UCM since #4661 (the old alias to the Mavic 3 Pro's `DJI FC4382 Mavic3Pro` was a different sensor). |
 | test_0001.RAW | Panasonic LX2              | `Panasonic DMC-LX2`      | HIT         |                                                                                                                                                                               |
 | test_0002.dng | Hasselblad H2D-39          | `Hasselblad H2D-39`      | HIT (alias) | Aliased to `Hasselblad 39-Coated` (upstream sensor-naming convention).                                                                                                        |
 | test_0003.CR2 | Canon 5DS R                | `Canon EOS 5DS R`        | HIT         |                                                                                                                                                                               |
