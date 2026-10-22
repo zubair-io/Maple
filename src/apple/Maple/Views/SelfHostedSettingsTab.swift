@@ -9,6 +9,10 @@ import MapleUI
 import OSLog
 import SwiftUI
 
+#if os(iOS)
+  import WatchConnectivity
+#endif
+
 private let selfHostedSettingsLog = Logger(subsystem: "app.justmaple.aperture", category: "signin")
 
 #if os(iOS)
@@ -200,8 +204,10 @@ struct SelfHostedSettingsTab: View {
       HStack {
         Spacer()
         #if os(iOS)
-          Button("Connect Apple Watch…") { showsWatchPairing = true }
-            .accessibilityLabel("Connect Apple Watch")
+          if WCSession.isSupported() {
+            Button("Connect Apple Watch…") { showsWatchPairing = true }
+              .accessibilityLabel("Connect Apple Watch")
+          }
           Button("Pair Apple TV…") { pairSheetTarget = .pairing(PairAppleTVViewModel()) }
             .accessibilityLabel("Pair Apple TV")
         #endif
