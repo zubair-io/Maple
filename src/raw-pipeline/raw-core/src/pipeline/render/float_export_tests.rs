@@ -13,6 +13,35 @@ fn chart() -> RawImage {
 }
 
 #[test]
+fn preview_quality_alias_keeps_native_export_dimensions() {
+    let raw = chart();
+    let model = AdjustmentModel {
+        profile: Profile::Neutral,
+        ..Default::default()
+    };
+    let full = render_export_f32(
+        &raw,
+        &model,
+        RenderQuality::Full,
+        None,
+        TargetPrimaries::P3,
+        None,
+    )
+    .unwrap();
+    let preview = render_export_f32(
+        &raw,
+        &model,
+        RenderQuality::Preview,
+        None,
+        TargetPrimaries::P3,
+        None,
+    )
+    .unwrap();
+    assert_eq!((preview.0, preview.1), (full.0, full.1));
+    assert_eq!(preview.2, full.2);
+}
+
+#[test]
 fn float_terminal_matches_both_depths_through_orientation_geometry_and_crop() {
     let mut raw = chart();
     for orientation in [
@@ -182,24 +211,25 @@ fn auto_p3_without_completed_fit_preserves_the_direct_p3_gamut() {
         bytes: &bytes,
         ext: "dng",
     });
-    let expected = render_display_scene(
-        &raw,
-        &model,
-        quality,
-        source,
-        None,
-        TargetPrimaries::P3,
-        None,
-    )
-    .unwrap();
-    let (_, _, actual) =
-        render_export_f32(&raw, &model, quality, source, TargetPrimaries::P3, None).unwrap();
+    let neutral = AdjustmentModel {
+        profile: Profile::Neutral,
+        ..model.clone()
+    };
+    for target in [TargetPrimaries::Srgb, TargetPrimaries::P3] {
+        let expected =
+            render_display_scene(&raw, &neutral, quality, source, None, target, None).unwrap();
+        let (_, _, actual) =
+            render_export_f32(&raw, &model, quality, source, target, None).unwrap();
+        for (pixel, expected) in actual.chunks_exact(4).zip(expected.pixels) {
+            assert!(
+                pixel[..3]
+                    .iter()
+                    .zip(expected)
+                    .all(|(a, b)| (a - b).abs() < 1e-6),
+                "failed Auto fit must use Neutral exposure for {target:?}"
+            );
+        }
+    }
     cache::clear_for_test();
     cache::clear_lut_for_test();
-    for (pixel, expected) in actual.chunks_exact(4).zip(expected.pixels) {
-        assert!(pixel[..3]
-            .iter()
-            .zip(expected)
-            .all(|(a, b)| (a - b).abs() < 1e-6));
-    }
 }

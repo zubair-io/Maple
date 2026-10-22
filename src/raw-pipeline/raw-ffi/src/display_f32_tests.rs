@@ -80,6 +80,36 @@ unsafe fn render(raw: &CString, xmp: &CString, target: u32) -> MapleDisplayBuffe
 }
 
 #[test]
+fn preview_wire_quality_cannot_reduce_native_export_resolution() {
+    let (_dir, raw, xmp) = stage();
+    unsafe {
+        let mut expected = render(&raw, &xmp, 1);
+        let mut actual = MapleDisplayBufferF32::empty();
+        let rc = maple_render_file_display_f32(
+            raw.as_ptr(),
+            xmp.as_ptr(),
+            1,
+            1,
+            std::ptr::null(),
+            0,
+            0,
+            &mut actual,
+        );
+        assert_eq!(rc, 0);
+        assert_eq!(
+            (actual.width, actual.height, actual.len),
+            (expected.width, expected.height, expected.len)
+        );
+        assert_eq!(
+            std::slice::from_raw_parts(actual.rgba, actual.len),
+            std::slice::from_raw_parts(expected.rgba, expected.len)
+        );
+        maple_free_display_buffer_f32(&mut expected);
+        maple_free_display_buffer_f32(&mut actual);
+    }
+}
+
+#[test]
 fn float_export_matches_the_core_terminal_in_both_primaries_and_frees_once() {
     let (_dir, raw_path, xmp_path) = stage();
     let path = Path::new(raw_path.to_str().unwrap());
