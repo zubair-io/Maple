@@ -153,7 +153,12 @@ namespace Maple.WinUI
             var dHi = Math.Pow(pt.Position.X - hiX, 2) + Math.Pow(pt.Position.Y - (_gradeZoneCanvas.ActualHeight - 22), 2);
             _draggingGradeEdge = sender is Button { Tag: string selected } ? selected : dSh <= dHi ? "shadow" : "highlight";
             _gradeEdgePointerId = e.Pointer.PointerId;
-            if (!_gradeZoneCanvas.CapturePointer(e.Pointer)) { _draggingGradeEdge = null; return; }
+            if (!_gradeZoneCanvas.CapturePointer(e.Pointer))
+            {
+                _draggingGradeEdge = null;
+                _gradeEdgePointerId = null;
+                return;
+            }
             ViewModel.BeginAdjustmentGesture(_gradeZoneCanvas);
             ApplyGradeEdgeDrag(_draggingGradeEdge, MuiColorGradeZoneWeightsMath.ValueAtPlotPosition(norm, adj.SplitToneBalance));
             e.Handled = true;
