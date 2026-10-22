@@ -229,8 +229,8 @@ describe('library-relocate end-to-end — companion + dedupe (#2667)', () => {
       repointed = true;
       return result;
     });
-    const realList = xmpConflict.listPairedSidecars;
-    const list = spyOn(xmpConflict, 'listPairedSidecars').mockImplementation(async (raw) => {
+    const realList = xmpConflict.listPairedSidecarsStrict;
+    const list = spyOn(xmpConflict, 'listPairedSidecarsStrict').mockImplementation(async (raw) => {
       if (repointed) throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
       return realList(raw);
     });
@@ -246,6 +246,49 @@ describe('library-relocate end-to-end — companion + dedupe (#2667)', () => {
     }
     expect(locationOf(live.db, asset.assetId)).toMatchObject({ path: newRel });
     expect(await fs.readFile(path.join(root, oldRel, 'IMG_9.dng'), 'utf8')).toBe(
+      'identical-pixels',
+    );
+  });
+
+  it('a source folder misread after the repoint keeps the source photo beside its late edit (#5069)', async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-dedupe-misread-'));
+    const root = dir;
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(root, ...oldRel.split('/')), { recursive: true });
+    await fs.mkdir(path.join(root, ...newRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(root, oldRel, 'IMG_10.dng'), 'identical-pixels');
+    await fs.writeFile(path.join(root, newRel, 'IMG_10.dng'), 'identical-pixels');
+    seedRelocatableAsset(live.db, {
+      root,
+      relPath: oldRel,
+      filename: 'IMG_10.dng',
+      mapleId: 'relocate-dedupe-misread-id',
+      metadataOverride: usPlaceText(),
+    });
+    const late = path.join(root, oldRel, 'IMG_10.xmp');
+    const realRepoint = relocateRepo.repointAssetLocation;
+    let repointed = false;
+    const repoint = spyOn(relocateRepo, 'repointAssetLocation').mockImplementation(async (args) => {
+      const result = await realRepoint(args);
+      await fs.writeFile(late, 'late edit');
+      repointed = true;
+      return result;
+    });
+    // What the best-effort listing reports when a read of the folder fails.
+    const realList = xmpConflict.listPairedSidecars;
+    const list = spyOn(xmpConflict, 'listPairedSidecars').mockImplementation(async (raw) =>
+      repointed ? [] : realList(raw),
+    );
+    try {
+      await postRelocate([`${SLUG}:${oldRel}/IMG_10.dng`]);
+    } finally {
+      repoint.mockRestore();
+      list.mockRestore();
+    }
+    expect(await fs.readFile(late, 'utf8')).toBe('late edit');
+    expect(await fs.readFile(path.join(root, oldRel, 'IMG_10.dng'), 'utf8')).toBe(
       'identical-pixels',
     );
   });
