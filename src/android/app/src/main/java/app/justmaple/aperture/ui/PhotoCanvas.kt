@@ -2,17 +2,28 @@ package app.justmaple.aperture.ui
 
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.justmaple.aperture.*
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 @Composable
@@ -21,6 +32,9 @@ internal fun PhotoCanvas(
     state: MapleState,
     onHistogram: (Result<RgbHistogram>?) -> Unit,
     modifier: Modifier = Modifier,
+    zoomState: CanvasZoomState = rememberCanvasZoomState(),
+    badgeStartPadding: Dp = 12.dp,
+    badgeBottomPadding: Dp = 12.dp,
 ) {
     var view by remember { mutableStateOf<SurfaceView?>(null) }
     var surfaceVersion by remember { mutableIntStateOf(0) }
@@ -28,6 +42,7 @@ internal fun PhotoCanvas(
     DisposableEffect(sampler) { onDispose { sampler.close() } }
     val report by rememberUpdatedState(onHistogram)
     LaunchedEffect(state.selected?.key) { report(null) }
+    LaunchedEffect(state.selected?.key, state.mode) { zoomState.reset() }
     LaunchedEffect(
         state.selected?.key,
         state.values,
@@ -56,12 +71,53 @@ internal fun PhotoCanvas(
             )
         }
     }
+    val aspect = state.values["_aspect"]?.takeIf { it.isFinite() && it > 0f } ?: (3f / 2f)
+    val imageDims =
+        remember(aspect, state.values["_width"], state.values["_height"]) {
+            val w = state.values["_width"]?.toInt()?.takeIf { it > 0 }
+            val h = state.values["_height"]?.toInt()?.takeIf { it > 0 }
+            if (w != null && h != null) w to h
+            else if (aspect >= 1f) 2048 to (2048f / aspect).roundToInt().coerceAtLeast(1)
+            else (2048f * aspect).roundToInt().coerceAtLeast(1) to 2048
+        }
+    val currentImageDims by rememberUpdatedState(imageDims)
+    val currentMode by rememberUpdatedState(state.mode)
+
     BoxWithConstraints(
-        modifier.clipToBounds().testTag("photo-viewport"),
+        modifier
+            .clipToBounds()
+            .pointerInput(state.selected?.key, state.mode) {
+                detectCanvasZoomPanAndSwipe(
+                    zoomState = zoomState,
+                    imageDimensions = { currentImageDims },
+                    allowSwipePaging = currentMode == PhotoMode.Preview,
+                    onSwipePage = { delta -> model.openAdjacent(delta) },
+                )
+            }
+            .testTag("photo-viewport"),
         contentAlignment = Alignment.Center,
     ) {
+        val density = LocalDensity.current.density
+        val viewportPxW = (maxWidth.value * density).coerceAtLeast(1f)
+        val viewportPxH = (maxHeight.value * density).coerceAtLeast(1f)
+        val zoomFactor =
+            zoomState.zoomFactorOverFit(
+                imageDims.first,
+                imageDims.second,
+                viewportPxW,
+                viewportPxH,
+            )
+        val zoomModifier =
+            if (zoomState.isZoomed)
+                Modifier.graphicsLayer {
+                    scaleX = zoomFactor
+                    scaleY = zoomFactor
+                    translationX = zoomState.panX
+                    translationY = zoomState.panY
+                }
+            else Modifier
+
         if (state.mode == PhotoMode.Edit) {
-            val aspect = state.values["_aspect"]?.takeIf { it.isFinite() && it > 0f } ?: (3f / 2f)
             val width = minOf(maxWidth, maxHeight * aspect)
             AndroidView(
                 factory = { context ->
@@ -92,21 +148,63 @@ internal fun PhotoCanvas(
                         )
                     }
                 },
+                update = { canvas ->
+                    canvas.scaleX = zoomFactor
+                    canvas.scaleY = zoomFactor
+                    canvas.translationX = zoomState.panX
+                    canvas.translationY = zoomState.panY
+                },
                 modifier =
-                    Modifier.size(width, width / aspect).semantics {
-                        contentDescription = "Photo canvas"
-                    },
+                    Modifier.size(width, width / aspect)
+                        .then(zoomModifier)
+                        .semantics { contentDescription = "Photo canvas" },
             )
         } else
             state.selected?.let {
                 PhotoThumbnail(
                     it,
                     model.library,
-                    Modifier.fillMaxSize().padding(16.dp),
+                    Modifier.fillMaxSize().padding(16.dp).then(zoomModifier),
                     fit = true,
                     revision = state.document.original,
                 )
             }
+        if (state.mode == PhotoMode.Edit && state.comparingBefore) {
+            Surface(
+                modifier =
+                    Modifier.align(Alignment.TopStart)
+                        .padding(top = 64.dp, start = badgeStartPadding)
+                        .testTag("before-badge"),
+                shape = RoundedCornerShape(6.dp),
+                color = Color.Black.copy(alpha = 0.65f),
+                border = BorderStroke(0.5.dp, MapleColors.primary.copy(alpha = 0.8f)),
+            ) {
+                Text(
+                    text = "BEFORE",
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    color = MapleColors.primary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+        }
+        if (state.selected != null) {
+            CanvasZoomBadge(
+                label =
+                    zoomState.badgeLabel(
+                        imageDims.first,
+                        imageDims.second,
+                        viewportPxW,
+                        viewportPxH,
+                    ),
+                isZoomed = zoomState.isZoomed,
+                onReset = zoomState::reset,
+                modifier =
+                    Modifier.align(Alignment.BottomStart)
+                        .padding(start = badgeStartPadding, bottom = badgeBottomPadding),
+            )
+        }
         if (state.loading || state.rendering)
             MapleGlass {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {

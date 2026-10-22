@@ -9,6 +9,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,6 +34,15 @@ internal fun PhoneEditorControls(
     onArmed: (String) -> Unit,
     onMore: () -> Unit,
 ) {
+    val subTools = remember(group) { subToolsFor(group) }
+    var subTool by remember(group) { mutableStateOf(subTools.first().id) }
+    var band by remember(group) { mutableStateOf(HslBand.Red) }
+    val dockFields =
+        when {
+            group == EditorGroup.Light && subTool == "curve" -> toneCurveFields
+            group == EditorGroup.Color && subTool == "hsl" -> hslBandFields(band)
+            else -> group.tools.map { AdjustmentFields.byName.getValue(it.field) }
+        }
     val field =
         AdjustmentFields.byName[armed]?.takeIf(state::supportsField)
             ?: AdjustmentFields.byName.getValue("exposure")
@@ -55,52 +68,65 @@ internal fun PhoneEditorControls(
                 )
             }
         }
+        if (subTools.size > 1)
+            SubToolSelector(
+                subTools,
+                subTool,
+                { subTool = it },
+                Modifier.padding(horizontal = 8.dp),
+            )
+        if (group == EditorGroup.Color && subTool == "wb")
+            WbPresetChips(
+                wbPresets,
+                model::applyWbPreset,
+                Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        if (group == EditorGroup.Color && subTool == "hsl")
+            HslBandChips(band, { band = it }, Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
         LazyRow(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(
-                group.tools.filter { tool ->
-                    AdjustmentFields.byName[tool.field]?.let {
-                        state.supportsField(it)
-                    } == true
-                },
-                key = { it.field },
-            ) { tool ->
+                dockFields.filter(state::supportsField),
+                key = { it.name },
+            ) { dockField ->
+                val toolField = dockField.name
+                val toolLabel = fieldLabel(dockField)
                 Column(
-                    Modifier.width(76.dp).clickable { onArmed(tool.field) },
+                    Modifier.width(76.dp).clickable { onArmed(toolField) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Box(
                         Modifier.size(40.dp)
                             .clip(CircleShape)
                             .background(
-                                if (armed == tool.field) MapleColors.primary.copy(alpha = .15f)
+                                if (armed == toolField) MapleColors.primary.copy(alpha = .15f)
                                 else MapleColors.raised
                             )
                             .border(
                                 .5.dp,
-                                if (armed == tool.field) MapleColors.primary
+                                if (armed == toolField) MapleColors.primary
                                 else MapleColors.border,
                                 CircleShape,
                             ),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            painterResource(toolGlyph(tool.field)),
-                            tool.label,
+                            painterResource(toolGlyph(toolField)),
+                            toolLabel,
                             Modifier.size(20.dp),
                             tint =
-                                if (armed == tool.field) MapleColors.primary else MapleColors.text,
+                                if (armed == toolField) MapleColors.primary else MapleColors.text,
                         )
                     }
                     Text(
-                        tool.label,
+                        toolLabel,
                         fontSize = 9.sp,
                         lineHeight = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = if (armed == tool.field) MapleColors.primary else MapleColors.muted,
+                        color = if (armed == toolField) MapleColors.primary else MapleColors.muted,
                     )
                 }
             }

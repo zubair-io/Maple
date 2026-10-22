@@ -28,6 +28,7 @@ data class MapleState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val showFilmstrip: Boolean = true,
+    val comparingBefore: Boolean = false,
     val cloudSigningIn: Boolean = false,
     val cloudConnectionsVersion: Int = 0,
 ) {
@@ -36,6 +37,15 @@ data class MapleState(
 
     val canEdit: Boolean
         get() = mode == PhotoMode.Edit && canChangeMetadata && values.isNotEmpty()
+
+    val hasActiveEdits: Boolean
+        get() =
+            values.any { (name, v) ->
+                val spec = app.justmaple.aperture.generated.AdjustmentFields.byName[name]
+                spec != null && kotlin.math.abs(v - spec.initial) > 1e-4f
+            } ||
+                document.attribute("papp:Profile") == "Neutral" ||
+                document.attribute("papp:Look") == "Neutral"
 }
 
 /** Breadcrumbs come from actual provider listings; document IDs can be opaque. */

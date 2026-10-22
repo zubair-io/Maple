@@ -205,6 +205,16 @@ internal constructor(
 
     fun open(photo: Photo) = viewModelScope.launch { open(photo, single = false) }
 
+    fun openAdjacent(delta: Int): Boolean {
+        val snapshot = state.value
+        val current = snapshot.selected ?: return false
+        val index = snapshot.photos.indexOfFirst { it.uri == current.uri }
+        if (index < 0) return false
+        val target = snapshot.photos.getOrNull(index + delta) ?: return false
+        open(target)
+        return true
+    }
+
     private suspend fun open(photo: Photo, single: Boolean) {
         if (!flush()) return
         val nextMode = if (state.value.mode == PhotoMode.Edit) PhotoMode.Edit else PhotoMode.Preview
@@ -220,6 +230,7 @@ internal constructor(
                 documentLoaded = false,
                 mode = nextMode,
                 canResetRawOnlySliders = false,
+                comparingBefore = false,
                 loading = true,
                 rendering = false,
                 document = XmpDocument(),
@@ -303,11 +314,28 @@ internal constructor(
             mutable.update {
                 it.copy(
                     mode = if (it.mode == PhotoMode.Edit) PhotoMode.Preview else PhotoMode.Browse,
+                    comparingBefore = false,
                     rendering = false,
                     loading = false,
                 )
             }
         }
+    }
+
+    fun setComparingBefore(before: Boolean) {
+        val current = state.value
+        if (current.mode != PhotoMode.Edit || current.values.isEmpty()) return
+        if (current.comparingBefore == before) return
+        mutable.update { it.copy(comparingBefore = before) }
+        val drawValues =
+            if (before)
+                current.values.mapValues { (key, v) ->
+                    AdjustmentFields.byName[key]?.initial ?: v
+                }
+            else current.values
+        renderXml = if (before) XmpDocument().serialize() else current.document.serialize()
+        renderer.invalidateModel()
+        queueDraw(drawValues)
     }
 
     fun surface(surface: Surface?, width: Int, height: Int, wideColor: Boolean = false) {
@@ -357,8 +385,9 @@ internal constructor(
                 }
             else current.document.withField(field, next)
         mutable.update {
-            it.copy(values = values, document = document, dirty = true)
+            it.copy(values = values, document = document, comparingBefore = false, dirty = true)
         }
+        renderXml = document.serialize()
         queueDraw(values)
         scheduleSave()
     }
@@ -415,6 +444,16 @@ internal constructor(
     }
 
     fun resetField(name: String) = resetFields(listOf(name))
+
+    fun togglePick() {
+        val picked = state.value.document.attribute("papp:Flag") == "pick"
+        attribute("papp:Flag", if (picked) null else "pick")
+    }
+
+    fun toggleReject() {
+        val rejected = state.value.document.attribute("papp:Flag") == "reject"
+        attribute("papp:Flag", if (rejected) null else "reject")
+    }
 
     fun attribute(name: String, value: String?) {
         if (!state.value.canChangeMetadata) return

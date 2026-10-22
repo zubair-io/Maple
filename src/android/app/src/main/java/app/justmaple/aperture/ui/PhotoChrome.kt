@@ -1,6 +1,9 @@
 package app.justmaple.aperture.ui
 
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,13 +16,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.justmaple.aperture.*
+import kotlinx.coroutines.withTimeoutOrNull
+
+internal const val BEFORE_AFTER_HOLD_THRESHOLD_MS = 300L
 
 @Composable
 internal fun MapleGlass(
@@ -46,6 +55,7 @@ internal fun FloatingPhotoHeader(
     onInfo: () -> Unit,
     onExport: () -> Unit,
     modifier: Modifier = Modifier,
+    zoomState: CanvasZoomState? = null,
 ) {
     var menu by remember { mutableStateOf(false) }
     val editing = state.mode == PhotoMode.Edit
@@ -74,15 +84,23 @@ internal fun FloatingPhotoHeader(
                 }
         }
         MapleGlass(shape = CircleShape) {
-            Row(Modifier.padding(horizontal = 4.dp)) {
-                if (editing)
+            Row(
+                Modifier.padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (editing) {
+                    CompareBeforeAfterButton(
+                        enabled = (state.hasActiveEdits || state.comparingBefore) && state.canEdit,
+                        comparingBefore = state.comparingBefore,
+                        onSetComparingBefore = model::setComparingBefore,
+                    )
                     MuiIconButton(
                         "Undo",
                         Icons.AutoMirrored.Outlined.Undo,
                         enabled = state.canUndo && state.canEdit,
                         onClick = model::undo,
                     )
-                else
+                } else
                     MuiIconButton(
                         "Edit",
                         Icons.Outlined.Edit,
@@ -116,6 +134,16 @@ internal fun FloatingPhotoHeader(
                                 onClick = {
                                     menu = false
                                     model.redo()
+                                },
+                            )
+                        if (zoomState != null)
+                            DropdownMenuItem(
+                                text = { Text("Zoom to fit") },
+                                leadingIcon = { Icon(Icons.Outlined.FitScreen, null) },
+                                enabled = zoomState.isZoomed,
+                                onClick = {
+                                    menu = false
+                                    zoomState.reset()
                                 },
                             )
                         DropdownMenuItem(
@@ -165,5 +193,72 @@ internal fun FloatingPhotoHeader(
                 }
             }
         }
+    }
+}
+
+@Composable
+internal fun CompareBeforeAfterButton(
+    enabled: Boolean,
+    comparingBefore: Boolean,
+    onSetComparingBefore: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val currentEnabled by rememberUpdatedState(enabled)
+    val currentComparing by rememberUpdatedState(comparingBefore)
+    val currentCallback by rememberUpdatedState(onSetComparingBefore)
+
+    Box(
+        modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(if (comparingBefore) MapleColors.primaryDim else Color.Transparent)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    if (!currentEnabled) {
+                        waitForUpOrCancellation()
+                        return@awaitEachGesture
+                    }
+                    val upBeforeHold =
+                        withTimeoutOrNull(BEFORE_AFTER_HOLD_THRESHOLD_MS) {
+                            waitForUpOrCancellation()
+                        }
+                    if (upBeforeHold != null) {
+                        // Short tap (<300ms): toggle latched Before state
+                        currentCallback(!currentComparing)
+                    } else {
+                        // Press-and-hold (>=300ms): peek Before until finger lifts
+                        currentCallback(true)
+                        waitForUpOrCancellation()
+                        currentCallback(false)
+                    }
+                }
+            }
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Compare before and after"
+                role = Role.Button
+                selected = comparingBefore
+                if (!enabled) disabled()
+                onClick {
+                    if (currentEnabled) {
+                        currentCallback(!currentComparing)
+                        true
+                    } else false
+                }
+            }
+            .testTag("before-after-button"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Outlined.Compare,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint =
+                when {
+                    !enabled -> MapleColors.muted.copy(alpha = 0.4f)
+                    comparingBefore -> MapleColors.primary
+                    else -> MapleColors.text
+                },
+        )
     }
 }
