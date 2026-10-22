@@ -113,6 +113,18 @@ async function carryLateToSurvivor(sourceAbsPath: string, survivor: string): Pro
   }
 }
 
+async function removeSourceAfterRepoint(sourceAbsPath: string, survivor: string): Promise<void> {
+  await carryLateToSurvivor(sourceAbsPath, survivor);
+  if (await sidecarLeftBehind(sourceAbsPath)) {
+    log.error(
+      { sourceAbsPath },
+      'relocateGeoAsset: a late sidecar could not follow — source photo kept',
+    );
+    return;
+  }
+  await removePhotoUnlessOldNameEditStays(sourceAbsPath, 'relocateGeoAsset');
+}
+
 /** A sidecar still at the source that no sibling there keeps for itself would
  * be left with no photo, so the source photo stays with it. */
 async function sidecarLeftBehind(sourceAbsPath: string): Promise<boolean> {
@@ -158,15 +170,14 @@ async function dedupeAt(
     'relocateGeoAsset: byte-identical destination — deduped (repoint + delete source)',
   );
   const survivor = path.join(libRoot, newDir, primary.filename);
-  await carryLateToSurvivor(sourceAbsPath, survivor);
-  if (await sidecarLeftBehind(sourceAbsPath)) {
-    log.error(
-      { sourceAbsPath },
-      'relocateGeoAsset: a late sidecar could not follow — source photo kept',
+  // The row already points at the survivor, so a filesystem error here keeps the
+  // source photo and is logged; it must not fail a move that has committed.
+  await removeSourceAfterRepoint(sourceAbsPath, survivor).catch((err: unknown) => {
+    log.warn(
+      { sourceAbsPath, err: err instanceof Error ? err.message : err },
+      'relocateGeoAsset: dedupe source cleanup failed — source photo kept',
     );
-  } else {
-    await removePhotoUnlessOldNameEditStays(sourceAbsPath, 'relocateGeoAsset');
-  }
+  });
   await finalize({
     libRoot,
     oldDirAbs,
