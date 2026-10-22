@@ -17,6 +17,7 @@ maple-linux = { path = "../../../src/linux" }
 
 # Root manifests must carry the shared native decoder fixes themselves.
 [patch.crates-io]
+rawler = { path = "../../../src/raw-pipeline/third_party/rawler" }
 rav1d = { path = "../../../src/raw-pipeline/third_party/rav1d" }
 zune-jpeg = { path = "../../../src/raw-pipeline/third_party/zune-jpeg" }
 avif-parse = { path = "../../../src/raw-pipeline/third_party/avif-parse" }
