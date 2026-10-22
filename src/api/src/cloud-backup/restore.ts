@@ -33,7 +33,7 @@ async function validateRecoveryTarget(target: string): Promise<string> {
     throw new Error('Recovery target must be a directory, not a symlink');
   // Recovery may register a new library outside existing roots; MAPLE_ROOTS still constrains it.
   const configured = parseRootList(process.env.MAPLE_ROOTS);
-  const roots = await Promise.all(configured.map(resolveRealPathThroughAncestors));
+  const roots = await Promise.all(configured.map((root) => resolveRealPathThroughAncestors(root)));
   if (roots.length > 0 && !roots.some((root) => isWithinRoot(root, canonical)))
     throw new Error('Recovery directory is outside allowed server roots');
   return canonical;

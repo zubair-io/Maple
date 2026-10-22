@@ -76,7 +76,7 @@ async function sidecarRoots(): Promise<{ roots: string[]; error: string | null }
   );
   return {
     roots: await Promise.all(
-      [...declared, ...libraries.roots].map(resolveRealPathThroughAncestors),
+      [...declared, ...libraries.roots].map((root) => resolveRealPathThroughAncestors(root)),
     ),
     error: declared.length === 0 ? libraries.error : null,
   };

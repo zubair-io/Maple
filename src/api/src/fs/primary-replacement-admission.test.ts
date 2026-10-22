@@ -1,4 +1,5 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
+import * as nodeFs from 'node:fs/promises';
 import * as fs from './mirrored';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -27,3 +28,31 @@ test('replacement keys follow directory aliases through missing ancestors but ke
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+for (const code of ['EIO', 'EACCES']) {
+  test(`replacement keys reject ${code} instead of splitting a directory alias identity`, async () => {
+    const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'maple-key-error-')));
+    const target = path.join(root, 'real');
+    const alias = path.join(root, 'alias');
+    await fs.mkdir(target);
+    await fs.symlink(target, alias);
+    const realpath = nodeFs.realpath;
+    const failure = Object.assign(new Error('transient directory lookup failure'), { code });
+    const probe = spyOn(nodeFs, 'realpath').mockImplementation((async (
+      file: Parameters<typeof nodeFs.realpath>[0],
+    ) => {
+      if (String(file) === alias) throw failure;
+      return realpath(file);
+    }) as typeof nodeFs.realpath);
+    try {
+      await expect(primaryReplacementKey(path.join(alias, 'photo.dng'))).rejects.toBe(failure);
+      probe.mockRestore();
+      expect(await primaryReplacementKey(path.join(alias, 'photo.dng'))).toBe(
+        await primaryReplacementKey(path.join(target, 'photo.dng')),
+      );
+    } finally {
+      probe.mockRestore();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+}

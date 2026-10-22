@@ -53,7 +53,10 @@ export async function primaryReplacementKey(file: string): Promise<string> {
   // Match the sidecar reservation's conservative Unicode/case aliasing.
   // Rollback receipts still require the exact original and restored identities.
   return path
-    .join(await resolveRealPathThroughAncestors(path.dirname(absolute)), path.basename(absolute))
+    .join(
+      await resolveRealPathThroughAncestors(path.dirname(absolute), true),
+      path.basename(absolute),
+    )
     .normalize('NFC')
     .toLowerCase()
     .normalize('NFC');
