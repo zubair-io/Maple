@@ -65,3 +65,61 @@ for (const mode of ['move', 'copy'] as const) {
     });
   }
 }
+
+test('a new workflow variant waits for Replace and cannot attach to the replacement', async () => {
+  const { createWorkflowVariant } = await import('./workflow-variants');
+  const corpus = JSON.parse(
+    await readFile(
+      new URL('../../../../test-fixtures/workflow/contract-v1.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const f = await recoveryFixture();
+  const source = path.join(f.root, 'incoming.dng');
+  const destination = path.join(f.root, 'photo.dng');
+  const window = Promise.withResolvers<void>();
+  let creating: Promise<unknown> | undefined;
+  try {
+    await writeFile(source, 'incoming original');
+    await writeFile(destination, 'displaced original');
+    await writeFile(path.join(f.root, 'photo.xmp'), edits(1));
+    const libraryId = insertFolder(f.live.db, { path: f.root });
+    const id = insertAsset(f.live.db);
+    insertLocation(f.live.db, { assetId: id, libraryId, path: '', filename: 'photo.dng' });
+    const authorized = await resolveAndAuthorizePath(destination);
+    if (!authorized.ok) throw new Error(authorized.error);
+    creating = (async () => {
+      await window.promise;
+      return createWorkflowVariant(
+        destination,
+        corpus[1],
+        undefined,
+        undefined,
+        authorized.writeScope,
+      );
+    })().catch((error: unknown) => error);
+    const result = await relocateFile({
+      sourceAbsPath: source,
+      destAbsPath: destination,
+      mode: 'move',
+      collision: 'replace',
+      onVerified: async () => {
+        window.resolve();
+        await Bun.sleep(25);
+      },
+    });
+    expect(result.kind).toBe('relocated');
+    const refused = await creating;
+    expect(refused).toMatchObject({
+      status: 409,
+      message: expect.stringContaining('reload before saving'),
+    });
+    const { readdir } = await import('./mirrored');
+    expect((await readdir(f.root)).filter((name) => name.startsWith('photo.v'))).toEqual([]);
+    expect(await readFile(destination, 'utf8')).toBe('incoming original');
+  } finally {
+    window.resolve();
+    await creating;
+    await f.close();
+  }
+});
