@@ -395,6 +395,27 @@ class PhotoLibrary(private val context: Context) {
         )
     }
 
+    /** Refresh each folder once, then read its sidecar bytes from that sibling snapshot. */
+    suspend fun loadSidecars(photos: List<Photo>): Map<String, LoadedSidecar> = io.withLock {
+        withContext(Dispatchers.IO) {
+            buildMap {
+                for ((parent, siblings) in photos.groupBy { it.parent }) {
+                    if (parent != null && siblings.none { CloudLibrary.isCloud(it.uri) })
+                        local.list(parent, fresh = true)
+                    for (photo in siblings) {
+                        try {
+                            val xml = readSidecar(photo)
+                            put(photo.uri.toString(), LoadedSidecar(XmpDocument(xml ?: XmpDocument.EMPTY), xml))
+                        } catch (failure: Exception) {
+                            if (failure is kotlinx.coroutines.CancellationException) throw failure
+                            // Match single-photo culling recovery: unreadable marks remain unknown.
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     suspend fun loadSidecar(photo: Photo): LoadedSidecar = io.withLock {
         withContext(Dispatchers.IO) {
             val xml = readSidecar(photo, fresh = true)

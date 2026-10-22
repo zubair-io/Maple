@@ -65,6 +65,8 @@ class OpeningComparisonTest {
             assertTrue("Resetting an opening edit still differs from Before", model.hasComparisonEdits())
             model.undo()
             assertFalse("Undo restores the opening snapshot", model.hasComparisonEdits())
+            model.attribute("crs:CropLeft", "0.25")
+            assertFalse("A crop-only edit is applied to both comparison states", model.hasComparisonEdits())
             model.setField("exposure", 2f)
             model.commitGesture()
             model.attribute("crs:CropLeft", "0.25")

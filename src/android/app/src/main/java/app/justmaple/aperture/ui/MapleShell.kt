@@ -34,7 +34,7 @@ fun MapleShell(model: MapleViewModel) {
     var sourcesVisible by rememberSaveable { mutableStateOf(true) }
     var info by rememberSaveable { mutableStateOf(false) }
     var exportDialogOpen by remember { mutableStateOf(false) }
-    var pendingExportOptions by remember { mutableStateOf(ExportOptions()) }
+    var pendingExportOptions by rememberSaveable(stateSaver = ExportOptionsSaver) { mutableStateOf(ExportOptions()) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val folderTree = remember(model.library, scope) { FolderTree(model.library, scope) }
@@ -52,7 +52,7 @@ fun MapleShell(model: MapleViewModel) {
             it?.let(model::openSingle)
         }
     val export =
-        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
+        rememberLauncherForActivityResult(ExportDocumentContract(state.selected?.name)) { uri ->
             if (uri != null)
                 scope.launch {
                     runCatching { model.export(uri, false, pendingExportOptions) }
@@ -346,7 +346,7 @@ fun MapleShell(model: MapleViewModel) {
             onConfirm = { chosen ->
                 pendingExportOptions = chosen
                 exportDialogOpen = false
-                export.launch(chosen.suggestedFileName(state.selected?.name))
+                export.launch(chosen)
             },
             onDismiss = { exportDialogOpen = false },
         )

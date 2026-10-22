@@ -59,6 +59,21 @@ class CropToolTest {
     }
 
     @Test
+    fun cropMoveAccumulatesEventsWithoutWaitingForRecomposition() {
+        var result = CropRect(0.2f, 0.2f, 0.8f, 0.8f)
+        val original = result
+        compose.setContent { Box(Modifier.size(300.dp)) { CropOverlay(original, { result = it }) } }
+        compose.onNodeWithTag("crop-overlay").performTouchInput {
+            down(center)
+            moveBy(Offset(width * 0.025f, 0f))
+            moveBy(Offset(width * 0.025f, 0f))
+            moveBy(Offset(width * 0.025f, 0f))
+            up()
+        }
+        compose.runOnIdle { assertEquals(0.275f, result.left, 0.002f) }
+    }
+
+    @Test
     fun removingTheOverlayCommitsAnInterruptedCropGestureOnce() {
         var shown by mutableStateOf(true)
         var crop by mutableStateOf(CropRect(top = 0.2f, left = 0.2f, bottom = 0.8f, right = 0.8f))
