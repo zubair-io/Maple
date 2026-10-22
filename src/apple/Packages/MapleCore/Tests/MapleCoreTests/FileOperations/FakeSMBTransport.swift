@@ -50,6 +50,19 @@ actor FakeSMBTransport: SMBFileTransport {
   private(set) var consumedPaths: [String] = []
   private var failCopiesInto: String?
   private var replacementAtRestoreMark: (item: String, contents: String)?
+  private var replacementAtPublish: (trigger: String, item: String, contents: String)?
+  private var foldsCase = false
+
+  func setFoldsCase(_ value: Bool) { foldsCase = value }
+
+  func setReplacementAtPublish(_ trigger: String, item: String, contents: String) {
+    replacementAtPublish = (trigger, item, contents)
+  }
+
+  private func lookup(_ path: String) -> Entry? {
+    files[path]
+      ?? (foldsCase ? files.first { $0.key.lowercased() == path.lowercased() }?.value : nil)
+  }
 
   func setFailCopiesInto(_ directory: String) { failCopiesInto = directory }
 
@@ -99,7 +112,7 @@ actor FakeSMBTransport: SMBFileTransport {
   // MARK: - SMBFileTransport
 
   func attributesOfItem(atPath path: String) async throws -> [URLResourceKey: any Sendable] {
-    if let entry = files[path] {
+    if let entry = lookup(path) {
       return [
         .fileSizeKey: NSNumber(value: entry.data.count), .contentModificationDateKey: entry.mtime,
         .documentIdentifierKey: NSNumber(value: reportsFileIdentity ? entry.inode : 0),
@@ -185,7 +198,7 @@ actor FakeSMBTransport: SMBFileTransport {
     atPath path: String, expectedIdentity: UInt64,
     consume: @Sendable @escaping (Data) -> Void
   ) async throws {
-    guard let file = files[path], file.inode == expectedIdentity else { throw POSIXError(.ESTALE) }
+    guard let file = lookup(path), file.inode == expectedIdentity else { throw POSIXError(.ESTALE) }
     consume(file.data)
   }
   func moveRestoreFile(
@@ -193,6 +206,10 @@ actor FakeSMBTransport: SMBFileTransport {
     consume: @Sendable @escaping (Data) -> Void,
     validate: @Sendable @escaping (UInt64) -> Bool
   ) async throws {
+    if let replacement = replacementAtPublish, replacement.trigger == toPath {
+      seed(replacement.contents, at: replacement.item)
+      replacementAtPublish = nil
+    }
     guard let captured = files[path], captured.inode == expectedIdentity
     else {
       throw POSIXError(.ESTALE)
