@@ -52,12 +52,12 @@ export function clampParametricSplit(
       return Math.round(Math.min(Math.max(val, 10), hi));
     }
     case 'midtone': {
-      const lo = Math.max(20, shadow + MIN_SPLIT_UI_GAP);
+      const lo = Math.min(80, Math.max(20, shadow + MIN_SPLIT_UI_GAP));
       const hi = Math.max(lo, Math.min(80, highlight - MIN_SPLIT_UI_GAP));
       return Math.round(Math.min(Math.max(val, lo), hi));
     }
     case 'highlight': {
-      const lo = Math.max(30, midtone + MIN_SPLIT_UI_GAP);
+      const lo = Math.min(90, Math.max(30, midtone + MIN_SPLIT_UI_GAP));
       const hi = Math.max(lo, 90);
       return Math.round(Math.min(Math.max(val, lo), hi));
     }

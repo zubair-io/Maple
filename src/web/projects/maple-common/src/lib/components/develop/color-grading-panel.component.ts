@@ -79,6 +79,25 @@ function smoothstep(e0: number, e1: number, x: number): number {
 }
 
 // Snap to the anchor like raw-core's resolve_*_edge so a drag to the end equals the default, not 0.565.
+const EDGE_KEY_DIRECTIONS: Readonly<Record<string, number>> = {
+  ArrowLeft: -1,
+  ArrowDown: -1,
+  ArrowRight: 1,
+  ArrowUp: 1,
+};
+
+function edgeKeyValue(
+  event: KeyboardEvent,
+  current: number,
+  min: number,
+  max: number,
+): number | undefined {
+  if (event.key === 'Home') return min;
+  if (event.key === 'End') return max;
+  const direction = EDGE_KEY_DIRECTIONS[event.key];
+  return direction === undefined ? undefined : current + direction * (event.shiftKey ? 0.05 : 0.01);
+}
+
 function snapEdge(norm: number, min: number, max: number): number {
   const rounded = Math.round(norm * 1000) / 1000;
   const snapped = Math.abs(rounded - SHADOW_EDGE_DEFAULT) < 0.005 ? SHADOW_EDGE_DEFAULT : rounded;
@@ -199,6 +218,25 @@ export class ColorGradingPanelComponent {
 
   onBlendingReset(): void {
     this.patch({ colorGradeBlending: 100 });
+  }
+
+  onEdgeKeyDown(edge: 'shadow' | 'highlight', event: KeyboardEvent): void {
+    if (event.key === 'Backspace' || event.key === 'Delete') {
+      event.preventDefault();
+      this.onEdgeReset(edge);
+      return;
+    }
+    const min = edge === 'shadow' ? 0.1 : HIGHLIGHT_EDGE_DEFAULT;
+    const max = edge === 'shadow' ? SHADOW_EDGE_DEFAULT : 0.9;
+    const current = edge === 'shadow' ? this.shadowEdge() : this.highlightEdge();
+    const next = edgeKeyValue(event, current, min, max);
+    if (next === undefined) return;
+    event.preventDefault();
+    this.patch(
+      edge === 'shadow'
+        ? { colorGradeShadowEdge: snapEdge(next, min, max) }
+        : { colorGradeHighlightEdge: snapEdge(next, min, max) },
+    );
   }
 
   onEdgePointerDown(edge: 'shadow' | 'highlight', event: PointerEvent): void {

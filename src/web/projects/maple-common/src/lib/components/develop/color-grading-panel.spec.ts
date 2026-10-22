@@ -50,6 +50,29 @@ describe('ColorGradingPanelComponent (#275)', () => {
     fixture.detectChanges();
   });
 
+  it('makes both edge handles focusable and supports keyboard adjustment and reset', () => {
+    const fixture = TestBed.createComponent(ColorGradingPanelComponent);
+    fixture.detectChanges();
+    const shadow: SVGElement = fixture.nativeElement.querySelector(
+      '[data-testid="color-grade-shadow-edge-handle"]',
+    );
+    const highlight: SVGElement = fixture.nativeElement.querySelector(
+      '[data-testid="color-grade-highlight-edge-handle"]',
+    );
+    expect(shadow.getAttribute('tabindex')).toBe('0');
+    expect(highlight.getAttribute('tabindex')).toBe('0');
+    const press = (node: SVGElement, key: string) =>
+      node.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    press(shadow, 'ArrowLeft');
+    expect(lib.model().colorGradeShadowEdge).toBeLessThan(0.564622);
+    press(shadow, 'Home');
+    expect(lib.model().colorGradeShadowEdge).toBe(0.1);
+    press(highlight, 'End');
+    expect(lib.model().colorGradeHighlightEdge).toBe(0.9);
+    press(shadow, 'Delete');
+    expect(lib.model().colorGradeShadowEdge).toBeCloseTo(0.564622);
+  });
+
   it('exposes the four zones in tonal order, global last', () => {
     expect(panel.zones.map((z) => z.id)).toEqual(['shadows', 'midtones', 'highlights', 'global']);
   });

@@ -11,6 +11,11 @@ import {
 } from './tone-curve-splits';
 
 describe('tone-curve-splits (#5039)', () => {
+  it('keeps interactive values in bounds even when imported neighbors exceed the UI domain', () => {
+    expect(clampParametricSplit('highlight', 50, 97, 98, 99)).toBe(90);
+    expect(clampParametricSplit('midtone', 50, 97, 98, 99)).toBe(80);
+    expect(clampParametricSplit('shadow', 50, 97, 98, 99)).toBe(50);
+  });
   it('clamps each handle to its authoring bounds and neighbour margins', () => {
     expect(clampParametricSplit('shadow', 2, 25, 50, 75)).toBe(10);
     expect(clampParametricSplit('shadow', 60, 25, 50, 75)).toBe(45);

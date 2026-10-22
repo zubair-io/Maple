@@ -86,6 +86,7 @@ namespace Maple.WinUI
             _curveSplitCanvas.PointerMoved += OnSplitCanvasPointerMoved;
             _curveSplitCanvas.PointerReleased += OnSplitCanvasPointerReleased;
             _curveSplitCanvas.PointerCanceled += OnSplitCanvasPointerReleased;
+            _curveSplitCanvas.PointerCaptureLost += OnSplitCanvasPointerReleased;
             _curveSplitCanvas.DoubleTapped += OnSplitCanvasDoubleTapped;
 
             var splitFooter = new Grid();
@@ -150,7 +151,8 @@ namespace Maple.WinUI
 
             _draggingSplitHandle = nearest.Handle;
             _splitDragPointerId = e.Pointer.PointerId;
-            _curveSplitCanvas.CapturePointer(e.Pointer);
+            if (!_curveSplitCanvas.CapturePointer(e.Pointer)) { _draggingSplitHandle = null; return; }
+            ViewModel.BeginAdjustmentGesture(_curveSplitCanvas);
             ApplySplitDrag(nearest.Handle, pct);
             e.Handled = true;
         }
@@ -167,9 +169,10 @@ namespace Maple.WinUI
         private void OnSplitCanvasPointerReleased(object sender, PointerRoutedEventArgs e)
         {
             if (e.Pointer.PointerId != _splitDragPointerId) return;
-            _curveSplitCanvas?.ReleasePointerCapture(e.Pointer);
             _draggingSplitHandle = null;
             _splitDragPointerId = null;
+            ViewModel.EndAdjustmentGesture(_curveSplitCanvas!);
+            _curveSplitCanvas?.ReleasePointerCapture(e.Pointer);
             RenderSplitDiamonds();
             e.Handled = true;
         }

@@ -258,6 +258,7 @@ TVMapFocusOrderTests
 TVMapHeatmapTuningTests
 TVTimelineViewModelTests
 ToneCurveFlattenTests
+GpuCurveBufferTests
 
 # KTLO qualification batch 6 (#3659): WB sampling on committed synthetic
 # RAW, generated curves, temporary XMP files and stubbed HTTP/provider
