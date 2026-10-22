@@ -2,6 +2,7 @@
 // color curves (#5077), WinUI-free so Maple.WinUI.Tests can exercise it on any OS.
 
 using System;
+using Maple.WinUI.Generated;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -29,13 +30,13 @@ namespace Maple.WinUI.Services
     public static class ColorCurveMath
     {
         /// <summary>Maximum |Δy / Δx| slope allowed for Hue vs Hue to prevent hue folding.</summary>
-        public const double MaxHueSlope = 2.5;
+        public const double MaxHueSlope = ColorCurveEditorTuning.MaxHueSlope;
 
         /// <summary>Default ±Δx spread for 3-point local notches.</summary>
-        public const double DefaultSpread = 0.08;
+        public const double DefaultSpread = ColorCurveEditorTuning.AnchorSpread;
 
         /// <summary>Minimum x separation to avoid duplicate knots.</summary>
-        public const double MinKnotGap = 0.015;
+        public const double MinKnotGap = ColorCurveEditorTuning.MinKnotGap;
 
         /// <summary>Six canonical Oklab hue quick-anchors.</summary>
         public static readonly QuickHueAnchor[] QuickHueAnchors =
@@ -97,6 +98,15 @@ namespace Maple.WinUI.Services
 
         private static double Wrap01(double x) => x - Math.Floor(x);
 
+        public static double ClampX(ColorCurveKind kind, IReadOnlyList<CurvePoint> points, int index, double proposed)
+        {
+            var lower = index > 0 ? points[index - 1].X + MinKnotGap :
+                kind.IsPeriodic() && points.Count > 1 ? Math.Max(0, points[^1].X - 1 + MinKnotGap) : 0;
+            var upper = index + 1 < points.Count ? points[index + 1].X - MinKnotGap :
+                kind.IsPeriodic() && points.Count > 1 ? Math.Min(1, points[0].X + 1 - MinKnotGap) : 1;
+            return lower > upper ? points[index].X : Math.Clamp(proposed, lower, upper);
+        }
+
         public static List<CurvePoint> InsertAnchor(
             IReadOnlyList<CurvePoint> points,
             double x,
@@ -125,15 +135,15 @@ namespace Maple.WinUI.Services
                     if (overwriteY)
                         outPts[idx] = new CurvePoint(px, py);
                 }
-                else if (outPts.Count < 16)
+                else if (outPts.Count < ColorCurveEditorTuning.MaxKnots)
                 {
                     outPts.Add(new CurvePoint(px, py));
                 }
             }
 
+            Upsert(cx, cy, true);
             if (Math.Abs(lx - cx) >= MinKnotGap)
                 Upsert(lx, 0.5, false);
-            Upsert(cx, cy, true);
             if (Math.Abs(rx - cx) >= MinKnotGap)
                 Upsert(rx, 0.5, false);
 
@@ -154,7 +164,7 @@ namespace Maple.WinUI.Services
                 });
                 if (idx >= 0)
                     outPts[idx] = new CurvePoint(px, 0.5);
-                else if (outPts.Count < 16)
+                else if (outPts.Count < ColorCurveEditorTuning.MaxKnots)
                     outPts.Add(new CurvePoint(px, 0.5));
             }
             outPts.Sort((a, b) => a.X.CompareTo(b.X));

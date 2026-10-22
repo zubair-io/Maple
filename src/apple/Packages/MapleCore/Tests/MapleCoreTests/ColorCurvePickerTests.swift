@@ -8,6 +8,26 @@ import XCTest
 
 @MainActor
 final class ColorCurvePickerTests: XCTestCase {
+  func testFirstAnchorChangesOnlyItsSelectedRangeIncludingTheHueSeam() {
+    for kind in ColorCurveKind.allCases {
+      let center = kind.isPeriodic ? 0.98 : 0.5
+      let curve = kind.insertingAnchor(x: center, y: 0.7, into: .identity)
+      XCTAssertEqual(curve.points.count, 3)
+      XCTAssertEqual(kind.evaluate(at: center, points: curve.points), 0.7, accuracy: 1e-6)
+      XCTAssertEqual(kind.evaluate(at: 0.25, points: curve.points), 0.5, accuracy: 1e-6)
+      XCTAssertEqual(kind.evaluate(at: 0.7, points: curve.points), 0.5, accuracy: 1e-6)
+    }
+  }
+
+  func testDraggingPeriodicEndpointsPreservesCircularSeparation() {
+    let kind = ColorCurveKind.hueVsSat
+    XCTAssertEqual(kind.clampX(1, in: [(0, 0.5), (0.7, 0.7)], index: 1), 0.985, accuracy: 1e-6)
+    XCTAssertEqual(kind.clampX(0, in: [(0.3, 0.5), (1, 0.7)], index: 0), 0.015, accuracy: 1e-6)
+    let anchored = kind.insertingAnchor(
+      x: 1, y: 0.6, into: ToneCurve(points: [(0, 0.5), (0.7, 0.7)]))
+    XCTAssertEqual(anchored.points.filter { $0.x == 0 || $0.x == 1 }.count, 1)
+  }
+
   func testSkinToneGuardKnotsInsertAt38_55_72Degrees() {
     let locked = ColorCurveKind.hueVsHue.lockingSkinTone(into: .identity)
     XCTAssertEqual(locked.points.count, 3)
@@ -52,8 +72,8 @@ final class ColorCurvePickerTests: XCTestCase {
     await picker.pick(at: CGPoint(x: 0.5, y: 0.5))
     XCTAssertFalse(picker.isArmed)
     let curve = session.model.colorCurveHueVsSat
-    XCTAssertEqual(curve.points.count, 1)
-    XCTAssertEqual(curve.points[0].x, 250.0 / 360.0, accuracy: 1e-6)
-    XCTAssertEqual(curve.points[0].y, 0.5, accuracy: 1e-6)
+    XCTAssertEqual(curve.points.count, 3)
+    XCTAssertEqual(curve.points[1].x, 250.0 / 360.0, accuracy: 1e-6)
+    XCTAssertEqual(curve.points[1].y, 0.5, accuracy: 1e-6)
   }
 }

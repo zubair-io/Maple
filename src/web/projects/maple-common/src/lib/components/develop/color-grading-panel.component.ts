@@ -12,8 +12,13 @@
 // single write path the WB pad uses for its two-field puck.
 
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
-import { ADJUSTMENT_RANGES, type AdjustmentModel } from '../../models/adjustment-model';
+import {
+  ADJUSTMENT_RANGES,
+  defaultGeneratedAdjustmentModel,
+  type AdjustmentModel,
+} from '../../models/adjustment-model';
 import { ColorWheelComponent } from './color-wheel.component';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
 import type { WheelValue } from './color-wheel-math';
@@ -69,8 +74,11 @@ export const GRADE_ZONES: readonly GradeZone[] = [
 const LUM_RANGE = ADJUSTMENT_RANGES.colorGradeMidtoneLuminance;
 const BALANCE_RANGE = ADJUSTMENT_RANGES.splitToneBalance;
 const BLENDING_RANGE = ADJUSTMENT_RANGES.colorGradeBlending;
-const SHADOW_EDGE_DEFAULT = 0.564622;
-const HIGHLIGHT_EDGE_DEFAULT = 0.564622;
+const DEFAULTS = defaultGeneratedAdjustmentModel();
+const SHADOW_EDGE_DEFAULT = DEFAULTS.colorGradeShadowEdge;
+const HIGHLIGHT_EDGE_DEFAULT = DEFAULTS.colorGradeHighlightEdge;
+const SHADOW_RANGE = ADJUSTMENT_RANGES.colorGradeShadowEdge;
+const HIGHLIGHT_RANGE = ADJUSTMENT_RANGES.colorGradeHighlightEdge;
 
 function smoothstep(e0: number, e1: number, x: number): number {
   const span = Math.max(e1 - e0, 1e-5);
@@ -115,8 +123,8 @@ export function computeZoneWeights(
   const balanceExp = Math.pow(2, -Math.min(Math.max(balance, -100), 100) / 100);
   const lb = Math.pow(lClamped, balanceExp);
   const b = Math.min(Math.max(blending, 0), 100) / 100;
-  const ls = Math.min(Math.max(shadowEdge, 0.1), 0.564622);
-  const lh = Math.min(Math.max(highlightEdge, 0.564622), 0.9);
+  const ls = Math.min(Math.max(shadowEdge, SHADOW_RANGE[0]), SHADOW_RANGE[1]);
+  const lh = Math.min(Math.max(highlightEdge, HIGHLIGHT_RANGE[0]), HIGHLIGHT_RANGE[1]);
   const s0 = (1 - b) * Math.max(ls - 0.04, 0);
   const s1 = ls;
   const h0 = lh;
@@ -137,6 +145,11 @@ export function computeZoneWeights(
 })
 export class ColorGradingPanelComponent {
   private readonly library = inject(LibraryStateService);
+  private readonly editor = inject(EditorStateService);
+  readonly shadowMin = SHADOW_RANGE[0];
+  readonly shadowMax = SHADOW_RANGE[1];
+  readonly highlightMin = HIGHLIGHT_RANGE[0];
+  readonly highlightMax = HIGHLIGHT_RANGE[1];
 
   readonly zones = GRADE_ZONES;
   readonly lumMin = LUM_RANGE[0];
@@ -152,7 +165,9 @@ export class ColorGradingPanelComponent {
   });
 
   readonly balance = computed<number>(() => this.adj()?.splitToneBalance ?? 0);
-  readonly blending = computed<number>(() => this.adj()?.colorGradeBlending ?? 100);
+  readonly blending = computed<number>(
+    () => this.adj()?.colorGradeBlending ?? DEFAULTS.colorGradeBlending,
+  );
   readonly shadowEdge = computed<number>(
     () => this.adj()?.colorGradeShadowEdge ?? SHADOW_EDGE_DEFAULT,
   );
@@ -216,8 +231,18 @@ export class ColorGradingPanelComponent {
     this.patch({ colorGradeBlending: value });
   }
 
+  beginBlending(): void {
+    this.editor.commit('adjustment', 'Colour grading blending');
+  }
+
+  endBlending(): void {
+    this.editor.endEdit();
+  }
+
   onBlendingReset(): void {
-    this.patch({ colorGradeBlending: 100 });
+    this.editor.commit('adjustment', 'Reset colour grading blending');
+    this.patch({ colorGradeBlending: DEFAULTS.colorGradeBlending });
+    this.editor.endEdit();
   }
 
   onEdgeKeyDown(edge: 'shadow' | 'highlight', event: KeyboardEvent): void {
@@ -226,21 +251,24 @@ export class ColorGradingPanelComponent {
       this.onEdgeReset(edge);
       return;
     }
-    const min = edge === 'shadow' ? 0.1 : HIGHLIGHT_EDGE_DEFAULT;
-    const max = edge === 'shadow' ? SHADOW_EDGE_DEFAULT : 0.9;
+    const min = edge === 'shadow' ? SHADOW_RANGE[0] : HIGHLIGHT_RANGE[0];
+    const max = edge === 'shadow' ? SHADOW_RANGE[1] : HIGHLIGHT_RANGE[1];
     const current = edge === 'shadow' ? this.shadowEdge() : this.highlightEdge();
     const next = edgeKeyValue(event, current, min, max);
     if (next === undefined) return;
     event.preventDefault();
+    this.editor.commit('adjustment', `Colour grading ${edge} edge`);
     this.patch(
       edge === 'shadow'
         ? { colorGradeShadowEdge: snapEdge(next, min, max) }
         : { colorGradeHighlightEdge: snapEdge(next, min, max) },
     );
+    this.editor.endEdit();
   }
 
   onEdgePointerDown(edge: 'shadow' | 'highlight', event: PointerEvent): void {
     event.preventDefault();
+    this.editor.commit('adjustment', `Colour grading ${edge} edge`);
     this.activeEdgeDrag = edge;
     (event.currentTarget as Element | null)?.setPointerCapture?.(event.pointerId);
     this.updateEdgeFromEvent(edge, event);
@@ -252,15 +280,19 @@ export class ColorGradingPanelComponent {
   }
 
   onEdgePointerUp(): void {
+    if (!this.activeEdgeDrag) return;
     this.activeEdgeDrag = null;
+    this.editor.endEdit();
   }
 
   onEdgeReset(edge: 'shadow' | 'highlight'): void {
+    this.editor.commit('adjustment', `Reset colour grading ${edge} edge`);
     if (edge === 'shadow') {
       this.patch({ colorGradeShadowEdge: SHADOW_EDGE_DEFAULT });
     } else {
       this.patch({ colorGradeHighlightEdge: HIGHLIGHT_EDGE_DEFAULT });
     }
+    this.editor.endEdit();
   }
 
   private updateEdgeFromEvent(edge: 'shadow' | 'highlight', event: PointerEvent): void {
@@ -271,9 +303,11 @@ export class ColorGradingPanelComponent {
     if (rect.width <= 0) return;
     const norm = (event.clientX - rect.left) / rect.width;
     if (edge === 'shadow') {
-      this.patch({ colorGradeShadowEdge: snapEdge(norm, 0.1, SHADOW_EDGE_DEFAULT) });
+      this.patch({ colorGradeShadowEdge: snapEdge(norm, SHADOW_RANGE[0], SHADOW_RANGE[1]) });
     } else {
-      this.patch({ colorGradeHighlightEdge: snapEdge(norm, HIGHLIGHT_EDGE_DEFAULT, 0.9) });
+      this.patch({
+        colorGradeHighlightEdge: snapEdge(norm, HIGHLIGHT_RANGE[0], HIGHLIGHT_RANGE[1]),
+      });
     }
   }
 

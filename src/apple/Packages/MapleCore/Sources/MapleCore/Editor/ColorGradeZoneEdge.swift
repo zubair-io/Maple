@@ -1,10 +1,11 @@
 import Foundation
 
 public enum ColorGradeZoneEdge {
-  public static let shadowRange: ClosedRange<Double> = 0.10...0.564622
-  public static let highlightRange: ClosedRange<Double> = 0.564622...0.90
+  public static let shadowRange: ClosedRange<Double> = AdjustmentModel.colorGradeShadowEdgeRange
+  public static let highlightRange: ClosedRange<Double> = AdjustmentModel
+    .colorGradeHighlightEdgeRange
 
-  public static let anchor = 0.564622
+  public static let anchor = shadowRange.upperBound
 
   /// `x` and `width` must be in the SAME coordinate space: the strip's, not
   /// the dragged handle's, or the pivot tracks the handle's own 22pt frame.

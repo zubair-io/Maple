@@ -86,6 +86,12 @@ pub(crate) fn emit_cs() -> String {
         out.push_str(&format!("        [\"{field}\"] = \"{element}\",\n"));
     }
     out.push_str("    };\n}\n");
+    out.push_str(&format!("\npublic static class ColorCurveEditorTuning\n{{\n    public const double AnchorSpread = {};\n    public const double MinKnotGap = {};\n    public const int MaxKnots = {};\n    public const double MaxHueSlope = {};\n}}\n",
+        raw_core::stages::color_curves::EDITOR_ANCHOR_SPREAD,
+        raw_core::stages::color_curves::EDITOR_MIN_KNOT_GAP,
+        raw_core::stages::color_curves::EDITOR_MAX_KNOTS,
+        raw_core::stages::color_curves::EDITOR_MAX_HUE_SLOPE));
+
     out
 }
 

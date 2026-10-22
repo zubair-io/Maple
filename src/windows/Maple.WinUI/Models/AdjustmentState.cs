@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Maple.WinUI.Generated;
 
 namespace Maple.WinUI.Models
 {
@@ -134,8 +135,10 @@ namespace Maple.WinUI.Models
         public double ColorGradeGlobalSaturation = 0.0;
         public double ColorGradeGlobalLuminance = 0.0;
         public double ColorGradeBlending = 100.0;
-        public double ColorGradeShadowEdge = 0.564622;
-        public double ColorGradeHighlightEdge = 0.564622;
+        private static readonly double DefaultGradeShadowEdge = System.Array.Find(AdjustmentFields.All, f => f.Name == "color_grade_shadow_edge")!.DefaultNumber;
+        private static readonly double DefaultGradeHighlightEdge = System.Array.Find(AdjustmentFields.All, f => f.Name == "color_grade_highlight_edge")!.DefaultNumber;
+        public double ColorGradeShadowEdge = DefaultGradeShadowEdge;
+        public double ColorGradeHighlightEdge = DefaultGradeHighlightEdge;
 
         // --- HSL 8-band (hue / sat / lum), all [-100, 100] ---
         public double HueAdjustmentRed, HueAdjustmentOrange, HueAdjustmentYellow, HueAdjustmentGreen,

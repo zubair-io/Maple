@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { ToneCurvePoint } from '../../models/adjustment-model';
 import {
   COLOR_CURVES,
+  clampColorCurveX,
   clampColorCurveY,
   evaluateColorCurve,
   insertColorCurveAnchor,
@@ -10,6 +11,32 @@ import {
 } from './color-curves-math';
 
 describe('color-curves-math (#5077)', () => {
+  it('keeps a first sampled correction local, including across the hue seam', () => {
+    for (const desc of COLOR_CURVES) {
+      const center = desc.isPeriodic ? 0.98 : 0.5;
+      const curve = insertColorCurveAnchor({ points: [] }, center, 0.7, desc.isPeriodic);
+      expect(curve.points).toHaveLength(3);
+      expect(evaluateColorCurve(desc, center, curve.points)).toBeCloseTo(0.7);
+      expect(evaluateColorCurve(desc, 0.25, curve.points)).toBeCloseTo(0.5);
+      expect(evaluateColorCurve(desc, 0.7, curve.points)).toBeCloseTo(0.5);
+    }
+  });
+
+  it('keeps periodic endpoint handles separated around the hue seam', () => {
+    const hue = COLOR_CURVES[1];
+    const left: ToneCurvePoint[] = [
+      [0, 0.5],
+      [0.7, 0.7],
+    ];
+    expect(clampColorCurveX(hue, 1, left, 1)).toBeCloseTo(0.985);
+    const right: ToneCurvePoint[] = [
+      [0.3, 0.5],
+      [1, 0.7],
+    ];
+    expect(clampColorCurveX(hue, 0, right, 0)).toBeCloseTo(0.015);
+    const anchored = insertColorCurveAnchor({ points: left }, 1, 0.6, true);
+    expect(anchored.points.filter(([x]) => x === 0 || x === 1)).toEqual([[0, 0.6]]);
+  });
   it('Lock Skin Tone places neutral guard knots at 38, 55, and 72 degrees on Hue curves', () => {
     const hvh = COLOR_CURVES.find((c) => c.id === 'hueVsHue')!;
     const locked = lockSkinToneCurve(hvh, { points: [] });
@@ -56,6 +83,7 @@ describe('color-curves-math (#5077)', () => {
     expect(sampleXForCurve(svs, sample)).toBeCloseTo(0.4, 5);
 
     const anchored = insertColorCurveAnchor({ points: [] }, sample.uH, 0.5);
-    expect(anchored.points).toEqual([[0.7, 0.5]]);
+    expect(anchored.points).toHaveLength(3);
+    expect(anchored.points).toContainEqual([0.7, 0.5]);
   });
 });

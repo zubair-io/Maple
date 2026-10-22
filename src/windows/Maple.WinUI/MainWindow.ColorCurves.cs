@@ -379,9 +379,7 @@ namespace Maple.WinUI
             var pos = e.GetCurrentPoint(_colorCurveCanvas).Position;
             var rawX = Math.Clamp(pos.X / w, 0.0, 1.0);
             var rawY = Math.Clamp(1.0 - pos.Y / h, 0.0, 1.0);
-            var minX = idx > 0 ? pts[idx - 1].X + 0.01 : 0.0;
-            var maxX = idx + 1 < pts.Count ? pts[idx + 1].X - 0.01 : 1.0;
-            var clampedX = Math.Clamp(rawX, minX, maxX);
+            var clampedX = ColorCurveMath.ClampX(_activeColorCurve, pts, idx, rawX);
 
             var next = new List<CurvePoint>(pts);
             next[idx] = new CurvePoint(clampedX, next[idx].Y);

@@ -8,13 +8,16 @@
 
 import { TestBed } from '@angular/core/testing';
 import { signal, type Signal } from '@angular/core';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { By } from '@angular/platform-browser';
+import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import {
   ColorGradingPanelComponent,
   computeZoneWeights,
   GRADE_ZONES,
 } from './color-grading-panel.component';
+import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 
@@ -43,7 +46,10 @@ describe('ColorGradingPanelComponent (#275)', () => {
   beforeEach(() => {
     lib = new LibraryStub();
     TestBed.configureTestingModule({
-      providers: [{ provide: LibraryStateService, useValue: lib }],
+      providers: [
+        { provide: LibraryStateService, useValue: lib },
+        { provide: EditorStateService, useValue: { commit: vi.fn(), endEdit: vi.fn() } },
+      ],
     });
     const fixture = TestBed.createComponent(ColorGradingPanelComponent);
     panel = fixture.componentInstance;
@@ -75,6 +81,30 @@ describe('ColorGradingPanelComponent (#275)', () => {
 
   it('exposes the four zones in tonal order, global last', () => {
     expect(panel.zones.map((z) => z.id)).toEqual(['shadows', 'midtones', 'highlights', 'global']);
+  });
+
+  it('records one blending transaction per drag and separate reset transactions', () => {
+    const fixture = TestBed.createComponent(ColorGradingPanelComponent);
+    fixture.detectChanges();
+    const editor = TestBed.inject(EditorStateService);
+    const slider = fixture.debugElement.query(By.css('[data-testid="color-grading-blending"]'))
+      .componentInstance as MuiLivingSliderComponent;
+    slider.dragStart.emit();
+    slider.value.set(30);
+    slider.value.set(45);
+    expect(editor.commit).toHaveBeenCalledOnce();
+    expect(editor.endEdit).not.toHaveBeenCalled();
+    slider.dragEnd.emit();
+    expect(editor.endEdit).toHaveBeenCalledOnce();
+    expect(lib.model().colorGradeBlending).toBe(45);
+    slider.resetRequest.emit();
+    expect(editor.commit).toHaveBeenCalledTimes(2);
+    expect(editor.endEdit).toHaveBeenCalledTimes(2);
+    expect(lib.model().colorGradeBlending).toBe(defaultAdjustmentModel().colorGradeBlending);
+    panel.onEdgeReset('shadow');
+    panel.onEdgeKeyDown('highlight', new KeyboardEvent('keydown', { key: 'End' }));
+    expect(editor.commit).toHaveBeenCalledTimes(4);
+    expect(editor.endEdit).toHaveBeenCalledTimes(4);
   });
 
   it('writes hue AND saturation for the zone a wheel change came from', () => {

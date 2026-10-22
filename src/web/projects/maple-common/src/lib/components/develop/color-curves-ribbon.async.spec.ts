@@ -82,7 +82,8 @@ describe('color-curve asynchronous picks and visible knot drags', () => {
     await Promise.resolve();
     result.resolve(sample);
     await sampling;
-    expect(library.model().colorCurveHueVsHue.points).toEqual([[0.7, 0.5]]);
+    expect(library.model().colorCurveHueVsHue.points).toHaveLength(3);
+    expect(library.model().colorCurveHueVsHue.points).toContainEqual([0.7, 0.5]);
     expect(panel.eyedropperActive()).toBe(false);
   });
 
