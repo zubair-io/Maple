@@ -7,6 +7,7 @@ import { serializeSidecarWrites } from './sidecar-write-order.ts';
 export async function withReplaceSidecarFence<T>(
   source: string,
   destination: string,
+  mode: 'move' | 'copy',
   operation: () => Promise<T>,
 ): Promise<T> {
   const paired = await Promise.all([listPairedSidecars(source), listPairedSidecars(destination)]);
@@ -18,6 +19,7 @@ export async function withReplaceSidecarFence<T>(
       destination + '.xmp',
       ...paired.flat(),
     ],
-    () => withPrimaryReplacement([source, destination], operation),
+    () =>
+      withPrimaryReplacement(mode === 'move' ? [source, destination] : [destination], operation),
   );
 }

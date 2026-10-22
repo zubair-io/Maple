@@ -447,7 +447,7 @@ async function relocateOnce(
   await fs.mkdir(path.dirname(finalDest), { recursive: true });
   const execute = () => relocateResolved(req, finalDest, ownSidecars);
   return req.collision === 'replace' && req.carrySidecars !== false
-    ? withReplaceSidecarFence(req.sourceAbsPath, finalDest, execute)
+    ? withReplaceSidecarFence(req.sourceAbsPath, finalDest, req.mode, execute)
     : execute();
 }
 
