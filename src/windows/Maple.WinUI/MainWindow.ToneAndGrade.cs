@@ -6,7 +6,6 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Shapes;
 using Maple.UI;
 using Maple.UI.Atoms;
 using Maple.WinUI.Models;
@@ -86,7 +85,11 @@ namespace Maple.WinUI
             _curveSplitCanvas.PointerMoved += OnSplitCanvasPointerMoved;
             _curveSplitCanvas.PointerReleased += OnSplitCanvasPointerReleased;
             _curveSplitCanvas.PointerCanceled += OnSplitCanvasPointerReleased;
-            _curveSplitCanvas.PointerCaptureLost += OnSplitCanvasPointerReleased;
+            _curveSplitCanvas.PointerCaptureLost += (sender, e) =>
+            {
+                if (ReferenceEquals(e.OriginalSource, _curveSplitCanvas))
+                    OnSplitCanvasPointerReleased(sender, e);
+            };
             _curveSplitCanvas.DoubleTapped += OnSplitCanvasDoubleTapped;
 
             var splitFooter = new Grid();
@@ -135,7 +138,7 @@ namespace Maple.WinUI
 
         private void OnSplitCanvasPointerPressed(object sender, PointerRoutedEventArgs e)
         {
-            if (_curveSplitCanvas == null || _curveSplitCanvas.ActualWidth <= 0) return;
+            if (_curveSplitCanvas == null || _curveSplitCanvas.ActualWidth <= 0 || _splitDragPointerId != null) return;
             var pt = e.GetCurrentPoint(_curveSplitCanvas);
             if (!pt.Properties.IsLeftButtonPressed) return;
             var pct = MuiToneCurveSplitsMath.Axis(pt.Position.X / _curveSplitCanvas.ActualWidth);
@@ -147,13 +150,19 @@ namespace Maple.WinUI
                 (ParametricSplitHandle.Highlight, Math.Abs(MuiToneCurveSplitsMath.AuthoringX(pct) - MuiToneCurveSplitsMath.AuthoringX(adj.ParametricHighlightSplit)) * _curveSplitCanvas.ActualWidth),
             };
             var nearest = candidates.OrderBy(c => c.Dist).First();
-            if (nearest.Dist > 8.0) return;
+            var handle = sender is Button { Tag: ParametricSplitHandle selected } ? selected : nearest.Handle;
+            if (sender is not Button && nearest.Dist > 8.0) return;
 
-            _draggingSplitHandle = nearest.Handle;
+            _draggingSplitHandle = handle;
             _splitDragPointerId = e.Pointer.PointerId;
-            if (!_curveSplitCanvas.CapturePointer(e.Pointer)) { _draggingSplitHandle = null; return; }
+            if (!_curveSplitCanvas.CapturePointer(e.Pointer))
+            {
+                _draggingSplitHandle = null;
+                _splitDragPointerId = null;
+                return;
+            }
             ViewModel.BeginAdjustmentGesture(_curveSplitCanvas);
-            ApplySplitDrag(nearest.Handle, pct);
+            ApplySplitDrag(handle, pct);
             e.Handled = true;
         }
 
@@ -238,46 +247,7 @@ namespace Maple.WinUI
 
             if (_curveSplitCanvas == null || _curveSplitCanvas.ActualWidth <= 0) return;
             var w = _curveSplitCanvas.ActualWidth;
-            _curveSplitCanvas.Children.Clear();
-
-            var track = new Line
-            {
-                X1 = 0, Y1 = 9, X2 = w, Y2 = 9,
-                Stroke = (Brush)Application.Current.Resources["MapleBorder"],
-                StrokeThickness = 1.5,
-                IsHitTestVisible = false,
-            };
-            _curveSplitCanvas.Children.Add(track);
-
-            var splits = new (ParametricSplitHandle Handle, double Val)[]
-            {
-                (ParametricSplitHandle.Shadow, s),
-                (ParametricSplitHandle.Midtone, m),
-                (ParametricSplitHandle.Highlight, h),
-            };
-            var accent = (Brush)Application.Current.Resources["MaplePrimary"];
-            var textBrush = (Brush)Application.Current.Resources["MapleTextMain"];
-
-            foreach (var (handle, val) in splits)
-            {
-                var cx = MuiToneCurveSplitsMath.AuthoringX(val) * w;
-                var active = _draggingSplitHandle == handle;
-                var diamond = new Polygon
-                {
-                    Points = new PointCollection
-                    {
-                        new(cx, 4),
-                        new(cx + 5, 9),
-                        new(cx, 14),
-                        new(cx - 5, 9),
-                    },
-                    Fill = active ? accent : textBrush,
-                    Stroke = accent,
-                    StrokeThickness = active ? 1.5 : 1.0,
-                    IsHitTestVisible = false,
-                };
-                _curveSplitCanvas.Children.Add(diamond);
-            }
+            SyncSplitControls(w, s, m, h);
         }
 
         private List<Models.CurvePoint> CurveChannelPoints() => _curveChannel switch
