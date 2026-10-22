@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Maple.UI.Atoms;
 using Maple.WinUI.Models;
+using Maple.WinUI.ViewModels;
 using Maple.WinUI.Services;
 
 namespace Maple.WinUI
@@ -468,7 +469,7 @@ namespace Maple.WinUI
                 if (sample is not { } s) return;
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    if (!ReferenceEquals(ViewModel.SelectedPhoto, photo)) return;
+                    if (!ReferenceEquals(ViewModel.SelectedPhoto, photo) || _activeColorCurve != kind) return;
                     var current = ColorCurveMath.CurvePoints(ViewModel.Adjustments, kind);
                     WriteColorCurvePoints(kind, ColorCurveMath.InsertAnchor(current, kind.SampleX(s), kind));
                 });

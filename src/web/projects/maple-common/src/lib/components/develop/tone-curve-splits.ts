@@ -17,8 +17,8 @@ export type ParametricRegionId =
 export const DEFAULT_SHADOW_SPLIT = 25;
 export const DEFAULT_MIDTONE_SPLIT = 50;
 export const DEFAULT_HIGHLIGHT_SPLIT = 75;
-export const MIN_SPLIT_UI_GAP = 5;
-export const AXIS_TOP = 105.92414;
+const MIN_SPLIT_UI_GAP = 5;
+const AXIS_TOP = 105.92414;
 
 export function defaultSplitValue(handle: ParametricSplitHandle): number {
   switch (handle) {

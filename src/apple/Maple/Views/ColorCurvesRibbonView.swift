@@ -211,8 +211,7 @@ struct ColorCurvesRibbonView: View {
       Button {
         if picker.isArmed { picker.cancel() } else { picker.arm() }
       } label: {
-        Image(systemName: "eyedropper")
-          .font(.system(size: 11, weight: .semibold))
+        MuiIcon(name: "colorize", size: .sm)
           .foregroundStyle(picker.isArmed ? ProTokens.accent : ProTokens.text)
           .padding(5)
           .background(

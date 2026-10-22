@@ -73,6 +73,12 @@ describe('adjustment-fields golden gate (vs generated web module)', () => {
       .map(camelToSnake)
       .sort();
     expect(structured).toEqual([
+      'color_curve_hue_vs_hue',
+      'color_curve_hue_vs_luma',
+      'color_curve_hue_vs_sat',
+      'color_curve_luma_vs_sat',
+      'color_curve_sat_vs_luma',
+      'color_curve_sat_vs_sat',
       'display_tone_curve_blue',
       'display_tone_curve_green',
       'display_tone_curve_luma',

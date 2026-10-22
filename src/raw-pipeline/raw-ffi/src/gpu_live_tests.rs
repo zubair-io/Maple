@@ -473,12 +473,12 @@ pub(super) fn direct_raw_gpu(
             blue: model.display_tone_curve_blue.points.clone(),
         },
         color_curves: raw_gpu::ColorCurveInputs {
-            hue_vs_hue: model.color_curve_hue_vs_hue.points.clone(),
-            hue_vs_sat: model.color_curve_hue_vs_sat.points.clone(),
-            hue_vs_luma: model.color_curve_hue_vs_luma.points.clone(),
-            luma_vs_sat: model.color_curve_luma_vs_sat.points.clone(),
-            sat_vs_sat: model.color_curve_sat_vs_sat.points.clone(),
-            sat_vs_luma: model.color_curve_sat_vs_luma.points.clone(),
+            hue_vs_hue: model.color_curve_hue_vs_hue.points.clone().into(),
+            hue_vs_sat: model.color_curve_hue_vs_sat.points.clone().into(),
+            hue_vs_luma: model.color_curve_hue_vs_luma.points.clone().into(),
+            luma_vs_sat: model.color_curve_luma_vs_sat.points.clone().into(),
+            sat_vs_sat: model.color_curve_sat_vs_sat.points.clone().into(),
+            sat_vs_luma: model.color_curve_sat_vs_luma.points.clone().into(),
         },
     };
     let ctx = GpuContext::new_blocking().expect("gpu context");

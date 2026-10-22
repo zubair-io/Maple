@@ -298,8 +298,8 @@ pub use capture_sharpening::{CaptureSharpeningParams, CaptureSharpeningPass};
 pub use chain::{CancelToken, ChainRunner, Pass};
 pub use clarity::{apply_clarity, ClarityPass, CLARITY_GUIDED_RADIUS};
 pub use color_curves::{
-    apply_color_curves, color_curves_is_identity, ColorCurveInputs, ColorCurvesPass,
-    COLOR_CURVES_FLAT_LEN, COLOR_CURVE_LUT_LEN, NUM_COLOR_CURVES,
+    apply_color_curves, color_curves_is_identity, ColorCurveInputs, ColorCurvePoints,
+    ColorCurvesPass, COLOR_CURVES_FLAT_LEN, COLOR_CURVE_LUT_LEN, NUM_COLOR_CURVES,
 };
 pub use color_grade::{apply_color_grade, ColorGradePass, ColorGradeSliders};
 pub use context::GpuContext;

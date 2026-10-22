@@ -23,6 +23,16 @@ unsafe fn read_points(ptr: *const f32, len: usize) -> Vec<(f32, f32)> {
     flat.chunks_exact(2).map(|c| (c[0], c[1])).collect()
 }
 
+/// Borrow color-curve pairs only for the enclosing unsafe render call.
+/// `ptr` must remain valid for `len` f32 reads throughout that call, or be null.
+unsafe fn borrow_color_points<'a>(ptr: *const f32, len: usize) -> raw_gpu::ColorCurvePoints<'a> {
+    raw_gpu::ColorCurvePoints::Flat(if ptr.is_null() || len == 0 {
+        &[]
+    } else {
+        std::slice::from_raw_parts(ptr, len)
+    })
+}
+
 /// Map a registry-resolved raster list into raw-gpu's own carrier shape
 /// (#3271) — `raw_gpu::GpuMaskRaster` can't be `raw_core::types::MaskRaster`
 /// directly; see that type's doc for why (raw-gpu takes raw-core only as a
@@ -409,12 +419,30 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             blue: read_points(p.display_tone_curve_blue_ptr, p.display_tone_curve_blue_len),
         },
         color_curves: raw_gpu::ColorCurveInputs {
-            hue_vs_hue: read_points(p.color_curve_hue_vs_hue_ptr, p.color_curve_hue_vs_hue_len),
-            hue_vs_sat: read_points(p.color_curve_hue_vs_sat_ptr, p.color_curve_hue_vs_sat_len),
-            hue_vs_luma: read_points(p.color_curve_hue_vs_luma_ptr, p.color_curve_hue_vs_luma_len),
-            luma_vs_sat: read_points(p.color_curve_luma_vs_sat_ptr, p.color_curve_luma_vs_sat_len),
-            sat_vs_sat: read_points(p.color_curve_sat_vs_sat_ptr, p.color_curve_sat_vs_sat_len),
-            sat_vs_luma: read_points(p.color_curve_sat_vs_luma_ptr, p.color_curve_sat_vs_luma_len),
+            hue_vs_hue: borrow_color_points(
+                p.color_curve_hue_vs_hue_ptr,
+                p.color_curve_hue_vs_hue_len,
+            ),
+            hue_vs_sat: borrow_color_points(
+                p.color_curve_hue_vs_sat_ptr,
+                p.color_curve_hue_vs_sat_len,
+            ),
+            hue_vs_luma: borrow_color_points(
+                p.color_curve_hue_vs_luma_ptr,
+                p.color_curve_hue_vs_luma_len,
+            ),
+            luma_vs_sat: borrow_color_points(
+                p.color_curve_luma_vs_sat_ptr,
+                p.color_curve_luma_vs_sat_len,
+            ),
+            sat_vs_sat: borrow_color_points(
+                p.color_curve_sat_vs_sat_ptr,
+                p.color_curve_sat_vs_sat_len,
+            ),
+            sat_vs_luma: borrow_color_points(
+                p.color_curve_sat_vs_luma_ptr,
+                p.color_curve_sat_vs_luma_len,
+            ),
         },
         // Vectorscope scope pass (#3272). `scope_enabled == 0` forces `layer`
         // to -1 regardless of what `p.scope_layer` holds, so a disabled

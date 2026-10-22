@@ -39,7 +39,11 @@ function allowedField(key: string, value: unknown, elements: boolean): boolean {
 
 function parseEntries(raw: unknown, elements: boolean): Record<string, string | null> {
   const entries = Object.entries(record(raw));
-  if (entries.length > (elements ? 8 : 160)) throw new Error('Too many transfer fields');
+  if (
+    entries.length >
+    (elements ? ALLOWED_ELEMENTS.size : ALLOWED_ATTRIBUTES.size + PROVENANCE_RESET.size)
+  )
+    throw new Error('Too many transfer fields');
   return Object.fromEntries(
     entries.map(([key, value]) => {
       const allowed = allowedField(key, value, elements);

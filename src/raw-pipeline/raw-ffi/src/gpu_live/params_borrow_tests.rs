@@ -3,12 +3,15 @@ use raw_core::view::auto_profile::{lut::ColorLut, ProfileCurve};
 
 #[test]
 fn live_frames_borrow_large_host_artifacts_without_copying() {
+    let color_points = [0.1, 0.7, 0.7, 0.3];
     let curve = ProfileCurve::identity().to_flat();
     let residual = ColorLut::identity(49);
     let film = ColorLut::identity(33);
     // The C caller commonly starts from a zero-initialized parameter block.
     let mut params: MapleGpuLiveParams = unsafe { std::mem::zeroed() };
     params.temperature = 6500.0;
+    params.color_curve_hue_vs_hue_ptr = color_points.as_ptr();
+    params.color_curve_hue_vs_hue_len = color_points.len();
     params.profile_curve_ptr = curve.as_ptr();
     params.profile_curve_len = curve.len();
     params.residual_lut_ptr = residual.data.as_ptr();
@@ -21,6 +24,8 @@ fn live_frames_borrow_large_host_artifacts_without_copying() {
     for exposure in 0..40 {
         params.exposure = exposure as f32 / 10.0;
         let inputs = unsafe { inputs_from_params(&params) };
+        assert!(matches!(&inputs.color_curves.hue_vs_hue,
+            raw_gpu::ColorCurvePoints::Flat(points) if points.as_ptr() == color_points.as_ptr()));
         assert!(matches!(inputs.profile_curve_flat, Cow::Borrowed(_)));
         assert!(matches!(inputs.residual_lut_data, Cow::Borrowed(_)));
         assert!(matches!(inputs.film_lut_data, Cow::Borrowed(_)));

@@ -81,6 +81,7 @@
             [style.top.%]="(1 - pt[1]) * 100"
             [attr.aria-label]="activeDescriptor().title + ' knot ' + ($index + 1)"
             [attr.data-testid]="'color-curve-knot-' + $index"
+            (pointerdown)="onRibbonPointerDown($event)"
             (dblclick)="removeKnot($index, $event)"
           ></button>
         }

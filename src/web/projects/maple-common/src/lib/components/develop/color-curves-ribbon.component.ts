@@ -4,15 +4,22 @@ import {
   ElementRef,
   ViewChild,
   computed,
+  effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import { CanvasPickService } from '../image-canvas/canvas-pick.service';
-import { isIdentityToneCurve, type ToneCurvePoint } from '../../models/adjustment-model';
+import {
+  isIdentityToneCurve,
+  type ToneCurve,
+  type ToneCurvePoint,
+  type AdjustmentModel,
+} from '../../models/adjustment-model';
 import {
   COLOR_CURVES,
   QUICK_HUE_ANCHORS,
@@ -25,6 +32,33 @@ import {
   type ColorCurveDescriptor,
   type ColorCurveId,
 } from './color-curves-math';
+
+interface CurveSampleRequest {
+  id: string;
+  model: AdjustmentModel;
+  descriptor: ColorCurveDescriptor;
+  generation: number;
+}
+
+function nearestKnot(
+  points: readonly ToneCurvePoint[],
+  point: { x: number; y: number },
+  rect: DOMRect,
+): number {
+  let best = -1;
+  let distance = Infinity;
+  for (let i = 0; i < points.length; i++) {
+    const d = Math.hypot(
+      (points[i][0] - point.x) * rect.width,
+      (points[i][1] - point.y) * rect.height,
+    );
+    if (d < distance) {
+      distance = d;
+      best = i;
+    }
+  }
+  return distance <= 18 ? best : -1;
+}
 
 @Component({
   selector: 'pro-color-curves-ribbon',
@@ -54,6 +88,21 @@ export class ColorCurvesRibbonComponent {
 
   private draggedKnotIndex: number | null = null;
   private isDragging = false;
+  private sampleGeneration = 0;
+
+  constructor() {
+    effect(() => {
+      this.library.focusedAssetId();
+      untracked(() => this.cancelEyedropper());
+    });
+  }
+
+  private cancelEyedropper(): void {
+    this.sampleGeneration++;
+    if (this.eyedropperActive()) this.pick.cancel();
+    this.eyedropperActive.set(false);
+    this.sampleMessage.set(null);
+  }
 
   readonly adj = computed(() => {
     const id = this.library.focusedAssetId();
@@ -99,14 +148,12 @@ export class ColorCurvesRibbonComponent {
   }
 
   setMode(curves: boolean): void {
-    if (!curves && this.eyedropperActive()) {
-      this.pick.cancel();
-      this.eyedropperActive.set(false);
-    }
+    if (!curves) this.cancelEyedropper();
     this.curvesMode.set(curves);
   }
 
   selectCurve(id: ColorCurveId): void {
+    this.cancelEyedropper();
     this.activeCurveId.set(id);
     this.sampleMessage.set(null);
   }
@@ -128,19 +175,8 @@ export class ColorCurvesRibbonComponent {
     this.editor.commit('adjustment', `Edit ${desc.title}`);
     this.isDragging = true;
 
-    let hitIdx = -1;
-    let bestDist = Infinity;
-    for (let i = 0; i < pts.length; i++) {
-      const dx = (pts[i][0] - u) * rect.width;
-      const dy = (pts[i][1] - rawY) * rect.height;
-      const d = Math.hypot(dx, dy);
-      if (d < bestDist) {
-        bestDist = d;
-        hitIdx = i;
-      }
-    }
-
-    if (hitIdx >= 0 && bestDist <= 18) {
+    const hitIdx = nearestKnot(pts, { x: u, y: rawY }, rect);
+    if (hitIdx >= 0) {
       this.draggedKnotIndex = hitIdx;
     } else {
       const clampedY = clampColorCurveY(desc, u, rawY, pts);
@@ -194,28 +230,28 @@ export class ColorCurvesRibbonComponent {
     this.editor.endEdit();
   }
 
-  insertQuickAnchor(deg: number): void {
+  private editPeriodicCurve(
+    label: string,
+    transform: (desc: ColorCurveDescriptor, curve: ToneCurve) => ToneCurve,
+  ): void {
     const id = this.library.focusedAssetId();
     const a = this.adj();
     if (!id || !a) return;
     const desc = this.activeDescriptor();
     if (!desc.isPeriodic) return;
-    const next = insertColorCurveAnchor(a[desc.field], deg / 360, 0.5);
-    this.editor.commit('adjustment', `Anchor ${desc.title}`);
-    this.library.updateAdjustment(id, { [desc.field]: next });
+    this.editor.commit('adjustment', `${label} ${desc.title}`);
+    this.library.updateAdjustment(id, { [desc.field]: transform(desc, a[desc.field]) });
     this.editor.endEdit();
   }
 
+  insertQuickAnchor(deg: number): void {
+    this.editPeriodicCurve('Anchor', (_desc, curve) =>
+      insertColorCurveAnchor(curve, deg / 360, 0.5),
+    );
+  }
+
   lockSkinTone(): void {
-    const id = this.library.focusedAssetId();
-    const a = this.adj();
-    if (!id || !a) return;
-    const desc = this.activeDescriptor();
-    if (!desc.isPeriodic) return;
-    const next = lockSkinToneCurve(desc, a[desc.field]);
-    this.editor.commit('adjustment', `Lock skin tone on ${desc.title}`);
-    this.library.updateAdjustment(id, { [desc.field]: next });
-    this.editor.endEdit();
+    this.editPeriodicCurve('Lock skin tone on', (desc, curve) => lockSkinToneCurve(desc, curve));
   }
 
   resetActiveCurve(): void {
@@ -229,39 +265,67 @@ export class ColorCurvesRibbonComponent {
 
   async onEyedropperClick(): Promise<void> {
     if (this.eyedropperActive()) {
-      this.pick.cancel();
-      this.eyedropperActive.set(false);
-      this.sampleMessage.set(null);
-      return;
-    }
-    this.eyedropperActive.set(true);
-    this.sampleMessage.set('Click the photo to place a stage-input anchor.');
-    const pt = await this.pick.arm('Click the colour to place a curve anchor');
-    this.eyedropperActive.set(false);
-    if (!pt) {
-      this.sampleMessage.set(null);
+      this.cancelEyedropper();
       return;
     }
     const id = this.library.focusedAssetId();
     const a = this.adj();
     if (!id || !a) return;
+    const desc = this.activeDescriptor();
+    const generation = ++this.sampleGeneration;
+    const request = { id, model: a, descriptor: desc, generation };
+    this.eyedropperActive.set(true);
+    this.sampleMessage.set('Click the photo to place a stage-input anchor.');
     try {
-      const rawBytes = this.library.bytesFor(id) ?? (await this.library.bytesForAsset(id));
-      const asset = this.library.assets().find((item) => item.id === id);
-      const ext = asset?.filename.split('.').pop()?.toLowerCase() ?? 'dng';
-      const xmp = this.serializer.serialize(a);
-      const sample = await this.pipeline.sampleColorCurve(rawBytes, ext, xmp, pt.nx, pt.ny);
-      const desc = this.activeDescriptor();
-      const x = sampleXForCurve(desc, sample);
-      const next = insertColorCurveAnchor(a[desc.field], x, 0.5);
-      this.editor.commit('adjustment', `Sample ${desc.title}`);
-      this.library.updateAdjustment(id, { [desc.field]: next });
-      this.editor.endEdit();
-      this.sampleMessage.set(null);
+      const pt = await this.pick.arm('Click the colour to place a curve anchor');
+      if (!pt) {
+        this.sampleMessage.set(null);
+        return;
+      }
+      if (!this.sampleIsCurrent(request)) return;
+      await this.sampleAnchor(request, pt);
     } catch (err) {
-      this.sampleMessage.set(
-        err instanceof Error && err.message ? err.message : 'Could not sample color curve point.',
-      );
+      this.reportSampleError(request, err);
+    } finally {
+      if (generation === this.sampleGeneration) this.eyedropperActive.set(false);
     }
+  }
+  private reportSampleError(request: CurveSampleRequest, error: unknown): void {
+    if (!this.sampleIsCurrent(request)) return;
+    this.sampleMessage.set(
+      error instanceof Error && error.message
+        ? error.message
+        : 'Could not sample color curve point.',
+    );
+  }
+
+  private sampleIsCurrent(request: CurveSampleRequest): boolean {
+    return (
+      request.generation === this.sampleGeneration &&
+      this.library.focusedAssetId() === request.id &&
+      this.activeDescriptor().id === request.descriptor.id &&
+      this.adj() === request.model
+    );
+  }
+
+  private async sampleAnchor(
+    request: CurveSampleRequest,
+    pt: { nx: number; ny: number },
+  ): Promise<void> {
+    const { id, model: a, descriptor: desc } = request;
+    const rawBytes = this.library.bytesFor(id) ?? (await this.library.bytesForAsset(id));
+    if (!this.sampleIsCurrent(request)) return;
+    const asset = this.library.assets().find((item) => item.id === id);
+    const ext = asset?.filename.split('.').pop()?.toLowerCase() ?? 'dng';
+    const xmp = this.serializer.serialize(a);
+    const sample = await this.pipeline.sampleColorCurve(rawBytes, ext, xmp, pt.nx, pt.ny);
+    if (!this.sampleIsCurrent(request)) return;
+    const x = sampleXForCurve(desc, sample);
+    const current = this.adj()!;
+    const next = insertColorCurveAnchor(current[desc.field], x, 0.5);
+    this.editor.commit('adjustment', `Sample ${desc.title}`);
+    this.library.updateAdjustment(id, { [desc.field]: next });
+    this.editor.endEdit();
+    this.sampleMessage.set(null);
   }
 }

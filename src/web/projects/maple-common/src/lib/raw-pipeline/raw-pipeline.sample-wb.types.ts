@@ -1,3 +1,5 @@
+import { parseSampleError } from './raw-pipeline.sample-error';
+
 // Neutral white-balance sampler (#2434) — worker request/response shapes.
 // Split from `raw-pipeline.types.ts` (at its file budget); that file's
 // `WorkerRequest` / `WorkerResponse` unions reference these.
@@ -55,10 +57,7 @@ const KINDS: readonly WbSampleErrorKind[] = [
 /** Split the WASM sampler's `"<kind>: <message>"` error into its parts;
  *  anything unrecognised is a `develop` failure. */
 export function parseWbSampleError(raw: string): { kind: WbSampleErrorKind; message: string } {
-  const idx = raw.indexOf(': ');
-  const head = idx > 0 ? raw.slice(0, idx) : '';
-  const kind = KINDS.find((k) => k === head);
-  return kind ? { kind, message: raw.slice(idx + 2) } : { kind: 'develop', message: raw };
+  return parseSampleError(raw, KINDS, 'develop');
 }
 
 /** Error thrown to `RawPipelineService.sampleWhiteBalance` callers — carries

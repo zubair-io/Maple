@@ -308,12 +308,12 @@ impl Case {
                 blue: self.model.display_tone_curve_blue.points.clone(),
             },
             color_curves: ColorCurveInputs {
-                hue_vs_hue: self.model.color_curve_hue_vs_hue.points.clone(),
-                hue_vs_sat: self.model.color_curve_hue_vs_sat.points.clone(),
-                hue_vs_luma: self.model.color_curve_hue_vs_luma.points.clone(),
-                luma_vs_sat: self.model.color_curve_luma_vs_sat.points.clone(),
-                sat_vs_sat: self.model.color_curve_sat_vs_sat.points.clone(),
-                sat_vs_luma: self.model.color_curve_sat_vs_luma.points.clone(),
+                hue_vs_hue: self.model.color_curve_hue_vs_hue.points.clone().into(),
+                hue_vs_sat: self.model.color_curve_hue_vs_sat.points.clone().into(),
+                hue_vs_luma: self.model.color_curve_hue_vs_luma.points.clone().into(),
+                luma_vs_sat: self.model.color_curve_luma_vs_sat.points.clone().into(),
+                sat_vs_sat: self.model.color_curve_sat_vs_sat.points.clone().into(),
+                sat_vs_luma: self.model.color_curve_sat_vs_luma.points.clone().into(),
             },
         }
     }
