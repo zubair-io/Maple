@@ -137,6 +137,11 @@ export class AuthService {
 
   /** Pending native sign-in handoff awaiting explicit user consent (#4673). */
   readonly pendingNativeHandoff = this._nativeHandoff.asReadonly();
+  private nativeIssue: {
+    handoff: NativeHandoffRequest;
+    userId: string;
+    result: Promise<boolean>;
+  } | null = null;
   private readonly _nativeLaunch = signal<{ url: string; userId: string } | null>(null);
   readonly nativeLaunchUrl = computed(() => {
     const launch = this._nativeLaunch();
@@ -507,6 +512,21 @@ export class AuthService {
     const userId = this.user()?.id;
     if (!handoff || !userId) return false;
     if (this.nativeLaunchUrl()) return true;
+    const active = this.nativeIssue;
+    if (active?.handoff === handoff && active.userId === userId) return active.result;
+    const result = this.issueNativeHandoff(handoff, userId);
+    this.nativeIssue = { handoff, userId, result };
+    try {
+      return await result;
+    } finally {
+      if (this.nativeIssue?.result === result) this.nativeIssue = null;
+    }
+  }
+
+  private async issueNativeHandoff(
+    handoff: NativeHandoffRequest,
+    userId: string,
+  ): Promise<boolean> {
     try {
       const body: Record<string, string> = {
         code_challenge: handoff.codeChallenge,

@@ -184,6 +184,19 @@ describe('AuthService resumes the native handoff for an already-signed-in sessio
     expect(navigated).toEqual([`maple-app://auth-success?code=CODE-RESUMED&state=${STATE}`]);
   });
 
+  it('coalesces the ceremony completion and consent click into one issuance', async () => {
+    makeService(nativeUrl());
+    auth.user.set(signedInUser);
+    const first = (
+      auth as unknown as { postNativeAuthSuccess: () => Promise<boolean> }
+    ).postNativeAuthSuccess();
+    const second = auth.resumeNativeHandoff();
+    ctrl.expectOne('/api/auth/native-code').flush({ code: 'CODE-COALESCED' });
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(navigated).toEqual([`maple-app://auth-success?code=CODE-COALESCED&state=${STATE}`]);
+  });
+
   it('does not launch a callback after consent is cancelled while issuance is in flight', async () => {
     makeService(nativeUrl());
     auth.user.set(signedInUser);
