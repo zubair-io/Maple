@@ -287,6 +287,25 @@ final class SMBSidecarOwnershipTests: XCTestCase {
       ["/Album/IMG_1.CR3": "new", "/Album/IMG_1.JPG": "jpg", "/Album/IMG_1.xmp": "<sibling/>"])
   }
 
+  func testReplaceClearsStaleEditsBesideUnrelatedSameStemFiles() async throws {
+    let t = FakeSMBTransport()
+    await t.seed("new", at: "/Source/IMG_1.CR3")
+    await t.seed("old", at: "/Album/IMG_1.CR3")
+    await t.seed("<stale/>", at: "/Album/IMG_1.xmp")
+    for ext in ["txt", "aae", "json"] { await t.seed(ext, at: "/Album/IMG_1.\(ext)") }
+
+    _ = try await SMBFileOperations.relocate(
+      "/Source/IMG_1.CR3", to: "/Album", mode: .move, collision: .replace, transport: t)
+
+    let files = await t.allFiles()
+    XCTAssertEqual(
+      files,
+      [
+        "/Album/IMG_1.CR3": "new", "/Album/IMG_1.txt": "txt",
+        "/Album/IMG_1.aae": "aae", "/Album/IMG_1.json": "json",
+      ])
+  }
+
   func testOrphanDestinationSidecarForcesAutoSuffixWithoutOwnSidecar() async throws {
     let t = FakeSMBTransport()
     await t.seed("new", at: "/Source/IMG_1.CR3")
