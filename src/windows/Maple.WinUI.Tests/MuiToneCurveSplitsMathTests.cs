@@ -6,6 +6,13 @@ namespace Maple.WinUI.Tests
     public class MuiToneCurveSplitsMathTests
     {
         [Fact]
+        public void ImportedNeighborsCannotRaiseTheInteractiveUpperBound()
+        {
+            Assert.Equal(90, MuiToneCurveSplitsMath.ClampSplit(ParametricSplitHandle.Highlight, 50, 97, 98, 99));
+            Assert.Equal(80, MuiToneCurveSplitsMath.ClampSplit(ParametricSplitHandle.Midtone, 50, 97, 98, 99));
+        }
+
+        [Fact]
         public void ClampSplit_EnforcesNeighborMarginsAndOuterBounds()
         {
             Assert.Equal(10, MuiToneCurveSplitsMath.ClampSplit(ParametricSplitHandle.Shadow, 2, 25, 50, 75));

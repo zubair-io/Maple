@@ -63,11 +63,11 @@ public enum ToneCurveSplits {
       let hi = max(10.0, min(70.0, midtone - minGap))
       return min(max(val, 10.0), hi).rounded()
     case .midtone:
-      let lo = max(20.0, shadow + minGap)
+      let lo = min(80.0, max(20.0, shadow + minGap))
       let hi = max(lo, min(80.0, highlight - minGap))
       return min(max(val, lo), hi).rounded()
     case .highlight:
-      let lo = max(30.0, midtone + minGap)
+      let lo = min(90.0, max(30.0, midtone + minGap))
       let hi = max(lo, 90.0)
       return min(max(val, lo), hi).rounded()
     }

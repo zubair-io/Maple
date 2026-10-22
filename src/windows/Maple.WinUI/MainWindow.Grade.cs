@@ -128,6 +128,7 @@ namespace Maple.WinUI
             _gradeZoneCanvas.PointerMoved += OnGradeZonePointerMoved;
             _gradeZoneCanvas.PointerReleased += OnGradeZonePointerReleased;
             _gradeZoneCanvas.PointerCanceled += OnGradeZonePointerReleased;
+            _gradeZoneCanvas.PointerCaptureLost += OnGradeZonePointerReleased;
             _gradeZoneCanvas.DoubleTapped += OnGradeZoneDoubleTapped;
 
             stripStack.Children.Add(header);
@@ -146,7 +147,8 @@ namespace Maple.WinUI
             var dHi = Math.Abs(norm - adj.ColorGradeHighlightEdge);
             _draggingGradeEdge = dSh <= dHi ? "shadow" : "highlight";
             _gradeEdgePointerId = e.Pointer.PointerId;
-            _gradeZoneCanvas.CapturePointer(e.Pointer);
+            if (!_gradeZoneCanvas.CapturePointer(e.Pointer)) { _draggingGradeEdge = null; return; }
+            ViewModel.BeginAdjustmentGesture(_gradeZoneCanvas);
             ApplyGradeEdgeDrag(_draggingGradeEdge, norm);
             e.Handled = true;
         }
@@ -163,9 +165,10 @@ namespace Maple.WinUI
         private void OnGradeZonePointerReleased(object sender, PointerRoutedEventArgs e)
         {
             if (e.Pointer.PointerId != _gradeEdgePointerId) return;
-            _gradeZoneCanvas?.ReleasePointerCapture(e.Pointer);
             _draggingGradeEdge = null;
             _gradeEdgePointerId = null;
+            ViewModel.EndAdjustmentGesture(_gradeZoneCanvas!);
+            _gradeZoneCanvas?.ReleasePointerCapture(e.Pointer);
             RenderGradeZoneStrip();
             e.Handled = true;
         }

@@ -464,6 +464,7 @@ namespace Maple.WinUI
             }
             var before = ViewModel.Adjustments.Clone();
             var kind = _activeColorCurve;
+            var fingerprint = Services.Xmp.XmpWriter.Fingerprint(before);
             CancelColorCurvePick();
             _ = Task.Run(() =>
             {
@@ -471,7 +472,8 @@ namespace Maple.WinUI
                 if (sample is not { } s) return;
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    if (!ReferenceEquals(ViewModel.SelectedPhoto, photo) || _activeColorCurve != kind) return;
+                    if (!ReferenceEquals(ViewModel.SelectedPhoto, photo) || _activeColorCurve != kind
+                        || Services.Xmp.XmpWriter.Fingerprint(ViewModel.Adjustments) != fingerprint) return;
                     var current = ColorCurveMath.CurvePoints(ViewModel.Adjustments, kind);
                     WriteColorCurvePoints(kind, ColorCurveMath.InsertAnchor(current, kind.SampleX(s), kind));
                 });

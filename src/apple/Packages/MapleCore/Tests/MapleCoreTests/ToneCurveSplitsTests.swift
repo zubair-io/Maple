@@ -6,6 +6,15 @@ import XCTest
 @testable import MapleCore
 
 final class ToneCurveSplitsTests: XCTestCase {
+  func testImportedNeighborsCannotRaiseTheInteractiveUpperBound() {
+    XCTAssertEqual(
+      ToneCurveSplits.clampSplit(
+        handle: .highlight, proposed: 50, shadow: 97, midtone: 98, highlight: 99), 90)
+    XCTAssertEqual(
+      ToneCurveSplits.clampSplit(
+        handle: .midtone, proposed: 50, shadow: 97, midtone: 98, highlight: 99), 80)
+  }
+
   func testClampSplitEnforcesNeighborMarginsAndOuterBounds() {
     // Shadow clamps to [10, min(70, midtone - 5)]
     XCTAssertEqual(
