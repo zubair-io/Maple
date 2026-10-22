@@ -253,10 +253,6 @@ class AndroidScriptTests(unittest.TestCase):
         self.assertFalse(commands)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class AndroidBootServiceTests(unittest.TestCase):
     def run_boot_health(self, services, focus="launcher"):
         runner = (SCRIPTS / "test-device-ci.sh").read_text()
@@ -309,3 +305,7 @@ class AndroidBootServiceTests(unittest.TestCase):
     def test_observed_anr_requests_the_existing_bounded_recovery(self):
         result = self.run_boot_health("", focus="anr")
         self.assertEqual(result.returncode, 2, result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()
