@@ -524,7 +524,8 @@ jobs:
           # On pull_request runs HEAD is the synthetic merge commit, whose message is
           # "Merge <sha> into <sha>" — read the PR head commit instead (Copilot, #3114).
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_REF: ${{ github.event.merge_group.base_ref }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -543,23 +544,17 @@ jobs:
           # fine, and the commit message is what survives "Rebase and merge"
           # into main's history, since the PR body itself does not. A
           # merge_group run has no pull_request payload, so the queued PR
-          # numbers are read out of the queue head ref and each PR's body is
-          # fetched from the API and appended as well — failing closed if
-          # no queued PR can be identified.
+          # bodies come from the API queue entries whose exact head/base commit
+          # chain connects this synthetic head to MERGE_BASE. A stale or incomplete
+          # queue snapshot fails closed rather than guessing from the ref name.
           marker="$(mktemp)"
           printf '%s\n' "$PR_BODY" > "$marker"
           if [ "${{ github.event_name }}" = "merge_group" ]; then
             git log --format=%B "${MERGE_BASE}..HEAD" >> "$marker"
-            queued_prs="$(printf '%s' "$GROUP_HEAD_REF" | grep -oE 'pr-[0-9]+' | sed 's/^pr-//' | awk '!seen[$0]++' || true)"
-            if [ -z "$queued_prs" ]; then
-              echo "::error::could not identify a queued PR from the merge-group head ref — refusing to validate budget raises without the queued PR bodies."
-              exit 1
-            fi
-            while read -r queued_pr; do
-              [ -n "$queued_pr" ] || continue
-              printf '\n' >> "$marker"
-              gh api "repos/${GITHUB_REPOSITORY}/pulls/${queued_pr}" --jq '.body // ""' >> "$marker"
-            done <<< "$queued_prs"
+            [[ "$GROUP_REF" = refs/heads/* ]] || exit 1
+            python3 tools/ci_group_bodies.py --repository "$GITHUB_REPOSITORY" \
+              --branch "${GROUP_REF#refs/heads/}" --base "$MERGE_BASE" \
+              --head "$GROUP_HEAD" >> "$marker"
           else
             git log -1 --format=%B "${HEAD_SHA:-HEAD}" >> "$marker"
           fi
