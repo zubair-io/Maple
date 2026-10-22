@@ -1,3 +1,4 @@
+import { syncCopiedFile } from '../fs/sync-file.ts';
 /**
  * Filesystem helpers shared by the backup routes. Kept out of the route files
  * so they stay under the file-size budget (CONTRIBUTING.md § "File-size
@@ -17,6 +18,7 @@ export async function atomicMove(src: string, dst: string): Promise<void> {
   } catch (e: any) {
     if (e?.code === 'EXDEV') {
       await fs.copyFile(src, dst);
+      await syncCopiedFile(dst);
       await fs.unlink(src);
     } else {
       throw e;
@@ -45,6 +47,7 @@ export async function moveNoClobber(src: string, dst: string): Promise<boolean> 
     if (e?.code === 'EXDEV') {
       try {
         await fs.copyFile(src, dst, fsConstants.COPYFILE_EXCL);
+        await syncCopiedFile(dst);
       } catch (e2: any) {
         if (e2?.code === 'EEXIST') return false;
         throw e2;

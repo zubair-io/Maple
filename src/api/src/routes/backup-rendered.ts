@@ -1,3 +1,4 @@
+import { syncCopiedFile } from '../fs/sync-file.ts';
 /**
  * POST /api/libraries/:libraryId/backup/rendered
  *
@@ -91,6 +92,7 @@ async function atomicMove(src: string, dst: string): Promise<void> {
   // Going through the mirror-aware `copyFile` (rather than a raw FileHandle
   // write) is what lets the rendered companion replicate to the backup root.
   await fs.copyFile(src, dst, fsConstants.COPYFILE_EXCL);
+  await syncCopiedFile(dst);
   await fs.unlink(src);
 }
 

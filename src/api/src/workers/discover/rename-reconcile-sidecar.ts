@@ -1,3 +1,4 @@
+import { syncCopiedFile } from '../../fs/sync-file.ts';
 /**
  * Sidecar relocation for external-rename reconciliation (#4702).
  *
@@ -226,6 +227,7 @@ async function linkExclusive(src: string, dst: string): Promise<'published' | 'e
     if (!isErrno(err, 'EXDEV') && !isErrno(err, 'ENOTSUP') && !isErrno(err, 'EPERM')) throw err;
     try {
       await fs.copyFile(src, dst, fs.constants.COPYFILE_EXCL);
+      await syncCopiedFile(dst);
       return 'published';
     } catch (copyErr) {
       if (isErrno(copyErr, 'EEXIST')) return 'exists';
@@ -263,6 +265,7 @@ async function publishSidecarExclusive(
   const tmp = `${authorizedDst}.tmp.${process.pid}-${crypto.randomUUID()}`;
   try {
     await fs.copyFile(authorizedSrc, tmp);
+    await syncCopiedFile(tmp);
     return await linkExclusive(tmp, authorizedDst);
   } finally {
     await fs.unlink(tmp).catch(() => {});

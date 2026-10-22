@@ -9,7 +9,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as mirroredFs from './mirrored.ts';
 import { mkdtemp, readFile, rm, writeFile } from './mirrored.ts';
-import { publishExclusive } from './relocate-publish.ts';
+import { publishExclusive, copyVerifiedIntoPlace } from './relocate-publish.ts';
 
 let dir: string;
 
@@ -98,3 +98,37 @@ for (const fallback of ['sync succeeds', 'sync unsupported', 'sync I/O failure']
     }
   });
 }
+
+test.each([false, true])(
+  'a staged-copy flush failure leaves the source and destination intact (replace: %p)',
+  async (replace) => {
+    const source = path.join(dir, 'source.dng');
+    const destination = path.join(dir, 'destination.dng');
+    await writeFile(source, 'original');
+    await writeFile(destination, 'occupant');
+    const realOpen = mirroredFs.open;
+    const open = spyOn(mirroredFs, 'open').mockImplementation((async (
+      ...args: Parameters<typeof realOpen>
+    ) => {
+      const handle = await realOpen(...args);
+      if (String(args[0]).startsWith(destination + '.tmp.')) {
+        handle.datasync = async () => {
+          throw Object.assign(new Error('staged copy flush failed'), { code: 'EIO' });
+        };
+      }
+      return handle;
+    }) as typeof realOpen);
+    try {
+      const publications: Awaited<ReturnType<typeof publishExclusive>>[] = [];
+      await expect(
+        copyVerifiedIntoPlace(source, destination, replace, publications),
+      ).rejects.toThrow('staged copy flush failed');
+      expect(publications).toHaveLength(0);
+      expect(await readFile(source, 'utf8')).toBe('original');
+      expect(await readFile(destination, 'utf8')).toBe('occupant');
+      expect((await mirroredFs.readdir(dir)).sort()).toEqual(['destination.dng', 'source.dng']);
+    } finally {
+      open.mockRestore();
+    }
+  },
+);
