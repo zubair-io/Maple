@@ -8,6 +8,12 @@ interface Replacement {
   restored: string | null;
 }
 const replacements = new Map<string, Replacement>();
+let epoch = 0;
+
+/** Capture-time guard: owner lookup must not straddle a primary publication. */
+export function primaryReplacementEpoch(): number {
+  return epoch;
+}
 
 export async function primaryIdentity(file: string): Promise<string | null> {
   return stat(file, { bigint: true }).then(
@@ -81,6 +87,7 @@ export async function withPrimaryReplacement<T>(files: string[], operation: () =
       return { key, entry };
     }),
   );
+  epoch++;
   for (const { key, entry } of prepared) {
     replacements.delete(key);
     replacements.set(key, entry);
