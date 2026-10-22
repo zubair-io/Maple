@@ -44,9 +44,11 @@ boot_ui_health() {
 		fi
 		services="$(adb shell dumpsys activity services)"
 		busy="$(printf '%s\n' "$services" | awk '
-			/ServiceRecord\{.*com.android.systemui\/.keyguard.KeyguardService/ { keyguard = 1 }
+			/^[[:space:]]*\* ServiceRecord\{/ {
+				keyguard = /com\.android\.systemui\/\.keyguard\.KeyguardService([[:space:]}]|$)/
+				next
+			}
 			keyguard && /executeNesting=[1-9]/ { print; exit }
-			keyguard && /^  \* ServiceRecord/ { keyguard = 0 }
 		')"
 		if [[ "$focus" == *'com.google.android.apps.nexuslauncher/'*'NexusLauncherActivity'* ]] &&
 			[[ -z "$busy" ]] && [[ -n "$(adb shell pidof com.android.systemui)" ]]; then
