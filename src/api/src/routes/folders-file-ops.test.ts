@@ -14,7 +14,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { mkdtemp, readFile, rm, writeFile, mkdir, stat } from 'node:fs/promises';
+import { lstat, mkdtemp, readFile, rm, symlink, writeFile, mkdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import {
@@ -237,6 +237,53 @@ describe('non-asset file delete/relocate routes', () => {
     expect(await readFile(nodePath.join(folderPath, 'moved.xmp'), 'utf8')).toBe('saved meanwhile');
     await expect(stat(sourceAbs)).rejects.toThrow();
   });
+
+  it('a raw .xmp Replace through a symlinked folder waits for a save to the real file (#5134)', async () => {
+    await mkdir(nodePath.join(folderPath, 'real'), { recursive: true });
+    await symlink(nodePath.join(folderPath, 'real'), nodePath.join(folderPath, 'alias'));
+    const realTarget = nodePath.join(folderPath, 'real/target.xmp');
+    await writeFile(nodePath.join(folderPath, 'incoming.xmp'), 'incoming');
+    await writeFile(realTarget, 'old');
+    const held = await holdSave(realTarget, 'saved meanwhile');
+
+    const replacing = postRelocate({
+      source_path: 'incoming.xmp',
+      mode: 'copy',
+      collision: 'replace',
+      destination_path: 'alias',
+      destination_filename: 'target.xmp',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await readFile(realTarget, 'utf8')).toBe('old');
+    held.release();
+    await held.save;
+
+    expect((await replacing).status).toBe(200);
+    expect(await readFile(realTarget, 'utf8')).toBe('incoming');
+  });
+
+  for (const mode of ['move', 'copy'] as const) {
+    it(`a raw .xmp that is a symlink to a photo is refused (${mode}) (#5134)`, async () => {
+      await writeFile(nodePath.join(folderPath, 'photo.dng'), 'original pixels');
+      const link = nodePath.join(folderPath, 'photo.xmp');
+      await symlink(nodePath.join(folderPath, 'photo.dng'), link);
+
+      const res = await postRelocate({
+        source_path: 'photo.xmp',
+        mode,
+        collision: 'auto-suffix',
+        destination_path: 'elsewhere',
+        destination_filename: 'photo.xmp',
+      });
+
+      expect(res.status).toBe(403);
+      expect(await readFile(nodePath.join(folderPath, 'photo.dng'), 'utf8')).toBe(
+        'original pixels',
+      );
+      expect((await lstat(link)).isSymbolicLink()).toBe(true);
+      await expect(stat(nodePath.join(folderPath, 'elsewhere'))).rejects.toThrow();
+    });
+  }
 
   it('a raw .xmp moves into a folder that does not exist yet (#5134)', async () => {
     await writeFile(nodePath.join(folderPath, 'stray.xmp'), 'edit');
