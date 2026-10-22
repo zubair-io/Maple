@@ -5,8 +5,8 @@
   "executed_cases": 12,
   "expected_cases": 12,
   "failed_cases": 0,
-  "git_sha": "e5384a996ae81e52e3b7b611ad341afdb1017ebd",
-  "recorded_at": "2026-10-22T06:13:18Z",
+  "git_sha": "5801f9e4ad38a80f76930d800d7653e5a7af97b2",
+  "recorded_at": "2026-10-22T10:59:41Z",
   "skipped_cases": 0,
   "source": "sidecar_contract_apple"
 }
