@@ -5,7 +5,9 @@
 //! terminals, so everything that decides colour has already run by the time
 //! the buffer comes back here — this file only packs RGBA and applies the
 //! same geometry tail the quantized terminals apply.
-use super::{auto_fit, render_display_scene, RawInput, RenderQuality};
+use super::{
+    auto_fit, render_display_scene, render_display_scene_with_context, RawInput, RenderQuality,
+};
 use crate::{
     film::FilmLut,
     image::{ExifOrientation, Image, RawImage},
@@ -40,7 +42,17 @@ pub fn render_export_f32(
     } else {
         target
     };
-    let mut scene = render_display_scene(raw, model, quality, source, None, working_target, film)?;
+    let (mut scene, context) =
+        render_display_scene_with_context(raw, model, quality, source, None, working_target, film)?;
+    if srgb_auto && context.profile_curve.is_none() && context.profile_lut.is_none() {
+        // A cache marker or extractable preview predicts a fit but cannot prove
+        // one succeeded. Re-develop the cold export directly in P3 if no Auto
+        // tail was produced; rotating an already gamut-mapped sRGB buffer would
+        // permanently discard colours the P3 destination can represent.
+        drop(scene);
+        let scene = render_display_scene(raw, model, quality, source, None, target, film)?;
+        return Ok(finish(scene, raw.orientation, model));
+    }
     if srgb_auto {
         scene.pixels.par_iter_mut().for_each(|pixel| {
             *pixel = crate::color::matrices::M_SRGB_TO_P3
