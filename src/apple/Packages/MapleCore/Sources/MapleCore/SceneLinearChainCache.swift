@@ -176,7 +176,9 @@ final class SceneLinearChainCache: @unchecked Sendable {
   ///   2. scene_tone:     `exposure`, `brightness`, `contrast`,
   ///                      `highlights`, `shadows`, `whites`, `blacks`
   ///   3. tone_curves:    `parametricHighlights`, `parametricLights`,
-  ///                      `parametricDarks`, `parametricShadows`
+  ///                      `parametricDarks`, `parametricShadows`, the three
+  ///                      parametric splits, `toneCurveMode`, and all scene
+  ///                      and display point curves (Luma, Red, Green, Blue)
   ///   4. presence:       `vibrance`, `saturation`
   ///   5. hsl (24 bands): `hueAdjustment{Red…Magenta}`,
   ///                      `saturationAdjustment{Red…Magenta}`,
@@ -263,6 +265,18 @@ final class SceneLinearChainCache: @unchecked Sendable {
     h.combine(model.parametricLights.bitPattern)
     h.combine(model.parametricDarks.bitPattern)
     h.combine(model.parametricShadows.bitPattern)
+    h.combine(model.parametricShadowSplit.bitPattern)
+    h.combine(model.parametricMidtoneSplit.bitPattern)
+    h.combine(model.parametricHighlightSplit.bitPattern)
+    h.combine(model.toneCurveMode)
+    h.combine(model.toneCurveLuma)
+    h.combine(model.toneCurveRed)
+    h.combine(model.toneCurveGreen)
+    h.combine(model.toneCurveBlue)
+    h.combine(model.displayToneCurveLuma)
+    h.combine(model.displayToneCurveRed)
+    h.combine(model.displayToneCurveGreen)
+    h.combine(model.displayToneCurveBlue)
     // vibrance / saturation.
     h.combine(model.vibrance.bitPattern)
     h.combine(model.saturation.bitPattern)

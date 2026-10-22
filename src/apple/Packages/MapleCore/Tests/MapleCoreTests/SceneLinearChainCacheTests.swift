@@ -117,6 +117,30 @@ final class SceneLinearChainCacheTests: XCTestCase {
     let base = try keyThroughSidecarRoundTrip(.default, assetID: id)
 
     let mutations: [(String, (inout AdjustmentModel) -> Void)] = [
+      ("parametricShadowSplit", { $0.parametricShadowSplit = 30 }),
+      ("parametricMidtoneSplit", { $0.parametricMidtoneSplit = 55 }),
+      ("parametricHighlightSplit", { $0.parametricHighlightSplit = 80 }),
+      ("toneCurveMode", { $0.toneCurveMode = .ratioPreserving }),
+      ("toneCurveLuma", { $0.toneCurveLuma = ToneCurve(points: [(0, 0), (0.5, 0.75), (1, 1)]) }),
+      ("toneCurveRed", { $0.toneCurveRed = ToneCurve(points: [(0, 0), (0.5, 0.75), (1, 1)]) }),
+      ("toneCurveGreen", { $0.toneCurveGreen = ToneCurve(points: [(0, 0), (0.5, 0.75), (1, 1)]) }),
+      ("toneCurveBlue", { $0.toneCurveBlue = ToneCurve(points: [(0, 0), (0.5, 0.75), (1, 1)]) }),
+      (
+        "displayToneCurveLuma",
+        { $0.displayToneCurveLuma = ToneCurve(points: [(0, 0), (0.5, 0.75), (1, 1)]) }
+      ),
+      (
+        "displayToneCurveRed",
+        { $0.displayToneCurveRed = ToneCurve(points: [(0, 0), (0.5, 0.75), (1, 1)]) }
+      ),
+      (
+        "displayToneCurveGreen",
+        { $0.displayToneCurveGreen = ToneCurve(points: [(0, 0), (0.5, 0.75), (1, 1)]) }
+      ),
+      (
+        "displayToneCurveBlue",
+        { $0.displayToneCurveBlue = ToneCurve(points: [(0, 0), (0.5, 0.75), (1, 1)]) }
+      ),
       // scene_tone_controls
       ("brightness", { $0.brightness = 40 }),
       // vignette (#1109)
