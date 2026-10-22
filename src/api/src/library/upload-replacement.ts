@@ -64,27 +64,37 @@ async function unlinkPurgedPrimary(filename: string): Promise<void> {
 async function carryLateEditsToReplacement(
   trashedPath: string,
   replacementPath: string,
-): Promise<void> {
+): Promise<boolean> {
   // Strict: an unreadable Trash folder must never read as "no late edits".
   const shared = await sidecarStemOwnedByAnotherFile(trashedPath);
   const late = (await listPairedSidecarsStrict(trashedPath)).filter(
     (sidecar) => !shared || isLegacyBackupSidecarOf(trashedPath, sidecar),
   );
-  for (const sidecar of late) {
-    await serializeSidecarWrite(sidecar, async () => {
-      const bytes = await readSidecarBytes(sidecar);
-      if (bytes === null) return;
-      if (!(await publishConflictBytes(replacementPath, bytes))) {
-        throw new Error('no conflict copy could be published');
-      }
-      await unlink(sidecar);
-    }).catch((err: unknown) => {
+  // One at a time, so the edits don't race each other for conflict names.
+  const followed = await Array.fromAsync(late, (sidecar) =>
+    carryLateEdit(sidecar, replacementPath),
+  );
+  return followed.every(Boolean);
+}
+
+function carryLateEdit(sidecar: string, replacementPath: string): Promise<boolean> {
+  return serializeSidecarWrite(sidecar, async () => {
+    const bytes = await readSidecarBytes(sidecar);
+    if (bytes === null) return;
+    if (!(await publishConflictBytes(replacementPath, bytes))) {
+      throw new Error('no conflict copy could be published');
+    }
+    await unlink(sidecar);
+  }).then(
+    () => true,
+    (err: unknown) => {
       log.error(
         { sidecar, err: err instanceof Error ? err.message : err },
         'identical replacement: a late edit could not follow — kept in Trash',
       );
-    });
-  }
+      return false;
+    },
+  );
 }
 
 /** Prefix hashes are insufficient for erasure: compare the complete files.
@@ -104,6 +114,19 @@ export async function discardIdenticalReplacement(
   const files = [trashedPath];
   for (const filename of files)
     await jailedFile(root, path.relative(root, filename).split(path.sep).join('/'));
+  // An edit written since the check above follows first: once the intent is
+  // recorded the purge can't be undone, so one that can't follow keeps the photo
+  // (#5129). Edits that did follow stay as conflict copies beside the replacement.
+  const lateEditsFollowed = await carryLateEditsToReplacement(trashedPath, replacementPath).catch(
+    (err: unknown) => {
+      log.error(
+        { trashedPath, err: err instanceof Error ? err.message : err },
+        'identical replacement: checking for late edits failed — photo kept in Trash',
+      );
+      return false;
+    },
+  );
+  if (!lateEditsFollowed) return false;
   // Intent and mirror inventories must survive every subsequent local unlink
   // and catalog deletion. Failure retains the row and its association for retry.
   const location = info.fileinfo[0];
