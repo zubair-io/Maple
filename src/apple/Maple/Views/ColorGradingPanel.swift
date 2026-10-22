@@ -20,7 +20,7 @@ import SwiftUI
 
 struct ColorGradingPanel: View {
   @Bindable var state: EditorState
-  @State private var isDraggingEdge = false
+  @State private var activeEdge: String?
   @Environment(\.mapleLayout) private var layout
 
   private var isPhone: Bool { layout == .phone }
@@ -251,20 +251,24 @@ struct ColorGradingPanel: View {
       .gesture(
         DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.zoneStripSpace))
           .onChanged { g in
-            if !isDraggingEdge {
-              isDraggingEdge = true
+            guard activeEdge == nil || activeEdge == id else { return }
+            if activeEdge == nil {
+              activeEdge = id
               state.commit(description: "Adjust \(label)")
             }
             onDrag(g.location.x)
           }
           .onEnded { _ in
-            if isDraggingEdge {
-              isDraggingEdge = false
+            if activeEdge == id {
+              activeEdge = nil
               state.endGesture()
             }
           }
       )
-      .onTapGesture(count: 2, perform: onReset)
+      .onTapGesture(count: 2) {
+        guard activeEdge == nil else { return }
+        onReset()
+      }
       .accessibilityElement()
       .accessibilityLabel(label)
       .accessibilityValue(String(format: "%.2f", value.wrappedValue))
@@ -275,7 +279,10 @@ struct ColorGradingPanel: View {
         @unknown default: break
         }
       }
-      .accessibilityAction(named: "Reset", onReset)
+      .accessibilityAction(named: "Reset") {
+        guard activeEdge == nil else { return }
+        onReset()
+      }
       .accessibilityIdentifier(id)
       .focusable()
       .focusedValue(
@@ -308,6 +315,7 @@ struct ColorGradingPanel: View {
   private func adjustEdge(
     _ value: Binding<Double>, range: ClosedRange<Double>, delta: Double, label: String
   ) {
+    guard activeEdge == nil else { return }
     let next = ColorGradeZoneEdge.normalized(x: value.wrappedValue + delta, width: 1, range: range)
     guard next != value.wrappedValue else { return }
     state.commit(description: "Adjust \(label)")

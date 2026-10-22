@@ -79,8 +79,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "apple_canvas_golden",
@@ -178,8 +178,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "apple_canvas_golden",
@@ -313,8 +313,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "apple_canvas_golden",
@@ -416,8 +416,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "apple_canvas_golden",
@@ -478,8 +478,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "apple_canvas_golden",
@@ -978,24 +978,24 @@
       "description": "render_bytes_gpu vs render_bytes on Metal (#2315)",
       "covers": ["apple"],
       "accepted_backends": ["metal"],
-      "expected_cases": 19,
+      "expected_cases": 24,
       "corpus": [
         "src/raw-pipeline/raw-wasm/src/gpu_render.rs",
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:5df505499cf5c4cff1238e02658175323c792e1eeaa73e74e8243adfe19f99a8",
-      "status": "stale_corpus",
+      "corpus_hash": "blake3:08551007aa88d6ebb5b13111dbadd1d82cabdc6723ad2443caed34253e222adf",
+      "status": "satisfied",
       "record": {
         "backend": "metal",
-        "corpus_hash": "blake3:5b8de61aa594b13da619d6d92d67addcd2357902826df4479b61b5b1eaab5a1c",
-        "expected_cases": 19,
-        "executed_cases": 19,
+        "corpus_hash": "blake3:08551007aa88d6ebb5b13111dbadd1d82cabdc6723ad2443caed34253e222adf",
+        "expected_cases": 24,
+        "executed_cases": 24,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "fcbeacb7e4abc86e4abb0594ea55d017191d2f04",
-        "recorded_at": "2026-10-14T21:45:58Z",
-        "command": "bash -c cd\\ src/raw-pipeline\\ \\&\\&\\ MAPLE_REQUIRE_GPU=1\\ cargo\\ test\\ -p\\ raw-wasm\\ --features\\ gpu\\ gpu_render"
+        "git_sha": "891fbd1bb9510294c767efabfe150e2a1d9f2e8e",
+        "recorded_at": "2026-10-22T21:21:24Z",
+        "command": "bash -c cd\\ src/raw-pipeline\\ \\&\\&\\ MAPLE_REQUIRE_GPU=1\\ cargo\\ test\\ -p\\ raw-wasm\\ --features\\ gpu\\ gpu_render\\ --\\ --include-ignored"
       }
     },
     {

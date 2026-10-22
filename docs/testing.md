@@ -569,12 +569,14 @@ tools/qualification/record.sh grey_adjustments cpu-reference -- bash src/scripts
 tools/qualification/record.sh sidecar_contract_apple xctest-macos -- \
   bash -c 'cd src/apple/Packages/MapleCore && swift test --filter SidecarTransactionContract'
 tools/qualification/record.sh gpu_chain_parity_metal metal -- \
-  bash -c 'cd src/raw-pipeline && MAPLE_REQUIRE_GPU=1 cargo test -p raw-wasm --features gpu gpu_render'
+  bash -c 'cd src/raw-pipeline && MAPLE_REQUIRE_GPU=1 cargo test -p raw-wasm --features gpu gpu_render -- --include-ignored'
 # Retired ACR color_harness records are historical; run the Auto JPEG gate directly.
 
 # Then regenerate the registry and commit both.
 bash tools/codegen.sh
 ```
+
+The Metal qualification requires `test-fixtures/raws/test_0006.DNG` and includes the otherwise ignored physical lossy-DNG white-balance case: all 24 cases must execute without skips.
 
 The wrapper parses `cargo test`, `bun test`, `swift test`, and the colour harness's own `qualification: executed=… failed=… skipped=…` line, then calls `qualification-record` (`src/raw-pipeline/codegen/src/qualification_record.rs`) to stamp the expected count and corpus hash. Sources, accepted backends, expected counts, and corpora are all declared in `capability_registry/mod.rs`; adding a test to a suite means bumping its `expected_cases` there and re-recording in the same PR.
 

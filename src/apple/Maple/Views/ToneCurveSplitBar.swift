@@ -91,6 +91,7 @@ struct ToneCurveSplitBar: View {
               value: val,
               isActive: activeHandle == handle,
               onNudge: { delta in
+                guard activeHandle == nil else { return }
                 let clamped = ToneCurveSplits.clampSplit(
                   handle: handle,
                   proposed: val + delta,
@@ -103,13 +104,17 @@ struct ToneCurveSplitBar: View {
                 onChange(handle, clamped)
                 onEditingChanged(handle, false)
               },
-              onReset: { onReset(handle) }
+              onReset: {
+                guard activeHandle == nil else { return }
+                onReset(handle)
+              }
             )
             .position(x: x, y: 10)
             .highPriorityGesture(
               DragGesture(minimumDistance: 0, coordinateSpace: .named("splitTrack"))
                 .onChanged { drag in
-                  if activeHandle != handle {
+                  guard activeHandle == nil || activeHandle == handle else { return }
+                  if activeHandle == nil {
                     activeHandle = handle
                     onEditingChanged(handle, true)
                   }
@@ -148,6 +153,7 @@ struct ToneCurveSplitBar: View {
           || highlightSplit != ToneCurveSplits.defaultHighlight
         {
           Button {
+            guard activeHandle == nil else { return }
             if let onResetAll {
               onResetAll()
             } else {
