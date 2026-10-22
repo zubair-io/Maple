@@ -12,6 +12,8 @@
  *   400 — missing/invalid headers, bad Content-Range
  *   404 — library id not found
  *   409 — resume offset mismatch. Body: { expected_offset: number }
+ *         Or a pending permanent purge owns the photo: nothing is linked or
+ *         published and the session restarts. Body: { error, code: 'purge_admitted' }
  *   423 — another device is actively uploading the same iCloud photo.
  *         Body: { retry_after_seconds: number } — client should wait at
  *         least that long before retrying. Same-key metadata mismatches
@@ -38,6 +40,7 @@ import { formatBackupPath } from '../backup/path-formatter.ts';
 import { containedJoin } from '../backup/path-safety.ts';
 import { hasLegacyBackupEdit } from '../fs/legacy-backup-sidecar.ts';
 import { filesIdentical, firstFreeSiblingPath, moveNoClobber } from '../backup/fs-util.ts';
+import { revertCreated, type RelocatePublication } from '../fs/relocate-publish.ts';
 import { resolveBackupLocation } from '../backup/ingest-geocode.ts';
 import { isScreenshotFilename } from '../indexer/screenshot.ts';
 import { backupSessionsRepo } from '../db/backup-sessions.repo.ts';
@@ -83,6 +86,22 @@ async function holdsStrandedLegacyEdit(absPath: string): Promise<boolean> {
   return (await hasLegacyBackupEdit(absPath)) && !(await isOccupiedOnDisk(absPath));
 }
 
+/** Move the upload to `finalPath` unless something is there. The upload's own
+ * inode is read before the move: a hard link keeps it, so a file another writer
+ * swaps in afterwards is never recorded as this upload's (a cross-device copy
+ * records nothing, so nothing is later withdrawn). Null when the name is taken. */
+async function claimNoClobber(
+  tmpFile: string,
+  finalPath: string,
+): Promise<{ published?: RelocatePublication } | null> {
+  const staged = await fs.lstat(tmpFile);
+  if (!(await moveNoClobber(tmpFile, finalPath))) return null;
+  const landed = await fs.lstat(finalPath).catch(() => null);
+  return landed?.dev === staged.dev && landed.ino === staged.ino
+    ? { published: { path: finalPath, dev: staged.dev, ino: staged.ino } }
+    : {};
+}
+
 /**
  * Place the assembled `tmpFile` into `libraryRoot` starting from `baseRelPath`
  * without ever clobbering or adopting an unrelated file (#4700):
@@ -103,7 +122,7 @@ async function placeUploadOnDisk(args: {
   phid: string;
   mapleId: string;
   assetId?: ObjectId;
-}): Promise<{ relPath: string } | null> {
+}): Promise<{ relPath: string; published?: RelocatePublication } | null> {
   let resolvedRelPath = args.baseRelPath;
   const containedBase = containedJoin(args.libraryRoot, resolvedRelPath);
   if (!containedBase) return null;
@@ -119,9 +138,8 @@ async function placeUploadOnDisk(args: {
     const occupied = await isOccupiedOnDisk(finalPath);
 
     if (!claimedByOther && !occupied) {
-      if (await moveNoClobber(args.tmpFile, finalPath)) {
-        return { relPath: resolvedRelPath };
-      }
+      const claimed = await claimNoClobber(args.tmpFile, finalPath);
+      if (claimed) return { relPath: resolvedRelPath, ...claimed };
       continue;
     }
 
@@ -335,13 +353,16 @@ export const backupIngestRoutes = new Elysia().post(
       ...(phCloudId ? { phasset_cloud_id: phCloudId } : {}),
     };
 
+    // A purge admitted after the lookup is caught by the guarded write (#4913).
+    const refusePurged = async () => {
+      await removeTmpQuietly(tmpFile);
+      await uploadSessions.resetForRestart(session._id);
+      set.status = 409;
+      return { error: 'asset has a durable purge intent', code: 'purge_admitted' };
+    };
+
     if (existing) {
-      if (existing.purgeAdmitted) {
-        await removeTmpQuietly(tmpFile);
-        await uploadSessions.resetForRestart(session._id);
-        set.status = 409;
-        return { error: 'asset has a durable purge intent' };
-      }
+      if (existing.purgeAdmitted) return refusePurged();
       // Same content already stored somewhere. Whether we can pure-dedup
       // (no second copy on disk) depends on which library that copy lives in
       // and whether the file is actually still on disk (#4700).
@@ -363,7 +384,7 @@ export const backupIngestRoutes = new Elysia().post(
         // bytes; the canonical copy already lives at this library's location.
         // Linking this device to the existing row is idempotent on retry.
         if (!existing.alreadyLinked) {
-          await linkPhasset(existing.id, link);
+          if (!(await linkPhasset(existing.id, link))) return refusePurged();
         }
         try {
           await fs.unlink(tmpFile);
@@ -416,13 +437,17 @@ export const backupIngestRoutes = new Elysia().post(
       }
       resolvedTargetRelPath = placed.relPath;
 
-      await appendBackupLocation(existing.id, {
+      const appended = await appendBackupLocation(existing.id, {
         relPath: resolvedTargetRelPath,
         libraryId,
         link: existing.alreadyLinked ? null : link,
         ownerId,
         replacedRelPath: liveRelPath ?? existing.missingRelPathInLibrary,
       });
+      if (!appended) {
+        if (placed.published) await revertCreated([placed.published]);
+        return refusePurged();
+      }
 
       await uploadSessions.complete({
         sessionId: session._id,

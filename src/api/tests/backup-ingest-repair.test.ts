@@ -238,7 +238,7 @@ describe('backup missing-copy recovery', () => {
         replacedRelPath: relPath,
         link: null,
       }),
-    ).rejects.toThrow('no_admitted_purge');
+    ).resolves.toBe(false);
     expect(readLocations(handle.db, id)[0]?.missing_since).not.toBeNull();
     expect(
       handle.db.query('SELECT deleted_reason FROM assets WHERE id = ?').get(id.toHexString()),
