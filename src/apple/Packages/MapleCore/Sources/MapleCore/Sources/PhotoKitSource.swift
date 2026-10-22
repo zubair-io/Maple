@@ -462,8 +462,8 @@ extension PhotoKitSource: ImageSource {
     }
 
     public func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {
-        let xml = XMPSerializer.serialize(model: sidecar.model, culling: sidecar.culling)
-        try sidecarStore.write(phassetLocalId: ref.id, xmp: xml)
+        try await PhotoKitSidecarStore(phassetLocalId: ref.id, sidecars: sidecarStore)
+            .writeConfirmed(model: sidecar.model, culling: sidecar.culling)
     }
 
     /// Read the App-Support sidecar for a PhotoKit asset, or return defaults

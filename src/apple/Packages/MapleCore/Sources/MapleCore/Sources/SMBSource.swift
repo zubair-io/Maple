@@ -465,13 +465,12 @@ extension SMBSource: ImageSource {
   }
 
   public func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {
-    guard let client else { throw SMBError.notConnected }
-    let xml = XMPSerializer.serialize(model: sidecar.model, culling: sidecar.culling)
-    guard let data = xml.data(using: .utf8) else {
-      throw XMPStoreError.encodingError
-    }
-    let sidecarPath = SMBFileOperations.sidecarPath(for: try mutationPath(for: ref))
-    try await writeWithRetry(data: data, to: sidecarPath, client: client)
+    guard client != nil else { throw SMBError.notConnected }
+    let store = SMBSidecarStore(source: self, ref: ref)
+    // Adopt the published document first: the store's compare-and-swap
+    // publish refuses to replace a sidecar it has not read.
+    _ = try await store.loadIfPresent()
+    try await store.writeConfirmed(model: sidecar.model, culling: sidecar.culling)
   }
 
   /// `false` when the source moved to another share while the file op ran.
