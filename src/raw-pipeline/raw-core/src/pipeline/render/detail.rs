@@ -90,7 +90,28 @@ pub fn render_detail_base_retained(
     max_working_pixels: u64,
     previous: Option<DetailContext>,
 ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
-    let (w, h, rgb, mut context) = render_detail_base(&raw, model, source, options)?;
+    render_detail_base_retained_cancellable(
+        raw,
+        model,
+        source,
+        options,
+        max_working_pixels,
+        previous,
+        crate::CancelToken::never(),
+    )
+}
+
+pub fn render_detail_base_retained_cancellable(
+    raw: std::sync::Arc<RawImage>,
+    model: &AdjustmentModel,
+    source: RawInput<'_>,
+    options: DetailRenderOptions<'_>,
+    max_working_pixels: u64,
+    previous: Option<DetailContext>,
+    cancel: crate::CancelToken<'_>,
+) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
+    let (w, h, rgb, mut context) =
+        render_detail_base_cancellable(&raw, model, source, options, cancel)?;
     let reusable = previous
         .and_then(|previous| previous.native_highlight)
         .filter(|frame| frame.reusable_for(&raw, &context.active_model, RenderQuality::Auto));

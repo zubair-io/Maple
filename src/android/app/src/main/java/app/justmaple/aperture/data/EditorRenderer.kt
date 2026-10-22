@@ -12,7 +12,18 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /** The handle, GPU and ANativeWindow belong to exactly one serial worker. */
-class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
+class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Unit) : PreviewRenderer {
+    private val nativeDetail = NativeDetailRenderer(library) { expectedEpoch ->
+        withContext(NonCancellable + dispatcher) {
+            check(handle != 0L && epoch == expectedEpoch) { "The photo changed before native detail could start" }
+            val source = if (values["_raw"] == 1f) NativeBridge.copyNativeDetail(handle) else 0L
+            source to NativeBridge.outputPrimaries(handle)
+        }
+    }
+    override suspend fun nativeDimensions(photo: Photo) = nativeDetail.dimensions(photo)
+    override suspend fun nativeDetail(request: NativeDetailRequest) = nativeDetail.render(request)
+    override fun cancelNativeDetail() = nativeDetail.invalidate()
+
     private val analysisLock = Mutex()
     private val dispatcher =
         Executors.newSingleThreadExecutor { task ->
@@ -260,6 +271,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
     }
 
     private fun release() {
+        nativeDetail.clear()
         if (handle != 0L) NativeBridge.close(handle)
         handle = 0L
         attachedSurface = null
@@ -268,6 +280,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
     }
 
     override fun close() {
+        nativeDetail.close()
         invalidateDraws()
         // Enqueue teardown behind any native call; never close a rendering handle.
         dispatcher.executor.execute {

@@ -23,6 +23,7 @@ pub struct Session {
     raw: Option<Arc<RawImage>>,
     bytes: Arc<Vec<u8>>,
     ext: String,
+    detail: std::sync::OnceLock<crate::native_detail::SharedDetail>,
     prefix: AdjustmentModel,
     wb: Option<GpuWhiteBalance>,
     live: LiveSession,
@@ -72,6 +73,15 @@ pub fn is_raw(ext: &str) -> bool {
 }
 
 impl Session {
+    pub fn detail_source(&self) -> crate::native_detail::SharedDetail {
+        Arc::clone(self.detail.get_or_init(|| {
+            crate::native_detail::DetailSource::new(
+                self.raw.clone(),
+                Arc::clone(&self.bytes),
+                self.ext.clone(),
+            )
+        }))
+    }
     pub fn source_is_raw(&self) -> bool {
         self.raw.is_some()
     }
@@ -143,9 +153,14 @@ impl Session {
             .to_ascii_lowercase();
         let edge = edge.clamp(1, ctx.device.limits().max_texture_dimension_2d);
         let raw = if is_raw(&ext) {
-            Some(Arc::new(
-                raw_core::decode::decode_bytes(&bytes, &ext).map_err(|e| e.to_string())?,
-            ))
+            Some(
+                raw_core::decode_cache::decode_bytes_cached(
+                    &raw_core::decode_cache::CacheKey::from_bytes(&bytes),
+                    &bytes,
+                    &ext,
+                )
+                .map_err(|e| e.to_string())?,
+            )
         } else {
             None
         };
@@ -222,6 +237,7 @@ impl Session {
             bytes,
             ext,
             prefix,
+            detail: std::sync::OnceLock::new(),
             wb,
             live,
             inputs,

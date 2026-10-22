@@ -47,7 +47,8 @@ mod display_prefix;
 mod finish;
 pub use detail::{
     render_detail_base, render_detail_base_cancellable, render_detail_base_retained,
-    render_detail_tile, render_detail_tile_cancellable, DetailContext, DetailRenderOptions,
+    render_detail_base_retained_cancellable, render_detail_tile, render_detail_tile_cancellable,
+    DetailContext, DetailRenderOptions,
 };
 
 // Export render — the display chain at a caller-chosen depth / primaries (#943).

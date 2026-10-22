@@ -13,6 +13,14 @@ void maple_android_close_renderer(void *);
 void *maple_android_open(void *, const char *, const char *, uint32_t);
 void maple_android_close(void *);
 char *maple_android_values(void *);
+struct DetailPatch { uint32_t width, height, target; const uint8_t *pixels; };
+void *maple_android_detail_open(const char *);
+void *maple_android_detail_from_session(const void *);
+void maple_android_detail_free(void *);
+DetailPatch *maple_android_detail_render(const void *, const char *, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, const void *);
+void maple_android_detail_patch_free(DetailPatch *);
+uint64_t maple_android_native_dimensions(const char *, const char *);
+uint64_t maple_android_presentation_dimensions(uint32_t, uint32_t, float, float, float, float, float);
 char *maple_android_parametric_curve(const char *);
 char *maple_android_scope(const uint32_t *, size_t, uint32_t, uint32_t);
 void *maple_android_auto_wb_new(void *, const char *);
@@ -115,6 +123,81 @@ extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBrid
     jstring result = env->NewStringUTF(value);
     maple_android_free_string(value);
     return result;
+}
+extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_openNativeDetail(JNIEnv *env, jobject, jstring path) {
+    Utf8 p(env, path);
+    if (env->ExceptionCheck()) return 0;
+    void *source = maple_android_detail_open(p.get());
+    if (!source) { check(env, -1); return 0; }
+    return reinterpret_cast<jlong>(source);
+}
+extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_copyNativeDetail(JNIEnv *env, jobject, jlong handle) {
+    void *source = maple_android_detail_from_session(editor(handle)->core);
+    if (!source) { check(env, -1); return 0; }
+    return reinterpret_cast<jlong>(source);
+}
+extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_closeNativeDetail(JNIEnv *, jobject, jlong source) {
+    maple_android_detail_free(reinterpret_cast<void *>(source));
+}
+extern "C" JNIEXPORT jint JNICALL Java_app_justmaple_aperture_data_NativeBridge_outputPrimaries(JNIEnv *, jobject, jlong handle) {
+    return maple_android_output_primaries(editor(handle)->core);
+}
+extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_nativeDimensions(JNIEnv *env, jobject, jstring path, jstring extension) {
+    Utf8 p(env, path), e(env, extension);
+    if (env->ExceptionCheck()) return 0;
+    uint64_t dimensions = maple_android_native_dimensions(p.get(), e.get());
+    if (!dimensions) check(env, -1);
+    return static_cast<jlong>(dimensions);
+}
+extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_presentationDimensions(JNIEnv *, jobject, jint width, jint height, jfloat top, jfloat left, jfloat bottom, jfloat right, jfloat angle) {
+    if (width <= 0 || height <= 0) return 0;
+    return static_cast<jlong>(maple_android_presentation_dimensions(width, height, top, left, bottom, right, angle));
+}
+extern "C" JNIEXPORT jobject JNICALL Java_app_justmaple_aperture_data_NativeBridge_renderNativeDetail(JNIEnv *env, jobject, jlong source, jstring xml, jint x, jint y, jint width, jint height, jint target, jlong flag) {
+    Utf8 document(env, xml);
+    if (env->ExceptionCheck()) return nullptr;
+    if (x < 0 || y < 0 || width <= 0 || height <= 0) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid native-detail region");
+        return nullptr;
+    }
+    std::unique_ptr<DetailPatch, decltype(&maple_android_detail_patch_free)> patch(
+        maple_android_detail_render(reinterpret_cast<void *>(source), document.get(), x, y, width, height, target, reinterpret_cast<void *>(flag)),
+        maple_android_detail_patch_free);
+    if (!patch) { check(env, -1); return nullptr; }
+    jclass configClass = env->FindClass("android/graphics/Bitmap$Config");
+    jclass colorClass = env->FindClass("android/graphics/ColorSpace");
+    jclass namedClass = env->FindClass("android/graphics/ColorSpace$Named");
+    jclass bitmapClass = env->FindClass("android/graphics/Bitmap");
+    if (env->ExceptionCheck()) return nullptr;
+    jobject config = env->GetStaticObjectField(configClass, env->GetStaticFieldID(configClass, "ARGB_8888", "Landroid/graphics/Bitmap$Config;"));
+    jobject named = env->GetStaticObjectField(namedClass, env->GetStaticFieldID(namedClass, patch->target == 1 ? "DISPLAY_P3" : "SRGB", "Landroid/graphics/ColorSpace$Named;"));
+    jobject color = env->CallStaticObjectMethod(colorClass, env->GetStaticMethodID(colorClass, "get", "(Landroid/graphics/ColorSpace$Named;)Landroid/graphics/ColorSpace;"), named);
+    if (env->ExceptionCheck()) return nullptr;
+    jobject bitmap = env->CallStaticObjectMethod(bitmapClass,
+        env->GetStaticMethodID(bitmapClass, "createBitmap", "(IILandroid/graphics/Bitmap$Config;ZLandroid/graphics/ColorSpace;)Landroid/graphics/Bitmap;"),
+        static_cast<jint>(patch->width), static_cast<jint>(patch->height), config, false, color);
+    if (!bitmap || env->ExceptionCheck()) return nullptr;
+    AndroidBitmapInfo info{};
+    void *storage = nullptr;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS || info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 ||
+        AndroidBitmap_lockPixels(env, bitmap, &storage) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalStateException"), "Native-detail bitmap storage is unavailable");
+        return nullptr;
+    }
+    // Write encoded samples directly. Bitmap.setPixels would reinterpret P3
+    // samples as sRGB integers and convert them a second time.
+    for (uint32_t row = 0; row < patch->height; ++row) {
+        auto *out = static_cast<uint8_t *>(storage) + row * info.stride;
+        const auto *in = patch->pixels + row * patch->width * 3;
+        for (uint32_t column = 0; column < patch->width; ++column) {
+            out[column * 4] = in[column * 3];
+            out[column * 4 + 1] = in[column * 3 + 1];
+            out[column * 4 + 2] = in[column * 3 + 2];
+            out[column * 4 + 3] = 255;
+        }
+    }
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return bitmap;
 }
 extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBridge_scopePixels(JNIEnv *env, jobject, jintArray pixels, jint width, jint height) {
     if (!pixels || width < 0 || height < 0 || env->ExceptionCheck()) return nullptr;
