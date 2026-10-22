@@ -13,6 +13,16 @@ pub struct ChainWindow {
     pub full_height: u32,
 }
 
+/// Per-edge context, in patch pixels, that a native patch must carry around
+/// its published rect so every spatial stage of this chain — including the
+/// frame-scaled S/H mask — sees what the full-frame chain sees (#5169).
+pub fn scene_linear_chain_window_reach_px(model: &AdjustmentModel, window: ChainWindow) -> u32 {
+    crate::pipeline::tile::scene_linear_chain_window_reach(
+        model,
+        window.full_width.max(window.full_height),
+    )
+}
+
 /// #3876 native-detail patches include the spatial filter halo; callers trim
 /// that halo after this chain. Coordinates refer to the oriented full image.
 pub fn apply_scene_linear_chain_f32_windowed(

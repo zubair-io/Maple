@@ -70,6 +70,11 @@ use develop::{develop_scene_linear_from_padded_mosaic, full_frame_long_edge};
 pub(crate) fn raster_window_overlap(model: &AdjustmentModel, long_edge: u32) -> u32 {
     tile_overlap_px(None, model, long_edge as usize, 1)
 }
+
+/// Per-edge context a windowed per-tick chain patch needs (#5169).
+pub(crate) fn scene_linear_chain_window_reach(model: &AdjustmentModel, full_long_edge: u32) -> u32 {
+    overlap::scene_linear_chain_reach_px(model, full_long_edge as usize) as u32
+}
 use overlap::tile_overlap_px;
 use region::{trim_image_to_inner, TileWindow};
 

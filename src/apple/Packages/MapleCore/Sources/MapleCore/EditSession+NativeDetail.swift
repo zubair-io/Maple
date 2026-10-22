@@ -48,13 +48,31 @@ extension EditSession {
     // inside it and hits the fast path above instead of paying this
     // develop again. `decodeRect` adds the separate, smaller
     // `filterHalo` on top for filter-stencil context only.
+    // `renderModel`, not `model`: a panel-disabled layer must stay inert at
+    // 100% as it does at fit. The windowed chain below evaluates every mask
+    // in full-frame coordinates itself (#5169), so the stack is passed
+    // unmapped. (`NativeDetailRenderer` strips it from the tile develop, so
+    // the chain is the one place it is applied.)
+    let m = renderModel
+    // Dehaze measures haze over the whole frame and perspective warps it,
+    // so neither has a patch form: the bounded whole-image refine renders
+    // them, as on every other platform. The windowed chain refuses dehaze
+    // too; this only skips the tile develop that refusal would waste.
+    guard abs(m.dehaze) < 1e-3,
+      !m.localAdjustments.contains(where: { abs($0.adjustments.dehaze ?? 0) >= 1e-3 }),
+      m.perspective.isIdentity
+    else { return false }
     let publishedPatchRect = NativeDetailLOD.patchRect(
       visibleRect: viewportSourceRect,
       imageSize: nativeImageSize
     )
+    // The halo covers the chain's full reach, including the S/H mask whose
+    // blur scales with the frame's long edge (#5169).
     let decodeRect = NativeDetailLOD.decodeRect(
       detailRect: publishedPatchRect,
-      imageSize: nativeImageSize
+      imageSize: nativeImageSize,
+      halo: CGFloat(
+        PipelineRenderer.sceneLinearChainWindowReach(model: m, fullSize: nativeImageSize))
     )
     guard !publishedPatchRect.isEmpty, !decodeRect.isEmpty else { return false }
 
@@ -73,18 +91,6 @@ extension EditSession {
       }
       endRenderActivity(activityID)
     }
-    // Local adjustments (#355): the per-tick chain below runs on the
-    // `decodeRect` patch alone, so its normalized (x, y) span the patch,
-    // while raw-core evaluates masks against the whole frame. Re-express
-    // the stack through the window's affine — the index-based map raw-core's
-    // own tile path uses (`local_adjustments::apply_windowed`) — so the 1:1
-    // patch places every mask where the fit-zoom canvas and the export do.
-    // (`NativeDetailRenderer` strips the stack from the tile develop, so
-    // the chain is the one place it is applied.) `renderModel`, not `model`:
-    // a panel-disabled layer must stay inert at 100% as it does at fit.
-    let m = await renderModel(
-      remappedThrough: MaskAffine.windowToFullFrame(window: decodeRect, fullSize: nativeImageSize))
-    guard requestID == nativeDetailRequestID, !Task.isCancelled else { return true }
     let pipeline = self.pipeline
     let renderer = nativeDetailRenderer
     // Resolved on MainActor (matching `filmLutStore`'s other callers,
@@ -97,7 +103,7 @@ extension EditSession {
     let snapshot = await renderActor.snapshot(forAsset: asset, liveModel: decodeKey(m))
     guard requestID == nativeDetailRequestID, !Task.isCancelled else { return true }
     adoptDecodedWbFrame(snapshot.wbFrame)
-    // #1976: the live WB delta is applied ONCE, by `processSceneLinear`
+    // #1976: the live WB delta is applied ONCE, by the windowed chain
     // below, anchored at the buffer's actual as-shot bake
     // (`wbDeltaAnchor`). The tile render itself takes NO anchor — see
     // `NativeDetailRenderer.render` for why the old per-tile anchor
@@ -146,31 +152,32 @@ extension EditSession {
       )
       // #3190 review follow-up: `FilmLookCube` assumes an sRGB-encoded
       // input (same as the Auto Profile cube below) — when the film
-      // look is active, pin `processSceneLinear`'s encode to sRGB
+      // look is active, pin the chain's encode to sRGB
       // regardless of the canvas setting so the cube isn't fed
       // P3-gamma bytes it would misinterpret as sRGB-gamma. Mirrors
       // `profileLUT != nil ? .srgb : ...` immediately below.
       let filmActive = filmLattice != nil && m.filmStrength > 0
       let targetPrimaries: CanvasColorSpace =
         (profileLUT != nil || filmActive) ? .srgb : CanvasColorSpace.current
-      let materialised = await Task.detached(priority: .userInitiated) {
-        () -> CIImage? in
-        let processed = pipeline.processSceneLinear(
+      let fullSize = nativeImageSize
+      let materialised = try await Task.detached(priority: .userInitiated) {
+        () throws -> CIImage? in
+        // The patch's place in the frame rides along, so the S/H mask,
+        // masks, vignette and grain match the full-frame render (#5169).
+        let processed = try pipeline.processSceneLinearWindow(
           decoded: decoded,
           model: m,
-          targetSize: nil,
+          origin: decodeRect.origin,
+          fullSize: fullSize,
           asShot: asShot,
-          decodedAtModel: snapshot.decodedAtModel,
           profileLUT: profileLUT,
-          // A viewport patch must not use the whole-image chain
-          // cache: its key has dimensions but no source origin.
-          assetID: nil,
           noiseProfile: snapshot.noiseProfile,
           iso: snapshot.iso,
-          wbFrame: snapshot.wbFrame, whitesAnchorEv: snapshot.whitesAnchorEv, nrSamplingScale: 1,
-          targetPrimariesOverride: filmActive ? .srgb : nil
+          wbFrame: snapshot.wbFrame,
+          whitesAnchorEv: snapshot.whitesAnchorEv,
+          targetPrimaries: targetPrimaries
         )
-        // Film look (#2683): `processSceneLinear`'s output is
+        // Film look (#2683): the windowed chain's output is
         // already the final gamma-encoded image in `targetPrimaries`
         // (pinned to sRGB above whenever film is active) — the same
         // domain the `.mlut` lattice is baked in — bake the cube
@@ -184,7 +191,7 @@ extension EditSession {
           strengthPct: m.filmStrength
         )
         let cropped = filmed.cropped(to: localDetailRect)
-        // Tag must match what `processSceneLinear` actually encoded
+        // Tag must match what the windowed chain actually encoded
         // (`targetPrimaries` above) — see `materializeRegion`'s doc
         // comment (jules review on #3239: this used to be hardcoded
         // to sRGB regardless of the real tag).

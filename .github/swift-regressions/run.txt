@@ -215,6 +215,7 @@ MirrorConfigClientTests
 # KTLO qualification batch 5 (#3658): generated scene-linear FFI inputs,
 # isolated defaults/files, pure catalogs and stubbed HTTP clients.
 NativeDetailLODTests
+NativeDetailWindowChainTests
 PerspectiveXMPTests
 PhotoGridItemTests
 PhotosAccessMemoryTests

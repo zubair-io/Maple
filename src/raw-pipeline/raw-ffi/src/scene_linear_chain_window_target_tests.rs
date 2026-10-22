@@ -1,0 +1,225 @@
+//! #5169: Apple's 100% patch goes through the windowed target entry. A patch
+//! carrying the reported reach must render its interior exactly like the
+//! same pixels of the full-frame target entry, the S/H mask included.
+
+use crate::error::maple_last_error;
+use crate::scene_linear_chain::MapleAdjustmentParams;
+use crate::scene_linear_chain_curves::MapleChainWindow;
+use crate::scene_linear_chain_curves_target::{
+    maple_apply_chain_and_encode_display_target_curves_f32,
+    maple_apply_chain_and_encode_display_target_window_f32,
+    maple_scene_linear_chain_window_reach_px,
+};
+use crate::scene_linear_chain_tests::default_params;
+use std::ffi::CStr;
+
+const FULL_W: u32 = 960;
+const FULL_H: u32 = 640;
+const PATCH: (u32, u32, u32, u32) = (300, 220, 128, 96);
+
+fn textured_frame() -> Vec<f32> {
+    (0..FULL_W * FULL_H)
+        .flat_map(|i| {
+            let (x, y) = ((i % FULL_W) as f32, (i / FULL_W) as f32);
+            let sky = if y < 0.4 * FULL_H as f32 { 1.6 } else { 0.06 };
+            let block = if (x / 37.0).floor() as i32 % 3 == 0 {
+                0.5
+            } else {
+                1.0
+            };
+            let ripple = 0.08 * ((x * 0.31).sin() * (y * 0.17).cos());
+            let v = (sky * block + ripple).max(0.002);
+            [v * 1.05, v, v * 0.82, 1.0]
+        })
+        .collect()
+}
+
+fn params(highlights: f32, shadows: f32, clarity: f32) -> MapleAdjustmentParams {
+    MapleAdjustmentParams {
+        highlights,
+        shadows,
+        clarity,
+        skip_agx: 0,
+        whites_anchor_ev: 0.0,
+        ..default_params()
+    }
+}
+
+fn window(x: u32, y: u32) -> MapleChainWindow {
+    MapleChainWindow {
+        x,
+        y,
+        full_width: FULL_W,
+        full_height: FULL_H,
+    }
+}
+
+unsafe fn full_frame(p: &MapleAdjustmentParams, target: u32) -> Vec<f32> {
+    let input = textured_frame();
+    let mut out = vec![0.0f32; input.len()];
+    let rc = maple_apply_chain_and_encode_display_target_curves_f32(
+        input.as_ptr(),
+        FULL_W,
+        FULL_H,
+        p,
+        std::ptr::null(),
+        target,
+        out.as_mut_ptr(),
+    );
+    assert_eq!(rc, 0, "{:?}", CStr::from_ptr(maple_last_error()));
+    out
+}
+
+/// Develops the patch the way Apple does: grown by the reported reach,
+/// clamped to the frame, run through the windowed entry, interior returned.
+unsafe fn windowed_patch(p: &MapleAdjustmentParams, target: u32) -> (u32, Vec<f32>) {
+    let (px, py, pw, ph) = PATCH;
+    let reach = maple_scene_linear_chain_window_reach_px(p, &window(0, 0));
+    let (x0, y0) = (px.saturating_sub(reach), py.saturating_sub(reach));
+    let (x1, y1) = ((px + pw + reach).min(FULL_W), (py + ph + reach).min(FULL_H));
+    let (w, h) = (x1 - x0, y1 - y0);
+    let frame = textured_frame();
+    let input: Vec<f32> = (y0..y1)
+        .flat_map(|y| {
+            let start = ((y * FULL_W + x0) * 4) as usize;
+            frame[start..start + (w * 4) as usize].to_vec()
+        })
+        .collect();
+    let mut out = vec![0.0f32; input.len()];
+    let rc = maple_apply_chain_and_encode_display_target_window_f32(
+        input.as_ptr(),
+        w,
+        h,
+        p,
+        std::ptr::null(),
+        target,
+        &window(x0, y0),
+        out.as_mut_ptr(),
+    );
+    assert_eq!(rc, 0, "{:?}", CStr::from_ptr(maple_last_error()));
+    let interior = (0..ph)
+        .flat_map(|row| {
+            let start = (((py - y0 + row) * w + px - x0) * 4) as usize;
+            out[start..start + (pw * 4) as usize].to_vec()
+        })
+        .collect();
+    (reach, interior)
+}
+
+fn full_interior(full: &[f32]) -> Vec<f32> {
+    let (px, py, pw, ph) = PATCH;
+    (0..ph)
+        .flat_map(|row| {
+            let start = (((py + row) * FULL_W + px) * 4) as usize;
+            full[start..start + (pw * 4) as usize].to_vec()
+        })
+        .collect()
+}
+
+fn max_abs(a: &[f32], b: &[f32]) -> f32 {
+    a.iter()
+        .zip(b)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0, f32::max)
+}
+
+#[test]
+fn reach_covers_both_frame_scaled_sh_passes_and_clarity() {
+    let reach = |p: &MapleAdjustmentParams| unsafe {
+        maple_scene_linear_chain_window_reach_px(p, &window(0, 0))
+    };
+    // σ = 15 px · 960/2000 → blur radius round(3σ) = 22 per engaged pass.
+    assert_eq!(reach(&params(0.0, 0.0, 0.0)), 0);
+    assert_eq!(reach(&params(-60.0, 0.0, 0.0)), 22);
+    assert_eq!(reach(&params(-60.0, 60.0, 0.0)), 44);
+    assert_eq!(reach(&params(-60.0, 60.0, 60.0)), 84);
+    assert_eq!(
+        unsafe { maple_scene_linear_chain_window_reach_px(std::ptr::null(), &window(0, 0)) },
+        0
+    );
+}
+
+#[test]
+fn windowed_patch_matches_the_full_frame_for_sh_and_clarity() {
+    for (name, p) in [
+        ("S/H", params(-60.0, 60.0, 0.0)),
+        ("clarity", params(0.0, 0.0, 60.0)),
+        ("S/H + clarity", params(-60.0, 60.0, 60.0)),
+    ] {
+        for target in [0, 1] {
+            let full = full_interior(&unsafe { full_frame(&p, target) });
+            let neutral = full_interior(&unsafe { full_frame(&params(0.0, 0.0, 0.0), target) });
+            let (reach, patch) = unsafe { windowed_patch(&p, target) };
+            assert!(reach > 0);
+            assert!(
+                max_abs(&full, &neutral) > 1e-2,
+                "{name}: the case must move the render"
+            );
+            let diff = max_abs(&full, &patch);
+            assert!(
+                diff <= 1e-4,
+                "{name} target {target}: patch differs by {diff}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_patch_without_the_reach_shows_why_it_is_needed() {
+    let p = params(-60.0, 60.0, 0.0);
+    let full = full_interior(&unsafe { full_frame(&p, 0) });
+    let (px, py, pw, ph) = PATCH;
+    let input: Vec<f32> = {
+        let frame = textured_frame();
+        (py..py + ph)
+            .flat_map(|y| {
+                let start = ((y * FULL_W + px) * 4) as usize;
+                frame[start..start + (pw * 4) as usize].to_vec()
+            })
+            .collect()
+    };
+    let mut out = vec![0.0f32; input.len()];
+    let rc = unsafe {
+        maple_apply_chain_and_encode_display_target_window_f32(
+            input.as_ptr(),
+            pw,
+            ph,
+            &p,
+            std::ptr::null(),
+            0,
+            &window(px, py),
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 0);
+    assert!(max_abs(&full, &out) > 1e-3);
+}
+
+#[test]
+fn dehaze_and_a_null_window_are_refused() {
+    let input = textured_frame();
+    let mut out = vec![0.0f32; input.len()];
+    let p = MapleAdjustmentParams {
+        dehaze: 40.0,
+        ..params(0.0, 0.0, 0.0)
+    };
+    let refused = |p: &MapleAdjustmentParams, w: *const MapleChainWindow, out: &mut [f32]| unsafe {
+        maple_apply_chain_and_encode_display_target_window_f32(
+            input.as_ptr(),
+            FULL_W,
+            FULL_H,
+            p,
+            std::ptr::null(),
+            0,
+            w,
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(refused(&p, &window(0, 0), &mut out), 8);
+    let msg = unsafe { CStr::from_ptr(maple_last_error()) }.to_string_lossy();
+    assert!(msg.contains("dehaze"), "{msg}");
+    assert_eq!(
+        refused(&params(0.0, 0.0, 0.0), std::ptr::null(), &mut out),
+        1
+    );
+}

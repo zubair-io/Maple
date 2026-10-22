@@ -98,9 +98,9 @@ public struct MaskAffine: Equatable, Hashable, Sendable {
     }
 
     /// The map from an axis-aligned pixel WINDOW's normalized coordinates to
-    /// the full frame's — the native-detail patch (`EditSession
-    /// .refineNativeDetail`), whose chain buffer is `window` cut from an
-    /// image of `fullSize` oriented pixels at 1:1.
+    /// the full frame's, for a chain buffer that is `window` cut from an
+    /// image of `fullSize` oriented pixels at 1:1. (The native-detail patch
+    /// now runs raw-core's windowed chain instead, #5169.)
     ///
     /// Index-based, reproducing raw-core's windowed rule exactly
     /// (`local_adjustments::apply_windowed`): buffer pixel `x` sits at frame
