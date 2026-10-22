@@ -1,7 +1,7 @@
 /** Raw sidecar uploads bind to the photo family before consuming the body. */
 import * as path from 'node:path';
 import { lstat, readdir } from '../fs/mirrored';
-import { errnoCode } from '../fs/relocate-publish';
+import { errnoCode } from '../fs/errno-code';
 import { workflowSidecarBase } from '../fs/workflow-sidecar-pairing';
 import { PAIRED_SIDECAR_SUFFIX_PATTERN } from '../generated/filename-vocabulary.generated';
 import { xmpSidecarPath } from '../fs/xmp';

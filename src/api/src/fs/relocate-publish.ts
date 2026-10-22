@@ -1,3 +1,5 @@
+import { errnoCode } from './errno-code';
+export { errnoCode } from './errno-code';
 import { syncCopiedFile, syncFileHandle } from './sync-file.ts';
 import { recordVerifiedPrimaryRollback } from './primary-replacement-admission';
 import { randomBytes } from 'node:crypto';
@@ -31,10 +33,6 @@ export class PublishCollisionError extends Error {
 }
 
 export const LINK_UNSUPPORTED = new Set(['EXDEV', 'EPERM', 'EOPNOTSUPP', 'ENOTSUP', 'ENOSYS']);
-
-export function errnoCode(err: unknown): string | undefined {
-  return (err as NodeJS.ErrnoException | null)?.code;
-}
 
 /** `.tmp.` in the basename keeps `mirrored.ts` from replicating the name. A
  * destination name too long for the suffix gets a short hidden sibling instead,
