@@ -1,6 +1,11 @@
 import { listLibraryRoots } from '../db/repos/folders.repo';
 import type { SqliteDb } from '../db/repos/db-handle';
-import { stat } from '../fs/mirrored';
+import {
+  primaryIdentity,
+  primaryReplacementKey,
+  replacementAdmission,
+  replacementAllowsSave,
+} from '../fs/primary-replacement-admission';
 import { SidecarWriteBindingChangedError, type SidecarWriteScope } from '../fs/sidecar-write-order';
 /** Actual primary publication updates library sidecar state and the change feed (#3563 / #4051). */
 import { ObjectId } from '../db/object-id';
@@ -31,16 +36,6 @@ async function assetAt(
   return dto ? { id: new ObjectId(dto.id), libraryId } : null;
 }
 
-async function primaryIdentity(rawPath: string): Promise<string | null> {
-  return stat(rawPath, { bigint: true }).then(
-    (value) => `${value.dev}:${value.ino}:${value.size}:${value.mtimeNs}`,
-    (error: unknown) => {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      throw error;
-    },
-  );
-}
-
 /** Recheck after the save barrier: a purge/move must not leave an orphan edit,
  * and Replace must not give a new primary the displaced photo's queued save. */
 export async function captureSidecarWriteScope(
@@ -48,10 +43,14 @@ export async function captureSidecarWriteScope(
   directory: string,
   dbOverride?: SqliteDb,
 ): Promise<SidecarWriteScope> {
+  const key = await primaryReplacementKey(rawPath);
+  const admitted = replacementAdmission(key);
   const [asset, identity] = await Promise.all([
     assetAt(rawPath, dbOverride),
     primaryIdentity(rawPath),
   ]);
+  const captured = replacementAdmission(key);
+  const crossedReplacement = admitted.entry !== captured.entry;
   return {
     directory,
     async validate() {
@@ -59,7 +58,11 @@ export async function captureSidecarWriteScope(
         assetAt(rawPath, dbOverride),
         primaryIdentity(rawPath),
       ]);
-      if (asset?.id.toHexString() !== current?.id.toHexString() || identity !== currentIdentity) {
+      if (
+        crossedReplacement ||
+        asset?.id.toHexString() !== current?.id.toHexString() ||
+        !replacementAllowsSave(key, admitted, identity, currentIdentity)
+      ) {
         throw new SidecarWriteBindingChangedError(
           'Photo moved, was replaced or was purged; reload before saving edits',
         );
