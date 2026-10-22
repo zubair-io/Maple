@@ -1,7 +1,7 @@
 import { listLibraryRoots } from '../db/repos/folders.repo';
 import type { SqliteDb } from '../db/repos/db-handle';
 import { stat } from '../fs/mirrored';
-import { SidecarWritePathDeniedError, type SidecarWriteScope } from '../fs/sidecar-write-order';
+import { SidecarWriteBindingChangedError, type SidecarWriteScope } from '../fs/sidecar-write-order';
 /** Actual primary publication updates library sidecar state and the change feed (#3563 / #4051). */
 import { ObjectId } from '../db/object-id';
 import { mostSpecificRoot } from '../fs/root-match';
@@ -60,7 +60,7 @@ export async function captureSidecarWriteScope(
         primaryIdentity(rawPath),
       ]);
       if (asset?.id.toHexString() !== current?.id.toHexString() || identity !== currentIdentity) {
-        throw new SidecarWritePathDeniedError(
+        throw new SidecarWriteBindingChangedError(
           'Photo moved, was replaced or was purged; reload before saving edits',
         );
       }

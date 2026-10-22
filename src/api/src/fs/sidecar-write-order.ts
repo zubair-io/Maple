@@ -47,6 +47,9 @@ export function waitForAbortable<T>(promise: Promise<T>, signal?: AbortSignal): 
 
 export class SidecarWritePathDeniedError extends Error {}
 
+/** A valid edit target changed while this request waited for publication. */
+export class SidecarWriteBindingChangedError extends SidecarWritePathDeniedError {}
+
 function isMissingPathError(error: unknown): boolean {
   return (
     typeof error === 'object' &&
