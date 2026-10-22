@@ -262,6 +262,42 @@ describe('non-asset file delete/relocate routes', () => {
     expect(await readFile(realTarget, 'utf8')).toBe('incoming');
   });
 
+  it('an alias retargeted while the save barrier is held cannot redirect a sidecar Replace', async () => {
+    await mkdir(nodePath.join(folderPath, 'real'));
+    await mkdir(nodePath.join(folderPath, 'other'));
+    const alias = nodePath.join(folderPath, 'alias');
+    await symlink(nodePath.join(folderPath, 'real'), alias);
+    const target = nodePath.join(folderPath, 'real/target.xmp');
+    const other = nodePath.join(folderPath, 'other/target.xmp');
+    await writeFile(target, 'old');
+    await writeFile(other, 'unrelated');
+    await writeFile(nodePath.join(folderPath, 'incoming.xmp'), 'incoming');
+    const held = await holdSave(target, 'saved meanwhile');
+    const replacing = postRelocate({
+      source_path: 'incoming.xmp',
+      mode: 'copy',
+      collision: 'replace',
+      destination_path: 'alias',
+      destination_filename: 'target.xmp',
+    });
+    try {
+      await Bun.sleep(100);
+      await rm(alias);
+      await symlink(nodePath.join(folderPath, 'other'), alias);
+      held.release();
+      await held.save;
+      const res = await replacing;
+      expect(res.status).toBe(200);
+      expect((await res.json()).new_path).toBe('real');
+      expect(await readFile(target, 'utf8')).toBe('incoming');
+      expect(await readFile(other, 'utf8')).toBe('unrelated');
+    } finally {
+      held.release();
+      await held.save;
+      await replacing;
+    }
+  });
+
   for (const mode of ['move', 'copy'] as const) {
     it(`a raw .xmp that is a symlink to a photo is refused (${mode}) (#5134)`, async () => {
       await writeFile(nodePath.join(folderPath, 'photo.dng'), 'original pixels');
