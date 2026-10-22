@@ -171,7 +171,8 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       self.pendingModel = model
       self.pendingCulling = culling
       self.cached = (model, culling)
-      try self.writeSidecar(model: model, culling: culling, existingXML: existing, at: destination)
+      try self.writeSidecar(
+        model: model, culling: culling, existingXML: existing, at: destination, durable: true)
       self.pendingModel = nil
       self.pendingCulling = nil
     }
