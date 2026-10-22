@@ -10,7 +10,8 @@ import { trashAssetById } from './asset-trash.ts';
 import { publishConflictBytes, sidecarStemOwnedByAnotherFile } from '../fs/sidecar-ownership.ts';
 import { readSidecarBytes } from '../fs/sidecar-bytes.ts';
 import { isLegacyBackupSidecarOf } from '../fs/legacy-backup-sidecar.ts';
-import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
+import { serializeSidecarWrite, serializeSidecarWrites } from '../fs/sidecar-write-order.ts';
+import { xmpSidecarPath } from '../fs/xmp.ts';
 import { child as childLogger } from '../log.ts';
 import { moveFileToTrash, moveToTrash } from '../fs/trash.ts';
 
@@ -64,6 +65,7 @@ async function unlinkPurgedPrimary(filename: string): Promise<void> {
 async function carryLateEditsToReplacement(
   trashedPath: string,
   replacementPath: string,
+  heldPaths: ReadonlySet<string>,
 ): Promise<boolean> {
   // Strict: an unreadable Trash folder must never read as "no late edits".
   const shared = await sidecarStemOwnedByAnotherFile(trashedPath);
@@ -72,20 +74,30 @@ async function carryLateEditsToReplacement(
   );
   // One at a time, so the edits don't race each other for conflict names.
   const followed = await Array.fromAsync(late, (sidecar) =>
-    carryLateEdit(sidecar, replacementPath),
+    carryLateEdit(sidecar, replacementPath, heldPaths),
   );
   return followed.every(Boolean);
 }
 
-function carryLateEdit(sidecar: string, replacementPath: string): Promise<boolean> {
-  return serializeSidecarWrite(sidecar, async () => {
+function carryLateEdit(
+  sidecar: string,
+  replacementPath: string,
+  heldPaths: ReadonlySet<string>,
+): Promise<boolean> {
+  const carry = async () => {
     const bytes = await readSidecarBytes(sidecar);
     if (bytes === null) return;
     if (!(await publishConflictBytes(replacementPath, bytes))) {
       throw new Error('no conflict copy could be published');
     }
     await unlink(sidecar);
-  }).then(
+  };
+  // The enclosing purge already owns the two writable source slots. Conflict
+  // copies have their own names and still take their individual save barrier.
+  const operation = heldPaths.has(path.resolve(sidecar).normalize('NFC').toLowerCase())
+    ? carry()
+    : serializeSidecarWrite(sidecar, carry);
+  return operation.then(
     () => true,
     (err: unknown) => {
       log.error(
@@ -108,44 +120,54 @@ export async function discardIdenticalReplacement(
   const info = await findCoreInfoById(assetId);
   if (!info || info.fileinfo?.length !== 1) return false;
   if ((await fileHash(trashedPath)) !== (await fileHash(replacementPath))) return false;
-  const sidecars = await listPairedSidecarsStrict(trashedPath);
-  // Equal RAW bytes do not imply redundant edits or rendered companions.
-  if (sidecars.length || info.apple_rendered_path) return false;
-  const files = [trashedPath];
-  for (const filename of files)
-    await jailedFile(root, path.relative(root, filename).split(path.sep).join('/'));
-  // An edit written since the check above follows first: once the intent is
-  // recorded the purge can't be undone, so one that can't follow keeps the photo
-  // (#5129). Edits that did follow stay as conflict copies beside the replacement.
-  const lateEditsFollowed = await carryLateEditsToReplacement(trashedPath, replacementPath).catch(
-    (err: unknown) => {
+  const location = info.fileinfo[0];
+  const slots = [xmpSidecarPath(trashedPath), `${trashedPath}.xmp`];
+  const heldPaths = new Set(slots.map((slot) => path.resolve(slot).normalize('NFC').toLowerCase()));
+  // Wait for first saves even when their atomic publication has not appeared
+  // in the directory yet; keep the fence through catalog deletion.
+  return serializeSidecarWrites(slots, async () => {
+    const sidecars = await listPairedSidecarsStrict(trashedPath);
+    // Equal RAW bytes do not imply redundant edits or rendered companions.
+    if (sidecars.length || info.apple_rendered_path) return false;
+    const files = [trashedPath];
+    for (const filename of files)
+      await jailedFile(root, path.relative(root, filename).split(path.sep).join('/'));
+    // An edit written since the check above follows first: once the intent is
+    // recorded the purge can't be undone, so one that can't follow keeps the photo
+    // (#5129). Edits that did follow stay as conflict copies beside the replacement.
+    const lateEditsFollowed = await carryLateEditsToReplacement(
+      trashedPath,
+      replacementPath,
+      heldPaths,
+    ).catch((err: unknown) => {
       log.error(
         { trashedPath, err: err instanceof Error ? err.message : err },
         'identical replacement: checking for late edits failed — photo kept in Trash',
       );
       return false;
-    },
-  );
-  if (!lateEditsFollowed) return false;
-  // Intent and mirror inventories must survive every subsequent local unlink
-  // and catalog deletion. Failure retains the row and its association for retry.
-  const location = info.fileinfo[0];
-  if (
-    !(await prepareIdenticalReplacementPurge(assetId.toHexString(), {
-      libraryId: location.library_id.toHexString(),
-      path: location.path,
-      filename: location.filename,
-    }))
-  )
-    return false;
-  for (const filename of files) await unlinkPurgedPrimary(filename);
-  // Never skips the row's deletion: the photo is already gone.
-  await carryLateEditsToReplacement(trashedPath, replacementPath).catch((err: unknown) => {
-    log.error(
-      { trashedPath, err: err instanceof Error ? err.message : err },
-      'identical replacement: checking for late edits failed',
+    });
+    if (!lateEditsFollowed) return false;
+    // Intent and mirror inventories must survive every subsequent local unlink
+    // and catalog deletion. Failure retains the row and its association for retry.
+    if (
+      !(await prepareIdenticalReplacementPurge(assetId.toHexString(), {
+        libraryId: location.library_id.toHexString(),
+        path: location.path,
+        filename: location.filename,
+      }))
+    )
+      return false;
+    for (const filename of files) await unlinkPurgedPrimary(filename);
+    // Never skips the row's deletion: the photo is already gone.
+    await carryLateEditsToReplacement(trashedPath, replacementPath, heldPaths).catch(
+      (err: unknown) => {
+        log.error(
+          { trashedPath, err: err instanceof Error ? err.message : err },
+          'identical replacement: checking for late edits failed',
+        );
+      },
     );
+    await hardDelete(assetId);
+    return true;
   });
-  await hardDelete(assetId);
-  return true;
 }

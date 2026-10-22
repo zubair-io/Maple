@@ -19,6 +19,7 @@ import * as xmpConflict from '../fs/xmp-conflict.ts';
 import * as mirrored from '../fs/mirrored.ts';
 import * as ownership from '../fs/sidecar-ownership.ts';
 import { discardIdenticalReplacement } from './upload-replacement.ts';
+import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
 
 async function fixture(bytes = 'old-original') {
   const f = await recoveryFixture();
@@ -28,7 +29,12 @@ async function fixture(bytes = 'old-original') {
   await writeFile(original, bytes);
   const libraryId = insertFolder(f.live.db, { path: library });
   const id = insertAsset(f.live.db);
-  insertLocation(f.live.db, { assetId: id, libraryId, path: '', filename: 'photo.dng' });
+  insertLocation(f.live.db, {
+    assetId: id,
+    libraryId,
+    path: '',
+    filename: 'photo.dng',
+  });
   const destination = await backupEngine.repo.createDestination({
     libraryId,
     kind: 'google-drive',
@@ -84,7 +90,10 @@ test('replacement upload commits durable Trash and fences an already claimed clo
   try {
     expect((await f.upload('new-original')).status).toBe(201);
     expect(await readFile(f.original, 'utf8')).toBe('new-original');
-    expect(f.location()).toEqual({ path: '.maple/trash', filename: 'photo.dng' });
+    expect(f.location()).toEqual({
+      path: '.maple/trash',
+      filename: 'photo.dng',
+    });
     expect(await readFile(path.join(f.library, '.maple/trash/photo.dng'), 'utf8')).toBe(
       'old-original',
     );
@@ -100,7 +109,10 @@ test('replacement upload commits durable Trash and fences an already claimed clo
           "SELECT phase,target_path,source_sha256 FROM backup_lifecycle WHERE asset_id=? AND kind='trash'",
         )
         .get(f.id),
-    ).toMatchObject({ phase: 'applied', target_path: '.maple/trash/photo.dng' });
+    ).toMatchObject({
+      phase: 'applied',
+      target_path: '.maple/trash/photo.dng',
+    });
   } finally {
     await f.close();
   }
@@ -391,8 +403,8 @@ test("a failed late-edit check never skips the purged row's deletion (#5069)", a
         return admitted;
       },
     );
-    const realList = xmpConflict.listPairedSidecars;
-    const list = spyOn(xmpConflict, 'listPairedSidecars').mockImplementation(async (p) =>
+    const realList = xmpConflict.listPairedSidecarsStrict;
+    const list = spyOn(xmpConflict, 'listPairedSidecarsStrict').mockImplementation(async (p) =>
       admitted && String(p) === source ? Promise.reject(new Error('EIO')) : realList(p),
     );
     try {
@@ -469,3 +481,43 @@ test('catalog commit failure during replacement retains original bytes and a rec
     await f.close();
   }
 });
+
+for (const suffix of ['photo.xmp', 'photo.dng.xmp']) {
+  test(`a first save to ${suffix} finishes before purge eligibility is decided`, async () => {
+    const f = await fixture();
+    const source = path.join(f.library, '.maple/trash/photo.dng');
+    const sidecar = path.join(f.library, '.maple/trash', suffix);
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let saving: Promise<void> | undefined;
+    let purging: Promise<boolean> | undefined;
+    try {
+      expect((await f.upload('different')).status).toBe(201);
+      await writeFile(f.original, 'old-original');
+      saving = serializeSidecarWrite(sidecar, async () => {
+        entered.resolve();
+        await release.promise;
+        await writeFile(
+          sidecar,
+          '<x:xmpmeta xmlns:maple="https://ns.justmaple.app/xmp/1.0/">first edit</x:xmpmeta>',
+        );
+      });
+      await entered.promise;
+      purging = discardIdenticalReplacement(new ObjectId(f.id), f.library, source, f.original);
+      await Bun.sleep(25);
+      expect(await readFile(source, 'utf8')).toBe('old-original');
+      release.resolve();
+      await saving;
+      expect(await purging).toBe(false);
+      expect(await readFile(sidecar, 'utf8')).toBe(
+        '<x:xmpmeta xmlns:maple="https://ns.justmaple.app/xmp/1.0/">first edit</x:xmpmeta>',
+      );
+      expect(f.live.db.query('SELECT id FROM assets WHERE id=?').get(f.id)).not.toBeNull();
+    } finally {
+      release.resolve();
+      await saving;
+      await purging;
+      await f.close();
+    }
+  });
+}
