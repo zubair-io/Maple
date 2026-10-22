@@ -64,6 +64,9 @@ class CanvasZoomState(
         private set
 
     private var pinchEndedAtMs: Long? = null
+    private var anchorX = 0f
+    private var anchorY = 0f
+    private var absoluteScale = initialPixelScale > 0f
 
     val isZoomed: Boolean
         get() = pixelScale > 0f
@@ -139,6 +142,7 @@ class CanvasZoomState(
         if (!zoomChange.isFinite() || zoomChange <= 0f) return
         val fit = fitScale(imageWidth, imageHeight, viewportWidth, viewportHeight)
         val oldScale = effectiveScale(imageWidth, imageHeight, viewportWidth, viewportHeight)
+        if (!isZoomed) absoluteScale = false
         val proposed = (oldScale * zoomChange).coerceAtMost(MAX_PIXEL_SCALE)
         if (proposed <= fit * SNAP_TO_FIT_RATIO) {
             reset()
@@ -146,6 +150,8 @@ class CanvasZoomState(
         }
         val relX = centroidX - viewportWidth / 2f
         val relY = centroidY - viewportHeight / 2f
+        anchorX = relX
+        anchorY = relY
         val scaleRatio = proposed / oldScale
         val rawPanX = relX - (relX - panX) * scaleRatio + panDeltaX
         val rawPanY = relY - (relY - panY) * scaleRatio + panDeltaY
@@ -202,6 +208,9 @@ class CanvasZoomState(
         val targetScale = ONE_TO_ONE_PIXEL_SCALE
         val relX = tapX - viewportWidth / 2f
         val relY = tapY - viewportHeight / 2f
+        anchorX = relX
+        anchorY = relY
+        absoluteScale = true
         val scaleRatio = targetScale / fit
         val rawPanX = -relX * (scaleRatio - 1f)
         val rawPanY = -relY * (scaleRatio - 1f)
@@ -216,6 +225,18 @@ class CanvasZoomState(
             viewportWidth,
             viewportHeight,
         )
+    }
+
+    /** The initial gesture can arrive while a cloud original's dimensions are loading. */
+    fun adoptNativeDimensions(oldWidth: Int, oldHeight: Int, width: Int, height: Int,
+        viewportWidth: Float, viewportHeight: Float) {
+        if (!isZoomed) return
+        val oldFit = fitScale(oldWidth, oldHeight, viewportWidth, viewportHeight)
+        val newFit = fitScale(width, height, viewportWidth, viewportHeight)
+        if (!absoluteScale) pixelScale = (pixelScale * newFit / oldFit).coerceAtMost(MAX_PIXEL_SCALE)
+        val ratio = pixelScale / newFit
+        clampAndSetPan(anchorX * (1f - ratio), anchorY * (1f - ratio), pixelScale,
+            width, height, viewportWidth, viewportHeight)
     }
 
     private fun clampAndSetPan(

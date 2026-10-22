@@ -215,6 +215,15 @@ class PhotoLibrary(private val context: Context) {
         return file
     }
 
+    /** Metadata reads retain the immutable original without creating a full OS-decoded raster. */
+    suspend fun <T> withSourceMetadata(photo: Photo, action: suspend (File) -> T): T = originals.withLock {
+        val source = withContext(Dispatchers.IO) {
+            val folder = File(context.cacheDir, "originals").apply { mkdirs() }
+            sourceOriginal(photo, folder)
+        }
+        action(source)
+    }
+
     suspend fun <T> withOriginal(photo: Photo, action: suspend (File) -> T): T =
         withMaterialized(photo, null, action)
 

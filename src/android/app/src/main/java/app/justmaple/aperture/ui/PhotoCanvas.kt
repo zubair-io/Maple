@@ -1,5 +1,11 @@
 package app.justmaple.aperture.ui
 
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.unit.IntOffset
+import app.justmaple.aperture.data.NativeImageSize
+import app.justmaple.aperture.data.nativeViewportRegion
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.foundation.BorderStroke
@@ -78,17 +84,15 @@ internal fun PhotoCanvas(
     }
     val crop = remember(state.document) { state.document.cropRect() }
     val uncroppedAspect = state.uncroppedAspect()
-    val aspect = if (showCropOverlay) uncroppedAspect else
+    val fallbackAspect = if (showCropOverlay) uncroppedAspect else
         uncroppedAspect * (crop.right - crop.left).coerceAtLeast(0.001f) /
             (crop.bottom - crop.top).coerceAtLeast(0.001f)
-    val imageDims =
-        remember(aspect, state.values["_width"], state.values["_height"]) {
-            val w = state.values["_width"]?.toInt()?.takeIf { it > 0 }
-            val h = state.values["_height"]?.toInt()?.takeIf { it > 0 }
-            if (w != null && h != null) w to h
-            else if (aspect >= 1f) 2048 to (2048f / aspect).roundToInt().coerceAtLeast(1)
-            else (2048f * aspect).roundToInt().coerceAtLeast(1) to 2048
-        }
+    val aspect = state.nativeImageSize?.let { it.width.toFloat() / it.height } ?: fallbackAspect
+    var adoptedSize by remember(state.selected?.key) { mutableStateOf<NativeImageSize?>(null) }
+    val fallbackDims = if (fallbackAspect >= 1f) 2048 to (2048f / fallbackAspect).roundToInt().coerceAtLeast(1)
+        else (2048f * fallbackAspect).roundToInt().coerceAtLeast(1) to 2048
+    val imageDims = adoptedSize?.let { it.width to it.height } ?: fallbackDims
+    val nativeReady = adoptedSize != null && adoptedSize == state.nativeImageSize
     val currentImageDims by rememberUpdatedState(imageDims)
     val currentMode by rememberUpdatedState(state.mode)
 
@@ -110,6 +114,26 @@ internal fun PhotoCanvas(
         val density = LocalDensity.current.density
         val viewportPxW = (maxWidth.value * density).coerceAtLeast(1f)
         val viewportPxH = (maxHeight.value * density).coerceAtLeast(1f)
+        LaunchedEffect(state.nativeImageSize, state.selected?.key) {
+            val size = state.nativeImageSize ?: return@LaunchedEffect
+            if (adoptedSize == null) zoomState.adoptNativeDimensions(fallbackDims.first, fallbackDims.second,
+                size.width, size.height, viewportPxW, viewportPxH)
+            else if (adoptedSize != size) zoomState.reset()
+            adoptedSize = size
+        }
+        LaunchedEffect(state.selected?.key, state.mode, state.document, state.comparingBefore,
+            state.values.isEmpty(), adoptedSize, state.nativeImageSize, showCropOverlay,
+            zoomState.pixelScale, zoomState.panX, zoomState.panY, viewportPxW, viewportPxH) {
+            if (!zoomState.isZoomed || showCropOverlay || zoomState.pixelScale < 1f) {
+                model.requestNativeDetail(null)
+            } else if (!nativeReady) {
+                model.prepareNativeDimensions()
+            } else {
+                model.requestNativeDetail(nativeViewportRegion(adoptedSize!!, viewportPxW, viewportPxH,
+                    zoomState.pixelScale, zoomState.panX, zoomState.panY))
+            }
+        }
+        DisposableEffect(model) { onDispose { model.cancelNativeDetail() } }
         val zoomFactor =
             zoomState.zoomFactorOverFit(
                 imageDims.first,
@@ -118,7 +142,7 @@ internal fun PhotoCanvas(
                 viewportPxH,
             )
         val zoomModifier =
-            if (zoomState.isZoomed && !showCropOverlay)
+            if (zoomState.isZoomed && nativeReady && !showCropOverlay)
                 Modifier.graphicsLayer {
                     scaleX = zoomFactor
                     scaleY = zoomFactor
@@ -179,11 +203,23 @@ internal fun PhotoCanvas(
                 PhotoThumbnail(
                     it,
                     model.library,
-                    Modifier.fillMaxSize().padding(16.dp).then(zoomModifier),
+                    Modifier.fillMaxSize().then(zoomModifier),
                     fit = true,
                     revision = state.document.original,
                 )
             }
+        if (zoomState.isZoomed && nativeReady && !showCropOverlay) state.nativeDetail?.let { frame ->
+            val scale = zoomState.effectiveScale(imageDims.first, imageDims.second, viewportPxW, viewportPxH)
+            val left = viewportPxW / 2f + zoomState.panX - imageDims.first * scale / 2f + frame.region.x * scale
+            val top = viewportPxH / 2f + zoomState.panY - imageDims.second * scale / 2f + frame.region.y * scale
+            Image(frame.bitmap.asImageBitmap(), contentDescription = "Native detail preview",
+                filterQuality = FilterQuality.None,
+                modifier = Modifier.align(Alignment.TopStart)
+                    .wrapContentSize(Alignment.TopStart, unbounded = true)
+                    .offset { IntOffset(left.roundToInt(), top.roundToInt()) }
+                    .requiredSize((frame.region.width * scale / density).dp, (frame.region.height * scale / density).dp)
+                    .testTag("native-detail-preview"))
+        }
         if (state.mode == PhotoMode.Edit && state.comparingBefore) {
             Surface(
                 modifier =
@@ -206,19 +242,26 @@ internal fun PhotoCanvas(
         }
         if (state.selected != null) {
             CanvasZoomBadge(
-                label =
-                    zoomState.badgeLabel(
-                        imageDims.first,
-                        imageDims.second,
-                        viewportPxW,
-                        viewportPxH,
-                    ),
+                label = when {
+                    !zoomState.isZoomed && !nativeReady -> "FIT"
+                    zoomState.isZoomed && !nativeReady -> if (state.nativeDimensionsLoading) "Reading original…" else "Preview only"
+                    state.nativeDetailError != null && zoomState.isZoomed -> "${zoomState.badgeLabel(imageDims.first, imageDims.second, viewportPxW, viewportPxH)} · Preview only"
+                    state.nativeDetailBusy && zoomState.isZoomed -> "${zoomState.badgeLabel(imageDims.first, imageDims.second, viewportPxW, viewportPxH)} · Refining"
+                    else -> zoomState.badgeLabel(imageDims.first, imageDims.second, viewportPxW, viewportPxH)
+                },
                 isZoomed = zoomState.isZoomed,
                 onReset = zoomState::reset,
                 modifier =
                     Modifier.align(Alignment.BottomStart)
                         .padding(start = badgeStartPadding, bottom = badgeBottomPadding),
             )
+        }
+        if (zoomState.isZoomed && state.nativeDetailError != null) {
+            Surface(Modifier.align(Alignment.BottomStart).padding(start = badgeStartPadding, bottom = badgeBottomPadding + 40.dp),
+                color = Color.Black.copy(alpha = 0.75f), shape = RoundedCornerShape(6.dp)) {
+                Text(state.nativeDetailError, modifier = Modifier.padding(8.dp).testTag("native-detail-error"),
+                    color = MapleColors.muted, fontSize = 11.sp)
+            }
         }
         if (state.loading || state.rendering)
             MapleGlass {

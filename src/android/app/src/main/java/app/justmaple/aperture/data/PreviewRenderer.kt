@@ -17,6 +17,14 @@ interface PreviewRenderer : Closeable {
 
     suspend fun autoWhiteBalance(document: String): app.justmaple.aperture.WhiteBalanceRecommendation
 
+    suspend fun nativeDimensions(photo: Photo): NativeImageSize?
+    suspend fun nativeDetail(request: NativeDetailRequest): android.graphics.Bitmap
+    fun cancelNativeDetail()
+
+    fun presentationSize(size: NativeImageSize, crop: app.justmaple.aperture.ui.CropRect): NativeImageSize =
+        NativeImageSize.unpack(NativeBridge.presentationDimensions(size.width, size.height,
+            crop.top, crop.left, crop.bottom, crop.right, crop.angle))
+
     fun recordSurface(
         next: Surface?,
         w: Int,

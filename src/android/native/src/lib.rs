@@ -3,6 +3,7 @@ mod auto_white_balance;
 mod cancellation;
 mod fields;
 mod film;
+mod native_detail;
 mod platform_raster;
 mod preview;
 mod scopes;

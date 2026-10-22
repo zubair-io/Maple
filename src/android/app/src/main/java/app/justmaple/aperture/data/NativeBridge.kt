@@ -20,6 +20,16 @@ object NativeBridge {
 
     external fun parametricCurve(xml: String): String
 
+    external fun openNativeDetail(path: String): Long
+    external fun copyNativeDetail(handle: Long): Long
+    external fun closeNativeDetail(source: Long)
+    external fun outputPrimaries(handle: Long): Int
+    external fun nativeDimensions(path: String, extension: String): Long
+    external fun presentationDimensions(width: Int, height: Int, top: Float, left: Float,
+        bottom: Float, right: Float, angle: Float): Long
+    external fun renderNativeDetail(source: Long, xml: String, x: Int, y: Int, width: Int,
+        height: Int, target: Int, flag: Long): Bitmap
+
     external fun scopePixels(pixels: IntArray, width: Int, height: Int): String
 
     external fun createAutoWhiteBalance(handle: Long, xml: String): Long

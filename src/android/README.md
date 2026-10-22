@@ -276,6 +276,23 @@ real external/SMB document providers before a release.
 Canonical folder sidecars match names case-insensitively, retaining an existing
 file's casing through save and recovery. Ambiguous duplicate names stop edits.
 
+At 100% and above, Preview and Edit request a source-pixel window from the
+shared core rather than magnifying the 2048px preview. Original dimensions are
+read from metadata; a gesture made while those dimensions load retains its
+anchor. A separate CPU worker owns immutable decoded source data, the retained
+full-frame Auto context, and cancellation through JNI completion. Each request
+uses the cropped presentation coordinates and the current sRGB/P3 target;
+stale edits or navigation cannot publish a completed window. A bounded pan
+margin avoids rendering again for small movements. The GPU worker continues
+ordinary preview rendering independently.
+
+Native windows admit at most 8 megapixels of working pixels; raster sources
+are limited to 32 megapixels before float decoding. Unsupported RAW modes or
+edits (including Dehaze and Deep Denoise) show an explicit preview-only message.
+They do not report a magnified preview as resolved native detail. Device tests
+check one-pixel texture and window placement in both Preview and Edit, RAW
+ownership after GPU teardown, cancellation, and sRGB/P3 bitmap tags.
+
 Native editor calls and surface ownership are serialized on one worker.
 `ANativeWindow` is retained until its wgpu surface is dropped. Only one decoded
 image is resident. Slider draws coalesce, and undo commits at gesture boundaries.
