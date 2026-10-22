@@ -7,10 +7,7 @@ import { prepareIdenticalReplacementPurge } from '../cloud-backup/lifecycle.ts';
 import { unlink, unlinkPrimaryForPurge } from '../fs/mirrored.ts';
 import { listPairedSidecarsStrict } from '../fs/xmp-conflict.ts';
 import { trashAssetById } from './asset-trash.ts';
-import {
-  publishConflictBytes,
-  sidecarStemClaimedBySiblingStrict,
-} from '../fs/sidecar-ownership.ts';
+import { publishConflictBytes, sidecarStemOwnedByAnotherFile } from '../fs/sidecar-ownership.ts';
 import { readSidecarBytes } from '../fs/sidecar-bytes.ts';
 import { isLegacyBackupSidecarOf } from '../fs/legacy-backup-sidecar.ts';
 import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
@@ -69,7 +66,7 @@ async function carryLateEditsToReplacement(
   replacementPath: string,
 ): Promise<void> {
   // Strict: an unreadable Trash folder must never read as "no late edits".
-  const shared = await sidecarStemClaimedBySiblingStrict(trashedPath);
+  const shared = await sidecarStemOwnedByAnotherFile(trashedPath);
   const late = (await listPairedSidecarsStrict(trashedPath)).filter(
     (sidecar) => !shared || isLegacyBackupSidecarOf(trashedPath, sidecar),
   );
