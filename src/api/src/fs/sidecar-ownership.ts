@@ -108,7 +108,8 @@ export async function sidecarStemOwnedByAnotherFile(primaryAbsPath: string): Pro
   const self = await lstatUnlessGone(primaryAbsPath);
   const candidates = (await fs.readdir(dir, { withFileTypes: true })).filter(
     (entry) =>
-      entry.isFile() &&
+      !entry.isDirectory() &&
+      !entry.isSymbolicLink() &&
       !entry.name.startsWith('.') &&
       !STAGING_NAME.test(entry.name) &&
       (isCataloguedFilename(entry.name) || isVideoFilename(entry.name)) &&
