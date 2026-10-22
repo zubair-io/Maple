@@ -71,3 +71,21 @@
    }
  }
 +
+--- a/src/decoders/nef.rs
++++ b/src/decoders/nef.rs
+@@ -217 +217,4 @@
+-    let src = if rows_per_strip == height {
++    // Dummy decode retains geometry/crop logic but never reads sensor strips.
++    let src = if dummy {
++      PaddedBuf::new_ref(&[0; 16], 0)
++    } else if rows_per_strip == height {
+--- a/src/decoders/orf.rs
++++ b/src/decoders/orf.rs
+@@ -175 +175,6 @@
+-    let src = file.subview_padded(offset as u64, size as u64)?; // TODO add size and check all samples
++    // Dummy decode retains geometry/crop logic but never reads sensor strips.
++    let src = if dummy {
++      PaddedBuf::new_ref(&[0; 16], 0)
++    } else {
++      file.subview_padded(offset as u64, size as u64)?
++    };

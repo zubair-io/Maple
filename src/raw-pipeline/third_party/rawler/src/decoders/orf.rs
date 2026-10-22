@@ -172,7 +172,12 @@ impl<'a> Decoder for OrfDecoder<'a> {
       self.camera.clone()
     };
 
-    let src = file.subview_padded(offset as u64, size as u64)?; // TODO add size and check all samples
+    // Dummy decode retains geometry/crop logic but never reads sensor strips.
+    let src = if dummy {
+      PaddedBuf::new_ref(&[0; 16], 0)
+    } else {
+      file.subview_padded(offset as u64, size as u64)?
+    };
 
     log::debug!(
       "ORF raw image size: {}, dim: {}x{}, total mp: {}, strip counts: {}",
