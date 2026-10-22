@@ -1,7 +1,7 @@
 //! Cold RAW dimensions for native canvas layout (#5163): the display-oriented
 //! DefaultCrop size from metadata alone, for a RAW the host's own metadata
 //! reader cannot parse. No pixel decode, no XMP or companion reads.
-use crate::error::{set_last_error, with_large_stack};
+use crate::error::{catch_panic_rc, set_last_error, with_large_stack};
 use rawler::rawsource::RawSource;
 use std::ffi::{c_char, CStr};
 
@@ -48,23 +48,25 @@ pub unsafe extern "C" fn maple_raw_dimensions_file(
     width: *mut u32,
     height: *mut u32,
 ) -> i32 {
-    if !reset_outputs(width, height) || path.is_null() {
-        return 1;
-    }
-    let path = match CStr::from_ptr(path).to_str() {
-        Ok(path) => std::path::PathBuf::from(path),
-        Err(error) => {
-            set_last_error(error.to_string());
-            return 2;
+    catch_panic_rc("maple_raw_dimensions_file", || {
+        if !reset_outputs(width, height) || path.is_null() {
+            return 1;
         }
-    };
-    let (width, height) = (width as usize, height as usize);
-    with_large_stack(move || match RawSource::new(&path) {
-        Ok(source) => run(source, width, height),
-        Err(error) => {
-            set_last_error(error.to_string());
-            5
-        }
+        let path = match CStr::from_ptr(path).to_str() {
+            Ok(path) => std::path::PathBuf::from(path),
+            Err(error) => {
+                set_last_error(error.to_string());
+                return 2;
+            }
+        };
+        let (width, height) = (width as usize, height as usize);
+        with_large_stack(move || match RawSource::new(&path) {
+            Ok(source) => run(source, width, height),
+            Err(error) => {
+                set_last_error(error.to_string());
+                5
+            }
+        })
     })
 }
 
@@ -84,27 +86,29 @@ pub unsafe extern "C" fn maple_raw_dimensions_bytes(
     width: *mut u32,
     height: *mut u32,
 ) -> i32 {
-    if !reset_outputs(width, height) || bytes.is_null() || length == 0 {
-        return 1;
-    }
-    let hint = if hint.is_null() {
-        String::new()
-    } else {
-        match CStr::from_ptr(hint).to_str() {
-            Ok(hint) => hint.to_owned(),
-            Err(error) => {
-                set_last_error(error.to_string());
-                return 2;
-            }
+    catch_panic_rc("maple_raw_dimensions_bytes", || {
+        if !reset_outputs(width, height) || bytes.is_null() || length == 0 {
+            return 1;
         }
-    };
-    let (bytes, width, height) = (bytes as usize, width as usize, height as usize);
-    with_large_stack(move || {
-        // SAFETY: the caller keeps `bytes` alive until this synchronous call
-        // returns, and the worker is joined before it does.
-        let bytes = unsafe { std::slice::from_raw_parts(bytes as *const u8, length) };
-        let source = RawSource::new_from_slice(bytes).with_path(format!("rawfile.{hint}"));
-        run(source, width, height)
+        let hint = if hint.is_null() {
+            String::new()
+        } else {
+            match CStr::from_ptr(hint).to_str() {
+                Ok(hint) => hint.to_owned(),
+                Err(error) => {
+                    set_last_error(error.to_string());
+                    return 2;
+                }
+            }
+        };
+        let (bytes, width, height) = (bytes as usize, width as usize, height as usize);
+        with_large_stack(move || {
+            // SAFETY: the caller keeps `bytes` alive until this synchronous call
+            // returns, and the worker is joined before it does.
+            let bytes = unsafe { std::slice::from_raw_parts(bytes as *const u8, length) };
+            let source = RawSource::new_from_slice(bytes).with_path(format!("rawfile.{hint}"));
+            run(source, width, height)
+        })
     })
 }
 

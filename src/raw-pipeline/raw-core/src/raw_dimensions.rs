@@ -2,28 +2,58 @@
 //!
 //! [`from_source`] is the cold metadata query a host falls back to for canvas
 //! layout when its own metadata reader does not understand the RAW container.
-//! It shares [`default_crop`] with the pixel decoder (`decode::decode_bytes`),
-//! so the two can never disagree on how a DefaultCrop rectangle is read.
+//! The non-DNG path shares [`default_crop`] with the pixel decoder. DNG reads
+//! the selected raw IFD directly; synthetic and physical equivalence tests
+//! pin its crop and orientation against the pixel decoder.
 use crate::{
     error::Error,
     image::{CropRect, ExifOrientation},
     Result,
 };
 use rawler::{
-    decoders::{RawDecodeParams, WellKnownIFD},
+    decoders::{FormatHint, RawDecodeParams, WellKnownIFD},
     formats::tiff::IFD,
     rawsource::RawSource,
-    tags::DngTag,
+    tags::{DngTag, TiffCommonTag},
 };
 
 /// `[width, height]` of the DefaultCrop rectangle (the whole sensor when the
-/// file declares none), swapped into display orientation. Rawler's dummy
-/// decode parses metadata only — no full-sensor pixel buffer is allocated.
+/// file declares none), swapped into display orientation. DNG bypasses
+/// rawler's pixel-decoding dummy path; other formats use its dummy metadata.
 pub fn from_source(source: &RawSource) -> Result<[u32; 2]> {
     let fail = |reason: String| Error::Decode {
         path: source.path().to_path_buf(),
         reason,
     };
+    let decoder = rawler::get_decoder(source).map_err(|error| fail(error.to_string()))?;
+    // Rawler's DNG dummy path still decompresses the raster. Read its selected
+    // raw IFD directly so cold layout never needs strips, tiles or sample storage.
+    if decoder.format_hint() == FormatHint::DNG {
+        let raw = decoder
+            .ifd(WellKnownIFD::Raw)
+            .map_err(|e| fail(e.to_string()))?
+            .ok_or_else(|| fail("DNG has no raw IFD".into()))?;
+        let dimensions = [TiffCommonTag::ImageWidth, TiffCommonTag::ImageLength]
+            .map(|tag| raw.get_entry(tag).map(|e| e.force_u32(0)).unwrap_or(0));
+        let [width, height] = dimensions;
+        if width < 2 || height < 2 {
+            return Err(fail("invalid DNG sensor dimensions".into()));
+        }
+        let crop = dng_crop(&raw, width, height);
+        let [w, h] = crop.map_or(dimensions, |r| [r.w, r.h]);
+        let root = decoder
+            .ifd(WellKnownIFD::Root)
+            .map_err(|e| fail(e.to_string()))?;
+        let orientation = root
+            .as_ref()
+            .and_then(|r| r.get_entry(TiffCommonTag::Orientation))
+            .map_or(1, |e| e.force_u16(0));
+        return Ok(if ExifOrientation::from_u16(orientation).swaps_wh() {
+            [h, w]
+        } else {
+            [w, h]
+        });
+    }
     let raw = rawler::decode_dummy(source).map_err(|error| fail(error.to_string()))?;
     if raw.width < 2 || raw.height < 2 {
         return Err(fail(format!(
@@ -31,7 +61,6 @@ pub fn from_source(source: &RawSource) -> Result<[u32; 2]> {
             raw.width, raw.height
         )));
     }
-    let decoder = rawler::get_decoder(source).map_err(|error| fail(error.to_string()))?;
     let orientation = decoder
         .raw_metadata(source, &RawDecodeParams::default())
         .ok()
@@ -48,6 +77,25 @@ pub fn from_source(source: &RawSource) -> Result<[u32; 2]> {
     } else {
         [width, height]
     })
+}
+
+// Rawler places DefaultCrop relative to ActiveArea and truncates rational
+// coordinates to integers. Mirror that metadata convention without constructing
+// a RawImage (whose malformed border arithmetic can overflow in debug builds).
+fn dng_crop(ifd: &IFD, width: u32, height: u32) -> Option<CropRect> {
+    let origin = ifd.get_entry(DngTag::DefaultCropOrigin)?;
+    let size = ifd.get_entry(DngTag::DefaultCropSize)?;
+    if origin.count() < 2 || size.count() < 2 {
+        return None;
+    }
+    let active = ifd.get_entry(DngTag::ActiveArea).filter(|a| a.count() >= 4);
+    let x = origin
+        .force_u32(0)
+        .saturating_add(active.map_or(0, |a| a.force_u32(1)));
+    let y = origin
+        .force_u32(1)
+        .saturating_add(active.map_or(0, |a| a.force_u32(0)));
+    CropRect::clamped(x, y, size.force_u32(0), size.force_u32(1), width, height)
 }
 
 /// The DNG § 6.3 DefaultCropOrigin/Size rectangle, in sensor-absolute
@@ -148,20 +196,35 @@ mod tests {
         }
     }
 
-    /// Rawler's border subtraction checks overflow in debug, while release
-    /// decoding reaches Maple's crop clamp. Both metadata and pixel paths must
-    /// agree, including this malformed container in either build profile.
     #[test]
-    fn an_overrunning_crop_matches_the_pixel_decoder_in_both_profiles() {
+    fn an_overrunning_dng_crop_is_clamped_without_decoding_pixels() {
         let bytes = synthetic(Some(6), Some([12, 6, 100, 100]));
         let source = RawSource::new_from_slice(&bytes).with_path("rawfile.dng");
-        if cfg!(debug_assertions) {
-            assert!(from_source(&source).is_err());
-            assert!(crate::decode::decode_bytes(&bytes, "dng").is_err());
-        } else {
-            assert_eq!(from_source(&source).unwrap(), [2, 4]);
-            assert_eq!(display_size_from_pixel_decode(&bytes), [2, 4]);
+        assert_eq!(from_source(&source).unwrap(), [2, 4]);
+    }
+
+    #[test]
+    fn dng_layout_does_not_read_or_allocate_the_declared_pixel_raster() {
+        let mut bytes = synthetic(Some(6), None);
+        let ifd = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+        let count = u16::from_le_bytes(bytes[ifd..ifd + 2].try_into().unwrap()) as usize;
+        for n in 0..count {
+            let at = ifd + 2 + n * 12;
+            let tag = u16::from_le_bytes(bytes[at..at + 2].try_into().unwrap());
+            if tag == 273 {
+                // StripOffsets points outside the file: decode must fail.
+                bytes[at + 8..at + 12].copy_from_slice(&u32::MAX.to_le_bytes());
+            }
+            if tag == 256 || tag == 257 {
+                // A full raster would require terabytes.
+                bytes[at + 2..at + 4].copy_from_slice(&4u16.to_le_bytes());
+                bytes[at + 8..at + 12].copy_from_slice(&1_000_000u32.to_le_bytes());
+            }
         }
+        let source = RawSource::new_from_slice(&bytes).with_path("rawfile.dng");
+        assert_eq!(from_source(&source).unwrap(), [1_000_000; 2]);
+        // Do not invoke a full decode of an intentionally enormous image.
+        // The invalid strip proves this query cannot have read image samples.
     }
 
     #[test]

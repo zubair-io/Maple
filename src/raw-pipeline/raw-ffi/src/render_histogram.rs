@@ -4,7 +4,7 @@
 //! render `maple_render_file` / `maple_render_bytes` run, binned in Rust so
 //! only the 3 KB histogram crosses the C ABI.
 
-use crate::error::{set_last_error, with_large_stack};
+use crate::error::{catch_panic_rc, set_last_error, with_large_stack};
 use crate::model::{load_xmp_model_from_doc, load_xmp_model_owned, LoadModel};
 use raw_core::{
     decode::decode_bytes,
@@ -73,84 +73,86 @@ pub unsafe extern "C" fn maple_histogram_file(
     xmp_path: *const c_char,
     out_bins: *mut u32,
 ) -> i32 {
-    if raw_path.is_null() || out_bins.is_null() {
-        set_last_error("null pointer argument".into());
-        return 1;
-    }
-    // `out_bins` is reinterpreted as a `*mut u32` slice below (via
-    // `from_raw_parts_mut`), which is instant UB on a pointer that is not
-    // `u32`-aligned. This is a public C ABI, so validate the caller's
-    // alignment rather than trust it — reject with the pointer-argument
-    // code (1) on a miss instead of risking the unaligned write.
-    if out_bins as usize % std::mem::align_of::<u32>() != 0 {
-        set_last_error("out_bins pointer is not u32-aligned".into());
-        return 1;
-    }
-    let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
-        Ok(s) => s.to_owned(),
-        Err(e) => {
-            set_last_error(format!("raw_path not UTF-8: {}", e));
-            return 2;
+    catch_panic_rc("maple_histogram_file", || {
+        if raw_path.is_null() || out_bins.is_null() {
+            set_last_error("null pointer argument".into());
+            return 1;
         }
-    };
-    let xmp_path_str: Option<String> = if xmp_path.is_null() {
-        None
-    } else {
-        match CStr::from_ptr(xmp_path).to_str() {
-            Ok(s) => Some(s.to_owned()),
-            Err(e) => {
-                set_last_error(format!("xmp_path not UTF-8: {}", e));
-                return 3;
-            }
+        // `out_bins` is reinterpreted as a `*mut u32` slice below (via
+        // `from_raw_parts_mut`), which is instant UB on a pointer that is not
+        // `u32`-aligned. This is a public C ABI, so validate the caller's
+        // alignment rather than trust it — reject with the pointer-argument
+        // code (1) on a miss instead of risking the unaligned write.
+        if out_bins as usize % std::mem::align_of::<u32>() != 0 {
+            set_last_error("out_bins pointer is not u32-aligned".into());
+            return 1;
         }
-    };
-    let out_ptr = out_bins as usize; // Send across the worker thread as a usize.
-    with_large_stack(move || {
-        let raw_path = std::path::Path::new(&raw_path_str);
-        let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
-            LoadModel::Ok(m) => m,
-            LoadModel::Err(rc) => return rc,
-        };
-        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path))
-        {
-            Ok(b) => b,
+        let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
+            Ok(s) => s.to_owned(),
             Err(e) => {
-                set_last_error(format!("raw read: {}", e));
-                return 6;
+                set_last_error(format!("raw_path not UTF-8: {}", e));
+                return 2;
             }
         };
-        let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_bytes(&raw_bytes, ext)
-        }) {
-            Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
+        let xmp_path_str: Option<String> = if xmp_path.is_null() {
+            None
+        } else {
+            match CStr::from_ptr(xmp_path).to_str() {
+                Ok(s) => Some(s.to_owned()),
+                Err(e) => {
+                    set_last_error(format!("xmp_path not UTF-8: {}", e));
+                    return 3;
+                }
             }
         };
-        // AMaZE render so the histogram reflects the authoritative export pixels
-        // (mirrors `maple_render_file` with quality_preview = 2, the export path).
-        let (_w, _h, bytes) = match render_from_raw_with_quality_and_source(
-            &raw_img,
-            &model,
-            RenderQuality::Amaze,
-            Some(RawInput::Path(raw_path)),
-        ) {
-            Ok(t) => t,
-            Err(e) => {
-                set_last_error(format!("render: {}", e));
-                return 8;
+        let out_ptr = out_bins as usize; // Send across the worker thread as a usize.
+        with_large_stack(move || {
+            let raw_path = std::path::Path::new(&raw_path_str);
+            let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
+                LoadModel::Ok(m) => m,
+                LoadModel::Err(rc) => return rc,
+            };
+            let raw_bytes =
+                match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path)) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        set_last_error(format!("raw read: {}", e));
+                        return 6;
+                    }
+                };
+            let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
+                decode_bytes(&raw_bytes, ext)
+            }) {
+                Ok(r) => r,
+                Err(e) => {
+                    set_last_error(format!("decode: {}", e));
+                    return 7;
+                }
+            };
+            // AMaZE render so the histogram reflects the authoritative export pixels
+            // (mirrors `maple_render_file` with quality_preview = 2, the export path).
+            let (_w, _h, bytes) = match render_from_raw_with_quality_and_source(
+                &raw_img,
+                &model,
+                RenderQuality::Amaze,
+                Some(RawInput::Path(raw_path)),
+            ) {
+                Ok(t) => t,
+                Err(e) => {
+                    set_last_error(format!("render: {}", e));
+                    return 8;
+                }
+            };
+            let bins = bin_rgb888(&bytes);
+            // SAFETY: the caller guarantees `out_bins` (captured as `out_ptr`)
+            // points to >= HISTOGRAM_BINS_LEN writable u32s that outlive the call.
+            unsafe {
+                std::slice::from_raw_parts_mut(out_ptr as *mut u32, HISTOGRAM_BINS_LEN)
+                    .copy_from_slice(&bins);
             }
-        };
-        let bins = bin_rgb888(&bytes);
-        // SAFETY: the caller guarantees `out_bins` (captured as `out_ptr`)
-        // points to >= HISTOGRAM_BINS_LEN writable u32s that outlive the call.
-        unsafe {
-            std::slice::from_raw_parts_mut(out_ptr as *mut u32, HISTOGRAM_BINS_LEN)
-                .copy_from_slice(&bins);
-        }
-        0
+            0
+        })
     })
 }
 
@@ -204,84 +206,86 @@ pub unsafe extern "C" fn maple_histogram_bytes(
     quality_preview: i32,
     out_bins: *mut u32,
 ) -> i32 {
-    if raw_bytes.is_null() || out_bins.is_null() {
-        set_last_error("null pointer argument".into());
-        return 1;
-    }
-    // Same alignment guard as `maple_histogram_file` — `out_bins` is
-    // reinterpreted as a `*mut u32` slice below, instant UB if unaligned.
-    if out_bins as usize % std::mem::align_of::<u32>() != 0 {
-        set_last_error("out_bins pointer is not u32-aligned".into());
-        return 1;
-    }
-    let ext_owned: String = if hint_ext.is_null() {
-        String::new()
-    } else {
-        match CStr::from_ptr(hint_ext).to_str() {
-            Ok(s) => s.to_owned(),
-            Err(e) => {
-                set_last_error(format!("hint_ext not UTF-8: {}", e));
-                return 2;
-            }
+    catch_panic_rc("maple_histogram_bytes", || {
+        if raw_bytes.is_null() || out_bins.is_null() {
+            set_last_error("null pointer argument".into());
+            return 1;
         }
-    };
-    let xmp_doc_owned: Option<String> = if xmp_doc.is_null() {
-        None
-    } else {
-        match CStr::from_ptr(xmp_doc).to_str() {
-            Ok(s) => Some(s.to_owned()),
-            Err(e) => {
-                set_last_error(format!("xmp_doc not UTF-8: {}", e));
-                return 3;
-            }
+        // Same alignment guard as `maple_histogram_file` — `out_bins` is
+        // reinterpreted as a `*mut u32` slice below, instant UB if unaligned.
+        if out_bins as usize % std::mem::align_of::<u32>() != 0 {
+            set_last_error("out_bins pointer is not u32-aligned".into());
+            return 1;
         }
-    };
-    // Copy input bytes into a Vec the worker can own — the caller's pointer may
-    // not live past the join() on a slow decode (mirrors `maple_render_bytes`).
-    let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
-    let out_ptr = out_bins as usize; // Send across the worker thread as a usize.
-    with_large_stack(move || {
-        let model = match load_xmp_model_from_doc(xmp_doc_owned.as_deref()) {
-            LoadModel::Ok(m) => m,
-            LoadModel::Err(rc) => return rc,
-        };
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_bytes(&input, &ext_owned)
-        }) {
-            Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
+        let ext_owned: String = if hint_ext.is_null() {
+            String::new()
+        } else {
+            match CStr::from_ptr(hint_ext).to_str() {
+                Ok(s) => s.to_owned(),
+                Err(e) => {
+                    set_last_error(format!("hint_ext not UTF-8: {}", e));
+                    return 2;
+                }
             }
         };
-        let quality = match quality_preview {
-            1 => RenderQuality::Preview,
-            2 => RenderQuality::Amaze,
-            3 => RenderQuality::Auto,
-            _ => RenderQuality::Full,
-        };
-        let (_w, _h, bytes) = match render_from_raw_with_quality_and_source(
-            &raw_img,
-            &model,
-            quality,
-            Some(RawInput::Bytes {
-                bytes: &input,
-                ext: &ext_owned,
-            }),
-        ) {
-            Ok(t) => t,
-            Err(e) => {
-                set_last_error(format!("render: {}", e));
-                return 8;
+        let xmp_doc_owned: Option<String> = if xmp_doc.is_null() {
+            None
+        } else {
+            match CStr::from_ptr(xmp_doc).to_str() {
+                Ok(s) => Some(s.to_owned()),
+                Err(e) => {
+                    set_last_error(format!("xmp_doc not UTF-8: {}", e));
+                    return 3;
+                }
             }
         };
-        let bins = bin_rgb888(&bytes);
-        // SAFETY: the caller guarantees `out_bins` (captured as `out_ptr`)
-        // points to >= HISTOGRAM_BINS_LEN writable u32s that outlive the call.
-        unsafe {
-            std::slice::from_raw_parts_mut(out_ptr as *mut u32, HISTOGRAM_BINS_LEN)
-                .copy_from_slice(&bins);
-        }
-        0
+        // Copy input bytes into a Vec the worker can own — the caller's pointer may
+        // not live past the join() on a slow decode (mirrors `maple_render_bytes`).
+        let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
+        let out_ptr = out_bins as usize; // Send across the worker thread as a usize.
+        with_large_stack(move || {
+            let model = match load_xmp_model_from_doc(xmp_doc_owned.as_deref()) {
+                LoadModel::Ok(m) => m,
+                LoadModel::Err(rc) => return rc,
+            };
+            let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
+                decode_bytes(&input, &ext_owned)
+            }) {
+                Ok(r) => r,
+                Err(e) => {
+                    set_last_error(format!("decode: {}", e));
+                    return 7;
+                }
+            };
+            let quality = match quality_preview {
+                1 => RenderQuality::Preview,
+                2 => RenderQuality::Amaze,
+                3 => RenderQuality::Auto,
+                _ => RenderQuality::Full,
+            };
+            let (_w, _h, bytes) = match render_from_raw_with_quality_and_source(
+                &raw_img,
+                &model,
+                quality,
+                Some(RawInput::Bytes {
+                    bytes: &input,
+                    ext: &ext_owned,
+                }),
+            ) {
+                Ok(t) => t,
+                Err(e) => {
+                    set_last_error(format!("render: {}", e));
+                    return 8;
+                }
+            };
+            let bins = bin_rgb888(&bytes);
+            // SAFETY: the caller guarantees `out_bins` (captured as `out_ptr`)
+            // points to >= HISTOGRAM_BINS_LEN writable u32s that outlive the call.
+            unsafe {
+                std::slice::from_raw_parts_mut(out_ptr as *mut u32, HISTOGRAM_BINS_LEN)
+                    .copy_from_slice(&bins);
+            }
+            0
+        })
     })
 }

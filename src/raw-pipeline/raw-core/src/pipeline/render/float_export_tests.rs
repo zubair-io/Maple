@@ -121,3 +121,45 @@ fn identity_framing_returns_the_developed_size_without_touching_colour() {
         assert_eq!(px[3], 1.0);
     }
 }
+
+#[test]
+fn auto_p3_applies_the_fitted_lut_in_srgb_before_rotating_primaries() {
+    use crate::view::{
+        auto_profile::{cache, curve::ProfileCurve, lut::ColorLut},
+        encode,
+    };
+    let _guard = cache::test_lock();
+    let bytes = SyntheticColorChart::default().write_to_bytes();
+    let raw = crate::decode::decode_bytes(&bytes, "dng").unwrap();
+    let quality = RenderQuality::Full;
+    let key = cache::CacheKey::from_bytes(&bytes, quality).with_origin(
+        super::super::auto_fit::render_fit_origin(raw.width.max(raw.height), None),
+    );
+    let mut lut = ColorLut::identity(3);
+    for pixel in lut.data.chunks_exact_mut(3) {
+        pixel[0] *= 0.7;
+        pixel[2] *= 0.9;
+    }
+    cache::insert(key.clone(), ProfileCurve::identity());
+    cache::insert_lut(key, lut);
+    let model = AdjustmentModel::default();
+    let source = Some(RawInput::Bytes {
+        bytes: &bytes,
+        ext: "dng",
+    });
+    let (w, h, srgb) =
+        render_export_f32(&raw, &model, quality, source, TargetPrimaries::Srgb, None).unwrap();
+    let (pw, ph, p3) =
+        render_export_f32(&raw, &model, quality, source, TargetPrimaries::P3, None).unwrap();
+    assert_eq!((pw, ph), (w, h));
+    for (s, p) in srgb.chunks_exact(4).zip(p3.chunks_exact(4)) {
+        let linear = [s[0], s[1], s[2]].map(encode::srgb_degamma);
+        let expected = crate::color::matrices::M_SRGB_TO_P3
+            .mul_vec(linear)
+            .map(encode::srgb_gamma);
+        assert!(expected.iter().zip(p).all(|(a, b)| (a - b).abs() < 1e-6));
+        assert_eq!(p[3], 1.0);
+    }
+    cache::clear_for_test();
+    cache::clear_lut_for_test();
+}
