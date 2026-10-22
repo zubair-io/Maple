@@ -35,6 +35,7 @@ fn crop_detail_matches_full_auto_render_with_exif_and_sensor_crop() {
                     ext: "dng",
                 },
                 DetailRenderOptions {
+                    target: crate::view::encode::TargetPrimaries::Srgb,
                     quality: RenderQuality::Auto,
                     max_long_edge: 1024,
                     film_lut: None,
@@ -96,6 +97,7 @@ fn edge_tiles_match_full_render_inside_sensor_default_crop() {
             ext: "dng",
         },
         DetailRenderOptions {
+            target: crate::view::encode::TargetPrimaries::Srgb,
             quality: RenderQuality::Auto,
             max_long_edge: 1024,
             film_lut: None,
