@@ -35,7 +35,8 @@ final class NativeDetailLODTests: XCTestCase {
     let detail = CGRect(x: 6000, y: 3500, width: 1200, height: 900)
     let decoded = NativeDetailLOD.decodeRect(
       detailRect: detail,
-      imageSize: CGSize(width: 13000, height: 8000)
+      imageSize: CGSize(width: 13000, height: 8000),
+      halo: NativeDetailLOD.filterHalo
     )
     XCTAssertEqual(decoded, CGRect(x: 5904, y: 3404, width: 1392, height: 1092))
     XCTAssertLessThan(decoded.width * decoded.height, 1_600_000)
@@ -56,7 +57,8 @@ final class NativeDetailLODTests: XCTestCase {
     let detail = CGRect(x: 0, y: 0, width: 16300, height: 9000)
     let decoded = NativeDetailLOD.decodeRect(
       detailRect: detail,
-      imageSize: CGSize(width: 20000, height: 12000)
+      imageSize: CGSize(width: 20000, height: 12000),
+      halo: NativeDetailLOD.filterHalo
     )
     XCTAssertEqual(
       decoded,
@@ -69,7 +71,8 @@ final class NativeDetailLODTests: XCTestCase {
     XCTAssertEqual(
       NativeDetailLOD.decodeRect(
         detailRect: detail,
-        imageSize: CGSize(width: 4000, height: 3000)
+        imageSize: CGSize(width: 4000, height: 3000),
+        halo: NativeDetailLOD.filterHalo
       ),
       CGRect(x: 0, y: 0, width: 1096, height: 896)
     )

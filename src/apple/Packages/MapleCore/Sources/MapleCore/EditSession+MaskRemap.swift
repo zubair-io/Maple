@@ -49,7 +49,9 @@ extension EditSession {
           }
           return .bitmap(recipe: recipe, rasterId: derived)
         case .brush(let dabs, let digest, let rasterId) where rasterId != 0:
-          guard let derived = await self.derivedBrushRasterId(dabs: dabs, digest: digest, affine: affine)
+          guard
+            let derived = await self.derivedBrushRasterId(
+              dabs: dabs, digest: digest, affine: affine)
           else {
             return .brush(dabs: dabs, digest: digest, rasterId: 0)
           }
@@ -100,7 +102,7 @@ extension EditSession {
     if let hit = maskRemapRasters.id(for: key) { return hit }
     // Detached: the resample is a few hundred thousand bilinear samples
     // over a segmentation-sized raster, and this runs on the MainActor.
-    // Only ever on a miss (a crop change, or a settled 1:1 window), but
+    // Only ever on a miss (a crop change), but
     // a miss must not stall the canvas.
     let derived = await Task.detached(priority: .userInitiated) {
       MaskRemapRasterCache.resample(source, through: affine)

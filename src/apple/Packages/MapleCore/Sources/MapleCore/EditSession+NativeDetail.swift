@@ -46,8 +46,8 @@ extension EditSession {
     // Grow the published patch beyond the immediate viewport
     // (`NativeDetailLOD.panMargin`) so a subsequent small pan lands
     // inside it and hits the fast path above instead of paying this
-    // develop again. `decodeRect` adds the separate, smaller
-    // `filterHalo` on top for filter-stencil context only.
+    // develop again. `decodeRect` adds the chain's reach (at least
+    // `filterHalo`) on top for filter-stencil context only.
     // `renderModel`, not `model`: a panel-disabled layer must stay inert at
     // 100% as it does at fit. The windowed chain below evaluates every mask
     // in full-frame coordinates itself (#5169), so the stack is passed

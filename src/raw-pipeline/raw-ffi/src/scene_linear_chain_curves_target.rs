@@ -81,7 +81,7 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_target_window_f32(
                 curves,
                 target_primaries,
                 out_ptr,
-                Some(chain_window(window)),
+                Some(window.into()),
             )
         },
     )
@@ -103,20 +103,11 @@ pub unsafe extern "C" fn maple_scene_linear_chain_window_reach_px(
         match (params.as_ref(), window.as_ref()) {
             (Some(params), Some(window)) => raw_core::pipeline::scene_linear_chain_window_reach_px(
                 &chain_inputs_from_params(params).model,
-                chain_window(window),
+                window.into(),
             ),
             _ => 0,
         }
     })
-}
-
-fn chain_window(window: &MapleChainWindow) -> raw_core::pipeline::ChainWindow {
-    raw_core::pipeline::ChainWindow {
-        x: window.x,
-        y: window.y,
-        full_width: window.full_width,
-        full_height: window.full_height,
-    }
 }
 
 unsafe fn chain_and_encode_target(
@@ -129,20 +120,24 @@ unsafe fn chain_and_encode_target(
     out_ptr: *mut f32,
     window: Option<raw_core::pipeline::ChainWindow>,
 ) -> i32 {
-    const CONTEXT: &str = "apply_chain_and_encode_display_target_curves_f32";
+    let context = if window.is_some() {
+        "apply_chain_and_encode_display_target_window_f32"
+    } else {
+        "apply_chain_and_encode_display_target_curves_f32"
+    };
     if in_ptr.is_null() || params.is_null() || out_ptr.is_null() {
-        set_last_error(format!("{CONTEXT}: null pointer"));
+        set_last_error(format!("{context}: null pointer"));
         return 1;
     }
     if width == 0 || height == 0 {
         set_last_error(format!(
-            "{CONTEXT}: zero dimension width={width} height={height}"
+            "{context}: zero dimension width={width} height={height}"
         ));
         return 2;
     }
     if target_primaries > 1 {
         set_last_error(format!(
-            "{CONTEXT}: unsupported target_primaries={target_primaries}"
+            "{context}: unsupported target_primaries={target_primaries}"
         ));
         return 2;
     }
@@ -153,7 +148,7 @@ unsafe fn chain_and_encode_target(
         Some(n) => n,
         None => {
             set_last_error(format!(
-                "{CONTEXT}: pixel-count overflow width={width} height={height}"
+                "{context}: pixel-count overflow width={width} height={height}"
             ));
             return 3;
         }
@@ -176,13 +171,13 @@ unsafe fn chain_and_encode_target(
     let rendered = match chained {
         Ok(v) => v,
         Err(e) => {
-            set_last_error(format!("{CONTEXT}: {e}"));
+            set_last_error(format!("{context}: {e}"));
             return 8;
         }
     };
     if rendered.len() != lanes {
         set_last_error(format!(
-            "{CONTEXT}: chain returned {} lanes, expected {lanes}",
+            "{context}: chain returned {} lanes, expected {lanes}",
             rendered.len()
         ));
         return 9;

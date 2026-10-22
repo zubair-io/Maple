@@ -433,7 +433,7 @@ public final class EditSession {
   @ObservationIgnored public lazy var maskRasterStore = MaskRasterStore(
     directory: maskCacheDirectory())
 
-  /// Bitmap rasters re-expressed per crop / native-detail window (#355) — see `EditSession+MaskRemap.swift`.
+  /// Bitmap rasters re-expressed per GPU-live crop (#355) — see `EditSession+MaskRemap.swift`.
   @ObservationIgnored let maskRemapRasters = MaskRemapRasterCache()
 
   /// The mask panel's selection — the highlighted row, whose sliders show, and the scope HUD's target.
