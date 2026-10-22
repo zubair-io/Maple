@@ -88,8 +88,11 @@ public sealed class ExportQueueStore
         {
             try
             {
+                // Keep this inode: DeleteOnClose briefly makes competing opens fail
+                // with access denied on Windows, outside the sharing-violation retry.
+                // Closing the handle (including process exit) releases the OS lease.
                 return new FileStream(Path.Combine(_root, "recipes.lock"), FileMode.OpenOrCreate,
-                    FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
+                    FileAccess.ReadWrite, FileShare.None, 1, FileOptions.None);
             }
             catch (IOException) when (wait.Elapsed < TimeSpan.FromSeconds(5)) { Thread.Sleep(25); }
         }
