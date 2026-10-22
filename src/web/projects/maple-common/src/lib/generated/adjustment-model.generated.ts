@@ -453,3 +453,11 @@ export const COLOR_CURVE_EDITOR = {
   maxKnots: 16,
   maxHueSlope: 2.5,
 } as const;
+
+export const PARAMETRIC_AXIS = {
+  midgrey: 0.18,
+  midtone: 50.0,
+  unitsPerStop: 12.5,
+  top: 105.92414,
+  referenceMax: 4.0,
+} as const;

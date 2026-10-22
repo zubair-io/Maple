@@ -26,7 +26,7 @@
 
 use crate::color::oklab::{oklab_to_rec2020, rec2020_to_oklab};
 use crate::image::{ColorSpace, Image};
-use crate::stages::hsl::CHROMA_GATE_C0;
+use crate::stages::hsl::{hsl_soft_compress, CHROMA_GATE_C0, HSL_GAMUT_KNEE_FRACTION};
 use crate::types::adjustment::{AdjustmentModel, ToneCurve};
 
 /// Shared authoring limits emitted to the platform editors; no per-pixel work.
@@ -57,7 +57,6 @@ const REC2020_LUMA_G: f32 = 0.67799807;
 const REC2020_LUMA_B: f32 = 0.05930172;
 
 const GAMUT_EPS: f32 = 1e-5;
-const GAMUT_KNEE_FRACTION: f32 = 0.8;
 const GAMUT_BISECT_ITERS: usize = 24;
 
 /// Baked 256-sample table of signed offsets $d(u) = y(u) - 0.5 \in [-0.5, +0.5]$ for one curve.
@@ -430,6 +429,10 @@ pub fn apply_pixel(rgb: [f32; 3], p: &ColorCurveParams) -> [f32; 3] {
     let d_svl = sample_clamped(&p.sat_vs_luma, u_c);
     let s_hvl = 1.0 + chroma_gate * 2.0 * COLOR_CURVE_LUMA_MAX_SCALE * d_hvl;
     let s_svl = 1.0 + chroma_gate * 2.0 * COLOR_CURVE_LUMA_MAX_SCALE * d_svl;
+    // A globally active curve can leave this pixel untouched, including signed RGB.
+    if delta_hue_rad == 0.0 && c_target == c && s_hvl * s_svl == 1.0 {
+        return rgb;
+    }
     l = (l * s_hvl * s_svl).max(0.0);
 
     // Rotate unit hue vector (a_hat, b_hat) by delta_hue_rad.
@@ -439,30 +442,18 @@ pub fn apply_pixel(rgb: [f32; 3], p: &ColorCurveParams) -> [f32; 3] {
     let rot_a_hat = a_hat * cos_dh - b_hat * sin_dh;
     let rot_b_hat = a_hat * sin_dh + b_hat * cos_dh;
 
-    // Fast path: check if target is within Rec.2020 gamut.
-    let rgb_target = oklab_to_rec2020([l, rot_a_hat * c_target, rot_b_hat * c_target]);
-    if rgb_target[0].min(rgb_target[1]).min(rgb_target[2]) >= -GAMUT_EPS {
-        return rgb_target;
+    // Probe beyond the shoulder so crossing the hull cannot switch operators.
+    let c_probe = c_target / HSL_GAMUT_KNEE_FRACTION;
+    let rgb_probe = oklab_to_rec2020([l, rot_a_hat * c_probe, rot_b_hat * c_probe]);
+    if rgb_probe[0].min(rgb_probe[1]).min(rgb_probe[2]) >= -GAMUT_EPS {
+        return oklab_to_rec2020([l, rot_a_hat * c_target, rot_b_hat * c_target]);
     }
-
-    // Bisect for Rec.2020 hull chroma along the post-rotation hue ray, then soft-compress.
-    let c_hull = bisect_gamut_hull(l, rot_a_hat, rot_b_hat, c_target);
-    let c_out = soft_compress(c_target, c_hull);
+    let c_hull = bisect_gamut_hull(l, rot_a_hat, rot_b_hat, c_probe);
+    let geometry_distance =
+        ((l - lab[0]).powi(2) + (rot_a_hat * c - a).powi(2) + (rot_b_hat * c - b).powi(2)).sqrt();
+    let input_in_gamut = rgb[0].min(rgb[1]).min(rgb[2]) >= -GAMUT_EPS;
+    let c_out = hsl_soft_compress(c_target, c_hull, c, geometry_distance, input_in_gamut);
     oklab_to_rec2020([l, rot_a_hat * c_out, rot_b_hat * c_out])
-}
-
-#[inline]
-fn soft_compress(c_target: f32, c_hull: f32) -> f32 {
-    let c_thresh = GAMUT_KNEE_FRACTION * c_hull;
-    if c_target <= c_thresh {
-        return c_target;
-    }
-    let d = c_target - c_thresh;
-    let d_max = c_hull - c_thresh;
-    if d_max <= 0.0 {
-        return c_hull;
-    }
-    c_thresh + d_max * (d / (d + d_max))
 }
 
 #[inline]

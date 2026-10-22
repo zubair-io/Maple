@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  activeRegionWindowPath,
   clampParametricSplit,
   defaultSplitValue,
   orderedSplits,
@@ -11,6 +12,15 @@ import {
 } from './tone-curve-splits';
 
 describe('tone-curve-splits (#5039)', () => {
+  it('plots region weights on the scene-linear authoring axis', () => {
+    const path = activeRegionWindowPath('parametricShadows', 25, 50, 75, 1000, 1000);
+    const x = 15 / 1000;
+    const p = 50 + 12.5 * Math.log2((x * 4) / 0.18);
+    const y = (1000 - regionWindows(p, 25, 50, 75)[0] * 350).toFixed(2);
+    expect(path).toContain(`L 15.00 ${y}`);
+    expect(path).toContain('L 500.00 1000.00');
+  });
+
   it('keeps interactive values in bounds even when imported neighbors exceed the UI domain', () => {
     expect(clampParametricSplit('highlight', 50, 97, 98, 99)).toBe(90);
     expect(clampParametricSplit('midtone', 50, 97, 98, 99)).toBe(80);

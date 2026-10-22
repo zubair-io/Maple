@@ -88,8 +88,10 @@ fn min_channel_in_gamut(rgb: vec3<f32>) -> bool {
     return min_c >= -GAMUT_EPS;
 }
 
-fn soft_compress(c_target: f32, c_hull: f32) -> f32 {
-    let c_thresh = GAMUT_KNEE_FRACTION * c_hull;
+fn soft_compress(c_target: f32, c_hull: f32, c_input: f32, geometry_distance: f32, input_in_gamut: bool) -> f32 {
+    let shoulder = (1.0 - GAMUT_KNEE_FRACTION) * c_hull;
+    let span = select(shoulder, min(shoulder, max(c_hull - c_input, 0.0) + geometry_distance), input_in_gamut);
+    let c_thresh = c_hull - span;
     if (c_target <= c_thresh) {
         return c_target;
     }
@@ -167,6 +169,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let d_svl = sample_clamped(5u, u_c);
     let s_hvl = 1.0 + chroma_gate * 2.0 * LUMA_MAX_SCALE * d_hvl;
     let s_svl = 1.0 + chroma_gate * 2.0 * LUMA_MAX_SCALE * d_svl;
+    if (delta_hue_rad == 0.0 && c_target == c && s_hvl * s_svl == 1.0) {
+        output_buf[i] = p;
+        return;
+    }
     l = max(l * s_hvl * s_svl, 0.0);
 
     let a_hat = a / c;
@@ -176,14 +182,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let rot_a_hat = a_hat * cos_dh - b_hat * sin_dh;
     let rot_b_hat = a_hat * sin_dh + b_hat * cos_dh;
 
+    let c_probe = c_target / GAMUT_KNEE_FRACTION;
+    let rgb_probe = oklab_to_rec2020(vec3<f32>(l, rot_a_hat * c_probe, rot_b_hat * c_probe));
     let rgb_target = oklab_to_rec2020(vec3<f32>(l, rot_a_hat * c_target, rot_b_hat * c_target));
-    if (min_channel_in_gamut(rgb_target)) {
+    if (min_channel_in_gamut(rgb_probe)) {
         output_buf[i] = vec4<f32>(rgb_target, p.a);
         return;
     }
 
-    let c_hull = bisect_gamut_hull(l, rot_a_hat, rot_b_hat, c_target);
-    let c_out = soft_compress(c_target, c_hull);
+    let c_hull = bisect_gamut_hull(l, rot_a_hat, rot_b_hat, c_probe);
+    let geometry_distance = length(vec3<f32>(l - lab.x, rot_a_hat * c - a, rot_b_hat * c - b));
+    let c_out = soft_compress(c_target, c_hull, c, geometry_distance, min_channel_in_gamut(rgb));
     let out_rgb = oklab_to_rec2020(vec3<f32>(l, rot_a_hat * c_out, rot_b_hat * c_out));
     output_buf[i] = vec4<f32>(out_rgb, p.a);
 }

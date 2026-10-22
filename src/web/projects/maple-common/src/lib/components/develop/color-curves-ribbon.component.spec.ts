@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { COLOR_CURVE_EDITOR } from '../../generated/adjustment-model.generated';
 import type { ToneCurvePoint } from '../../models/adjustment-model';
 import {
   COLOR_CURVES,
@@ -11,6 +12,23 @@ import {
 } from './color-curves-math';
 
 describe('color-curves-math (#5077)', () => {
+  it('caps skin guards while updating existing knots on a full curve', () => {
+    for (const count of [14, 15, 16]) {
+      const points: ToneCurvePoint[] = Array.from({ length: count }, (_, i) => [
+        0.3 + i * 0.04,
+        0.6,
+      ]);
+      const result = lockSkinToneCurve(COLOR_CURVES[1], { points });
+      expect(result.points).toHaveLength(COLOR_CURVE_EDITOR.maxKnots);
+      for (const point of points) expect(result.points).toContainEqual(point);
+    }
+    const points: ToneCurvePoint[] = Array.from({ length: 16 }, (_, i) => [0.3 + i * 0.04, 0.6]);
+    points[0] = [55 / 360, 0.8];
+    const result = lockSkinToneCurve(COLOR_CURVES[1], { points });
+    expect(result.points).toHaveLength(16);
+    expect(result.points).toContainEqual([55 / 360, 0.5]);
+  });
+
   it('keeps a first sampled correction local, including across the hue seam', () => {
     for (const desc of COLOR_CURVES) {
       const center = desc.isPeriodic ? 0.98 : 0.5;

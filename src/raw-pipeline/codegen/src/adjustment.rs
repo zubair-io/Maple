@@ -116,6 +116,18 @@ pub(crate) fn emit_swift(schema: &[FieldSpec]) -> String {
                     f(spec.range.0),
                     f(spec.range.1),
                 ));
+                if matches!(
+                    spec.name,
+                    "parametric_shadow_split"
+                        | "parametric_midtone_split"
+                        | "parametric_highlight_split"
+                ) {
+                    s.push_str(&format!(
+                        "    public static let {}Default: Double = {}\n",
+                        camel,
+                        f(spec.default_f32)
+                    ));
+                }
             }
             FieldKind::Enum | FieldKind::ToneCurve | FieldKind::String => {}
         }
@@ -131,6 +143,28 @@ pub(crate) fn emit_swift(schema: &[FieldSpec]) -> String {
     );
     s.push_str(&format!("public enum ColorCurveEditorTuning {{\n    public static let anchorSpread = {}\n    public static let minKnotGap = {}\n    public static let maxKnots = {}\n    public static let maxHueSlope = {}\n}}\n\n", curves.0, curves.1, curves.2, curves.3));
 
+    s.push_str("public enum ParametricAxisTuning {\n");
+    s.push_str(&format!(
+        "    public static let midgrey: Double = {}\n",
+        crate::adjustment::f(raw_core::stages::tone_curves::MIDGREY)
+    ));
+    s.push_str(&format!(
+        "    public static let midtone: Double = {}\n",
+        crate::adjustment::f(raw_core::stages::tone_curves::AXIS_MIDTONE)
+    ));
+    s.push_str(&format!(
+        "    public static let unitsPerStop: Double = {}\n",
+        crate::adjustment::f(raw_core::stages::tone_curves::AXIS_UNITS_PER_STOP)
+    ));
+    s.push_str(&format!(
+        "    public static let top: Double = {}\n",
+        crate::adjustment::f(raw_core::stages::tone_curves::AXIS_TOP)
+    ));
+    s.push_str(&format!(
+        "    public static let referenceMax: Double = {}\n",
+        crate::adjustment::f(raw_core::stages::tone_curves::REF_MAX)
+    ));
+    s.push_str("}\n\n");
     // Copy/paste/sync groups (#944). Top-level type, not nested on
     // `AdjustmentModel`: the selective-paste UI on both platforms needs it
     // independently of any one model instance.
@@ -274,6 +308,29 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
         raw_core::stages::color_curves::EDITOR_MIN_KNOT_GAP,
         raw_core::stages::color_curves::EDITOR_MAX_KNOTS,
         raw_core::stages::color_curves::EDITOR_MAX_HUE_SLOPE));
+
+    s.push_str("\nexport const PARAMETRIC_AXIS = {\n");
+    s.push_str(&format!(
+        "  midgrey: {},\n",
+        f(raw_core::stages::tone_curves::MIDGREY)
+    ));
+    s.push_str(&format!(
+        "  midtone: {},\n",
+        f(raw_core::stages::tone_curves::AXIS_MIDTONE)
+    ));
+    s.push_str(&format!(
+        "  unitsPerStop: {},\n",
+        f(raw_core::stages::tone_curves::AXIS_UNITS_PER_STOP)
+    ));
+    s.push_str(&format!(
+        "  top: {},\n",
+        f(raw_core::stages::tone_curves::AXIS_TOP)
+    ));
+    s.push_str(&format!(
+        "  referenceMax: {},\n",
+        f(raw_core::stages::tone_curves::REF_MAX)
+    ));
+    s.push_str("} as const;\n");
 
     s
 }

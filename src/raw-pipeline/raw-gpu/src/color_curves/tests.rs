@@ -167,3 +167,47 @@ fn gpu_color_curves_neutral_is_bit_exact() {
         }
     }
 }
+
+#[test]
+fn hull_shoulder_and_local_identity_match_core_and_oracle() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let input = vec![
+        1.0,
+        0.02,
+        0.03,
+        1.0,
+        1.0,
+        0.0,
+        0.0,
+        0.7,
+        0.7367865,
+        -0.060740944,
+        0.1699253,
+        0.4,
+    ];
+    let img = GpuImage::upload(&ctx, &input, 3, 1);
+    for step in 0..=100 {
+        let case = ColorCurveInputs {
+            hue_vs_sat: vec![(0.0, 0.5 + step as f32 * 0.0005)].into(),
+            ..Default::default()
+        };
+        let reference = raw_core_color_curves(&input, &case);
+        let mut local = input.clone();
+        apply_color_curves(&mut local, &case);
+        let gpu = ChainRunner::new(&ctx, &img).run_blocking(&[&ColorCurvesPass { inputs: &case }]);
+        for (label, candidate, tolerance) in [("oracle", local, 1e-6), ("WGSL", gpu, 1e-4)] {
+            let error = reference
+                .iter()
+                .zip(&candidate)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0_f32, f32::max);
+            assert!(error < tolerance, "step {step}, {label}: error {error}");
+        }
+    }
+    let case = ColorCurveInputs {
+        hue_vs_sat: vec![(0.0, 0.5), (0.3, 0.5), (0.5, 0.8), (0.7, 0.5)].into(),
+        ..Default::default()
+    };
+    let gpu = ChainRunner::new(&ctx, &img).run_blocking(&[&ColorCurvesPass { inputs: &case }]);
+    assert_eq!(&gpu[8..12], &input[8..12]);
+}

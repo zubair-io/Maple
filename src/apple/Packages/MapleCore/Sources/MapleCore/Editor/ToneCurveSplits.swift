@@ -34,16 +34,16 @@ public enum ParametricRegion: String, CaseIterable, Sendable, Equatable {
 
 public enum ToneCurveSplits {
   /// Default split positions on the `[0, 100]` parametric region axis.
-  public static let defaultShadow: Double = 25.0
-  public static let defaultMidtone: Double = 50.0
-  public static let defaultHighlight: Double = 75.0
+  public static let defaultShadow: Double = AdjustmentModel.parametricShadowSplitDefault
+  public static let defaultMidtone: Double = AdjustmentModel.parametricMidtoneSplitDefault
+  public static let defaultHighlight: Double = AdjustmentModel.parametricHighlightSplitDefault
 
   /// Minimum separation between adjacent splits during interactive UI drag.
   public static let minGap: Double = 5.0
 
   /// Top of the authoring domain in parametric axis units
   /// (`50 + 12.5 * log2(4.0 / 0.18)`), matching `parametric::AXIS_TOP`.
-  public static let axisTop: Double = 105.92414
+  public static let axisTop: Double = ParametricAxisTuning.top
 
   /// Clamp a proposed split-handle drag value against the current triplet
   /// using the #5039 UI authoring bounds:
@@ -126,7 +126,7 @@ public enum ToneCurveSplits {
   }
 
   /// Sample the active region's window weight over `samples + 1` points
-  /// across `u in [0, 1]` (`p = u * 100`) for plotting a shaded envelope.
+  /// across the scene-linear authoring axis for plotting a shaded envelope.
   public static func sampleRegionWindow(
     region: ParametricRegion,
     shadow: Double,
@@ -139,7 +139,10 @@ public enum ToneCurveSplits {
     return (0...count).map { i in
       let x = Double(i) / Double(count)
       let w = regionWindows(
-        at: x * 100.0, shadow: shadow, midtone: midtone, highlight: highlight
+        at: x > 0
+          ? ParametricAxisTuning.midtone + ParametricAxisTuning.unitsPerStop
+            * log2(x * ParametricAxisTuning.referenceMax / ParametricAxisTuning.midgrey) : 0,
+        shadow: shadow, midtone: midtone, highlight: highlight
       )[idx]
       return (x: x, weight: max(0.0, min(1.0, w)))
     }

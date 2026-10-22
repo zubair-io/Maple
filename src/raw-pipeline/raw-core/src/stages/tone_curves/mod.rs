@@ -39,6 +39,10 @@
 mod evaluator;
 mod parametric;
 
+/// Canonical parametric plot geometry, emitted to each platform editor.
+pub use evaluator::REF_MAX;
+pub use parametric::{AXIS_MIDTONE, AXIS_TOP, AXIS_UNITS_PER_STOP, MIDGREY};
+
 use evaluator::eval_curve_scene_linear;
 use parametric::build_parametric_curve;
 

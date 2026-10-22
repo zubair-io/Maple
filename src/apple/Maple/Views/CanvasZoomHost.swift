@@ -84,22 +84,12 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     // movement into the baseline so a deliberate continued pan resumes smoothly). Self-clearing.
     @State private var lastPinchEnd: Date?
   #endif
-  /// Vertical pan offset at Fit (`!controller.isZoomedIn`), allowing users to
-  /// reposition the fitted photo vertically within the canvas viewport.
-  @State private var fitPanY: CGFloat = 0
-  @State private var fitPanBaseY: CGFloat = 0
-
-  /// The pan offset the leaf is ACTUALLY laid out with — `gestureCommittedPan`
-  /// mid-pinch on iOS, else `controller.panOffset` when zoomed, or `fitPanY`
-  /// vertically at fit. Single source for both the leaf's own `.offset()` and
-  /// the `canvas-image-rect` marker (#2288 review on #3194 — two
-  /// separately-computed expressions let the marker diverge from the leaf's
-  /// real position mid-pinch).
+  /// Shared with editing overlays; an in-flight iOS pinch uses its committed baseline.
   private var effectivePanOffset: CGSize {
     #if os(iOS)
       if pinchActive { return gestureCommittedPan }
     #endif
-    return controller.isZoomedIn ? controller.panOffset : CGSize(width: 0, height: fitPanY)
+    return controller.panOffset
   }
 
   var body: some View {
@@ -152,11 +142,9 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
       #else
         .gesture(magnifyGesture(viewport: geo.size))
       #endif
-      .simultaneousGesture(dragGesture(viewport: geo.size))
+      .simultaneousGesture(dragGesture)
       .onTapGesture(count: 2) { location in
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-          fitPanY = 0
-          fitPanBaseY = 0
           controller.doubleTap(at: location, behavior: doubleTapBehavior)
         }
       }
@@ -199,13 +187,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
         // Asset switched under a reused view — reset to fit so a
         // stale pixelScale doesn't retarget the new image's
         // refine at full native.
-        fitPanY = 0
-        fitPanBaseY = 0
         controller.assetChanged()
-      }
-      .onChange(of: controller.isZoomedIn) { _, _ in
-        fitPanY = 0
-        fitPanBaseY = 0
       }
     }
   }
@@ -294,7 +276,7 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
     }
   #endif
 
-  private func dragGesture(viewport: CGSize) -> some Gesture {
+  private var dragGesture: some Gesture {
     DragGesture(minimumDistance: 1)
       .onChanged { value in
         #if os(iOS)
@@ -310,23 +292,13 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
             lastPinchEnd = nil  // window elapsed — resume normal panning
           }
         #endif
-        if controller.isZoomedIn {
-          controller.dragChanged(translation: value.translation)
-        } else {
-          let frameHeight = controller.displayFrameInPoints?.height ?? viewport.height
-          let maxSlack = max(120, abs(viewport.height - frameHeight) / 2 + 80)
-          fitPanY = min(max(fitPanBaseY + value.translation.height, -maxSlack), maxSlack)
-        }
+        controller.dragChanged(translation: value.translation)
       }
       .onEnded { _ in
         #if os(iOS)
           lastPinchEnd = nil
         #endif
-        if controller.isZoomedIn {
-          controller.dragEnded()
-        } else {
-          fitPanBaseY = fitPanY
-        }
+        controller.dragEnded()
       }
   }
 
@@ -406,8 +378,6 @@ struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
       scale: scale,
       canvasReady: canvasReady,
       onFit: {
-        fitPanY = 0
-        fitPanBaseY = 0
         controller.resetToFit()
       }
     )

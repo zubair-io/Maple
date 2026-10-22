@@ -77,13 +77,13 @@ use super::evaluator::{prepare_curve_with_tangents, PreparedCurve, REF_MAX};
 use crate::{types::adjustment::ToneCurvePoint, xmp::AdjustmentModel};
 
 /// Scene-linear midgrey. Anchors axis coordinate 50.
-const MIDGREY: f32 = 0.18;
+pub const MIDGREY: f32 = 0.18;
 /// Axis coordinate of midgrey — ACR's `ParametricMidtoneSplit` default.
-const AXIS_MIDTONE: f32 = 50.0;
+pub const AXIS_MIDTONE: f32 = 50.0;
 /// Axis units per stop. The axis spans `[0, 100]` and we place the default
 /// shadow / highlight splits two stops either side of midgrey, so
 /// `100 / 8 = 12.5`.
-const AXIS_UNITS_PER_STOP: f32 = 12.5;
+pub const AXIS_UNITS_PER_STOP: f32 = 12.5;
 /// Top of the region axis.
 const AXIS_MAX: f32 = 100.0;
 
@@ -153,7 +153,7 @@ fn region_centres(split_shadow: f32, split_midtone: f32, split_highlight: f32) -
 /// value. The highlights window fades out here so the curve rejoins the
 /// pinned `(1, 1)` endpoint smoothly — the parametric curve shapes the
 /// scene range, it does not extend it.
-const AXIS_TOP: f32 = 105.924_14;
+pub const AXIS_TOP: f32 = 105.924_14;
 
 /// Peak excursion, in stops, at `|slider| = 100`. See the monotonicity
 /// bound in the module docs before changing it; #368 calibrates it against
