@@ -186,6 +186,17 @@ pub struct MapleChainWindow {
     pub full_height: u32,
 }
 
+impl From<&MapleChainWindow> for raw_core::pipeline::ChainWindow {
+    fn from(window: &MapleChainWindow) -> Self {
+        Self {
+            x: window.x,
+            y: window.y,
+            full_width: window.full_width,
+            full_height: window.full_height,
+        }
+    }
+}
+
 /// # Safety
 /// Same lifetime and buffer contract as the Film entry; window must be valid.
 #[no_mangle]
@@ -218,12 +229,7 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_window_f32(
             film.as_ref().map(|f| &f.lut),
             strength,
             out_ptr,
-            Some(raw_core::pipeline::ChainWindow {
-                x: window.x,
-                y: window.y,
-                full_width: window.full_width,
-                full_height: window.full_height,
-            }),
+            Some(window.into()),
         )
     })
 }

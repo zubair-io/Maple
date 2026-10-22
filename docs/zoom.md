@@ -48,10 +48,10 @@ Native detail returns `false` when the Rust tile entry rejects the model, which 
 
 Three nested rectangles, all computed by `NativeDetailLOD`:
 
-| Rect         | What it is                                          | Size                                                                      |
-| ------------ | --------------------------------------------------- | ------------------------------------------------------------------------- |
-| `detailRect` | the viewport, rounded outward, clamped to the image | visible region                                                            |
-| `patchRect`  | what is developed **and published**                 | `detailRect` grown by 25% of its longer dimension, capped at 512 px total |
+| Rect         | What it is                                          | Size                                                                                 |
+| ------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `detailRect` | the viewport, rounded outward, clamped to the image | visible region                                                                       |
+| `patchRect`  | what is developed **and published**                 | `detailRect` grown by 25% of its longer dimension, capped at 512 px total            |
 | `decodeRect` | what is asked of Rust                               | `patchRect` + the chain's reach per edge (at least 96 px), clamped to 16384 per edge |
 
 The two margins do different jobs. The halo is unpublished context so the per-tick chain's spatial stages see neighbouring pixels; it is never displayed. It is the chain's own reach for the current model (`maple_scene_linear_chain_window_reach_px`, the same per-stage sum the Rust tile pad uses for those stages), floored at `filterHalo = 96`. The highlights/shadows mask blur scales with the frame, so on a 12288-px frame one of those sliders needs 276 px and both need 552 (#5169). `panMargin` grows the _published_ patch so an ordinary small pan's new viewport still lands inside what is already on screen — `updateTileVisibleRegion` and `refineNativeDetail` both check containment first and return immediately, avoiding a fresh 150 ms-debounced develop and avoiding a visible drop back to the blurry base preview mid-pan. On a square viewport, unclamped, the 25% margin raises developed area by about 1.56×.

@@ -88,9 +88,9 @@ enum NativeDetailLOD {
   /// the oriented image bounds. Deliberately larger than the immediate
   /// viewport so an ordinary small pan's new `detailRect` still lands
   /// inside the previous publish and hits the containment fast path
-  /// instead of a fresh develop. `filterHalo` remains a separate, smaller
-  /// addition applied on top by `decodeRect` for filter-stencil context
-  /// only — it is never grown by this margin and is never itself
+  /// instead of a fresh develop. The chain's reach (at least
+  /// `filterHalo`) is added on top by `decodeRect` for filter-stencil
+  /// context only — it is never grown by this margin and is never itself
   /// published.
   static func patchRect(visibleRect: CGRect, imageSize: CGSize) -> CGRect {
     let base = detailRect(visibleRect: visibleRect, imageSize: imageSize)
@@ -119,7 +119,7 @@ enum NativeDetailLOD {
   /// Clamping the size here (keeping the origin fixed) is defensive:
   /// on ordinary hardware/viewports it never binds.
   static func decodeRect(
-    detailRect: CGRect, imageSize: CGSize, halo: CGFloat = filterHalo
+    detailRect: CGRect, imageSize: CGSize, halo: CGFloat
   ) -> CGRect {
     let bounds = CGRect(origin: .zero, size: imageSize)
     guard !detailRect.isEmpty, bounds.width > 0, bounds.height > 0 else {

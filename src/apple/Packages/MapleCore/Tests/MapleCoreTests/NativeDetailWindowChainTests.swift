@@ -131,7 +131,8 @@ final class NativeDetailWindowChainTests: XCTestCase {
     let size = CGSize(width: 13000, height: 8000)
     XCTAssertEqual(
       NativeDetailLOD.decodeRect(detailRect: detail, imageSize: size, halo: 40),
-      NativeDetailLOD.decodeRect(detailRect: detail, imageSize: size))
+      NativeDetailLOD.decodeRect(
+        detailRect: detail, imageSize: size, halo: NativeDetailLOD.filterHalo))
     XCTAssertEqual(
       NativeDetailLOD.decodeRect(detailRect: detail, imageSize: size, halo: 552),
       CGRect(x: 5448, y: 2948, width: 2304, height: 2004))
