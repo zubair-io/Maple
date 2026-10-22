@@ -163,6 +163,8 @@ async function copyExclusive(source: string, destination: string): Promise<Reloc
   try {
     try {
       await streamInto(source, target);
+      // A temp the caller fsynced is a different file: flush the copy itself.
+      await target.datasync();
     } finally {
       await target.close();
     }
