@@ -396,15 +396,24 @@ class PhotoLibrary(private val context: Context) {
     }
 
     /** Refresh each folder once, then read its sidecar bytes from that sibling snapshot. */
-    suspend fun loadSidecars(photos: List<Photo>): Map<String, LoadedSidecar> = io.withLock {
+    suspend fun loadSidecars(photos: List<Photo>): Map<String, LoadedSidecar> =
         withContext(Dispatchers.IO) {
             buildMap {
                 for ((parent, siblings) in photos.groupBy { it.parent }) {
+                    currentCoroutineContext().ensureActive()
                     if (parent != null && siblings.none { CloudLibrary.isCloud(it.uri) })
-                        local.list(parent, fresh = true)
+                        io.withLock {
+                            currentCoroutineContext().ensureActive()
+                            local.list(parent, fresh = true)
+                        }
                     for (photo in siblings) {
+                        currentCoroutineContext().ensureActive()
                         try {
-                            val xml = readSidecar(photo)
+                            val xml = io.withLock {
+                                currentCoroutineContext().ensureActive()
+                                readSidecar(photo)
+                            }
+                            currentCoroutineContext().ensureActive()
                             put(photo.uri.toString(), LoadedSidecar(XmpDocument(xml ?: XmpDocument.EMPTY), xml))
                         } catch (failure: Exception) {
                             if (failure is kotlinx.coroutines.CancellationException) throw failure
@@ -414,7 +423,6 @@ class PhotoLibrary(private val context: Context) {
                 }
             }
         }
-    }
 
     suspend fun loadSidecar(photo: Photo): LoadedSidecar = io.withLock {
         withContext(Dispatchers.IO) {
