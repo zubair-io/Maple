@@ -7,8 +7,8 @@
 //   out = floor( from_pro · H_T( delta_pro · H_A⁻¹( to_pro · b ) ) )
 //
 // `H_w` is the HueSatMap blended between the cold and warm endpoint tables
-// at weight `w` (each table interpolated, then blended, hue on the shorter
-// arc); `H_A⁻¹` is a fixed-point inverse of `inverse_iterations` steps;
+// at weight `w` (corresponding cells blended on the shorter hue arc before
+// spatial interpolation); `H_A⁻¹` is a fixed-point inverse of `inverse_iterations` steps;
 // `floor` lifts a negative channel uniformly, as the develop's DCP exit does. The two tables are
 // session-constant storage; a tick only changes the uniform.
 //
@@ -145,7 +145,7 @@ fn signed_degrees(degrees: f32) -> f32 {
 
 // `hsm::lookup`: trilinear, hue wraps, sat/val clamp, hue axis unwrapped
 // against the first corner; returns (signed hueDelta, satScale, valScale).
-fn lookup(base: u32, hue: f32, sat: f32, val: f32) -> vec3<f32> {
+fn lookup_blended(w: f32, hue: f32, sat: f32, val: f32) -> vec3<f32> {
     let hd = i32(params.hue_divs);
     let sd = i32(params.sat_divs);
     let vd = i32(params.val_divs);
@@ -173,14 +173,14 @@ fn lookup(base: u32, hue: f32, sat: f32, val: f32) -> vec3<f32> {
         v1 = u32(clamp(v_lo + 1, 0, vd - 1));
     }
 
-    let c000 = entry(base, h0, s0, v0);
-    let c100 = entry(base, h1, s0, v0);
-    let c010 = entry(base, h0, s1, v0);
-    let c110 = entry(base, h1, s1, v0);
-    let c001 = entry(base, h0, s0, v1);
-    let c101 = entry(base, h1, s0, v1);
-    let c011 = entry(base, h0, s1, v1);
-    let c111 = entry(base, h1, s1, v1);
+    let c000 = blended_entry(clamp(w, 0.0, 1.0), h0, s0, v0);
+    let c100 = blended_entry(clamp(w, 0.0, 1.0), h1, s0, v0);
+    let c010 = blended_entry(clamp(w, 0.0, 1.0), h0, s1, v0);
+    let c110 = blended_entry(clamp(w, 0.0, 1.0), h1, s1, v0);
+    let c001 = blended_entry(clamp(w, 0.0, 1.0), h0, s0, v1);
+    let c101 = blended_entry(clamp(w, 0.0, 1.0), h1, s0, v1);
+    let c011 = blended_entry(clamp(w, 0.0, 1.0), h0, s1, v1);
+    let c111 = blended_entry(clamp(w, 0.0, 1.0), h1, s1, v1);
 
     let r = c000.x;
     let a000 = vec3<f32>(r, c000.yz);
@@ -212,16 +212,15 @@ fn shorter_arc(diff: f32) -> f32 {
     return diff;
 }
 
-// `hsm::lookup_blended`.
-fn lookup_blended(w: f32, hue: f32, sat: f32, val: f32) -> vec3<f32> {
-    let cold = lookup(0u, hue, sat, val);
-    let warm = lookup(params.table_len, hue, sat, val);
-    let t = clamp(w, 0.0, 1.0);
-    return vec3<f32>(
-        signed_degrees(cold.x + t * shorter_arc(warm.x - cold.x)),
-        cold.y + t * (warm.y - cold.y),
-        cold.z + t * (warm.z - cold.z),
-    );
+// Blend the lattice cell exactly as hsm::lerp_tables, before lookup unwraps
+// neighboring cells against the first corner.
+fn blended_entry(t: f32, h: u32, s: u32, v: u32) -> vec3<f32> {
+    let cold = entry(0u, h, s, v);
+    let warm = entry(params.table_len, h, s, v);
+    var hue = cold.x + t * shorter_arc(warm.x - cold.x);
+    if (hue > 360.0) { hue = hue - 360.0; }
+    if (hue < -360.0) { hue = hue + 360.0; }
+    return vec3<f32>(hue, (1.0 - t) * cold.yz + t * warm.yz);
 }
 
 // `hsm::apply_one_with` over the blended table.

@@ -167,8 +167,8 @@ pub fn apply_one(p: [f32; 3], table: &HsmTable) -> [f32; 3] {
 
 /// [`apply_one`] against the reciprocal-CCT blend of two same-shape tables at
 /// weight `t` (0 = `cold`, 1 = `warm`) without materialising the blended
-/// table: each corner set is interpolated per table and the two results are
-/// blended, hue along the shorter arc, as [`lerp_tables`] blends per cell.
+/// table: corresponding lattice entries are blended first, hue along the
+/// shorter arc, before spatial interpolation, exactly as [`lerp_tables`].
 /// Both slices are laid out as [`HsmTable::data`] for `dims`.
 #[inline]
 pub fn apply_one_blended(
@@ -194,15 +194,23 @@ fn lookup_blended(
     sat: f32,
     val: f32,
 ) -> (f32, f32, f32) {
-    let (hc, sc, vc) = lookup(dims, tables.0, hue, sat, val);
-    let (hw, sw, vw) = lookup(dims, tables.1, hue, sat, val);
     let t = t.clamp(0.0, 1.0);
-    let arc = shorter_arc(hw - hc);
-    (
-        signed_degrees(hc + t * arc),
-        sc + t * (sw - sc),
-        vc + t * (vw - vc),
-    )
+    lookup_with(dims, hue, sat, val, |h, s, v| {
+        let a = entry(dims, tables.0, h, s, v);
+        let b = entry(dims, tables.1, h, s, v);
+        let blended = a[0] + t * shorter_arc(b[0] - a[0]);
+        let above = if blended > 360.0 {
+            blended - 360.0
+        } else {
+            blended
+        };
+        let hue = if above < -360.0 { above + 360.0 } else { above };
+        [
+            hue,
+            (1.0 - t) * a[1] + t * b[1],
+            (1.0 - t) * a[2] + t * b[2],
+        ]
+    })
 }
 
 #[inline]
@@ -386,6 +394,17 @@ fn linear_to_srgb_one(v: f32) -> f32 {
 /// Look up (hueDelta, satScale, valScale) via trilinear interpolation.
 /// Hue dimension wraps circularly; sat and val clamp at the edges.
 fn lookup(dims: [u32; 3], data: &[f32], hue: f32, sat: f32, val: f32) -> (f32, f32, f32) {
+    lookup_with(dims, hue, sat, val, |h, s, v| entry(dims, data, h, s, v))
+}
+
+#[inline]
+fn lookup_with(
+    dims: [u32; 3],
+    hue: f32,
+    sat: f32,
+    val: f32,
+    entry_at: impl Fn(usize, usize, usize) -> [f32; 3],
+) -> (f32, f32, f32) {
     let hd = dims[0] as i32;
     let sd = dims[1] as i32;
     let vd = dims[2] as i32;
@@ -419,14 +438,14 @@ fn lookup(dims: [u32; 3], data: &[f32], hue: f32, sat: f32, val: f32) -> (f32, f
     };
 
     // Eight-corner entries.
-    let c000 = entry(dims, data, h0 as usize, s0 as usize, v0 as usize);
-    let c100 = entry(dims, data, h1 as usize, s0 as usize, v0 as usize);
-    let c010 = entry(dims, data, h0 as usize, s1 as usize, v0 as usize);
-    let c110 = entry(dims, data, h1 as usize, s1 as usize, v0 as usize);
-    let c001 = entry(dims, data, h0 as usize, s0 as usize, v1 as usize);
-    let c101 = entry(dims, data, h1 as usize, s0 as usize, v1 as usize);
-    let c011 = entry(dims, data, h0 as usize, s1 as usize, v1 as usize);
-    let c111 = entry(dims, data, h1 as usize, s1 as usize, v1 as usize);
+    let c000 = entry_at(h0 as usize, s0 as usize, v0 as usize);
+    let c100 = entry_at(h1 as usize, s0 as usize, v0 as usize);
+    let c010 = entry_at(h0 as usize, s1 as usize, v0 as usize);
+    let c110 = entry_at(h1 as usize, s1 as usize, v0 as usize);
+    let c001 = entry_at(h0 as usize, s0 as usize, v1 as usize);
+    let c101 = entry_at(h1 as usize, s0 as usize, v1 as usize);
+    let c011 = entry_at(h0 as usize, s1 as usize, v1 as usize);
+    let c111 = entry_at(h1 as usize, s1 as usize, v1 as usize);
 
     // Unwrap hue coordinates relative to c000[0] so standard linear combination preserves shortest-arc.
     let unwrap_hue = |val: f32, ref_val: f32| -> f32 {

@@ -422,3 +422,37 @@ fn weight_matches_the_reciprocal_cct_lerp() {
     let blended = crate::color::hsm::lerp_tables(&cold, &warm, view.weight_at(cct)).unwrap();
     assert_eq!(lerped.data, blended.data);
 }
+
+#[test]
+fn blended_lookup_matches_develop_when_endpoint_and_spatial_unwrap_branches_differ() {
+    use crate::color::hsm::{apply_one, apply_one_blended, hsv_to_rgb, lerp_tables};
+    let table = |hues: [f32; 2]| {
+        HsmTable::new(
+            [2, 2, 1],
+            hues.into_iter()
+                .flat_map(|h| [[h, 1.0, 1.0]; 2].into_iter().flatten())
+                .collect(),
+            HsmEncoding::Linear,
+        )
+        .unwrap()
+    };
+    let cold = table([-70.0, -126.0]);
+    let warm = table([158.0, 45.0]);
+    for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+        let blended = lerp_tables(&cold, &warm, t).unwrap();
+        for hue in [15.0, 45.0, 90.0, 135.0, 210.0, 315.0] {
+            for sat in [0.005, 0.05, 0.5, 1.0] {
+                let rgb = hsv_to_rgb(hue, sat, 0.8);
+                let want = apply_one(rgb, &blended);
+                let got =
+                    apply_one_blended(rgb, cold.dims, cold.encoding, (&cold.data, &warm.data), t);
+                for c in 0..3 {
+                    assert!(
+                        (got[c] - want[c]).abs() < 1e-6,
+                        "t={t}, hue={hue}, sat={sat}: {got:?} vs {want:?}"
+                    );
+                }
+            }
+        }
+    }
+}
