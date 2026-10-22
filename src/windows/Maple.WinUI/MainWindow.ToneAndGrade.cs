@@ -150,8 +150,10 @@ namespace Maple.WinUI
                 (ParametricSplitHandle.Highlight, Math.Abs(MuiToneCurveSplitsMath.AuthoringX(pct) - MuiToneCurveSplitsMath.AuthoringX(adj.ParametricHighlightSplit)) * _curveSplitCanvas.ActualWidth),
             };
             var nearest = candidates.OrderBy(c => c.Dist).First();
-            var handle = sender is Button { Tag: ParametricSplitHandle selected } ? selected : nearest.Handle;
-            if (sender is not Button && nearest.Dist > 8.0) return;
+            // Transparent focus controls can overlap when splits are close.
+            // Keep pointer selection on the nearest visible diamond.
+            var handle = nearest.Handle;
+            if (nearest.Dist > 8.0) return;
 
             _draggingSplitHandle = handle;
             _splitDragPointerId = e.Pointer.PointerId;
