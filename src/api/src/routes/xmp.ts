@@ -234,8 +234,9 @@ export const xmpPathRoutes = new Elysia()
       const outcome = await writeXmpAtomic(rawPath, xmlContent, request.signal, writeScope);
       if (!outcome.ok) {
         // Includes failed durable writes and unsupported workflow metadata;
-        // either failure leaves the existing sidecar untouched.
-        set.status = 500;
+        // either failure leaves the existing sidecar untouched. A stale
+        // primary binding is an expected, reloadable concurrency conflict.
+        set.status = outcome.conflict ? 409 : 500;
         return { error: outcome.error };
       }
       await publishSidecarChange(rawPath, true);

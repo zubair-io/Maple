@@ -18,7 +18,7 @@ const corpus = JSON.parse(
 const xml = corpus[0].history[0].adjustmentXmp as string;
 const app = new Elysia().use(xmpPathRoutes);
 
-for (const operation of ['save', 'commit', 'snapshot', 'restore'] as const) {
+for (const operation of ['path', 'save', 'commit', 'snapshot', 'restore'] as const) {
   test(`a stale ${operation} returns HTTP 409 with reload guidance`, async () => {
     const f = await recoveryFixture();
     const photo = path.join(f.root, 'photo.dng');
@@ -46,7 +46,7 @@ for (const operation of ['save', 'commit', 'snapshot', 'restore'] as const) {
       });
       await held.promise;
       const body =
-        operation === 'save'
+        operation === 'save' || operation === 'path'
           ? xml
           : operation === 'snapshot'
             ? {
@@ -61,11 +61,14 @@ for (const operation of ['save', 'commit', 'snapshot', 'restore'] as const) {
             : { expectedXmp: xml, xmp: xml, entry: corpus[0].history[0] };
       request = app.handle(
         new Request(
-          `http://localhost/api/xmp/variant${operation === 'save' ? '' : '/' + operation}?path=${encodeURIComponent(photo)}&variantId=primary`,
+          `http://localhost/api/xmp${operation === 'path' ? '' : '/variant' + (operation === 'save' ? '' : '/' + operation)}?path=${encodeURIComponent(photo)}&variantId=primary`,
           {
             method: operation === 'save' ? 'PUT' : 'POST',
             headers: {
-              'Content-Type': operation === 'save' ? 'application/xml' : 'application/json',
+              'Content-Type':
+                operation === 'save' || operation === 'path'
+                  ? 'application/xml'
+                  : 'application/json',
             },
             body: typeof body === 'string' ? body : JSON.stringify(body),
           },

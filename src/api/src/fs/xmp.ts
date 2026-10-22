@@ -34,6 +34,7 @@ import { prepareWorkflowWrite } from '../xmp/workflow-write.ts';
 import {
   serializeSidecarWrite,
   SidecarWritePathDeniedError,
+  SidecarWriteBindingChangedError,
   waitForAbortable,
 } from './sidecar-write-order';
 
@@ -149,7 +150,7 @@ export async function writeXmpAtomic(
   xmlContent: string,
   signal?: AbortSignal,
   admissionScope?: SidecarWriteScope,
-): Promise<OpResult<string>> {
+): Promise<OpResult<string> & { conflict?: boolean }> {
   try {
     return await serializeSidecarWrite(
       xmpSidecarPath(rawAbsPath),
@@ -163,6 +164,7 @@ export async function writeXmpAtomic(
   } catch (error) {
     return {
       ok: false,
+      ...(error instanceof SidecarWriteBindingChangedError ? { conflict: true } : {}),
       error: error instanceof Error ? error.message : String(error),
     };
   }
