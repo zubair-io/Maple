@@ -23,7 +23,13 @@ export async function primaryIdentity(file: string): Promise<string | null> {
  * Resolving the final component would change the generation key mid-commit. */
 export async function primaryReplacementKey(file: string): Promise<string> {
   const absolute = path.resolve(file);
-  return path.join(await canonicalDirectory(path.dirname(absolute)), path.basename(absolute));
+  // Match the sidecar reservation's conservative Unicode/case aliasing.
+  // Rollback receipts still require the exact original and restored identities.
+  return path
+    .join(await canonicalDirectory(path.dirname(absolute)), path.basename(absolute))
+    .normalize('NFC')
+    .toLowerCase()
+    .normalize('NFC');
 }
 
 async function canonicalDirectory(directory: string): Promise<string> {

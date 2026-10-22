@@ -183,54 +183,106 @@ test('a new workflow variant waits for Replace and cannot attach to the replacem
   }
 });
 
-for (const indexed of [false, true, 'symlink'] as const) {
-  test(`a save admitted inside Replace cannot reach the committed ${indexed === true ? 'indexed' : indexed === 'symlink' ? 'symlink' : 'unindexed'} photo`, async () => {
-    const f = await recoveryFixture();
-    const source = path.join(f.root, 'incoming.dng');
-    const destination = path.join(f.root, 'photo.dng');
-    const window = Promise.withResolvers<void>();
-    const admitted = Promise.withResolvers<void>();
-    let saving: ReturnType<typeof writeXmpAtomic> | undefined;
-    try {
-      await writeFile(source, 'incoming original');
-      if (indexed === 'symlink') {
-        const target = path.join(f.root, 'old-target.dng');
-        await writeFile(target, 'displaced original');
-        await mirrored.symlink(target, destination);
-      } else await writeFile(destination, 'displaced original');
-      const libraryId = insertFolder(f.live.db, { path: f.root });
-      saving = (async () => {
-        await window.promise;
-        const authorized = await resolveAndAuthorizeSidecarWrite(destination);
-        if (!authorized.ok) throw new Error(authorized.error);
+for (const indexed of [false, true, 'symlink', 'case alias'] as const) {
+  test.skipIf(indexed === 'case alias' && process.platform !== 'darwin')(
+    `a save admitted inside Replace cannot reach the committed ${indexed === true ? 'indexed' : indexed === 'symlink' ? 'symlink' : indexed === 'case alias' ? 'case alias' : 'unindexed'} photo`,
+    async () => {
+      const f = await recoveryFixture();
+      const source = path.join(f.root, 'incoming.dng');
+      const destination = path.join(f.root, 'photo.dng');
+      const window = Promise.withResolvers<void>();
+      const admitted = Promise.withResolvers<void>();
+      let saving: ReturnType<typeof writeXmpAtomic> | undefined;
+      try {
+        await writeFile(source, 'incoming original');
+        if (indexed === 'symlink') {
+          const target = path.join(f.root, 'old-target.dng');
+          await writeFile(target, 'displaced original');
+          await mirrored.symlink(target, destination);
+        } else await writeFile(destination, 'displaced original');
+        if (
+          indexed === 'case alias' &&
+          !(await stat(path.join(f.root, 'PHOTO.dng')).catch(() => null))
+        )
+          throw new Error('The case-alias regression requires a case-insensitive fixture volume');
+        const libraryId = insertFolder(f.live.db, { path: f.root });
+        saving = (async () => {
+          await window.promise;
+          const authorized = await resolveAndAuthorizeSidecarWrite(destination);
+          if (!authorized.ok) throw new Error(authorized.error);
+          admitted.resolve();
+          return writeXmpAtomic(destination, edits(2), undefined, authorized.writeScope);
+        })();
+        const outcome = await relocateFile({
+          sourceAbsPath: source,
+          destAbsPath: indexed === 'case alias' ? path.join(f.root, 'PHOTO.dng') : destination,
+          mode: 'copy',
+          collision: 'replace',
+          onVerified: async () => {
+            window.resolve();
+            await admitted.promise;
+            if (indexed === true) {
+              const id = insertAsset(f.live.db);
+              insertLocation(f.live.db, {
+                assetId: id,
+                libraryId,
+                path: '',
+                filename: 'photo.dng',
+              });
+            }
+          },
+        });
+        expect(outcome.kind).toBe('relocated');
+        expect(await saving).toMatchObject({
+          ok: false,
+          error: expect.stringContaining('reload before saving'),
+        });
+        await expect(stat(path.join(f.root, 'photo.xmp'))).rejects.toThrow();
+      } finally {
+        window.resolve();
         admitted.resolve();
-        return writeXmpAtomic(destination, edits(2), undefined, authorized.writeScope);
-      })();
-      const outcome = await relocateFile({
-        sourceAbsPath: source,
-        destAbsPath: destination,
-        mode: 'copy',
-        collision: 'replace',
-        onVerified: async () => {
-          window.resolve();
-          await admitted.promise;
-          if (indexed === true) {
-            const id = insertAsset(f.live.db);
-            insertLocation(f.live.db, { assetId: id, libraryId, path: '', filename: 'photo.dng' });
-          }
-        },
-      });
-      expect(outcome.kind).toBe('relocated');
-      expect(await saving).toMatchObject({
-        ok: false,
-        error: expect.stringContaining('reload before saving'),
-      });
-      await expect(stat(path.join(f.root, 'photo.xmp'))).rejects.toThrow();
-    } finally {
-      window.resolve();
-      admitted.resolve();
-      await saving;
-      await f.close();
-    }
-  });
+        await saving;
+        await f.close();
+      }
+    },
+  );
 }
+
+test('copy Replace admits a save authorized for its unchanged source during publication', async () => {
+  const f = await recoveryFixture();
+  const source = path.join(f.root, 'incoming.dng');
+  const destination = path.join(f.root, 'photo.dng');
+  const window = Promise.withResolvers<void>();
+  const admitted = Promise.withResolvers<void>();
+  let saving: ReturnType<typeof writeXmpAtomic> | undefined;
+  try {
+    insertFolder(f.live.db, { path: f.root });
+    await writeFile(source, 'incoming original');
+    await writeFile(destination, 'displaced original');
+    saving = (async () => {
+      await window.promise;
+      const authorized = await resolveAndAuthorizeSidecarWrite(source);
+      if (!authorized.ok) throw new Error(authorized.error);
+      admitted.resolve();
+      return writeXmpAtomic(source, edits(3), undefined, authorized.writeScope);
+    })();
+    const result = await relocateFile({
+      sourceAbsPath: source,
+      destAbsPath: destination,
+      mode: 'copy',
+      collision: 'replace',
+      onVerified: async () => {
+        window.resolve();
+        await admitted.promise;
+      },
+    });
+    expect(result.kind).toBe('relocated');
+    expect(await saving).toMatchObject({ ok: true });
+    expect(await readFile(path.join(f.root, 'incoming.xmp'), 'utf8')).toBe(edits(3));
+  } finally {
+    window.resolve();
+    admitted.resolve();
+    await Promise.allSettled([saving]);
+    await f.close();
+  }
+});
