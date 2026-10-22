@@ -110,8 +110,14 @@ private fun formatNumber(value: Double): String {
 private fun formatShutter(raw: String?): String? {
     val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
     val seconds = parseRational(value) ?: return value
-    if (seconds <= 0) return value
-    return if (seconds < 1.0) "1/${Math.round(1.0 / seconds)} s" else "${formatNumber(seconds)} s"
+    if (!seconds.isFinite() || seconds <= 0) return value
+    val reciprocal = 1.0 / seconds
+    val denominator = Math.round(reciprocal)
+    return if (seconds < 1.0 && kotlin.math.abs(reciprocal - denominator) <= reciprocal * 1e-6) {
+        "1/$denominator s"
+    } else {
+        "${java.math.BigDecimal.valueOf(seconds).stripTrailingZeros().toPlainString()} s"
+    }
 }
 
 private fun formatExifDate(raw: String?): String? {

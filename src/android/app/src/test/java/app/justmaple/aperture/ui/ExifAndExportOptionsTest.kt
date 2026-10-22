@@ -67,6 +67,13 @@ class ExifAndExportOptionsTest {
     }
 
     @Test
+    fun shutterFormattingPreservesSlowSubsecondValues() {
+        for ((raw, expected) in listOf("4/5" to "0.8 s", "0.6" to "0.6 s", "3/10" to "0.3 s", "1/2" to "1/2 s", "1/250" to "1/250 s", "1/3" to "1/3 s", "8/5" to "1.6 s", "NaN" to "NaN", "Infinity" to "Infinity")) {
+            assertEquals(expected, parseExifAttributes(mapOf("ExposureTime" to raw)).shutterSpeed)
+        }
+    }
+
+    @Test
     fun parseExifHandlesMissingAndMessyValues() {
         val empty = parseExifAttributes(emptyMap())
         assertFalse(empty.hasAnyExif)

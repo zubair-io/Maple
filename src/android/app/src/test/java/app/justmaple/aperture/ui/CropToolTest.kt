@@ -59,6 +59,16 @@ class CropToolTest {
     }
 
     @Test
+    fun cropCatalogMatchesTheNineCanonicalPresets() {
+        assertEquals(
+            listOf("free", "original", "1:1", "3:2", "4:3", "16:9", "2:3", "3:4", "9:16"),
+            CropAspectId.entries.map { it.rawId },
+        )
+        assertNull(CropAspectId.Free.resolveAspect(3f, 2f))
+        assertEquals(1.5f, CropAspectId.Original.resolveAspect(3f, 2f)!!, 0f)
+    }
+
+    @Test
     fun cropMoveAccumulatesEventsWithoutWaitingForRecomposition() {
         var result = CropRect(0.2f, 0.2f, 0.8f, 0.8f)
         val original = result

@@ -56,15 +56,6 @@ enum class EditorGroup(val label: String, val tools: List<EditorTool>) {
             when (this) {
                 Color -> listOf("crs:ConvertToGrayscale")
                 Effects -> listOf("papp:FilmLook")
-                Detail ->
-                    listOf(
-                        "crs:HasCrop",
-                        "crs:CropTop",
-                        "crs:CropLeft",
-                        "crs:CropBottom",
-                        "crs:CropRight",
-                        "crs:CropAngle",
-                    )
                 else -> emptyList()
             }
 
