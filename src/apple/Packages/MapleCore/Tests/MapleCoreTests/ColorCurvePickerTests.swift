@@ -76,6 +76,28 @@ final class ColorCurvePickerTests: XCTestCase {
     XCTAssertEqual(satHigh, 0.95, accuracy: 1e-6)
   }
 
+  func testSwitchingCurveDuringSamplingCancelsThePendingAnchorEvenAfterSwitchingBack() async {
+    for switchBack in [false, true] {
+      let session = EditSession.preview()
+      let picker = ColorCurvePicker(session: session)
+      picker.activeKind = .hueVsSat
+      picker.provider = { _, _, _ in
+        await MainActor.run {
+          picker.activeKind = .lumaVsSat
+          if switchBack { picker.activeKind = .hueVsSat }
+        }
+        return ColorCurveSample(uH: 0.25, uC: 0.45, uL: 0.62, l: 0.68, c: 0.144, hueDeg: 90)
+      }
+      picker.arm()
+      await picker.pick(at: CGPoint(x: 0.5, y: 0.5))
+      XCTAssertTrue(session.model.colorCurveHueVsSat.points.isEmpty)
+      XCTAssertTrue(session.model.colorCurveLumaVsSat.points.isEmpty)
+      XCTAssertTrue(session.undoHistory.isEmpty)
+      XCTAssertFalse(picker.isSampling)
+      XCTAssertFalse(picker.isArmed)
+    }
+  }
+
   func testColorCurvePickerSeedsActiveCurveFromSample() async {
     let session = EditSession.preview()
     let picker = ColorCurvePicker(session: session)

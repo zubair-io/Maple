@@ -246,7 +246,11 @@ public enum ColorCurveKind: String, CaseIterable, Sendable, Identifiable {
 @Observable
 public final class ColorCurvePicker {
   public var isColorCurvesMode = false
-  public var activeKind: ColorCurveKind = .hueVsHue
+  public var activeKind: ColorCurveKind = .hueVsHue {
+    didSet {
+      if activeKind != oldValue { cancel() }
+    }
+  }
   public private(set) var isArmed = false
   public private(set) var isSampling = false
   public private(set) var message: String?
