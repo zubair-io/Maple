@@ -104,6 +104,7 @@ struct ColorGradingPanel: View {
       tonalZoneWeightsStrip
     }
     .padding(.vertical, 4)
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-color-grading-panel")
   }
 
@@ -206,6 +207,7 @@ struct ColorGradingPanel: View {
         .coordinateSpace(name: Self.zoneStripSpace)
       }
       .frame(height: 44)
+      .accessibilityElement(children: .contain)
       .accessibilityIdentifier("editor-color-grading-zone-weights")
     }
   }

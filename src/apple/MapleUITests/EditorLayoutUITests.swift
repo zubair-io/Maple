@@ -146,6 +146,36 @@ import XCTest
       }
     }
 
+    func testVectorscopeClearsInspectorHeaderAndToolRail() throws {
+      let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("Fixtures/layout/rgb-gradient.png")
+      let driver = try MapleAppDriver.launch(
+        fixtureURL: fixture, launchArguments: ["-editor.showsScope", "YES"])
+      defer {
+        driver.app.terminate()
+        driver.cleanupStagedFixture()
+      }
+      driver.waitForCanvasReady()
+      let app = driver.app
+      app.buttons["editor-dock-group-effects"].click()
+      let scope = app.descendants(matching: .any)
+        .matching(identifier: "editor-vectorscope-hud").firstMatch
+      XCTAssertTrue(scope.waitForExistence(timeout: 5))
+      let dock = app.descendants(matching: .any)
+        .matching(identifier: "editor-tool-dock").firstMatch
+      let panel = app.descendants(matching: .any)
+        .matching(identifier: "editor-adjustments-panel").firstMatch
+      XCTAssertFalse(scope.frame.intersects(dock.frame), "Scope must clear the tool rail")
+      XCTAssertFalse(scope.frame.intersects(app.buttons["editor-panel-reset-all"].frame))
+      if dock.frame.height > dock.frame.width {
+        XCTAssertLessThanOrEqual(scope.frame.maxY + 8, panel.frame.minY + 1)
+      }
+      let shot = XCTAttachment(screenshot: app.screenshot())
+      shot.name = "Editor scope with reserved control space"
+      shot.lifetime = .keepAlways
+      add(shot)
+    }
+
     private func resize(_ window: XCUIElement, width: CGFloat, height: CGFloat) {
       let corner = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
         .withOffset(CGVector(dx: -1, dy: -1))

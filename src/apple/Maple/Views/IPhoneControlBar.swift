@@ -13,6 +13,7 @@ struct IPhoneControlBar: View {
   var onPresetsTap: () -> Void = {}
   var maximumPanelHeight: CGFloat = 300
   var showsGroupTabs = true
+  var showsScope = false
   @State private var controlsHeight: CGFloat = 0
 
   var body: some View {
@@ -34,9 +35,14 @@ struct IPhoneControlBar: View {
         .frame(height: min(maximumPanelHeight, controlsHeight))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("editor-iphone-selected-control")
-        .onChange(of: controlsHeight) { _, _ in revealSelectedControl(proxy) }
+        .onChange(of: controlsHeight) { _, _ in
+          if !showsScope { revealSelectedControl(proxy) }
+        }
         .onChange(of: maximumPanelHeight) { _, _ in revealSelectedControl(proxy) }
         .onChange(of: state.armedTool) { _, _ in revealSelectedControl(proxy) }
+        .onChange(of: showsScope) { _, visible in
+          if visible { proxy.scrollTo("editor-phone-scope", anchor: .top) }
+        }
       }
 
       HStack {
@@ -74,6 +80,11 @@ struct IPhoneControlBar: View {
 
   private var contextualControls: some View {
     VStack(spacing: 0) {
+      // Share the bounded scroll area so the scope cannot cover the header,
+      // pinned group tabs, tool pills, or another adjustment control.
+      if showsScope {
+        VectorscopeHud(state: state).padding(12).id("editor-phone-scope")
+      }
       if state.armedGroup == .color && state.armedTool != .hsl {
         ColorAccessoryRow(state: state, compactStyle: true)
           .transition(.opacity)
