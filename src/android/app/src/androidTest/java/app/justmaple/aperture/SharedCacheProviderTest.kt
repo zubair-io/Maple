@@ -12,6 +12,34 @@ import org.junit.Test
 
 class SharedCacheProviderTest {
     @Test
+    fun cancelledCullingScanReleasesTheNextForegroundOpen() = runBlocking {
+        CacheProviderFixture().use { fixture ->
+            for (index in 1..4) {
+                fixture.write(fixture.root, "frame-$index.dng", fixture.original)
+                fixture.write(fixture.root, "frame-$index.xmp", XmpDocument().serialize().toByteArray())
+            }
+            val photos = fixture.library.list(fixture.root).photos.filter { it.name.startsWith("frame-") }
+            val before = fixture.call("cache-test-state")!!.getInt("sidecarReads")
+            fixture.call("cache-test-mode", Bundle().apply {
+                putString("pauseSidecarRead", photos.first().sidecarName)
+            })
+            val scan = launch(Dispatchers.IO) { fixture.library.loadSidecars(photos) }
+            try {
+                fixture.awaitBlocked()
+                scan.cancel()
+                val foreground = async(Dispatchers.IO) { fixture.library.loadSidecar(photos.last()) }
+                fixture.call("cache-test-release")
+                withTimeout(10_000) { scan.join(); foreground.await() }
+                val after = fixture.call("cache-test-state")!!.getInt("sidecarReads")
+                assertEquals("Only the in-flight read and foreground open may finish", 2, after - before)
+            } finally {
+                fixture.call("cache-test-release")
+                scan.cancelAndJoin()
+            }
+        }
+    }
+
+    @Test
     fun cullingReadsAllMarksFromOneFreshFolderSnapshot() = runBlocking {
         CacheProviderFixture().use { fixture ->
             for (index in 1..4) {
