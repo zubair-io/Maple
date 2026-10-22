@@ -5,6 +5,15 @@ namespace Maple.WinUI.Tests
 {
     public class MuiToneCurveSplitsMathTests
     {
+        [Theory]
+        [InlineData(ParametricSplitHandle.Shadow, 24.5, 25)]
+        [InlineData(ParametricSplitHandle.Midtone, 50.5, 51)]
+        [InlineData(ParametricSplitHandle.Highlight, 74.5, 75)]
+        public void MidpointsMatchWebAndApple(ParametricSplitHandle handle, double proposed, double expected)
+        {
+            Assert.Equal(expected, MuiToneCurveSplitsMath.ClampSplit(handle, proposed, 25, 50, 75));
+        }
+
         [Fact]
         public void SplitPlotGeometryUsesTheLogAxisInBothDirections()
         {

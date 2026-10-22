@@ -56,20 +56,20 @@ namespace Maple.UI
                 case ParametricSplitHandle.Shadow:
                 {
                     var hi = Math.Max(10.0, Math.Min(70.0, midtone - MinUiGap));
-                    return Math.Round(Math.Clamp(val, 10.0, hi));
+                    return Math.Round(Math.Clamp(val, 10.0, hi), MidpointRounding.AwayFromZero);
                 }
                 case ParametricSplitHandle.Midtone:
                 {
                     var lo = Math.Min(80.0, Math.Max(20.0, shadow + MinUiGap));
                     var hi = Math.Max(lo, Math.Min(80.0, highlight - MinUiGap));
-                    return Math.Round(Math.Clamp(val, lo, hi));
+                    return Math.Round(Math.Clamp(val, lo, hi), MidpointRounding.AwayFromZero);
                 }
                 case ParametricSplitHandle.Highlight:
                 default:
                 {
                     var lo = Math.Min(90.0, Math.Max(30.0, midtone + MinUiGap));
                     var hi = Math.Max(lo, 90.0);
-                    return Math.Round(Math.Clamp(val, lo, hi));
+                    return Math.Round(Math.Clamp(val, lo, hi), MidpointRounding.AwayFromZero);
                 }
             }
         }

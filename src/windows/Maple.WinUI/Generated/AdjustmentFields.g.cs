@@ -451,6 +451,20 @@ public static class ColorCurveEditorTuning
     public const double MaxHueSlope = 2.5;
 }
 
+public static class ColorCurveCalibration
+{
+    public static readonly System.Collections.Generic.IReadOnlyList<(string Id, string Label, double HueDeg, uint Swatch)> QuickHueAnchors = System.Array.AsReadOnly(new (string, string, double, uint)[]
+    {
+        ("red", "Red", 29.0, 0xC4493A),
+        ("yellow", "Yellow", 110.0, 0xE3D24A),
+        ("green", "Green", 142.0, 0x3FAE6A),
+        ("cyan", "Cyan", 195.0, 0x45B6C4),
+        ("blue", "Blue", 264.0, 0x3B6FB0),
+        ("magenta", "Magenta", 328.0, 0xC64FB0),
+    });
+    public static readonly System.Collections.Generic.IReadOnlyList<double> SkinToneGuardDeg = System.Array.AsReadOnly(new double[] { 38.0, 55.0, 72.0, });
+}
+
 public static class ParametricAxisTuning
 {
     public const double Midgrey = 0.18;

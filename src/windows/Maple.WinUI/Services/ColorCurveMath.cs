@@ -39,18 +39,10 @@ namespace Maple.WinUI.Services
         public const double MinKnotGap = ColorCurveEditorTuning.MinKnotGap;
 
         /// <summary>Six canonical Oklab hue quick-anchors.</summary>
-        public static readonly QuickHueAnchor[] QuickHueAnchors =
-        {
-            new("Red", 29.0),
-            new("Yellow", 110.0),
-            new("Green", 142.0),
-            new("Cyan", 195.0),
-            new("Blue", 264.0),
-            new("Magenta", 328.0),
-        };
+        public static readonly QuickHueAnchor[] QuickHueAnchors = ColorCurveCalibration.QuickHueAnchors
+            .Select(anchor => new QuickHueAnchor(anchor.Label, anchor.HueDeg)).ToArray();
 
-        /// <summary>Skin-tone guard pins at 38°, 55° (center), and 72°.</summary>
-        public static readonly double[] SkinToneGuardDeg = { 38.0, 55.0, 72.0 };
+        public static readonly IReadOnlyList<double> SkinToneGuardDeg = ColorCurveCalibration.SkinToneGuardDeg;
 
         public static bool IsPeriodic(this ColorCurveKind kind) =>
             kind is ColorCurveKind.HueVsHue or ColorCurveKind.HueVsSat or ColorCurveKind.HueVsLuma;

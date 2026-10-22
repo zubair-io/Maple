@@ -453,6 +453,17 @@ export const COLOR_CURVE_EDITOR = {
   maxKnots: 16,
   maxHueSlope: 2.5,
 } as const;
+export const COLOR_CURVE_CALIBRATION = {
+  quickHueAnchors: [
+    { id: 'red', label: 'Red', deg: 29, color: '#c4493a' },
+    { id: 'yellow', label: 'Yellow', deg: 110, color: '#e3d24a' },
+    { id: 'green', label: 'Green', deg: 142, color: '#3fae6a' },
+    { id: 'cyan', label: 'Cyan', deg: 195, color: '#45b6c4' },
+    { id: 'blue', label: 'Blue', deg: 264, color: '#3b6fb0' },
+    { id: 'magenta', label: 'Magenta', deg: 328, color: '#c64fb0' },
+  ],
+  skinToneGuardDeg: [38, 55, 72],
+} as const;
 
 export const PARAMETRIC_AXIS = {
   midgrey: 0.18,

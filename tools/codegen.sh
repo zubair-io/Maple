@@ -114,6 +114,7 @@ TS_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-model.generat
 TS_TABLES_OUT="src/web/projects/maple-common/src/lib/generated/adjustment-tables.generated.ts"
 
 "$BIN" --schema adjustment --target swift --out "$SWIFT_OUT"
+"$BIN" --schema editor-tuning --target swift --out "src/apple/Packages/MapleCore/Sources/MapleCore/Generated/EditorTuning+Generated.swift"
 "$BIN" --schema adjustment --target ts --out "$TS_OUT"
 "$BIN" --schema adjustment --target ts-tables --out "$TS_TABLES_OUT"
 "$BIN" --schema adjustment --target cs --out "src/windows/Maple.WinUI/Generated/AdjustmentFields.g.cs"

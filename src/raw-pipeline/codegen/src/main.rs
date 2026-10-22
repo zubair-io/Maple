@@ -120,6 +120,8 @@ enum Schema {
     /// `raw_core::types::ADJUSTMENT_SCHEMA` — slider ranges, field-name enums,
     /// TS interface + default factory.
     Adjustment,
+    /// Editor calibration/tuning split from the Swift adjustment model.
+    EditorTuning,
     /// API preset scalar validation tables (#3663).
     AdjustmentApi,
     /// The ranked search window's ladder (#4545).
@@ -263,6 +265,11 @@ fn main() {
         (Schema::AdjustmentApi, Target::Ts) => adjustment_api::emit_ts(ADJUSTMENT_SCHEMA),
         (Schema::AdjustmentApi, _) => {
             eprintln!("adjustment-api supports ts");
+            std::process::exit(2);
+        }
+        (Schema::EditorTuning, Target::Swift) => adjustment::emit_swift_editor_tuning(),
+        (Schema::EditorTuning, _) => {
+            eprintln!("editor-tuning supports swift");
             std::process::exit(2);
         }
         (Schema::Adjustment, Target::Swift) => emit_swift(ADJUSTMENT_SCHEMA),

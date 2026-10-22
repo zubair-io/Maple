@@ -357,21 +357,6 @@ extension AdjustmentModel {
   public static let colorGradeHighlightEdgeRange: ClosedRange<Double> = 0.564622...0.9
 }
 
-public enum ColorCurveEditorTuning {
-  public static let anchorSpread = 0.08
-  public static let minKnotGap = 0.015
-  public static let maxKnots = 16
-  public static let maxHueSlope = 2.5
-}
-
-public enum ParametricAxisTuning {
-  public static let midgrey: Double = 0.18
-  public static let midtone: Double = 50.0
-  public static let unitsPerStop: Double = 12.5
-  public static let top: Double = 105.92414
-  public static let referenceMax: Double = 4.0
-}
-
 // MARK: - Copy / paste / sync groups (#944, canonical, generated)
 
 /// A user-selectable bundle of `AdjustmentModel` fields for copy / paste / sync (#944).
