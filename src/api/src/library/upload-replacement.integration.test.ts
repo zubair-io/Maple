@@ -301,6 +301,39 @@ test('a late sidecar a trashed same-stem sibling shares stays with that sibling 
   }
 });
 
+test('a late old-name edit follows the replacement even beside a same-stem sibling (#5069)', async () => {
+  const f = await fixture();
+  const source = path.join(f.library, '.maple/trash/photo.dng');
+  const legacy = path.join(f.library, '.maple/trash/photo.dng.xmp');
+  const edit =
+    '<x:xmpmeta xmlns:maple="https://ns.justmaple.app/xmp/1.0/">old-name edit</x:xmpmeta>';
+  try {
+    expect((await f.upload('different')).status).toBe(201);
+    await writeFile(f.original, 'old-original');
+    await writeFile(path.join(f.library, '.maple/trash/photo.jpg'), 'sibling');
+    const realPrepare = lifecycle.prepareIdenticalReplacementPurge;
+    const prepare = spyOn(lifecycle, 'prepareIdenticalReplacementPurge').mockImplementation(
+      async (...args) => {
+        await writeFile(legacy, edit);
+        return realPrepare(...args);
+      },
+    );
+    try {
+      expect(
+        await discardIdenticalReplacement(new ObjectId(f.id), f.library, source, f.original),
+      ).toBe(true);
+    } finally {
+      prepare.mockRestore();
+    }
+    await expect(stat(legacy)).rejects.toThrow();
+    expect(await readFile(path.join(f.library, 'photo (conflict from move).xmp'), 'utf8')).toBe(
+      edit,
+    );
+  } finally {
+    await f.close();
+  }
+});
+
 test("a failed late-edit check never skips the purged row's deletion (#5069)", async () => {
   const f = await fixture();
   const source = path.join(f.library, '.maple/trash/photo.dng');
