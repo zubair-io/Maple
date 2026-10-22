@@ -5,6 +5,8 @@ import android.net.Uri
 import android.view.Surface
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.*
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -12,6 +14,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import app.justmaple.aperture.MapleState
 import app.justmaple.aperture.MapleViewModel
@@ -49,6 +52,29 @@ class CropToolTest {
         override suspend fun refine(expectedRevision: Int) {}
         override suspend fun shutdown() {}
         override fun close() {}
+    }
+
+    @Test
+    fun removingTheOverlayCommitsAnInterruptedCropGestureOnce() {
+        var shown by mutableStateOf(true)
+        var crop by mutableStateOf(CropRect(top = 0.2f, left = 0.2f, bottom = 0.8f, right = 0.8f))
+        var commits = 0
+        compose.setContent {
+            Box(Modifier.size(300.dp)) {
+                if (shown) CropOverlay(crop, { crop = it }, { commits++ })
+            }
+        }
+        val overlay = compose.onNodeWithTag("crop-overlay")
+        overlay.performTouchInput {
+            down(center)
+            moveTo(center + Offset(20f, 15f))
+        }
+        compose.runOnIdle {
+            assertFalse(crop.left == 0.2f)
+            assertEquals(0, commits)
+            shown = false
+        }
+        compose.runOnIdle { assertEquals(1, commits) }
     }
 
     @Test

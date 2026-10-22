@@ -402,34 +402,37 @@ internal fun CropOverlay(
                         ) ?: return@awaitEachGesture
                     var lastPos = down.position
                     var moved = false
-                    do {
-                        val event = awaitPointerEvent()
-                        if (event.changes.count { it.pressed } > 1) break
-                        val change = event.changes.firstOrNull { it.pressed } ?: break
-                        if (change.positionChanged()) {
-                            val pos = change.position
-                            val updated =
-                                if (handle == CropHandle.Move) {
-                                    CropGeometry.moveCrop(
-                                        currentCrop,
-                                        (pos.x - lastPos.x) / w,
-                                        (pos.y - lastPos.y) / h,
-                                    )
-                                } else {
-                                    CropGeometry.resizeCrop(
-                                        currentCrop,
-                                        handle,
-                                        pos.x / w,
-                                        pos.y / h,
-                                    )
-                                }
-                            lastPos = pos
-                            moved = true
-                            currentCallback(updated)
-                            change.consume()
-                        }
-                    } while (event.changes.any { it.pressed })
-                    if (moved) currentCommit()
+                    try {
+                        do {
+                            val event = awaitPointerEvent()
+                            if (event.changes.count { it.pressed } > 1) break
+                            val change = event.changes.firstOrNull { it.pressed } ?: break
+                            if (change.positionChanged()) {
+                                val pos = change.position
+                                val updated =
+                                    if (handle == CropHandle.Move) {
+                                        CropGeometry.moveCrop(
+                                            currentCrop,
+                                            (pos.x - lastPos.x) / w,
+                                            (pos.y - lastPos.y) / h,
+                                        )
+                                    } else {
+                                        CropGeometry.resizeCrop(
+                                            currentCrop,
+                                            handle,
+                                            pos.x / w,
+                                            pos.y / h,
+                                        )
+                                    }
+                                lastPos = pos
+                                moved = true
+                                currentCallback(updated)
+                                change.consume()
+                            }
+                        } while (event.changes.any { it.pressed })
+                    } finally {
+                        if (moved) currentCommit()
+                    }
                 }
             }
             .testTag("crop-overlay")
