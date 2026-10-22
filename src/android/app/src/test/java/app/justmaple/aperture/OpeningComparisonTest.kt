@@ -1,5 +1,7 @@
 package app.justmaple.aperture
 
+import app.justmaple.aperture.generated.AdjustmentFields
+import app.justmaple.aperture.ui.EditorGroup
 import android.net.Uri
 import android.view.Surface
 import app.justmaple.aperture.data.*
@@ -39,6 +41,45 @@ class OpeningComparisonTest {
         override suspend fun refine(expectedRevision: Int) {}
         override suspend fun shutdown() {}
         override fun close() {}
+    }
+
+    @Test
+    fun resettingDetailPreservesFramingAndUndoRestoresDetail() = runBlocking {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        val app = RuntimeEnvironment.getApplication()
+        val raw = File.createTempFile("detail-reset-", ".dng", app.cacheDir).apply { writeText("renderer seam") }
+        val photo = Photo(Uri.fromFile(raw), raw.name, raw.length(), raw.lastModified(), null)
+        val library = PhotoLibrary(app)
+        val opening = XmpDocument().withAttribute("crs:HasCrop", "True")
+            .withAttribute("crs:CropLeft", "0.2").withAttribute("crs:CropTop", "0.1")
+            .withAttribute("crs:CropBottom", "0.9").withAttribute("crs:CropRight", "0.8")
+            .withAttribute("crs:CropAngle", "2.5")
+        library.save(photo, opening, null)
+        val model = MapleViewModel(app, library, RecordingRenderer())
+        try {
+            model.open(photo)
+            withTimeout(10_000) { model.state.first { it.documentLoaded && !it.loading } }
+            model.edit()
+            withTimeout(10_000) { model.state.first { it.values.isNotEmpty() } }
+            model.setField("sharpen_amount", 75f)
+            model.commitGesture()
+            val sharpened = model.state.value.document.serialize()
+            model.resetGroup(EditorGroup.Detail)
+            for (key in listOf("HasCrop", "CropLeft", "CropTop", "CropBottom", "CropRight", "CropAngle")) {
+                assertEquals(opening.attribute("crs:$key"), model.state.value.document.attribute("crs:$key"))
+            }
+            assertEquals(AdjustmentFields.byName.getValue("sharpen_amount").initial, model.state.value.values["sharpen_amount"]!!, 0f)
+            assertTrue(model.flush())
+            assertEquals("2.5", library.loadSidecar(photo).document.attribute("crs:CropAngle"))
+            model.undo()
+            assertEquals(sharpened, model.state.value.document.serialize())
+            model.back()
+            withTimeout(10_000) { model.state.first { it.mode == PhotoMode.Preview && !it.saving } }
+            Unit
+        } finally {
+            raw.delete()
+            Dispatchers.resetMain()
+        }
     }
 
     @Test
