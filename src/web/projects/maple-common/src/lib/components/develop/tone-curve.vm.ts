@@ -27,6 +27,7 @@ import {
   DEFAULT_MIDTONE_SPLIT,
   DEFAULT_SHADOW_SPLIT,
   activeRegionWindowPath,
+  axisToAuthoringX,
   orderedSplits,
   type ParametricRegionId,
   type ParametricSplitHandle,
@@ -279,7 +280,7 @@ export function buildToneCurveViewModel(
       id: item.id,
       label: item.label,
       value: values[item.id],
-      cx: (values[item.id] / 100) * PLOT_SIZE,
+      cx: axisToAuthoringX(values[item.id]) * PLOT_SIZE,
     }));
   });
 

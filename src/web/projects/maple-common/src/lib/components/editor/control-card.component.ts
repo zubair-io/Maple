@@ -57,6 +57,7 @@ import { manualAdjustmentPatch } from '../../editor/editor-state.wb-sample';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { gradientFor } from '../develop/gradient-catalog';
+import { defaultGeneratedAdjustmentModel } from '../../generated/adjustment-model.generated';
 import type { AdjustmentModel } from '../../models/adjustment-model';
 
 /** Tools shown as sliders in the control card (excludes crop/presets/hsl/
@@ -409,9 +410,10 @@ export class ControlCardComponent {
       patch.colorCurveSatVsSat = { points: [] };
       patch.colorCurveSatVsLuma = { points: [] };
     } else if (group === 'effects') {
-      patch.colorGradeBlending = 100;
-      patch.colorGradeShadowEdge = 0.564622;
-      patch.colorGradeHighlightEdge = 0.564622;
+      const defaults = defaultGeneratedAdjustmentModel();
+      patch.colorGradeBlending = defaults.colorGradeBlending;
+      patch.colorGradeShadowEdge = defaults.colorGradeShadowEdge;
+      patch.colorGradeHighlightEdge = defaults.colorGradeHighlightEdge;
     }
     this.libraryState.updateAdjustment(id, manualAdjustmentPatch(patch, current));
     this.editorState.haptic('reset');

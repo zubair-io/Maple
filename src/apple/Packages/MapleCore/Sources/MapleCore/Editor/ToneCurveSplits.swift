@@ -45,6 +45,18 @@ public enum ToneCurveSplits {
   /// (`50 + 12.5 * log2(4.0 / 0.18)`), matching `parametric::AXIS_TOP`.
   public static let axisTop: Double = ParametricAxisTuning.top
 
+  public static func authoringX(forAxis axis: Double) -> Double {
+    ParametricAxisTuning.midgrey
+      * pow(2, (axis - ParametricAxisTuning.midtone) / ParametricAxisTuning.unitsPerStop)
+      / ParametricAxisTuning.referenceMax
+  }
+
+  public static func axis(forAuthoringX x: Double) -> Double {
+    x > 0
+      ? ParametricAxisTuning.midtone + ParametricAxisTuning.unitsPerStop
+        * log2(x * ParametricAxisTuning.referenceMax / ParametricAxisTuning.midgrey) : 0
+  }
+
   /// Clamp a proposed split-handle drag value against the current triplet
   /// using the #5039 UI authoring bounds:
   /// - shadow: `[10, min(70, midtone - 5)]`
@@ -139,9 +151,7 @@ public enum ToneCurveSplits {
     return (0...count).map { i in
       let x = Double(i) / Double(count)
       let w = regionWindows(
-        at: x > 0
-          ? ParametricAxisTuning.midtone + ParametricAxisTuning.unitsPerStop
-            * log2(x * ParametricAxisTuning.referenceMax / ParametricAxisTuning.midgrey) : 0,
+        at: axis(forAuthoringX: x),
         shadow: shadow, midtone: midtone, highlight: highlight
       )[idx]
       return (x: x, weight: max(0.0, min(1.0, w)))

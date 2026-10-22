@@ -27,6 +27,7 @@ import {
   anyColorCurveModified,
   clampColorCurveY,
   clampColorCurveX,
+  colorCurveKeyboardPoint,
   evaluateColorCurve,
   insertColorCurveAnchor,
   lockSkinToneCurve,
@@ -205,6 +206,28 @@ export class ColorCurvesRibbonComponent {
     const pts = this.activePoints().filter((_, i) => i !== index);
     this.editor.commit('adjustment', `Remove ${desc.title} knot`);
     this.library.updateAdjustment(id, { [desc.field]: { points: pts } });
+    this.editor.endEdit();
+  }
+
+  onKnotKeyDown(index: number, event: KeyboardEvent): void {
+    const id = this.library.focusedAssetId();
+    const point = this.activePoints()[index];
+    if (!id || !point) return;
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault();
+      this.removeKnot(index, event);
+      return;
+    }
+    const desc = this.activeDescriptor();
+    const current = this.activePoints();
+    const next = colorCurveKeyboardPoint(desc, current, index, event.key, event.shiftKey);
+    if (!next) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (next[0] === point[0] && next[1] === point[1]) return;
+    const points: ToneCurvePoint[] = current.map((p, i) => (i === index ? next : [p[0], p[1]]));
+    this.editor.commit('adjustment', `Edit ${desc.title} knot`);
+    this.library.updateAdjustment(id, { [desc.field]: { points } });
     this.editor.endEdit();
   }
 

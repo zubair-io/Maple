@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   activeRegionWindowPath,
+  axisToAuthoringX,
+  authoringXToAxis,
   clampParametricSplit,
   defaultSplitValue,
   orderedSplits,
@@ -12,6 +14,12 @@ import {
 } from './tone-curve-splits';
 
 describe('tone-curve-splits (#5039)', () => {
+  it('round-trips split values through the logarithmic plot geometry', () => {
+    expect(axisToAuthoringX(50)).toBeCloseTo(0.045);
+    for (const axis of [10, 25, 50, 75, 90])
+      expect(authoringXToAxis(axisToAuthoringX(axis))).toBeCloseTo(axis);
+  });
+
   it('plots region weights on the scene-linear authoring axis', () => {
     const path = activeRegionWindowPath('parametricShadows', 25, 50, 75, 1000, 1000);
     const x = 15 / 1000;

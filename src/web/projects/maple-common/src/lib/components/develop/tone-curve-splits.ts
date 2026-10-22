@@ -25,6 +25,23 @@ export const DEFAULT_HIGHLIGHT_SPLIT = defaultGeneratedAdjustmentModel().paramet
 const MIN_SPLIT_UI_GAP = 5;
 const AXIS_TOP = PARAMETRIC_AXIS.top;
 
+/** Parametric axis positions share the scene-linear tone plot's x domain. */
+export function axisToAuthoringX(axis: number): number {
+  return (
+    (PARAMETRIC_AXIS.midgrey *
+      2 ** ((axis - PARAMETRIC_AXIS.midtone) / PARAMETRIC_AXIS.unitsPerStop)) /
+    PARAMETRIC_AXIS.referenceMax
+  );
+}
+
+export function authoringXToAxis(x: number): number {
+  return x > 0
+    ? PARAMETRIC_AXIS.midtone +
+        PARAMETRIC_AXIS.unitsPerStop *
+          Math.log2((x * PARAMETRIC_AXIS.referenceMax) / PARAMETRIC_AXIS.midgrey)
+    : 0;
+}
+
 export function defaultSplitValue(handle: ParametricSplitHandle): number {
   switch (handle) {
     case 'shadow':
@@ -168,19 +185,7 @@ export function activeRegionWindowPath(
     const u = i / count;
     const w = Math.max(
       0,
-      Math.min(
-        1,
-        regionWindows(
-          u > 0
-            ? PARAMETRIC_AXIS.midtone +
-                PARAMETRIC_AXIS.unitsPerStop *
-                  Math.log2((u * PARAMETRIC_AXIS.referenceMax) / PARAMETRIC_AXIS.midgrey)
-            : 0,
-          shadow,
-          midtone,
-          highlight,
-        )[idx],
-      ),
+      Math.min(1, regionWindows(authoringXToAxis(u), shadow, midtone, highlight)[idx]),
     );
     const x = (u * plotSize).toFixed(2);
     const y = (plotSize - w * plotSize * 0.35).toFixed(2);

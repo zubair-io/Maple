@@ -77,12 +77,26 @@
           <button
             type="button"
             class="knot-handle"
+            role="slider"
+            aria-orientation="vertical"
+            aria-description="Left and right change input; up and down change output. Delete removes this point."
+            aria-valuemin="0"
+            aria-valuemax="100"
+            [attr.aria-valuenow]="pt[1] * 100"
+            [attr.aria-valuetext]="
+              'Input ' +
+              (pt[0] * 100).toFixed(0) +
+              ' percent; output ' +
+              (pt[1] * 100).toFixed(0) +
+              ' percent'
+            "
             [style.left.%]="pt[0] * 100"
             [style.top.%]="(1 - pt[1]) * 100"
             [attr.aria-label]="activeDescriptor().title + ' knot ' + ($index + 1)"
             [attr.data-testid]="'color-curve-knot-' + $index"
             (pointerdown)="onRibbonPointerDown($event)"
             (dblclick)="removeKnot($index, $event)"
+            (keydown)="onKnotKeyDown($index, $event)"
           ></button>
         }
       </div>

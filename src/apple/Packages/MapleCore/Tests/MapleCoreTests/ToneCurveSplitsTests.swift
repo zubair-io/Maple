@@ -6,6 +6,15 @@ import XCTest
 @testable import MapleCore
 
 final class ToneCurveSplitsTests: XCTestCase {
+  func testSplitPlotGeometryUsesTheLogAxisInBothDirections() {
+    XCTAssertEqual(ToneCurveSplits.authoringX(forAxis: 50), 0.045, accuracy: 1e-9)
+    for axis in [10.0, 25, 50, 75, 90] {
+      XCTAssertEqual(
+        ToneCurveSplits.axis(forAuthoringX: ToneCurveSplits.authoringX(forAxis: axis)), axis,
+        accuracy: 1e-9)
+    }
+  }
+
   func testImportedNeighborsCannotRaiseTheInteractiveUpperBound() {
     XCTAssertEqual(
       ToneCurveSplits.clampSplit(
