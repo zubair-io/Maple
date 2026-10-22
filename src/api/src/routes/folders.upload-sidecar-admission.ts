@@ -20,7 +20,11 @@ async function familyOwners(primarySidecar: string): Promise<string[]> {
   const candidates = (await readdir(directory))
     .filter((name) => path.extname(name).toLowerCase() !== '.xmp')
     .map((name) => path.join(directory, name))
-    .filter((file) => folded(xmpSidecarPath(file)) === folded(primarySidecar));
+    .filter(
+      (file) =>
+        folded(xmpSidecarPath(file)) === folded(primarySidecar) ||
+        folded(file + '.xmp') === folded(primarySidecar),
+    );
   const owners = await Promise.all(
     candidates.map(async (file) => {
       const info = await lstat(file).catch((error: unknown) => {
@@ -40,11 +44,15 @@ export async function captureUploadedSidecarAdmission(
   const base = workflowSidecarBase(name) ?? pairedBase.exec(name)?.[1] ?? null;
   if (base === null) return undefined;
   const directory = path.dirname(file);
-  const primarySidecar = path.join(directory, base + '.xmp');
+  const familySidecar = path.join(directory, base + '.xmp');
   // Reject a Replace crossing the asynchronous owner lookup itself. Once
   // admitted, concrete primary identities and the family lane cover the wait.
   const epoch = primaryReplacementEpoch();
-  const owners = await familyOwners(primarySidecar);
+  const owners = await familyOwners(familySidecar);
+  // Full-name photo backups remain potential members until their uploaded
+  // XML can be classified. Reserve their real canonical lane as well.
+  const legacyOwner = owners.find((owner) => folded(owner + '.xmp') === folded(familySidecar));
+  const primarySidecar = legacyOwner ? xmpSidecarPath(legacyOwner) : familySidecar;
   const scopes = await Promise.all(
     owners.map((owner) => captureSidecarWriteScope(owner, directory)),
   );
@@ -54,7 +62,7 @@ export async function captureUploadedSidecarAdmission(
     scope: {
       directory,
       async validate() {
-        const current = await familyOwners(primarySidecar);
+        const current = await familyOwners(familySidecar);
         if (
           crossed ||
           current.length !== owners.length ||
