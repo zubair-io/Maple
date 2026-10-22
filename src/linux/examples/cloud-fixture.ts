@@ -16,7 +16,7 @@ const app = new Elysia()
       refresh_token: 'fixture-refresh',
       state: body.state,
     }),
-    { body: t.Object({ state: t.String(), code_verifier: t.String() }) },
+    { body: t.Object({ state: t.String(), code_verifier: t.String(), code: t.String() }) },
   )
   .get('/api/image/library/photo.dng', () => Bun.file(path.join(root, 'photo.dng')))
   .use(xmpPathRoutes)

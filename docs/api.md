@@ -46,7 +46,7 @@ Auth is passkey-first. There are no passwords anywhere in the codebase.
 
 **Alternate credentials.** Three narrower token types support native sign-in, LAN handoff and machine callers:
 
-- _Native PKCE codes_ (`auth/native_code_store.ts`): the Apple and Windows shells launch the web sign-in flow with an S256 challenge; the signed-in page issues a single-use 60-second code; the app redeems it with the verifier for its own device-scoped tokens. A raw refresh token never rides in a redirect URL. The Windows shell polls `POST /api/auth/native-code/claim` instead, because Chromium blocks custom-scheme launches without a user gesture.
+- _Native PKCE codes_ (`auth/native_code_store.ts`): the Apple and Windows shells launch the web sign-in flow with an S256 challenge; the signed-in page issues a single-use 60-second code; the app redeems it with the verifier for its own device-scoped tokens. A raw refresh token never rides in a redirect URL. Both `/redeem` and `/claim` require the callback code. The browser offers an explicit Open Maple action when automatic custom-scheme navigation is blocked, plus a copyable sign-in code for the Linux shell. State, PKCE and a shared public IP alone never authorize a claim.
 - _LAN handoff codes_ (`auth/lan_handoff_store.ts`): the same shape without PKCE, used when a session on the public URL needs to continue on the plain-HTTP LAN origin, where WebAuthn's secure-context requirement makes repeating the ceremony impossible.
 - _Service API keys_ (`auth/service-api-keys.ts`): `maple_sk_<keyid>_<secret>`, scoped (today only `assets:search`), compared in constant time. They authenticate `POST /api/search/assets` for machine callers, entirely separate from user JWTs.
 

@@ -11,7 +11,7 @@ use std::{
 
 pub enum Command {
     Connect(String),
-    Claim,
+    Claim(String),
     Folder(u64, String, Option<String>),
     Disconnect,
     Download(u64, CloudEntry),
@@ -174,12 +174,12 @@ impl Worker {
                                 client = Some(connection);
                                 return Ok(Some(event));
                             }
-                            Command::Claim => {
+                            Command::Claim(code) => {
                                 let connection =
                                     client.as_mut().ok_or("Connect to a Maple server first")?;
                                 let ceremony =
                                     pending.as_ref().ok_or("No sign-in ceremony is pending")?;
-                                match connection.claim(ceremony) {
+                                match connection.claim(ceremony, &code) {
                                     Ok(true) => {
                                         pending = None;
                                         resume_due = true;

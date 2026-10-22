@@ -28,6 +28,16 @@ export class NativeHandoffConsentComponent {
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
 
+  protected readonly launchUrl = this.auth.nativeLaunchUrl;
+  protected readonly launchCode = computed(() => {
+    const url = this.launchUrl();
+    return url ? new URL(url).searchParams.get('code') : null;
+  });
+
+  protected openApp(): void {
+    this.auth.openNativeHandoff();
+  }
+
   protected readonly handoff = computed(() => this.auth.pendingNativeHandoff());
   protected readonly user = computed(() => this.auth.user());
   protected readonly visible = computed(() => this.user() !== null && this.handoff() !== null);

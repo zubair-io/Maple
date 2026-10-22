@@ -1,4 +1,4 @@
-import { Injectable, signal, inject } from '@angular/core';
+import { Injectable, signal, inject, computed } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Observable, firstValueFrom, map } from 'rxjs';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
@@ -120,6 +120,7 @@ export class AuthService {
         this.accessToken = null;
         this.peerToken = null;
         this.user.set(null);
+        this._nativeLaunch.set(null);
       }
     });
   }
@@ -136,6 +137,17 @@ export class AuthService {
 
   /** Pending native sign-in handoff awaiting explicit user consent (#4673). */
   readonly pendingNativeHandoff = this._nativeHandoff.asReadonly();
+  private readonly _nativeLaunch = signal<{ url: string; userId: string } | null>(null);
+  readonly nativeLaunchUrl = computed(() => {
+    const launch = this._nativeLaunch();
+    return launch?.userId === this.user()?.id ? (launch?.url ?? null) : null;
+  });
+
+  /** Called directly from a click so Chromium permits the local app launch. */
+  openNativeHandoff(): void {
+    const url = this.nativeLaunchUrl();
+    if (this.isSignedIn && url) this.navigateTo(url);
+  }
 
   get bearer(): string | null {
     return this.accessToken;
@@ -329,6 +341,7 @@ export class AuthService {
     this.accessToken = null;
     this.peerToken = null;
     this.user.set(null);
+    this._nativeLaunch.set(null);
     this.broadcast({ type: 'signout' });
   }
 
@@ -481,6 +494,7 @@ export class AuthService {
   /// Dismiss a pending native sign-in handoff without issuing a code (#4673).
   dismissNativeHandoff(): void {
     this._nativeHandoff.set(null);
+    this._nativeLaunch.set(null);
     scrubNativeHandoffUrl();
   }
 
@@ -490,7 +504,9 @@ export class AuthService {
   /// `/claim`).
   private async postNativeAuthSuccess(): Promise<boolean> {
     const handoff = this._nativeHandoff();
-    if (!handoff) return false;
+    const userId = this.user()?.id;
+    if (!handoff || !userId) return false;
+    if (this.nativeLaunchUrl()) return true;
     try {
       const body: Record<string, string> = {
         code_challenge: handoff.codeChallenge,
@@ -502,10 +518,12 @@ export class AuthService {
       const { code } = await firstValueFrom(
         this.http.post<{ code: string }>('/api/auth/native-code', body),
       );
-      this._nativeHandoff.set(null);
+      if (this._nativeHandoff() !== handoff || this.user()?.id !== userId) return false;
       scrubNativeHandoffUrl();
       const params = new URLSearchParams({ code, state: handoff.state });
-      this.navigateTo(`${handoff.scheme}://auth-success?${params.toString()}`);
+      const url = `${handoff.scheme}://auth-success?${params.toString()}`;
+      this._nativeLaunch.set({ url, userId });
+      this.navigateTo(url);
       return true;
     } catch {
       /* code issuance failed — do not leak tokens via a fallback redirect */

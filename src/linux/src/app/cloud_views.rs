@@ -28,6 +28,25 @@ impl CloudState {
                 }
                 if let Some(url) = &self.sign_in {
                     ui.hyperlink_to("Open browser sign-in", url);
+                    ui.label("Approve sign-in, then copy the sign-in code from your browser.");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.sign_in_code)
+                            .hint_text("Sign-in code")
+                            .password(true),
+                    );
+                    if ui
+                        .add_enabled(
+                            !self.claim_inflight
+                                && !self.sign_in_code.trim().is_empty()
+                                && Instant::now() >= self.next_claim,
+                            egui::Button::new("Complete sign-in"),
+                        )
+                        .clicked()
+                    {
+                        self.claim_inflight = true;
+                        self.worker
+                            .send(Command::Claim(self.sign_in_code.trim().to_owned()));
+                    }
                 }
                 if ui.button("Disconnect and forget credentials").clicked() {
                     self.worker.send(Command::Disconnect);

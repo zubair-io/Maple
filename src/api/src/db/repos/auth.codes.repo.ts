@@ -114,15 +114,14 @@ export async function issueNativeCode(
     codeChallenge: string;
     state: string;
     deviceLabel: string;
-    issuedIp?: string | null;
   },
   dbOverride?: SqliteDb,
 ): Promise<IssuedNativeCode> {
   const code = newHandoffCode();
   await sqliteDb(dbOverride).write(
     `INSERT INTO native_auth_codes
-       (id, code_hash, code_challenge, state, user_id, device_label, issued_ip, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, code_hash, code_challenge, state, user_id, device_label, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       newObjectIdHex(),
       hashHandoffCode(code),
@@ -130,7 +129,6 @@ export async function issueNativeCode(
       args.state,
       toHex(args.userId),
       args.deviceLabel,
-      args.issuedIp ?? null,
       nowIso(),
       expiryIso(),
     ],
@@ -171,72 +169,23 @@ export async function redeemNativeCode(
   return row === null ? null : toRedeemedNative(row);
 }
 
-export interface ClaimNativeCodeOptions {
-  callerIp?: string;
-  code?: string;
-}
-
-function isSqliteDb(value: unknown): value is SqliteDb {
-  return typeof value === 'object' && value !== null && 'read' in value && 'write' in value;
-}
-
-/**
- * Consume a pending code by `state` and PKCE verifier (#3063), bound either to
- * the redirect-delivered `code` or to the issuing browser's client IP (#4673).
- *
- * The polling completion channel. Chromium refuses to launch `maple-app://`
- * from a script navigation with no user gesture, so a native shell on the same
- * host polls with its private verifier and the ceremony's `state`. Binding
- * code-less polling to `issued_ip` prevents a remote attacker who crafted
- * `(code_challenge, state)` from claiming a code issued on a victim's machine.
- *
- * Unlike {@link redeemNativeCode}, `state` is not a unique column, so the row
- * is pinned by id first and the swap is scoped to it. Without that, a reused
- * `state` would let one call consume several codes, where `findOneAndUpdate`
- * consumed exactly one.
- */
+/** A claim must carry the code delivered through the local app callback.
+ * State and PKCE can both be chosen by an attacker; a shared IP proves no device identity. */
 export async function claimNativeCode(
   state: string,
   codeVerifier: string,
-  optionsOrDb?: ClaimNativeCodeOptions | SqliteDb,
+  options: { code?: string } = {},
   dbOverride?: SqliteDb,
 ): Promise<RedeemedNativeCode | null> {
-  const options: ClaimNativeCodeOptions = isSqliteDb(optionsOrDb) ? {} : (optionsOrDb ?? {});
-  const db = sqliteDb(isSqliteDb(optionsOrDb) ? optionsOrDb : dbOverride);
-  const challenge = pkceS256(codeVerifier);
-  if (options.code !== undefined) {
-    const row = await spendCodeByHash<NativeCodeRow>(
-      db,
-      'native_auth_codes',
-      NATIVE_IDENTITY_COLUMNS,
-      hashHandoffCode(options.code),
-      { sql: ' AND state = ? AND code_challenge = ?', params: [state, challenge] },
-    );
-    return row === null ? null : toRedeemedNative(row);
-  }
-  const callerIp = options.callerIp ?? '';
-  const candidates = await db.read<{ id: string }>(
-    `SELECT id FROM native_auth_codes
-      WHERE state = ? AND code_challenge = ?
-        AND (issued_ip IS NULL OR issued_ip = ?)
-        AND consumed_at IS NULL AND expires_at > ?
-      ORDER BY created_at, id LIMIT 1`,
-    [state, challenge, callerIp, nowIso()],
+  if (options.code === undefined) return null;
+  const row = await spendCodeByHash<NativeCodeRow>(
+    sqliteDb(dbOverride),
+    'native_auth_codes',
+    NATIVE_IDENTITY_COLUMNS,
+    hashHandoffCode(options.code),
+    { sql: ' AND state = ? AND code_challenge = ?', params: [state, pkceS256(codeVerifier)] },
   );
-  const id = candidates[0]?.id;
-  if (id === undefined) return null;
-  const result = await db.write(
-    `UPDATE native_auth_codes SET consumed_at = ?
-      WHERE id = ? AND (issued_ip IS NULL OR issued_ip = ?)
-        AND consumed_at IS NULL AND expires_at > ?`,
-    [nowIso(), id, callerIp, nowIso()],
-  );
-  if (result.changes !== 1) return null;
-  const rows = await db.read<NativeCodeRow>(
-    `SELECT ${NATIVE_IDENTITY_COLUMNS} FROM native_auth_codes WHERE id = ?`,
-    [id],
-  );
-  return rows[0] === undefined ? null : toRedeemedNative(rows[0]);
+  return row === null ? null : toRedeemedNative(row);
 }
 
 // ---------------------------------------------------------------------------
