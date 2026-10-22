@@ -56,6 +56,9 @@ namespace Maple.WinUI
             Canvas.SetZIndex(knot, 1);
             AutomationProperties.SetAutomationId(knot, $"color-curve-knot-{index}");
             AutomationProperties.SetHelpText(knot, "Arrow keys move the knot. Shift moves faster. Delete removes it.");
+            // Buttons handle press internally; forward it so pointer users keep the same drag path.
+            knot.AddHandler(UIElement.PointerPressedEvent,
+                new PointerEventHandler(OnColorCurveCanvasPointerPressed), handledEventsToo: true);
             knot.KeyDown += OnColorCurveKnotKeyDown;
             return knot;
         }
