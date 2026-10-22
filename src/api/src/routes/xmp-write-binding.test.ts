@@ -61,14 +61,17 @@ test.each(['path save', 'asset save', 'conflict save'] as const)(
       await unlink(photo);
       release.resolve();
       await holder;
-      expect(await saving).toMatchObject({
-        error: expect.stringContaining('reload before saving'),
-      });
+      if (kind === 'path save') {
+        expect(await saving).toMatchObject({
+          error: expect.stringContaining('reload before saving'),
+        });
+      } else {
+        await expect(saving).rejects.toThrow('reload before saving');
+      }
       await expect(stat(sidecar)).rejects.toThrow();
     } finally {
       release.resolve();
-      await holder;
-      await saving;
+      await Promise.allSettled([holder, saving]);
       await f.close();
     }
   },

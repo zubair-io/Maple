@@ -44,6 +44,21 @@ import { realpathJailCheck } from '../library/address.ts';
 import { safeObjectId } from '../db/object-id.ts';
 import type { FolderWithId } from '../db/schema.ts';
 
+function folderContainsMoveTarget(source: string, target: string): boolean {
+  const relative = nodePath.relative(source, target);
+  return relative === '' || (!relative.startsWith('..') && !nodePath.isAbsolute(relative));
+}
+
+async function validateFolderMoveSource(source: string) {
+  try {
+    return (await stat(source)).isDirectory()
+      ? null
+      : { status: 400, error: 'Source is not a directory' };
+  } catch {
+    return { status: 404, error: 'Source folder not found' };
+  }
+}
+
 const log = childLogger('folders');
 
 // Auto-scan-on-open de-bounce window. `POST /:id/scan` (the content-aware
@@ -750,22 +765,15 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // Reject moving a folder onto itself or into its own subtree — that
       // would either be a no-op or an `fs.rename` error, and silently
       // mangles the tree if it ever succeeded.
-      const rel = nodePath.relative(absSource, absTarget);
-      if (rel === '' || (!rel.startsWith('..') && !nodePath.isAbsolute(rel))) {
+      if (folderContainsMoveTarget(absSource, absTarget)) {
         set.status = 400;
         return { error: 'Cannot move a folder into itself or its own subtree' };
       }
 
-      let srcStat;
-      try {
-        srcStat = await stat(absSource);
-      } catch {
-        set.status = 404;
-        return { error: 'Source folder not found' };
-      }
-      if (!srcStat.isDirectory()) {
-        set.status = 400;
-        return { error: 'Source is not a directory' };
+      const sourceError = await validateFolderMoveSource(absSource);
+      if (sourceError) {
+        set.status = sourceError.status;
+        return { error: sourceError.error };
       }
 
       // Refuse to clobber an existing destination. `fs.rename` would
