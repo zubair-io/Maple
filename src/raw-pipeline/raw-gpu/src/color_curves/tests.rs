@@ -50,7 +50,11 @@ fn raw_core_color_curves(buf: &[f32], inputs: &ColorCurveInputs) -> Vec<f32> {
 #[test]
 fn wgsl_color_curves_matches_raw_core_within_1e_4() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
-    let input = scene_buffer();
+    let mut input = scene_buffer();
+    for chroma in [0.0499_f32, 0.0501, 0.06, 0.075, 0.09, 0.10] {
+        let rgb = raw_core::color::oklab::oklab_to_rec2020([0.65, chroma, 0.0]);
+        input.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 1.0]);
+    }
     let count = (input.len() / 4) as u32;
 
     let cases: Vec<ColorCurveInputs> = vec![
@@ -70,6 +74,10 @@ fn wgsl_color_curves_matches_raw_core_within_1e_4() {
             luma_vs_sat: vec![(0.0, 0.2), (0.5, 0.65), (1.0, 0.3)].into(),
             sat_vs_sat: vec![(0.0, 0.7), (0.5, 0.5), (1.0, 0.25)].into(),
             sat_vs_luma: vec![(0.0, 0.5), (0.5, 0.65), (1.0, 0.35)].into(),
+            ..Default::default()
+        },
+        ColorCurveInputs {
+            luma_vs_sat: vec![(0.0, 1.0), (1.0, 1.0)].into(),
             ..Default::default()
         },
         // 4. All 6 curves active simultaneously

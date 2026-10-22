@@ -438,7 +438,7 @@ pub fn apply_color_curves(buf: &mut [f32], inputs: &ColorCurveInputs) {
         let d_lvs = sample_clamped(&luts[3], u_l);
         let d_svs = sample_clamped(&luts[4], u_c);
         let s_hvs = (1.0 + chroma_gate * 2.0 * d_hvs).max(0.0);
-        let s_lvs = (1.0 + 2.0 * d_lvs).max(0.0);
+        let s_lvs = (1.0 + chroma_gate * 2.0 * d_lvs).max(0.0);
         let s_svs = (1.0 + chroma_gate * 2.0 * d_svs).max(0.0);
         let c_target = (c * s_hvs * s_lvs * s_svs).max(0.0);
 

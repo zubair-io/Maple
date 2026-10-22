@@ -110,7 +110,9 @@ fn luma_vs_sat_distinguishes_hdr_highlights_above_diffuse_white() {
     let params = ColorCurveParams::from_model(&model);
 
     // Shadow colored pixel (Y ~ 0.03)
-    let shadow_rgb = [0.06, 0.02, 0.01];
+    let shadow_rgb = [0.12, 0.005, 0.001];
+    let shadow_input = rec2020_to_oklab(shadow_rgb);
+    assert!(shadow_input[1].hypot(shadow_input[2]) >= 2.0 * CHROMA_GATE_C0);
     let shadow_out = apply_pixel(shadow_rgb, &params);
     let shadow_lab = rec2020_to_oklab(shadow_out);
     let shadow_c = (shadow_lab[1].powi(2) + shadow_lab[2].powi(2)).sqrt();
@@ -178,4 +180,25 @@ fn xmp_color_curves_round_trip_and_omit_at_default() {
         model.color_curve_luma_vs_sat
     );
     assert!(parsed.color_curve_hue_vs_sat.is_identity());
+}
+
+#[test]
+fn luma_saturation_fades_continuously_through_the_neutral_chroma_gate() {
+    let mut model = AdjustmentModel::default();
+    model.color_curve_luma_vs_sat = ToneCurve::new(vec![(0.0, 1.0), (1.0, 1.0)]);
+    let params = ColorCurveParams::from_model(&model);
+    for chroma in [0.0499_f32, 0.0501, 0.06, 0.075, 0.09, 0.10] {
+        let rgb = oklab_to_rec2020([0.65, chroma, 0.0]);
+        let input = rec2020_to_oklab(rgb);
+        let c = input[1].hypot(input[2]);
+        // Independent closed-form smoothstep over the specified [C0, 2*C0] interval.
+        let t = ((c - 0.05) / 0.05).clamp(0.0, 1.0);
+        let expected = c * (1.0 + t * t * (3.0 - 2.0 * t));
+        let output = rec2020_to_oklab(apply_pixel(rgb, &params));
+        assert!(
+            (output[1].hypot(output[2]) - expected).abs() < 1e-5,
+            "chroma {c}: expected {expected}, got {:?}",
+            output
+        );
+    }
 }

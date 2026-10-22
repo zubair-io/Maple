@@ -13,6 +13,7 @@ import { LibraryStateService } from '../../state/library-state.service';
 import { EditorStateService } from '../../editor/editor-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
+import { applyAffine, cropToFullFrameAffine } from '../mask-overlay/mask-geometry';
 import { CanvasPickService } from '../image-canvas/canvas-pick.service';
 import {
   isIdentityToneCurve,
@@ -318,7 +319,11 @@ export class ColorCurvesRibbonComponent {
     const asset = this.library.assets().find((item) => item.id === id);
     const ext = asset?.filename.split('.').pop()?.toLowerCase() ?? 'dng';
     const xmp = this.serializer.serialize(a);
-    const sample = await this.pipeline.sampleColorCurve(rawBytes, ext, xmp, pt.nx, pt.ny);
+    const full = applyAffine(cropToFullFrameAffine(a.crop, asset?.width ?? 1, asset?.height ?? 1), {
+      x: pt.nx,
+      y: pt.ny,
+    });
+    const sample = await this.pipeline.sampleColorCurve(rawBytes, ext, xmp, full.x, full.y);
     if (!this.sampleIsCurrent(request)) return;
     const x = sampleXForCurve(desc, sample);
     const current = this.adj()!;
