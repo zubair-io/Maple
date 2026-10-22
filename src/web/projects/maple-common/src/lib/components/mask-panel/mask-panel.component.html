@@ -257,13 +257,13 @@
                 (pressed)="onEyedropper()"
               />
             </div>
-            @if (session.rangeSampleUnavailable(); as reason) {
-              <span id="mask-range-eyedropper-reason">
-                <mui-text variant="body" color="muted">{{ reason }}</mui-text>
-              </span>
-            }
           }
         </div>
+        @if (session.range() && session.rangeSampleUnavailable(); as reason) {
+          <span id="mask-range-eyedropper-reason">
+            <mui-text variant="body" color="muted">{{ reason }}</mui-text>
+          </span>
+        }
         @if (session.rangeMessage(); as message) {
           <mui-text variant="body" color="muted" data-testid="mask-range-message">
             {{ message }}

@@ -48,6 +48,7 @@ for (const [name, mimeType] of [
     const range = page.getByTestId('mask-range-eyedropper');
     await expect(range).toBeDisabled();
     await expect(range).toHaveAttribute('title', REASON);
+    await expect(page.locator('#mask-range-eyedropper-reason')).toContainText(REASON);
 
     expect(pageErrors.filter((message) => /rawler|decode/i.test(message))).toEqual([]);
   });
