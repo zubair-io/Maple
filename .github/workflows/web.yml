@@ -266,6 +266,10 @@ jobs:
         working-directory: src/web
         run: bun run e2e:batch-transfer
 
+      - name: Test eyedroppers refuse JPEG and PNG sources
+        working-directory: src/web
+        run: bun x playwright test e2e/eyedropper-non-raw.spec.ts
+
       - name: Upload batch transfer browser failure artifacts
         if: failure()
         uses: actions/upload-artifact@v7
@@ -369,7 +373,7 @@ jobs:
         working-directory: src/web
         env:
           MAPLE_PERF: '1'
-        run: bun x playwright test e2e/raw-open.spec.ts e2e/slider-tick-render.perf.spec.ts e2e/mask-groups.spec.ts e2e/eyedropper-non-raw.spec.ts
+        run: bun x playwright test e2e/raw-open.spec.ts e2e/slider-tick-render.perf.spec.ts e2e/mask-groups.spec.ts
 
       # playwright.config.ts has no HTML reporter (`reporter: [['list']]`), so
       # the artifact worth keeping on a failure is the trace
