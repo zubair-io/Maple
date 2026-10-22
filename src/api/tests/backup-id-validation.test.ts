@@ -84,6 +84,11 @@ test('invalid IDs never advance uploads; normalized IDs preserve resume, retry a
     expect(onlyRow('assets')?.maple_id).toBe(id);
     expect(onlyRow('upload_sessions')?.maple_id).toBe(id);
     expect(await readFile(join(root, result.target_rel_path))).toEqual(Buffer.from([1, 2, 1, 2]));
+    // A completed upload's retry restarts from 0 so its bytes are verified (#4905).
+    const retried = await send('ingest', id.toUpperCase(), 'bytes 2-3/4');
+    expect(retried.status).toBe(409);
+    expect((await retried.json()).expected_offset).toBe(0);
+    expect((await send('ingest', undefined, 'bytes 0-1/4')).status).toBe(202);
     expect((await send('ingest', id.toUpperCase(), 'bytes 2-3/4')).status).toBe(200);
     expect((await send('ingest', undefined, 'bytes 0-1/4', 'duplicate-photo')).status).toBe(202);
     expect((await send('ingest', id.toUpperCase(), 'bytes 2-3/4', 'duplicate-photo')).status).toBe(
