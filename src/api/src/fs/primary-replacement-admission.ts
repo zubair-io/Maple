@@ -1,6 +1,8 @@
 /** Save admission across Replace publication and verified copy-based rollback (#5165). */
 import * as path from 'node:path';
-import { realpath, stat } from './mirrored';
+import { stat } from './mirrored';
+import { resolveRealPathThroughAncestors } from './root';
+import { errnoCode } from './relocate-publish';
 import { xmpSidecarPath } from './xmp-sidecar-path';
 
 interface Replacement {
@@ -38,7 +40,7 @@ export async function primaryIdentity(file: string): Promise<string | null> {
   return stat(file, { bigint: true }).then(
     (value) => `${value.dev}:${value.ino}:${value.size}:${value.mtimeNs}`,
     (error: unknown) => {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      if (errnoCode(error) === 'ENOENT') return null;
       throw error;
     },
   );
@@ -51,21 +53,10 @@ export async function primaryReplacementKey(file: string): Promise<string> {
   // Match the sidecar reservation's conservative Unicode/case aliasing.
   // Rollback receipts still require the exact original and restored identities.
   return path
-    .join(await canonicalDirectory(path.dirname(absolute)), path.basename(absolute))
+    .join(await resolveRealPathThroughAncestors(path.dirname(absolute)), path.basename(absolute))
     .normalize('NFC')
     .toLowerCase()
     .normalize('NFC');
-}
-
-async function canonicalDirectory(directory: string): Promise<string> {
-  try {
-    return await realpath(directory);
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    const parent = path.dirname(directory);
-    if (parent === directory) throw error;
-    return path.join(await canonicalDirectory(parent), path.basename(directory));
-  }
 }
 
 /** Snapshot the active flag as well as the entry: finishing cannot retroactively
