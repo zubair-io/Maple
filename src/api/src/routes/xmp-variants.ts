@@ -74,7 +74,7 @@ export const xmpVariantRoutes = new Elysia()
   )
   .post(
     '/api/xmp/variants',
-    async ({ rawPath, query, body, set, request }) => {
+    async ({ rawPath, writeScope, query, body, set, request }) => {
       const workflow = (() => {
         try {
           return parseSidecarWorkflow(body);
@@ -90,6 +90,7 @@ export const xmpVariantRoutes = new Elysia()
         workflow,
         query.sourceVariantId ?? PRIMARY_VARIANT_ID,
         request.signal,
+        writeScope,
       );
       set.status = 201;
       return variant;

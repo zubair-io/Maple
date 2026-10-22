@@ -16,6 +16,9 @@ export type SidecarWriteScope =
     };
 
 export interface SidecarWriteOrderOptions {
+  /** Reserve this photo's canonical sidecar alongside a named variant so
+   * purge/geo lifecycle fences also wait for variant publications. */
+  primarySidecar?: string;
   /**
    * Canonical library root used to keep slow destination checks from blocking
    * other libraries. Omitted scopes share one conservative lane because
@@ -361,7 +364,15 @@ export async function serializeSidecarWrite<T>(
     canonicalKeyRequest = canonicalKeys(destination, options.resolveDestination !== undefined);
     void canonicalKeyRequest.catch(() => undefined);
     const reservedKeys = await waitForAbortable(
-      destinationKeys(destination, canonicalKeyRequest),
+      Promise.all([
+        destinationKeys(destination, canonicalKeyRequest),
+        options.primarySidecar
+          ? destinationKeys(
+              options.primarySidecar,
+              canonicalKeys(options.primarySidecar, options.resolveDestination !== undefined),
+            )
+          : Promise.resolve([]),
+      ]).then((keys) => [...new Set(keys.flat())]),
       options.signal,
     );
     const registered = registerReservation(reservedKeys);
