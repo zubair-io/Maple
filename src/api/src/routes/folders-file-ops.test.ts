@@ -24,6 +24,7 @@ import {
   mkdir,
   stat,
   readdir,
+  rename,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
@@ -36,6 +37,8 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { foldersFileOpsRoutes } from './folders-file-ops.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
+import { setMirrorRoots, clearMirrorRoots } from '../fs/mirror-registry.ts';
+import { flushPendingMirrorOps } from '../fs/mirrored.ts';
 import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
 
 /** One row of the change feed, as the table stores it. */
@@ -381,6 +384,64 @@ describe('non-asset file delete/relocate routes', () => {
 
     expect((await replacing).status).toBe(200);
     expect(await readFile(destAbs, 'utf8')).toBe('incoming');
+  });
+
+  for (const extension of ['xml', 'bak']) {
+    it(`renames a raw XMP to .${extension} after its pending save`, async () => {
+      const source = nodePath.join(folderPath, 'edits.xmp');
+      await writeFile(source, '<old/>');
+      const held = await holdSave(source, '<saved/>');
+      const moving = postRelocate({
+        source_path: 'edits.xmp',
+        mode: 'move',
+        collision: 'auto-suffix',
+        destination_path: '',
+        destination_filename: `edits.${extension}`,
+      });
+      try {
+        await Bun.sleep(30);
+        held.release();
+        await held.save;
+        expect((await moving).status).toBe(200);
+        expect(await readFile(nodePath.join(folderPath, `edits.${extension}`), 'utf8')).toBe(
+          '<saved/>',
+        );
+        await expect(stat(source)).rejects.toThrow();
+      } finally {
+        held.release();
+        await held.save;
+        await moving;
+      }
+    });
+  }
+
+  it('replicates a canonical raw-sidecar move through a configured library alias', async () => {
+    const physical = folderPath + '-physical';
+    const mirror = folderPath + '-mirror';
+    await rename(folderPath, physical);
+    await symlink(physical, folderPath);
+    await mkdir(mirror);
+    setMirrorRoots({ [folderPath]: [mirror] });
+    try {
+      await writeFile(nodePath.join(physical, 'edits.xmp'), '<edit/>');
+      await writeFile(nodePath.join(mirror, 'edits.xmp'), '<edit/>');
+      const result = await postRelocate({
+        source_path: 'edits.xmp',
+        mode: 'move',
+        collision: 'auto-suffix',
+        destination_path: 'new',
+        destination_filename: 'moved.xmp',
+      });
+      expect(result.status).toBe(200);
+      await flushPendingMirrorOps();
+      expect(await readFile(nodePath.join(mirror, 'new/moved.xmp'), 'utf8')).toBe('<edit/>');
+      await expect(stat(nodePath.join(mirror, 'edits.xmp'))).rejects.toThrow();
+    } finally {
+      await flushPendingMirrorOps();
+      clearMirrorRoots();
+      await rm(physical, { recursive: true, force: true });
+      await rm(mirror, { recursive: true, force: true });
+    }
   });
 
   it('renames a non-asset file (move, same dir) and emits delete+create changes', async () => {

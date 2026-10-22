@@ -3,8 +3,8 @@ import * as path from 'node:path';
 import { relocateFile, type CollisionPolicy, type RelocateMode } from '../fs/relocate.ts';
 import { serializeSidecarWrites } from '../fs/sidecar-write-order.ts';
 import { authorizeSidecarWrite } from '../fs/sidecar-io.ts';
-import { resolveRealPathThroughAncestors } from '../fs/root.ts';
-import { mkdir } from '../fs/mirrored.ts';
+import { safeWriteAllowed, resolveRealPathThroughAncestors } from '../fs/root.ts';
+import { mkdir, withMirrorRoot } from '../fs/mirrored.ts';
 
 export async function relocateRequestedFile(args: {
   libraryRoot: string;
@@ -27,7 +27,10 @@ export async function relocateRequestedFile(args: {
   const from = await authorizeSidecarWrite(args.sourceAbsPath);
   if (!from.ok) return { refused: from.error ?? 'source sidecar not allowed' };
   // Authorization resolves missing ancestors too, before creating any directory.
-  const to = await authorizeSidecarWrite(args.destAbsPath);
+  const destinationIsSidecar = path.extname(args.destAbsPath).toLowerCase() === '.xmp';
+  const to = await (destinationIsSidecar ? authorizeSidecarWrite : safeWriteAllowed)(
+    args.destAbsPath,
+  );
   if (!to.ok) return { refused: to.error ?? 'destination sidecar not allowed' };
   const source = from.data!;
   const requestedParent = await resolveRealPathThroughAncestors(path.dirname(args.destAbsPath));
@@ -36,11 +39,13 @@ export async function relocateRequestedFile(args: {
   // case-only requested leaf while keeping its authorized canonical parent.
   const destination =
     requestedDestination.toLowerCase() === to.data!.toLowerCase() ? requestedDestination : to.data!;
-  await mkdir(path.dirname(destination), { recursive: true });
   const root = await resolveRealPathThroughAncestors(args.libraryRoot);
-  const outcome = await serializeSidecarWrites([source, destination], () =>
-    relocate(source, destination),
-  );
+  const outcome = await withMirrorRoot(root, args.libraryRoot, async () => {
+    await mkdir(path.dirname(destination), { recursive: true });
+    return serializeSidecarWrites(destinationIsSidecar ? [source, destination] : [source], () =>
+      relocate(source, destination),
+    );
+  });
   // API addresses use the registered root's spelling (/var vs /private/var on
   // macOS), while the relative path names the actual authorized destination.
   return {
