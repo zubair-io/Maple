@@ -32,11 +32,7 @@ export {
   rotateRefreshToken,
 } from '../db/repos/auth.refresh.repo.ts';
 
-export {
-  hasLivePrimaryRefreshToken,
-  listDeviceSessions,
-  revokeDeviceSession,
-} from '../db/repos/auth.device-sessions.repo.ts';
+export { listDeviceSessions, revokeDeviceSession } from '../db/repos/auth.device-sessions.repo.ts';
 
 /**
  * Whether a caller has proven persistent-login authority (a live primary
@@ -46,27 +42,30 @@ export {
  * A short-lived 15-minute access JWT on its own cannot mint a 90-day refresh
  * family via `/api/auth/native-code` or `/api/auth/lan-handoff`.
  */
-export async function hasHandoffProof(args: {
-  userId: ObjectId;
-  cookieRefreshToken?: unknown;
-  bodyRefreshToken?: string;
-  stepUpToken?: string;
-  jwtSecret: string;
-}): Promise<boolean> {
-  if (typeof args.stepUpToken === 'string' && args.stepUpToken.length > 0) {
+export async function hasHandoffProof(
+  userId: ObjectId,
+  jwtSecret: string,
+  proof: {
+    cookie: { maple_refresh?: { value: unknown } };
+    body: { refresh_token?: string } | null;
+    headers: Record<string, string | undefined>;
+  },
+): Promise<boolean> {
+  if (typeof proof.headers['x-step-up'] === 'string' && proof.headers['x-step-up'].length > 0) {
     try {
-      const claims = await verifyStepUpToken(args.stepUpToken, args.jwtSecret);
-      if (claims.sub === args.userId.toHexString()) return true;
+      const claims = await verifyStepUpToken(proof.headers['x-step-up'], jwtSecret);
+      if (claims.sub === userId.toHexString()) return true;
     } catch {
       // Invalid or expired step-up token; fall through to check refresh proof.
     }
   }
   const rawRefresh =
-    typeof args.cookieRefreshToken === 'string' && args.cookieRefreshToken.length > 0
-      ? args.cookieRefreshToken
-      : typeof args.bodyRefreshToken === 'string' && args.bodyRefreshToken.length > 0
-        ? args.bodyRefreshToken
+    typeof proof.cookie.maple_refresh?.value === 'string' &&
+    proof.cookie.maple_refresh?.value.length > 0
+      ? proof.cookie.maple_refresh?.value
+      : typeof proof.body?.refresh_token === 'string' && proof.body?.refresh_token.length > 0
+        ? proof.body?.refresh_token
         : null;
   if (!rawRefresh) return false;
-  return await hasLivePrimaryRefreshToken(args.userId, rawRefresh);
+  return await hasLivePrimaryRefreshToken(userId, rawRefresh);
 }

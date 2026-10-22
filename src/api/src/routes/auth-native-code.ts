@@ -1,3 +1,4 @@
+import { handoffUserWithProof } from './auth-handoff-proof.ts';
 // src/api/src/routes/auth-native-code.ts
 //
 // Native one-time PKCE code exchange (#856). Extracted from auth.ts to keep
@@ -6,11 +7,10 @@
 //   POST /api/auth/native-code         (authed) — the web app issues a code
 //   POST /api/auth/native-code/redeem  (public) — the native app redeems it
 import { Elysia, t } from 'elysia';
-import { ObjectId } from '../db/object-id.ts';
 import { findUserById } from '../db/repos/auth.users.repo.ts';
 import { signAccessToken } from '../auth/tokens.ts';
 import { accessClaimsFor, toPublicAuthUser } from '../auth/permissions.ts';
-import { hasHandoffProof, issueRefreshToken } from '../auth/refresh_store.ts';
+import { issueRefreshToken } from '../auth/refresh_store.ts';
 import {
   issueNativeCode,
   redeemNativeCode,
@@ -157,18 +157,8 @@ export const nativeCodeIssueRoutes = new Elysia().use(requireAuth).post(
       set.status = 400;
       return { error: 'invalid state' };
     }
-    const userId = new ObjectId(auth.user.sub);
-    const proved = await hasHandoffProof({
-      userId,
-      cookieRefreshToken: cookie.maple_refresh?.value,
-      bodyRefreshToken: body.refresh_token,
-      stepUpToken: headers['x-step-up'],
-      jwtSecret: jwtSecret(),
-    });
-    if (!proved) {
-      set.status = 403;
-      return { error: 'refresh-token proof or step-up required' };
-    }
+    const userId = await handoffUserWithProof({ auth, body, cookie, headers, set }, jwtSecret());
+    if (!userId) return { error: 'refresh-token proof or step-up required' };
     const issued = await issueNativeCode({
       userId,
       codeChallenge: body.code_challenge,
