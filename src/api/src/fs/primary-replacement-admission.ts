@@ -82,7 +82,13 @@ export function replacementAllowsSave(
   current: string | null,
 ): boolean {
   const latest = replacements.get(key);
-  if (admitted.active || latest?.active) return false;
+  if (latest?.active) return false;
+  // A move's source remains committed until source deletion. If publication
+  // rolls back, a save captured during that window still names the same photo.
+  // An incoming destination observed mid-transaction cannot match its original.
+  if (admitted.active) {
+    return original !== null && admitted.entry?.original === original && original === current;
+  }
   return (
     original === current ||
     (latest !== undefined &&
