@@ -19,15 +19,21 @@ export async function primaryIdentity(file: string): Promise<string | null> {
   );
 }
 
+/** Replace publishes over the named directory entry, including a symlink.
+ * Resolving the final component would change the generation key mid-commit. */
 export async function primaryReplacementKey(file: string): Promise<string> {
   const absolute = path.resolve(file);
+  return path.join(await canonicalDirectory(path.dirname(absolute)), path.basename(absolute));
+}
+
+async function canonicalDirectory(directory: string): Promise<string> {
   try {
-    return await realpath(absolute);
+    return await realpath(directory);
   } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    const parent = path.dirname(absolute);
-    if (parent === absolute) throw error;
-    return path.join(await primaryReplacementKey(parent), path.basename(absolute));
+    const parent = path.dirname(directory);
+    if (parent === directory) throw error;
+    return path.join(await canonicalDirectory(parent), path.basename(directory));
   }
 }
 

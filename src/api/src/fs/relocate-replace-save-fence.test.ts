@@ -183,8 +183,8 @@ test('a new workflow variant waits for Replace and cannot attach to the replacem
   }
 });
 
-for (const indexed of [false, true]) {
-  test(`a save admitted inside Replace cannot reach the committed ${indexed ? 'indexed' : 'unindexed'} photo`, async () => {
+for (const indexed of [false, true, 'symlink'] as const) {
+  test(`a save admitted inside Replace cannot reach the committed ${indexed === true ? 'indexed' : indexed === 'symlink' ? 'symlink' : 'unindexed'} photo`, async () => {
     const f = await recoveryFixture();
     const source = path.join(f.root, 'incoming.dng');
     const destination = path.join(f.root, 'photo.dng');
@@ -193,7 +193,11 @@ for (const indexed of [false, true]) {
     let saving: ReturnType<typeof writeXmpAtomic> | undefined;
     try {
       await writeFile(source, 'incoming original');
-      await writeFile(destination, 'displaced original');
+      if (indexed === 'symlink') {
+        const target = path.join(f.root, 'old-target.dng');
+        await writeFile(target, 'displaced original');
+        await mirrored.symlink(target, destination);
+      } else await writeFile(destination, 'displaced original');
       const libraryId = insertFolder(f.live.db, { path: f.root });
       saving = (async () => {
         await window.promise;
@@ -210,7 +214,7 @@ for (const indexed of [false, true]) {
         onVerified: async () => {
           window.resolve();
           await admitted.promise;
-          if (indexed) {
+          if (indexed === true) {
             const id = insertAsset(f.live.db);
             insertLocation(f.live.db, { assetId: id, libraryId, path: '', filename: 'photo.dng' });
           }
