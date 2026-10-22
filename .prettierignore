@@ -2,6 +2,9 @@
 # Prettier reformatting budgets.json reorders keys / changes numeric precision
 # and exits non-zero on the file. Keep it out of every prettier invocation.
 test-fixtures/
+# Byte-identical SwiftPM mirror of test-fixtures/removal (#5159); its JSON
+# must stay exactly as the generator wrote it.
+src/apple/Packages/MapleCore/Tests/MapleCoreTests/Fixtures/removal/
 
 # Vendored / generated.
 node_modules/

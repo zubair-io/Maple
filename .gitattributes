@@ -12,3 +12,10 @@ Makefile text eol=lf
 # #4035: the shared JSON corpus embeds this exact committed XMP checkpoint.
 # Keep its source bytes stable on Windows as well as Apple/Linux checkouts.
 test-fixtures/local-adjustments/lightroom-group-add.xmp text eol=lf
+
+# #5159: the removal interop corpus is digest-bound (records.txt names the
+# blake3 of mask.mimf / patch.f16 and the fixture copies must stay
+# byte-identical), so never normalise line endings in either copy.
+test-fixtures/removal/basic/** -text
+test-fixtures/removal/calibration/** -text
+src/apple/Packages/MapleCore/Tests/MapleCoreTests/Fixtures/removal/** -text
