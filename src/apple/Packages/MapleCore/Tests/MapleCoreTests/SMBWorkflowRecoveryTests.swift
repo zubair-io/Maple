@@ -4,6 +4,35 @@ import XCTest
 @testable import MapleCore
 
 final class SMBWorkflowRecoveryTests: XCTestCase {
+  func testSourceWriteRetainsItsPublicationAfterALostRenameReply() async throws {
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
+    let proxy = try await OwnedSMBPublicationProxy.open(fixture)
+    do {
+      await fixture.source.disconnect()
+      try await fixture.source.connect(credentials: proxy.credentials)
+      let ref = try await fixture.image()
+      var model = AdjustmentModel.default
+      model.exposure = 1.75
+      try proxy.arm()
+      try await fixture.source.writeXMP(Sidecar(model: model, culling: CullingState()), for: ref)
+      XCTAssertTrue(proxy.droppedAcknowledgement)
+      let xml = try XCTUnwrap(
+        String(
+          data: Data(contentsOf: fixture.share.appendingPathComponent("photo.xmp")), encoding: .utf8
+        ))
+      XCTAssertEqual(try XMPParser.parse(xml).0.exposure, 1.75)
+      XCTAssertEqual(XMPParser.parseMetadata(xml).caption, "Caption A")
+      XCTAssertTrue(xml.contains("<foreign:Audit"))
+      XCTAssertEqual(try Data(contentsOf: fixture.raw), fixture.original)
+    } catch {
+      await proxy.close()
+      await fixture.close()
+      throw error
+    }
+    await proxy.close()
+    await fixture.close()
+  }
+
   func testAcceptedSemanticEditSurvivesLostNetworkAcknowledgementWithoutDuplicateHistory()
     async throws
   {
