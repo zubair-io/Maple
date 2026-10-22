@@ -107,7 +107,7 @@ function edgeKeyValue(
 }
 
 function snapEdge(norm: number, min: number, max: number): number {
-  const rounded = Math.round(norm * 1000) / 1000;
+  const rounded = Math.round(norm * 100) / 100;
   const snapped = Math.abs(rounded - SHADOW_EDGE_DEFAULT) < 0.005 ? SHADOW_EDGE_DEFAULT : rounded;
   return Math.min(Math.max(snapped, min), max);
 }

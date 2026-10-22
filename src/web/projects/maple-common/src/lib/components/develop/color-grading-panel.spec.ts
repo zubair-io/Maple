@@ -7,6 +7,9 @@
 // double-click reset clears the wheel without touching its neighbours.
 
 import { TestBed } from '@angular/core/testing';
+import { promises as fs } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { signal, type Signal } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { MuiLivingSliderComponent } from '../../ui/living-slider/mui-living-slider.component';
@@ -20,6 +23,8 @@ import {
 import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
+import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
+import { XmpParserService } from '../../xmp/xmp-parser.service';
 
 const ID = 'asset-grade-1';
 
@@ -54,6 +59,42 @@ describe('ColorGradingPanelComponent (#275)', () => {
     const fixture = TestBed.createComponent(ColorGradingPanelComponent);
     panel = fixture.componentInstance;
     fixture.detectChanges();
+  });
+
+  it('preserves authored edges when reopening a real XMP sidecar', async () => {
+    const directory = await fs.mkdtemp(join(tmpdir(), 'maple-grade-'));
+    const serializer = TestBed.inject(XmpSerializerService);
+    const parser = TestBed.inject(XmpParserService);
+    const svg = { getBoundingClientRect: () => ({ left: 0, width: 1 }) };
+    const event = (position: number) =>
+      ({
+        clientX: position,
+        pointerId: 1,
+        button: 0,
+        preventDefault: () => undefined,
+        currentTarget: { closest: () => svg, setPointerCapture: () => undefined },
+      }) as unknown as PointerEvent;
+    try {
+      for (const position of [0.313, 0.813, 0.125, 0.625, 0.564622]) {
+        panel.onEdgePointerDown('shadow', event(position));
+        panel.onEdgePointerUp();
+        panel.onEdgePointerDown('highlight', event(position));
+        panel.onEdgePointerUp();
+        const authored = lib.model();
+        if (position === 0.125) expect(authored.colorGradeShadowEdge).toBe(0.13);
+        if (position === 0.625) expect(authored.colorGradeHighlightEdge).toBe(0.63);
+        const path = join(directory, 'grade.xmp');
+        await fs.writeFile(path, serializer.serialize(authored));
+        const loaded = {
+          ...defaultAdjustmentModel(),
+          ...parser.parseAdjustmentModel(await fs.readFile(path, 'utf8')).model,
+        };
+        expect(loaded.colorGradeShadowEdge).toBe(authored.colorGradeShadowEdge);
+        expect(loaded.colorGradeHighlightEdge).toBe(authored.colorGradeHighlightEdge);
+      }
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('makes both edge handles focusable and supports keyboard adjustment and reset', () => {

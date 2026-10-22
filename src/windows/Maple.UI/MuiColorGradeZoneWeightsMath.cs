@@ -14,10 +14,10 @@ namespace Maple.UI
         public static readonly double MinShadowEdge = Shadow.Minimum;
         public static readonly double MaxHighlightEdge = Highlight.Maximum;
 
-        /// <summary>Round to 3 decimals, snap to the anchor within 0.005 (as raw-core's resolve_*_edge does), then clamp.</summary>
+        /// <summary>Round to the canonical 2-decimal XMP precision, snap to the anchor within 0.005 (as raw-core's resolve_*_edge does), then clamp.</summary>
         public static double SnapEdge(double norm, double min, double max)
         {
-            var rounded = Math.Round(norm, 3, MidpointRounding.AwayFromZero);
+            var rounded = Math.Round(norm, 2, MidpointRounding.AwayFromZero);
             var snapped = Math.Abs(rounded - DefaultShadowEdge) < 0.005 ? DefaultShadowEdge : rounded;
             return Math.Clamp(snapped, min, max);
         }

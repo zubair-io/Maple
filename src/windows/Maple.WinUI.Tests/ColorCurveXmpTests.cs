@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
+using Maple.UI;
 using Maple.WinUI.Models;
 using Maple.WinUI.Services.Xmp;
 using Xunit;
@@ -9,6 +11,31 @@ namespace Maple.WinUI.Tests;
 
 public class ColorCurveXmpTests
 {
+    [Theory]
+    [InlineData(0.313)]
+    [InlineData(0.813)]
+    [InlineData(0.125)]
+    [InlineData(0.625)]
+    [InlineData(0.564622)]
+    public void AuthoredEdgesSurviveARealSidecarReload(double position)
+    {
+        var anchor = MuiColorGradeZoneWeightsMath.DefaultShadowEdge;
+        var authored = new AdjustmentState
+        {
+            ColorGradeShadowEdge = MuiColorGradeZoneWeightsMath.SnapEdge(position, 0.1, anchor),
+            ColorGradeHighlightEdge = MuiColorGradeZoneWeightsMath.SnapEdge(position, anchor, 0.9),
+        };
+        var path = Path.Combine(Path.GetTempPath(), $"maple-grade-{Guid.NewGuid()}.xmp");
+        try
+        {
+            File.WriteAllText(path, XmpWriter.Serialize(new() { Adjustments = authored }));
+            var loaded = XmpParser.Parse(File.ReadAllText(path))!.Adjustments;
+            Assert.Equal(authored.ColorGradeShadowEdge, loaded.ColorGradeShadowEdge);
+            Assert.Equal(authored.ColorGradeHighlightEdge, loaded.ColorGradeHighlightEdge);
+        }
+        finally { File.Delete(path); }
+    }
+
     private static readonly string[] NewKeys =
     {
         "papp:ColorCurveHueVsHue", "papp:ColorCurveHueVsSat", "papp:ColorCurveHueVsLuma",
