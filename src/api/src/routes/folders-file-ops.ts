@@ -50,6 +50,7 @@ import { isInsideMapleCache } from '../workers/discover/reserved-trees.ts';
 import { moveToTrash } from '../fs/trash.ts';
 import { relocateFile, type CollisionPolicy, type RelocateMode } from '../fs/relocate.ts';
 import { serializeSidecarWrites } from '../fs/sidecar-write-order.ts';
+import { authorizeSidecarWrite } from '../fs/sidecar-io.ts';
 import { mkdir, stat } from '../fs/mirrored.ts';
 import { requireFileAccess } from '../auth/middleware.ts';
 import { child as childLogger } from '../log.ts';
@@ -290,6 +291,47 @@ async function respondToTrashOutcome(
   return { status: 204 };
 }
 
+/** A raw sidecar (a Finder move through the File Provider) is the file a save
+ * writes, so the move holds both ends' save barriers: a save waits rather than
+ * being replaced at the destination or deleted with the source (#5134). Both
+ * ends pass the sidecar jail first, so a `.xmp` that links to an original is
+ * refused rather than copied (#4749). */
+async function relocateRequestedFile(args: {
+  sourceAbsPath: string;
+  destAbsPath: string;
+  mode: RelocateMode;
+  collision: CollisionPolicy;
+  rawSidecar: boolean;
+}): Promise<{ outcome: Awaited<ReturnType<typeof relocateFile>> } | { refused: string }> {
+  const relocate = () =>
+    relocateFile({
+      sourceAbsPath: args.sourceAbsPath,
+      destAbsPath: args.destAbsPath,
+      mode: args.mode,
+      collision: args.collision,
+      callerTag: 'folders/file/relocate',
+      carrySidecars: !args.rawSidecar,
+    });
+  if (!args.rawSidecar) return { outcome: await relocate() };
+  const ends = await authorizeRawSidecarEnds(args.sourceAbsPath, args.destAbsPath);
+  if (!ends.ok) return { refused: ends.error };
+  return { outcome: await serializeSidecarWrites([ends.source, ends.destination], relocate) };
+}
+
+/** Both ends of a raw sidecar relocate, through the sidecar write jail. The
+ * destination's folder is created first: the jail and the barrier resolve it. */
+async function authorizeRawSidecarEnds(
+  source: string,
+  destination: string,
+): Promise<{ ok: true; source: string; destination: string } | { ok: false; error: string }> {
+  const from = await authorizeSidecarWrite(source);
+  if (!from.ok) return { ok: false, error: from.error ?? 'source sidecar not allowed' };
+  await mkdir(nodePath.dirname(destination), { recursive: true });
+  const to = await authorizeSidecarWrite(destination);
+  if (!to.ok) return { ok: false, error: to.error ?? 'destination sidecar not allowed' };
+  return { ok: true, source: from.data ?? source, destination: to.data ?? destination };
+}
+
 function isSidecarFilename(filename: string): boolean {
   return nodePath.extname(filename).toLowerCase() === '.xmp';
 }
@@ -491,24 +533,18 @@ export const foldersFileOpsRoutes = new Elysia({ prefix: '/api/folders' })
 
       const sourceAbsPath = nodePath.join(folderPath, body.source_path);
       const mode = body.mode as RelocateMode;
-      const isRawSidecar = isSidecarFilename(sourceFilename);
-      const relocate = () =>
-        relocateFile({
-          sourceAbsPath,
-          destAbsPath: destCheck.destAbsPath,
-          mode,
-          collision: body.collision as CollisionPolicy,
-          callerTag: 'folders/file/relocate',
-          carrySidecars: !isRawSidecar,
-        });
-      // A raw sidecar (a Finder move through the File Provider) is the file a save
-      // writes, so the move holds both ends' save barriers: a save waits rather than
-      // being replaced at the destination or deleted with the source (#5134). The
-      // barrier resolves the destination's folder, so it must exist first.
-      if (isRawSidecar) await mkdir(nodePath.dirname(destCheck.destAbsPath), { recursive: true });
-      const outcome = isRawSidecar
-        ? await serializeSidecarWrites([sourceAbsPath, destCheck.destAbsPath], relocate)
-        : await relocate();
+      const relocated = await relocateRequestedFile({
+        sourceAbsPath,
+        destAbsPath: destCheck.destAbsPath,
+        mode,
+        collision: body.collision as CollisionPolicy,
+        rawSidecar: isSidecarFilename(sourceFilename),
+      });
+      if ('refused' in relocated) {
+        set.status = 403;
+        return { error: relocated.refused };
+      }
+      const { outcome } = relocated;
 
       const response = await respondToRelocateOutcome(outcome, {
         folderId,
