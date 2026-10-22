@@ -284,6 +284,34 @@ describe('ToneCurveComponent (#367)', () => {
     expect(lib.model().toneCurveMode).toBe('PerChannel');
   });
 
+  it('ignores unrelated touch pointers while dragging a split', () => {
+    plot();
+    const handle: Element = fixture.nativeElement.querySelector(
+      '[data-testid="tone-curve-split-shadow"]',
+    );
+    const touch = (type: string, id: number, x = 0.8) =>
+      new PointerEvent(type, {
+        pointerId: id,
+        pointerType: 'touch',
+        button: 0,
+        clientX: x * 200,
+        clientY: 196,
+        bubbles: true,
+      });
+    handle.dispatchEvent(touch('pointerdown', 7, 0.25));
+    window.dispatchEvent(touch('pointermove', 9));
+    expect(lib.model().parametricShadowSplit).toBe(25);
+    window.dispatchEvent(touch('pointerup', 9));
+    window.dispatchEvent(touch('pointercancel', 9));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.region-window')).toBeTruthy();
+    window.dispatchEvent(touch('pointermove', 7));
+    expect(lib.model().parametricShadowSplit).toBe(45);
+    window.dispatchEvent(touch('pointerup', 7));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.region-window')).toBeNull();
+  });
+
   it('drags and clamps parametric split diamonds and shades active region window', () => {
     const shadowDiamond: Element = fixture.nativeElement.querySelector(
       '[data-testid="tone-curve-split-shadow"]',

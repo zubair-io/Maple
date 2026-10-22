@@ -176,6 +176,7 @@ struct ColorGradingPanel: View {
           edgeHandle(
             x: shX, height: h, color: .cyan,
             label: "Shadow Edge", id: "color-grade-shadow-edge-handle",
+            value: bind(\.colorGradeShadowEdge), range: ColorGradeZoneEdge.shadowRange,
             onDrag: { locX in
               state.session.model.colorGradeShadowEdge = ColorGradeZoneEdge.normalized(
                 x: Double(locX), width: Double(w), range: ColorGradeZoneEdge.shadowRange)
@@ -190,6 +191,7 @@ struct ColorGradingPanel: View {
           edgeHandle(
             x: hiX, height: h, color: .yellow,
             label: "Highlight Edge", id: "color-grade-highlight-edge-handle",
+            value: bind(\.colorGradeHighlightEdge), range: ColorGradeZoneEdge.highlightRange,
             onDrag: { locX in
               state.session.model.colorGradeHighlightEdge = ColorGradeZoneEdge.normalized(
                 x: Double(locX), width: Double(w), range: ColorGradeZoneEdge.highlightRange)
@@ -216,6 +218,8 @@ struct ColorGradingPanel: View {
     color: Color,
     label: String,
     id: String,
+    value: Binding<Double>,
+    range: ClosedRange<Double>,
     onDrag: @escaping (CGFloat) -> Void,
     onReset: @escaping () -> Void
   ) -> some View {
@@ -250,7 +254,52 @@ struct ColorGradingPanel: View {
     .onTapGesture(count: 2, perform: onReset)
     .accessibilityElement()
     .accessibilityLabel(label)
+    .accessibilityValue(String(format: "%.2f", value.wrappedValue))
+    .accessibilityAdjustableAction { direction in
+      switch direction {
+      case .increment: adjustEdge(value, range: range, delta: 0.01, label: label)
+      case .decrement: adjustEdge(value, range: range, delta: -0.01, label: label)
+      @unknown default: break
+      }
+    }
+    .accessibilityAction(named: "Reset", onReset)
     .accessibilityIdentifier(id)
+    .focusable()
+    .focusedValue(
+      \.toneCurveKeyPress,
+      { press in
+        handleEdgeKey(press, value: value, range: range, label: label)
+      }
+    )
+    .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
+      handleEdgeKey(press, value: value, range: range, label: label)
+    }
+  }
+
+  private func handleEdgeKey(
+    _ press: KeyPress, value: Binding<Double>, range: ClosedRange<Double>, label: String
+  ) -> KeyPress.Result {
+    guard [.leftArrow, .rightArrow, .upArrow, .downArrow].contains(press.key) else {
+      return .ignored
+    }
+    guard press.modifiers.intersection([.command, .control, .option]).isEmpty else {
+      return .ignored
+    }
+    guard press.phase != .up else { return .handled }
+    let step = press.modifiers.contains(.shift) ? 0.05 : 0.01
+    let delta = press.key == .leftArrow || press.key == .downArrow ? -step : step
+    adjustEdge(value, range: range, delta: delta, label: label)
+    return .handled
+  }
+
+  private func adjustEdge(
+    _ value: Binding<Double>, range: ClosedRange<Double>, delta: Double, label: String
+  ) {
+    let next = ColorGradeZoneEdge.normalized(x: value.wrappedValue + delta, width: 1, range: range)
+    guard next != value.wrappedValue else { return }
+    state.commit(description: "Adjust \(label)")
+    value.wrappedValue = next
+    state.session.endEdit()
   }
 
   static func zoneWeights(
