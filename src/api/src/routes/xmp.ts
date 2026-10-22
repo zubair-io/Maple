@@ -37,7 +37,7 @@ import { callNativeRetrying } from '../fs/native-call';
 import { parseSidecarWorkflow, PRIMARY_VARIANT_ID } from '../generated/workflow.generated.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
 import { xmpSidecarPath, writeXmpAtomic, deleteXmpSidecar } from '../fs/xmp.ts';
-import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
+import { resolveAndAuthorizePath, resolveAndAuthorizeSidecarWrite } from './xmp-path-auth.ts';
 import { publishSidecarChange } from './xmp-change';
 import {
   serializeSidecarWrite,
@@ -63,8 +63,12 @@ import { computeBodyETag } from '../runtime/http-etag';
 export const xmpPathRoutes = new Elysia()
   .use(xmpVariantRoutes)
   // All four operations use the same authorized, normalized path (#4036).
-  .resolve(async ({ query }) => {
-    const authorized = await resolveAndAuthorizePath(query.path);
+  .resolve(async ({ query, request }) => {
+    const authorize =
+      request.method === 'GET' || request.method === 'HEAD'
+        ? resolveAndAuthorizePath
+        : resolveAndAuthorizeSidecarWrite;
+    const authorized = await authorize(query.path);
     if (!authorized.ok) return status(authorized.status, { error: authorized.error });
     return {
       rawPath: authorized.data,

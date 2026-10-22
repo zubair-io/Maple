@@ -8,7 +8,7 @@ import { readFile, rename, stat, unlink, writeFile } from '../fs/mirrored';
 import { serializeSidecarWrite } from '../fs/sidecar-write-order';
 import { writeXmpAtomic, writeXmpWithPrecondition } from '../fs/xmp';
 import { writeConflictSidecarAtomic } from '../fs/xmp-conflict';
-import { resolveAndAuthorizePath } from './xmp-path-auth';
+import { resolveAndAuthorizeSidecarWrite } from './xmp-path-auth';
 
 const edits = (exposure: number) => `<x:xmpmeta xmlns:x="adobe:ns:meta/">
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -28,7 +28,7 @@ test.each(['path save', 'asset save', 'conflict save'] as const)(
     const libraryId = insertFolder(f.live.db, { path: f.root });
     const id = insertAsset(f.live.db);
     insertLocation(f.live.db, { assetId: id, libraryId, path: '', filename: 'photo.dng' });
-    const authorized = await resolveAndAuthorizePath(photo);
+    const authorized = await resolveAndAuthorizeSidecarWrite(photo);
     if (!authorized.ok) throw new Error(authorized.error);
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
@@ -76,7 +76,7 @@ test('a queued save cannot attach old edits to a replacement even before its cat
   const libraryId = insertFolder(f.live.db, { path: f.root });
   const id = insertAsset(f.live.db);
   insertLocation(f.live.db, { assetId: id, libraryId, path: '', filename: 'photo.dng' });
-  const authorized = await resolveAndAuthorizePath(photo);
+  const authorized = await resolveAndAuthorizeSidecarWrite(photo);
   if (!authorized.ok) throw new Error(authorized.error);
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
