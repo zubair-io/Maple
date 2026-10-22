@@ -1,14 +1,13 @@
 package app.justmaple.aperture.cloud
 
 import android.net.Uri
-import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
-/** Browser callbacks and PKCE claims redeem in one lane; only an active ceremony can commit. */
+/** PKCE callback codes redeem in one lane; only an active ceremony can commit. */
 internal class CloudSignIn(private val credentials: CloudCredentials) {
     private val lock = Any()
     private val exchangeLock = Mutex()
@@ -33,22 +32,7 @@ internal class CloudSignIn(private val credentials: CloudCredentials) {
     suspend fun complete(callback: Uri): CloudServer =
         exchange(callback) ?: throw CancellationException("Sign-in is no longer pending")
 
-    suspend fun poll(): CloudServer? {
-        val token = synchronized(lock) { epoch }
-        while (pending) {
-            currentCoroutineContext().ensureActive()
-            synchronized(lock) {
-                if (token != epoch) throw CancellationException("Sign-in was replaced")
-            }
-            exchange(null, token)?.let {
-                return it
-            }
-            delay(2_000)
-        }
-        return null
-    }
-
-    private suspend fun exchange(callback: Uri?, expectedEpoch: Int? = null): CloudServer? =
+    private suspend fun exchange(callback: Uri): CloudServer? =
         exchangeLock.withLock {
             // Retain a receipt outside withContext: cancellation can discard its return value
             // even after the IO block finished. Revoke and roll back that unpublished session.
@@ -59,38 +43,21 @@ internal class CloudSignIn(private val credentials: CloudCredentials) {
                 withContext(Dispatchers.IO) {
                     val (login, code, token) =
                         synchronized(lock) {
-                            if (expectedEpoch != null && expectedEpoch != epoch)
-                                throw CancellationException("Sign-in was replaced")
                             val login = credentials.pending() ?: return@withContext null
                             require(System.currentTimeMillis() - login.started in 0..600_000) {
                                 "Sign-in expired. Please try again."
                             }
-                            val code = callback?.let(login::validateCallback)
+                            val code = login.validateCallback(callback)
                             ceremony = login
                             attempt = epoch
-                            if (callback != null) credentials.pending(null)
+                            credentials.pending(null)
                             Triple(login, code, epoch)
                         }
-                    val response =
-                        try {
-                            CloudHttp.publicPost(
-                                login.origin,
-                                if (callback == null) "/api/auth/native-code/claim"
-                                else "/api/auth/native-code/redeem",
-                                JSONObject().put("code_verifier", login.verifier).apply {
-                                    if (callback == null) put("state", login.state)
-                                    else put("code", code)
-                                },
-                            )
-                        } catch (failure: IOException) {
-                            if (callback == null) return@withContext null
-                            throw failure
-                        }
-                    if (
-                        callback == null &&
-                            (response.status in setOf(404, 429) || response.status >= 500)
+                    val response = CloudHttp.publicPost(
+                        login.origin,
+                        "/api/auth/native-code/redeem",
+                        JSONObject().put("code_verifier", login.verifier).put("code", code),
                     )
-                        return@withContext null
                     response.requireSuccess()
                     val result = JSONObject(response.text())
                     val previous = credentials.servers().find { it.origin == login.origin }
@@ -107,7 +74,7 @@ internal class CloudSignIn(private val credentials: CloudCredentials) {
                         if (
                             token != epoch ||
                                 !context.isActive ||
-                                credentials.pending() != (if (callback == null) login else null)
+                                credentials.pending() != null
                         )
                             throw CancellationException("Sign-in was cancelled")
                         credentials.save(server)

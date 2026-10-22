@@ -63,7 +63,6 @@ internal constructor(
             }
         }
         library.sources.firstOrNull()?.let(::browse)
-        if (library.cloud.signingIn) connectCloud { library.cloud.pollSignIn() }
     }
 
     fun report(failure: Throwable) = fail(failure)
@@ -81,7 +80,6 @@ internal constructor(
     }
         .onSuccess {
             mutable.update { it.copy(cloudSigningIn = true, error = null) }
-            connectCloud { library.cloud.pollSignIn() }
         }
         .onFailure(::fail)
         .getOrNull()

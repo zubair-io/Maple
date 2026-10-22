@@ -18,22 +18,25 @@ class CloudSignInTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun browserSessionCanCompleteByPkceClaimWithoutACustomSchemeCallback() {
+    fun browserSessionWaitsForItsCallbackCodeWithoutCodeLessPolling() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val directory = File(context.cacheDir, "claim-${UUID.randomUUID()}").apply { mkdirs() }
+        val directory = File(context.cacheDir, "callback-${UUID.randomUUID()}").apply { mkdirs() }
         FileCloudServer(directory).use { server ->
             val model = ViewModelProvider(compose.activity)[MapleViewModel::class.java]
             var browser: Uri? = null
-            server.claimTransientStatus = 429
             compose.runOnIdle {
                 browser = model.beginCloud(server.origin)!!
                 server.expectedChallenge = browser!!.getQueryParameter("code_challenge")!!
-                server.expectedState = browser!!.getQueryParameter("state")!!
             }
-            compose.waitUntil(30_000) { server.claimCount >= 2 }
+            TimeUnit.MILLISECONDS.sleep(2200)
+            assertEquals(0, server.claimCount)
             assertTrue(model.state.value.cloudSigningIn)
             assertNull(model.state.value.error)
-            server.claimReady = true
+            val callback = Uri.parse("maple-app://auth-success").buildUpon()
+                .appendQueryParameter("state", browser!!.getQueryParameter("state"))
+                .appendQueryParameter("code", "fixture-code")
+                .build()
+            compose.runOnIdle { model.completeCloud(callback) }
             compose.waitUntil(30_000) {
                 !model.state.value.cloudSigningIn &&
                     model.state.value.folders.any { it.name == "Fixture photos" }
@@ -43,7 +46,7 @@ class CloudSignInTest {
                 model.state.value.sources.single { it.name == Uri.parse(server.origin).authority }
             try {
                 assertTrue(CloudLibrary(context).sources.any { it.uri == source.uri })
-                // A browser may deliver its scheme callback after polling won the race.
+                // Duplicate browser callbacks must not create another session.
                 val late =
                     Uri.parse("maple-app://auth-success")
                         .buildUpon()

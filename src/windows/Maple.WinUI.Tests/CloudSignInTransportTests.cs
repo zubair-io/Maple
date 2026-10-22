@@ -74,40 +74,37 @@ public sealed class CloudSignInTransportTests : IDisposable
         Assert.Equal(retryable, actual);
     }
 
-    private sealed class ClaimThenRedeemHandler : HttpMessageHandler
+    private sealed class DuplicateRedeemHandler : HttpMessageHandler
     {
-        public TaskCompletionSource ClaimStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource ReleaseClaim { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource RedeemStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseRedeem { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int RedeemRequests;
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
-            if (request.RequestUri!.AbsolutePath.EndsWith("/claim"))
-            {
-                ClaimStarted.SetResult();
-                await ReleaseClaim.Task.WaitAsync(ct);
-                return Json("""{"access_token":"a","refresh_token":"r","user":{"email":"x@y.z"}}""");
-            }
+            Assert.EndsWith("/native-code/redeem", request.RequestUri!.AbsolutePath);
             Interlocked.Increment(ref RedeemRequests);
-            return new HttpResponseMessage(HttpStatusCode.BadRequest);
+            RedeemStarted.SetResult();
+            await ReleaseRedeem.Task.WaitAsync(ct);
+            return Json("""{"access_token":"a","refresh_token":"r","user":{"email":"x@y.z"}}""");
         }
     }
 
     [Fact]
-    public async Task RedeemOverlappingAnInFlightClaimAdoptsTheClaimedTokens()
+    public async Task DuplicateCallbacksRedeemTheOneTimeCodeOnlyOnce()
     {
-        var handler = new ClaimThenRedeemHandler();
+        var handler = new DuplicateRedeemHandler();
         using var client = new CloudClient("https://maple.example.test", handler, _cache);
-        var claim = client.ClaimNativeCodeAsync("state-1", "verifier", CancellationToken.None);
-        await handler.ClaimStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var first = client.RedeemNativeCodeAsync("code", "verifier", CancellationToken.None);
+        await handler.RedeemStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var redeem = client.RedeemNativeCodeAsync("code", "verifier", CancellationToken.None);
         Assert.False(redeem.IsCompleted);
-        handler.ReleaseClaim.SetResult();
+        handler.ReleaseRedeem.SetResult();
 
-        Assert.True((await claim).Ok);
+        Assert.True((await first).Ok);
         var (ok, _, _) = await redeem;
         Assert.True(ok);
-        Assert.Equal(0, handler.RedeemRequests);
+        Assert.Equal(1, handler.RedeemRequests);
         Assert.Equal("r", client.RefreshToken);
     }
 
