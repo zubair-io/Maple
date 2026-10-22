@@ -49,15 +49,23 @@ extension SMBFileOperations {
       // An occupied sidecar holding exactly the incoming bytes is the pair's
       // already-restored other half: join it instead of colliding (#4707).
       var joined: [Int: String] = [:]
+      var joinedFiles: [Int: RestoreSMBFile] = [:]
       for occupant in try await restorePairedSidecars(target, transport: transport) {
-        let match = members.indices.first { index in
-          members[index].source != source && joined[index] == nil && planned[index] == occupant
+        var match: Int?
+        for index in members.indices where members[index].source != source && joined[index] == nil {
+          if await SidecarOwnership.sameSMBFile(planned[index], occupant, transport: transport) {
+            match = index
+            break
+          }
         }
         guard let match,
           await SidecarOwnership.smbSidecarAlreadyCarried(
             members[match].staged, at: occupant, transport: transport)
         else { continue attempts }
+        let identity = try await RestoreSMBFile.capture(occupant, transport: transport)
+        guard identity.hash == members[match].copy.hash else { continue attempts }
         joined[match] = occupant
+        joinedFiles[match] = identity
       }
       let destinations = planned.enumerated().map { joined[$0.offset] ?? $0.element }
       var published: [Int] = []
@@ -85,8 +93,9 @@ extension SMBFileOperations {
         continue
       }
       do {
-        for (index, member) in members.enumerated() where joined[index] == nil {
-          try await member.copy.assertUnchanged(destinations[index], transport: transport)
+        for (index, member) in members.enumerated() {
+          try await (joinedFiles[index] ?? member.copy).assertUnchanged(
+            destinations[index], transport: transport)
         }
       } catch {
         try await restoreUnpublish(

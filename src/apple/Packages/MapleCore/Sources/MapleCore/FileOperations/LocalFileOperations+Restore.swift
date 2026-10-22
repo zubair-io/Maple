@@ -89,9 +89,16 @@ extension LocalFileOperations {
       }
       guard joins.allSatisfy({ $0 != nil }) else { continue }
       let joined = Dictionary(
-        joins.compactMap { $0 }.map { ($0.index, $0.name) }, uniquingKeysWith: { first, _ in first })
+        joins.compactMap { $0 }.map { ($0.index, $0.name) }, uniquingKeysWith: { first, _ in first }
+      )
       let destinations = planned.enumerated().map { index, url in
         joined[index].map { directory.appendingPathComponent($0) } ?? url
+      }
+      let joinedFiles = try joined.mapValues { name in
+        try RestoreLocalFile.capture(directory.appendingPathComponent(name))
+      }
+      guard joinedFiles.allSatisfy({ $0.value.hash == members[$0.key].copy.hash }) else {
+        continue
       }
       var published: [Int] = []
       do {
@@ -125,8 +132,8 @@ extension LocalFileOperations {
         continue
       }
       do {
-        for (index, member) in members.enumerated() where joined[index] == nil {
-          try member.copy.assertUnchanged(destinations[index])
+        for (index, member) in members.enumerated() {
+          try (joinedFiles[index] ?? member.copy).assertUnchanged(destinations[index])
         }
         for member in members { try member.original.assertUnchanged(member.source) }
       } catch {
