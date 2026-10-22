@@ -122,6 +122,7 @@ internal fun PhotoCanvas(
             adoptedSize = size
         }
         LaunchedEffect(state.selected?.key, state.mode, state.document, state.comparingBefore,
+            state.nativeSurfaceRevision,
             state.values.isEmpty(), adoptedSize, state.nativeImageSize, showCropOverlay,
             zoomState.pixelScale, zoomState.panX, zoomState.panY, viewportPxW, viewportPxH) {
             if (!zoomState.isZoomed || showCropOverlay || zoomState.pixelScale < 1f) {

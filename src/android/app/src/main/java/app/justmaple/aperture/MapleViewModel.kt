@@ -514,6 +514,8 @@ internal constructor(
     }
 
     fun surface(surface: Surface?, width: Int, height: Int, wideColor: Boolean = false) {
+        cancelNativeDetail()
+        mutable.update { it.copy(nativeSurfaceRevision = it.nativeSurfaceRevision + 1) }
         val binding = renderer.recordSurface(surface, width, height, wideColor)
         val token = generation
         if (state.value.mode == PhotoMode.Edit) mutable.update { it.copy(rendering = true) }

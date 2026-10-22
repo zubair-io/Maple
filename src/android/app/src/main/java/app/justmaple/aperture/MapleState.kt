@@ -35,6 +35,7 @@ data class MapleState(
     val nativeDetailBusy: Boolean = false,
     val nativeDimensionsLoading: Boolean = false,
     val nativeDetailError: String? = null,
+    val nativeSurfaceRevision: Int = 0,
     val cropToolActive: Boolean = false,
     val cropAspect: app.justmaple.aperture.ui.CropAspectId = app.justmaple.aperture.ui.CropAspectId.Free,
     val cropAspectSwapped: Boolean = false,
