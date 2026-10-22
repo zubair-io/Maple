@@ -69,7 +69,7 @@ class LayoutWalkthroughTest {
         compose.onNodeWithContentDescription("Photo canvas").assertIsDisplayed()
         compose.waitUntil(30_000) {
             compose
-                .onNodeWithContentDescription("RGB histogram")
+                .onNodeWithTag("editor-scopes-chip")
                 .fetchSemanticsNode()
                 .config[SemanticsProperties.StateDescription] == "Ready"
         }
