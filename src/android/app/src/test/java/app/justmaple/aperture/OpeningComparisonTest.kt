@@ -85,6 +85,13 @@ class OpeningComparisonTest {
             withTimeout(10_000) { while (renderer.latest?.values?.get("exposure") != 2f) yield() }
             assertEquals(persisted.serialize(), renderer.latest!!.document.serialize())
             model.back()
+            withTimeout(10_000) { model.state.first { it.mode == PhotoMode.Preview } }
+            model.edit()
+            withTimeout(10_000) { model.state.first { it.mode == PhotoMode.Edit && it.values.isNotEmpty() } }
+            assertFalse("Reopening Edit adopts the current saved document as Before", model.hasComparisonEdits())
+            model.setComparingBefore(true)
+            withTimeout(10_000) { while (renderer.latest?.values?.get("exposure") != 2f) yield() }
+            model.back()
         } finally {
             raw.delete()
             Dispatchers.resetMain()
