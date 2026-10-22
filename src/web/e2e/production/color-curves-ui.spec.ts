@@ -143,7 +143,8 @@ test('the eyedropper samples a rotated RAW at the stage input and drops an ancho
   );
   test.setTimeout(240_000);
   await openColorCurves(page, RAW_FIXTURE);
-  await armEyedropperAndClick(page, 620, 200);
+  // A 5×5 patch in the bounded probe must stay clear of the foreground branches.
+  await armEyedropperAndClick(page, 820, 230);
   await expect(page.locator('[data-testid^="color-curve-knot-"]')).toHaveCount(3, {
     timeout: 120_000,
   });
