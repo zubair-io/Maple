@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  DestroyRef,
   ViewChild,
   computed,
   effect,
@@ -74,6 +75,7 @@ function nearestKnot(
 })
 export class ColorCurvesRibbonComponent {
   private readonly library = inject(LibraryStateService);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly editor = inject(EditorStateService);
   private readonly pipeline = inject(RawPipelineService);
   private readonly serializer = inject(XmpSerializerService);
@@ -92,9 +94,11 @@ export class ColorCurvesRibbonComponent {
 
   private draggedKnotIndex: number | null = null;
   private isDragging = false;
+  private finishRibbonDrag?: () => void;
   private sampleGeneration = 0;
 
   constructor() {
+    this.destroyRef.onDestroy(() => this.finishRibbonDrag?.());
     effect(() => {
       this.library.focusedAssetId();
       untracked(() => this.cancelEyedropper());
@@ -102,6 +106,7 @@ export class ColorCurvesRibbonComponent {
   }
 
   private cancelEyedropper(): void {
+    this.finishRibbonDrag?.();
     this.sampleGeneration++;
     if (this.eyedropperActive()) this.pick.cancel();
     this.eyedropperActive.set(false);
@@ -163,7 +168,7 @@ export class ColorCurvesRibbonComponent {
   }
 
   onRibbonPointerDown(e: PointerEvent): void {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || this.isDragging) return;
     const svg = this.ribbonSvgRef?.nativeElement;
     const id = this.library.focusedAssetId();
     if (!svg || !id) return;
@@ -180,18 +185,25 @@ export class ColorCurvesRibbonComponent {
 
     this.beginRibbonKnot(desc, id, { x: u, y: rawY }, rect);
 
-    const onMove = (ev: PointerEvent): void => this.moveRibbonKnot(svg, desc, id, ev);
-
-    const onUp = (): void => {
+    const pointerId = e.pointerId;
+    const onMove = (ev: PointerEvent): void => {
+      if (ev.pointerId === pointerId) this.moveRibbonKnot(svg, desc, id, ev);
+    };
+    const finish = (): void => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
+      this.finishRibbonDrag = undefined;
       if (this.isDragging) {
         this.isDragging = false;
         this.draggedKnotIndex = null;
         this.editor.endEdit();
       }
     };
+    const onUp = (ev: PointerEvent): void => {
+      if (ev.pointerId === pointerId) finish();
+    };
+    this.finishRibbonDrag = finish;
 
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);

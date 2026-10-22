@@ -119,6 +119,54 @@ describe('color-curve asynchronous picks and visible knot drags', () => {
     await sampling;
   });
 
+  for (const ending of ['pointerup', 'pointercancel']) {
+    it(`keeps knot drag ownership through unrelated pointers until owner ${ending}`, () => {
+      panel.selectCurve('hueVsSat');
+      library.model.update((model) => ({
+        ...model,
+        colorCurveHueVsSat: { points: [[0.25, 0.65]] },
+      }));
+      fixture.detectChanges();
+      const svg = fixture.nativeElement.querySelector('svg') as SVGSVGElement;
+      vi.spyOn(svg, 'getBoundingClientRect').mockReturnValue({
+        left: 0,
+        top: 0,
+        width: 100,
+        height: 100,
+      } as DOMRect);
+      const knot = fixture.nativeElement.querySelector('.knot-handle') as HTMLButtonElement;
+      const editor = TestBed.inject(EditorStateService);
+      const touch = (type: string, pointerId: number, x = 25, y = 35) =>
+        new PointerEvent(type, {
+          pointerId,
+          pointerType: 'touch',
+          button: 0,
+          bubbles: true,
+          clientX: x,
+          clientY: y,
+        });
+      knot.dispatchEvent(touch('pointerdown', 7));
+      try {
+        knot.dispatchEvent(touch('pointerdown', 9, 80, 10));
+        window.dispatchEvent(touch('pointermove', 9, 80, 10));
+        window.dispatchEvent(touch('pointerup', 9));
+        window.dispatchEvent(touch('pointercancel', 9));
+        expect(library.model().colorCurveHueVsSat.points).toEqual([[0.25, 0.65]]);
+        expect(editor.commit).toHaveBeenCalledOnce();
+        expect(editor.endEdit).not.toHaveBeenCalled();
+        window.dispatchEvent(touch('pointermove', 7, 50, 30));
+        expect(library.model().colorCurveHueVsSat.points).toEqual([[0.5, 0.7]]);
+        window.dispatchEvent(touch(ending, 7));
+        expect(editor.endEdit).toHaveBeenCalledOnce();
+        window.dispatchEvent(touch('pointermove', 7, 80, 10));
+        expect(library.model().colorCurveHueVsSat.points).toEqual([[0.5, 0.7]]);
+      } finally {
+        window.dispatchEvent(touch('pointerup', 7));
+        window.dispatchEvent(touch('pointerup', 9));
+      }
+    });
+  }
+
   it('drags a knot by pressing its visible button', () => {
     panel.selectCurve('hueVsSat');
     library.model.update((model) => ({ ...model, colorCurveHueVsSat: { points: [[0.25, 0.65]] } }));
