@@ -104,6 +104,8 @@ A library is a registered root folder with a slug. `:id` is the folder's 24-char
 
 A `.xmp` uploaded through `/api/folders/:id/upload` never replaces a sidecar: when the name is already taken, including by a save through `PUT /api/assets/:id/xmp` or `POST /api/libraries/:libraryId/backup/sidecar` that lands while the upload is in flight, the route answers 409 and the existing sidecar is kept. Edit sidecars through the XMP routes.
 
+Known limitation (#5143): on volumes that refuse hard links (SMB/CIFS), the upload checks that the name is free and then renames the complete file into place, both inside the sidecar save barrier. Every writer inside Maple takes that barrier, but a writer outside it — the native app or another tool writing to the share directly — can create the sidecar in the moment between the check and the rename, and its edit is then replaced. Closing this needs a rename that refuses to replace an existing file (`renamex_np` with `RENAME_EXCL`, `renameat2` with `RENAME_NOREPLACE`), which smbfs and CIFS, the only volumes this path serves, generally don't support.
+
 Media uploaded through `/api/folders/:id/upload` is attributed to the authenticated uploader, including when the filesystem watcher creates the asset first. Client-supplied owner headers are ignored. Internal writers without a principal preserve existing attribution; a principal whose user row is absent leaves new assets unassigned and keeps an existing asset's owner.
 
 ## Unified addressing (`slug:relPath`)
