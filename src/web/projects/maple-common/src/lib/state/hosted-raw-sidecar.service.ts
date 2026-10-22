@@ -1,3 +1,4 @@
+import { primarySidecarFilename } from '../xmp/sidecar-binding';
 import { Injectable, Injector, inject } from '@angular/core';
 import { FilmLutService } from '../film/film-lut.service';
 import { FolderAccessService } from '../folder-access/folder-access.service';
@@ -22,7 +23,7 @@ export class HostedRawSidecarService {
   private readonly injector = inject(Injector);
 
   async read(folder: MapleFolderHandle, location: PreviewLocation): Promise<string | null> {
-    const basename = location.filename.replace(/\.[^.]+$/, '.xmp');
+    const basename = primarySidecarFilename(location.filename);
     const path = location.dir ? `${location.dir}/${basename}` : basename;
     let bytes: Uint8Array;
     try {
