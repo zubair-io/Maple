@@ -58,12 +58,21 @@ fun subToolsFor(group: EditorGroup): List<EditorSubTool> =
                 EditorSubTool("wb", "WB Presets"),
                 EditorSubTool("hsl", "HSL"),
             )
+        EditorGroup.Detail ->
+            listOf(EditorSubTool("basic", "Basic"), EditorSubTool("crop", "Crop"))
         else -> listOf(EditorSubTool("basic", "Basic"))
     }
 
-fun fieldsForSubTool(group: EditorGroup, subToolId: String): List<AdjustmentField> =
-    if (group == EditorGroup.Light && subToolId == "curve") toneCurveFields
-    else group.tools.map { AdjustmentFields.byName.getValue(it.field) }
+fun fieldsForSubTool(
+    group: EditorGroup,
+    subToolId: String,
+    fullInspector: Boolean = false,
+): List<AdjustmentField> =
+    when {
+        group == EditorGroup.Light && subToolId == "curve" -> toneCurveFields
+        fullInspector -> group.fields
+        else -> group.tools.map { AdjustmentFields.byName.getValue(it.field) }
+    }
 
 fun hslBandFields(band: HslBand): List<AdjustmentField> =
     listOf("hue_adjustment_", "saturation_adjustment_", "luminance_adjustment_").map {
@@ -79,8 +88,12 @@ fun wbPresetEdits(preset: WbPreset): Map<String, Float>? {
 
 fun MapleViewModel.applyWbPreset(preset: WbPreset) {
     val edits = wbPresetEdits(preset)
-    if (edits == null) resetFields(listOf("temperature", "tint"))
-    else edits.forEach { (name, value) -> setField(name, value) }
+    if (edits == null) {
+        resetFields(listOf("temperature", "tint"))
+    } else {
+        edits.forEach { (name, value) -> setField(name, value) }
+        commitGesture()
+    }
 }
 
 @Composable

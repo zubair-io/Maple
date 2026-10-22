@@ -22,6 +22,8 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.unit.dp
+import app.justmaple.aperture.MapleState
+import app.justmaple.aperture.data.XmpDocument
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -187,5 +189,33 @@ class CanvasZoomAndBeforeAfterTest {
 
         button.performTouchInput { up() }
         compose.runOnIdle { assertFalse("Release after hold should restore After", comparing) }
+    }
+
+    @Test
+    fun hasActiveEditsRespectsShotWhiteBalanceAndAttributeEdits() {
+        val uneditedRaw =
+            MapleState(
+                values =
+                    mapOf(
+                        "exposure" to 0f,
+                        "temperature" to 4850f,
+                        "_shot_temperature" to 4850f,
+                        "tint" to 12f,
+                        "_shot_tint" to 12f,
+                    ),
+                document = XmpDocument(),
+            )
+        assertFalse("Unedited RAW at shot WB should not report active edits", uneditedRaw.hasActiveEdits)
+
+        val editedWb = uneditedRaw.copy(values = uneditedRaw.values + ("temperature" to 5500f))
+        assertTrue("Manual WB away from shot WB should report active edits", editedWb.hasActiveEdits)
+
+        val monochromeOnly =
+            uneditedRaw.copy(document = XmpDocument().withAttribute("crs:ConvertToGrayscale", "True"))
+        assertTrue("B&W toggle should report active edits", monochromeOnly.hasActiveEdits)
+
+        val croppedOnly =
+            uneditedRaw.copy(document = XmpDocument().withAttribute("crs:HasCrop", "True"))
+        assertTrue("Crop should report active edits", croppedOnly.hasActiveEdits)
     }
 }

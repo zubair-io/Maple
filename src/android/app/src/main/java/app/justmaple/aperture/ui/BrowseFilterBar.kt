@@ -1,6 +1,8 @@
 package app.justmaple.aperture.ui
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
@@ -95,7 +97,10 @@ fun BrowseFilterBar(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {

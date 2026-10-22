@@ -118,9 +118,12 @@ class EditorSubToolsTest {
     }
 
     @Test
-    fun groupsWithoutSubToolsExposeSingleBasicSubTool() {
-        for (group in listOf(EditorGroup.Effects, EditorGroup.Detail)) {
-            assertEquals(listOf("basic"), subToolsFor(group).map { it.id })
-        }
+    fun groupsExposeExpectedSubToolsAndFullInspectorFields() {
+        assertEquals(listOf("basic"), subToolsFor(EditorGroup.Effects).map { it.id })
+        assertEquals(listOf("basic", "crop"), subToolsFor(EditorGroup.Detail).map { it.id })
+        assertEquals(
+            EditorGroup.Detail.fields.map { it.name },
+            fieldsForSubTool(EditorGroup.Detail, "basic", fullInspector = true).map { it.name },
+        )
     }
 }

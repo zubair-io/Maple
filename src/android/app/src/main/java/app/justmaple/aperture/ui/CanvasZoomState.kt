@@ -299,10 +299,11 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
     onSwipePage: (Int) -> Unit,
     clockMs: () -> Long = System::currentTimeMillis,
 ) {
-    var lastTapTimeMs = 0L
+    var lastTapTimeMs = -1L
     var lastTapPos = Offset.Zero
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
+        var consumedByChild = down.isConsumed
         val downTimeMs = clockMs()
         val downPos = down.position
         var hadMultiTouch = false
@@ -312,6 +313,9 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
 
         do {
             val event = awaitPointerEvent()
+            if (event.changes.any { it.isConsumed }) {
+                consumedByChild = true
+            }
             val pressed = event.changes.filter { it.pressed }
             val viewportW = size.width.toFloat().coerceAtLeast(1f)
             val viewportH = size.height.toFloat().coerceAtLeast(1f)
@@ -336,7 +340,7 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
                     )
                     event.changes.forEach { if (it.positionChanged()) it.consume() }
                 }
-            } else if (pressed.size == 1) {
+            } else if (pressed.size == 1 && !consumedByChild) {
                 if (hadMultiTouch) {
                     hadMultiTouch = false
                     zoomState.endPinch(clockMs())
@@ -375,6 +379,8 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
         val upTimeMs = clockMs()
         if (hadMultiTouch) {
             zoomState.endPinch(upTimeMs)
+        } else if (consumedByChild) {
+            lastTapTimeMs = -1L
         } else if (
             allowSwipePaging &&
                 !zoomState.isZoomed &&
@@ -385,7 +391,8 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
             onSwipePage(if (totalSingleDragX < 0f) 1 else -1)
         } else if (maxMovement <= CanvasZoomState.DOUBLE_TAP_SLOP_PX && upTimeMs - downTimeMs <= 250L) {
             if (
-                upTimeMs - lastTapTimeMs <= CanvasZoomState.DOUBLE_TAP_TIMEOUT_MS &&
+                lastTapTimeMs >= 0L &&
+                    upTimeMs - lastTapTimeMs <= CanvasZoomState.DOUBLE_TAP_TIMEOUT_MS &&
                     (downPos - lastTapPos).getDistance() <= CanvasZoomState.DOUBLE_TAP_SLOP_PX * 1.5f
             ) {
                 val (imgW, imgH) = imageDimensions()
@@ -397,7 +404,7 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
                     viewportWidth = size.width.toFloat().coerceAtLeast(1f),
                     viewportHeight = size.height.toFloat().coerceAtLeast(1f),
                 )
-                lastTapTimeMs = 0L
+                lastTapTimeMs = -1L
             } else {
                 lastTapTimeMs = upTimeMs
                 lastTapPos = downPos

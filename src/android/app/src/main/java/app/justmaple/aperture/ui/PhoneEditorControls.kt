@@ -33,10 +33,24 @@ internal fun PhoneEditorControls(
     onGroup: (EditorGroup) -> Unit,
     onArmed: (String) -> Unit,
     onMore: () -> Unit,
+    activeSubTool: String? = null,
+    onSubToolChange: ((String) -> Unit)? = null,
 ) {
     val subTools = remember(group) { subToolsFor(group) }
-    var subTool by remember(group) { mutableStateOf(subTools.first().id) }
+    var internalSubTool by remember(group) { mutableStateOf(subTools.first().id) }
+    val subTool = activeSubTool ?: internalSubTool
     var band by remember(group) { mutableStateOf(HslBand.Red) }
+    val setSubTool: (String) -> Unit = { nextSubTool ->
+        internalSubTool = nextSubTool
+        onSubToolChange?.invoke(nextSubTool)
+        val candidates =
+            when {
+                group == EditorGroup.Light && nextSubTool == "curve" -> toneCurveFields
+                group == EditorGroup.Color && nextSubTool == "hsl" -> hslBandFields(band)
+                else -> group.tools.map { AdjustmentFields.byName.getValue(it.field) }
+            }
+        candidates.firstOrNull(state::supportsField)?.let { onArmed(it.name) }
+    }
     val dockFields =
         when {
             group == EditorGroup.Light && subTool == "curve" -> toneCurveFields
@@ -72,7 +86,7 @@ internal fun PhoneEditorControls(
             SubToolSelector(
                 subTools,
                 subTool,
-                { subTool = it },
+                setSubTool,
                 Modifier.padding(horizontal = 8.dp),
             )
         if (group == EditorGroup.Color && subTool == "wb")
@@ -82,7 +96,18 @@ internal fun PhoneEditorControls(
                 Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             )
         if (group == EditorGroup.Color && subTool == "hsl")
-            HslBandChips(band, { band = it }, Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+            HslBandChips(
+                band,
+                { nextBand ->
+                    band = nextBand
+                    hslBandFields(nextBand).firstOrNull(state::supportsField)?.let {
+                        onArmed(it.name)
+                    }
+                },
+                Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        if (group == EditorGroup.Detail && subTool == "crop")
+            CropControlsSection(model, state, Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
         LazyRow(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),

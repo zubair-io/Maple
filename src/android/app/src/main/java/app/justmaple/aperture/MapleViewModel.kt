@@ -330,7 +330,11 @@ internal constructor(
         val drawValues =
             if (before)
                 current.values.mapValues { (key, v) ->
-                    AdjustmentFields.byName[key]?.initial ?: v
+                    when (key) {
+                        "temperature" -> current.values["_shot_temperature"] ?: v
+                        "tint" -> current.values["_shot_tint"] ?: v
+                        else -> AdjustmentFields.byName[key]?.initial ?: v
+                    }
                 }
             else current.values
         renderXml = if (before) XmpDocument().serialize() else current.document.serialize()
@@ -404,7 +408,14 @@ internal constructor(
     }
 
     private fun restore(value: EditSnapshot) {
-        mutable.update { it.copy(values = value.values, document = value.document, dirty = true) }
+        mutable.update {
+            it.copy(
+                values = value.values,
+                document = value.document,
+                comparingBefore = false,
+                dirty = true,
+            )
+        }
         renderXml = value.document.serialize()
         // Field pushes drifted the native model (wb_source = Manual); an
         // identical XML string must still reload it (#4766).
@@ -427,8 +438,18 @@ internal constructor(
 
     fun resetFields(names: List<String>) = resetControls(names, emptyList())
 
-    fun resetGroup(group: EditorGroup) =
-        resetControls(group.fields.map { it.name }, group.resetAttributes)
+    fun resetGroup(group: EditorGroup) {
+        val extraNames =
+            when (group) {
+                EditorGroup.Light -> app.justmaple.aperture.ui.toneCurveFieldNames
+                EditorGroup.Color ->
+                    app.justmaple.aperture.ui.HslBand.entries
+                        .flatMap { app.justmaple.aperture.ui.hslBandFields(it) }
+                        .map { it.name }
+                else -> emptyList()
+            }
+        resetControls(group.fields.map { it.name } + extraNames, group.resetAttributes)
+    }
 
     private fun resetControls(names: List<String>, attributes: List<String>) {
         val current = state.value
@@ -455,15 +476,22 @@ internal constructor(
         attribute("papp:Flag", if (rejected) null else "reject")
     }
 
-    fun attribute(name: String, value: String?) {
-        if (!state.value.canChangeMetadata) return
+    fun attribute(name: String, value: String?) = setAttributes(mapOf(name to value))
+
+    fun setAttributes(updates: Map<String, String?>) {
+        if (!state.value.canChangeMetadata || updates.isEmpty()) return
         val editing = state.value.mode == PhotoMode.Edit && state.value.values.isNotEmpty()
         if (editing) beginGesture()
-        mutable.update { it.copy(document = it.document.withAttribute(name, value), dirty = true) }
+        mutable.update { current ->
+            val nextDoc =
+                updates.entries.fold(current.document) { doc, (k, v) -> doc.withAttribute(k, v) }
+            current.copy(document = nextDoc, comparingBefore = false, dirty = true)
+        }
         if (editing) commitGesture()
         scheduleSave()
         if (state.value.mode == PhotoMode.Edit) {
             renderXml = state.value.document.serialize()
+            renderer.invalidateModel()
             queueDraw(state.value.values)
         }
     }
@@ -535,6 +563,7 @@ internal constructor(
             it.copy(
                 document = loaded.document,
                 documentLoaded = true,
+                comparingBefore = false,
                 loading = false,
                 dirty = false,
                 error = null,
@@ -646,12 +675,17 @@ internal constructor(
         }
     }
 
-    suspend fun export(destination: Uri, xmp: Boolean) {
+    suspend fun export(
+        destination: Uri,
+        xmp: Boolean,
+        options: app.justmaple.aperture.ui.ExportOptions = app.justmaple.aperture.ui.ExportOptions(),
+    ) {
         check(flush()) { "Save the sidecar before exporting" }
         val snapshot = state.value
         check(snapshot.documentLoaded && !snapshot.loading) { "Load the photo before exporting" }
         val photo = snapshot.selected ?: error("Choose a photo")
-        PhotoExport(getApplication(), library).write(photo, snapshot.document, destination, xmp)
+        PhotoExport(getApplication(), library)
+            .write(photo, snapshot.document, destination, xmp, options)
     }
 
     override fun onCleared() {

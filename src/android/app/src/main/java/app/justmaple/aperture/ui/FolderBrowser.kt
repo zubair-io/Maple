@@ -49,13 +49,17 @@ internal fun BrowseGrid(
     var culling by remember { mutableStateOf(emptyMap<String, PhotoCulling>()) }
     val gridState = rememberFolderGridState(state.folder?.uri)
     val directories = folders.filter { it.name != ".." }
-    LaunchedEffect(photos) {
+    LaunchedEffect(photos, state.selected?.uri, state.document, state.documentLoaded) {
         culling =
             withContext(Dispatchers.IO) {
                 photos.associate { photo ->
-                    photo.uri.toString() to
-                        runCatching { cullingOf(model.library.loadSidecar(photo).document) }
-                            .getOrDefault(PhotoCulling())
+                    val marks =
+                        if (state.documentLoaded && photo.uri == state.selected?.uri)
+                            cullingOf(state.document)
+                        else
+                            runCatching { cullingOf(model.library.loadSidecar(photo).document) }
+                                .getOrDefault(PhotoCulling())
+                    photo.uri.toString() to marks
                 }
             }
     }

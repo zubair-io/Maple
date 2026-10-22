@@ -23,6 +23,8 @@ internal fun BookSplitPhotoSurface(
     posture: FoldablePosture,
     zoomState: CanvasZoomState,
     group: EditorGroup,
+    subTool: String,
+    onSubTool: (String) -> Unit,
     selectGroup: (EditorGroup) -> Unit,
     armedField: AdjustmentField,
     armedValue: Float,
@@ -37,6 +39,7 @@ internal fun BookSplitPhotoSurface(
     onExportSidecar: () -> Unit,
 ) {
     val editing = state.mode == PhotoMode.Edit
+    val cropActive = editing && group == EditorGroup.Detail && subTool == "crop"
     Row(
         Modifier.fillMaxSize()
             .background(MapleColors.canvas)
@@ -55,6 +58,7 @@ internal fun BookSplitPhotoSurface(
                 zoomState = zoomState,
                 badgeStartPadding = 12.dp,
                 badgeBottomPadding = if (state.showFilmstrip) 76.dp else 12.dp,
+                showCropOverlay = cropActive,
             )
             if (editing)
                 androidx.compose.animation.AnimatedVisibility(hud, Modifier.align(Alignment.Center)) {
@@ -108,7 +112,14 @@ internal fun BookSplitPhotoSurface(
                         Modifier.weight(1f).fillMaxHeight().testTag("adjustments-panel"),
                         RoundedCornerShape(16.dp),
                     ) {
-                        ControlsInspector(model, state, group, Modifier.fillMaxSize())
+                        ControlsInspector(
+                            model,
+                            state,
+                            group,
+                            Modifier.fillMaxSize(),
+                            activeSubTool = subTool,
+                            onSubToolChange = onSubTool,
+                        )
                     }
                     ToolDock(group, selectGroup, Modifier.fillMaxHeight())
                 }
@@ -140,6 +151,8 @@ internal fun TabletopSplitPhotoSurface(
     posture: FoldablePosture,
     zoomState: CanvasZoomState,
     group: EditorGroup,
+    subTool: String,
+    onSubTool: (String) -> Unit,
     armed: String,
     selectGroup: (EditorGroup) -> Unit,
     onSelectArmed: (String) -> Unit,
@@ -154,8 +167,10 @@ internal fun TabletopSplitPhotoSurface(
     onToggleAdjustments: () -> Unit,
     onInfo: () -> Unit,
     onExport: () -> Unit,
+    onExportSidecar: () -> Unit,
 ) {
     val editing = state.mode == PhotoMode.Edit
+    val cropActive = editing && group == EditorGroup.Detail && subTool == "crop"
     Column(
         Modifier.fillMaxSize()
             .background(MapleColors.canvas)
@@ -172,6 +187,7 @@ internal fun TabletopSplitPhotoSurface(
                 onHistogram = onHistogram,
                 modifier = Modifier.fillMaxSize(),
                 zoomState = zoomState,
+                showCropOverlay = cropActive,
             )
             if (editing)
                 androidx.compose.animation.AnimatedVisibility(hud, Modifier.align(Alignment.Center)) {
@@ -210,7 +226,7 @@ internal fun TabletopSplitPhotoSurface(
         ) {
             if (state.showFilmstrip)
                 MapleGlass(Modifier.fillMaxWidth()) { HorizontalFilmstrip(model, state) }
-            if (editing && adjustments) {
+            if (editing && showInspector && adjustments) {
                 if (posture.windowWidthDp >= 600.dp) {
                     Row(
                         Modifier.weight(1f).fillMaxWidth().padding(12.dp),
@@ -221,7 +237,14 @@ internal fun TabletopSplitPhotoSurface(
                             Modifier.weight(1f).fillMaxHeight().testTag("adjustments-panel"),
                             RoundedCornerShape(16.dp),
                         ) {
-                            ControlsInspector(model, state, group, Modifier.fillMaxSize())
+                            ControlsInspector(
+                                model,
+                                state,
+                                group,
+                                Modifier.fillMaxSize(),
+                                activeSubTool = subTool,
+                                onSubToolChange = onSubTool,
+                            )
                         }
                         ToolDock(group, selectGroup, Modifier.fillMaxHeight())
                     }
@@ -238,8 +261,14 @@ internal fun TabletopSplitPhotoSurface(
                             selectGroup,
                             onSelectArmed,
                             onMore,
+                            activeSubTool = subTool,
+                            onSubToolChange = onSubTool,
                         )
                     }
+                }
+            } else if (!showInspector) {
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    InfoPanel(state, onExportSidecar = onExportSidecar)
                 }
             } else if (!editing) {
                 Box(
