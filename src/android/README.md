@@ -286,9 +286,12 @@ stale edits or navigation cannot publish a completed window. A bounded pan
 margin avoids rendering again for small movements. The GPU worker continues
 ordinary preview rendering independently.
 
-Native windows admit at most 8 megapixels of working pixels; raster sources
-are limited to 32 megapixels before float decoding. Unsupported RAW modes or
-edits (including Dehaze and Deep Denoise) show an explicit preview-only message.
+Native windows admit at most 8 megapixels of working pixels. Raster decoding
+reserves encoded bytes plus 44 bytes per pixel for the simultaneous RGB-f32 and
+two RGBA-f32 buffers against a 320 MiB decode budget. Larger raster images,
+including typical 12 MP JPEGs, retain preview-only zoom rather than risking a
+native allocation failure. Unsupported RAW modes or edits (including Dehaze
+and Deep Denoise) also show an explicit preview-only message.
 They do not report a magnified preview as resolved native detail. Device tests
 check one-pixel texture and window placement in both Preview and Edit, RAW
 ownership after GPU teardown, cancellation, and sRGB/P3 bitmap tags.

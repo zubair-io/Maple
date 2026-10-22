@@ -59,6 +59,43 @@ class CropToolTest {
     }
 
     @Test
+    fun lockedCornersResizeFromVerticalMotionAndKeepTheOppositeCornerFixed() {
+        val original = CropRect(0.2f, 0.3f, 0.8f, 0.7f)
+        for (handle in listOf(CropHandle.TL, CropHandle.TR, CropHandle.BL, CropHandle.BR)) {
+            val left = handle == CropHandle.TL || handle == CropHandle.BL
+            val top = handle == CropHandle.TL || handle == CropHandle.TR
+            val next = CropGeometry.resizeCrop(original, handle,
+                if (left) original.left else original.right,
+                if (top) 0.3f else 0.7f, 1f, 3000f, 2000f)
+            assertEquals(0.5f, next.bottom - next.top, 1e-4f)
+            assertEquals(1f, 1.5f * (next.right - next.left) / (next.bottom - next.top), 1e-4f)
+            assertEquals(if (left) original.right else original.left, if (left) next.right else next.left, 1e-4f)
+            assertEquals(if (top) original.bottom else original.top, if (top) next.bottom else next.top, 1e-4f)
+        }
+    }
+
+    @Test
+    fun verticalLockedCornerGestureResizesTheCrop() {
+        var crop by mutableStateOf(CropGeometry.centeredCropForAspect(1f, 1.5f, 1f, 0f))
+        var commits = 0
+        compose.setContent {
+            Box(Modifier.size(300.dp, 200.dp)) {
+                CropOverlay(crop, { crop = it }, { commits++ }, lockedAspect = 1f, imageAspect = 1.5f)
+            }
+        }
+        compose.onNodeWithTag("crop-overlay").performTouchInput {
+            down(Offset(width * crop.right - 1f, height * crop.bottom - 1f))
+            moveBy(Offset(0f, -height * 0.1f))
+            up()
+        }
+        compose.runOnIdle {
+            assertTrue(crop.bottom < 0.95f)
+            assertEquals(1f, 1.5f * (crop.right - crop.left) / (crop.bottom - crop.top), 1e-4f)
+            assertEquals(1, commits)
+        }
+    }
+
+    @Test
     fun cropCatalogMatchesTheNineCanonicalPresets() {
         assertEquals(
             listOf("free", "original", "1:1", "3:2", "4:3", "16:9", "2:3", "3:4", "9:16"),

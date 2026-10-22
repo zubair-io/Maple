@@ -17,7 +17,19 @@ use std::{
 };
 
 const MAX_WORKING_PIXELS: u64 = 8 * 1024 * 1024;
-const MAX_RASTER_PIXELS: u64 = 32 * 1024 * 1024;
+const MAX_RASTER_DECODE_BYTES: u64 = 320 * 1024 * 1024;
+// decode_raster_base simultaneously owns RGB f32 plus input/output RGBA f32.
+const RASTER_DECODE_BYTES_PER_PIXEL: u64 = (3 + 4 + 4) * std::mem::size_of::<f32>() as u64;
+
+fn raster_decode_fits(width: u32, height: u32, encoded_bytes: usize) -> bool {
+    width != 0
+        && height != 0
+        && u64::from(width)
+            .checked_mul(u64::from(height))
+            .and_then(|pixels| pixels.checked_mul(RASTER_DECODE_BYTES_PER_PIXEL))
+            .and_then(|bytes| bytes.checked_add(encoded_bytes as u64))
+            .is_some_and(|bytes| bytes <= MAX_RASTER_DECODE_BYTES)
+}
 
 pub struct DetailSource {
     raw: Option<Arc<RawImage>>,
@@ -130,7 +142,7 @@ impl DetailSource {
                 &*self.bytes,
             ))
             .map_err(|e| e.to_string())?;
-            if u64::from(meta.width) * u64::from(meta.height) > MAX_RASTER_PIXELS {
+            if !raster_decode_fits(meta.width, meta.height, self.bytes.len()) {
                 return Err("Image exceeds the native-detail raster memory budget".into());
             }
             self.raster =
@@ -287,6 +299,45 @@ pub extern "C" fn maple_android_presentation_dimensions(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn raster_decode_admission_counts_all_float_buffers_and_encoded_bytes() {
+        assert_eq!(RASTER_DECODE_BYTES_PER_PIXEL, 44);
+        assert!(raster_decode_fits(1920, 1080, 2 * 1024 * 1024));
+        assert!(raster_decode_fits(3072, 2048, 8 * 1024 * 1024));
+        assert!(!raster_decode_fits(4000, 3000, 1024));
+        assert!(!raster_decode_fits(8000, 4000, 1024));
+        let pixels = (MAX_RASTER_DECODE_BYTES / RASTER_DECODE_BYTES_PER_PIXEL) as u32;
+        let remaining =
+            (MAX_RASTER_DECODE_BYTES - u64::from(pixels) * RASTER_DECODE_BYTES_PER_PIXEL) as usize;
+        assert!(raster_decode_fits(pixels, 1, remaining));
+        assert!(!raster_decode_fits(pixels, 1, remaining + 1));
+    }
+
+    #[test]
+    fn raster_decode_admission_rejects_overflow_and_empty_dimensions() {
+        assert!(!raster_decode_fits(u32::MAX, u32::MAX, 0));
+        assert!(!raster_decode_fits(1, 1, usize::MAX));
+        assert!(!raster_decode_fits(0, 1080, 0));
+    }
+
+    #[test]
+    fn oversized_raster_is_rejected_from_its_header_before_pixel_decode() {
+        let mut bytes = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut bytes)
+            .encode(&[100, 100, 100], 1, 1, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let marker = bytes.windows(2).position(|p| p == [0xff, 0xc0]).unwrap();
+        bytes[marker + 5..marker + 7].copy_from_slice(&3000u16.to_be_bytes());
+        bytes[marker + 7..marker + 9].copy_from_slice(&4000u16.to_be_bytes());
+        let source = DetailSource::new(None, Arc::new(bytes), "jpg".into());
+        let mut source = source.lock().unwrap();
+        let result = source.render(r#"<r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><r:Description/></r:RDF>"#, TileRect {
+            src_x: 0, src_y: 0, src_w: 32, src_h: 32, out_w: 32, out_h: 32,
+        }, TargetPrimaries::Srgb, raw_core::CancelToken::never());
+        assert!(result.unwrap_err().contains("raster memory budget"));
+        assert!(source.raster.is_none());
+    }
+
     #[test]
     fn detail_source_can_cross_threads_without_gpu_custody() {
         fn check<T: Send + Sync>() {}
