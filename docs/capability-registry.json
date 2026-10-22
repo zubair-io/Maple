@@ -885,6 +885,7 @@
         "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarStore.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarFilePublication.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarFilePublication.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/BatchMetadataViewModel.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/Sources/FilesystemSource.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/Sources/PhotoKitSource.swift",
@@ -896,17 +897,17 @@
         "src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPPassthroughTests.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/XmpMetadata+Empty.swift"
       ],
-      "corpus_hash": "blake3:d53f5d251ab1a83ea69294c37ac65299826b58a2d2450ce3ac594691ee8c43c3",
+      "corpus_hash": "blake3:3538b311148b5ad100e69f45ddc68cd6bb20a242829c2173b7db147166c5eb33",
       "status": "satisfied",
       "record": {
         "backend": "xctest-macos",
-        "corpus_hash": "blake3:d53f5d251ab1a83ea69294c37ac65299826b58a2d2450ce3ac594691ee8c43c3",
+        "corpus_hash": "blake3:3538b311148b5ad100e69f45ddc68cd6bb20a242829c2173b7db147166c5eb33",
         "expected_cases": 12,
         "executed_cases": 12,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "69671dbc951c90373d7be15f72670151f4c926ad",
-        "recorded_at": "2026-10-22T15:35:42Z",
+        "git_sha": "0bacfbaf4155abf99de8038d4ec9fb22b3d4719a",
+        "recorded_at": "2026-10-22T16:10:06Z",
         "command": "swift test --package-path src/apple/Packages/MapleCore --skip-build --filter SidecarTransactionContract"
       }
     },
