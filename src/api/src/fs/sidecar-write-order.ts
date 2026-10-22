@@ -289,6 +289,29 @@ export async function serializeSidecarWrites<T>(
   }
 }
 
+/** Claim a newly chosen conflict name without waiting while holding source
+ * sidecars. A busy destination must be retried by the caller; waiting could
+ * deadlock with a multi-path relocate already queued behind the source. */
+export async function trySerializeSidecarWrite<T>(
+  destination: string,
+  write: () => Promise<T>,
+): Promise<{ acquired: false } | { acquired: true; value: T }> {
+  const admission = reserveAdmission('\0unscoped');
+  let reservation: WriteReservation | undefined;
+  try {
+    await admission.previous;
+    const keys = await destinationKeys(destination, canonicalKeys(destination, false));
+    if (keys.some((key) => pendingWrites.has(key))) return { acquired: false };
+    const registered = registerReservation(keys);
+    reservation = registered.reservation;
+    admission.release();
+    return { acquired: true, value: await write() };
+  } finally {
+    admission.release();
+    if (reservation) releaseReservation(reservation, false);
+  }
+}
+
 export async function serializeSidecarWrite<T>(
   destination: string,
   write: (resolvedDestination: string) => Promise<T>,
