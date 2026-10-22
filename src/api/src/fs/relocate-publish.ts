@@ -164,7 +164,7 @@ async function copyExclusive(source: string, destination: string): Promise<Reloc
     try {
       await streamInto(source, target);
       // A temp the caller fsynced is a different file: flush the copy itself.
-      await target.datasync();
+      await flushPublishedCopy(target);
     } finally {
       await target.close();
     }
@@ -175,6 +175,23 @@ async function copyExclusive(source: string, destination: string): Promise<Reloc
   }
   fs.replicatePath(destination);
   return publication;
+}
+
+const SYNC_UNSUPPORTED = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS']);
+
+async function flushPublishedCopy(target: fs.FileHandle): Promise<void> {
+  try {
+    await target.datasync();
+  } catch (error) {
+    if (!SYNC_UNSUPPORTED.has(errnoCode(error) ?? '')) throw error;
+    try {
+      await target.sync();
+    } catch (fallbackError) {
+      // Some network mounts implement neither flush operation. Keep their
+      // byte-verified publication usable; real I/O failures still roll back.
+      if (!SYNC_UNSUPPORTED.has(errnoCode(fallbackError) ?? '')) throw fallbackError;
+    }
+  }
 }
 
 /** The handle's inode, read twice before giving up. Without it the created
