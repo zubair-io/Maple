@@ -59,13 +59,12 @@ export async function hasHandoffProof(
       // Invalid or expired step-up token; fall through to check refresh proof.
     }
   }
-  const rawRefresh =
-    typeof proof.cookie.maple_refresh?.value === 'string' &&
-    proof.cookie.maple_refresh?.value.length > 0
-      ? proof.cookie.maple_refresh?.value
-      : typeof proof.body?.refresh_token === 'string' && proof.body?.refresh_token.length > 0
-        ? proof.body?.refresh_token
-        : null;
-  if (!rawRefresh) return false;
-  return await hasLivePrimaryRefreshToken(userId, rawRefresh);
+  // Each advertised proof channel stands on its own: stale browser cookies
+  // must not shadow a native client's valid explicit token (or vice versa).
+  const candidates = [proof.body?.refresh_token, proof.cookie.maple_refresh?.value];
+  for (const rawRefresh of new Set(candidates)) {
+    if (typeof rawRefresh !== 'string' || rawRefresh.length === 0) continue;
+    if (await hasLivePrimaryRefreshToken(userId, rawRefresh)) return true;
+  }
+  return false;
 }
