@@ -164,7 +164,7 @@ pub fn export_from_raw_with_film(
 }
 
 /// Shared terminal encoder for RAW and already-developed raster inputs.
-pub(crate) fn encode_pixels(
+pub fn encode_pixels(
     width: u32,
     height: u32,
     pixels: ExportPixels,

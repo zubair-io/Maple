@@ -1,15 +1,13 @@
 package app.justmaple.aperture.data
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.system.Os
 import android.system.OsConstants
 import app.justmaple.aperture.cloud.CloudLibrary
-import app.justmaple.aperture.ui.ExportFormat
+import app.justmaple.aperture.ui.ExportColorSpace
 import app.justmaple.aperture.ui.ExportOptions
 import java.io.File
 import java.io.OutputStream
@@ -54,72 +52,27 @@ internal class PhotoExport(private val context: Context, private val library: Ph
                 val bytes = XmpEncoding.encode(document.serialize())
                 writeVerified(photo, destination) { it.write(bytes) }
             } else {
-                val temp = File(context.cacheDir, "export-${UUID.randomUUID()}.jpg")
+                val temp = File(context.cacheDir, "export-${UUID.randomUUID()}.${options.format.extension}")
                 try {
                     library.withOriginal(photo) { source ->
-                        NativeBridge.export(
+                        NativeBridge.exportConfigured(
                             source.absolutePath,
                             document.serialize(),
                             temp.absolutePath,
+                            options.format.wireName,
+                            options.quality,
+                            options.maxEdge,
+                            options.colorSpace == ExportColorSpace.DISPLAY_P3,
                         )
                     }
                     writeVerified(photo, destination) { output ->
-                        publishRender(temp, output, options)
+                        temp.inputStream().use { it.copyTo(output) }
                     }
                 } finally {
                     temp.delete()
                 }
             }
         }
-
-    internal fun publishRender(rendered: File, output: OutputStream, options: ExportOptions) {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(rendered.absolutePath, bounds)
-        val width = bounds.outWidth
-        val height = bounds.outHeight
-        if (
-            width <= 0 || height <= 0 ||
-                (options.format == ExportFormat.JPEG &&
-                    options.quality == 92 &&
-                    maxOf(width, height) <= options.maxEdge)
-        ) {
-            rendered.inputStream().use { it.copyTo(output) }
-            return
-        }
-        var sample = 1
-        while (maxOf(width, height).toLong() / (sample * 2L) >= options.maxEdge) sample *= 2
-        val decoded =
-            BitmapFactory.decodeFile(rendered.absolutePath, BitmapFactory.Options().apply {
-                    inSampleSize = sample
-                })
-                ?: return rendered.inputStream().use { it.copyTo(output) }
-        try {
-            val longest = maxOf(decoded.width, decoded.height)
-            val scaled =
-                if (longest > options.maxEdge) {
-                    val ratio = options.maxEdge.toFloat() / longest
-                    Bitmap.createScaledBitmap(
-                        decoded,
-                        (decoded.width * ratio).toInt().coerceAtLeast(1),
-                        (decoded.height * ratio).toInt().coerceAtLeast(1),
-                        true,
-                    )
-                } else decoded
-            try {
-                val quality =
-                    if (options.format == ExportFormat.PNG) 100
-                    else options.quality.coerceIn(1, 100)
-                check(scaled.compress(options.format.compressFormat, quality, output)) {
-                    "Export compression failed"
-                }
-                output.flush()
-            } finally {
-                if (scaled !== decoded) scaled.recycle()
-            }
-        } finally {
-            if (!decoded.isRecycled) decoded.recycle()
-        }
-    }
 
     private fun writeVerified(photo: Photo, destination: Uri, write: (OutputStream) -> Unit) {
         val resolver = context.contentResolver
