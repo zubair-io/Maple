@@ -12,6 +12,7 @@ import { fakeAuth } from '../../tests/helpers/test-auth';
 for (const mode of ['copy', 'move'] as const) {
   for (const filename of [
     'photo.xmp',
+    'photo.dng.xmp',
     'photo.v12345678-1234-1234-1234-123456789abc.xmp',
     'photo (conflict from Device).xmp',
   ]) {
