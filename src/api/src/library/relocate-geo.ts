@@ -40,7 +40,7 @@ import * as path from 'node:path';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 import { filesIdentical } from '../backup/fs-util.ts';
-import { listPairedSidecars } from '../fs/xmp-conflict.ts';
+import { listPairedSidecars, listPairedSidecarsStrict } from '../fs/xmp-conflict.ts';
 import {
   hasLegacyBackupEdit,
   removePhotoUnlessOldNameEditStays,
@@ -126,9 +126,10 @@ async function removeSourceAfterRepoint(sourceAbsPath: string, survivor: string)
 }
 
 /** A sidecar still at the source that no sibling there keeps for itself would
- * be left with no photo, so the source photo stays with it. */
+ * be left with no photo, so the source photo stays with it. A folder that can't
+ * be read throws rather than reading as empty, which keeps the photo too. */
 async function sidecarLeftBehind(sourceAbsPath: string): Promise<boolean> {
-  if ((await listPairedSidecars(sourceAbsPath)).length === 0) return false;
+  if ((await listPairedSidecarsStrict(sourceAbsPath)).length === 0) return false;
   return !(await sidecarStemClaimedBySibling(sourceAbsPath));
 }
 
