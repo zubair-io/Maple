@@ -1,3 +1,4 @@
+import type { SidecarWriteScope } from './sidecar-write-order';
 /**
  * XMP sidecar read/write and .maple/ thumbnail cache management.
  *
@@ -147,7 +148,7 @@ export async function writeXmpAtomic(
   rawAbsPath: string,
   xmlContent: string,
   signal?: AbortSignal,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
 ): Promise<OpResult<string>> {
   try {
     return await serializeSidecarWrite(
@@ -175,7 +176,7 @@ export async function updateXmpAtomic(
   rawAbsPath: string,
   merge: (existingXml: string) => string,
   signal?: AbortSignal,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
 ): Promise<OpResult<'written' | 'unchanged'>> {
   try {
     return await serializeSidecarWrite(
@@ -404,7 +405,7 @@ export async function writeXmpWithPrecondition(
   ifMtimeMatchesEpoch: number | null,
   deviceName: string,
   requireAbsent: boolean = false,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
   signal?: AbortSignal,
 ): Promise<XmpWriteOutcome> {
   try {
@@ -490,7 +491,7 @@ export async function writeXmpWithPrecondition(
  */
 export async function deleteXmpSidecar(
   rawAbsPath: string,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
   signal?: AbortSignal,
 ): Promise<OpResult & { existed?: boolean }> {
   try {

@@ -1,3 +1,4 @@
+import type { SidecarWriteScope } from '../../fs/sidecar-write-order';
 /** Per-photo preparation and conditional sidecar write; originals are never opened for writing. */
 import { createHash } from 'node:crypto';
 import { stat } from '../../fs/mirrored.ts';
@@ -30,7 +31,9 @@ async function readSidecar(path: string): Promise<{ xml: string; mtime: number |
   };
 }
 
-async function authorizedPath(target: SyncTarget): Promise<{ path: string; writeScope: string }> {
+async function authorizedPath(
+  target: SyncTarget,
+): Promise<{ path: string; writeScope: SidecarWriteScope }> {
   const authorized = await resolveAndAuthorizePath(target.path);
   if (!authorized.ok) throw new Error(authorized.error);
   const allowed = await safeWriteAllowed(authorized.data);
@@ -43,7 +46,7 @@ export type PreparedTarget =
   | {
       action: 'write';
       path: string;
-      writeScope: string;
+      writeScope: SidecarWriteScope;
       xml: string;
       mtime: number | null;
       entry: SyncEntry;

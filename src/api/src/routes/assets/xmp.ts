@@ -126,6 +126,7 @@ export const xmpRoutes = new Elysia()
           conflict,
           xmlContent,
           request.signal,
+          writeScope,
         );
         if (!outcome.ok) {
           set.status = 400;
@@ -205,7 +206,7 @@ export const xmpRoutes = new Elysia()
     const conflict = typeof query.conflict === 'string' ? query.conflict : null;
     const result =
       conflict !== null
-        ? await deleteConflictSidecar(absPath, conflict)
+        ? await deleteConflictSidecar(absPath, conflict, writeScope)
         : await deleteXmpSidecar(absPath, writeScope, request.signal);
     if (!result.ok) {
       set.status = 400;

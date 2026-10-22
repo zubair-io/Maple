@@ -307,10 +307,15 @@ async function carryLateSave(current: Buffer, dest: string, snapshot: Buffer): P
 }
 
 /** Publish `bytes` at `dest` exclusively, through a verified temp. */
-export async function publishBytesExclusive(dest: string, bytes: Buffer): Promise<void> {
+export async function publishBytesExclusive(
+  dest: string,
+  bytes: Buffer,
+  publications?: RelocatePublication[],
+): Promise<void> {
   const tmp = await writeVerifiedTemp(dest, bytes);
   try {
-    await publishExclusive(tmp, dest);
+    const publication = await publishExclusive(tmp, dest);
+    publications?.push(publication);
   } finally {
     await fs.unlink(tmp).catch(() => {});
   }
@@ -321,11 +326,15 @@ const CONFLICT_ATTEMPTS = 5;
 /** `bytes` as a `(conflict from move)` copy beside `photo`, which the
  * migration never adopts; another writer can take the picked name first, so
  * it picks again. False when no copy could be published. */
-export async function publishConflictBytes(photo: string, bytes: Buffer): Promise<boolean> {
+export async function publishConflictBytes(
+  photo: string,
+  bytes: Buffer,
+  publications?: RelocatePublication[],
+): Promise<boolean> {
   for (let attempt = 0; attempt < CONFLICT_ATTEMPTS; attempt++) {
     const conflict = await pickFreeConflictPath(photo, 'move');
     const published = await trySerializeSidecarWrite(conflict, () =>
-      publishBytesExclusive(conflict, bytes),
+      publishBytesExclusive(conflict, bytes, publications),
     ).then(
       (result) => result.acquired,
       () => false,
