@@ -57,11 +57,12 @@ fun MapleShell(model: MapleViewModel) {
             if (uri != null)
                 scope.launch { runCatching { model.export(uri, true) }.onFailure(model::report) }
         }
-    val configuration = LocalConfiguration.current
-    val tablet = configuration.smallestScreenWidthDp >= 600
-    val pinnedSources = tablet && configuration.screenWidthDp >= 1000 && sourcesVisible
-    val inlineInfo = tablet && configuration.screenWidthDp >= 1000
+    val posture = rememberFoldablePosture()
+    val tablet = posture.isWideLayout
     val browsing = state.mode == PhotoMode.Browse
+    val bookBrowseSplit = browsing && posture.isBookSplit && sourcesVisible
+    val pinnedSources = (posture.canPinSourcesSidebar && sourcesVisible) || bookBrowseSplit
+    val inlineInfo = posture.canInlineInfoPanel
     BackHandler(!browsing) { model.back() }
     BackHandler(browsing && drawer.isClosed && state.folderTrail.size > 1) {
         model.browse(state.folderTrail[state.folderTrail.lastIndex - 1])
@@ -116,10 +117,20 @@ fun MapleShell(model: MapleViewModel) {
                 }
             }
             Row(Modifier.weight(1f)) {
-                if (pinnedSources)
-                    Box(Modifier.width(220.dp).fillMaxHeight().background(MapleColors.sidebar)) {
+                if (pinnedSources) {
+                    val sidebarWidth =
+                        if (bookBrowseSplit) posture.primaryPaneSpanDp else 220.dp
+                    Box(
+                        Modifier.width(sidebarWidth)
+                            .fillMaxHeight()
+                            .background(MapleColors.sidebar),
+                    ) {
                         sidebar()
                     }
+                    if (bookBrowseSplit) {
+                        Spacer(Modifier.width(posture.hingeSpanDp).fillMaxHeight())
+                    }
+                }
                 Column(Modifier.weight(1f)) {
                     if (browsing) {
                         LibraryHeader(
@@ -128,7 +139,7 @@ fun MapleShell(model: MapleViewModel) {
                             else tab,
                             tablet,
                             onSources = {
-                                if (tablet && configuration.screenWidthDp >= 1000)
+                                if (posture.canPinSourcesSidebar || posture.isBookSplit)
                                     sourcesVisible = !sourcesVisible
                                 else scope.launch { drawer.open() }
                             },
@@ -176,6 +187,10 @@ fun MapleShell(model: MapleViewModel) {
                                 export.launch(
                                     "${state.selected?.name?.substringBeforeLast('.') ?: "photo"}-Maple.jpg"
                                 )
+                            },
+                            posture = posture,
+                            onExportSidecar = {
+                                sidecar.launch(state.selected?.sidecarName ?: "photo.xmp")
                             },
                         )
                     }
@@ -295,7 +310,7 @@ fun MapleShell(model: MapleViewModel) {
         ) {
             content()
         }
-    if (info && !inlineInfo && !browsing) {
+    if (info && !inlineInfo && !posture.isBookSplit && !browsing) {
         @OptIn(ExperimentalMaterial3Api::class)
         ModalBottomSheet(
             onDismissRequest = { info = false },

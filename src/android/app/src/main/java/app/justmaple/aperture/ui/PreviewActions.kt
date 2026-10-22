@@ -2,6 +2,7 @@ package app.justmaple.aperture.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.*
@@ -29,7 +30,17 @@ internal fun PreviewActions(model: MapleViewModel, state: MapleState) {
                 enabled = state.canChangeMetadata,
                 selected = picked,
             ) {
-                model.attribute("papp:Flag", if (picked) null else "pick")
+                model.togglePick()
+            }
+            val rejected = state.document.attribute("papp:Flag") == "reject"
+            MuiIconButton(
+                "Reject photo",
+                Icons.Outlined.Close,
+                enabled = state.canChangeMetadata,
+                selected = rejected,
+                testTag = "reject-button",
+            ) {
+                model.toggleReject()
             }
             for (rating in 1..5) MuiIconButton(
                 "Rate $rating stars",
