@@ -48,12 +48,10 @@ fun PhotoSurface(
     var histogram by remember { mutableStateOf<Result<RgbHistogram>?>(null) }
     var hud by remember { mutableStateOf(false) }
     val zoomState = rememberCanvasZoomState()
-    val field =
-        AdjustmentFields.byName[armed]?.takeIf(state::supportsField)
-            ?: AdjustmentFields.byName.getValue("exposure")
-    val value = state.values[field.name] ?: field.initial
     val editing = state.mode == PhotoMode.Edit
     val cropActive = editing && group == EditorGroup.Detail && subTool == "crop"
+    val field = if (cropActive) null else AdjustmentFields.byName[armed]?.takeIf(state::supportsField)
+    val value = field?.let { state.values[it.name] ?: it.initial } ?: 0f
     if (state.selected == null) return
     val selectGroup: (EditorGroup) -> Unit = {
         group = it
@@ -66,8 +64,9 @@ fun PhotoSurface(
             adjustments = true
         } else adjustments = !adjustments
     }
-    LaunchedEffect(armed, value) {
-        if (!state.loading && state.values.isNotEmpty()) {
+    LaunchedEffect(field?.name, value) {
+        hud = false
+        if (field != null && !state.loading && state.values.isNotEmpty()) {
             hud = true
             delay(1_000)
             hud = false
@@ -216,7 +215,7 @@ fun PhotoSurface(
                     ) {
                         PreviewActions(model, state)
                     }
-                if (editing)
+                if (editing && field != null)
                     AnimatedVisibility(hud, Modifier.align(Alignment.Center)) {
                         MapleGlass(shape = CircleShape) {
                             Text(

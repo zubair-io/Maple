@@ -26,7 +26,7 @@ internal fun BookSplitPhotoSurface(
     subTool: String,
     onSubTool: (String) -> Unit,
     selectGroup: (EditorGroup) -> Unit,
-    armedField: AdjustmentField,
+    armedField: AdjustmentField?,
     armedValue: Float,
     hud: Boolean,
     histogram: Result<RgbHistogram>?,
@@ -60,7 +60,7 @@ internal fun BookSplitPhotoSurface(
                 badgeBottomPadding = if (state.showFilmstrip) 76.dp else 12.dp,
                 showCropOverlay = cropActive,
             )
-            if (editing)
+            if (editing && armedField != null)
                 androidx.compose.animation.AnimatedVisibility(hud, Modifier.align(Alignment.Center)) {
                     MapleGlass(shape = CircleShape) {
                         Text(
@@ -157,7 +157,7 @@ internal fun TabletopSplitPhotoSurface(
     selectGroup: (EditorGroup) -> Unit,
     onSelectArmed: (String) -> Unit,
     onMore: () -> Unit,
-    armedField: AdjustmentField,
+    armedField: AdjustmentField?,
     armedValue: Float,
     hud: Boolean,
     histogram: Result<RgbHistogram>?,
@@ -189,7 +189,7 @@ internal fun TabletopSplitPhotoSurface(
                 zoomState = zoomState,
                 showCropOverlay = cropActive,
             )
-            if (editing)
+            if (editing && armedField != null)
                 androidx.compose.animation.AnimatedVisibility(hud, Modifier.align(Alignment.Center)) {
                     MapleGlass(shape = CircleShape) {
                         Text(
