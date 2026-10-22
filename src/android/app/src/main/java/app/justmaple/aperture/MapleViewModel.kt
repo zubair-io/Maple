@@ -341,6 +341,7 @@ internal constructor(
             ++generation
             ++autoWhiteBalanceRequest
             autoWhiteBalanceJob?.cancel()
+            openingEdit = null
             renderer.shutdown()
             mutable.update {
                 it.copy(

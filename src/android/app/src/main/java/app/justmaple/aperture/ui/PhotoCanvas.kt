@@ -146,7 +146,7 @@ internal fun PhotoCanvas(
                 viewportPxH,
             )
         val zoomModifier =
-            if (zoomState.isZoomed && nativeReady && !showCropOverlay)
+            if (zoomState.isZoomed && !showCropOverlay)
                 Modifier.graphicsLayer {
                     scaleX = zoomFactor
                     scaleY = zoomFactor
