@@ -1,6 +1,7 @@
 package app.justmaple.aperture.ui
 
 import android.net.Uri
+import android.content.Context
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
@@ -19,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,7 +41,10 @@ internal fun BrowseGrid(
     folders: List<Folder>,
     folderPicker: () -> Unit,
 ) {
-    var columns by rememberSaveable { mutableIntStateOf(3) }
+    val context = LocalContext.current.applicationContext
+    val gridPreferences = remember(context) { context.getSharedPreferences("browse-grid", Context.MODE_PRIVATE) }
+    var columns by rememberSaveable { mutableIntStateOf(gridPreferences.getInt("columns", 3).coerceIn(1, 7)) }
+    LaunchedEffect(columns) { gridPreferences.edit().putInt("columns", columns).apply() }
     var filter by rememberSaveable { mutableStateOf(BrowseFilter.All) }
     var sort by rememberSaveable { mutableStateOf(BrowseSort.Name) }
     var culling by remember { mutableStateOf(emptyMap<String, PhotoCulling>()) }
