@@ -55,11 +55,13 @@ Passkey ceremonies are two-step throughout: an `options` call returns the WebAut
 | POST   | `/api/auth/device-sessions`     | bearer          | Mint a paired-device session (Maple TV or Maple Watch) on proof of a refresh token                               |
 | GET    | `/api/auth/device-sessions`     | bearer          | List paired devices                                                                                              |
 | DELETE | `/api/auth/device-sessions/:id` | bearer +step-up | Revoke a paired device                                                                                           |
-| POST   | `/api/auth/native-code`         | bearer          | Issue a one-time PKCE code for a native shell, bound to its S256 challenge and opaque state                      |
+| POST   | `/api/auth/native-code`         | bearer + proof  | Issue a one-time PKCE code for a native shell, bound to its S256 challenge and opaque state                      |
 | POST   | `/api/auth/native-code/redeem`  | public          | Native app exchanges code + verifier for device-scoped tokens                                                    |
 | POST   | `/api/auth/native-code/claim`   | public          | Callback-code exchange requiring state, PKCE verifier and the browser-delivered one-time code                    |
-| POST   | `/api/auth/lan-handoff`         | bearer          | Issue a one-time code so a signed-in public-URL session can continue on the LAN origin                           |
+| POST   | `/api/auth/lan-handoff`         | bearer + proof  | Issue a one-time code so a signed-in public-URL session can continue on the LAN origin                           |
 | POST   | `/api/auth/lan-handoff/redeem`  | public          | Exchange that code for a session on the LAN origin                                                               |
+
+Handoff issuance (`native-code` and `lan-handoff`) also requires proof for the same user: a live primary refresh token in the `maple_refresh` cookie or JSON body `refresh_token`, or a valid passkey step-up token in `X-Step-Up`. A bearer access token alone returns HTTP 403; device-scoped refresh tokens do not satisfy this proof.
 
 ### Users and service keys
 
