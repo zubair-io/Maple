@@ -1,7 +1,24 @@
 /** Scoped admission and canonical-path sequencing for sidecar writes (#4051). */
 import * as fs from 'node:fs/promises';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import * as path from 'node:path';
 import { resolveRealPath } from './root.ts';
+
+// A multi-name transaction may call helpers for names it already owns.
+// Never wait on another owner's keys while retaining this transaction's keys.
+const ownedKeys = new AsyncLocalStorage<{ keys: ReadonlySet<string>; active: boolean }>();
+function heldKeys(): ReadonlySet<string> | undefined {
+  const held = ownedKeys.getStore();
+  return held?.active ? held.keys : undefined;
+}
+async function withOwnedKeys<T>(keys: readonly string[], write: () => Promise<T>): Promise<T> {
+  const scope = { keys: new Set([...(heldKeys() ?? []), ...keys]), active: true };
+  try {
+    return await ownedKeys.run(scope, write);
+  } finally {
+    scope.active = false;
+  }
+}
 
 const pendingWrites = new Map<string, Promise<void>>();
 const inFlightKeys = new Map<string, Promise<string[]>>();
@@ -301,12 +318,19 @@ export async function serializeSidecarWrites<T>(
         destinationKeys(destination, canonicalKeys(destination, false)),
       ),
     );
-    const registered = registerReservation([...new Set(keySets.flat())]);
+    const held = heldKeys();
+    const keys = [...new Set(keySets.flat())].filter((key) => !held?.has(key));
+    if (held && keys.some((key) => pendingWrites.has(key))) {
+      throw new SidecarWritePathDeniedError(
+        'Sidecar transaction encountered a busy new name; retry',
+      );
+    }
+    const registered = registerReservation(keys);
     reservation = registered.reservation;
     admission.release();
     await waitForAbortable(registered.previousWrites, options.signal);
     await validateWriteScope(options.admissionScope, options.signal);
-    return await write();
+    return await withOwnedKeys(reservation.keys, write);
   } finally {
     if (options.signal?.aborted && !admission.acquired) admission.releaseAfterPrevious();
     else admission.release();
@@ -326,8 +350,9 @@ export async function trySerializeSidecarWrite<T>(
   try {
     await admission.previous;
     const keys = await destinationKeys(destination, canonicalKeys(destination, false));
-    if (keys.some((key) => pendingWrites.has(key))) return { acquired: false };
-    const registered = registerReservation(keys);
+    const unheld = keys.filter((key) => !heldKeys()?.has(key));
+    if (unheld.some((key) => pendingWrites.has(key))) return { acquired: false };
+    const registered = registerReservation(unheld);
     reservation = registered.reservation;
     admission.release();
     return { acquired: true, value: await write() };
@@ -342,6 +367,17 @@ export async function serializeSidecarWrite<T>(
   write: (resolvedDestination: string) => Promise<T>,
   options: SidecarWriteOrderOptions = {},
 ): Promise<T> {
+  if (heldKeys()) {
+    const resolved = await waitForAbortable(
+      Promise.resolve().then(() => options.resolveDestination?.() ?? destination),
+      options.signal,
+    );
+    return serializeSidecarWrites(
+      [destination, resolved],
+      () => write(path.resolve(resolved)),
+      options,
+    );
+  }
   // Keep admission ordered within a library, while reserving canonical path
   // keys before potentially slow authorization. This lets aliases queue in
   // arrival order without making unrelated libraries wait for path checks.

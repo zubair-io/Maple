@@ -49,6 +49,7 @@
 
 import * as fs from './mirrored.ts';
 import * as path from 'node:path';
+import { withReplaceSidecarFence } from './relocate-replace-fence.ts';
 import { isLegacyBackupSidecarOf } from './legacy-backup-sidecar.ts';
 import {
   PublishCollisionError,
@@ -443,6 +444,18 @@ async function relocateOnce(
     return { kind: 'skipped', reason: 'collision' };
   }
   const { finalDest } = resolution;
+  await fs.mkdir(path.dirname(finalDest), { recursive: true });
+  const execute = () => relocateResolved(req, finalDest, ownSidecars);
+  return req.collision === 'replace' && req.carrySidecars !== false
+    ? withReplaceSidecarFence(req.sourceAbsPath, finalDest, execute)
+    : execute();
+}
+
+async function relocateResolved(
+  req: RelocateRequest,
+  finalDest: string,
+  ownSidecars: readonly string[],
+): Promise<RelocateOutcome> {
   const plan = await planSidecars({
     sourceAbsPath: req.sourceAbsPath,
     finalDest,
@@ -450,8 +463,6 @@ async function relocateOnce(
     replace: req.collision === 'replace',
     sourceSidecars: ownSidecars,
   });
-
-  await fs.mkdir(path.dirname(finalDest), { recursive: true });
 
   const createdPaths: RelocatePublication[] = [];
   const progress = { repointed: false };
