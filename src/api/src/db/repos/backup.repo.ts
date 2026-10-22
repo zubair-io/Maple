@@ -45,6 +45,7 @@ import {
 import { ALL_STAGE_NAMES } from '../../workers/stages/stage-names.ts';
 import { seedStageRowStatements } from './stage-state.repo.ts';
 import { relocateCacheRearmStatements } from './assets.stage-rearm.ts';
+import { transactionUnlessPurged } from './backup-purge-guard.ts';
 import { nowIso, placeholders, toHex } from './values.ts';
 
 export type { SqliteDb } from './db-handle.ts';
@@ -311,14 +312,15 @@ function linkStatement(assetId: string, link: PhassetLink) {
   };
 }
 
-/** Record this device's PHAsset against an asset the library already holds. */
+/** Record this device's PHAsset against an asset the library already holds;
+ * false when a purge intent owns it. */
 export async function linkPhasset(
   assetId: ObjectId,
   link: PhassetLink,
   dbOverride?: SqliteDb,
-): Promise<void> {
-  const statement = linkStatement(toHex(assetId), link);
-  await sqliteDb(dbOverride).write(statement.sql, statement.params);
+): Promise<boolean> {
+  const hex = toHex(assetId);
+  return transactionUnlessPurged(sqliteDb(dbOverride), hex, [linkStatement(hex, link)]);
 }
 
 /**
@@ -374,22 +376,13 @@ export async function appendBackupLocation(
   assetId: ObjectId,
   input: AppendBackupLocationInput,
   dbOverride?: SqliteDb,
-): Promise<void> {
+): Promise<boolean> {
   const db = sqliteDb(dbOverride);
   const hex = toHex(assetId);
   const libHex = toHex(input.libraryId);
   const { dir, filename } = splitRelPath(input.relPath);
   const replaced = input.replacedRelPath ? splitRelPath(input.replacedRelPath) : null;
-  await db.transaction([
-    {
-      sql: `CREATE TEMP TABLE maple_backup_repair_guard(
-        ready INTEGER CONSTRAINT no_admitted_purge CHECK(ready = 1))`,
-    },
-    {
-      sql: `INSERT INTO maple_backup_repair_guard SELECT NOT EXISTS
-        (SELECT 1 FROM backup_lifecycle WHERE asset_id = ? AND kind = 'purge')`,
-      params: [hex],
-    },
+  const written = await transactionUnlessPurged(db, hex, [
     {
       sql: `UPDATE assets SET deleted_at = NULL, deleted_reason = NULL
             WHERE id = ? AND deleted_reason = 'reaped'`,
@@ -459,9 +452,9 @@ export async function appendBackupLocation(
           },
         ]
       : []),
-    { sql: `DROP TABLE maple_backup_repair_guard` },
   ]);
-  await refreshMediaKind(db, hex);
+  if (written) await refreshMediaKind(db, hex);
+  return written;
 }
 
 export interface InsertBackupAssetInput {
