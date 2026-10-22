@@ -210,17 +210,7 @@ object CropGeometry {
         return CropRect(top = top, left = left, bottom = top + h, right = left + w, angle = angle)
     }
 
-    fun rotateCrop90Cw(crop: CropRect): CropRect =
-        CropRect(
-            top = crop.left,
-            left = 1f - crop.bottom,
-            bottom = crop.right,
-            right = 1f - crop.top,
-            angle = crop.angle,
-        )
 
-    fun flipCropHorizontal(crop: CropRect): CropRect =
-        crop.copy(left = 1f - crop.right, right = 1f - crop.left)
 }
 
 fun XmpDocument.cropRect(): CropRect {
@@ -369,20 +359,8 @@ internal fun CropControlsSection(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OutlinedButton(
-                onClick = { model.applyCropRect(CropGeometry.rotateCrop90Cw(crop)) },
-                enabled = state.canEdit,
-                modifier = Modifier.weight(1f).testTag("crop-rotate-90-button"),
-            ) {
-                Text("Rotate 90°", fontSize = 11.sp)
-            }
-            OutlinedButton(
-                onClick = { model.applyCropRect(CropGeometry.flipCropHorizontal(crop)) },
-                enabled = state.canEdit,
-                modifier = Modifier.weight(1f).testTag("crop-flip-h-button"),
-            ) {
-                Text("Flip H", fontSize = 11.sp)
-            }
+            // Image rotation and mirroring remain tracked by #5191.
+            // Moving crop bounds alone does not transform image pixels.
             TextButton(
                 onClick = {
                     model.setCropAspect(CropAspectId.Free)

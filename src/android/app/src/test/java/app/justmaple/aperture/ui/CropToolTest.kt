@@ -129,7 +129,7 @@ class CropToolTest {
     }
 
     @Test
-    fun resizeMoveRotateAndFlipMaintainNormalizedInvariants() {
+    fun movingCropMaintainsNormalizedInvariants() {
         val initial = CropRect(top = 0.1f, left = 0.2f, bottom = 0.8f, right = 0.9f, angle = 0f)
         val moved = CropGeometry.moveCrop(initial, dnx = 0.5f, dny = -0.5f)
         assertEquals(0f, moved.top, 1e-4f)
@@ -137,15 +137,7 @@ class CropToolTest {
         assertEquals(0.7f, moved.bottom, 1e-4f)
         assertEquals(1.0f, moved.right, 1e-4f)
 
-        val rotated = CropGeometry.rotateCrop90Cw(initial)
-        assertEquals(0.2f, rotated.top, 1e-4f)
-        assertEquals(0.2f, rotated.left, 1e-4f)
-        assertEquals(0.9f, rotated.bottom, 1e-4f)
-        assertEquals(0.9f, rotated.right, 1e-4f)
 
-        val flipped = CropGeometry.flipCropHorizontal(initial)
-        assertEquals(0.1f, flipped.left, 1e-4f)
-        assertEquals(0.8f, flipped.right, 1e-4f)
     }
 
     @Test
