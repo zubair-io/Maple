@@ -425,7 +425,9 @@ jobs:
             src/raw-pipeline/target
           key: web-workflow-native-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
       - name: Build real server workflow library
-        run: bash src/api/scripts/build-raw-ffi.sh
+        run: |
+          bash src/api/scripts/build-raw-ffi.sh
+          echo "MAPLE_NATIVE_LIB=$GITHUB_WORKSPACE/src/api/native/libraw_ffi.so" >> "$GITHUB_ENV"
       - name: Install Playwright Chrome
         working-directory: src/web
         run: bun x playwright install --with-deps chrome
