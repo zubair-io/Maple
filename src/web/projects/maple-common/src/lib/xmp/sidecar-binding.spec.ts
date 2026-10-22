@@ -4,6 +4,10 @@ import { primarySidecarFilename } from './sidecar-binding';
 describe('primary sidecar filenames', () => {
   it.each([
     ['IMG', 'IMG.xmp'],
+    ['.dng', '.dng.xmp'],
+    ['.mov', '.mov.xmp'],
+    ['.hidden.DNG', '.hidden.xmp'],
+    ['Shoot.2026/.dng', 'Shoot.2026/.dng.xmp'],
     ['IMG.', 'IMG.xmp'],
     ['IMG.CR3', 'IMG.xmp'],
     ['IMG.JPG', 'IMG.xmp'],

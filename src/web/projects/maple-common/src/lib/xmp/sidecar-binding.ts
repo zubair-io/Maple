@@ -36,9 +36,12 @@ export interface RetryableSidecarWrite {
 }
 
 export function primarySidecarFilename(rawFilename: string): string {
-  const extension = rawFilename.match(/\.([^./\\]+)$/)?.[1]?.toLowerCase();
-  if (extension && VIDEO_EXTENSIONS.has(extension)) return `${rawFilename}.xmp`;
-  return rawFilename.replace(/\.[^./\\]*$/, '') + '.xmp';
+  const leafStart = Math.max(rawFilename.lastIndexOf('/'), rawFilename.lastIndexOf('\\')) + 1;
+  const dot = rawFilename.lastIndexOf('.');
+  const stemEnd = dot > leafStart ? dot : rawFilename.length;
+  const extension = dot > leafStart ? rawFilename.slice(dot + 1).toLowerCase() : '';
+  if (VIDEO_EXTENSIONS.has(extension)) return `${rawFilename}.xmp`;
+  return rawFilename.slice(0, stemEnd) + '.xmp';
 }
 
 export function sameSidecar(a: HostedSidecarBinding, b: HostedSidecarBinding): boolean {
