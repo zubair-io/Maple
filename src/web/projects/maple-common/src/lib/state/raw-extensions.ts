@@ -36,6 +36,22 @@ export function isSupportedRaw(filename: string): boolean {
   return SUPPORTED_RAW_EXTENSIONS.has(ext);
 }
 
+const EYEDROPPER_NEEDS_RAW =
+  'The eyedropper samples RAW sensor data, so it is not available for JPEG, PNG, X3F or other sources without a decodable RAW.';
+
+export function fileExtension(filename: string): string {
+  return filename.split('.').pop()?.toLowerCase() ?? '';
+}
+
+// The samplers develop a RAW probe: a developed image has none, and the decoder rejects Foveon X3F.
+export function eyedropperUnavailableReason(ext: string): string | null {
+  return isNonRawExtension(ext) || ext === 'x3f' ? EYEDROPPER_NEEDS_RAW : null;
+}
+
+export function eyedropperUnavailableForFile(filename: string | undefined): string | null {
+  return filename ? eyedropperUnavailableReason(fileExtension(filename)) : null;
+}
+
 /** True when `ext` (already lowercased, no dot) is a non-RAW developed image. */
 export function isNonRawExtension(ext: string): boolean {
   return !SUPPORTED_RAW_EXTENSIONS.has(ext.toLowerCase());

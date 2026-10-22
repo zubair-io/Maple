@@ -11,6 +11,7 @@ import type { AdjustmentModel } from '../../models/adjustment-model';
 import type { LocalAdjustment } from '../../models/local-adjustment';
 import type { MaskRangeSeed } from '../../raw-pipeline/raw-pipeline.sample-range.types';
 import { RangeSampleRejected } from '../../raw-pipeline/raw-pipeline.sample-range.types';
+import { eyedropperUnavailableReason } from '../../state/raw-extensions';
 import { defaultRangeRefinement, seededRange } from './mask-range';
 
 /**
@@ -80,14 +81,17 @@ export async function sampleMaskRangeInto(
 ): Promise<boolean> {
   const id = host.focusedAssetId();
   if (!id) return false;
-  host.setMessage(null);
+  const ext = host.assetExtension(id);
+  const unavailable = eyedropperUnavailableReason(ext);
+  host.setMessage(unavailable);
+  if (unavailable !== null) return false;
   try {
     const bytes = await host.bytes(id);
     // The sampler develops its own probe from this model, so it must be the
     // model the canvas painted with — the click point is normalised against
     // the PAINTED raster (#3309).
     const xmp = host.serialize(host.currentAdjustment(id));
-    const seed = await host.sampleMaskRange(bytes, host.assetExtension(id), xmp, nx, ny);
+    const seed = await host.sampleMaskRange(bytes, ext, xmp, nx, ny);
     if (host.focusedAssetId() !== id) return false;
     host.applySeed(seed);
     return true;

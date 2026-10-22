@@ -12,6 +12,7 @@ import type { AssetId } from '../models/asset';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { WbSampleResult } from '../raw-pipeline/raw-pipeline.sample-wb.types';
 import { WbSampleRejected } from '../raw-pipeline/raw-pipeline.sample-wb.types';
+import { eyedropperUnavailableForFile, fileExtension } from '../state/raw-extensions';
 
 /**
  * The patch a manual temperature/tint edit writes alongside the new pair:
@@ -137,12 +138,14 @@ export async function sampleWhiteBalanceInto(
 ): Promise<boolean> {
   if (host.wbSampleInFlight()) return false;
   if (host.imageId() !== id || host.currentAdjustment() == null) return false;
-  host.autoResult.set(null);
+  const asset = host.library.assets().find((a) => a.id === id);
+  const unavailable = eyedropperUnavailableForFile(asset?.filename);
+  host.autoResult.set(unavailable);
+  if (unavailable !== null) return false;
   host.wbSampleInFlight.set(true);
   try {
     const bytes = host.library.bytesFor(id) ?? (await host.library.bytesForAsset(id));
-    const asset = host.library.assets().find((a) => a.id === id);
-    const ext = asset?.filename.split('.').pop()?.toLowerCase() ?? 'dng';
+    const ext = asset ? fileExtension(asset.filename) : 'dng';
     // The sampler develops its own probe from this model, so it must be the
     // model the canvas painted with: the click point is normalised against
     // the PAINTED raster, and a crop makes that a different raster than the
