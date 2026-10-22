@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performClick
 import app.justmaple.aperture.data.parseExifAttributes
 import org.junit.Assert.assertEquals
@@ -107,11 +108,13 @@ class ExifAndExportOptionsTest {
         compose.onNodeWithTag("export-format-PNG").assertIsSelected()
         compose.onNodeWithTag("export-quality-slider").assertDoesNotExist()
 
-        compose.onNodeWithTag("export-max-edge-2048").performClick()
+        compose.onNodeWithTag("export-max-edge-2048").performScrollTo().performClick()
+        compose.onNodeWithTag("export-color-space-DISPLAY_P3").performScrollTo().performClick()
         compose.onNodeWithText("Export").performClick()
         compose.runOnIdle {
             assertEquals(ExportFormat.PNG, confirmed?.format)
             assertEquals(2048, confirmed?.maxEdge)
+            assertEquals(ExportColorSpace.DISPLAY_P3, confirmed?.colorSpace)
             assertFalse(dismissed)
         }
     }

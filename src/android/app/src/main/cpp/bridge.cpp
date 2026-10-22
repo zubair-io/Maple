@@ -35,6 +35,7 @@ int maple_android_thumbnail(const char *, const char *, const char *, uint32_t);
 int maple_android_shared_derivative(const char *, const char *, const char *, bool);
 bool maple_android_cache_valid(int, uint32_t, const char *);
 int maple_android_cache_png(int, const char *);
+int maple_android_export_configured(const char *, const char *, const char *, const char *, uint32_t, uint32_t, bool);
 int maple_android_export(const char *, const char *, const char *);
 int maple_android_stage_bitmap(const uint8_t *, uint32_t, uint32_t, size_t, uint32_t, const float *, const char *);
 }
@@ -192,6 +193,15 @@ extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_
     Utf8 p(env, path), d(env, destination), x(env, xml);
     if (env->ExceptionCheck()) return;
     check(env, maple_android_thumbnail(p.get(), d.get(), x.get(), edge));
+}
+extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_exportConfigured(JNIEnv *env, jobject, jstring path, jstring xml, jstring destination, jstring format, jint quality, jint edge, jboolean p3) {
+    Utf8 p(env, path), x(env, xml), d(env, destination), f(env, format);
+    if (env->ExceptionCheck()) return;
+    if (quality < 1 || quality > 100 || edge < 0) {
+        env->ThrowNew(env->FindClass("java/lang/IllegalArgumentException"), "Invalid export quality or size");
+        return;
+    }
+    check(env, maple_android_export_configured(p.get(), x.get(), d.get(), f.get(), quality, edge, p3));
 }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_export(JNIEnv *env, jobject, jstring path, jstring xml, jstring destination) {
     Utf8 p(env, path), x(env, xml), d(env, destination);

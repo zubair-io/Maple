@@ -1,6 +1,7 @@
 package app.justmaple.aperture.ui
 
-import android.graphics.Bitmap
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -23,29 +24,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
-enum class ExportFormat(
-    val label: String,
-    val extension: String,
-    val mimeType: String,
-    val compressFormat: Bitmap.CompressFormat,
-) {
-    JPEG("JPEG", "jpg", "image/jpeg", Bitmap.CompressFormat.JPEG),
-    PNG("PNG", "png", "image/png", Bitmap.CompressFormat.PNG),
-    WEBP(
-        "WebP",
-        "webp",
-        "image/webp",
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R)
-            Bitmap.CompressFormat.WEBP_LOSSY
-        else
-            @Suppress("DEPRECATION") Bitmap.CompressFormat.WEBP,
-    ),
+enum class ExportFormat(val label: String, val extension: String, val mimeType: String, val wireName: String) {
+    JPEG("JPEG", "jpg", "image/jpeg", "jpeg"),
+    PNG("PNG", "png", "image/png", "png"),
+    TIFF("TIFF (16-bit)", "tif", "image/tiff", "tiff"),
+    AVIF("AVIF", "avif", "image/avif", "avif"),
+    WEBP("WebP", "webp", "image/webp", "webp"),
+}
+
+enum class ExportColorSpace(val label: String) {
+    SRGB("sRGB"), DISPLAY_P3("Display P3"),
 }
 
 data class ExportOptions(
     val format: ExportFormat = ExportFormat.JPEG,
     val quality: Int = 92,
     val maxEdge: Int = 4096,
+    val colorSpace: ExportColorSpace = ExportColorSpace.SRGB,
 ) {
     fun suggestedFileName(sourceName: String?): String {
         val stem = sourceName?.substringBeforeLast('.')?.takeIf { it.isNotEmpty() } ?: "photo"
@@ -60,6 +55,7 @@ fun ExportOptionsDialog(
     onConfirm: (ExportOptions) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var colorSpace by remember(initial) { mutableStateOf(initial.colorSpace) }
     var format by remember(initial) { mutableStateOf(initial.format) }
     var quality by remember(initial) { mutableFloatStateOf(initial.quality.toFloat()) }
     var maxEdge by remember(initial) { mutableIntStateOf(initial.maxEdge) }
@@ -68,7 +64,7 @@ fun ExportOptionsDialog(
         onDismissRequest = onDismiss,
         title = { Text("Export options") },
         text = {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Format")
                 FlowRow(
                     Modifier.fillMaxWidth(),
@@ -83,7 +79,7 @@ fun ExportOptionsDialog(
                         )
                     }
                 }
-                if (format != ExportFormat.PNG) {
+                if (format == ExportFormat.JPEG || format == ExportFormat.AVIF) {
                     Text("Quality: ${quality.toInt()}")
                     Slider(
                         modifier = Modifier.testTag("export-quality-slider").fillMaxWidth(),
@@ -92,17 +88,28 @@ fun ExportOptionsDialog(
                         valueRange = 1f..100f,
                     )
                 }
+                Text("Color space")
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (entry in ExportColorSpace.entries) {
+                        FilterChip(
+                            modifier = Modifier.testTag("export-color-space-${entry.name}"),
+                            selected = colorSpace == entry,
+                            onClick = { colorSpace = entry },
+                            label = { Text(entry.label) },
+                        )
+                    }
+                }
                 Text("Long edge")
                 FlowRow(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    for (edge in listOf(4096, 2048, 1024)) {
+                    for (edge in listOf(0, 4096, 2048, 1024)) {
                         FilterChip(
                             modifier = Modifier.testTag("export-max-edge-$edge"),
                             selected = maxEdge == edge,
                             onClick = { maxEdge = edge },
-                            label = { Text(edge.toString()) },
+                            label = { Text(if (edge == 0) "Original" else edge.toString()) },
                         )
                     }
                 }
@@ -116,6 +123,7 @@ fun ExportOptionsDialog(
                             format = format,
                             quality = quality.toInt().coerceIn(1, 100),
                             maxEdge = maxEdge,
+                            colorSpace = colorSpace,
                         )
                     )
                 }

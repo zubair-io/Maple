@@ -386,6 +386,30 @@ pub unsafe extern "C" fn maple_android_cache_valid(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn maple_android_export_configured(
+    path: *const c_char,
+    xml: *const c_char,
+    destination: *const c_char,
+    format: *const c_char,
+    quality: u32,
+    edge: u32,
+    p3: bool,
+) -> i32 {
+    guarded(-1, || {
+        transfer::export_configured(
+            text(path)?,
+            text(xml)?,
+            text(destination)?,
+            text(format)?,
+            quality,
+            edge,
+            p3,
+        )
+        .map(|_| 0)
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn maple_android_export(
     path: *const c_char,
     xml: *const c_char,
@@ -431,3 +455,6 @@ pub unsafe extern "C" fn maple_android_stage_bitmap(
         Ok(0)
     })
 }
+
+#[cfg(test)]
+mod export_tests;

@@ -64,5 +64,8 @@ object NativeBridge {
 
     external fun export(path: String, xml: String, destination: String)
 
+    external fun exportConfigured(path: String, xml: String, destination: String,
+        format: String, quality: Int, maxEdge: Int, displayP3: Boolean)
+
     external fun stageBitmap(bitmap: Bitmap, destination: String, profile: FloatArray)
 }
