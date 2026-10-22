@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged with the keys Xcode synthesizes (GENERATE_INFOPLIST_FILE stays YES),
+  as `Maple-Info.plist` does for the iPhone app: NSAppTransportSecurity is a
+  dictionary, which INFOPLIST_KEY_* settings can't express. Self Hosted
+  servers are often plain-HTTP LAN addresses, and the Watch talks to the
+  paired server directly.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>
