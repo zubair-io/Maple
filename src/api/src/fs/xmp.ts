@@ -427,7 +427,12 @@ export async function writeXmpWithPrecondition(
               'Conflict-copy write failed',
               signal,
             );
-            if (written.ok) return { kind: 'conflict', conflictPath, conflictMtime: written.mtime };
+            if (written.ok)
+              return {
+                kind: 'conflict',
+                conflictPath,
+                conflictMtime: written.mtime,
+              };
             if (!('exists' in written)) return { kind: 'error', error: written.error };
           }
           return {
@@ -480,6 +485,7 @@ export async function writeXmpWithPrecondition(
       },
     );
   } catch (error) {
+    if (error instanceof SidecarWriteBindingChangedError) throw error;
     return {
       kind: 'error',
       error: error instanceof Error ? error.message : String(error),
@@ -520,6 +526,7 @@ export async function deleteXmpSidecar(
       },
     );
   } catch (error) {
+    if (error instanceof SidecarWriteBindingChangedError) throw error;
     return {
       ok: false,
       error: error instanceof Error ? error.message : String(error),

@@ -40,6 +40,7 @@ function markDeprecated(set: { headers: Record<string, unknown> }): void {
 }
 
 import { Elysia, t } from 'elysia';
+import { SidecarWriteBindingChangedError } from '../../fs/sidecar-write-order';
 import { readXmp, writeXmpWithPrecondition, deleteXmpSidecar } from '../../fs/xmp.ts';
 import {
   readConflictSidecar,
@@ -52,6 +53,12 @@ import { resolveAssetLocationOrRespond } from './_shared.ts';
 import { resolveAndAuthorizeSidecarWrite } from '../xmp-path-auth.ts';
 
 export const xmpRoutes = new Elysia()
+  .onError(({ error, set }) => {
+    if (error instanceof SidecarWriteBindingChangedError) {
+      set.status = 409;
+      return { error: error.message };
+    }
+  })
   // Read XMP sidecar
   .get('/:id/xmp', async ({ params, query, set }) => {
     markDeprecated(set);

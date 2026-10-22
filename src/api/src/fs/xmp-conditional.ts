@@ -3,7 +3,11 @@ import type { SidecarWriteScope } from './sidecar-write-order';
  * Checks and publication share the existing server-side write barrier. */
 import { computeBodyETag } from '../runtime/http-etag';
 import { primarySidecarDestination, preparePrimarySidecarWrite, xmpSidecarPath } from './xmp';
-import { serializeSidecarWrite, waitForAbortable } from './sidecar-write-order';
+import {
+  SidecarWriteBindingChangedError,
+  serializeSidecarWrite,
+  waitForAbortable,
+} from './sidecar-write-order';
 import {
   isMissingSidecar,
   readSidecarNoFollow,
@@ -80,6 +84,7 @@ export async function writeXmpIfUnchanged(
       },
     );
   } catch (error) {
+    if (error instanceof SidecarWriteBindingChangedError) throw error;
     return {
       kind: 'error',
       error: error instanceof Error ? error.message : String(error),

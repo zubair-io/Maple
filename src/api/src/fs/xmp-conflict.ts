@@ -26,7 +26,11 @@ import {
   readSidecarNoFollow,
   writeSidecarAtomic,
 } from './sidecar-io.ts';
-import { waitForAbortable, serializeSidecarWrites } from './sidecar-write-order.ts';
+import {
+  SidecarWriteBindingChangedError,
+  waitForAbortable,
+  serializeSidecarWrites,
+} from './sidecar-write-order.ts';
 import type { OpResult } from './root.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
 import { workflowSidecarBase } from './workflow-sidecar-pairing';
@@ -164,6 +168,11 @@ export async function readConflictSidecar(
   }
 }
 
+/** A conflict edit shares its primary's lane across rename, Replace and purge. */
+function conflictWriteKeys(rawAbsPath: string, sidecar: string): string[] {
+  return [path.join(path.dirname(rawAbsPath), `${sidecarBase(rawAbsPath)}.xmp`), sidecar];
+}
+
 /**
  * Atomically overwrite a specific conflict-copy sidecar. No precondition —
  * the user is editing this exact file directly. Returns the new mtime.
@@ -178,13 +187,16 @@ export async function writeConflictSidecarAtomic(
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
   if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
   return serializeSidecarWrites(
-    [path.join(path.dirname(rawAbsPath), `${sidecarBase(rawAbsPath)}.xmp`), sidecar],
+    conflictWriteKeys(rawAbsPath, sidecar),
     () => writeSidecarAtomic(sidecar, xmlContent, 'Conflict sidecar write failed', signal),
     { signal, admissionScope },
-  ).catch((error: unknown) => ({
-    ok: false as const,
-    error: error instanceof Error ? error.message : String(error),
-  }));
+  ).catch((error: unknown) => {
+    if (error instanceof SidecarWriteBindingChangedError) throw error;
+    return {
+      ok: false as const,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  });
 }
 
 /**
@@ -247,11 +259,14 @@ export async function deleteConflictSidecar(
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
   if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
   return serializeSidecarWrites(
-    [path.join(path.dirname(rawAbsPath), `${sidecarBase(rawAbsPath)}.xmp`), sidecar],
+    conflictWriteKeys(rawAbsPath, sidecar),
     () => deleteSidecar(sidecar, 'Conflict sidecar delete failed'),
     { admissionScope },
-  ).catch((error: unknown) => ({
-    ok: false,
-    error: error instanceof Error ? error.message : String(error),
-  }));
+  ).catch((error: unknown) => {
+    if (error instanceof SidecarWriteBindingChangedError) throw error;
+    return {
+      ok: false as const,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  });
 }

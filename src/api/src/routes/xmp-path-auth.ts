@@ -142,3 +142,10 @@ export async function safeWriteAllowedForPath(filePath: string, dbOverride?: Sql
     ? { ok: true as const, data: resolved }
     : { ok: false as const, error: 'Photo is outside registered libraries' };
 }
+
+/** Reads need path access; mutations also capture the photo's current binding. */
+export function authorizeXmpRequest(raw: string | undefined, method: string) {
+  return method === 'GET' || method === 'HEAD'
+    ? resolveAndAuthorizePath(raw)
+    : resolveAndAuthorizeSidecarWrite(raw);
+}

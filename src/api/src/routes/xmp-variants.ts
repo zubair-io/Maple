@@ -2,7 +2,7 @@
 import { Elysia, status, t } from 'elysia';
 import { SidecarWritePathDeniedError } from '../fs/sidecar-write-order';
 import { publishSidecarChange } from './xmp-change';
-import { resolveAndAuthorizePath, resolveAndAuthorizeSidecarWrite } from './xmp-path-auth';
+import { authorizeXmpRequest } from './xmp-path-auth';
 import {
   parseSidecarWorkflow,
   PRIMARY_VARIANT_ID,
@@ -30,13 +30,18 @@ async function publishedVariant(
   return new Response(xml, { headers: { 'Content-Type': 'application/xml' } });
 }
 
-function publishVariantMutation(
+function publishVariantMutation<T extends unknown[]>(
   rawPath: string,
   variantId: string,
-  mutation: Promise<string>,
+  mutation: (rawPath: string, variantId: string, ...args: T) => Promise<string>,
+  ...args: T
 ): Promise<Response> {
-  return mutation.then((xml) => publishedVariant(rawPath, variantId, xml));
+  return mutation(rawPath, variantId, ...args).then((xml) =>
+    publishedVariant(rawPath, variantId, xml),
+  );
 }
+
+const variantQuery = t.Object({ path: t.String(), variantId: t.String() });
 
 export const xmpVariantRoutes = new Elysia()
   .onError(({ error }) => {
@@ -45,11 +50,7 @@ export const xmpVariantRoutes = new Elysia()
       return status(error.status, { error: error.message });
   })
   .resolve(async ({ query, request }) => {
-    const authorize =
-      request.method === 'GET' || request.method === 'HEAD'
-        ? resolveAndAuthorizePath
-        : resolveAndAuthorizeSidecarWrite;
-    const authorized = await authorize(query.path);
+    const authorized = await authorizeXmpRequest(query.path, request.method);
     if (!authorized.ok) throw new WorkflowVariantError(authorized.status, authorized.error);
     return { rawPath: authorized.data, writeScope: authorized.writeScope };
   })
@@ -70,7 +71,7 @@ export const xmpVariantRoutes = new Elysia()
       return xml;
     },
     {
-      query: t.Object({ path: t.String(), variantId: t.String() }),
+      query: variantQuery,
       detail: { tags: ['xmp'], summary: 'Read one exact variant identity' },
     },
   )
@@ -122,7 +123,7 @@ export const xmpVariantRoutes = new Elysia()
       return publishedVariant(rawPath, query.variantId, xml);
     },
     {
-      query: t.Object({ path: t.String(), variantId: t.String() }),
+      query: variantQuery,
       body: t.String(),
       parse: 'text',
       detail: {
@@ -137,18 +138,15 @@ export const xmpVariantRoutes = new Elysia()
       publishVariantMutation(
         rawPath,
         query.variantId,
-        commitWorkflowVariant(
-          rawPath,
-          query.variantId,
-          body.expectedXmp,
-          body.xmp,
-          body.entry,
-          request.signal,
-          writeScope,
-        ),
+        commitWorkflowVariant,
+        body.expectedXmp,
+        body.xmp,
+        body.entry,
+        request.signal,
+        writeScope,
       ),
     {
-      query: t.Object({ path: t.String(), variantId: t.String() }),
+      query: variantQuery,
       body: t.Object({
         expectedXmp: t.Union([t.String(), t.Null()]),
         xmp: t.String(),
@@ -166,18 +164,15 @@ export const xmpVariantRoutes = new Elysia()
       publishVariantMutation(
         rawPath,
         query.variantId,
-        snapshotWorkflowVariant(
-          rawPath,
-          query.variantId,
-          body.expectedXmp,
-          body.snapshot,
-          body.initialXmp,
-          request.signal,
-          writeScope,
-        ),
+        snapshotWorkflowVariant,
+        body.expectedXmp,
+        body.snapshot,
+        body.initialXmp,
+        request.signal,
+        writeScope,
       ),
     {
-      query: t.Object({ path: t.String(), variantId: t.String() }),
+      query: variantQuery,
       body: t.Object({
         expectedXmp: t.Union([t.String(), t.Null()]),
         snapshot: t.Object({
@@ -207,17 +202,14 @@ export const xmpVariantRoutes = new Elysia()
       publishVariantMutation(
         rawPath,
         query.variantId,
-        restoreWorkflowVariant(
-          rawPath,
-          query.variantId,
-          body.expectedXmp,
-          body.entry,
-          request.signal,
-          writeScope,
-        ),
+        restoreWorkflowVariant,
+        body.expectedXmp,
+        body.entry,
+        request.signal,
+        writeScope,
       ),
     {
-      query: t.Object({ path: t.String(), variantId: t.String() }),
+      query: variantQuery,
       body: t.Object({ expectedXmp: t.String(), entry: t.Any() }),
       detail: {
         tags: ['xmp'],
