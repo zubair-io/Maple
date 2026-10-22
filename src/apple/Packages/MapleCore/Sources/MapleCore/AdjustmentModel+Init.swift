@@ -182,9 +182,6 @@ extension AdjustmentModel {
     self.colorGradeGlobalHue = colorGradeGlobalHue
     self.colorGradeGlobalSaturation = colorGradeGlobalSaturation
     self.colorGradeGlobalLuminance = colorGradeGlobalLuminance
-    self.colorGradeBlending = colorGradeBlending
-    self.colorGradeShadowEdge = colorGradeShadowEdge
-    self.colorGradeHighlightEdge = colorGradeHighlightEdge
     self.hueAdjustmentRed = hueAdjustmentRed
     self.hueAdjustmentOrange = hueAdjustmentOrange
     self.hueAdjustmentYellow = hueAdjustmentYellow
@@ -246,5 +243,9 @@ extension AdjustmentModel {
     self.lensProfile = lensProfile
     self.filmStrength = filmStrength
     self.demosaic = demosaic
+    // Wrapped properties use setters after every stored member is initialized.
+    self.colorGradeBlending = colorGradeBlending
+    self.colorGradeShadowEdge = colorGradeShadowEdge
+    self.colorGradeHighlightEdge = colorGradeHighlightEdge
   }
 }
