@@ -20,6 +20,16 @@ public class ColorGradeZoneWeightsTests
     };
 
     [Theory]
+    [InlineData(0.5, 100, 0.25)]
+    [InlineData(0.25, -100, 0.5)]
+    [InlineData(0.4, 0, 0.4)]
+    public void BalancedPivotsRoundTripThroughPlotSpace(double edge, double balance, double plot)
+    {
+        Assert.Equal(plot, MuiColorGradeZoneWeightsMath.PlotPosition(edge, balance), 9);
+        Assert.Equal(edge, MuiColorGradeZoneWeightsMath.ValueAtPlotPosition(plot, balance), 9);
+    }
+
+    [Theory]
     [MemberData(nameof(Goldens))]
     public void StripWeightsMatchTheStage(
         double l, double balance, double blending, double shadowEdge, double highlightEdge,

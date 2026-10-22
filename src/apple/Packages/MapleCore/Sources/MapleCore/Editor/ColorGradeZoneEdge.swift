@@ -12,8 +12,17 @@ public enum ColorGradeZoneEdge {
   /// Rounds to 3 decimals and snaps to the anchor within 0.005, as `raw-core`'s
   /// `resolve_*_edge` and the Web and Windows strips do, so a drag to the end
   /// writes the default rather than 0.565.
-  public static func normalized(x: Double, width: Double, range: ClosedRange<Double>) -> Double {
-    let rounded = (x / max(width, 1) * 1000).rounded() / 1000
+  public static func plotPosition(edge: Double, balance: Double) -> Double {
+    let exponent = exp2(-min(max(balance, -100), 100) / 100)
+    return pow(min(max(edge, 0), 1), 1 / exponent)
+  }
+
+  public static func normalized(
+    x: Double, width: Double, range: ClosedRange<Double>, balance: Double = 0
+  ) -> Double {
+    let position = min(max(x / max(width, 1), 0), 1)
+    let exponent = exp2(-min(max(balance, -100), 100) / 100)
+    let rounded = (pow(position, exponent) * 1000).rounded() / 1000
     let snapped = abs(rounded - anchor) < 0.005 ? anchor : rounded
     return min(max(snapped, range.lowerBound), range.upperBound)
   }

@@ -24,7 +24,7 @@ namespace Maple.WinUI
                 {
                     control = new Button
                     {
-                        Width = 22, Height = height, MinWidth = 0, MinHeight = 0,
+                        Width = 44, Height = 44, MinWidth = 0, MinHeight = 0,
                         Padding = new Thickness(0), BorderThickness = new Thickness(0), Tag = edge,
                         Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                         Content = new Ellipse
@@ -47,9 +47,9 @@ namespace Maple.WinUI
                 }
                 var value = GradeEdgeValue(edge);
                 AutomationProperties.SetName(control, $"{(edge == "shadow" ? "Shadow" : "Highlight")} edge {value:P1}");
-                control.Height = height;
-                Canvas.SetLeft(control, value * width - 11);
-                Canvas.SetTop(control, 0);
+                control.Height = 44;
+                Canvas.SetLeft(control, MuiColorGradeZoneWeightsMath.PlotPosition(value, ViewModel.Adjustments.SplitToneBalance) * width - 22);
+                Canvas.SetTop(control, edge == "shadow" ? 0 : height - 44);
             }
         }
 

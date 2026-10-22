@@ -182,9 +182,9 @@ import XCTest
               ? frame.height > frame.width : frame.width > frame.height
           })
         let selected = element(app, "editor-iphone-selected-control")
-        selected.swipeDown()
-        selected.swipeDown()
         let scope = element(app, "editor-vectorscope-hud")
+        let blending = element(app, "editor-color-grading-blending")
+        revealControl(scope, in: selected, leadingContent: blending)
         XCTAssertTrue(scope.exists)
         XCTAssertTrue(
           selected.frame.contains(scope.frame), "Scope must be visible inside the controls")
@@ -200,12 +200,17 @@ import XCTest
         for id in ["light", "color", "effects", "detail"] {
           XCTAssertTrue(app.buttons["editor-group-\(id)"].isHittable)
         }
-        selected.swipeUp()
-        selected.swipeUp()
-        let blending = element(app, "editor-color-grading-blending")
+        revealControl(blending, in: selected, leadingContent: blending)
         XCTAssertTrue(blending.exists)
         XCTAssertTrue(blending.isHittable, "Grading must remain reachable with scope enabled")
         XCTAssertFalse(scope.frame.intersects(blending.frame))
+        let shadow = element(app, "color-grade-shadow-edge-handle")
+        let highlight = element(app, "color-grade-highlight-edge-handle")
+        XCTAssertTrue(shadow.exists && highlight.exists)
+        revealControl(shadow, in: selected, leadingContent: blending)
+        XCTAssertTrue(shadow.isHittable && highlight.isHittable)
+        XCTAssertFalse(
+          shadow.frame.intersects(highlight.frame), "Coincident pivots need distinct touch targets")
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         shot.name = "iPhone grading with scope \(orientation.rawValue)"
         shot.lifetime = .keepAlways
@@ -246,6 +251,22 @@ import XCTest
       resetAll.tap()
       wait(blackWhite, predicate: NSPredicate(format: "value == %@", initial))
       XCTAssertEqual(try Data(contentsOf: staged), original)
+    }
+
+    private func revealControl(
+      _ target: XCUIElement, in selected: XCUIElement, leadingContent: XCUIElement
+    ) {
+      // Use the leading padding instead of beginning on a horizontal slider.
+      for _ in 0..<10 where !selected.frame.contains(target.frame) {
+        let height = selected.frame.height
+        let shift = min(max(selected.frame.midY - target.frame.midY, -height * 0.6), height * 0.6)
+        let x = max(1, leadingContent.frame.minX - selected.frame.minX - 8)
+        let origin = selected.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(dx: x, dy: height / 2 - shift / 2))
+        let end = origin.withOffset(CGVector(dx: x, dy: height / 2 + shift / 2))
+        start.press(
+          forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
+      }
     }
 
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement {

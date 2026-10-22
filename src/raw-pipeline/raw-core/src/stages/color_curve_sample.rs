@@ -50,6 +50,57 @@ pub fn sample_color_curve_input(
     sample_from_probe(&probe, nx, ny)
 }
 
+/// Sample a point in the uncropped display frame. Undo manual perspective
+/// before EXIF orientation so the pick reaches the Stage 22b sensor buffer.
+pub fn sample_display_color_curve_input(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    nx: f32,
+    ny: f32,
+) -> Result<ColorCurveSample, RangeSampleError> {
+    if !((0.0..=1.0).contains(&nx) && (0.0..=1.0).contains(&ny)) {
+        return Err(RangeSampleError::OutsideImage);
+    }
+    let probe = develop_probe(raw, model)?;
+    let (nx, ny) = display_point_before_perspective(
+        raw.orientation,
+        model,
+        probe.width,
+        probe.height,
+        nx,
+        ny,
+    )?;
+    sample_from_probe(&probe, nx, ny)
+}
+
+fn display_point_before_perspective(
+    orientation: ExifOrientation,
+    model: &AdjustmentModel,
+    sensor_width: u32,
+    sensor_height: u32,
+    nx: f32,
+    ny: f32,
+) -> Result<(f32, f32), RangeSampleError> {
+    if !((0.0..=1.0).contains(&nx) && (0.0..=1.0).contains(&ny)) {
+        return Err(RangeSampleError::OutsideImage);
+    }
+    let (width, height) = if orientation.swaps_wh() {
+        (sensor_height, sensor_width)
+    } else {
+        (sensor_width, sensor_height)
+    };
+    let inverse = crate::stages::perspective::Perspective::from_model(model)
+        .inverse_matrix(crate::stages::perspective::aspect_ratio(width, height));
+    let (x, y) = inverse
+        .project(nx * 2.0 - 1.0, ny * 2.0 - 1.0)
+        .ok_or(RangeSampleError::OutsideImage)?;
+    let (x, y) = ((x + 1.0) * 0.5, (y + 1.0) * 0.5);
+    if !((0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y)) {
+        return Err(RangeSampleError::OutsideImage);
+    }
+    Ok(display_point_to_sensor(orientation, x, y))
+}
+
 fn develop_probe(raw: &RawImage, model: &AdjustmentModel) -> Result<Image, RangeSampleError> {
     develop_scene_linear_sized_from_raw_with_quality(
         raw,
@@ -139,6 +190,66 @@ pub(crate) fn sample_from_probe(
 mod tests {
     use super::*;
     use crate::color::oklab::oklab_to_rec2020;
+
+    #[test]
+    fn display_pick_undoes_perspective_before_exif_and_rejects_transparent_surround() {
+        let model = AdjustmentModel {
+            perspective_x: 20.0,
+            ..Default::default()
+        };
+        let mapped = display_point_before_perspective(
+            ExifOrientation::Rotate90,
+            &model,
+            2000,
+            1000,
+            0.7,
+            0.4,
+        )
+        .unwrap();
+        assert!(
+            (mapped.0 - 0.4).abs() < 1e-6 && (mapped.1 - 0.4).abs() < 1e-6,
+            "{mapped:?}"
+        );
+        assert_eq!(
+            display_point_before_perspective(ExifOrientation::Normal, &model, 2000, 1000, 0.0, 0.5),
+            Err(RangeSampleError::OutsideImage)
+        );
+    }
+
+    #[test]
+    fn display_pick_inverts_the_full_composition_in_display_aspect() {
+        let model = AdjustmentModel {
+            perspective_vertical: 20.0,
+            perspective_horizontal: -15.0,
+            perspective_rotate: 7.0,
+            perspective_scale: 120.0,
+            perspective_aspect: 25.0,
+            perspective_x: 10.0,
+            perspective_y: -12.0,
+            ..Default::default()
+        };
+        for tag in 1..=8 {
+            let orientation = ExifOrientation::from_u16(tag);
+            let aspect = if orientation.swaps_wh() { 0.5 } else { 2.0 };
+            let forward =
+                crate::stages::perspective::Perspective::from_model(&model).matrix(aspect);
+            let (x, y) = forward.project(0.2, -0.3).unwrap();
+            let actual = display_point_before_perspective(
+                orientation,
+                &model,
+                2000,
+                1000,
+                (x + 1.0) / 2.0,
+                (y + 1.0) / 2.0,
+            )
+            .unwrap();
+            let expected = display_point_to_sensor(orientation, 0.6, 0.35);
+            assert!(
+                (actual.0 - expected.0).abs() < 1e-6 && (actual.1 - expected.1).abs() < 1e-6,
+                "EXIF {tag}: {actual:?} != {expected:?}"
+            );
+        }
+    }
 
     #[test]
     fn bayer_and_linear_raw_probes_are_bounded_before_adjustments() {

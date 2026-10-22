@@ -12,11 +12,12 @@
 
 use std::os::raw::c_char;
 
-use raw_core::stages::color_curve_sample::{sample_color_curve_input, ColorCurveSampleError};
+use raw_core::stages::color_curve_sample::{
+    sample_display_color_curve_input, ColorCurveSampleError,
+};
 
 use crate::error::{set_last_error, with_large_stack};
 use crate::model::{load_xmp_model_owned, LoadModel};
-use crate::white_balance_sample::display_point_to_sensor;
 
 #[repr(C)]
 pub struct MapleColorCurveSample {
@@ -38,7 +39,8 @@ fn code_for(err: &ColorCurveSampleError) -> i32 {
 }
 
 /// Sample the scene-linear Oklab stage input under an uncropped DISPLAY-oriented
-/// image point `(nx, ny)` in `[0, 1]`.
+/// image point `(nx, ny)` in `[0, 1]`. The shared sampler undoes manual
+/// perspective before EXIF orientation, matching the display-tail order.
 ///
 /// # Safety
 /// `raw_path` must be a valid NUL-terminated C string; `xmp_path` may be null;
@@ -98,8 +100,7 @@ pub unsafe extern "C" fn maple_sample_color_curve_oriented(
                 return 3;
             }
         };
-        let (nx, ny) = display_point_to_sensor(raw_img.orientation, nx, ny);
-        match sample_color_curve_input(&raw_img, &model, nx, ny) {
+        match sample_display_color_curve_input(&raw_img, &model, nx, ny) {
             Ok(s) => {
                 unsafe {
                     *out_ptr = MapleColorCurveSample {

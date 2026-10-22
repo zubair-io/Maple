@@ -112,6 +112,18 @@ function snapEdge(norm: number, min: number, max: number): number {
   return Math.min(Math.max(snapped, min), max);
 }
 
+function balanceExponent(balance: number): number {
+  return Math.pow(2, -Math.min(Math.max(balance, BALANCE_RANGE[0]), BALANCE_RANGE[1]) / 100);
+}
+
+export function gradeEdgePlotPosition(edge: number, balance: number): number {
+  return Math.pow(Math.min(Math.max(edge, 0), 1), 1 / balanceExponent(balance));
+}
+
+export function gradeEdgeValueAtPosition(position: number, balance: number): number {
+  return Math.pow(Math.min(Math.max(position, 0), 1), balanceExponent(balance));
+}
+
 export function computeZoneWeights(
   l: number,
   balance: number,
@@ -120,7 +132,7 @@ export function computeZoneWeights(
   highlightEdge: number,
 ): [number, number, number] {
   const lClamped = Math.min(Math.max(l, 0), 1);
-  const balanceExp = Math.pow(2, -Math.min(Math.max(balance, -100), 100) / 100);
+  const balanceExp = balanceExponent(balance);
   const lb = Math.pow(lClamped, balanceExp);
   const b = Math.min(Math.max(blending, 0), 100) / 100;
   const ls = Math.min(Math.max(shadowEdge, SHADOW_RANGE[0]), SHADOW_RANGE[1]);
@@ -188,9 +200,9 @@ export class ColorGradingPanelComponent {
       const t = i / steps;
       const x = (t * 200).toFixed(1);
       const [wSh, wMid, wHi] = computeZoneWeights(t, bal, bl, shE, hiE);
-      shPts.push(`${x},${((1 - wSh) * 36 + 4).toFixed(1)}`);
-      midPts.push(`${x},${((1 - wMid) * 36 + 4).toFixed(1)}`);
-      hiPts.push(`${x},${((1 - wHi) * 36 + 4).toFixed(1)}`);
+      shPts.push(`${x},${((1 - wSh) * 80 + 4).toFixed(1)}`);
+      midPts.push(`${x},${((1 - wMid) * 80 + 4).toFixed(1)}`);
+      hiPts.push(`${x},${((1 - wHi) * 80 + 4).toFixed(1)}`);
     }
     return {
       sh: shPts.join(' '),
@@ -199,7 +211,14 @@ export class ColorGradingPanelComponent {
     };
   });
 
-  private activeEdgeDrag: 'shadow' | 'highlight' | null = null;
+  readonly shadowPlotPosition = computed(() =>
+    gradeEdgePlotPosition(this.shadowEdge(), this.balance()),
+  );
+  readonly highlightPlotPosition = computed(() =>
+    gradeEdgePlotPosition(this.highlightEdge(), this.balance()),
+  );
+
+  private activeEdgeDrag: { edge: 'shadow' | 'highlight'; pointerId: number } | null = null;
 
   /** Read one numeric field off the focused asset's adjustment model. */
   valueOf(field: keyof AdjustmentModel & string): number {
@@ -267,20 +286,22 @@ export class ColorGradingPanelComponent {
   }
 
   onEdgePointerDown(edge: 'shadow' | 'highlight', event: PointerEvent): void {
+    if (event.button !== 0 || this.activeEdgeDrag) return;
     event.preventDefault();
     this.editor.commit('adjustment', `Colour grading ${edge} edge`);
-    this.activeEdgeDrag = edge;
+    this.activeEdgeDrag = { edge, pointerId: event.pointerId };
     (event.currentTarget as Element | null)?.setPointerCapture?.(event.pointerId);
     this.updateEdgeFromEvent(edge, event);
   }
 
   onEdgePointerMove(event: PointerEvent): void {
-    if (!this.activeEdgeDrag) return;
-    this.updateEdgeFromEvent(this.activeEdgeDrag, event);
+    if (!this.activeEdgeDrag || event.pointerId !== this.activeEdgeDrag.pointerId) return;
+    this.updateEdgeFromEvent(this.activeEdgeDrag.edge, event);
   }
 
-  onEdgePointerUp(): void {
-    if (!this.activeEdgeDrag) return;
+  onEdgePointerUp(event?: PointerEvent): void {
+    if (!this.activeEdgeDrag || (event && event.pointerId !== this.activeEdgeDrag.pointerId))
+      return;
     this.activeEdgeDrag = null;
     this.editor.endEdit();
   }
@@ -301,7 +322,7 @@ export class ColorGradingPanelComponent {
     if (!svg) return;
     const rect = svg.getBoundingClientRect();
     if (rect.width <= 0) return;
-    const norm = (event.clientX - rect.left) / rect.width;
+    const norm = gradeEdgeValueAtPosition((event.clientX - rect.left) / rect.width, this.balance());
     if (edge === 'shadow') {
       this.patch({ colorGradeShadowEdge: snapEdge(norm, SHADOW_RANGE[0], SHADOW_RANGE[1]) });
     } else {
