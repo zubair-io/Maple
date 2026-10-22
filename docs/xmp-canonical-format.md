@@ -712,8 +712,10 @@ schema, or lost write access fails without silently falling back to primary.
   source using a generated workflow wire record; source defaults to `primary`.
 - `PUT /api/xmp/variant?path=…&variantId=…` saves the selected complete XML.
 
-Apple and server creation publish with create-only filesystem links, so an
-existing UUID cannot be overwritten by a concurrent creator. Web coordinates
+Apple and server creation publish with create-only filesystem links (on SMB or
+exFAT the server instead checks the name is free and renames, inside the
+variant's save barrier), so an existing UUID cannot be overwritten by a
+concurrent creator. Web coordinates
 cooperating tabs with a UUID Web Lock and publishes using the existing writable
 File System Access stream-close contract. This is not an OS-wide create-only
 operation against other applications. Portable Web writes require a native

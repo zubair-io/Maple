@@ -38,7 +38,12 @@ import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 // Mirror-aware drop-in — see `mirrored.ts`.
 import * as fs from './mirrored.ts';
-import { PublishCollisionError, publishExclusive } from './relocate-publish.ts';
+import {
+  errnoCode,
+  LINK_UNSUPPORTED,
+  PublishCollisionError,
+  publishExclusive,
+} from './relocate-publish.ts';
 import {
   checkAllowed,
   getRegisteredRoots,
@@ -256,7 +261,14 @@ export function writeSidecarCreateOnly(
   failureLabel: string,
   signal?: AbortSignal,
 ): Promise<CreateIfAbsentResult> {
-  return writeSidecarIfAbsent(destPath, content, failureLabel, signal, fs.link, isEexist);
+  return writeSidecarIfAbsent(
+    destPath,
+    content,
+    failureLabel,
+    signal,
+    linkOrRenameIfAbsent,
+    isEexist,
+  );
 }
 
 /**
@@ -280,6 +292,24 @@ export function writeSidecarExclusive(
     },
     (err) => err instanceof PublishCollisionError,
   );
+}
+
+/** `link`, or where links aren't supported (SMB, exFAT answer EXDEV/EPERM/ENOTSUP
+ * rather than EEXIST) a rename after an absence check, which each caller's
+ * save barrier guards against in-process writers (#5151). */
+async function linkOrRenameIfAbsent(tmpPath: string, destPath: string): Promise<void> {
+  try {
+    await fs.link(tmpPath, destPath);
+    return;
+  } catch (err) {
+    if (!LINK_UNSUPPORTED.has(errnoCode(err) ?? '')) throw err;
+  }
+  const occupied = await fs.lstat(destPath).then(
+    () => true,
+    (err: unknown) => (errnoCode(err) === 'ENOENT' ? false : Promise.reject(err)),
+  );
+  if (occupied) throw Object.assign(new Error(`EEXIST: ${destPath}`), { code: 'EEXIST' });
+  await fs.rename(tmpPath, destPath);
 }
 
 async function writeSidecarIfAbsent(

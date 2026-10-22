@@ -140,16 +140,16 @@ export async function createWorkflowVariant(
       409,
       'Create a new variant identity; the primary already exists.',
     );
-  const destination = await variantPath(rawPath, workflow.variantId, signal);
   const source = await readWorkflowVariant(rawPath, sourceId, signal);
   if (source === null)
     throw new WorkflowVariantError(409, 'Commit the source adjustments before creating a variant.');
   const output = await nativeValue('workflowEmbedXmp', [JSON.stringify(workflow), source], signal);
-  const outcome = await writeSidecarCreateOnly(
-    destination,
-    output,
-    'Variant create failed',
-    signal,
+  // The variant id comes from the client, so a retry or a second creator with
+  // the same id waits here instead of racing the create-only publish (#5151).
+  const outcome = await serializeSidecarWrite(
+    admissionDestination(rawPath, workflow.variantId),
+    (destination) => writeSidecarCreateOnly(destination, output, 'Variant create failed', signal),
+    { signal, resolveDestination: () => barrierPath(rawPath, workflow.variantId, signal) },
   );
   if (!outcome.ok)
     throw new WorkflowVariantError(
