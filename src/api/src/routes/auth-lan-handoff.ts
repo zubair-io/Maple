@@ -1,3 +1,4 @@
+import { handoffUserWithProof } from './auth-handoff-proof.ts';
 // src/api/src/routes/auth-lan-handoff.ts
 //
 // Web-to-web-LAN session handoff. Two endpoints:
@@ -12,11 +13,10 @@
 // redirect carrying only a short-lived one-time code — never tokens) without
 // repeating the ceremony there.
 import { Elysia, t } from 'elysia';
-import { ObjectId } from '../db/object-id.ts';
 import { findUserById } from '../db/repos/auth.users.repo.ts';
 import { signAccessToken, REFRESH_TTL_SECONDS } from '../auth/tokens.ts';
 import { accessClaimsFor, toPublicAuthUser } from '../auth/permissions.ts';
-import { hasHandoffProof, issueRefreshToken } from '../auth/refresh_store.ts';
+import { issueRefreshToken } from '../auth/refresh_store.ts';
 import { issueLanHandoffCode, redeemLanHandoffCode } from '../auth/lan_handoff_store.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { rateLimit, clientIp } from '../auth/rate_limit.ts';
@@ -41,18 +41,8 @@ function jwtSecret(): string {
 export const lanHandoffIssueRoutes = new Elysia().use(requireAuth).post(
   '/api/auth/lan-handoff',
   async ({ auth, body, cookie, headers, set }) => {
-    const userId = new ObjectId(auth.user.sub);
-    const proved = await hasHandoffProof({
-      userId,
-      cookieRefreshToken: cookie.maple_refresh?.value,
-      bodyRefreshToken: body?.refresh_token,
-      stepUpToken: headers['x-step-up'],
-      jwtSecret: jwtSecret(),
-    });
-    if (!proved) {
-      set.status = 403;
-      return { error: 'refresh-token proof or step-up required' };
-    }
+    const userId = await handoffUserWithProof({ auth, body, cookie, headers, set }, jwtSecret());
+    if (!userId) return { error: 'refresh-token proof or step-up required' };
     const issued = await issueLanHandoffCode({
       userId,
       deviceLabel: 'Local network session',

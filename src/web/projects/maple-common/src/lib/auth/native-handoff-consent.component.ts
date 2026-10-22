@@ -18,7 +18,7 @@ import { AuthService } from './auth.service';
   standalone: true,
   imports: [MuiButtonComponent, MuiTextComponent],
   templateUrl: './native-handoff-consent.component.html',
-  host: { class: 'contents' },
+  styleUrl: './native-handoff-consent.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NativeHandoffConsentComponent {

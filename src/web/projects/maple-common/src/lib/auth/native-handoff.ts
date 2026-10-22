@@ -28,21 +28,28 @@ function sanitizeLabel(raw: string | null, maxLen = 64): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function detectBrowserPlatform(): string {
+function browserPlatformHint(): string {
   try {
     const nav = globalThis.navigator as
       | (Navigator & { userAgentData?: { platform?: string } })
       | undefined;
     const raw = nav?.userAgentData?.platform || nav?.platform || nav?.userAgent || '';
-    if (/android/i.test(raw)) return 'Android';
-    if (/iphone|ipad|ipod|ios/i.test(raw)) return 'iOS';
-    if (/mac/i.test(raw)) return 'macOS';
-    if (/win/i.test(raw)) return 'Windows';
-    if (/linux/i.test(raw)) return 'Linux';
+    return raw;
   } catch {
-    /* SSR / non-browser */
+    return '';
   }
-  return 'Native app';
+}
+
+function detectBrowserPlatform(): string {
+  const raw = browserPlatformHint();
+  const platforms: readonly (readonly [RegExp, string])[] = [
+    [/android/i, 'Android'],
+    [/iphone|ipad|ipod|ios/i, 'iOS'],
+    [/mac/i, 'macOS'],
+    [/win/i, 'Windows'],
+    [/linux/i, 'Linux'],
+  ];
+  return platforms.find(([pattern]) => pattern.test(raw))?.[1] ?? 'Native app';
 }
 
 export function parseNativeHandoffSearch(search: string): {
