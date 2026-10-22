@@ -70,7 +70,7 @@ internal class NativeDetailRenderer(
                 } else {
                     if (cachedSource == 0L || cachedKey != request.photo.key) {
                         clearCached()
-                        cachedSource = library.withOriginal(request.photo) { NativeBridge.openNativeDetail(it.path) }
+                        cachedSource = library.withNativeDetailOriginal(request.photo) { NativeBridge.openNativeDetail(it.path) }
                         cachedKey = request.photo.key
                     }
                     cachedSource

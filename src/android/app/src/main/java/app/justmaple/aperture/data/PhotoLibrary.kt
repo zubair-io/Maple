@@ -227,6 +227,20 @@ class PhotoLibrary(private val context: Context) {
     suspend fun <T> withOriginal(photo: Photo, action: suspend (File) -> T): T =
         withMaterialized(photo, null, action)
 
+    suspend fun <T> withNativeDetailOriginal(photo: Photo, action: suspend (File) -> T): T = originals.withLock {
+        if (photo.extension in setOf("heic", "heif", "avif")) {
+            withContext(Dispatchers.IO) {
+                val source = sourceOriginal(photo, File(context.cacheDir, "originals").apply { mkdirs() })
+                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeFile(source.path, bounds)
+                check(NativeBridge.platformNativeDetailFits(bounds.outWidth, bounds.outHeight)) {
+                    "Native detail raster exceeds the decode memory budget"
+                }
+            }
+        }
+        action(materialize(photo, null))
+    }
+
     suspend fun <T> withPreview(photo: Photo, edge: Int, action: suspend (File) -> T): T =
         withMaterialized(photo, edge, action)
 
