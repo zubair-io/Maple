@@ -13,6 +13,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import app.justmaple.aperture.MapleState
 import app.justmaple.aperture.MapleViewModel
@@ -295,6 +296,26 @@ class RejectButtonTest {
     fun tearDown() {
         Dispatchers.resetMain()
         sidecars.deleteRecursively()
+    }
+
+    @Test
+    fun thumbnailColumnsSurviveLeavingTheBrowserAndReadTheSavedPreference() {
+        val preferences = application.getSharedPreferences("browse-grid", android.content.Context.MODE_PRIVATE)
+        preferences.edit().putInt("columns", 2).commit()
+        var mounted by mutableStateOf(true)
+        compose.setContent {
+            if (mounted) BrowseGrid(model, MapleState(), emptyList(), emptyList(), {})
+        }
+        compose.onNodeWithContentDescription("Larger thumbnails").performClick()
+        compose.waitForIdle()
+        assertEquals(1, preferences.getInt("columns", 0))
+        compose.runOnIdle { mounted = false }
+        compose.waitForIdle()
+        preferences.edit().putInt("columns", 4).commit()
+        compose.runOnIdle { mounted = true }
+        compose.onNodeWithContentDescription("Larger thumbnails").performClick()
+        compose.waitForIdle()
+        assertEquals(3, preferences.getInt("columns", 0))
     }
 
     @Test
