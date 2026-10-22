@@ -313,7 +313,7 @@ pub struct FullChainInputs<'a> {
     pub color_grade_shadow_edge: f32,
     pub color_grade_highlight_edge: f32,
     /// Oklab secondary color curves (#5041, Stage 22b).
-    pub color_curves: ColorCurveInputs,
+    pub color_curves: ColorCurveInputs<'a>,
 }
 
 mod shape;

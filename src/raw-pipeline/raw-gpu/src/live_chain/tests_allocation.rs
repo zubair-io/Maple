@@ -58,6 +58,12 @@ fn sorted_curve_capacity_checks_do_not_allocate() {
     assert_eq!(ALL.with(Cell::get), 0);
 }
 
+pub(crate) fn all_allocations(operation: impl FnOnce()) -> usize {
+    ALL.with(|count| count.set(0));
+    large_allocations(operation);
+    ALL.with(Cell::get)
+}
+
 pub(crate) fn large_allocations(operation: impl FnOnce()) -> usize {
     struct Reset;
     impl Drop for Reset {

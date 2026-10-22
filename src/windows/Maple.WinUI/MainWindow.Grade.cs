@@ -216,9 +216,9 @@ namespace Maple.WinUI
                 var x = t * w;
                 var (wSh, wMid, wHi) = MuiColorGradeZoneWeightsMath.ComputeWeights(
                     t, adj.SplitToneBalance, adj.ColorGradeBlending, adj.ColorGradeShadowEdge, adj.ColorGradeHighlightEdge);
-                shLine.Points.Add(new(x, (1.0 - wSh) * (h - 8.0) + 4.0));
-                midLine.Points.Add(new(x, (1.0 - wMid) * (h - 8.0) + 4.0));
-                hiLine.Points.Add(new(x, (1.0 - wHi) * (h - 8.0) + 4.0));
+                shLine.Points.Add(new((float)x, (float)((1.0 - wSh) * (h - 8.0) + 4.0)));
+                midLine.Points.Add(new((float)x, (float)((1.0 - wMid) * (h - 8.0) + 4.0)));
+                hiLine.Points.Add(new((float)x, (float)((1.0 - wHi) * (h - 8.0) + 4.0)));
             }
             _gradeZoneCanvas.Children.Add(shLine);
             _gradeZoneCanvas.Children.Add(midLine);

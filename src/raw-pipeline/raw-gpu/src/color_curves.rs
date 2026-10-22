@@ -42,16 +42,8 @@ struct ColorCurvesGpuParams {
     _pad: u32,
 }
 
-/// CPU-side inputs for the 6 Oklab secondary color curves.
-#[derive(Clone, Debug, Default)]
-pub struct ColorCurveInputs {
-    pub hue_vs_hue: Vec<(f32, f32)>,
-    pub hue_vs_sat: Vec<(f32, f32)>,
-    pub hue_vs_luma: Vec<(f32, f32)>,
-    pub luma_vs_sat: Vec<(f32, f32)>,
-    pub sat_vs_sat: Vec<(f32, f32)>,
-    pub sat_vs_luma: Vec<(f32, f32)>,
-}
+mod inputs;
+pub use inputs::{ColorCurveInputs, ColorCurvePoints};
 
 #[derive(Clone, Copy)]
 struct BakedLut {
@@ -68,49 +60,17 @@ impl Default for BakedLut {
     }
 }
 
-impl ColorCurveInputs {
-    /// Returns `true` when all six curves evaluate to identity (either empty or
-    /// all knots sit on the neutral midline `y = 0.5`).
-    pub fn is_identity(&self) -> bool {
-        let luts = self.baked_luts();
-        luts.iter().all(|l| l.is_identity)
-    }
-
-    fn baked_luts(&self) -> [BakedLut; NUM_COLOR_CURVES] {
-        [
-            bake_curve_lut(&self.hue_vs_hue, true),
-            bake_curve_lut(&self.hue_vs_sat, true),
-            bake_curve_lut(&self.hue_vs_luma, true),
-            bake_curve_lut(&self.luma_vs_sat, false),
-            bake_curve_lut(&self.sat_vs_sat, false),
-            bake_curve_lut(&self.sat_vs_luma, false),
-        ]
-    }
-
-    /// Flatten all 6 baked LUTs into the 1,536-float storage buffer layout.
-    pub fn to_flat(&self) -> ([f32; COLOR_CURVES_FLAT_LEN], bool) {
-        let luts = self.baked_luts();
-        let is_id = luts.iter().all(|l| l.is_identity);
-        let mut flat = [0.0f32; COLOR_CURVES_FLAT_LEN];
-        for (chunk, lut) in flat.chunks_exact_mut(COLOR_CURVE_LUT_LEN).zip(&luts) {
-            chunk.copy_from_slice(&lut.offsets);
-        }
-        (flat, is_id)
-    }
-}
-
 /// Free-function identity predicate matching `display_tone_curve_is_identity`.
 pub fn color_curves_is_identity(inputs: &ColorCurveInputs) -> bool {
     inputs.is_identity()
 }
 
-fn bake_curve_lut(points: &[(f32, f32)], periodic: bool) -> BakedLut {
+fn bake_curve_lut(points: &ColorCurvePoints<'_>, periodic: bool) -> BakedLut {
     if points.is_empty() {
         return BakedLut::default();
     }
     let mut knots: Vec<(f32, f32)> = points
         .iter()
-        .copied()
         .filter(|(x, y)| x.is_finite() && y.is_finite())
         .map(|(x, y)| {
             let xc = if periodic {
@@ -510,7 +470,7 @@ pub fn apply_color_curves(buf: &mut [f32], inputs: &ColorCurveInputs) {
 
 /// A GPU-resident Oklab secondary color-curves stage.
 pub struct ColorCurvesPass<'a> {
-    pub inputs: &'a ColorCurveInputs,
+    pub inputs: &'a ColorCurveInputs<'a>,
 }
 
 impl Pass for ColorCurvesPass<'_> {

@@ -1,3 +1,5 @@
+import { parseSampleError } from './raw-pipeline.sample-error';
+
 // Mask colour-range eyedropper (#362) — worker request/response shapes.
 // Sibling of `raw-pipeline.sample-wb.types.ts`, same split reason: the
 // `WorkerRequest` / `WorkerResponse` unions live in a file already at its
@@ -53,10 +55,7 @@ export function parseRangeSampleError(raw: string): {
   kind: RangeSampleErrorKind;
   message: string;
 } {
-  const idx = raw.indexOf(': ');
-  const head = idx > 0 ? raw.slice(0, idx) : '';
-  const kind = KINDS.find((k) => k === head);
-  return kind ? { kind, message: raw.slice(idx + 2) } : { kind: 'develop', message: raw };
+  return parseSampleError(raw, KINDS, 'develop');
 }
 
 /** Error thrown to `RawPipelineService.sampleMaskRange` callers — carries

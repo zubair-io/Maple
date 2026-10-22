@@ -177,7 +177,7 @@ pub fn view_tail_pass_count(inputs: &FullChainInputs) -> usize {
 // drift from the P4a gate's. Native test builds only.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_chain/tests.rs"]
-mod tests;
+pub(crate) mod tests;
 // The input-shape + sub-parameter pass-inclusion gates live in their own file
 // (600-LOC file budget); they reuse `tests::{neutral_case, run_live_chain,
 // TEST_SESSION_ID}` (`pub(super)` there). Same split shape as `gpu_render`'s

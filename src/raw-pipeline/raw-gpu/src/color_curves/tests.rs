@@ -33,12 +33,12 @@ fn raw_core_color_curves(buf: &[f32], inputs: &ColorCurveInputs) -> Vec<f32> {
     }
     raw_core::stages::color_curves::apply(
         &mut img,
-        &ToneCurve::new(inputs.hue_vs_hue.clone()),
-        &ToneCurve::new(inputs.hue_vs_sat.clone()),
-        &ToneCurve::new(inputs.hue_vs_luma.clone()),
-        &ToneCurve::new(inputs.luma_vs_sat.clone()),
-        &ToneCurve::new(inputs.sat_vs_sat.clone()),
-        &ToneCurve::new(inputs.sat_vs_luma.clone()),
+        &ToneCurve::new(inputs.hue_vs_hue.clone().into_owned()),
+        &ToneCurve::new(inputs.hue_vs_sat.clone().into_owned()),
+        &ToneCurve::new(inputs.hue_vs_luma.clone().into_owned()),
+        &ToneCurve::new(inputs.luma_vs_sat.clone().into_owned()),
+        &ToneCurve::new(inputs.sat_vs_sat.clone().into_owned()),
+        &ToneCurve::new(inputs.sat_vs_luma.clone().into_owned()),
     );
     let mut out = Vec::with_capacity(buf.len());
     for (i, p) in img.pixels.iter().enumerate() {
@@ -56,30 +56,30 @@ fn wgsl_color_curves_matches_raw_core_within_1e_4() {
     let cases: Vec<ColorCurveInputs> = vec![
         // 1. Hue vs Hue only
         ColorCurveInputs {
-            hue_vs_hue: vec![(0.0, 0.5), (0.15, 0.72), (0.4, 0.5), (0.75, 0.3)],
+            hue_vs_hue: vec![(0.0, 0.5), (0.15, 0.72), (0.4, 0.5), (0.75, 0.3)].into(),
             ..Default::default()
         },
         // 2. Hue vs Sat + Hue vs Luma
         ColorCurveInputs {
-            hue_vs_sat: vec![(0.05, 0.8), (0.35, 0.5), (0.65, 0.25)],
-            hue_vs_luma: vec![(0.15, 0.65), (0.55, 0.35), (0.85, 0.5)],
+            hue_vs_sat: vec![(0.05, 0.8), (0.35, 0.5), (0.65, 0.25)].into(),
+            hue_vs_luma: vec![(0.15, 0.65), (0.55, 0.35), (0.85, 0.5)].into(),
             ..Default::default()
         },
         // 3. Luma vs Sat + Sat vs Sat + Sat vs Luma
         ColorCurveInputs {
-            luma_vs_sat: vec![(0.0, 0.2), (0.5, 0.65), (1.0, 0.3)],
-            sat_vs_sat: vec![(0.0, 0.7), (0.5, 0.5), (1.0, 0.25)],
-            sat_vs_luma: vec![(0.0, 0.5), (0.5, 0.65), (1.0, 0.35)],
+            luma_vs_sat: vec![(0.0, 0.2), (0.5, 0.65), (1.0, 0.3)].into(),
+            sat_vs_sat: vec![(0.0, 0.7), (0.5, 0.5), (1.0, 0.25)].into(),
+            sat_vs_luma: vec![(0.0, 0.5), (0.5, 0.65), (1.0, 0.35)].into(),
             ..Default::default()
         },
         // 4. All 6 curves active simultaneously
         ColorCurveInputs {
-            hue_vs_hue: vec![(0.1, 0.65), (0.5, 0.5), (0.8, 0.35)],
-            hue_vs_sat: vec![(0.2, 0.75), (0.6, 0.35)],
-            hue_vs_luma: vec![(0.1, 0.6), (0.7, 0.4)],
-            luma_vs_sat: vec![(0.0, 0.3), (0.5, 0.6), (1.0, 0.4)],
-            sat_vs_sat: vec![(0.0, 0.65), (0.6, 0.5), (1.0, 0.35)],
-            sat_vs_luma: vec![(0.0, 0.5), (0.7, 0.6), (1.0, 0.4)],
+            hue_vs_hue: vec![(0.1, 0.65), (0.5, 0.5), (0.8, 0.35)].into(),
+            hue_vs_sat: vec![(0.2, 0.75), (0.6, 0.35)].into(),
+            hue_vs_luma: vec![(0.1, 0.6), (0.7, 0.4)].into(),
+            luma_vs_sat: vec![(0.0, 0.3), (0.5, 0.6), (1.0, 0.4)].into(),
+            sat_vs_sat: vec![(0.0, 0.65), (0.6, 0.5), (1.0, 0.35)].into(),
+            sat_vs_luma: vec![(0.0, 0.5), (0.7, 0.6), (1.0, 0.4)].into(),
         },
     ];
 
@@ -106,12 +106,12 @@ fn wgsl_color_curves_matches_raw_core_within_1e_4() {
 fn local_oracle_matches_raw_core_within_1e_6() {
     let input = scene_buffer();
     let case = ColorCurveInputs {
-        hue_vs_hue: vec![(0.1, 0.65), (0.5, 0.5), (0.8, 0.35)],
-        hue_vs_sat: vec![(0.2, 0.75), (0.6, 0.35)],
-        hue_vs_luma: vec![(0.1, 0.6), (0.7, 0.4)],
-        luma_vs_sat: vec![(0.0, 0.3), (0.5, 0.6), (1.0, 0.4)],
-        sat_vs_sat: vec![(0.0, 0.65), (0.6, 0.5), (1.0, 0.35)],
-        sat_vs_luma: vec![(0.0, 0.5), (0.7, 0.6), (1.0, 0.4)],
+        hue_vs_hue: vec![(0.1, 0.65), (0.5, 0.5), (0.8, 0.35)].into(),
+        hue_vs_sat: vec![(0.2, 0.75), (0.6, 0.35)].into(),
+        hue_vs_luma: vec![(0.1, 0.6), (0.7, 0.4)].into(),
+        luma_vs_sat: vec![(0.0, 0.3), (0.5, 0.6), (1.0, 0.4)].into(),
+        sat_vs_sat: vec![(0.0, 0.65), (0.6, 0.5), (1.0, 0.35)].into(),
+        sat_vs_luma: vec![(0.0, 0.5), (0.7, 0.6), (1.0, 0.4)].into(),
     };
 
     let reference = raw_core_color_curves(&input, &case);
@@ -139,12 +139,12 @@ fn gpu_color_curves_neutral_is_bit_exact() {
     let img = GpuImage::upload(&ctx, &input, count, 1);
     let runner = ChainRunner::new(&ctx, &img);
     let aggressive = ColorCurveInputs {
-        hue_vs_hue: vec![(0.2, 1.0), (0.7, 0.0)],
-        hue_vs_sat: vec![(0.2, 1.0), (0.7, 0.0)],
-        hue_vs_luma: vec![(0.2, 1.0), (0.7, 0.0)],
-        luma_vs_sat: vec![(0.0, 1.0), (1.0, 1.0)],
-        sat_vs_sat: vec![(0.0, 1.0), (1.0, 1.0)],
-        sat_vs_luma: vec![(0.0, 1.0), (1.0, 0.0)],
+        hue_vs_hue: vec![(0.2, 1.0), (0.7, 0.0)].into(),
+        hue_vs_sat: vec![(0.2, 1.0), (0.7, 0.0)].into(),
+        hue_vs_luma: vec![(0.2, 1.0), (0.7, 0.0)].into(),
+        luma_vs_sat: vec![(0.0, 1.0), (1.0, 1.0)].into(),
+        sat_vs_sat: vec![(0.0, 1.0), (1.0, 1.0)].into(),
+        sat_vs_luma: vec![(0.0, 1.0), (1.0, 0.0)].into(),
     };
     let gpu = runner.run_blocking(&[&ColorCurvesPass {
         inputs: &aggressive,

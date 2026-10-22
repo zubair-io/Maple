@@ -91,7 +91,7 @@ export const QUICK_HUE_ANCHORS: readonly QuickHueAnchor[] = [
   { id: 'magenta', label: 'Magenta', deg: 328, color: '#c64fb0' },
 ] as const;
 
-export const SKIN_TONE_GUARD_DEG: readonly number[] = [38, 55, 72] as const;
+const SKIN_TONE_GUARD_DEG: readonly number[] = [38, 55, 72] as const;
 
 export function anyColorCurveModified(adj: AdjustmentModel | null): boolean {
   if (!adj) return false;
@@ -187,23 +187,13 @@ export function evaluateColorCurve(
   const sorted = points.slice().sort((a, b) => a[0] - b[0]);
   if (sorted.length === 1) return Math.min(1, Math.max(0, sorted[0][1]));
   const u = desc.isPeriodic ? x - Math.floor(x) : Math.min(1, Math.max(0, x));
-  const xs: number[] = [];
-  const ys: number[] = [];
-  if (desc.isPeriodic) {
-    for (const shift of [-1, 0, 1]) {
-      for (const p of sorted) {
-        xs.push(p[0] + shift);
-        ys.push(p[1]);
-      }
-    }
-  } else {
-    for (const p of sorted) {
-      xs.push(p[0]);
-      ys.push(p[1]);
-    }
-    if (u <= xs[0]) return ys[0];
-    if (u >= xs[xs.length - 1]) return ys[ys.length - 1];
-  }
+  const expanded = desc.isPeriodic
+    ? [-1, 0, 1].flatMap((shift) => sorted.map(([x, y]) => [x + shift, y] as const))
+    : sorted;
+  const xs = expanded.map(([x]) => x);
+  const ys = expanded.map(([, y]) => y);
+  if (!desc.isPeriodic && u <= xs[0]) return ys[0];
+  if (!desc.isPeriodic && u >= xs[xs.length - 1]) return ys[ys.length - 1];
   return evalHermite(u, xs, ys);
 }
 
@@ -230,22 +220,7 @@ function evalHermite(x: number, xs: readonly number[], ys: readonly number[]): n
       m[k] = (w1 + w2) / (w1 / dl + w2 / dr);
     }
   }
-  for (let k = 0; k < n - 1; k++) {
-    const dk = deltas[k];
-    if (Math.abs(dk) < 1e-7) {
-      m[k] = 0;
-      m[k + 1] = 0;
-    } else {
-      const alpha = m[k] / dk;
-      const beta = m[k + 1] / dk;
-      const r2 = alpha * alpha + beta * beta;
-      if (r2 > 9) {
-        const tau = 3 / Math.sqrt(r2);
-        m[k] = tau * alpha * dk;
-        m[k + 1] = tau * beta * dk;
-      }
-    }
-  }
+  limitHermiteSlopes(m, deltas);
   let seg = 0;
   for (let k = 0; k < n - 1; k++) {
     if (x >= xs[k] && x <= xs[k + 1]) {
@@ -263,4 +238,23 @@ function evalHermite(x: number, xs: readonly number[], ys: readonly number[]): n
   const h11 = t3 - t2;
   const y = h00 * ys[seg] + h10 * h * m[seg] + h01 * ys[seg + 1] + h11 * h * m[seg + 1];
   return Math.min(1, Math.max(0, y));
+}
+
+function limitHermiteSlopes(m: number[], deltas: readonly number[]): void {
+  for (let k = 0; k < deltas.length; k++) {
+    const dk = deltas[k];
+    if (Math.abs(dk) < 1e-7) {
+      m[k] = 0;
+      m[k + 1] = 0;
+    } else {
+      const alpha = m[k] / dk;
+      const beta = m[k + 1] / dk;
+      const r2 = alpha * alpha + beta * beta;
+      if (r2 > 9) {
+        const tau = 3 / Math.sqrt(r2);
+        m[k] = tau * alpha * dk;
+        m[k + 1] = tau * beta * dk;
+      }
+    }
+  }
 }

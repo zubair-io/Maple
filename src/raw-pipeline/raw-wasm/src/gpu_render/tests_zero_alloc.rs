@@ -198,7 +198,13 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
         if state == 2 {
             auto_profile::cache::insert_lut(key, auto_profile::lut::ColorLut::identity(3));
         }
-        let mut model = AdjustmentModel::default();
+        let mut model = AdjustmentModel {
+            color_curve_hue_vs_hue: raw_core::types::adjustment::ToneCurve::new(vec![
+                (0.1, 0.7),
+                (0.7, 0.3),
+            ]),
+            ..Default::default()
+        };
         let (rgba, w, h, prefix, anchor, _) =
             develop_prefix_rgba(&raw, &bytes, "dng", &model, 64).unwrap();
         let gpu = ctx.map(|ctx| (ctx, raw_gpu::LiveSession::new(ctx, &rgba, w, h).unwrap()));

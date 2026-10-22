@@ -98,7 +98,7 @@ const MODE_TABS: readonly CurveModeTab[] = [
   { id: 'RatioPreserving', label: 'Ratio-Preserving' },
 ];
 
-export interface PlottedSplitDiamond {
+interface PlottedSplitDiamond {
   readonly id: ParametricSplitHandle;
   readonly label: string;
   readonly value: number;
