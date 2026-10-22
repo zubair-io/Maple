@@ -4,9 +4,6 @@ import android.net.Uri
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -21,7 +18,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.*
@@ -66,29 +62,7 @@ internal fun BrowseGrid(
     val visible = remember(photos, culling, filter, sort) {
         applyBrowseCulling(photos, culling, filter, sort)
     }
-    val latestColumns = rememberUpdatedState(columns)
-    val pinchColumns =
-        Modifier.pointerInput(Unit) {
-            awaitEachGesture {
-                awaitFirstDown(requireUnconsumed = false)
-                var accumulator = 1f
-                while (true) {
-                    val event = awaitPointerEvent()
-                    val pressed = event.changes.filter { it.pressed }
-                    if (pressed.isEmpty() || event.changes.any { it.isConsumed }) break
-                    if (pressed.size < 2) continue
-                    val zoom = event.calculateZoom()
-                    if (!zoom.isFinite()) continue
-                    accumulator *= zoom
-                    val next = nextGridColumnsForPinch(latestColumns.value, accumulator)
-                    if (next != latestColumns.value) {
-                        columns = next
-                        accumulator = 1f
-                        event.changes.forEach { it.consume() }
-                    }
-                }
-            }
-        }
+    val pinchColumns = Modifier.gridPinch(gridState, columns) { columns = it }
     if (state.loading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = MapleColors.primary)
