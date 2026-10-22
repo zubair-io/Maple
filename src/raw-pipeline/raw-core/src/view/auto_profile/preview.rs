@@ -127,7 +127,7 @@ pub fn preview_orientation<P: AsRef<Path>>(path: P) -> ExifOrientation {
     }
 }
 
-fn orientation_from_rawsource(src: &RawSource) -> ExifOrientation {
+fn orientation_from_rawsource(src: &RawSource<'_>) -> ExifOrientation {
     rawler::get_decoder(src)
         .ok()
         .and_then(|dec| dec.raw_metadata(src, &RawDecodeParams::default()).ok())
@@ -247,7 +247,7 @@ pub fn extract_preview_from_bytes(bytes: &[u8], ext: &str) -> Option<DynamicImag
     extract_preview_from_rawsource(&src)
 }
 
-fn rawsource_from_bytes(bytes: &[u8], ext: &str) -> RawSource {
+fn rawsource_from_bytes(bytes: &[u8], ext: &str) -> RawSource<'static> {
     let src = RawSource::new_from_slice(bytes);
     if ext.is_empty() {
         src
@@ -256,7 +256,7 @@ fn rawsource_from_bytes(bytes: &[u8], ext: &str) -> RawSource {
     }
 }
 
-fn extract_preview_from_rawsource(src: &RawSource) -> Option<DynamicImage> {
+fn extract_preview_from_rawsource(src: &RawSource<'_>) -> Option<DynamicImage> {
     let params = RawDecodeParams::default();
     let decoder = rawler::get_decoder(src).ok()?;
     if let Ok(Some(img)) = decoder.preview_image(src, &params) {
@@ -405,7 +405,7 @@ pub fn detect_jpeg_color_space_from_bytes(bytes: &[u8], ext: &str) -> JpegColorS
     detect_jpeg_color_space_from_rawsource(&src)
 }
 
-fn detect_jpeg_color_space_from_rawsource(raw_src: &RawSource) -> JpegColorSpace {
+fn detect_jpeg_color_space_from_rawsource(raw_src: &RawSource<'_>) -> JpegColorSpace {
     let decoder = match rawler::get_decoder(raw_src) {
         Ok(d) => d,
         Err(_) => return JpegColorSpace::SRgb,
