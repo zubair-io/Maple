@@ -6,6 +6,8 @@ import { recoveryFixture } from '../cloud-backup/restore.test-helpers';
 import { insertFolder } from '../db/sqlite/test-sqlite.test-helpers';
 import { mkdir, readFile, stat, writeFile } from '../fs/mirrored';
 import { relocateFile } from '../fs/relocate';
+import { writeXmpAtomic } from '../fs/xmp';
+import { resolveAndAuthorizeSidecarWrite } from './xmp-path-auth';
 import { foldersRoutes } from './folders';
 import * as mirrored from '../fs/mirrored';
 import { fakeAuth } from '../../tests/helpers/test-auth';
@@ -184,3 +186,112 @@ for (const otherLibrary of [false, true]) {
     }
   });
 }
+
+for (const stem of [
+  'shoot.v12345678-1234-1234-1234-123456789abc',
+  'shoot (conflict from Camera)',
+]) {
+  test(`canonical owner with reserved-looking stem ${stem} keeps its actual replacement binding`, async () => {
+    const f = await recoveryFixture();
+    const source = path.join(f.root, 'incoming.dng');
+    const destination = path.join(f.root, stem + '.dng');
+    const sidecar = path.join(f.root, stem + '.xmp');
+    const reading = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let uploading: Promise<Response> | undefined;
+    try {
+      await writeFile(source, 'incoming original');
+      await writeFile(destination, 'displaced original');
+      const id = insertFolder(f.live.db, { path: f.root });
+      const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
+      const body = new ReadableStream<Uint8Array>(
+        {
+          async pull(controller) {
+            reading.resolve();
+            await release.promise;
+            controller.enqueue(new TextEncoder().encode('displaced edits'));
+            controller.close();
+          },
+        },
+        { highWaterMark: 0 },
+      );
+      uploading = app.handle(
+        new Request(`http://localhost/api/folders/${id}/upload`, {
+          method: 'POST',
+          headers: { 'X-Maple-Target-Path': stem + '.xmp' },
+          body,
+        }),
+      );
+      await reading.promise;
+      expect(
+        (
+          await relocateFile({
+            sourceAbsPath: source,
+            destAbsPath: destination,
+            mode: 'copy',
+            collision: 'replace',
+          })
+        ).kind,
+      ).toBe('relocated');
+      release.resolve();
+      expect((await uploading).status).toBe(409);
+      expect(await readFile(destination, 'utf8')).toBe('incoming original');
+      await expect(stat(sidecar)).rejects.toThrow();
+    } finally {
+      release.resolve();
+      await uploading;
+      await f.close();
+    }
+  });
+}
+
+test('raw upload waits for an admitted sidecar publisher and retires its edits with the old primary', async () => {
+  const f = await recoveryFixture();
+  const destination = path.join(f.root, 'photo.dng');
+  const sidecar = path.join(f.root, 'photo.xmp');
+  const publishing = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let renaming: ReturnType<typeof spyOn> | undefined;
+  let saving: ReturnType<typeof writeXmpAtomic> | undefined;
+  let uploading: Promise<Response> | undefined;
+  try {
+    await writeFile(destination, 'displaced original');
+    const id = insertFolder(f.live.db, { path: f.root });
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
+    const admitted = await resolveAndAuthorizeSidecarWrite(destination);
+    if (!admitted.ok) throw new Error(admitted.error);
+    const original = mirrored.rename;
+    renaming = spyOn(mirrored, 'rename').mockImplementation((async (
+      ...args: Parameters<typeof original>
+    ) => {
+      if (String(args[1]) === sidecar && String(args[0]).includes('.tmp.')) {
+        publishing.resolve();
+        await release.promise;
+      }
+      return original(...args);
+    }) as typeof original);
+    const edits =
+      '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description/></rdf:RDF></x:xmpmeta>';
+    saving = writeXmpAtomic(destination, edits, undefined, admitted.writeScope);
+    await publishing.promise;
+    uploading = app.handle(
+      new Request(`http://localhost/api/folders/${id}/upload`, {
+        method: 'POST',
+        headers: { 'X-Maple-Target-Path': 'photo.dng' },
+        body: 'incoming original',
+      }),
+    );
+    await Promise.race([uploading, Bun.sleep(100)]);
+    expect(await readFile(destination, 'utf8')).toBe('displaced original');
+    release.resolve();
+    expect(await saving).toMatchObject({ ok: true });
+    expect((await uploading).status).toBe(201);
+    expect(await readFile(destination, 'utf8')).toBe('incoming original');
+    await expect(stat(sidecar)).rejects.toThrow();
+  } finally {
+    release.resolve();
+    await Promise.allSettled([saving, uploading]);
+    renaming?.mockRestore();
+    await f.close();
+  }
+});
