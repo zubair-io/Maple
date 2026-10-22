@@ -256,6 +256,8 @@ All six require a bearer — they write files and reconcile deletions. Resume id
 | POST   | `/api/libraries/:libraryId/backup/sidecar`        | bearer | Write an XMP sidecar next to a previously uploaded asset, addressed by `X-Maple-Target-Rel-Path`, under its canonical name (`IMG.HEIC` → `IMG.xmp`, `IMG.MOV` → `IMG.MOV.xmp`, #5021). With `X-Maple-Sidecar-Base` (see below) it is a compare-and-swap; without it an existing sidecar is kept                           |
 | POST   | `/api/libraries/:libraryId/backup/notify-deleted` | bearer | Body `{ phasset_local_ids }`; marks the cloud copies `deleted_from_photos`. The rows and bytes stay                                                                                                                                                                                                                       |
 
+A completed ingest's retry sends every chunk again before success: a stored session or path can't prove the original bytes still live there. The server rewinds the session (`409` with `expected_offset: 0` for a resumed chunk), byte-compares the assembled upload before deduplicating, and answers `200` with the verified current path only after the final chunk. A collision moves the upload to siblings in a fixed order (`-1`, `-2`, …), so a retry after a crash between publication and the catalog write adopts the copy it already published (#4905).
+
 ### Re-sending a newer edit (`X-Maple-Sidecar-Base`)
 
 A device that edits a photo after backing it up re-sends the sidecar, naming the version its edit was based on: the SHA-256 (hex) of the XMP it last delivered, or `none` for its first sidecar. The write never skips (#4719):

@@ -322,7 +322,7 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     expect(restored.equals(repairBytes)).toBe(true);
   });
 
-  test('completed upload relocated to a new path still short-circuits at the current live path (#4700)', async () => {
+  test('completed upload relocated to a new path verifies bytes at the current live path (#4905)', async () => {
     const relocatedPhid = 'ABC/L0/RELOCATED-1';
     const relocatedMapleId = '023978112ca1bbdcafac231b39a23dc9';
     const payload = Buffer.alloc(128, 0x77);
@@ -352,18 +352,23 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
       [relocatedMapleId],
     );
 
-    // Retry only the first chunk of a multi-chunk upload — if the completed
-    // session short-circuits, it returns 200 immediately with the relocated path
-    // instead of 202 awaiting more chunks.
+    // A previous completion cannot prove that the relocated path still owns
+    // these bytes. Verify the full retry before returning its current path.
     const retry = await authedHandle(
       ingest(payload.subarray(0, 64), {
         ...headers,
         'Content-Range': `bytes 0-63/${payload.byteLength}`,
       }),
     );
-    expect(retry.status).toBe(200);
-    const retryBody = await retry.json();
-    expect(retryBody.target_rel_path).toBe(newRelPath);
+    expect(retry.status).toBe(202);
+    const final = await authedHandle(
+      ingest(payload.subarray(64), {
+        ...headers,
+        'Content-Range': `bytes 64-127/${payload.byteLength}`,
+      }),
+    );
+    expect(final.status).toBe(200);
+    expect((await final.json()).target_rel_path).toBe(newRelPath);
   });
 
   test('missing location whose path is now occupied by unrelated bytes disambiguates instead of adopting or overwriting (#4700)', async () => {
