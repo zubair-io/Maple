@@ -151,6 +151,69 @@ import XCTest
       XCTAssertEqual(try Data(contentsOf: staged), original)
     }
 
+    func testVectorscopeDoesNotCoverGradingControlsInEitherOrientation() throws {
+      let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("Fixtures/layout/rgb-gradient.png")
+      let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("maple-phone-scope-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      stagedDirectory = directory
+      let staged = directory.appendingPathComponent(fixture.lastPathComponent)
+      try FileManager.default.copyItem(at: fixture, to: staged)
+      let original = try Data(contentsOf: staged)
+      let app = XCUIApplication()
+      launchedApp = app
+      app.launchArguments = ["-editor.showsScope", "YES"]
+      app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = staged.lastPathComponent
+      app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = directory.path
+      app.launchEnvironment["MAPLE_GPU_LIVE"] = "0"
+      XCUIDevice.shared.orientation = .portrait
+      app.launch()
+      XCTAssertTrue(element(app, "editor-iphone-controls").waitForExistence(timeout: 30))
+      app.buttons["editor-group-effects"].tap()
+      tapTool(app, "colorGrade")
+      for orientation: UIDeviceOrientation in [.portrait, .landscapeLeft, .landscapeRight] {
+        XCUIDevice.shared.orientation = orientation
+        wait(
+          app.windows.firstMatch,
+          predicate: NSPredicate { _, _ in
+            let frame = app.windows.firstMatch.frame
+            return orientation == .portrait
+              ? frame.height > frame.width : frame.width > frame.height
+          })
+        let selected = element(app, "editor-iphone-selected-control")
+        selected.swipeDown()
+        selected.swipeDown()
+        let scope = element(app, "editor-vectorscope-hud")
+        XCTAssertTrue(scope.exists)
+        XCTAssertTrue(
+          selected.frame.contains(scope.frame), "Scope must be visible inside the controls")
+        let scopeShot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        scopeShot.name = "iPhone visible scope \(orientation.rawValue)"
+        scopeShot.lifetime = .keepAlways
+        add(scopeShot)
+        for id in [
+          "editor-group-tabs", "editor-tool-row", "editor-phone-reset-all", "editor-pill-header",
+        ] {
+          XCTAssertFalse(scope.frame.intersects(element(app, id).frame), "Scope overlaps \(id)")
+        }
+        for id in ["light", "color", "effects", "detail"] {
+          XCTAssertTrue(app.buttons["editor-group-\(id)"].isHittable)
+        }
+        selected.swipeUp()
+        selected.swipeUp()
+        let blending = element(app, "editor-color-grading-blending")
+        XCTAssertTrue(blending.exists)
+        XCTAssertTrue(blending.isHittable, "Grading must remain reachable with scope enabled")
+        XCTAssertFalse(scope.frame.intersects(blending.frame))
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "iPhone grading with scope \(orientation.rawValue)"
+        shot.lifetime = .keepAlways
+        add(shot)
+      }
+      XCTAssertEqual(try Data(contentsOf: staged), original)
+    }
+
     func testCompactResetAllRestoresAdjustment() throws {
       let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .appendingPathComponent("Fixtures/layout/rgb-gradient.png")

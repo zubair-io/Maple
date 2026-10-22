@@ -151,7 +151,7 @@ struct EditorSurface: View {
               IPhoneControlBar(
                 state: state, onPresetsTap: { presetsOpen = true },
                 maximumPanelHeight: min(300, geometry.size.height * 0.4),
-                showsGroupTabs: !usesDuoToolRail
+                showsGroupTabs: !usesDuoToolRail, showsScope: showsScope
               )
               .reportsWheelExclusion(in: "editorCanvas", active: true)
             }
@@ -161,7 +161,7 @@ struct EditorSurface: View {
         } else {
           EditorControls(
             state: state, onPresetsTap: { presetsOpen = true },
-            usesSystemToolRail: usesDuoToolRail
+            usesSystemToolRail: usesDuoToolRail, showsScope: showsScope
           )
         }
       }
@@ -219,11 +219,6 @@ struct EditorSurface: View {
         // MAPLE_GPU_HUD=1); compiles out / EmptyView otherwise. Ported
         // from the legacy FullImageView when it was retired (#1807).
         EditorFrameTimeHUD(session: state.session)
-        // Skin-tone vectorscope HUD (#3277) — toggled by the pill's
-        // "Scope" button, persisted via `showsScope`; armed below.
-        if showsScope {
-          VectorscopeHud(state: state)
-        }
       }
       .padding(.top, 60)
     }

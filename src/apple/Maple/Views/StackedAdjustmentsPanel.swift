@@ -11,6 +11,7 @@ import SwiftUI
 struct StackedAdjustmentsPanel: View {
   @Bindable var state: EditorState
   let showsHeader: Bool
+  var showsScope = false
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
@@ -21,6 +22,9 @@ struct StackedAdjustmentsPanel: View {
       }
       ScrollView(.vertical) {
         VStack(spacing: 0) {
+          if showsScope {
+            VectorscopeHud(state: state).padding(12)
+          }
           if state.armedTool == .crop {
             CropToolbar(state: state)
               .id(Tool.crop.rawValue)
