@@ -31,7 +31,7 @@ enum ToneCurvePlotShading {
     )
     var splitGuides = Path()
     for splitPct in [s, m, hi] {
-      let x = (splitPct / 100.0) * w
+      let x = ToneCurveSplits.authoringX(forAxis: splitPct) * w
       splitGuides.move(to: CGPoint(x: x, y: 0))
       splitGuides.addLine(to: CGPoint(x: x, y: h))
     }
@@ -85,7 +85,7 @@ struct ToneCurveSplitBar: View {
 
           ForEach(ParametricSplitHandle.allCases, id: \.rawValue) { handle in
             let val = value(for: handle)
-            let x = (val / 100.0) * width
+            let x = ToneCurveSplits.authoringX(forAxis: val) * width
             SplitDiamondMarker(
               handle: handle,
               value: val,
@@ -113,7 +113,7 @@ struct ToneCurveSplitBar: View {
                     activeHandle = handle
                     onEditingChanged(handle, true)
                   }
-                  let proposed = (drag.location.x / width) * 100.0
+                  let proposed = ToneCurveSplits.axis(forAuthoringX: drag.location.x / width)
                   let clamped = ToneCurveSplits.clampSplit(
                     handle: handle,
                     proposed: proposed,

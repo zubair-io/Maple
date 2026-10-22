@@ -6,6 +6,14 @@ namespace Maple.WinUI.Tests
     public class MuiToneCurveSplitsMathTests
     {
         [Fact]
+        public void SplitPlotGeometryUsesTheLogAxisInBothDirections()
+        {
+            Assert.Equal(0.045, MuiToneCurveSplitsMath.AuthoringX(50), 9);
+            foreach (var axis in new[] { 10.0, 25, 50, 75, 90 })
+                Assert.Equal(axis, MuiToneCurveSplitsMath.Axis(MuiToneCurveSplitsMath.AuthoringX(axis)), 9);
+        }
+
+        [Fact]
         public void ImportedNeighborsCannotRaiseTheInteractiveUpperBound()
         {
             Assert.Equal(90, MuiToneCurveSplitsMath.ClampSplit(ParametricSplitHandle.Highlight, 50, 97, 98, 99));

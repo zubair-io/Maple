@@ -25,6 +25,9 @@ namespace Maple.UI
         public const double MinUiGap = 5.0;
         public const double AxisTop = ParametricAxisTuning.Top;
 
+        public static double AuthoringX(double axis) => ParametricAxisTuning.Midgrey * Math.Pow(2, (axis - ParametricAxisTuning.Midtone) / ParametricAxisTuning.UnitsPerStop) / ParametricAxisTuning.ReferenceMax;
+        public static double Axis(double x) => x > 0 ? ParametricAxisTuning.Midtone + ParametricAxisTuning.UnitsPerStop * Math.Log2(x * ParametricAxisTuning.ReferenceMax / ParametricAxisTuning.Midgrey) : 0;
+
         public static double DefaultValue(ParametricSplitHandle handle) => handle switch
         {
             ParametricSplitHandle.Shadow => DefaultShadowSplit,

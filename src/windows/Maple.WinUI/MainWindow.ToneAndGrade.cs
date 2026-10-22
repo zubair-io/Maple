@@ -138,13 +138,13 @@ namespace Maple.WinUI
             if (_curveSplitCanvas == null || _curveSplitCanvas.ActualWidth <= 0) return;
             var pt = e.GetCurrentPoint(_curveSplitCanvas);
             if (!pt.Properties.IsLeftButtonPressed) return;
-            var pct = pt.Position.X / _curveSplitCanvas.ActualWidth * 100.0;
+            var pct = MuiToneCurveSplitsMath.Axis(pt.Position.X / _curveSplitCanvas.ActualWidth);
             var adj = ViewModel.Adjustments;
             var candidates = new (ParametricSplitHandle Handle, double Dist)[]
             {
-                (ParametricSplitHandle.Shadow, Math.Abs(pct - adj.ParametricShadowSplit)),
-                (ParametricSplitHandle.Midtone, Math.Abs(pct - adj.ParametricMidtoneSplit)),
-                (ParametricSplitHandle.Highlight, Math.Abs(pct - adj.ParametricHighlightSplit)),
+                (ParametricSplitHandle.Shadow, Math.Abs(MuiToneCurveSplitsMath.AuthoringX(pct) - MuiToneCurveSplitsMath.AuthoringX(adj.ParametricShadowSplit)) * _curveSplitCanvas.ActualWidth),
+                (ParametricSplitHandle.Midtone, Math.Abs(MuiToneCurveSplitsMath.AuthoringX(pct) - MuiToneCurveSplitsMath.AuthoringX(adj.ParametricMidtoneSplit)) * _curveSplitCanvas.ActualWidth),
+                (ParametricSplitHandle.Highlight, Math.Abs(MuiToneCurveSplitsMath.AuthoringX(pct) - MuiToneCurveSplitsMath.AuthoringX(adj.ParametricHighlightSplit)) * _curveSplitCanvas.ActualWidth),
             };
             var nearest = candidates.OrderBy(c => c.Dist).First();
             if (nearest.Dist > 8.0) return;
@@ -161,7 +161,7 @@ namespace Maple.WinUI
         {
             if (_draggingSplitHandle is not { } handle || e.Pointer.PointerId != _splitDragPointerId) return;
             if (_curveSplitCanvas == null || _curveSplitCanvas.ActualWidth <= 0) return;
-            var pct = e.GetCurrentPoint(_curveSplitCanvas).Position.X / _curveSplitCanvas.ActualWidth * 100.0;
+            var pct = MuiToneCurveSplitsMath.Axis(e.GetCurrentPoint(_curveSplitCanvas).Position.X / _curveSplitCanvas.ActualWidth);
             ApplySplitDrag(handle, pct);
             e.Handled = true;
         }
@@ -180,13 +180,13 @@ namespace Maple.WinUI
         private void OnSplitCanvasDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             if (_curveSplitCanvas == null || _curveSplitCanvas.ActualWidth <= 0) return;
-            var pct = e.GetPosition(_curveSplitCanvas).X / _curveSplitCanvas.ActualWidth * 100.0;
+            var pct = MuiToneCurveSplitsMath.Axis(e.GetPosition(_curveSplitCanvas).X / _curveSplitCanvas.ActualWidth);
             var adj = ViewModel.Adjustments;
             var candidates = new (ParametricSplitHandle Handle, double Dist)[]
             {
-                (ParametricSplitHandle.Shadow, Math.Abs(pct - adj.ParametricShadowSplit)),
-                (ParametricSplitHandle.Midtone, Math.Abs(pct - adj.ParametricMidtoneSplit)),
-                (ParametricSplitHandle.Highlight, Math.Abs(pct - adj.ParametricHighlightSplit)),
+                (ParametricSplitHandle.Shadow, Math.Abs(MuiToneCurveSplitsMath.AuthoringX(pct) - MuiToneCurveSplitsMath.AuthoringX(adj.ParametricShadowSplit)) * _curveSplitCanvas.ActualWidth),
+                (ParametricSplitHandle.Midtone, Math.Abs(MuiToneCurveSplitsMath.AuthoringX(pct) - MuiToneCurveSplitsMath.AuthoringX(adj.ParametricMidtoneSplit)) * _curveSplitCanvas.ActualWidth),
+                (ParametricSplitHandle.Highlight, Math.Abs(MuiToneCurveSplitsMath.AuthoringX(pct) - MuiToneCurveSplitsMath.AuthoringX(adj.ParametricHighlightSplit)) * _curveSplitCanvas.ActualWidth),
             };
             var nearest = candidates.OrderBy(c => c.Dist).First();
             if (nearest.Dist > 8.0) return;
@@ -260,7 +260,7 @@ namespace Maple.WinUI
 
             foreach (var (handle, val) in splits)
             {
-                var cx = val / 100.0 * w;
+                var cx = MuiToneCurveSplitsMath.AuthoringX(val) * w;
                 var active = _draggingSplitHandle == handle;
                 var diamond = new Polygon
                 {

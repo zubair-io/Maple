@@ -57,6 +57,7 @@ import {
   DEFAULT_MIDTONE_SPLIT,
   DEFAULT_SHADOW_SPLIT,
   clampParametricSplit,
+  authoringXToAxis,
   defaultSplitValue,
   regionForSplitHandle,
   type ParametricSplitHandle,
@@ -360,7 +361,7 @@ export class ToneCurveComponent implements OnDestroy {
     const updateFromEvent = (e: PointerEvent) => {
       const pos = this.toAuthoring(e);
       if (!pos) return;
-      this.applySplitValue(handle, pos.x * 100);
+      this.applySplitValue(handle, authoringXToAxis(pos.x));
     };
 
     const move = (e: PointerEvent) => updateFromEvent(e);

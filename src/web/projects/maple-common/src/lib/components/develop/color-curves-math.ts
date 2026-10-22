@@ -295,3 +295,31 @@ function limitHermiteSlopes(m: number[], deltas: readonly number[]): void {
     }
   }
 }
+
+const KNOT_KEY_STEPS = new Map<string, readonly [number, number]>([
+  ['ArrowLeft', [-1, 0]],
+  ['ArrowRight', [1, 0]],
+  ['ArrowUp', [0, 1]],
+  ['ArrowDown', [0, -1]],
+]);
+
+/** Apply keyboard edits through the same spacing and hue-slope constraints as a drag. */
+export function colorCurveKeyboardPoint(
+  desc: ColorCurveDescriptor,
+  points: readonly ToneCurvePoint[],
+  index: number,
+  key: string,
+  coarse: boolean,
+): ToneCurvePoint | undefined {
+  const point = points[index];
+  if (!point) return undefined;
+  const delta = KNOT_KEY_STEPS.get(key);
+  const endpoint = key === 'Home' ? 0 : key === 'End' ? 1 : undefined;
+  if (!delta && endpoint === undefined) return undefined;
+  const step = coarse ? 0.05 : 0.01;
+  const x = delta?.[0]
+    ? clampColorCurveX(desc, point[0] + delta[0] * step, points, index)
+    : point[0];
+  const y = endpoint ?? point[1] + (delta?.[1] ?? 0) * step;
+  return [x, clampColorCurveY(desc, x, y, points, index)];
+}
