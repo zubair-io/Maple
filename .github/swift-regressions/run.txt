@@ -419,3 +419,7 @@ CloudHostTests
 LocalSidecarOwnershipTests
 SMBSidecarOwnershipTests
 SidecarStemRuleTests
+
+# Joined sidecar bytes are rechecked before restore and SMB relocation publish/delete.
+RestoreJoinedSidecarTests
+SMBRelocateJoinedSidecarTests
