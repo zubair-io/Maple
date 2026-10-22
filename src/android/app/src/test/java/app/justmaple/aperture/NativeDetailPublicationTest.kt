@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.view.Surface
 import app.justmaple.aperture.data.*
-import app.justmaple.aperture.ui.CropRect
+import app.justmaple.aperture.ui.*
 import java.io.File
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
@@ -20,6 +20,37 @@ import org.robolectric.RuntimeEnvironment
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 class NativeDetailPublicationTest {
+    @Test fun previewPagingAndFilmstripKeepTheActualFilteredRatingOrder() = runBlocking {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        val app = RuntimeEnvironment.getApplication()
+        val files = (0..2).map { File.createTempFile("ordered-$it-", ".dng", app.cacheDir).apply { writeText("JNI fixture seam") } }
+        val photos = files.map { Photo(Uri.fromFile(it), it.name, it.length(), it.lastModified(), null) }
+        val library = PhotoLibrary(app)
+        val model = MapleViewModel(app, library, Renderer())
+        try {
+            for ((index, photo) in photos.withIndex()) library.save(photo,
+                XmpDocument().withAttribute("papp:Flag", if (index == 1) "reject" else "pick")
+                    .withAttribute("xmp:Rating", if (index == 2) "5" else "1"), null)
+            val marks = photos.associate { it.uri.toString() to cullingOf(library.loadSidecar(it).document) }
+            val visible = applyBrowseCulling(photos, marks,
+                BrowseFilter.Picks, BrowseSort.Rating)
+            assertEquals(listOf(photos[2], photos[0]), visible)
+            model.openFromBrowse(visible[0], visible)
+            withTimeout(10_000) { model.state.first { it.documentLoaded && !it.loading && it.selected == photos[2] } }
+            assertEquals(visible, model.state.value.navigationPhotos)
+            assertTrue(model.openAdjacent(1))
+            withTimeout(10_000) { model.state.first { it.documentLoaded && !it.loading && it.selected == photos[0] } }
+            assertFalse("Hidden rejected photos cannot enter swipe paging", model.openAdjacent(1))
+            assertEquals(visible, model.state.value.navigationPhotos)
+            assertTrue(model.openAdjacent(-1))
+            withTimeout(10_000) { model.state.first { it.documentLoaded && !it.loading && it.selected == photos[2] } }
+            model.back()
+        } finally {
+            files.forEach { it.delete() }
+            Dispatchers.resetMain()
+        }
+    }
+
     private class Renderer : PreviewRenderer {
         override val hasPresented = true
         override var revision = 0
@@ -82,9 +113,13 @@ class NativeDetailPublicationTest {
             model.requestNativeDetail(NativeRegion(2510, 1610, 1000, 750))
             main.scheduler.advanceTimeBy(200)
             assertEquals("Pan within retained margin must reuse source pixels", 2, renderer.calls.size)
+            val reader = model.state.value.nativeDetail!!.retain()!!
             val surfaceRevision = model.state.value.nativeSurfaceRevision
             model.surface(null, 1000, 750, wideColor = true)
             assertNull("A display target change retires the previous native frame", model.state.value.nativeDetail)
+            assertFalse("An old composed frame still owns its bitmap", fresh.isRecycled)
+            reader.close()
+            assertTrue("Superseded pixels are freed when their last composed reader leaves", fresh.isRecycled)
             assertEquals(surfaceRevision + 1, model.state.value.nativeSurfaceRevision)
             begin()
             assertEquals("Same region needs fresh pixels for the new display target", 3, renderer.calls.size)

@@ -37,10 +37,33 @@ class CanvasZoomAndBeforeAfterTest {
     @get:Rule val compose = createComposeRule()
 
     @Test
+    fun aShortPinchWithSequentialFingerLiftsCannotSeedADoubleTap() {
+        val zoom = CanvasZoomState()
+        compose.setContent {
+            Box(Modifier.size(300.dp).testTag("pinch-box").pointerInput(Unit) {
+                detectCanvasZoomPanAndSwipe(zoom, { 1200 to 900 }, false, {})
+            })
+        }
+        val box = compose.onNodeWithTag("pinch-box")
+        box.performTouchInput {
+            down(0, Offset(80f, 150f))
+            down(1, Offset(220f, 150f))
+            moveTo(1, Offset(240f, 150f))
+            up(1)
+            advanceEventTime(10)
+            up(0)
+        }
+        val scale = compose.runOnIdle { assertTrue(zoom.isZoomed); zoom.pixelScale }
+        box.performTouchInput { click(center) }
+        compose.runOnIdle { assertEquals(scale, zoom.pixelScale, 1e-6f) }
+    }
+
+    @Test
     fun doubleTapSelects100PercentEvenWhenFitAlreadyEnlargesTheImage() {
         val zoom = CanvasZoomState()
         zoom.doubleTap(600f, 450f, 1000, 750, 1200f, 900f)
         assertEquals(1f, zoom.pixelScale, 0f)
+        assertEquals(1f / 1.2f, zoom.zoomFactorOverFit(1000, 750, 1200f, 900f), 1e-6f)
         assertEquals("100%", zoom.badgeLabel(1000, 750, 1200f, 900f))
         zoom.doubleTap(600f, 450f, 1000, 750, 1200f, 900f)
         assertFalse(zoom.isZoomed)

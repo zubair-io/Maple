@@ -14,6 +14,7 @@ data class MapleState(
     val folderTrail: List<Folder> = emptyList(),
     val folders: List<Folder> = emptyList(),
     val photos: List<Photo> = emptyList(),
+    val previewOrder: List<Photo>? = null,
     val selected: Photo? = null,
     val mode: PhotoMode = PhotoMode.Browse,
     val document: XmpDocument = XmpDocument(),
@@ -43,6 +44,8 @@ data class MapleState(
     val cloudSigningIn: Boolean = false,
     val cloudConnectionsVersion: Int = 0,
 ) {
+    val navigationPhotos: List<Photo> get() = previewOrder ?: photos
+
     val canChangeMetadata: Boolean
         get() = selected != null && documentLoaded && !loading && !rendering
 

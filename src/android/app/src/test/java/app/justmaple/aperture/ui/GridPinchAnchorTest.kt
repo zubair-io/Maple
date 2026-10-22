@@ -25,6 +25,48 @@ class GridPinchAnchorTest {
     @get:Rule val compose = createComposeRule()
 
     @Test
+    fun rightColumnPhotoStaysUnderTheFingersAcrossTwoColumnChanges() {
+        val state = LazyGridState(firstVisibleItemIndex = 60)
+        var columns by mutableIntStateOf(3)
+        compose.setContent {
+            Box(Modifier.size(360.dp, 500.dp).testTag("pinch-viewport")) {
+                LazyVerticalGrid(GridCells.Fixed(columns), Modifier.gridPinch(state, columns) { columns = it },
+                    state = state, contentPadding = PaddingValues(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    items(150, key = { "photo:$it" }) { Box(Modifier.aspectRatio(1f).testTag("photo:$it")) }
+                }
+            }
+        }
+        var center = Offset.Zero
+        compose.runOnIdle {
+            val item = compose.onNodeWithTag("photo:62").fetchSemanticsNode()
+            val origin = compose.onNodeWithTag("pinch-viewport").fetchSemanticsNode().positionInRoot
+            center = item.positionInRoot - origin + Offset(item.size.width * 0.5f, item.size.height * 0.5f)
+        }
+        val viewport = compose.onNodeWithTag("pinch-viewport")
+        viewport.performTouchInput {
+            down(0, center - Offset(20f, 0f)); down(1, center + Offset(20f, 0f))
+            updatePointerTo(0, center - Offset(35f, 0f)); updatePointerTo(1, center + Offset(35f, 0f)); move()
+        }
+        fun assertAnchor(expectedColumns: Int) {
+            compose.runOnIdle {
+                assertEquals(expectedColumns, columns)
+                val item = compose.onNodeWithTag("photo:62").fetchSemanticsNode()
+                val origin = viewport.fetchSemanticsNode().positionInRoot
+                assertEquals(center.x, item.positionInRoot.x - origin.x + item.size.width * 0.5f, 2f)
+                assertEquals(center.y, item.positionInRoot.y - origin.y + item.size.height * 0.5f, 2f)
+            }
+        }
+        assertAnchor(2)
+        viewport.performTouchInput {
+            updatePointerTo(0, center - Offset(60f, 0f)); updatePointerTo(1, center + Offset(60f, 0f)); move()
+        }
+        assertAnchor(1)
+        viewport.performTouchInput { up(0); up(1) }
+        compose.waitForIdle()
+    }
+
+    @Test
     fun changingColumnsKeepsTheCentroidPhotoAtItsVerticalAnchor() {
         val state = LazyGridState(firstVisibleItemIndex = 60)
         var columns by mutableIntStateOf(3)

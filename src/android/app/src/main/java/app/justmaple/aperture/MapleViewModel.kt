@@ -138,7 +138,7 @@ internal constructor(
                         mode = PhotoMode.Browse,
                         folder = null,
                         folderTrail = emptyList(),
-                        photos = emptyList(),
+                        photos = emptyList(), previewOrder = null,
                         folders = emptyList(),
                         selected = null,
                     )
@@ -179,7 +179,7 @@ internal constructor(
                     folder = folder,
                     folderTrail = it.trailTo(folder, ancestors),
                     folders = emptyList(),
-                    photos = emptyList(),
+                    photos = emptyList(), previewOrder = null,
                     mode = PhotoMode.Browse,
                     selected = null,
                     error = null,
@@ -214,17 +214,21 @@ internal constructor(
 
     fun open(photo: Photo) = viewModelScope.launch { open(photo, single = false) }
 
+    fun openFromBrowse(photo: Photo, visibleOrder: List<Photo>) = viewModelScope.launch {
+        open(photo, single = false, visibleOrder = visibleOrder.toList())
+    }
+
     fun openAdjacent(delta: Int): Boolean {
         val snapshot = state.value
         val current = snapshot.selected ?: return false
-        val index = snapshot.photos.indexOfFirst { it.uri == current.uri }
+        val index = snapshot.navigationPhotos.indexOfFirst { it.uri == current.uri }
         if (index < 0) return false
-        val target = snapshot.photos.getOrNull(index + delta) ?: return false
+        val target = snapshot.navigationPhotos.getOrNull(index + delta) ?: return false
         open(target)
         return true
     }
 
-    private suspend fun open(photo: Photo, single: Boolean) {
+    private suspend fun open(photo: Photo, single: Boolean, visibleOrder: List<Photo>? = null) {
         if (!flush()) return
         cancelNativeDetail()
         nativeDimensionsJob?.cancel()
@@ -243,6 +247,7 @@ internal constructor(
                 cropAspectSwapped = false,
                 selected = photo,
                 photos = if (single) listOf(photo) else it.photos,
+                previewOrder = if (single) null else visibleOrder ?: it.previewOrder,
                 folder = if (single) null else it.folder,
                 folderTrail = if (single) emptyList() else it.folderTrail,
                 folders = if (single) emptyList() else it.folders,
@@ -384,7 +389,9 @@ internal constructor(
         ++nativeDetailSerial
         nativeDetailJob?.cancel()
         renderer.cancelNativeDetail()
+        val previous = state.value.nativeDetail
         mutable.update { it.copy(nativeDetail = null, nativeDetailBusy = false, nativeDetailError = null) }
+        previous?.close()
     }
 
     private fun nativeDocument(): XmpDocument {
@@ -417,8 +424,9 @@ internal constructor(
         val token = generation
         val published = region.withPanMargin(size)
         val xml = if (current.mode == PhotoMode.Edit) renderXml else document.serialize()
-        mutable.update { it.copy(nativeDetailBusy = true, nativeDetailError = null,
-            nativeDetail = cached?.takeIf { frame -> frame.photoKey == photo.key && frame.document == document }) }
+        val retained = cached?.takeIf { frame -> frame.photoKey == photo.key && frame.document == document }
+        mutable.update { it.copy(nativeDetailBusy = true, nativeDetailError = null, nativeDetail = retained) }
+        if (cached !== retained) cached?.close()
         nativeDetailJob = viewModelScope.launch {
             var unowned: android.graphics.Bitmap? = null
             try {
@@ -427,8 +435,10 @@ internal constructor(
                 unowned = bitmap
                 currentCoroutineContext().ensureActive()
                 if (serial == nativeDetailSerial && token == generation && state.value.selected?.key == photo.key && nativeDocument() == document) {
+                    val previous = state.value.nativeDetail
                     mutable.update { it.copy(nativeDetail = NativeDetailFrame(photo.key, document, published, bitmap),
                         nativeDetailBusy = false, nativeDetailError = null) }
+                    previous?.close()
                     unowned = null
                 }
             } catch (failure: Exception) {
@@ -867,6 +877,7 @@ internal constructor(
     }
 
     override fun onCleared() {
+        state.value.nativeDetail?.close()
         nativeDimensionsJob?.cancel()
         nativeDetailJob?.cancel()
         refineJob?.cancel()

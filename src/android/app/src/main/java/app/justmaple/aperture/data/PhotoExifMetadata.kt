@@ -1,8 +1,9 @@
 package app.justmaple.aperture.data
 
-import android.content.Context
 import android.media.ExifInterface
-import android.net.Uri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 
 data class PhotoExifMetadata(
     val cameraMake: String? = null,
@@ -42,10 +43,11 @@ data class PhotoExifMetadata(
 private const val LENS_MODEL_TAG = "LensModel"
 private const val PHOTOGRAPHIC_SENSITIVITY_TAG = "PhotographicSensitivity"
 
-fun readPhotoExif(context: Context, uri: Uri): PhotoExifMetadata {
-    return try {
+suspend fun readPhotoExif(library: PhotoLibrary, photo: Photo): PhotoExifMetadata = withContext(Dispatchers.IO) {
+    try {
+      library.withSourceMetadata(photo) { file ->
         val attrs = mutableMapOf<String, String?>()
-        context.contentResolver.openInputStream(uri)?.use { stream ->
+        file.inputStream().use { stream ->
             val exif = ExifInterface(stream)
             attrs["Make"] = exif.getAttribute(ExifInterface.TAG_MAKE)
             attrs["Model"] = exif.getAttribute(ExifInterface.TAG_MODEL)
@@ -59,8 +61,11 @@ fun readPhotoExif(context: Context, uri: Uri): PhotoExifMetadata {
             attrs["ImageWidth"] = exif.getAttribute(ExifInterface.TAG_IMAGE_WIDTH)
             attrs["ImageLength"] = exif.getAttribute(ExifInterface.TAG_IMAGE_LENGTH)
             attrs["DateTimeOriginal"] = exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
-        } ?: return PhotoExifMetadata()
+        }
         parseExifAttributes(attrs)
+      }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
     } catch (_: Exception) {
         PhotoExifMetadata()
     }
