@@ -1,5 +1,6 @@
 /** Authorized selected-variant storage (#4040 / #2437). */
 import { Elysia, status, t } from 'elysia';
+import { SidecarWritePathDeniedError } from '../fs/sidecar-write-order';
 import { publishSidecarChange } from './xmp-change';
 import { resolveAndAuthorizePath, resolveAndAuthorizeSidecarWrite } from './xmp-path-auth';
 import {
@@ -39,6 +40,7 @@ function publishVariantMutation(
 
 export const xmpVariantRoutes = new Elysia()
   .onError(({ error }) => {
+    if (error instanceof SidecarWritePathDeniedError) return status(409, { error: error.message });
     if (error instanceof WorkflowVariantError)
       return status(error.status, { error: error.message });
   })
