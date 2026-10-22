@@ -11,15 +11,33 @@ use raw_core::{
 };
 use std::{
     ffi::{c_char, c_void},
+    io::{Read, Seek},
     path::Path,
     ptr,
     sync::{Arc, Mutex},
 };
 
 const MAX_WORKING_PIXELS: u64 = 8 * 1024 * 1024;
-const MAX_RASTER_DECODE_BYTES: u64 = 320 * 1024 * 1024;
+const MAX_RASTER_WORKING_BYTES: u64 = 320 * 1024 * 1024;
 // decode_raster_base simultaneously owns RGB f32 plus input/output RGBA f32.
 const RASTER_DECODE_BYTES_PER_PIXEL: u64 = (3 + 4 + 4) * std::mem::size_of::<f32>() as u64;
+// Six RGBA-f32 equivalents reserve the window input, chain output/scratch,
+// display RGB/quantized intermediates, returned pixels and the JNI Bitmap.
+// The retained full source and encoded bytes are charged separately.
+const RASTER_TILE_BYTES_PER_PIXEL: u64 = 6 * 4 * std::mem::size_of::<f32>() as u64;
+
+fn raster_tile_pixel_limit(width: u32, height: u32, encoded_bytes: usize) -> Option<u64> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let retained = u64::from(width)
+        .checked_mul(u64::from(height))?
+        .checked_mul(4 * std::mem::size_of::<f32>() as u64)?
+        .checked_add(encoded_bytes as u64)?;
+    let available = MAX_RASTER_WORKING_BYTES.checked_sub(retained)?;
+    let pixels = available / RASTER_TILE_BYTES_PER_PIXEL;
+    (pixels > 0).then_some(pixels)
+}
 
 fn raster_decode_fits(width: u32, height: u32, encoded_bytes: usize) -> bool {
     width != 0
@@ -28,19 +46,36 @@ fn raster_decode_fits(width: u32, height: u32, encoded_bytes: usize) -> bool {
             .checked_mul(u64::from(height))
             .and_then(|pixels| pixels.checked_mul(RASTER_DECODE_BYTES_PER_PIXEL))
             .and_then(|bytes| bytes.checked_add(encoded_bytes as u64))
-            .is_some_and(|bytes| bytes <= MAX_RASTER_DECODE_BYTES)
+            .is_some_and(|bytes| bytes <= MAX_RASTER_WORKING_BYTES)
 }
 
 // RGB32F staging writes 12 bytes/pixel; reserve 64 KiB for TIFF tags and
 // the fixed matrix/TRC ICC profile before the platform decoder allocates pixels.
 #[no_mangle]
-pub extern "C" fn maple_android_platform_detail_fits(width: u32, height: u32) -> u8 {
+pub extern "C" fn maple_android_platform_detail_fits(
+    width: u32,
+    height: u32,
+    source_bytes: u64,
+) -> u8 {
     let encoded = u64::from(width)
         .checked_mul(u64::from(height))
         .and_then(|pixels| pixels.checked_mul(12))
         .and_then(|bytes| bytes.checked_add(64 * 1024))
-        .and_then(|bytes| usize::try_from(bytes).ok());
+        .and_then(|bytes| usize::try_from(bytes.max(source_bytes)).ok());
     u8::from(encoded.is_some_and(|bytes| raster_decode_fits(width, height, bytes)))
+}
+
+// Preserve the exact admitted descriptor and allocation size through the read.
+fn read_admitted_source(mut file: std::fs::File, length: u64) -> Result<Vec<u8>, String> {
+    file.rewind().map_err(|e| e.to_string())?;
+    let size = usize::try_from(length).map_err(|_| "Original is too large")?;
+    let mut bytes = vec![0; size];
+    file.read_exact(&mut bytes).map_err(|e| e.to_string())?;
+    let mut extra = [0; 1];
+    if file.read(&mut extra).map_err(|e| e.to_string())? != 0 {
+        return Err("Original changed while opening native detail".into());
+    }
+    Ok(bytes)
 }
 
 pub struct DetailSource {
@@ -73,19 +108,20 @@ impl DetailSource {
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
+        let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+        let length = file.metadata().map_err(|e| e.to_string())?.len();
         if !crate::preview::is_raw(&ext) {
-            let mut file =
-                std::io::BufReader::new(std::fs::File::open(path).map_err(|e| e.to_string())?);
-            let length =
-                usize::try_from(file.get_ref().metadata().map_err(|e| e.to_string())?.len())
-                    .map_err(|_| "Native detail raster exceeds the decode memory budget")?;
-            let meta = raw_core::raster::probe_raster_metadata_reader(&mut file)
-                .map_err(|e| e.to_string())?;
-            if !raster_decode_fits(meta.width, meta.height, length) {
+            let encoded = usize::try_from(length)
+                .map_err(|_| "Native detail raster exceeds the decode memory budget")?;
+            let meta = raw_core::raster::probe_raster_metadata_reader(
+                &mut std::io::BufReader::new(&mut file),
+            )
+            .map_err(|e| e.to_string())?;
+            if !raster_decode_fits(meta.width, meta.height, encoded) {
                 return Err("Native detail raster exceeds the decode memory budget".into());
             }
         }
-        let bytes = Arc::new(std::fs::read(path).map_err(|e| e.to_string())?);
+        let bytes = Arc::new(read_admitted_source(file, length)?);
         let raw = if crate::preview::is_raw(&ext) {
             Some(
                 raw_core::decode_cache::decode_bytes_cached(
@@ -172,14 +208,18 @@ impl DetailSource {
             self.raster =
                 Some(RasterDetailImage::open(&self.bytes, cancel).map_err(|e| e.to_string())?);
         }
-        self.raster
-            .as_ref()
-            .ok_or("Missing raster source")?
+        let raster = self.raster.as_ref().ok_or("Missing raster source")?;
+        let (width, height) = raster.dimensions();
+        let working_pixels = raster_tile_pixel_limit(width, height, self.bytes.len())
+            .ok_or("Image exceeds the native-detail raster memory budget")?;
+        // The shared core applies this byte-derived limit to the expanded halo
+        // as well as the requested output, before allocating either window.
+        raster
             .render_tile_with_target(
                 &model,
                 rect,
                 film.map(|f| f.0),
-                MAX_WORKING_PIXELS,
+                working_pixels,
                 target,
                 cancel,
             )
@@ -330,21 +370,63 @@ mod tests {
         assert!(raster_decode_fits(3072, 2048, 8 * 1024 * 1024));
         assert!(!raster_decode_fits(4000, 3000, 1024));
         assert!(!raster_decode_fits(8000, 4000, 1024));
-        let pixels = (MAX_RASTER_DECODE_BYTES / RASTER_DECODE_BYTES_PER_PIXEL) as u32;
+        let pixels = (MAX_RASTER_WORKING_BYTES / RASTER_DECODE_BYTES_PER_PIXEL) as u32;
         let remaining =
-            (MAX_RASTER_DECODE_BYTES - u64::from(pixels) * RASTER_DECODE_BYTES_PER_PIXEL) as usize;
+            (MAX_RASTER_WORKING_BYTES - u64::from(pixels) * RASTER_DECODE_BYTES_PER_PIXEL) as usize;
         assert!(raster_decode_fits(pixels, 1, remaining));
         assert!(!raster_decode_fits(pixels, 1, remaining + 1));
     }
 
     #[test]
+    fn admitted_read_retains_the_original_descriptor_and_rejects_growth() {
+        use std::io::Write;
+        let path =
+            std::env::temp_dir().join(format!("maple-detail-pinned-{}.bin", std::process::id()));
+        let replacement = path.with_extension("replacement");
+        std::fs::write(&path, b"original").unwrap();
+        let admitted = std::fs::File::open(&path).unwrap();
+        std::fs::write(&replacement, b"a much larger replacement").unwrap();
+        std::fs::rename(&replacement, &path).unwrap();
+        assert_eq!(read_admitted_source(admitted, 8).unwrap(), b"original");
+        let admitted = std::fs::File::open(&path).unwrap();
+        let length = admitted.metadata().unwrap().len();
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(b"growth")
+            .unwrap();
+        assert!(read_admitted_source(admitted, length)
+            .unwrap_err()
+            .contains("changed while opening"));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn raster_tile_budget_includes_retained_source_and_encoded_bytes() {
+        let limit = raster_tile_pixel_limit(3072, 2048, 8 * 1024 * 1024).unwrap();
+        assert!(limit >= 1920 * 1080);
+        assert!(limit < 2560 * 1440);
+        assert!(limit < 3072 * 2048);
+        assert!(raster_tile_pixel_limit(3072, 2048, 32 * 1024 * 1024).unwrap() < limit);
+        assert!(raster_tile_pixel_limit(1920, 1080, 8 * 1024 * 1024).unwrap() > limit);
+        assert!(raster_tile_pixel_limit(u32::MAX, u32::MAX, 0).is_none());
+        assert!(raster_tile_pixel_limit(1, 1, usize::MAX).is_none());
+        assert!(raster_tile_pixel_limit(0, 1080, 0).is_none());
+    }
+
+    #[test]
     fn platform_admission_includes_the_uncompressed_tiff_before_staging() {
-        assert_eq!(maple_android_platform_detail_fits(1920, 1080), 1);
-        assert_eq!(maple_android_platform_detail_fits(3072, 2048), 0);
-        assert_eq!(maple_android_platform_detail_fits(4000, 3000), 0);
-        assert_eq!(maple_android_platform_detail_fits(8000, 6000), 0);
-        assert_eq!(maple_android_platform_detail_fits(u32::MAX, u32::MAX), 0);
-        assert_eq!(maple_android_platform_detail_fits(0, 1080), 0);
+        assert_eq!(maple_android_platform_detail_fits(1920, 1080, 0), 1);
+        assert_eq!(
+            maple_android_platform_detail_fits(1920, 1080, MAX_RASTER_WORKING_BYTES),
+            0
+        );
+        assert_eq!(maple_android_platform_detail_fits(3072, 2048, 0), 0);
+        assert_eq!(maple_android_platform_detail_fits(4000, 3000, 0), 0);
+        assert_eq!(maple_android_platform_detail_fits(8000, 6000, 0), 0);
+        assert_eq!(maple_android_platform_detail_fits(u32::MAX, u32::MAX, 0), 0);
+        assert_eq!(maple_android_platform_detail_fits(0, 1080, 0), 0);
     }
 
     #[test]

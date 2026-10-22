@@ -292,7 +292,12 @@ two RGBA-f32 buffers against a 320 MiB decode budget. Headers and encoded size
 are checked before reading the full raster file. HEIC, HEIF and AVIF additionally
 preflight their dimensions before platform decoding, including the RGB32F TIFF's
 12 bytes per pixel and reserved header space in that same Rust-owned budget.
-Larger raster images,
+Raster tile admission separately charges the retained full RGBA source and
+encoded bytes, then reserves 96 bytes per working pixel for window input,
+chain/scratch, display/quantized output and the JNI bitmap. The shared core
+checks that derived limit against both the requested tile and its expanded halo
+before allocating either window. Large viewports can therefore fall back to
+Preview only even when the source decode fits. Larger raster images,
 including typical 12 MP JPEGs, retain preview-only zoom rather than risking a
 native allocation failure. Unsupported RAW modes or edits (including Dehaze
 and Deep Denoise) also show an explicit preview-only message.

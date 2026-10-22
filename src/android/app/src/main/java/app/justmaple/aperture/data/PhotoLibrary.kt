@@ -233,7 +233,7 @@ class PhotoLibrary(private val context: Context) {
                 val source = sourceOriginal(photo, File(context.cacheDir, "originals").apply { mkdirs() })
                 val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 android.graphics.BitmapFactory.decodeFile(source.path, bounds)
-                check(NativeBridge.platformNativeDetailFits(bounds.outWidth, bounds.outHeight)) {
+                check(NativeBridge.platformNativeDetailFits(bounds.outWidth, bounds.outHeight, source.length())) {
                     "Native detail raster exceeds the decode memory budget"
                 }
             }

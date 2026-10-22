@@ -31,6 +31,21 @@ class NativeDetailTest {
         original.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
         bitmap.recycle()
         val unchanged = original.readBytes()
+        val source = NativeBridge.openNativeDetail(original.path)
+        val signal = NativeBridge.createCancellation()
+        try {
+            val failure = runCatching {
+                NativeBridge.renderNativeDetail(source, XmpDocument().serialize(), 0, 0, 3072, 2048, 0, signal)
+            }.exceptionOrNull()
+            assertNotNull("Full-image output must be refused before allocating the large tile", failure)
+            assertTrue(failure!!.message.orEmpty().contains("memory budget"))
+            val bounded = NativeBridge.renderNativeDetail(source, XmpDocument().serialize(), 0, 0, 32, 32, 0, signal)
+            assertEquals(32, bounded.width)
+            bounded.recycle()
+        } finally {
+            NativeBridge.closeNativeDetail(source)
+            NativeBridge.closeCancellation(signal)
+        }
         val model = ViewModelProvider(compose.activity)[MapleViewModel::class.java]
         try {
             compose.runOnIdle { model.openSingle(Uri.fromFile(original)) }
