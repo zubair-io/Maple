@@ -82,6 +82,32 @@ class AutoWhiteBalanceNativeTest {
     }
 
     @Test
+    fun parametricPlotUsesTheSharedCurveAndItsCanonicalIdentityBypass() {
+        val identity = org.json.JSONArray(NativeBridge.parametricCurve(XmpDocument().serialize()))
+        assertEquals(129, identity.length())
+        for (index in 0 until identity.length()) {
+            val point = identity.getJSONArray(index)
+            assertEquals(point.getDouble(0), point.getDouble(1), 1e-7)
+        }
+        val model = XmpDocument().withAttribute("crs:ParametricShadows", "70")
+            .withAttribute("crs:ParametricDarks", "-45").withAttribute("crs:ParametricLights", "30")
+            .withAttribute("crs:ParametricHighlights", "-80").withAttribute("crs:ParametricShadowSplit", "18")
+            .withAttribute("crs:ParametricMidtoneSplit", "45").withAttribute("crs:ParametricHighlightSplit", "82")
+        val mixed = org.json.JSONArray(NativeBridge.parametricCurve(model.serialize()))
+        var last = -1.0
+        var changed = false
+        for (index in 0 until mixed.length()) {
+            val point = mixed.getJSONArray(index)
+            val x = point.getDouble(0)
+            val y = point.getDouble(1)
+            assertTrue(y.isFinite() && y >= last && y in 0.0..1.0)
+            changed = changed || kotlin.math.abs(x - y) > 0.001
+            last = y
+        }
+        assertTrue(changed)
+    }
+
+    @Test
     fun autoWhiteBalanceExplicitlyRefusesRasterInputs() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val input = File.createTempFile("auto-wb-raster-", ".png", instrumentation.targetContext.cacheDir)
