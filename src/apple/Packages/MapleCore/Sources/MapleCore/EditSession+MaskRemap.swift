@@ -3,15 +3,11 @@
 //
 // raw-core evaluates masks in full-frame normalized coordinates, and the
 // CPU refine (`decodeAndRender`), the export and every other platform feed
-// it the whole frame — the crop is applied AFTER the chain. Two Apple paths
-// feed the chain a buffer that is not the whole frame, and both route their
-// stack through `remappedLocalAdjustments` first:
-//
-// - GPU-live crops the decoded buffer before upload (#1617):
-//   `MaskAffine.cropToFullFrame(appliedCrop, …)` in `presentViaGpuLive`.
-// - Native detail runs the per-tick chain on a 1:1 viewport patch:
-//   `MaskAffine.windowToFullFrame(window: decodeRect, …)` in
-//   `refineNativeDetail`.
+// it the whole frame — the crop is applied AFTER the chain. GPU-live crops
+// the decoded buffer before upload (#1617), so it routes its stack through
+// `remappedLocalAdjustments` first (`MaskAffine.cropToFullFrame(appliedCrop,
+// …)` in `presentViaGpuLive`). The native-detail patch does not: its
+// windowed chain evaluates masks in full-frame coordinates itself (#5169).
 //
 // Linear / radial masks remap by parameter rewrite (`MaskRemap`, exact).
 // A `.bitmap` layer is re-expressed as a derived raster

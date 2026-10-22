@@ -82,16 +82,23 @@ pub(super) fn tile_overlap_px(
         + capture_sharpening_params_from_model(model)
             .map(|p| capture_sharpening::stencil_reach_px(&p))
             .unwrap_or(0)
-        + scene_tone_controls::sh_mask_reach_px(mask_long_edge, model)
+        + scene_linear_chain_reach_px(model, mask_long_edge);
+    let mosaic_px = (sum as u32).saturating_mul(qd);
+    TILE_OVERLAP_PX.max(mosaic_px)
+}
+
+/// Summed reach of the spatial stages the per-tick scene-linear chain runs,
+/// for a buffer whose full frame has long edge `mask_long_edge`: what a
+/// windowed chain patch must carry around its published rect (#5169).
+pub(crate) fn scene_linear_chain_reach_px(model: &AdjustmentModel, mask_long_edge: usize) -> usize {
+    scene_tone_controls::sh_mask_reach_px(mask_long_edge, model)
         + engaged(model.clarity, clarity::CLARITY_GUIDED_REACH_PX)
         + engaged(model.texture, texture::TEXTURE_GUIDED_REACH_PX)
         + defringe::params_from_model(model)
             .map(|_| defringe::DEFRINGE_REACH_PX)
             .unwrap_or(0)
         + local_spatial_reach_px(model)
-        + tail_reach_px(model);
-    let mosaic_px = (sum as u32).saturating_mul(qd);
-    TILE_OVERLAP_PX.max(mosaic_px)
+        + tail_reach_px(model)
 }
 
 /// Reach of the per-mask spatial controls (#3407). Every layer's engaged

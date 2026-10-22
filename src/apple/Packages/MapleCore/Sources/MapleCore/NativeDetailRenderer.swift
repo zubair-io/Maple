@@ -11,7 +11,9 @@ import Foundation
 /// Pure source-geometry helpers shared by the renderer, session, and tests.
 enum NativeDetailLOD {
   static let minimumPixelScale: CGFloat = 1
-  /// Covers dehaze's 67 px stencil plus headroom for chained filters.
+  /// Floor on the filter context around a patch. The per-tick chain's actual
+  /// reach (`PipelineRenderer.sceneLinearChainWindowReach`) widens it when
+  /// the frame-scaled S/H mask needs more (#5169).
   static let filterHalo: CGFloat = 96
 
   /// Ticket #2063 pan-reuse margin — independent of `filterHalo`.
@@ -104,26 +106,28 @@ enum NativeDetailLOD {
     return grown.isNull ? base : grown
   }
 
-  /// Source rect sent to the RAW tile entry. The halo gives clarity,
-  /// sharpening, and NR context beyond the displayed patch without ever
-  /// expanding work to the full sensor.
+  /// Source rect sent to the RAW tile entry. The halo (at least
+  /// `filterHalo`) gives the per-tick chain's spatial stages context beyond
+  /// the displayed patch without ever expanding work to the full sensor.
   ///
   /// The result is additionally clamped to `CanvasMath.metalMaxTextureEdge`
-  /// per edge (#2061) — the halo inset only ever adds `2 * filterHalo`
-  /// (192px) beyond the caller's `detailRect`, but a pathological
+  /// per edge (#2061) — the halo inset only ever adds twice the halo
+  /// beyond the caller's `detailRect`, but a pathological
   /// viewport (an ultra-wide 2×-Retina display, or a very large source
   /// image) can still produce a `detailRect` whose expanded form would
   /// exceed the texture ceiling this tile is eventually uploaded into.
   /// Clamping the size here (keeping the origin fixed) is defensive:
   /// on ordinary hardware/viewports it never binds.
-  static func decodeRect(detailRect: CGRect, imageSize: CGSize) -> CGRect {
+  static func decodeRect(
+    detailRect: CGRect, imageSize: CGSize, halo: CGFloat = filterHalo
+  ) -> CGRect {
     let bounds = CGRect(origin: .zero, size: imageSize)
     guard !detailRect.isEmpty, bounds.width > 0, bounds.height > 0 else {
       return .zero
     }
     let expanded =
       detailRect
-      .insetBy(dx: -filterHalo, dy: -filterHalo)
+      .insetBy(dx: -max(filterHalo, halo), dy: -max(filterHalo, halo))
       .integral
       .intersection(bounds)
     guard !expanded.isNull else { return .zero }

@@ -6,8 +6,9 @@
 // reproduce. Two such paths exist on Apple, and each is driven here the way
 // production drives it:
 //
-// - Native detail runs the CPU FFI chain (`maple_apply_scene_linear_chain
-//   _f32`) on a 1:1 window of the frame. The window's remap is index-exact,
+// - A 1:1 window through the CPU FFI chain (`maple_apply_scene_linear_chain
+//   _f32`) — native detail's path before it moved to the windowed chain
+//   (#5169, `NativeDetailWindowChainTests`). The window's remap is index-exact,
 //   so the windowed render must equal the whole-frame render's window
 //   pixel for pixel (f32 noise only).
 // - GPU-live runs the wgpu chain (`GpuLiveSession.renderToBuffer`, the

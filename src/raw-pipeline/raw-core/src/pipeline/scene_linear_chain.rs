@@ -394,7 +394,7 @@ use f32_chain::apply_scene_linear_chain_f32_inner;
 mod window;
 pub use window::{
     apply_scene_linear_chain_f32_windowed, apply_scene_linear_chain_f32_windowed_cancellable,
-    ChainWindow,
+    scene_linear_chain_window_reach_px, ChainWindow,
 };
 
 /// Patch-compositing wrappers ([`apply_scene_linear_chain_with_patches`],
