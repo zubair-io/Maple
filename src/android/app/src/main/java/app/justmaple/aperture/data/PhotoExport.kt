@@ -72,7 +72,7 @@ internal class PhotoExport(private val context: Context, private val library: Ph
             }
         }
 
-    private fun publishRender(rendered: File, output: OutputStream, options: ExportOptions) {
+    internal fun publishRender(rendered: File, output: OutputStream, options: ExportOptions) {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(rendered.absolutePath, bounds)
         val width = bounds.outWidth
@@ -87,7 +87,7 @@ internal class PhotoExport(private val context: Context, private val library: Ph
             return
         }
         var sample = 1
-        while ((maxOf(width, height).toLong() + sample - 1) / sample > options.maxEdge) sample *= 2
+        while (maxOf(width, height).toLong() / (sample * 2L) >= options.maxEdge) sample *= 2
         val decoded =
             BitmapFactory.decodeFile(rendered.absolutePath, BitmapFactory.Options().apply {
                     inSampleSize = sample

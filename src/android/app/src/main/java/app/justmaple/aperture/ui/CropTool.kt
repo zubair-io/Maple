@@ -237,8 +237,8 @@ fun XmpDocument.cropRect(): CropRect {
 }
 
 private fun formatCropScalar(v: Float): String {
-    val text = String.format(Locale.US, "%.6f", v).trimEnd('0').trimEnd('.')
-    return if (text == "-0" || text.isEmpty()) "0" else text
+    val roundedZero = if (abs(v) < 0.0000005f) 0f else v
+    return String.format(Locale.US, "%.6f", roundedZero)
 }
 
 fun MapleViewModel.applyCropRect(crop: CropRect, commit: Boolean = true) {
