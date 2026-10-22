@@ -260,7 +260,10 @@ namespace Maple.WinUI
 
         private void DrawColorCurveRibbon()
         {
-            _colorCurveCanvas.Children.Clear();
+            // Keep focused knot controls alive while rebuilding only the plotted paths.
+            for (var i = _colorCurveCanvas.Children.Count - 1; i >= 0; i--)
+                if (_colorCurveCanvas.Children[i] is not Button)
+                    _colorCurveCanvas.Children.RemoveAt(i);
             var w = _colorCurveCanvas.ActualWidth > 10 ? _colorCurveCanvas.ActualWidth : 236.0;
             var h = _colorCurveCanvas.ActualHeight > 10 ? _colorCurveCanvas.ActualHeight : 96.0;
 
@@ -290,21 +293,7 @@ namespace Maple.WinUI
             }
             _colorCurveCanvas.Children.Add(poly);
 
-            for (var i = 0; i < pts.Count; i++)
-            {
-                var pt = pts[i];
-                var dot = new Ellipse
-                {
-                    Width = 10,
-                    Height = 10,
-                    Fill = new SolidColorBrush(Colors.White),
-                    Stroke = new SolidColorBrush(Colors.Black),
-                    StrokeThickness = 1.5,
-                };
-                Canvas.SetLeft(dot, pt.X * w - 5.0);
-                Canvas.SetTop(dot, (1.0 - pt.Y) * h - 5.0);
-                _colorCurveCanvas.Children.Add(dot);
-            }
+            SyncColorCurveKnotControls(pts, w, h);
         }
 
         private void SetActiveColorCurvePointsDuringDrag(List<CurvePoint> next)

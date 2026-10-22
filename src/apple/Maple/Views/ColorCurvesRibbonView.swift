@@ -102,18 +102,8 @@ struct ColorCurvesRibbonView: View {
 
         // Knot handles
         ForEach(Array(pts.enumerated()), id: \.offset) { idx, knot in
-          let cx = knot.x * size.width
-          let cy = (1.0 - knot.y) * size.height
-          Circle()
-            .fill(ProTokens.bg)
-            .frame(width: 12, height: 12)
-            .overlay(Circle().stroke(ProTokens.accent, lineWidth: 2))
-            .position(x: cx, y: cy)
-            .onTapGesture(count: 2) {
-              removeKnot(at: idx)
-            }
-            .accessibilityLabel("\(activeKind.title) knot \(idx + 1)")
-            .accessibilityIdentifier("editor-color-curve-knot-\(idx)")
+          knotMarker(index: idx, knot: knot)
+            .position(x: knot.x * size.width, y: (1.0 - knot.y) * size.height)
         }
       }
       .contentShape(Rectangle())
@@ -133,6 +123,59 @@ struct ColorCurvesRibbonView: View {
     }
     .frame(height: 112)
     .accessibilityIdentifier("editor-color-curve-ribbon")
+  }
+
+  private func knotMarker(index: Int, knot: ToneCurvePoint) -> some View {
+    Circle()
+      .fill(ProTokens.bg)
+      .frame(width: 12, height: 12)
+      .overlay(Circle().stroke(ProTokens.accent, lineWidth: 2))
+      .onTapGesture(count: 2) { removeKnot(at: index) }
+      .focusable().focusEffectDisabled()
+      .accessibilityElement()
+      .accessibilityLabel("\(activeKind.title) knot \(index + 1)")
+      .accessibilityValue(String(format: "Input %.0f%%, output %.0f%%", knot.x * 100, knot.y * 100))
+      .accessibilityHint("Arrow keys move the knot. Delete removes it.")
+      .accessibilityIdentifier("editor-color-curve-knot-\(index)")
+      .accessibilityAdjustableAction { direction in
+        nudgeKnot(at: index, dx: 0, dy: direction == .increment ? 0.01 : -0.01)
+      }
+      .accessibilityAction(named: Text("Move left")) { nudgeKnot(at: index, dx: -0.01, dy: 0) }
+      .accessibilityAction(named: Text("Move right")) { nudgeKnot(at: index, dx: 0.01, dy: 0) }
+      .accessibilityAction(named: Text("Delete knot")) { removeKnot(at: index) }
+      .focusedValue(\.toneCurveKeyPress, { press in handleKnotKey(press, index: index) })
+      .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow, .delete]) { press in
+        handleKnotKey(press, index: index)
+      }
+  }
+
+  private func handleKnotKey(_ press: KeyPress, index: Int) -> KeyPress.Result {
+    guard press.modifiers.intersection([.command, .control, .option]).isEmpty else {
+      return .ignored
+    }
+    guard press.phase != .up else { return .handled }
+    if press.key == .delete {
+      removeKnot(at: index)
+    } else {
+      let step = press.modifiers.contains(.shift) ? 0.05 : 0.01
+      let dx = press.key == .leftArrow ? -step : press.key == .rightArrow ? step : 0
+      let dy = press.key == .downArrow ? -step : press.key == .upArrow ? step : 0
+      nudgeKnot(at: index, dx: dx, dy: dy)
+    }
+    return .handled
+  }
+
+  private func nudgeKnot(at index: Int, dx: Double, dy: Double) {
+    let points = activeCurve.points
+    guard points.indices.contains(index) else { return }
+    let knot = points[index]
+    let x = activeKind.clampX(knot.x + dx, in: points, index: index)
+    let y = activeKind.clampY(forX: x, proposedY: knot.y + dy, in: points, excludingIndex: index)
+    guard x != knot.x || y != knot.y else { return }
+    let moved = points.enumerated().map { offset, point in offset == index ? (x: x, y: y) : point }
+    state.commit(description: "Move \(activeKind.title) knot")
+    state.session.model[keyPath: activeKind.keyPath] = ToneCurve(points: moved)
+    state.session.endEdit()
   }
 
   private var ribbonGradient: LinearGradient {
