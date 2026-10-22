@@ -10,6 +10,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -261,6 +262,31 @@ class CropToolTest {
         compose.onNodeWithTag("editor-crop-toolbar").assertIsDisplayed()
         compose.onNode(sharpeningSlider).assertDoesNotExist()
         compose.runOnIdle { assertEquals("", armed) }
+    }
+
+    @Test
+    fun selectingCropInThePhoneSurfaceDoesNotShowAScalarHud() {
+        val application: Application = RuntimeEnvironment.getApplication()
+        val model = MapleViewModel(application, PhotoLibrary(application), IdleRenderer())
+        val photo = Photo(Uri.parse("content://maple/photo/crop-hud"), "crop.dng", 1024, 0, null)
+        val state = MapleState(selected = photo, photos = listOf(photo), mode = PhotoMode.Edit,
+            documentLoaded = true, values = mapOf("_raw" to 1f, "_aspect" to 1.5f, "exposure" to 0f, "sharpen_amount" to 40f))
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            Box(Modifier.size(400.dp, 800.dp)) {
+                PhotoSurface(model, state, tablet = false, showInspector = true,
+                    onInfo = {}, onExport = {}, posture = FoldablePosture())
+            }
+        }
+        compose.mainClock.advanceTimeByFrame()
+        compose.onNodeWithText("Detail").performClick()
+        compose.mainClock.advanceTimeByFrame()
+        compose.onNodeWithText("Crop").performClick()
+        compose.mainClock.advanceTimeByFrame()
+        compose.onNodeWithTag("editor-crop-toolbar").assertIsDisplayed()
+        compose.onNode(hasText("DETAIL  │", substring = true)).assertDoesNotExist()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNode(hasText("DETAIL  │", substring = true)).assertDoesNotExist()
     }
 
     @Test
