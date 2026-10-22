@@ -12,6 +12,7 @@ import { lstat, readFile, readlink, realpath, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { loadJailLibraryRoots } from '../indexer/libraries.cache.ts';
 import { parseRootList } from './root-list.ts';
+import { errnoCode } from './errno-code';
 import {
   mirrorGeneration as currentMirrorGeneration,
   snapshotMirrorRoots,
@@ -376,15 +377,20 @@ function pathSegments(p: string): string[] {
 
 /** Real path of `filePath`, resolving through the deepest existing ancestor when
  * the leaf (or more) does not exist yet, so a not-yet-written file under a
- * symlinked directory still canonicalises to where it will really land. */
-export async function resolveRealPathThroughAncestors(filePath: string): Promise<string> {
+ * symlinked directory still canonicalises to where it will really land.
+ * `missingOnly` preserves permission/I/O errors for transaction identities. */
+export async function resolveRealPathThroughAncestors(
+  filePath: string,
+  missingOnly = false,
+): Promise<string> {
   const resolved = path.resolve(filePath);
   const missing: string[] = [];
   let probe = resolved;
   while (true) {
     try {
       return path.join(await resolveRealPath(probe), ...missing.reverse());
-    } catch {
+    } catch (error: unknown) {
+      if (missingOnly && errnoCode(error) !== 'ENOENT') throw error;
       const parent = path.dirname(probe);
       if (parent === probe) return resolved;
       missing.push(path.basename(probe));

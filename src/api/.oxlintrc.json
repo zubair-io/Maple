@@ -104,6 +104,8 @@
         "src/fs/root.test.ts",
         // #4995: primary jail tests create and retarget only temporary SQLite/XMP symlink fixtures.
         "src/fs/root.primary.test.ts",
+        // #5204: inject realpath read failures on owned temporary alias fixtures; writes stay mirrored.
+        "src/fs/primary-replacement-admission.test.ts",
         // #4981: mirror jail regressions stage symlinks and XMP only in owned temporary directories.
         "src/fs/root.mirror.test.ts",
         // #4981: successor probes use disposable temporary root fixtures.

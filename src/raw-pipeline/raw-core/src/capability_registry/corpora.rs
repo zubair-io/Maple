@@ -89,6 +89,7 @@ pub const fn corpus_paths(source: EvidenceSource) -> &'static [&'static str] {
                     "src/api/src/routes/folders.upload-sidecar-admission.ts",
                     "src/api/src/fs/primary-replacement-admission.ts",
                     "src/api/src/fs/errno-code.ts",
+                    "src/api/src/fs/root.ts",
                     "src/api/src/fs/relocate-replace-fence.ts",
                     "src/api/src/xmp",
                     "src/api/src/fs/sidecar-io.ts",
