@@ -59,6 +59,12 @@ class OpeningComparisonTest {
             withTimeout(10_000) { model.state.first { it.documentLoaded && !it.loading } }
             model.edit()
             withTimeout(10_000) { model.state.first { it.values.isNotEmpty() } }
+            assertFalse("Opening sidecar edits are the Before snapshot", model.hasComparisonEdits())
+            model.setField("exposure", 0f)
+            model.commitGesture()
+            assertTrue("Resetting an opening edit still differs from Before", model.hasComparisonEdits())
+            model.undo()
+            assertFalse("Undo restores the opening snapshot", model.hasComparisonEdits())
             model.setField("exposure", 2f)
             model.commitGesture()
             model.attribute("crs:CropLeft", "0.25")

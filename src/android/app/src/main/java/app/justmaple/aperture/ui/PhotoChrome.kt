@@ -90,7 +90,7 @@ internal fun FloatingPhotoHeader(
             ) {
                 if (editing) {
                     CompareBeforeAfterButton(
-                        enabled = (state.hasActiveEdits || state.comparingBefore) && state.canEdit,
+                        enabled = (model.hasComparisonEdits(state) || state.comparingBefore) && state.canEdit,
                         comparingBefore = state.comparingBefore,
                         onSetComparingBefore = model::setComparingBefore,
                     )
