@@ -163,3 +163,43 @@ fn auto_p3_applies_the_fitted_lut_in_srgb_before_rotating_primaries() {
     cache::clear_for_test();
     cache::clear_lut_for_test();
 }
+
+#[test]
+fn auto_p3_without_completed_fit_preserves_the_direct_p3_gamut() {
+    use crate::view::auto_profile::{cache, curve::ProfileCurve};
+    let _guard = cache::test_lock();
+    let bytes = SyntheticColorChart::default().write_to_bytes();
+    let raw = crate::decode::decode_bytes(&bytes, "dng").unwrap();
+    let quality = RenderQuality::Full;
+    let key = cache::CacheKey::from_bytes(&bytes, quality).with_origin(
+        super::super::auto_fit::render_fit_origin(raw.width.max(raw.height), None),
+    );
+    // Auto 2's identity marker makes the availability probe positive. Without
+    // a preview or residual LUT the completed fit still has no applied tail.
+    cache::insert(key, ProfileCurve::identity());
+    let model = AdjustmentModel::default();
+    let source = Some(RawInput::Bytes {
+        bytes: &bytes,
+        ext: "dng",
+    });
+    let expected = render_display_scene(
+        &raw,
+        &model,
+        quality,
+        source,
+        None,
+        TargetPrimaries::P3,
+        None,
+    )
+    .unwrap();
+    let (_, _, actual) =
+        render_export_f32(&raw, &model, quality, source, TargetPrimaries::P3, None).unwrap();
+    cache::clear_for_test();
+    cache::clear_lut_for_test();
+    for (pixel, expected) in actual.chunks_exact(4).zip(expected.pixels) {
+        assert!(pixel[..3]
+            .iter()
+            .zip(expected)
+            .all(|(a, b)| (a - b).abs() < 1e-6));
+    }
+}
