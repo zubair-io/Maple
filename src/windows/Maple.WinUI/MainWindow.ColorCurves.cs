@@ -27,6 +27,7 @@ namespace Maple.WinUI
         private ColorCurveKind _activeColorCurve = ColorCurveKind.HueVsHue;
         private int? _dragColorCurveKnot;
         private bool _colorCurvePickArmed;
+        private long _colorCurvePickGeneration;
         private Windows.Foundation.Point? _colorCurvePressPoint;
 
         private readonly MuiActionButton _hslModeBandsBtn = new()
@@ -422,6 +423,7 @@ namespace Maple.WinUI
 
         private void ArmColorCurvePick()
         {
+            ++_colorCurvePickGeneration;
             CancelWhiteBalancePick();
             _colorCurvePickArmed = true;
             _colorCurveMessage.Text = "Click the photo to place a stage-input anchor on the active curve (Esc cancels).";
@@ -431,6 +433,7 @@ namespace Maple.WinUI
 
         private void CancelColorCurvePick()
         {
+            ++_colorCurvePickGeneration;
             if (!_colorCurvePickArmed) return;
             _colorCurvePickArmed = false;
             _colorCurvePressPoint = null;
@@ -466,14 +469,23 @@ namespace Maple.WinUI
             var kind = _activeColorCurve;
             var fingerprint = Services.Xmp.XmpWriter.Fingerprint(before);
             CancelColorCurvePick();
+            var generation = _colorCurvePickGeneration;
             _ = Task.Run(() =>
             {
-                var sample = ColorCurveMath.SampleStageInput(photo.EditPath, before, p.X, p.Y);
-                if (sample is not { } s) return;
+                var result = ColorCurveMath.SampleStageInput(photo.EditPath, before, p.X, p.Y);
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    if (!ReferenceEquals(ViewModel.SelectedPhoto, photo) || _activeColorCurve != kind
+                    if (generation != _colorCurvePickGeneration
+                        || !ReferenceEquals(ViewModel.SelectedPhoto, photo) || _activeColorCurve != kind
                         || Services.Xmp.XmpWriter.Fingerprint(ViewModel.Adjustments) != fingerprint) return;
+                    if (result.Sample is not { } s)
+                    {
+                        _colorCurvePickArmed = true;
+                        _colorCurveMessage.Text = result.Error + " (Esc cancels)";
+                        _colorCurveMessage.Visibility = Visibility.Visible;
+                        SyncColorCurvesPanel();
+                        return;
+                    }
                     var current = ColorCurveMath.CurvePoints(ViewModel.Adjustments, kind);
                     WriteColorCurvePoints(kind, ColorCurveMath.InsertAnchor(current, kind.SampleX(s), kind));
                 });
