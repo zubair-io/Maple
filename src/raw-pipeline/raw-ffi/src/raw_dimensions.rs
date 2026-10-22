@@ -2,7 +2,6 @@
 //! DefaultCrop size from metadata alone, for a RAW the host's own metadata
 //! reader cannot parse. No pixel decode, no XMP or companion reads.
 use crate::error::{catch_panic_rc, set_last_error, with_large_stack};
-use rawler::rawsource::RawSource;
 use std::ffi::{c_char, CStr};
 
 /// Reset both outputs to zero; true only when both are writable.
@@ -16,8 +15,8 @@ unsafe fn reset_outputs(width: *mut u32, height: *mut u32) -> bool {
     !width.is_null() && !height.is_null()
 }
 
-fn run(source: RawSource, width: usize, height: usize) -> i32 {
-    match raw_core::raw_dimensions::from_source(&source) {
+fn run(result: raw_core::Result<[u32; 2]>, width: usize, height: usize) -> i32 {
+    match result {
         Ok([w, h]) => {
             // SAFETY: both pointers were validated non-null by the extern entry
             // and the caller keeps them alive for the duration of the call.
@@ -60,13 +59,7 @@ pub unsafe extern "C" fn maple_raw_dimensions_file(
             }
         };
         let (width, height) = (width as usize, height as usize);
-        with_large_stack(move || match RawSource::new(&path) {
-            Ok(source) => run(source, width, height),
-            Err(error) => {
-                set_last_error(error.to_string());
-                5
-            }
-        })
+        with_large_stack(move || run(raw_core::raw_dimensions::from_file(&path), width, height))
     })
 }
 
@@ -106,8 +99,11 @@ pub unsafe extern "C" fn maple_raw_dimensions_bytes(
             // SAFETY: the caller keeps `bytes` alive until this synchronous call
             // returns, and the worker is joined before it does.
             let bytes = unsafe { std::slice::from_raw_parts(bytes as *const u8, length) };
-            let source = RawSource::new_from_slice(bytes).with_path(format!("rawfile.{hint}"));
-            run(source, width, height)
+            run(
+                raw_core::raw_dimensions::from_bytes(bytes, &hint),
+                width,
+                height,
+            )
         })
     })
 }

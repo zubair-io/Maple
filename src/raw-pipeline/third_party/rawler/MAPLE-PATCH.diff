@@ -1,0 +1,73 @@
+--- a/src/rawsource.rs
++++ b/src/rawsource.rs
+@@ -13,17 +13,18 @@
+ 
+ use crate::buffer::PaddedBuf;
+ 
+-pub struct RawSource {
++pub struct RawSource<'a> {
+   path: PathBuf,
+-  inner: RawSourceImpl,
++  inner: RawSourceImpl<'a>,
+ }
+ 
+-enum RawSourceImpl {
++enum RawSourceImpl<'a> {
++  Borrowed(&'a [u8]),
+   Memmap(memmap2::Mmap),
+   Memory(Arc<Vec<u8>>),
+ }
+ 
+-impl RawSource {
++impl<'a> RawSource<'a> {
+   pub fn new(path: &Path) -> std::io::Result<Self> {
+     let file = File::open(path)?;
+     let mmap = unsafe { MmapOptions::new().populate().map(&file)? };
+@@ -36,6 +37,23 @@
+       path: path.canonicalize().unwrap_or_else(|_| path.to_owned()),
+       inner: RawSourceImpl::Memmap(mmap),
+     })
++  }
++
++  /// Map only the pages demanded by metadata readers, without populating or
++  /// prefetching the compressed sensor payload.
++  pub fn new_metadata(path: &Path) -> std::io::Result<Self> {
++    let file = File::open(path)?;
++    let mmap = unsafe { MmapOptions::new().map(&file)? };
++    Ok(Self {
++      path: path.canonicalize().unwrap_or_else(|_| path.to_owned()),
++      inner: RawSourceImpl::Memmap(mmap),
++    })
++  }
++
++  /// Borrow existing bytes. Rust ties the source to the buffer's lifetime;
++  /// no source-sized allocation or copy is needed for a metadata query.
++  pub fn new_from_borrowed_slice(buf: &'a [u8]) -> Self {
++    Self { path: PathBuf::default(), inner: RawSourceImpl::Borrowed(buf) }
+   }
+ 
+   pub fn new_from_shared_vec(buf: Arc<Vec<u8>>) -> Self {
+@@ -128,19 +146,21 @@
+   }
+ }
+ 
+-impl Deref for RawSource {
++impl Deref for RawSource<'_> {
+   type Target = [u8];
+ 
+   fn deref(&self) -> &Self::Target {
+     match &self.inner {
++      RawSourceImpl::Borrowed(bytes) => bytes,
+       RawSourceImpl::Memmap(mmap) => mmap.deref(),
+       RawSourceImpl::Memory(mem) => mem.deref(),
+     }
+   }
+ }
+ 
+-impl Debug for RawSource {
++impl Debug for RawSource<'_> {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+     f.debug_struct("RawSource").field("path", &self.path).finish()
+   }
+ }
++

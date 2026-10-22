@@ -17,6 +17,21 @@ use rawler::{
     tags::{DngTag, TiffCommonTag},
 };
 
+/// Cold file query maps lazily; metadata cannot prefetch the whole RAW payload.
+pub fn from_file(path: &std::path::Path) -> Result<[u32; 2]> {
+    let source = RawSource::new_metadata(path).map_err(|error| Error::Decode {
+        path: path.to_owned(),
+        reason: error.to_string(),
+    })?;
+    from_source(&source)
+}
+
+/// Cold byte query borrows the caller's source buffer without a full-file copy.
+pub fn from_bytes(bytes: &[u8], hint: &str) -> Result<[u32; 2]> {
+    let source = RawSource::new_from_borrowed_slice(bytes).with_path(format!("rawfile.{hint}"));
+    from_source(&source)
+}
+
 /// `[width, height]` of the DefaultCrop rectangle (the whole sensor when the
 /// file declares none), swapped into display orientation. DNG bypasses
 /// rawler's pixel-decoding dummy path; other formats use its dummy metadata.
@@ -178,12 +193,23 @@ mod tests {
     }
 
     #[test]
+    fn borrowed_metadata_source_reuses_the_callers_exact_buffer() {
+        let bytes = synthetic(None, None);
+        let source = RawSource::new_from_borrowed_slice(&bytes).with_path("rawfile.dng");
+        assert_eq!(source.buf().as_ptr(), bytes.as_ptr());
+        assert_eq!(source.buf(), bytes);
+        assert_eq!(from_source(&source).unwrap(), [16, 8]);
+        assert_eq!(from_bytes(&bytes, "dng").unwrap(), [16, 8]);
+    }
+
+    #[test]
     fn metadata_query_matches_the_pixel_decoder_for_every_orientation_and_crop() {
         for crop in [None, Some([4, 2, 8, 4]), Some([0, 0, 16, 8])] {
             for orientation in (1..=8_u16).map(Some).chain([None]) {
                 let bytes = synthetic(orientation, crop);
                 let source = RawSource::new_from_slice(&bytes).with_path("rawfile.dng");
-                let size = from_source(&source).unwrap();
+                let size = from_bytes(&bytes, "dng").unwrap();
+                assert_eq!(from_source(&source).unwrap(), size);
                 assert_eq!(
                     size,
                     display_size_from_pixel_decode(&bytes),
