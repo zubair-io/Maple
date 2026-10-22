@@ -140,7 +140,7 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     pendingTask = nil
     task?.cancel()
     _ = await task?.result
-    try writeAtomically(model: model, culling: culling)
+    try writeAtomically(model: model, culling: culling, durable: true)
     pendingModel = nil
     pendingCulling = nil
     cached = (model, culling)
@@ -302,19 +302,23 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     }
   }
 
-  private func writeAtomically(model: AdjustmentModel, culling: CullingState) throws {
+  private func writeAtomically(
+    model: AdjustmentModel, culling: CullingState, durable: Bool = false
+  ) throws {
     try coordinateSidecarWrite { destination, existing in
-      try self.writeSidecar(model: model, culling: culling, existingXML: existing, at: destination)
+      try self.writeSidecar(
+        model: model, culling: culling, existingXML: existing, at: destination, durable: durable)
     }
   }
 
   private func writeSidecar(
-    model: AdjustmentModel, culling: CullingState, existingXML: String?, at destination: URL
+    model: AdjustmentModel, culling: CullingState, existingXML: String?, at destination: URL,
+    durable: Bool = false
   ) throws {
     if let existingXML { try requireVariantWorkflow(in: existingXML) }
     let xml = try appendingSemanticHistory(
       to: serializedSidecar(model: model, culling: culling, existingXML: existingXML))
-    try publishSidecarXML(xml, at: destination)
+    try publishSidecarXML(xml, at: destination, durable: durable)
     pendingSemanticEdits.removeAll()
     pendingMetadata = nil
   }
@@ -397,19 +401,10 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     return xml
   }
 
-  private func publishSidecarXML(_ xml: String, at destination: URL) throws {
-    guard let data = xml.data(using: .utf8) else {
-      throw XMPStoreError.encodingError
-    }
-    let tmpURL = destination.deletingLastPathComponent()
-      .appendingPathComponent(".\(destination.lastPathComponent).tmp")
-    try data.write(to: tmpURL, options: .atomic)
-    // Atomic rename
-    if FileManager.default.fileExists(atPath: destination.path) {
-      _ = try FileManager.default.replaceItemAt(destination, withItemAt: tmpURL)
-    } else {
-      try FileManager.default.moveItem(at: tmpURL, to: destination)
-    }
+  private func publishSidecarXML(
+    _ xml: String, at destination: URL, durable: Bool = false
+  ) throws {
+    try XMPSidecarFilePublication.publish(xml, at: destination, durable: durable)
   }
 }
 
@@ -417,10 +412,13 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
 public enum XMPStoreError: Error, LocalizedError {
   case encodingError
+  case publishedContentMismatch(URL)
 
   public var errorDescription: String? {
     switch self {
     case .encodingError: return "XMP serialization produced non-UTF8 data"
+    case .publishedContentMismatch(let url):
+      return "Sidecar \(url.lastPathComponent) no longer holds the bytes that were published"
     }
   }
 }

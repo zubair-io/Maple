@@ -122,7 +122,6 @@ PhotoKitChangeObserverTests host talks to a host service (keychain, FileProvider
 PhotoKitInputShapeTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PhotoKitMergeAdapterTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PhotoKitSidecarStoreTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-PhotoKitSourceXMPTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PreviewPathContractTests slow render or decode workload that costs minutes on the runner
 ProTokensAccentTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 QuickLookThumbDiskCacheTests slow render or decode workload that costs minutes on the runner

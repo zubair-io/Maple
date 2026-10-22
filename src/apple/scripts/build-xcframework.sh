@@ -782,6 +782,12 @@ for sym in "${EXPECTED_SYMBOLS[@]}"; do
 done
 
 guard_failed=0
+has_expected_symbol() {
+    # `present` is the intersection of the expected ABI and this slice's nm
+    # output, so exact-line matching scans only a few hundred names rather
+    # than the archive's full symbol table.
+    [[ $'\n'"$present"$'\n' == *$'\n'"$1"$'\n'* ]]
+}
 while IFS= read -r slice_lib; do
     slice_dir="$(basename "$(dirname "$slice_lib")")"
     # Determine whether this slice is an iOS slice (arm64 device or simulator).
@@ -807,24 +813,26 @@ while IFS= read -r slice_lib; do
     # is empty and every symbol flags as missing below — a loud, correct
     # failure, not a false pass.
     defined="$(nm -gU "$slice_lib" 2>/dev/null | awk '{print $NF}' || true)"
+    present="$(awk 'NR == FNR { found[$1] = 1; next } ("_" $1) in found { print $1 }' \
+        <(printf '%s\n' "$defined") <(printf '%s\n' "${EXPECTED_SYMBOLS[@]}"))"
     for sym in "${EXPECTED_SYMBOLS[@]}"; do
         # iOS-only symbols: required in iOS slices, must NOT be in macOS slices.
         if is_ios_only_symbol "$sym"; then
             if [[ "$is_ios_slice" -eq 1 ]]; then
                 # iOS slice MUST have the symbol.
-                if ! grep -qxF "_$sym" <<<"$defined"; then
+                if ! has_expected_symbol "$sym"; then
                     echo "ERROR: iOS slice $slice_dir: missing iOS-only symbol $sym" >&2
                     guard_failed=1
                 fi
             else
                 # macOS slice must NOT have it (would indicate a mis-build).
-                if grep -qxF "_$sym" <<<"$defined"; then
+                if has_expected_symbol "$sym"; then
                     echo "ERROR: macOS slice $slice_dir: found iOS-only symbol $sym (should be absent)" >&2
                     guard_failed=1
                 fi
             fi
         elif is_api_only_symbol "$sym"; then
-            if grep -qxF "_$sym" <<<"$defined"; then
+            if has_expected_symbol "$sym"; then
                 echo "ERROR: Apple slice $slice_dir: found API-only symbol $sym (should be absent)" >&2
                 guard_failed=1
             fi
@@ -834,13 +842,13 @@ while IFS= read -r slice_lib; do
             # we defensively flag it as an error if it somehow IS present,
             # which would indicate a mis-build leaking Windows code into an
             # Apple slice.
-            if grep -qxF "_$sym" <<<"$defined"; then
+            if has_expected_symbol "$sym"; then
                 echo "ERROR: Apple slice $slice_dir: found windows-only symbol $sym (should be absent)" >&2
                 guard_failed=1
             fi
         else
             # All-slice symbol: must be present in every slice.
-            if ! grep -qxF "_$sym" <<<"$defined"; then
+            if ! has_expected_symbol "$sym"; then
                 echo "ERROR: stale/incomplete slice $slice_dir: missing symbol $sym" >&2
                 guard_failed=1
             fi

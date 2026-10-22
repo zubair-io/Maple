@@ -282,14 +282,8 @@ public final class BatchMetadataViewModel: Identifiable {
         // so no bogus crs: block is emitted. Mirrors the API's metadataOnly path.
         // Keywords are skipped for video (M5 scope).
         if SidecarPath.isVideo(url) {
-            let xml = XMPSerializer.serializeMetadataOnly(metadata: merged)
-            guard let data = xml.data(using: .utf8) else {
-                throw XMPStoreError.encodingError
-            }
-            let tmpURL = sidecarURL.deletingLastPathComponent()
-                .appendingPathComponent(".\(sidecarURL.lastPathComponent).tmp")
-            try data.write(to: tmpURL, options: .atomic)
-            _ = try FileManager.default.replaceItemAt(sidecarURL, withItemAt: tmpURL)
+            try XMPSidecarFilePublication.publish(
+                XMPSerializer.serializeMetadataOnly(metadata: merged), at: sidecarURL, durable: true)
             return
         }
 
