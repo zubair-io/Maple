@@ -259,6 +259,71 @@ mod tests {
         assert!(from_source(&source).is_err());
     }
 
+    /// A real NEF with unreachable sensor strips still has all layout metadata.
+    #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
+    fn nef_layout_does_not_touch_padded_sensor_strips() {
+        let root =
+            crate::test_support::fixtures::require(crate::test_support::fixtures::raws_root());
+        let mut bytes = std::fs::read(root.join("test_0014.NEF")).unwrap();
+        let expected = from_bytes(&bytes, "nef").unwrap();
+        let little = &bytes[..2] == b"II";
+        let u16_at = |at: usize| {
+            let value = bytes[at..at + 2].try_into().unwrap();
+            if little {
+                u16::from_le_bytes(value)
+            } else {
+                u16::from_be_bytes(value)
+            }
+        };
+        let u32_at = |at: usize| {
+            let value = bytes[at..at + 4].try_into().unwrap();
+            if little {
+                u32::from_le_bytes(value)
+            } else {
+                u32::from_be_bytes(value)
+            }
+        };
+        let mut pending = vec![u32_at(4) as usize];
+        let mut visited = std::collections::BTreeSet::new();
+        let mut strips = Vec::new();
+        while let Some(ifd) = pending.pop() {
+            if ifd == 0 || !visited.insert(ifd) {
+                continue;
+            }
+            let count = u16_at(ifd) as usize;
+            for index in 0..count {
+                let at = ifd + 2 + index * 12;
+                let tag = u16_at(at);
+                if tag != 273 && tag != 330 {
+                    continue;
+                }
+                assert_eq!(u16_at(at + 2), 4, "LONG strip/sub-IFD pointers");
+                let count = u32_at(at + 4) as usize;
+                let values = if count == 1 {
+                    at + 8
+                } else {
+                    u32_at(at + 8) as usize
+                };
+                for index in 0..count {
+                    let value_at = values + index * 4;
+                    if tag == 273 {
+                        strips.push(value_at);
+                    } else {
+                        pending.push(u32_at(value_at) as usize);
+                    }
+                }
+            }
+            pending.push(u32_at(ifd + 2 + count * 12) as usize);
+        }
+        assert!(!strips.is_empty());
+        for at in strips {
+            bytes[at..at + 4].fill(255);
+        }
+        // Even constructing a padded strip would now fail its bounds check.
+        assert_eq!(from_bytes(&bytes, "nef").unwrap(), expected);
+    }
+
     /// Rawler's Canon sRAW/mRAW path (`cr2.rs` `convert_to_rgb`) borrows the
     /// pixel buffer before honouring the dummy flag; the buffer is unallocated
     /// under a dummy decode and only `PixU16::pixels_mut`'s `debug_assert!`
