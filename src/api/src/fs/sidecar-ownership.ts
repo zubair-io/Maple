@@ -17,7 +17,7 @@ import * as path from 'node:path';
 import { listPairedSidecars, pickFreeConflictPath } from './xmp-conflict.ts';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
 import { serializeSidecarWrite, serializeSidecarWrites } from './sidecar-write-order.ts';
-import { isVideoFilename } from '../indexer/media-types';
+import { isCataloguedFilename, isVideoFilename } from '../indexer/media-types';
 import { readSidecarBytes } from './sidecar-bytes.ts';
 import { isLegacyBackupSidecarOf, oldNameSlotTaken } from './legacy-backup-sidecar.ts';
 import { child as childLogger } from '../log.ts';
@@ -92,31 +92,42 @@ export async function sidecarStemClaimedBySibling(
 }
 
 /** The positive answer a caller needs before removing a photo and leaving its
- * sidecar to another: a distinct regular file in the folder shares the stem.
- * Symlinks never count, nor does the primary under another spelling (compared
- * by inode, as on a case-folding volume); a folder that can't be read throws,
- * so it is never taken as "owned elsewhere" (#5069). */
+ * sidecar to another: a distinct regular media file in the folder shares the
+ * stem. Symlinks and plain files never count (a plain file moves alone,
+ * #4694), nor does the primary's own entry under another spelling; a
+ * separately named hard link does. A folder or sibling that can't be read
+ * throws, so it is never taken as "owned elsewhere" (#5069). */
 export async function sidecarStemOwnedByAnotherFile(primaryAbsPath: string): Promise<boolean> {
   const dir = path.dirname(primaryAbsPath);
   const stem = stemOf(primaryAbsPath);
-  const self = await fs.lstat(primaryAbsPath).catch(() => null);
+  const primaryName = path.basename(primaryAbsPath).normalize('NFC').toLowerCase();
+  const self = await lstatUnlessGone(primaryAbsPath);
   const candidates = (await fs.readdir(dir, { withFileTypes: true })).filter(
     (entry) =>
       entry.isFile() &&
       !entry.name.startsWith('.') &&
       !STAGING_NAME.test(entry.name) &&
-      path.extname(entry.name).toLowerCase() !== '.xmp' &&
+      (isCataloguedFilename(entry.name) || isVideoFilename(entry.name)) &&
       stemOf(entry.name) === stem,
   );
   const distinct = await Array.fromAsync(candidates, async (entry) => {
-    const other = await fs.lstat(path.join(dir, entry.name)).catch(() => null);
-    return (
-      other !== null &&
-      other.isFile() &&
-      !(self && other.dev === self.dev && other.ino === self.ino)
-    );
+    const other = await lstatUnlessGone(path.join(dir, entry.name));
+    if (other === null || !other.isFile()) return false;
+    const primaryEntry =
+      self !== null &&
+      entry.name.normalize('NFC').toLowerCase() === primaryName &&
+      other.dev === self.dev &&
+      other.ino === self.ino;
+    return !primaryEntry;
   });
   return distinct.some(Boolean);
+}
+
+async function lstatUnlessGone(target: string) {
+  return fs.lstat(target).catch((err: NodeJS.ErrnoException) => {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  });
 }
 
 /** The photo's own sidecar that would land on `sidecar`; same-file aware, so a
