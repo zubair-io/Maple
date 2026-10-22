@@ -145,3 +145,60 @@ fn wgsl_hsm_white_balance_matches_raw_core() {
         }
     }
 }
+
+#[test]
+fn wgsl_blends_cells_before_spatial_unwrap_like_a_fresh_develop() {
+    use raw_core::color::hsm::{self, HsmEncoding, HsmTable};
+    let table = |hues: [f32; 2]| {
+        HsmTable::new(
+            [2, 2, 1],
+            hues.into_iter()
+                .flat_map(|h| [[h, 1.0, 1.0]; 2].into_iter().flatten())
+                .collect(),
+            HsmEncoding::Linear,
+        )
+        .unwrap()
+    };
+    let cold = table([-70.0, -126.0]);
+    let warm = table([158.0, 45.0]);
+    let flat: Vec<f32> = [2.0, 2.0, 1.0, 0.0, 2856.0, 6504.0]
+        .into_iter()
+        .chain(cold.data.iter().copied())
+        .chain(warm.data.iter().copied())
+        .collect();
+    let view = HsmRetargetView::from_wire(&flat, 4100.0, 1.0).unwrap();
+    let rgb: Vec<_> = [15.0, 45.0, 90.0, 135.0, 210.0, 315.0]
+        .into_iter()
+        .map(|h| hsm::hsv_to_rgb(h, 0.5, 0.8))
+        .collect();
+    let rgba: Vec<_> = rgb.iter().flat_map(|p| [p[0], p[1], p[2], 1.0]).collect();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let image = GpuImage::upload(&ctx, &rgba, rgb.len() as u32, 1);
+    let runner = ChainRunner::new(&ctx, &image);
+    let identity = Matrix3([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
+    for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+        let d = HsmLiveDelta {
+            to_pro: identity,
+            delta_pro: identity,
+            from_pro: identity,
+            w_target: t,
+            w_anchor: 0.0,
+            inverse_iterations: 0,
+        };
+        let hsm = inputs(&view, &d);
+        let output = runner.run_blocking(&[&WhiteBalancePass {
+            matrix: identity.0,
+            hsm: Some(&hsm),
+        }]);
+        let blended = hsm::lerp_tables(&cold, &warm, t).unwrap();
+        for (source, got) in rgb.iter().zip(output.chunks_exact(4)) {
+            let want = hsm::apply_one(*source, &blended);
+            for c in 0..3 {
+                assert!(
+                    (want[c] - got[c]).abs() < 1e-4,
+                    "t={t}: {got:?} vs {want:?}"
+                );
+            }
+        }
+    }
+}
