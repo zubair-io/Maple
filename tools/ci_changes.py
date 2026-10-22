@@ -156,7 +156,7 @@ def dependencies(path):
     if path == (
         "src/apple/Packages/MapleCore/Sources/MapleCore/Resources/builtin-presets.json"
     ):
-        return {"api", "maple", "web", "codegen", "swift"}
+        return {"api", "maple", "web", "codegen", "swift", "android"}
     if path.startswith(
         (
             "src/apple/Maple/Assets.xcassets/AppIcon.appiconset/",
@@ -207,6 +207,11 @@ def dependencies(path):
         or path.startswith("src/web/e2e/recipe-interchange/")
         else set()
     )
+    if path == (
+        "src/android/app/src/main/java/app/justmaple/aperture/ui/"
+        "PresetsAndToneCurvePlot.kt"
+    ):
+        return {"api", "android"}
     if path.startswith("src/android/"):
         return {"android"} | codegen
     if path == "src/maple/package.json":
