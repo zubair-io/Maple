@@ -18,6 +18,10 @@ import type { ObjectId } from '../db/object-id.ts';
 import { child } from '../log.ts';
 import { errnoCode, LINK_UNSUPPORTED, PublishCollisionError } from '../fs/relocate-publish.ts';
 import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
+import {
+  captureUploadedSidecarAdmission,
+  type UploadedSidecarAdmission,
+} from './folders.upload-sidecar-admission';
 
 const log = child('folders/upload');
 function isSidecarUpload(filename: string): boolean {
@@ -75,6 +79,7 @@ interface UploadTarget {
   isMedia: boolean;
   mtimeHeader: string | undefined;
   ownerId: string | undefined;
+  sidecarAdmission?: UploadedSidecarAdmission;
 }
 interface TrashedReplacement {
   docId: ObjectId;
@@ -136,18 +141,24 @@ async function publishUploadedBody(input: UploadTarget): Promise<void> {
 /** Inside the sidecar's save barrier and exclusive (#5067): a save through the
  * XMP routes that landed after the existence check is never replaced. */
 async function publishUploadedSidecar(input: UploadTarget): Promise<void> {
-  await serializeSidecarWrite(input.absPath, async () => {
-    try {
-      await publishWhole(input.tmp, input.absPath);
-    } catch (error) {
-      if (!(error instanceof PublishCollisionError)) throw uploadError('publish', error);
-      refuseSidecarReplacement(input.target, input.filename);
-      throw error;
-    } finally {
-      await unlink(input.tmp).catch(() => {});
-    }
-    await preserveUploadMtime(input.absPath, input.mtimeHeader);
-  });
+  const admission =
+    input.sidecarAdmission ?? (await captureUploadedSidecarAdmission(input.absPath));
+  await serializeSidecarWrite(
+    input.absPath,
+    async () => {
+      try {
+        await publishWhole(input.tmp, input.absPath);
+      } catch (error) {
+        if (!(error instanceof PublishCollisionError)) throw uploadError('publish', error);
+        refuseSidecarReplacement(input.target, input.filename);
+        throw error;
+      } finally {
+        await unlink(input.tmp).catch(() => {});
+      }
+      await preserveUploadMtime(input.absPath, input.mtimeHeader);
+    },
+    { primarySidecar: admission?.primarySidecar, admissionScope: admission?.scope },
+  );
 }
 /** Readers never see a partial sidecar: a hard link, or where links aren't
  * supported (SMB) a rename after an absence check, which the barrier already

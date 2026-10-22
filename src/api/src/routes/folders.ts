@@ -59,6 +59,9 @@ async function validateFolderMoveSource(source: string) {
   }
 }
 
+import { captureUploadedSidecarAdmission } from './folders.upload-sidecar-admission';
+import { SidecarWriteBindingChangedError } from '../fs/sidecar-write-order';
+
 const log = childLogger('folders');
 
 // Auto-scan-on-open de-bounce window. `POST /:id/scan` (the content-aware
@@ -620,6 +623,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // to trash, so a duplicate upload never destroys the prior copy.
       const tmp = nodePath.join(dir, `.upload-${randomUUID()}`);
       try {
+        const sidecarAdmission = await captureUploadedSidecarAdmission(absPath);
         await streamUploadedBody(tmp, request.body as ReadableStream<Uint8Array> | null);
         // Serialize only the publication/Trash/catalog section. Body writes
         // remain streamed in parallel to independent temporary paths.
@@ -633,12 +637,16 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
             isMedia,
             mtimeHeader: headers['x-maple-file-mtime'],
             ownerId,
+            sidecarAdmission,
           }),
         );
         set.status = 201;
         return result;
       } catch (error) {
-        set.status = error instanceof UploadConflictError ? 409 : 500;
+        set.status =
+          error instanceof UploadConflictError || error instanceof SidecarWriteBindingChangedError
+            ? 409
+            : 500;
         return { error: error instanceof Error ? error.message : String(error) };
       }
     },
