@@ -24,6 +24,7 @@ pub use image::{CfaPattern, ColorSpace, ExifOrientation, Image, RawImage};
 pub mod black_level;
 pub mod decode;
 pub(crate) mod masked_margin;
+pub mod raw_dimensions;
 
 pub mod lens_profile;
 

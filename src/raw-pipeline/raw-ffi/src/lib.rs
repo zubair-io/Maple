@@ -129,6 +129,16 @@ mod render_develop;
 // of `render` per the 600-LOC file-size budget; `render::maple_render_file`
 // delegates its shared body here with `film_lut: None`.
 mod render_film;
+// `maple_histogram_{file,bytes}` + `bin_rgb888`, moved verbatim out of
+// `render` per the file-size budget (#5163).
+mod render_histogram;
+// Cold DefaultCrop dimensions from metadata alone (#5163) — the host's canvas
+// layout fallback for a RAW its own metadata reader cannot parse.
+mod raw_dimensions;
+// The shared display tail kept at f32 for a destination encoder (#5163).
+mod display_f32;
+#[cfg(test)]
+mod display_f32_tests;
 mod scene_linear;
 mod scene_linear_chain;
 // The C-visible vectorscope statistics block (#3272) — `MapleScopeStats` +
@@ -213,6 +223,12 @@ pub use workflow::{
 // integration tests the same way `maple_last_error` is below.
 pub use brush::maple_brush_rasterize;
 pub use mask_registry::{maple_mask_raster_register, maple_mask_raster_release};
+// #5163: cbindgen needs visibility on the f32 display buffer struct; the
+// entries are re-exported alongside it for Rust integration tests.
+pub use display_f32::{
+    maple_free_display_buffer_f32, maple_render_file_display_f32, MapleDisplayBufferF32,
+};
+pub use raw_dimensions::{maple_raw_dimensions_bytes, maple_raw_dimensions_file};
 pub use scene_linear_chain::MapleAdjustmentParams;
 // #3272: cbindgen needs visibility on the struct; ungated (the CPU fused
 // entry writes through it even without the `gpu` feature).

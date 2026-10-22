@@ -50,6 +50,14 @@ pub(crate) const TAG_OPCODE_LIST_3: u16 = 51022;
 // BlackLevel are both anchored at its origin per the DNG spec.
 pub(crate) const TAG_ACTIVE_AREA: u16 = 50829;
 
+// TIFF Orientation (tag 274) and the DNG DefaultCropOrigin / DefaultCropSize
+// pair (tags 50719 / 50720): the inputs of the display-oriented dimensions
+// query, so its equivalence with the pixel decoder can be pinned on synthetic
+// files (#5163).
+pub(crate) const TAG_ORIENTATION: u16 = 274;
+pub(crate) const TAG_DEFAULT_CROP_ORIGIN: u16 = 50719;
+pub(crate) const TAG_DEFAULT_CROP_SIZE: u16 = 50720;
+
 // CFA-photometric value
 const PHOTOMETRIC_CFA: u16 = 32803;
 
@@ -125,6 +133,12 @@ pub struct SyntheticGreyDng {
     /// `BlackLevel` table stays ActiveArea-relative, which is the case the
     /// X-Trans black-table keying has to undo (#4730).
     pub active_area: Option<[u16; 4]>,
+    /// TIFF `Orientation` (tag 274), EXIF values 1–8. `None` omits the tag,
+    /// which decoders read as `Normal`.
+    pub orientation: Option<u16>,
+    /// DNG `DefaultCropOrigin` + `DefaultCropSize` as `[x, y, w, h]` in sensor
+    /// coordinates. `None` omits both tags (full-sensor render).
+    pub default_crop: Option<[u16; 4]>,
 }
 
 impl Default for SyntheticGreyDng {
@@ -152,6 +166,8 @@ impl Default for SyntheticGreyDng {
             black_level_repeat_dim: None,
             black_level_table: None,
             active_area: None,
+            orientation: None,
+            default_crop: None,
         }
     }
 }
@@ -335,6 +351,13 @@ impl SyntheticGreyDng {
 
         if let Some(area) = self.active_area {
             ifd.add_shorts(TAG_ACTIVE_AREA, area.to_vec());
+        }
+        if let Some(orientation) = self.orientation {
+            ifd.add_short(TAG_ORIENTATION, orientation);
+        }
+        if let Some([x, y, w, h]) = self.default_crop {
+            ifd.add_shorts(TAG_DEFAULT_CROP_ORIGIN, vec![x, y]);
+            ifd.add_shorts(TAG_DEFAULT_CROP_SIZE, vec![w, h]);
         }
 
         for (tag, blob) in [
