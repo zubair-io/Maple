@@ -49,7 +49,8 @@ import { isSafeFilename } from '../backup/path-formatter.ts';
 import { isInsideMapleCache } from '../workers/discover/reserved-trees.ts';
 import { moveToTrash } from '../fs/trash.ts';
 import { relocateFile, type CollisionPolicy, type RelocateMode } from '../fs/relocate.ts';
-import { stat } from '../fs/mirrored.ts';
+import { serializeSidecarWrites } from '../fs/sidecar-write-order.ts';
+import { mkdir, stat } from '../fs/mirrored.ts';
 import { requireFileAccess } from '../auth/middleware.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -289,6 +290,10 @@ async function respondToTrashOutcome(
   return { status: 204 };
 }
 
+function isSidecarFilename(filename: string): boolean {
+  return nodePath.extname(filename).toLowerCase() === '.xmp';
+}
+
 /** Maps a `relocateFile` outcome to the route's `(status, body)`. The
  * `relocated` case also emits the change-feed rows the move/copy needs:
  * unlike an indexed asset (a stable Mongo `_id` survives a rename), a
@@ -486,13 +491,24 @@ export const foldersFileOpsRoutes = new Elysia({ prefix: '/api/folders' })
 
       const sourceAbsPath = nodePath.join(folderPath, body.source_path);
       const mode = body.mode as RelocateMode;
-      const outcome = await relocateFile({
-        sourceAbsPath,
-        destAbsPath: destCheck.destAbsPath,
-        mode,
-        collision: body.collision as CollisionPolicy,
-        callerTag: 'folders/file/relocate',
-      });
+      const isRawSidecar = isSidecarFilename(sourceFilename);
+      const relocate = () =>
+        relocateFile({
+          sourceAbsPath,
+          destAbsPath: destCheck.destAbsPath,
+          mode,
+          collision: body.collision as CollisionPolicy,
+          callerTag: 'folders/file/relocate',
+          carrySidecars: !isRawSidecar,
+        });
+      // A raw sidecar (a Finder move through the File Provider) is the file a save
+      // writes, so the move holds both ends' save barriers: a save waits rather than
+      // being replaced at the destination or deleted with the source (#5134). The
+      // barrier resolves the destination's folder, so it must exist first.
+      if (isRawSidecar) await mkdir(nodePath.dirname(destCheck.destAbsPath), { recursive: true });
+      const outcome = isRawSidecar
+        ? await serializeSidecarWrites([sourceAbsPath, destCheck.destAbsPath], relocate)
+        : await relocate();
 
       const response = await respondToRelocateOutcome(outcome, {
         folderId,
