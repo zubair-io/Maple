@@ -355,7 +355,7 @@ export async function trySerializeSidecarWrite<T>(
     const registered = registerReservation(unheld);
     reservation = registered.reservation;
     admission.release();
-    return { acquired: true, value: await write() };
+    return { acquired: true, value: await withOwnedKeys(reservation.keys, write) };
   } finally {
     admission.release();
     if (reservation) releaseReservation(reservation, false);
