@@ -52,18 +52,14 @@ export async function captureSidecarWriteScope(
     assetAt(rawPath, dbOverride),
     primaryIdentity(rawPath),
   ]);
-  if (asset === null && identity === null) return directory;
   return {
     directory,
     async validate() {
       const [current, currentIdentity] = await Promise.all([
-        assetAt(rawPath),
+        assetAt(rawPath, dbOverride),
         primaryIdentity(rawPath),
       ]);
-      if (
-        (asset && !asset.id.equals(current?.id)) ||
-        (identity !== null && identity !== currentIdentity)
-      ) {
+      if (asset?.id.toHexString() !== current?.id.toHexString() || identity !== currentIdentity) {
         throw new Error('Photo moved, was replaced or was purged; reload before saving edits');
       }
     },

@@ -1,13 +1,20 @@
 import { expect, test } from 'bun:test';
 import * as path from 'node:path';
 import { recoveryFixture } from '../cloud-backup/restore.test-helpers';
-import { insertAsset, insertFolder, insertLocation } from '../db/sqlite/test-sqlite.test-helpers';
+import {
+  createTestDatabase,
+  testSqliteDb,
+  insertAsset,
+  insertFolder,
+  insertLocation,
+} from '../db/sqlite/test-sqlite.test-helpers';
 import { ObjectId } from '../db/object-id';
 import { hardDelete } from '../db/repos/assets.trash';
 import { readFile, rename, stat, unlink, writeFile } from '../fs/mirrored';
 import { serializeSidecarWrite } from '../fs/sidecar-write-order';
 import { writeXmpAtomic, writeXmpWithPrecondition } from '../fs/xmp';
 import { writeConflictSidecarAtomic } from '../fs/xmp-conflict';
+import { captureSidecarWriteScope } from './xmp-change';
 import { resolveAndAuthorizeSidecarWrite } from './xmp-path-auth';
 
 const edits = (exposure: number) => `<x:xmpmeta xmlns:x="adobe:ns:meta/">
@@ -102,6 +109,41 @@ test('a queued save cannot attach old edits to a replacement even before its cat
     release.resolve();
     await holder;
     await saving;
+    await f.close();
+  }
+});
+
+test('a write binding validates against its explicitly supplied database', async () => {
+  const f = await recoveryFixture();
+  using isolated = await createTestDatabase();
+  const photo = path.join(f.root, 'isolated.dng');
+  try {
+    await writeFile(photo, 'original');
+    const libraryId = insertFolder(isolated.db, { path: f.root });
+    const id = insertAsset(isolated.db);
+    insertLocation(isolated.db, { assetId: id, libraryId, path: '', filename: 'isolated.dng' });
+    const scope = await captureSidecarWriteScope(photo, f.root, testSqliteDb(isolated.db));
+    if (typeof scope === 'string') throw new Error('Expected a primary binding');
+    await expect(scope.validate()).resolves.toBeUndefined();
+    isolated.db.run('DELETE FROM asset_locations WHERE asset_id = ?', [id]);
+    await expect(scope.validate()).rejects.toThrow('reload before saving');
+  } finally {
+    await f.close();
+  }
+});
+
+test('a write admitted before catalog registration cannot attach to the newly registered asset', async () => {
+  const f = await recoveryFixture();
+  const photo = path.join(f.root, 'new.dng');
+  try {
+    await writeFile(photo, 'replacement');
+    const libraryId = insertFolder(f.live.db, { path: f.root });
+    const scope = await captureSidecarWriteScope(photo, f.root);
+    if (typeof scope === 'string') throw new Error('Expected a primary binding');
+    const id = insertAsset(f.live.db);
+    insertLocation(f.live.db, { assetId: id, libraryId, path: '', filename: 'new.dng' });
+    await expect(scope.validate()).rejects.toThrow('reload before saving');
+  } finally {
     await f.close();
   }
 });
