@@ -1,4 +1,5 @@
 #if os(iOS)
+  import MapleUI
   import MapleCore
   import SwiftUI
 
@@ -12,8 +13,12 @@
       NavigationStack {
         Form {
           Section {
-            Label("Maple on Apple Watch", systemImage: "applewatch")
-              .font(.headline)
+            Label {
+              Text("Maple on Apple Watch")
+            } icon: {
+              MuiIcon(name: "watch", size: .sm)
+            }
+            .font(.headline)
             Text(
               "Browse your recent photos and memories on your wrist. Your Watch gets its own connection to the server."
             )
@@ -48,7 +53,11 @@
           Section {
             if pairing.busy { ProgressView("Pairing Apple Watch") }
             if pairing.completed {
-              Label(pairing.message, systemImage: "checkmark.circle")
+              Label {
+                Text(pairing.message)
+              } icon: {
+                MuiIcon(name: "check_circle", size: .sm)
+              }
             } else {
               Text(pairing.message)
             }
