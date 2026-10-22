@@ -293,10 +293,9 @@ written into the user's photo folder.
 
 Use **Add Maple Cloud server** in Sources or Settings → Cloud for hosted and
 self-hosted servers; they use the same connection protocol. Maple opens the
-server’s HTTPS domain in the system browser for passkey sign-in. Android also
-polls the PKCE claim endpoint so an existing browser session can finish sign-in
-when the browser blocks an automatic custom-scheme callback. A one-time
-PKCE code returns through `maple-app://auth-success`; tokens never appear in
+server’s HTTPS domain in the system browser for passkey sign-in. Choose **Open
+Maple** on the browser confirmation page if it blocks the automatic callback.
+Android does not poll with state and verifier alone. A one-time PKCE code returns through `maple-app://auth-success`; tokens never appear in
 callback URLs. Access/refresh tokens and pending verifier/state are encrypted
 with an Android Keystore key, and expired access tokens refresh once before
 retrying. Loopback HTTP is supported for development. Disconnect revokes the

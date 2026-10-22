@@ -20,7 +20,6 @@ namespace Maple.WinUI.ViewModels
         [ObservableProperty] private bool _cloudConnected;
 
         private CloudPkcePending? _pendingSignIn;
-        private CancellationTokenSource? _signInPollCts;
 
         /// <summary>The live cloud client, if any (#2589) — handed to the
         /// Cloud Files sync root as an accessor rather than a captured
@@ -35,7 +34,6 @@ namespace Maple.WinUI.ViewModels
         {
             if (await ReleaseCloudSessionAsync() is { } blocked)
                 return (false, blocked, false);
-            _signInPollCts?.Cancel();
             DisposeCloudClient();
             _cloud = new CloudClient(serverUrl);
             HookTokenRotation(_cloud);
@@ -51,95 +49,8 @@ namespace Maple.WinUI.ViewModels
                 CloudPkce.ChallengeFor(_pendingSignIn.Verifier), _pendingSignIn.State);
             System.Diagnostics.Process.Start(
                 new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
-            CloudStatus = "Waiting for browser sign-in…";
-            StartSignInPolling(_pendingSignIn, _cloud);
+            CloudStatus = "Finish sign-in in your browser, then choose Open Maple.";
             return (true, message, devLogin);
-        }
-
-        /// <summary>Poll the server for the pending ceremony's code (#3063).
-        /// The maple-app:// redirect is the fast path, but Chromium refuses to
-        /// launch an external scheme from a script navigation with no user
-        /// gesture — which is exactly what an already-signed-in browser does
-        /// (the #2964 bootstrap redirect). The signed-in web app still MINTS
-        /// the code server-side, so polling with the private verifier
-        /// completes the sign-in without any browser cooperation. First of
-        /// the redirect/poll paths to complete wins; the other no-ops.</summary>
-        private void StartSignInPolling(CloudPkcePending pending, CloudClient client)
-        {
-            _signInPollCts?.Cancel();
-            var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
-            _signInPollCts = cts;
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    while (true)
-                    {
-                        await Task.Delay(TimeSpan.FromSeconds(2), cts.Token);
-                        var (ok, fatal, message) = await client.ClaimNativeCodeAsync(
-                            pending.State, pending.Verifier, cts.Token);
-                        if (fatal)
-                        {
-                            // Permanent (bad request / user gone) — the ceremony
-                            // can never complete; stop polling and surface it.
-                            OnUi(() =>
-                            {
-                                if (_pendingSignIn == pending && _signInPollCts == cts)
-                                    CloudStatus = $"Sign-in failed: {message}";
-                            });
-                            return;
-                        }
-                        if (!ok)
-                            continue; // nothing pending yet (or transient) — keep polling
-                        OnUi(() => _ = CompleteClaimedSignInAsync(pending, client, message));
-                        return;
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    // Superseded by another ceremony/callback, or the 3-minute
-                    // window elapsed. Only the timeout of a STILL-pending
-                    // ceremony deserves a status update.
-                    OnUi(() =>
-                    {
-                        if (_pendingSignIn == pending && _signInPollCts == cts)
-                            CloudStatus = "Browser sign-in timed out — try again.";
-                    });
-                }
-                catch (ObjectDisposedException)
-                {
-                    // The client was superseded (disposed) between our cancel
-                    // check and the request — this ceremony is over.
-                }
-                finally
-                {
-                    // Free the CTS timer promptly. On the UI thread, and only
-                    // after un-publishing the field, so the Cancel() call sites
-                    // (all UI-thread) can never touch a disposed CTS.
-                    OnUi(() =>
-                    {
-                        if (_signInPollCts == cts)
-                            _signInPollCts = null;
-                        cts.Dispose();
-                    });
-                }
-            });
-            // (No cts.Token on Task.Run: a pre-canceled token would skip the
-            // body entirely and leak the CTS past its finally.)
-        }
-
-        /// <summary>UI-thread tail of a successful poll claim: mirror of
-        /// CompleteAuthCallbackAsync's post-redeem steps, guarded so a redirect
-        /// callback that already completed this ceremony makes this a no-op.</summary>
-        private async Task CompleteClaimedSignInAsync(
-            CloudPkcePending pending, CloudClient client, string message)
-        {
-            if (_pendingSignIn != pending || _cloud != client)
-                return;
-            _pendingSignIn = null;
-            CloudStatus = message;
-            PersistCloudSession(pending.ServerUrl, client.RefreshToken);
-            await FinishConnectAsync();
         }
 
         /// <summary>Step 2: the maple-app://auth-success?code=…&state=… callback.
@@ -167,7 +78,6 @@ namespace Maple.WinUI.ViewModels
             if (!ok && retryable)
                 return;
             _pendingSignIn = null;
-            _signInPollCts?.Cancel();
             if (!ok)
                 return;
             PersistCloudSession(pending.ServerUrl, client.RefreshToken);
@@ -180,7 +90,6 @@ namespace Maple.WinUI.ViewModels
         {
             if (await ReleaseCloudSessionAsync() is { } blocked)
                 return (false, blocked);
-            _signInPollCts?.Cancel();
             DisposeCloudClient();
             _cloud = new CloudClient(serverUrl);
             HookTokenRotation(_cloud);
