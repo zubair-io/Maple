@@ -141,7 +141,12 @@ object CropGeometry {
             val ratioNorm = lockedAspect * (imgH / imgW)
             var w = right - left
             var h = bottom - top
-            if (handle == CropHandle.T || handle == CropHandle.B) {
+            val corner = (movesL || movesR) && (movesT || movesB)
+            val verticalMotion = abs(h - (crop.bottom - crop.top)) * imgH
+            val horizontalMotion = abs(w - (crop.right - crop.left)) * imgW
+            val useHeight = handle == CropHandle.T || handle == CropHandle.B ||
+                (corner && verticalMotion > horizontalMotion)
+            if (useHeight) {
                 w = h * ratioNorm
             } else {
                 h = w / ratioNorm
