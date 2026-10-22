@@ -110,14 +110,9 @@ enum NativeDetailLOD {
   /// `filterHalo`) gives the per-tick chain's spatial stages context beyond
   /// the displayed patch without ever expanding work to the full sensor.
   ///
-  /// The result is additionally clamped to `CanvasMath.metalMaxTextureEdge`
-  /// per edge (#2061) — the halo inset only ever adds twice the halo
-  /// beyond the caller's `detailRect`, but a pathological
-  /// viewport (an ultra-wide 2×-Retina display, or a very large source
-  /// image) can still produce a `detailRect` whose expanded form would
-  /// exceed the texture ceiling this tile is eventually uploaded into.
-  /// Clamping the size here (keeping the origin fixed) is defensive:
-  /// on ordinary hardware/viewports it never binds.
+  /// The complete patch and its required halo must fit Metal's texture edge
+  /// limit. Returning empty requests whole-image refinement; truncating one
+  /// side of the halo would make edge pixels disagree with that refinement.
   static func decodeRect(
     detailRect: CGRect, imageSize: CGSize, halo: CGFloat
   ) -> CGRect {
@@ -130,14 +125,11 @@ enum NativeDetailLOD {
       .insetBy(dx: -max(filterHalo, halo), dy: -max(filterHalo, halo))
       .integral
       .intersection(bounds)
-    guard !expanded.isNull else { return .zero }
     let maxEdge = CanvasMath.metalMaxTextureEdge
-    return CGRect(
-      x: expanded.minX,
-      y: expanded.minY,
-      width: min(expanded.width, maxEdge),
-      height: min(expanded.height, maxEdge)
-    )
+    guard !expanded.isNull, expanded.width <= maxEdge, expanded.height <= maxEdge else {
+      return .zero
+    }
+    return expanded
   }
 
   /// Convert a top-left-oriented source rect into the local CoreImage

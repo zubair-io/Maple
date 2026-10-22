@@ -43,27 +43,24 @@ final class NativeDetailLODTests: XCTestCase {
     XCTAssertLessThan(decoded.width * decoded.height, 13000 * 8000)
   }
 
-  /// #2061d: a pathological viewport can produce a `detailRect` whose
-  /// halo-expanded form exceeds Metal's 16384 texture-edge limit even
-  /// after clamping to the image bounds. `decodeRect` must clamp its
-  /// own output size (keeping origin fixed) so the tile FFI is never
-  /// asked for a >16384 dimension.
-  ///
-  /// detail = (0,0,16300,9000); halo-inset grows to
-  /// (-96,-96,16492,9192); intersecting with the 20000×12000 image
-  /// bounds yields (0,0,16396,9096) — width 16396 is 12px over the
-  /// 16384 ceiling, height 9096 is well under it.
-  func testDecodeRectClampsToMetalMaxTextureEdge() {
+  /// Oversized patches must fall back, preserving the chain's two-sided
+  /// context rather than silently discarding its right/bottom halo.
+  func testDecodeRectRejectsPatchesWhoseHaloExceedsMetalMaxTextureEdge() {
     let detail = CGRect(x: 0, y: 0, width: 16300, height: 9000)
-    let decoded = NativeDetailLOD.decodeRect(
-      detailRect: detail,
-      imageSize: CGSize(width: 20000, height: 12000),
-      halo: NativeDetailLOD.filterHalo
-    )
+    for halo in [NativeDetailLOD.filterHalo, 552] {
+      XCTAssertEqual(
+        NativeDetailLOD.decodeRect(
+          detailRect: detail, imageSize: CGSize(width: 20000, height: 12000), halo: halo),
+        .zero)
+    }
+  }
+
+  func testDecodeRectPreservesBothSidesWhenTheRequiredHaloFits() {
+    let detail = CGRect(x: 600, y: 600, width: 15000, height: 9000)
     XCTAssertEqual(
-      decoded,
-      CGRect(x: 0, y: 0, width: CanvasMath.metalMaxTextureEdge, height: 9096)
-    )
+      NativeDetailLOD.decodeRect(
+        detailRect: detail, imageSize: CGSize(width: 20000, height: 12000), halo: 552),
+      CGRect(x: 48, y: 48, width: 16104, height: 10104))
   }
 
   func testDecodeRectClampsHaloAtImageEdges() {

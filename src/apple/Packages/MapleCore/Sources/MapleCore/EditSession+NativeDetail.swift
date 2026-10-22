@@ -74,7 +74,10 @@ extension EditSession {
       halo: CGFloat(
         PipelineRenderer.sceneLinearChainWindowReach(model: m, fullSize: nativeImageSize))
     )
-    guard !publishedPatchRect.isEmpty, !decodeRect.isEmpty else { return false }
+    guard !publishedPatchRect.isEmpty, !decodeRect.isEmpty else {
+      clearNativeDetailPreview()
+      return false
+    }
 
     nativeDetailRequestID &+= 1
     let requestID = nativeDetailRequestID
