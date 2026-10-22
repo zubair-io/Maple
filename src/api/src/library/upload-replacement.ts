@@ -9,6 +9,7 @@ import { listPairedSidecars, listPairedSidecarsStrict } from '../fs/xmp-conflict
 import { trashAssetById } from './asset-trash.ts';
 import { publishConflictBytes, sidecarStemClaimedBySibling } from '../fs/sidecar-ownership.ts';
 import { readSidecarBytes } from '../fs/sidecar-bytes.ts';
+import { isLegacyBackupSidecarOf } from '../fs/legacy-backup-sidecar.ts';
 import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
 import { child as childLogger } from '../log.ts';
 import { moveFileToTrash, moveToTrash } from '../fs/trash.ts';
@@ -58,13 +59,17 @@ async function unlinkPurgedPrimary(filename: string): Promise<void> {
 /** Equal bytes don't make an edit redundant: a sidecar first written beside the
  * trashed photo after the purge checked (#5069) follows the replacement as a
  * `(conflict from move)` copy, and leaves the trash under its barrier once
- * copied. One a trashed same-stem sibling still shares stays with that sibling. */
+ * copied. A canonical sidecar a trashed same-stem sibling still shares stays
+ * with that sibling; an old-name edit names this photo alone, so it follows. */
 async function carryLateEditsToReplacement(
   trashedPath: string,
   replacementPath: string,
 ): Promise<void> {
-  if (await sidecarStemClaimedBySibling(trashedPath)) return;
-  for (const sidecar of await listPairedSidecars(trashedPath)) {
+  const shared = await sidecarStemClaimedBySibling(trashedPath);
+  const late = (await listPairedSidecars(trashedPath)).filter(
+    (sidecar) => !shared || isLegacyBackupSidecarOf(trashedPath, sidecar),
+  );
+  for (const sidecar of late) {
     await serializeSidecarWrite(sidecar, async () => {
       const bytes = await readSidecarBytes(sidecar);
       if (bytes === null) return;
