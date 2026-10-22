@@ -36,7 +36,7 @@ import { PAIRED_SIDECAR_SUFFIX_PATTERN } from '../generated/filename-vocabulary.
 function sanitizeDeviceName(raw: string | undefined): string {
   const trimmed = (raw ?? '').trim();
   if (!trimmed) return 'Unknown device';
-  return trimmed.replace(/[/\\:*?"<>|]/g, '-').slice(0, 64);
+  return trimmed.replace(/[/\\:*?"<>|()]/g, '-').slice(0, 64);
 }
 
 /**

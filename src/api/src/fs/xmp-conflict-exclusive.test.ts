@@ -65,3 +65,27 @@ test.each([false, true])(
     );
   },
 );
+
+test('device labels with parentheses keep every retry addressable and paired', async () => {
+  const rawPath = join(root, 'IMG.HEIC');
+  await writeFile(rawPath, 'photo');
+  await writeFile(join(root, 'IMG.xmp'), '<canonical/>');
+  for (const edit of ['first edit', 'second edit']) {
+    const outcome = await writeXmpWithPrecondition(rawPath, edit, 1, 'move) (2');
+    expect(outcome.kind).toBe('conflict');
+    if (outcome.kind !== 'conflict') throw new Error('missing conflict copy');
+    const basename = outcome.conflictPath.slice(root.length + 1, -4);
+    expect((await xmpConflict.readConflictSidecar(rawPath, basename)).data).toBe(edit);
+    expect(await xmpConflict.listPairedSidecars(rawPath)).toContain(outcome.conflictPath);
+    expect((await xmpConflict.writeConflictSidecarAtomic(rawPath, basename, edit)).ok).toBe(true);
+  }
+  const copies = (await xmpConflict.listPairedSidecars(rawPath)).filter(
+    (p) => p !== join(root, 'IMG.xmp'),
+  );
+  expect(copies).toHaveLength(2);
+  for (const copy of copies) {
+    expect(
+      (await xmpConflict.deleteConflictSidecar(rawPath, copy.slice(root.length + 1, -4))).ok,
+    ).toBe(true);
+  }
+});
