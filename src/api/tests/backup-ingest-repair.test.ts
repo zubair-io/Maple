@@ -255,7 +255,15 @@ describe('backup missing-copy recovery', () => {
        VALUES(?, ?, 'purge', 'prepared', ?)`,
       [crypto.randomUUID(), id.id, new Date().toISOString()],
     );
-    expect((await upload()).status).toBe(409);
+    // Every retry is refused at its first chunk, never after re-sending the file.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const refused = await upload(0, 3);
+      expect(refused.status).toBe(409);
+      expect((await refused.json()).code).toBe('purge_admitted');
+    }
+    expect(handle.db.query('SELECT state FROM upload_sessions').all()).toEqual([
+      { state: 'completed' },
+    ]);
     expect(handle.db.query('SELECT COUNT(*) AS n FROM asset_locations').get()).toEqual({ n: 1 });
   });
 });

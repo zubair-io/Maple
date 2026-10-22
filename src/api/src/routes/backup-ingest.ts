@@ -291,9 +291,11 @@ export const backupIngestRoutes = new Elysia().post(
             phassetLocalId: phid,
           })
         : null;
+      // The session stays complete, so each retry is refused after one chunk
+      // rather than re-sending the whole original first.
       if (completedTarget?.purgeAdmitted) {
         set.status = 409;
-        return { error: 'asset has a durable purge intent' };
+        return { error: 'asset has a durable purge intent', code: 'purge_admitted' };
       }
       const completedRelPath = completedTarget?.liveRelPathInLibrary;
       const stillPresent =
