@@ -1,12 +1,12 @@
 {
   "backend": "bun",
   "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts",
-  "corpus_hash": "blake3:eb0cbfc2ebd432f92c397eeffcbaecb0b1e5ecd3185931af7d253dc33c05388a",
+  "corpus_hash": "blake3:b42d74c70e0dd67937895f847438f8e1d002c9151b9529630958516aa464d5cb",
   "executed_cases": 4,
   "expected_cases": 4,
   "failed_cases": 0,
-  "git_sha": "bf98489ae23c05a47cc95cd262caffd0b65ebc0d",
-  "recorded_at": "2026-10-22T08:59:36Z",
+  "git_sha": "52d45b7a16cf1fe4475413307b306dff6d6a7b22",
+  "recorded_at": "2026-10-22T09:05:19Z",
   "skipped_cases": 0,
   "source": "sidecar_contract_api"
 }

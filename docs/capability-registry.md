@@ -312,8 +312,8 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Covers: `web`
 - Accepted backends: `bun`
 - Expected cases: 4
-- Corpus: `src/api/src/routes/xmp.sidecar-contract.test.ts`, `src/api/src/routes/xmp.ts`, `src/api/src/xmp`, `src/api/src/fs/sidecar-io.ts`, `src/api/src/fs/sidecar-write-order.ts`, `src/api/src/fs/xmp-conditional.ts`, `src/api/src/fs/xmp.ts`
-- Record: satisfied — 4 of 4 executed, 0 failed, 0 skipped, on `bun`, commit `bf98489ae23c05a47cc95cd262caffd0b65ebc0d`, recorded 2026-10-22T08:59:36Z
+- Corpus: `src/api/src/routes/xmp.sidecar-contract.test.ts`, `src/api/src/routes/xmp.ts`, `src/api/src/routes/xmp-change.ts`, `src/api/src/routes/xmp-path-auth.ts`, `src/api/src/routes/folders.upload.ts`, `src/api/src/routes/folders.upload-sidecar-admission.ts`, `src/api/src/fs/primary-replacement-admission.ts`, `src/api/src/fs/relocate-replace-fence.ts`, `src/api/src/xmp`, `src/api/src/fs/sidecar-io.ts`, `src/api/src/fs/sidecar-write-order.ts`, `src/api/src/fs/xmp-conditional.ts`, `src/api/src/fs/xmp.ts`
+- Record: satisfied — 4 of 4 executed, 0 failed, 0 skipped, on `bun`, commit `52d45b7a16cf1fe4475413307b306dff6d6a7b22`, recorded 2026-10-22T09:05:19Z
 
 ### `gpu_chain_parity_lavapipe`
 
