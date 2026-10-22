@@ -31,6 +31,18 @@ fn raster_decode_fits(width: u32, height: u32, encoded_bytes: usize) -> bool {
             .is_some_and(|bytes| bytes <= MAX_RASTER_DECODE_BYTES)
 }
 
+// RGB32F staging writes 12 bytes/pixel; reserve 64 KiB for TIFF tags and
+// the fixed matrix/TRC ICC profile before the platform decoder allocates pixels.
+#[no_mangle]
+pub extern "C" fn maple_android_platform_detail_fits(width: u32, height: u32) -> u8 {
+    let encoded = u64::from(width)
+        .checked_mul(u64::from(height))
+        .and_then(|pixels| pixels.checked_mul(12))
+        .and_then(|bytes| bytes.checked_add(64 * 1024))
+        .and_then(|bytes| usize::try_from(bytes).ok());
+    u8::from(encoded.is_some_and(|bytes| raster_decode_fits(width, height, bytes)))
+}
+
 pub struct DetailSource {
     raw: Option<Arc<RawImage>>,
     bytes: Arc<Vec<u8>>,
@@ -56,12 +68,24 @@ impl DetailSource {
         }))
     }
     fn open(path: &str) -> Result<SharedDetail, String> {
-        let bytes = Arc::new(std::fs::read(path).map_err(|e| e.to_string())?);
         let ext = Path::new(path)
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
+        if !crate::preview::is_raw(&ext) {
+            let mut file =
+                std::io::BufReader::new(std::fs::File::open(path).map_err(|e| e.to_string())?);
+            let length =
+                usize::try_from(file.get_ref().metadata().map_err(|e| e.to_string())?.len())
+                    .map_err(|_| "Native detail raster exceeds the decode memory budget")?;
+            let meta = raw_core::raster::probe_raster_metadata_reader(&mut file)
+                .map_err(|e| e.to_string())?;
+            if !raster_decode_fits(meta.width, meta.height, length) {
+                return Err("Native detail raster exceeds the decode memory budget".into());
+            }
+        }
+        let bytes = Arc::new(std::fs::read(path).map_err(|e| e.to_string())?);
         let raw = if crate::preview::is_raw(&ext) {
             Some(
                 raw_core::decode_cache::decode_bytes_cached(
@@ -314,6 +338,16 @@ mod tests {
     }
 
     #[test]
+    fn platform_admission_includes_the_uncompressed_tiff_before_staging() {
+        assert_eq!(maple_android_platform_detail_fits(1920, 1080), 1);
+        assert_eq!(maple_android_platform_detail_fits(3072, 2048), 0);
+        assert_eq!(maple_android_platform_detail_fits(4000, 3000), 0);
+        assert_eq!(maple_android_platform_detail_fits(8000, 6000), 0);
+        assert_eq!(maple_android_platform_detail_fits(u32::MAX, u32::MAX), 0);
+        assert_eq!(maple_android_platform_detail_fits(0, 1080), 0);
+    }
+
+    #[test]
     fn raster_decode_admission_rejects_overflow_and_empty_dimensions() {
         assert!(!raster_decode_fits(u32::MAX, u32::MAX, 0));
         assert!(!raster_decode_fits(1, 1, usize::MAX));
@@ -329,6 +363,12 @@ mod tests {
         let marker = bytes.windows(2).position(|p| p == [0xff, 0xc0]).unwrap();
         bytes[marker + 5..marker + 7].copy_from_slice(&3000u16.to_be_bytes());
         bytes[marker + 7..marker + 9].copy_from_slice(&4000u16.to_be_bytes());
+        let path =
+            std::env::temp_dir().join(format!("maple-detail-admission-{}.jpg", std::process::id()));
+        std::fs::write(&path, &bytes).unwrap();
+        let opened = DetailSource::open(path.to_str().unwrap());
+        std::fs::remove_file(path).unwrap();
+        assert!(opened.err().unwrap().contains("decode memory budget"));
         let source = DetailSource::new(None, Arc::new(bytes), "jpg".into());
         let mut source = source.lock().unwrap();
         let result = source.render(r#"<r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><r:Description/></r:RDF>"#, TileRect {

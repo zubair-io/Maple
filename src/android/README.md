@@ -288,7 +288,11 @@ ordinary preview rendering independently.
 
 Native windows admit at most 8 megapixels of working pixels. Raster decoding
 reserves encoded bytes plus 44 bytes per pixel for the simultaneous RGB-f32 and
-two RGBA-f32 buffers against a 320 MiB decode budget. Larger raster images,
+two RGBA-f32 buffers against a 320 MiB decode budget. Headers and encoded size
+are checked before reading the full raster file. HEIC, HEIF and AVIF additionally
+preflight their dimensions before platform decoding, including the RGB32F TIFF's
+12 bytes per pixel and reserved header space in that same Rust-owned budget.
+Larger raster images,
 including typical 12 MP JPEGs, retain preview-only zoom rather than risking a
 native allocation failure. Unsupported RAW modes or edits (including Dehaze
 and Deep Denoise) also show an explicit preview-only message.

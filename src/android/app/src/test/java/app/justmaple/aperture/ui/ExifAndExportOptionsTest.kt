@@ -98,6 +98,7 @@ class ExifAndExportOptionsTest {
 
     @Test
     fun suggestedFileNameKeepsStemAndUsesFormatExtension() {
+        assertEquals(0, ExportOptions().maxEdge)
         assertEquals("photo-Maple.jpg", ExportOptions().suggestedFileName(null))
         assertEquals("dsc-Maple.jpg", ExportOptions().suggestedFileName("dsc.dng"))
         assertEquals(

@@ -39,7 +39,7 @@ enum class ExportColorSpace(val label: String) {
 data class ExportOptions(
     val format: ExportFormat = ExportFormat.JPEG,
     val quality: Int = 92,
-    val maxEdge: Int = 4096,
+    val maxEdge: Int = 0,
     val colorSpace: ExportColorSpace = ExportColorSpace.SRGB,
 ) {
     fun suggestedFileName(sourceName: String?): String {

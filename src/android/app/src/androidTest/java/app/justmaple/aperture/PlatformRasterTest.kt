@@ -20,6 +20,36 @@ import org.junit.Test
 @SdkSuppress(minSdkVersion = 31)
 class PlatformRasterTest {
     @Test
+    fun nativeDetailRejectsOversizedPlatformHeadersBeforeTiffStaging() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        val bytes = java.io.ByteArrayOutputStream().use { output ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
+            bitmap.recycle()
+            output.toByteArray()
+        }
+        val marker = (0 until bytes.size - 8).first {
+            (bytes[it].toInt() and 255) == 255 && (bytes[it + 1].toInt() and 255) == 192
+        }
+        bytes[marker + 5] = (3000 shr 8).toByte()
+        bytes[marker + 6] = 3000.toByte()
+        bytes[marker + 7] = (4000 shr 8).toByte()
+        bytes[marker + 8] = 4000.toByte()
+        val original = File.createTempFile("platform-budget-", ".heic", context.filesDir)
+        try {
+            original.writeBytes(bytes)
+            val library = PhotoLibrary(context)
+            val photo = library.single(Uri.fromFile(original))
+            val failure = runCatching { library.withNativeDetailOriginal(photo) {
+                fail("Oversized platform image must not reach the materialized-source consumer")
+            } }.exceptionOrNull()
+            assertNotNull(failure)
+            assertEquals("Native detail raster exceeds the decode memory budget", failure!!.message)
+            assertArrayEquals(bytes, original.readBytes())
+        } finally { original.delete() }
+    }
+
+    @Test
     fun systemAvifSourceGamutAndPrecisionReachTheCoreUnchanged() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -46,7 +76,7 @@ class PlatformRasterTest {
                     val header = FloatTiff(preview.readBytes())
                     assertTrue(header.values(256).single() <= 8 && header.values(257).single() <= 8)
                 }
-                library.withOriginal(photo) { staged ->
+                library.withNativeDetailOriginal(photo) { staged ->
                     assertEquals("tiff", staged.extension)
                     val tiff = FloatTiff(staged.readBytes())
                     assertEquals(bitmap.width, tiff.values(256).single())
