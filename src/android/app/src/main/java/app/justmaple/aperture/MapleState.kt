@@ -29,6 +29,7 @@ data class MapleState(
     val canRedo: Boolean = false,
     val showFilmstrip: Boolean = true,
     val comparingBefore: Boolean = false,
+    val autoWhiteBalanceInFlight: Boolean = false,
     val cloudSigningIn: Boolean = false,
     val cloudConnectionsVersion: Int = 0,
 ) {

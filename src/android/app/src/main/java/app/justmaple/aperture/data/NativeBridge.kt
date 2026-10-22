@@ -18,6 +18,10 @@ object NativeBridge {
 
     external fun values(handle: Long): String
 
+    external fun createAutoWhiteBalance(handle: Long, xml: String): Long
+    external fun runAutoWhiteBalance(work: Long): String
+    external fun closeAutoWhiteBalance(work: Long)
+
     external fun setField(handle: Long, index: Int, value: Float)
 
     external fun setModel(handle: Long, xml: String)

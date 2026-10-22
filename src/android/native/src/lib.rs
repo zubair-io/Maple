@@ -1,4 +1,5 @@
 //! Android native binding. Colour and geometry remain in raw-core/raw-gpu.
+mod auto_white_balance;
 mod cancellation;
 mod fields;
 mod film;
@@ -134,6 +135,42 @@ pub unsafe extern "C" fn maple_android_values(handle: *mut c_void) -> *mut c_cha
             .map_err(|e| e.to_string())?
             .into_raw())
     })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_auto_wb_new(
+    handle: *mut c_void,
+    xml: *const c_char,
+) -> *mut c_void {
+    guarded(ptr::null_mut(), || {
+        let session = handle.cast::<Session>().as_ref().ok_or("Closed editor")?;
+        Ok(Box::into_raw(Box::new(session.prepare_auto_white_balance(text(xml)?)?)).cast())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_auto_wb_run(work: *const c_void) -> *mut c_char {
+    guarded(ptr::null_mut(), || {
+        let work = work
+            .cast::<auto_white_balance::AutoWhiteBalanceWork>()
+            .as_ref()
+            .ok_or("Closed white balance analysis")?;
+        Ok(CString::new(work.run()?)
+            .map_err(|error| error.to_string())?
+            .into_raw())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_auto_wb_free(work: *mut c_void) {
+    if !work.is_null() {
+        guarded((), || {
+            drop(Box::from_raw(
+                work.cast::<auto_white_balance::AutoWhiteBalanceWork>(),
+            ));
+            Ok(())
+        });
+    }
 }
 
 #[no_mangle]

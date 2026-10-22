@@ -13,6 +13,9 @@ void maple_android_close_renderer(void *);
 void *maple_android_open(void *, const char *, const char *, uint32_t);
 void maple_android_close(void *);
 char *maple_android_values(void *);
+void *maple_android_auto_wb_new(void *, const char *);
+char *maple_android_auto_wb_run(const void *);
+void maple_android_auto_wb_free(void *);
 void maple_android_free_string(char *);
 int maple_android_set(void *, size_t, float);
 int maple_android_model(void *, const char *);
@@ -109,6 +112,23 @@ extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBrid
     jstring result = env->NewStringUTF(value);
     maple_android_free_string(value);
     return result;
+}
+extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_createAutoWhiteBalance(JNIEnv *env, jobject, jlong handle, jstring xml) {
+    Utf8 x(env, xml);
+    if (env->ExceptionCheck()) return 0;
+    void *work = maple_android_auto_wb_new(editor(handle)->core, x.get());
+    if (!work) { check(env, -1); return 0; }
+    return reinterpret_cast<jlong>(work);
+}
+extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBridge_runAutoWhiteBalance(JNIEnv *env, jobject, jlong work) {
+    char *value = maple_android_auto_wb_run(reinterpret_cast<void *>(work));
+    if (!value) { check(env, -1); return nullptr; }
+    jstring result = env->NewStringUTF(value);
+    maple_android_free_string(value);
+    return result;
+}
+extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_closeAutoWhiteBalance(JNIEnv *, jobject, jlong work) {
+    maple_android_auto_wb_free(reinterpret_cast<void *>(work));
 }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_setField(JNIEnv *env, jobject, jlong handle, jint index, jfloat value) { check(env, maple_android_set(editor(handle)->core, index, value)); }
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_setModel(JNIEnv *env, jobject, jlong handle, jstring xml) {

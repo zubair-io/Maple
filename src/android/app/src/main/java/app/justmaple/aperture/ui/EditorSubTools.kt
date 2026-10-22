@@ -28,11 +28,11 @@ enum class HslBand(val label: String, val key: String) {
     Magenta("Magenta", "magenta"),
 }
 
-data class WbPreset(val label: String, val temperature: Float?, val tint: Float?)
+data class WbPreset(val label: String, val temperature: Float?, val tint: Float?, val automatic: Boolean = false)
 
 val wbPresets = listOf(
     WbPreset("As Shot", null, null),
-    WbPreset("Auto", null, null),
+    WbPreset("Auto", null, null, automatic = true),
     WbPreset("Daylight 5500K", 5500f, 10f),
     WbPreset("Cloudy 6500K", 6500f, 10f),
     WbPreset("Shade 7500K", 7500f, 10f),
@@ -97,6 +97,7 @@ fun wbPresetEdits(preset: WbPreset): Map<String, Float>? {
 }
 
 fun MapleViewModel.applyWbPreset(preset: WbPreset) {
+    if (preset.automatic) { autoWhiteBalance(); return }
     val edits = wbPresetEdits(preset)
     if (edits == null) {
         resetFields(listOf("temperature", "tint"))
@@ -129,6 +130,7 @@ internal fun SubToolSelector(
 internal fun WbPresetChips(
     presets: List<WbPreset>,
     onApply: (WbPreset) -> Unit,
+    state: app.justmaple.aperture.MapleState,
     modifier: Modifier = Modifier,
 ) {
     LazyRow(modifier.testTag("wb-presets")) {
@@ -136,8 +138,9 @@ internal fun WbPresetChips(
             FilterChip(
                 false,
                 { onApply(preset) },
-                { Text(preset.label) },
+                { Text(if (preset.automatic && state.autoWhiteBalanceInFlight) "Analyzing…" else preset.label) },
                 Modifier.padding(end = 8.dp).testTag("wb-preset-${preset.label}"),
+                enabled = state.canEdit && (!preset.automatic || (state.values["_raw"] == 1f && !state.autoWhiteBalanceInFlight)),
             )
         }
     }
