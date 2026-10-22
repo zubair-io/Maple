@@ -5,8 +5,8 @@
   "executed_cases": 4,
   "expected_cases": 4,
   "failed_cases": 0,
-  "git_sha": "bc2925a28048c9ed3956579dbe43ab251634240f",
-  "recorded_at": "2026-10-22T09:16:14Z",
+  "git_sha": "f6f610e793356288d8b2d25ed513256c25fcac96",
+  "recorded_at": "2026-10-22T12:05:55Z",
   "skipped_cases": 0,
   "source": "sidecar_contract_api"
 }
