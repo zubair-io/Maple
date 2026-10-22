@@ -57,7 +57,8 @@ pub unsafe extern "C" fn maple_free_display_buffer_f32(out: *mut MapleDisplayBuf
 
 /// Native-resolution display f32 render of a RAW + optional XMP sidecar, with
 /// an optional film LUT. `quality_preview` mirrors `maple_render_file`
-/// (0 Full / 1 Preview / 2 AMaZE / 3 Auto); `target` is 0 sRGB / 1 Display-P3.
+/// (0 Full / 1 compatibility Preview / 2 AMaZE / 3 Auto). Preview is promoted
+/// to Full to preserve native dimensions; `target` is 0 sRGB / 1 Display-P3.
 /// Film is absent only for `(null, 0, 0)`; a malformed requested LUT fails
 /// closed rather than rendering without it.
 ///

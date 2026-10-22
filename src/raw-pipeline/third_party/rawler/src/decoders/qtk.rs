@@ -100,7 +100,12 @@ impl<'a> Decoder for QtkDecoder<'a> {
 
     log::debug!("QTK file w: {}, h: {}, hint: {}", width, height, hint);
 
-    let src = file.subview_until_eof_padded(offset as u64)?;
+    // Dummy geometry queries must not copy compressed sensor payloads.
+    let src = if dummy {
+      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
+    } else {
+      file.subview_until_eof_padded(offset as u64)?
+    };
 
     let image = match file.subview(0, 4)? {
       b"qktk" => Self::decompress_quicktake_100(self, &src, width, height, dummy)?,

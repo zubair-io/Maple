@@ -1,10 +1,9 @@
 //! Full-size export that keeps the shared display tail at f32 (#5163): the
 //! quantizer belongs to the destination encoder, never to a baked host cube.
 //!
-//! Shares [`render_display_scene`] with the canvas and the 8/16-bit export
-//! terminals, so everything that decides colour has already run by the time
-//! the buffer comes back here — this file only packs RGBA and applies the
-//! same geometry tail the quantized terminals apply.
+//! Shares the display and geometry tail with the canvas and quantized export,
+//! while enforcing native output dimensions. A rejected Auto fit restores
+//! Neutral exposure; a successful fit runs in sRGB before conversion to P3.
 use super::{
     auto_fit, render_display_scene, render_display_scene_with_context, RawInput, RenderQuality,
 };
@@ -34,9 +33,16 @@ pub fn render_export_f32(
     target: TargetPrimaries,
     film: Option<&FilmLut>,
 ) -> crate::Result<(u32, u32, Vec<f32>)> {
+    // This terminal promises native dimensions even to compatibility Preview callers.
+    let quality = if quality == RenderQuality::Preview {
+        RenderQuality::Full
+    } else {
+        quality
+    };
     // Auto artifacts are fitted in encoded sRGB, never P3 channel values.
     // Neutral (including Auto without an available fit) keeps the wider P3 hull.
-    let srgb_auto = target == TargetPrimaries::P3 && auto_has_fit(raw, model, quality, source);
+    let auto_available = auto_has_fit(raw, model, quality, source);
+    let srgb_auto = target == TargetPrimaries::P3 && auto_available;
     let working_target = if srgb_auto {
         TargetPrimaries::Srgb
     } else {
@@ -44,13 +50,17 @@ pub fn render_export_f32(
     };
     let (mut scene, context) =
         render_display_scene_with_context(raw, model, quality, source, None, working_target, film)?;
-    if srgb_auto && context.profile_curve.is_none() && context.profile_lut.is_none() {
+    if auto_available && context.profile_curve.is_none() && context.profile_lut.is_none() {
         // A cache marker or extractable preview predicts a fit but cannot prove
-        // one succeeded. Re-develop the cold export directly in P3 if no Auto
-        // tail was produced; rotating an already gamut-mapped sRGB buffer would
+        // one succeeded. Restore Neutral auto-exposure in the destination primaries
+        // if no Auto tail was produced; rotating an already gamut-mapped sRGB buffer would
         // permanently discard colours the P3 destination can represent.
         drop(scene);
-        let scene = render_display_scene(raw, model, quality, source, None, target, film)?;
+        let neutral = AdjustmentModel {
+            profile: Profile::Neutral,
+            ..model.clone()
+        };
+        let scene = render_display_scene(raw, &neutral, quality, source, None, target, film)?;
         return Ok(finish(scene, raw.orientation, model));
     }
     if srgb_auto {

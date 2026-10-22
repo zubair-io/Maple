@@ -142,7 +142,12 @@ impl<'a> Decoder for Rw2Decoder<'a> {
         let offset = fetch_tiff_tag!(raw, TiffCommonTag::PanaOffsets).force_usize(0);
         //let size = fetch_tiff_tag!(raw, TiffCommonTag::StripByteCounts).force_usize(0);
         log::debug!("PanaOffset: {}", offset);
-        let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
+        // Dummy geometry queries must not copy compressed sensor payloads.
+        let src = if dummy {
+          crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
+        } else {
+          file.subview_until_eof_padded(offset as u64)?
+        };
         Rw2Decoder::decode_panasonic(file, &src, width, height, split, raw_format, bps, self.tiff.root_ifd(), dummy)?
       } else {
         let raw = self
@@ -154,11 +159,18 @@ impl<'a> Decoder for Rw2Decoder<'a> {
         let offset = fetch_tiff_tag!(raw, TiffCommonTag::StripOffsets).force_usize(0);
         //let size = fetch_tiff_tag!(raw, TiffCommonTag::StripByteCounts).force_usize(0);
         log::debug!("StripOffset: {}", offset);
-        let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
+        // Dummy geometry queries must not copy compressed sensor payloads.
+        let src = if dummy {
+          crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
+        } else {
+          file.subview_until_eof_padded(offset as u64)?
+        };
 
-        if src.len() >= width * height * 2 {
+        // Compression dispatch depends on payload length, not its contents.
+        let encoded_len = if dummy { file.len().saturating_sub(offset).saturating_add(16) } else { src.len() };
+        if encoded_len >= width * height * 2 {
           decode_12le_unpacked_left_aligned(&src, width, height, dummy)
-        } else if src.len() >= width * height * 3 / 2 {
+        } else if encoded_len >= width * height * 3 / 2 {
           decode_12le_wcontrol(&src, width, height, dummy)
         } else {
           Rw2Decoder::decode_panasonic(file, &src, width, height, split, raw_format, bps, self.tiff.root_ifd(), dummy)?

@@ -266,7 +266,10 @@ impl<'a> Decoder for RafDecoder<'a> {
 
     // Strip offset is relative to IFD base
     let offset = raw.base as u64 + fetch_tiff_tag!(raw, FujiIFD::StripOffsets).force_u64(0);
-    let src = if raw.has_entry(FujiIFD::StripByteCounts) {
+    // Dummy geometry queries must not copy compressed sensor payloads.
+    let src = if dummy {
+      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
+    } else if raw.has_entry(FujiIFD::StripByteCounts) {
       let strip_count = fetch_tiff_tag!(raw, FujiIFD::StripByteCounts).force_u64(0);
       file.subview_padded(offset, strip_count)?
     } else {
@@ -276,6 +279,14 @@ impl<'a> Decoder for RafDecoder<'a> {
 
     log::debug!("BPS: {}, width: {}, height: {}, offset: {}", bps, width, height, offset);
 
+    // Preserve compression dispatch without constructing the padded payload.
+    let encoded_len = if !dummy {
+      src.len()
+    } else if raw.has_entry(FujiIFD::StripByteCounts) {
+      fetch_tiff_tag!(raw, FujiIFD::StripByteCounts).force_usize(0).saturating_add(16)
+    } else {
+      file.len().saturating_sub(offset as usize).saturating_add(16)
+    };
     let image = if self.camera.find_hint("double_width") {
       // Some fuji SuperCCD cameras include a second raw image next to the first one
       // that is identical but darker to the first. The two combined can produce
@@ -290,7 +301,7 @@ impl<'a> Decoder for RafDecoder<'a> {
     } else if self.camera.clean_model == "DBP for GX680" {
       assert_eq!(bps, 16);
       dbp::decode_dbp(&src, width, height, dummy)?
-    } else if src.len() < bps * width * height / 8 {
+    } else if encoded_len < bps * width * height / 8 {
       if !dummy {
         decompress_fuji(&src, width, height, bps, &corrected_cfa)?
       } else {

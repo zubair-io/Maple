@@ -71,6 +71,113 @@
    }
  }
 +
+--- a/src/decoders/ari.rs
++++ b/src/decoders/ari.rs
+@@ -46 +46,6 @@
+-    let src = file.subview_until_eof_padded(offset as u64)?;
++    // Dummy geometry queries must not copy compressed sensor payloads.
++    let src = if dummy {
++      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++    } else {
++      file.subview_until_eof_padded(offset as u64)?
++    };
+--- a/src/decoders/dcs.rs
++++ b/src/decoders/dcs.rs
+@@ -46 +46,6 @@
+-    let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
++    // Dummy geometry queries must not copy compressed sensor payloads.
++    let src = if dummy {
++      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++    } else {
++      file.subview_until_eof_padded(offset as u64)?
++    };
+--- a/src/decoders/dcr.rs
++++ b/src/decoders/dcr.rs
+@@ -63 +63,6 @@
+-    let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
++    // Dummy geometry queries must not copy compressed sensor payloads.
++    let src = if dummy {
++      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++    } else {
++      file.subview_until_eof_padded(offset as u64)?
++    };
+--- a/src/decoders/kdc.rs
++++ b/src/decoders/kdc.rs
+@@ -104 +104,6 @@
+-      let src = file.subview_until_eof_padded(off as u64)?;
++      // Dummy geometry queries must not copy compressed sensor payloads.
++      let src = if dummy {
++        crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++      } else {
++        file.subview_until_eof_padded(off as u64)?
++      };
+--- a/src/decoders/qtk.rs
++++ b/src/decoders/qtk.rs
+@@ -103 +103,6 @@
+-    let src = file.subview_until_eof_padded(offset as u64)?;
++    // Dummy geometry queries must not copy compressed sensor payloads.
++    let src = if dummy {
++      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++    } else {
++      file.subview_until_eof_padded(offset as u64)?
++    };
+--- a/src/decoders/srw.rs
++++ b/src/decoders/srw.rs
+@@ -81 +81,6 @@
+-    let src = file.subview_until_eof_padded(offset as u64)?;
++    // Dummy geometry queries must not copy compressed sensor payloads.
++    let src = if dummy {
++      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++    } else {
++      file.subview_until_eof_padded(offset as u64)?
++    };
+--- a/src/decoders/rw2.rs
++++ b/src/decoders/rw2.rs
+@@ -145 +145,6 @@
+-        let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
++        // Dummy geometry queries must not copy compressed sensor payloads.
++        let src = if dummy {
++          crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++        } else {
++          file.subview_until_eof_padded(offset as u64)?
++        };
+@@ -157,3 +162,10 @@
+-        let src = file.subview_until_eof_padded(offset as u64)?; // TODO add size and check all samples
+-
+-        if src.len() >= width * height * 2 {
++        // Dummy geometry queries must not copy compressed sensor payloads.
++        let src = if dummy {
++          crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++        } else {
++          file.subview_until_eof_padded(offset as u64)?
++        };
++
++        // Compression dispatch depends on payload length, not its contents.
++        let encoded_len = if dummy { file.len().saturating_sub(offset).saturating_add(16) } else { src.len() };
++        if encoded_len >= width * height * 2 {
+@@ -161 +173 @@
+-        } else if src.len() >= width * height * 3 / 2 {
++        } else if encoded_len >= width * height * 3 / 2 {
+--- a/src/decoders/raf.rs
++++ b/src/decoders/raf.rs
+@@ -269 +269,4 @@
+-    let src = if raw.has_entry(FujiIFD::StripByteCounts) {
++    // Dummy geometry queries must not copy compressed sensor payloads.
++    let src = if dummy {
++      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
++    } else if raw.has_entry(FujiIFD::StripByteCounts) {
+@@ -278,0 +282,8 @@
++    // Preserve compression dispatch without constructing the padded payload.
++    let encoded_len = if !dummy {
++      src.len()
++    } else if raw.has_entry(FujiIFD::StripByteCounts) {
++      fetch_tiff_tag!(raw, FujiIFD::StripByteCounts).force_usize(0).saturating_add(16)
++    } else {
++      file.len().saturating_sub(offset as usize).saturating_add(16)
++    };
+@@ -293 +304 @@
+-    } else if src.len() < bps * width * height / 8 {
++    } else if encoded_len < bps * width * height / 8 {
 --- a/src/decoders/nef.rs
 +++ b/src/decoders/nef.rs
 @@ -217 +217,4 @@

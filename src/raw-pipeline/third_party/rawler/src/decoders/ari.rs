@@ -43,7 +43,12 @@ impl<'a> Decoder for AriDecoder<'a> {
     let offset = LEu32(buffer, ArriRawTag::DataOffset as usize) as usize;
     let width = LEu32(buffer, ArriRawTag::Width as usize) as usize;
     let height = LEu32(buffer, ArriRawTag::Height as usize) as usize;
-    let src = file.subview_until_eof_padded(offset as u64)?;
+    // Dummy geometry queries must not copy compressed sensor payloads.
+    let src = if dummy {
+      crate::buffer::PaddedBuf::new_ref(&[0; 16], 0)
+    } else {
+      file.subview_until_eof_padded(offset as u64)?
+    };
 
     let image = if self.camera.find_hint("little-endian") {
       decode_12le(&src, width, height, dummy)
