@@ -73,16 +73,41 @@ public enum ColorCurveKind: String, CaseIterable, Sendable, Identifiable {
   public static let skinToneGuardDeg: [Double] = [38.0, 55.0, 72.0]
 
   public func insertingAnchor(x: Double, y: Double = 0.5, into curve: ToneCurve) -> ToneCurve {
-    let clampedX = min(max(x, 0.0), 1.0)
-    let clampedY = min(max(y, 0.0), 1.0)
-    var pts = curve.points
-    if let idx = pts.firstIndex(where: { abs($0.x - clampedX) < 0.015 }) {
-      pts[idx] = (x: clampedX, y: clampedY)
-    } else {
-      pts.append((x: clampedX, y: clampedY))
+    func position(_ value: Double) -> Double {
+      isPeriodic ? value - floor(value) : min(max(value, 0), 1)
     }
+    let center = position(x)
+    var pts = curve.points
+    func upsert(_ value: Double, _ output: Double, overwrite: Bool) {
+      let px = position(value)
+      if let index = pts.firstIndex(where: {
+        let distance = abs($0.x - px)
+        return (isPeriodic ? min(distance, 1 - distance) : distance)
+          < ColorCurveEditorTuning.minKnotGap
+      }) {
+        if overwrite { pts[index] = (x: px, y: output) }
+      } else if pts.count < ColorCurveEditorTuning.maxKnots {
+        pts.append((x: px, y: output))
+      }
+    }
+    upsert(center, min(max(y, 0), 1), overwrite: true)
+    upsert(center - ColorCurveEditorTuning.anchorSpread, 0.5, overwrite: false)
+    upsert(center + ColorCurveEditorTuning.anchorSpread, 0.5, overwrite: false)
     pts.sort { $0.x < $1.x }
     return ToneCurve(points: pts)
+  }
+
+  public func clampX(_ proposed: Double, in points: [ToneCurvePoint], index: Int) -> Double {
+    let gap = ColorCurveEditorTuning.minKnotGap
+    let lower =
+      index > 0
+      ? points[index - 1].x + gap
+      : (isPeriodic && points.count > 1 ? max(0, points[points.count - 1].x - 1 + gap) : 0)
+    let upper =
+      index + 1 < points.count
+      ? points[index + 1].x - gap
+      : (isPeriodic && points.count > 1 ? min(1, points[0].x + 1 - gap) : 1)
+    return lower > upper ? points[index].x : min(max(proposed, lower), upper)
   }
 
   public func lockingSkinTone(into curve: ToneCurve) -> ToneCurve {
@@ -92,7 +117,7 @@ public enum ColorCurveKind: String, CaseIterable, Sendable, Identifiable {
       let x = deg / 360.0
       if let idx = pts.firstIndex(where: {
         let d = abs($0.x - x)
-        return min(d, 1.0 - d) < 0.015
+        return min(d, 1.0 - d) < ColorCurveEditorTuning.minKnotGap
       }) {
         pts[idx] = (x: x, y: 0.5)
       } else {
@@ -120,8 +145,8 @@ public enum ColorCurveKind: String, CaseIterable, Sendable, Identifiable {
     let next = others.first(where: { $0.x > x }) ?? others.first!
     let dxPrev = prev.x < x ? (x - prev.x) : (x + 1.0 - prev.x)
     let dxNext = next.x > x ? (next.x - x) : (next.x + 1.0 - x)
-    let maxDeltaPrev = 2.5 * max(dxPrev, 0.01)
-    let maxDeltaNext = 2.5 * max(dxNext, 0.01)
+    let maxDeltaPrev = ColorCurveEditorTuning.maxHueSlope * max(dxPrev, 0.01)
+    let maxDeltaNext = ColorCurveEditorTuning.maxHueSlope * max(dxNext, 0.01)
     lo = max(lo, prev.y - maxDeltaPrev, next.y - maxDeltaNext)
     hi = min(hi, prev.y + maxDeltaPrev, next.y + maxDeltaNext)
     if lo > hi { return 0.5 * (lo + hi) }

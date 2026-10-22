@@ -442,3 +442,11 @@ public static class AdjustmentFields
         ["color_curve_sat_vs_luma"] = "papp:ColorCurveSatVsLuma",
     };
 }
+
+public static class ColorCurveEditorTuning
+{
+    public const double AnchorSpread = 0.08;
+    public const double MinKnotGap = 0.015;
+    public const int MaxKnots = 16;
+    public const double MaxHueSlope = 2.5;
+}

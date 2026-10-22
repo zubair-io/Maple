@@ -29,6 +29,12 @@ use crate::image::{ColorSpace, Image};
 use crate::stages::hsl::CHROMA_GATE_C0;
 use crate::types::adjustment::{AdjustmentModel, ToneCurve};
 
+/// Shared authoring limits emitted to the platform editors; no per-pixel work.
+pub const EDITOR_ANCHOR_SPREAD: f64 = 0.08;
+pub const EDITOR_MIN_KNOT_GAP: f64 = 0.015;
+pub const EDITOR_MAX_KNOTS: usize = 16;
+pub const EDITOR_MAX_HUE_SLOPE: f64 = 2.5;
+
 /// Number of samples per baked secondary curve LUT.
 pub const COLOR_CURVE_LUT_LEN: usize = 256;
 

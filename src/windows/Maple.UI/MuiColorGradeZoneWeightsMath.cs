@@ -1,14 +1,18 @@
 using System;
+using Maple.WinUI.Generated;
 
 namespace Maple.UI
 {
     public static class MuiColorGradeZoneWeightsMath
     {
-        public const double DefaultBlending = 100.0;
-        public const double DefaultShadowEdge = 0.564622;
-        public const double DefaultHighlightEdge = 0.564622;
-        public const double MinShadowEdge = 0.10;
-        public const double MaxHighlightEdge = 0.90;
+        private static readonly AdjustmentFieldSpec Blending = Array.Find(AdjustmentFields.All, f => f.Name == "color_grade_blending")!;
+        private static readonly AdjustmentFieldSpec Shadow = Array.Find(AdjustmentFields.All, f => f.Name == "color_grade_shadow_edge")!;
+        private static readonly AdjustmentFieldSpec Highlight = Array.Find(AdjustmentFields.All, f => f.Name == "color_grade_highlight_edge")!;
+        public static readonly double DefaultBlending = Blending.DefaultNumber;
+        public static readonly double DefaultShadowEdge = Shadow.DefaultNumber;
+        public static readonly double DefaultHighlightEdge = Highlight.DefaultNumber;
+        public static readonly double MinShadowEdge = Shadow.Minimum;
+        public static readonly double MaxHighlightEdge = Highlight.Maximum;
 
         /// <summary>Round to 3 decimals, snap to the anchor within 0.005 (as raw-core's resolve_*_edge does), then clamp.</summary>
         public static double SnapEdge(double norm, double min, double max)

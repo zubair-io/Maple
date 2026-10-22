@@ -257,18 +257,21 @@ struct ColorCurvesRibbonView: View {
         draggedKnotIndex = hit.offset
       } else {
         let clampedY = activeKind.clampY(forX: u, proposedY: rawY, in: pts)
-        pts.append((x: u, y: clampedY))
-        pts.sort { $0.x < $1.x }
-        draggedKnotIndex = pts.firstIndex(where: { abs($0.x - u) < 1e-6 })
+        pts = activeKind.insertingAnchor(x: u, y: clampedY, into: ToneCurve(points: pts)).points
+        let center = activeKind.isPeriodic ? u - floor(u) : u
+        draggedKnotIndex = pts.firstIndex(where: { abs($0.x - center) < 1e-6 })
+        if let index = draggedKnotIndex {
+          let nextY = activeKind.clampY(
+            forX: center, proposedY: clampedY, in: pts, excludingIndex: index)
+          pts[index] = (x: center, y: nextY)
+        }
         state.session.model[keyPath: activeKind.keyPath] = ToneCurve(points: pts)
         return
       }
     }
 
     guard let idx = draggedKnotIndex, pts.indices.contains(idx) else { return }
-    let minX = idx > 0 ? pts[idx - 1].x + 0.01 : 0.0
-    let maxX = idx + 1 < pts.count ? pts[idx + 1].x - 0.01 : 1.0
-    let nextX = min(max(u, minX), maxX)
+    let nextX = activeKind.clampX(u, in: pts, index: idx)
     let nextY = activeKind.clampY(forX: nextX, proposedY: rawY, in: pts, excludingIndex: idx)
     pts[idx] = (x: nextX, y: nextY)
     state.session.model[keyPath: activeKind.keyPath] = ToneCurve(points: pts)

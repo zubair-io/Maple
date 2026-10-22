@@ -26,6 +26,7 @@ import {
   QUICK_HUE_ANCHORS,
   anyColorCurveModified,
   clampColorCurveY,
+  clampColorCurveX,
   evaluateColorCurve,
   insertColorCurveAnchor,
   lockSkinToneCurve,
@@ -171,38 +172,13 @@ export class ColorCurvesRibbonComponent {
     const u = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     const rawY = Math.min(1, Math.max(0, 1 - (e.clientY - rect.top) / rect.height));
     const desc = this.activeDescriptor();
-    const pts: ToneCurvePoint[] = this.activePoints().map((p) => [p[0], p[1]]);
 
     this.editor.commit('adjustment', `Edit ${desc.title}`);
     this.isDragging = true;
 
-    const hitIdx = nearestKnot(pts, { x: u, y: rawY }, rect);
-    if (hitIdx >= 0) {
-      this.draggedKnotIndex = hitIdx;
-    } else {
-      const clampedY = clampColorCurveY(desc, u, rawY, pts);
-      pts.push([u, clampedY]);
-      pts.sort((a, b) => a[0] - b[0]);
-      this.draggedKnotIndex = pts.findIndex((p) => Math.abs(p[0] - u) < 1e-6);
-      this.library.updateAdjustment(id, { [desc.field]: { points: pts } });
-    }
+    this.beginRibbonKnot(desc, id, { x: u, y: rawY }, rect);
 
-    const onMove = (ev: PointerEvent): void => {
-      if (!this.isDragging || this.draggedKnotIndex == null) return;
-      const r = svg.getBoundingClientRect();
-      if (r.width <= 1 || r.height <= 1) return;
-      const curPts: ToneCurvePoint[] = this.activePoints().map((p) => [p[0], p[1]]);
-      const idx = this.draggedKnotIndex;
-      if (idx < 0 || idx >= curPts.length) return;
-      const nextU = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
-      const nextRawY = Math.min(1, Math.max(0, 1 - (ev.clientY - r.top) / r.height));
-      const minX = idx > 0 ? curPts[idx - 1][0] + 0.01 : 0;
-      const maxX = idx + 1 < curPts.length ? curPts[idx + 1][0] - 0.01 : 1;
-      const clampedX = Math.min(maxX, Math.max(minX, nextU));
-      const clampedY = clampColorCurveY(desc, clampedX, nextRawY, curPts, idx);
-      curPts[idx] = [clampedX, clampedY];
-      this.library.updateAdjustment(id, { [desc.field]: { points: curPts } });
-    };
+    const onMove = (ev: PointerEvent): void => this.moveRibbonKnot(svg, desc, id, ev);
 
     const onUp = (): void => {
       window.removeEventListener('pointermove', onMove);
@@ -231,6 +207,54 @@ export class ColorCurvesRibbonComponent {
     this.editor.endEdit();
   }
 
+  private beginRibbonKnot(
+    desc: ColorCurveDescriptor,
+    id: string,
+    point: { x: number; y: number },
+    rect: DOMRect,
+  ): void {
+    const { x: u, y: rawY } = point;
+    const pts: ToneCurvePoint[] = this.activePoints().map((p) => [p[0], p[1]]);
+    const hitIdx = nearestKnot(pts, { x: u, y: rawY }, rect);
+    if (hitIdx >= 0) {
+      this.draggedKnotIndex = hitIdx;
+    } else {
+      const clampedY = clampColorCurveY(desc, u, rawY, pts);
+      const seeded = insertColorCurveAnchor({ points: pts }, u, clampedY, desc.isPeriodic).points;
+      const center = desc.isPeriodic ? u - Math.floor(u) : u;
+      this.draggedKnotIndex = seeded.findIndex((p) => Math.abs(p[0] - center) < 1e-6);
+      if (this.draggedKnotIndex >= 0) {
+        const x = seeded[this.draggedKnotIndex][0];
+        seeded[this.draggedKnotIndex] = [
+          x,
+          clampColorCurveY(desc, x, clampedY, seeded, this.draggedKnotIndex),
+        ];
+      }
+      this.library.updateAdjustment(id, { [desc.field]: { points: seeded } });
+    }
+  }
+
+  private moveRibbonKnot(
+    svg: SVGSVGElement,
+    desc: ColorCurveDescriptor,
+    id: string,
+    ev: PointerEvent,
+  ): void {
+    if (this.library.focusedAssetId() !== id || this.activeDescriptor().id !== desc.id) return;
+    if (!this.isDragging || this.draggedKnotIndex == null) return;
+    const r = svg.getBoundingClientRect();
+    if (r.width <= 1 || r.height <= 1) return;
+    const curPts: ToneCurvePoint[] = this.activePoints().map((p) => [p[0], p[1]]);
+    const idx = this.draggedKnotIndex;
+    if (idx < 0 || idx >= curPts.length) return;
+    const nextU = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
+    const nextRawY = Math.min(1, Math.max(0, 1 - (ev.clientY - r.top) / r.height));
+    const clampedX = clampColorCurveX(desc, nextU, curPts, idx);
+    const clampedY = clampColorCurveY(desc, clampedX, nextRawY, curPts, idx);
+    curPts[idx] = [clampedX, clampedY];
+    this.library.updateAdjustment(id, { [desc.field]: { points: curPts } });
+  }
+
   private editPeriodicCurve(
     label: string,
     transform: (desc: ColorCurveDescriptor, curve: ToneCurve) => ToneCurve,
@@ -246,8 +270,8 @@ export class ColorCurvesRibbonComponent {
   }
 
   insertQuickAnchor(deg: number): void {
-    this.editPeriodicCurve('Anchor', (_desc, curve) =>
-      insertColorCurveAnchor(curve, deg / 360, 0.5),
+    this.editPeriodicCurve('Anchor', (desc, curve) =>
+      insertColorCurveAnchor(curve, deg / 360, 0.5, desc.isPeriodic),
     );
   }
 
@@ -327,7 +351,7 @@ export class ColorCurvesRibbonComponent {
     if (!this.sampleIsCurrent(request)) return;
     const x = sampleXForCurve(desc, sample);
     const current = this.adj()!;
-    const next = insertColorCurveAnchor(current[desc.field], x, 0.5);
+    const next = insertColorCurveAnchor(current[desc.field], x, 0.5, desc.isPeriodic);
     this.editor.commit('adjustment', `Sample ${desc.title}`);
     this.library.updateAdjustment(id, { [desc.field]: next });
     this.editor.endEdit();

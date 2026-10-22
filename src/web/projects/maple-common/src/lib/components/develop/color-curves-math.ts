@@ -1,3 +1,4 @@
+import { COLOR_CURVE_EDITOR } from '../../generated/adjustment-model.generated';
 import {
   isIdentityToneCurve,
   type AdjustmentModel,
@@ -107,18 +108,54 @@ export function sampleXForCurve(
   return sample.uC;
 }
 
-export function insertColorCurveAnchor(curve: ToneCurve, x: number, y = 0.5): ToneCurve {
-  const clampedX = Math.min(1, Math.max(0, x));
-  const clampedY = Math.min(1, Math.max(0, y));
-  const pts: ToneCurvePoint[] = curve.points.map((p: ToneCurvePoint) => [p[0], p[1]]);
-  const idx = pts.findIndex((p: ToneCurvePoint) => Math.abs(p[0] - clampedX) < 0.015);
-  if (idx >= 0) {
-    pts[idx] = [clampedX, clampedY];
-  } else {
-    pts.push([clampedX, clampedY]);
-  }
-  pts.sort((a: ToneCurvePoint, b: ToneCurvePoint) => a[0] - b[0]);
+export function insertColorCurveAnchor(
+  curve: ToneCurve,
+  x: number,
+  y = 0.5,
+  periodic = false,
+): ToneCurve {
+  const position = (u: number) => (periodic ? u - Math.floor(u) : Math.min(1, Math.max(0, u)));
+  const center = position(x);
+  const pts: ToneCurvePoint[] = curve.points.map((p) => [p[0], p[1]]);
+  const upsert = (u: number, v: number, overwrite: boolean) => {
+    const px = position(u);
+    const index = pts.findIndex(([other]) => {
+      const distance = Math.abs(other - px);
+      return (
+        (periodic ? Math.min(distance, 1 - distance) : distance) < COLOR_CURVE_EDITOR.minKnotGap
+      );
+    });
+    if (index >= 0) {
+      if (overwrite) pts[index] = [px, v];
+    } else if (pts.length < COLOR_CURVE_EDITOR.maxKnots) pts.push([px, v]);
+  };
+  upsert(center, Math.min(1, Math.max(0, y)), true);
+  upsert(center - COLOR_CURVE_EDITOR.anchorSpread, 0.5, false);
+  upsert(center + COLOR_CURVE_EDITOR.anchorSpread, 0.5, false);
+  pts.sort((a, b) => a[0] - b[0]);
   return { points: pts };
+}
+
+export function clampColorCurveX(
+  desc: ColorCurveDescriptor,
+  proposed: number,
+  points: readonly ToneCurvePoint[],
+  index: number,
+): number {
+  const gap = COLOR_CURVE_EDITOR.minKnotGap;
+  const min =
+    index > 0
+      ? points[index - 1][0] + gap
+      : desc.isPeriodic && points.length > 1
+        ? Math.max(0, points[points.length - 1][0] - 1 + gap)
+        : 0;
+  const max =
+    index + 1 < points.length
+      ? points[index + 1][0] - gap
+      : desc.isPeriodic && points.length > 1
+        ? Math.min(1, points[0][0] + 1 - gap)
+        : 1;
+  return min > max ? points[index][0] : Math.min(max, Math.max(min, proposed));
 }
 
 export function lockSkinToneCurve(desc: ColorCurveDescriptor, curve: ToneCurve): ToneCurve {
@@ -128,7 +165,7 @@ export function lockSkinToneCurve(desc: ColorCurveDescriptor, curve: ToneCurve):
     const x = deg / 360;
     const idx = pts.findIndex((p: ToneCurvePoint) => {
       const d = Math.abs(p[0] - x);
-      return Math.min(d, 1 - d) < 0.015;
+      return Math.min(d, 1 - d) < COLOR_CURVE_EDITOR.minKnotGap;
     });
     if (idx >= 0) {
       pts[idx] = [x, 0.5];
@@ -170,8 +207,8 @@ export function clampColorCurveY(
   const next = after.length > 0 ? after[0] : others[0];
   const dxPrev = prev[0] < x ? x - prev[0] : x + 1 - prev[0];
   const dxNext = next[0] > x ? next[0] - x : next[0] + 1 - x;
-  const maxDeltaPrev = 2.5 * Math.max(dxPrev, 0.01);
-  const maxDeltaNext = 2.5 * Math.max(dxNext, 0.01);
+  const maxDeltaPrev = COLOR_CURVE_EDITOR.maxHueSlope * Math.max(dxPrev, 0.01);
+  const maxDeltaNext = COLOR_CURVE_EDITOR.maxHueSlope * Math.max(dxNext, 0.01);
   lo = Math.max(lo, prev[1] - maxDeltaPrev, next[1] - maxDeltaNext);
   hi = Math.min(hi, prev[1] + maxDeltaPrev, next[1] + maxDeltaNext);
   if (lo > hi) return 0.5 * (lo + hi);

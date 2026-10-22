@@ -446,3 +446,10 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     colorCurveSatVsLuma: { points: [] },
   };
 }
+
+export const COLOR_CURVE_EDITOR = {
+  anchorSpread: 0.08,
+  minKnotGap: 0.015,
+  maxKnots: 16,
+  maxHueSlope: 2.5,
+} as const;

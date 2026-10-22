@@ -123,6 +123,14 @@ pub(crate) fn emit_swift(schema: &[FieldSpec]) -> String {
 
     s.push_str("}\n\n");
 
+    let curves = (
+        raw_core::stages::color_curves::EDITOR_ANCHOR_SPREAD,
+        raw_core::stages::color_curves::EDITOR_MIN_KNOT_GAP,
+        raw_core::stages::color_curves::EDITOR_MAX_KNOTS,
+        raw_core::stages::color_curves::EDITOR_MAX_HUE_SLOPE,
+    );
+    s.push_str(&format!("public enum ColorCurveEditorTuning {{\n    public static let anchorSpread = {}\n    public static let minKnotGap = {}\n    public static let maxKnots = {}\n    public static let maxHueSlope = {}\n}}\n\n", curves.0, curves.1, curves.2, curves.3));
+
     // Copy/paste/sync groups (#944). Top-level type, not nested on
     // `AdjustmentModel`: the selective-paste UI on both platforms needs it
     // independently of any one model instance.
@@ -261,6 +269,11 @@ pub(crate) fn emit_ts(schema: &[FieldSpec]) -> String {
     }
     s.push_str("  };\n");
     s.push_str("}\n");
+    s.push_str(&format!("\nexport const COLOR_CURVE_EDITOR = {{\n  anchorSpread: {},\n  minKnotGap: {},\n  maxKnots: {},\n  maxHueSlope: {},\n}} as const;\n",
+        raw_core::stages::color_curves::EDITOR_ANCHOR_SPREAD,
+        raw_core::stages::color_curves::EDITOR_MIN_KNOT_GAP,
+        raw_core::stages::color_curves::EDITOR_MAX_KNOTS,
+        raw_core::stages::color_curves::EDITOR_MAX_HUE_SLOPE));
 
     s
 }

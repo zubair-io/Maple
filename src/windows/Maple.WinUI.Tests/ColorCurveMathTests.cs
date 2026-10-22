@@ -8,6 +8,15 @@ namespace Maple.WinUI.Tests
 {
     public sealed class ColorCurveMathTests
     {
+        [Fact]
+        public void PeriodicHandlesCannotCollideAcrossTheHueSeam()
+        {
+            var left = new List<CurvePoint> { new(0, .5), new(.7, .7) };
+            Assert.Equal(.985, ColorCurveMath.ClampX(ColorCurveKind.HueVsSat, left, 1, 1), 6);
+            var right = new List<CurvePoint> { new(.3, .5), new(1, .7) };
+            Assert.Equal(.015, ColorCurveMath.ClampX(ColorCurveKind.HueVsSat, right, 0, 0), 6);
+        }
+
         [Theory]
         [InlineData(11, "inside")]
         [InlineData(13, "brighter")]

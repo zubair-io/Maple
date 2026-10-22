@@ -45,6 +45,8 @@
     [max]="blendingMax"
     [bipolar]="false"
     gradient="linear-gradient(90deg, #2b2927 0%, #a8a097 100%)"
+    (dragStart)="beginBlending()"
+    (dragEnd)="endBlending()"
     (valueChange)="onBlendingChange($event)"
     (resetRequest)="onBlendingReset()"
   />
@@ -63,6 +65,7 @@
       (pointermove)="onEdgePointerMove($event)"
       (pointerup)="onEdgePointerUp()"
       (pointercancel)="onEdgePointerUp()"
+      (lostpointercapture)="onEdgePointerUp()"
     >
       <polyline
         [attr.points]="zoneCurves().sh"
@@ -91,8 +94,8 @@
         role="slider"
         aria-label="Shadow Edge"
         tabindex="0"
-        aria-valuemin="0.1"
-        aria-valuemax="0.564622"
+        [attr.aria-valuemin]="shadowMin"
+        [attr.aria-valuemax]="shadowMax"
         (keydown)="onEdgeKeyDown('shadow', $event)"
         [attr.aria-valuenow]="shadowEdge()"
         (pointerdown)="onEdgePointerDown('shadow', $event)"
@@ -115,8 +118,8 @@
         role="slider"
         aria-label="Highlight Edge"
         tabindex="0"
-        aria-valuemin="0.564622"
-        aria-valuemax="0.9"
+        [attr.aria-valuemin]="highlightMin"
+        [attr.aria-valuemax]="highlightMax"
         (keydown)="onEdgeKeyDown('highlight', $event)"
         [attr.aria-valuenow]="highlightEdge()"
         (pointerdown)="onEdgePointerDown('highlight', $event)"

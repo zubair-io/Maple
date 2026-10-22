@@ -182,7 +182,7 @@ struct ColorGradingPanel: View {
             },
             onReset: {
               state.commit(description: "Reset Shadow Edge")
-              state.session.model.colorGradeShadowEdge = 0.564622
+              state.session.model.colorGradeShadowEdge = ColorGradeZoneEdge.anchor
               state.session.endEdit()
             }
           )
@@ -196,7 +196,7 @@ struct ColorGradingPanel: View {
             },
             onReset: {
               state.commit(description: "Reset Highlight Edge")
-              state.session.model.colorGradeHighlightEdge = 0.564622
+              state.session.model.colorGradeHighlightEdge = ColorGradeZoneEdge.anchor
               state.session.endEdit()
             }
           )
@@ -264,8 +264,12 @@ struct ColorGradingPanel: View {
     let balanceExp = exp2(-min(max(balance, -100), 100) / 100.0)
     let lb = pow(lClamped, balanceExp)
     let b = min(max(blending, 0), 100) / 100.0
-    let ls = min(max(shadowEdge, 0.10), 0.564622)
-    let lh = min(max(highlightEdge, 0.564622), 0.90)
+    let ls = min(
+      max(shadowEdge, ColorGradeZoneEdge.shadowRange.lowerBound),
+      ColorGradeZoneEdge.shadowRange.upperBound)
+    let lh = min(
+      max(highlightEdge, ColorGradeZoneEdge.highlightRange.lowerBound),
+      ColorGradeZoneEdge.highlightRange.upperBound)
     let s0 = (1.0 - b) * max(ls - 0.04, 0.0)
     let s1 = ls
     let h0 = lh
