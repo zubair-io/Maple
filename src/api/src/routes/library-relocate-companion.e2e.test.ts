@@ -21,6 +21,8 @@
 import { describe, it, expect, afterEach, spyOn } from 'bun:test';
 import * as relocateRepo from '../db/repos/assets.relocate.repo.ts';
 import * as ownership from '../fs/sidecar-ownership.ts';
+import * as xmpConflict from '../fs/xmp-conflict.ts';
+import * as restructure from '../workers/migration/restructure-fs.ts';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -199,6 +201,51 @@ describe('library-relocate end-to-end — companion + dedupe (#2667)', () => {
 
     expect(await fs.readFile(path.join(root, oldRel, 'IMG_8.xmp'), 'utf8')).toBe('first edit');
     expect(await fs.readFile(path.join(root, oldRel, 'IMG_8.dng'), 'utf8')).toBe(
+      'identical-pixels',
+    );
+  });
+
+  it('a filesystem error after the dedupe repoint is logged, keeps the source and still finalizes (#5069)', async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-dedupe-after-repoint-'));
+    const root = dir;
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(root, ...oldRel.split('/')), { recursive: true });
+    await fs.mkdir(path.join(root, ...newRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(root, oldRel, 'IMG_9.dng'), 'identical-pixels');
+    await fs.writeFile(path.join(root, newRel, 'IMG_9.dng'), 'identical-pixels');
+    const asset = seedRelocatableAsset(live.db, {
+      root,
+      relPath: oldRel,
+      filename: 'IMG_9.dng',
+      mapleId: 'relocate-dedupe-after-repoint-id',
+      metadataOverride: usPlaceText(),
+    });
+    const realRepoint = relocateRepo.repointAssetLocation;
+    let repointed = false;
+    const repoint = spyOn(relocateRepo, 'repointAssetLocation').mockImplementation(async (args) => {
+      const result = await realRepoint(args);
+      repointed = true;
+      return result;
+    });
+    const realList = xmpConflict.listPairedSidecars;
+    const list = spyOn(xmpConflict, 'listPairedSidecars').mockImplementation(async (raw) => {
+      if (repointed) throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      return realList(raw);
+    });
+    const finalize = spyOn(restructure, 'finalize');
+    try {
+      const results = await resultsOf(await postRelocate([`${SLUG}:${oldRel}/IMG_9.dng`]));
+      expect(results[0]).toMatchObject({ ok: true, outcome: 'moved' });
+      expect(finalize).toHaveBeenCalled();
+    } finally {
+      repoint.mockRestore();
+      list.mockRestore();
+      finalize.mockRestore();
+    }
+    expect(locationOf(live.db, asset.assetId)).toMatchObject({ path: newRel });
+    expect(await fs.readFile(path.join(root, oldRel, 'IMG_9.dng'), 'utf8')).toBe(
       'identical-pixels',
     );
   });
