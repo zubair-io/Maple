@@ -13,10 +13,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.justmaple.aperture.*
+import app.justmaple.aperture.data.PhotoExifMetadata
+import app.justmaple.aperture.data.readPhotoExif
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun MapleShell(model: MapleViewModel) {
@@ -28,6 +33,8 @@ fun MapleShell(model: MapleViewModel) {
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var sourcesVisible by rememberSaveable { mutableStateOf(true) }
     var info by rememberSaveable { mutableStateOf(false) }
+    var exportDialogOpen by remember { mutableStateOf(false) }
+    var pendingExportOptions by remember { mutableStateOf(ExportOptions()) }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val folderTree = remember(model.library, scope) { FolderTree(model.library, scope) }
@@ -45,10 +52,12 @@ fun MapleShell(model: MapleViewModel) {
             it?.let(model::openSingle)
         }
     val export =
-        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/jpeg")) {
-            uri ->
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
             if (uri != null)
-                scope.launch { runCatching { model.export(uri, false) }.onFailure(model::report) }
+                scope.launch {
+                    runCatching { model.export(uri, false, pendingExportOptions) }
+                        .onFailure(model::report)
+                }
         }
     val sidecar =
         rememberLauncherForActivityResult(
@@ -183,11 +192,7 @@ fun MapleShell(model: MapleViewModel) {
                             tablet,
                             showInspector = !info,
                             onInfo = { info = !info },
-                            onExport = {
-                                export.launch(
-                                    "${state.selected?.name?.substringBeforeLast('.') ?: "photo"}-Maple.jpg"
-                                )
-                            },
+                            onExport = { exportDialogOpen = true },
                             posture = posture,
                             onExportSidecar = {
                                 sidecar.launch(state.selected?.sidecarName ?: "photo.xmp")
@@ -310,7 +315,7 @@ fun MapleShell(model: MapleViewModel) {
         ) {
             content()
         }
-    if (info && !inlineInfo && !posture.isBookSplit && !browsing) {
+    if (info && !inlineInfo && !posture.isBookSplit && !posture.isTabletopSplit && !browsing) {
         @OptIn(ExperimentalMaterial3Api::class)
         ModalBottomSheet(
             onDismissRequest = { info = false },
@@ -335,15 +340,50 @@ fun MapleShell(model: MapleViewModel) {
         )
     if (cloudDialog || state.cloudSigningIn)
         CloudConnectionDialog(model, state.cloudSigningIn) { cloudDialog = false }
+    if (exportDialogOpen)
+        ExportOptionsDialog(
+            initial = pendingExportOptions,
+            onConfirm = { chosen ->
+                pendingExportOptions = chosen
+                exportDialogOpen = false
+                export.launch(chosen.suggestedFileName(state.selected?.name))
+            },
+            onDismiss = { exportDialogOpen = false },
+        )
 }
 
 @Composable
-fun InfoPanel(state: MapleState, onExportSidecar: () -> Unit) {
+fun InfoPanel(
+    state: MapleState,
+    onExportSidecar: () -> Unit,
+    exif: PhotoExifMetadata? = null,
+) {
+    val context = LocalContext.current
+    val photo = state.selected
+    var loadedExif by remember(photo?.uri) { mutableStateOf<PhotoExifMetadata?>(null) }
+    LaunchedEffect(photo?.uri, exif) {
+        loadedExif =
+            exif
+                ?: photo?.let { withContext(Dispatchers.IO) { readPhotoExif(context, it.uri) } }
+    }
+    val shown = exif ?: loadedExif
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
         MuiSection("Info") {
             Text(state.selected?.name ?: "No photo")
             Text(state.selected?.extension?.uppercase() ?: "", color = MapleColors.muted)
             Text("${(state.selected?.size ?: 0) / 1024} KB", color = MapleColors.muted)
+        }
+        if (shown != null && shown.hasAnyExif) {
+            MuiSection("Camera & EXIF") {
+                shown.cameraSummary?.let { Text(it) }
+                ExifRow("Lens", shown.lensModel)
+                ExifRow("Focal Length", shown.focalLength)
+                ExifRow("Aperture", shown.aperture)
+                ExifRow("Shutter", shown.shutterSpeed)
+                ExifRow("ISO", shown.iso)
+                ExifRow("Dimensions", shown.dimensions)
+                ExifRow("Capture Date", shown.captureDate)
+            }
         }
         MuiSection("Edits") {
             Text(if (state.saving) "Saving…" else if (state.dirty) "Unsaved changes" else "Saved")
@@ -357,4 +397,10 @@ fun InfoPanel(state: MapleState, onExportSidecar: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+private fun ExifRow(label: String, value: String?) {
+    if (value.isNullOrBlank()) return
+    Text("$label: $value", color = MapleColors.muted)
 }

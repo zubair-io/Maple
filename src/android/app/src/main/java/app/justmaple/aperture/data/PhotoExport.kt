@@ -1,12 +1,16 @@
 package app.justmaple.aperture.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.system.Os
 import android.system.OsConstants
 import app.justmaple.aperture.cloud.CloudLibrary
+import app.justmaple.aperture.ui.ExportFormat
+import app.justmaple.aperture.ui.ExportOptions
 import java.io.File
 import java.io.OutputStream
 import java.util.UUID
@@ -16,6 +20,15 @@ import kotlinx.coroutines.withContext
 /** Keeps the verified destination descriptor open through publication; never reopens with wt. */
 internal class PhotoExport(private val context: Context, private val library: PhotoLibrary) {
     suspend fun write(photo: Photo, document: XmpDocument, destination: Uri, xmp: Boolean) =
+        write(photo, document, destination, xmp, ExportOptions())
+
+    suspend fun write(
+        photo: Photo,
+        document: XmpDocument,
+        destination: Uri,
+        xmp: Boolean,
+        options: ExportOptions = ExportOptions(),
+    ) =
         withContext(Dispatchers.IO) {
             check(destination != photo.uri) {
                 "Choose an export destination other than the original"
@@ -51,13 +64,62 @@ internal class PhotoExport(private val context: Context, private val library: Ph
                         )
                     }
                     writeVerified(photo, destination) { output ->
-                        temp.inputStream().use { it.copyTo(output) }
+                        publishRender(temp, output, options)
                     }
                 } finally {
                     temp.delete()
                 }
             }
         }
+
+    private fun publishRender(rendered: File, output: OutputStream, options: ExportOptions) {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(rendered.absolutePath, bounds)
+        val width = bounds.outWidth
+        val height = bounds.outHeight
+        if (
+            width <= 0 || height <= 0 ||
+                (options.format == ExportFormat.JPEG &&
+                    options.quality == 92 &&
+                    maxOf(width, height) <= options.maxEdge)
+        ) {
+            rendered.inputStream().use { it.copyTo(output) }
+            return
+        }
+        var sample = 1
+        while ((maxOf(width, height).toLong() + sample - 1) / sample > options.maxEdge) sample *= 2
+        val decoded =
+            BitmapFactory.decodeFile(rendered.absolutePath, BitmapFactory.Options().apply {
+                    inSampleSize = sample
+                })
+                ?: return rendered.inputStream().use { it.copyTo(output) }
+        try {
+            val longest = maxOf(decoded.width, decoded.height)
+            val scaled =
+                if (longest > options.maxEdge) {
+                    val ratio = options.maxEdge.toFloat() / longest
+                    Bitmap.createScaledBitmap(
+                        decoded,
+                        (decoded.width * ratio).toInt().coerceAtLeast(1),
+                        (decoded.height * ratio).toInt().coerceAtLeast(1),
+                        true,
+                    )
+                } else decoded
+            try {
+                val quality =
+                    if (options.format == ExportFormat.PNG) 100
+                    else options.quality.coerceIn(1, 100)
+                check(scaled.compress(options.format.compressFormat, quality, output)) {
+                    "Export compression failed"
+                }
+                output.flush()
+            } finally {
+                if (scaled !== decoded) scaled.recycle()
+            }
+        } finally {
+            if (!decoded.isRecycled) decoded.recycle()
+        }
+    }
 
     private fun writeVerified(photo: Photo, destination: Uri, write: (OutputStream) -> Unit) {
         val resolver = context.contentResolver

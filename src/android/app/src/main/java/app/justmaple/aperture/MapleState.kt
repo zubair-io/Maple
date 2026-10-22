@@ -42,10 +42,24 @@ data class MapleState(
         get() =
             values.any { (name, v) ->
                 val spec = app.justmaple.aperture.generated.AdjustmentFields.byName[name]
-                spec != null && kotlin.math.abs(v - spec.initial) > 1e-4f
+                if (spec == null) false
+                else {
+                    val baseline =
+                        when (name) {
+                            "temperature" -> values["_shot_temperature"] ?: spec.initial
+                            "tint" -> values["_shot_tint"] ?: spec.initial
+                            else -> spec.initial
+                        }
+                    kotlin.math.abs(v - baseline) > 1e-4f
+                }
             } ||
                 document.attribute("papp:Profile") == "Neutral" ||
-                document.attribute("papp:Look") == "Neutral"
+                document.attribute("papp:Look") == "Neutral" ||
+                document.attribute("crs:ConvertToGrayscale")?.let {
+                    it == "1" || it.equals("True", ignoreCase = true)
+                } == true ||
+                !document.attribute("papp:FilmLook").isNullOrEmpty() ||
+                document.attribute("crs:HasCrop")?.equals("True", ignoreCase = true) == true
 }
 
 /** Breadcrumbs come from actual provider listings; document IDs can be opaque. */

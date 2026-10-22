@@ -141,7 +141,7 @@ fun PhotoThumbnail(
             )
         val marksPick = pick
         val marksRating = rating
-        if (marksPick != null || marksRating != null)
+        if ((marksPick != null && marksPick != 0) || (marksRating != null && marksRating > 0))
             CullingBadges(
                 marksPick ?: 0,
                 marksRating ?: 0,

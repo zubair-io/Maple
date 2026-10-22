@@ -23,10 +23,17 @@ internal fun ControlsInspector(
     state: MapleState,
     group: EditorGroup,
     modifier: Modifier,
+    activeSubTool: String? = null,
+    onSubToolChange: ((String) -> Unit)? = null,
 ) {
     var filmsOpen by remember { mutableStateOf(false) }
     val subTools = remember(group) { subToolsFor(group) }
-    var subTool by remember(group) { mutableStateOf(subTools.first().id) }
+    var internalSubTool by remember(group) { mutableStateOf(subTools.first().id) }
+    val subTool = activeSubTool ?: internalSubTool
+    val setSubTool: (String) -> Unit = {
+        internalSubTool = it
+        onSubToolChange?.invoke(it)
+    }
     var band by remember(group) { mutableStateOf(HslBand.Red) }
     val filmId = state.document.attribute("papp:FilmLook").orEmpty()
     val bw = state.document.attribute("crs:ConvertToGrayscale")
@@ -102,7 +109,7 @@ internal fun ControlsInspector(
             SubToolSelector(
                 subTools,
                 subTool,
-                { subTool = it },
+                setSubTool,
                 Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         if (group == EditorGroup.Color && subTool == "wb")
@@ -113,10 +120,12 @@ internal fun ControlsInspector(
             )
         if (group == EditorGroup.Color && subTool == "hsl")
             HslBandChips(band, { band = it }, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        if (group == EditorGroup.Detail && subTool == "crop")
+            CropControlsSection(model, state, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         val sliderFields =
             when {
                 group == EditorGroup.Color && subTool == "hsl" -> hslBandFields(band)
-                else -> fieldsForSubTool(group, subTool)
+                else -> fieldsForSubTool(group, subTool, fullInspector = true)
             }
         key(group, subTool, band) {
             LazyColumn(Modifier.weight(1f).testTag("adjustment-sliders")) {

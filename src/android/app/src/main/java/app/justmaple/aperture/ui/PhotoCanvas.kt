@@ -35,6 +35,7 @@ internal fun PhotoCanvas(
     zoomState: CanvasZoomState = rememberCanvasZoomState(),
     badgeStartPadding: Dp = 12.dp,
     badgeBottomPadding: Dp = 12.dp,
+    showCropOverlay: Boolean = false,
 ) {
     var view by remember { mutableStateOf<SurfaceView?>(null) }
     var surfaceVersion by remember { mutableIntStateOf(0) }
@@ -119,46 +120,49 @@ internal fun PhotoCanvas(
 
         if (state.mode == PhotoMode.Edit) {
             val width = minOf(maxWidth, maxHeight * aspect)
-            AndroidView(
-                factory = { context ->
-                    SurfaceView(context).also { canvas ->
-                        view = canvas
-                        canvas.holder.addCallback(
-                            object : SurfaceHolder.Callback {
-                                override fun surfaceCreated(holder: SurfaceHolder) = Unit
+            val canvasHeight = width / aspect
+            Box(Modifier.size(width, canvasHeight).then(zoomModifier)) {
+                AndroidView(
+                    factory = { context ->
+                        SurfaceView(context).also { canvas ->
+                            view = canvas
+                            canvas.holder.addCallback(
+                                object : SurfaceHolder.Callback {
+                                    override fun surfaceCreated(holder: SurfaceHolder) = Unit
 
-                                override fun surfaceChanged(
-                                    holder: SurfaceHolder,
-                                    format: Int,
-                                    width: Int,
-                                    height: Int,
-                                ) {
-                                    val wide =
-                                        canvas.resources.configuration.isScreenWideColorGamut &&
-                                            canvas.display?.isWideColorGamut == true
-                                    model.surface(holder.surface, width, height, wide)
-                                    surfaceVersion++
-                                }
+                                    override fun surfaceChanged(
+                                        holder: SurfaceHolder,
+                                        format: Int,
+                                        width: Int,
+                                        height: Int,
+                                    ) {
+                                        val wide =
+                                            canvas.resources.configuration.isScreenWideColorGamut &&
+                                                canvas.display?.isWideColorGamut == true
+                                        model.surface(holder.surface, width, height, wide)
+                                        surfaceVersion++
+                                    }
 
-                                override fun surfaceDestroyed(holder: SurfaceHolder) {
-                                    model.surface(null, 0, 0)
-                                    surfaceVersion++
+                                    override fun surfaceDestroyed(holder: SurfaceHolder) {
+                                        model.surface(null, 0, 0)
+                                        surfaceVersion++
+                                    }
                                 }
-                            }
-                        )
-                    }
-                },
-                update = { canvas ->
-                    canvas.scaleX = zoomFactor
-                    canvas.scaleY = zoomFactor
-                    canvas.translationX = zoomState.panX
-                    canvas.translationY = zoomState.panY
-                },
-                modifier =
-                    Modifier.size(width, width / aspect)
-                        .then(zoomModifier)
-                        .semantics { contentDescription = "Photo canvas" },
-            )
+                            )
+                        }
+                    },
+                    modifier =
+                        Modifier.fillMaxSize().semantics { contentDescription = "Photo canvas" },
+                )
+                if (showCropOverlay) {
+                    val crop = remember(state.document) { state.document.cropRect() }
+                    CropOverlay(
+                        crop = crop,
+                        onCropChange = model::applyCropRect,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
         } else
             state.selected?.let {
                 PhotoThumbnail(

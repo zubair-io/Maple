@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
+import kotlin.math.roundToInt
 
 enum class PostureKind {
     Normal,
@@ -147,8 +148,8 @@ internal fun rememberFoldablePosture(): FoldablePosture {
         }
     }
 
-    val widthPx = (configuration.screenWidthDp * density).toInt()
-    val heightPx = (configuration.screenHeightDp * density).toInt()
+    val widthPx = (configuration.screenWidthDp * density).roundToInt()
+    val heightPx = (configuration.screenHeightDp * density).roundToInt()
     val feature = foldFeature
     return computeFoldablePosture(
         windowWidthPx = widthPx,

@@ -41,6 +41,7 @@ fun PhotoSurface(
     onExportSidecar: () -> Unit = {},
 ) {
     var group by rememberSaveable { mutableStateOf(EditorGroup.Light) }
+    var subTool by rememberSaveable { mutableStateOf("basic") }
     var armed by rememberSaveable { mutableStateOf("exposure") }
     var more by rememberSaveable { mutableStateOf(false) }
     var adjustments by rememberSaveable { mutableStateOf(true) }
@@ -52,9 +53,11 @@ fun PhotoSurface(
             ?: AdjustmentFields.byName.getValue("exposure")
     val value = state.values[field.name] ?: field.initial
     val editing = state.mode == PhotoMode.Edit
+    val cropActive = editing && group == EditorGroup.Detail && subTool == "crop"
     if (state.selected == null) return
     val selectGroup: (EditorGroup) -> Unit = {
         group = it
+        subTool = subToolsFor(it).first().id
         armed = it.tools.first().field
     }
     val toggleAdjustments: () -> Unit = {
@@ -78,6 +81,8 @@ fun PhotoSurface(
                 posture = posture,
                 zoomState = zoomState,
                 group = group,
+                subTool = subTool,
+                onSubTool = { subTool = it },
                 selectGroup = selectGroup,
                 armedField = field,
                 armedValue = value,
@@ -98,6 +103,8 @@ fun PhotoSurface(
                 posture = posture,
                 zoomState = zoomState,
                 group = group,
+                subTool = subTool,
+                onSubTool = { subTool = it },
                 armed = armed,
                 selectGroup = selectGroup,
                 onSelectArmed = { armed = it },
@@ -112,6 +119,7 @@ fun PhotoSurface(
                 onToggleAdjustments = toggleAdjustments,
                 onInfo = onInfo,
                 onExport = onExport,
+                onExportSidecar = onExportSidecar,
             )
         PostureKind.Normal ->
             BoxWithConstraints(Modifier.fillMaxSize().background(MapleColors.canvas)) {
@@ -137,6 +145,7 @@ fun PhotoSurface(
                     zoomState = zoomState,
                     badgeStartPadding = badgeStart,
                     badgeBottomPadding = badgeBottom,
+                    showCropOverlay = cropActive,
                 )
                 if (regular && state.showFilmstrip)
                     FloatingFilmstrip(
@@ -158,7 +167,14 @@ fun PhotoSurface(
                             Modifier.width(320.dp).fillMaxHeight().testTag("adjustments-panel"),
                             RoundedCornerShape(16.dp),
                         ) {
-                            ControlsInspector(model, state, group, Modifier.fillMaxSize())
+                            ControlsInspector(
+                                model,
+                                state,
+                                group,
+                                Modifier.fillMaxSize(),
+                                activeSubTool = subTool,
+                                onSubToolChange = { subTool = it },
+                            )
                         }
                         ToolDock(group, selectGroup, Modifier.heightIn(max = dockMaxHeight))
                     }
@@ -185,6 +201,8 @@ fun PhotoSurface(
                                     selectGroup,
                                     { armed = it },
                                     { more = true },
+                                    activeSubTool = subTool,
+                                    onSubToolChange = { subTool = it },
                                 )
                             }
                     }
@@ -233,6 +251,8 @@ fun PhotoSurface(
                 state,
                 group,
                 Modifier.fillMaxWidth().heightIn(max = 540.dp).height(460.dp),
+                activeSubTool = subTool,
+                onSubToolChange = { subTool = it },
             )
         }
     }
