@@ -251,6 +251,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
             it.name to objectValues.optDouble(it.name, it.initial.toDouble()).toFloat()
         } +
             mapOf(
+                "_uncropped_aspect" to objectValues.getDouble("_uncropped_aspect").toFloat(),
                 "_aspect" to objectValues.optDouble("_aspect", 1.5).toFloat(),
                 "_raw" to objectValues.optDouble("_raw", 0.0).toFloat(),
                 "_shot_temperature" to objectValues.getDouble("_shot_temperature").toFloat(),

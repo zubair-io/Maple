@@ -53,6 +53,9 @@ enum class CropAspectId(val rawId: String, val label: String, val fixedRatio: Fl
     Original("original", "Original", null),
     Square("1:1", "1:1", 1f),
     ThreeTwo("3:2", "3:2", 3f / 2f),
+    FourFive("4:5", "4:5", 4f / 5f),
+    TwoOne("2:1", "2:1", 2f),
+    Cinema("2.39:1", "2.39:1", 2.39f),
     FourThree("4:3", "4:3", 4f / 3f),
     SixteenNine("16:9", "16:9", 16f / 9f),
     TwoThree("2:3", "2:3", 2f / 3f),
@@ -236,6 +239,22 @@ fun XmpDocument.cropRect(): CropRect {
     )
 }
 
+/** Presentation only: the stored document and the undo/save path retain the real crop. */
+fun XmpDocument.forCropPreview(): XmpDocument =
+    mapOf("crs:HasCrop" to "True", "crs:CropTop" to "0", "crs:CropLeft" to "0",
+        "crs:CropBottom" to "1", "crs:CropRight" to "1").entries.fold(this) { doc, (key, value) ->
+        doc.withAttribute(key, value)
+    }
+
+internal fun MapleState.uncroppedAspect(): Float =
+    values["_uncropped_aspect"]?.takeIf { it.isFinite() && it > 0f }
+        ?: values["_aspect"]?.takeIf { it.isFinite() && it > 0f } ?: 1.5f
+
+internal fun MapleState.lockedCropAspect(): Float? =
+    cropAspect.resolveAspect(uncroppedAspect(), 1f)?.let {
+        if (cropAspectSwapped) 1f / it else it
+    }
+
 private fun formatCropScalar(v: Float): String {
     val roundedZero = if (abs(v) < 0.0000005f) 0f else v
     return String.format(Locale.US, "%.6f", roundedZero)
@@ -266,10 +285,8 @@ internal fun CropControlsSection(
     modifier: Modifier = Modifier,
 ) {
     val crop = remember(state.document) { state.document.cropRect() }
-    var aspectId by remember { mutableStateOf(CropAspectId.Free) }
-    val rawAspect = state.values["_aspect"]?.takeIf { it.isFinite() && it > 0f } ?: 1.5f
-    val imgW = if (rawAspect >= 1f) 2048f else 2048f * rawAspect
-    val imgH = if (rawAspect >= 1f) 2048f / rawAspect else 2048f
+    val imgW = state.uncroppedAspect()
+    val imgH = 1f
 
     Column(
         modifier.fillMaxWidth().padding(vertical = 4.dp).testTag("editor-crop-toolbar"),
@@ -282,11 +299,11 @@ internal fun CropControlsSection(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             for (preset in CropAspectId.entries) {
-                val selected = aspectId == preset
+                val selected = state.cropAspect == preset
                 FilterChip(
                     selected = selected,
                     onClick = {
-                        aspectId = preset
+                        model.setCropAspect(preset)
                         val resolved = preset.resolveAspect(imgW, imgH)
                         if (resolved != null) {
                             model.applyCropRect(
@@ -307,6 +324,15 @@ internal fun CropControlsSection(
                 )
             }
         }
+        TextButton(
+            onClick = {
+                val aspect = state.lockedCropAspect() ?: return@TextButton
+                model.setCropAspect(state.cropAspect, !state.cropAspectSwapped)
+                model.applyCropRect(CropGeometry.centeredCropForAspect(1f / aspect, imgW, imgH, crop.angle))
+            },
+            enabled = state.canEdit && state.lockedCropAspect() != null,
+            modifier = Modifier.testTag("crop-swap-aspect-button"),
+        ) { Text("Swap aspect orientation", fontSize = 11.sp) }
         Column(Modifier.fillMaxWidth()) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -359,7 +385,7 @@ internal fun CropControlsSection(
             }
             TextButton(
                 onClick = {
-                    aspectId = CropAspectId.Free
+                    model.setCropAspect(CropAspectId.Free)
                     model.applyCropRect(CropRect())
                 },
                 enabled = state.canEdit && !crop.isIdentity,
@@ -377,7 +403,11 @@ internal fun CropOverlay(
     onCropChange: (CropRect) -> Unit,
     onCropCommit: () -> Unit = {},
     modifier: Modifier = Modifier,
+    lockedAspect: Float? = null,
+    imageAspect: Float = 1f,
 ) {
+    val currentAspect by rememberUpdatedState(lockedAspect)
+    val currentImageAspect by rememberUpdatedState(imageAspect)
     val currentCrop by rememberUpdatedState(crop)
     val currentCallback by rememberUpdatedState(onCropChange)
     val currentCommit by rememberUpdatedState(onCropCommit)
@@ -422,6 +452,9 @@ internal fun CropOverlay(
                                             handle,
                                             pos.x / w,
                                             pos.y / h,
+                                            lockedAspect = currentAspect,
+                                            imgW = currentImageAspect,
+                                            imgH = 1f,
                                         )
                                     }
                                 lastPos = pos

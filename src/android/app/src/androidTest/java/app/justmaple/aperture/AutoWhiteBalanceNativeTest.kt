@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import app.justmaple.aperture.data.NativeBridge
 import app.justmaple.aperture.data.XmpDocument
+import app.justmaple.aperture.ui.forCropPreview
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -49,6 +50,34 @@ class AutoWhiteBalanceNativeTest {
             executor.shutdown()
             input.delete()
             moved.delete()
+        }
+    }
+
+    @Test
+    fun cropPresentationUsesTheOrientedWholeImageWithoutChangingTheStoredModel() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val input = File.createTempFile("crop-native-", ".dng", instrumentation.targetContext.cacheDir)
+        instrumentation.context.assets.open("source.dng").use { source -> input.outputStream().use(source::copyTo) }
+        val original = input.readBytes()
+        val renderer = NativeBridge.createRenderer()
+        var handle = 0L
+        val crop = XmpDocument().withAttribute("crs:HasCrop", "True")
+            .withAttribute("crs:CropLeft", "0.25").withAttribute("crs:CropRight", "0.75")
+        try {
+            handle = NativeBridge.open(input.absolutePath, crop.serialize(), 512, renderer)
+            val cropped = JSONObject(NativeBridge.values(handle))
+            val whole = cropped.getDouble("_uncropped_aspect")
+            assertEquals(whole * 0.5, cropped.getDouble("_aspect"), 0.01)
+            NativeBridge.setModel(handle, crop.forCropPreview().serialize())
+            val presentation = JSONObject(NativeBridge.values(handle))
+            assertEquals(whole, presentation.getDouble("_aspect"), 0.001)
+            NativeBridge.setModel(handle, crop.serialize())
+            assertEquals(cropped.getDouble("_aspect"), JSONObject(NativeBridge.values(handle)).getDouble("_aspect"), 0.001)
+            assertArrayEquals(original, input.readBytes())
+        } finally {
+            if (handle != 0L) NativeBridge.close(handle)
+            NativeBridge.closeRenderer(renderer)
+            input.delete()
         }
     }
 

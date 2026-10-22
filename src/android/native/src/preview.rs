@@ -91,17 +91,24 @@ impl Session {
                 wb.slider_values(&as_shot)
             })
     }
-    pub fn aspect(&self) -> f32 {
+    fn oriented_dims(&self) -> (u32, u32) {
         let (w, h) = self.live.dims();
         let orientation = self
             .raw
             .as_ref()
             .map_or(ExifOrientation::Normal, |raw| raw.orientation);
-        let (w, h) = if orientation.swaps_wh() {
+        if orientation.swaps_wh() {
             (h, w)
         } else {
             (w, h)
-        };
+        }
+    }
+    pub fn uncropped_aspect(&self) -> f32 {
+        let (w, h) = self.oriented_dims();
+        w as f32 / h.max(1) as f32
+    }
+    pub fn aspect(&self) -> f32 {
+        let (w, h) = self.oriented_dims();
         let crop = raw_core::stages::crop::CropPresentation::new(&self.model.crop, w, h);
         crop.dims.0 as f32 / crop.dims.1.max(1) as f32
     }

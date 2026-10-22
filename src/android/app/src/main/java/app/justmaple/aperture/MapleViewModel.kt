@@ -8,6 +8,8 @@ import androidx.lifecycle.viewModelScope
 import app.justmaple.aperture.data.*
 import app.justmaple.aperture.generated.AdjustmentFields
 import app.justmaple.aperture.ui.EditorGroup
+import app.justmaple.aperture.ui.CropAspectId
+import app.justmaple.aperture.ui.forCropPreview
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -228,6 +230,8 @@ internal constructor(
         autoWhiteBalanceJob?.cancel()
         mutable.update {
             it.copy(
+                cropAspect = CropAspectId.Free,
+                cropAspectSwapped = false,
                 selected = photo,
                 photos = if (single) listOf(photo) else it.photos,
                 folder = if (single) null else it.folder,
@@ -286,7 +290,7 @@ internal constructor(
             it.copy(rendering = true, values = emptyMap(), canResetRawOnlySliders = false)
         }
         try {
-            renderXml = snapshot.document.serialize()
+            renderXml = presentedXml(snapshot.document)
             val values =
                 library.withPreview(photo, 2048) { input ->
                     renderer.open(input.absolutePath, renderXml, 2048, token)
@@ -333,6 +337,23 @@ internal constructor(
         }
     }
 
+    private fun presentedXml(document: XmpDocument): String =
+        (if (state.value.cropToolActive) document.forCropPreview() else document).serialize()
+
+    fun setCropToolActive(active: Boolean) {
+        if (state.value.cropToolActive == active) return
+        commitGesture()
+        mutable.update { it.copy(cropToolActive = active, comparingBefore = false) }
+        renderXml = presentedXml(state.value.document)
+        renderer.invalidateModel()
+        if (state.value.mode == PhotoMode.Edit && state.value.values.isNotEmpty())
+            queueDraw(state.value.values)
+    }
+
+    fun setCropAspect(id: CropAspectId, swapped: Boolean = false) {
+        mutable.update { it.copy(cropAspect = id, cropAspectSwapped = swapped) }
+    }
+
     fun setComparingBefore(before: Boolean) {
         val current = state.value
         if (current.mode != PhotoMode.Edit || current.values.isEmpty()) return
@@ -340,7 +361,7 @@ internal constructor(
         val comparison = if (before) (openingEdit ?: return).withCurrentCrop(current.document) else snapshot()
         mutable.update { it.copy(comparingBefore = before) }
         val drawValues = comparison.values
-        renderXml = comparison.document.serialize()
+        renderXml = presentedXml(comparison.document)
         renderer.invalidateModel()
         queueDraw(drawValues)
     }
@@ -421,7 +442,7 @@ internal constructor(
         mutable.update {
             it.copy(values = values, document = document, comparingBefore = false, dirty = true)
         }
-        renderXml = document.serialize()
+        renderXml = presentedXml(document)
         queueDraw(values)
         scheduleSave()
     }
@@ -446,7 +467,7 @@ internal constructor(
                 dirty = true,
             )
         }
-        renderXml = value.document.serialize()
+        renderXml = presentedXml(value.document)
         // Field pushes drifted the native model (wb_source = Manual); an
         // identical XML string must still reload it (#4766).
         renderer.invalidateModel()
@@ -520,7 +541,7 @@ internal constructor(
         if (editing && commit) commitGesture()
         scheduleSave()
         if (state.value.mode == PhotoMode.Edit) {
-            renderXml = state.value.document.serialize()
+            renderXml = presentedXml(state.value.document)
             renderer.invalidateModel()
             queueDraw(state.value.values)
         }
