@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.justmaple.aperture.MapleState
 import app.justmaple.aperture.MapleViewModel
+import app.justmaple.aperture.generated.AdjustmentFields
 import java.util.Locale
 import kotlin.math.abs
 
@@ -66,10 +67,14 @@ internal fun BuiltInPresetsRow(
         ) {
             items(builtInPresets, key = { it.id }) { preset ->
                 val active = state.isPresetActive(preset)
+                val supported =
+                    preset.fields.keys.all {
+                        AdjustmentFields.byName[it]?.let(state::supportsField) == true
+                    }
                 FilterChip(
                     selected = active,
                     onClick = { model.applyBuiltInPreset(preset) },
-                    enabled = state.canEdit,
+                    enabled = state.canEdit && supported,
                     label = { Text(preset.name, fontSize = 12.sp) },
                     modifier =
                         Modifier.semantics { contentDescription = "Preset ${preset.name}" }

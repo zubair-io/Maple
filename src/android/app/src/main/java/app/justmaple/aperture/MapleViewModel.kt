@@ -476,9 +476,9 @@ internal constructor(
         attribute("papp:Flag", if (rejected) null else "reject")
     }
 
-    fun attribute(name: String, value: String?) = setAttributes(mapOf(name to value))
+    fun attribute(name: String, value: String?) = setAttributes(mapOf(name to value), commit = true)
 
-    fun setAttributes(updates: Map<String, String?>) {
+    fun setAttributes(updates: Map<String, String?>, commit: Boolean = true) {
         if (!state.value.canChangeMetadata || updates.isEmpty()) return
         val editing = state.value.mode == PhotoMode.Edit && state.value.values.isNotEmpty()
         if (editing) beginGesture()
@@ -487,7 +487,7 @@ internal constructor(
                 updates.entries.fold(current.document) { doc, (k, v) -> doc.withAttribute(k, v) }
             current.copy(document = nextDoc, comparingBefore = false, dirty = true)
         }
-        if (editing) commitGesture()
+        if (editing && commit) commitGesture()
         scheduleSave()
         if (state.value.mode == PhotoMode.Edit) {
             renderXml = state.value.document.serialize()

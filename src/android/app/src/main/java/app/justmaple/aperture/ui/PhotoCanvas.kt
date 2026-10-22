@@ -158,7 +158,8 @@ internal fun PhotoCanvas(
                     val crop = remember(state.document) { state.document.cropRect() }
                     CropOverlay(
                         crop = crop,
-                        onCropChange = model::applyCropRect,
+                        onCropChange = { model.applyCropRect(it, commit = false) },
+                        onCropCommit = model::commitGesture,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
