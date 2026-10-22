@@ -81,6 +81,61 @@ const redeem = (code: string, verifier: string) =>
   );
 
 describe('native code exchange (#856)', () => {
+  for (const cookieKind of ['expired', 'paired device', 'different account'] as const) {
+    it(`accepts a live body proof despite a ${cookieKind} cookie`, async () => {
+      const primary = await issueRefreshToken(userId, 'body browser');
+      const otherUser =
+        cookieKind === 'different account'
+          ? seedUser(live.db, { email: 'other@maple.local', role: 'user' })
+          : userId;
+      const cookie =
+        cookieKind === 'expired'
+          ? 'stale-token'
+          : (
+              await issueRefreshToken(
+                otherUser,
+                'cookie browser',
+                cookieKind === 'paired device' ? { platform: 'tvos' } : undefined,
+              )
+            ).raw;
+      const response = await app.handle(
+        new Request('http://localhost/api/auth/native-code', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${bearer}`,
+            cookie: `maple_refresh=${cookie}`,
+          },
+          body: JSON.stringify({
+            refresh_token: primary.raw,
+            code_challenge: pkceS256('body-proof-verifier-1234567890-abcdefghijkl'),
+            state: 'body-proof-state',
+          }),
+        }),
+      );
+      expect(response.status).toBe(200);
+    });
+  }
+
+  it('retains valid cookie proof when an invalid body token is supplied', async () => {
+    const response = await app.handle(
+      new Request('http://localhost/api/auth/native-code', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${bearer}`,
+          cookie: refreshCookie,
+        },
+        body: JSON.stringify({
+          refresh_token: 'stale-token',
+          code_challenge: pkceS256('body-proof-verifier-1234567890-abcdefghijkl'),
+          state: 'body-proof-state',
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+  });
+
   it('POST /native-code requires a bearer', async () => {
     const r = await issue({}, pkceS256('v-some-verifier'));
     expect(r.status).toBe(401);

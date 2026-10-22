@@ -76,6 +76,53 @@ const redeem = (code: string, ip = '203.0.113.20') =>
   );
 
 describe('web-to-web-LAN session handoff', () => {
+  for (const cookieKind of ['expired', 'paired device', 'different account'] as const) {
+    it(`accepts a live body proof despite a ${cookieKind} cookie`, async () => {
+      const primary = await issueRefreshToken(userId, 'body browser');
+      const otherUser =
+        cookieKind === 'different account'
+          ? seedUser(live.db, { email: 'other@maple.local', role: 'user' })
+          : userId;
+      const cookie =
+        cookieKind === 'expired'
+          ? 'stale-token'
+          : (
+              await issueRefreshToken(
+                otherUser,
+                'cookie browser',
+                cookieKind === 'paired device' ? { platform: 'tvos' } : undefined,
+              )
+            ).raw;
+      const response = await app.handle(
+        new Request('http://localhost/api/auth/lan-handoff', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${bearer}`,
+            cookie: `maple_refresh=${cookie}`,
+          },
+          body: JSON.stringify({ refresh_token: primary.raw }),
+        }),
+      );
+      expect(response.status).toBe(200);
+    });
+  }
+
+  it('retains valid cookie proof when an invalid body token is supplied', async () => {
+    const response = await app.handle(
+      new Request('http://localhost/api/auth/lan-handoff', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${bearer}`,
+          cookie: refreshCookie,
+        },
+        body: JSON.stringify({ refresh_token: 'stale-token' }),
+      }),
+    );
+    expect(response.status).toBe(200);
+  });
+
   it('POST /lan-handoff requires a bearer', async () => {
     const r = await issue({});
     expect(r.status).toBe(401);
