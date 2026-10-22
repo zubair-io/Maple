@@ -53,11 +53,30 @@ test('mode switch, six curve pills and ribbon knot editing', async ({ page }, te
 
   const box = await ribbonBox(page);
   await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.3);
-  await expect(page.getByTestId('color-curve-knot-0')).toBeVisible();
+  const knots = page.locator('[data-testid^="color-curve-knot-"]');
+  await expect(knots).toHaveCount(3);
   await expect(page.getByTestId('color-curve-pill-hueVsSat').locator('.mod-dot')).toBeVisible();
+  const positions = await knots.evaluateAll((handles) =>
+    handles.map((handle) => ({
+      x: parseFloat((handle as HTMLElement).style.left),
+      y: parseFloat((handle as HTMLElement).style.top),
+    })),
+  );
+  expect(positions.map(({ x }) => Math.round(x))).toEqual([22, 30, 38]);
+  expect(positions[0].y).toBe(50);
+  expect(positions[1].y).toBeLessThan(50);
+  expect(positions[2].y).toBe(50);
 
-  await page.getByTestId('color-curve-knot-0').dblclick();
-  await expect(page.getByTestId('color-curve-knot-0')).toHaveCount(0);
+  // Delete the authored centre; the two neutral guards remain independently editable.
+  await page.getByTestId('color-curve-knot-1').dblclick();
+  await expect(knots).toHaveCount(2);
+  expect(
+    await knots.evaluateAll((handles) =>
+      handles.map((handle) => parseFloat((handle as HTMLElement).style.top)),
+    ),
+  ).toEqual([50, 50]);
+  await page.getByTestId('color-curve-reset').click();
+  await expect(knots).toHaveCount(0);
 
   await page.getByTestId('color-curve-pill-lumaVsSat').click();
   await expect(page.getByTestId('color-curve-lock-skin')).toHaveCount(0);
@@ -125,7 +144,10 @@ test('the eyedropper samples a rotated RAW at the stage input and drops an ancho
   test.setTimeout(240_000);
   await openColorCurves(page, RAW_FIXTURE);
   await armEyedropperAndClick(page, 620, 200);
-  const knot = page.getByTestId('color-curve-knot-0');
+  await expect(page.locator('[data-testid^="color-curve-knot-"]')).toHaveCount(3, {
+    timeout: 120_000,
+  });
+  const knot = page.getByTestId('color-curve-knot-1');
   await expect(knot).toBeVisible({ timeout: 120_000 });
   await expect(page.getByTestId('color-curve-sample-msg')).toHaveCount(0);
   const leftPercent = await knot.evaluate((el) => parseFloat((el as HTMLElement).style.left));
