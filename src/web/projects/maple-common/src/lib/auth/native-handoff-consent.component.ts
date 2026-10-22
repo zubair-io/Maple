@@ -63,7 +63,6 @@ export class NativeHandoffConsentComponent {
   }
 
   protected cancel(): void {
-    if (this.busy()) return;
     this.error.set(null);
     this.auth.dismissNativeHandoff();
   }

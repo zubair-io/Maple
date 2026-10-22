@@ -67,12 +67,7 @@
         </mui-text>
       }
       <div class="mt-1 flex justify-end gap-2">
-        <mui-button
-          variant="ghost"
-          testId="native-handoff-cancel"
-          [disabled]="busy()"
-          (pressed)="cancel()"
-        >
+        <mui-button variant="ghost" testId="native-handoff-cancel" (pressed)="cancel()">
           Cancel
         </mui-button>
         @if (launchUrl()) {

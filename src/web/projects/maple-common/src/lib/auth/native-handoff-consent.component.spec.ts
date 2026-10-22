@@ -121,6 +121,27 @@ describe('NativeHandoffConsentComponent (#4673)', () => {
     ).toBeNull();
   });
 
+  for (const cancelWith of ['button', 'Escape']) {
+    it(`allows ${cancelWith} to dismiss consent while approval is stalled`, async () => {
+      setup(`/?native_callback=maple-app&code_challenge=${CHALLENGE}&state=${STATE}`);
+      fixture.nativeElement.querySelector('[data-testid="native-handoff-approve"]').click();
+      const request = ctrl.expectOne('/api/auth/native-code');
+      fixture.detectChanges();
+      if (cancelWith === 'button')
+        fixture.nativeElement.querySelector('[data-testid="native-handoff-cancel"]').click();
+      else
+        fixture.nativeElement
+          .querySelector('[role="dialog"]')
+          .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[role="dialog"]')).toBeNull();
+      request.flush({ code: 'CODE-TOO-LATE' });
+      await fixture.whenStable();
+      expect(navigated).toEqual([]);
+      expect(auth.nativeLaunchUrl()).toBeNull();
+    });
+  }
+
   it('captures keyboard focus and attaches a focus trap while consent is visible', async () => {
     // jsdom has no layout; give visible modal content browser-like geometry.
     vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(100);
