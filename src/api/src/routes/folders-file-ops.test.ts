@@ -14,7 +14,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { mkdtemp, rm, writeFile, mkdir, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile, mkdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import {
@@ -26,6 +26,7 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { foldersFileOpsRoutes } from './folders-file-ops.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
+import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
 
 /** One row of the change feed, as the table stores it. */
 interface ChangeRow {
@@ -201,6 +202,79 @@ describe('non-asset file delete/relocate routes', () => {
       }),
     );
   }
+
+  async function holdSave(sidecar: string, bytes: string) {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const inside = new Promise<void>((resolve) => (entered = resolve));
+    const save = serializeSidecarWrite(sidecar, async () => {
+      entered();
+      await gate;
+      await writeFile(sidecar, bytes);
+    });
+    await inside;
+    return { release, save };
+  }
+
+  it('a raw .xmp move waits for a save to its source, so the saved bytes move (#5134)', async () => {
+    const sourceAbs = nodePath.join(folderPath, 'loose.xmp');
+    await writeFile(sourceAbs, 'before');
+    const held = await holdSave(sourceAbs, 'saved meanwhile');
+
+    const moving = postRelocate({
+      source_path: 'loose.xmp',
+      mode: 'move',
+      collision: 'auto-suffix',
+      destination_path: '',
+      destination_filename: 'moved.xmp',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    held.release();
+    await held.save;
+
+    expect((await moving).status).toBe(200);
+    expect(await readFile(nodePath.join(folderPath, 'moved.xmp'), 'utf8')).toBe('saved meanwhile');
+    await expect(stat(sourceAbs)).rejects.toThrow();
+  });
+
+  it('a raw .xmp moves into a folder that does not exist yet (#5134)', async () => {
+    await writeFile(nodePath.join(folderPath, 'stray.xmp'), 'edit');
+
+    const res = await postRelocate({
+      source_path: 'stray.xmp',
+      mode: 'move',
+      collision: 'auto-suffix',
+      destination_path: 'new/folder',
+      destination_filename: 'stray.xmp',
+    });
+
+    expect(res.status).toBe(200);
+    expect(await readFile(nodePath.join(folderPath, 'new/folder/stray.xmp'), 'utf8')).toBe('edit');
+  });
+
+  it('a raw .xmp Replace waits for a save to its destination, never racing it (#5134)', async () => {
+    const sourceAbs = nodePath.join(folderPath, 'incoming.xmp');
+    const destAbs = nodePath.join(folderPath, 'target.xmp');
+    await writeFile(sourceAbs, 'incoming');
+    await writeFile(destAbs, 'old');
+    const held = await holdSave(destAbs, 'saved meanwhile');
+
+    const replacing = postRelocate({
+      source_path: 'incoming.xmp',
+      mode: 'copy',
+      collision: 'replace',
+      destination_path: '',
+      destination_filename: 'target.xmp',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await readFile(destAbs, 'utf8')).toBe('old');
+    held.release();
+    await held.save;
+
+    expect((await replacing).status).toBe(200);
+    expect(await readFile(destAbs, 'utf8')).toBe('incoming');
+  });
 
   it('renames a non-asset file (move, same dir) and emits delete+create changes', async () => {
     const source = 'clip.mov';
