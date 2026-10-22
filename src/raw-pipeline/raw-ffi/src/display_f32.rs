@@ -7,7 +7,7 @@ use crate::model::{load_xmp_model_owned, LoadModel};
 use raw_core::{
     decode::decode_bytes,
     film::FilmLut,
-    pipeline::{render_export_f32, RawInput, RenderQuality},
+    pipeline::{render_export_f32, RawInput},
     view::encode::TargetPrimaries,
 };
 use std::ffi::{c_char, CStr};
@@ -163,12 +163,7 @@ pub unsafe extern "C" fn maple_render_file_display_f32(
                 return 7;
             }
         };
-        let quality = match quality_preview {
-            1 => RenderQuality::Preview,
-            2 => RenderQuality::Amaze,
-            3 => RenderQuality::Auto,
-            _ => RenderQuality::Full,
-        };
+        let quality = crate::auto_profile::quality_from_wire(quality_preview);
         let rendered = render_export_f32(
             &raw,
             &model,
