@@ -38,6 +38,7 @@ import {
 interface CurveSampleRequest {
   id: string;
   model: AdjustmentModel;
+  xmp: string;
   descriptor: ColorCurveDescriptor;
   generation: number;
 }
@@ -298,9 +299,16 @@ export class ColorCurvesRibbonComponent {
     if (!id || !a) return;
     const desc = this.activeDescriptor();
     const generation = ++this.sampleGeneration;
-    const request = { id, model: a, descriptor: desc, generation };
+    const request = {
+      id,
+      model: a,
+      xmp: this.serializer.serialize(a),
+      descriptor: desc,
+      generation,
+    };
+    const prompt = 'Click the photo to place a curve point.';
     this.eyedropperActive.set(true);
-    this.sampleMessage.set('Click the photo to place a stage-input anchor.');
+    this.sampleMessage.set(prompt);
     try {
       const pt = await this.pick.arm('Click the colour to place a curve anchor');
       if (!pt) {
@@ -312,7 +320,11 @@ export class ColorCurvesRibbonComponent {
     } catch (err) {
       this.reportSampleError(request, err);
     } finally {
-      if (generation === this.sampleGeneration) this.eyedropperActive.set(false);
+      if (generation === this.sampleGeneration) {
+        this.eyedropperActive.set(false);
+        if (this.sampleMessage() === prompt)
+          this.sampleMessage.set('The photo changed. Pick the colour again.');
+      }
     }
   }
   private reportSampleError(request: CurveSampleRequest, error: unknown): void {
@@ -325,11 +337,13 @@ export class ColorCurvesRibbonComponent {
   }
 
   private sampleIsCurrent(request: CurveSampleRequest): boolean {
+    const current = this.adj();
     return (
       request.generation === this.sampleGeneration &&
       this.library.focusedAssetId() === request.id &&
       this.activeDescriptor().id === request.descriptor.id &&
-      this.adj() === request.model
+      current !== null &&
+      this.serializer.serialize(current) === request.xmp
     );
   }
 
@@ -342,7 +356,7 @@ export class ColorCurvesRibbonComponent {
     if (!this.sampleIsCurrent(request)) return;
     const asset = this.library.assets().find((item) => item.id === id);
     const ext = asset?.filename.split('.').pop()?.toLowerCase() ?? 'dng';
-    const xmp = this.serializer.serialize(a);
+    const xmp = request.xmp;
     const full = applyAffine(cropToFullFrameAffine(a.crop, asset?.width ?? 1, asset?.height ?? 1), {
       x: pt.nx,
       y: pt.ny,

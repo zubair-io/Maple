@@ -73,8 +73,23 @@ describe('color-curve asynchronous picks and visible knot drags', () => {
       await sampling;
       expect(library.updateAdjustment).not.toHaveBeenCalled();
       expect(panel.eyedropperActive()).toBe(false);
+      if (change === 'edit')
+        expect(panel.sampleMessage()).toBe('The photo changed. Pick the colour again.');
     });
   }
+
+  it('keeps a valid sample when camera hydration only seeds As Shot slider numbers', async () => {
+    const sampling = panel.onEyedropperClick();
+    pick.resolve({ nx: 0.3, ny: 0.4 });
+    await Promise.resolve();
+    library.model.update((model) => ({ ...model, temperature: 5800, tint: 14 }));
+    result.resolve(sample);
+    await sampling;
+    expect(library.model().colorCurveHueVsHue.points).toContainEqual([0.7, 0.5]);
+    expect(library.model().temperature).toBe(5800);
+    expect(library.model().tint).toBe(14);
+    expect(panel.sampleMessage()).toBeNull();
+  });
 
   it('inserts an anchor into the captured curve when its request remains current', async () => {
     const sampling = panel.onEyedropperClick();
