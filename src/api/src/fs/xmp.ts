@@ -389,8 +389,9 @@ const CONFLICT_COPY_ATTEMPTS = 5;
  * which is correct for a modify with no known prior version but silently
  * destroys an existing sidecar when used from a create path (#2532).
  *
- * The `requireAbsent` check-and-write is genuinely atomic (#2784), not a
- * `stat` followed by a `rename` — see `writeSidecarCreateOnly`. A caller's
+ * The `requireAbsent` check-and-write is an atomic link (#2784) — see
+ * `writeSidecarCreateOnly`; on a volume without hard links it is an absence
+ * check then a rename inside this function's save barrier (#5151). A caller's
  * own local existence check (e.g. the FileProvider extension's client-side
  * `createOnlyPrecondition` stat) is necessarily racy — another writer can
  * create the sidecar after that stat runs and before this call lands — so

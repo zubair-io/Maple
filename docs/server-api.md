@@ -183,7 +183,7 @@ Path-keyed XMP reads (including absent-sidecar 404s) advertise
 `X-Maple-Xmp-Preconditions: content-etag-v1`. Successful reads and conditional
 saves return the exact published body's strong `ETag`. Conditional checks share
 the server's sidecar write barrier; concurrent clients with one baseline cannot
-both replace it. Create-only publication also uses an atomic filesystem link.
+both replace it. Create-only publication also uses an atomic filesystem link; on volumes without hard links (SMB, exFAT) it renames the staged file into place after an absence check under the same barrier, so only a writer outside Maple can race it (#5151).
 Malformed, weak or combined precondition headers return 400. A 412 leaves the
 canonical sidecar unchanged; the client retains its pending edits and offers
 reload/conflict handling. Older callers without preconditions retain their
