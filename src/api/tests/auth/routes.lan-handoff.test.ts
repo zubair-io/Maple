@@ -81,7 +81,7 @@ describe('web-to-web-LAN session handoff', () => {
       const primary = await issueRefreshToken(userId, 'body browser');
       const otherUser =
         cookieKind === 'different account'
-          ? seedUser(live.db, { email: 'other@maple.local', role: 'user' })
+          ? seedUser(live.db, { email: 'other@maple.local', role: 'member' })
           : userId;
       const cookie =
         cookieKind === 'expired'
