@@ -286,3 +286,43 @@ test('copy Replace admits a save authorized for its unchanged source during publ
     await f.close();
   }
 });
+
+test('failed move Replace admits a save authorized for its unchanged source during publication', async () => {
+  const f = await recoveryFixture();
+  const source = path.join(f.root, 'incoming.dng');
+  const destination = path.join(f.root, 'photo.dng');
+  const window = Promise.withResolvers<void>();
+  const admitted = Promise.withResolvers<void>();
+  let saving: ReturnType<typeof writeXmpAtomic> | undefined;
+  try {
+    insertFolder(f.live.db, { path: f.root });
+    await writeFile(source, 'incoming original');
+    await writeFile(destination, 'displaced original');
+    saving = (async () => {
+      await window.promise;
+      const authorized = await resolveAndAuthorizeSidecarWrite(source);
+      if (!authorized.ok) throw new Error(authorized.error);
+      admitted.resolve();
+      return writeXmpAtomic(source, edits(3), undefined, authorized.writeScope);
+    })();
+    const result = await relocateFile({
+      sourceAbsPath: source,
+      destAbsPath: destination,
+      mode: 'move',
+      collision: 'replace',
+      onVerified: async () => {
+        window.resolve();
+        await admitted.promise;
+        throw new Error('catalog commit rejected');
+      },
+    });
+    expect(result.kind).toBe('error');
+    expect(await saving).toMatchObject({ ok: true });
+    expect(await readFile(path.join(f.root, 'incoming.xmp'), 'utf8')).toBe(edits(3));
+  } finally {
+    window.resolve();
+    admitted.resolve();
+    await Promise.allSettled([saving]);
+    await f.close();
+  }
+});
