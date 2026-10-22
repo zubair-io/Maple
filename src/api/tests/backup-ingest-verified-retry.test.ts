@@ -10,7 +10,7 @@ import path from 'node:path';
 import { uploadSessions } from '../src/backup/upload-session.ts';
 import { insertStageState } from '../src/db/repos/assets.test-helpers.ts';
 import { authedHandle } from './helpers/authed-handle.ts';
-import { readLocations, seedBackupAsset } from './helpers/sqlite-fixtures.ts';
+import { readLocations, seedBackupAsset, seedLibrary } from './helpers/sqlite-fixtures.ts';
 import { makeIngestRequest, setupBackupIngestSuite } from './backup-ingest-helpers.ts';
 import { findMapleIdsPresentInLibrary, listBackupState } from '../src/db/repos/backup.repo.ts';
 
@@ -154,5 +154,27 @@ describe('byte-verified backup retries (#4905)', () => {
     expect(handle.db.query('SELECT COUNT(*) AS n FROM assets').get()).toEqual({
       n: 1,
     });
+    // A verification retry is the same photo, not another upload.
+    expect(handle.db.query('SELECT uploaded_count FROM backup_sessions').all()).toEqual([
+      { uploaded_count: 1 },
+    ]);
+  });
+
+  test("a device's first upload to a second library counts there", async () => {
+    const elsewhere = seedLibrary(handle.db, { path: path.join(handle.tmpLib, 'other-library') });
+    seedBackupAsset(handle.db, {
+      mapleId,
+      size: bytes.length,
+      locations: [{ libraryId: elsewhere, relPath }],
+      links: [{ deviceId, phassetLocalId }],
+    });
+
+    expect((await upload()).status).toBe(200);
+
+    expect(
+      handle.db
+        .query('SELECT uploaded_count FROM backup_sessions WHERE library_id = ?')
+        .all(handle.libId.toHexString()),
+    ).toEqual([{ uploaded_count: 1 }]);
   });
 });

@@ -374,6 +374,12 @@ export const backupIngestRoutes = new Elysia().post(
       // backing a photo up to library Y must leave a usable location
       // referencing Y.
       const liveRelPath = existing.liveRelPathInLibrary;
+      // Progress is per library and device: one already linked whose photo this
+      // library already held was counted then, so a retry or repair isn't another upload.
+      const uploadedDelta =
+        existing.alreadyLinked && (liveRelPath ?? existing.missingRelPathInLibrary) !== null
+          ? 0
+          : 1;
       const liveOnDisk =
         liveRelPath !== null && (await holdsUpload(folder.path, liveRelPath, tmpFile));
 
@@ -399,7 +405,7 @@ export const backupIngestRoutes = new Elysia().post(
         await backupSessionsRepo.upsertProgress({
           libraryId,
           deviceId,
-          uploadedDelta: 1,
+          uploadedDelta,
           failedDelta: 0,
         });
         log.debug({ phid, mapleId, dedup: true }, 'ingest complete (dedup, same library)');
@@ -455,7 +461,7 @@ export const backupIngestRoutes = new Elysia().post(
       await backupSessionsRepo.upsertProgress({
         libraryId,
         deviceId,
-        uploadedDelta: 1,
+        uploadedDelta,
         failedDelta: 0,
       });
       log.debug(
