@@ -32,18 +32,21 @@ export async function relocateRequestedFile(args: {
     args.destAbsPath,
   );
   if (!to.ok) return { refused: to.error ?? 'destination sidecar not allowed' };
-  const source = from.data!;
+  // Resolve parents to pin folder aliases, but keep each requested leaf:
+  // following a leaf symlink for I/O would move/delete its target instead.
+  const source = path.join(
+    await resolveRealPathThroughAncestors(path.dirname(args.sourceAbsPath)),
+    path.basename(args.sourceAbsPath),
+  );
   const requestedParent = await resolveRealPathThroughAncestors(path.dirname(args.destAbsPath));
   const requestedDestination = path.join(requestedParent, path.basename(args.destAbsPath));
-  // realpath returns the stored spelling on a case-folding volume. Retain a
-  // case-only requested leaf while keeping its authorized canonical parent.
-  const destination =
-    requestedDestination.toLowerCase() === to.data!.toLowerCase() ? requestedDestination : to.data!;
+  const destination = requestedDestination;
   const root = await resolveRealPathThroughAncestors(args.libraryRoot);
   const outcome = await withMirrorRoot(root, args.libraryRoot, async () => {
     await mkdir(path.dirname(destination), { recursive: true });
-    return serializeSidecarWrites(destinationIsSidecar ? [source, destination] : [source], () =>
-      relocate(source, destination),
+    return serializeSidecarWrites(
+      destinationIsSidecar ? [source, from.data!, destination, to.data!] : [source, from.data!],
+      () => relocate(source, destination),
     );
   });
   // API addresses use the registered root's spelling (/var vs /private/var on
