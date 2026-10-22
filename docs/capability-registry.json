@@ -930,8 +930,8 @@
         "executed_cases": 4,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "035ed75b1ffcb34f2551b244105776c8599b1ceb",
-        "recorded_at": "2026-10-22T01:25:28Z",
+        "git_sha": "782fecc358df7769a251d5eedc8c9f84d93c9224",
+        "recorded_at": "2026-10-22T06:00:13Z",
         "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts\\ --timeout\\ 30000"
       }
     },
