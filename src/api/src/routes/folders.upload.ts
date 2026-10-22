@@ -5,13 +5,6 @@
  * with their preconditions, so the raw upload answers 409 instead. */
 import * as path from 'node:path';
 import { link, lstat, open, rename, stat, unlink, utimes } from '../fs/mirrored.ts';
-import {
-  RAW_EXTENSIONS,
-  BITMAP_EXTENSIONS,
-  PSD_HDR_EXTENSIONS,
-  STUB_IMAGE_EXTENSIONS,
-  AUDIO_EXTENSIONS,
-} from '../fs/browse.ts';
 import { findAssetToReplaceAtAddress, upsertUploadedAsset } from '../db/repos/assets.address.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { ALL_STAGE_NAMES } from '../workers/stages/manifest.ts';
@@ -27,17 +20,6 @@ import { errnoCode, LINK_UNSUPPORTED, PublishCollisionError } from '../fs/reloca
 import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
 
 const log = child('folders/upload');
-const mediaExtensions = [
-  RAW_EXTENSIONS,
-  BITMAP_EXTENSIONS,
-  PSD_HDR_EXTENSIONS,
-  STUB_IMAGE_EXTENSIONS,
-  AUDIO_EXTENSIONS,
-];
-export function isIndexedUpload(filename: string): boolean {
-  const extension = path.extname(filename).slice(1).toLowerCase();
-  return mediaExtensions.some((extensions) => extensions.has(extension));
-}
 function isSidecarUpload(filename: string): boolean {
   return path.extname(filename).toLowerCase() === '.xmp';
 }
