@@ -23,6 +23,10 @@ import app.justmaple.aperture.MapleViewModel
 import app.justmaple.aperture.generated.AdjustmentFields
 import java.util.Locale
 import kotlin.math.abs
+import app.justmaple.aperture.data.NativeBridge
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
 
 /**
  * Built-in presets matching Apple's `builtin-presets.json` (#5193).
@@ -85,47 +89,6 @@ internal fun BuiltInPresetsRow(
     }
 }
 
-/**
- * Evaluates the normalized parametric tone curve `y(x)` in `[0, 1]` for `x` in `[0, 1]`
- * given the four parametric region adjustments (`[-100, 100]`) and split points (`[0, 100]`).
- */
-fun evaluateParametricCurveAt(
-    x: Float,
-    shadows: Float = 0f,
-    darks: Float = 0f,
-    lights: Float = 0f,
-    highlights: Float = 0f,
-    shadowSplit: Float = 25f,
-    midtoneSplit: Float = 50f,
-    highlightSplit: Float = 75f,
-): Float {
-    val t = x.coerceIn(0f, 1f)
-    if (t <= 0f) return 0f
-    if (t >= 1f) return 1f
-    val s1 = (shadowSplit / 100f).coerceIn(0.05f, 0.90f)
-    val s2 = (midtoneSplit / 100f).coerceIn(s1 + 0.02f, 0.95f)
-    val s3 = (highlightSplit / 100f).coerceIn(s2 + 0.02f, 0.98f)
-
-    // Smooth bell weights for each of the 4 tonal zones anchored at 0 and 1
-    val envelope = 4f * t * (1f - t)
-    val wShadows = ((1f - (t / s2).coerceIn(0f, 1f)).let { it * it }) * envelope
-    val wDarks =
-        (1f - abs((t - s1) / (s2 - 0f).coerceAtLeast(0.05f)).coerceIn(0f, 1f)).let { it * it } *
-            envelope
-    val wLights =
-        (1f - abs((t - s3) / (1f - s2).coerceAtLeast(0.05f)).coerceIn(0f, 1f)).let { it * it } *
-            envelope
-    val wHighlights = (((t - s2) / (1f - s2).coerceAtLeast(0.05f)).coerceIn(0f, 1f).let { it * it }) *
-        envelope
-
-    val delta =
-        (shadows / 100f) * 0.22f * wShadows +
-            (darks / 100f) * 0.22f * wDarks +
-            (lights / 100f) * 0.22f * wLights +
-            (highlights / 100f) * 0.22f * wHighlights
-    return (t + delta).coerceIn(0f, 1f)
-}
-
 @Composable
 internal fun ParametricToneCurvePlot(
     state: MapleState,
@@ -138,6 +101,21 @@ internal fun ParametricToneCurvePlot(
     val sSplit = state.values["parametric_shadow_split"] ?: 25f
     val mSplit = state.values["parametric_midtone_split"] ?: 50f
     val hSplit = state.values["parametric_highlight_split"] ?: 75f
+    val xml = remember(shadows, darks, lights, highlights, sSplit, mSplit, hSplit) {
+        state.document.serialize()
+    }
+    val curve by produceState<Result<List<Offset>>?>(null, xml) {
+        value = null
+        value = withContext(Dispatchers.Default) {
+            runCatching {
+                val points = JSONArray(NativeBridge.parametricCurve(xml))
+                List(points.length()) { index ->
+                    val point = points.getJSONArray(index)
+                    Offset(point.getDouble(0).toFloat(), point.getDouble(1).toFloat())
+                }
+            }
+        }
+    }
 
     Column(
         modifier
@@ -186,32 +164,19 @@ internal fun ParametricToneCurvePlot(
                     end = Offset(w, 0f),
                     strokeWidth = 1.dp.toPx(),
                 )
-                // Evaluated tone curve path
-                val steps = 48
-                val path = Path()
-                for (step in 0..steps) {
-                    val xNorm = step.toFloat() / steps.toFloat()
-                    val yNorm =
-                        evaluateParametricCurveAt(
-                            x = xNorm,
-                            shadows = shadows,
-                            darks = darks,
-                            lights = lights,
-                            highlights = highlights,
-                            shadowSplit = sSplit,
-                            midtoneSplit = mSplit,
-                            highlightSplit = hSplit,
-                        )
-                    val px = xNorm * w
-                    val py = (1f - yNorm) * h
-                    if (step == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                curve?.getOrNull()?.let { points ->
+                    val path = Path()
+                    points.forEachIndexed { index, point ->
+                        val px = point.x * w
+                        val py = (1f - point.y) * h
+                        if (index == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                    }
+                    drawPath(path, MapleColors.primary, style = Stroke(width = 2.dp.toPx()))
                 }
-                drawPath(
-                    path = path,
-                    color = MapleColors.primary,
-                    style = Stroke(width = 2.dp.toPx()),
-                )
             }
+        }
+        if (curve?.isFailure == true) {
+            Text("Curve preview unavailable", color = MapleColors.muted, fontSize = 10.sp)
         }
         Row(
             Modifier.fillMaxWidth().padding(top = 4.dp),

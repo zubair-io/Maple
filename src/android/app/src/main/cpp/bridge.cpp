@@ -13,6 +13,7 @@ void maple_android_close_renderer(void *);
 void *maple_android_open(void *, const char *, const char *, uint32_t);
 void maple_android_close(void *);
 char *maple_android_values(void *);
+char *maple_android_parametric_curve(const char *);
 void *maple_android_auto_wb_new(void *, const char *);
 char *maple_android_auto_wb_run(const void *);
 void maple_android_auto_wb_free(void *);
@@ -108,6 +109,15 @@ extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_close(JNIEnv *, jobject, jlong handle) { delete editor(handle); }
 extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBridge_values(JNIEnv *env, jobject, jlong handle) {
     char *value = maple_android_values(editor(handle)->core);
+    if (!value) { check(env, -1); return nullptr; }
+    jstring result = env->NewStringUTF(value);
+    maple_android_free_string(value);
+    return result;
+}
+extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBridge_parametricCurve(JNIEnv *env, jobject, jstring xml) {
+    Utf8 x(env, xml);
+    if (env->ExceptionCheck()) return nullptr;
+    char *value = maple_android_parametric_curve(x.get());
     if (!value) { check(env, -1); return nullptr; }
     jstring result = env->NewStringUTF(value);
     maple_android_free_string(value);

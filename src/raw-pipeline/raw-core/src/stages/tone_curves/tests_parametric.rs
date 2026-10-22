@@ -412,3 +412,41 @@ fn darks_lightens_the_lower_midtones() {
     }
     assert!(gain_at(s, 0.09) > 1.4, "darks=+100 barely moves its centre");
 }
+
+#[test]
+fn editor_plot_matches_the_scene_stage_for_mixed_sliders_and_split_positions() {
+    use crate::image::{ColorSpace, Image};
+    use crate::xmp::AdjustmentModel;
+    for sliders in [
+        [0.0; 4],
+        [70.0, -45.0, 30.0, -80.0],
+        [-100.0, 100.0, -100.0, 100.0],
+    ] {
+        let model = AdjustmentModel {
+            parametric_shadows: sliders[0],
+            parametric_darks: sliders[1],
+            parametric_lights: sliders[2],
+            parametric_highlights: sliders[3],
+            parametric_shadow_split: 18.0,
+            parametric_midtone_split: 45.0,
+            parametric_highlight_split: 82.0,
+            ..Default::default()
+        };
+        let points = super::parametric_curve_preview(&model);
+        let pixels = points
+            .iter()
+            .map(|(x, _)| [x * super::evaluator::REF_MAX; 3])
+            .collect();
+        let mut image = Image {
+            width: points.len() as u32,
+            height: 1,
+            pixels,
+            space: ColorSpace::SceneLinearRec2020,
+            ..Image::new(points.len() as u32, 1, ColorSpace::SceneLinearRec2020)
+        };
+        super::apply(&mut image, &model);
+        for ((_, y), pixel) in points.iter().zip(&image.pixels) {
+            assert!((y - pixel[0] / super::evaluator::REF_MAX).abs() < 1e-5);
+        }
+    }
+}

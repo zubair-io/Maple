@@ -65,6 +65,32 @@ const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 /// pipeline output.
 const PARAMETRIC_EPSILON: f32 = 1e-3;
 
+/// The editor plot samples the very same prepared curve used by the scene stage,
+/// in the normalized authoring domain, including the stage's high-end soft knee
+/// and identity bypass. This does not modify any image pixels.
+pub fn parametric_curve_preview(model: &AdjustmentModel) -> Vec<(f32, f32)> {
+    let active = [
+        model.parametric_shadows,
+        model.parametric_darks,
+        model.parametric_lights,
+        model.parametric_highlights,
+    ]
+    .iter()
+    .any(|value| value.abs() >= PARAMETRIC_EPSILON);
+    let prepared = active.then(|| build_parametric_curve(model));
+    (0..=128)
+        .map(|index| {
+            let x = index as f32 / 128.0;
+            (
+                x,
+                prepared.as_ref().map_or(x, |curve| {
+                    eval_curve_scene_linear(curve, x * evaluator::REF_MAX) / evaluator::REF_MAX
+                }),
+            )
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------------
 // Public stage entry point
 // ---------------------------------------------------------------------

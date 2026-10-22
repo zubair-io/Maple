@@ -36,21 +36,6 @@ class PresetsAndScopesTest {
     }
 
     @Test
-    fun parametricCurveEvaluatesIdentityAtZeroAndBendsInZones() {
-        for (x in listOf(0f, 0.25f, 0.5f, 0.75f, 1f)) {
-            assertEquals(x, evaluateParametricCurveAt(x), 1e-4f)
-        }
-        val liftedShadows = evaluateParametricCurveAt(0.2f, shadows = 60f)
-        assertTrue("Positive shadows should lift dark-zone curve", liftedShadows > 0.2f)
-
-        val pulledHighlights = evaluateParametricCurveAt(0.8f, highlights = -60f)
-        assertTrue("Negative highlights should lower bright-zone curve", pulledHighlights < 0.8f)
-
-        assertEquals(0f, evaluateParametricCurveAt(0f, shadows = 100f, highlights = 100f), 1e-5f)
-        assertEquals(1f, evaluateParametricCurveAt(1f, shadows = -100f, highlights = -100f), 1e-5f)
-    }
-
-    @Test
     fun rgbHistogramReductionProducesWaveformAndParadeColumns() {
         val width = 8
         val height = 4

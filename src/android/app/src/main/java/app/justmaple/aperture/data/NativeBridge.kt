@@ -18,6 +18,8 @@ object NativeBridge {
 
     external fun values(handle: Long): String
 
+    external fun parametricCurve(xml: String): String
+
     external fun createAutoWhiteBalance(handle: Long, xml: String): Long
     external fun runAutoWhiteBalance(work: Long): String
     external fun closeAutoWhiteBalance(work: Long)

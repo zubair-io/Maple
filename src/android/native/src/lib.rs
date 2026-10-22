@@ -142,6 +142,19 @@ pub unsafe extern "C" fn maple_android_values(handle: *mut c_void) -> *mut c_cha
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn maple_android_parametric_curve(xml: *const c_char) -> *mut c_char {
+    guarded(ptr::null_mut(), || {
+        let model = xmp::parse(text(xml)?)?;
+        let points = raw_core::stages::tone_curves::parametric_curve_preview(&model);
+        Ok(
+            CString::new(serde_json::to_string(&points).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?
+                .into_raw(),
+        )
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn maple_android_auto_wb_new(
     handle: *mut c_void,
     xml: *const c_char,
