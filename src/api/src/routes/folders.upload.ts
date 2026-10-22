@@ -17,6 +17,7 @@ import type { FolderWithId } from '../db/schema.ts';
 import type { ObjectId } from '../db/object-id.ts';
 import { child } from '../log.ts';
 import { errnoCode, LINK_UNSUPPORTED, PublishCollisionError } from '../fs/relocate-publish.ts';
+import { withPrimaryReplacement } from '../fs/primary-replacement-admission';
 import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
 import {
   captureUploadedSidecarAdmission,
@@ -236,6 +237,19 @@ async function announceUploadedFile(input: UploadTarget, assetId: ObjectId | nul
   });
 }
 export async function finalizeUploadedFile(input: UploadTarget) {
+  if (isSidecarUpload(input.filename)) return finalizeUpload(input);
+  // Raw uploads also replace a primary between owner lookup and scope capture.
+  // Keep their whole publication in the same generation as move/copy Replace.
+  try {
+    return await withPrimaryReplacement([input.absPath], () => finalizeUpload(input));
+  } catch (error) {
+    // Admission can fail before finalizeUpload owns the temporary file.
+    await removeFailedUpload(input.tmp);
+    throw error;
+  }
+}
+
+async function finalizeUpload(input: UploadTarget) {
   try {
     const trashed = await trashExistingUpload(input);
     await publishUploadedBody(input);

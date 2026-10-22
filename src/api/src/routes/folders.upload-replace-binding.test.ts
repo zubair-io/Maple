@@ -1,5 +1,5 @@
 /** Streamed sidecars cannot attach a displaced photo's edits to its replacement. */
-import { expect, test } from 'bun:test';
+import { expect, test, spyOn } from 'bun:test';
 import { Elysia } from 'elysia';
 import * as path from 'node:path';
 import { recoveryFixture } from '../cloud-backup/restore.test-helpers';
@@ -7,6 +7,7 @@ import { insertFolder } from '../db/sqlite/test-sqlite.test-helpers';
 import { readFile, stat, writeFile } from '../fs/mirrored';
 import { relocateFile } from '../fs/relocate';
 import { foldersRoutes } from './folders';
+import * as mirrored from '../fs/mirrored';
 import { fakeAuth } from '../../tests/helpers/test-auth';
 
 for (const mode of ['copy', 'move'] as const) {
@@ -14,6 +15,7 @@ for (const mode of ['copy', 'move'] as const) {
     'photo.xmp',
     'photo.dng.xmp',
     'photo.v12345678-1234-1234-1234-123456789abc.xmp',
+    'PHOTO.V12345678-1234-1234-1234-123456789ABC.XMP',
     'photo (conflict from Device).xmp',
   ]) {
     test(`${mode} Replace fences a streamed ${filename} admitted for the displaced photo`, async () => {
@@ -81,3 +83,48 @@ for (const mode of ['copy', 'move'] as const) {
     });
   }
 }
+
+test('a same-name raw upload crossing owner lookup refuses the older sidecar upload', async () => {
+  const f = await recoveryFixture();
+  const destination = path.join(f.root, 'photo.dng');
+  const sidecar = path.join(f.root, 'photo.xmp');
+  let listing: ReturnType<typeof spyOn> | undefined;
+  try {
+    await writeFile(destination, 'displaced original');
+    const id = insertFolder(f.live.db, { path: f.root });
+    const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
+    const original = mirrored.readdir;
+    let replaced = false;
+    listing = spyOn(mirrored, 'readdir').mockImplementation((async (
+      ...args: Parameters<typeof original>
+    ) => {
+      const names = await original(...args);
+      if (!replaced && String(args[0]) === f.root) {
+        replaced = true;
+        const response = await app.handle(
+          new Request(`http://localhost/api/folders/${id}/upload`, {
+            method: 'POST',
+            headers: { 'X-Maple-Target-Path': 'photo.dng' },
+            body: 'incoming original',
+          }),
+        );
+        expect(response.status).toBe(201);
+      }
+      return names;
+    }) as typeof original);
+    const response = await app.handle(
+      new Request(`http://localhost/api/folders/${id}/upload`, {
+        method: 'POST',
+        headers: { 'X-Maple-Target-Path': 'photo.xmp' },
+        body: 'displaced photo edits',
+      }),
+    );
+    expect(replaced).toBe(true);
+    expect({ status: response.status, body: await response.text() }).toMatchObject({ status: 409 });
+    expect(await readFile(destination, 'utf8')).toBe('incoming original');
+    await expect(stat(sidecar)).rejects.toThrow();
+  } finally {
+    listing?.mockRestore();
+    await f.close();
+  }
+});

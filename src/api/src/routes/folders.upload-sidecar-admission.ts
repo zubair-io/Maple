@@ -41,7 +41,7 @@ export async function captureUploadedSidecarAdmission(
   file: string,
 ): Promise<UploadedSidecarAdmission | undefined> {
   const name = path.basename(file);
-  const base = workflowSidecarBase(name) ?? pairedBase.exec(name)?.[1] ?? null;
+  const base = workflowSidecarBase(folded(name)) ?? pairedBase.exec(name)?.[1] ?? null;
   if (base === null) return undefined;
   const directory = path.dirname(file);
   const familySidecar = path.join(directory, base + '.xmp');
