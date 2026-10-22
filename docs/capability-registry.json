@@ -925,19 +925,20 @@
         "src/api/src/fs/sidecar-io.ts",
         "src/api/src/fs/sidecar-write-order.ts",
         "src/api/src/fs/xmp-conditional.ts",
-        "src/api/src/fs/xmp.ts"
+        "src/api/src/fs/xmp.ts",
+        "src/api/src/fs/xmp-sidecar-path.ts"
       ],
-      "corpus_hash": "blake3:96a1fa2156b40e0949e1d9b75920e95b6988c2a25c8dac21d98493a3dd577892",
+      "corpus_hash": "blake3:bbc3590e990ae8a418ff7f3140a1ee182053b55a9aa8e8ca14fa7d4036ebea0b",
       "status": "satisfied",
       "record": {
         "backend": "bun",
-        "corpus_hash": "blake3:96a1fa2156b40e0949e1d9b75920e95b6988c2a25c8dac21d98493a3dd577892",
+        "corpus_hash": "blake3:bbc3590e990ae8a418ff7f3140a1ee182053b55a9aa8e8ca14fa7d4036ebea0b",
         "expected_cases": 4,
         "executed_cases": 4,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "f6f610e793356288d8b2d25ed513256c25fcac96",
-        "recorded_at": "2026-10-22T12:05:55Z",
+        "git_sha": "d3b2635830b5426e9d49535a1a92b52f5f99dd26",
+        "recorded_at": "2026-10-22T12:13:59Z",
         "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts"
       }
     },

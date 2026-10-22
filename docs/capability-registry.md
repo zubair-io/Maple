@@ -312,8 +312,8 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Covers: `web`
 - Accepted backends: `bun`
 - Expected cases: 4
-- Corpus: `src/api/src/routes/xmp.sidecar-contract.test.ts`, `src/api/src/routes/xmp.ts`, `src/api/src/routes/xmp-change.ts`, `src/api/src/routes/xmp-path-auth.ts`, `src/api/src/routes/folders.upload.ts`, `src/api/src/routes/folders.upload-sidecar-admission.ts`, `src/api/src/fs/primary-replacement-admission.ts`, `src/api/src/fs/relocate-replace-fence.ts`, `src/api/src/xmp`, `src/api/src/fs/sidecar-io.ts`, `src/api/src/fs/sidecar-write-order.ts`, `src/api/src/fs/xmp-conditional.ts`, `src/api/src/fs/xmp.ts`
-- Record: satisfied — 4 of 4 executed, 0 failed, 0 skipped, on `bun`, commit `f6f610e793356288d8b2d25ed513256c25fcac96`, recorded 2026-10-22T12:05:55Z
+- Corpus: `src/api/src/routes/xmp.sidecar-contract.test.ts`, `src/api/src/routes/xmp.ts`, `src/api/src/routes/xmp-change.ts`, `src/api/src/routes/xmp-path-auth.ts`, `src/api/src/routes/folders.upload.ts`, `src/api/src/routes/folders.upload-sidecar-admission.ts`, `src/api/src/fs/primary-replacement-admission.ts`, `src/api/src/fs/relocate-replace-fence.ts`, `src/api/src/xmp`, `src/api/src/fs/sidecar-io.ts`, `src/api/src/fs/sidecar-write-order.ts`, `src/api/src/fs/xmp-conditional.ts`, `src/api/src/fs/xmp.ts`, `src/api/src/fs/xmp-sidecar-path.ts`
+- Record: satisfied — 4 of 4 executed, 0 failed, 0 skipped, on `bun`, commit `d3b2635830b5426e9d49535a1a92b52f5f99dd26`, recorded 2026-10-22T12:13:59Z
 
 ### `gpu_chain_parity_lavapipe`
 
