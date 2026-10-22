@@ -145,20 +145,41 @@ final class SMBSidecarOwnershipTests: XCTestCase {
     XCTAssertEqual(after, before)
   }
 
-  func testAShareWithoutFileIdsTreatsCaseFoldedEqualSidecarsAsOneFile() async throws {
+  func testAShareWithoutFileIdsDoesNotProveCaseFoldedEqualSidecarsAreOneFile() async throws {
     let t = FakeSMBTransport()
     await t.seed("<a/>", at: "/Shoot/IMG.xmp")
     await t.seed("<b/>", at: "/Shoot/img.xmp")
 
-    let withIds = await SidecarOwnership.sameSMBFile("/Shoot/IMG.xmp", "/Shoot/img.xmp", transport: t)
+    let withIds = await SidecarOwnership.sameSMBFile(
+      "/Shoot/IMG.xmp", "/Shoot/img.xmp", transport: t)
     XCTAssertFalse(withIds)
 
     await t.setReportsFileIdentity(false)
     let withoutIds = await SidecarOwnership.sameSMBFile(
       "/Shoot/IMG.xmp", "/Shoot/img.xmp", transport: t)
-    XCTAssertTrue(withoutIds, "an unknown identity lands on the never-delete side")
-    let different = await SidecarOwnership.sameSMBFile("/Shoot/IMG.xmp", "/Shoot/X.xmp", transport: t)
+    XCTAssertFalse(withoutIds, "unknown identity must not bypass a destination collision")
+    let different = await SidecarOwnership.sameSMBFile(
+      "/Shoot/IMG.xmp", "/Shoot/X.xmp", transport: t)
     XCTAssertFalse(different)
+  }
+
+  func testCaseOnlyRenameWithoutFileIdsPreservesAnOccupiedSidecarAndPrimary() async throws {
+    let t = FakeSMBTransport()
+    await t.setReportsFileIdentity(false)
+    await t.seed("raw", at: "/Shoot/IMG.CR3")
+    await t.seed("<source/>", at: "/Shoot/IMG.xmp")
+    await t.seed("<unrelated/>", at: "/Shoot/img.xmp")
+    let before = await t.allFiles()
+
+    do {
+      _ = try await SMBFileOperations.relocate(
+        "/Shoot/IMG.CR3", to: "/Shoot", newBasename: "img.cr3", mode: .move, collision: .fail,
+        transport: t)
+      XCTFail("unknown identity must collide before moving the primary")
+    } catch FileOperationError.destinationExists {}
+
+    let after = await t.allFiles()
+    XCTAssertEqual(after, before)
   }
 
   func testCaseOnlyRenameOnACaseSensitiveShareStillTakesAnUnsharedSidecar() async throws {
