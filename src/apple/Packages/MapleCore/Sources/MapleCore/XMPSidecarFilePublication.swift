@@ -36,7 +36,7 @@ enum XMPSidecarFilePublication {
 
   /// A sidecar already holding the expected bytes may still be undurable
   /// (restored, copied, or published without fsync). Reconfirm it in place.
-  /// Foundation for the removal checkpoint adoption in #3940; no caller yet.
+  /// Also confirms idempotent workflow publications before acknowledging them.
   static func confirmExisting(_ xml: String, at destination: URL) throws {
     let handle = try FileHandle(forReadingFrom: destination)
     defer { try? handle.close() }
