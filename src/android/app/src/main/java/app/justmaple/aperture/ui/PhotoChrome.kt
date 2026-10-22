@@ -219,6 +219,7 @@ internal fun CompareBeforeAfterButton(
                         waitForUpOrCancellation()
                         return@awaitEachGesture
                     }
+                    val latchedBefore = currentComparing
                     var finishedBeforeTimeout = false
                     val upBeforeHold =
                         withTimeoutOrNull(BEFORE_AFTER_HOLD_THRESHOLD_MS) {
@@ -234,8 +235,11 @@ internal fun CompareBeforeAfterButton(
                     } else {
                         // Press-and-hold (>=300ms): peek Before until finger lifts
                         currentCallback(true)
-                        waitForUpOrCancellation()
-                        currentCallback(false)
+                        try {
+                            waitForUpOrCancellation()
+                        } finally {
+                            currentCallback(latchedBefore)
+                        }
                     }
                 }
             }

@@ -37,6 +37,31 @@ class CanvasZoomAndBeforeAfterTest {
     @get:Rule val compose = createComposeRule()
 
     @Test
+    fun doubleTapSelects100PercentEvenWhenFitAlreadyEnlargesTheImage() {
+        val zoom = CanvasZoomState()
+        zoom.doubleTap(600f, 450f, 1000, 750, 1200f, 900f)
+        assertEquals(1f, zoom.pixelScale, 0f)
+        assertEquals("100%", zoom.badgeLabel(1000, 750, 1200f, 900f))
+        zoom.doubleTap(600f, 450f, 1000, 750, 1200f, 900f)
+        assertFalse(zoom.isZoomed)
+    }
+
+    @Test
+    fun holdingBeforeRestoresItsExistingLatchAfterReleaseAndCancellation() {
+        var comparing by mutableStateOf(true)
+        compose.setContent {
+            CompareBeforeAfterButton(true, comparing, { comparing = it }, Modifier.testTag("compare-latched"))
+        }
+        val button = compose.onNodeWithTag("compare-latched")
+        for (cancelled in listOf(false, true)) {
+            button.performTouchInput { down(Offset(20f, 20f)); advanceEventTime(350L) }
+            compose.mainClock.advanceTimeBy(350L)
+            button.performTouchInput { if (cancelled) cancel() else up() }
+            compose.runOnIdle { assertTrue("A hold must retain the previous latch", comparing) }
+        }
+    }
+
+    @Test
     fun fitScaleAndDoubleTapToggleOneToOnePixels() {
         val zoom = CanvasZoomState()
         // 4000x3000 image in a 1000x750 viewport -> fitScale = 0.25 (25%)

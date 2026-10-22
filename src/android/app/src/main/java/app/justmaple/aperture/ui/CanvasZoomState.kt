@@ -199,8 +199,7 @@ class CanvasZoomState(
             return
         }
         val fit = fitScale(imageWidth, imageHeight, viewportWidth, viewportHeight)
-        val targetScale =
-            if (fit >= 0.95f) min(MAX_PIXEL_SCALE, fit * 2.5f) else ONE_TO_ONE_PIXEL_SCALE
+        val targetScale = ONE_TO_ONE_PIXEL_SCALE
         val relX = tapX - viewportWidth / 2f
         val relY = tapY - viewportHeight / 2f
         val scaleRatio = targetScale / fit
