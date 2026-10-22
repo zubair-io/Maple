@@ -37,6 +37,13 @@ async function familyOwners(primarySidecar: string): Promise<string[]> {
   return owners.filter((file): file is string => file !== null).sort();
 }
 
+async function preferredFamily(file: string, fallback: string) {
+  const literalOwners = await familyOwners(file);
+  return literalOwners.length > 0 || file === fallback
+    ? { familySidecar: file, owners: literalOwners }
+    : { familySidecar: fallback, owners: await familyOwners(fallback) };
+}
+
 export async function captureUploadedSidecarAdmission(
   file: string,
 ): Promise<UploadedSidecarAdmission | undefined> {
@@ -44,33 +51,37 @@ export async function captureUploadedSidecarAdmission(
   const base = workflowSidecarBase(folded(name)) ?? pairedBase.exec(name)?.[1] ?? null;
   if (base === null) return undefined;
   const directory = path.dirname(file);
-  const familySidecar = path.join(directory, base + '.xmp');
-  // Reject a Replace crossing the asynchronous owner lookup itself. Once
-  // admitted, concrete primary identities and the family lane cover the wait.
+  const parsedFamily = path.join(directory, base + '.xmp');
+  // Register both candidates before reading either. A real canonical owner
+  // takes precedence over suffix-looking stems, including UUID/conflict names.
+  const literal = await guardPrimaryFamilyLookup(file, () =>
+    guardPrimaryFamilyLookup(parsedFamily, async () => {
+      const binding = await preferredFamily(file, parsedFamily);
+      const legacyOwner = binding.owners.find(
+        (owner) => folded(owner + '.xmp') === folded(binding.familySidecar),
+      );
+      const lane = legacyOwner ? xmpSidecarPath(legacyOwner) : binding.familySidecar;
+      const capturedScopes = await Promise.all(
+        binding.owners.map((owner) => captureSidecarWriteScope(owner, directory)),
+      );
+      return { ...binding, primarySidecar: lane, scopes: capturedScopes };
+    }),
+  );
   const {
-    value: { owners, primarySidecar, scopes },
-    crossed,
-  } = await guardPrimaryFamilyLookup(familySidecar, async () => {
-    const foundOwners = await familyOwners(familySidecar);
-    // Full-name photo backups remain potential members until their uploaded
-    // XML can be classified. Reserve their real canonical lane as well.
-    const legacyOwner = foundOwners.find(
-      (owner) => folded(owner + '.xmp') === folded(familySidecar),
-    );
-    const lane = legacyOwner ? xmpSidecarPath(legacyOwner) : familySidecar;
-    const capturedScopes = await Promise.all(
-      foundOwners.map((owner) => captureSidecarWriteScope(owner, directory)),
-    );
-    return { owners: foundOwners, primarySidecar: lane, scopes: capturedScopes };
-  });
+    value: { owners, familySidecar, primarySidecar, scopes },
+    crossed: parsedCrossed,
+  } = literal.value;
+  const crossed = literal.crossed || (familySidecar !== file && parsedCrossed);
   return {
     primarySidecar,
     scope: {
       directory,
       async validate() {
-        const current = await familyOwners(familySidecar);
+        const currentBinding = await preferredFamily(file, parsedFamily);
+        const current = currentBinding.owners;
         if (
           crossed ||
+          currentBinding.familySidecar !== familySidecar ||
           current.length !== owners.length ||
           current.some((owner, index) => owner !== owners[index])
         ) {

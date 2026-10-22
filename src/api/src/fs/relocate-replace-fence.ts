@@ -10,16 +10,32 @@ export async function withReplaceSidecarFence<T>(
   mode: 'move' | 'copy',
   operation: () => Promise<T>,
 ): Promise<T> {
-  const paired = await Promise.all([listPairedSidecars(source), listPairedSidecars(destination)]);
+  return withPrimarySidecarFence(
+    [source, destination],
+    mode === 'move' ? [source, destination] : [destination],
+    operation,
+  );
+}
+
+/** An upload must also wait for sidecar publishers that already validated. */
+export function withUploadedPrimaryFence<T>(
+  primary: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return withPrimarySidecarFence([primary], [primary], operation);
+}
+
+async function withPrimarySidecarFence<T>(
+  primaries: string[],
+  replaced: string[],
+  operation: () => Promise<T>,
+): Promise<T> {
+  const paired = await Promise.all(primaries.map(listPairedSidecars));
   return serializeSidecarWrites(
     [
-      xmpSidecarPath(source),
-      source + '.xmp',
-      xmpSidecarPath(destination),
-      destination + '.xmp',
+      ...primaries.flatMap((primary) => [xmpSidecarPath(primary), primary + '.xmp']),
       ...paired.flat(),
     ],
-    () =>
-      withPrimaryReplacement(mode === 'move' ? [source, destination] : [destination], operation),
+    () => withPrimaryReplacement(replaced, operation),
   );
 }
