@@ -1,4 +1,5 @@
 use super::*;
+use raw_core::pipeline::RenderQuality;
 use raw_core::view::auto_profile::{lut::ColorLut, ProfileCurve};
 use std::{ffi::CString, path::Path, ptr};
 

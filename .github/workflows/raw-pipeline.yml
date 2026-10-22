@@ -387,6 +387,12 @@ jobs:
         working-directory: src/raw-pipeline
         run: cargo test -p raw-ffi --features gpu --lib gpu_auto_profile::sized::tests
 
+      # 2b. #5158: the separate-artifact fit honours every develop quality wire
+      #     value (AMaZE/Auto must not collapse to Preview). CPU-only, cache-seeded.
+      - name: Auto Profile fit quality-wire guards
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-ffi --features gpu --lib auto_profile_quality_tests
+
       # 3. Retained composition against the isolated residual kernel (#4212).
       - name: Retained Auto composition residual-kernel parity
         working-directory: src/raw-pipeline
