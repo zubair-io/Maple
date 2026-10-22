@@ -46,6 +46,8 @@ public class ColorGradeZoneWeightsTests
     [InlineData(0.9, 0.10, 0.564622, 0.564622)]
     [InlineData(0.5602, 0.564622, 0.90, 0.564622)]
     [InlineData(0.2514, 0.10, 0.564622, 0.251)]
+    [InlineData(0.3125, 0.10, 0.564622, 0.313)]
+    [InlineData(0.8125, 0.564622, 0.90, 0.813)]
     [InlineData(0.02, 0.10, 0.564622, 0.10)]
     [InlineData(0.95, 0.564622, 0.90, 0.90)]
     public void EdgeDragRoundsSnapsToTheAnchorAndClampsLikeTheOtherPlatforms(
