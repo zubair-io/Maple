@@ -241,7 +241,7 @@ private fun formatCropScalar(v: Float): String {
     return if (text == "-0" || text.isEmpty()) "0" else text
 }
 
-fun MapleViewModel.applyCropRect(crop: CropRect) {
+fun MapleViewModel.applyCropRect(crop: CropRect, commit: Boolean = true) {
     val clampedAngle = crop.angle.coerceIn(-45f, 45f)
     val nonDefaultRect = !crop.isIdentityRect
     val nonDefaultAngle = abs(clampedAngle) >= 1e-4f
@@ -254,7 +254,8 @@ fun MapleViewModel.applyCropRect(crop: CropRect) {
             "crs:CropBottom" to if (nonDefaultRect) formatCropScalar(crop.bottom) else null,
             "crs:CropRight" to if (nonDefaultRect) formatCropScalar(crop.right) else null,
             "crs:CropAngle" to if (nonDefaultAngle) formatCropScalar(clampedAngle) else null,
-        )
+        ),
+        commit = commit,
     )
 }
 
@@ -323,8 +324,12 @@ internal fun CropControlsSection(
             Slider(
                 value = crop.angle,
                 onValueChange = { nextAngle ->
-                    model.applyCropRect(crop.copy(angle = nextAngle.coerceIn(-45f, 45f)))
+                    model.applyCropRect(
+                        crop.copy(angle = nextAngle.coerceIn(-45f, 45f)),
+                        commit = false,
+                    )
                 },
+                onValueChangeFinished = model::commitGesture,
                 valueRange = -45f..45f,
                 enabled = state.canEdit,
                 modifier =
@@ -370,10 +375,12 @@ internal fun CropControlsSection(
 internal fun CropOverlay(
     crop: CropRect,
     onCropChange: (CropRect) -> Unit,
+    onCropCommit: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val currentCrop by rememberUpdatedState(crop)
     val currentCallback by rememberUpdatedState(onCropChange)
+    val currentCommit by rememberUpdatedState(onCropCommit)
     Canvas(
         modifier
             .fillMaxSize()
@@ -394,8 +401,10 @@ internal fun CropOverlay(
                             tol = 36f,
                         ) ?: return@awaitEachGesture
                     var lastPos = down.position
+                    var moved = false
                     do {
                         val event = awaitPointerEvent()
+                        if (event.changes.count { it.pressed } > 1) break
                         val change = event.changes.firstOrNull { it.pressed } ?: break
                         if (change.positionChanged()) {
                             val pos = change.position
@@ -415,10 +424,12 @@ internal fun CropOverlay(
                                     )
                                 }
                             lastPos = pos
+                            moved = true
                             currentCallback(updated)
                             change.consume()
                         }
                     } while (event.changes.any { it.pressed })
+                    if (moved) currentCommit()
                 }
             }
             .testTag("crop-overlay")
