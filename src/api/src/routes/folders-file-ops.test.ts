@@ -14,7 +14,17 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { lstat, mkdtemp, readFile, rm, symlink, writeFile, mkdir, stat } from 'node:fs/promises';
+import {
+  lstat,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+  mkdir,
+  stat,
+  readdir,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import {
@@ -236,6 +246,20 @@ describe('non-asset file delete/relocate routes', () => {
     expect((await moving).status).toBe(200);
     expect(await readFile(nodePath.join(folderPath, 'moved.xmp'), 'utf8')).toBe('saved meanwhile');
     await expect(stat(sourceAbs)).rejects.toThrow();
+  });
+
+  it('preserves the requested leaf spelling for a case-only raw-sidecar rename', async () => {
+    await writeFile(nodePath.join(folderPath, 'photo.xmp'), '<edits/>');
+    const renamed = await postRelocate({
+      source_path: 'photo.xmp',
+      mode: 'move',
+      collision: 'auto-suffix',
+      destination_path: '',
+      destination_filename: 'PHOTO.xmp',
+    });
+    expect(renamed.status).toBe(200);
+    expect(await readdir(folderPath)).toEqual(['PHOTO.xmp']);
+    expect(await readFile(nodePath.join(folderPath, 'PHOTO.xmp'), 'utf8')).toBe('<edits/>');
   });
 
   it('a raw .xmp Replace through a symlinked folder waits for a save to the real file (#5134)', async () => {
