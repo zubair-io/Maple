@@ -1,6 +1,7 @@
 /** Save admission across Replace publication and verified copy-based rollback (#5165). */
 import * as path from 'node:path';
 import { realpath, stat } from './mirrored';
+import { xmpSidecarPath } from './xmp-sidecar-path';
 
 interface Replacement {
   active: boolean;
@@ -8,11 +9,29 @@ interface Replacement {
   restored: string | null;
 }
 const replacements = new Map<string, Replacement>();
-let epoch = 0;
+const familyLookups = new Map<string, Set<{ crossed: boolean }>>();
+const familyKeys = (primary: string) => [xmpSidecarPath(primary), primary + '.xmp'];
 
-/** Capture-time guard: owner lookup must not straddle a primary publication. */
-export function primaryReplacementEpoch(): number {
-  return epoch;
+/** Only replacements touching this family can invalidate its owner lookup.
+ * Watchers live exactly as long as the asynchronous capture, so no receipt
+ * eviction or unrelated server activity can lose or manufacture a crossing. */
+export async function guardPrimaryFamilyLookup<T>(sidecar: string, lookup: () => Promise<T>) {
+  const key = await primaryReplacementKey(sidecar);
+  const capture = {
+    crossed: [...replacements].some(
+      ([primary, entry]) => entry.active && familyKeys(primary).includes(key),
+    ),
+  };
+  const watchers = familyLookups.get(key) ?? new Set<{ crossed: boolean }>();
+  familyLookups.set(key, watchers);
+  watchers.add(capture);
+  try {
+    const value = await lookup();
+    return { value, crossed: capture.crossed };
+  } finally {
+    watchers.delete(capture);
+    if (watchers.size === 0) familyLookups.delete(key);
+  }
 }
 
 export async function primaryIdentity(file: string): Promise<string | null> {
@@ -87,10 +106,12 @@ export async function withPrimaryReplacement<T>(files: string[], operation: () =
       return { key, entry };
     }),
   );
-  epoch++;
   for (const { key, entry } of prepared) {
     replacements.delete(key);
     replacements.set(key, entry);
+    for (const family of familyKeys(key)) {
+      for (const capture of familyLookups.get(family) ?? []) capture.crossed = true;
+    }
   }
   try {
     return await operation();

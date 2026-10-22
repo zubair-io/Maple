@@ -94,6 +94,7 @@ pub const fn corpus_paths(source: EvidenceSource) -> &'static [&'static str] {
                     "src/api/src/fs/sidecar-write-order.ts",
                     "src/api/src/fs/xmp-conditional.ts",
                     "src/api/src/fs/xmp.ts",
+                    "src/api/src/fs/xmp-sidecar-path.ts",
                 ]
             }
             EvidenceSource::GpuChainParityLavapipe | EvidenceSource::GpuChainParityMetal => &[

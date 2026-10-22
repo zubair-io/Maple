@@ -4,7 +4,7 @@ import { Elysia } from 'elysia';
 import * as path from 'node:path';
 import { recoveryFixture } from '../cloud-backup/restore.test-helpers';
 import { insertFolder } from '../db/sqlite/test-sqlite.test-helpers';
-import { readFile, stat, writeFile } from '../fs/mirrored';
+import { mkdir, readFile, stat, writeFile } from '../fs/mirrored';
 import { relocateFile } from '../fs/relocate';
 import { foldersRoutes } from './folders';
 import * as mirrored from '../fs/mirrored';
@@ -128,3 +128,59 @@ test('a same-name raw upload crossing owner lookup refuses the older sidecar upl
     await f.close();
   }
 });
+
+for (const otherLibrary of [false, true]) {
+  test(`an unrelated replacement ${otherLibrary ? 'in another library' : 'beside the photo'} does not reject sidecar admission`, async () => {
+    const f = await recoveryFixture();
+    let listing: ReturnType<typeof spyOn> | undefined;
+    try {
+      const otherRoot = otherLibrary ? path.join(f.root, 'other-library') : f.root;
+      await mkdir(otherRoot, { recursive: true });
+      await writeFile(path.join(f.root, 'photo.dng'), 'original photo');
+      await writeFile(path.join(otherRoot, 'unrelated.dng'), 'unrelated original');
+      const id = insertFolder(f.live.db, { path: f.root });
+      const otherId = otherLibrary ? insertFolder(f.live.db, { path: otherRoot }) : id;
+      const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
+      const original = mirrored.readdir;
+      let replaced = false;
+      listing = spyOn(mirrored, 'readdir').mockImplementation((async (
+        ...args: Parameters<typeof original>
+      ) => {
+        const names = await original(...args);
+        if (!replaced && String(args[0]) === f.root) {
+          replaced = true;
+          const response = await app.handle(
+            new Request(`http://localhost/api/folders/${otherId}/upload`, {
+              method: 'POST',
+              headers: { 'X-Maple-Target-Path': 'unrelated.dng' },
+              body: 'unrelated replacement',
+            }),
+          );
+          expect(response.status).toBe(201);
+        }
+        return names;
+      }) as typeof original);
+      const edits =
+        '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description/></rdf:RDF></x:xmpmeta>';
+      const response = await app.handle(
+        new Request(`http://localhost/api/folders/${id}/upload`, {
+          method: 'POST',
+          headers: { 'X-Maple-Target-Path': 'photo.xmp' },
+          body: edits,
+        }),
+      );
+      expect(replaced).toBe(true);
+      expect({ status: response.status, body: await response.text() }).toMatchObject({
+        status: 201,
+      });
+      expect(await readFile(path.join(f.root, 'photo.xmp'), 'utf8')).toBe(edits);
+      expect(await readFile(path.join(f.root, 'photo.dng'), 'utf8')).toBe('original photo');
+      expect(await readFile(path.join(otherRoot, 'unrelated.dng'), 'utf8')).toBe(
+        'unrelated replacement',
+      );
+    } finally {
+      listing?.mockRestore();
+      await f.close();
+    }
+  });
+}

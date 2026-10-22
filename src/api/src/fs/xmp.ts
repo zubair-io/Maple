@@ -29,7 +29,8 @@ import { createHash } from 'node:crypto';
 import type { OpResult } from './root.ts';
 import type { AssetDoc } from '../db/schema.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
-import { isVideoFilename } from '../indexer/media-types.ts';
+import { xmpSidecarPath } from './xmp-sidecar-path';
+export { xmpSidecarPath } from './xmp-sidecar-path';
 import { prepareWorkflowWrite } from '../xmp/workflow-write.ts';
 import {
   serializeSidecarWrite,
@@ -45,25 +46,6 @@ import {
  */
 export function sha256Prefix16(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16);
-}
-
-/**
- * Resolve the expected XMP sidecar path for a given raw/image/video file.
- *
- * Images use the classic stem-swap convention (`IMG_1.ARW` → `IMG_1.xmp`).
- * Videos KEEP their extension and append `.xmp` (`clip.mov` → `clip.mov.xmp`),
- * the industry-standard full-name convention. This is load-bearing for Apple
- * Live Photos, which store the still and the motion clip as two independent
- * same-stem assets (`IMG_1234.HEIC` + `IMG_1234.MOV`). Under stem-swap both
- * would resolve to `IMG_1234.xmp` and clobber each other; full-name for the
- * video gives it its own `IMG_1234.MOV.xmp` and leaves the photo's sidecar
- * untouched. Existing photo sidecars are NOT migrated — only video naming
- * changes.
- */
-export function xmpSidecarPath(rawAbsPath: string): string {
-  if (isVideoFilename(rawAbsPath)) return rawAbsPath + '.xmp';
-  const ext = path.extname(rawAbsPath);
-  return (ext ? rawAbsPath.slice(0, -ext.length) : rawAbsPath) + '.xmp';
 }
 
 /**

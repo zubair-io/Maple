@@ -5,7 +5,7 @@ import { workflowSidecarBase } from '../fs/workflow-sidecar-pairing';
 import { PAIRED_SIDECAR_SUFFIX_PATTERN } from '../generated/filename-vocabulary.generated';
 import { xmpSidecarPath } from '../fs/xmp';
 import { captureSidecarWriteScope } from './xmp-change';
-import { primaryReplacementEpoch } from '../fs/primary-replacement-admission';
+import { guardPrimaryFamilyLookup } from '../fs/primary-replacement-admission';
 import { SidecarWriteBindingChangedError, type SidecarWriteScope } from '../fs/sidecar-write-order';
 
 export interface UploadedSidecarAdmission {
@@ -47,16 +47,22 @@ export async function captureUploadedSidecarAdmission(
   const familySidecar = path.join(directory, base + '.xmp');
   // Reject a Replace crossing the asynchronous owner lookup itself. Once
   // admitted, concrete primary identities and the family lane cover the wait.
-  const epoch = primaryReplacementEpoch();
-  const owners = await familyOwners(familySidecar);
-  // Full-name photo backups remain potential members until their uploaded
-  // XML can be classified. Reserve their real canonical lane as well.
-  const legacyOwner = owners.find((owner) => folded(owner + '.xmp') === folded(familySidecar));
-  const primarySidecar = legacyOwner ? xmpSidecarPath(legacyOwner) : familySidecar;
-  const scopes = await Promise.all(
-    owners.map((owner) => captureSidecarWriteScope(owner, directory)),
-  );
-  const crossed = epoch !== primaryReplacementEpoch();
+  const {
+    value: { owners, primarySidecar, scopes },
+    crossed,
+  } = await guardPrimaryFamilyLookup(familySidecar, async () => {
+    const foundOwners = await familyOwners(familySidecar);
+    // Full-name photo backups remain potential members until their uploaded
+    // XML can be classified. Reserve their real canonical lane as well.
+    const legacyOwner = foundOwners.find(
+      (owner) => folded(owner + '.xmp') === folded(familySidecar),
+    );
+    const lane = legacyOwner ? xmpSidecarPath(legacyOwner) : familySidecar;
+    const capturedScopes = await Promise.all(
+      foundOwners.map((owner) => captureSidecarWriteScope(owner, directory)),
+    );
+    return { owners: foundOwners, primarySidecar: lane, scopes: capturedScopes };
+  });
   return {
     primarySidecar,
     scope: {
