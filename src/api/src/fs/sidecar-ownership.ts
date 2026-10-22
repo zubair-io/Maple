@@ -97,8 +97,8 @@ export async function sidecarStemClaimedBySibling(
 
 /** The positive answer a caller needs before removing a photo and leaving its
  * sidecar to another: a distinct regular media file in the folder shares the
- * stem. Symlinks and plain files never count (a plain file moves alone,
- * #4694), nor does the primary's own entry under another spelling; a
+ * stem. Extensionless regular files may be media and retain ownership.
+ * Symlinks and non-media extensions never count (#4694), nor does the primary's own entry under another spelling; a
  * separately named hard link does. A folder or sibling that can't be read
  * throws, so it is never taken as "owned elsewhere" (#5069). */
 export async function sidecarStemOwnedByAnotherFile(primaryAbsPath: string): Promise<boolean> {
@@ -112,7 +112,9 @@ export async function sidecarStemOwnedByAnotherFile(primaryAbsPath: string): Pro
       !entry.isSymbolicLink() &&
       !entry.name.startsWith('.') &&
       !STAGING_NAME.test(entry.name) &&
-      (isCataloguedFilename(entry.name) || isVideoFilename(entry.name)) &&
+      (isCataloguedFilename(entry.name) ||
+        isVideoFilename(entry.name) ||
+        path.extname(entry.name) === '') &&
       stemOf(entry.name) === stem,
   );
   const distinct = await Array.fromAsync(candidates, async (entry) => {
