@@ -102,6 +102,7 @@ impl DetailRenderer {
                 model,
                 RawInput::Bytes { bytes, ext },
                 DetailRenderOptions {
+                    target: raw_core::view::encode::TargetPrimaries::Srgb,
                     quality: RenderQuality::Preview,
                     max_long_edge: 1600,
                     film_lut: film.as_ref().map(|film| film.lut),
