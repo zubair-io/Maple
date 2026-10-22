@@ -49,7 +49,7 @@ import {
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { setHasXmp, recordSidecarEdit } from '../../db/assets.repo.ts';
 import { resolveAssetLocationOrRespond } from './_shared.ts';
-import { resolveAndAuthorizePath } from '../xmp-path-auth.ts';
+import { resolveAndAuthorizeSidecarWrite } from '../xmp-path-auth.ts';
 
 export const xmpRoutes = new Elysia()
   // Read XMP sidecar
@@ -233,7 +233,7 @@ async function resolveWritableAssetOrRespond(idParam: string, set: { status?: nu
   const resolved = await resolveAssetLocationOrRespond(idParam, set);
   if ('error' in resolved) return resolved;
 
-  const authorized = await resolveAndAuthorizePath(resolved.absPath);
+  const authorized = await resolveAndAuthorizeSidecarWrite(resolved.absPath);
   if (!authorized.ok) {
     set.status = authorized.status;
     return { error: authorized.error };

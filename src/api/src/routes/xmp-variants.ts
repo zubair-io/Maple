@@ -1,7 +1,7 @@
 /** Authorized selected-variant storage (#4040 / #2437). */
 import { Elysia, status, t } from 'elysia';
 import { publishSidecarChange } from './xmp-change';
-import { resolveAndAuthorizePath } from './xmp-path-auth';
+import { resolveAndAuthorizePath, resolveAndAuthorizeSidecarWrite } from './xmp-path-auth';
 import {
   parseSidecarWorkflow,
   PRIMARY_VARIANT_ID,
@@ -42,8 +42,12 @@ export const xmpVariantRoutes = new Elysia()
     if (error instanceof WorkflowVariantError)
       return status(error.status, { error: error.message });
   })
-  .resolve(async ({ query }) => {
-    const authorized = await resolveAndAuthorizePath(query.path);
+  .resolve(async ({ query, request }) => {
+    const authorize =
+      request.method === 'GET' || request.method === 'HEAD'
+        ? resolveAndAuthorizePath
+        : resolveAndAuthorizeSidecarWrite;
+    const authorized = await authorize(query.path);
     if (!authorized.ok) throw new WorkflowVariantError(authorized.status, authorized.error);
     return { rawPath: authorized.data, writeScope: authorized.writeScope };
   })

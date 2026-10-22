@@ -1,5 +1,4 @@
 import { captureSidecarWriteScope } from './xmp-change';
-import type { SidecarWriteScope } from '../fs/sidecar-write-order';
 /**
  * Shared helper: resolve and authorize a caller-supplied file path against
  * registered library roots.
@@ -31,8 +30,7 @@ export async function resolveAndAuthorizePath(
   raw: string | undefined,
   dbOverride?: SqliteDb,
 ): Promise<
-  | { ok: true; data: string; writeScope: SidecarWriteScope }
-  | { ok: false; status: number; error: string }
+  { ok: true; data: string; writeScope: string } | { ok: false; status: number; error: string }
 > {
   if (typeof raw !== 'string' || raw.length === 0) {
     return { ok: false, status: 400, error: 'Missing required path' };
@@ -86,8 +84,27 @@ export async function resolveAndAuthorizePath(
   return {
     ok: true,
     data: normalized,
-    writeScope: await captureSidecarWriteScope(normalized, path.dirname(canonicalPath), dbOverride),
+    writeScope: path.dirname(canonicalPath),
   };
+}
+
+/** Capture a primary/catalog binding only for a sidecar mutation. Reads,
+ * preview-cache uploads and exports need path authorization without edit state. */
+export async function resolveAndAuthorizeSidecarWrite(
+  raw: string | undefined,
+  dbOverride?: SqliteDb,
+) {
+  const authorized = await resolveAndAuthorizePath(raw, dbOverride);
+  return authorized.ok
+    ? {
+        ...authorized,
+        writeScope: await captureSidecarWriteScope(
+          authorized.data,
+          authorized.writeScope,
+          dbOverride,
+        ),
+      }
+    : authorized;
 }
 
 /** Resolve an existing path or preserve its missing tail below a real parent. */

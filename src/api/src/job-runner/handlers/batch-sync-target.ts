@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { stat } from '../../fs/mirrored.ts';
 import { xmpSidecarPath, writeXmpWithPrecondition } from '../../fs/xmp.ts';
 import { safeReadFile, safeWriteAllowed } from '../../fs/root.ts';
-import { resolveAndAuthorizePath } from '../../routes/xmp-path-auth.ts';
+import { resolveAndAuthorizeSidecarWrite } from '../../routes/xmp-path-auth.ts';
 import { applyTransferPatch, type XmpTransferPatch } from '../../xmp/transfer-patch.ts';
 import { relativeWhiteBalancePatch, type WhiteBalanceCorrection } from './batch-white-balance.ts';
 import type { SyncTarget } from './batch-sync-payload.ts';
@@ -34,7 +34,7 @@ async function readSidecar(path: string): Promise<{ xml: string; mtime: number |
 async function authorizedPath(
   target: SyncTarget,
 ): Promise<{ path: string; writeScope: SidecarWriteScope }> {
-  const authorized = await resolveAndAuthorizePath(target.path);
+  const authorized = await resolveAndAuthorizeSidecarWrite(target.path);
   if (!authorized.ok) throw new Error(authorized.error);
   const allowed = await safeWriteAllowed(authorized.data);
   if (!allowed.ok) throw new Error(allowed.error ?? 'Photo is outside the library');
