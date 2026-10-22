@@ -112,6 +112,8 @@ internal fun ControlsInspector(
                 setSubTool,
                 Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
+        if (group == EditorGroup.Light && subTool == "curve")
+            ParametricToneCurvePlot(state)
         if (group == EditorGroup.Color && subTool == "wb")
             WbPresetChips(
                 wbPresets,
@@ -120,6 +122,12 @@ internal fun ControlsInspector(
             )
         if (group == EditorGroup.Color && subTool == "hsl")
             HslBandChips(band, { band = it }, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        if (group == EditorGroup.Effects && subTool == "presets")
+            BuiltInPresetsRow(
+                model,
+                state,
+                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
         if (group == EditorGroup.Detail && subTool == "crop")
             CropControlsSection(model, state, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         val sliderFields =

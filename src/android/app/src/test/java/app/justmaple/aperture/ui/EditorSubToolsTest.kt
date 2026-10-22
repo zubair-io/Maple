@@ -13,7 +13,7 @@ class EditorSubToolsTest {
     }
 
     @Test
-    fun toneCurveUsesFourParametricFieldsFromSchema() {
+    fun toneCurveUsesParametricFieldsFromSchema() {
         val fields = fieldsForSubTool(EditorGroup.Light, "curve")
         assertEquals(
             listOf(
@@ -21,6 +21,9 @@ class EditorSubToolsTest {
                 "parametric_darks",
                 "parametric_lights",
                 "parametric_highlights",
+                "parametric_shadow_split",
+                "parametric_midtone_split",
+                "parametric_highlight_split",
             ),
             fields.map { it.name },
         )
@@ -119,7 +122,7 @@ class EditorSubToolsTest {
 
     @Test
     fun groupsExposeExpectedSubToolsAndFullInspectorFields() {
-        assertEquals(listOf("basic"), subToolsFor(EditorGroup.Effects).map { it.id })
+        assertEquals(listOf("basic", "presets"), subToolsFor(EditorGroup.Effects).map { it.id })
         assertEquals(listOf("basic", "crop"), subToolsFor(EditorGroup.Detail).map { it.id })
         assertEquals(
             EditorGroup.Detail.fields.map { it.name },
