@@ -483,6 +483,9 @@ internal constructor(
         mutable.update { it.copy(cropAspect = id, cropAspectSwapped = swapped) }
     }
 
+    fun hasComparisonEdits(current: MapleState = state.value): Boolean =
+        openingEdit?.let { it != EditSnapshot(current.values, current.document) } ?: false
+
     fun setComparingBefore(before: Boolean) {
         val current = state.value
         if (current.mode != PhotoMode.Edit || current.values.isEmpty()) return

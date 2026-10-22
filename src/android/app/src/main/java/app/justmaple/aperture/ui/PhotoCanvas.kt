@@ -60,6 +60,7 @@ internal fun PhotoCanvas(
         state.values,
         state.document,
         state.comparingBefore,
+        showCropOverlay,
         state.rendering,
         surfaceVersion,
     ) {
