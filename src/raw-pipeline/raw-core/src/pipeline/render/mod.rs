@@ -471,6 +471,7 @@ fn render_display_scene_with_context_cancellable(
     Ok((
         scene,
         DetailContext {
+            target,
             native_highlight: None,
             model: model.clone(),
             active_model: active_model.clone(),

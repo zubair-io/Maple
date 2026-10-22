@@ -15,6 +15,7 @@ use crate::{
 pub struct DetailContext {
     pub(super) native_highlight: Option<super::super::HighlightFrameContext>,
     pub(super) model: AdjustmentModel,
+    pub(super) target: encode::TargetPrimaries,
     pub(super) active_model: AdjustmentModel,
     pub(super) ae_gain: f32,
     pub(super) whites_anchor_ev: Option<f32>,
@@ -24,6 +25,7 @@ pub struct DetailContext {
 }
 
 pub struct DetailRenderOptions<'a> {
+    pub target: encode::TargetPrimaries,
     pub quality: RenderQuality,
     pub max_long_edge: u32,
     pub film_lut: Option<&'a FilmLut>,
@@ -54,7 +56,7 @@ pub fn render_detail_base_cancellable(
         options.quality,
         Some(source),
         Some(options.max_long_edge),
-        encode::TargetPrimaries::Srgb,
+        options.target,
         options.film_lut,
         cancel,
         false,
@@ -270,7 +272,7 @@ pub fn render_detail_tile_cancellable(
         &mut scene,
         &context.model,
         film_lut,
-        encode::TargetPrimaries::Srgb,
+        context.target,
         (origin, (crop.2, crop.3)),
     );
     let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);

@@ -373,6 +373,7 @@ fn guided_preparation_admission_counts_odd_sensor_tail() {
             ext: "dng",
         },
         pipeline::DetailRenderOptions {
+            target: crate::view::encode::TargetPrimaries::Srgb,
             quality: RenderQuality::Preview,
             max_long_edge: 32,
             film_lut: None,

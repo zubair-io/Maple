@@ -33,6 +33,7 @@ fn first_auto_base_render_of_the_100mp_reference_fits_the_cold_open_budget() {
             ext: "dng",
         },
         DetailRenderOptions {
+            target: raw_core::view::encode::TargetPrimaries::Srgb,
             quality: RenderQuality::Preview,
             max_long_edge: 2048,
             film_lut: None,

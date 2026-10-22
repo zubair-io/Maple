@@ -23,6 +23,7 @@ fn base(
         model,
         RawInput::Bytes { bytes, ext: "dng" },
         DetailRenderOptions {
+            target: crate::view::encode::TargetPrimaries::Srgb,
             quality: RenderQuality::Amaze,
             max_long_edge: 1024,
             film_lut: None,
@@ -123,6 +124,7 @@ fn retained_base_preserves_existing_render_bytes() {
                     ext: "dng",
                 },
                 DetailRenderOptions {
+                    target: crate::view::encode::TargetPrimaries::Srgb,
                     quality,
                     max_long_edge: 1024,
                     film_lut: None,
@@ -189,87 +191,96 @@ fn detail_rejects_perspective_unsupported_stage_and_padded_allocation() {
 #[test]
 fn detail_keeps_the_exact_auto_pair_and_film_of_the_base() {
     use crate::view::auto_profile::{cache, curve::ProfileCurve, lut::ColorLut};
-    let (raw, mut bytes) = chart();
-    // Distinct source key so this test cannot reuse another chart's fit.
-    bytes.extend_from_slice(b"native-detail-auto-pair");
-    let key = cache::CacheKey::from_bytes(&bytes, RenderQuality::Amaze).with_origin(
-        super::super::auto_fit::render_fit_origin(raw.width.max(raw.height), Some(1024)),
-    );
-    let mut curve = ProfileCurve::identity();
-    for (_, y) in &mut curve.r.anchors {
-        *y *= 0.85;
-    }
-    let mut lut = ColorLut::identity(3);
-    for p in lut.data.chunks_exact_mut(3) {
-        p[2] *= 0.8;
-    }
-    cache::insert(key.clone(), curve.clone());
-    cache::insert_lut(key, lut.clone());
-    let mut film = FilmLut {
-        size: 3,
-        data: ColorLut::identity(3).data,
-    };
-    for p in film.data.chunks_exact_mut(3) {
-        p[1] *= 0.85;
-    }
-    let model = AdjustmentModel {
-        profile: Profile::Auto,
-        exposure: 0.4,
-        film_strength: 70.0,
-        sharpen_amount: 0.0,
-        nr_color: 0.0,
-        ..Default::default()
-    };
-    let (w, _, rgb, context) = render_detail_base(
-        &raw,
-        &model,
-        RawInput::Bytes {
-            bytes: &bytes,
-            ext: "dng",
-        },
-        DetailRenderOptions {
-            quality: RenderQuality::Amaze,
-            max_long_edge: 1024,
-            film_lut: Some(&film),
-        },
-    )
-    .unwrap();
-    // Auto 2's cached curve is a marker that render contexts omit (#5000).
-    assert_eq!(
-        context.profile_curve,
-        crate::view::auto_profile::apply_pipeline::auto1_enabled_by_env().then_some(curve)
-    );
-    assert_eq!(context.profile_lut, Some(lut));
-    assert_eq!(context.ae_gain, 1.0, "Auto fitted base must pin AE off");
-    let rect = TileRect {
-        src_x: 60,
-        src_y: 40,
-        src_w: 80,
-        src_h: 60,
-        out_w: 80,
-        out_h: 60,
-    };
-    let (_, _, patch) = render_detail_tile(&raw, &context, rect, Some(&film), u64::MAX).unwrap();
-    let expected: Vec<u8> = (rect.src_y..rect.src_y + rect.src_h)
-        .flat_map(|y| {
-            let start = ((y * w + rect.src_x) * 3) as usize;
-            rgb[start..start + rect.src_w as usize * 3].iter().copied()
-        })
-        .collect();
-    let max_error = patch
-        .iter()
-        .zip(&expected)
-        .map(|(a, b)| a.abs_diff(*b))
-        .max()
+    let mut previous_pixels = None;
+    for target in [encode::TargetPrimaries::Srgb, encode::TargetPrimaries::P3] {
+        let (raw, mut bytes) = chart();
+        // Distinct source key so this test cannot reuse another chart's fit.
+        bytes.extend_from_slice(b"native-detail-auto-pair");
+        let key = cache::CacheKey::from_bytes(&bytes, RenderQuality::Amaze).with_origin(
+            super::super::auto_fit::render_fit_origin(raw.width.max(raw.height), Some(1024)),
+        );
+        let mut curve = ProfileCurve::identity();
+        for (_, y) in &mut curve.r.anchors {
+            *y *= 0.85;
+        }
+        let mut lut = ColorLut::identity(3);
+        for p in lut.data.chunks_exact_mut(3) {
+            p[2] *= 0.8;
+        }
+        cache::insert(key.clone(), curve.clone());
+        cache::insert_lut(key, lut.clone());
+        let mut film = FilmLut {
+            size: 3,
+            data: ColorLut::identity(3).data,
+        };
+        for p in film.data.chunks_exact_mut(3) {
+            p[1] *= 0.85;
+        }
+        let model = AdjustmentModel {
+            profile: Profile::Auto,
+            exposure: 0.4,
+            film_strength: 70.0,
+            sharpen_amount: 0.0,
+            nr_color: 0.0,
+            ..Default::default()
+        };
+        let (w, _, rgb, context) = render_detail_base(
+            &raw,
+            &model,
+            RawInput::Bytes {
+                bytes: &bytes,
+                ext: "dng",
+            },
+            DetailRenderOptions {
+                target,
+                quality: RenderQuality::Amaze,
+                max_long_edge: 1024,
+                film_lut: Some(&film),
+            },
+        )
         .unwrap();
-    assert!(
-        max_error <= 1,
-        "retained Auto + film max code error={max_error}"
-    );
-    let without_film = render_detail_tile(&raw, &context, rect, None, u64::MAX)
-        .unwrap()
-        .2;
-    assert_ne!(patch, without_film, "film test must exercise a real look");
+        // Auto 2's cached curve is a marker that render contexts omit (#5000).
+        assert_eq!(
+            context.profile_curve,
+            crate::view::auto_profile::apply_pipeline::auto1_enabled_by_env().then_some(curve)
+        );
+        assert_eq!(context.profile_lut, Some(lut));
+        assert_eq!(context.ae_gain, 1.0, "Auto fitted base must pin AE off");
+        let rect = TileRect {
+            src_x: 60,
+            src_y: 40,
+            src_w: 80,
+            src_h: 60,
+            out_w: 80,
+            out_h: 60,
+        };
+        let (_, _, patch) =
+            render_detail_tile(&raw, &context, rect, Some(&film), u64::MAX).unwrap();
+        let expected: Vec<u8> = (rect.src_y..rect.src_y + rect.src_h)
+            .flat_map(|y| {
+                let start = ((y * w + rect.src_x) * 3) as usize;
+                rgb[start..start + rect.src_w as usize * 3].iter().copied()
+            })
+            .collect();
+        let max_error = patch
+            .iter()
+            .zip(&expected)
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        assert!(
+            max_error <= 1,
+            "retained Auto + film max code error={max_error}"
+        );
+        let without_film = render_detail_tile(&raw, &context, rect, None, u64::MAX)
+            .unwrap()
+            .2;
+        assert_ne!(patch, without_film, "film test must exercise a real look");
+        if let Some(previous) = previous_pixels.take() {
+            assert_ne!(previous, rgb, "P3 must use its requested primaries");
+        }
+        previous_pixels = Some(rgb);
+    }
 }
 
 #[path = "detail_crop_tests.rs"]
