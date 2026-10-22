@@ -70,8 +70,8 @@ final class SMBWorkflowRecoveryTests: XCTestCase {
       try await store.commitSemantic(
         model: first, culling: loaded.1, action: "adjustment", label: "First")
     }
-    // Both publications can be queued before the first server reply arrives.
-    await Task.yield()
+    // Independently scheduled callers have no promised admission order.
+    // Each accepted history entry must retain its own model in either order.
     let secondEdit = Task {
       try await store.commitSemantic(
         model: second, culling: loaded.1, action: "adjustment", label: "Second")
@@ -81,8 +81,17 @@ final class SMBWorkflowRecoveryTests: XCTestCase {
     let xml = try await store.readWorkflowXML()
     let confirmed = try XCTUnwrap(xml)
     let record = try XCTUnwrap(WorkflowSidecarCore.read(xmp: confirmed))
-    XCTAssertEqual(record.history.map(\.label), ["First", "Second"])
-    XCTAssertEqual(try XMPParser.parse(confirmed).0.exposure, 2)
+    XCTAssertEqual(record.history.count, 2)
+    XCTAssertEqual(Set(record.history.map(\.label)), Set(["First", "Second"]))
+    let expected: [String: Double] = ["First": 1, "Second": 2]
+    for entry in record.history {
+      XCTAssertEqual(
+        try XMPParser.parse(entry.adjustmentXmp).0.exposure, try XCTUnwrap(expected[entry.label]))
+    }
+    let finalEntry = try XCTUnwrap(record.history.last)
+    XCTAssertEqual(
+      try XMPParser.parse(confirmed).0.exposure,
+      try XMPParser.parse(finalEntry.adjustmentXmp).0.exposure)
     let original = try await fixture.source.rawBytes(for: ref)
     XCTAssertEqual(original, fixture.original)
     await fixture.close()
