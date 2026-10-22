@@ -1,3 +1,4 @@
+import { primarySidecarFilename } from '../xmp/sidecar-binding';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -209,6 +210,6 @@ export class EditorWorkflowVariantsService {
   }
 
   private primaryName(source: WorkflowEdit): string {
-    return source.filename.replace(/\.[^.]+$/, '') + '.xmp';
+    return primarySidecarFilename(source.filename);
   }
 }

@@ -11,7 +11,7 @@ A sidecar sits beside the file it describes, with two naming rules:
 - **Images** swap the extension: `IMG_1234.ARW` → `IMG_1234.xmp`; a name with no extension appends it (`IMG` → `IMG.xmp`, #5060).
 - **Videos** keep theirs and append: `clip.mov` → `clip.mov.xmp`.
 
-The split exists for Apple Live Photos, which store the still and the motion clip as two same-stem files (`IMG_1234.HEIC` + `IMG_1234.MOV`); under a stem swap both would target `IMG_1234.xmp` and clobber each other. The rule is implemented twice and must stay in sync: `src/apple/Packages/MapleCore/Sources/MapleCore/SidecarPath.swift` and `xmpSidecarPath()` in `src/api/src/fs/xmp.ts` (whose video-extension list mirrors `VIDEO_EXTS` in `src/api/src/indexer/media-types.ts`).
+The split exists for Apple Live Photos, which store the still and the motion clip as two same-stem files (`IMG_1234.HEIC` + `IMG_1234.MOV`); under a stem swap both would target `IMG_1234.xmp` and clobber each other. The sidecar naming implementations must stay in sync: `src/apple/Packages/MapleCore/Sources/MapleCore/SidecarPath.swift` and `xmpSidecarPath()` in `src/api/src/fs/xmp.ts` (whose video-extension list mirrors `VIDEO_EXTS` in `src/api/src/indexer/media-types.ts`), plus Web's shared `primarySidecarFilename()` in `src/web/projects/maple-common/src/lib/xmp/sidecar-binding.ts`. Extensionless photo names append `.xmp`; they never resolve to the original file.
 
 Writes are atomic — temp file then rename — so a partial write is never visible. On Apple, `XMPSidecarStore` (`src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarStore.swift`) debounces saves by 750 ms and offers a `flush()` for close; on the server, `writeSidecarAtomic` in `src/api/src/fs/sidecar-io.ts` does the rename.
 

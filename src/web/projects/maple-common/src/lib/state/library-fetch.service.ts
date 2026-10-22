@@ -1,3 +1,4 @@
+import { primarySidecarFilename } from '../xmp/sidecar-binding';
 // Library fetch — folder/asset enumeration, XMP I/O, index writes.
 //
 // Coordinates the store (data + id-maps), selection (cursor placement), and
@@ -234,7 +235,7 @@ export class LibraryFetch {
       let keywords: string[] = [];
 
       // XMP sidecar is authoritative — parse both culling + full AdjustmentModel.
-      const xmpName = filename.replace(/\.[^.]+$/, '.xmp');
+      const xmpName = primarySidecarFilename(filename);
       try {
         const xmpBytes = await this.fs.readFile(folder, xmpName);
         const xmpText = new TextDecoder().decode(xmpBytes);
