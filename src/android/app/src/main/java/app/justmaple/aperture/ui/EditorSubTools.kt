@@ -75,6 +75,7 @@ fun fieldsForSubTool(
     fullInspector: Boolean = false,
 ): List<AdjustmentField> =
     when {
+        group == EditorGroup.Detail && subToolId == "crop" -> emptyList()
         group == EditorGroup.Light && subToolId == "curve" -> toneCurveFields
         fullInspector -> group.fields
         else -> group.tools.map { AdjustmentFields.byName.getValue(it.field) }

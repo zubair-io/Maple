@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,7 +23,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.justmaple.aperture.MapleState
 import app.justmaple.aperture.MapleViewModel
-import app.justmaple.aperture.generated.AdjustmentFields
 
 @Composable
 internal fun PhoneEditorControls(
@@ -40,31 +40,24 @@ internal fun PhoneEditorControls(
     var internalSubTool by remember(group) { mutableStateOf(subTools.first().id) }
     val subTool = activeSubTool ?: internalSubTool
     var band by remember(group) { mutableStateOf(HslBand.Red) }
+    fun sliderFields(tool: String) =
+        if (group == EditorGroup.Color && tool == "hsl") hslBandFields(band)
+        else fieldsForSubTool(group, tool)
     val setSubTool: (String) -> Unit = { nextSubTool ->
         internalSubTool = nextSubTool
         onSubToolChange?.invoke(nextSubTool)
-        val candidates =
-            when {
-                group == EditorGroup.Light && nextSubTool == "curve" -> toneCurveFields
-                group == EditorGroup.Color && nextSubTool == "hsl" -> hslBandFields(band)
-                else -> group.tools.map { AdjustmentFields.byName.getValue(it.field) }
-            }
-        candidates.firstOrNull(state::supportsField)?.let { onArmed(it.name) }
+        onArmed(sliderFields(nextSubTool).firstOrNull(state::supportsField)?.name.orEmpty())
     }
-    val dockFields =
-        when {
-            group == EditorGroup.Light && subTool == "curve" -> toneCurveFields
-            group == EditorGroup.Color && subTool == "hsl" -> hslBandFields(band)
-            else -> group.tools.map { AdjustmentFields.byName.getValue(it.field) }
-        }
-    val field =
-        AdjustmentFields.byName[armed]?.takeIf(state::supportsField)
-            ?: AdjustmentFields.byName.getValue("exposure")
-    val value = state.values[field.name] ?: field.initial
+    val dockFields = sliderFields(subTool).filter(state::supportsField)
+    val field = dockFields.firstOrNull { it.name == armed } ?: dockFields.firstOrNull()
+    LaunchedEffect(field?.name, armed) {
+        val next = field?.name.orEmpty()
+        if (next != armed) onArmed(next)
+    }
     Column(Modifier.fillMaxWidth()) {
-        DragBar(
+        if (field != null) DragBar(
             field,
-            value,
+            state.values[field.name] ?: field.initial,
             { model.setField(field.name, it) },
             model::commitGesture,
             { model.resetField(field.name) },
@@ -115,12 +108,12 @@ internal fun PhoneEditorControls(
             )
         if (group == EditorGroup.Detail && subTool == "crop")
             CropControlsSection(model, state, Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
-        LazyRow(
+        if (dockFields.isNotEmpty()) LazyRow(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(
-                dockFields.filter(state::supportsField),
+                dockFields,
                 key = { it.name },
             ) { dockField ->
                 val toolField = dockField.name
