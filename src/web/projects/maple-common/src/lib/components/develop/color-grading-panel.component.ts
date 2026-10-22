@@ -116,11 +116,11 @@ function balanceExponent(balance: number): number {
   return Math.pow(2, -Math.min(Math.max(balance, BALANCE_RANGE[0]), BALANCE_RANGE[1]) / 100);
 }
 
-export function gradeEdgePlotPosition(edge: number, balance: number): number {
+function gradeEdgePlotPosition(edge: number, balance: number): number {
   return Math.pow(Math.min(Math.max(edge, 0), 1), 1 / balanceExponent(balance));
 }
 
-export function gradeEdgeValueAtPosition(position: number, balance: number): number {
+function gradeEdgeValueAtPosition(position: number, balance: number): number {
   return Math.pow(Math.min(Math.max(position, 0), 1), balanceExponent(balance));
 }
 
