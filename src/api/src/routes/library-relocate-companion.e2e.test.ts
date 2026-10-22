@@ -19,6 +19,7 @@
  */
 
 import { describe, it, expect, afterEach, spyOn } from 'bun:test';
+import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
 import * as relocateRepo from '../db/repos/assets.relocate.repo.ts';
 import * as ownership from '../fs/sidecar-ownership.ts';
 import * as xmpConflict from '../fs/xmp-conflict.ts';
@@ -168,6 +169,56 @@ describe('library-relocate end-to-end — companion + dedupe (#2667)', () => {
 
     expect(await fs.readFile(path.join(root, newRel, 'IMG_7.xmp'), 'utf8')).toBe('first edit');
     await expect(fs.stat(path.join(root, oldRel, 'IMG_7.xmp'))).rejects.toThrow();
+  });
+
+  it('a first save admitted during geo repoint keeps its source photo until publication', async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-dedupe-admitted-'));
+    const root = dir;
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    const source = path.join(root, oldRel, 'IMG_7.dng');
+    const sidecar = path.join(root, oldRel, 'IMG_7.xmp');
+    await fs.mkdir(path.dirname(source), { recursive: true });
+    await fs.mkdir(path.join(root, newRel), { recursive: true });
+    await fs.writeFile(source, 'identical-pixels');
+    await fs.writeFile(path.join(root, newRel, 'IMG_7.dng'), 'identical-pixels');
+    seedRelocatableAsset(live.db, {
+      root,
+      relPath: oldRel,
+      filename: 'IMG_7.dng',
+      mapleId: 'relocate-admitted-id',
+      metadataOverride: usPlaceText(),
+    });
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const realRepoint = relocateRepo.repointAssetLocation;
+    let saving: Promise<void> | undefined;
+    const repoint = spyOn(relocateRepo, 'repointAssetLocation').mockImplementation(async (args) => {
+      saving = serializeSidecarWrite(sidecar, async () => {
+        entered.resolve();
+        await release.promise;
+        await fs.writeFile(sidecar, 'first edit');
+      });
+      await entered.promise;
+      return realRepoint(args);
+    });
+    const moving = postRelocate([`${SLUG}:${oldRel}/IMG_7.dng`]);
+    try {
+      await entered.promise;
+      await Bun.sleep(25);
+      expect(await fs.readFile(source, 'utf8')).toBe('identical-pixels');
+      release.resolve();
+      await saving;
+      expect((await resultsOf(await moving))[0]!.outcome).toBe('moved');
+      expect(await fs.readFile(source, 'utf8')).toBe('identical-pixels');
+      expect(await fs.readFile(sidecar, 'utf8')).toBe('first edit');
+    } finally {
+      release.resolve();
+      await saving;
+      await moving;
+      repoint.mockRestore();
+    }
   });
 
   it("a late sidecar that can't follow keeps the source photo beside it (#5069)", async () => {

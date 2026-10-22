@@ -46,6 +46,8 @@ import {
   removePhotoUnlessOldNameEditStays,
 } from '../fs/legacy-backup-sidecar.ts';
 import { carryLateSidecars } from '../fs/relocate-late-sidecar.ts';
+import { serializeSidecarWrites } from '../fs/sidecar-write-order.ts';
+import { xmpSidecarPath } from '../fs/xmp.ts';
 import { settleCarriedSidecar, sidecarStemOwnedByAnotherFile } from '../fs/sidecar-ownership.ts';
 import * as fs from '../fs/mirrored.ts';
 import { relocateAsset } from './relocate-asset.ts';
@@ -115,14 +117,19 @@ async function carryLateToSurvivor(sourceAbsPath: string, survivor: string): Pro
 
 async function removeSourceAfterRepoint(sourceAbsPath: string, survivor: string): Promise<void> {
   await carryLateToSurvivor(sourceAbsPath, survivor);
-  if (await sidecarLeftBehind(sourceAbsPath)) {
-    log.error(
-      { sourceAbsPath },
-      'relocateGeoAsset: a late sidecar could not follow — source photo kept',
-    );
-    return;
-  }
-  await removePhotoUnlessOldNameEditStays(sourceAbsPath, 'relocateGeoAsset');
+  await serializeSidecarWrites(
+    [xmpSidecarPath(sourceAbsPath), `${sourceAbsPath}.xmp`],
+    async () => {
+      if (await sidecarLeftBehind(sourceAbsPath)) {
+        log.error(
+          { sourceAbsPath },
+          'relocateGeoAsset: a late sidecar could not follow — source photo kept',
+        );
+        return;
+      }
+      await removePhotoUnlessOldNameEditStays(sourceAbsPath, 'relocateGeoAsset');
+    },
+  );
 }
 
 /** A sidecar still at the source that no sibling there keeps for itself would
@@ -155,8 +162,16 @@ async function dedupeAt(
   // concurrency guard the `matchedCount === 0` check below still reads.
   const repointed = await repointAssetLocation({
     id: doc._id,
-    from: { libraryId: primary.library_id, path: primary.path, filename: primary.filename },
-    to: { libraryId: primary.library_id, path: newDir, filename: primary.filename },
+    from: {
+      libraryId: primary.library_id,
+      path: primary.path,
+      filename: primary.filename,
+    },
+    to: {
+      libraryId: primary.library_id,
+      path: newDir,
+      filename: primary.filename,
+    },
   });
   if (!repointed) {
     log.warn(
@@ -167,7 +182,10 @@ async function dedupeAt(
   }
 
   log.info(
-    { _id: String(doc._id), survivor: path.join(libRoot, newDir, primary.filename) },
+    {
+      _id: String(doc._id),
+      survivor: path.join(libRoot, newDir, primary.filename),
+    },
     'relocateGeoAsset: byte-identical destination — deduped (repoint + delete source)',
   );
   const survivor = path.join(libRoot, newDir, primary.filename);
