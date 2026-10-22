@@ -5,6 +5,16 @@ import app.justmaple.aperture.generated.AdjustmentField
 
 internal data class EditSnapshot(val values: Map<String, Float>, val document: XmpDocument)
 
+/** Before compares opening edits in the current framing without mutating either document. */
+internal fun EditSnapshot.withCurrentCrop(current: XmpDocument): EditSnapshot =
+    copy(
+        document =
+            listOf(
+                "crs:HasCrop", "crs:CropTop", "crs:CropLeft", "crs:CropBottom",
+                "crs:CropRight", "crs:CropAngle", "crs:CropConstrainToWarp",
+            ).fold(document) { doc, key -> doc.withAttribute(key, current.attribute(key)) }
+    )
+
 internal fun EditSnapshot.reset(
     fields: List<AdjustmentField>,
     attributes: List<String>,

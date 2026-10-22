@@ -40,6 +40,7 @@ internal constructor(
     private var generation = 0
     private var singleRequest = 0
     private var renderXml = ""
+    private var openingEdit: EditSnapshot? = null
     private var baseline: String? = null
     private var saveJob: Job? = null
     private val saveLock = kotlinx.coroutines.sync.Mutex()
@@ -220,6 +221,7 @@ internal constructor(
         val nextMode = if (state.value.mode == PhotoMode.Edit) PhotoMode.Edit else PhotoMode.Preview
         val token = ++generation
         baseline = null
+        openingEdit = null
         mutable.update {
             it.copy(
                 selected = photo,
@@ -285,6 +287,7 @@ internal constructor(
                     renderer.open(input.absolutePath, renderXml, 2048, token)
                 }
             if (token == generation) {
+                if (openingEdit == null) openingEdit = EditSnapshot(values, snapshot.document)
                 mutable.update { it.copy(values = values, rendering = !renderer.hasPresented) }
                 scheduleRefine(DrawRequest(token, renderer.revision, values, renderXml))
             }
@@ -326,18 +329,10 @@ internal constructor(
         val current = state.value
         if (current.mode != PhotoMode.Edit || current.values.isEmpty()) return
         if (current.comparingBefore == before) return
+        val comparison = if (before) (openingEdit ?: return).withCurrentCrop(current.document) else snapshot()
         mutable.update { it.copy(comparingBefore = before) }
-        val drawValues =
-            if (before)
-                current.values.mapValues { (key, v) ->
-                    when (key) {
-                        "temperature" -> current.values["_shot_temperature"] ?: v
-                        "tint" -> current.values["_shot_tint"] ?: v
-                        else -> AdjustmentFields.byName[key]?.initial ?: v
-                    }
-                }
-            else current.values
-        renderXml = if (before) XmpDocument().serialize() else current.document.serialize()
+        val drawValues = comparison.values
+        renderXml = comparison.document.serialize()
         renderer.invalidateModel()
         queueDraw(drawValues)
     }
