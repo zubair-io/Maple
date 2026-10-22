@@ -106,6 +106,12 @@ internal fun PhoneEditorControls(
                 },
                 Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             )
+        if (group == EditorGroup.Effects && subTool == "presets")
+            BuiltInPresetsRow(
+                model,
+                state,
+                Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            )
         if (group == EditorGroup.Detail && subTool == "crop")
             CropControlsSection(model, state, Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
         LazyRow(

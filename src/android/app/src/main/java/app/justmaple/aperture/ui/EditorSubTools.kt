@@ -44,23 +44,33 @@ val wbPresets = listOf(
 data class EditorSubTool(val id: String, val label: String)
 
 val toneCurveFieldNames =
-    listOf("parametric_shadows", "parametric_darks", "parametric_lights", "parametric_highlights")
+    listOf(
+        "parametric_shadows",
+        "parametric_darks",
+        "parametric_lights",
+        "parametric_highlights",
+        "parametric_shadow_split",
+        "parametric_midtone_split",
+        "parametric_highlight_split",
+    )
 
 val toneCurveFields: List<AdjustmentField>
     get() = toneCurveFieldNames.map(AdjustmentFields.byName::getValue)
 
 fun subToolsFor(group: EditorGroup): List<EditorSubTool> =
     when (group) {
-        EditorGroup.Light -> listOf(EditorSubTool("basic", "Basic"), EditorSubTool("curve", "Tone Curve"))
+        EditorGroup.Light ->
+            listOf(EditorSubTool("basic", "Basic"), EditorSubTool("curve", "Tone Curve"))
         EditorGroup.Color ->
             listOf(
                 EditorSubTool("basic", "Basic"),
                 EditorSubTool("wb", "WB Presets"),
                 EditorSubTool("hsl", "HSL"),
             )
+        EditorGroup.Effects ->
+            listOf(EditorSubTool("basic", "Basic"), EditorSubTool("presets", "Presets"))
         EditorGroup.Detail ->
             listOf(EditorSubTool("basic", "Basic"), EditorSubTool("crop", "Crop"))
-        else -> listOf(EditorSubTool("basic", "Basic"))
     }
 
 fun fieldsForSubTool(
