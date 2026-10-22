@@ -85,10 +85,8 @@ fn physical_lossy_dng_matches_cpu_at_white_balance_extremes() {
     }
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0006.DNG");
-    let Ok(bytes) = std::fs::read(&path) else {
-        eprintln!("lossy DNG parity: {} missing — skipping", path.display());
-        return;
-    };
+    let bytes = std::fs::read(&path)
+        .unwrap_or_else(|error| panic!("lossy DNG parity requires {}: {error}", path.display()));
     let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode test_0006");
     assert_eq!(
         raw.skipped_required_opcodes().len(),
