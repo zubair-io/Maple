@@ -39,8 +39,13 @@ import { uploadSessions } from '../backup/upload-session.ts';
 import { formatBackupPath } from '../backup/path-formatter.ts';
 import { containedJoin } from '../backup/path-safety.ts';
 import { hasLegacyBackupEdit } from '../fs/legacy-backup-sidecar.ts';
-import { filesIdentical, firstFreeSiblingPath, moveNoClobber } from '../backup/fs-util.ts';
-import { revertCreated, type RelocatePublication } from '../fs/relocate-publish.ts';
+import { filesIdentical, firstFreeSiblingPath } from '../backup/fs-util.ts';
+import {
+  PublishCollisionError,
+  publishExclusive,
+  revertCreated,
+  type RelocatePublication,
+} from '../fs/relocate-publish.ts';
 import { resolveBackupLocation } from '../backup/ingest-geocode.ts';
 import { isScreenshotFilename } from '../indexer/screenshot.ts';
 import { backupSessionsRepo } from '../db/backup-sessions.repo.ts';
@@ -86,20 +91,28 @@ async function holdsStrandedLegacyEdit(absPath: string): Promise<boolean> {
   return (await hasLegacyBackupEdit(absPath)) && !(await isOccupiedOnDisk(absPath));
 }
 
-/** Move the upload to `finalPath` unless something is there. The upload's own
- * inode is read before the move: a hard link keeps it, so a file another writer
- * swaps in afterwards is never recorded as this upload's (a cross-device copy
- * records nothing, so nothing is later withdrawn). Null when the name is taken. */
+/** Publish the upload at `finalPath` unless something is there, through the
+ * same exclusive publish the movers use: a hard link, or an exclusive copy when
+ * the backup tmp dir is on another volume. Its identity is that of the file it
+ * created, so a later withdrawal never removes another writer's (#4693). Null
+ * when the name is taken. */
 async function claimNoClobber(
   tmpFile: string,
   finalPath: string,
-): Promise<{ published?: RelocatePublication } | null> {
-  const staged = await fs.lstat(tmpFile);
-  if (!(await moveNoClobber(tmpFile, finalPath))) return null;
-  const landed = await fs.lstat(finalPath).catch(() => null);
-  return landed?.dev === staged.dev && landed.ino === staged.ino
-    ? { published: { path: finalPath, dev: staged.dev, ino: staged.ino } }
-    : {};
+): Promise<RelocatePublication | null> {
+  try {
+    const published = await publishExclusive(tmpFile, finalPath);
+    await fs.unlink(tmpFile).catch((err: unknown) => {
+      log.warn(
+        { tmpFile, err: err instanceof Error ? err.message : err },
+        'ingest: published, but the upload tmp could not be removed',
+      );
+    });
+    return published;
+  } catch (err) {
+    if (err instanceof PublishCollisionError) return null;
+    throw err;
+  }
 }
 
 /**
@@ -112,7 +125,7 @@ async function claimNoClobber(
  *   (b) If the candidate path is occupied on disk by different bytes (even of
  *       the same size) or claimed in `asset_locations` by another asset,
  *       disambiguate to the next free sibling (`-1`, `-2`, …).
- *   (c) Otherwise claim the path with `moveNoClobber`, looping on `EEXIST`.
+ *   (c) Otherwise claim the path with `claimNoClobber`, looping when it is taken.
  */
 async function placeUploadOnDisk(args: {
   libraryId: ObjectId;
@@ -138,8 +151,8 @@ async function placeUploadOnDisk(args: {
     const occupied = await isOccupiedOnDisk(finalPath);
 
     if (!claimedByOther && !occupied) {
-      const claimed = await claimNoClobber(args.tmpFile, finalPath);
-      if (claimed) return { relPath: resolvedRelPath, ...claimed };
+      const published = await claimNoClobber(args.tmpFile, finalPath);
+      if (published) return { relPath: resolvedRelPath, published };
       continue;
     }
 

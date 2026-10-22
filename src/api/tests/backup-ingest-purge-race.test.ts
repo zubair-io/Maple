@@ -11,6 +11,7 @@ import { authedHandle } from './helpers/authed-handle.ts';
 import { readLocations, seedBackupAsset } from './helpers/sqlite-fixtures.ts';
 import { makeIngestRequest, setupBackupIngestSuite } from './backup-ingest-helpers.ts';
 import * as backupRepo from '../src/db/repos/backup.repo.ts';
+import * as mirroredFs from '../src/fs/mirrored.ts';
 import type { ObjectId } from '../src/db/object-id.ts';
 
 const suite = setupBackupIngestSuite();
@@ -83,46 +84,67 @@ describe('backup ingest and a purge admitted mid-request (#4913)', () => {
     expect(linkCount()).toBe(0);
   });
 
-  test('a repair that the purge refuses withdraws the copy it published', async () => {
-    const id = seedBackupAsset(handle.db, {
-      mapleId,
-      size: bytes.length,
-      locations: [{ libraryId: handle.libId, relPath }],
-    });
-    handle.db.run(`UPDATE asset_locations SET missing_since = '2026-01-01T00:00:00Z'`);
-    const lookup = purgeAfterLookup(id);
-    try {
-      expect((await upload()).status).toBe(409);
-    } finally {
-      lookup.mockRestore();
-    }
-    expect(await Bun.file(path.join(handle.tmpLib, relPath)).exists()).toBe(false);
-    expect(readLocations(handle.db, id).map((l) => l.filename)).toEqual(['photo.HEIC']);
-    expect(linkCount()).toBe(0);
-  });
+  /** A backup tmp dir on another volume than the library: no hard links. */
+  const crossDevice = (refused: boolean) =>
+    refused
+      ? spyOn(mirroredFs, 'link').mockRejectedValue(
+          Object.assign(new Error('cross-device link'), { code: 'EXDEV' }),
+        )
+      : null;
 
-  test("withdrawing the refused copy never removes another writer's file at that name", async () => {
-    const id = seedBackupAsset(handle.db, {
-      mapleId,
-      size: bytes.length,
-      locations: [{ libraryId: handle.libId, relPath }],
-    });
-    handle.db.run(`UPDATE asset_locations SET missing_since = '2026-01-01T00:00:00Z'`);
-    const competitor = Buffer.from('another writer saved this file meanwhile');
-    const realAppend = backupRepo.appendBackupLocation;
-    const append = spyOn(backupRepo, 'appendBackupLocation').mockImplementation(async (...args) => {
-      const published = path.join(handle.tmpLib, relPath);
-      const staged = `${published}.competitor`;
-      await fs.writeFile(staged, competitor);
-      await fs.rename(staged, published);
-      admitPurge(id);
-      return realAppend(...args);
-    });
-    try {
-      expect((await upload()).status).toBe(409);
-    } finally {
-      append.mockRestore();
-    }
-    expect(await fs.readFile(path.join(handle.tmpLib, relPath))).toEqual(competitor);
-  });
+  test.each([false, true])(
+    'a repair that the purge refuses withdraws the copy it published (cross-device: %p)',
+    async (refused) => {
+      const link = crossDevice(refused);
+      const id = seedBackupAsset(handle.db, {
+        mapleId,
+        size: bytes.length,
+        locations: [{ libraryId: handle.libId, relPath }],
+      });
+      handle.db.run(`UPDATE asset_locations SET missing_since = '2026-01-01T00:00:00Z'`);
+      const lookup = purgeAfterLookup(id);
+      try {
+        expect((await upload()).status).toBe(409);
+        if (link) expect(link).toHaveBeenCalled();
+      } finally {
+        lookup.mockRestore();
+        link?.mockRestore();
+      }
+      expect(await Bun.file(path.join(handle.tmpLib, relPath)).exists()).toBe(false);
+      expect(readLocations(handle.db, id).map((l) => l.filename)).toEqual(['photo.HEIC']);
+      expect(linkCount()).toBe(0);
+    },
+  );
+
+  test.each([false, true])(
+    "withdrawing the refused copy never removes another writer's file at that name (cross-device: %p)",
+    async (refused) => {
+      const link = crossDevice(refused);
+      const id = seedBackupAsset(handle.db, {
+        mapleId,
+        size: bytes.length,
+        locations: [{ libraryId: handle.libId, relPath }],
+      });
+      handle.db.run(`UPDATE asset_locations SET missing_since = '2026-01-01T00:00:00Z'`);
+      const competitor = Buffer.from('another writer saved this file meanwhile');
+      const realAppend = backupRepo.appendBackupLocation;
+      const append = spyOn(backupRepo, 'appendBackupLocation').mockImplementation(
+        async (...args) => {
+          const published = path.join(handle.tmpLib, relPath);
+          const staged = `${published}.competitor`;
+          await fs.writeFile(staged, competitor);
+          await fs.rename(staged, published);
+          admitPurge(id);
+          return realAppend(...args);
+        },
+      );
+      try {
+        expect((await upload()).status).toBe(409);
+      } finally {
+        append.mockRestore();
+        link?.mockRestore();
+      }
+      expect(await fs.readFile(path.join(handle.tmpLib, relPath))).toEqual(competitor);
+    },
+  );
 });
