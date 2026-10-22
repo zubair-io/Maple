@@ -1,4 +1,5 @@
 /** Replace owns both photos' edit names until filesystem and catalog commit. */
+import { withPrimaryReplacement } from './primary-replacement-admission';
 import { listPairedSidecars } from './xmp-conflict.ts';
 import { xmpSidecarPath } from './xmp.ts';
 import { serializeSidecarWrites } from './sidecar-write-order.ts';
@@ -17,6 +18,6 @@ export async function withReplaceSidecarFence<T>(
       destination + '.xmp',
       ...paired.flat(),
     ],
-    operation,
+    () => withPrimaryReplacement([source, destination], operation),
   );
 }

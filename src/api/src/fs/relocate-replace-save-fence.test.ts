@@ -1,5 +1,6 @@
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
 import * as path from 'node:path';
+import * as mirrored from './mirrored';
 import { recoveryFixture } from '../cloud-backup/restore.test-helpers';
 import { insertAsset, insertFolder, insertLocation } from '../db/sqlite/test-sqlite.test-helpers';
 import { readFile, stat, writeFile } from './mirrored';
@@ -66,6 +67,64 @@ for (const mode of ['move', 'copy'] as const) {
   }
 }
 
+for (const mode of ['move', 'copy'] as const) {
+  for (const rollback of [true]) {
+    test(`${mode} no-hardlink Replace ${rollback ? 'rollback admits' : 'commit rejects'} the displaced photo's queued save`, async () => {
+      const link = spyOn(mirrored, 'link').mockRejectedValue(
+        Object.assign(new Error('no links'), { code: 'EXDEV' }),
+      );
+      const f = await recoveryFixture();
+      const source = path.join(f.root, 'incoming.dng');
+      const destination = path.join(f.root, 'photo.dng');
+      const sidecar = path.join(f.root, 'photo.xmp');
+      let saving: ReturnType<typeof writeXmpAtomic> | undefined;
+      const window = Promise.withResolvers<void>();
+      try {
+        await writeFile(source, 'incoming original');
+        await writeFile(destination, 'displaced original');
+        await writeFile(sidecar, edits(1));
+        const libraryId = insertFolder(f.live.db, { path: f.root });
+        const id = insertAsset(f.live.db);
+        insertLocation(f.live.db, { assetId: id, libraryId, path: '', filename: 'photo.dng' });
+        const authorized = await resolveAndAuthorizeSidecarWrite(destination);
+        if (!authorized.ok) throw new Error(authorized.error);
+        // Start the independent request outside the relocation's async context.
+        saving = (async () => {
+          await window.promise;
+          return writeXmpAtomic(destination, edits(2), undefined, authorized.writeScope);
+        })();
+        const outcome = await relocateFile({
+          sourceAbsPath: source,
+          destAbsPath: destination,
+          mode,
+          collision: 'replace',
+          onVerified: async () => {
+            window.resolve();
+            await Bun.sleep(25);
+            // The old edit is set aside, and the queued save cannot recreate it
+            // while the new primary is published but the transaction is uncommitted.
+            await expect(stat(sidecar)).rejects.toThrow();
+            if (rollback) throw new Error('catalog commit rejected');
+          },
+        });
+        expect(outcome.kind).toBe(rollback ? 'error' : 'relocated');
+        const saved = await saving;
+        expect(saved).toMatchObject({ ok: rollback });
+        expect(await readFile(destination, 'utf8')).toBe(
+          rollback ? 'displaced original' : 'incoming original',
+        );
+        if (rollback) expect(await readFile(sidecar, 'utf8')).toBe(edits(2));
+        else await expect(stat(sidecar)).rejects.toThrow();
+      } finally {
+        window.resolve();
+        await saving;
+        await f.close();
+        link.mockRestore();
+      }
+    });
+  }
+}
+
 test('a new workflow variant waits for Replace and cannot attach to the replacement', async () => {
   const { createWorkflowVariant } = await import('./workflow-variants');
   const corpus = JSON.parse(
@@ -123,3 +182,51 @@ test('a new workflow variant waits for Replace and cannot attach to the replacem
     await f.close();
   }
 });
+
+for (const indexed of [false, true]) {
+  test(`a save admitted inside Replace cannot reach the committed ${indexed ? 'indexed' : 'unindexed'} photo`, async () => {
+    const f = await recoveryFixture();
+    const source = path.join(f.root, 'incoming.dng');
+    const destination = path.join(f.root, 'photo.dng');
+    const window = Promise.withResolvers<void>();
+    const admitted = Promise.withResolvers<void>();
+    let saving: ReturnType<typeof writeXmpAtomic> | undefined;
+    try {
+      await writeFile(source, 'incoming original');
+      await writeFile(destination, 'displaced original');
+      const libraryId = insertFolder(f.live.db, { path: f.root });
+      saving = (async () => {
+        await window.promise;
+        const authorized = await resolveAndAuthorizeSidecarWrite(destination);
+        if (!authorized.ok) throw new Error(authorized.error);
+        admitted.resolve();
+        return writeXmpAtomic(destination, edits(2), undefined, authorized.writeScope);
+      })();
+      const outcome = await relocateFile({
+        sourceAbsPath: source,
+        destAbsPath: destination,
+        mode: 'copy',
+        collision: 'replace',
+        onVerified: async () => {
+          window.resolve();
+          await admitted.promise;
+          if (indexed) {
+            const id = insertAsset(f.live.db);
+            insertLocation(f.live.db, { assetId: id, libraryId, path: '', filename: 'photo.dng' });
+          }
+        },
+      });
+      expect(outcome.kind).toBe('relocated');
+      expect(await saving).toMatchObject({
+        ok: false,
+        error: expect.stringContaining('reload before saving'),
+      });
+      await expect(stat(path.join(f.root, 'photo.xmp'))).rejects.toThrow();
+    } finally {
+      window.resolve();
+      admitted.resolve();
+      await saving;
+      await f.close();
+    }
+  });
+}

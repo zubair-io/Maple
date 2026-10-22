@@ -1,4 +1,5 @@
 import { syncCopiedFile, syncFileHandle } from './sync-file.ts';
+import { recordVerifiedPrimaryRollback } from './primary-replacement-admission';
 import { randomBytes } from 'node:crypto';
 import * as path from 'node:path';
 import * as fs from './mirrored.ts';
@@ -272,6 +273,7 @@ async function withdraw(publication: RelocatePublication): Promise<void> {
 async function restoreDisplaced(displaced: string, destination: string): Promise<void> {
   try {
     await publishExclusive(displaced, destination);
+    await recordVerifiedPrimaryRollback(destination);
     await fs.unlink(displaced);
   } catch (err) {
     log.error(
