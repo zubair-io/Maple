@@ -121,6 +121,7 @@ describe('AuthService native code handoff (#856)', () => {
   });
 
   it('hands the app a one-time CODE (not tokens) and echoes state', async () => {
+    auth.user.set({ id: 'native-user', email: 'owner@maple.local', role: 'owner' });
     const navigated: string[] = [];
     (auth as unknown as { navigateTo: (u: string) => void }).navigateTo = (u) => navigated.push(u);
 
@@ -181,6 +182,30 @@ describe('AuthService resumes the native handoff for an already-signed-in sessio
     await p;
 
     expect(navigated).toEqual([`maple-app://auth-success?code=CODE-RESUMED&state=${STATE}`]);
+  });
+
+  it('does not launch a callback after consent is cancelled while issuance is in flight', async () => {
+    makeService(nativeUrl());
+    auth.user.set(signedInUser);
+    const pending = auth.resumeNativeHandoff();
+    const request = ctrl.expectOne('/api/auth/native-code');
+    auth.dismissNativeHandoff();
+    request.flush({ code: 'CODE-CANCELLED' });
+    expect(await pending).toBe(false);
+    expect(auth.nativeLaunchUrl()).toBeNull();
+    expect(navigated).toEqual([]);
+  });
+
+  it('never opens a prepared callback after switching accounts', async () => {
+    makeService(nativeUrl());
+    auth.user.set(signedInUser);
+    const pending = auth.resumeNativeHandoff();
+    ctrl.expectOne('/api/auth/native-code').flush({ code: 'CODE-FIRST-ACCOUNT' });
+    await pending;
+    auth.user.set({ ...signedInUser, id: 'another-user' });
+    auth.openNativeHandoff();
+    expect(navigated).toHaveLength(1);
+    expect(auth.nativeLaunchUrl()).toBeNull();
   });
 
   it('does nothing while signed out — the sign-in ceremony owns that case', async () => {

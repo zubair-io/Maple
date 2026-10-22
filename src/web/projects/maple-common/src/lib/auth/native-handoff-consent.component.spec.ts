@@ -80,7 +80,22 @@ describe('NativeHandoffConsentComponent (#4673)', () => {
     await fixture.whenStable();
     fixture.detectChanges();
 
-    expect(navigated).toEqual([`maple-app://auth-success?code=CODE-APPROVED&state=${STATE}`]);
+    const url = `maple-app://auth-success?code=CODE-APPROVED&state=${STATE}`;
+    expect(navigated).toEqual([url]);
+    const open = fixture.nativeElement.querySelector(
+      '[data-testid="native-handoff-open"]',
+    ) as HTMLButtonElement;
+    expect(open.textContent).toContain('Open Maple');
+    expect(
+      (fixture.nativeElement.querySelector('[aria-label="Sign-in code"]') as HTMLInputElement)
+        .value,
+    ).toBe('CODE-APPROVED');
+    open.click();
+    expect(navigated).toEqual([url, url]);
+    ctrl.expectNone('/api/auth/native-code');
+    fixture.nativeElement.querySelector('[data-testid="native-handoff-cancel"]').click();
+    fixture.detectChanges();
+    expect(auth.nativeLaunchUrl()).toBeNull();
     expect(
       fixture.nativeElement.querySelector('[data-testid="native-handoff-consent"]'),
     ).toBeNull();

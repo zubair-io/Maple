@@ -73,18 +73,8 @@ export const nativeCodeRedeemRoutes = new Elysia().post(
   { body: t.Object({ code: t.String(), code_verifier: t.String() }) },
 );
 
-/**
- * Public polling claim (#3063). Chromium blocks the web app's script-initiated
- * `maple-app://` redirect when the tab has no user gesture — so the code the
- * web app mints can be stranded server-side. The native app polls here with
- * the ceremony's `state` and its private PKCE verifier; code-less polling is
- * bound to the issuing browser's client IP (#4673) unless the redirect-bound
- * `code` is also presented. 404 while nothing matching is pending (keep
- * polling); single-use thereafter.
- *
- * Rate limit: its own per-IP bucket, sized for a 2s poll cadence (60/min) so
- * polling never starves the shared `auth:` budget the other flows use.
- */
+/** Public callback-code claim. State, PKCE and the one-time callback code
+ * must all match. Code-less polling never authenticates, including on a shared IP. */
 export const nativeCodeClaimRoutes = new Elysia().post(
   '/api/auth/native-code/claim',
   async ({ body, set, request }) => {
@@ -108,12 +98,11 @@ export const nativeCodeClaimRoutes = new Elysia().post(
       set.status = 400;
       return { error: 'invalid code' };
     }
-    if (body.code === undefined && ip === 'anon') {
+    if (body.code === undefined) {
       set.status = 404;
       return { error: 'no pending code' };
     }
     const redeemed = await claimNativeCode(body.state, body.code_verifier, {
-      callerIp: ip,
       code: body.code,
     });
     if (!redeemed) {
@@ -150,7 +139,7 @@ export const nativeCodeClaimRoutes = new Elysia().post(
  */
 export const nativeCodeIssueRoutes = new Elysia().use(requireAuth).post(
   '/api/auth/native-code',
-  async ({ body, auth, cookie, headers, request, set }) => {
+  async ({ body, auth, cookie, headers, set }) => {
     // The challenge is base64url(sha256(verifier)) — fixed charset + length.
     // Sanitize before storing (same defensive instinct as the scheme check).
     if (!/^[A-Za-z0-9_-]{43,128}$/.test(body.code_challenge)) {
@@ -168,7 +157,6 @@ export const nativeCodeIssueRoutes = new Elysia().use(requireAuth).post(
       codeChallenge: body.code_challenge,
       state: body.state,
       deviceLabel: body.device_label?.slice(0, 64) || 'Apple device',
-      issuedIp: clientIp(request),
     });
     return { code: issued.code };
   },

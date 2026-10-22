@@ -52,10 +52,10 @@ describe('native auth codes through the auth module', () => {
     expect(await redeemNativeCode(code, VERIFIER)).toBeNull();
   });
 
-  it('issues a code the polling channel can spend without the code (#3063)', async () => {
+  it('requires the callback code even when state and verifier match', async () => {
     using live = await createLiveTestDatabase();
     const userId = await seedUser(live);
-    await issueNativeCode({
+    const { code } = await issueNativeCode({
       userId,
       codeChallenge: pkceS256(VERIFIER),
       state: 'st2',
@@ -63,7 +63,8 @@ describe('native auth codes through the auth module', () => {
     });
 
     expect(await claimNativeCode('st2', 'wrong-verifier')).toBeNull();
-    expect(await claimNativeCode('st2', VERIFIER)).toMatchObject({ state: 'st2' });
+    expect(await claimNativeCode('st2', VERIFIER)).toBeNull();
+    expect(await claimNativeCode('st2', VERIFIER, { code })).toMatchObject({ state: 'st2' });
     expect(await claimNativeCode('st2', VERIFIER)).toBeNull();
   });
 });

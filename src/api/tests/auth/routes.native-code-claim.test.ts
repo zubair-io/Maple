@@ -1,14 +1,5 @@
-/**
- * POST /api/auth/native-code/claim (#3063) — device-flow-style completion for
- * the native sign-in ceremony. Chromium blocks the web app's script-initiated
- * maple-app:// redirect when the browser was already signed in (no user
- * gesture), so the native app polls this endpoint with its private PKCE
- * verifier + state instead of waiting on a redirect that may never launch.
- *
- * Runs against a private SQLite database installed as the process-wide handle
- * for each test (#3787), so the pending-code row a claim consumes is read back
- * from the same database the route wrote it to.
- */
+/** Callback-code claims against a real SQLite database. Possession of state and
+ * PKCE alone never authenticates, even behind the same NAT as the approving browser. */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import type { ObjectId } from '../../src/db/object-id.ts';
@@ -88,7 +79,7 @@ const claim = (state: string, verifier: string, ip = '203.0.113.77', code?: stri
   );
 
 describe('native code claim (#3063)', () => {
-  it('404s while nothing is pending, then claims once the web app mints', async () => {
+  it('requires the callback code and consumes it once', async () => {
     const verifier = 'poll-verifier-abcdefghijklmnopqrstuvwxyz-0123456789';
     const state = 'state-poll-1234';
 
@@ -100,8 +91,9 @@ describe('native code claim (#3063)', () => {
     const issued = await issue(pkceS256(verifier), state);
     expect(issued.status).toBe(200);
 
-    // Next poll completes the ceremony with the same payload as /redeem.
-    const r = await claim(state, verifier);
+    const { code } = (await issued.json()) as { code: string };
+    expect((await claim(state, verifier)).status).toBe(404);
+    const r = await claim(state, verifier, '203.0.113.77', code);
     expect(r.status).toBe(200);
     const body = (await r.json()) as {
       access_token: string;
@@ -118,7 +110,7 @@ describe('native code claim (#3063)', () => {
     expect(refreshTokenCount()).toBe(2);
 
     // Single-use: the row is consumed — a replayed claim fails.
-    const replay = await claim(state, verifier);
+    const replay = await claim(state, verifier, '203.0.113.77', code);
     expect(replay.status).toBe(404);
   });
 
@@ -145,8 +137,11 @@ describe('native code claim (#3063)', () => {
     expect(remoteAttempt.status).toBe(404);
     expect(refreshTokenCount()).toBe(1);
 
-    // Legitimate caller on the issuing IP still succeeds.
-    const legitimate = await claim(state, verifier, '203.0.113.77');
+    // An unrelated device behind the same NAT still cannot claim the victim's grant.
+    expect((await claim(state, verifier, '203.0.113.77')).status).toBe(404);
+    expect(refreshTokenCount()).toBe(1);
+    const { code } = (await issued.json()) as { code: string };
+    const legitimate = await claim(state, verifier, '203.0.113.77', code);
     expect(legitimate.status).toBe(200);
     expect(refreshTokenCount()).toBe(2);
   });
@@ -163,15 +158,25 @@ describe('native code claim (#3063)', () => {
   });
 
   it('rejects a claim whose verifier does not hash to the stored challenge', async () => {
-    await issue(pkceS256('right-verifier-1234567890-abcdefghijklmnopqrs'), 'state-poll-wrongv');
-    const r = await claim('state-poll-wrongv', 'wrong-verifier-1234567890-abcdefghijklmnopqrs');
+    const issued = await issue(
+      pkceS256('right-verifier-1234567890-abcdefghijklmnopqrs'),
+      'state-poll-wrongv',
+    );
+    const { code } = (await issued.json()) as { code: string };
+    const r = await claim(
+      'state-poll-wrongv',
+      'wrong-verifier-1234567890-abcdefghijklmnopqrs',
+      '203.0.113.77',
+      code,
+    );
     expect(r.status).toBe(404);
   });
 
   it('rejects a claim whose state does not match', async () => {
     const verifier = 'poll-verifier-state-mismatch1-abcdefghijklmnop';
-    await issue(pkceS256(verifier), 'state-poll-a');
-    const r = await claim('state-poll-b', verifier);
+    const issued = await issue(pkceS256(verifier), 'state-poll-a');
+    const { code } = (await issued.json()) as { code: string };
+    const r = await claim('state-poll-b', verifier, '203.0.113.77', code);
     expect(r.status).toBe(404);
   });
 
@@ -199,9 +204,10 @@ describe('native code claim (#3063)', () => {
   it('consumes the row on claim, so the redirect-delivered code is dead afterwards', async () => {
     const verifier = 'poll-verifier-exclusive-12345-abcdefghijklmnop';
     const state = 'state-poll-exclusive';
-    await issue(pkceS256(verifier), state);
+    const issued = await issue(pkceS256(verifier), state);
+    const { code } = (await issued.json()) as { code: string };
 
-    const claimed = await claim(state, verifier);
+    const claimed = await claim(state, verifier, '203.0.113.77', code);
     expect(claimed.status).toBe(200);
 
     const row = live.db
