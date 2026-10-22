@@ -26,6 +26,7 @@ namespace Maple.WinUI
         /// straight to its zone view model.</summary>
         private void BuildGradePanel()
         {
+            _gradeEdgeButtons.Clear();
             var cells = new Dictionary<string, StackPanel>
             {
                 ["Shadows"] = GradeCellShadows,
@@ -128,7 +129,10 @@ namespace Maple.WinUI
             _gradeZoneCanvas.PointerMoved += OnGradeZonePointerMoved;
             _gradeZoneCanvas.PointerReleased += OnGradeZonePointerReleased;
             _gradeZoneCanvas.PointerCanceled += OnGradeZonePointerReleased;
-            _gradeZoneCanvas.PointerCaptureLost += OnGradeZonePointerReleased;
+            _gradeZoneCanvas.PointerCaptureLost += (_, e) =>
+            {
+                if (ReferenceEquals(e.OriginalSource, _gradeZoneCanvas)) OnGradeZonePointerReleased(_gradeZoneCanvas, e);
+            };
             _gradeZoneCanvas.DoubleTapped += OnGradeZoneDoubleTapped;
 
             stripStack.Children.Add(header);
@@ -208,7 +212,8 @@ namespace Maple.WinUI
             if (_gradeZoneCanvas == null || _gradeZoneCanvas.ActualWidth <= 0) return;
             var w = _gradeZoneCanvas.ActualWidth;
             var h = _gradeZoneCanvas.ActualHeight > 0 ? _gradeZoneCanvas.ActualHeight : 44.0;
-            _gradeZoneCanvas.Children.Clear();
+            foreach (var shape in _gradeZoneCanvas.Children.OfType<Shape>().ToList())
+                _gradeZoneCanvas.Children.Remove(shape);
 
             var shLine = new Polyline { Stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(0xD8, 0x22, 0xD3, 0xEE)), StrokeThickness = 1.5 };
             var midLine = new Polyline { Stroke = new SolidColorBrush(Windows.UI.Color.FromArgb(0xD8, 0xFB, 0x92, 0x3C)), StrokeThickness = 1.5 };
@@ -238,6 +243,7 @@ namespace Maple.WinUI
                     Stroke = new SolidColorBrush(col), StrokeThickness = 1.5, IsHitTestVisible = false,
                 });
             }
+            SyncGradeEdgeControls(w, h);
         }
 
         private void SyncGradeWheels()

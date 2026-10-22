@@ -354,7 +354,8 @@ export class ToneCurveComponent implements OnDestroy {
     if (event.button !== 0) return;
     event.stopPropagation();
     event.preventDefault();
-    this.detachSplitDrag?.();
+    if (this.detachSplitDrag) return;
+    const pointerId = event.pointerId;
     this.editor.commit('adjustment', 'Tone curve split');
     this.vm.activeRegion.set(regionForSplitHandle(handle));
 
@@ -364,9 +365,11 @@ export class ToneCurveComponent implements OnDestroy {
       this.applySplitValue(handle, authoringXToAxis(pos.x));
     };
 
-    const move = (e: PointerEvent) => updateFromEvent(e);
-    const up = () => {
-      if (this.detachSplitDrag !== up) return;
+    const move = (e: PointerEvent) => {
+      if (e.pointerId === pointerId) updateFromEvent(e);
+    };
+    const finish = () => {
+      if (this.detachSplitDrag !== finish) return;
       this.detachSplitDrag = null;
       this.editor.endEdit();
       window.removeEventListener('pointermove', move);
@@ -374,7 +377,10 @@ export class ToneCurveComponent implements OnDestroy {
       window.removeEventListener('pointercancel', up);
       this.vm.activeRegion.set(null);
     };
-    this.detachSplitDrag = up;
+    const up = (e: PointerEvent) => {
+      if (e.pointerId === pointerId) finish();
+    };
+    this.detachSplitDrag = finish;
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
