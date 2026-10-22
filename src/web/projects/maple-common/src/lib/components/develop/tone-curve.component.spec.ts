@@ -299,6 +299,7 @@ describe('ToneCurveComponent (#367)', () => {
         bubbles: true,
       });
     handle.dispatchEvent(touch('pointerdown', 7, 0.25));
+    handle.dispatchEvent(touch('pointerdown', 9));
     window.dispatchEvent(touch('pointermove', 9));
     expect(lib.model().parametricShadowSplit).toBe(25);
     window.dispatchEvent(touch('pointerup', 9));
