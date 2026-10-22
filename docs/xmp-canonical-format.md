@@ -39,6 +39,10 @@ Moves made outside Maple are a separate case. External-rename reconciliation (sa
 
 The shared parity corpus `test-fixtures/file-operations/cases.json` holds the cases (`shared_sidecar_*`, `extension_only_rename_*`, `destination_*_sidecar_*`, `replace_*_sibling_*`) that each stack's relocate runner replays.
 
+#### Known limitations
+
+- **Replace can lose a file written at the destination just before its swap (#5141).** Replace keeps the destination's current photo under a private name, then renames the verified copy over the destination, so a rollback can put the old photo back. If another writer creates or replaces that exact destination in the moment between keeping the old photo and the rename, the rename overwrites the newer file without keeping it; a rollback that follows restores the older photo, or nothing when the destination was empty before. Losing a file takes both at once: a concurrent writer at the exact path inside that window, then a rollback (a failed repoint or a lost lease). Closing the window would mean moving the occupant aside and publishing exclusively, which gives up the atomic swap: the photo would be briefly missing at its path, and on SMB, where links aren't supported, visible half-written while the copy streams. Replace keeps the atomic swap.
+
 ## The four implementations
 
 | Language     | Reads | Writes        | Entry points                                                                                                                                                                              |
