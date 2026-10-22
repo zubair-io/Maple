@@ -1,3 +1,4 @@
+import type { SidecarWriteScope } from './sidecar-write-order';
 /** Exact-content preconditions for path-keyed native cloud saves (#4317).
  * Checks and publication share the existing server-side write barrier. */
 import { computeBodyETag } from '../runtime/http-etag';
@@ -20,7 +21,7 @@ export async function writeXmpIfUnchanged(
   xml: string,
   expectedEtag: string | null,
   signal?: AbortSignal,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
 ): Promise<ConditionalXmpResult> {
   try {
     return await serializeSidecarWrite<ConditionalXmpResult>(

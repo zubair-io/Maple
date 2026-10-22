@@ -1,3 +1,5 @@
+import { captureSidecarWriteScope } from './xmp-change';
+import type { SidecarWriteScope } from '../fs/sidecar-write-order';
 /**
  * Shared helper: resolve and authorize a caller-supplied file path against
  * registered library roots.
@@ -29,7 +31,8 @@ export async function resolveAndAuthorizePath(
   raw: string | undefined,
   dbOverride?: SqliteDb,
 ): Promise<
-  { ok: true; data: string; writeScope: string } | { ok: false; status: number; error: string }
+  | { ok: true; data: string; writeScope: SidecarWriteScope }
+  | { ok: false; status: number; error: string }
 > {
   if (typeof raw !== 'string' || raw.length === 0) {
     return { ok: false, status: 400, error: 'Missing required path' };
@@ -80,7 +83,11 @@ export async function resolveAndAuthorizePath(
     };
   }
   const canonicalPath = await canonicalPathForAdmission(normalized);
-  return { ok: true, data: normalized, writeScope: path.dirname(canonicalPath) };
+  return {
+    ok: true,
+    data: normalized,
+    writeScope: await captureSidecarWriteScope(normalized, path.dirname(canonicalPath), dbOverride),
+  };
 }
 
 /** Resolve an existing path or preserve its missing tail below a real parent. */

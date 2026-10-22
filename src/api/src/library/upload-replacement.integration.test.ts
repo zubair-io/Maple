@@ -1,89 +1,18 @@
-import { expect, test, spyOn } from 'bun:test';
-import { Elysia } from 'elysia';
-import * as path from 'node:path';
-import { fakeAuth } from '../../tests/helpers/test-auth.ts';
-import { foldersRoutes } from '../routes/folders.ts';
-import { recoveryFixture } from '../cloud-backup/restore.test-helpers.ts';
 import { backupEngine } from '../cloud-backup/runtime.ts';
+import { insertLocation } from '../db/sqlite/test-sqlite.test-helpers.ts';
+import { replacementFixture as fixture } from './upload-replacement.test-helpers.ts';
+import { expect, test, spyOn } from 'bun:test';
+import * as path from 'node:path';
 import * as lifecycle from '../cloud-backup/lifecycle.ts';
 import { reconcileLifecycle } from '../cloud-backup/lifecycle.ts';
 import { ObjectId } from '../db/object-id.ts';
-import {
-  insertAsset,
-  insertFolder,
-  insertLocation,
-} from '../db/sqlite/test-sqlite.test-helpers.ts';
-import { mkdir, writeFile, readFile, stat } from '../fs/mirrored.ts';
+import { writeFile, readFile, stat } from '../fs/mirrored.ts';
 import * as assetsRepo from '../db/repos/assets.repo.ts';
 import * as xmpConflict from '../fs/xmp-conflict.ts';
 import * as mirrored from '../fs/mirrored.ts';
 import * as ownership from '../fs/sidecar-ownership.ts';
 import { discardIdenticalReplacement } from './upload-replacement.ts';
 import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
-
-async function fixture(bytes = 'old-original') {
-  const f = await recoveryFixture();
-  const library = path.join(f.root, 'library');
-  await mkdir(library);
-  const original = path.join(library, 'photo.dng');
-  await writeFile(original, bytes);
-  const libraryId = insertFolder(f.live.db, { path: library });
-  const id = insertAsset(f.live.db);
-  insertLocation(f.live.db, {
-    assetId: id,
-    libraryId,
-    path: '',
-    filename: 'photo.dng',
-  });
-  const destination = await backupEngine.repo.createDestination({
-    libraryId,
-    kind: 'google-drive',
-    path: null,
-    name: 'Private Drive',
-  });
-  const entry = await backupEngine.repo.ensureEntry(destination.id, id, 0, 'photo.dng');
-  await backupEngine.repo.db.write(
-    'UPDATE backup_entries SET lease_owner=?,lease_until=? WHERE id=?',
-    ['stale-upload', Date.now() + 120000, entry.id],
-  );
-  const app = new Elysia().use(fakeAuth()).use(foldersRoutes);
-  return {
-    ...f,
-    library,
-    original,
-    libraryId,
-    id,
-    entry,
-    destination,
-    async upload(value: string) {
-      return app.handle(
-        new Request(`http://localhost/api/folders/${libraryId}/upload`, {
-          method: 'POST',
-          headers: {
-            'X-Maple-Target-Path': 'photo.dng',
-            'Content-Type': 'application/octet-stream',
-          },
-          body: value,
-        }),
-      );
-    },
-    location() {
-      return f.live.db
-        .query('SELECT path,filename FROM asset_locations WHERE asset_id=? ORDER BY ordinal')
-        .get(id) as { path: string; filename: string };
-    },
-    backup() {
-      return f.live.db
-        .query('SELECT state,sequence,source_path,lease_owner FROM backup_entries WHERE id=?')
-        .get(entry.id) as {
-        state: string;
-        sequence: number;
-        source_path: string;
-        lease_owner: string | null;
-      };
-    },
-  };
-}
 
 test('replacement upload commits durable Trash and fences an already claimed cloud upload', async () => {
   const f = await fixture();

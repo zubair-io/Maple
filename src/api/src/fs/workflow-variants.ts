@@ -1,3 +1,4 @@
+import type { SidecarWriteScope } from './sidecar-write-order';
 /** Portable sibling storage; originals are never opened for writing (#4040). */
 import * as path from 'node:path';
 import { callNativeRetrying } from './native-call';
@@ -165,7 +166,7 @@ export async function writeWorkflowVariant(
   id: string,
   xml: string,
   signal?: AbortSignal,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
 ): Promise<string> {
   return serializeSidecarWrite(
     admissionDestination(rawPath, id),
@@ -208,7 +209,7 @@ export function commitWorkflowVariant(
   xmp: string,
   entry: WorkflowHistoryEntry,
   signal?: AbortSignal,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
 ): Promise<string> {
   return mutateVariant(
     rawPath,
@@ -234,7 +235,7 @@ export function snapshotWorkflowVariant(
   snapshot: WorkflowSnapshot,
   initialXmp?: string,
   signal?: AbortSignal,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
 ): Promise<string> {
   return mutateVariant(
     rawPath,
@@ -259,7 +260,7 @@ export function restoreWorkflowVariant(
   expectedXmp: string,
   entry: WorkflowHistoryEntry,
   signal?: AbortSignal,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
 ): Promise<string> {
   return mutateVariant(
     rawPath,
@@ -280,7 +281,7 @@ async function mutateVariant(
   expectedXmp: string | null,
   convert: (current: string | null) => Promise<string>,
   signal?: AbortSignal,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
 ): Promise<string> {
   return serializeSidecarWrite(
     admissionDestination(rawPath, id),
