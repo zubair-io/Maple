@@ -5,7 +5,7 @@ import { insertAsset, insertFolder, insertLocation } from '../db/sqlite/test-sql
 import { readFile, stat, writeFile } from './mirrored';
 import { relocateFile } from './relocate';
 import { writeXmpAtomic } from './xmp';
-import { resolveAndAuthorizePath } from '../routes/xmp-path-auth';
+import { resolveAndAuthorizeSidecarWrite } from '../routes/xmp-path-auth';
 
 const edits = (exposure: number) => `<x:xmpmeta xmlns:x="adobe:ns:meta/">
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -28,7 +28,7 @@ for (const mode of ['move', 'copy'] as const) {
         const libraryId = insertFolder(f.live.db, { path: f.root });
         const id = insertAsset(f.live.db);
         insertLocation(f.live.db, { assetId: id, libraryId, path: '', filename: 'photo.dng' });
-        const authorized = await resolveAndAuthorizePath(destination);
+        const authorized = await resolveAndAuthorizeSidecarWrite(destination);
         if (!authorized.ok) throw new Error(authorized.error);
         // Start the independent request outside the relocation's async context.
         saving = (async () => {
@@ -86,7 +86,7 @@ test('a new workflow variant waits for Replace and cannot attach to the replacem
     const libraryId = insertFolder(f.live.db, { path: f.root });
     const id = insertAsset(f.live.db);
     insertLocation(f.live.db, { assetId: id, libraryId, path: '', filename: 'photo.dng' });
-    const authorized = await resolveAndAuthorizePath(destination);
+    const authorized = await resolveAndAuthorizeSidecarWrite(destination);
     if (!authorized.ok) throw new Error(authorized.error);
     creating = (async () => {
       await window.promise;
