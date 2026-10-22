@@ -22,6 +22,7 @@ import * as fsSync from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { relocateFile } from './relocate.ts';
+import { performCaseOnlyRename } from './relocate-case-only-rename.ts';
 
 /** Probed live (write `a`, stat `A`), same technique as
  * `relocate.parity.test.ts`'s `CASE_INSENSITIVE_FS` — CI can mount a
@@ -226,5 +227,30 @@ describe('relocateFile — case-SENSITIVE filesystem: distinct same-case-insensi
       expect(await read('a/IMG.CR3')).toBe('unrelated-destination-pixels');
       expect(await exists('a/img.cr3')).toBe(false); // source moved (mode: move)
     },
+  );
+});
+
+// Exercise the special branch directly on every host, including ext4 CI.
+test('a case-only raw-sidecar rename leaves the photo conflict and workflow siblings unchanged', async () => {
+  const source = path.join(root, 'photo.xmp');
+  const destination = path.join(root, 'PHOTO.xmp');
+  const conflict = path.join(root, 'photo (conflict from Mac).xmp');
+  const variant = path.join(root, 'photo.v123e4567-e89b-12d3-a456-426614174000.xmp');
+  await fs.writeFile(source, '<primary/>');
+  await fs.writeFile(conflict, '<conflict/>');
+  await fs.writeFile(variant, '<variant/>');
+  const outcome = await performCaseOnlyRename({
+    sourceAbsPath: source,
+    destAbsPath: destination,
+    mode: 'move',
+    collision: 'auto-suffix',
+    carrySidecars: false,
+  });
+  expect(outcome).toMatchObject({ kind: 'relocated', sidecarPaths: [] });
+  expect(await fs.readFile(destination, 'utf8')).toBe('<primary/>');
+  expect(await fs.readFile(conflict, 'utf8')).toBe('<conflict/>');
+  expect(await fs.readFile(variant, 'utf8')).toBe('<variant/>');
+  expect((await fs.readdir(root)).sort()).toEqual(
+    ['PHOTO.xmp', path.basename(conflict), path.basename(variant)].sort(),
   );
 });
