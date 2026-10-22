@@ -145,6 +145,12 @@ pub fn apply_prepared_rgba(
     curve: Option<&ProfileCurve>,
     residual: Option<(usize, &[f32])>,
 ) {
+    if let Some((size, data)) = residual {
+        assert!(
+            size >= 2 && size.checked_pow(3).and_then(|n| n.checked_mul(3)) == Some(data.len()),
+            "prepared residual must have size³ × 3 lanes and size >= 2"
+        );
+    }
     let apply = curve.map(prepared_curve);
     pixels.par_chunks_exact_mut(4).for_each(|pixel| {
         let mut rgb = [pixel[0], pixel[1], pixel[2]];
@@ -196,6 +202,17 @@ mod prepared_rgba_tests {
             *lane = (*lane + if i % 3 == 0 { 0.05 } else { -0.02 }).clamp(0.0, 1.0);
         }
         lut
+    }
+
+    #[test]
+    fn malformed_prepared_lattice_is_rejected_before_any_pixel_changes() {
+        let mut pixels = vec![0.2, 0.4, 0.6, 0.7];
+        let before = pixels.clone();
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            apply_prepared_rgba(&mut pixels, None, Some((2, &[0.0; 3])));
+        }))
+        .is_err());
+        assert_eq!(pixels, before);
     }
 
     #[test]
