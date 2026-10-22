@@ -37,6 +37,22 @@ class ExifAndExportOptionsTest {
         )
 
     @Test
+    fun pendingExportsRetainTheirExactOptionsAndMimeAfterRecreation() {
+        val scope = object : androidx.compose.runtime.saveable.SaverScope {
+            override fun canBeSaved(value: Any) = true
+        }
+        for (format in ExportFormat.entries) {
+            val options = ExportOptions(format, 81, 2560, ExportColorSpace.DISPLAY_P3)
+            val saved = with(ExportOptionsSaver) { scope.save(options) }!!
+            val restored = ExportOptionsSaver.restore(saved)!!
+            assertEquals(options, restored)
+            val intent = ExportDocumentContract("frame.dng").createIntent(org.robolectric.RuntimeEnvironment.getApplication(), restored)
+            assertEquals(format.mimeType, intent.type)
+            assertEquals(options.suggestedFileName("frame.dng"), intent.getStringExtra(android.content.Intent.EXTRA_TITLE))
+        }
+    }
+
+    @Test
     fun parseExifFormatsFieldsDeterministically() {
         val exif = parseExifAttributes(sampleAttrs())
         assertTrue(exif.hasAnyExif)

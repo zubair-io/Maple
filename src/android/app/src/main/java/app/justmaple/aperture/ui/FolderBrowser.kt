@@ -53,13 +53,13 @@ internal fun BrowseGrid(
     LaunchedEffect(photos, state.selected?.uri, state.document, state.documentLoaded) {
         culling =
             withContext(Dispatchers.IO) {
+                val loaded = model.library.loadSidecars(photos)
                 photos.associate { photo ->
                     val marks =
                         if (state.documentLoaded && photo.uri == state.selected?.uri)
                             cullingOf(state.document)
                         else
-                            runCatching { cullingOf(model.library.loadSidecar(photo).document) }
-                                .getOrDefault(PhotoCulling())
+                            loaded[photo.uri.toString()]?.let { cullingOf(it.document) } ?: PhotoCulling()
                     photo.uri.toString() to marks
                 }
             }

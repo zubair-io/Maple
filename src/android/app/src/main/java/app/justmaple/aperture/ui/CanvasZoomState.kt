@@ -144,7 +144,7 @@ class CanvasZoomState(
         val oldScale = effectiveScale(imageWidth, imageHeight, viewportWidth, viewportHeight)
         if (!isZoomed) absoluteScale = false
         val proposed = (oldScale * zoomChange).coerceAtMost(MAX_PIXEL_SCALE)
-        if (proposed <= fit * SNAP_TO_FIT_RATIO) {
+        if (oldScale >= fit && proposed <= fit * SNAP_TO_FIT_RATIO) {
             reset()
             return
         }

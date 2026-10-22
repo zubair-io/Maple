@@ -28,18 +28,14 @@ enum class HslBand(val label: String, val key: String) {
     Magenta("Magenta", "magenta"),
 }
 
-data class WbPreset(val label: String, val temperature: Float?, val tint: Float?, val automatic: Boolean = false)
+data class WbPreset(val label: String, val temperature: Float?, val tint: Float?, val automatic: Boolean = false, val xmpName: String? = null)
 
 val wbPresets = listOf(
     WbPreset("As Shot", null, null),
     WbPreset("Auto", null, null, automatic = true),
-    WbPreset("Daylight 5500K", 5500f, 10f),
-    WbPreset("Cloudy 6500K", 6500f, 10f),
-    WbPreset("Shade 7500K", 7500f, 10f),
-    WbPreset("Tungsten 2850K", 2850f, 0f),
-    WbPreset("Fluorescent 3800K", 3800f, 20f),
-    WbPreset("Flash 5500K", 5500f, 0f),
-)
+) + app.justmaple.aperture.generated.WhiteBalancePresets.fixed.map {
+    WbPreset("${it.name} ${it.temperature.toInt()}K", it.temperature, it.tint, xmpName = it.name)
+}
 
 data class EditorSubTool(val id: String, val label: String)
 
@@ -102,8 +98,7 @@ fun MapleViewModel.applyWbPreset(preset: WbPreset) {
     if (edits == null) {
         resetFields(listOf("temperature", "tint"))
     } else {
-        edits.forEach { (name, value) -> setField(name, value) }
-        commitGesture()
+        applyWhiteBalancePreset(requireNotNull(preset.xmpName))
     }
 }
 

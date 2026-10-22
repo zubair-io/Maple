@@ -37,6 +37,16 @@ class CanvasZoomAndBeforeAfterTest {
     @get:Rule val compose = createComposeRule()
 
     @Test
+    fun pinchFrom100PercentBelowFitDoesNotSnapUpToFit() {
+        val zoom = CanvasZoomState()
+        zoom.doubleTap(500f, 400f, 500, 400, 1000f, 800f)
+        zoom.applyPinch(1.1f, 500f, 400f, 500, 400, 1000f, 800f)
+        assertEquals(1.1f, zoom.pixelScale, 1e-6f)
+        zoom.applyPinch(0.9f, 500f, 400f, 500, 400, 1000f, 800f)
+        assertEquals(0.99f, zoom.pixelScale, 1e-6f)
+    }
+
+    @Test
     fun aShortPinchWithSequentialFingerLiftsCannotSeedADoubleTap() {
         val zoom = CanvasZoomState()
         compose.setContent {

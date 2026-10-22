@@ -12,7 +12,10 @@ internal fun EditSnapshot.withCurrentCrop(current: XmpDocument): EditSnapshot =
             listOf(
                 "crs:HasCrop", "crs:CropTop", "crs:CropLeft", "crs:CropBottom",
                 "crs:CropRight", "crs:CropAngle", "crs:CropConstrainToWarp",
-            ).fold(document) { doc, key -> doc.withAttribute(key, current.attribute(key)) }
+            ).fold(document) { doc, key ->
+                val value = current.attribute(key)
+                if (doc.attribute(key) == value) doc else doc.withAttribute(key, value)
+            }
     )
 
 internal fun EditSnapshot.reset(

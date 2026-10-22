@@ -71,6 +71,24 @@ class AutoWhiteBalanceTest {
     }
 
     @Test
+    fun fixedPresetSavesCanonicalPairAndProvenanceAsOneUndoableEdit() = runBlocking {
+        exercise { model, _, library, photo ->
+            model.applyWhiteBalancePreset("Fluorescent")
+            assertEquals(3800f, model.state.value.values.getValue("temperature"), 0f)
+            assertEquals(21f, model.state.value.values.getValue("tint"), 0f)
+            assertEquals("Preset", model.state.value.document.attribute("papp:WbSource"))
+            assertEquals("Fluorescent", model.state.value.document.attribute("crs:WhiteBalance"))
+            assertEquals(null, model.state.value.document.attribute("papp:WbAlgorithmVersion"))
+            assertTrue(model.flush())
+            assertEquals("Preset", library.loadSidecar(photo).document.attribute("papp:WbSource"))
+            model.undo()
+            assertEquals(null, model.state.value.document.attribute("papp:WbSource"))
+            model.redo()
+            assertEquals("Fluorescent", model.state.value.document.attribute("crs:WhiteBalance"))
+        }
+    }
+
+    @Test
     fun appliesOneSharedRecommendationAsOneUndoableRealSidecarSave() = runBlocking {
         exercise { model, analyzer, library, photo ->
             model.autoWhiteBalance()

@@ -12,6 +12,25 @@ import org.junit.Test
 
 class SharedCacheProviderTest {
     @Test
+    fun cullingReadsAllMarksFromOneFreshFolderSnapshot() = runBlocking {
+        CacheProviderFixture().use { fixture ->
+            for (index in 1..4) {
+                fixture.write(fixture.root, "frame-$index.dng", fixture.original)
+                fixture.write(fixture.root, "frame-$index.xmp", XmpDocument().withAttribute("xmp:Rating", index.toString()).serialize().toByteArray())
+            }
+            val photos = fixture.library.list(fixture.root).photos
+            val before = fixture.call("cache-test-state")!!.getInt("childQueries")
+            val loaded = fixture.library.loadSidecars(photos)
+            val after = fixture.call("cache-test-state")!!.getInt("childQueries")
+            assertEquals(1, after - before)
+            for (index in 1..4) {
+                val photo = photos.single { it.name == "frame-$index.dng" }
+                assertEquals(index, loaded.getValue(photo.uri.toString()).document.rating)
+            }
+        }
+    }
+
+    @Test
     fun aStableDocumentIdCannotPublishUnderItsOldBasenameAfterRename() = runBlocking {
         CacheProviderFixture().use { fixture ->
             val photo = fixture.library.list(fixture.root).photos.single()

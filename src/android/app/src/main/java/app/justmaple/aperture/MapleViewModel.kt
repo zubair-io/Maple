@@ -484,7 +484,7 @@ internal constructor(
     }
 
     fun hasComparisonEdits(current: MapleState = state.value): Boolean =
-        openingEdit?.let { it != EditSnapshot(current.values, current.document) } ?: false
+        openingEdit?.let { it.withCurrentCrop(current.document) != EditSnapshot(current.values, current.document) } ?: false
 
     fun setComparingBefore(before: Boolean) {
         val current = state.value
@@ -497,6 +497,16 @@ internal constructor(
         renderXml = presentedXml(comparison.document)
         renderer.invalidateModel()
         queueDraw(drawValues)
+    }
+
+    fun applyWhiteBalancePreset(name: String) {
+        val current = state.value
+        if (!current.canEdit || current.values.isEmpty()) return
+        val preset = app.justmaple.aperture.generated.WhiteBalancePresets.fixed.single { it.name == name }
+        commitGesture()
+        beginGesture()
+        restore(snapshot().withWhiteBalancePreset(preset))
+        commitGesture()
     }
 
     fun autoWhiteBalance() {

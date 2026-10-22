@@ -20,3 +20,12 @@ internal fun EditSnapshot.withAutoWhiteBalance(result: WhiteBalanceRecommendatio
     }.withAttribute("crs:WhiteBalance", "Auto").withAttribute("papp:WbSource", "Auto")
     return copy(values = values + recommended, document = updated)
 }
+
+internal fun EditSnapshot.withWhiteBalancePreset(preset: app.justmaple.aperture.generated.NamedWhiteBalancePreset): EditSnapshot {
+    val pair = mapOf("temperature" to preset.temperature, "tint" to preset.tint,
+        "wb_algorithm_version" to 0f, "wb_sample_x" to 0f, "wb_sample_y" to 0f)
+    val updated = pair.entries.fold(document.withoutWhiteBalance()) { doc, (name, value) ->
+        doc.withField(AdjustmentFields.byName.getValue(name), value)
+    }.withAttribute("crs:WhiteBalance", preset.name).withAttribute("papp:WbSource", "Preset")
+    return copy(values = values + pair, document = updated)
+}

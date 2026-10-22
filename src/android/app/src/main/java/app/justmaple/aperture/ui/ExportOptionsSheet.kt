@@ -104,7 +104,7 @@ fun ExportOptionsDialog(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    for (edge in listOf(0, 4096, 2048, 1024)) {
+                    for (edge in listOf(0, 4096, 2560, 2048, 1024)) {
                         FilterChip(
                             modifier = Modifier.testTag("export-max-edge-$edge"),
                             selected = maxEdge == edge,

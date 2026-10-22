@@ -408,6 +408,7 @@ internal fun CropOverlay(
                             bottom = startCrop.bottom * h,
                             tol = 36f,
                         ) ?: return@awaitEachGesture
+                    var workingCrop = startCrop
                     var lastPos = down.position
                     var moved = false
                     try {
@@ -420,13 +421,13 @@ internal fun CropOverlay(
                                 val updated =
                                     if (handle == CropHandle.Move) {
                                         CropGeometry.moveCrop(
-                                            currentCrop,
+                                            workingCrop,
                                             (pos.x - lastPos.x) / w,
                                             (pos.y - lastPos.y) / h,
                                         )
                                     } else {
                                         CropGeometry.resizeCrop(
-                                            currentCrop,
+                                            workingCrop,
                                             handle,
                                             pos.x / w,
                                             pos.y / h,
@@ -435,6 +436,7 @@ internal fun CropOverlay(
                                             imgH = 1f,
                                         )
                                     }
+                                workingCrop = updated
                                 lastPos = pos
                                 moved = true
                                 currentCallback(updated)
