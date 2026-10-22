@@ -16,7 +16,11 @@ import * as fs from './mirrored.ts';
 import * as path from 'node:path';
 import { listPairedSidecars, pickFreeConflictPath } from './xmp-conflict.ts';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
-import { serializeSidecarWrite, serializeSidecarWrites } from './sidecar-write-order.ts';
+import {
+  serializeSidecarWrite,
+  serializeSidecarWrites,
+  trySerializeSidecarWrite,
+} from './sidecar-write-order.ts';
 import { isCataloguedFilename, isVideoFilename } from '../indexer/media-types';
 import { readSidecarBytes } from './sidecar-bytes.ts';
 import { isLegacyBackupSidecarOf, oldNameSlotTaken } from './legacy-backup-sidecar.ts';
@@ -320,8 +324,10 @@ const CONFLICT_ATTEMPTS = 5;
 export async function publishConflictBytes(photo: string, bytes: Buffer): Promise<boolean> {
   for (let attempt = 0; attempt < CONFLICT_ATTEMPTS; attempt++) {
     const conflict = await pickFreeConflictPath(photo, 'move');
-    const published = await publishBytesExclusive(conflict, bytes).then(
-      () => true,
+    const published = await trySerializeSidecarWrite(conflict, () =>
+      publishBytesExclusive(conflict, bytes),
+    ).then(
+      (result) => result.acquired,
       () => false,
     );
     if (published) return true;

@@ -25,7 +25,7 @@ import {
   readSidecarNoFollow,
   writeSidecarAtomic,
 } from './sidecar-io.ts';
-import { waitForAbortable } from './sidecar-write-order.ts';
+import { waitForAbortable, serializeSidecarWrite } from './sidecar-write-order.ts';
 import type { OpResult } from './root.ts';
 import { isVideoFilename } from '../indexer/media-types.ts';
 import { workflowSidecarBase } from './workflow-sidecar-pairing';
@@ -175,7 +175,12 @@ export async function writeConflictSidecarAtomic(
 ): Promise<{ ok: true; mtime: Date } | { ok: false; error: string }> {
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
   if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
-  return writeSidecarAtomic(sidecar, xmlContent, 'Conflict sidecar write failed', signal);
+  return serializeSidecarWrite(
+    sidecar,
+    (destination) =>
+      writeSidecarAtomic(destination, xmlContent, 'Conflict sidecar write failed', signal),
+    { signal },
+  );
 }
 
 /**
@@ -236,5 +241,7 @@ export async function deleteConflictSidecar(
 ): Promise<OpResult> {
   const sidecar = resolveConflictSidecarPath(rawAbsPath, conflictBasename);
   if (!sidecar) return { ok: false, error: 'Invalid conflict basename' };
-  return deleteSidecar(sidecar, 'Conflict sidecar delete failed');
+  return serializeSidecarWrite(sidecar, (destination) =>
+    deleteSidecar(destination, 'Conflict sidecar delete failed'),
+  );
 }
