@@ -218,31 +218,33 @@ test('a sidecar first written while an identical replacement purges follows the 
   }
 });
 
-test('a late sidecar a trashed same-stem sibling shares stays with that sibling (#5069)', async () => {
-  const f = await fixture();
-  const source = path.join(f.library, '.maple/trash/photo.dng');
-  const late = path.join(f.library, '.maple/trash/photo.xmp');
-  try {
-    expect((await f.upload('different')).status).toBe(201);
-    await writeFile(f.original, 'old-original');
-    await writeFile(path.join(f.library, '.maple/trash/photo.jpg'), 'sibling');
-    const realPrepare = lifecycle.prepareIdenticalReplacementPurge;
-    const prepare = spyOn(lifecycle, 'prepareIdenticalReplacementPurge').mockImplementation(
-      async (...args) => {
-        await writeFile(late, 'shared edit');
-        return realPrepare(...args);
-      },
-    );
+for (const sibling of ['photo.jpg', 'photo']) {
+  test(`a late sidecar stays with its surviving ${sibling} sibling (#5069)`, async () => {
+    const f = await fixture();
+    const source = path.join(f.library, '.maple/trash/photo.dng');
+    const late = path.join(f.library, '.maple/trash/photo.xmp');
     try {
-      await discardIdenticalReplacement(new ObjectId(f.id), f.library, source, f.original);
+      expect((await f.upload('different')).status).toBe(201);
+      await writeFile(f.original, 'old-original');
+      await writeFile(path.join(f.library, '.maple/trash', sibling), 'sibling');
+      const realPrepare = lifecycle.prepareIdenticalReplacementPurge;
+      const prepare = spyOn(lifecycle, 'prepareIdenticalReplacementPurge').mockImplementation(
+        async (...args) => {
+          await writeFile(late, 'shared edit');
+          return realPrepare(...args);
+        },
+      );
+      try {
+        await discardIdenticalReplacement(new ObjectId(f.id), f.library, source, f.original);
+      } finally {
+        prepare.mockRestore();
+      }
+      expect(await readFile(late, 'utf8')).toBe('shared edit');
     } finally {
-      prepare.mockRestore();
+      await f.close();
     }
-    expect(await readFile(late, 'utf8')).toBe('shared edit');
-  } finally {
-    await f.close();
-  }
-});
+  });
+}
 
 test('a late old-name edit follows the replacement even beside a same-stem sibling (#5069)', async () => {
   const f = await fixture();

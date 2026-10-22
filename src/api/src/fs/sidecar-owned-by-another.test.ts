@@ -28,6 +28,12 @@ test('a real same-stem sibling owns the sidecar', async () => {
   expect(await sidecarStemOwnedByAnotherFile(at('IMG.dng'))).toBe(true);
 });
 
+test('a regular extensionless sibling owns its stem sidecar', async () => {
+  await writeFile(at('IMG.dng'), 'raw');
+  await writeFile(at('IMG'), 'extensionless image');
+  expect(await sidecarStemOwnedByAnotherFile(at('IMG.dng'))).toBe(true);
+});
+
 test('the photo alone has no other owner', async () => {
   await writeFile(at('IMG.dng'), 'raw');
   await writeFile(at('IMG.xmp'), 'edit');
