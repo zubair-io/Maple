@@ -4,6 +4,39 @@ import XCTest
 @testable import MapleCore
 
 final class SMBWorkflowRecoveryTests: XCTestCase {
+  func testSourceBatchSavePreservesAdoptedHistoryAndSnapshots() async throws {
+    let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
+    do {
+      let ref = try await fixture.image()
+      let store = SMBSidecarStore(source: fixture.source, ref: ref)
+      let loaded = try await store.load()
+      try await store.commitSemantic(
+        model: loaded.0, culling: loaded.1, action: "adjustment", label: "Before batch")
+      let document = try await store.readWorkflowXML()
+      let current = try XCTUnwrap(document)
+      let checkpoint = try WorkflowSidecarCore.checkpoint(xmp: current)
+      let snapshot = WorkflowSnapshot(
+        id: UUID().uuidString.lowercased(), name: "Keep snapshot", createdAtMs: 1,
+        adjustmentXmp: checkpoint)
+      let seeded = try WorkflowSidecarCore.snapshot(snapshot, in: current)
+      let sidecar = fixture.share.appendingPathComponent("photo.xmp")
+      try seeded.write(to: sidecar, atomically: true, encoding: .utf8)
+      let adopted = try XCTUnwrap(WorkflowSidecarCore.read(xmp: seeded))
+      var model = loaded.0
+      model.exposure = 1.25
+      try await fixture.source.writeXMP(Sidecar(model: model, culling: loaded.1), for: ref)
+      let saved = try String(contentsOf: sidecar, encoding: .utf8)
+      XCTAssertEqual(try XMPParser.parse(saved).0.exposure, 1.25)
+      XCTAssertEqual(try WorkflowSidecarCore.read(xmp: saved), adopted)
+      XCTAssertTrue(saved.contains("<foreign:Audit"))
+      XCTAssertEqual(try Data(contentsOf: fixture.raw), fixture.original)
+    } catch {
+      await fixture.close()
+      throw error
+    }
+    await fixture.close()
+  }
+
   func testSourceWriteRetainsItsPublicationAfterALostRenameReply() async throws {
     let fixture = try await OwnedSMBWorkflowFixture.open(testCase: self)
     let proxy = try await OwnedSMBPublicationProxy.open(fixture)
