@@ -90,6 +90,7 @@ pub(crate) fn render(
                 ext: &source.ext,
             },
             pipeline::DetailRenderOptions {
+                target: raw_core::view::encode::TargetPrimaries::Srgb,
                 quality: pipeline::RenderQuality::Auto,
                 max_long_edge: edge,
                 film_lut: film.as_ref().map(|f| f.lut),
