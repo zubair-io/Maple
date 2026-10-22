@@ -128,7 +128,11 @@ namespace Maple.WinUI
             _colorCurveCanvas.PointerMoved += OnColorCurveCanvasPointerMoved;
             _colorCurveCanvas.PointerReleased += OnColorCurveCanvasPointerReleased;
             _colorCurveCanvas.PointerCanceled += OnColorCurveCanvasPointerReleased;
-            _colorCurveCanvas.PointerCaptureLost += OnColorCurveCanvasPointerReleased;
+            _colorCurveCanvas.PointerCaptureLost += (sender, e) =>
+            {
+                if (ReferenceEquals(e.OriginalSource, _colorCurveCanvas))
+                    OnColorCurveCanvasPointerReleased(sender, e);
+            };
             _colorCurveCanvas.RightTapped += OnColorCurveCanvasRightTapped;
             _colorCurvesBody.Children.Add(ribbonBorder);
 
