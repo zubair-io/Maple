@@ -126,6 +126,110 @@ pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
     });
 }
 
+/// Apply already-fitted display-sRGB Auto Profile artifacts to a packed RGBA
+/// f32 buffer in place: the per-channel curve first, then the residual LUT,
+/// exactly the order the RGB display path uses. Alpha is left untouched.
+///
+/// `residual` is `(size, lattice)` borrowed from the caller — a host that
+/// retains the fitted residual in its own storage applies it without composing
+/// a cube or allocating a second full-image buffer. The lattice must satisfy
+/// the [`super::lut::sample_lut`] contract (`size >= 2`, `size³ × 3` lanes).
+pub fn apply_prepared_rgba(
+    pixels: &mut [f32],
+    curve: Option<&ProfileCurve>,
+    residual: Option<(usize, &[f32])>,
+) {
+    pixels.par_chunks_exact_mut(4).for_each(|pixel| {
+        let mut rgb = [pixel[0], pixel[1], pixel[2]];
+        if let Some(curve) = curve {
+            apply_curve(&mut rgb, curve);
+        }
+        if let Some((size, data)) = residual {
+            rgb = super::lut::sample_lut(size, data, rgb);
+        }
+        pixel[..3].copy_from_slice(&rgb);
+    });
+}
+
 #[cfg(test)]
 #[path = "apply_parallel_tests.rs"]
 mod parallel_tests;
+
+#[cfg(test)]
+mod prepared_rgba_tests {
+    use super::*;
+    use crate::view::auto_profile::lut::ColorLut;
+
+    fn rgba(n: usize) -> Vec<f32> {
+        (0..n)
+            .flat_map(|i| {
+                let t = i as f32 / n as f32;
+                [t, (0.3 + 0.6 * t) % 1.0, 1.0 - t, 0.25 + 0.5 * t]
+            })
+            .collect()
+    }
+
+    fn lifted_curve() -> ProfileCurve {
+        let mut curve = ProfileCurve::identity();
+        for (channel, gain) in [
+            (&mut curve.r, 0.9),
+            (&mut curve.g, 1.0),
+            (&mut curve.b, 1.1),
+        ] {
+            for anchor in channel.anchors.iter_mut() {
+                anchor.1 = (anchor.0 * gain).clamp(0.0, 1.0);
+            }
+        }
+        curve
+    }
+
+    fn tinted_lut() -> ColorLut {
+        let mut lut = ColorLut::identity(5);
+        for (i, lane) in lut.data.iter_mut().enumerate() {
+            *lane = (*lane + if i % 3 == 0 { 0.05 } else { -0.02 }).clamp(0.0, 1.0);
+        }
+        lut
+    }
+
+    #[test]
+    fn curve_then_residual_matches_the_rgb_path_and_leaves_alpha_alone() {
+        let curve = lifted_curve();
+        let lut = tinted_lut();
+        let original = rgba(97);
+        let mut applied = original.clone();
+        apply_prepared_rgba(&mut applied, Some(&curve), Some((lut.size, &lut.data)));
+        for (before, after) in original.chunks_exact(4).zip(applied.chunks_exact(4)) {
+            let mut expected = [before[0], before[1], before[2]];
+            apply_curve(&mut expected, &curve);
+            let expected = lut.sample(expected);
+            assert_eq!(&after[..3], &expected);
+            assert_eq!(after[3], before[3]);
+        }
+        assert_ne!(original, applied);
+    }
+
+    #[test]
+    fn each_artifact_applies_alone_and_neither_is_a_no_op() {
+        let curve = lifted_curve();
+        let lut = tinted_lut();
+        let original = rgba(31);
+
+        let mut curve_only = original.clone();
+        apply_prepared_rgba(&mut curve_only, Some(&curve), None);
+        for (before, after) in original.chunks_exact(4).zip(curve_only.chunks_exact(4)) {
+            let mut expected = [before[0], before[1], before[2]];
+            apply_curve(&mut expected, &curve);
+            assert_eq!(&after[..3], &expected);
+        }
+
+        let mut lut_only = original.clone();
+        apply_prepared_rgba(&mut lut_only, None, Some((lut.size, &lut.data)));
+        for (before, after) in original.chunks_exact(4).zip(lut_only.chunks_exact(4)) {
+            assert_eq!(&after[..3], &lut.sample([before[0], before[1], before[2]]));
+        }
+
+        let mut untouched = original.clone();
+        apply_prepared_rgba(&mut untouched, None, None);
+        assert_eq!(untouched, original);
+    }
+}

@@ -52,11 +52,14 @@ pub use detail::{
 
 // Export render — the display chain at a caller-chosen depth / primaries (#943).
 mod export;
+// The same display tail kept at f32 for a destination encoder (#5163).
+mod float_export;
 pub use export::{
     decode_raster_base, render_export_from_raw, render_export_from_raw_with_film,
     render_export_raster, render_export_raster_cancellable, validate_raster_adjustments,
     ExportDepth, ExportPixels, RasterDetailImage,
 };
+pub use float_export::render_export_f32;
 
 // Synthetic-input render entries — the view transform applied to an already
 // scene-linear buffer (#943 size-budget split); re-exported so `pipeline::{…}`
