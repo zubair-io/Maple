@@ -36,37 +36,10 @@ class PresetsAndScopesTest {
     }
 
     @Test
-    fun rgbHistogramReductionProducesWaveformAndParadeColumns() {
-        val width = 8
-        val height = 4
-        // Left half pure red (255, 0, 0), right half pure blue (0, 0, 255)
-        val pixels =
-            IntArray(width * height) { idx ->
-                val x = idx % width
-                if (x < width / 2) 0xFFFF0000.toInt() else 0xFF0000FF.toInt()
-            }
-        val sample = RgbHistogram.fromArgbPixels(pixels, width, height)
-        assertEquals(3, sample.channels.size)
-        assertEquals(RgbHistogram.BINS, sample.channels[0].size)
-        assertEquals(RgbHistogram.COLUMNS, sample.waveformLuma.size)
-        assertEquals(RgbHistogram.COLUMNS, sample.paradeR.size)
-        assertEquals(RgbHistogram.COLUMNS, sample.paradeG.size)
-        assertEquals(RgbHistogram.COLUMNS, sample.paradeB.size)
-
-        // First column is pure red -> paradeR == 1f, paradeB == 0f
-        assertEquals(1f, sample.paradeR.first(), 1e-3f)
-        assertEquals(0f, sample.paradeB.first(), 1e-3f)
-        // Last column is pure blue -> paradeR == 0f, paradeB == 1f
-        assertEquals(0f, sample.paradeR.last(), 1e-3f)
-        assertEquals(1f, sample.paradeB.last(), 1e-3f)
-        // Rec.709 luma of pure red (0.2126) > pure blue (0.0722)
-        assertTrue(sample.waveformLuma.first() > sample.waveformLuma.last())
-    }
-
-    @Test
     fun histogramChipCyclesThroughHistogramWaveformAndParadeOnTap() {
-        val pixels = IntArray(16 * 8) { 0xFF80A0C0.toInt() }
-        val sample = RgbHistogram.fromArgbPixels(pixels, 16, 8)
+        val density = listOf(1f, 0f, 0f, 1f)
+        val sample = RgbHistogram(List(3) { listOf(0.5f, 1f) }, 2, 2,
+            density, density, density, density)
         compose.setContent { HistogramChip(Result.success(sample)) }
 
         val chip = compose.onNodeWithTag("editor-scopes-chip")

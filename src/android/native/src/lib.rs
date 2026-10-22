@@ -5,6 +5,7 @@ mod fields;
 mod film;
 mod platform_raster;
 mod preview;
+mod scopes;
 mod transfer;
 mod xmp;
 
@@ -138,6 +139,22 @@ pub unsafe extern "C" fn maple_android_values(handle: *mut c_void) -> *mut c_cha
         Ok(CString::new(serde_json::Value::Object(values).to_string())
             .map_err(|e| e.to_string())?
             .into_raw())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn maple_android_scope(
+    pixels: *const u32,
+    count: usize,
+    width: u32,
+    height: u32,
+) -> *mut c_char {
+    guarded(ptr::null_mut(), || {
+        if pixels.is_null() || count > (raw_core::scope::SCOPE_SNAPSHOT_MAX_DIM as usize).pow(2) {
+            return Err("Invalid scope snapshot".into());
+        }
+        let values = scopes::sample(std::slice::from_raw_parts(pixels, count), width, height)?;
+        Ok(CString::new(values).map_err(|e| e.to_string())?.into_raw())
     })
 }
 

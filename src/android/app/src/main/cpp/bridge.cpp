@@ -14,6 +14,7 @@ void *maple_android_open(void *, const char *, const char *, uint32_t);
 void maple_android_close(void *);
 char *maple_android_values(void *);
 char *maple_android_parametric_curve(const char *);
+char *maple_android_scope(const uint32_t *, size_t, uint32_t, uint32_t);
 void *maple_android_auto_wb_new(void *, const char *);
 char *maple_android_auto_wb_run(const void *);
 void maple_android_auto_wb_free(void *);
@@ -110,6 +111,18 @@ extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge
 extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_close(JNIEnv *, jobject, jlong handle) { delete editor(handle); }
 extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBridge_values(JNIEnv *env, jobject, jlong handle) {
     char *value = maple_android_values(editor(handle)->core);
+    if (!value) { check(env, -1); return nullptr; }
+    jstring result = env->NewStringUTF(value);
+    maple_android_free_string(value);
+    return result;
+}
+extern "C" JNIEXPORT jstring JNICALL Java_app_justmaple_aperture_data_NativeBridge_scopePixels(JNIEnv *env, jobject, jintArray pixels, jint width, jint height) {
+    if (!pixels || width < 0 || height < 0 || env->ExceptionCheck()) return nullptr;
+    const jsize count = env->GetArrayLength(pixels);
+    jint *data = env->GetIntArrayElements(pixels, nullptr);
+    if (!data) return nullptr;
+    char *value = maple_android_scope(reinterpret_cast<const uint32_t *>(data), count, width, height);
+    env->ReleaseIntArrayElements(pixels, data, JNI_ABORT);
     if (!value) { check(env, -1); return nullptr; }
     jstring result = env->NewStringUTF(value);
     maple_android_free_string(value);

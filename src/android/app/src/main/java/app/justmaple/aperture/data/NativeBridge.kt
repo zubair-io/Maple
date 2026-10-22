@@ -20,6 +20,8 @@ object NativeBridge {
 
     external fun parametricCurve(xml: String): String
 
+    external fun scopePixels(pixels: IntArray, width: Int, height: Int): String
+
     external fun createAutoWhiteBalance(handle: Long, xml: String): Long
     external fun runAutoWhiteBalance(work: Long): String
     external fun closeAutoWhiteBalance(work: Long)

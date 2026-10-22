@@ -27,8 +27,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
-import kotlin.math.ln
-import kotlin.math.min
+import app.justmaple.aperture.data.NativeBridge
+import org.json.JSONArray
+import org.json.JSONObject
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -41,70 +44,40 @@ enum class ScopeMode(val label: String) {
 
 internal data class RgbHistogram(
     val channels: List<List<Float>>,
+    val columns: Int,
+    val bins: Int,
     val waveformLuma: List<Float> = emptyList(),
     val paradeR: List<Float> = emptyList(),
     val paradeG: List<Float> = emptyList(),
     val paradeB: List<Float> = emptyList(),
 ) {
     companion object {
-        const val COLUMNS = 64
-        const val BINS = 64
-
         fun fromArgbPixels(pixels: IntArray, width: Int, height: Int): RgbHistogram {
-            val cols = if (width in 1 until COLUMNS) width else COLUMNS
-            val bins = List(3) { IntArray(BINS) }
-            val sumR = IntArray(cols)
-            val sumG = IntArray(cols)
-            val sumB = IntArray(cols)
-            val count = IntArray(cols)
-            if (width > 0 && height > 0 && pixels.size >= width * height) {
-                for (y in 0 until height) {
-                    val rowOffset = y * width
-                    for (x in 0 until width) {
-                        val pixel = pixels[rowOffset + x]
-                        val r = (pixel ushr 16) and 255
-                        val g = (pixel ushr 8) and 255
-                        val b = pixel and 255
-                        bins[0][r / 4]++
-                        bins[1][g / 4]++
-                        bins[2][b / 4]++
-                        val col = min(cols - 1, x * cols / width)
-                        sumR[col] += r
-                        sumG[col] += g
-                        sumB[col] += b
-                        count[col]++
-                    }
-                }
-            }
-            val maximum = ln(1f + (bins.maxOfOrNull { it.maxOrNull() ?: 0 } ?: 0))
-            val normBins =
-                bins.map { row -> row.map { ln(1f + it) / maximum.coerceAtLeast(1f) } }
-            val pR =
-                List(COLUMNS) { c ->
-                    val src = min(cols - 1, c * cols / COLUMNS)
-                    if (count[src] > 0) sumR[src].toFloat() / (count[src] * 255f) else 0f
-                }
-            val pG =
-                List(COLUMNS) { c ->
-                    val src = min(cols - 1, c * cols / COLUMNS)
-                    if (count[src] > 0) sumG[src].toFloat() / (count[src] * 255f) else 0f
-                }
-            val pB =
-                List(COLUMNS) { c ->
-                    val src = min(cols - 1, c * cols / COLUMNS)
-                    if (count[src] > 0) sumB[src].toFloat() / (count[src] * 255f) else 0f
-                }
-            val luma =
-                List(COLUMNS) { c ->
-                    (0.2126f * pR[c] + 0.7152f * pG[c] + 0.0722f * pB[c]).coerceIn(0f, 1f)
-                }
+            val sample = JSONObject(NativeBridge.scopePixels(pixels, width, height))
+            fun values(array: JSONArray) = List(array.length()) { array.getDouble(it).toFloat() }
+            val channels = sample.getJSONArray("channels")
             return RgbHistogram(
-                channels = normBins,
-                waveformLuma = luma,
-                paradeR = pR,
-                paradeG = pG,
-                paradeB = pB,
+                channels = List(channels.length()) { values(channels.getJSONArray(it)) },
+                columns = sample.getInt("columns"), bins = sample.getInt("bins"),
+                waveformLuma = values(sample.getJSONArray("waveformLuma")),
+                paradeR = values(sample.getJSONArray("paradeR")),
+                paradeG = values(sample.getJSONArray("paradeG")),
+                paradeB = values(sample.getJSONArray("paradeB")),
             )
+        }
+    }
+}
+
+private fun DrawScope.scopeDensity(values: List<Float>, columns: Int, bins: Int,
+    startX: Float, plotWidth: Float, color: Color) {
+    if (columns <= 0 || bins <= 0 || values.size != columns * bins) return
+    val cellW = plotWidth / columns
+    val cellH = size.height / bins
+    values.forEachIndexed { index, density ->
+        if (density > 0f) {
+            drawRect(color.copy(alpha = (0.12f + density * 0.78f).coerceIn(0f, 1f)),
+                topLeft = Offset(startX + (index / bins) * cellW, size.height - (index % bins + 1) * cellH),
+                size = Size(cellW + 0.5f, cellH + 0.5f))
         }
     }
 }
@@ -168,7 +141,7 @@ internal fun HistogramChip(
         Modifier.fillMaxSize()
             .clickable(enabled = histogram != null) { mode = nextMode }
             .semantics {
-                contentDescription = "RGB histogram"
+                contentDescription = mode.label
                 stateDescription =
                     if (result == null) "Updating"
                     else if (result.isSuccess) "Ready" else "Unavailable"
@@ -205,53 +178,18 @@ internal fun HistogramChip(
                             }
                         }
                     }
-                    ScopeMode.Waveform -> {
-                        val cols = histogram.waveformLuma
-                        if (cols.size >= 2) {
-                            val path = Path()
-                            cols.forEachIndexed { index, luma ->
-                                val x = size.width * index / (cols.size - 1)
-                                val y = size.height * (1f - luma.coerceIn(0f, 1f))
-                                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                            }
-                            drawPath(
-                                path,
-                                MapleColors.primary.copy(alpha = 0.9f),
-                                style = Stroke(1.25.dp.toPx()),
-                            )
-                        }
-                    }
+                    ScopeMode.Waveform -> scopeDensity(histogram.waveformLuma,
+                        histogram.columns, histogram.bins, 0f, size.width, MapleColors.primary)
                     ScopeMode.Parade -> {
-                        val bands =
-                            listOf(
-                                histogram.paradeR to Color.Red,
-                                histogram.paradeG to Color.Green,
-                                histogram.paradeB to Color.Blue,
-                            )
+                        val bands = listOf(histogram.paradeR to Color.Red,
+                            histogram.paradeG to Color.Green, histogram.paradeB to Color.Blue)
                         val bandWidth = size.width / 3f
-                        bands.forEachIndexed { bIdx, (cols, color) ->
-                            val startX = bIdx * bandWidth
-                            if (bIdx > 0) {
-                                drawLine(
-                                    color = Color.White.copy(alpha = 0.15f),
-                                    start = Offset(startX, 0f),
-                                    end = Offset(startX, size.height),
-                                    strokeWidth = 0.5.dp.toPx(),
-                                )
-                            }
-                            if (cols.size >= 2) {
-                                val path = Path()
-                                cols.forEachIndexed { index, v ->
-                                    val x = startX + (bandWidth - 2.dp.toPx()) * index / (cols.size - 1)
-                                    val y = size.height * (1f - v.coerceIn(0f, 1f))
-                                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                                }
-                                drawPath(
-                                    path,
-                                    color.copy(alpha = 0.85f),
-                                    style = Stroke(1.dp.toPx()),
-                                )
-                            }
+                        bands.forEachIndexed { index, (values, color) ->
+                            val startX = index * bandWidth
+                            if (index > 0) drawLine(Color.White.copy(alpha = 0.15f),
+                                Offset(startX, 0f), Offset(startX, size.height), 0.5.dp.toPx())
+                            scopeDensity(values, histogram.columns, histogram.bins,
+                                startX, bandWidth - 2.dp.toPx(), color)
                         }
                     }
                 }
