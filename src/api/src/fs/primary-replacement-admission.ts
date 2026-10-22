@@ -2,7 +2,7 @@
 import * as path from 'node:path';
 import { stat } from './mirrored';
 import { resolveRealPathThroughAncestors } from './root';
-import { errnoCode } from './relocate-publish';
+import { errnoCode } from './errno-code';
 import { xmpSidecarPath } from './xmp-sidecar-path';
 
 interface Replacement {

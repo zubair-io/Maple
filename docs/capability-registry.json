@@ -925,6 +925,7 @@
         "src/api/src/routes/folders.upload.ts",
         "src/api/src/routes/folders.upload-sidecar-admission.ts",
         "src/api/src/fs/primary-replacement-admission.ts",
+        "src/api/src/fs/errno-code.ts",
         "src/api/src/fs/relocate-replace-fence.ts",
         "src/api/src/xmp",
         "src/api/src/fs/sidecar-io.ts",
@@ -933,17 +934,17 @@
         "src/api/src/fs/xmp.ts",
         "src/api/src/fs/xmp-sidecar-path.ts"
       ],
-      "corpus_hash": "blake3:4e7ec903706f0263ff75d9fe0280ebd6dcf62ed9ac7144f30d006393f4362cd9",
+      "corpus_hash": "blake3:759aab726571a97d377ddf5fe0125cc8a925066bfe4d917c100e9c6bf95aef81",
       "status": "satisfied",
       "record": {
         "backend": "bun",
-        "corpus_hash": "blake3:4e7ec903706f0263ff75d9fe0280ebd6dcf62ed9ac7144f30d006393f4362cd9",
+        "corpus_hash": "blake3:759aab726571a97d377ddf5fe0125cc8a925066bfe4d917c100e9c6bf95aef81",
         "expected_cases": 4,
         "executed_cases": 4,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "14d097e24931b55307e3a1918f5a268889cb44a8",
-        "recorded_at": "2026-10-22T14:52:22Z",
+        "git_sha": "d6e3cb767fcfbce4d011fea1c7b9d03a3e03dc7a",
+        "recorded_at": "2026-10-22T15:15:08Z",
         "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts"
       }
     },
