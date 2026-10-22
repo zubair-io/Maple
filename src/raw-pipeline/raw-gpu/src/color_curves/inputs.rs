@@ -37,7 +37,7 @@ impl<'a> ColorCurvePoints<'a> {
             Self::Owned(v) => v.len(),
             Self::Flat(v) => v.len() / 2,
         };
-        (0..len).map(|i| match self {
+        (0..len).map(move |i| match self {
             Self::Owned(v) => v[i],
             Self::Flat(v) => (v[2 * i], v[2 * i + 1]),
         })
