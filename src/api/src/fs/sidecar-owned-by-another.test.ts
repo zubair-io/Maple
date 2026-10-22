@@ -1,12 +1,14 @@
 /**
  * `sidecarStemOwnedByAnotherFile` is the positive check a caller makes before
  * removing a photo and leaving its sidecar to another file (#5069): only a
- * distinct regular file counts. Real files in a temp directory.
+ * distinct regular media file, or a separately named hard link, counts. Real
+ * files in a temp directory.
  */
-import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { afterEach, beforeEach, expect, spyOn, test } from 'bun:test';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { lstat, mkdtemp, rm, symlink, writeFile } from './mirrored.ts';
+import * as mirroredFs from './mirrored.ts';
+import { link, lstat, mkdtemp, rm, symlink, writeFile } from './mirrored.ts';
 import { sidecarStemClaimedBySibling, sidecarStemOwnedByAnotherFile } from './sidecar-ownership.ts';
 
 let dir: string;
@@ -52,4 +54,31 @@ test('the photo under its catalog spelling is not its own sibling on a case-fold
 
 test('a folder that cannot be read throws rather than naming an owner', async () => {
   await expect(sidecarStemOwnedByAnotherFile(at('missing/IMG.dng'))).rejects.toThrow();
+});
+
+test('a plain file that shares the stem never owns the sidecar', async () => {
+  await writeFile(at('IMG.dng'), 'raw');
+  await writeFile(at('IMG.txt'), 'notes');
+  expect(await sidecarStemOwnedByAnotherFile(at('IMG.dng'))).toBe(false);
+});
+
+test('a separately named hard link to the photo still owns the sidecar', async () => {
+  await writeFile(at('IMG.dng'), 'raw');
+  await link(at('IMG.dng'), at('IMG.raw'));
+  expect(await sidecarStemOwnedByAnotherFile(at('IMG.dng'))).toBe(true);
+});
+
+test('a sibling that cannot be inspected throws rather than reading as no owner', async () => {
+  await writeFile(at('IMG.dng'), 'raw');
+  await writeFile(at('IMG.jpg'), 'jpeg');
+  const realLstat = mirroredFs.lstat;
+  const failing = spyOn(mirroredFs, 'lstat').mockImplementation(((target: string) =>
+    path.basename(String(target)) === 'IMG.jpg'
+      ? Promise.reject(Object.assign(new Error('i/o error'), { code: 'EIO' }))
+      : realLstat(target)) as typeof mirroredFs.lstat);
+  try {
+    await expect(sidecarStemOwnedByAnotherFile(at('IMG.dng'))).rejects.toThrow('i/o error');
+  } finally {
+    failing.mockRestore();
+  }
 });

@@ -28,12 +28,7 @@ import {
   listFolderTrash,
   resetFolderStages,
 } from '../db/repos/folder-assets.repo.ts';
-import {
-  UploadConflictError,
-  isIndexedUpload,
-  streamUploadedBody,
-  finalizeUploadedFile,
-} from './folders.upload.ts';
+import { UploadConflictError, streamUploadedBody, finalizeUploadedFile } from './folders.upload.ts';
 import { parseFolderTrashPage, folderTrashItem } from './folders.trash-page.ts';
 import { validateRoot } from '../fs/root.ts';
 import { rootsConnected } from '../fs/root-connectivity.ts';
@@ -43,6 +38,7 @@ import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
 import { requireFileAccessBeforeHandle } from '../auth/middleware.ts';
 import { handleEvent } from '../workers/discover/index.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { isCataloguedFilename } from '../indexer/media-types.ts';
 import { slugify, dedupeSlug } from '../library/slug.ts';
 import { realpathJailCheck } from '../library/address.ts';
 import { safeObjectId } from '../db/object-id.ts';
@@ -595,7 +591,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       if (destination instanceof Response) return destination;
       const { folder, target, parts } = destination;
       const filename = parts[parts.length - 1]!;
-      const isMedia = isIndexedUpload(filename);
+      const isMedia = isCataloguedFilename(filename);
 
       const absPath = nodePath.join(folder.path, target);
 
