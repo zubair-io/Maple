@@ -1,4 +1,3 @@
-import { syncCopiedFile } from '../fs/sync-file.ts';
 /**
  * POST /api/libraries/:libraryId/backup/rendered
  *
@@ -49,7 +48,7 @@ import { openChunkSession, takeChunk } from './backup-chunk.ts';
 import { Elysia, t } from 'elysia';
 import { setAppleRenderedPath } from '../db/repos/backup.repo.ts';
 import { assetOwnsRelPath } from '../db/repos/assets.location-owner.ts';
-import { filesIdentical } from '../backup/fs-util.ts';
+import { filesIdentical, moveNoClobber } from '../backup/fs-util.ts';
 import type { ObjectId } from '../db/object-id.ts';
 import { uploadSessions } from '../backup/upload-session.ts';
 import { isSafeFilenamePart, containedJoin } from '../backup/path-safety.ts';
@@ -57,7 +56,6 @@ import { child as childLogger } from '../log.ts';
 // Mirror-aware drop-in: the rendered-companion publish replicates to the
 // library's backup root(s). `link` and `copyFile` are both mirror-aware.
 import fs from '../fs/mirrored.ts';
-import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 
 const log = childLogger('backup-rendered');
@@ -79,21 +77,9 @@ const log = childLogger('backup-rendered');
  * Cross-filesystem fallback uses `open(O_CREAT | O_EXCL)` via `fs.open(dst, "wx")`
  * — the kernel-level analog that's atomic w.r.t. concurrent creates. */
 async function atomicMove(src: string, dst: string): Promise<void> {
-  try {
-    await fs.link(src, dst);
-    await fs.unlink(src);
-    return;
-  } catch (e: any) {
-    if (e?.code === 'EEXIST') throw e;
-    if (e?.code !== 'EXDEV') throw e;
+  if (!(await moveNoClobber(src, dst))) {
+    throw Object.assign(new Error(`Rendered destination is occupied: ${dst}`), { code: 'EEXIST' });
   }
-  // Cross-filesystem: copy with COPYFILE_EXCL (O_CREAT | O_EXCL) so a
-  // concurrent create still surfaces EEXIST atomically, then drop the tmp.
-  // Going through the mirror-aware `copyFile` (rather than a raw FileHandle
-  // write) is what lets the rendered companion replicate to the backup root.
-  await fs.copyFile(src, dst, fsConstants.COPYFILE_EXCL);
-  await syncCopiedFile(dst);
-  await fs.unlink(src);
 }
 
 /**

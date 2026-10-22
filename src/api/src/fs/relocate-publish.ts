@@ -2,7 +2,7 @@ import { syncCopiedFile, syncFileHandle } from './sync-file.ts';
 import { randomBytes } from 'node:crypto';
 import * as path from 'node:path';
 import * as fs from './mirrored.ts';
-import { filesIdentical } from '../backup/fs-util.ts';
+import { filesIdentical } from './file-bytes.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('fs/relocate-publish');
@@ -170,6 +170,7 @@ async function copyExclusive(source: string, destination: string): Promise<Reloc
       await streamInto(source, target);
       // A temp the caller fsynced is a different file: flush the copy itself.
       await syncFileHandle(target);
+      await target.chmod((await fs.stat(source)).mode & 0o777);
     } finally {
       await target.close();
     }
