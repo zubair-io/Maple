@@ -191,22 +191,15 @@ public sealed partial class MainWindow
         var bottom = Math.Min(geometry.CropHeight, ((ViewerScroll.VerticalOffset + ViewerScroll.ViewportHeight) / zoom - fit.Y) * geometry.CropHeight / fit.H);
         if (right <= x || bottom <= y) return;
         var margin = Math.Min(512, Math.Max(right - x, bottom - y) * .125);
-        var published = ExpandRegion(x, y, right, bottom, margin, geometry);
-        var decode = ExpandRegion(published.X, published.Y, published.X + published.Width,
-            published.Y + published.Height, 96, geometry);
+        if (NativeDetailPatch.Fit(x, y, right, bottom, margin, NativeDetailPatch.Border(model, anchor, geometry), geometry)
+            is not (var published, var decode))
+        {
+            ZoomReadout.Text = $"{percent} · preview · native detail patch too large";
+            return;
+        }
         ZoomReadout.Text = $"{percent} · refining…";
         var version = Volatile.Read(ref _detailVersion);
         _detailWork = RefineDetailAsync(_detailWork, photo, model, anchor, published, decode, geometry, version, percent, cancellation);
-    }
-
-    private static NativeDetailRegion ExpandRegion(double x, double y, double right, double bottom,
-        double margin, MapleRawGeometry geometry)
-    {
-        var left = (uint)Math.Max(0, Math.Floor(x - margin));
-        var top = (uint)Math.Max(0, Math.Floor(y - margin));
-        var r = (uint)Math.Min(geometry.CropWidth, Math.Ceiling(right + margin));
-        var b = (uint)Math.Min(geometry.CropHeight, Math.Ceiling(bottom + margin));
-        return new(left, top, r - left, b - top);
     }
 
     private async Task RefineDetailAsync(Task previous, PhotoItem photo, Models.AdjustmentState model, DecodedImage anchor,

@@ -19,6 +19,10 @@ public static unsafe partial class RawFfi
         float strength, MapleChainWindow* window, float* output);
 
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern uint maple_scene_linear_chain_window_reach_px(
+        MapleAdjustmentParams* parameters, MapleChainWindow* window);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     internal static extern int maple_open_raw_handle(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string? xmpPath, out IntPtr handle);
