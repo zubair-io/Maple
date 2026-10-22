@@ -162,9 +162,11 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   public var colorGradeGlobalHue: Double  // 0..360, default 0
   public var colorGradeGlobalSaturation: Double  // 0..100, default 0
   public var colorGradeGlobalLuminance: Double  // -100..100, default 0
-  public var colorGradeBlending: Double  // 0..100, default 100
-  public var colorGradeShadowEdge: Double  // 0.10..0.564622, default 0.564622
-  public var colorGradeHighlightEdge: Double  // 0.564622..0.90, default 0.564622
+  @ColorGradeBlendingValue public var colorGradeBlending: Double = 100  // 0..100, default 100
+  /// Shadow edge: 0.10 through the generated midtone anchor.
+  @ColorGradeEdgeValue public var colorGradeShadowEdge: Double = ColorGradeZoneEdge.anchor
+  /// Highlight edge: the generated midtone anchor through 0.90.
+  @ColorGradeEdgeValue public var colorGradeHighlightEdge: Double = ColorGradeZoneEdge.anchor
 
   // HSL per-band adjustments (#1112, tone/zoom design spec § 10.4).
   // Scene-linear Oklab, normalized raised-cosine partition of unity.
@@ -262,12 +264,12 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
   // Secondary Oklab color curves (#5041) — applied in scene-linear Oklab
   // right after the 8-band HSL mixer. Carried with inline defaults to keep
   // AdjustmentModel+Init within the 570-line headroom budget.
-  public var colorCurveHueVsHue: ToneCurve = .identity
-  public var colorCurveHueVsSat: ToneCurve = .identity
-  public var colorCurveHueVsLuma: ToneCurve = .identity
-  public var colorCurveLumaVsSat: ToneCurve = .identity
-  public var colorCurveSatVsSat: ToneCurve = .identity
-  public var colorCurveSatVsLuma: ToneCurve = .identity
+  @ColorCurveValue public var colorCurveHueVsHue: ToneCurve = .identity
+  @ColorCurveValue public var colorCurveHueVsSat: ToneCurve = .identity
+  @ColorCurveValue public var colorCurveHueVsLuma: ToneCurve = .identity
+  @ColorCurveValue public var colorCurveLumaVsSat: ToneCurve = .identity
+  @ColorCurveValue public var colorCurveSatVsSat: ToneCurve = .identity
+  @ColorCurveValue public var colorCurveSatVsLuma: ToneCurve = .identity
 
   /// Decode-time chroma pre-filter (#1104, tone/zoom design § 3.1).
   /// Luma-guided sparse cross-bilateral on opponent chroma, baked into
