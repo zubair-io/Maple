@@ -26,6 +26,7 @@ namespace Maple.WinUI
         private bool _hslCurvesMode;
         private ColorCurveKind _activeColorCurve = ColorCurveKind.HueVsHue;
         private int? _dragColorCurveKnot;
+        private uint? _colorCurveDragPointerId;
         private bool _colorCurvePickArmed;
         private long _colorCurvePickGeneration;
         private Windows.Foundation.Point? _colorCurvePressPoint;
@@ -311,9 +312,12 @@ namespace Maple.WinUI
 
         private void OnColorCurveCanvasPointerPressed(object sender, PointerRoutedEventArgs e)
         {
+            if (_colorCurveDragPointerId != null) return;
+            var point = e.GetCurrentPoint(_colorCurveCanvas);
+            if (!point.Properties.IsLeftButtonPressed) return;
             var w = Math.Max(_colorCurveCanvas.ActualWidth, 1.0);
             var h = Math.Max(_colorCurveCanvas.ActualHeight, 1.0);
-            var pos = e.GetCurrentPoint(_colorCurveCanvas).Position;
+            var pos = point.Position;
             var u = Math.Clamp(pos.X / w, 0.0, 1.0);
             var v = Math.Clamp(1.0 - pos.Y / h, 0.0, 1.0);
 
@@ -332,6 +336,7 @@ namespace Maple.WinUI
                 }
             }
 
+            _colorCurveDragPointerId = e.Pointer.PointerId;
             ViewModel.BeginAdjustmentGesture(_colorCurveCanvas);
             if (hitIdx < 0)
             {
@@ -357,12 +362,14 @@ namespace Maple.WinUI
             {
                 _dragColorCurveKnot = hitIdx;
             }
-            _colorCurveCanvas.CapturePointer(e.Pointer);
+            if (!_colorCurveCanvas.CapturePointer(e.Pointer))
+                OnColorCurveCanvasPointerReleased(sender, e);
             e.Handled = true;
         }
 
         private void OnColorCurveCanvasPointerMoved(object sender, PointerRoutedEventArgs e)
         {
+            if (_colorCurveDragPointerId != e.Pointer.PointerId) return;
             if (_dragColorCurveKnot is not { } idx) return;
             var pts = ActiveColorCurvePoints();
             if (idx < 0 || idx >= pts.Count) return;
@@ -384,15 +391,18 @@ namespace Maple.WinUI
 
         private void OnColorCurveCanvasPointerReleased(object sender, PointerRoutedEventArgs e)
         {
+            if (_colorCurveDragPointerId != e.Pointer.PointerId) return;
             if (_dragColorCurveKnot == null) return;
+            _colorCurveDragPointerId = null;
             _dragColorCurveKnot = null;
-            _colorCurveCanvas.ReleasePointerCaptures();
+            _colorCurveCanvas.ReleasePointerCapture(e.Pointer);
             ViewModel.EndAdjustmentGesture(_colorCurveCanvas);
             e.Handled = true;
         }
 
         private void OnColorCurveCanvasRightTapped(object sender, RightTappedRoutedEventArgs e)
         {
+            if (_colorCurveDragPointerId != null) return;
             var w = Math.Max(_colorCurveCanvas.ActualWidth, 1.0);
             var h = Math.Max(_colorCurveCanvas.ActualHeight, 1.0);
             var pos = e.GetPosition(_colorCurveCanvas);
