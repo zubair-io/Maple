@@ -292,6 +292,7 @@ XMPSerializationWbMethodToneCurveModeTests
 XMPPassthroughNamespaceTests
 XMPSidecarStoreMetadataSaveTests
 XMPSidecarFilePublicationTests
+XMPSidecarDurableRecoveryTests
 DisplayPreviewPersistTests
 GpuPreviewPersistTests
 
