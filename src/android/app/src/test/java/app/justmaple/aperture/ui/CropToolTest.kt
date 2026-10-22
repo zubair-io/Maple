@@ -8,6 +8,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.*
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -219,6 +224,43 @@ class CropToolTest {
         assertEquals(0.875f, parsed.bottom, 1e-4f)
         assertEquals(0.75f, parsed.right, 1e-4f)
         assertEquals(-2.5f, parsed.angle, 1e-4f)
+    }
+
+    @Test
+    fun phoneCropDisarmsAndHidesBasicControlsUntilReturningToBasic() {
+        val application: Application = RuntimeEnvironment.getApplication()
+        val model = MapleViewModel(application, PhotoLibrary(application), IdleRenderer())
+        val photo = Photo(Uri.parse("content://maple/photo/crop-controls"), "crop.dng", 1024, 0, null)
+        val state = MapleState(selected = photo, photos = listOf(photo), mode = PhotoMode.Edit,
+            documentLoaded = true, values = mapOf("_raw" to 1f, "_aspect" to 1.5f, "sharpen_amount" to 40f))
+        var armed by mutableStateOf("sharpen_amount")
+        var subTool by mutableStateOf("basic")
+        compose.setContent {
+            PhoneEditorControls(model, state, EditorGroup.Detail, armed, {}, { armed = it }, {},
+                activeSubTool = subTool, onSubToolChange = { subTool = it })
+        }
+        val sharpeningSlider = hasContentDescription(fieldLabel(app.justmaple.aperture.generated.AdjustmentFields.byName.getValue("sharpen_amount"))) and
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo)
+        val sharpeningDock = hasContentDescription(fieldLabel(app.justmaple.aperture.generated.AdjustmentFields.byName.getValue("sharpen_amount"))) and
+            !SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo)
+        compose.onNode(sharpeningSlider).assertExists()
+        compose.onNode(sharpeningDock).assertExists()
+        compose.onNodeWithText("Crop").performClick()
+        compose.onNodeWithTag("editor-crop-toolbar").assertIsDisplayed()
+        compose.onNode(sharpeningSlider).assertDoesNotExist()
+        compose.onNode(sharpeningDock).assertDoesNotExist()
+        compose.onNodeWithContentDescription("All Detail controls").assertDoesNotExist()
+        compose.runOnIdle { assertEquals("", armed) }
+        compose.onNodeWithText("Basic").performClick()
+        compose.onNode(sharpeningSlider).assertExists()
+        compose.onNode(sharpeningDock).assertExists()
+        compose.runOnIdle {
+            assertEquals("sharpen_amount", armed)
+            subTool = "crop"
+        }
+        compose.onNodeWithTag("editor-crop-toolbar").assertIsDisplayed()
+        compose.onNode(sharpeningSlider).assertDoesNotExist()
+        compose.runOnIdle { assertEquals("", armed) }
     }
 
     @Test

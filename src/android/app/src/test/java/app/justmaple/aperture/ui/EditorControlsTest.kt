@@ -5,6 +5,12 @@ import org.junit.Test
 
 class EditorControlsTest {
     @Test
+    fun cropHasNoAdjustmentSliderFieldsInEitherControlLayout() {
+        assertTrue(fieldsForSubTool(EditorGroup.Detail, "crop").isEmpty())
+        assertTrue(fieldsForSubTool(EditorGroup.Detail, "crop", fullInspector = true).isEmpty())
+    }
+
+    @Test
     fun inspectorDoesNotExposeCurveHslOrTechnicalFieldsAsLooseSliders() {
         val names = EditorGroup.entries.flatMap { it.fields }.map { it.name }
         assertFalse(names.any { it.startsWith("parametric_") })
