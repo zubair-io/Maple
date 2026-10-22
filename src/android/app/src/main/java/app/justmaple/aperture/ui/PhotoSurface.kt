@@ -311,7 +311,7 @@ private fun FloatingFilmstrip(model: MapleViewModel, state: MapleState, modifier
                     Modifier.padding(8.dp).heightIn(max = 460.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    items(state.photos, key = { it.uri.toString() }) { photo ->
+                    items(state.navigationPhotos, key = { it.uri.toString() }) { photo ->
                         PhotoThumbnail(
                             photo,
                             model.library,
@@ -346,7 +346,7 @@ internal fun HorizontalFilmstrip(model: MapleViewModel, state: MapleState) {
         Modifier.fillMaxWidth().height(64.dp).padding(5.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        items(state.photos, key = { it.uri.toString() }) { photo ->
+        items(state.navigationPhotos, key = { it.uri.toString() }) { photo ->
             PhotoThumbnail(
                 photo,
                 model.library,

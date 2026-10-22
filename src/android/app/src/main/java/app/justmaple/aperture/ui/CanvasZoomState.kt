@@ -101,7 +101,7 @@ class CanvasZoomState(
     ): Float {
         val fit = fitScale(imageWidth, imageHeight, viewportWidth, viewportHeight)
         if (fit <= 0f) return 1f
-        return if (pixelScale <= 0f) 1f else (pixelScale / fit).coerceAtLeast(1f)
+        return if (pixelScale <= 0f) 1f else (pixelScale / fit)
     }
 
     fun percentage(
@@ -327,6 +327,7 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
         val downTimeMs = clockMs()
         val downPos = down.position
         var hadMultiTouch = false
+        var gestureWasMultiTouch = false
         var totalSingleDragX = 0f
         var totalSingleDragY = 0f
         var maxMovement = 0f
@@ -343,6 +344,7 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
 
             if (pressed.size >= 2) {
                 hadMultiTouch = true
+                gestureWasMultiTouch = true
                 val zoomChange = event.calculateZoom()
                 val panChange = event.calculatePan()
                 val centroid = event.calculateCentroid(useCurrent = true)
@@ -397,7 +399,8 @@ internal suspend fun PointerInputScope.detectCanvasZoomPanAndSwipe(
         } while (event.changes.any { it.pressed })
 
         val upTimeMs = clockMs()
-        if (hadMultiTouch) {
+        if (gestureWasMultiTouch) {
+            lastTapTimeMs = -1L
             zoomState.endPinch(upTimeMs)
         } else if (consumedByChild) {
             lastTapTimeMs = -1L

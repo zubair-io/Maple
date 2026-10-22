@@ -129,7 +129,7 @@ internal fun BookSplitPhotoSurface(
                     verticalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
-                        InfoPanel(state, onExportSidecar = onExportSidecar)
+                        InfoPanel(state, model.library, onExportSidecar = onExportSidecar)
                     }
                     if (!editing)
                         MapleGlass(
@@ -268,7 +268,7 @@ internal fun TabletopSplitPhotoSurface(
                 }
             } else if (!showInspector) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
-                    InfoPanel(state, onExportSidecar = onExportSidecar)
+                    InfoPanel(state, model.library, onExportSidecar = onExportSidecar)
                 }
             } else if (!editing) {
                 Box(

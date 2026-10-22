@@ -144,7 +144,7 @@ internal fun BrowseGrid(
                     PhotoThumbnail(
                         photo,
                         model.library,
-                        Modifier.aspectRatio(1f).clickable { model.open(photo) },
+                        Modifier.aspectRatio(1f).clickable { model.openFromBrowse(photo, visible) },
                         revision = state.document.original.takeIf { photo == state.selected },
                         pick = marks.pick,
                         rating = marks.rating,

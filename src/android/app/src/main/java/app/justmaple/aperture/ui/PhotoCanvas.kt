@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.unit.IntOffset
+import app.justmaple.aperture.data.NativeDetailFrame
 import app.justmaple.aperture.data.NativeImageSize
 import app.justmaple.aperture.data.nativeViewportRegion
 import android.view.SurfaceHolder
@@ -58,6 +59,7 @@ internal fun PhotoCanvas(
         state.selected?.key,
         state.values,
         state.document,
+        state.comparingBefore,
         state.rendering,
         surfaceVersion,
     ) {
@@ -213,8 +215,7 @@ internal fun PhotoCanvas(
             val scale = zoomState.effectiveScale(imageDims.first, imageDims.second, viewportPxW, viewportPxH)
             val left = viewportPxW / 2f + zoomState.panX - imageDims.first * scale / 2f + frame.region.x * scale
             val top = viewportPxH / 2f + zoomState.panY - imageDims.second * scale / 2f + frame.region.y * scale
-            Image(frame.bitmap.asImageBitmap(), contentDescription = "Native detail preview",
-                filterQuality = FilterQuality.None,
+            NativeDetailPatch(frame,
                 modifier = Modifier.align(Alignment.TopStart)
                     .wrapContentSize(Alignment.TopStart, unbounded = true)
                     .offset { IntOffset(left.roundToInt(), top.roundToInt()) }
@@ -277,4 +278,16 @@ internal fun PhotoCanvas(
                 }
             }
     }
+}
+
+@Composable
+private fun NativeDetailPatch(frame: NativeDetailFrame, modifier: Modifier) {
+    var retained by remember(frame) { mutableStateOf(false) }
+    DisposableEffect(frame) {
+        val reader = frame.retain()
+        retained = reader != null
+        onDispose { reader?.close() }
+    }
+    if (retained) Image(frame.bitmap.asImageBitmap(), contentDescription = "Native detail preview",
+        filterQuality = FilterQuality.None, modifier = modifier)
 }

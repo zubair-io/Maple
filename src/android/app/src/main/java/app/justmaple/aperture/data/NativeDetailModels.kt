@@ -35,12 +35,41 @@ data class NativeDetailRequest(
     val editing: Boolean,
 )
 
-data class NativeDetailFrame(
+class NativeDetailFrame(
     val photoKey: String,
     val document: XmpDocument,
     val region: NativeRegion,
     val bitmap: Bitmap,
-)
+) : java.io.Closeable {
+    private val ownership = Any()
+    private var published = true
+    private var readers = 0
+
+    /** A composed image keeps its pixels until that image leaves composition. */
+    fun retain(): java.io.Closeable? = synchronized(ownership) {
+        if (bitmap.isRecycled) return@synchronized null
+        readers++
+        var released = false
+        java.io.Closeable {
+            synchronized(ownership) {
+                if (!released) {
+                    released = true
+                    readers--
+                    disposeIfUnused()
+                }
+            }
+        }
+    }
+
+    override fun close() = synchronized(ownership) {
+        published = false
+        disposeIfUnused()
+    }
+
+    private fun disposeIfUnused() {
+        if (!published && readers == 0 && !bitmap.isRecycled) bitmap.recycle()
+    }
+}
 
 /** Source-pixel window of a centre-anchored canvas. No preview texture dimensions enter it. */
 fun nativeViewportRegion(size: NativeImageSize, viewportWidth: Float, viewportHeight: Float,

@@ -203,7 +203,7 @@ fun MapleShell(model: MapleViewModel) {
                 if (inlineInfo && info && !browsing)
                     Box(Modifier.width(280.dp).fillMaxHeight().background(MapleColors.surface)) {
                         InfoPanel(
-                            state,
+                            state, model.library,
                             onExportSidecar = {
                                 sidecar.launch(state.selected?.sidecarName ?: "photo.xmp")
                             },
@@ -322,7 +322,7 @@ fun MapleShell(model: MapleViewModel) {
             containerColor = MapleColors.surface,
         ) {
             InfoPanel(
-                state,
+                state, model.library,
                 onExportSidecar = { sidecar.launch(state.selected?.sidecarName ?: "photo.xmp") },
             )
         }
@@ -355,16 +355,16 @@ fun MapleShell(model: MapleViewModel) {
 @Composable
 fun InfoPanel(
     state: MapleState,
+    library: app.justmaple.aperture.data.PhotoLibrary,
     onExportSidecar: () -> Unit,
     exif: PhotoExifMetadata? = null,
 ) {
-    val context = LocalContext.current
     val photo = state.selected
     var loadedExif by remember(photo?.uri) { mutableStateOf<PhotoExifMetadata?>(null) }
     LaunchedEffect(photo?.uri, exif) {
         loadedExif =
             exif
-                ?: photo?.let { withContext(Dispatchers.IO) { readPhotoExif(context, it.uri) } }
+                ?: photo?.let { withContext(Dispatchers.IO) { readPhotoExif(library, it) } }
     }
     val shown = exif ?: loadedExif
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
