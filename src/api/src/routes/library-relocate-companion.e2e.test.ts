@@ -340,6 +340,44 @@ describe('library-relocate end-to-end — companion + dedupe (#2667)', () => {
     );
   });
 
+  it('a broken same-stem symlink is no sibling: the source photo stays beside its late edit (#5069)', async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-dedupe-broken-link-'));
+    const root = dir;
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(root, ...oldRel.split('/')), { recursive: true });
+    await fs.mkdir(path.join(root, ...newRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(root, oldRel, 'IMG_12.dng'), 'identical-pixels');
+    await fs.writeFile(path.join(root, newRel, 'IMG_12.dng'), 'identical-pixels');
+    seedRelocatableAsset(live.db, {
+      root,
+      relPath: oldRel,
+      filename: 'IMG_12.dng',
+      mapleId: 'relocate-dedupe-broken-link-id',
+      metadataOverride: usPlaceText(),
+    });
+    const late = path.join(root, oldRel, 'IMG_12.xmp');
+    const realRepoint = relocateRepo.repointAssetLocation;
+    const repoint = spyOn(relocateRepo, 'repointAssetLocation').mockImplementation(async (args) => {
+      const result = await realRepoint(args);
+      await fs.writeFile(late, 'late edit');
+      await fs.symlink(path.join(root, 'gone.jpg'), path.join(root, oldRel, 'IMG_12.jpg'));
+      return result;
+    });
+    const publish = spyOn(ownership, 'publishSidecarSnapshot').mockRejectedValue(new Error('EIO'));
+    try {
+      await postRelocate([`${SLUG}:${oldRel}/IMG_12.dng`]);
+    } finally {
+      repoint.mockRestore();
+      publish.mockRestore();
+    }
+    expect(await fs.readFile(late, 'utf8')).toBe('late edit');
+    expect(await fs.readFile(path.join(root, oldRel, 'IMG_12.dng'), 'utf8')).toBe(
+      'identical-pixels',
+    );
+  });
+
   it('a byte-identical destination but a source carrying a sidecar never dedupes — it renames', async () => {
     using live = await createLiveTestDatabase();
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-nodedupe-'));

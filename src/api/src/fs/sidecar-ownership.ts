@@ -74,20 +74,12 @@ export async function sidecarStemClaimedBySibling(
   primaryAbsPath: string,
   excluded: readonly string[] = [],
 ): Promise<boolean> {
-  return sidecarStemClaimedBySiblingStrict(primaryAbsPath, excluded).catch(() => true);
-}
-
-/** The same check for a caller about to remove the photo on its answer: a folder
- * that can't be read throws, so it is never taken as "no sibling" (#5069). */
-export async function sidecarStemClaimedBySiblingStrict(
-  primaryAbsPath: string,
-  excluded: readonly string[] = [],
-): Promise<boolean> {
   const dir = path.dirname(primaryAbsPath);
   const exact = (p: string) => path.resolve(p).normalize('NFC');
   const skip = new Set([primaryAbsPath, ...excluded].map(exact));
   const stem = stemOf(primaryAbsPath);
-  const entries = await fs.readdir(dir, { withFileTypes: true });
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => null);
+  if (entries === null) return true;
   return entries.some(
     (entry) =>
       !entry.isDirectory() &&
@@ -97,6 +89,34 @@ export async function sidecarStemClaimedBySiblingStrict(
       !skip.has(exact(path.join(dir, entry.name))) &&
       stemOf(entry.name) === stem,
   );
+}
+
+/** The positive answer a caller needs before removing a photo and leaving its
+ * sidecar to another: a distinct regular file in the folder shares the stem.
+ * Symlinks never count, nor does the primary under another spelling (compared
+ * by inode, as on a case-folding volume); a folder that can't be read throws,
+ * so it is never taken as "owned elsewhere" (#5069). */
+export async function sidecarStemOwnedByAnotherFile(primaryAbsPath: string): Promise<boolean> {
+  const dir = path.dirname(primaryAbsPath);
+  const stem = stemOf(primaryAbsPath);
+  const self = await fs.lstat(primaryAbsPath).catch(() => null);
+  const candidates = (await fs.readdir(dir, { withFileTypes: true })).filter(
+    (entry) =>
+      entry.isFile() &&
+      !entry.name.startsWith('.') &&
+      !STAGING_NAME.test(entry.name) &&
+      path.extname(entry.name).toLowerCase() !== '.xmp' &&
+      stemOf(entry.name) === stem,
+  );
+  const distinct = await Array.fromAsync(candidates, async (entry) => {
+    const other = await fs.lstat(path.join(dir, entry.name)).catch(() => null);
+    return (
+      other !== null &&
+      other.isFile() &&
+      !(self && other.dev === self.dev && other.ino === self.ino)
+    );
+  });
+  return distinct.some(Boolean);
 }
 
 /** The photo's own sidecar that would land on `sidecar`; same-file aware, so a
