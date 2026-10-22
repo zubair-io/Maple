@@ -44,6 +44,7 @@ import {
   computed,
   inject,
 } from '@angular/core';
+import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { ImageCanvasService } from '../image-canvas/image-canvas.service';
 import { computeRgbHistograms } from '../../raw-pipeline/image-utils';
@@ -99,6 +100,7 @@ export class ToneCurveComponent implements OnDestroy {
   @ViewChild('plot') plotRef?: ElementRef<SVGSVGElement>;
 
   private readonly library = inject(LibraryStateService);
+  private readonly editor = inject(EditorStateService);
   private readonly canvasSvc = inject(ImageCanvasService);
 
   private readonly adj = computed<AdjustmentModel | null>(() => {
@@ -116,12 +118,14 @@ export class ToneCurveComponent implements OnDestroy {
 
   // ── Drag state ──────────────────────────────────────────────────────────
   private dragIndex: number | null = null;
+  private detachSplitDrag: (() => void) | null = null;
   private rafHandle: number | null = null;
   private pendingWrite: readonly ToneCurvePoint[] | null = null;
   private detachDrag: (() => void) | null = null;
 
   ngOnDestroy(): void {
     this.endDrag();
+    this.detachSplitDrag?.();
   }
 
   // ── Family selector (#2232) ─────────────────────────────────────────────
@@ -138,7 +142,7 @@ export class ToneCurveComponent implements OnDestroy {
   // ── Mode selector (#5039) ───────────────────────────────────────────────
 
   selectMode(tab: CurveModeTab): void {
-    this.patch({ toneCurveMode: tab.id });
+    this.discretePatch({ toneCurveMode: tab.id }, 'Tone curve mode');
   }
 
   isActiveMode(id: ToneCurveMode): boolean {
@@ -182,6 +186,7 @@ export class ToneCurveComponent implements OnDestroy {
     const index = existing >= 0 ? existing : hitTest(next, pos.x, pos.y, HIT_RADIUS);
     if (index < 0) return;
 
+    this.editor.commit('adjustment', 'Tone curve point');
     this.dragIndex = index;
     this.vm.selectedKnotIndex.set(index);
     this.vm.dragOverride.set(next);
@@ -271,6 +276,7 @@ export class ToneCurveComponent implements OnDestroy {
   }
 
   private endDrag(): void {
+    const active = this.dragIndex !== null;
     this.detachDrag?.();
     this.detachDrag = null;
     if (this.rafHandle !== null) {
@@ -284,6 +290,7 @@ export class ToneCurveComponent implements OnDestroy {
     this.dragIndex = null;
     if (pending) this.writeCurve(pending);
     this.vm.dragOverride.set(null);
+    if (active) this.editor.endEdit();
   }
 
   /** Coalesce model writes to one per animation frame. */
@@ -301,7 +308,9 @@ export class ToneCurveComponent implements OnDestroy {
   /** Write and clear any drag override — used by the discrete edits. */
   private commit(points: readonly ToneCurvePoint[]): void {
     this.vm.dragOverride.set(null);
+    this.editor.commit('adjustment', 'Tone curve point');
     this.writeCurve(points);
+    this.editor.endEdit();
   }
 
   private writeCurve(points: readonly ToneCurvePoint[]): void {
@@ -314,6 +323,14 @@ export class ToneCurveComponent implements OnDestroy {
     return this.vm.parametricValue(slider.field);
   }
 
+  onParametricStart(slider: ParametricSlider): void {
+    this.editor.commit('adjustment', slider.label);
+  }
+
+  onParametricEnd(): void {
+    this.editor.endEdit();
+  }
+
   onParametricChange(slider: ParametricSlider, value: number): void {
     this.vm.activeRegion.set(slider.field);
     this.patch({ [slider.field]: value });
@@ -321,7 +338,7 @@ export class ToneCurveComponent implements OnDestroy {
 
   onParametricReset(slider: ParametricSlider): void {
     this.vm.activeRegion.set(null);
-    this.patch({ [slider.field]: 0 });
+    this.discretePatch({ [slider.field]: 0 }, `Reset ${slider.label}`);
   }
 
   onParametricEnter(slider: ParametricSlider): void {
@@ -336,6 +353,8 @@ export class ToneCurveComponent implements OnDestroy {
     if (event.button !== 0) return;
     event.stopPropagation();
     event.preventDefault();
+    this.detachSplitDrag?.();
+    this.editor.commit('adjustment', 'Tone curve split');
     this.vm.activeRegion.set(regionForSplitHandle(handle));
 
     const updateFromEvent = (e: PointerEvent) => {
@@ -346,11 +365,15 @@ export class ToneCurveComponent implements OnDestroy {
 
     const move = (e: PointerEvent) => updateFromEvent(e);
     const up = () => {
+      if (this.detachSplitDrag !== up) return;
+      this.detachSplitDrag = null;
+      this.editor.endEdit();
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
       this.vm.activeRegion.set(null);
     };
+    this.detachSplitDrag = up;
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
@@ -358,7 +381,9 @@ export class ToneCurveComponent implements OnDestroy {
 
   onSplitDoubleClick(handle: ParametricSplitHandle, event: MouseEvent): void {
     event.stopPropagation();
+    this.editor.commit('adjustment', 'Reset tone curve split');
     this.applySplitValue(handle, defaultSplitValue(handle));
+    this.editor.endEdit();
   }
 
   onSplitKeyDown(handle: ParametricSplitHandle, event: KeyboardEvent): void {
@@ -371,15 +396,20 @@ export class ToneCurveComponent implements OnDestroy {
         : handle === 'midtone'
           ? this.vm.midtoneSplit()
           : this.vm.highlightSplit();
+    this.editor.commit('adjustment', 'Tone curve split');
     this.applySplitValue(handle, current + delta);
+    this.editor.endEdit();
   }
 
   resetSplits(): void {
-    this.patch({
-      parametricShadowSplit: DEFAULT_SHADOW_SPLIT,
-      parametricMidtoneSplit: DEFAULT_MIDTONE_SPLIT,
-      parametricHighlightSplit: DEFAULT_HIGHLIGHT_SPLIT,
-    });
+    this.discretePatch(
+      {
+        parametricShadowSplit: DEFAULT_SHADOW_SPLIT,
+        parametricMidtoneSplit: DEFAULT_MIDTONE_SPLIT,
+        parametricHighlightSplit: DEFAULT_HIGHLIGHT_SPLIT,
+      },
+      'Reset tone curve splits',
+    );
   }
 
   private applySplitValue(handle: ParametricSplitHandle, proposed: number): void {
@@ -400,6 +430,12 @@ export class ToneCurveComponent implements OnDestroy {
   }
 
   // ── Shared plumbing ─────────────────────────────────────────────────────
+
+  private discretePatch(fields: Partial<AdjustmentModel>, label: string): void {
+    this.editor.commit('adjustment', label);
+    this.patch(fields);
+    this.editor.endEdit();
+  }
 
   private patch(fields: Partial<AdjustmentModel>): void {
     const id = this.library.focusedAssetId();

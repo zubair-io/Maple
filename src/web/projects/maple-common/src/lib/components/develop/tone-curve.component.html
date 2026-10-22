@@ -246,6 +246,8 @@
             [min]="vm.parametricMin"
             [max]="vm.parametricMax"
             [bipolar]="true"
+            (dragStart)="onParametricStart(slider)"
+            (dragEnd)="onParametricEnd()"
             (valueChange)="onParametricChange(slider, $event)"
             (resetRequest)="onParametricReset(slider)"
           />

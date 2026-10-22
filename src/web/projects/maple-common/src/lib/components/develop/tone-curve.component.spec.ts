@@ -19,6 +19,7 @@ import { signal, type Signal } from '@angular/core';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import { ToneCurveComponent } from './tone-curve.component';
+import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { ImageCanvasService } from '../image-canvas/image-canvas.service';
 import { PLOT_SIZE } from './tone-curve.vm';
@@ -68,6 +69,7 @@ describe('ToneCurveComponent (#367)', () => {
       providers: [
         { provide: LibraryStateService, useValue: lib },
         { provide: ImageCanvasService, useValue: new CanvasStub() },
+        { provide: EditorStateService, useValue: { commit: vi.fn(), endEdit: vi.fn() } },
       ],
     });
     fixture = TestBed.createComponent(ToneCurveComponent);
