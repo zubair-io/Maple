@@ -8,6 +8,16 @@ namespace Maple.WinUI.Tests
 {
     public sealed class ColorCurveMathTests
     {
+        [Theory]
+        [InlineData(11, "inside")]
+        [InlineData(13, "brighter")]
+        [InlineData(15, "saturated")]
+        [InlineData(3, "Reopen")]
+        public void SamplingFailuresGiveActionableGuidance(int code, string guidance)
+        {
+            Assert.Contains(guidance, ColorCurveMath.SampleFailureMessage(code));
+        }
+
         [Fact]
         public void InsertAnchor_PlacesSortedThreePointNotch()
         {

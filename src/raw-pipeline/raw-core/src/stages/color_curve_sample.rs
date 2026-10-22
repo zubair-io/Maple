@@ -11,8 +11,9 @@ use crate::color::oklab::rec2020_to_oklab;
 use crate::image::{ColorSpace, ExifOrientation, Image, RawImage};
 use crate::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
 use crate::stages::color_curves::{oklab_chroma_norm, oklab_hue_norm, scene_log_luma_norm};
+use crate::stages::hsl::CHROMA_GATE_C0;
 pub use crate::stages::mask_range_sample::RangeSampleError as ColorCurveSampleError;
-use crate::stages::mask_range_sample::{RangeSampleError, CHROMA_FLOOR, L_FLOOR};
+use crate::stages::mask_range_sample::{RangeSampleError, L_FLOOR};
 use crate::stages::white_balance_sample::neighbourhood_mean;
 use crate::types::adjustment::ToneCurve;
 use crate::xmp::AdjustmentModel;
@@ -113,7 +114,7 @@ pub(crate) fn sample_from_probe(
     if l < L_FLOOR {
         return Err(RangeSampleError::TooDark);
     }
-    if chroma < CHROMA_FLOOR {
+    if chroma < CHROMA_GATE_C0 {
         return Err(RangeSampleError::Neutral);
     }
     let u_h = oklab_hue_norm(a, b);
@@ -147,6 +148,20 @@ mod tests {
         assert!((sample.hue_deg - hue_deg).abs() < 1e-2);
         assert!((sample.u_c - 0.5).abs() < 1e-3);
         assert!(sample.u_l > 0.0 && sample.u_l < 1.0);
+    }
+
+    #[test]
+    fn sample_rejects_colors_below_the_curve_stages_effect_gate() {
+        let mut probe = Image::new(8, 8, ColorSpace::SceneLinearRec2020);
+        for chroma in [0.025, 0.035, 0.049] {
+            probe.pixels = vec![oklab_to_rec2020([0.6, chroma, 0.0]); 64];
+            assert_eq!(
+                sample_from_probe(&probe, 0.5, 0.5),
+                Err(RangeSampleError::Neutral)
+            );
+        }
+        probe.pixels = vec![oklab_to_rec2020([0.6, 0.055, 0.0]); 64];
+        assert!(sample_from_probe(&probe, 0.5, 0.5).is_ok());
     }
 
     #[test]

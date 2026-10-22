@@ -337,32 +337,43 @@ namespace Maple.WinUI.Services
             return Hermite(knots[seg].X, knots[seg].Y, m[seg], knots[seg + 1].X, knots[seg + 1].Y, m[seg + 1], u);
         }
 
+        public static string SampleFailureMessage(int code) => code switch
+        {
+            11 => "Click inside the photo.",
+            13 => "This area is too dark. Choose a brighter area.",
+            15 => "This color is too neutral. Choose a more saturated area.",
+            _ => "Could not sample this photo. Reopen it or choose another photo.",
+        };
+
         /// <summary>Samples the stage-input Oklab coordinates at normalized (nx, ny)
         /// in the uncropped, EXIF-oriented frame via <c>maple_sample_color_curve_oriented</c>.</summary>
-        public static MapleColorCurveSample? SampleStageInput(
+        public static (MapleColorCurveSample? Sample, int Code, string? Error) SampleStageInput(
             string rawPath,
             AdjustmentState model,
             double nx,
             double ny)
         {
-            var dir = Path.Combine(Path.GetTempPath(), "maple-cc-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(dir);
-            var xmpPath = Path.Combine(dir, "probe.xmp");
+            string? dir = null;
             try
             {
+                dir = Path.Combine(Path.GetTempPath(), "maple-cc-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(dir);
+                var xmpPath = Path.Combine(dir, "probe.xmp");
                 File.WriteAllText(xmpPath, XmpWriter.Serialize(new XmpSidecarDocument { Adjustments = model.Clone() }));
                 var rc = RawFfi.maple_sample_color_curve_oriented(
                     rawPath, xmpPath, (float)nx, (float)ny, out var sample);
-                return rc == 0 ? sample : null;
+                if (rc == 0) return (sample, 0, null);
+                DiagLog.Write($"[color-curves] sample rejected ({rc}): {RawFfi.LastError()}");
+                return (null, rc, SampleFailureMessage(rc));
             }
             catch (Exception ex)
             {
                 DiagLog.Write($"[color-curves] sample failed: {ex}");
-                return null;
+                return (null, -1, SampleFailureMessage(-1));
             }
             finally
             {
-                try { Directory.Delete(dir, recursive: true); }
+                try { if (dir != null) Directory.Delete(dir, recursive: true); }
                 catch { /* best effort */ }
             }
         }
