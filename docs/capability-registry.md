@@ -313,7 +313,7 @@ Generated from `src/raw-pipeline/raw-core/src/capability_registry/` (the registr
 - Accepted backends: `bun`
 - Expected cases: 4
 - Corpus: `src/api/src/routes/xmp.sidecar-contract.test.ts`, `src/api/src/routes/xmp.ts`, `src/api/src/routes/xmp-change.ts`, `src/api/src/routes/xmp-path-auth.ts`, `src/api/src/routes/folders.upload.ts`, `src/api/src/routes/folders.upload-sidecar-admission.ts`, `src/api/src/fs/primary-replacement-admission.ts`, `src/api/src/fs/relocate-replace-fence.ts`, `src/api/src/xmp`, `src/api/src/fs/sidecar-io.ts`, `src/api/src/fs/sidecar-write-order.ts`, `src/api/src/fs/xmp-conditional.ts`, `src/api/src/fs/xmp.ts`
-- Record: satisfied — 4 of 4 executed, 0 failed, 0 skipped, on `bun`, commit `52d45b7a16cf1fe4475413307b306dff6d6a7b22`, recorded 2026-10-22T09:05:19Z
+- Record: satisfied — 4 of 4 executed, 0 failed, 0 skipped, on `bun`, commit `bc2925a28048c9ed3956579dbe43ab251634240f`, recorded 2026-10-22T09:16:14Z
 
 ### `gpu_chain_parity_lavapipe`
 
