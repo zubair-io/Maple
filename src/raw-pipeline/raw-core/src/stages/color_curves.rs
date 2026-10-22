@@ -415,7 +415,7 @@ pub fn apply_pixel(rgb: [f32; 3], p: &ColorCurveParams) -> [f32; 3] {
     let d_lvs = sample_clamped(&p.luma_vs_sat, u_l);
     let d_svs = sample_clamped(&p.sat_vs_sat, u_c);
     let s_hvs = (1.0 + chroma_gate * 2.0 * d_hvs).max(0.0);
-    let s_lvs = (1.0 + 2.0 * d_lvs).max(0.0);
+    let s_lvs = (1.0 + chroma_gate * 2.0 * d_lvs).max(0.0);
     let s_svs = (1.0 + chroma_gate * 2.0 * d_svs).max(0.0);
     let c_target = (c * s_hvs * s_lvs * s_svs).max(0.0);
 

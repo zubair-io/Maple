@@ -11,7 +11,7 @@ import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjus
 class LibraryStub {
   readonly focusedAssetId = signal('first');
   readonly model = signal(defaultAdjustmentModel());
-  readonly assets = signal([{ id: 'first', filename: 'first.dng' }]);
+  readonly assets = signal([{ id: 'first', filename: 'first.dng', width: 2000, height: 1000 }]);
   readonly updateAdjustment = vi.fn((_id: string, patch: Partial<AdjustmentModel>) => {
     this.model.update((model) => ({ ...model, ...patch }));
   });
@@ -84,6 +84,23 @@ describe('color-curve asynchronous picks and visible knot drags', () => {
     await sampling;
     expect(library.model().colorCurveHueVsHue.points).toEqual([[0.7, 0.5]]);
     expect(panel.eyedropperActive()).toBe(false);
+  });
+
+  it('maps a cropped and straightened pick to the full-frame sampler coordinates', async () => {
+    library.model.update((model) => ({
+      ...model,
+      crop: { ...model.crop, left: 0.25, right: 0.75, top: 0.2, bottom: 0.8, angle: 30 },
+    }));
+    const sampling = panel.onEyedropperClick();
+    pick.resolve({ nx: 0.2, ny: 0.4 });
+    await Promise.resolve();
+    // Crop point is (700,440); undo the 30-degree rotation around (1000,500).
+    const expectedX = (1000 - 300 * Math.cos(Math.PI / 6) - 60 * Math.sin(Math.PI / 6)) / 2000;
+    const expectedY = (500 + 300 * Math.sin(Math.PI / 6) - 60 * Math.cos(Math.PI / 6)) / 1000;
+    expect(sampleColorCurve.mock.calls[0][3]).toBeCloseTo(expectedX);
+    expect(sampleColorCurve.mock.calls[0][4]).toBeCloseTo(expectedY);
+    result.resolve(sample);
+    await sampling;
   });
 
   it('drags a knot by pressing its visible button', () => {

@@ -159,7 +159,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let d_lvs = sample_clamped(3u, u_l);
     let d_svs = sample_clamped(4u, u_c);
     let s_hvs = max(1.0 + chroma_gate * 2.0 * d_hvs, 0.0);
-    let s_lvs = max(1.0 + 2.0 * d_lvs, 0.0);
+    let s_lvs = max(1.0 + chroma_gate * 2.0 * d_lvs, 0.0);
     let s_svs = max(1.0 + chroma_gate * 2.0 * d_svs, 0.0);
     let c_target = max(c * s_hvs * s_lvs * s_svs, 0.0);
 
