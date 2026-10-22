@@ -35,6 +35,16 @@ describe('copyFileAtomic', () => {
     expect(await fs.readFile(src, 'utf8')).toBe('the original bytes');
   });
 
+  test('imports a read-only original without changing its bytes or mode', async () => {
+    const dest = path.join(lib, 'readonly.dng');
+    await fs.chmod(src, 0o444);
+    expect(await copyFileAtomic(src, dest)).toBe(true);
+    expect(await fs.readFile(src, 'utf8')).toBe('the original bytes');
+    expect(await fs.readFile(dest, 'utf8')).toBe('the original bytes');
+    expect((await fs.stat(src)).mode & 0o777).toBe(0o444);
+    expect((await fs.stat(dest)).mode & 0o777).toBe(0o444);
+  });
+
   test('leaves no temp sibling behind', async () => {
     const destDir = path.join(lib, '2024', '03');
     const dest = path.join(destDir, 'src.dng');

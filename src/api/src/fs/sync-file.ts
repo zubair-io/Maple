@@ -21,7 +21,7 @@ export async function syncFileHandle(handle: FileHandle): Promise<void> {
 }
 
 export async function syncCopiedFile(filename: string): Promise<void> {
-  const handle = await open(filename, 'r+');
+  const handle = await open(filename, 'r');
   try {
     await syncFileHandle(handle);
   } finally {

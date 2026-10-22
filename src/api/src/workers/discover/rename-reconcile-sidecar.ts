@@ -1,11 +1,12 @@
+import { publishExclusive, PublishCollisionError } from '../../fs/relocate-publish.ts';
 import { syncCopiedFile } from '../../fs/sync-file.ts';
 /**
  * Sidecar relocation for external-rename reconciliation (#4702).
  *
  * Moves (or copies, when a live same-stem sibling still uses the source
  * sidecar) `<oldstem>.xmp` to `<newstem>.xmp` under `serializeSidecarWrite` on
- * both paths. Publishes exclusively (`link` + `unlink` with `COPYFILE_EXCL`
- * fallback) so an occupied `<newstem>.xmp` is never clobbered — on `EEXIST`,
+ * both paths. Publishes exclusively with a hard link or an owned, flushed
+ * copy so an occupied `<newstem>.xmp` is never clobbered — on `EEXIST`,
  * the incoming sidecar lands at `<newstem> (conflict from rename).xmp`.
  * A pre-#5021 `<name>.<ext>.xmp` follows separately, after those locks are
  * released, and stays in place when its destination is taken (#5063).
@@ -220,19 +221,11 @@ async function hasLiveSameStemSibling(
 
 async function linkExclusive(src: string, dst: string): Promise<'published' | 'exists'> {
   try {
-    await fs.link(src, dst);
+    await publishExclusive(src, dst);
     return 'published';
-  } catch (err) {
-    if (isErrno(err, 'EEXIST')) return 'exists';
-    if (!isErrno(err, 'EXDEV') && !isErrno(err, 'ENOTSUP') && !isErrno(err, 'EPERM')) throw err;
-    try {
-      await fs.copyFile(src, dst, fs.constants.COPYFILE_EXCL);
-      await syncCopiedFile(dst);
-      return 'published';
-    } catch (copyErr) {
-      if (isErrno(copyErr, 'EEXIST')) return 'exists';
-      throw copyErr;
-    }
+  } catch (error) {
+    if (error instanceof PublishCollisionError) return 'exists';
+    throw error;
   }
 }
 
@@ -274,7 +267,7 @@ async function publishSidecarExclusive(
 
 /** Moves (or copies, when a live sibling still shares the stem) the sidecar
  * from the old RAW's path to the new one under `serializeSidecarWrite` on both
- * paths (#4702). Publishes with `link` + `unlink` (`COPYFILE_EXCL` fallback) so
+ * paths (#4702). Publishes with a hard link or an owned, flushed copy so
  * an occupied `<newstem>.xmp` is never clobbered — on `EEXIST` the incoming
  * sidecar lands at `<newstem> (conflict from rename).xmp` instead. */
 export async function moveSidecarIfPresent(

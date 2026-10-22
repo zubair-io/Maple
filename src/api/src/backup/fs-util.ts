@@ -1,3 +1,4 @@
+import { publishExclusive, PublishCollisionError, revertCreated } from '../fs/relocate-publish.ts';
 import { syncCopiedFile } from '../fs/sync-file.ts';
 /**
  * Filesystem helpers shared by the backup routes. Kept out of the route files
@@ -8,7 +9,6 @@ import { syncCopiedFile } from '../fs/sync-file.ts';
 // Mirror-aware drop-in: the assembled-upload publish (atomicMove / moveNoClobber)
 // replicates to the library's backup root(s). Same `fs/promises` surface.
 import fs from '../fs/mirrored.ts';
-import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 
 /** Move src to dst atomically. Falls back to copy+unlink on EXDEV (cross-device). */
@@ -33,69 +33,28 @@ export async function atomicMove(src: string, dst: string): Promise<void> {
  *
  * Unlike `atomicMove`/`rename`, this never clobbers: it `link`s (which fails
  * `EEXIST` if the target exists) then unlinks the source on the same device,
- * and falls back to an exclusive `copyFile` (`COPYFILE_EXCL`) across devices
- * (`EXDEV`). The check-and-create is a single atomic syscall, closing the
+ * and falls back to an owned, flushed and byte-verified exclusive copy on
+ * volumes that refuse links. Failed publication rolls back only its own inode.
+ * The check-and-create is a single atomic syscall, closing the
  * TOCTOU window a `stat` + `rename` would leave open.
  */
 export async function moveNoClobber(src: string, dst: string): Promise<boolean> {
   try {
-    await fs.link(src, dst);
-    await fs.unlink(src);
-    return true;
-  } catch (e: any) {
-    if (e?.code === 'EEXIST') return false;
-    if (e?.code === 'EXDEV') {
-      try {
-        await fs.copyFile(src, dst, fsConstants.COPYFILE_EXCL);
-        await syncCopiedFile(dst);
-      } catch (e2: any) {
-        if (e2?.code === 'EEXIST') return false;
-        throw e2;
-      }
+    const publication = await publishExclusive(src, dst);
+    try {
       await fs.unlink(src);
-      return true;
+    } catch (error) {
+      await revertCreated([publication]);
+      throw error;
     }
-    throw e;
+    return true;
+  } catch (error) {
+    if (error instanceof PublishCollisionError) return false;
+    throw error;
   }
 }
 
-/** True when both files exist and hold byte-identical content. Compares size
- * first (cheap), then streams a chunked byte comparison so we never hold a
- * whole RAW in memory. Any IO error other than a plain size mismatch
- * propagates — we must not silently treat an unreadable file as "different"
- * and then clobber it. */
-export async function filesIdentical(a: string, b: string): Promise<boolean> {
-  const [sa, sb] = await Promise.all([fs.stat(a), fs.stat(b)]);
-  if (sa.size !== sb.size) return false;
-  if (sa.size === 0) return true;
-  const fha = await fs.open(a, 'r');
-  try {
-    const fhb = await fs.open(b, 'r');
-    try {
-      const CHUNK = 64 * 1024;
-      const bufA = Buffer.allocUnsafe(CHUNK);
-      const bufB = Buffer.allocUnsafe(CHUNK);
-      let pos = 0;
-      while (pos < sa.size) {
-        const [ra, rb] = await Promise.all([
-          fha.read(bufA, 0, CHUNK, pos),
-          fhb.read(bufB, 0, CHUNK, pos),
-        ]);
-        if (ra.bytesRead !== rb.bytesRead) return false; // truncated under us
-        if (ra.bytesRead === 0) break;
-        if (!bufA.subarray(0, ra.bytesRead).equals(bufB.subarray(0, rb.bytesRead))) {
-          return false;
-        }
-        pos += ra.bytesRead;
-      }
-      return true;
-    } finally {
-      await fhb.close();
-    }
-  } finally {
-    await fha.close();
-  }
-}
+export { filesIdentical } from '../fs/file-bytes.ts';
 
 /** Find the first free destination for `relPath` under `libRoot` by inserting
  * a `-1`, `-2`, … suffix before the extension. Used when a genuinely different

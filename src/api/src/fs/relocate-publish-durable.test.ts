@@ -1,3 +1,4 @@
+import { moveNoClobber } from '../backup/fs-util.ts';
 /**
  * The exclusive copy that `publishExclusive` falls back to where hard links
  * aren't supported (SMB, exFAT) flushes the published file before it reports
@@ -128,6 +129,48 @@ test.each([false, true])(
       expect(await readFile(destination, 'utf8')).toBe('occupant');
       expect((await mirroredFs.readdir(dir)).sort()).toEqual(['destination.dng', 'source.dng']);
     } finally {
+      open.mockRestore();
+    }
+  },
+);
+
+test.each(['success', 'EIO'] as const)(
+  'a no-link move of a read-only photo preserves ownership on %s',
+  async (outcome) => {
+    const source = path.join(dir, 'readonly.dng');
+    const destination = path.join(dir, 'published.dng');
+    await writeFile(source, 'original');
+    await mirroredFs.chmod(source, 0o444);
+    const link = spyOn(mirroredFs, 'link').mockRejectedValue(
+      Object.assign(new Error('cross-device link'), { code: 'EXDEV' }),
+    );
+    const realOpen = mirroredFs.open;
+    const open = spyOn(mirroredFs, 'open').mockImplementation((async (
+      ...args: Parameters<typeof realOpen>
+    ) => {
+      const handle = await realOpen(...args);
+      if (String(args[0]) === destination && args[1] === 'wx' && outcome === 'EIO') {
+        handle.datasync = async () => {
+          throw Object.assign(new Error('destination flush failed'), { code: 'EIO' });
+        };
+      }
+      return handle;
+    }) as typeof realOpen);
+    try {
+      if (outcome === 'EIO') {
+        await expect(moveNoClobber(source, destination)).rejects.toThrow(
+          'destination flush failed',
+        );
+        expect(await readFile(source, 'utf8')).toBe('original');
+        await expect(readFile(destination)).rejects.toThrow();
+      } else {
+        expect(await moveNoClobber(source, destination)).toBe(true);
+        expect(await readFile(destination, 'utf8')).toBe('original');
+        expect((await mirroredFs.stat(destination)).mode & 0o777).toBe(0o444);
+        await expect(readFile(source)).rejects.toThrow();
+      }
+    } finally {
+      link.mockRestore();
       open.mockRestore();
     }
   },
