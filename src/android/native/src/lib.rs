@@ -130,6 +130,10 @@ pub unsafe extern "C" fn maple_android_values(handle: *mut c_void) -> *mut c_cha
             "_raw".into(),
             serde_json::json!(if session.source_is_raw() { 1.0 } else { 0.0 }),
         );
+        values.insert(
+            "_uncropped_aspect".into(),
+            serde_json::json!(session.uncropped_aspect()),
+        );
         values.insert("_aspect".into(), serde_json::json!(session.aspect()));
         Ok(CString::new(serde_json::Value::Object(values).to_string())
             .map_err(|e| e.to_string())?

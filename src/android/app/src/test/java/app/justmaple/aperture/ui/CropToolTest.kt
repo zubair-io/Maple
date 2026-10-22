@@ -79,6 +79,27 @@ class CropToolTest {
     }
 
     @Test
+    fun draggingALockedHandlePreservesSquarePixelsOnAWideImage() {
+        var crop by mutableStateOf(CropGeometry.centeredCropForAspect(1f, 1.5f, 1f, 0f))
+        var commits = 0
+        compose.setContent {
+            Box(Modifier.size(300.dp, 200.dp)) {
+                CropOverlay(crop, { crop = it }, { commits++ }, lockedAspect = 1f, imageAspect = 1.5f)
+            }
+        }
+        compose.onNodeWithTag("crop-overlay").performTouchInput {
+            down(Offset(width * crop.right - 1f, height * crop.bottom - 1f))
+            moveTo(Offset(width * 0.7f, height * 0.6f))
+            up()
+        }
+        compose.runOnIdle {
+            assertEquals(1f, 1.5f * (crop.right - crop.left) / (crop.bottom - crop.top), 1e-4f)
+            assertTrue(crop.right < 0.8f)
+            assertEquals(1, commits)
+        }
+    }
+
+    @Test
     fun centeredCropForAspectAndHitTestMatchMapleCoreGeometry() {
         // 3:2 image (3000x2000) cropped to 1:1 square -> left = 1/6, right = 5/6, top = 0, bottom = 1
         val square = CropGeometry.centeredCropForAspect(1f, 3000f, 2000f, angle = 3.5f)

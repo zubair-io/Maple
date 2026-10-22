@@ -37,13 +37,17 @@ internal fun PhotoCanvas(
     badgeBottomPadding: Dp = 12.dp,
     showCropOverlay: Boolean = false,
 ) {
+    DisposableEffect(model, showCropOverlay) {
+        model.setCropToolActive(showCropOverlay)
+        onDispose { model.setCropToolActive(false) }
+    }
     var view by remember { mutableStateOf<SurfaceView?>(null) }
     var surfaceVersion by remember { mutableIntStateOf(0) }
     val sampler = remember(state.selected?.key) { HistogramSampler() }
     DisposableEffect(sampler) { onDispose { sampler.close() } }
     val report by rememberUpdatedState(onHistogram)
     LaunchedEffect(state.selected?.key) { report(null) }
-    LaunchedEffect(state.selected?.key, state.mode) { zoomState.reset() }
+    LaunchedEffect(state.selected?.key, state.mode, showCropOverlay) { zoomState.reset() }
     LaunchedEffect(
         state.selected?.key,
         state.values,
@@ -72,7 +76,11 @@ internal fun PhotoCanvas(
             )
         }
     }
-    val aspect = state.values["_aspect"]?.takeIf { it.isFinite() && it > 0f } ?: (3f / 2f)
+    val crop = remember(state.document) { state.document.cropRect() }
+    val uncroppedAspect = state.uncroppedAspect()
+    val aspect = if (showCropOverlay) uncroppedAspect else
+        uncroppedAspect * (crop.right - crop.left).coerceAtLeast(0.001f) /
+            (crop.bottom - crop.top).coerceAtLeast(0.001f)
     val imageDims =
         remember(aspect, state.values["_width"], state.values["_height"]) {
             val w = state.values["_width"]?.toInt()?.takeIf { it > 0 }
@@ -87,7 +95,8 @@ internal fun PhotoCanvas(
     BoxWithConstraints(
         modifier
             .clipToBounds()
-            .pointerInput(state.selected?.key, state.mode) {
+            .pointerInput(state.selected?.key, state.mode, showCropOverlay) {
+                if (showCropOverlay) return@pointerInput
                 detectCanvasZoomPanAndSwipe(
                     zoomState = zoomState,
                     imageDimensions = { currentImageDims },
@@ -109,7 +118,7 @@ internal fun PhotoCanvas(
                 viewportPxH,
             )
         val zoomModifier =
-            if (zoomState.isZoomed)
+            if (zoomState.isZoomed && !showCropOverlay)
                 Modifier.graphicsLayer {
                     scaleX = zoomFactor
                     scaleY = zoomFactor
@@ -155,9 +164,10 @@ internal fun PhotoCanvas(
                         Modifier.fillMaxSize().semantics { contentDescription = "Photo canvas" },
                 )
                 if (showCropOverlay) {
-                    val crop = remember(state.document) { state.document.cropRect() }
                     CropOverlay(
                         crop = crop,
+                        lockedAspect = state.lockedCropAspect(),
+                        imageAspect = uncroppedAspect,
                         onCropChange = { model.applyCropRect(it, commit = false) },
                         onCropCommit = model::commitGesture,
                         modifier = Modifier.fillMaxSize(),
