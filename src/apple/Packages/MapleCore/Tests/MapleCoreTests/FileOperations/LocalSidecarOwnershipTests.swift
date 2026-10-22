@@ -244,6 +244,23 @@ final class LocalSidecarOwnershipTests: XCTestCase {
     XCTAssertEqual(try tree(), ["Album/IMG_1.CR3": "new"])
   }
 
+  func testReplaceClearsStaleEditsBesideUnrelatedSameStemFiles() async throws {
+    let raw = write("new", "Source/IMG_1.CR3")
+    write("old", "Album/IMG_1.CR3")
+    write("<stale/>", "Album/IMG_1.xmp")
+    for ext in ["txt", "aae", "json"] { write(ext, "Album/IMG_1.\(ext)") }
+
+    _ = try await LocalFileOperations.relocate(
+      raw, to: url("Album"), mode: .move, collision: .replace)
+
+    XCTAssertEqual(
+      try tree(),
+      [
+        "Album/IMG_1.CR3": "new", "Album/IMG_1.txt": "txt",
+        "Album/IMG_1.aae": "aae", "Album/IMG_1.json": "json",
+      ])
+  }
+
   func testOrphanDestinationSidecarForcesAutoSuffixWithoutOwnSidecar() async throws {
     let raw = write("new", "Source/IMG_1.CR3")
     write("<orphan/>", "Album/IMG_1.xmp")
@@ -474,7 +491,8 @@ final class LocalSidecarOwnershipTests: XCTestCase {
 
     XCTAssertFalse(second.renamedDueToCollision)
     XCTAssertTrue(second.sidecarFollowed)
-    XCTAssertEqual(second.sidecarPath.map { URL(fileURLWithPath: $0).lastPathComponent }, "IMG_1.xmp")
+    XCTAssertEqual(
+      second.sidecarPath.map { URL(fileURLWithPath: $0).lastPathComponent }, "IMG_1.xmp")
     XCTAssertEqual(
       try tree(),
       ["Shoot/IMG_1.CR3": "raw", "Shoot/IMG_1.JPG": "jpg", "Shoot/IMG_1.xmp": "<shared/>"])

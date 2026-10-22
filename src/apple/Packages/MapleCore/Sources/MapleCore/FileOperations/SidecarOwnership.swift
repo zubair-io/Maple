@@ -37,9 +37,8 @@ enum SidecarOwnership {
 
   /// True when a file named in `siblingNames` (the non-directory entries of
   /// `primaryPath`'s folder), other than the primary and `excluding`, shares
-  /// its sidecar stem. Over-inclusive on purpose: a false positive leaves a
-  /// harmless duplicate sidecar behind, a false negative carries away another
-  /// photo's edits.
+  /// its sidecar stem. Only indexed assets can own edits; an unrelated
+  /// `.txt`, `.aae` or `.json` file must not keep a replaced photo's edits alive.
   static func stemClaimedBySibling(
     primaryPath: String, siblingNames: [String], excluding: [String] = [], foldsCase: Bool = true
   ) -> Bool {
@@ -49,7 +48,7 @@ enum SidecarOwnership {
     let primaryStem = stem(of: (primaryPath as NSString).lastPathComponent, foldsCase: foldsCase)
     return siblingNames.contains { name in
       !name.hasPrefix(".") && !isStagingName(name)
-        && (name as NSString).pathExtension.lowercased() != "xmp"
+        && SupportedImageExtensions.all.contains((name as NSString).pathExtension.lowercased())
         && !skipped.contains(key((dir as NSString).appendingPathComponent(name)))
         && stem(of: name, foldsCase: foldsCase) == primaryStem
     }
