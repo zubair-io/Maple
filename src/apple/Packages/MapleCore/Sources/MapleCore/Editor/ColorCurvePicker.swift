@@ -61,16 +61,8 @@ public enum ColorCurveKind: String, CaseIterable, Sendable, Identifiable {
     }
   }
 
-  public static let quickHueAnchors: [(id: String, label: String, deg: Double, swatch: UInt32)] = [
-    ("red", "Red", 29.0, 0xC4493A),
-    ("yellow", "Yellow", 110.0, 0xE3D24A),
-    ("green", "Green", 142.0, 0x3FAE6A),
-    ("cyan", "Cyan", 195.0, 0x45B6C4),
-    ("blue", "Blue", 264.0, 0x3B6FB0),
-    ("magenta", "Magenta", 328.0, 0xC64FB0),
-  ]
-
-  public static let skinToneGuardDeg: [Double] = [38.0, 55.0, 72.0]
+  public static let quickHueAnchors = ColorCurveEditorTuning.quickHueAnchors
+  public static let skinToneGuardDeg = ColorCurveEditorTuning.skinToneGuardDeg
 
   public func insertingAnchor(x: Double, y: Double = 0.5, into curve: ToneCurve) -> ToneCurve {
     func position(_ value: Double) -> Double {

@@ -1,4 +1,7 @@
-import { COLOR_CURVE_EDITOR } from '../../generated/adjustment-model.generated';
+import {
+  COLOR_CURVE_EDITOR,
+  COLOR_CURVE_CALIBRATION,
+} from '../../generated/adjustment-model.generated';
 import {
   isIdentityToneCurve,
   type AdjustmentModel,
@@ -83,16 +86,9 @@ export interface QuickHueAnchor {
   readonly color: string;
 }
 
-export const QUICK_HUE_ANCHORS: readonly QuickHueAnchor[] = [
-  { id: 'red', label: 'Red', deg: 29, color: '#c4493a' },
-  { id: 'yellow', label: 'Yellow', deg: 110, color: '#e3d24a' },
-  { id: 'green', label: 'Green', deg: 142, color: '#3fae6a' },
-  { id: 'cyan', label: 'Cyan', deg: 195, color: '#45b6c4' },
-  { id: 'blue', label: 'Blue', deg: 264, color: '#3b6fb0' },
-  { id: 'magenta', label: 'Magenta', deg: 328, color: '#c64fb0' },
-] as const;
+export const QUICK_HUE_ANCHORS: readonly QuickHueAnchor[] = COLOR_CURVE_CALIBRATION.quickHueAnchors;
 
-const SKIN_TONE_GUARD_DEG: readonly number[] = [38, 55, 72] as const;
+const SKIN_TONE_GUARD_DEG = COLOR_CURVE_CALIBRATION.skinToneGuardDeg;
 
 export function anyColorCurveModified(adj: AdjustmentModel | null): boolean {
   if (!adj) return false;

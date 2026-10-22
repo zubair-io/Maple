@@ -35,6 +35,18 @@ pub const EDITOR_MIN_KNOT_GAP: f64 = 0.015;
 pub const EDITOR_MAX_KNOTS: usize = 16;
 pub const EDITOR_MAX_HUE_SLOPE: f64 = 2.5;
 
+/// Quick-anchor calibration (id, label, Oklab hue degrees, RGB UI swatch),
+/// emitted to each platform alongside the authoring limits.
+pub const EDITOR_QUICK_HUE_ANCHORS: [(&str, &str, f64, u32); 6] = [
+    ("red", "Red", 29.0, 0xc4493a),
+    ("yellow", "Yellow", 110.0, 0xe3d24a),
+    ("green", "Green", 142.0, 0x3fae6a),
+    ("cyan", "Cyan", 195.0, 0x45b6c4),
+    ("blue", "Blue", 264.0, 0x3b6fb0),
+    ("magenta", "Magenta", 328.0, 0xc64fb0),
+];
+pub const EDITOR_SKIN_TONE_GUARD_DEG: [f64; 3] = [38.0, 55.0, 72.0];
+
 /// Number of samples per baked secondary curve LUT.
 pub const COLOR_CURVE_LUT_LEN: usize = 256;
 
