@@ -1,3 +1,8 @@
+import {
+  PARAMETRIC_AXIS,
+  defaultGeneratedAdjustmentModel,
+} from '../../generated/adjustment-model.generated';
+
 // tone-curve-splits.ts — parametric split-point clamping + active-region
 // window shading for the Tone Curve editor (#5039).
 //
@@ -14,11 +19,11 @@ export type ParametricRegionId =
   | 'parametricLights'
   | 'parametricHighlights';
 
-export const DEFAULT_SHADOW_SPLIT = 25;
-export const DEFAULT_MIDTONE_SPLIT = 50;
-export const DEFAULT_HIGHLIGHT_SPLIT = 75;
+export const DEFAULT_SHADOW_SPLIT = defaultGeneratedAdjustmentModel().parametricShadowSplit;
+export const DEFAULT_MIDTONE_SPLIT = defaultGeneratedAdjustmentModel().parametricMidtoneSplit;
+export const DEFAULT_HIGHLIGHT_SPLIT = defaultGeneratedAdjustmentModel().parametricHighlightSplit;
 const MIN_SPLIT_UI_GAP = 5;
-const AXIS_TOP = 105.92414;
+const AXIS_TOP = PARAMETRIC_AXIS.top;
 
 export function defaultSplitValue(handle: ParametricSplitHandle): number {
   switch (handle) {
@@ -161,7 +166,22 @@ export function activeRegionWindowPath(
   const pts: string[] = [];
   for (let i = 0; i <= count; i++) {
     const u = i / count;
-    const w = Math.max(0, Math.min(1, regionWindows(u * 100, shadow, midtone, highlight)[idx]));
+    const w = Math.max(
+      0,
+      Math.min(
+        1,
+        regionWindows(
+          u > 0
+            ? PARAMETRIC_AXIS.midtone +
+                PARAMETRIC_AXIS.unitsPerStop *
+                  Math.log2((u * PARAMETRIC_AXIS.referenceMax) / PARAMETRIC_AXIS.midgrey)
+            : 0,
+          shadow,
+          midtone,
+          highlight,
+        )[idx],
+      ),
+    );
     const x = (u * plotSize).toFixed(2);
     const y = (plotSize - w * plotSize * 0.35).toFixed(2);
     pts.push(`${x} ${y}`);

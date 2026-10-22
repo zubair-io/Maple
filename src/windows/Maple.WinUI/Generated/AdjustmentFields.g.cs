@@ -450,3 +450,12 @@ public static class ColorCurveEditorTuning
     public const int MaxKnots = 16;
     public const double MaxHueSlope = 2.5;
 }
+
+public static class ParametricAxisTuning
+{
+    public const double Midgrey = 0.18;
+    public const double Midtone = 50.0;
+    public const double UnitsPerStop = 12.5;
+    public const double Top = 105.92414;
+    public const double ReferenceMax = 4.0;
+}

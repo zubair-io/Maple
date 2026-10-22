@@ -169,7 +169,7 @@ export function lockSkinToneCurve(desc: ColorCurveDescriptor, curve: ToneCurve):
     });
     if (idx >= 0) {
       pts[idx] = [x, 0.5];
-    } else {
+    } else if (pts.length < COLOR_CURVE_EDITOR.maxKnots) {
       pts.push([x, 0.5]);
     }
   }

@@ -176,10 +176,13 @@ extension AdjustmentModel {
   public static let parametricShadowsRange: ClosedRange<Double> = -100.0...100.0
   /// Parametric tone curve — shadow/darks split point (ACR crs:ParametricShadowSplit, #2320).
   public static let parametricShadowSplitRange: ClosedRange<Double> = 0.0...100.0
+  public static let parametricShadowSplitDefault: Double = 25.0
   /// Parametric tone curve — darks/lights split point (ACR crs:ParametricMidtoneSplit, #2320).
   public static let parametricMidtoneSplitRange: ClosedRange<Double> = 0.0...100.0
+  public static let parametricMidtoneSplitDefault: Double = 50.0
   /// Parametric tone curve — lights/highlights split point (ACR crs:ParametricHighlightSplit, #2320).
   public static let parametricHighlightSplitRange: ClosedRange<Double> = 0.0...100.0
+  public static let parametricHighlightSplitDefault: Double = 75.0
   /// Vibrance (saturation with skin-tone protection) per spec § 3.7.
   public static let vibranceRange: ClosedRange<Double> = -100.0...100.0
   /// Global saturation.
@@ -359,6 +362,14 @@ public enum ColorCurveEditorTuning {
   public static let minKnotGap = 0.015
   public static let maxKnots = 16
   public static let maxHueSlope = 2.5
+}
+
+public enum ParametricAxisTuning {
+  public static let midgrey: Double = 0.18
+  public static let midtone: Double = 50.0
+  public static let unitsPerStop: Double = 12.5
+  public static let top: Double = 105.92414
+  public static let referenceMax: Double = 4.0
 }
 
 // MARK: - Copy / paste / sync groups (#944, canonical, generated)

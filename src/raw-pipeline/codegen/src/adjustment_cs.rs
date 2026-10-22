@@ -91,6 +91,28 @@ pub(crate) fn emit_cs() -> String {
         raw_core::stages::color_curves::EDITOR_MIN_KNOT_GAP,
         raw_core::stages::color_curves::EDITOR_MAX_KNOTS,
         raw_core::stages::color_curves::EDITOR_MAX_HUE_SLOPE));
+    out.push_str("\npublic static class ParametricAxisTuning\n{\n");
+    out.push_str(&format!(
+        "    public const double Midgrey = {};\n",
+        crate::adjustment::f(raw_core::stages::tone_curves::MIDGREY)
+    ));
+    out.push_str(&format!(
+        "    public const double Midtone = {};\n",
+        crate::adjustment::f(raw_core::stages::tone_curves::AXIS_MIDTONE)
+    ));
+    out.push_str(&format!(
+        "    public const double UnitsPerStop = {};\n",
+        crate::adjustment::f(raw_core::stages::tone_curves::AXIS_UNITS_PER_STOP)
+    ));
+    out.push_str(&format!(
+        "    public const double Top = {};\n",
+        crate::adjustment::f(raw_core::stages::tone_curves::AXIS_TOP)
+    ));
+    out.push_str(&format!(
+        "    public const double ReferenceMax = {};\n",
+        crate::adjustment::f(raw_core::stages::tone_curves::REF_MAX)
+    ));
+    out.push_str("}\n");
 
     out
 }

@@ -53,7 +53,7 @@ const HSL_HUE_MAX_RAD: f32 = 30.0_f32 * std::f32::consts::PI / 180.0;
 /// `raw_core::stages::hsl::{HSL_GAMUT_EPS, HSL_GAMUT_KNEE_FRACTION,
 /// HSL_GAMUT_BISECT_ITERS}` — the WGSL kernel carries the same values.
 const HSL_GAMUT_EPS: f32 = 1e-5;
-const HSL_GAMUT_KNEE_FRACTION: f32 = 0.8;
+pub(crate) const HSL_GAMUT_KNEE_FRACTION: f32 = 0.8;
 const HSL_GAMUT_BISECT_ITERS: usize = 24;
 
 /// Circular angular distance (degrees) in [0, 180].
@@ -374,7 +374,7 @@ fn bw_pixel(rgb: [f32; 3], bw_mix: &[f32; NUM_BANDS]) -> [f32; 3] {
 /// Reinhard-style smooth compression — `raw_core::stages::hsl::hsl_soft_compress`
 /// verbatim (the WGSL kernel mirrors the same fn).
 #[inline]
-fn hsl_soft_compress(
+pub(crate) fn hsl_soft_compress(
     c_target: f32,
     c_hull: f32,
     c_input: f32,

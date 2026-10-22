@@ -9,6 +9,7 @@
 
 use crate::chain::Pass;
 use crate::context::GpuContext;
+use crate::hsl::{hsl_soft_compress, HSL_GAMUT_KNEE_FRACTION};
 use crate::spatial::{encode_simple, pool_data_storage};
 
 /// Number of samples per baked secondary curve LUT.
@@ -30,7 +31,6 @@ const REC2020_LUMA_G: f32 = 0.67799807;
 const REC2020_LUMA_B: f32 = 0.05930172;
 
 const GAMUT_EPS: f32 = 1e-5;
-const GAMUT_KNEE_FRACTION: f32 = 0.8;
 const GAMUT_BISECT_ITERS: usize = 24;
 
 #[repr(C)]
@@ -373,20 +373,6 @@ fn smoothstep_cpu(e0: f32, e1: f32, x: f32) -> f32 {
 }
 
 #[inline]
-fn soft_compress(c_target: f32, c_hull: f32) -> f32 {
-    let c_thresh = GAMUT_KNEE_FRACTION * c_hull;
-    if c_target <= c_thresh {
-        return c_target;
-    }
-    let d = c_target - c_thresh;
-    let d_max = c_hull - c_thresh;
-    if d_max <= 0.0 {
-        return c_hull;
-    }
-    c_thresh + d_max * (d / (d + d_max))
-}
-
-#[inline]
 fn bisect_gamut_hull(l: f32, a_hat: f32, b_hat: f32, c_high: f32) -> f32 {
     let mut lo = 0.0f32;
     let mut hi = c_high;
@@ -446,6 +432,10 @@ pub fn apply_color_curves(buf: &mut [f32], inputs: &ColorCurveInputs) {
         let d_svl = sample_clamped(&luts[5], u_c);
         let s_hvl = 1.0 + chroma_gate * 2.0 * COLOR_CURVE_LUMA_MAX_SCALE * d_hvl;
         let s_svl = 1.0 + chroma_gate * 2.0 * COLOR_CURVE_LUMA_MAX_SCALE * d_svl;
+        // A globally active curve can leave this pixel untouched, including signed RGB.
+        if delta_hue_rad == 0.0 && c_target == c && s_hvl * s_svl == 1.0 {
+            continue;
+        }
         l = (l * s_hvl * s_svl).max(0.0);
 
         let a_hat = a / c;
@@ -454,12 +444,17 @@ pub fn apply_color_curves(buf: &mut [f32], inputs: &ColorCurveInputs) {
         let rot_a_hat = a_hat * cos_dh - b_hat * sin_dh;
         let rot_b_hat = a_hat * sin_dh + b_hat * cos_dh;
 
-        let rgb_target = oklab_to_rec2020([l, rot_a_hat * c_target, rot_b_hat * c_target]);
-        let out = if rgb_target[0].min(rgb_target[1]).min(rgb_target[2]) >= -GAMUT_EPS {
-            rgb_target
+        let c_probe = c_target / HSL_GAMUT_KNEE_FRACTION;
+        let rgb_probe = oklab_to_rec2020([l, rot_a_hat * c_probe, rot_b_hat * c_probe]);
+        let out = if rgb_probe[0].min(rgb_probe[1]).min(rgb_probe[2]) >= -GAMUT_EPS {
+            oklab_to_rec2020([l, rot_a_hat * c_target, rot_b_hat * c_target])
         } else {
-            let c_hull = bisect_gamut_hull(l, rot_a_hat, rot_b_hat, c_target);
-            let c_out = soft_compress(c_target, c_hull);
+            let c_hull = bisect_gamut_hull(l, rot_a_hat, rot_b_hat, c_probe);
+            let geometry_distance =
+                ((l - lab[0]).powi(2) + (rot_a_hat * c - a).powi(2) + (rot_b_hat * c - b).powi(2))
+                    .sqrt();
+            let input_in_gamut = rgb[0].min(rgb[1]).min(rgb[2]) >= -GAMUT_EPS;
+            let c_out = hsl_soft_compress(c_target, c_hull, c, geometry_distance, input_in_gamut);
             oklab_to_rec2020([l, rot_a_hat * c_out, rot_b_hat * c_out])
         };
         px[0] = out[0];

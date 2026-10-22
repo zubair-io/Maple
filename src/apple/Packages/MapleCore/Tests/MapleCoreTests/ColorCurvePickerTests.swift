@@ -8,6 +8,22 @@ import XCTest
 
 @MainActor
 final class ColorCurvePickerTests: XCTestCase {
+  func testSkinGuardsRespectTheKnotCapAndUpdateExistingKnotsWhenFull() {
+    for count in [14, 15, 16] {
+      let points: [ToneCurvePoint] = (0..<count).map { (x: 0.3 + Double($0) * 0.04, y: 0.6) }
+      let result = ColorCurveKind.hueVsSat.lockingSkinTone(into: ToneCurve(points: points))
+      XCTAssertEqual(result.points.count, ColorCurveEditorTuning.maxKnots)
+      for point in points {
+        XCTAssertTrue(result.points.contains { $0.x == point.x && $0.y == point.y })
+      }
+    }
+    var points: [ToneCurvePoint] = (0..<16).map { (x: 0.3 + Double($0) * 0.04, y: 0.6) }
+    points[0] = (x: 55.0 / 360.0, y: 0.8)
+    let result = ColorCurveKind.hueVsSat.lockingSkinTone(into: ToneCurve(points: points))
+    XCTAssertEqual(result.points.count, 16)
+    XCTAssertTrue(result.points.contains { $0.x == 55.0 / 360.0 && $0.y == 0.5 })
+  }
+
   func testFirstAnchorChangesOnlyItsSelectedRangeIncludingTheHueSeam() {
     for kind in ColorCurveKind.allCases {
       let center = kind.isPeriodic ? 0.98 : 0.5

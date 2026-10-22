@@ -9,7 +9,7 @@
 
 use crate::color::oklab::rec2020_to_oklab;
 use crate::image::{ColorSpace, ExifOrientation, Image, RawImage};
-use crate::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
+use crate::pipeline::{develop_scene_linear_sized_from_raw_with_quality, RenderQuality};
 use crate::stages::color_curves::{oklab_chroma_norm, oklab_hue_norm, scene_log_luma_norm};
 use crate::stages::hsl::CHROMA_GATE_C0;
 pub use crate::stages::mask_range_sample::RangeSampleError as ColorCurveSampleError;
@@ -46,13 +46,18 @@ pub fn sample_color_curve_input(
     if !((0.0..=1.0).contains(&nx) && (0.0..=1.0).contains(&ny)) {
         return Err(RangeSampleError::OutsideImage);
     }
-    let probe = develop_scene_linear_from_raw_with_quality(
+    let probe = develop_probe(raw, model)?;
+    sample_from_probe(&probe, nx, ny)
+}
+
+fn develop_probe(raw: &RawImage, model: &AdjustmentModel) -> Result<Image, RangeSampleError> {
+    develop_scene_linear_sized_from_raw_with_quality(
         raw,
         &stage_input_model(model),
         RenderQuality::Preview,
+        512,
     )
-    .map_err(|e| RangeSampleError::Develop(e.to_string()))?;
-    sample_from_probe(&probe, nx, ny)
+    .map_err(|e| RangeSampleError::Develop(e.to_string()))
 }
 
 /// Map normalised display-oriented coordinates `(x, y)` back to the sensor frame.
@@ -134,6 +139,32 @@ pub(crate) fn sample_from_probe(
 mod tests {
     use super::*;
     use crate::color::oklab::oklab_to_rec2020;
+
+    #[test]
+    fn bayer_and_linear_raw_probes_are_bounded_before_adjustments() {
+        use crate::test_support::{
+            synth_dng::SyntheticGreyDng, synth_linearraw_dng::SyntheticLinearRawDng,
+        };
+        let inputs = [
+            SyntheticGreyDng {
+                width: 1536,
+                height: 1024,
+                ..Default::default()
+            }
+            .write_to_bytes(),
+            SyntheticLinearRawDng {
+                width: 1536,
+                height: 1024,
+                ..Default::default()
+            }
+            .write_to_bytes(),
+        ];
+        for bytes in inputs {
+            let raw = crate::decode::decode_bytes(&bytes, "dng").unwrap();
+            let probe = develop_probe(&raw, &AdjustmentModel::default()).unwrap();
+            assert_eq!(probe.width.max(probe.height), 512);
+        }
+    }
 
     #[test]
     fn sample_from_probe_returns_matching_stage_coordinates() {

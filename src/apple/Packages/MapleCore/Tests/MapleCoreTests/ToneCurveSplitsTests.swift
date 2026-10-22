@@ -72,14 +72,14 @@ final class ToneCurveSplitsTests: XCTestCase {
 
   func testSampleRegionWindowShiftsWhenSplitsMove() {
     let defaultSamples = ToneCurveSplits.sampleRegionWindow(
-      region: .shadows, shadow: 25, midtone: 50, highlight: 75, samples: 20
+      region: .shadows, shadow: 25, midtone: 50, highlight: 75, samples: 1000
     )
     let widenedSamples = ToneCurveSplits.sampleRegionWindow(
-      region: .shadows, shadow: 40, midtone: 50, highlight: 75, samples: 20
+      region: .shadows, shadow: 40, midtone: 50, highlight: 75, samples: 1000
     )
-    // At x = 0.30 (p = 30), widening shadow split from 25 to 40 increases the shadow weight.
-    let wDefault = defaultSamples[6].weight
-    let wWidened = widenedSamples[6].weight
+    // Axis 30 maps to authoring x ≈ 0.01484; sampling x=0.015 tracks that shadow region.
+    let wDefault = defaultSamples[15].weight
+    let wWidened = widenedSamples[15].weight
     XCTAssertGreaterThan(wWidened, wDefault + 0.1)
   }
 }

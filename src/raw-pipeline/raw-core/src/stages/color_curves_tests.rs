@@ -202,3 +202,73 @@ fn luma_saturation_fades_continuously_through_the_neutral_chroma_gate() {
         );
     }
 }
+
+#[test]
+fn gamut_shoulder_is_continuous_and_monotonic_across_hull() {
+    let input = [1.0, 0.02, 0.03];
+    let original = rec2020_to_oklab(input);
+    let c_input = original[1].hypot(original[2]);
+    let mut previous = c_input;
+    for step in 1..=1000 {
+        let model = AdjustmentModel {
+            color_curve_hue_vs_sat: ToneCurve::new(vec![(0.25, 0.5 + step as f32 * 0.0005)]),
+            ..AdjustmentModel::default()
+        };
+        let output = rec2020_to_oklab(apply_pixel(input, &ColorCurveParams::from_model(&model)));
+        let chroma = output[1].hypot(output[2]);
+        let delta = chroma - previous;
+        assert!(
+            delta >= -2e-5 && delta < c_input * 0.0015 + 2e-5,
+            "step={step}: chroma {previous} -> {chroma} jumps at the gamut shoulder"
+        );
+        previous = chroma;
+    }
+}
+
+#[test]
+fn local_identity_preserves_out_of_gamut_pixels_exactly() {
+    let input = oklab_to_rec2020([0.6, 0.4, 0.0]);
+    assert!(input.iter().any(|value| *value < -0.01));
+    let model = AdjustmentModel {
+        color_curve_hue_vs_sat: ToneCurve::new(vec![
+            (0.0, 0.5),
+            (0.3, 0.5),
+            (0.5, 0.8),
+            (0.7, 0.5),
+        ]),
+        ..AdjustmentModel::default()
+    };
+    let params = ColorCurveParams::from_model(&model);
+    assert!(!params.is_identity);
+    assert_eq!(apply_pixel(input, &params), input);
+}
+
+#[test]
+fn tiny_hue_and_luma_edits_approach_identity_at_the_hull() {
+    let input = [1.0, 0.0, 0.0];
+    for kind in 0..2 {
+        for y in [0.499999_f32, 0.500001] {
+            let curve = ToneCurve::new(vec![(0.25, y)]);
+            let model = match kind {
+                0 => AdjustmentModel {
+                    color_curve_hue_vs_hue: curve,
+                    ..AdjustmentModel::default()
+                },
+                _ => AdjustmentModel {
+                    color_curve_hue_vs_luma: curve,
+                    ..AdjustmentModel::default()
+                },
+            };
+            let output = apply_pixel(input, &ColorCurveParams::from_model(&model));
+            let jump = input
+                .iter()
+                .zip(output)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0_f32, f32::max);
+            assert!(
+                jump < 1e-4,
+                "kind={kind} y={y}: a tiny edit jumps by {jump}"
+            );
+        }
+    }
+}

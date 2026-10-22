@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using Maple.WinUI.Generated;
 
 namespace Maple.UI
 {
@@ -17,11 +19,11 @@ namespace Maple.UI
     /// </summary>
     public static class MuiToneCurveSplitsMath
     {
-        public const double DefaultShadowSplit = 25.0;
-        public const double DefaultMidtoneSplit = 50.0;
-        public const double DefaultHighlightSplit = 75.0;
+        public static readonly double DefaultShadowSplit = AdjustmentFields.All.Single(field => field.Name == "parametric_shadow_split").DefaultNumber;
+        public static readonly double DefaultMidtoneSplit = AdjustmentFields.All.Single(field => field.Name == "parametric_midtone_split").DefaultNumber;
+        public static readonly double DefaultHighlightSplit = AdjustmentFields.All.Single(field => field.Name == "parametric_highlight_split").DefaultNumber;
         public const double MinUiGap = 5.0;
-        public const double AxisTop = 105.92414;
+        public const double AxisTop = ParametricAxisTuning.Top;
 
         public static double DefaultValue(ParametricSplitHandle handle) => handle switch
         {

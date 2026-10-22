@@ -120,7 +120,7 @@ public enum ColorCurveKind: String, CaseIterable, Sendable, Identifiable {
         return min(d, 1.0 - d) < ColorCurveEditorTuning.minKnotGap
       }) {
         pts[idx] = (x: x, y: 0.5)
-      } else {
+      } else if pts.count < ColorCurveEditorTuning.maxKnots {
         pts.append((x: x, y: 0.5))
       }
     }
