@@ -125,6 +125,13 @@ public enum SMBFileOperations {
       }
     }
 
+    if joinsCarriedSidecar,
+      !(await SidecarOwnership.smbSidecarAlreadyCarried(
+        sourceSidecarPath, at: sidecarTargetPath, transport: transport))
+    {
+      try? await transport.removeItem(atPath: primaryTmp)
+      throw FileOperationError.destinationExists(sidecarTargetPath)
+    }
     var createdPaths: [String] = []
     let primaryBackup: String?
     do {
@@ -215,6 +222,17 @@ public enum SMBFileOperations {
       )
     }
     if let sourceSidecarPath = plan.sourceSidecarPath, !plan.retainsSourceSidecar {
+      // Recheck at cleanup too: a joined or copied sidecar may change after
+      // planning. Keep the source whenever its current edits are not carried.
+      guard let destination = plan.finalSidecarPath,
+        await SidecarOwnership.smbSidecarAlreadyCarried(
+          sourceSidecarPath, at: destination, transport: transport)
+      else {
+        fileOpsLog.error("finalizeRelocate: changed sidecar kept at source")
+        await invalidateDerivedCaches(
+          forOldPrimaryPath: plan.sourcePrimaryPath, transport: transport)
+        return outcome
+      }
       do {
         try await transport.removeItem(atPath: sourceSidecarPath)
       } catch {

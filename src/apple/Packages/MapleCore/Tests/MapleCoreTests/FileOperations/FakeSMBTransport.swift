@@ -51,6 +51,10 @@ actor FakeSMBTransport: SMBFileTransport {
   private var failCopiesInto: String?
   private var replacementAtRestoreMark: (item: String, contents: String)?
   private var replacementAtPublish: (trigger: String, item: String, contents: String)?
+  private var replacementAtCopy: (source: String, item: String, contents: String)?
+  func setReplacementAtCopy(_ source: String, item: String, contents: String) {
+    replacementAtCopy = (source, item, contents)
+  }
   private var foldsCase = false
 
   func setFoldsCase(_ value: Bool) { foldsCase = value }
@@ -178,6 +182,10 @@ actor FakeSMBTransport: SMBFileTransport {
     guard let source = files[path] else { throw FakeSMBTransportError.notFound(path) }
     guard files[toPath] == nil, !directories.contains(toPath) else { throw POSIXError(.EEXIST) }
     files[toPath] = entry(data: source.data, mtime: source.mtime)
+    if let replacement = replacementAtCopy, replacement.source == path {
+      seed(replacement.contents, at: replacement.item)
+      replacementAtCopy = nil
+    }
     registerDirectory((toPath as NSString).deletingLastPathComponent)
   }
 
