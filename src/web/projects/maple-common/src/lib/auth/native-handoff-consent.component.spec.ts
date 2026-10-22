@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { By } from '@angular/platform-browser';
+import { CdkTrapFocus } from '@angular/cdk/a11y';
 import { AuthService, AuthUser } from './auth.service';
 import { NativeHandoffConsentComponent } from './native-handoff-consent.component';
 
@@ -31,6 +33,7 @@ describe('NativeHandoffConsentComponent (#4673)', () => {
   }
 
   afterEach(() => {
+    vi.restoreAllMocks();
     ctrl.verify();
     window.history.replaceState({}, '', '/');
   });
@@ -101,6 +104,23 @@ describe('NativeHandoffConsentComponent (#4673)', () => {
     expect(
       fixture.nativeElement.querySelector('[data-testid="native-handoff-consent"]'),
     ).toBeNull();
+  });
+
+  it('captures keyboard focus and attaches a focus trap while consent is visible', async () => {
+    // jsdom has no layout; give visible modal content browser-like geometry.
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(100);
+    setup(`/?native_callback=maple-app&code_challenge=${CHALLENGE}&state=${STATE}`);
+    await fixture.whenStable();
+    const trap = fixture.debugElement.query(By.directive(CdkTrapFocus)).injector.get(CdkTrapFocus);
+    expect(trap.enabled).toBe(true);
+    expect(trap.autoCapture).toBe(true);
+    expect(trap.focusTrap.hasAttached()).toBe(true);
+    const dialog = fixture.nativeElement.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    expect(fixture.debugElement.query(By.directive(CdkTrapFocus))).toBeNull();
+    ctrl.expectNone('/api/auth/native-code');
   });
 
   it('does not render when the user is signed out', () => {

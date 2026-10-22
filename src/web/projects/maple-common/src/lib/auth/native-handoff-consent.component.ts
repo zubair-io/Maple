@@ -11,12 +11,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { MuiButtonComponent } from '../ui/button/mui-button.component';
 import { MuiTextComponent } from '../ui/text/mui-text.component';
+import { CdkTrapFocus } from '@angular/cdk/a11y';
 import { AuthService } from './auth.service';
 
 @Component({
   selector: 'maple-native-handoff-consent',
   standalone: true,
-  imports: [MuiButtonComponent, MuiTextComponent],
+  imports: [MuiButtonComponent, MuiTextComponent, CdkTrapFocus],
   templateUrl: './native-handoff-consent.component.html',
   styleUrl: './native-handoff-consent.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

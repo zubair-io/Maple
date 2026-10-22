@@ -108,6 +108,10 @@ export const nativeCodeClaimRoutes = new Elysia().post(
       set.status = 400;
       return { error: 'invalid code' };
     }
+    if (body.code === undefined && ip === 'anon') {
+      set.status = 404;
+      return { error: 'no pending code' };
+    }
     const redeemed = await claimNativeCode(body.state, body.code_verifier, {
       callerIp: ip,
       code: body.code,

@@ -5,12 +5,21 @@
   >
     <div
       class="native-handoff-consent-dialog flex w-[min(400px,calc(100vw-32px))] flex-col gap-3 rounded-lg border border-border bg-surface p-6 text-text-main shadow-[0_12px_28px_rgba(0,0,0,0.35)] outline-none"
+      cdkTrapFocus
+      [cdkTrapFocusAutoCapture]="true"
+      tabindex="-1"
       role="dialog"
       aria-modal="true"
       aria-labelledby="native-handoff-consent-title"
       (keydown.escape)="cancel()"
     >
-      <mui-text id="native-handoff-consent-title" variant="row-label" [block]="true">
+      <mui-text
+        id="native-handoff-consent-title"
+        cdkFocusInitial
+        tabindex="-1"
+        variant="row-label"
+        [block]="true"
+      >
         Sign in to Maple app?
       </mui-text>
       <mui-text variant="body" color="muted" [block]="true">
