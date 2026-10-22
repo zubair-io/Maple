@@ -906,8 +906,8 @@
         "executed_cases": 12,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "0bacfbaf4155abf99de8038d4ec9fb22b3d4719a",
-        "recorded_at": "2026-10-22T16:10:06Z",
+        "git_sha": "c6bb9868da5e6e15e74aa0dd50a07b38060b5025",
+        "recorded_at": "2026-10-22T16:24:22Z",
         "command": "swift test --package-path src/apple/Packages/MapleCore --skip-build --filter SidecarTransactionContract"
       }
     },
