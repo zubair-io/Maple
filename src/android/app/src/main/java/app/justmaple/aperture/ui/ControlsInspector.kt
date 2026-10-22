@@ -118,6 +118,7 @@ internal fun ControlsInspector(
             WbPresetChips(
                 wbPresets,
                 model::applyWbPreset,
+                state,
                 Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         if (group == EditorGroup.Color && subTool == "hsl")

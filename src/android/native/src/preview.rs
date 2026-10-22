@@ -110,6 +110,17 @@ impl Session {
         Self::open_with_context(Rc::new(GpuContext::new_blocking()?), path, xml, edge)
     }
 
+    pub fn prepare_auto_white_balance(
+        &self,
+        xml: &str,
+    ) -> Result<crate::auto_white_balance::AutoWhiteBalanceWork, String> {
+        let raw = self
+            .raw
+            .clone()
+            .ok_or("Auto white balance requires a RAW photo")?;
+        crate::auto_white_balance::AutoWhiteBalanceWork::new(raw, xml)
+    }
+
     pub fn open_with_context(
         ctx: Rc<GpuContext>,
         path: &str,

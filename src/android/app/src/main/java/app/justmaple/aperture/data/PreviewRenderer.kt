@@ -15,6 +15,8 @@ interface PreviewRenderer : Closeable {
 
     suspend fun open(path: String, document: String, edge: Int, generation: Int): Map<String, Float>
 
+    suspend fun autoWhiteBalance(document: String): app.justmaple.aperture.WhiteBalanceRecommendation
+
     fun recordSurface(
         next: Surface?,
         w: Int,

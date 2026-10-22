@@ -8,9 +8,12 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** The handle, GPU and ANativeWindow belong to exactly one serial worker. */
 class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
+    private val analysisLock = Mutex()
     private val dispatcher =
         Executors.newSingleThreadExecutor { task ->
                 Thread(null, task, "Maple render", 16L * 1024 * 1024)
@@ -216,6 +219,29 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
             }
         }
     }
+
+    override suspend fun autoWhiteBalance(document: String): app.justmaple.aperture.WhiteBalanceRecommendation =
+        analysisLock.withLock {
+            // Keep allocation, CPU use and release in one cancellation-safe
+            // lifetime. Waiting analyses acquire no extra RAW reference.
+            withContext(NonCancellable) {
+                val work = withContext(dispatcher) {
+                    check(handle != 0L) { "Open a RAW photo before Auto white balance" }
+                    NativeBridge.createAutoWhiteBalance(handle, document)
+                }
+                // The work owns immutable RAW data; navigation and GPU draws
+                // remain free to use/release the live renderer independently.
+                withContext(Dispatchers.Default) {
+                    try {
+                        val result = JSONObject(NativeBridge.runAutoWhiteBalance(work))
+                        app.justmaple.aperture.WhiteBalanceRecommendation(
+                            result.getDouble("temperature").toFloat(), result.getDouble("tint").toFloat(),
+                            result.getDouble("algorithmVersion").toFloat(),
+                        )
+                    } finally { NativeBridge.closeAutoWhiteBalance(work) }
+                }
+            }
+        }
 
     override suspend fun shutdown() = withContext(dispatcher) { release() }
 

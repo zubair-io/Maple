@@ -26,6 +26,7 @@ class OpeningComparisonTest {
         override fun invalidateModel() {}
         override suspend fun open(path: String, document: String, edge: Int, generation: Int) =
             mapOf("exposure" to (XmpDocument(document).attribute("crs:Exposure2012")?.toFloat() ?: 0f), "_raw" to 1f)
+        override suspend fun autoWhiteBalance(document: String): app.justmaple.aperture.WhiteBalanceRecommendation = error("White balance analysis is not expected in this test")
         override fun recordSurface(next: Surface?, w: Int, h: Int, wideColor: Boolean) =
             EditorRenderer.SurfaceBinding(next, w, h, wideColor)
         override suspend fun attach(binding: EditorRenderer.SurfaceBinding) {}

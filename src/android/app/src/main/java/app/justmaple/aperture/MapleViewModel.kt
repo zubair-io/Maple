@@ -41,6 +41,8 @@ internal constructor(
     private var singleRequest = 0
     private var renderXml = ""
     private var openingEdit: EditSnapshot? = null
+    private var autoWhiteBalanceRequest = 0
+    private var autoWhiteBalanceJob: Job? = null
     private var baseline: String? = null
     private var saveJob: Job? = null
     private val saveLock = kotlinx.coroutines.sync.Mutex()
@@ -222,6 +224,8 @@ internal constructor(
         val token = ++generation
         baseline = null
         openingEdit = null
+        ++autoWhiteBalanceRequest
+        autoWhiteBalanceJob?.cancel()
         mutable.update {
             it.copy(
                 selected = photo,
@@ -233,6 +237,7 @@ internal constructor(
                 mode = nextMode,
                 canResetRawOnlySliders = false,
                 comparingBefore = false,
+                autoWhiteBalanceInFlight = false,
                 loading = true,
                 rendering = false,
                 document = XmpDocument(),
@@ -313,11 +318,14 @@ internal constructor(
         viewModelScope.launch {
             if (!flush()) return@launch
             ++generation
+            ++autoWhiteBalanceRequest
+            autoWhiteBalanceJob?.cancel()
             renderer.shutdown()
             mutable.update {
                 it.copy(
                     mode = if (it.mode == PhotoMode.Edit) PhotoMode.Preview else PhotoMode.Browse,
                     comparingBefore = false,
+                    autoWhiteBalanceInFlight = false,
                     rendering = false,
                     loading = false,
                 )
@@ -335,6 +343,33 @@ internal constructor(
         renderXml = comparison.document.serialize()
         renderer.invalidateModel()
         queueDraw(drawValues)
+    }
+
+    fun autoWhiteBalance() {
+        val current = state.value
+        if (!current.canEdit || current.values["_raw"] != 1f || current.autoWhiteBalanceInFlight) return
+        commitGesture()
+        val before = snapshot()
+        val token = generation
+        val revision = renderer.revision
+        val request = ++autoWhiteBalanceRequest
+        mutable.update { it.copy(autoWhiteBalanceInFlight = true) }
+        autoWhiteBalanceJob = viewModelScope.launch {
+            try {
+                val result = renderer.autoWhiteBalance(before.document.serialize())
+                if (token != generation || revision != renderer.revision || snapshot() != before || !state.value.canEdit) return@launch
+                val next = before.withAutoWhiteBalance(result)
+                if (next.values == before.values && next.document.serialize() == before.document.serialize()) return@launch
+                beginGesture()
+                restore(next)
+                commitGesture()
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                if (token == generation && revision == renderer.revision) fail(failure, "Could not analyze white balance")
+            } finally {
+                if (request == autoWhiteBalanceRequest) mutable.update { it.copy(autoWhiteBalanceInFlight = false) }
+            }
+        }
     }
 
     fun surface(surface: Surface?, width: Int, height: Int, wideColor: Boolean = false) {

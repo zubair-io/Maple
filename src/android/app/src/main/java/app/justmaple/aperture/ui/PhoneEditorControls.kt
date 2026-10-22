@@ -93,6 +93,7 @@ internal fun PhoneEditorControls(
             WbPresetChips(
                 wbPresets,
                 model::applyWbPreset,
+                state,
                 Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             )
         if (group == EditorGroup.Color && subTool == "hsl")

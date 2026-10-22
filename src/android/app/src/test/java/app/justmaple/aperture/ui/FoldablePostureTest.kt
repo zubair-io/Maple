@@ -41,6 +41,7 @@ class FoldablePostureTest {
         override fun invalidateModel() {}
         override suspend fun open(path: String, document: String, edge: Int, generation: Int) =
             emptyMap<String, Float>()
+        override suspend fun autoWhiteBalance(document: String): app.justmaple.aperture.WhiteBalanceRecommendation = error("White balance analysis is not expected in this test")
         override fun recordSurface(next: Surface?, w: Int, h: Int, wideColor: Boolean) =
             EditorRenderer.SurfaceBinding(next, w, h, wideColor)
         override suspend fun attach(binding: EditorRenderer.SurfaceBinding) {}
