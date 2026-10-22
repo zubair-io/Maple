@@ -10,7 +10,7 @@ Thirteen native targets, three committed schemes.
 | ---------------------------- | ----------------- | ------------------------------ | ------------------ | --------------------- |
 | Maple                        | app               | `app.justmaple.aperture`       | macOS, iOS, iPadOS | macOS 14.0 / iOS 26.0 |
 | Maple TV                     | app               | `app.justmaple.aperture.tv`    | tvOS               | tvOS 17.0             |
-| Maple Watch Watch App        | companion app     | `app.justmaple.aperture.watch` | watchOS            | watchOS 10.0          |
+| Maple Watch Watch App        | companion app     | `app.justmaple.aperture.watchkitapp` | watchOS            | watchOS 10.0          |
 | MapleTopShelf                | app extension     | `…aperture.tv.MapleTopShelf`   | tvOS               | tvOS 17.0             |
 | MapleFileProvider            | app extension     | `…aperture.FileProvider`       | macOS              | macOS 14.0            |
 | MapleFileProviderIOS         | app extension     | `…aperture.FileProviderIOS`    | iOS                | iOS 26.0              |
@@ -19,8 +19,8 @@ Thirteen native targets, three committed schemes.
 | MapleBackupAgent             | command-line tool | —                              | macOS              | macOS 14.0            |
 | MapleTests                   | unit-test bundle  | `…aperture.Tests`              | macOS, iOS         | —                     |
 | MapleUITests                 | UI-test bundle    | `…aperture.UITests`            | macOS, iOS         | —                     |
-| Maple Watch Watch AppTests   | unit-test bundle  | `…aperture.watch.Tests`        | watchOS            | —                     |
-| Maple Watch Watch AppUITests | UI-test bundle    | `…aperture.watch.UITests`      | watchOS            | —                     |
+| Maple Watch Watch AppTests   | unit-test bundle  | `…aperture.watchkitapp.Tests`        | watchOS            | —                     |
+| Maple Watch Watch AppUITests | UI-test bundle    | `…aperture.watchkitapp.UITests`      | watchOS            | —                     |
 
 Which package products each target links (from `Maple.xcodeproj/project.pbxproj`):
 
