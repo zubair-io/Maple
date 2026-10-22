@@ -122,6 +122,18 @@ describe('native code claim (#3063)', () => {
     expect(replay.status).toBe(404);
   });
 
+  it('requires the redirect code when neither request has a concrete client IP', async () => {
+    const verifier = 'poll-verifier-unknown-ip-12345-abcdefghijklmn';
+    const state = 'state-poll-unknown-ip';
+    const issued = await issue(pkceS256(verifier), state, '');
+    expect(issued.status).toBe(200);
+    const { code } = (await issued.json()) as { code: string };
+    expect((await claim(state, verifier, '')).status).toBe(404);
+    expect(refreshTokenCount()).toBe(1);
+    expect((await claim(state, verifier, '', code)).status).toBe(200);
+    expect(refreshTokenCount()).toBe(2);
+  });
+
   it('rejects a code-less claim from a different IP without burning the pending code (#4673)', async () => {
     const verifier = 'poll-verifier-ip-binding-12345-abcdefghijklmn';
     const state = 'state-poll-ip-bound';
