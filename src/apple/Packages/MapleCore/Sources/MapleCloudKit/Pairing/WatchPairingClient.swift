@@ -120,11 +120,12 @@
           message = "The pairing response wasn't valid. Try again."
           return
         }
-        // Record the server first: if the process exits after the keychain write,
-        // bootstrap finds those credentials and never reinstalls the original pair.
+        // Persist the grant before publishing its server/receipt. An interrupted
+        // install retains the request ID for retry instead of adopting an older
+        // Keychain item as the new pairing on the next launch.
+        try TokenStore.save(grant.tokens, server: grant.server)
         defaults.set(grant.server.absoluteString, forKey: serverKey)
         defaults.set(id.uuidString, forKey: receiptKey)
-        try TokenStore.save(grant.tokens, server: grant.server)
         defaults.removeObject(forKey: requestKey)
         server = grant.server
         attempt.cancel()
