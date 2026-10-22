@@ -19,7 +19,7 @@ void *maple_android_detail_from_session(const void *);
 void maple_android_detail_free(void *);
 DetailPatch *maple_android_detail_render(const void *, const char *, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, const void *);
 void maple_android_detail_patch_free(DetailPatch *);
-uint8_t maple_android_platform_detail_fits(uint32_t, uint32_t);
+uint8_t maple_android_platform_detail_fits(uint32_t, uint32_t, uint64_t);
 uint64_t maple_android_native_dimensions(const char *, const char *);
 uint64_t maple_android_presentation_dimensions(uint32_t, uint32_t, float, float, float, float, float);
 char *maple_android_parametric_curve(const char *);
@@ -143,8 +143,8 @@ extern "C" JNIEXPORT void JNICALL Java_app_justmaple_aperture_data_NativeBridge_
 extern "C" JNIEXPORT jint JNICALL Java_app_justmaple_aperture_data_NativeBridge_outputPrimaries(JNIEnv *, jobject, jlong handle) {
     return maple_android_output_primaries(editor(handle)->core);
 }
-extern "C" JNIEXPORT jboolean JNICALL Java_app_justmaple_aperture_data_NativeBridge_platformNativeDetailFits(JNIEnv *, jobject, jint width, jint height) {
-    return width > 0 && height > 0 && maple_android_platform_detail_fits(width, height) != 0;
+extern "C" JNIEXPORT jboolean JNICALL Java_app_justmaple_aperture_data_NativeBridge_platformNativeDetailFits(JNIEnv *, jobject, jint width, jint height, jlong sourceBytes) {
+    return width > 0 && height > 0 && sourceBytes >= 0 && maple_android_platform_detail_fits(width, height, sourceBytes) != 0;
 }
 extern "C" JNIEXPORT jlong JNICALL Java_app_justmaple_aperture_data_NativeBridge_nativeDimensions(JNIEnv *env, jobject, jstring path, jstring extension) {
     Utf8 p(env, path), e(env, extension);

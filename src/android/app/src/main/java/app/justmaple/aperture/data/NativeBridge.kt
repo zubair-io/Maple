@@ -24,7 +24,7 @@ object NativeBridge {
     external fun copyNativeDetail(handle: Long): Long
     external fun closeNativeDetail(source: Long)
     external fun outputPrimaries(handle: Long): Int
-    external fun platformNativeDetailFits(width: Int, height: Int): Boolean
+    external fun platformNativeDetailFits(width: Int, height: Int, sourceBytes: Long): Boolean
     external fun nativeDimensions(path: String, extension: String): Long
     external fun presentationDimensions(width: Int, height: Int, top: Float, left: Float,
         bottom: Float, right: Float, angle: Float): Long
