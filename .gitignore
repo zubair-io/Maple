@@ -9,6 +9,9 @@ test-fixtures/*
 !test-fixtures/android/
 # Tiny synthetic header metadata fixtures and their Sharp oracle (#3590).
 !test-fixtures/raster-metadata/
+# Tiny synthetic durable-removal interop corpus shared by Rust, Swift, C# and
+# WASM tests (#5159); the Apple copy under MapleCoreTests/Fixtures mirrors it.
+!test-fixtures/removal/
 # Exception: the per-case ΔE budget table IS committed (it's the CI ratchet).
 !test-fixtures/budgets.json
 # Shared strict image-ID parser vectors (TypeScript and Rust, #3642).
