@@ -82,3 +82,30 @@ test('a sibling that cannot be inspected throws rather than reading as no owner'
     failing.mockRestore();
   }
 });
+
+test.each(['regular', 'directory', 'symlink'] as const)(
+  'unknown directory-entry types are resolved with lstat (%s)',
+  async (kind) => {
+    await writeFile(at('IMG.dng'), 'raw');
+    if (kind === 'regular') await writeFile(at('IMG.jpg'), 'jpeg');
+    else if (kind === 'directory') await mirroredFs.mkdir(at('IMG.jpg'));
+    else await symlink(at('IMG.dng'), at('IMG.jpg'));
+    const realReadDir = mirroredFs.readdir;
+    const unknown = spyOn(mirroredFs, 'readdir').mockImplementation((async (
+      ...args: Parameters<typeof realReadDir>
+    ) => {
+      const entries = await realReadDir(...args);
+      for (const entry of entries) {
+        entry.isFile = () => false;
+        entry.isDirectory = () => false;
+        entry.isSymbolicLink = () => false;
+      }
+      return entries;
+    }) as typeof realReadDir);
+    try {
+      expect(await sidecarStemOwnedByAnotherFile(at('IMG.dng'))).toBe(kind === 'regular');
+    } finally {
+      unknown.mockRestore();
+    }
+  },
+);
