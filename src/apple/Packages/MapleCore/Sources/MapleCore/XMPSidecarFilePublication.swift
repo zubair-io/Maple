@@ -2,9 +2,10 @@ import Darwin
 import Foundation
 
 /// Atomic sidecar publication shared by every local XMP writer. A durable
-/// publish also fsyncs the staged bytes before the rename and the parent
-/// directory after it, so a confirmed save survives a process crash or
-/// kernel panic (`fsync`, not `F_FULLFSYNC`: the drive cache is not forced).
+/// publish fully synchronizes the staged bytes before rename, then synchronizes
+/// the parent directory and flushes the drive again after publication. Volumes
+/// without F_FULLFSYNC support fail confirmation rather than silently weakening
+/// the guarantee; unsupported directory fsync remains a volume limitation.
 enum XMPSidecarFilePublication {
   typealias ReplaceDestination = (_ destination: URL, _ staged: URL) throws -> Void
 
@@ -27,7 +28,10 @@ enum XMPSidecarFilePublication {
       try? FileManager.default.removeItem(at: stagedURL)
       throw error
     }
-    if durable { try synchronizeDirectory(destination.deletingLastPathComponent()) }
+    if durable {
+      try synchronizeDirectory(destination.deletingLastPathComponent())
+      try synchronizeFile(destination)
+    }
   }
 
   /// A sidecar already holding the expected bytes may still be undurable
@@ -42,6 +46,7 @@ enum XMPSidecarFilePublication {
     }
     try synchronize(descriptor: handle.fileDescriptor)
     try synchronizeDirectory(destination.deletingLastPathComponent())
+    try synchronize(descriptor: handle.fileDescriptor)
   }
 
   static func stagingURL(for destination: URL) -> URL {
@@ -60,7 +65,7 @@ enum XMPSidecarFilePublication {
   private static func synchronizeFile(_ url: URL) throws {
     let handle = try FileHandle(forWritingTo: url)
     defer { try? handle.close() }
-    try handle.synchronize()
+    try synchronize(descriptor: handle.fileDescriptor)
   }
 
   /// Runs after the rename has already published the sidecar, so a volume
@@ -76,7 +81,8 @@ enum XMPSidecarFilePublication {
   }
 
   private static func synchronize(descriptor: Int32) throws {
-    guard fsync(descriptor) == 0 else { throw posixError() }
+    // No fsync-only fallback: unsupported media cannot acknowledge a strict save.
+    guard fcntl(descriptor, F_FULLFSYNC) == 0 else { throw posixError() }
   }
 
   private static func posixError() -> POSIXError {
