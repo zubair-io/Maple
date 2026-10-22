@@ -30,7 +30,12 @@ export async function relocateRequestedFile(args: {
   const to = await authorizeSidecarWrite(args.destAbsPath);
   if (!to.ok) return { refused: to.error ?? 'destination sidecar not allowed' };
   const source = from.data!;
-  const destination = to.data!;
+  const requestedParent = await resolveRealPathThroughAncestors(path.dirname(args.destAbsPath));
+  const requestedDestination = path.join(requestedParent, path.basename(args.destAbsPath));
+  // realpath returns the stored spelling on a case-folding volume. Retain a
+  // case-only requested leaf while keeping its authorized canonical parent.
+  const destination =
+    requestedDestination.toLowerCase() === to.data!.toLowerCase() ? requestedDestination : to.data!;
   await mkdir(path.dirname(destination), { recursive: true });
   const root = await resolveRealPathThroughAncestors(args.libraryRoot);
   const outcome = await serializeSidecarWrites([source, destination], () =>
