@@ -226,6 +226,11 @@
 			membershipExceptions = ("MapleTV-Info.plist", );
 			target = E31E79A0300C6A7D00617367 /* Maple TV */;
 		};
+		A40680000000000000000002 /* Exceptions for Maple Watch Info */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = ("MapleWatch-Info.plist", );
+			target = E304FFD130574D2A00BC83EA /* Maple Watch Watch App */;
+		};
 		E3EC0CF03047DFFD006325AD /* Exceptions for "MapleTopShelf" folder in "MapleTopShelf" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -256,6 +261,9 @@
 		};
 		E304FFD330574D2A00BC83EA /* Maple Watch Watch App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A40680000000000000000002 /* Exceptions for Maple Watch Info */,
+			);
 			path = "Maple Watch Watch App";
 			sourceTree = "<group>";
 		};
@@ -1902,6 +1910,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Maple Watch";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_FILE = "Maple Watch Watch App/MapleWatch-Info.plist";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = app.justmaple.aperture;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1937,6 +1946,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Maple Watch";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_FILE = "Maple Watch Watch App/MapleWatch-Info.plist";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = app.justmaple.aperture;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
