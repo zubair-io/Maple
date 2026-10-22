@@ -22,6 +22,7 @@ import { describe, it, expect, afterEach, spyOn } from 'bun:test';
 import * as relocateRepo from '../db/repos/assets.relocate.repo.ts';
 import * as ownership from '../fs/sidecar-ownership.ts';
 import * as xmpConflict from '../fs/xmp-conflict.ts';
+import * as mirrored from '../fs/mirrored.ts';
 import * as restructure from '../workers/migration/restructure-fs.ts';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
@@ -289,6 +290,52 @@ describe('library-relocate end-to-end — companion + dedupe (#2667)', () => {
     }
     expect(await fs.readFile(late, 'utf8')).toBe('late edit');
     expect(await fs.readFile(path.join(root, oldRel, 'IMG_10.dng'), 'utf8')).toBe(
+      'identical-pixels',
+    );
+  });
+
+  it("a sibling check that can't read the folder keeps the source photo beside its late edit (#5069)", async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-dedupe-sibling-unread-'));
+    const root = dir;
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(root, ...oldRel.split('/')), { recursive: true });
+    await fs.mkdir(path.join(root, ...newRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(root, oldRel, 'IMG_11.dng'), 'identical-pixels');
+    await fs.writeFile(path.join(root, newRel, 'IMG_11.dng'), 'identical-pixels');
+    seedRelocatableAsset(live.db, {
+      root,
+      relPath: oldRel,
+      filename: 'IMG_11.dng',
+      mapleId: 'relocate-dedupe-sibling-unread-id',
+      metadataOverride: usPlaceText(),
+    });
+    const late = path.join(root, oldRel, 'IMG_11.xmp');
+    const realRepoint = relocateRepo.repointAssetLocation;
+    let repointed = false;
+    const repoint = spyOn(relocateRepo, 'repointAssetLocation').mockImplementation(async (args) => {
+      const result = await realRepoint(args);
+      await fs.writeFile(late, 'late edit');
+      repointed = true;
+      return result;
+    });
+    const publish = spyOn(ownership, 'publishSidecarSnapshot').mockRejectedValue(new Error('EIO'));
+    // Only the sibling check reads the folder with file types; that read fails.
+    const realReaddir = mirrored.readdir as (...args: unknown[]) => Promise<unknown>;
+    const readdir = spyOn(mirrored, 'readdir').mockImplementation(((...args: unknown[]) =>
+      repointed && (args[1] as { withFileTypes?: boolean } | undefined)?.withFileTypes
+        ? Promise.reject(Object.assign(new Error('EIO'), { code: 'EIO' }))
+        : realReaddir(...args)) as unknown as typeof mirrored.readdir);
+    try {
+      await postRelocate([`${SLUG}:${oldRel}/IMG_11.dng`]);
+    } finally {
+      repoint.mockRestore();
+      publish.mockRestore();
+      readdir.mockRestore();
+    }
+    expect(await fs.readFile(late, 'utf8')).toBe('late edit');
+    expect(await fs.readFile(path.join(root, oldRel, 'IMG_11.dng'), 'utf8')).toBe(
       'identical-pixels',
     );
   });

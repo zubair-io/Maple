@@ -74,12 +74,20 @@ export async function sidecarStemClaimedBySibling(
   primaryAbsPath: string,
   excluded: readonly string[] = [],
 ): Promise<boolean> {
+  return sidecarStemClaimedBySiblingStrict(primaryAbsPath, excluded).catch(() => true);
+}
+
+/** The same check for a caller about to remove the photo on its answer: a folder
+ * that can't be read throws, so it is never taken as "no sibling" (#5069). */
+export async function sidecarStemClaimedBySiblingStrict(
+  primaryAbsPath: string,
+  excluded: readonly string[] = [],
+): Promise<boolean> {
   const dir = path.dirname(primaryAbsPath);
   const exact = (p: string) => path.resolve(p).normalize('NFC');
   const skip = new Set([primaryAbsPath, ...excluded].map(exact));
   const stem = stemOf(primaryAbsPath);
-  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => null);
-  if (entries === null) return true;
+  const entries = await fs.readdir(dir, { withFileTypes: true });
   return entries.some(
     (entry) =>
       !entry.isDirectory() &&

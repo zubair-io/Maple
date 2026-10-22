@@ -46,7 +46,10 @@ import {
   removePhotoUnlessOldNameEditStays,
 } from '../fs/legacy-backup-sidecar.ts';
 import { carryLateSidecars } from '../fs/relocate-late-sidecar.ts';
-import { settleCarriedSidecar, sidecarStemClaimedBySibling } from '../fs/sidecar-ownership.ts';
+import {
+  settleCarriedSidecar,
+  sidecarStemClaimedBySiblingStrict,
+} from '../fs/sidecar-ownership.ts';
 import * as fs from '../fs/mirrored.ts';
 import { relocateAsset } from './relocate-asset.ts';
 import { repointAssetLocation } from '../db/repos/assets.relocate.repo.ts';
@@ -130,7 +133,7 @@ async function removeSourceAfterRepoint(sourceAbsPath: string, survivor: string)
  * be read throws rather than reading as empty, which keeps the photo too. */
 async function sidecarLeftBehind(sourceAbsPath: string): Promise<boolean> {
   if ((await listPairedSidecarsStrict(sourceAbsPath)).length === 0) return false;
-  return !(await sidecarStemClaimedBySibling(sourceAbsPath));
+  return !(await sidecarStemClaimedBySiblingStrict(sourceAbsPath));
 }
 
 /** The dedupe short-circuit: the destination already holds byte-identical
