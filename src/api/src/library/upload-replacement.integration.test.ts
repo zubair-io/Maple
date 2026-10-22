@@ -16,6 +16,8 @@ import {
 import { mkdir, writeFile, readFile, stat } from '../fs/mirrored.ts';
 import * as assetsRepo from '../db/repos/assets.repo.ts';
 import * as xmpConflict from '../fs/xmp-conflict.ts';
+import * as mirrored from '../fs/mirrored.ts';
+import * as ownership from '../fs/sidecar-ownership.ts';
 import { discardIdenticalReplacement } from './upload-replacement.ts';
 
 async function fixture(bytes = 'old-original') {
@@ -334,15 +336,64 @@ test('a late old-name edit follows the replacement even beside a same-stem sibli
   }
 });
 
+test('an unreadable Trash folder never reads as having no late edits (#5069)', async () => {
+  const f = await fixture();
+  const source = path.join(f.library, '.maple/trash/photo.dng');
+  const late = path.join(f.library, '.maple/trash/photo.xmp');
+  try {
+    expect((await f.upload('different')).status).toBe(201);
+    await writeFile(f.original, 'old-original');
+    // The edit lands just after the eligibility check, then the sibling check's
+    // read of the Trash folder fails.
+    const realStrict = xmpConflict.listPairedSidecarsStrict;
+    let checked = false;
+    const strict = spyOn(xmpConflict, 'listPairedSidecarsStrict').mockImplementation(async (p) => {
+      const listed = await realStrict(p);
+      if (!checked) {
+        checked = true;
+        await writeFile(late, 'edit');
+      }
+      return listed;
+    });
+    const realReaddir = mirrored.readdir as (...args: unknown[]) => Promise<unknown>;
+    const readdir = spyOn(mirrored, 'readdir').mockImplementation(((...args: unknown[]) =>
+      (args[1] as { withFileTypes?: boolean } | undefined)?.withFileTypes &&
+      String(args[0]).endsWith('.maple/trash')
+        ? Promise.reject(Object.assign(new Error('EIO'), { code: 'EIO' }))
+        : realReaddir(...args)) as unknown as typeof mirrored.readdir);
+    try {
+      expect(
+        await discardIdenticalReplacement(new ObjectId(f.id), f.library, source, f.original),
+      ).toBe(false);
+    } finally {
+      strict.mockRestore();
+      readdir.mockRestore();
+    }
+    expect(await readFile(source, 'utf8')).toBe('old-original');
+    expect(await readFile(late, 'utf8')).toBe('edit');
+  } finally {
+    await f.close();
+  }
+});
+
 test("a failed late-edit check never skips the purged row's deletion (#5069)", async () => {
   const f = await fixture();
   const source = path.join(f.library, '.maple/trash/photo.dng');
   try {
     expect((await f.upload('different')).status).toBe(201);
     await writeFile(f.original, 'old-original');
+    // The check fails only once the purge intent is recorded and can't be undone.
+    let admitted = false;
+    const realPrepare = lifecycle.prepareIdenticalReplacementPurge;
+    const prepare = spyOn(lifecycle, 'prepareIdenticalReplacementPurge').mockImplementation(
+      async (...args) => {
+        admitted = await realPrepare(...args);
+        return admitted;
+      },
+    );
     const realList = xmpConflict.listPairedSidecars;
     const list = spyOn(xmpConflict, 'listPairedSidecars').mockImplementation(async (p) =>
-      String(p) === source ? Promise.reject(new Error('EIO')) : realList(p),
+      admitted && String(p) === source ? Promise.reject(new Error('EIO')) : realList(p),
     );
     try {
       expect(
@@ -350,8 +401,46 @@ test("a failed late-edit check never skips the purged row's deletion (#5069)", a
       ).toBe(true);
     } finally {
       list.mockRestore();
+      prepare.mockRestore();
     }
+    expect(admitted).toBe(true);
     expect(f.live.db.query('SELECT id FROM assets WHERE id=?').get(f.id)).toBeNull();
+  } finally {
+    await f.close();
+  }
+});
+
+test("a late edit that can't follow stops the purge before its intent is recorded (#5129)", async () => {
+  const f = await fixture();
+  const source = path.join(f.library, '.maple/trash/photo.dng');
+  const late = path.join(f.library, '.maple/trash/photo.xmp');
+  try {
+    expect((await f.upload('different')).status).toBe(201);
+    await writeFile(f.original, 'old-original');
+    // The edit lands just after the purge checked for sidecars.
+    const realStrict = xmpConflict.listPairedSidecarsStrict;
+    const strict = spyOn(xmpConflict, 'listPairedSidecarsStrict').mockImplementation(async (p) => {
+      const listed = await realStrict(p);
+      await writeFile(late, 'edit');
+      return listed;
+    });
+    const publish = spyOn(ownership, 'publishConflictBytes').mockResolvedValue(false);
+    try {
+      expect(
+        await discardIdenticalReplacement(new ObjectId(f.id), f.library, source, f.original),
+      ).toBe(false);
+    } finally {
+      strict.mockRestore();
+      publish.mockRestore();
+    }
+    expect(await readFile(source, 'utf8')).toBe('old-original');
+    expect(await readFile(late, 'utf8')).toBe('edit');
+    expect(f.live.db.query('SELECT id FROM assets WHERE id=?').get(f.id)).not.toBeNull();
+    expect(
+      f.live.db
+        .query("SELECT COUNT(*) AS n FROM backup_lifecycle WHERE asset_id=? AND kind='purge'")
+        .get(f.id),
+    ).toEqual({ n: 0 });
   } finally {
     await f.close();
   }
