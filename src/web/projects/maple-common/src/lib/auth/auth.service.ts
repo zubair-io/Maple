@@ -512,8 +512,8 @@ export class AuthService {
     const userId = this.user()?.id;
     if (!handoff || !userId) return false;
     if (this.nativeLaunchUrl()) return true;
-    const active = this.nativeIssue;
-    if (active?.handoff === handoff && active.userId === userId) return active.result;
+    const pending = this.pendingNativeIssue(handoff, userId);
+    if (pending) return pending;
     const result = this.issueNativeHandoff(handoff, userId);
     this.nativeIssue = { handoff, userId, result };
     try {
@@ -521,6 +521,14 @@ export class AuthService {
     } finally {
       if (this.nativeIssue?.result === result) this.nativeIssue = null;
     }
+  }
+
+  private pendingNativeIssue(
+    handoff: NativeHandoffRequest,
+    userId: string,
+  ): Promise<boolean> | undefined {
+    const active = this.nativeIssue;
+    return active?.handoff === handoff && active.userId === userId ? active.result : undefined;
   }
 
   private async issueNativeHandoff(
