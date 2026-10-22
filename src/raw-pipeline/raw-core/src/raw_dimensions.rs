@@ -148,14 +148,20 @@ mod tests {
         }
     }
 
-    /// Rawler rejects a crop that overruns the sensor during its own decode;
-    /// both entry points surface that as an error rather than a panic.
+    /// Rawler's border subtraction checks overflow in debug, while release
+    /// decoding reaches Maple's crop clamp. Both metadata and pixel paths must
+    /// agree, including this malformed container in either build profile.
     #[test]
-    fn a_crop_rawler_rejects_is_rejected_by_both_paths() {
+    fn an_overrunning_crop_matches_the_pixel_decoder_in_both_profiles() {
         let bytes = synthetic(Some(6), Some([12, 6, 100, 100]));
         let source = RawSource::new_from_slice(&bytes).with_path("rawfile.dng");
-        assert!(from_source(&source).is_err());
-        assert!(crate::decode::decode_bytes(&bytes, "dng").is_err());
+        if cfg!(debug_assertions) {
+            assert!(from_source(&source).is_err());
+            assert!(crate::decode::decode_bytes(&bytes, "dng").is_err());
+        } else {
+            assert_eq!(from_source(&source).unwrap(), [2, 4]);
+            assert_eq!(display_size_from_pixel_decode(&bytes), [2, 4]);
+        }
     }
 
     #[test]

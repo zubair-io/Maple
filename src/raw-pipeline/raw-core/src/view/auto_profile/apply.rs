@@ -44,6 +44,12 @@ pub fn compress_input(x: f32) -> f32 {
 /// is likewise inert in `[0, 1]` display space — it only bites the
 /// scene-linear HDR values the curve previously consumed before AgX.
 pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
+    rgb.par_chunks_exact_mut(3).for_each(prepared_curve(curve));
+}
+
+// Prepare matrix/chroma gates once per buffer. Both RGB and RGBA evaluate a
+// scalar pixel here, avoiding a nested Rayon iterator for every RGBA pixel.
+fn prepared_curve(curve: &ProfileCurve) -> impl Fn(&mut [f32]) + Sync + '_ {
     use crate::color::oklab::{oklab_to_srgb_linear, srgb_linear_to_oklab};
     use crate::view::agx_inverse::srgb_gamma_inv;
     use crate::view::encode::srgb_gamma;
@@ -64,7 +70,7 @@ pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
         || l_off.abs() > 1e-4
         || any_l_band
         || any_ab_band;
-    rgb.par_chunks_exact_mut(3).for_each(|chunk| {
+    move |chunk| {
         let r0 = compress_input(chunk[0]);
         let g0 = compress_input(chunk[1]);
         let b0 = compress_input(chunk[2]);
@@ -123,7 +129,7 @@ pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
         chunk[0] = r2;
         chunk[1] = g2;
         chunk[2] = b2;
-    });
+    }
 }
 
 /// Apply already-fitted display-sRGB Auto Profile artifacts to a packed RGBA
@@ -139,10 +145,11 @@ pub fn apply_prepared_rgba(
     curve: Option<&ProfileCurve>,
     residual: Option<(usize, &[f32])>,
 ) {
+    let apply = curve.map(prepared_curve);
     pixels.par_chunks_exact_mut(4).for_each(|pixel| {
         let mut rgb = [pixel[0], pixel[1], pixel[2]];
-        if let Some(curve) = curve {
-            apply_curve(&mut rgb, curve);
+        if let Some(apply) = &apply {
+            apply(&mut rgb);
         }
         if let Some((size, data)) = residual {
             rgb = super::lut::sample_lut(size, data, rgb);
