@@ -111,6 +111,53 @@ test('lock skin tone drops guard knots at 38, 55 and 72 degrees on hue curves', 
   await expect(page.locator('[data-testid^="color-curve-knot-"]')).toHaveCount(0);
 });
 
+test('coincident grading edges have separate pointer targets and follow Balance', async ({
+  page,
+}, testInfo) => {
+  hostedOnly(testInfo);
+  await openColorCurves(page);
+  await page
+    .getByRole('navigation', { name: 'Editor tools' })
+    .getByRole('button', { name: 'Effects', exact: true })
+    .click();
+  await page
+    .getByRole('group', { name: 'Effects sub-tools' })
+    .getByRole('button', { name: 'Grade', exact: true })
+    .click();
+  const panel = page.getByTestId('color-grading-panel');
+  const shadow = page.getByTestId('color-grade-shadow-edge-handle');
+  const highlight = page.getByTestId('color-grade-highlight-edge-handle');
+  const svg = panel.locator('svg').last();
+  await svg.scrollIntoViewIfNeeded();
+  const bounds = await svg.boundingBox();
+  expect(bounds).not.toBeNull();
+  const drag = async (edge: typeof shadow, position: number) => {
+    const circle = await edge.locator('circle').boundingBox();
+    expect(circle).not.toBeNull();
+    await page.mouse.move(circle!.x + circle!.width / 2, circle!.y + circle!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(bounds!.x + bounds!.width * position, circle!.y + circle!.height / 2, {
+      steps: 4,
+    });
+    await page.mouse.up();
+  };
+  await drag(shadow, 0.3);
+  await expect(shadow).toHaveAttribute('aria-valuenow', '0.3');
+  await expect(highlight).toHaveAttribute('aria-valuenow', '0.564622');
+  await shadow.locator('circle').dblclick();
+  await drag(highlight, 0.8);
+  await expect(highlight).toHaveAttribute('aria-valuenow', '0.8');
+  await expect(shadow).toHaveAttribute('aria-valuenow', '0.564622');
+  await highlight.locator('circle').dblclick();
+  const balance = page.getByRole('slider', { name: 'Colour grading balance', exact: true });
+  await balance.scrollIntoViewIfNeeded();
+  for (let i = 0; i < 100; i++) await balance.press('ArrowRight');
+  await expect(balance).toHaveAttribute('aria-valuenow', '100');
+  await expect
+    .poll(async () => Number(await shadow.locator('circle').getAttribute('cx')))
+    .toBeCloseTo(0.564622 ** 2 * 200, 5);
+});
+
 async function armEyedropperAndClick(page: Page, x: number, y: number): Promise<void> {
   await page.getByTestId('color-curve-pill-hueVsSat').click();
   await page.getByTestId('color-curve-eyedropper').click();

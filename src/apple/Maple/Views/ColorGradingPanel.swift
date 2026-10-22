@@ -130,8 +130,16 @@ struct ColorGradingPanel: View {
       GeometryReader { geo in
         let w = max(geo.size.width, 1)
         let h = max(geo.size.height, 1)
-        let shX = CGFloat(state.session.model.colorGradeShadowEdge) * w
-        let hiX = CGFloat(state.session.model.colorGradeHighlightEdge) * w
+        let shX =
+          CGFloat(
+            ColorGradeZoneEdge.plotPosition(
+              edge: state.session.model.colorGradeShadowEdge,
+              balance: state.session.model.splitToneBalance)) * w
+        let hiX =
+          CGFloat(
+            ColorGradeZoneEdge.plotPosition(
+              edge: state.session.model.colorGradeHighlightEdge,
+              balance: state.session.model.splitToneBalance)) * w
 
         ZStack(alignment: .topLeading) {
           RoundedRectangle(cornerRadius: 6)
@@ -172,15 +180,22 @@ struct ColorGradingPanel: View {
             ctx.stroke(shPath, with: .color(Color.cyan.opacity(0.85)), lineWidth: 1.5)
             ctx.stroke(midPath, with: .color(Color.orange.opacity(0.85)), lineWidth: 1.5)
             ctx.stroke(hiPath, with: .color(Color.yellow.opacity(0.90)), lineWidth: 1.5)
+            ctx.fill(
+              Path(CGRect(x: shX, y: 2, width: 1.5, height: size.height - 4)),
+              with: .color(.cyan.opacity(0.65)))
+            ctx.fill(
+              Path(CGRect(x: hiX, y: 2, width: 1.5, height: size.height - 4)),
+              with: .color(.yellow.opacity(0.65)))
           }
 
           edgeHandle(
-            x: shX, height: h, color: .cyan,
+            x: shX, centerY: 22, color: .cyan,
             label: "Shadow Edge", id: "color-grade-shadow-edge-handle",
             value: bind(\.colorGradeShadowEdge), range: ColorGradeZoneEdge.shadowRange,
             onDrag: { locX in
               state.session.model.colorGradeShadowEdge = ColorGradeZoneEdge.normalized(
-                x: Double(locX), width: Double(w), range: ColorGradeZoneEdge.shadowRange)
+                x: Double(locX), width: Double(w), range: ColorGradeZoneEdge.shadowRange,
+                balance: state.session.model.splitToneBalance)
             },
             onReset: {
               state.commit(description: "Reset Shadow Edge")
@@ -190,12 +205,13 @@ struct ColorGradingPanel: View {
           )
 
           edgeHandle(
-            x: hiX, height: h, color: .yellow,
+            x: hiX, centerY: h - 22, color: .yellow,
             label: "Highlight Edge", id: "color-grade-highlight-edge-handle",
             value: bind(\.colorGradeHighlightEdge), range: ColorGradeZoneEdge.highlightRange,
             onDrag: { locX in
               state.session.model.colorGradeHighlightEdge = ColorGradeZoneEdge.normalized(
-                x: Double(locX), width: Double(w), range: ColorGradeZoneEdge.highlightRange)
+                x: Double(locX), width: Double(w), range: ColorGradeZoneEdge.highlightRange,
+                balance: state.session.model.splitToneBalance)
             },
             onReset: {
               state.commit(description: "Reset Highlight Edge")
@@ -206,7 +222,7 @@ struct ColorGradingPanel: View {
         }
         .coordinateSpace(name: Self.zoneStripSpace)
       }
-      .frame(height: 44)
+      .frame(height: 88)
       .accessibilityElement(children: .contain)
       .accessibilityIdentifier("editor-color-grading-zone-weights")
     }
@@ -216,7 +232,7 @@ struct ColorGradingPanel: View {
 
   private func edgeHandle(
     x: CGFloat,
-    height: CGFloat,
+    centerY: CGFloat,
     color: Color,
     label: String,
     id: String,
@@ -225,57 +241,52 @@ struct ColorGradingPanel: View {
     onDrag: @escaping (CGFloat) -> Void,
     onReset: @escaping () -> Void
   ) -> some View {
-    ZStack {
-      Rectangle()
-        .fill(color.opacity(0.65))
-        .frame(width: 1.5, height: height - 4)
-      Circle()
-        .fill(color)
-        .frame(width: 10, height: 10)
-        .overlay(Circle().stroke(Color.black.opacity(0.6), lineWidth: 1))
-    }
-    .frame(width: 22, height: height)
-    .contentShape(Rectangle())
-    .position(x: x, y: height / 2)
-    .gesture(
-      DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.zoneStripSpace))
-        .onChanged { g in
-          if !isDraggingEdge {
-            isDraggingEdge = true
-            state.commit(description: "Adjust \(label)")
+    Circle()
+      .fill(color)
+      .frame(width: 10, height: 10)
+      .overlay(Circle().stroke(Color.black.opacity(0.6), lineWidth: 1))
+      .frame(width: 44, height: 44)
+      .contentShape(Rectangle())
+      .position(x: x, y: centerY)
+      .gesture(
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.zoneStripSpace))
+          .onChanged { g in
+            if !isDraggingEdge {
+              isDraggingEdge = true
+              state.commit(description: "Adjust \(label)")
+            }
+            onDrag(g.location.x)
           }
-          onDrag(g.location.x)
-        }
-        .onEnded { _ in
-          if isDraggingEdge {
-            isDraggingEdge = false
-            state.endGesture()
+          .onEnded { _ in
+            if isDraggingEdge {
+              isDraggingEdge = false
+              state.endGesture()
+            }
           }
+      )
+      .onTapGesture(count: 2, perform: onReset)
+      .accessibilityElement()
+      .accessibilityLabel(label)
+      .accessibilityValue(String(format: "%.2f", value.wrappedValue))
+      .accessibilityAdjustableAction { direction in
+        switch direction {
+        case .increment: adjustEdge(value, range: range, delta: 0.01, label: label)
+        case .decrement: adjustEdge(value, range: range, delta: -0.01, label: label)
+        @unknown default: break
         }
-    )
-    .onTapGesture(count: 2, perform: onReset)
-    .accessibilityElement()
-    .accessibilityLabel(label)
-    .accessibilityValue(String(format: "%.2f", value.wrappedValue))
-    .accessibilityAdjustableAction { direction in
-      switch direction {
-      case .increment: adjustEdge(value, range: range, delta: 0.01, label: label)
-      case .decrement: adjustEdge(value, range: range, delta: -0.01, label: label)
-      @unknown default: break
       }
-    }
-    .accessibilityAction(named: "Reset", onReset)
-    .accessibilityIdentifier(id)
-    .focusable()
-    .focusedValue(
-      \.toneCurveKeyPress,
-      { press in
+      .accessibilityAction(named: "Reset", onReset)
+      .accessibilityIdentifier(id)
+      .focusable()
+      .focusedValue(
+        \.toneCurveKeyPress,
+        { press in
+          handleEdgeKey(press, value: value, range: range, label: label)
+        }
+      )
+      .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
         handleEdgeKey(press, value: value, range: range, label: label)
       }
-    )
-    .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
-      handleEdgeKey(press, value: value, range: range, label: label)
-    }
   }
 
   private func handleEdgeKey(

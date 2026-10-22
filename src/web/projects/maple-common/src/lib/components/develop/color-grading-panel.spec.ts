@@ -173,6 +173,41 @@ describe('ColorGradingPanelComponent (#275)', () => {
     expect(lib.model().colorGradeBlending).toBe(100);
   });
 
+  it('keeps coincident edge hit areas separate and places pivots in balanced plot space', () => {
+    const fixture = TestBed.createComponent(ColorGradingPanelComponent);
+    panel = fixture.componentInstance;
+    panel.onBalanceChange(100);
+    fixture.detectChanges();
+    const shadow = fixture.nativeElement.querySelector(
+      '[data-testid="color-grade-shadow-edge-handle"]',
+    );
+    const highlight = fixture.nativeElement.querySelector(
+      '[data-testid="color-grade-highlight-edge-handle"]',
+    );
+    const shadowRect = shadow.querySelector('rect');
+    const highlightRect = highlight.querySelector('rect');
+    expect(
+      Number(shadowRect.getAttribute('y')) + Number(shadowRect.getAttribute('height')),
+    ).toBeLessThanOrEqual(Number(highlightRect.getAttribute('y')));
+    expect(Number(shadow.querySelector('circle').getAttribute('cx')) / 200).toBeCloseTo(
+      0.564622 ** 2,
+      6,
+    );
+    const event = {
+      clientX: 100 + 0.25 * 200,
+      button: 0,
+      pointerId: 1,
+      preventDefault: () => undefined,
+      currentTarget: {
+        closest: () => ({ getBoundingClientRect: () => ({ left: 100, width: 200 }) }),
+        setPointerCapture: () => undefined,
+      },
+    } as unknown as PointerEvent;
+    panel.onEdgePointerDown('shadow', event);
+    expect(lib.model().colorGradeShadowEdge).toBe(0.5);
+    panel.onEdgePointerUp();
+  });
+
   it('maps a pointer position over the strip to a clamped, rounded edge pivot', () => {
     const strip = { left: 100, width: 200 };
     const svg = { getBoundingClientRect: () => strip };
@@ -180,6 +215,7 @@ describe('ColorGradingPanelComponent (#275)', () => {
       ({
         clientX,
         pointerId: 1,
+        button: 0,
         preventDefault: () => undefined,
         currentTarget: { closest: () => svg, setPointerCapture: () => undefined },
       }) as unknown as PointerEvent;

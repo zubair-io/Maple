@@ -120,7 +120,7 @@ namespace Maple.WinUI
 
             _gradeZoneCanvas = new Canvas
             {
-                Height = 44,
+                Height = 88,
                 Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0x48, 0, 0, 0)),
             };
             AutomationProperties.SetName(_gradeZoneCanvas, "Tonal zone weights");
@@ -142,18 +142,20 @@ namespace Maple.WinUI
 
         private void OnGradeZonePointerPressed(object sender, PointerRoutedEventArgs e)
         {
-            if (_gradeZoneCanvas == null || _gradeZoneCanvas.ActualWidth <= 0) return;
+            if (_gradeZoneCanvas == null || _gradeZoneCanvas.ActualWidth <= 0 || _gradeEdgePointerId != null) return;
             var pt = e.GetCurrentPoint(_gradeZoneCanvas);
             if (!pt.Properties.IsLeftButtonPressed) return;
             var norm = pt.Position.X / _gradeZoneCanvas.ActualWidth;
             var adj = ViewModel.Adjustments;
-            var dSh = Math.Abs(norm - adj.ColorGradeShadowEdge);
-            var dHi = Math.Abs(norm - adj.ColorGradeHighlightEdge);
-            _draggingGradeEdge = dSh <= dHi ? "shadow" : "highlight";
+            var shX = MuiColorGradeZoneWeightsMath.PlotPosition(adj.ColorGradeShadowEdge, adj.SplitToneBalance) * _gradeZoneCanvas.ActualWidth;
+            var hiX = MuiColorGradeZoneWeightsMath.PlotPosition(adj.ColorGradeHighlightEdge, adj.SplitToneBalance) * _gradeZoneCanvas.ActualWidth;
+            var dSh = Math.Pow(pt.Position.X - shX, 2) + Math.Pow(pt.Position.Y - 22, 2);
+            var dHi = Math.Pow(pt.Position.X - hiX, 2) + Math.Pow(pt.Position.Y - (_gradeZoneCanvas.ActualHeight - 22), 2);
+            _draggingGradeEdge = sender is Button { Tag: string selected } ? selected : dSh <= dHi ? "shadow" : "highlight";
             _gradeEdgePointerId = e.Pointer.PointerId;
             if (!_gradeZoneCanvas.CapturePointer(e.Pointer)) { _draggingGradeEdge = null; return; }
             ViewModel.BeginAdjustmentGesture(_gradeZoneCanvas);
-            ApplyGradeEdgeDrag(_draggingGradeEdge, norm);
+            ApplyGradeEdgeDrag(_draggingGradeEdge, MuiColorGradeZoneWeightsMath.ValueAtPlotPosition(norm, adj.SplitToneBalance));
             e.Handled = true;
         }
 
@@ -162,7 +164,7 @@ namespace Maple.WinUI
             if (_draggingGradeEdge is not { } edge || e.Pointer.PointerId != _gradeEdgePointerId) return;
             if (_gradeZoneCanvas == null || _gradeZoneCanvas.ActualWidth <= 0) return;
             var norm = e.GetCurrentPoint(_gradeZoneCanvas).Position.X / _gradeZoneCanvas.ActualWidth;
-            ApplyGradeEdgeDrag(edge, norm);
+            ApplyGradeEdgeDrag(edge, MuiColorGradeZoneWeightsMath.ValueAtPlotPosition(norm, ViewModel.Adjustments.SplitToneBalance));
             e.Handled = true;
         }
 
@@ -180,9 +182,8 @@ namespace Maple.WinUI
         private void OnGradeZoneDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             if (_gradeZoneCanvas == null || _gradeZoneCanvas.ActualWidth <= 0) return;
-            var norm = e.GetPosition(_gradeZoneCanvas).X / _gradeZoneCanvas.ActualWidth;
             var adj = ViewModel.Adjustments;
-            if (Math.Abs(norm - adj.ColorGradeShadowEdge) <= Math.Abs(norm - adj.ColorGradeHighlightEdge))
+            if (e.GetPosition(_gradeZoneCanvas).Y < _gradeZoneCanvas.ActualHeight / 2)
                 adj.ColorGradeShadowEdge = MuiColorGradeZoneWeightsMath.DefaultShadowEdge;
             else
                 adj.ColorGradeHighlightEdge = MuiColorGradeZoneWeightsMath.DefaultHighlightEdge;
@@ -236,7 +237,7 @@ namespace Maple.WinUI
                 (adj.ColorGradeShadowEdge, Windows.UI.Color.FromArgb(0xFF, 0x22, 0xD3, 0xEE)),
                 (adj.ColorGradeHighlightEdge, Windows.UI.Color.FromArgb(0xFF, 0xFA, 0xCC, 0x15)) })
             {
-                var cx = pos * w;
+                var cx = MuiColorGradeZoneWeightsMath.PlotPosition(pos, adj.SplitToneBalance) * w;
                 _gradeZoneCanvas.Children.Add(new Line
                 {
                     X1 = cx, Y1 = 2, X2 = cx, Y2 = h - 2,

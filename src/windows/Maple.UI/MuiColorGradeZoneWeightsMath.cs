@@ -22,6 +22,12 @@ namespace Maple.UI
             return Math.Clamp(snapped, min, max);
         }
 
+        public static double PlotPosition(double edge, double balance) =>
+            Math.Pow(Math.Clamp(edge, 0, 1), Math.Pow(2, Math.Clamp(balance, -100, 100) / 100));
+
+        public static double ValueAtPlotPosition(double position, double balance) =>
+            Math.Pow(Math.Clamp(position, 0, 1), Math.Pow(2, -Math.Clamp(balance, -100, 100) / 100));
+
         public static double ClampShadowEdge(double value) =>
             Math.Clamp(value, MinShadowEdge, DefaultShadowEdge);
 
