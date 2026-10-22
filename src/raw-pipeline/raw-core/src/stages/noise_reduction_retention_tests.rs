@@ -74,7 +74,7 @@ fn original_color_adapter(
         });
 }
 
-fn assert_same_bits(a: &Image, b: &Image) {
+pub(super) fn assert_same_bits(a: &Image, b: &Image) {
     assert_eq!((a.width, a.height, a.space), (b.width, b.height, b.space));
     assert_eq!(a.pixels.len(), b.pixels.len());
     for (index, (a, b)) in a.pixels.iter().zip(&b.pixels).enumerate() {
