@@ -90,6 +90,7 @@ for (const collision of ['skip', 'auto-suffix', 'keep-both'] satisfies Collision
           newAbsPath: primary,
           sidecarPaths: outcome.sidecarPaths,
           companionPaths: outcome.companionPaths,
+          companionSources: [abs('src/photo.jpg')],
         });
         expect(await fs.readFile(primary, 'utf8')).toBe('source pixels');
         expect(await fs.readFile(outcome.sidecarPaths[0], 'utf8')).toBe(xmp);
@@ -161,7 +162,7 @@ test('catalog and response use the name actually published after a race', async 
     mode: 'move',
     collision: 'keep-both',
     destinationPath: 'dst',
-    renderedCompanionAbsPath: abs('src/photo.jpg'),
+    appleCompanionAbsPaths: { apple_rendered_path: abs('src/photo.jpg') },
   });
   expect(result).toMatchObject({
     kind: 'relocated',

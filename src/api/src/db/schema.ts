@@ -624,6 +624,9 @@ export interface AssetDoc {
   /** Relative path (under the library root) of the Apple-rendered companion,
    * when Apple Photos held edits at backup time. `null` for fresh originals. */
   apple_rendered_path?: string | null;
+  /** Relative path of a Live Photo's `.mov` twin, kept apart from the
+   * rendered edit so neither replaces the other (#5243). */
+  apple_live_video_path?: string | null;
   /**
    * Backup folder-layout generation this asset has been placed into, stamped by
    * the refile-backups cleanup (`workers/migration/refile-backups.ts`) as its

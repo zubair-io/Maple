@@ -105,6 +105,7 @@ export async function moveBackupAsset(
     filename: primary.filename,
     newDir,
     renderedRelOld: doc.apple_rendered_path ?? null,
+    liveVideoRelOld: doc.apple_live_video_path ?? null,
   });
 
   // 2. Repoint the row to the new location (between verify and delete). The old
@@ -118,7 +119,7 @@ export async function moveBackupAsset(
     doc.id,
     primary,
     { path: newPath, filename: newFilename },
-    plan.newRenderedRel,
+    { apple_rendered_path: plan.newRenderedRel, apple_live_video_path: plan.newLiveVideoRel },
     marker,
   );
 

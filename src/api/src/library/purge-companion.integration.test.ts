@@ -30,8 +30,10 @@ async function fixture(withMirror = true) {
   const mirror = path.join(f.root, 'mirror');
   const relativeOriginal = '.maple/trash/sub/photo.dng';
   const relativeCompanion = 'sub/photo-rendered.jpg';
+  const relativeLiveVideo = 'sub/photo.mov';
   const original = path.join(library, relativeOriginal);
   const companion = path.join(library, relativeCompanion);
+  const liveVideo = path.join(library, relativeLiveVideo);
   const sidecar = path.join(library, '.maple/trash/sub/photo.xmp');
   for (const root of [library, mirror]) {
     await mkdir(path.join(root, '.maple/trash/sub'), { recursive: true });
@@ -39,8 +41,9 @@ async function fixture(withMirror = true) {
   }
   await writeFile(original, 'original-photo-bytes');
   await writeFile(companion, 'apple-rendered-photo-bytes');
+  await writeFile(liveVideo, 'live-photo-video-bytes');
   await writeFile(sidecar, '<x:xmpmeta>exact sidecar</x:xmpmeta>');
-  for (const filename of [original, companion, sidecar])
+  for (const filename of [original, companion, liveVideo, sidecar])
     await copyFile(filename, path.join(mirror, path.relative(library, filename)));
   await writeFile(path.join(mirror, 'sub/unrelated.jpg'), 'unrelated-photo');
   const libraryId = insertFolder(f.live.db, { path: library });
@@ -52,8 +55,8 @@ async function fixture(withMirror = true) {
     filename: 'photo.dng',
   });
   await backupEngine.repo.db.write(
-    'UPDATE assets SET apple_rendered_path=?,original_path=? WHERE id=?',
-    [relativeCompanion, 'sub/photo.dng', id],
+    'UPDATE assets SET apple_rendered_path=?,apple_live_video_path=?,original_path=? WHERE id=?',
+    [relativeCompanion, relativeLiveVideo, 'sub/photo.dng', id],
   );
   const destination = withMirror
     ? await backupEngine.repo.createDestination({
@@ -70,10 +73,12 @@ async function fixture(withMirror = true) {
     mirror,
     original,
     companion,
+    liveVideo,
     sidecar,
     id,
     destination,
     relativeCompanion,
+    relativeLiveVideo,
     async purge(mode: Mode) {
       return mode === 'route'
         ? app.handle(
@@ -89,26 +94,28 @@ async function expectRemoved(filename: string) {
 }
 
 test.each(['route', 'retention'] as const)(
-  '%s permanent purge removes the recorded Apple companion and its verified mirror copy',
+  '%s permanent purge of an edited Live Photo removes both Apple companions and their mirror copies',
   async (mode) => {
     const f = await fixture();
     try {
       const outcome = await f.purge(mode);
       if (outcome instanceof Response) expect(outcome.status).toBe(204);
       else expect(outcome).toEqual({ scanned: 1, purged: 1, errors: 0 });
-      for (const filename of [f.original, f.companion, f.sidecar]) await expectRemoved(filename);
+      for (const filename of [f.original, f.companion, f.liveVideo, f.sidecar])
+        await expectRemoved(filename);
       expect(f.live.db.query('SELECT id FROM assets WHERE id=?').get(f.id)).toBeNull();
       const [entry] = await backupEngine.repo.entries(f.destination!.id);
       expect(JSON.parse(entry!.manifest!).localFiles).toEqual(
         expect.arrayContaining([
           { path: f.relativeCompanion, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) },
+          { path: f.relativeLiveVideo, sha256: expect.stringMatching(/^[a-f0-9]{64}$/) },
         ]),
       );
       expect(f.live.db.query('SELECT completed FROM backup_purges').get()).toEqual({
         completed: 0,
       });
       await drainPurges(backupEngine, f.destination!);
-      for (const filename of [f.original, f.companion, f.sidecar])
+      for (const filename of [f.original, f.companion, f.liveVideo, f.sidecar])
         await expectRemoved(path.join(f.mirror, path.relative(f.library, filename)));
       expect(await readFile(path.join(f.mirror, 'sub/unrelated.jpg'), 'utf8')).toBe(
         'unrelated-photo',
@@ -227,6 +234,7 @@ test.each(['route', 'retention'] as const)(
       if (outcome instanceof Response) expect(outcome.status).toBe(204);
       else expect(outcome).toEqual({ scanned: 1, purged: 1, errors: 0 });
       await expectRemoved(f.original);
+      await expectRemoved(f.liveVideo);
       expect(f.live.db.query('SELECT id FROM assets WHERE id=?').get(f.id)).toBeNull();
     } finally {
       await f.close();

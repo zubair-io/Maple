@@ -9,7 +9,7 @@
  *      VERIFY each (full byte comparison). Sources are NOT deleted. Returns the
  *      new rel-paths plus the list of source files to delete once the DB has
  *      been repointed.
- *   2. <caller writes the new fileinfo / apple_rendered_path to Mongo>
+ *   2. <caller writes the new location and Apple companion paths>
  *   3. <caller carries any sidecar first written since step 1 (#5061)>
  *   4. `finalize()` — delete the sources, drop the stale `.maple` cache entries,
  *      and remove the now-empty old day-folder.
@@ -63,6 +63,8 @@ export interface PlacePlan {
   newRelPath: string;
   /** POSIX rel-path of the moved rendered companion, or unchanged/null. */
   newRenderedRel: string | null;
+  /** POSIX rel-path of the moved Live Photo `.mov` twin, or unchanged/null. */
+  newLiveVideoRel: string | null;
   /** Absolute source paths to unlink once the DB has been repointed. */
   sourcesToDelete: string[];
   /** Sidecars published at the new path, settled (not plain-unlinked) in `finalize`. */
@@ -160,8 +162,9 @@ export async function planAndPlace(args: {
   filename: string;
   newDir: string; // POSIX
   renderedRelOld: string | null;
+  liveVideoRelOld: string | null;
 }): Promise<PlacePlan> {
-  const { libRoot, oldDir, filename, newDir, renderedRelOld } = args;
+  const { libRoot, oldDir, filename, newDir, renderedRelOld, liveVideoRelOld } = args;
   const oldAbs = joinRel(libRoot, `${oldDir}/${filename}`);
   if (!(await exists(oldAbs))) {
     throw new SourceMissingError(`source original missing: ${oldAbs}`);
@@ -169,9 +172,12 @@ export async function planAndPlace(args: {
   const oldDirAbs = joinRel(libRoot, oldDir);
   // Strict: an unreadable sidecar fails this asset for a later retry, never left behind (#5063).
   const sidecars = await listPairedSidecarsStrict(oldAbs);
-  const renderedAbsOld = renderedRelOld ? joinRel(libRoot, renderedRelOld) : null;
-  const renderedPresent = renderedAbsOld !== null && (await exists(renderedAbsOld));
-  const hasCompanions = sidecars.length > 0 || renderedPresent;
+  const companionsPresent = await Promise.all(
+    [renderedRelOld, liveVideoRelOld].map(
+      async (rel) => rel !== null && (await exists(joinRel(libRoot, rel))),
+    ),
+  );
+  const hasCompanions = sidecars.length > 0 || companionsPresent.includes(true);
 
   const newTargetAbs = joinRel(libRoot, `${newDir}/${filename}`);
 
@@ -186,7 +192,9 @@ export async function planAndPlace(args: {
     return {
       outcome: 'deduped',
       newRelPath: `${newDir}/${filename}`,
-      newRenderedRel: renderedRelOld, // no rendered move on a dedupe of a bare original
+      // No companion move on a dedupe of a bare original.
+      newRenderedRel: renderedRelOld,
+      newLiveVideoRel: liveVideoRelOld,
       sourcesToDelete: [oldAbs],
       carriedSidecars: [],
       publications: [], // no copy made — nothing to revert
@@ -205,7 +213,7 @@ export async function planAndPlace(args: {
   // A throw past this point reverts every copy, so a retry starts clean (#5061).
   try {
     const placed = await copyIntoPlace(
-      { libRoot, oldAbs, targetAbs, sidecars, oldNameEdit, renderedAbsOld, renderedRelOld },
+      { libRoot, oldAbs, targetAbs, sidecars, oldNameEdit, renderedRelOld, liveVideoRelOld },
       publications,
     );
     return { outcome, ...placed, publications, oldDirAbs };
@@ -215,7 +223,7 @@ export async function planAndPlace(args: {
   }
 }
 
-/** Copy the primary, its sidecars and its rendered companion next to
+/** Copy the primary, its sidecars and its Apple companions next to
  * `targetAbs`, each published exclusively and recorded in `publications` as it lands. */
 async function copyIntoPlace(
   args: {
@@ -224,14 +232,17 @@ async function copyIntoPlace(
     targetAbs: string;
     sidecars: readonly string[];
     oldNameEdit: string | undefined;
-    renderedAbsOld: string | null;
     renderedRelOld: string | null;
+    liveVideoRelOld: string | null;
   },
   publications: RelocatePublication[],
 ): Promise<
-  Pick<PlacePlan, 'newRelPath' | 'newRenderedRel' | 'sourcesToDelete' | 'carriedSidecars'>
+  Pick<
+    PlacePlan,
+    'newRelPath' | 'newRenderedRel' | 'newLiveVideoRel' | 'sourcesToDelete' | 'carriedSidecars'
+  >
 > {
-  const { libRoot, oldAbs, targetAbs, renderedAbsOld, renderedRelOld } = args;
+  const { libRoot, oldAbs, targetAbs } = args;
   // ── Copy + verify primary ───────────────────────────────────────────────
   await fs.mkdir(path.dirname(targetAbs), { recursive: true });
   await copyVerifiedIntoPlace(oldAbs, targetAbs, false, publications);
@@ -254,23 +265,30 @@ async function copyIntoPlace(
     carriedSidecars.push(carried);
   }
 
-  // ── Copy + verify the apple_rendered_path companion ──────────────────────
-  if (renderedAbsOld === null || !(await exists(renderedAbsOld))) {
-    return {
-      newRelPath: toPosixRel(libRoot, targetAbs),
-      newRenderedRel: renderedRelOld,
-      sourcesToDelete: [oldAbs],
-      carriedSidecars,
-    };
-  }
-  const rName = path.basename(renderedAbsOld);
-  const renamed = rName.startsWith(oldBase) ? newBase + rName.slice(oldBase.length) : rName;
-  const dst = await pickFreePath(path.join(path.dirname(targetAbs), renamed), 'migration:rendered');
-  await copyVerifiedIntoPlace(renderedAbsOld, dst, false, publications);
+  // ── Copy + verify the Apple companions (rendered edit, Live Photo .mov) ──
+  const carryCompanion = async (
+    relOld: string | null,
+  ): Promise<{ rel: string | null; moved: string[] }> => {
+    if (relOld === null) return { rel: null, moved: [] };
+    const absOld = joinRel(libRoot, relOld);
+    if (!(await exists(absOld))) return { rel: relOld, moved: [] };
+    const name = path.basename(absOld);
+    const renamed = name.startsWith(oldBase) ? newBase + name.slice(oldBase.length) : name;
+    const dst = await pickFreePath(
+      path.join(path.dirname(targetAbs), renamed),
+      'migration:rendered',
+    );
+    await copyVerifiedIntoPlace(absOld, dst, false, publications);
+    return { rel: toPosixRel(libRoot, dst), moved: [absOld] };
+  };
+  // Sequential: the second companion's free name is picked after the first lands.
+  const rendered = await carryCompanion(args.renderedRelOld);
+  const liveVideo = await carryCompanion(args.liveVideoRelOld);
   return {
     newRelPath: toPosixRel(libRoot, targetAbs),
-    newRenderedRel: toPosixRel(libRoot, dst),
-    sourcesToDelete: [oldAbs, renderedAbsOld],
+    newRenderedRel: rendered.rel,
+    newLiveVideoRel: liveVideo.rel,
+    sourcesToDelete: [oldAbs, ...rendered.moved, ...liveVideo.moved],
     carriedSidecars,
   };
 }

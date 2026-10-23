@@ -166,7 +166,7 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
         'X-Maple-Phasset-Id': phidMov,
         'X-Maple-Target-Rel-Path': '2024/08/01/IMG_MOV.HEIC',
         'X-Maple-Total-Bytes': '96',
-        'X-Maple-Rendered-Ext': 'mov',
+        'X-Maple-Filename-Ext': 'mov',
         'X-Maple-Suffix-Override': 'mov',
         'X-Maple-Maple-Id': mapleIdMov,
         'Content-Range': 'bytes 0-95/96',
@@ -342,11 +342,16 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
     expect(readAsset(live.db, assetId)?.apple_rendered_path).toBe(target_rel_path);
   });
 
-  test("an edited Live Photo's rendered image and .mov complete in separate sessions (#5241)", async () => {
+  test("an edited Live Photo's rendered image and .mov land in separate sessions and slots (#5241, #5243)", async () => {
     const phidLive = 'REND/L0/LIVE';
     const mapleIdLive = '02f00dfeed0000000000000000c0ffee';
     const relPath = '2024/10/01/IMG_LIVE.HEIC';
-    seedIngested({ mapleId: mapleIdLive, relPath, phassetLocalId: phidLive, size: 64 });
+    const assetId = seedIngested({
+      mapleId: mapleIdLive,
+      relPath,
+      phassetLocalId: phidLive,
+      size: 64,
+    });
     const upload = (fill: number, extra: Record<string, string>) =>
       authedHandle(
         rendered(Buffer.alloc(64, fill), {
@@ -372,6 +377,10 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
     expect(renderedSession).not.toBeNull();
     expect(liveSession).not.toBeNull();
     expect(liveSession).not.toBe(renderedSession);
+    expect(readAsset(live.db, assetId)).toMatchObject({
+      apple_rendered_path: '2024/10/01/IMG_LIVE.rendered.JPEG',
+      apple_live_video_path: '2024/10/01/IMG_LIVE.mov',
+    });
 
     const retry = await upload(1, renderedImage);
     expect(retry.status).toBe(200);

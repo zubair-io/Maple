@@ -33,6 +33,7 @@
  */
 
 import type { ObjectId } from '../object-id.ts';
+import type { AppleCompanionPaths } from '../apple-companions.ts';
 import type { LocationKey } from './assets.discover.ts';
 import {
   BACKUP_ORIGIN,
@@ -148,7 +149,7 @@ export async function repointBackupLocation(
   assetId: ObjectId,
   from: LocationKey,
   to: { path: string; filename: string },
-  appleRenderedPath: string | null,
+  companions: AppleCompanionPaths,
   marker: { name: MigrationMarker; version: number } | undefined,
   dbOverride?: SqliteDb,
 ): Promise<boolean> {
@@ -166,9 +167,14 @@ export async function repointBackupLocation(
   const stamp = marker === undefined ? '' : `, ${marker.name} = ?`;
   await db.transaction([
     {
-      sql: `UPDATE assets SET apple_rendered_path = ?${stamp} WHERE id = ?`,
-      params:
-        marker === undefined ? [appleRenderedPath, id] : [appleRenderedPath, marker.version, id],
+      sql: `UPDATE assets SET apple_rendered_path = ?, apple_live_video_path = ?${stamp}
+        WHERE id = ?`,
+      params: [
+        companions.apple_rendered_path,
+        companions.apple_live_video_path,
+        ...(marker === undefined ? [] : [marker.version]),
+        id,
+      ],
     },
     ...searchRearmStatements(id),
     ...relocateCacheRearmStatements(id),

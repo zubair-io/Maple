@@ -38,7 +38,7 @@ import { trashAssetById, restoreAssetById } from '../../library/asset-trash.ts';
 import { prepareTrashPurge } from '../../cloud-backup/lifecycle.ts';
 import { capturedTrashPurge } from '../../cloud-backup/trash-purge-admission.ts';
 import { assetLibraryPath } from '../../indexer/images.repo.ts';
-import { resolvePurgeCompanion } from '../../library/purge-rendered-companion.ts';
+import { resolvePurgeCompanions } from '../../library/purge-rendered-companion.ts';
 import type { RestoreAssetOutcome } from '../../library/asset-trash.ts';
 import { findCoreInfoById, hardDelete, parseAssetId } from '../../db/assets.repo.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
@@ -132,12 +132,8 @@ async function purgeTrashedAsset(
   if (!(await admitTrashPurge(id, info, set)))
     return { error: 'Trash state changed — refresh before deleting' };
   try {
-    const companion = await resolvePurgeCompanion(
-      assetLibraryPath(info, libs)!,
-      info.apple_rendered_path,
-      absPath,
-    );
-    if (companion) await unlink(companion);
+    const companions = await resolvePurgeCompanions(assetLibraryPath(info, libs)!, info, absPath);
+    for (const companion of companions) await unlink(companion);
   } catch {
     set.status = 500;
     return { error: 'Apple-rendered companion cleanup requires retry' };

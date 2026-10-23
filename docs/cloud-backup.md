@@ -2,7 +2,7 @@
 
 Settings → Backup manages destinations for each registered library. Folder destinations use Maple's existing filesystem mirrors. Google Drive destinations are a current-state mirror: photo files keep their library-relative folders and filenames, and a changed file replaces its current Drive copy. Maple Trash remains under `.maple/trash/`. Internal recovery metadata lives separately under `.maple-backup/` in the dedicated, visible My Drive root. Google Drive is the only implemented cloud provider; OneDrive, Dropbox, S3 and Azure are not available destinations.
 
-Backup covers indexed originals, their paired XMP sidecars, the recorded Apple rendered companion, hidden state, and Trash metadata. XMP bytes are preserved without rewriting unknown XML. Thumbnail and preview caches, unindexed files, user accounts, server settings and the whole SQLite database are outside this photo recovery format. Keep a separate server/database backup.
+Backup covers indexed originals, their paired XMP sidecars, the recorded Apple companions (the rendered edit, manifest role `companion`, and a Live Photo's `.mov`, role `live-video`), hidden state, and Trash metadata. XMP bytes are preserved without rewriting unknown XML. Thumbnail and preview caches, unindexed files, user accounts, server settings and the whole SQLite database are outside this photo recovery format. Keep a separate server/database backup.
 
 The implementation lives in `src/api/src/cloud-backup/`, `src/api/src/routes/cloud-backup.ts`, `src/api/src/routes/cloud-backup-google.ts`, and `src/api/src/workers/stages/cloud-backup.ts`. The Self Hosted controls are in `src/web/projects/maple/src/app/settings/backup/`.
 

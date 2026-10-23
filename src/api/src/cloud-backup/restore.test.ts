@@ -199,6 +199,25 @@ test('resumed already verified files are checked against purge records', async (
   }
 });
 
+test("a pre-#5243 snapshot's .mov companion is recovered as the Live Photo video", async () => {
+  const f = await fixture();
+  try {
+    const manifest = f.provider.manifest();
+    manifest.files.push({
+      path: 'photo.mov',
+      role: 'companion',
+      object: f.provider.put(`mirror/${libraryId}/photo.mov`, 'live-video'),
+    });
+    f.provider.saveManifest(manifest);
+    expect((await recoverBackup(f.provider, f.request, f.ctx, source)).kind).toBe('done');
+    expect(
+      f.live.db.query('SELECT apple_rendered_path, apple_live_video_path FROM assets').get(),
+    ).toEqual({ apple_rendered_path: null, apple_live_video_path: 'photo.mov' });
+  } finally {
+    await f.close();
+  }
+});
+
 test('indexes actual Trash path alongside same original name, restores hidden and Apple companion, preserves XMP bytes', async () => {
   const f = await fixture();
   try {
@@ -220,13 +239,19 @@ test('indexes actual Trash path alongside same original name, restores hidden an
           'rendered-companion',
         ),
       },
+      {
+        path: '.maple/trash/photo.mov',
+        role: 'live-video',
+        object: f.provider.put(`mirror/${libraryId}/.maple/trash/photo.mov`, 'live-video'),
+      },
     );
     f.provider.saveManifest(trash);
     expect((await recoverBackup(f.provider, f.request, f.ctx, source)).kind).toBe('done');
     expect(await readFile(path.join(f.root, '.maple/trash/photo.xmp'), 'utf8')).toBe(xmp);
     const row = f.live.db
       .query(
-        `SELECT a.hidden,a.deleted_at,a.original_path,a.apple_rendered_path,l.path
+        `SELECT a.hidden,a.deleted_at,a.original_path,a.apple_rendered_path,
+        a.apple_live_video_path,l.path
       FROM assets a JOIN asset_locations l ON a.id=l.asset_id WHERE l.path='.maple/trash'`,
       )
       .get();
@@ -235,8 +260,10 @@ test('indexes actual Trash path alongside same original name, restores hidden an
       deleted_at: trash.deletedAt,
       original_path: path.join(f.root, 'photo.jpg'),
       apple_rendered_path: '.maple/trash/photo-rendered.jpg',
+      apple_live_video_path: '.maple/trash/photo.mov',
       path: '.maple/trash',
     });
+    expect(await readFile(path.join(f.root, '.maple/trash/photo.mov'), 'utf8')).toBe('live-video');
     expect(await readFile(path.join(f.root, 'photo.jpg'), 'utf8')).toBe(`${entryId}-version-1`);
   } finally {
     await f.close();

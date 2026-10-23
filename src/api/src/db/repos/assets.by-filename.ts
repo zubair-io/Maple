@@ -27,6 +27,7 @@
  * that work once per copy and report duplicates.
  */
 
+import { presentAppleCompanions } from '../apple-companions.ts';
 import type { ObjectId, WithId } from '../object-id.ts';
 import type { AssetDoc, AssetExif, FileInfo, MetadataOverride, Place } from '../schema.ts';
 import { json, toFileInfo, type LocationRow } from './assets.rows.ts';
@@ -216,6 +217,7 @@ interface RelocateAssetRow {
   is_screenshot: number | null;
   maple_id: string | null;
   apple_rendered_path: string | null;
+  apple_live_video_path: string | null;
   exif: string | null;
   place: string | null;
   metadata_override: string | null;
@@ -227,6 +229,7 @@ const RELOCATE_CANDIDATE_SQL = `
          a.rating AS rating, a.flag AS flag, a.color_label AS color_label,
          a.is_screenshot AS is_screenshot, a.maple_id AS maple_id,
          a.apple_rendered_path AS apple_rendered_path,
+         a.apple_live_video_path AS apple_live_video_path,
          a.exif AS exif, a.place AS place,
          d.metadata_override AS metadata_override,
          COALESCE(s.version, 0) AS stage_version
@@ -255,7 +258,7 @@ function toRelocateCandidate(row: RelocateAssetRow, fileinfo: FileInfo[]): Reloc
       // the wrong question for an asset the describe stage has not classified.
       ...(row.is_screenshot === null ? {} : { is_screenshot: row.is_screenshot === 1 }),
       ...(row.maple_id === null ? {} : { maple_id: row.maple_id }),
-      ...(row.apple_rendered_path === null ? {} : { apple_rendered_path: row.apple_rendered_path }),
+      ...presentAppleCompanions(row),
     },
   };
 }

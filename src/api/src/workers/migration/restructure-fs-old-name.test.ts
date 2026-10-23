@@ -50,6 +50,7 @@ describe('planAndPlace — old-name backup edits (#5063)', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     await finalize({
       libRoot: root,
@@ -77,6 +78,7 @@ describe('planAndPlace — old-name backup edits (#5063)', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(plan.newRelPath).toBe('2024/Tokyo/IMG.1.HEIC');
@@ -95,6 +97,7 @@ describe('planAndPlace — old-name backup edits (#5063)', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(plan.newRelPath).toBe('2024/Tokyo/IMG.1.HEIC');
@@ -116,6 +119,7 @@ describe('planAndPlace — old-name backup edits (#5063)', () => {
             filename: 'IMG.HEIC',
             newDir: '2024/Tokyo',
             renderedRelOld: null,
+            liveVideoRelOld: null,
           }),
         ).rejects.toThrow(/EACCES|permission/i);
         expect(await exists('2024/Tokyo/IMG.HEIC')).toBe(false);
@@ -136,6 +140,7 @@ describe('planAndPlace — old-name backup edits (#5063)', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(await read('2024/Tokyo/IMG.HEIC.xmp')).toBe(maple('backup edit'));
@@ -154,6 +159,7 @@ describe('planAndPlace — old-name backup edits (#5063)', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(plan.newRelPath).toBe('2024/Tokyo/IMG.1.HEIC');
@@ -170,6 +176,7 @@ describe('planAndPlace — old-name backup edits (#5063)', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(plan.newRelPath).toBe('2024/Tokyo/IMG.1.HEIC');
@@ -188,6 +195,7 @@ describe('planAndPlace — old-name backup edits (#5063)', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(plan.newRelPath).toBe('2024/Tokyo/IMG.1.HEIC');
@@ -213,6 +221,7 @@ describe('planAndPlace — old-name backup edits (#5063)', () => {
         filename: 'IMG.HEIC',
         newDir: '2024/Tokyo',
         renderedRelOld: null,
+        liveVideoRelOld: null,
       });
       await expect(placing).rejects.toThrow();
     } finally {
@@ -232,6 +241,7 @@ describe('planAndPlace — old-name backup edits (#5063)', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     await late();
     const carried = await carryLateRefileSidecars(

@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { realpath } from '../fs/mirrored.ts';
 import { listPairedSidecarsStrict } from '../fs/xmp-conflict.ts';
+import { appleCompanionPaths } from '../db/apple-companions.ts';
 import { jailedFile, fileHash, relativeBackupPath } from './inventory.ts';
 import type { BackupRepository, BackupDestination, BackupEntry } from './repository.ts';
 
@@ -13,6 +14,7 @@ interface RecordedLocation {
   missing_since: string | null;
   deleted_reason: string | null;
   apple_rendered_path: string | null;
+  apple_live_video_path: string | null;
 }
 interface LocalFile {
   path: string;
@@ -133,11 +135,11 @@ async function inventoryLocation(
     location.relative_path,
   );
   const previous = retained(entry).localFiles ?? [];
-  // apple_rendered_path belongs to the primary location's library root; a
+  // Apple companions belong to the primary location's library root; a
   // deduplicated copy in another library must not erase that root's namesake.
   const companions =
-    location.ordinal === location.primary_ordinal && location.apple_rendered_path
-      ? [relativeBackupPath(location.apple_rendered_path)]
+    location.ordinal === location.primary_ordinal
+      ? appleCompanionPaths(location).map(relativeBackupPath)
       : [];
   const paths = [
     ...new Set([
@@ -167,7 +169,7 @@ export async function inventoryFolderPurges(
     `SELECT l.ordinal,(SELECT MIN(ordinal) FROM asset_locations WHERE asset_id=l.asset_id) AS primary_ordinal,
       l.library_id,f.path AS root,
       CASE WHEN l.path='' THEN l.filename ELSE l.path||'/'||l.filename END AS relative_path,
-      l.missing_since,a.deleted_reason,a.apple_rendered_path
+      l.missing_since,a.deleted_reason,a.apple_rendered_path,a.apple_live_video_path
       FROM asset_locations l JOIN folders f ON f.id=l.library_id JOIN assets a ON a.id=l.asset_id
       WHERE l.asset_id=?`,
     [assetId],

@@ -27,6 +27,7 @@
  * the first handler runs.
  */
 
+import { presentAppleCompanions } from '../apple-companions.ts';
 import { ObjectId } from '../object-id.ts';
 import type { AssetExif, Place, VisionDoc, VisionMeta } from '../schema.ts';
 import type { ImageDoc, StageState } from '../../workers/stage-config.ts';
@@ -58,7 +59,7 @@ const STAGE_ASSET_COLUMNS = `
   hidden, hidden_reason, hidden_ack, is_screenshot,
   deleted_at, maple_id, sha1_head,
   damaged_since, damaged_stage, damaged_reason,
-  live_location_count, deleted_from_photos, apple_rendered_path,
+  live_location_count, deleted_from_photos, apple_rendered_path, apple_live_video_path,
   cf_thumb_synced_at, semantic_vector_fingerprint, geo_backfill_skipped,
   exif, place`;
 
@@ -86,6 +87,7 @@ interface StageAssetRow {
   live_location_count: number;
   deleted_from_photos: number;
   apple_rendered_path: string | null;
+  apple_live_video_path: string | null;
   cf_thumb_synced_at: string | null;
   semantic_vector_fingerprint: string | null;
   geo_backfill_skipped: string | null;
@@ -288,7 +290,7 @@ function sparseFields(row: StageAssetRow) {
   return {
     ...(row.maple_id === null ? {} : { maple_id: row.maple_id }),
     ...(row.sha1_head === null ? {} : { sha1_head: row.sha1_head }),
-    ...(row.apple_rendered_path === null ? {} : { apple_rendered_path: row.apple_rendered_path }),
+    ...presentAppleCompanions(row),
     ...(row.cf_thumb_synced_at === null ? {} : { cf_thumb_synced_at: row.cf_thumb_synced_at }),
     ...(row.semantic_vector_fingerprint === null
       ? {}

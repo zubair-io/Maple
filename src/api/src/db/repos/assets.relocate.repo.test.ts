@@ -399,7 +399,7 @@ describe('repointAssetLocation', () => {
         id: oid(assetId),
         from: { libraryId: oid(libraryId), path: 'b', filename: 'x.dng' },
         to: { libraryId: oid(libraryId), path: 'c', filename: 'x.dng' },
-        appleRenderedPath: 'c/x.jpg',
+        appleCompanions: { apple_rendered_path: 'c/x.jpg' },
       },
       db,
     );

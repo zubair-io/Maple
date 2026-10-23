@@ -101,6 +101,7 @@ actor RenderedAssetReader: AssetReader {
         return AssetReadResult(
             originalBytes: Data(count: 256),
             renderedBytes: Data(count: 64),
+            renderedFilenameExtension: "jpeg",
             sidecar: PayloadAssembler.SidecarInput(
                 phassetLocalId: phassetLocalId,
                 deviceId: "d",

@@ -84,7 +84,7 @@ test('existing file upgrades sigma keys without changing display data, reference
     );
   }
   for (const [index, table] of ['credentials', 'assets', 'faces'].entries()) {
-    expect(reopened.query(`SELECT * FROM ${table}`).all()).toEqual(references[index]);
+    expect(reopened.query(`SELECT * FROM ${table}`).all()).toMatchObject(references[index]);
   }
   expect(reopened.query('PRAGMA foreign_key_check').all()).toEqual([]);
   expect((await runMigrations(fromBunSqlite(reopened), ALL_MIGRATIONS)).applied).toEqual([]);

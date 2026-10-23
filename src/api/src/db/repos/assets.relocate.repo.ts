@@ -16,6 +16,7 @@
  */
 
 import type { ObjectId } from '../object-id.ts';
+import { APPLE_COMPANION_SLOTS, type AppleCompanionSlot } from '../apple-companions.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
 import { searchRearmStatements, relocateCacheRearmStatements } from './assets.stage-rearm.ts';
 import { changesAt, sqliteDb, type SqliteDb } from './db-handle.ts';
@@ -86,10 +87,10 @@ export async function findLiveOccupantAssetId(
  * file no longer occupies (`docs/caching.md`). The expensive per-image stages
  * are deliberately untouched: the pixels did not change.
  *
- * `appleRenderedPath` is written only when the caller supplies one. A PhotoKit
- * companion that was requested but failed its best-effort copy leaves the
- * caller with nothing to pass, and the stored value must then stay exactly as
- * it was rather than be cleared.
+ * Each `appleCompanions` slot is written only when the caller supplies it. A
+ * PhotoKit companion that was requested but failed its best-effort copy leaves
+ * the caller with nothing to pass, and the stored value must then stay exactly
+ * as it was rather than be cleared.
  *
  * Returns whether the entry was found and moved — a boolean rather than a row
  * count, and that is not cosmetic. Clearing `missing_since` fires the
@@ -104,20 +105,17 @@ export async function repointAssetLocation(
     id: ObjectId;
     from: LocationAddress;
     to: LocationAddress;
-    appleRenderedPath?: string;
+    appleCompanions?: Partial<Record<AppleCompanionSlot, string>>;
   },
   dbOverride?: SqliteDb,
 ): Promise<boolean> {
   const hex = toHex(args.id);
-  const companion: SqlStatement[] =
-    args.appleRenderedPath === undefined
+  const companion: SqlStatement[] = APPLE_COMPANION_SLOTS.flatMap((slot) => {
+    const moved = args.appleCompanions?.[slot];
+    return moved === undefined
       ? []
-      : [
-          {
-            sql: `UPDATE assets SET apple_rendered_path = ? WHERE id = ?`,
-            params: [args.appleRenderedPath, hex],
-          },
-        ];
+      : [{ sql: `UPDATE assets SET ${slot} = ? WHERE id = ?`, params: [moved, hex] }];
+  });
 
   const results = await sqliteDb(dbOverride).transaction([
     {

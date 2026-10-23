@@ -21,7 +21,9 @@
  *                             `<base>.<suffix-override>` instead of
  *                             `<base>.rendered.<ext>`. Used by the Live Photo
  *                             .mov path to skip the `.rendered.` infix; that
- *                             upload gets its own session.
+ *                             upload gets its own session and is recorded as
+ *                             the asset's apple_live_video_path rather than
+ *                             its apple_rendered_path.
  *   X-Maple-PHAsset-Cloud-Id — optional; Apple PHCloudIdentifier. When two
  *                             devices on the same iCloud library both back
  *                             up the rendered companion for the same photo,
@@ -47,7 +49,7 @@ import {
 } from './backup-id.ts';
 import { openChunkSession, takeChunk } from './backup-chunk.ts';
 import { Elysia, t } from 'elysia';
-import { setAppleRenderedPath } from '../db/repos/backup.repo.ts';
+import { setAppleCompanionPath } from '../db/repos/backup.repo.ts';
 import { assetOwnsRelPath } from '../db/repos/assets.location-owner.ts';
 import { filesIdentical, moveNoClobber } from '../backup/fs-util.ts';
 import type { ObjectId } from '../db/object-id.ts';
@@ -335,11 +337,12 @@ export const backupRenderedRoutes = new Elysia().post(
     if (placed instanceof Response) return placed;
     await uploadSessions.complete({ sessionId: session._id, mapleId, resolvedRelPath: placed });
 
-    // Persist apple_rendered_path on the matching asset. Post
+    // Record the companion on the matching asset. Post
     // drop-abs-path-2026-05-21 the per-library pointer is the asset's
     // locations, so the update is scoped by a location in this library plus
     // the content-addressed `maple_id`.
-    await setAppleRenderedPath(libraryId, mapleId, placed);
+    const slot = companion === 'live' ? 'apple_live_video_path' : 'apple_rendered_path';
+    await setAppleCompanionPath(libraryId, mapleId, slot, placed);
 
     log.debug({ phid, targetRelPath: placed, mapleId }, 'rendered ingest complete');
     set.status = 200;

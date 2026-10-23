@@ -455,8 +455,9 @@ public actor BackupEngine {
 
     // Apple-rendered companion, when present. Re-derivable → light retry.
     if let renderedBytes = read.renderedBytes, !renderedBytes.isEmpty {
-      let ext = (result.targetRelPath as NSString).pathExtension
-      let renderedExt = ext.isEmpty ? "jpeg" : ext
+      let originalExt = (result.targetRelPath as NSString).pathExtension
+      let renderedExt =
+        read.renderedFilenameExtension ?? (originalExt.isEmpty ? "jpeg" : originalExt)
       await runCompanion(
         taskId: task.id, label: "rendered",
         maxAttempts: Self.derivedCompanionRetries

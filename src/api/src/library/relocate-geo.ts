@@ -8,10 +8,11 @@
  * implemented that the generic primitive doesn't natively know about are
  * reproduced here, at the caller level:
  *
- *   1. The Apple-rendered JPEG companion (`apple_rendered_path`) travels
- *      alongside the primary + sidecars via `relocateAsset`'s
- *      `renderedCompanionAbsPath` (#2667) — genuinely generalized onto the
- *      shared primitive, since a second real caller now needs it.
+ *   1. The Apple companions (`apple_rendered_path`, and since #5243
+ *      `apple_live_video_path`) travel alongside the primary + sidecars via
+ *      `relocateAsset`'s `appleCompanionAbsPaths` (#2667) — genuinely
+ *      generalized onto the shared primitive, since a second real caller
+ *      now needs it.
  *   2. A byte-identical, companion-free destination collapses to a
  *      "dedupe" (repoint + delete source, no copy) rather than
  *      auto-suffixing a duplicate. Kept as a caller-side pre-check here
@@ -38,6 +39,7 @@
 import type { WithId } from '../db/object-id.ts';
 import * as path from 'node:path';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';
+import { presentAppleCompanions, type AppleCompanionSlot } from '../db/apple-companions.ts';
 import { child as childLogger } from '../log.ts';
 import { filesIdentical } from '../backup/fs-util.ts';
 import { listPairedSidecars, listPairedSidecarsStrict } from '../fs/xmp-conflict.ts';
@@ -144,9 +146,8 @@ async function sidecarLeftBehind(sourceAbsPath: string): Promise<boolean> {
  * content and the source carries no companions to preserve, so there is
  * nothing to copy — just repoint the row to the existing occupant and
  * delete the now-redundant source. Mirrors `restructure-fs.ts`'s
- * `planAndPlace` dedupe branch (never touches `apple_rendered_path` — this
- * branch only runs when the source had no rendered companion to begin
- * with). */
+ * `planAndPlace` dedupe branch (never touches an Apple companion slot — this
+ * branch only runs when the source had no companion to begin with). */
 async function dedupeAt(
   doc: WithId<AssetDoc>,
   oldDirAbs: string,
@@ -208,6 +209,22 @@ async function dedupeAt(
   return 'moved';
 }
 
+/** The asset's recorded Apple companions that are on disk, as absolute paths by slot. */
+async function presentCompanionAbsPaths(
+  doc: Pick<AssetDoc, AppleCompanionSlot>,
+  libRoot: string,
+): Promise<Partial<Record<AppleCompanionSlot, string>>> {
+  const recorded = await Promise.all(
+    Object.entries(presentAppleCompanions(doc)).map(async ([slot, relative]) => {
+      const absolute = path.join(libRoot, relative);
+      return [slot, absolute, await pathExists(absolute)] as const;
+    }),
+  );
+  return Object.fromEntries(
+    recorded.filter(([, , onDisk]) => onDisk).map(([slot, absolute]) => [slot, absolute]),
+  );
+}
+
 /** Relocate `doc`'s canonical (primary) file into `newDir`, preserving every
  * `moveBackupAsset` behavior the geo-relocate route depends on: the
  * Apple-rendered companion, the byte-identical dedupe short-circuit, and
@@ -232,9 +249,6 @@ export async function relocateGeoAsset(
   const oldDirAbs = path.join(libRoot, oldDir);
   const sourceAbsPath = path.join(libRoot, oldDir, primary.filename);
   const destAbsPath = path.join(libRoot, newDir, primary.filename);
-  const renderedAbsPath = doc.apple_rendered_path
-    ? path.join(libRoot, doc.apple_rendered_path)
-    : null;
 
   if ((await pathExists(destAbsPath)) && (await isSameDirectoryEntry(sourceAbsPath, destAbsPath))) {
     log.warn(
@@ -245,10 +259,12 @@ export async function relocateGeoAsset(
   }
 
   const sidecars = await listPairedSidecars(sourceAbsPath);
-  const renderedPresent = renderedAbsPath !== null && (await pathExists(renderedAbsPath));
+  const appleCompanionAbsPaths = await presentCompanionAbsPaths(doc, libRoot);
   // An unreadable old-name edit is left out of the lenient listing but is still an edit (#5063).
   const hasCompanions =
-    sidecars.length > 0 || renderedPresent || (await hasLegacyBackupEdit(sourceAbsPath));
+    sidecars.length > 0 ||
+    Object.keys(appleCompanionAbsPaths).length > 0 ||
+    (await hasLegacyBackupEdit(sourceAbsPath));
 
   if (
     !hasCompanions &&
@@ -263,7 +279,7 @@ export async function relocateGeoAsset(
     mode: 'move',
     collision: 'auto-suffix',
     destinationPath: newDir,
-    renderedCompanionAbsPath: renderedPresent ? renderedAbsPath : null,
+    appleCompanionAbsPaths,
     // #2667 review: `relocateAsset`'s own `activeFileInfo(doc)` resolution
     // EXCLUDES a missing_since-tagged entry — but `primary` here came from
     // the route's `assetActiveFileInfo`, which deliberately does NOT. On a

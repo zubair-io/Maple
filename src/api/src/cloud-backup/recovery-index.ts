@@ -30,7 +30,15 @@ export async function indexRecoveredEntry(
   const db = sqliteDb();
   // Metadata is asset-wide. Refuse a conflicting live dedup instead of hiding,
   // deleting, or changing another library's photo as a side effect of recovery.
-  const companion = manifest.files.find((file) => file.role === 'companion')?.path ?? null;
+  // Snapshots from before #5243 filed a Live Photo's .mov as the `companion`.
+  const legacyLiveVideo = (file: BackupManifest['files'][number]) =>
+    file.role === 'companion' && file.path.toLowerCase().endsWith('.mov');
+  const companion =
+    manifest.files.find((file) => file.role === 'companion' && !legacyLiveVideo(file))?.path ??
+    null;
+  const liveVideo =
+    manifest.files.find((file) => file.role === 'live-video' || legacyLiveVideo(file))?.path ??
+    null;
   const at = new Date().toISOString();
   const insert: SqlStatement[] = existing
     ? []
@@ -79,10 +87,10 @@ export async function indexRecoveredEntry(
         EXISTS(SELECT 1 FROM asset_locations l WHERE l.asset_id=assets.id AND l.deleted_at IS NULL
           AND l.missing_since IS NULL AND NOT(l.library_id=? AND l.path=? AND l.filename=?)
           AND assets.deleted_at IS NULL AND (?='trash' OR assets.hidden<>? OR
-            assets.apple_rendered_path IS NOT ?))
+            assets.apple_rendered_path IS NOT ? OR assets.apple_live_video_path IS NOT ?))
         OR EXISTS(SELECT 1 FROM asset_locations l WHERE l.library_id=? AND l.path=? AND l.filename=?
           AND l.asset_id<>assets.id) THEN 2 ELSE ? END,hidden_reason=?,apple_rendered_path=?,
-        indexed_at=?,mtime=?,size=? WHERE id=?`,
+        apple_live_video_path=?,indexed_at=?,mtime=?,size=? WHERE id=?`,
         params: [
           manifest.state === 'trash' ? manifest.deletedAt : null,
           manifest.state === 'trash' ? path.join(root, manifest.originalPath) : null,
@@ -92,12 +100,14 @@ export async function indexRecoveredEntry(
           manifest.state,
           Number(manifest.hidden),
           companion,
+          liveVideo,
           folderId.toHexString(),
           location.path,
           location.filename,
           Number(manifest.hidden),
           manifest.hidden ? 'manual' : null,
           companion,
+          liveVideo,
           new Date().toISOString(),
           hash.mtime,
           hash.size,

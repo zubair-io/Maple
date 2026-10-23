@@ -1,8 +1,9 @@
 /**
  * #4695: the rendered-companion upload must never adopt a file it did not
  * write unless that file is provably the same companion. Adopting an
- * unrelated file recorded it as the asset's `apple_rendered_path`, and
- * purging the photo from Trash later deleted it.
+ * unrelated file recorded it as the asset's companion, and purging the photo
+ * from Trash later deleted it. The Live Photo `.mov` twin these tests upload
+ * is recorded in `apple_live_video_path` (#5243).
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { ObjectId } from '../src/db/object-id.ts';
@@ -76,7 +77,9 @@ async function uploadLiveTwin(bytes: Buffer, device = deviceId): Promise<string>
 
 function recordedCompanion(): string | undefined {
   const id = findAssetIdByMapleId(live.db, photoMapleId);
-  return readAsset(live.db, id!)?.apple_rendered_path as string | undefined;
+  const asset = readAsset(live.db, id!);
+  expect(asset?.apple_rendered_path ?? null).toBeNull();
+  return asset?.apple_live_video_path as string | undefined;
 }
 
 describe('rendered companion placement (#4695)', () => {

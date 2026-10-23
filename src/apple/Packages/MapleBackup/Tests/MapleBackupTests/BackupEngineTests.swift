@@ -480,7 +480,7 @@ final class BackupEngineTests: XCTestCase {
         XCTAssertNotNil(renderedReq, "expected a rendered-companion upload for the .mov twin")
         XCTAssertEqual(renderedReq?.value(forHTTPHeaderField: "X-Maple-Suffix-Override"), "mov",
                        "Live Photo .mov twin must use suffix-override 'mov'")
-        XCTAssertEqual(renderedReq?.value(forHTTPHeaderField: "X-Maple-Rendered-Ext"), "mov",
+        XCTAssertEqual(renderedReq?.value(forHTTPHeaderField: "X-Maple-Filename-Ext"), "mov",
                        "Live Photo .mov twin must declare 'mov' extension")
         XCTAssertEqual(renderedReq?.value(forHTTPHeaderField: "X-Maple-Maple-Id"), Self.ingestedMapleId,
                        "the .mov twin's final chunk must name the original's ingested id (#5241)")
@@ -512,6 +512,8 @@ final class BackupEngineTests: XCTestCase {
         XCTAssertEqual(sent, Self.ingestedMapleId)
         XCTAssertNotNil(sent?.range(of: "^[0-9a-f]{32}$", options: .regularExpression),
                         "the server rejects a final chunk whose id is not 32 hex characters")
+        XCTAssertEqual(renderedReqs.last?.value(forHTTPHeaderField: "X-Maple-Filename-Ext"), "jpeg",
+                       "a JPEG rendering of a HEIC original must be named by its own format (#5244)")
     }
 
     private static let ingestedMapleId = "02371b94aade2246ba56c6770a7624e1"

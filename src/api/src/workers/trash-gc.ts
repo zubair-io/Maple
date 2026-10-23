@@ -33,7 +33,7 @@ import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
 import { listPairedSidecars } from '../fs/xmp-conflict.ts';
 import { oldNameEditUnreadable } from '../fs/legacy-backup-sidecar.ts';
 import { assetAbsPath, assetLibraryPath } from '../indexer/images.repo.ts';
-import { resolvePurgeCompanion } from '../library/purge-rendered-companion.ts';
+import { resolvePurgeCompanions } from '../library/purge-rendered-companion.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -133,12 +133,8 @@ async function purgeTrashedAsset(
     return { purged: false, errors: 0 };
   }
   try {
-    const companion = await resolvePurgeCompanion(
-      assetLibraryPath(doc, libs)!,
-      doc.apple_rendered_path,
-      absPath,
-    );
-    if (companion) await unlink(companion);
+    const companions = await resolvePurgeCompanions(assetLibraryPath(doc, libs)!, doc, absPath);
+    for (const companion of companions) await unlink(companion);
   } catch (error) {
     log.warn(
       { _id: doc._id.toHexString(), err: String(error) },
