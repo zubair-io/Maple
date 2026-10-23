@@ -229,10 +229,11 @@ fn a_frame_cancelled_after_measuring_leaves_no_resident_map() {
         AirlightSource::Resident(std::sync::Arc::clone(&session.haze), 0),
         &mut sink,
     );
-    let abandoned = session.settle_haze(sink.index);
+    let cancelled = sink.index;
     ctx.frame_pool.borrow_mut().end_frame();
     drop(encoder);
-    assert_eq!(abandoned, None, "the render must be cancelled after dehaze");
+    session.haze.abandoned();
+    assert_eq!(cancelled, None, "the render must be cancelled after dehaze");
     assert_eq!(session.haze.measured(), 2);
 
     let ticked = render(&session, &ctx, &model(0.5, 70.0));
@@ -266,4 +267,54 @@ fn a_downstream_gate_change_keeps_the_resident_map() {
     );
     let fresh = LiveSession::new(&ctx, &input, 96, 64).expect("session");
     assert_eq!(sharpened, render(&fresh, &ctx, &model(60.0)));
+}
+
+#[test]
+fn exposure_preparation_never_leaves_an_unwritten_map() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let input = scene_linear_rgba(96, 64);
+    let session = LiveSession::new(&ctx, &input, 96, 64).expect("session");
+    let model = |exposure: f32| raw_core::xmp::AdjustmentModel {
+        exposure,
+        dehaze: 40.0,
+        ..noop_model()
+    };
+    let mut case = aggressive_case();
+    case.model = model(0.0);
+    let mut inputs = case.gpu_inputs_for(&input);
+    inputs.tone = [0.0; 6];
+    assert!(session
+        .prepare_exposure_activation(&ctx, &mut inputs, &CancelToken::new())
+        .unwrap());
+    let prepared = session.haze.measured();
+    let rendered = render(&session, &ctx, &model(0.01));
+    assert_eq!(
+        session.haze.measured(),
+        prepared + 1,
+        "the unsubmitted preparation frame's map must not be reused"
+    );
+    let fresh = LiveSession::new(&ctx, &input, 96, 64).expect("session");
+    assert_eq!(rendered, render(&fresh, &ctx, &model(0.01)));
+}
+
+#[test]
+fn sessions_of_different_aspect_share_a_context() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let model = raw_core::xmp::AdjustmentModel {
+        dehaze: 40.0,
+        ..noop_model()
+    };
+    let shot = |w: u32, h: u32| {
+        let input = scene_linear_rgba(w as usize, h as usize);
+        let session = LiveSession::new(&ctx, &input, w, h).expect("session");
+        let mut case = aggressive_case();
+        case.model = model.clone();
+        session
+            .render_to_buffer(&ctx, &case.gpu_inputs_for(&input), &CancelToken::new())
+            .expect("render ok")
+            .expect("not cancelled")
+    };
+    let wide = shot(96, 64);
+    shot(96, 72);
+    assert_eq!(wide, shot(96, 64));
 }
