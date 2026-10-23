@@ -64,6 +64,12 @@ pub struct ChainOptions<'a> {
     /// windowed render with dehaze engaged (globally or in a layer) requires
     /// them.
     pub haze_map: Option<&'a crate::stages::dehaze::FrameHaze>,
+    /// Capture-first creative stage (#5213): when set, the buffer must be a
+    /// capture result in the fixed as-shot basis (a decode with no capture
+    /// stage engaged still has to be moved into it), and this replaces the
+    /// white-balance delta. Hosts adopt it with the capture-first decode
+    /// product (#5213 S3).
+    pub creative: Option<&'a crate::pipeline::CreativeStage>,
 }
 
 impl Default for ChainOptions<'_> {
@@ -81,6 +87,7 @@ impl Default for ChainOptions<'_> {
             mask_long_edge: None,
             whites_anchor_ev: None,
             haze_map: None,
+            creative: None,
         }
     }
 }

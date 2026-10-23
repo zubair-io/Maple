@@ -21,6 +21,7 @@
 //! re-exported here so call sites that say `raw_core::pipeline::stage`,
 //! `raw_core::pipeline::RenderQuality`, etc. continue to compile unchanged.
 
+pub(crate) mod capture_first;
 pub(crate) mod capture_sharpening_helper;
 mod develop;
 mod develop_sized;
@@ -43,6 +44,7 @@ pub use inpaint_store::{patch_from_bytes, patch_to_bytes, patches_from_blob, pat
 #[path = "inpaint_seam_tests.rs"]
 mod inpaint_seam_tests;
 
+pub use capture_first::{CreativeAnchors, CreativeStage};
 pub use develop::{
     develop_scene_linear_from_raw_with_quality,
     develop_scene_linear_from_raw_with_quality_cancellable,

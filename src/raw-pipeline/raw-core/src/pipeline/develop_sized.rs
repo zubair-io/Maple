@@ -19,16 +19,17 @@ use crate::{
     image::RawImage,
     linearize,
     stages::{
-        auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, color_curves, defringe,
-        dehaze, highlight_recovery_oklab, hot_pixel, hsl, local_adjustments, retouch, saturation,
-        scene_tone_controls, texture, tone_curves, vibrance, vignette, wb_camera, white_balance,
+        clarity, color_curves, defringe, dehaze, hot_pixel, hsl, local_adjustments, saturation,
+        scene_tone_controls, texture, tone_curves, vibrance, vignette, white_balance,
     },
     xmp::AdjustmentModel,
 };
 
 use super::{
-    capture_sharpening_helper::capture_sharpening_params_from_model,
-    develop::{crop_to_default, effective_quality_divisor, lateral_ca},
+    capture_first::Chain,
+    develop::{
+        crop_to_default, develop_colour, effective_quality_divisor, lateral_ca, ColourInput,
+    },
     downsample::downsample_image_area,
     dump_after, stage, RenderQuality,
 };
@@ -377,121 +378,19 @@ fn develop_sized_to_dehaze(
         dcp::profile_for_with_source(raw)
     })?;
     let whites_anchor_ev = dcp::scene_white_anchor(&camera_rgb, &profile)?;
-    // Camera-space user white balance (#1726) — mirrors the full-res
-    // develop chain exactly; see `super::develop` and `stages::wb_camera`
-    // for the full design writeup and the `RawlerFallback` tier-gate
-    // rationale.
-    let camera_wb_target =
-        if !skip_pre_gain && !matches!(profile_source, dcp::ProfileSource::RawlerFallback) {
-            let frame = wb_camera::SliderFrame::resolve(raw, &profile);
-            // `resolve_target_versioned` (#1780): V1 (pre-#1756) sidecar
-            // temperature/tint convert into the slider frame here so the
-            // authored look is preserved; V2 models resolve unchanged.
-            let (target_temperature, target_tint) =
-                wb_camera::resolve_target_versioned(model, &frame, &profile, raw.as_shot_neutral);
-            stage("sized_wb_camera::apply", || {
-                wb_camera::apply(
-                    &mut camera_rgb,
-                    &frame,
-                    raw.as_shot_neutral,
-                    target_temperature,
-                    target_tint,
-                )
-            });
-            Some((frame, target_temperature, target_tint))
-        } else {
-            None
-        };
-    let camera_wb_applied = camera_wb_target.is_some();
-    dump_after("02b_wb_camera", &camera_rgb);
-    // DNG-spec `SetWhiteXY` retarget (#1727) — mirrors `super::develop`:
-    // DCP's rendering matrices track the user's target when camera-space
-    // WB moved off as-shot; as-shot targets return the profile unchanged
-    // (bit-identical). See `wb_camera::retargeted_render_profile`.
-    let dcp_profile = match &camera_wb_target {
-        Some((frame, target_temperature, target_tint)) => {
-            wb_camera::retargeted_render_profile(frame, profile, *target_temperature, *target_tint)
-        }
-        None => profile,
-    };
-    // Colorimetry-only DCP per #425 — see `pipeline::develop` for the
-    // rationale. PLT and PTC no longer run; HSM still does (metameric
-    // correction).
-    let mut scene = stage("sized_dcp_apply", || {
-        dcp::apply_colorimetry(&camera_rgb, &dcp_profile)
-    })?;
-    dump_after("03_dcp_apply", &scene);
-    // Ticket #471: post-DCP Oklab chroma-reduction highlight recovery. See
-    // `super::develop` for the rationale; no-op unless the user opts in via
-    // `papp:HighlightRecoveryMode="OklabChromaReduction"`.
-    stage("sized_highlight_recovery_oklab", || {
-        highlight_recovery_oklab::apply_post_dcp(&mut scene, model.highlight_recovery)
-    });
-    dump_after("03b_oklab_highlight_recovery", &scene);
-    // ProfileGainTableMap is not applied on any path (#2774) — see
-    // `super::develop` for the rationale.
-    // Clone / heal repair spots (#3409) — same position as the unsized
-    // variant. Spot coordinates are normalised, so they land on the same
-    // scene features at this reduced resolution; the disc is simply smaller
-    // in pixels, which is what a sized render wants.
-    stage("sized_retouch", || {
-        retouch::apply_cancellable(&mut scene, &model.retouch_spots, cancel)
-    })?;
-    dump_after("03c_retouch", &scene);
-    // Decode-time chroma pre-filter (#1104) — runs on the downsampled
-    // buffer here; same position as the unsized variant (post-DCP, pre
-    // capture-sharpening). No-op at the default 0.
-    stage("sized_chroma_prefilter", || {
-        chroma_prefilter::apply(&mut scene, model.chroma_prefilter)
-    });
-    dump_after("04a_chroma_prefilter", &scene);
-    // BM3D deep denoise (#1105) — runs on the downsampled buffer here;
-    // same position as the unsized variant. See that variant's comment.
-    stage("sized_deep_denoise", || {
-        bm3d::apply_cancellable(
-            &mut scene,
-            model.deep_denoise,
+    let (mut scene, ae_gain) = develop_colour(
+        camera_rgb,
+        ColourInput {
+            raw,
+            model,
+            profile,
+            profile_source,
+            skip_pre_gain,
+            whites_anchor_ev,
+            chain: Chain::Sized,
             cancel,
-            bm3d::active_progress(),
-        )
-    });
-    if cancel.is_cancelled() {
-        return Err(Error::Cancelled);
-    }
-    dump_after("04ab_deep_denoise", &scene);
-    if let Some(params) = capture_sharpening_params_from_model(model) {
-        // Cancellable RL deconvolution (#1089) — same rationale as the
-        // unsized develop chain. Observes `cancel` between iterations / per
-        // row; the post-stage check is defense-in-depth around the `?`.
-        stage("sized_capture_sharpening", || {
-            capture_sharpening::apply_capture_sharpening_cancellable(&mut scene, &params, cancel)
-        })?;
-        if cancel.is_cancelled() {
-            return Err(Error::Cancelled);
-        }
-    }
-    dump_after("04b_capture_sharpening", &scene);
-    scene.whites_anchor_ev = Some(whites_anchor_ev);
-    let ae_gain = stage("sized_auto_exposure", || {
-        auto_exposure::apply(&mut scene, model)
-    });
-    dump_after("05_auto_exposure", &scene);
-    // Post-DCP white balance — skipped when camera-space WB already ran
-    // (#1726); see `super::develop` for the full rationale. Falls through
-    // to the ACR-anchored CAT16 path (#1729 / round-trip fix, #1725 band
-    // fix) via the shared `white_balance::resolve_wb` helper otherwise.
-    if !camera_wb_applied {
-        let (effective_temperature, effective_tint) = white_balance::resolve_wb(model);
-        stage("sized_white_balance", || {
-            white_balance::apply(
-                &mut scene,
-                effective_temperature,
-                effective_tint,
-                model.wb_method,
-            )
-        });
-    }
-    dump_after("06_white_balance", &scene);
+        },
+    )?;
     stage("sized_scene_tone_controls", || {
         scene_tone_controls::apply(&mut scene, model)
     });

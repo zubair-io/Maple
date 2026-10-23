@@ -42,7 +42,7 @@
 //!   [`pipeline`] — uniform fields become **bit-exact identity**, which
 //!   is the synthetic-grey gate.
 //! - σ maps from the single strength parameter, anchored to the image's
-//!   median luma so the response is invariant to the per-camera post-DCP
+//!   median luma so the response is invariant to the per-camera capture
 //!   scale (the stage runs before auto-exposure): `σ_Y = K · (s/100) ·
 //!   (median_Y + pedestal)`.
 //! - Patch matching uses mean-relative SSD (gradient-robust, consistent
@@ -225,7 +225,9 @@ pub fn apply_cancellable(
     // Median-luma anchor on a subsampled grid — deterministic, robust.
     let mut sample: Vec<f32> = y.iter().step_by(8).copied().collect();
     sample.sort_unstable_by(|a, b| a.total_cmp(b));
-    let anchor = sample[sample.len() / 2] + ANCHOR_PEDESTAL;
+    // Floored at zero: on the signed capture-first basis (#5213) a dark
+    // frame's median luma can be negative, which would flip sigma's sign.
+    let anchor = sample[sample.len() / 2].max(0.0) + ANCHOR_PEDESTAL;
 
     let sigma_y = SIGMA_K * s * anchor;
     let sigmas = [

@@ -1,9 +1,9 @@
 //! Clone / heal repair stage (#3409).
 //!
 //! Applies `AdjustmentModel.retouch_spots` to the scene-linear Rec.2020
-//! buffer as a **decode-product** edit: it runs immediately after DCP
-//! colorimetry and post-DCP highlight recovery, upstream of the chroma
-//! pre-filter, so the repaired pixels are denoised, sharpened, exposed and
+//! buffer as a **decode-product** edit: it runs first in the capture stage,
+//! in the fixed as-shot Rec.2020 basis ahead of white balance and DCP
+//! (#5213), upstream of the chroma pre-filter, so the repaired pixels are denoised, sharpened, exposed and
 //! graded exactly like the sensor data around them, and so a slider tick
 //! never re-runs the patch work. Changing the spot list therefore
 //! invalidates the decoded-image caches, the same family

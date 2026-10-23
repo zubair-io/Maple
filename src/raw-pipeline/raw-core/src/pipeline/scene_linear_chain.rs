@@ -114,6 +114,7 @@ pub fn apply_scene_linear_chain(
         mask_long_edge,
         whites_anchor_ev,
         haze_map,
+        creative,
     } = *opts;
     use crate::stages::{
         clarity, color_curves, color_grade, defringe, display_tone_curve, grain, hsl,
@@ -169,22 +170,35 @@ pub fn apply_scene_linear_chain(
     // the SAME camera-calibration frame the develop chain reads the
     // sliders in — the frame-absent branch is the legacy generic CAT16
     // delta, bit-identical to pre-#1781.
-    stage("ffi_chain_white_balance", || match wb_frame {
-        Some(frame) if frame.is_present() => frame.apply_delta_rec2020_with_hsm(
-            &mut img,
-            (model.temperature, model.tint),
-            (decoded_temp, decoded_tint),
-            wb_hsm,
-        ),
-        _ => white_balance::apply_delta(
-            &mut img,
-            model.temperature,
-            model.tint,
-            decoded_temp,
-            decoded_tint,
-            model.wb_method,
-        ),
-    });
+    match creative {
+        Some(creative) => {
+            img = stage("ffi_chain_creative", || {
+                creative.render(
+                    img,
+                    crate::pipeline::capture_first::CaptureSpace::Basis,
+                    model,
+                    crate::pipeline::capture_first::Chain::Full,
+                )
+            })?
+            .0;
+        }
+        None => stage("ffi_chain_white_balance", || match wb_frame {
+            Some(frame) if frame.is_present() => frame.apply_delta_rec2020_with_hsm(
+                &mut img,
+                (model.temperature, model.tint),
+                (decoded_temp, decoded_tint),
+                wb_hsm,
+            ),
+            _ => white_balance::apply_delta(
+                &mut img,
+                model.temperature,
+                model.tint,
+                decoded_temp,
+                decoded_tint,
+                model.wb_method,
+            ),
+        }),
+    }
     // S/H detail mask anchored to the full frame (#2476).
     let sh_mask_anchor = mask_long_edge.unwrap_or_else(|| img.width.max(img.height)) as usize;
     stage("ffi_chain_scene_tone_controls", || {

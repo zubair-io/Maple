@@ -26,6 +26,7 @@
 //! * [`overlap`] — the per-render pad calculator.
 //! * [`develop`] — the develop chain run on the padded crop.
 
+mod colour;
 mod context;
 mod develop;
 mod guards;

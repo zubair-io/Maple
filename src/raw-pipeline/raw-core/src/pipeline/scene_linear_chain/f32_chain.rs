@@ -50,6 +50,7 @@ pub(super) fn apply_scene_linear_chain_f32_inner_cancellable(
         mask_long_edge: _,
         whites_anchor_ev,
         haze_map,
+        creative: _,
     } = *opts;
     use crate::stages::{
         color_grade, defringe, display_tone_curve, grain, local_adjustments, noise_reduction,
@@ -241,6 +242,7 @@ pub(super) fn apply_pre_dehaze(
         wb_frame,
         wb_hsm,
         mask_long_edge,
+        creative,
         ..
     } = *opts;
     use crate::stages::{
@@ -250,23 +252,40 @@ pub(super) fn apply_pre_dehaze(
     // Per-stage application — mirrors `apply_scene_linear_chain` (fp16
     // sibling) verbatim. The order MUST match the Rust reference so
     // `calibrate_color_pipeline` remains the canonical metric. WB frame
-    // dispatch (#1781) — see the fp16 sibling.
-    cancellable_stage("ffi_chain_white_balance", cancel, || match wb_frame {
-        Some(frame) if frame.is_present() => frame.apply_delta_rec2020_with_hsm(
-            img,
-            (model.temperature, model.tint),
-            (decoded_temp, decoded_tint),
-            wb_hsm,
-        ),
-        _ => white_balance::apply_delta(
-            img,
-            model.temperature,
-            model.tint,
-            decoded_temp,
-            decoded_tint,
-            model.wb_method,
-        ),
-    })?;
+    // dispatch (#1781) — see the fp16 sibling. The capture-first creative
+    // stage (#5213) replaces the WB delta here, so the haze-map builder that
+    // shares this prefix measures the same pixels the render dehazes.
+    match creative {
+        Some(creative) => {
+            let space = img.space;
+            let capture = std::mem::replace(img, crate::image::Image::new(0, 0, space));
+            *img = cancellable_stage("ffi_chain_creative", cancel, || {
+                creative.render(
+                    capture,
+                    crate::pipeline::capture_first::CaptureSpace::Basis,
+                    model,
+                    crate::pipeline::capture_first::Chain::Full,
+                )
+            })??
+            .0;
+        }
+        None => cancellable_stage("ffi_chain_white_balance", cancel, || match wb_frame {
+            Some(frame) if frame.is_present() => frame.apply_delta_rec2020_with_hsm(
+                img,
+                (model.temperature, model.tint),
+                (decoded_temp, decoded_tint),
+                wb_hsm,
+            ),
+            _ => white_balance::apply_delta(
+                img,
+                model.temperature,
+                model.tint,
+                decoded_temp,
+                decoded_tint,
+                model.wb_method,
+            ),
+        })?,
+    }
     let sh_mask_anchor = mask_long_edge.unwrap_or_else(|| img.width.max(img.height)) as usize;
     cancellable_stage("ffi_chain_scene_tone_controls", cancel, || {
         scene_tone_controls::apply_with_mask_anchor(img, model, sh_mask_anchor)
