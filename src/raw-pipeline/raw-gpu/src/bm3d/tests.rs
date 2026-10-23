@@ -2,6 +2,8 @@ use super::*;
 use crate::{chain::ChainRunner, image::GpuImage};
 use raw_core::image::{ColorSpace, Image};
 
+#[path = "../../../raw-core/src/stages/bm3d/exact.rs"]
+mod exact;
 #[path = "../../../raw-core/src/stages/bm3d/matching.rs"]
 mod matching;
 #[path = "../../../raw-core/src/stages/bm3d/pipeline.rs"]
@@ -69,20 +71,7 @@ fn bm3d_intermediate_parity() {
             pollster::block_on(crate::chain::read_buffer_async(&ctx, b, b.size())).unwrap()
         })
         .collect();
-    let noisy: [Vec<f32>; 3] = std::array::from_fn(|c| {
-        input
-            .chunks_exact(4)
-            .map(|p| {
-                let y = LUMA_REC2020[0]
-                    .mul_add(p[0], LUMA_REC2020[1].mul_add(p[1], LUMA_REC2020[2] * p[2]));
-                match c {
-                    0 => y,
-                    1 => p[0] - y,
-                    _ => p[2] - y,
-                }
-            })
-            .collect()
-    });
+    let noisy = opponent_planes(&input);
     let mut sample: Vec<f32> = noisy[0].iter().step_by(8).copied().collect();
     sample.sort_unstable_by(f32::total_cmp);
     let sigma = SIGMA_K * 0.2 * (sample[sample.len() / 2].max(0.0) + ANCHOR_PEDESTAL);
@@ -109,21 +98,11 @@ fn bm3d_intermediate_parity() {
     )
     .unwrap();
     for (phase, guide) in [(0, &noisy[0]), (1, &basic[0])] {
-        let bits: Vec<u32> = values[phase * 2].iter().map(|x| x.to_bits()).collect();
         let mut g = 0;
         for y in matching::ref_coords(h as usize) {
             for x in matching::ref_coords(w as usize) {
                 let expected = matching::find_group(guide, w as usize, h as usize, x, y, tau);
-                let actual: Vec<(usize, usize)> = bits
-                    [4 + g * 17 + 1..4 + g * 17 + 1 + bits[4 + g * 17] as usize]
-                    .iter()
-                    .map(|&v| {
-                        (
-                            (v & (w.next_power_of_two() - 1)) as usize,
-                            (v >> w.next_power_of_two().trailing_zeros()) as usize,
-                        )
-                    })
-                    .collect();
+                let actual = captured_group(&values[phase * 2], w, g);
                 assert_eq!(actual, expected, "phase={phase} ref={x},{y}");
                 g += 1;
             }
@@ -185,9 +164,7 @@ fn bm3d_cached_patch_means_match_cpu_tree() {
     let gpu = pollster::block_on(crate::chain::read_buffer_async(&ctx, &a, a.size())).unwrap();
     let y: Vec<f32> = input
         .chunks_exact(4)
-        .map(|p| {
-            LUMA_REC2020[0].mul_add(p[0], LUMA_REC2020[1].mul_add(p[1], LUMA_REC2020[2] * p[2]))
-        })
+        .map(|p| exact::luminance([p[0], p[1], p[2]]))
         .collect();
     for i in 0..(w * h) as usize {
         assert_eq!(gpu[i * 2], y[i], "luma {i}");
@@ -257,6 +234,34 @@ fn bm3d_transpose_matches_indexed_basis() {
             assert_eq!(gpu[lane * 4 + q], expected, "lane={lane} component={q}");
         }
     }
+}
+
+fn opponent_planes(input: &[f32]) -> [Vec<f32>; 3] {
+    std::array::from_fn(|c| {
+        input
+            .chunks_exact(4)
+            .map(|p| {
+                let y = exact::luminance([p[0], p[1], p[2]]);
+                [y, p[0] - y, p[2] - y][c]
+            })
+            .collect()
+    })
+}
+
+fn captured_group(groups: &[f32], width: u32, g: usize) -> Vec<(usize, usize)> {
+    let pitch = width.next_power_of_two();
+    let start = 4 + g * (GROUP_MAX + 1);
+    let count = groups[start].to_bits() as usize;
+    groups[start + 1..start + 1 + count]
+        .iter()
+        .map(|v| {
+            let bits = v.to_bits();
+            (
+                (bits & (pitch - 1)) as usize,
+                (bits >> pitch.trailing_zeros()) as usize,
+            )
+        })
+        .collect()
 }
 
 pub(super) fn fixture(w: u32, h: u32) -> Vec<f32> {

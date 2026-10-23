@@ -1,38 +1,69 @@
 use super::*;
 
+/// The second pass ranks candidates on the first-pass estimate, whose
+/// transforms and divisions cannot be bit-exact across CPU, Metal and Vulkan,
+/// so a near tie there may legitimately flip a group. The gate therefore pins
+/// first-pass groups to the CPU, second-pass groups to the GPU's own guide,
+/// and bounds the output by its mean and 99.9th-percentile error.
 #[test]
 #[ignore = "physical RAW qualification, explicitly provision the fixture"]
 fn bm3d_physical_scene_parity() {
-    let edge = std::env::var("MAPLE_BM3D_PARITY_EDGE")
-        .ok()
-        .map(|v| v.parse().expect("integer parity edge"))
-        .unwrap_or(512);
-    let (w, h, input) = physical_input(edge);
-    let mut cpu = Image::new(w, h, ColorSpace::SceneLinearRec2020);
-    for (p, q) in cpu.pixels.iter_mut().zip(input.chunks_exact(4)) {
-        *p = [q[0], q[1], q[2]];
-    }
-    raw_core::stages::bm3d::apply(&mut cpu, 50.0, None);
     let ctx = GpuContext::new_blocking().expect("GPU required");
-    let image = GpuImage::upload(&ctx, &input, w, h);
-    let gpu = ChainRunner::new(&ctx, &image).run_blocking(&[&DeepDenoisePass {
-        strength: 50.0,
-        cancel: None,
-    }]);
-    let mut worst = 0.0_f32;
-    let mut total = 0.0_f64;
-    for (p, q) in cpu.pixels.iter().zip(gpu.chunks_exact(4)) {
-        for c in 0..3 {
-            let error = (p[c] - q[c]).abs() / p[c].abs().max(1.0);
-            worst = worst.max(error);
-            total += f64::from(error);
+    for edge in [2560, 1536] {
+        let (w, h, input) = physical_input(edge);
+        let mut cpu = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+        for (p, q) in cpu.pixels.iter_mut().zip(input.chunks_exact(4)) {
+            *p = [q[0], q[1], q[2]];
         }
+        raw_core::stages::bm3d::apply(&mut cpu, 50.0, None);
+        let image = GpuImage::upload(&ctx, &input, w, h);
+        CAPTURE.with_borrow_mut(|v| *v = Some(Vec::new()));
+        let gpu = ChainRunner::new(&ctx, &image).run_blocking(&[&DeepDenoisePass {
+            strength: 50.0,
+            cancel: None,
+        }]);
+        let captures = CAPTURE.with_borrow_mut(|v| v.take().unwrap());
+        let values: Vec<Vec<f32>> = captures
+            .iter()
+            .map(|(_, b)| {
+                pollster::block_on(crate::chain::read_buffer_async(&ctx, b, b.size())).unwrap()
+            })
+            .collect();
+        let noisy = opponent_planes(&input);
+        let mut sample: Vec<f32> = noisy[0].iter().step_by(8).copied().collect();
+        sample.sort_unstable_by(f32::total_cmp);
+        let sigma = SIGMA_K * 0.5 * (sample[sample.len() / 2].max(0.0) + ANCHOR_PEDESTAL);
+        assert_eq!(values[0][0].to_bits(), sigma.to_bits(), "{edge}px sigma");
+        let tau = T_MATCH_SQ * sigma * sigma;
+        let gpu_guide: Vec<f32> = values[1].chunks_exact(4).map(|p| p[0]).collect();
+        for (pass, guide) in [(0, &noisy[0]), (1, &gpu_guide)] {
+            let mut g = 0;
+            for y in matching::ref_coords(h as usize) {
+                for x in matching::ref_coords(w as usize) {
+                    let expected = matching::find_group(guide, w as usize, h as usize, x, y, tau);
+                    let actual = captured_group(&values[pass * 2], w, g);
+                    assert_eq!(actual, expected, "{edge}px pass={pass} ref={x},{y}");
+                    g += 1;
+                }
+            }
+        }
+        let mut errors: Vec<f32> = cpu
+            .pixels
+            .iter()
+            .zip(gpu.chunks_exact(4))
+            .flat_map(|(p, q)| (0..3).map(move |c| (p[c] - q[c]).abs() / p[c].abs().max(1.0)))
+            .collect();
+        errors.sort_unstable_by(f32::total_cmp);
+        let mean = errors.iter().map(|e| f64::from(*e)).sum::<f64>() / errors.len() as f64;
+        let p999 = errors[errors.len() * 999 / 1000];
+        let max = errors[errors.len() - 1];
+        eprintln!(
+            "BM3D physical test_0007 {w}x{h}: mean relative={mean:e} p99.9={p999:e} max={max:e}"
+        );
+        assert!(mean <= 1e-6, "{edge}px mean relative error {mean}");
+        assert!(p999 <= 1e-4, "{edge}px p99.9 relative error {p999}");
+        assert!(max <= 1e-2, "{edge}px max relative error {max}");
     }
-    eprintln!(
-        "BM3D physical test_0007 {w}x{h}: max relative={worst}, mean={}",
-        total / f64::from(w * h * 3)
-    );
-    assert!(worst < 1e-4, "physical BM3D parity: {worst}");
 }
 
 /// Force both cache axes to split, and independently exercise the portable
@@ -117,20 +148,7 @@ fn bm3d_signed_hdr_matches_cpu() {
                 pollster::block_on(crate::chain::read_buffer_async(&ctx, b, b.size())).unwrap()
             })
             .collect();
-        let noisy: [Vec<f32>; 3] = std::array::from_fn(|c| {
-            input
-                .chunks_exact(4)
-                .map(|p| {
-                    let y = LUMA_REC2020[0]
-                        .mul_add(p[0], LUMA_REC2020[1].mul_add(p[1], LUMA_REC2020[2] * p[2]));
-                    match c {
-                        0 => y,
-                        1 => p[0] - y,
-                        _ => p[2] - y,
-                    }
-                })
-                .collect()
-        });
+        let noisy = opponent_planes(&input);
         let mut sample: Vec<f32> = noisy[0].iter().step_by(8).copied().collect();
         sample.sort_unstable_by(f32::total_cmp);
         let sigma = SIGMA_K * 0.5 * (sample[sample.len() / 2].max(0.0) + ANCHOR_PEDESTAL);

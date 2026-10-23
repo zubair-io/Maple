@@ -37,7 +37,8 @@ fn match_groups(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_
     let row_width = hi.x - lo.x + 1u;
     let candidates = row_width * (hi.y - lo.y + 1u);
     let sigma = p.scale.x * (max(bitcast<f32>(samples[2]), 0.0) + p.extra.x);
-    let tau = p.scale.z * sigma * sigma;
+    // Pins raw-core's (T * sigma) * sigma against fast-math reassociation.
+    let tau = fma(p.scale.z * sigma, sigma, 0.0);
     for (var c = lane; c < 512u; c += 256u) {
         locations[c] = c;
         distances[c] = bitcast<f32>(0x7f800000u);
@@ -50,7 +51,7 @@ fn match_groups(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_
         for (var i = 0u; i < 64u; i++) {
             let value = tile[offset+(i/8u)*26u+i%8u];
             let d = reference[i] - (value - mean);
-            distance = fma(d, d, distance);
+            distance = exact_square_add(d, distance);
         }
         distance /= 64.0;
         if distance <= tau { distances[c] = distance; }
