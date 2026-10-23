@@ -93,12 +93,25 @@ class PresetsAndScopesTest {
                     id = "user-2",
                     name = "Portra Only",
                     fields = emptyMap(),
-                    attributes = mapOf("papp:FilmLook" to "kodak_portra_400"),
+                    attributes = mapOf("papp:FilmLook" to "kodak_portra_400", "papp:Profile" to "Neutral"),
                     userCreated = true,
                 )
             )
         val decodedLookOnly = decodeUserPresetsJson(encodeUserPresetsJson(lookOnly))
         assertEquals(lookOnly, decodedLookOnly)
+
+        // Forward-compatible unknown fields/attributes are preserved on round-trip
+        val forwardCompat =
+            listOf(
+                BuiltInPreset(
+                    id = "user-3",
+                    name = "Future Preset",
+                    fields = mapOf("exposure" to 0.25f, "future_slider_v99" to 42f),
+                    attributes = mapOf("papp:FutureAttr" to "enabled"),
+                    userCreated = true,
+                )
+            )
+        assertEquals(forwardCompat, decodeUserPresetsJson(encodeUserPresetsJson(forwardCompat)))
 
         val state =
             MapleState(
@@ -117,15 +130,21 @@ class PresetsAndScopesTest {
                 document =
                     app.justmaple.aperture.data.XmpDocument()
                         .withAttribute("papp:FilmLook", "kodak_portra_400")
-                        .withAttribute("crs:ConvertToGrayscale", "True"),
+                        .withAttribute("crs:ConvertToGrayscale", "True")
+                        .withAttribute("papp:Profile", "Neutral"),
             )
         assertEquals(mapOf("exposure" to 0.75f), state.savablePresetFields())
         assertEquals(
-            mapOf("papp:FilmLook" to "kodak_portra_400", "crs:ConvertToGrayscale" to "True"),
+            mapOf(
+                "papp:FilmLook" to "kodak_portra_400",
+                "crs:ConvertToGrayscale" to "True",
+                "papp:Profile" to "Neutral",
+            ),
             state.savablePresetAttributes(),
         )
         assertTrue(state.isPresetActive(lookOnly.first()))
         assertFalse(MapleState().isPresetActive(lookOnly.first()))
+        assertEquals(6, vectorscopeTargetStops.size)
     }
 
     @Test
