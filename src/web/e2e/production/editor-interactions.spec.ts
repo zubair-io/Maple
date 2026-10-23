@@ -234,13 +234,18 @@ test('Self Hosted persists Auto after Undo/Redo and restores the preceding edit'
   await expect(exposure).toHaveAttribute('aria-valuenow', String(editedExposure));
   await expect.poll(() => xmpExposure(sidecarPath)).toBe(editedExposure);
   await expect.poll(() => pendingWrites.size).toBe(0);
-  const undonePixels = await stableCanvasSample(
+  await expect(page.getByText('Saving edits…', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  const restoredSidecar = page.waitForResponse(
+    (response) => response.url().includes('/api/xmp?') && response.ok(),
+  );
+  await page.reload();
+  await restoredSidecar;
+  await expect(exposure).toHaveAttribute('aria-valuenow', String(editedExposure));
+  const restoredPixels = await stableCanvasSample(
     page.locator('editor-image-canvas canvas[data-gpu-live]'),
   );
-  expect(undonePixels.lumaRange).toBeGreaterThan(16);
-  await expect.poll(() => pendingWrites.size).toBe(0);
-  // Immediate hard reload after Auto/Undo remains a separate qualification
-  // failure (#5225); keep this case focused on committed Auto and Undo.
+  expect(restoredPixels.lumaRange).toBeGreaterThan(16);
   expect(sha256(await readFile(rawPath))).toBe(originalHash);
   await testInfo.attach('self-hosted-auto-values.json', {
     body: Buffer.from(

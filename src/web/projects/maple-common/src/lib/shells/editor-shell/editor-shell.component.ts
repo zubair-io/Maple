@@ -103,6 +103,7 @@ import * as hud from './editor-shell-hud';
 import { EDITOR_SHELL_IMPORTS } from './editor-shell.imports';
 import { type ChromeState, HOST_CLASS } from './editor-shell.classes';
 import * as sc from './editor-shell.classes';
+import { SidecarSaveStateService } from '../../xmp/sidecar-save-state.service';
 
 @Component({
   selector: 'editor-shell',
@@ -126,6 +127,7 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private layoutService = inject(LayoutService);
+  private readonly sidecarSave = inject(SidecarSaveStateService);
 
   @ViewChild('canvasWrap') canvasWrapRef?: ElementRef<HTMLElement>;
   @ViewChild(ControlCardComponent) controlCard?: ControlCardComponent;
@@ -175,7 +177,9 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
   // ── Page unload (preserved) ────────────────────────────────────────────
   @HostListener('window:beforeunload')
   onBeforeUnload(): void {
-    void this.state.flushPendingXmpWrites();
+    // A semantic commit can already have saved the edit before its older
+    // debounced write fires. Don't start that redundant POST during unload.
+    if (this.sidecarSave.hasUnsavedChanges()) void this.state.flushPendingXmpWrites();
     // Developed-preview persist (#2018) — same "flush on close" role as the
     // sidecar flush above, fire-and-forget for the same reason (beforeunload
     // can't reliably await async work).
