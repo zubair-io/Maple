@@ -411,5 +411,7 @@ fn an_empty_frame_has_no_haze_map() {
         };
         assert_eq!(rc, 2, "{w}x{h}");
         assert!(map.is_null());
+        let error = unsafe { CStr::from_ptr(maple_last_error()) }.to_string_lossy();
+        assert!(error.contains("haze map: bad dimension"), "{error}");
     }
 }

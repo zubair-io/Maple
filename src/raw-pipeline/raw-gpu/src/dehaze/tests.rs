@@ -450,3 +450,15 @@ fn the_proxy_grid_matches_raw_core() {
         );
     }
 }
+
+/// An empty frame (#3287) is a no-op on the oracle and the GPU pass alike.
+#[test]
+fn an_empty_frame_dehazes_to_itself() {
+    for (w, h) in [(0usize, 7usize), (7, 0), (0, 0)] {
+        let mut buf: Vec<f32> = Vec::new();
+        apply_dehaze(&mut buf, w, h, 40.0);
+        assert_eq!(compute_airlight(&buf, w, h), [1.0; 3]);
+        let pass = DehazePass::new(&buf, w, h, 40.0);
+        assert_eq!(pass.dehaze, 40.0);
+    }
+}

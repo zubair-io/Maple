@@ -195,6 +195,9 @@ fn measure(buf: &[f32], width: usize, height: usize) -> ProxyMap {
 }
 
 fn axis_taps(index: usize, frame: usize, proxy: usize) -> (usize, usize, f32) {
+    if frame == 0 || proxy == 0 {
+        return (0, 0, 0.0);
+    }
     let u = ((index as f32 + 0.5) * (proxy as f32 / frame as f32) - 0.5).max(0.0);
     let last = proxy - 1;
     let i0 = (u.floor() as usize).min(last);
@@ -240,8 +243,12 @@ pub(crate) fn proxy_rgba(buf: &[f32], width: usize, height: usize) -> (Vec<f32>,
 }
 
 /// The atmospheric light A dehaze recovers with: measured on the proxy grid
-/// of the frame `buf` (`width × height` RGBA f32), byte-exact vs raw-core.
+/// of the frame `buf` (`width × height` RGBA f32), byte-exact vs raw-core;
+/// an empty frame's identity map has A = 1.
 pub fn compute_airlight(buf: &[f32], width: usize, height: usize) -> [f32; 3] {
+    if width == 0 || height == 0 {
+        return [1.0; 3];
+    }
     let (proxy, dc, _, _) = proxy_and_dark_channel(buf, width, height);
     atmospheric_light(&proxy, &dc)
 }
@@ -252,7 +259,7 @@ pub fn apply_dehaze(buf: &mut [f32], width: usize, height: usize, dehaze: f32) {
         width * height * 4,
         "dehaze oracle: buffer/dims mismatch"
     );
-    if dehaze.abs() < 1e-3 {
+    if dehaze.abs() < 1e-3 || width == 0 || height == 0 {
         return;
     }
     let map = measure(buf, width, height);

@@ -5,9 +5,10 @@ use super::*;
 const EMPTY: [(u32, u32); 3] = [(0, 7), (7, 0), (0, 0)];
 
 fn image(width: u32, height: u32) -> Image {
-    let mut img = Image::new(width, height, ColorSpace::SceneLinearRec2020);
-    img.pixels.iter_mut().for_each(|p| *p = [0.4, 0.5, 0.6]);
-    img
+    Image {
+        pixels: vec![[0.4, 0.5, 0.6]; (width * height) as usize],
+        ..Image::new(width, height, ColorSpace::SceneLinearRec2020)
+    }
 }
 
 #[test]
@@ -46,7 +47,7 @@ fn an_empty_frame_or_map_leaves_a_window_unchanged() {
 }
 
 #[test]
-fn measuring_an_empty_frames_maps_never_panics() {
+fn measuring_an_empty_frames_maps_is_refused() {
     let model = crate::xmp::AdjustmentModel {
         dehaze: 40.0,
         ..Default::default()
@@ -59,6 +60,6 @@ fn measuring_an_empty_frames_maps_never_panics() {
             &model,
             &crate::pipeline::ChainOptions::default(),
         );
-        assert!(measured.map_or(true, |haze| haze.is_none_or(|haze| haze.covers(&model))));
+        assert!(measured.is_err(), "{w}x{h}");
     }
 }
