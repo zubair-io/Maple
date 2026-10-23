@@ -81,7 +81,17 @@ pub fn proxy_dims(width: u32, height: u32) -> (u32, u32) {
 
 impl HazeMap {
     /// Measure the map of a whole frame.
+    /// An empty frame measures the identity map (transmission 1, all sky).
     pub fn measure(img: &Image) -> HazeMap {
+        if img.width == 0 || img.height == 0 {
+            return HazeMap {
+                width: 1,
+                height: 1,
+                airlight: [1.0; 3],
+                coefficients: vec![[0.0, 1.0]],
+                sky: vec![1.0],
+            };
+        }
         let (width, height) = proxy_dims(img.width, img.height);
         let proxy = resample(img, width as usize, height as usize);
         measure_proxy(&proxy, width as usize, height as usize)
@@ -298,6 +308,9 @@ pub(super) fn sky_mask(dc: &[f32], w: usize, h: usize) -> Vec<f32> {
 /// WGSL recovery kernel evaluates the same f32 expression.
 #[inline]
 pub(super) fn axis_taps(index: i64, frame: u32, proxy: u32) -> (usize, usize, f32) {
+    if frame == 0 || proxy == 0 {
+        return (0, 0, 0.0);
+    }
     let u = ((index as f32 + 0.5) * (proxy as f32 / frame as f32) - 0.5).max(0.0);
     let last = proxy as usize - 1;
     let i0 = (u.floor() as usize).min(last);

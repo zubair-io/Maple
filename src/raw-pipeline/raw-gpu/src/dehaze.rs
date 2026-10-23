@@ -234,9 +234,10 @@ impl Pass for DehazePass {
         dims: (u32, u32),
     ) {
         let (width, height) = dims;
-        // |dehaze| < 1e-3 is identity in raw-core — copy src → dst and bail so
-        // the chain's ping-pong still threads the (unchanged) image through.
-        if self.dehaze.abs() < 1e-3 {
+        // |dehaze| < 1e-3 (and an empty frame) is identity in raw-core — copy
+        // src → dst and bail so the chain's ping-pong still threads the
+        // (unchanged) image through.
+        if self.dehaze.abs() < 1e-3 || width == 0 || height == 0 {
             let byte_len = (width as u64) * (height as u64) * 4 * std::mem::size_of::<f32>() as u64;
             encoder.copy_buffer_to_buffer(src, 0, dst, 0, byte_len);
             return;

@@ -134,6 +134,10 @@ pub fn apply_whole_frame(img: &mut Image, dehaze: f32, haze: Option<&FrameHaze>)
 }
 
 fn recover(img: &mut Image, dehaze: f32, map: &HazeMap, origin: (i32, i32), frame: (u32, u32)) {
+    let empty = |(w, h): (u32, u32)| w == 0 || h == 0;
+    if empty((img.width, img.height)) || empty(frame) || empty((map.width, map.height)) {
+        return;
+    }
     let scale = (dehaze / 100.0).clamp(-1.0, 1.0);
     let width = img.width as usize;
     let (pw, ph) = (map.width, map.height);
@@ -226,3 +230,7 @@ mod tests;
 #[cfg(test)]
 #[path = "dehaze_transmission_tests.rs"]
 mod transmission_tests;
+
+#[cfg(test)]
+#[path = "dehaze_empty_tests.rs"]
+mod empty_tests;

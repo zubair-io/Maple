@@ -385,3 +385,31 @@ fn the_haze_key_digest_ignores_amounts_and_stages_no_map_depends_on() {
         "the HueSatMap the WB stage re-lerps sits upstream of every map"
     );
 }
+
+/// An empty frame is refused with an error, never a panic or a divide by zero.
+#[test]
+fn an_empty_frame_has_no_haze_map() {
+    let _memo = HAZE_MEMO
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let p = MapleAdjustmentParams {
+        dehaze: 40.0,
+        ..params(0.0, 0.0, 0.0)
+    };
+    let frame = [0.5f32; 4];
+    for (w, h) in [(0, 7), (7, 0), (0, 0)] {
+        let mut map = std::ptr::null_mut();
+        let rc = unsafe {
+            maple_scene_linear_chain_haze_map_f32(
+                frame.as_ptr(),
+                w,
+                h,
+                &p,
+                std::ptr::null(),
+                &mut map,
+            )
+        };
+        assert_eq!(rc, 2, "{w}x{h}");
+        assert!(map.is_null());
+    }
+}
