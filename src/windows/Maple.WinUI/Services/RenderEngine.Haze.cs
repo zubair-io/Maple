@@ -51,9 +51,9 @@ namespace Maple.WinUI.Services
             p.local_adjustments_len = tick.local_adjustments_len;
             var key = RawFfi.maple_scene_linear_chain_haze_key(&p, curves);
             if (key == 0) return null;
-            return NativeDetailHazeCache.TryRent(frame, key, out var cached)
-                ? cached
-                : NativeDetailHazeCache.StoreAndRent(frame, key, MeasureHaze(frame, &p, curves));
+            if (NativeDetailHazeCache.TryRent(frame, key, out var cached)) return cached;
+            var measured = MeasureHaze(frame, &p, curves);
+            return measured == null ? null : NativeDetailHazeCache.StoreAndRent(frame, key, measured);
         }
 
         private static HazeMapHandle? MeasureHaze(DecodedImage frame, MapleAdjustmentParams* p, MapleToneCurves* curves)
