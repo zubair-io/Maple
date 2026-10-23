@@ -49,6 +49,8 @@ impl<'a> ChainInputs<'a> {
                 .is_finite()
                 .then_some(self.whites_anchor_ev),
             haze_map: None,
+            // The capture-first decode product reaches hosts in #5213 S3.
+            creative: None,
         }
     }
 }

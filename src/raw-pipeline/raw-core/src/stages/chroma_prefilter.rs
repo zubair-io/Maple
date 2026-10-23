@@ -1,9 +1,9 @@
 //! Decode-time chroma pre-filter (#1104, tone/zoom design spec § 3.1).
 //!
 //! A luma-guided sparse cross-bilateral filter applied to opponent chroma
-//! only, as part of the decode product: after DCP colorimetry and post-DCP
-//! highlight recovery, before capture sharpening / auto-exposure / WB-delta
-//! and all user adjustments. Because it lands inside the cached decoded
+//! only, as part of the decode product: in the capture stage's fixed as-shot
+//! Rec.2020 basis (#5213), after retouch and before BM3D, capture
+//! sharpening, white balance, DCP and all user adjustments. Because it lands inside the cached decoded
 //! scene-linear buffer, its per-slider-tick cost is zero. No GPU port —
 //! the stage never runs per tick (spec § 3.1 "Gates").
 //!
@@ -86,11 +86,11 @@ const SPATIAL_W: [f32; 8] = [
 ];
 
 /// Relative range sigma at strength 100. The Cauchy range weight is
-/// `1 / (1 + (ΔY / (σ·scale))²)` with `scale = (Y_c + Y_t)/2 + PEDESTAL`,
+/// `1 / (1 + (ΔY / (σ·scale))²)` with `scale = |Y_c + Y_t|/2 + PEDESTAL`,
 /// so σ is a *relative* luma difference: at strength 100 a tap whose luma
 /// differs from the center by 50% of the local level still carries half
 /// weight. Relative normalisation keeps the response invariant to the
-/// per-camera post-DCP scale (the stage runs before auto-exposure).
+/// per-camera capture scale (the stage runs before auto-exposure).
 const SIGMA_MAX_REL: f32 = 0.5;
 
 /// Pedestal added to the local luma scale so deep-shadow noise (where the
@@ -149,8 +149,10 @@ pub fn apply(img: &mut Image, strength: f32) {
                 let j = ny as usize * w + nx as usize;
                 let yt = ys_ref[j];
                 // Range weight from LUMA difference only (Cauchy falloff,
-                // relative to the local level + pedestal).
-                let scale = 0.5 * (yc + yt) + PEDESTAL;
+                // relative to the local level + pedestal). The level's
+                // magnitude keeps the scale positive on the signed
+                // capture-first basis (#5213), where luma can go negative.
+                let scale = (0.5 * (yc + yt)).abs() + PEDESTAL;
                 let t = (yt - yc) / (sigma * scale);
                 let wr = 1.0 / (1.0 + t * t);
                 let wk = SPATIAL_W[k] * wr;
