@@ -255,6 +255,7 @@
     <Compile Include="..\Maple.WinUI\Services\ScopeSampleTracker.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.DecodeOwned.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.Haze.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\NativeDetailHazeCache.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.ProfileReuse.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.Raster.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.WbFrame.cs" LinkBase="Services" />
