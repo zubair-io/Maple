@@ -342,6 +342,43 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
     expect(readAsset(live.db, assetId)?.apple_rendered_path).toBe(target_rel_path);
   });
 
+  test("an edited Live Photo's rendered image and .mov complete in separate sessions (#5241)", async () => {
+    const phidLive = 'REND/L0/LIVE';
+    const mapleIdLive = '02f00dfeed0000000000000000c0ffee';
+    const relPath = '2024/10/01/IMG_LIVE.HEIC';
+    seedIngested({ mapleId: mapleIdLive, relPath, phassetLocalId: phidLive, size: 64 });
+    const upload = (fill: number, extra: Record<string, string>) =>
+      authedHandle(
+        rendered(Buffer.alloc(64, fill), {
+          'X-Maple-Device-Id': deviceId,
+          'X-Maple-Phasset-Id': phidLive,
+          'X-Maple-Target-Rel-Path': relPath,
+          'X-Maple-Total-Bytes': '64',
+          'X-Maple-Maple-Id': mapleIdLive,
+          'Content-Range': 'bytes 0-63/64',
+          ...extra,
+        }),
+      );
+    const renderedImage = { 'X-Maple-Filename-Ext': 'JPEG' };
+    const liveVideo = { 'X-Maple-Suffix-Override': 'mov' };
+
+    expect((await upload(1, renderedImage)).status).toBe(200);
+    const mov = await upload(2, liveVideo);
+    expect(mov.status).toBe(200);
+    expect((await mov.json()).target_rel_path).toBe('2024/10/01/IMG_LIVE.mov');
+
+    const renderedSession = completedSessionId(`${phidLive}::rendered`);
+    const liveSession = completedSessionId(`${phidLive}::live`);
+    expect(renderedSession).not.toBeNull();
+    expect(liveSession).not.toBeNull();
+    expect(liveSession).not.toBe(renderedSession);
+
+    const retry = await upload(1, renderedImage);
+    expect(retry.status).toBe(200);
+    expect((await retry.json()).target_rel_path).toBe('2024/10/01/IMG_LIVE.rendered.JPEG');
+    expect(completedSessionId(`${phidLive}::rendered`)).toBe(renderedSession);
+  });
+
   test("rendered session de-dup: synthetic phid doesn't collide with original session", async () => {
     // After the first happy-path test, the rendered session (phid::rendered) is
     // completed. It is a distinct row from any session the original phid would

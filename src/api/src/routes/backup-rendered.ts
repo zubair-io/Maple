@@ -20,7 +20,8 @@
  *   X-Maple-Suffix-Override — optional; when set, the final filename is
  *                             `<base>.<suffix-override>` instead of
  *                             `<base>.rendered.<ext>`. Used by the Live Photo
- *                             .mov path to skip the `.rendered.` infix.
+ *                             .mov path to skip the `.rendered.` infix; that
+ *                             upload gets its own session.
  *   X-Maple-PHAsset-Cloud-Id — optional; Apple PHCloudIdentifier. When two
  *                             devices on the same iCloud library both back
  *                             up the rendered companion for the same photo,
@@ -236,14 +237,18 @@ async function placeRenderedFile(
 }
 
 /**
- * The cloud id a rendered session claims, which is the photo's with a suffix.
+ * The cloud id a companion session claims, which is the photo's with a suffix.
  *
- * The suffix is what namespaces rendered sessions apart from the original-asset
- * sessions for the same photo. Without it a rendered upload from device B sees
- * device A's ORIGINAL session as a busy peer and backs off for nothing.
+ * The suffix is what namespaces companion sessions apart from the original-asset
+ * sessions for the same photo, and from each other. Without it a rendered upload
+ * from device B sees device A's ORIGINAL session as a busy peer and backs off
+ * for nothing.
  */
-function renderedSessionCloudId(phCloudId: string | undefined): string | undefined {
-  return phCloudId === undefined ? undefined : `${phCloudId}::rendered`;
+function companionSessionCloudId(
+  phCloudId: string | undefined,
+  companion: string,
+): string | undefined {
+  return phCloudId === undefined ? undefined : `${phCloudId}::${companion}`;
 }
 
 function badRequest(error: string): Response {
@@ -272,10 +277,12 @@ export const backupRenderedRoutes = new Elysia().post(
     // Compute target rel-path for the rendered companion.
     const targetRelPath = renderedRelPath(originalRelPath, filenameExt, suffixOverride);
 
-    // Use synthetic phid so rendered sessions don't collide with original sessions.
-    const syntheticPhid = `${phid}::rendered`;
+    // A Live Photo's .mov and its Apple-rendered edit are separate uploads of
+    // the same photo, so each gets its own session, apart from the original's.
+    const companion = suffixOverride === undefined ? 'rendered' : 'live';
+    const syntheticPhid = `${phid}::${companion}`;
 
-    const renderedCloudId = renderedSessionCloudId(phCloudId);
+    const renderedCloudId = companionSessionCloudId(phCloudId, companion);
 
     const opened = await openChunkSession({
       libraryId,
