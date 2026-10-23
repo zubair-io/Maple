@@ -13,7 +13,7 @@ use crate::image::{ColorSpace, Image};
 
 #[path = "dehaze_map.rs"]
 mod map;
-pub use map::{proxy_dims, HazeMap, HAZE_PROXY_LONG_EDGE};
+pub use map::{downsample_to_proxy, proxy_dims, HazeMap, HAZE_PROXY_LONG_EDGE};
 
 /// Existing dark-channel transmission factor, shared with generated WGSL.
 pub const TRANSMISSION_OMEGA: f32 = 0.95;
@@ -114,8 +114,9 @@ pub fn apply(img: &mut Image, dehaze: f32) {
 /// Apply dehaze to a window of a frame whose map was measured elsewhere:
 /// `img` sits at `origin` inside a `frame` of `(width, height)` pixels, in
 /// the same pixel grid (a tile's padding may start outside the frame, so
-/// `origin` is signed; outside pixels read the map's edge). Bit-identical to [`apply`] on the whole frame when
-/// `map` is that frame's map and the window is the whole frame.
+/// `origin` is signed; outside pixels read the map's edge). Bit-identical to
+/// [`apply`] on the whole frame when `map` is that frame's map and the window
+/// is the whole frame.
 pub fn apply_with_map(
     img: &mut Image,
     dehaze: f32,
@@ -128,6 +129,18 @@ pub fn apply_with_map(
         return;
     }
     recover(img, dehaze, map, origin, frame);
+}
+
+/// [`apply`] on a whole frame, recovering with `haze`'s global map when one
+/// was measured for it elsewhere.
+pub fn apply_whole_frame(img: &mut Image, dehaze: f32, haze: Option<&FrameHaze>) {
+    match haze.and_then(|haze| haze.global.as_ref()) {
+        Some(map) => {
+            let frame = (img.width, img.height);
+            apply_with_map(img, dehaze, map, (0, 0), frame)
+        }
+        None => apply(img, dehaze),
+    }
 }
 
 fn recover(img: &mut Image, dehaze: f32, map: &HazeMap, origin: (i32, i32), frame: (u32, u32)) {

@@ -298,23 +298,7 @@ namespace Maple.WinUI.Services
                 flat.BindColorCurves(ref curves, ccHH, ccHS, ccHL, ccLS, ccSS, ccSL);
                 int rc;
                 if (window is { } detailWindow)
-                {
-                    var haze = hazeFrame != null && DehazeEngaged(model)
-                        ? MeasureHaze(hazeFrame, model, p, &curves)
-                        : IntPtr.Zero;
-                    try
-                    {
-                        rc = string.IsNullOrEmpty(model.FilmLook)
-                            ? RawFfi.ApplyWindow(inPtr, (uint)image.Width, (uint)image.Height, &p, &curves,
-                                IntPtr.Zero, 0, &detailWindow, haze, outPtr)
-                            : RawFfi.ApplyWindow(inPtr, (uint)image.Width, (uint)image.Height, &p, &curves,
-                                film!.NativeHandle!, (float)model.FilmStrength, &detailWindow, haze, outPtr);
-                    }
-                    finally
-                    {
-                        if (haze != IntPtr.Zero) RawFfi.maple_haze_map_free(haze);
-                    }
-                }
+                    rc = ApplyWindow(image, model, film, detailWindow, hazeFrame, inPtr, &p, &curves, outPtr);
                 else rc = string.IsNullOrEmpty(model.FilmLook)
                     ? RawFfi.maple_apply_chain_and_encode_display_curves_f32(
                         inPtr, (uint)image.Width, (uint)image.Height, &p, &curves, outPtr)
@@ -338,34 +322,6 @@ namespace Maple.WinUI.Services
                 bgraOut[o + 1] = ToByte(src[i + 1]);
                 bgraOut[o + 2] = ToByte(src[i]);
                 bgraOut[o + 3] = 255;
-            }
-        }
-
-        private static bool DehazeEngaged(AdjustmentState model) =>
-            Math.Abs(model.Dehaze) >= 1e-3
-            || model.LocalAdjustments.Exists(layer => Math.Abs(layer.Adjustments.Dehaze ?? 0) >= 1e-3);
-
-        /// <summary>The dehaze maps of <paramref name="frame"/> under the
-        /// frame's own decode anchors and the tick's pinned curves and layers
-        /// (#3287). Rust memoises the last measurement, so pans and dehaze
-        /// moves reuse it.</summary>
-        private static IntPtr MeasureHaze(DecodedImage frame, AdjustmentState model,
-            MapleAdjustmentParams tick, MapleToneCurves* curves)
-        {
-            var p = MapleAdjustmentParams.From(
-                model, frame.DecodedTemperature, frame.DecodedTint, frame.Iso, frame.WhitesAnchorEv, frame.NrSamplingScale);
-            ApplyWbFrame(ref p, frame.WbFrame);
-            p.skip_agx = frame.IsRaster ? 1u : 0u;
-            p.local_adjustments_ptr = tick.local_adjustments_ptr;
-            p.local_adjustments_len = tick.local_adjustments_len;
-            fixed (float* framePtr = frame.Pixels)
-            {
-                var rc = RawFfi.maple_scene_linear_chain_haze_map_f32(
-                    framePtr, (uint)frame.Width, (uint)frame.Height, &p, curves, out var haze);
-                if (rc != 0)
-                    throw new InvalidOperationException(
-                        $"native-detail haze map failed (rc={rc}): {RawFfi.LastError() ?? "unknown"}");
-                return haze;
             }
         }
 

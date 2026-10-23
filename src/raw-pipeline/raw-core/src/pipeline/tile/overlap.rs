@@ -19,10 +19,9 @@
 //!
 //! Each reach is the stage's own number, exported from the stage module so
 //! this table cannot drift from the kernel it describes. What is NOT here:
-//! dehaze (global statistics + a radius-60 guided filter — the proxy-plane
-//! half of § 5.3, tracked separately), BM3D deep denoise (frame-anchored
-//! patch grid, #1105), and OpcodeList3 (#1932); those stay rejected by
-//! `guards.rs`.
+//! dehaze, a point operation given the frame's proxy haze maps (#3287); and
+//! BM3D deep denoise (frame-anchored patch grid, #1105) and unsupported
+//! OpcodeList3 (#1932), which stay rejected by `guards.rs`.
 
 use super::TILE_OVERLAP_PX;
 use crate::image::RawImage;
@@ -104,8 +103,8 @@ pub(crate) fn scene_linear_chain_reach_px(model: &AdjustmentModel, mask_long_edg
 /// Reach of the per-mask spatial controls (#3407). Every layer's engaged
 /// controls cascade on that layer's own scratch buffer, and layers cascade
 /// on each other, so the whole stack's reaches add — the same additive rule
-/// the global stages above follow. A layer that engages the per-mask dehaze
-/// control never reaches here: `guards.rs` rejects the render first.
+/// the global stages above follow. A layer's per-mask dehaze adds nothing:
+/// it recovers from the frame's per-layer haze map (#3287).
 fn local_spatial_reach_px(model: &AdjustmentModel) -> usize {
     model
         .local_adjustments

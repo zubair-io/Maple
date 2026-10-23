@@ -113,6 +113,21 @@ pub fn apply_windowed_with_haze(
     );
 }
 
+/// [`apply`] on a whole frame whose per-mask dehaze recovers with `haze`'s
+/// per-layer maps when they were measured elsewhere (#3287).
+pub fn apply_with_frame_haze(
+    img: &mut Image,
+    layers: &[LocalAdjustment],
+    rasters: &[Arc<MaskRaster>],
+    haze: Option<&crate::stages::dehaze::FrameHaze>,
+) {
+    let full = (img.width, img.height);
+    match haze.filter(|haze| !haze.layers.is_empty()) {
+        Some(haze) => apply_windowed_with_haze(img, layers, rasters, (0, 0), full, &haze.layers),
+        None => apply(img, layers, rasters),
+    }
+}
+
 /// [`apply`] on a whole frame, returning each layer's per-mask dehaze map
 /// so the frame's windows can recover with it (#3287).
 pub fn apply_measuring_haze(

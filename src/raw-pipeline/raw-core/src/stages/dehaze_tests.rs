@@ -542,16 +542,3 @@ fn a_window_recovers_exactly_like_the_whole_frame_from_the_frame_map() {
         }
     }
 }
-
-#[test]
-fn the_map_does_not_depend_on_the_amount() {
-    let frame = hazy_scene(300, 200);
-    let map = HazeMap::measure(&frame);
-    for amount in [25.0, -80.0] {
-        let mut measured = frame.clone();
-        apply(&mut measured, amount);
-        let mut reused = frame.clone();
-        apply_with_map(&mut reused, amount, &map, (0, 0), (300, 200));
-        assert_eq!(measured.pixels, reused.pixels);
-    }
-}

@@ -101,6 +101,10 @@ extension EditSession {
     let filmLattice = filmLutStore.lattice(for: m.filmLook)
     let snapshot = await renderActor.snapshot(forAsset: asset, liveModel: decodeKey(m))
     guard requestID == nativeDetailRequestID, !Task.isCancelled else { return true }
+    // Dehaze measures its haze maps from the whole decode; a seeded preview
+    // or a decode for another model is not that, so the whole-image refine
+    // takes over until the real decode lands (#3287).
+    let hazeFrame = snapshot.isFresh && snapshot.profile != nil ? snapshot.image : nil
     adoptDecodedWbFrame(snapshot.wbFrame)
     // #1976: the live WB delta is applied ONCE, by the windowed chain
     // below, anchored at the buffer's actual as-shot bake
@@ -165,7 +169,7 @@ extension EditSession {
         // masks, vignette and grain match the full-frame render (#5169).
         let processed = try pipeline.processSceneLinearWindow(
           decoded: decoded,
-          fullFrame: snapshot.image,
+          fullFrame: hazeFrame,
           model: m,
           origin: decodeRect.origin,
           fullSize: fullSize,

@@ -89,11 +89,18 @@ pub unsafe extern "C" fn maple_scene_linear_chain_haze_map_f32(
             whites_anchor_ev: options.whites_anchor_ev,
             nr_sampling_scale: options.nr_sampling_scale,
         };
-        let mut last = LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some((_, haze)) = last.as_ref().filter(|(cached, _)| *cached == key) {
-            *out_map = Box::into_raw(Box::new(MapleHazeMap(Arc::clone(haze))));
+        let cached = LAST
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .filter(|(cached, _)| *cached == key)
+            .map(|(_, haze)| Arc::clone(haze));
+        if let Some(haze) = cached {
+            *out_map = Box::into_raw(Box::new(MapleHazeMap(haze)));
             return 0;
         }
+        // Measured outside the lock, so another window's lookup never waits
+        // on this measurement.
         let measured = match raw_core::pipeline::scene_linear_chain_haze_map(
             frame, width, height, &ci.model, &options,
         ) {
@@ -104,9 +111,19 @@ pub unsafe extern "C" fn maple_scene_linear_chain_haze_map_f32(
                 return 8;
             }
         };
-        *last = Some((key, Arc::clone(&measured)));
+        *LAST.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
+            Some((key, Arc::clone(&measured)));
         *out_map = Box::into_raw(Box::new(MapleHazeMap(measured)));
         0
+    })
+}
+
+/// Long edge of the grid the haze maps are measured on, so a host can hand
+/// over its frame at no more than that size.
+#[no_mangle]
+pub extern "C" fn maple_dehaze_proxy_long_edge() -> u32 {
+    crate::error::catch_panic("maple_dehaze_proxy_long_edge", 0, || {
+        dehaze::HAZE_PROXY_LONG_EDGE
     })
 }
 

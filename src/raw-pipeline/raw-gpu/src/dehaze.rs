@@ -3,28 +3,30 @@
 //!
 //! Dehaze is a dark-channel-prior (He, Sun, Tang 2009) haze removal with a
 //! guided-filter transmission refine and a sky-preservation mask (issue #272).
-//! Unlike clarity/texture (a self-guided guided filter), dehaze layers several
-//! distinct sub-stages, two of which are new substrate beats:
+//! Its frame-global half is a haze map measured on a fixed proxy grid
+//! ([`HAZE_PROXY_LONG_EDGE`], #3287), mirroring `raw_core::stages::dehaze`:
 //!
-//!   1. **Dark channel** — a 15×15 window MIN over `min(r,g,b)`. CLAMP-TO-EDGE
-//!      borders (full window, replicate the edge), NOT the box blur's shrinking
-//!      window — so it's a direct 2D min kernel (`dehaze_min.wgsl`, mode 0).
-//!   2. **Atmospheric light A** — a GLOBAL reduction: the mean of the original
-//!      image at the brightest top-0.1% of dark-channel positions. Computed
-//!      CPU-side ([`compute_airlight`]) replicating raw-core's exact sort +
-//!      top-N average, then passed into the kernels as a uniform — the cleanest
-//!      headless-parity path for a global reduction (the WhiteBalancePass
-//!      CPU-derive pattern). A is byte-exact vs raw-core.
-//!   3. **Transmission** — `1 - ω·(15×15 window min of min(rgb/A))`, clamp-to-edge
-//!      (`dehaze_min.wgsl`, mode 1; A in the uniform, clamped per-channel HERE only).
-//!   4. **Guided refine** — a GENERAL guided filter (guide = luma, p = t), four
-//!      independent blurred means. Packed into vec2 planes so the a/b kernel fits
-//!      the 4-storage cap (`dehaze_products` → `box_blur_vec2` → `dehaze_guided_ab`
+//!   0. **Proxy** — the pre-dehaze buffer block-averaged onto the grid
+//!      (`dehaze_downsample.wgsl`); every step below runs at proxy size.
+//!   1. **Dark channel** — a 15×15 clamp-to-edge window MIN over `min(r,g,b)`
+//!      (`dehaze_min.wgsl`, mode 0).
+//!   2. **Atmospheric light A** — the mean colour at the brightest 0.1% of
+//!      dark-channel positions: on-GPU (`airlight.rs`, the live path) or
+//!      CPU-side ([`compute_airlight`], byte-exact vs raw-core), into a uniform.
+//!   3. **Transmission** — `1 - ω·(15×15 window min of min(rgb/A))`
+//!      (`dehaze_min.wgsl`, mode 1).
+//!   4. **Guided coefficients** — a GENERAL guided filter (guide = luma − luma(A),
+//!      p = t) stopped before reconstruction, packed into vec2 planes for the
+//!      4-storage cap (`dehaze_products` → `box_blur_vec2` → `dehaze_guided_ab`
 //!      → `box_blur_vec2`).
 //!   5. **Sky mask** — `smoothstep(0.40, 0.60, dark_channel)` then a radius-8 box
 //!      blur (`dehaze_sky_mask.wgsl` + the scalar [`spatial::box_blur_encode`]).
-//!   6. **Recovery** — `J = (I - A)/t_eff + A` (RAW A) blended with `I` by the sky
-//!      mask (`dehaze_recover.wgsl`, the MULTI-INPUT tail — exactly 4 storage).
+//!   6. **Recovery** — at render resolution: the coefficients and mask sampled
+//!      bilinearly, `t = a·(luma − luma(A)) + b`, `J = (I - A)/t_eff + A` blended
+//!      with `I` by the mask (`dehaze_recover.wgsl`, exactly 4 storage).
+//!
+//! In a live session the map is resident ([`AirlightSource::Resident`]): a
+//! render whose chain up to dehaze is unchanged runs only step 6.
 //!
 //! Three pieces, like every wave-3b stage:
 //! - [`apply_dehaze`] — the CPU oracle: a faithful port of

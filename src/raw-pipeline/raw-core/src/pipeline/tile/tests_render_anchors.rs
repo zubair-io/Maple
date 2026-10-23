@@ -363,8 +363,9 @@ fn tile_wb_anchor_matches_scene_chain_on_unedited_open() {
 
 /// #1157: every spatial slider engaged on a real RAW — the ticket's gate,
 /// tile vs whole-image render. The point ops given the window (vignette,
-/// local adjustments, and dehaze from the full-frame haze map, #3287) and the stages the computed overlap pads for
-/// (capture sharpening, the S/H detail mask, clarity, texture) are expected
+/// local adjustments, and dehaze from the full-frame haze map, #3287) and
+/// the stages the computed overlap pads for (capture sharpening, the S/H
+/// detail mask, clarity, texture) are expected
 /// bit-exact; sharpen and NR carry position-dependent float accumulation
 /// (see the sibling tests), so the whole case sits under a float-ordering
 /// ceiling rather than a bit-equality assertion. Fixture-gated; the

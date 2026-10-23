@@ -85,11 +85,8 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     }
     let (frame_w, frame_h) = crate::pipeline::native_render_dims(raw);
     let model = &*crate::types::with_brush_rasters(model, frame_w, frame_h);
-    // Measured before any full-density buffer exists, so its transient
-    // develop never coexists with this one; a native tile reads the same map.
-    let haze = dehaze::any_engaged(model)
-        .then(|| super::develop_sized::haze_map_from_raw(raw, model, cancel))
-        .transpose()?;
+    // Before any full-density buffer exists, so the two develops never coexist.
+    let haze = super::develop_sized::frame_haze(raw, model, cancel)?;
     let mut camera_rgb = match raw.cfa {
         crate::image::CfaPattern::LinearRgb => {
             // LinearRaw DNG: data is already 3-channel RGB. Skip the
@@ -479,12 +476,9 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     dump_after("10_clarity", &scene);
     stage("texture", || texture::apply(&mut scene, model.texture));
     dump_after("11_texture", &scene);
-    if let Some(map) = haze.as_ref().and_then(|haze| haze.global.as_ref()) {
-        let frame = (scene.width, scene.height);
-        stage("dehaze", || {
-            dehaze::apply_with_map(&mut scene, model.dehaze, map, (0, 0), frame)
-        });
-    }
+    stage("dehaze", || {
+        dehaze::apply_whole_frame(&mut scene, model.dehaze, haze.as_ref())
+    });
     dump_after("12_dehaze", &scene);
     // Defringe (#3411) — Oklab, between dehaze and local adjustments so a
     // mask can still paint over a defringed edge. No-op at both defaults.
@@ -498,21 +492,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             &model.mask_rasters,
             raw.orientation,
         );
-        match haze.as_ref().filter(|haze| !haze.layers.is_empty()) {
-            // Per-mask dehaze recovers with the maps a native tile reads.
-            Some(haze) => {
-                let frame = (scene.width, scene.height);
-                local_adjustments::apply_windowed_with_haze(
-                    &mut scene,
-                    &layers,
-                    &rasters,
-                    (0, 0),
-                    frame,
-                    &haze.layers,
-                )
-            }
-            None => local_adjustments::apply(&mut scene, &layers, &rasters),
-        }
+        local_adjustments::apply_with_frame_haze(&mut scene, &layers, &rasters, haze.as_ref())
     });
     dump_after("12b_local_adjustments", &scene);
     // Vignette (#1109, tone/zoom design § 10.1) — scene-linear radial gain,

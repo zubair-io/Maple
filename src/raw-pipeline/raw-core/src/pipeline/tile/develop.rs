@@ -5,9 +5,10 @@
 //! themselves architecturally (see the per-stage notes at each chain
 //! position):
 //!
-//! * dehaze and deep_denoise — rejected loudly at the tile entry
-//!   (`super::guards`) so the host falls back to the full-image render
-//!   (#1105; dehaze awaits a full-frame proxy plane),
+//! * deep_denoise — rejected loudly at the tile entry (`super::guards`) so
+//!   the host falls back to the full-image render (#1105),
+//! * dehaze — recovers from the full frame's proxy haze maps (#3287),
+//!   carried in [`TileAnchors::haze`],
 //! * auto_exposure — a tile is a sub-region, so its own histogram isn't
 //!   representative of the whole scene; this chain never recomputes the
 //!   anchor gain per-tile (#1167). Instead it accepts the scalar
@@ -85,11 +86,9 @@ pub(super) fn full_frame_long_edge(raw: &RawImage, quality: RenderQuality) -> us
 /// the tile path so the linearize + crop pair runs once on the padded
 /// crop and the develop chain runs on a small image. Mirrors
 /// `develop_scene_linear_from_raw_with_quality` but without the leading
-/// `linearize` call and **without** dehaze / vignette / deep_denoise /
-/// local_adjustments / capture_sharpening (the tile entry errors before
-/// this fn runs when any of them is active — see the rejection block in
-/// `render_scene_linear_tile_from_raw_with_quality`, #1084 / #1105 /
-/// #1109).
+/// `linearize` call. Deep denoise never reaches it (the entry refuses it,
+/// #1105); vignette and local adjustments run windowed, capture sharpening
+/// on the computed pad, and dehaze from the frame's haze maps (#3287).
 ///
 /// `decoded_wb_anchor` is the app's live-chain / tile-refine DELTA contract
 /// (#1725 band fix): `Some((decoded_temp, decoded_tint))` applies
@@ -353,7 +352,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // doc comment). Applied at EXACTLY the chain position
     // `stages::auto_exposure::apply` occupies in the full/sized develop
     // chains: after chroma_prefilter/deep_denoise/capture_sharpening (the
-    // latter two are rejected loudly at the tile entry, same as dehaze), and
+    // former is rejected loudly at the tile entry), and
     // before the post-DCP white-balance block below. Position matters here
     // for two reasons: (a) genuinely non-commutative downstream stages —
     // `scene_tone_controls`' shaping (shadows/highlights/whites/blacks/

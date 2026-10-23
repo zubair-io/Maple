@@ -367,7 +367,8 @@ mod tests {
                 sharpness: Some(50.0),
                 luminance_noise: Some(20.0),
                 defringe: Some(40.0),
-                // Dehaze contributes nothing: the tile entry rejects it.
+                // Dehaze contributes nothing: given the frame's map it is a
+                // point operation (#3287).
                 dehaze: Some(50.0),
                 ..Default::default()
             }),

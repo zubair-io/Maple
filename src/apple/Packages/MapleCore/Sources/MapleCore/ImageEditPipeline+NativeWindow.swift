@@ -84,9 +84,10 @@ extension ImageEditPipeline {
   }
 
   /// The whole frame's dehaze maps for the patch (#3287): `frame` rendered at
-  /// no more than the maps' 2048-texel proxy edge (they are measured on that
-  /// grid whatever the input size), then measured by Rust, which memoises the
-  /// last result. `nil` when no dehaze is engaged.
+  /// no more than the maps' proxy edge (`maple_dehaze_proxy_long_edge`; they
+  /// are measured on that grid whatever the input size), then measured by
+  /// Rust, which memoises the last result. `nil` when no dehaze is engaged;
+  /// throws when it is but the decoded frame is not available.
   nonisolated func hazeMap(
     frame: CIImage?,
     model: AdjustmentModel,
@@ -103,7 +104,7 @@ extension ImageEditPipeline {
         code: 8, message: "native detail: dehaze needs the decoded frame for its haze map")
     }
     let extent = frame.extent
-    let scale = min(1, 2048 / max(extent.width, extent.height))
+    let scale = min(1, CGFloat(maple_dehaze_proxy_long_edge()) / max(extent.width, extent.height))
     let scaled = frame.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
     let w = Int((extent.width * scale).rounded(.down))
     let h = Int((extent.height * scale).rounded(.down))

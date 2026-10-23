@@ -60,7 +60,7 @@
 //! `strength < 1e-3` (the shipped default 0) skips the stage entirely.
 //! Never runs on the tile path (the reference grid is anchored at the
 //! buffer origin, so tile-relative grids would seam) — the tile FFI
-//! entries reject `deepDenoise > 0` exactly like dehaze.
+//! entries reject `deepDenoise > 0`.
 
 mod matching;
 mod pipeline;

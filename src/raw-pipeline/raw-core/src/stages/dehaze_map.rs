@@ -4,8 +4,9 @@
 //!
 //! Every window radius below is in proxy pixels, so the map — and therefore
 //! the look — no longer depends on the resolution being rendered: a fit
-//! preview, a 100 MP export and a 100% tile all read the same map, sampled
-//! bilinearly into their own pixel grid. The transmission is reconstructed
+//! preview, a 100 MP export and a 100% tile measure the same map to within
+//! the resampling of their input, and sample it bilinearly into their own
+//! pixel grid. The transmission is reconstructed
 //! per rendered pixel from the upsampled guided-filter coefficients and the
 //! rendered pixel's own luma (He & Sun's fast guided filter), so edges stay
 //! as sharp as the render while the statistics stay frame-global.
@@ -90,6 +91,21 @@ impl HazeMap {
     pub fn byte_len(&self) -> usize {
         self.coefficients.len() * std::mem::size_of::<[f32; 2]>()
             + self.sky.len() * std::mem::size_of::<f32>()
+    }
+}
+
+/// `img` block-averaged onto its proxy grid when it is larger than it — the
+/// cheapest whole frame that still measures the same map.
+pub fn downsample_to_proxy(img: Image) -> Image {
+    if img.width.max(img.height) <= HAZE_PROXY_LONG_EDGE {
+        return img;
+    }
+    let (width, height) = proxy_dims(img.width, img.height);
+    Image {
+        width,
+        height,
+        pixels: resample(&img, width as usize, height as usize),
+        ..img
     }
 }
 

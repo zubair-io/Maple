@@ -34,7 +34,7 @@
 //! source can sit anywhere in the frame — so a window that holds only part
 //! of a spot's footprint cannot reproduce it. Such a tile is REFUSED loudly
 //! rather than rendered without the repair, matching how the tile path
-//! already refuses dehaze and deep denoise. A tile no spot reaches renders
+//! refuses deep denoise. A tile no spot reaches renders
 //! normally.
 
 use crate::cancel::CancelToken;
