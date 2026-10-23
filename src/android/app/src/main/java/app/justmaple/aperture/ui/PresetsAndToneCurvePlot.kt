@@ -46,7 +46,7 @@ val nonCopyablePresetFields: Set<String> =
  * Android-exposed non-numeric XMP attributes that participate in saved user presets.
  */
 val copyablePresetAttributes: Set<String> =
-    setOf("crs:ConvertToGrayscale", "papp:FilmLook")
+    setOf("crs:ConvertToGrayscale", "papp:FilmLook", "papp:Profile")
 
 /**
  * Built-in presets matching Apple's `builtin-presets.json` (#5193).
@@ -69,9 +69,14 @@ val builtInPresets: List<BuiltInPreset> =
     )
 
 fun MapleViewModel.applyBuiltInPreset(preset: BuiltInPreset) {
-    preset.fields.forEach { (name, value) -> setField(name, value) }
-    if (preset.attributes.isNotEmpty()) {
-        setAttributes(preset.attributes, commit = false)
+    preset.fields.forEach { (name, value) ->
+        if (name in AdjustmentFields.byName && name !in nonCopyablePresetFields) {
+            setField(name, value)
+        }
+    }
+    val knownAttributes = preset.attributes.filterKeys { it in copyablePresetAttributes }
+    if (knownAttributes.isNotEmpty()) {
+        setAttributes(knownAttributes, commit = false)
     }
     commitGesture()
 }
@@ -109,7 +114,7 @@ fun decodeUserPresetsJson(raw: String?): List<BuiltInPreset> {
                     val keys = fieldsObj.keys()
                     while (keys.hasNext()) {
                         val key = keys.next()
-                        if (key in AdjustmentFields.byName && key !in nonCopyablePresetFields) {
+                        if (key !in nonCopyablePresetFields) {
                             val v = fieldsObj.optDouble(key)
                             if (v.isFinite()) fields[key] = v.toFloat()
                         }
@@ -121,10 +126,8 @@ fun decodeUserPresetsJson(raw: String?): List<BuiltInPreset> {
                     val attrKeys = attrsObj.keys()
                     while (attrKeys.hasNext()) {
                         val key = attrKeys.next()
-                        if (key in copyablePresetAttributes) {
-                            val v = attrsObj.optString(key).takeIf { it.isNotBlank() }
-                            if (v != null) attributes[key] = v
-                        }
+                        val v = attrsObj.optString(key).takeIf { it.isNotBlank() }
+                        if (v != null) attributes[key] = v
                     }
                 }
                 if (fields.isNotEmpty() || attributes.isNotEmpty()) {
@@ -171,15 +174,23 @@ fun MapleState.savablePresetAttributes(): Map<String, String> = buildMap {
     if (film.isNotEmpty()) {
         put("papp:FilmLook", film)
     }
+    val profile =
+        document.attribute("papp:Profile")
+            ?: if (document.attribute("papp:Look") == "Neutral") "Neutral" else "Auto"
+    if (profile != "Auto") {
+        put("papp:Profile", profile)
+    }
 }
 
-fun MapleState.isPresetActive(preset: BuiltInPreset): Boolean =
-    (preset.fields.isNotEmpty() || preset.attributes.isNotEmpty()) &&
-        preset.fields.all { (name, target) ->
+fun MapleState.isPresetActive(preset: BuiltInPreset): Boolean {
+    val knownFields = preset.fields.filterKeys { it in AdjustmentFields.byName && it !in nonCopyablePresetFields }
+    val knownAttrs = preset.attributes.filterKeys { it in copyablePresetAttributes }
+    return (knownFields.isNotEmpty() || knownAttrs.isNotEmpty()) &&
+        knownFields.all { (name, target) ->
             val current = values[name] ?: return@all false
             abs(current - target) <= 1e-3f
         } &&
-        preset.attributes.all { (name, target) ->
+        knownAttrs.all { (name, target) ->
             val current = document.attribute(name)
             when (name) {
                 "crs:ConvertToGrayscale" -> {
@@ -187,9 +198,15 @@ fun MapleState.isPresetActive(preset: BuiltInPreset): Boolean =
                     val targetMono = target == "1" || target.equals("True", ignoreCase = true)
                     isMono == targetMono
                 }
+                "papp:Profile" -> {
+                    val activeProfile =
+                        current ?: if (document.attribute("papp:Look") == "Neutral") "Neutral" else "Auto"
+                    activeProfile == target
+                }
                 else -> current == target
             }
         }
+}
 
 @Composable
 internal fun BuiltInPresetsRow(
@@ -212,10 +229,17 @@ internal fun BuiltInPresetsRow(
         ) {
             items(allPresets, key = { it.id }) { preset ->
                 val active = state.isPresetActive(preset)
-                val supported =
-                    preset.fields.keys.all {
-                        AdjustmentFields.byName[it]?.let(state::supportsField) == true
+                val knownFields =
+                    preset.fields.keys.filter {
+                        it in AdjustmentFields.byName && it !in nonCopyablePresetFields
                     }
+                val knownAttrs = preset.attributes.keys.filter { it in copyablePresetAttributes }
+                val supported =
+                    (knownFields.isNotEmpty() || knownAttrs.isNotEmpty()) &&
+                        knownFields.all {
+                            AdjustmentFields.byName[it]?.let(state::supportsField) == true
+                        } &&
+                        ("papp:Profile" !in knownAttrs || state.values["_raw"] != 0f)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     FilterChip(
                         selected = active,

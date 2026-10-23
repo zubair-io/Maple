@@ -17,8 +17,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
@@ -27,11 +30,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 import app.justmaple.aperture.data.NativeBridge
 import org.json.JSONArray
 import org.json.JSONObject
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -89,28 +93,83 @@ private fun DrawScope.scopeDensity(values: List<Float>, columns: Int, bins: Int,
     }
 }
 
+internal data class VectorscopeTargetStop(val angleDeg: Double, val r: Float, val g: Float, val b: Float)
+
+internal val vectorscopeTargetStops: List<VectorscopeTargetStop> =
+    listOf(
+            Triple(1.0, 0.0, 0.0), // Red
+            Triple(1.0, 1.0, 0.0), // Yellow
+            Triple(0.0, 1.0, 0.0), // Green
+            Triple(0.0, 1.0, 1.0), // Cyan
+            Triple(0.0, 0.0, 1.0), // Blue
+            Triple(1.0, 0.0, 1.0), // Magenta
+        )
+        .map { (r, g, b) ->
+            val cb = -0.114572 * r - 0.385428 * g + 0.5 * b
+            val cr = 0.5 * r - 0.454153 * g - 0.045847 * b
+            val rawDeg = atan2(cr, cb) * 180.0 / Math.PI
+            val normDeg = ((rawDeg % 360.0) + 360.0) % 360.0
+            VectorscopeTargetStop(normDeg, r.toFloat(), g.toFloat(), b.toFloat())
+        }
+        .sortedBy { it.angleDeg }
+
+internal fun vectorscopeRingColor(angleDeg: Double): Color {
+    val a = ((angleDeg % 360.0) + 360.0) % 360.0
+    val upperIndex = vectorscopeTargetStops.indexOfFirst { it.angleDeg >= a }.let { if (it < 0) 0 else it }
+    val lowerIndex = (upperIndex + vectorscopeTargetStops.size - 1) % vectorscopeTargetStops.size
+    val lower = vectorscopeTargetStops[lowerIndex]
+    val upper = vectorscopeTargetStops[upperIndex]
+    val span = ((upper.angleDeg - lower.angleDeg) % 360.0 + 360.0) % 360.0
+    if (span <= 0.0) return Color(lower.r, lower.g, lower.b)
+    val t = (((a - lower.angleDeg) % 360.0 + 360.0) % 360.0 / span).toFloat()
+    return Color(
+        red = lower.r + (upper.r - lower.r) * t,
+        green = lower.g + (upper.g - lower.g) * t,
+        blue = lower.b + (upper.b - lower.b) * t,
+    )
+}
+
 private fun DrawScope.vectorscopePlot(values: List<Float>, grid: Int) {
-    val diameter = minOf(size.width, size.height)
+    val diameter = (minOf(size.width, size.height) - 8.dp.toPx()).coerceAtLeast(4f)
     val radius = diameter / 2f
     val center = Offset(size.width / 2f, size.height / 2f)
-    drawCircle(
-        color = Color.White.copy(alpha = 0.2f),
-        radius = radius,
-        center = center,
-        style = Stroke(width = 0.75.dp.toPx()),
-    )
-    drawLine(
-        color = Color.White.copy(alpha = 0.15f),
-        start = Offset(center.x - radius, center.y),
-        end = Offset(center.x + radius, center.y),
-        strokeWidth = 0.5.dp.toPx(),
-    )
-    drawLine(
-        color = Color.White.copy(alpha = 0.15f),
-        start = Offset(center.x, center.y - radius),
-        end = Offset(center.x, center.y + radius),
-        strokeWidth = 0.5.dp.toPx(),
-    )
+    val ringWidth = maxOf(2.dp.toPx(), radius * 0.06f)
+
+    // Continuous Rec.709 hue ring around the rim
+    var deg = 0.0
+    val step = 4.0
+    while (deg < 360.0) {
+        val r0 = Math.toRadians(deg)
+        val r1 = Math.toRadians(deg + step)
+        drawLine(
+            color = vectorscopeRingColor(deg),
+            start = Offset(center.x + cos(r0).toFloat() * radius, center.y - sin(r0).toFloat() * radius),
+            end = Offset(center.x + cos(r1).toFloat() * radius, center.y - sin(r1).toFloat() * radius),
+            strokeWidth = ringWidth,
+        )
+        deg += step
+    }
+
+    // Six dashed broadcast target spokes + target markers on the ring
+    val dash = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 3.dp.toPx()), 0f)
+    val spokeColor = MapleColors.border.copy(alpha = 0.55f)
+    for (stop in vectorscopeTargetStops) {
+        val rad = Math.toRadians(stop.angleDeg)
+        val targetPt = Offset(center.x + cos(rad).toFloat() * radius, center.y - sin(rad).toFloat() * radius)
+        drawLine(
+            color = spokeColor,
+            start = center,
+            end = targetPt,
+            strokeWidth = 0.5.dp.toPx(),
+            pathEffect = dash,
+        )
+        drawCircle(
+            color = Color(stop.r, stop.g, stop.b),
+            radius = 2.5.dp.toPx(),
+            center = targetPt,
+        )
+    }
+
     if (grid <= 0 || values.size != grid * grid) return
     val cell = diameter / grid
     val left = center.x - radius
@@ -120,7 +179,7 @@ private fun DrawScope.vectorscopePlot(values: List<Float>, grid: Int) {
             val row = index / grid
             val col = index % grid
             drawRect(
-                color = MapleColors.primary.copy(alpha = (0.18f + density * 0.82f).coerceIn(0f, 1f)),
+                color = MapleColors.primary.copy(alpha = (0.15f + density * 0.85f).coerceIn(0f, 1f)),
                 topLeft = Offset(left + col * cell, top + (grid - 1 - row) * cell),
                 size = Size(cell + 0.5f, cell + 0.5f),
             )
