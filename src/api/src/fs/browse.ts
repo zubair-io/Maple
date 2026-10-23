@@ -260,12 +260,12 @@ export async function listDir(reqPath: string, showAll: boolean): Promise<OpResu
   // Issue 3 fix: return realpath form consistently for DirListing.path,
   // DirListing.parent, and entries[].path so the picker UI never sees a
   // path-style flip (e.g. /var vs /private/var on macOS) mid-navigation.
-  const isRoot = real === '/';
+  const parent = path.dirname(real);
   return {
     ok: true,
     data: {
       path: real,
-      parent: isRoot ? null : path.dirname(real),
+      parent: parent !== real && roots.some((root) => isUnderRoot(parent, root)) ? parent : null,
       entries: out,
     },
   };

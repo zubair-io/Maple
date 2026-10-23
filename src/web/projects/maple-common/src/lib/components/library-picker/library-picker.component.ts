@@ -1,5 +1,5 @@
 // LibraryPickerComponent — first-run library folder picker for Maple Self Hosted.
-// Walks the server filesystem via /api/fs/list starting at '/', lets the
+// Walks the server filesystem via /api/fs/list from its allowed roots, lets the
 // user navigate into mounted volumes, and emits the chosen absolute path.
 
 import {
@@ -15,37 +15,81 @@ import {
 } from '@angular/core';
 import { Subscription } from 'rxjs';
 import { BunApiBackendService, type ApiDirListing } from '../../api/bun-api-backend.service';
+import { FilesystemBrowseService } from '../../api/filesystem-browse.service';
 import { MuiButtonComponent } from '../../ui/button/mui-button.component';
 import { MuiCheckboxComponent } from '../../ui/checkbox/mui-checkbox.component';
+import { MuiSelectComponent } from '../../ui/select/mui-select.component';
 
 @Component({
   selector: 'app-library-picker',
   standalone: true,
-  imports: [MuiButtonComponent, MuiCheckboxComponent],
+  imports: [MuiButtonComponent, MuiCheckboxComponent, MuiSelectComponent],
   templateUrl: './library-picker.component.html',
   styleUrl: './library-picker.component.scss',
   host: {
-    class: 'flex w-full h-full items-center justify-center box-border p-8 bg-bg text-text-main',
+    class: 'flex w-full h-full items-center justify-center box-border text-text-main',
+    '[class.p-8]': 'framed()',
+    '[class.bg-bg]': 'framed()',
   },
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LibraryPickerComponent implements OnInit, OnDestroy {
   private readonly api = inject(BunApiBackendService);
+  private readonly filesystem = inject(FilesystemBrowseService);
   private request: Subscription | null = null;
 
   readonly listing = signal<ApiDirListing | null>(null);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
   readonly showAll = signal(false);
-  readonly currentPath = signal('/');
+  readonly currentPath = signal('');
+  readonly roots = signal<string[]>([]);
+  readonly selectedRoot = signal('');
+  readonly rootOptions = computed(() => this.roots().map((root) => ({ value: root, label: root })));
   readonly canChoose = computed(() => !this.loading() && !this.error() && !!this.listing()?.path);
 
   readonly pick = output<string>();
   readonly cancel = output<void>();
   readonly showCancel = input(true);
+  /** The empty Browse screen owns a card; a modal already supplies its frame. */
+  readonly framed = input(true);
 
   ngOnInit(): void {
-    this.navigate('/');
+    this.loadRoots();
+  }
+
+  private loadRoots(): void {
+    this.request?.unsubscribe();
+    this.loading.set(true);
+    this.error.set(null);
+    this.request = this.filesystem.roots().subscribe({
+      next: (roots) => {
+        this.roots.set(roots);
+        const root = roots[0];
+        if (!root) {
+          this.loading.set(false);
+          this.error.set('No filesystem roots are available.');
+          return;
+        }
+        this.selectedRoot.set(root);
+        this.navigate(root);
+      },
+      error: (err) => {
+        this.loading.set(false);
+        this.error.set(err?.error?.error ?? err?.message ?? 'Failed to load filesystem roots.');
+      },
+    });
+  }
+
+  onRootChange(root: string): void {
+    if (!this.roots().includes(root)) return;
+    this.selectedRoot.set(root);
+    this.navigate(root);
+  }
+
+  retry(): void {
+    if (this.roots().length) this.navigate(this.currentPath());
+    else this.loadRoots();
   }
 
   ngOnDestroy(): void {
