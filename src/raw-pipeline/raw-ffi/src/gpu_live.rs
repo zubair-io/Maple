@@ -243,6 +243,7 @@ mod present_winui;
 // The C-params -> FullChainInputs marshalling lives in a sibling module
 // (600-LOC file budget; same split pattern as raw_gpu's live_session/limits).
 mod params;
+mod present_geometry;
 mod scope_poll;
 
 #[cfg(test)]
