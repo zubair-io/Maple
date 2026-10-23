@@ -96,6 +96,16 @@ impl LiveSession {
             AirlightSource::Resident(std::sync::Arc::clone(&self.haze), 0),
             &mut sink,
         );
-        sink.index
+        self.settle_haze(sink.index)
+    }
+
+    /// Both callers submit the encoder exactly when the encode returned
+    /// `Some`; a dropped encoder never ran the haze maps' copies.
+    pub(super) fn settle_haze(&self, index: Option<usize>) -> Option<usize> {
+        match index {
+            Some(_) => self.haze.submitted(),
+            None => self.haze.abandoned(),
+        }
+        index
     }
 }
