@@ -1,6 +1,7 @@
 @group(0) @binding(1) var<storage, read> input: array<vec2<f32>>;
 @group(0) @binding(2) var<storage, read_write> samples: array<u32>;
 @group(0) @binding(3) var<storage, read_write> groups: array<u32>;
+@group(0) @binding(4) var<storage,read_write> selected:array<atomic<u32>>;
 
 var<workgroup> tile: array<f32, 676>;
 var<workgroup> reference: array<f32, 64>;
@@ -10,6 +11,7 @@ var<workgroup> locations: array<u32, 512>;
 fn guide_value(at: vec2<u32>) -> f32 {
     return input[at.y * p.dims.x + at.x].x;
 }
+
 
 @compute @workgroup_size(256)
 fn match_groups(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_index) lane: u32) {
@@ -54,40 +56,24 @@ fn match_groups(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_
         if distance <= tau { distances[c] = distance; }
     }
     workgroupBarrier();
-    // Total ordering is (distance, scan index), including exact ties. The
-    // fixed network parallelizes selection while retaining CPU match order.
-    for (var size = 2u; size <= 512u; size *= 2u) {
-        for (var stride = size / 2u; stride > 0u; stride /= 2u) {
-            for (var i = lane; i < 512u; i += 256u) {
-                let j = i ^ stride;
-                if j <= i { continue; }
-                let a = distances[i];
-                let b = distances[j];
-                let ai = locations[i];
-                let bi = locations[j];
-                let greater = a > b || (a == b && ai > bi);
-                let less = a < b || (a == b && ai < bi);
-                let ascending = (i & size) == 0u;
-                if (ascending && greater) || (!ascending && less) {
-                    distances[i] = b; distances[j] = a;
-                    locations[i] = bi; locations[j] = ai;
-                }
-            }
-            workgroupBarrier();
-        }
-    }
+    sort_candidates(lane);
     if lane == 0u {
         if g == 0u { groups[0] = bitcast<u32>(sigma); }
         let base = 4u + g * 17u;
-        groups[base + 1u] = xy.y * p.dims.x + xy.x;
+        groups[base + 1u] = pack_patch(xy);
         var n = 1u;
         for (var k = 0u; k < 15u; k++) {
             if distances[k] == bitcast<f32>(0x7f800000u) { break; }
             let selected = locations[k];
             let at = lo + vec2<u32>(selected % row_width, selected / row_width);
-            groups[base + 1u + n] = at.y * p.dims.x + at.x;
+            groups[base + 1u + n] = pack_patch(at);
             n++;
         }
-        groups[base] = 1u << u32(floor(log2(f32(n))));
+        let count=1u << u32(floor(log2(f32(n))));
+        groups[base]=count;
+        for (var k=0u;k<count;k++) {
+            let origin=unpack_patch(groups[base+1u+k]);
+            atomicStore(&selected[origin.y*p.dims.x+origin.x],1u);
+        }
     }
 }

@@ -4,6 +4,10 @@ use crate::context::GpuContext;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn width(ctx: &GpuContext) -> Option<u32> {
+    #[cfg(test)]
+    if FORCE_PORTABLE.with(|flag| flag.get()) {
+        return None;
+    }
     if !ctx.device.features().contains(wgpu::Features::SUBGROUP) {
         return None;
     }
@@ -63,34 +67,24 @@ pub(super) fn width(_: &GpuContext) -> Option<u32> {
     None
 }
 
-pub(super) fn source(portable: &str, width: u32) -> String {
-    let source = format!(
-        "const SUBGROUP_WIDTH:u32={width}u;\n{portable}\n{}",
-        include_str!("filter_axes_subgroup.wgsl")
-    );
-    source
-        .replace(
-            "patch_means(v,lane,false,n)",
-            "patch_means_fast(v,lane,false,n)",
-        )
-        .replace(
-            "patch_means(b,lane,true,n)",
-            "patch_means_fast(b,lane,true,n)",
-        )
-        .replace(
-            "spatial_transform(v,lane,false)",
-            "spatial_transform_fast(v,lane,false)",
-        )
-        .replace(
-            "spatial_transform(b,lane,false)",
-            "spatial_transform_fast(b,lane,false)",
-        )
-        .replace(
-            "spatial_transform(v,lane,true)",
-            "spatial_transform_fast(v,lane,true)",
-        )
-        .replace(
-            "    finish_means(lane,n,wiener,sigma);",
-            "    finish_means_fast(lane,n,wiener,sigma);",
-        )
+/// Assemble exactly one implementation of each helper. No source rewriting.
+pub(super) fn source(
+    header: &str,
+    shared: &str,
+    kernel: &str,
+    portable: &str,
+    native: &str,
+    width: Option<u32>,
+) -> String {
+    match width {
+        Some(width) => {
+            format!("const SUBGROUP_WIDTH:u32={width}u;\n{header}\n{shared}\n{native}\n{kernel}")
+        }
+        None => format!("{header}\n{shared}\n{portable}\n{kernel}"),
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static FORCE_PORTABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }

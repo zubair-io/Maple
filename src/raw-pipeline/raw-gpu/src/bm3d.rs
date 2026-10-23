@@ -1,15 +1,18 @@
 //! Two-pass BM3D on the GPU, using raw-core's tuning and DCT basis (#5099).
 //! Prefix adoption and full-size latency qualification remain tracked by #5099.
 //! Matching and collaborative filtering run on device. Reference patches are
-//! processed in 36 fixed colors: groups of one color have disjoint support,
-//! including the shortened final grid interval. Accumulation needs no atomics
-//! and has deterministic summation order. All scratch uses the live frame pool.
+//! filtered in bounded tiles with reusable patch spectra. Each output pixel
+//! has one writer and visits contributing groups in fixed order, without float
+//! atomics. All scratch uses the live frame pool.
 
 use crate::{chain::Pass, context::GpuContext, spatial};
 
 #[path = "../../raw-core/src/stages/bm3d/parameters.rs"]
 mod parameters;
 use parameters::*;
+mod cached;
+#[cfg(test)]
+mod gpu_profile;
 mod subgroups;
 
 pub(crate) struct Pipelines {
@@ -23,32 +26,78 @@ pub(crate) struct Pipelines {
     vertical_mean: wgpu::ComputePipeline,
     horizontal_mean: wgpu::ComputePipeline,
     filter: wgpu::ComputePipeline,
+    scan_selected: wgpu::ComputePipeline,
+    sum_blocks: wgpu::ComputePipeline,
+    compact_selected: wgpu::ComputePipeline,
+    cache_spectra: wgpu::ComputePipeline,
+    cache_hard: wgpu::ComputePipeline,
+    gather: wgpu::ComputePipeline,
     reconstruct: wgpu::ComputePipeline,
 }
 
 impl GpuContext {
     fn bm3d_pipelines(&self) -> &Pipelines {
         self.bm3d_pipelines.get_or_init(|| {
-            let header = include_str!("bm3d/common.wgsl");
+            let coefficients=dct_basis().iter().flatten().map(|v|format!("{v:?}")).collect::<Vec<_>>().join(",");
+            let header=format!("{}\nconst DCT_BASIS:array<f32,64>=array<f32,64>({coefficients});\nfn basis(k:u32,n:u32)->f32 {{return DCT_BASIS[k*8u+n];}}",include_str!("bm3d/common.wgsl"));
+            let header=header.as_str();
             let sample = format!("{header}\n{}", include_str!("bm3d/sample.wgsl"));
-            let matching = format!("{header}\n{}", include_str!("bm3d/matching.wgsl"));
             let select = format!("{header}\n{}", include_str!("bm3d/select.wgsl"));
             let median = format!("{header}\n{}", include_str!("bm3d/median.wgsl"));
             let metadata = format!("{header}\n{}", include_str!("bm3d/metadata.wgsl"));
-            let portable = format!("{header}\n{}", include_str!("bm3d/filter.wgsl"));
             let subgroup_width = subgroups::width(self);
-            let filter = subgroup_width.map_or_else(
-                || portable.clone(),
-                |width| subgroups::source(&portable, width),
+            let matching = subgroups::source(
+                header,
+                "",
+                include_str!("bm3d/matching.wgsl"),
+                include_str!("bm3d/matching_portable.wgsl"),
+                include_str!("bm3d/matching_subgroup.wgsl"),
+                subgroup_width,
             );
+            let filter = subgroups::source(
+                header,
+                include_str!("bm3d/filter_helpers.wgsl"),
+                include_str!("bm3d/filter.wgsl"),
+                include_str!("bm3d/filter_portable.wgsl"),
+                include_str!("bm3d/filter_axes_subgroup.wgsl"),
+                subgroup_width,
+            );
+            let scan_selected = subgroups::source(
+                header,
+                "",
+                include_str!("bm3d/scan_selected.wgsl"),
+                include_str!("bm3d/scan_selected_portable.wgsl"),
+                include_str!("bm3d/scan_subgroup.wgsl"),
+                subgroup_width,
+            );
+            let sum_blocks = format!("{header}\n{}", include_str!("bm3d/sum_blocks.wgsl"));
+            let compact_selected =
+                format!("{header}\n{}", include_str!("bm3d/compact_selected.wgsl"));
+            let cache_spectra = subgroups::source(
+                header,
+                "",
+                include_str!("bm3d/cache_spectra.wgsl"),
+                include_str!("bm3d/cache_spectra_portable.wgsl"),
+                include_str!("bm3d/cache_subgroup.wgsl"),
+                subgroup_width,
+            );
+            let cache_hard = subgroups::source(header, "", include_str!("bm3d/cache_hard.wgsl"), include_str!("bm3d/cache_spectra_portable.wgsl"), include_str!("bm3d/cache_subgroup.wgsl"), subgroup_width);
+            let gather = format!("{header}\n{}", include_str!("bm3d/gather_estimates.wgsl"));
             let reconstruct = format!("{header}\n{}", include_str!("bm3d/reconstruct.wgsl"));
+            // Every workgroup scratch read follows an explicit write and
+            // barrier in these kernels. Native pipelines can avoid clearing
+            // it twice; WebGPU retains its required automatic initialization.
             let compile = |source: &str, entry: &str| {
-                crate::context_pipelines_helpers::compile_source_entry(
-                    &self.device,
-                    entry,
-                    source,
-                    entry,
-                )
+                let shader=self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label:Some(entry),source:wgpu::ShaderSource::Wgsl(source.into()),
+                });
+                self.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label:Some(entry),layout:None,module:&shader,entry_point:Some(entry),
+                    compilation_options:wgpu::PipelineCompilationOptions {
+                        zero_initialize_workgroup_memory:cfg!(target_arch="wasm32"),
+                        ..Default::default()
+                    },cache:None,
+                })
             };
             Pipelines {
                 #[cfg(test)]
@@ -61,6 +110,12 @@ impl GpuContext {
                 vertical_mean: compile(&metadata, "vertical_mean"),
                 horizontal_mean: compile(&metadata, "horizontal_mean"),
                 filter: compile(&filter, "filter_groups"),
+                scan_selected: compile(&scan_selected, "main"),
+                sum_blocks: compile(&sum_blocks, "main"),
+                compact_selected: compile(&compact_selected, "main"),
+                cache_spectra: compile(&cache_spectra, "main"),
+                cache_hard: compile(&cache_hard, "main"),
+                gather: compile(&gather, "main"),
                 reconstruct: compile(&reconstruct, "reconstruct"),
             }
         })
@@ -78,6 +133,9 @@ struct Params {
     luma: [f32; 4],
     highpass: [f32; 4],
     basis: [[f32; 4]; 16],
+    batch: [u32; 4],
+    cache: [u32; 4],
+    stream: [u32; 4],
 }
 
 /// Input-referred deep denoise, in the same strength units as raw-core.
@@ -125,7 +183,12 @@ impl Pass for DeepDenoisePass {
                 samples as f32,
                 samples as f32,
             ],
-            sort: [0, 0, BLOCK as u32, STRIDE as u32],
+            sort: [
+                0,
+                width.next_power_of_two().trailing_zeros(),
+                BLOCK as u32,
+                STRIDE as u32,
+            ],
             luma: [
                 LUMA_REC2020[0],
                 LUMA_REC2020[1],
@@ -139,14 +202,19 @@ impl Pass for DeepDenoisePass {
                 0.0,
             ],
             basis: std::array::from_fn(|i| std::array::from_fn(|j| basis[i / 2][(i % 2) * 4 + j])),
+            batch: [0; 4],
+            cache: [0; 4],
+            stream: [0; 4],
         };
         let pipelines = ctx.bm3d_pipelines();
         let sample = spatial::alloc_plane(ctx, samples, 1, "bm3d-luma-samples");
         let groups =
             spatial::alloc_plane(ctx, nx * ny * (GROUP_MAX as u32 + 1) + 4, 1, "bm3d-matches");
+        let selected = spatial::alloc_plane(ctx, width, height, "bm3d-selected-global");
         let accum = spatial::alloc_plane(ctx, width * height, 6, "bm3d-deltas");
         let metadata = spatial::alloc_plane_vec2(ctx, width, height, "bm3d-patch-metadata");
         let vertical = spatial::alloc_plane_vec2(ctx, width, height, "bm3d-vertical-mean");
+        let cached = cached::Workspace::new(ctx, width, height, nx, ny);
         let basic = spatial::alloc_rgba(ctx, width, height, "bm3d-basic");
         let dispatch = |encoder: &mut wgpu::CommandEncoder,
                         pipeline: &wgpu::ComputePipeline,
@@ -216,11 +284,12 @@ impl Pass for DeepDenoisePass {
                 &[&vertical, &metadata],
                 width * height,
             );
+            encoder.clear_buffer(&selected, 0, None);
             dispatch(
                 encoder,
                 &pipelines.matching,
                 &p,
-                &[&metadata, &median, &groups],
+                &[&metadata, &median, &groups, &selected],
                 nx * ny * 64,
             );
             #[cfg(test)]
@@ -228,26 +297,9 @@ impl Pass for DeepDenoisePass {
             #[cfg(test)]
             tests::profile_boundary(ctx, encoder, "matching");
             encoder.clear_buffer(&accum, 0, None);
-            for color_y in 0..6 {
-                for color_x in 0..6 {
-                    if color_x >= nx || color_y >= ny {
-                        continue;
-                    }
-                    let gx = (nx - color_x).div_ceil(6);
-                    let gy = (ny - color_y).div_ceil(6);
-                    let p = Params {
-                        control: [0, wiener, color_x, color_y],
-                        ..params
-                    };
-                    dispatch(
-                        encoder,
-                        &pipelines.filter,
-                        &p,
-                        &[src, guide, &groups, &accum],
-                        gx * gy * 3 * 64,
-                    );
-                }
-            }
+            cached.encode(
+                ctx, encoder, src, guide, &groups, &selected, &accum, &params, wiener,
+            );
             let output = if wiener == 0 { &basic } else { dst };
             #[cfg(test)]
             tests::profile_boundary(ctx, encoder, "filter");
@@ -255,7 +307,7 @@ impl Pass for DeepDenoisePass {
                 encoder,
                 &pipelines.reconstruct,
                 &p,
-                &[src, &accum, output],
+                &[src, &accum, output, &groups],
                 width * height,
             );
             #[cfg(test)]

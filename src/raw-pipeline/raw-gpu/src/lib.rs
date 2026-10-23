@@ -273,6 +273,7 @@ mod present_web;
 mod color_curves;
 mod color_grade;
 mod grain;
+mod highlight_recovery;
 mod hsl;
 #[cfg(target_arch = "wasm32")]
 mod present_chain_web;
@@ -321,6 +322,7 @@ pub use full_chain::{
     build_full_chain_passes, build_split, BoxedPasses, FullChainInputs, InputShape, ScopeRequest,
 };
 pub use grain::{apply_grain, GrainOptions, GrainPass};
+pub use highlight_recovery::PostDcpHighlightPass;
 pub use hsl::{apply_hsl, HslPass};
 pub use image::GpuImage;
 pub use live_chain::{
