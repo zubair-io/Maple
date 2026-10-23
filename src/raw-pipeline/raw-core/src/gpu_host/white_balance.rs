@@ -39,7 +39,7 @@ pub fn wb_hsm_inputs<'a>(
         w_target: delta.w_target,
         w_anchor: delta.w_anchor,
         inverse_iterations: delta.inverse_iterations,
-        refine_steps: crate::color::hsm::NEGATIVE_REFINE_STEPS,
+        lift_bisection_steps: crate::color::hsm::LIFT_BISECTION_STEPS,
     }
 }
 

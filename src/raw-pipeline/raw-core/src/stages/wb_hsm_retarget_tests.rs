@@ -474,25 +474,24 @@ fn blended_inverse_round_trips_including_negative_channels() {
         [0.02, 0.6, 0.9],
     ];
     for encoding in [HsmEncoding::Linear, HsmEncoding::Srgb] {
-        for (cold, warm) in [
-            (flat(4.0, 0.96, 1.01), flat(-3.0, 0.9, 1.02)),
-            (flat(6.0, 1.3, 0.97), flat(-5.0, 1.15, 1.0)),
+        for (cold, warm, desaturates) in [
+            (flat(4.0, 0.96, 1.01), flat(-3.0, 0.9, 1.02), true),
+            (flat(3.0, 0.55, 1.0), flat(-2.0, 0.6, 1.03), true),
+            (flat(6.0, 1.3, 0.97), flat(-5.0, 1.15, 1.0), false),
         ] {
             for t in [0.0, 0.4, 1.0] {
                 for p in pixels {
                     let y = apply_one_blended(p, [4, 2, 2], encoding, (&cold, &warm), t);
                     let x = invert_one_blended(y, [4, 2, 2], encoding, (&cold, &warm), t, 4);
                     let back = apply_one_blended(x, [4, 2, 2], encoding, (&cold, &warm), t);
-                    let clipped = {
-                        let (_, s, _) = crate::color::hsm::rgb_to_hsv(back);
-                        s >= 0.999
-                    };
                     for c in 0..3 {
                         assert!(
                             (back[c] - y[c]).abs() < 1e-4,
                             "{encoding:?} t={t} {p:?}: forward of the inverse {back:?} vs {y:?}"
                         );
-                        if !clipped {
+                        // A boosting table clips saturation, so only a
+                        // desaturating one has a unique pre-image.
+                        if desaturates {
                             assert!(
                                 (x[c] - p[c]).abs() < 1e-3,
                                 "{encoding:?} t={t} {p:?}: pre-image {x:?}"

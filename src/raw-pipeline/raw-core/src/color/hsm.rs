@@ -465,10 +465,9 @@ fn signed_degrees(degrees: f32) -> f32 {
     }
 }
 
-// The two-table blend the live white-balance drag evaluates (#5099).
 #[path = "hsm_blend.rs"]
 mod blend;
-pub use blend::{apply_one_blended, invert_one_blended, NEGATIVE_REFINE_STEPS};
+pub use blend::{apply_one_blended, invert_one_blended, LIFT_BISECTION_STEPS};
 
 #[cfg(test)]
 #[path = "hsm_tests.rs"]

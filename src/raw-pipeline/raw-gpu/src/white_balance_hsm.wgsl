@@ -34,7 +34,7 @@ struct Params {
     w_target: f32,
     w_anchor: f32,
     inverse_iterations: u32,
-    refine_steps: u32,
+    lift_bisection_steps: u32,
     _pad1: u32,
     _pad2: u32,
 };
@@ -251,25 +251,69 @@ fn apply_table(p: vec3<f32>, w: f32) -> vec3<f32> {
     return out;
 }
 
-// `hsm::invert_one_blended`: the pre-image solved in HSV, each step undoing
-// the shift read at the current estimate; a lifted or boundary pre-image
-// under a desaturating table then takes `refine_steps` RGB fixed-point steps.
-fn invert_table(y: vec3<f32>, w: f32) -> vec3<f32> {
-    let lift = max(-min(min(y.x, y.y), y.z), 0.0);
+// `hsm_blend::deficit` / `target` / `lift_for_saturation`.
+fn deficit(p: vec3<f32>) -> f32 {
+    return max(-min(min(p.x, p.y), p.z), 0.0);
+}
+
+fn target_hsv(y: vec3<f32>, lift: f32) -> vec3<f32> {
     var rgb = y + vec3<f32>(lift, lift, lift);
     if (params.srgb != 0u) {
         rgb = vec3<f32>(srgb_encode(rgb.x), srgb_encode(rgb.y), srgb_encode(rgb.z));
     }
-    let tgt = rgb_to_hsv(rgb);
-    var h = tgt.x;
-    var s = tgt.y;
-    var v = tgt.z;
-    var ss = 1.0;
+    return rgb_to_hsv(rgb);
+}
+
+fn lift_for_saturation(y: vec3<f32>, target_s: f32) -> f32 {
+    let floor_lift = deficit(y);
+    if (target_hsv(y, floor_lift).y <= target_s || target_s <= 0.0) {
+        return floor_lift;
+    }
+    let lo = min(min(y.x, y.y), y.z);
+    let hi = max(max(y.x, y.y), y.z);
+    if (params.srgb == 0u) {
+        return max((hi - lo) / target_s - hi, floor_lift);
+    }
+    let span = max(hi - lo, 1e-6);
+    var upper = floor_lift + span * 1e9;
+    for (var k = 0u; k < 32u; k = k + 1u) {
+        let l = floor_lift + span * f32(1u << min(k, 30u));
+        if (target_hsv(y, l).y <= target_s) {
+            upper = l;
+            break;
+        }
+    }
+    var a = floor_lift;
+    var b = upper;
+    for (var k = 0u; k < params.lift_bisection_steps; k = k + 1u) {
+        let mid = 0.5 * (a + b);
+        if (target_hsv(y, mid).y > target_s) {
+            a = mid;
+        } else {
+            b = mid;
+        }
+    }
+    return 0.5 * (a + b);
+}
+
+// `hsm::invert_one_blended`: the pre-image solved in HSV, each step undoing
+// the shift read at the current estimate; a boundary pre-image under a
+// desaturating table also re-solves the forward's lift.
+fn invert_table(y: vec3<f32>, w: f32) -> vec3<f32> {
+    let lifted_out = deficit(y);
+    let start = target_hsv(y, lifted_out);
+    var h = start.x;
+    var s = start.y;
+    var v = start.z;
+    var lift = lifted_out;
     for (var k = 0u; k < params.inverse_iterations; k = k + 1u) {
         let shift = lookup_blended(w, h, s, v);
         let w_chroma = clamp(s / 0.01, 0.0, 1.0);
-        ss = 1.0 + (shift.y - 1.0) * w_chroma;
+        let ss = 1.0 + (shift.y - 1.0) * w_chroma;
         let vs = 1.0 + (shift.z - 1.0) * w_chroma;
+        let on_boundary = lifted_out > 0.0 || s >= 1.0;
+        lift = select(lifted_out, lift_for_saturation(y, ss), on_boundary && ss < 1.0);
+        let tgt = target_hsv(y, lift);
         h = rem_euclid(tgt.x - shift.x * w_chroma, 360.0);
         s = select(clamp(tgt.y / max(ss, 1e-6), 0.0, 1.0), 1.0, lift > 0.0);
         v = tgt.z / max(vs, 1e-6);
@@ -278,13 +322,7 @@ fn invert_table(y: vec3<f32>, w: f32) -> vec3<f32> {
     if (params.srgb != 0u) {
         out = vec3<f32>(srgb_decode(out.x), srgb_decode(out.y), srgb_decode(out.z));
     }
-    var x = out - vec3<f32>(lift, lift, lift);
-    if ((lift > 0.0 || s >= 1.0) && ss < 1.0) {
-        for (var k = 0u; k < params.refine_steps; k = k + 1u) {
-            x = x + y - apply_table(x, w);
-        }
-    }
-    return x;
+    return out - vec3<f32>(lift, lift, lift);
 }
 
 @compute @workgroup_size(64)

@@ -280,10 +280,11 @@ fn cpu_live_wb_drag_matches_refine_on_every_moving_hsm_fixture() {
 /// resolves it on release. Measured at 512 px, HSM vs plain mean ΔE00 at
 /// 2000 K, test_0007 / test_0005: capture sharpening 0.033 / 0.058 vs 1.76
 /// / 5.71, chroma pre-filter 0.59 / 0.31 vs 1.87 / 5.58, deep denoise
-/// 0.72 / 0.44 vs 2.02 / 5.79. The gate: each stage changes the bake,
-/// capture sharpening stays inside a near-seamless ceiling, and every stage
-/// keeps the HueSatMap delta at or ahead of the plain 3×3 on mean and p95
-/// at every drag.
+/// 0.72 / 0.44 vs 2.02 / 5.79. The gate: each stage changes the bake;
+/// capture sharpening stays inside its ceiling (mean 0.07; its worst pixels,
+/// max 7.5 ΔE00 / 19 u8 steps on test_0005, are the bake's clipped
+/// saturation); and every stage keeps the HueSatMap delta at or ahead of the
+/// plain 3×3 on mean, and within 0.05 of it on p95, at every drag.
 #[test]
 #[cfg_attr(
     not(feature = "fixtures"),
