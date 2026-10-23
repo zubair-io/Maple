@@ -7,7 +7,8 @@ use crate::color::illuminant::Illuminant;
 use crate::image::{CfaPattern, RawImage};
 use crate::pipeline::{
     apply_scene_linear_chain_f32, develop_scene_linear_from_raw_with_quality_with_gain,
-    develop_scene_linear_sized_from_raw_with_quality_with_gain, ChainOptions, RenderQuality,
+    develop_scene_linear_sized_from_raw_with_quality_with_gain, scene_linear_chain_haze_map,
+    ChainOptions, RenderQuality,
 };
 use crate::stages::wb_camera;
 
@@ -258,4 +259,73 @@ fn the_per_tick_chain_runs_the_same_creative_stage() {
     for (i, p) in expected.pixels.iter().enumerate() {
         assert_eq!(&out[i * 4..i * 4 + 3], p, "pixel {i}");
     }
+}
+
+#[test]
+fn the_haze_map_is_measured_on_the_creative_prefix_the_render_dehazes() {
+    let raw = chart_raw();
+    let (camera, profile) = camera_buffer(&raw);
+    let (capture, _) = super::capture(
+        camera,
+        &profile,
+        &engaged_capture(),
+        Site::Frame,
+        Chain::Full,
+        CancelToken::never(),
+    )
+    .unwrap();
+    let model = AdjustmentModel {
+        dehaze: 40.0,
+        sharpen_amount: 0.0,
+        nr_color: 0.0,
+        ..warm_white_balance()
+    };
+    let stage = creative(
+        &raw,
+        profile,
+        CreativeAnchors::Given {
+            ae_gain: 1.7,
+            decoded_wb: None,
+        },
+    );
+    let rgba: Vec<f32> = capture
+        .pixels
+        .iter()
+        .flat_map(|p| [p[0], p[1], p[2], 1.0])
+        .collect();
+    let (width, height) = (capture.width, capture.height);
+    let with_creative = ChainOptions {
+        skip_agx: true,
+        creative: Some(&stage),
+        ..ChainOptions::default()
+    };
+    let map = scene_linear_chain_haze_map(&rgba, width, height, &model, &with_creative)
+        .unwrap()
+        .expect("dehaze is engaged");
+    let render = |options: &ChainOptions<'_>| {
+        apply_scene_linear_chain_f32(&rgba, width, height, &model, options).unwrap()
+    };
+    let measured_in_render = render(&with_creative);
+    let from_builder = render(&ChainOptions {
+        haze_map: Some(&map),
+        ..with_creative
+    });
+    assert_eq!(from_builder, measured_in_render);
+    let without_creative = scene_linear_chain_haze_map(
+        &rgba,
+        width,
+        height,
+        &model,
+        &ChainOptions {
+            creative: None,
+            ..with_creative
+        },
+    )
+    .unwrap()
+    .expect("dehaze is engaged");
+    let from_wrong_prefix = render(&ChainOptions {
+        haze_map: Some(&without_creative),
+        ..with_creative
+    });
+    assert_ne!(from_wrong_prefix, measured_in_render);
 }
