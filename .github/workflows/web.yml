@@ -393,6 +393,10 @@ jobs:
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Every fixture/worker must use the library built by this checkout,
+      # including processes launched from src/web with a copied npm package.
+      MAPLE_NATIVE_LIB: ${{ github.workspace }}/src/api/native/libraw_ffi.so
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
