@@ -466,6 +466,7 @@ public actor BackupEngine {
           targetRelPath: result.targetRelPath,
           filenameExt: renderedExt,
           bytes: renderedBytes,
+          mapleId: result.mapleId,
           phassetCloudId: read.sidecar.phassetCloudId)
       }
     }
@@ -482,6 +483,7 @@ public actor BackupEngine {
           targetRelPath: result.targetRelPath,
           filenameExt: "mov",
           bytes: liveBytes,
+          mapleId: result.mapleId,
           suffixOverride: "mov",
           phassetCloudId: read.sidecar.phassetCloudId)
       }

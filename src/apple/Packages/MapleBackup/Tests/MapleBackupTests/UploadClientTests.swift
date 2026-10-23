@@ -206,6 +206,7 @@ final class UploadClientTests: XCTestCase {
             targetRelPath: "2024/Tokyo/IMG.heic",
             filenameExt: "jpeg",
             bytes: Data(count: 200),
+            mapleId: "02371b94aade2246ba56c6770a7624e1",
             phassetCloudId: "icloud-RENDERED")
         let reqs = StubURLProtocol.recordedRequests
         XCTAssertEqual(reqs.count, 2)
@@ -213,6 +214,29 @@ final class UploadClientTests: XCTestCase {
             XCTAssertEqual(req.value(forHTTPHeaderField: "X-Maple-PHAsset-Cloud-Id"),
                            "icloud-RENDERED")
         }
+    }
+
+    /// #5241: the server refuses a final rendered chunk with no content id,
+    /// including the final chunk re-sent after a 409 rewind.
+    func testUploadRenderedSendsMapleIdOnFinalChunkOnly() async throws {
+        StubURLProtocol.stub = .sequence([
+            .status(202, json: #"{"next_offset":100}"#),
+            .status(409, json: #"{"expected_offset":100}"#),
+            .ok(json: #"{"target_rel_path":"x"}"#),
+        ])
+        let client = await makeClient(chunkSize: 100)
+        let mapleId = "02371b94aade2246ba56c6770a7624e1"
+        try await client.uploadRendered(
+            phassetLocalId: "P1",
+            targetRelPath: "2024/Tokyo/IMG.heic",
+            filenameExt: "jpeg",
+            bytes: Data(count: 200),
+            mapleId: mapleId)
+        let reqs = StubURLProtocol.recordedRequests
+        XCTAssertEqual(reqs.map { $0.value(forHTTPHeaderField: "Content-Range") },
+                       ["bytes 0-99/200", "bytes 100-199/200", "bytes 100-199/200"])
+        XCTAssertEqual(reqs.map { $0.value(forHTTPHeaderField: "X-Maple-Maple-Id") },
+                       [nil, mapleId, mapleId])
     }
 
     /// Regression for #223: when the server short-circuits a retry of an
@@ -253,6 +277,7 @@ final class UploadClientTests: XCTestCase {
             targetRelPath: "2024/Tokyo/IMG.heic",
             filenameExt: "mov",
             bytes: Data(count: 100),
+            mapleId: "02371b94aade2246ba56c6770a7624e1",
             suffixOverride: "mov")
         let req = StubURLProtocol.recordedRequests.first
         XCTAssertEqual(req?.value(forHTTPHeaderField: "X-Maple-Suffix-Override"), "mov")
@@ -268,7 +293,8 @@ final class UploadClientTests: XCTestCase {
             phassetLocalId: "P1",
             targetRelPath: "2024/Tokyo/IMG.heic",
             filenameExt: "jpeg",
-            bytes: Data(count: 250))
+            bytes: Data(count: 250),
+            mapleId: "02371b94aade2246ba56c6770a7624e1")
         XCTAssertEqual(StubURLProtocol.recordedRequests.count, 1,
                        "expected exactly one chunk before short-circuit")
     }
@@ -340,7 +366,8 @@ final class UploadClientTests: XCTestCase {
                 phassetLocalId: "P1",
                 targetRelPath: "2024/Tokyo/IMG.heic",
                 filenameExt: "jpeg",
-                bytes: Data(count: total))
+                bytes: Data(count: total),
+                mapleId: "02371b94aade2246ba56c6770a7624e1")
             XCTFail("expected repeated rendered full-offset conflict to stop")
         } catch let error as UploadClient.UploadError {
             guard case .badResponse(let reason) = error else {
