@@ -26,7 +26,7 @@ fn hsm() -> WbHsmInputs<'static> {
         w_target: 0.8,
         w_anchor: 0.2,
         inverse_iterations: 4,
-        refine_steps: 3,
+        lift_bisection_steps: 24,
     }
 }
 

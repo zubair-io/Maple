@@ -2,6 +2,8 @@
 //! materialising the blended table, and its inverse — what the live
 //! white-balance drag runs per pixel (#5099, `stages::wb_camera`).
 
+#[cfg(doc)]
+use super::{apply_one, lerp_tables, HsmTable};
 use super::{
     apply_one_with, entry, hsv_to_rgb, linear_to_srgb_one, lookup_with, rgb_to_hsv,
     srgb_to_linear_one, HsmEncoding,
@@ -31,19 +33,16 @@ pub fn apply_one_blended(
 /// (`h = h' − Δh`, `s = s' / ss`, `v = v' / vs`). That converges at the
 /// rate the table varies across the lattice, not at its magnitude, so a
 /// strong saturation boost (1.8× on a bundled GFX 50S table) converges as
-/// fast as a gentle one, where an RGB-space fixed point stalls. A
-/// saturation clipped at 1 has no unique pre-image; the smallest one is
-/// returned, which the forward maps back to the clip, except for a lifted
-/// (negative-channel) pixel, whose pre-image keeps saturation 1 so the
-/// forward re-derives the same lift.
+/// fast as a gentle one, where an RGB-space fixed point stalls.
 ///
-/// The forward lifts a negative channel by the INPUT's deficit, which a
-/// desaturating table shrinks on the way out, so the HSV solve reads the
-/// wrong lift there: a pixel with a negative channel, or whose pre-image
-/// lands on the gamut boundary (saturation 1, where a negative pre-image
-/// can map to a positive output), under a desaturating table then takes
-/// [`NEGATIVE_REFINE_STEPS`] RGB fixed-point steps from that estimate. Under
-/// a boosting table the output clipped instead, and the HSV answer stands.
+/// A pre-image on the gamut boundary (saturation 1, which is where every
+/// input with a negative channel lands after the forward's lift) needs its
+/// lift solved too, because the forward lifts by the INPUT's deficit:
+/// - under a boosting table the output saturation clipped at 1 and kept the
+///   input's lift, so the output's own deficit is the lift;
+/// - under a desaturating table the output saturation is exactly the
+///   table's scale, so the lift is the one that gives the lifted output that
+///   saturation ([`lift_for_saturation`]).
 pub fn invert_one_blended(
     y: [f32; 3],
     dims: [u32; 3],
@@ -52,29 +51,30 @@ pub fn invert_one_blended(
     t: f32,
     iterations: u32,
 ) -> [f32; 3] {
-    let deficit = |p: [f32; 3]| (-p[0].min(p[1]).min(p[2])).max(0.0);
-    let lift = deficit(y);
-    let lifted = [y[0] + lift, y[1] + lift, y[2] + lift];
-    let encoded = if matches!(encoding, HsmEncoding::Srgb) {
-        lifted.map(linear_to_srgb_one)
-    } else {
-        lifted
-    };
-    let (h2, s2, v2) = rgb_to_hsv(encoded);
-    let (h, s, v, ss) = (0..iterations).fold((h2, s2, v2, 1.0), |(h, s, v, _), _| {
+    let lifted_out = deficit(y);
+    let (h0, s0, v0) = target(y, lifted_out, encoding);
+    let (h, s, v, lift) = (0..iterations).fold((h0, s0, v0, lifted_out), |(h, s, v, _), _| {
         let (hd, ss, vs) = lookup_blended(dims, tables, t, h, s, v);
         let w_chroma = (s / 0.01).clamp(0.0, 1.0);
         let ss = 1.0 + (ss - 1.0) * w_chroma;
         let vs = 1.0 + (vs - 1.0) * w_chroma;
+        let on_boundary = lifted_out > 0.0 || s >= 1.0;
+        let lift = if on_boundary && ss < 1.0 {
+            lift_for_saturation(y, ss, encoding)
+        } else {
+            lifted_out
+        };
+        let (h2, s2, v2) = target(y, lift, encoding);
+        let s_next = if lift > 0.0 {
+            1.0
+        } else {
+            (s2 / ss.max(1e-6)).clamp(0.0, 1.0)
+        };
         (
             (h2 - hd * w_chroma).rem_euclid(360.0),
-            if lift > 0.0 {
-                1.0
-            } else {
-                (s2 / ss.max(1e-6)).clamp(0.0, 1.0)
-            },
+            s_next,
             v2 / vs.max(1e-6),
-            ss,
+            lift,
         )
     });
     let rgb = hsv_to_rgb(h, s, v);
@@ -83,24 +83,57 @@ pub fn invert_one_blended(
     } else {
         rgb
     };
-    let x = [decoded[0] - lift, decoded[1] - lift, decoded[2] - lift];
-    let shrinks_a_boundary_pre_image = (lift > 0.0 || s >= 1.0) && ss < 1.0;
-    if !shrinks_a_boundary_pre_image {
-        return x;
-    }
-    (0..NEGATIVE_REFINE_STEPS).fold(x, |x, _| {
-        let back = apply_one_blended(x, dims, encoding, tables, t);
-        [
-            x[0] + y[0] - back[0],
-            x[1] + y[1] - back[1],
-            x[2] + y[2] - back[2],
-        ]
+    [decoded[0] - lift, decoded[1] - lift, decoded[2] - lift]
+}
+
+fn deficit(p: [f32; 3]) -> f32 {
+    (-p[0].min(p[1]).min(p[2])).max(0.0)
+}
+
+/// HSV of `y` lifted by `lift`, in the table's encoding.
+fn target(y: [f32; 3], lift: f32, encoding: HsmEncoding) -> (f32, f32, f32) {
+    let lifted = [y[0] + lift, y[1] + lift, y[2] + lift];
+    rgb_to_hsv(if matches!(encoding, HsmEncoding::Srgb) {
+        lifted.map(linear_to_srgb_one)
+    } else {
+        lifted
     })
 }
 
-/// RGB fixed-point steps after the HSV solve for a pixel with a negative
-/// channel (see [`invert_one_blended`]).
-pub const NEGATIVE_REFINE_STEPS: u32 = 3;
+/// Bisection steps of [`lift_for_saturation`] on an sRGB-encoded table,
+/// where the lift has no closed form: 24 halvings of a bracket at most a few
+/// units wide land well under one 16-bit step.
+pub const LIFT_BISECTION_STEPS: u32 = 24;
+
+/// The lift `L ≥ deficit(y)` at which `y + L` has saturation `target_s`.
+/// Saturation falls as a uniform lift grows, so the root is unique; a
+/// linear table has it in closed form (`(max − min) / s − max`), an sRGB one
+/// is bisected.
+fn lift_for_saturation(y: [f32; 3], target_s: f32, encoding: HsmEncoding) -> f32 {
+    let floor = deficit(y);
+    let (_, s_floor, _) = target(y, floor, encoding);
+    if s_floor <= target_s || target_s <= 0.0 {
+        return floor;
+    }
+    let (lo, hi) = (y[0].min(y[1]).min(y[2]), y[0].max(y[1]).max(y[2]));
+    if matches!(encoding, HsmEncoding::Linear) {
+        return ((hi - lo) / target_s - hi).max(floor);
+    }
+    let span = (hi - lo).max(1e-6);
+    let upper = (0..32)
+        .map(|k| floor + span * (1u32 << k.min(30)) as f32)
+        .find(|l| target(y, *l, encoding).1 <= target_s)
+        .unwrap_or(floor + span * 1e9);
+    let (a, b) = (0..LIFT_BISECTION_STEPS).fold((floor, upper), |(a, b), _| {
+        let mid = 0.5 * (a + b);
+        if target(y, mid, encoding).1 > target_s {
+            (mid, b)
+        } else {
+            (a, mid)
+        }
+    });
+    0.5 * (a + b)
+}
 
 /// The interpolated (hueDelta, satScale, valScale) of the `t`-blend of two
 /// same-shape tables at `(hue, sat, val)`. See [`apply_one_blended`].

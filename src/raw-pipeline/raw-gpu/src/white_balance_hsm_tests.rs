@@ -93,13 +93,13 @@ fn inputs<'a>(view: &HsmRetargetView<'a>, d: &HsmLiveDelta) -> WbHsmInputs<'a> {
         w_target: d.w_target,
         w_anchor: d.w_anchor,
         inverse_iterations: d.inverse_iterations,
-        refine_steps: raw_core::color::hsm::NEGATIVE_REFINE_STEPS,
+        lift_bisection_steps: raw_core::color::hsm::LIFT_BISECTION_STEPS,
     }
 }
 
-/// Relative to max(|value|, 1). Metal and the CPU differ in last-ulp
-/// transcendental results (sRGB `pow`, hue `rem_euclid`), which the inverse
-/// steps carry; measured worst 2.6e-5, on the 6×4×3 table.
+/// Relative to max(|value|, 1). Metal and the CPU differ in the last ulp of
+/// the HSV round trips and `rem_euclid`, which the inverse steps carry;
+/// measured worst 2.6e-5 on Metal (the linear 6×4×3 table).
 const PARITY_TOLERANCE: f32 = 1e-4;
 
 #[test]
