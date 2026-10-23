@@ -62,6 +62,7 @@
 //! buffer origin, so tile-relative grids would seam) — the tile FFI
 //! entries reject `deepDenoise > 0`.
 
+mod exact;
 mod matching;
 mod pipeline;
 mod transforms;
@@ -152,11 +153,6 @@ pub fn active_progress() -> Progress<'static> {
     Some(&dispatch_progress)
 }
 
-/// Canonical opponent luma: explicit fused operations on CPU and WGSL.
-fn luminance(p: [f32; 3]) -> f32 {
-    LUMA_REC2020[0].mul_add(p[0], LUMA_REC2020[1].mul_add(p[1], LUMA_REC2020[2] * p[2]))
-}
-
 /// Non-cancellable wrapper — see [`apply_cancellable`].
 pub fn apply(img: &mut Image, strength: f32, progress: Progress<'_>) {
     apply_cancellable(img, strength, CancelToken::never(), progress);
@@ -185,7 +181,11 @@ pub fn apply_cancellable(
     let s = strength.min(100.0) / 100.0;
 
     // Opponent planes.
-    let y: Vec<f32> = img.pixels.par_iter().map(|p| luminance(*p)).collect();
+    let y: Vec<f32> = img
+        .pixels
+        .par_iter()
+        .map(|p| exact::luminance(*p))
+        .collect();
     let c1: Vec<f32> = img
         .pixels
         .par_iter()
