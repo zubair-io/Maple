@@ -306,6 +306,42 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
     expect(r.status).toBe(404);
   });
 
+  test('final chunk without X-Maple-Maple-Id → 400; resending it with the original id lands (#5241)', async () => {
+    const phidNoId = 'REND/L0/NOID';
+    const mapleIdNoId = '02c0ffee00000000000000000000beef';
+    const relPath = '2024/09/01/IMG_NOID.HEIC';
+    const assetId = seedIngested({
+      mapleId: mapleIdNoId,
+      relPath,
+      phassetLocalId: phidNoId,
+      size: 256,
+    });
+    const chunk = (range: string, id?: Record<string, string>) =>
+      authedHandle(
+        rendered(Buffer.alloc(128, 6), {
+          'X-Maple-Device-Id': deviceId,
+          'X-Maple-Phasset-Id': phidNoId,
+          'X-Maple-Target-Rel-Path': relPath,
+          'X-Maple-Total-Bytes': '256',
+          'Content-Range': range,
+          ...id,
+        }),
+      );
+
+    expect((await chunk('bytes 0-127/256')).status).toBe(202);
+
+    const refused = await chunk('bytes 128-255/256');
+    expect(refused.status).toBe(400);
+    expect((await refused.json()).error).toBe('X-Maple-Maple-Id required on final chunk');
+    expect(readAsset(live.db, assetId)?.apple_rendered_path ?? null).toBeNull();
+
+    const landed = await chunk('bytes 128-255/256', { 'X-Maple-Maple-Id': mapleIdNoId });
+    expect(landed.status).toBe(200);
+    const { target_rel_path } = await landed.json();
+    expect(target_rel_path).toBe('2024/09/01/IMG_NOID.rendered.HEIC');
+    expect(readAsset(live.db, assetId)?.apple_rendered_path).toBe(target_rel_path);
+  });
+
   test("rendered session de-dup: synthetic phid doesn't collide with original session", async () => {
     // After the first happy-path test, the rendered session (phid::rendered) is
     // completed. It is a distinct row from any session the original phid would
