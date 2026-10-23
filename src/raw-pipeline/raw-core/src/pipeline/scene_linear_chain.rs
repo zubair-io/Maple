@@ -113,9 +113,10 @@ pub fn apply_scene_linear_chain(
         nr_sampling_scale,
         mask_long_edge,
         whites_anchor_ev,
+        haze_map,
     } = *opts;
     use crate::stages::{
-        clarity, color_curves, color_grade, defringe, dehaze, display_tone_curve, grain, hsl,
+        clarity, color_curves, color_grade, defringe, display_tone_curve, grain, hsl,
         local_adjustments, noise_reduction, saturation, scene_tone_controls, sharpen, texture,
         tone_curves, vibrance, vignette, white_balance,
     };
@@ -211,7 +212,9 @@ pub fn apply_scene_linear_chain(
     stage("ffi_chain_texture", || {
         texture::apply(&mut img, model.texture)
     });
-    stage("ffi_chain_dehaze", || dehaze::apply(&mut img, model.dehaze));
+    stage("ffi_chain_dehaze", || {
+        dehaze_whole_frame(&mut img, model.dehaze, haze_map)
+    });
     // Defringe (#3411) — develop's 12a position, between dehaze and local
     // adjustments. Both amounts at 0 (the default) is a bit-identical
     // no-op; the GPU live chain's `DefringePass` is gated on the same
@@ -396,6 +399,9 @@ pub fn apply_scene_linear_chain_f32_scoped(
 /// diverging.
 mod f32_chain;
 use f32_chain::apply_scene_linear_chain_f32_inner;
+mod haze;
+use haze::dehaze_whole_frame;
+pub use haze::{scene_linear_chain_haze_map, scene_linear_chain_haze_map_cancellable};
 mod window;
 pub use window::{
     apply_scene_linear_chain_f32_windowed, apply_scene_linear_chain_f32_windowed_cancellable,

@@ -8,12 +8,16 @@ use crate::{
     film::FilmLut,
     image::{apply_orientation, ColorSpace, ExifOrientation, Image, RawImage},
     pipeline::{RenderQuality, TileRect},
+    stages::dehaze::{self, FrameHaze},
     view::{auto_profile, encode},
     xmp::AdjustmentModel,
 };
 
 pub struct DetailContext {
     pub(super) native_highlight: Option<super::super::HighlightFrameContext>,
+    /// The frame's dehaze maps (#3287), measured once per context and carried
+    /// to the next one while only the dehaze amount changed.
+    pub(super) haze: Option<std::sync::Arc<FrameHaze>>,
     pub(super) model: AdjustmentModel,
     pub(super) target: encode::TargetPrimaries,
     pub(super) active_model: AdjustmentModel,
@@ -50,7 +54,18 @@ pub fn render_detail_base_cancellable(
     options: DetailRenderOptions<'_>,
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
-    let (mut scene, context, _) = render_display_scene_with_context_cancellable(
+    render_base_with_haze(raw, model, source, options, None, cancel)
+}
+
+fn render_base_with_haze(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    source: RawInput<'_>,
+    options: DetailRenderOptions<'_>,
+    previous: Option<&DetailContext>,
+    cancel: crate::CancelToken<'_>,
+) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
+    let (mut scene, mut context, _) = render_display_scene_with_context_cancellable(
         raw,
         model,
         options.quality,
@@ -65,10 +80,13 @@ pub fn render_detail_base_cancellable(
         return Err(Error::Cancelled);
     }
     let rgb = encode::dither_and_quantize(&mut scene);
+    let (scene_w, scene_h) = (scene.width, scene.height);
+    drop(scene);
+    context.haze = measure_haze(raw, &context.active_model, previous, cancel)?;
     let (w, h, rgb) = finish::apply_geometry(
         rgb,
-        scene.width,
-        scene.height,
+        scene_w,
+        scene_h,
         raw.orientation,
         &crate::stages::perspective::Perspective::from_model(model),
         &model.crop,
@@ -77,6 +95,41 @@ pub fn render_detail_base_cancellable(
         return Err(Error::Cancelled);
     }
     Ok((w, h, rgb, context))
+}
+
+/// The map native tiles of this edit recover with: the same Preview-density
+/// proxy develop a native-resolution export measures (#3287), so a patch and
+/// the export agree. `previous`'s map is kept when its model differs only in
+/// the dehaze amount, which the map does not depend on, on the same source. A cancelled
+/// measurement is reported, never replaced by a partial map.
+fn measure_haze(
+    raw: &RawImage,
+    active_model: &AdjustmentModel,
+    previous: Option<&DetailContext>,
+    cancel: crate::CancelToken<'_>,
+) -> Result<Option<std::sync::Arc<FrameHaze>>> {
+    if !dehaze::any_engaged(active_model) {
+        return Ok(None);
+    }
+    // Only a context retained on this very source (the native-evidence
+    // context pins it, as `render_detail_tile` checks) may lend its map.
+    let upstream_unchanged = |previous: &DetailContext| {
+        previous
+            .native_highlight
+            .as_ref()
+            .is_some_and(|frame| std::ptr::eq(frame.raw(), raw))
+            && dehaze::haze_key(&previous.active_model) == dehaze::haze_key(active_model)
+    };
+    if let Some(map) = previous
+        .filter(|previous| upstream_unchanged(previous))
+        .and_then(|previous| previous.haze.clone())
+    {
+        return Ok(Some(map));
+    }
+    let (frame_w, frame_h) = super::native_render_dims(raw);
+    let model = crate::types::with_brush_rasters(active_model, frame_w, frame_h);
+    super::super::develop_sized::haze_map_from_raw(raw, &model, cancel)
+        .map(|map| Some(std::sync::Arc::new(map)))
 }
 
 /// Retained-source counterpart for a native-detail session. The base keeps
@@ -111,7 +164,7 @@ pub fn render_detail_base_retained_cancellable(
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
     let (w, h, rgb, mut context) =
-        render_detail_base_cancellable(&raw, model, source, options, cancel)?;
+        render_base_with_haze(&raw, model, source, options, previous.as_ref(), cancel)?;
     let reusable = previous
         .and_then(|previous| previous.native_highlight)
         .filter(|frame| frame.reusable_for(&raw, &context.active_model, RenderQuality::Auto));
@@ -252,16 +305,17 @@ pub fn render_detail_tile_cancellable(
                 absolute,
                 None,
                 context.ae_gain,
+                context.haze.as_deref(),
                 cancel,
             )?
         }
-        None => super::super::tile::render_scene_linear_tile_cancellable_f32(
+        None => super::super::tile::render_scene_linear_tile_with_haze_cancellable_f32(
             raw,
             &context.active_model,
             absolute,
             quality,
-            None,
             context.ae_gain,
+            context.haze.as_deref(),
             cancel,
         )?,
     };

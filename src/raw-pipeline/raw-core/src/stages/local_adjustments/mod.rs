@@ -44,6 +44,7 @@ use rayon::prelude::*;
 use std::sync::Arc;
 
 use crate::image::{ColorSpace, Image};
+use crate::stages::dehaze::HazeMap;
 use crate::stages::hsl::HSL_HUE_MAX_RAD;
 use crate::stages::saturation;
 use crate::stages::scene_tone_controls::{highlights_mult, shadows_mult, smoothstep, LUMA_REC2020};
@@ -88,7 +89,55 @@ pub fn apply_windowed(
     origin: (i32, i32),
     full: (u32, u32),
 ) {
-    apply_core(img, layers, rasters, origin, full, None);
+    apply_core(img, layers, rasters, origin, full, None, CoreHaze::Measure);
+}
+
+/// [`apply_windowed`] for a window whose per-mask dehaze recovers with the
+/// whole frame's per-layer maps (`maps`, indexed like `layers`; #3287).
+pub fn apply_windowed_with_haze(
+    img: &mut Image,
+    layers: &[LocalAdjustment],
+    rasters: &[Arc<MaskRaster>],
+    origin: (i32, i32),
+    full: (u32, u32),
+    maps: &[Option<HazeMap>],
+) {
+    apply_core(
+        img,
+        layers,
+        rasters,
+        origin,
+        full,
+        None,
+        CoreHaze::Given(maps),
+    );
+}
+
+/// [`apply`] on a whole frame, returning each layer's per-mask dehaze map
+/// so the frame's windows can recover with it (#3287).
+pub fn apply_measuring_haze(
+    img: &mut Image,
+    layers: &[LocalAdjustment],
+    rasters: &[Arc<MaskRaster>],
+) -> Vec<Option<HazeMap>> {
+    let full = (img.width, img.height);
+    let mut maps = vec![None; layers.len()];
+    apply_core(
+        img,
+        layers,
+        rasters,
+        (0, 0),
+        full,
+        None,
+        CoreHaze::Capture(&mut maps),
+    );
+    maps
+}
+
+enum CoreHaze<'a> {
+    Measure,
+    Capture(&'a mut [Option<HazeMap>]),
+    Given(&'a [Option<HazeMap>]),
 }
 
 /// Mask geometry × range refinement at one pixel, in `[0, 1]` — the exact
@@ -141,7 +190,15 @@ pub fn apply_with_scope(
     scope_layer: Option<usize>,
 ) -> Option<Vec<f32>> {
     let full = (img.width, img.height);
-    apply_core(img, layers, rasters, (0, 0), full, scope_layer)
+    apply_core(
+        img,
+        layers,
+        rasters,
+        (0, 0),
+        full,
+        scope_layer,
+        CoreHaze::Measure,
+    )
 }
 
 /// The one loop both public entries share: windowed coordinates (#1157) and
@@ -153,6 +210,7 @@ fn apply_core(
     origin: (i32, i32),
     full: (u32, u32),
     scope_layer: Option<usize>,
+    mut haze: CoreHaze<'_>,
 ) -> Option<Vec<f32>> {
     if layers.is_empty() {
         return None;
@@ -303,7 +361,14 @@ fn apply_core(
                 spatial_weights.as_deref()
             }
             .expect("an engaged spatial layer always records its weights above");
-            spatial::apply_group(img, &layer.adjustments, filled);
+            let layer_haze = match &mut haze {
+                CoreHaze::Measure => spatial::LayerHaze::Measure,
+                CoreHaze::Capture(maps) => spatial::LayerHaze::Capture(&mut maps[li]),
+                CoreHaze::Given(maps) => {
+                    spatial::LayerHaze::Given(maps.get(li).and_then(Option::as_ref), origin, full)
+                }
+            };
+            spatial::apply_group(img, &layer.adjustments, filled, layer_haze);
         }
     }
     weights

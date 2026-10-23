@@ -1,215 +1,91 @@
+//! Dark-channel-prior dehaze (spec § 3.9) with a guided-filter transmission
+//! refine and a sky-preservation mask (#272).
+//!
+//! The frame-global half — atmospheric light, dark channel, transmission and
+//! sky mask — is a [`HazeMap`] measured at a fixed proxy resolution
+//! (`dehaze_map.rs`, #3287). Recovery is a point operation given that map,
+//! so a tile or a native-detail window recovers exactly as the whole frame
+//! does once it is told where it sits in the frame.
+
+use rayon::prelude::*;
+
 use crate::image::{ColorSpace, Image};
 
-const DARK_RADIUS: i32 = 7; // 15×15 neighborhood per spec § 3.9.
+#[path = "dehaze_map.rs"]
+mod map;
+pub use map::{proxy_dims, HazeMap, HAZE_PROXY_LONG_EDGE};
+
 /// Existing dark-channel transmission factor, shared with generated WGSL.
 pub const TRANSMISSION_OMEGA: f32 = 0.95;
 /// Denominator floor for transmission estimates; recovery retains raw airlight.
 pub const AIRLIGHT_FLOOR: f32 = 1e-6;
+/// Transmission floor guarding the recovery divide on the darkest patches.
+const T0: f32 = 0.1;
+/// `|dehaze|` below this is identity (and costs nothing).
+pub const ENGAGE_EPS: f32 = 1e-3;
 
-fn dark_channel(img: &Image) -> Vec<f32> {
-    let w = img.width as i32;
-    let h = img.height as i32;
-    let mut out = vec![0.0f32; (w * h) as usize];
-    for y in 0..h {
-        for x in 0..w {
-            let mut m = f32::INFINITY;
-            for dy in -DARK_RADIUS..=DARK_RADIUS {
-                for dx in -DARK_RADIUS..=DARK_RADIUS {
-                    let ux = (x + dx).clamp(0, w - 1) as usize;
-                    let uy = (y + dy).clamp(0, h - 1) as usize;
-                    let p = img.pixels[uy * (w as usize) + ux];
-                    let local_min = p[0].min(p[1]).min(p[2]);
-                    if local_min < m {
-                        m = local_min;
-                    }
-                }
-            }
-            out[(y * w + x) as usize] = m;
-        }
+/// `true` when `dehaze` would change pixels.
+#[inline]
+pub fn engaged(dehaze: f32) -> bool {
+    dehaze.abs() >= ENGAGE_EPS
+}
+
+/// Every haze map one frame's render needs (#3287): the global stage's and,
+/// per local-adjustment layer, the map its per-mask dehaze control (#3407)
+/// measures from that layer's own scratch copy. Measured once over the
+/// whole frame, then handed to every window (tile, native-detail patch) of
+/// it, so a window recovers exactly as the whole frame does.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FrameHaze {
+    pub global: Option<HazeMap>,
+    /// Indexed like the model's `local_adjustments`; `None` for a layer that
+    /// does not engage dehaze.
+    pub layers: Vec<Option<HazeMap>>,
+}
+
+impl FrameHaze {
+    /// `true` when this holds every map `model` needs.
+    pub fn covers(&self, model: &crate::xmp::AdjustmentModel) -> bool {
+        (!engaged(model.dehaze) || self.global.is_some())
+            && model
+                .local_adjustments
+                .iter()
+                .enumerate()
+                .all(|(i, layer)| {
+                    !layer.adjustments.dehaze.is_some_and(engaged)
+                        || self.layers.get(i).is_some_and(Option::is_some)
+                })
     }
-    out
-}
 
-/// Atmospheric-light A: mean of the original image at the brightest 0.1% of
-/// dark-channel positions (spec § 3.9 step 2). Returns the per-channel mean.
-fn atmospheric_light(img: &Image, dc: &[f32]) -> [f32; 3] {
-    let n = dc.len();
-    let top_n = (n / 1000).max(1);
-    let mut idx: Vec<usize> = (0..n).collect();
-    idx.sort_unstable_by(|&a, &b| {
-        dc[b]
-            .partial_cmp(&dc[a])
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    let mut sum = [0.0f32; 3];
-    for &i in &idx[..top_n] {
-        let p = img.pixels[i];
-        sum[0] += p[0];
-        sum[1] += p[1];
-        sum[2] += p[2];
+    /// Resident bytes, for host memory accounting.
+    pub fn byte_len(&self) -> usize {
+        self.global
+            .iter()
+            .chain(self.layers.iter().flatten())
+            .map(HazeMap::byte_len)
+            .sum()
     }
-    let k = top_n as f32;
-    [sum[0] / k, sum[1] / k, sum[2] / k]
 }
 
-/// Transmission estimate: `t(x,y) = 1 - ω * min over 15×15 of min(rgb/A)`.
-/// ω = 0.95 per spec § 3.9 step 3.
-fn transmission(img: &Image, a: [f32; 3]) -> Vec<f32> {
-    let w = img.width as i32;
-    let h = img.height as i32;
-    let mut out = vec![0.0f32; (w * h) as usize];
-    for y in 0..h {
-        for x in 0..w {
-            let mut m = f32::INFINITY;
-            for dy in -DARK_RADIUS..=DARK_RADIUS {
-                for dx in -DARK_RADIUS..=DARK_RADIUS {
-                    let ux = (x + dx).clamp(0, w - 1) as usize;
-                    let uy = (y + dy).clamp(0, h - 1) as usize;
-                    let p = img.pixels[uy * (w as usize) + ux];
-                    let scaled_min = (p[0] / a[0].max(AIRLIGHT_FLOOR))
-                        .min(p[1] / a[1].max(AIRLIGHT_FLOOR))
-                        .min(p[2] / a[2].max(AIRLIGHT_FLOOR));
-                    if scaled_min < m {
-                        m = scaled_min;
-                    }
-                }
-            }
-            out[(y * w + x) as usize] = 1.0 - TRANSMISSION_OMEGA * m;
-        }
+/// The part of `model` a [`FrameHaze`] depends on, for keying a retained one:
+/// the model itself, except that the global amount drops out when no layer
+/// engages dehaze (each layer's map is measured downstream of the global
+/// stage, so it does depend on the global amount). Two models with equal
+/// keys measure equal maps.
+pub fn haze_key(model: &crate::xmp::AdjustmentModel) -> crate::xmp::AdjustmentModel {
+    let layered =
+        crate::stages::local_adjustments::spatial::any_dehaze_engaged(&model.local_adjustments);
+    crate::xmp::AdjustmentModel {
+        dehaze: if layered { model.dehaze } else { 0.0 },
+        ..model.clone()
     }
-    out
 }
 
-/// Separable box blur (radius `r`) on a single-channel buffer of dimensions w×h.
-/// O(w*h) via running-sum; sufficient for slice 1 CPU path.
-fn box_blur(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
-    let mut tmp = vec![0.0f32; buf.len()];
-    // Horizontal pass: sliding window with truncated boundaries (no padding).
-    for y in 0..h {
-        let row = &buf[y * w..(y + 1) * w];
-        let mut out_row = vec![0.0f32; w];
-        let right0 = r.min(w - 1);
-        let mut acc: f32 = row[0..=right0].iter().sum();
-        let mut count = right0 + 1;
-        out_row[0] = acc / count as f32;
-        for x in 1..w {
-            if x + r < w {
-                acc += row[x + r];
-                count += 1;
-            }
-            if x > r {
-                acc -= row[x - r - 1];
-                count -= 1;
-            }
-            out_row[x] = acc / count as f32;
-        }
-        tmp[y * w..(y + 1) * w].copy_from_slice(&out_row);
-    }
-    // Vertical pass: same sliding-window approach on the transposed result.
-    let mut out = vec![0.0f32; buf.len()];
-    for x in 0..w {
-        let mut out_col = vec![0.0f32; h];
-        let bot0 = r.min(h - 1);
-        let mut acc: f32 = (0..=bot0).map(|i| tmp[i * w + x]).sum();
-        let mut count = bot0 + 1;
-        out_col[0] = acc / count as f32;
-        for y in 1..h {
-            if y + r < h {
-                acc += tmp[(y + r) * w + x];
-                count += 1;
-            }
-            if y > r {
-                acc -= tmp[(y - r - 1) * w + x];
-                count -= 1;
-            }
-            out_col[y] = acc / count as f32;
-        }
-        for y in 0..h {
-            out[y * w + x] = out_col[y];
-        }
-    }
-    out
+/// `true` when `model` engages dehaze globally or in any layer.
+pub fn any_engaged(model: &crate::xmp::AdjustmentModel) -> bool {
+    engaged(model.dehaze)
+        || crate::stages::local_adjustments::spatial::any_dehaze_engaged(&model.local_adjustments)
 }
-
-#[derive(Copy, Clone, Debug)]
-struct GuidedOptions {
-    r: usize,
-    eps: f32,
-}
-
-/// Guided filter (He, Sun, Tang 2010). Refines `p` using `guide` as an edge
-/// reference. Spec § 3.9 step 4.
-fn guided_filter(guide: &[f32], p: &[f32], w: usize, h: usize, opts: GuidedOptions) -> Vec<f32> {
-    assert_eq!(guide.len(), p.len());
-    let n = guide.len();
-
-    let mean_i = box_blur(guide, w, h, opts.r);
-    let mean_p = box_blur(p, w, h, opts.r);
-
-    let ip: Vec<f32> = guide.iter().zip(p.iter()).map(|(&a, &b)| a * b).collect();
-    let mean_ip = box_blur(&ip, w, h, opts.r);
-
-    let cov_ip: Vec<f32> = mean_ip
-        .iter()
-        .zip(mean_i.iter().zip(mean_p.iter()))
-        .map(|(&mip, (&mi, &mp))| mip - mi * mp)
-        .collect();
-
-    let ii: Vec<f32> = guide.iter().map(|&a| a * a).collect();
-    let mean_ii = box_blur(&ii, w, h, opts.r);
-    // Clamp at zero to absorb box-blur roundoff (var can never be physically
-    // negative). At scene-linear magnitudes ≫ 1 the `mean_ii - mean_i²`
-    // cancellation can go slightly negative, which flips the sign of the
-    // `var_i + opts.eps` denominator below and blows `a` up unboundedly.
-    // See guided.rs:78 / blur.rs's matching clamp.
-    let var_i: Vec<f32> = mean_ii
-        .iter()
-        .zip(mean_i.iter())
-        .map(|(&mii, &mi)| (mii - mi * mi).max(0.0))
-        .collect();
-
-    let a: Vec<f32> = cov_ip
-        .iter()
-        .zip(var_i.iter())
-        .map(|(&cip, &vi)| cip / (vi + opts.eps))
-        .collect();
-    let b: Vec<f32> = (0..n).map(|i| mean_p[i] - a[i] * mean_i[i]).collect();
-
-    let mean_a = box_blur(&a, w, h, opts.r);
-    let mean_b = box_blur(&b, w, h, opts.r);
-
-    (0..n).map(|i| mean_a[i] * guide[i] + mean_b[i]).collect()
-}
-
-/// "Sky / no-dark-pixel" mask thresholds (issue #272).
-///
-/// The dark-channel-prior assumption — every patch contains at least one
-/// channel with a low value — breaks on sky, snow, and white walls. In those
-/// regions every channel is high, so the dark channel itself is high, the
-/// transmission collapses toward 0, and `J = (I − A) / t + A` produces strong
-/// halos at the sky / foreground boundary.
-///
-/// We use the dark channel as a sky detector: when `dc(x,y)` exceeds
-/// `SKY_MASK_LOW`, the pixel is increasingly likely to be sky-like. We
-/// smoothstep from `SKY_MASK_LOW` to `SKY_MASK_HIGH` so the mask feathers
-/// rather than snapping. At positions with `mask = 1` the dehaze recovery is
-/// fully suppressed; the input is passed through unchanged.
-///
-/// Threshold rationale (scene-linear Rec.2020, post-exposure):
-/// - Below 0.40 dc: typical hazy mid-distance content (rocks, foliage,
-///   buildings, water with foam). DCP works here — leave it alone.
-/// - 0.40 – 0.60 dc: ambiguous (bright haze, distant snow, light walls).
-///   Soft-feather so we don't introduce visible boundaries.
-/// - Above 0.60 dc: clear sky or white wall — DCP is unreliable, suppress
-///   the dehaze contribution entirely.
-const SKY_MASK_LOW: f32 = 0.40;
-const SKY_MASK_HIGH: f32 = 0.60;
-
-/// Box-blur radius for the sky mask. Lower than the guided-filter radius
-/// because the mask only needs to be smooth, not edge-aware — the mask
-/// already came from dark-channel min-filtering, which is conservative at
-/// boundaries.
-const SKY_MASK_BLUR_RADIUS: usize = 8;
 
 /// `smoothstep(edge0, edge1, x)` — cubic Hermite interpolation matching
 /// the GLSL builtin. Returns 0 below `edge0`, 1 above `edge1`.
@@ -219,133 +95,127 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Build a per-pixel "sky" mask in [0, 1] from the dark channel. Then
-/// box-blur it lightly to soften pixel-noise in the transition band.
-fn sky_mask(dc: &[f32], w: usize, h: usize) -> Vec<f32> {
-    let raw: Vec<f32> = dc
-        .iter()
-        .map(|&v| smoothstep(SKY_MASK_LOW, SKY_MASK_HIGH, v))
-        .collect();
-    box_blur(&raw, w, h, SKY_MASK_BLUR_RADIUS)
-}
-
-/// Apply dehaze per spec § 3.9.
-/// `dehaze` in [-100, +100]; 0 is identity.
+/// Apply dehaze to a whole frame. `dehaze` in [-100, +100]; 0 is identity.
 ///
-/// Positive slider strengthens haze removal via
-/// `J = (I - A) / max(t_eff, t0) + A`. Negative adds haze with the forward
-/// atmospheric model `J = I·t_haze + A·(1 − t_haze)`. Keeping those branches
-/// distinct is essential: running the recovery divide for a negative value
-/// removes haze and darkens the image (#2187).
-///
-/// A sky mask (issue #272) suppresses the dehaze contribution where the
-/// DCP assumption fails (sky, snow, white walls). See `SKY_MASK_LOW` /
-/// `SKY_MASK_HIGH` above for the threshold and feathering rationale.
+/// Positive strengthens haze removal via `J = (I − A) / max(t_eff, t0) + A`;
+/// negative adds haze with the forward atmospheric model
+/// `J = I·t_haze + A·(1 − t_haze)` — running the recovery divide for a
+/// negative value would remove haze and darken the image (#2187).
 pub fn apply(img: &mut Image, dehaze: f32) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
-    if dehaze.abs() < 1e-3 {
+    if !engaged(dehaze) {
         return;
     }
-    let w = img.width as usize;
-    let h = img.height as usize;
-
-    let dc = dark_channel(img);
-    let a = atmospheric_light(img, &dc);
-    let t_raw = transmission(img, a);
-
-    // Build a single-channel "guide" from scene-linear luminance.
-    // Rec.2020 weights per spec § 3.6.
-    let guide: Vec<f32> = img
-        .pixels
-        .iter()
-        .map(|p| 0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2])
-        .collect();
-    let t_refined = guided_filter(&guide, &t_raw, w, h, GuidedOptions { r: 60, eps: 1e-3 });
-
-    // Sky / no-dark-pixel mask: keep DCP where it works, suppress where it
-    // doesn't. Cheap — one smoothstep per pixel + one box-blur pass.
-    let sky = sky_mask(&dc, w, h);
-
-    recover_with_mask(img, dehaze, &t_refined, a, &sky);
+    let map = HazeMap::measure(img);
+    let frame = (img.width, img.height);
+    recover(img, dehaze, &map, (0, 0), frame);
 }
 
-/// Recovery loop split out for testability. `apply` calls this with the real
-/// sky mask; tests can call it with a zero-mask buffer to verify the mask is
-/// load-bearing (without it, the sky-preservation property fails).
-fn recover_with_mask(img: &mut Image, dehaze: f32, t_refined: &[f32], a: [f32; 3], mask: &[f32]) {
-    let t0 = 0.1f32;
+/// Apply dehaze to a window of a frame whose map was measured elsewhere:
+/// `img` sits at `origin` inside a `frame` of `(width, height)` pixels, in
+/// the same pixel grid (a tile's padding may start outside the frame, so
+/// `origin` is signed; outside pixels read the map's edge). Bit-identical to [`apply`] on the whole frame when
+/// `map` is that frame's map and the window is the whole frame.
+pub fn apply_with_map(
+    img: &mut Image,
+    dehaze: f32,
+    map: &HazeMap,
+    origin: (i32, i32),
+    frame: (u32, u32),
+) {
+    img.assert_space(ColorSpace::SceneLinearRec2020);
+    if !engaged(dehaze) {
+        return;
+    }
+    recover(img, dehaze, map, origin, frame);
+}
+
+fn recover(img: &mut Image, dehaze: f32, map: &HazeMap, origin: (i32, i32), frame: (u32, u32)) {
+    let scale = (dehaze / 100.0).clamp(-1.0, 1.0);
+    let width = img.width as usize;
+    let (pw, ph) = (map.width, map.height);
+    let pw_usize = pw as usize;
+    img.pixels
+        .par_chunks_mut(width)
+        .enumerate()
+        .for_each(|(y, row)| {
+            let (j0, j1, wy) = map::axis_taps(i64::from(origin.1) + y as i64, frame.1, ph);
+            let (r0, r1) = (j0 * pw_usize, j1 * pw_usize);
+            for (x, p) in row.iter_mut().enumerate() {
+                let (i0, i1, wx) = map::axis_taps(i64::from(origin.0) + x as i64, frame.0, pw);
+                let taps = [r0 + i0, r0 + i1, r1 + i0, r1 + i1];
+                let bilerp = |v: [f32; 4]| {
+                    let top = v[0] + wx * (v[1] - v[0]);
+                    let bottom = v[2] + wx * (v[3] - v[2]);
+                    top + wy * (bottom - top)
+                };
+                let a = bilerp(taps.map(|k| map.coefficients[k][0]));
+                let b = bilerp(taps.map(|k| map.coefficients[k][1]));
+                let m = bilerp(taps.map(|k| map.sky[k]));
+                let t = a * map::guide(*p, map.airlight) + b;
+                if let Some(out) = recover_pixel(*p, t, map.airlight, scale, m) {
+                    *p = out;
+                }
+            }
+        });
+}
+
+/// One pixel's recovery given its refined transmission `t`, the airlight,
+/// `scale = clamp(dehaze / 100, −1, 1)` and its sky-mask weight `mask`.
+/// `None` means the pixel is returned bit-identical.
+#[inline]
+fn recover_pixel(p: [f32; 3], t: f32, a: [f32; 3], scale: f32, mask: f32) -> Option<[f32; 3]> {
+    let t = t.clamp(0.0, 1.0);
+    let j = if scale >= 0.0 {
+        // Keep the window minimum's bound after refinement:
+        // t >= 1 - omega * min(I/A) (#4654).
+        let point_min = (p[0] / a[0].max(AIRLIGHT_FLOOR))
+            .min(p[1] / a[1].max(AIRLIGHT_FLOOR))
+            .min(p[2] / a[2].max(AIRLIGHT_FLOOR));
+        let point_transmission = (1.0 - TRANSMISSION_OMEGA * point_min).clamp(0.0, 1.0);
+        let supported_t = t.max(point_transmission);
+        // Avoid cancellation and mask-rounding when recovery is identity.
+        if supported_t == 1.0 {
+            return None;
+        }
+        let t_eff = (supported_t + (1.0 - supported_t) * (1.0 - scale)).max(T0);
+        [
+            (p[0] - a[0]) / t_eff + a[0],
+            (p[1] - a[1]) / t_eff + a[1],
+            (p[2] - a[2]) / t_eff + a[2],
+        ]
+    } else {
+        // Forward atmospheric model: at zero t_haze=1 and the image is
+        // unchanged; at -100, t_haze=t and the veil is strongest.
+        let t_haze = 1.0 - (-scale) * (1.0 - t);
+        let veil = 1.0 - t_haze;
+        [
+            p[0] * t_haze + a[0] * veil,
+            p[1] * t_haze + a[1] * veil,
+            p[2] * t_haze + a[2] * veil,
+        ]
+    };
+    // mask=1 → input, mask=0 → full dehaze.
+    let m = mask.clamp(0.0, 1.0);
+    let inv_m = 1.0 - m;
+    Some([
+        inv_m * j[0] + m * p[0],
+        inv_m * j[1] + m * p[1],
+        inv_m * j[2] + m * p[2],
+    ])
+}
+
+/// Test seam: recovery with caller-supplied per-pixel transmission and mask.
+#[cfg(test)]
+fn recover_with_mask(img: &mut Image, dehaze: f32, t: &[f32], a: [f32; 3], mask: &[f32]) {
     let scale = (dehaze / 100.0).clamp(-1.0, 1.0);
     for (i, p) in img.pixels.iter_mut().enumerate() {
-        let t = t_refined[i].clamp(0.0, 1.0);
-        let (j_r, j_g, j_b) = if scale >= 0.0 {
-            // Positive: linearly blend from "no haze removal" (t=1) toward
-            // the recovered transmission.
-            // Keep the window minimum's bound after refinement: t >= 1 - omega * min(I/A) (#4654).
-            let point_min = (p[0] / a[0].max(AIRLIGHT_FLOOR))
-                .min(p[1] / a[1].max(AIRLIGHT_FLOOR))
-                .min(p[2] / a[2].max(AIRLIGHT_FLOOR));
-            let point_transmission = (1.0 - TRANSMISSION_OMEGA * point_min).clamp(0.0, 1.0);
-            let supported_t = t.max(point_transmission);
-            // Avoid cancellation and mask-rounding when recovery is identity.
-            if supported_t == 1.0 {
-                continue;
-            }
-            let t_eff = (supported_t + (1.0 - supported_t) * (1.0 - scale)).max(t0);
-            (
-                (p[0] - a[0]) / t_eff + a[0],
-                (p[1] - a[1]) / t_eff + a[1],
-                (p[2] - a[2]) / t_eff + a[2],
-            )
-        } else {
-            // Negative: forward atmospheric model. At zero, t_haze=1 and the
-            // image is unchanged; at -100, t_haze=t and the veil is strongest.
-            let t_haze = 1.0 - (-scale) * (1.0 - t);
-            let veil = 1.0 - t_haze;
-            (
-                p[0] * t_haze + a[0] * veil,
-                p[1] * t_haze + a[1] * veil,
-                p[2] * t_haze + a[2] * veil,
-            )
-        };
-        // Blend dehaze result `J` with the unmodified input `I` by the sky
-        // mask: mask=1 → input, mask=0 → full dehaze.
-        let m = mask[i].clamp(0.0, 1.0);
-        let inv_m = 1.0 - m;
-        *p = [
-            inv_m * j_r + m * p[0],
-            inv_m * j_g + m * p[1],
-            inv_m * j_b + m * p[2],
-        ];
+        if let Some(out) = recover_pixel(*p, t[i], a, scale, mask[i]) {
+            *p = out;
+        }
     }
 }
 
-/// Test-only entry that mirrors `apply` but with a caller-supplied mask buffer.
-/// Used by `dehaze_preserves_sky_attacks_haze` to verify that the sky mask is
-/// load-bearing — when passed a zero mask, the sky-preservation assertion
-/// must fail (proving the mask is what makes it pass).
-#[cfg(test)]
-fn apply_with_mask_override(img: &mut Image, dehaze: f32, mask_override: &[f32]) {
-    img.assert_space(ColorSpace::SceneLinearRec2020);
-    if dehaze.abs() < 1e-3 {
-        return;
-    }
-    let w = img.width as usize;
-    let h = img.height as usize;
-    let dc = dark_channel(img);
-    let a = atmospheric_light(img, &dc);
-    let t_raw = transmission(img, a);
-    let guide: Vec<f32> = img
-        .pixels
-        .iter()
-        .map(|p| 0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2])
-        .collect();
-    let t_refined = guided_filter(&guide, &t_raw, w, h, GuidedOptions { r: 60, eps: 1e-3 });
-    assert_eq!(mask_override.len(), (w * h));
-    recover_with_mask(img, dehaze, &t_refined, a, mask_override);
-}
-
-// Tests live in the sibling `dehaze_tests.rs` so this file stays under the
-// 600-LOC budget (same `#[path]` split pattern as `stages/nlm.rs`).
 #[cfg(test)]
 #[path = "dehaze_tests.rs"]
 mod tests;

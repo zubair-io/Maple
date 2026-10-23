@@ -57,6 +57,9 @@ pub(super) struct TileAnchors<'a> {
     /// Padded crop's top-left in full demosaiced coordinates (sensor / divisor).
     pub tile_origin: (u32, u32),
     pub highlight_frame: crate::stages::highlight_recovery::FrameAnchor<'a>,
+    /// The full frame's haze maps (#3287); `Some` whenever dehaze is
+    /// engaged, globally or in a layer.
+    pub haze: Option<&'a crate::stages::dehaze::FrameHaze>,
 }
 
 pub(super) struct DevelopedTile {
@@ -128,6 +131,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         active_area,
         tile_origin,
         highlight_frame,
+        haze,
     } = anchors;
     if raw.cfa == crate::image::CfaPattern::LinearRgb {
         return Err(crate::error::Error::Pipeline(
@@ -462,17 +466,26 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     });
     stage("tile_clarity", || clarity::apply(&mut scene, model.clarity));
     stage("tile_texture", || texture::apply(&mut scene, model.texture));
-    // dehaze intentionally omitted — global statistics plus a radius-60
-    // transmission refine; the tile entry rejects `dehaze != 0` before this
-    // function runs, until the full-frame proxy plane exists (§ 5.3).
-    //
+    // Dehaze (#3287) is a point op given the full frame's proxy haze map,
+    // sampled at the tile's place in the frame — the whole-image recovery
+    // restricted to this tile, so it adds nothing to the pad.
+    if let Some(map) = haze.and_then(|haze| haze.global.as_ref()) {
+        stage("tile_dehaze", || {
+            crate::stages::dehaze::apply_with_map(
+                &mut scene,
+                model.dehaze,
+                map,
+                window.origin,
+                window.full,
+            )
+        });
+    }
     // Local adjustments and vignette (#1157): both are point ops GIVEN the
     // tile's window in the frame — mask weights evaluate in coordinates
     // normalised to the FULL frame and the vignette ellipse is centred on
     // it — so they take `window` (origin + frame extent at this develop
     // resolution) and reproduce the whole-image field exactly. Same chain
-    // positions as the full develop: after texture (where dehaze would sit),
-    // before sharpen.
+    // positions as the full develop: after dehaze, before sharpen.
     stage("tile_defringe", || defringe::apply_model(&mut scene, model));
     stage("tile_local_adjustments", || {
         let (layers, rasters) = crate::pipeline::mask::orient_adjustments_to_sensor(
@@ -480,7 +493,23 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
             &model.mask_rasters,
             raw.orientation,
         );
-        local_adjustments::apply_windowed(&mut scene, &layers, &rasters, window.origin, window.full)
+        match haze {
+            Some(haze) => local_adjustments::apply_windowed_with_haze(
+                &mut scene,
+                &layers,
+                &rasters,
+                window.origin,
+                window.full,
+                &haze.layers,
+            ),
+            None => local_adjustments::apply_windowed(
+                &mut scene,
+                &layers,
+                &rasters,
+                window.origin,
+                window.full,
+            ),
+        }
     });
     stage("tile_vignette", || {
         vignette::apply_windowed(

@@ -1,11 +1,15 @@
 //! Immutable oriented raster source for native detail windows (#4317).
 use super::*;
 use crate::pipeline::{apply_scene_linear_chain_f32_windowed_cancellable, ChainWindow, TileRect};
+use crate::stages::dehaze::FrameHaze;
 
 pub struct RasterDetailImage {
     width: u32,
     height: u32,
     rgba: Vec<f32>,
+    /// The frame's dehaze maps for the last model that needed them (#3287),
+    /// keyed by [`crate::stages::dehaze::haze_key`].
+    haze: std::sync::Mutex<Option<(AdjustmentModel, std::sync::Arc<FrameHaze>)>>,
 }
 
 impl RasterDetailImage {
@@ -15,7 +19,40 @@ impl RasterDetailImage {
             width,
             height,
             rgba,
+            haze: std::sync::Mutex::new(None),
         })
+    }
+
+    /// The whole source's haze maps for `model`, measured once and reused
+    /// while only dehaze amounts the maps do not depend on change.
+    fn frame_haze(
+        &self,
+        model: &AdjustmentModel,
+        options: &ChainOptions<'_>,
+        cancel: crate::CancelToken<'_>,
+    ) -> Result<Option<std::sync::Arc<FrameHaze>>> {
+        if !crate::stages::dehaze::any_engaged(model) {
+            return Ok(None);
+        }
+        let key = crate::stages::dehaze::haze_key(model);
+        let mut slot = self
+            .haze
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((_, haze)) = slot.as_ref().filter(|(cached, _)| *cached == key) {
+            return Ok(Some(haze.clone()));
+        }
+        let haze = crate::pipeline::scene_linear_chain_haze_map_cancellable(
+            &self.rgba,
+            self.width,
+            self.height,
+            model,
+            options,
+            cancel,
+        )?
+        .map(std::sync::Arc::new);
+        *slot = haze.clone().map(|haze| (key, haze));
+        Ok(haze)
     }
 
     pub fn dimensions(&self) -> (u32, u32) {
@@ -110,14 +147,19 @@ impl RasterDetailImage {
                 self.rgba[start..start + w as usize * 4].iter().copied()
             })
             .collect();
+        let options = ChainOptions {
+            skip_agx: true,
+            ..Default::default()
+        };
+        let haze = self.frame_haze(model, &options, cancel)?;
         let output = apply_scene_linear_chain_f32_windowed_cancellable(
             &input,
             w,
             h,
             model,
             &ChainOptions {
-                skip_agx: true,
-                ..Default::default()
+                haze_map: haze.as_deref(),
+                ..options
             },
             film,
             ChainWindow {

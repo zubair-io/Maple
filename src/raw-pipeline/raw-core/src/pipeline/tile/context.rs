@@ -119,6 +119,7 @@ pub fn render_scene_linear_tile_from_frame_context_f32(
         rect,
         decoded_wb_anchor,
         ae_gain,
+        None,
         crate::CancelToken::never(),
     )
 }
@@ -129,6 +130,7 @@ pub(crate) fn render_scene_linear_tile_from_frame_context_cancellable_f32(
     rect: TileRect,
     decoded_wb_anchor: Option<(f32, f32)>,
     ae_gain: f32,
+    haze: Option<&crate::stages::dehaze::FrameHaze>,
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>)> {
     super::develop_tile_with_frame(
@@ -139,6 +141,7 @@ pub(crate) fn render_scene_linear_tile_from_frame_context_cancellable_f32(
         decoded_wb_anchor,
         ae_gain,
         Some(context),
+        haze,
         cancel,
     )
 }

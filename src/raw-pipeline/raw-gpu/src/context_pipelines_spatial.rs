@@ -178,6 +178,19 @@ impl GpuContext {
         })
     }
 
+    /// The cached dehaze proxy-grid downsample pipeline (#3287).
+    /// `dehaze_downsample.wgsl`: block-averages the pre-dehaze image onto the
+    /// haze map's fixed proxy grid. Standalone kernel.
+    pub fn dehaze_downsample_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.dehaze_downsample_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "dehaze-downsample",
+                include_str!("dehaze_downsample.wgsl"),
+            )
+        })
+    }
+
     /// The cached on-GPU airlight histogram pipeline (epic #925 P4b / #1033).
     /// `airlight_hist.wgsl`: an atomic histogram of the dark channel — stage 1 of
     /// the C5b reduction that computes the dehaze atmospheric light A on-device

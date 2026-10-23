@@ -135,38 +135,6 @@ fn fake_raw(w: u32, h: u32) -> RawImage {
     }
 }
 
-/// Tile entry rejects `model.dehaze != 0` with a "dehaze" error. The
-/// rejection happens before any decode / DCP work, so a synthetic
-/// `RawImage` (no DCP profile) is sufficient to exercise the path.
-#[test]
-fn render_scene_linear_tile_rejects_active_dehaze() {
-    let raw = fake_raw(2048, 2048);
-    let model = AdjustmentModel {
-        dehaze: 50.0,
-        ..Default::default()
-    };
-    let r = render_scene_linear_tile_from_raw_with_quality(
-        &raw,
-        &model,
-        TileRect {
-            src_x: 1024,
-            src_y: 1024,
-            src_w: 512,
-            src_h: 512,
-            out_w: 512,
-            out_h: 512,
-        },
-        RenderQuality::Full,
-    );
-    assert!(r.is_err(), "tile path must error when dehaze != 0");
-    let msg = format!("{}", r.unwrap_err());
-    assert!(
-        msg.contains("dehaze"),
-        "error must mention dehaze, got: {}",
-        msg
-    );
-}
-
 /// Tile entry rejects `model.vignette_amount != 0` with a "vignette"
 /// error (#1109) — the stage's radial gain is anchored to the full
 /// frame and the tile entry does not thread the tile window through

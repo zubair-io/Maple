@@ -38,22 +38,22 @@ pub(super) fn apply_scene_linear_chain_f32_inner_cancellable(
         return Err(crate::error::Error::Cancelled);
     }
     let ChainOptions {
-        decoded_temp,
-        decoded_tint,
-        wb_frame,
-        wb_hsm,
+        decoded_temp: _,
+        decoded_tint: _,
+        wb_frame: _,
+        wb_hsm: _,
         skip_agx,
         target_primaries,
         noise_profile,
         iso,
         nr_sampling_scale,
-        mask_long_edge,
+        mask_long_edge: _,
         whites_anchor_ev,
+        haze_map,
     } = *opts;
     use crate::stages::{
-        clarity, color_curves, color_grade, defringe, dehaze, display_tone_curve, grain, hsl,
-        local_adjustments, noise_reduction, saturation, scene_tone_controls, sharpen, texture,
-        tone_curves, vibrance, vignette, white_balance,
+        color_grade, defringe, display_tone_curve, grain, local_adjustments, noise_reduction,
+        sharpen, vignette,
     };
     use crate::view::agx;
 
@@ -88,67 +88,33 @@ pub(super) fn apply_scene_linear_chain_f32_inner_cancellable(
     img.whites_anchor_ev = whites_anchor_ev;
     img.nr_sampling_scale = nr_sampling_scale;
 
-    // Per-stage application — mirrors `apply_scene_linear_chain` (fp16
-    // sibling) verbatim. The order MUST match the Rust reference so
-    // `calibrate_color_pipeline` remains the canonical metric. WB frame
-    // dispatch (#1781) — see the fp16 sibling.
-    cancellable_stage("ffi_chain_white_balance", cancel, || match wb_frame {
-        Some(frame) if frame.is_present() => frame.apply_delta_rec2020_with_hsm(
-            &mut img,
-            (model.temperature, model.tint),
-            (decoded_temp, decoded_tint),
-            wb_hsm,
-        ),
-        _ => white_balance::apply_delta(
-            &mut img,
-            model.temperature,
-            model.tint,
-            decoded_temp,
-            decoded_tint,
-            model.wb_method,
-        ),
-    })?;
-    let sh_mask_anchor = mask_long_edge.unwrap_or_else(|| img.width.max(img.height)) as usize;
-    cancellable_stage("ffi_chain_scene_tone_controls", cancel, || {
-        scene_tone_controls::apply_with_mask_anchor(&mut img, model, sh_mask_anchor)
-    })?;
-    cancellable_stage("ffi_chain_tone_curves", cancel, || {
-        tone_curves::apply(&mut img, model)
-    })?;
-    cancellable_stage("ffi_chain_vibrance", cancel, || {
-        vibrance::apply(&mut img, model.vibrance)
-    })?;
-    cancellable_stage("ffi_chain_saturation", cancel, || {
-        saturation::apply(&mut img, model.saturation)
-    })?;
-    // HSL 8-band (#1112) — same position as the fp16 sibling.
-    cancellable_stage("ffi_chain_hsl", cancel, || {
-        hsl::apply_model(&mut img, model)
-    })?;
-    cancellable_stage("ffi_chain_color_curves", cancel, || {
-        color_curves::apply_model(&mut img, model)
-    })?;
-    cancellable_stage("ffi_chain_clarity", cancel, || {
-        clarity::apply(&mut img, model.clarity)
-    })?;
-    cancellable_stage("ffi_chain_texture", cancel, || {
-        texture::apply(&mut img, model.texture)
-    })?;
+    apply_pre_dehaze(&mut img, model, opts, cancel)?;
     cancellable_stage("ffi_chain_dehaze", cancel, || {
-        dehaze::apply(&mut img, model.dehaze)
-    })?;
+        super::haze::dehaze(&mut img, model.dehaze, haze_map, window)
+    })??;
     cancellable_stage("ffi_chain_defringe", cancel, || {
         defringe::apply_model(&mut img, model)
     })?;
     let scope_weights = cancellable_stage("ffi_chain_local_adjustments", cancel, || {
         if let Some(w) = window {
-            local_adjustments::apply_windowed(
-                &mut img,
-                &model.local_adjustments,
-                &model.mask_rasters,
-                (w.x as i32, w.y as i32),
-                (w.full_width, w.full_height),
-            );
+            let (origin, full) = ((w.x as i32, w.y as i32), (w.full_width, w.full_height));
+            match haze_map {
+                Some(haze) => local_adjustments::apply_windowed_with_haze(
+                    &mut img,
+                    &model.local_adjustments,
+                    &model.mask_rasters,
+                    origin,
+                    full,
+                    &haze.layers,
+                ),
+                None => local_adjustments::apply_windowed(
+                    &mut img,
+                    &model.local_adjustments,
+                    &model.mask_rasters,
+                    origin,
+                    full,
+                ),
+            }
             return None;
         }
         local_adjustments::apply_with_scope(
@@ -259,6 +225,73 @@ pub(super) fn apply_scene_linear_chain_f32_inner_cancellable(
         endcaps::pack_f32(&img.pixels)
     })?;
     Ok((out, scope_weights))
+}
+
+/// The chain from the WB delta through texture: exactly the pixels the
+/// dehaze stage receives, shared with [`super::haze`]'s map builder.
+pub(super) fn apply_pre_dehaze(
+    img: &mut crate::image::Image,
+    model: &AdjustmentModel,
+    opts: &ChainOptions<'_>,
+    cancel: crate::CancelToken<'_>,
+) -> Result<()> {
+    let ChainOptions {
+        decoded_temp,
+        decoded_tint,
+        wb_frame,
+        wb_hsm,
+        mask_long_edge,
+        ..
+    } = *opts;
+    use crate::stages::{
+        clarity, color_curves, hsl, saturation, scene_tone_controls, texture, tone_curves,
+        vibrance, white_balance,
+    };
+    // Per-stage application — mirrors `apply_scene_linear_chain` (fp16
+    // sibling) verbatim. The order MUST match the Rust reference so
+    // `calibrate_color_pipeline` remains the canonical metric. WB frame
+    // dispatch (#1781) — see the fp16 sibling.
+    cancellable_stage("ffi_chain_white_balance", cancel, || match wb_frame {
+        Some(frame) if frame.is_present() => frame.apply_delta_rec2020_with_hsm(
+            img,
+            (model.temperature, model.tint),
+            (decoded_temp, decoded_tint),
+            wb_hsm,
+        ),
+        _ => white_balance::apply_delta(
+            img,
+            model.temperature,
+            model.tint,
+            decoded_temp,
+            decoded_tint,
+            model.wb_method,
+        ),
+    })?;
+    let sh_mask_anchor = mask_long_edge.unwrap_or_else(|| img.width.max(img.height)) as usize;
+    cancellable_stage("ffi_chain_scene_tone_controls", cancel, || {
+        scene_tone_controls::apply_with_mask_anchor(img, model, sh_mask_anchor)
+    })?;
+    cancellable_stage("ffi_chain_tone_curves", cancel, || {
+        tone_curves::apply(img, model)
+    })?;
+    cancellable_stage("ffi_chain_vibrance", cancel, || {
+        vibrance::apply(img, model.vibrance)
+    })?;
+    cancellable_stage("ffi_chain_saturation", cancel, || {
+        saturation::apply(img, model.saturation)
+    })?;
+    // HSL 8-band (#1112) — same position as the fp16 sibling.
+    cancellable_stage("ffi_chain_hsl", cancel, || hsl::apply_model(img, model))?;
+    cancellable_stage("ffi_chain_color_curves", cancel, || {
+        color_curves::apply_model(img, model)
+    })?;
+    cancellable_stage("ffi_chain_clarity", cancel, || {
+        clarity::apply(img, model.clarity)
+    })?;
+    cancellable_stage("ffi_chain_texture", cancel, || {
+        texture::apply(img, model.texture)
+    })?;
+    Ok(())
 }
 
 /// Discard partially written stages and stop before starting the next one.

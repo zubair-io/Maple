@@ -145,6 +145,72 @@ pub(super) fn develop_sized_prefix(
     }
     let (frame_w, frame_h) = crate::pipeline::native_render_dims(raw);
     let model = &*crate::types::with_brush_rasters(model, frame_w, frame_h);
+    let (mut scene, ae_gain) = develop_sized_to_dehaze(raw, model, quality, max_long_edge, cancel)?;
+    stage("sized_dehaze", || dehaze::apply(&mut scene, model.dehaze));
+    dump_after("12_dehaze", &scene);
+    develop_sized_after_dehaze(scene, raw, model).map(|scene| (scene, ae_gain))
+}
+
+/// The frame's haze map (#3287), measured from a Preview-density develop
+/// sized to the map's own proxy grid, so a native-resolution develop and a
+/// native tile of the same frame measure the identical map without either
+/// developing the frame at native density twice (the #5049 pattern). Its
+/// working set is one half-resolution demosaic, released before return.
+pub(crate) fn haze_map_from_raw(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    cancel: CancelToken<'_>,
+) -> Result<dehaze::FrameHaze> {
+    let (mut scene, _) = develop_sized_to_dehaze(
+        raw,
+        model,
+        RenderQuality::Preview,
+        dehaze::HAZE_PROXY_LONG_EDGE,
+        cancel,
+    )?;
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    let global = dehaze::engaged(model.dehaze)
+        .then(|| stage("sized_dehaze_map", || dehaze::HazeMap::measure(&scene)));
+    if !local_adjustments::spatial::any_dehaze_engaged(&model.local_adjustments) {
+        return Ok(dehaze::FrameHaze {
+            global,
+            layers: Vec::new(),
+        });
+    }
+    // Per-mask dehaze measures each layer's own scratch, which sits after
+    // the global dehaze and defringe: run them to reach it.
+    if let Some(map) = &global {
+        let frame = (scene.width, scene.height);
+        dehaze::apply_with_map(&mut scene, model.dehaze, map, (0, 0), frame);
+    }
+    defringe::apply_model(&mut scene, model);
+    let (layers, rasters) = crate::pipeline::mask::orient_adjustments_to_sensor(
+        &model.local_adjustments,
+        &model.mask_rasters,
+        raw.orientation,
+    );
+    let layers = stage("sized_local_dehaze_maps", || {
+        local_adjustments::apply_measuring_haze(&mut scene, &layers, &rasters)
+    });
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    Ok(dehaze::FrameHaze { global, layers })
+}
+
+/// The sized develop through texture: the scene dehaze receives.
+fn develop_sized_to_dehaze(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+    cancel: CancelToken<'_>,
+) -> Result<(crate::image::Image, f32)> {
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
     // DefaultCrop coordinate divisor — tracks the demosaic output resolution so
     // `crop_to_default` (below) maps sensor-crop coords onto the actual
     // post-demosaic buffer. The Bayer arm overrides this to 2 when it drops to
@@ -449,8 +515,17 @@ pub(super) fn develop_sized_prefix(
         texture::apply(&mut scene, model.texture)
     });
     dump_after("11_texture", &scene);
-    stage("sized_dehaze", || dehaze::apply(&mut scene, model.dehaze));
-    dump_after("12_dehaze", &scene);
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    Ok((scene, ae_gain))
+}
+
+fn develop_sized_after_dehaze(
+    mut scene: crate::image::Image,
+    raw: &RawImage,
+    model: &AdjustmentModel,
+) -> Result<crate::image::Image> {
     // Global defringe must affect viewport renders as well as exports (#3889).
     // Keep the full develop ordering: after dehaze, before local adjustments.
     stage("sized_defringe", || {
@@ -473,5 +548,5 @@ pub(super) fn develop_sized_prefix(
         vignette::apply(&mut scene, model.vignette_amount, model.vignette_feather)
     });
     dump_after("12c_vignette", &scene);
-    Ok((scene, ae_gain))
+    Ok(scene)
 }

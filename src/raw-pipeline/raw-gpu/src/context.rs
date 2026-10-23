@@ -236,6 +236,7 @@ pub struct GpuContext {
     /// uniform + airlight uniform + RGBA-orig + ab-in + sky-in + RGBA-out — the
     /// airlight rides a SECOND uniform, so storage stays at 4 / the cap; #1033).
     pub(crate) dehaze_recover_pipeline: OnceCell<wgpu::ComputePipeline>,
+    pub(crate) dehaze_downsample_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled on-GPU airlight histogram pipeline (`airlight_hist.wgsl`).
     /// The dehaze C5b reduction (epic #925 P4b / #1033): an atomic histogram of the
     /// dark channel, stage 1 of computing the atmospheric light A on-device (no
@@ -443,6 +444,7 @@ impl GpuContext {
             dehaze_guided_ab_pipeline: OnceCell::new(),
             dehaze_sky_mask_pipeline: OnceCell::new(),
             dehaze_recover_pipeline: OnceCell::new(),
+            dehaze_downsample_pipeline: OnceCell::new(),
             airlight_hist_pipeline: OnceCell::new(),
             airlight_reduce_pipeline: OnceCell::new(),
             nr_extract_pipeline: OnceCell::new(),

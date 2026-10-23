@@ -275,8 +275,10 @@ fn compute_airlight_is_byte_exact_vs_independent_selection() {
         "A must be finite, got {a:?}"
     );
 
-    let pixels: Vec<[f32; 3]> = input.chunks_exact(4).map(|c| [c[0], c[1], c[2]]).collect();
-    let dc = independent_dark_channel(&pixels, w, h);
+    // A is measured on the haze map's proxy grid (#3287).
+    let (proxy, pw, ph) = crate::dehaze::proxy_rgba(&input, w, h);
+    let pixels: Vec<[f32; 3]> = proxy.chunks_exact(4).map(|c| [c[0], c[1], c[2]]).collect();
+    let dc = independent_dark_channel(&pixels, pw, ph);
     let n = dc.len();
     let top_n = (n / 1000).max(1);
     let mut idx: Vec<usize> = (0..n).collect();
