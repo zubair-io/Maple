@@ -118,6 +118,58 @@ pub unsafe extern "C" fn maple_scene_linear_chain_haze_map_f32(
     })
 }
 
+/// A digest of everything the haze maps for `params` depend on except the
+/// frame's pixels (`dehaze::haze_key` plus the decode anchors), so a host
+/// can keep a [`MapleHazeMap`] per (frame, digest) and skip rendering and
+/// handing over its frame on a hit. `0` when no dehaze is engaged, or for a
+/// null argument.
+///
+/// # Safety
+/// `params` null or a valid `MapleAdjustmentParams` (its pointers valid);
+/// `curves` null or a valid `MapleToneCurves`.
+#[no_mangle]
+pub unsafe extern "C" fn maple_scene_linear_chain_haze_key(
+    params: *const MapleAdjustmentParams,
+    curves: *const MapleToneCurves,
+) -> u64 {
+    crate::error::catch_panic("maple_scene_linear_chain_haze_key", 0, || {
+        let Some(p) = params.as_ref() else {
+            return 0;
+        };
+        let mut ci = chain_inputs_from_params(p);
+        if !curves.is_null() {
+            inject_tone_curves(&mut ci.model, &*curves);
+        }
+        if !dehaze::any_engaged(&ci.model) {
+            return 0;
+        }
+        let options = ci.options(p.skip_agx != 0);
+        let key = dehaze::haze_key(&ci.model);
+        // A raster is identified by its recipe digest; formatting its pixels
+        // would cost megabytes per patch.
+        let rasters: Vec<_> = key
+            .mask_rasters
+            .iter()
+            .map(|r| (r.id, r.digest.clone(), r.width, r.height))
+            .collect();
+        let described = format!(
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+            raw_core::xmp::AdjustmentModel {
+                mask_rasters: Vec::new(),
+                ..key
+            },
+            rasters,
+            (options.decoded_temp, options.decoded_tint),
+            ci.wb_frame,
+            options.whites_anchor_ev,
+            options.nr_sampling_scale,
+        );
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&described, &mut hasher);
+        std::hash::Hasher::finish(&hasher).max(1)
+    })
+}
+
 /// Free a map from [`maple_scene_linear_chain_haze_map_f32`]. Null is a no-op.
 ///
 /// # Safety
