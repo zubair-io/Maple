@@ -46,6 +46,8 @@ use crate::spatial;
 // under the 600-LOC budget (#1033). It shares the stage constants below via
 // `use super::*`. Re-exported so the crate API is unchanged.
 mod oracle;
+#[cfg(test)]
+pub(crate) use oracle::proxy_rgba;
 pub use oracle::{apply_dehaze, compute_airlight};
 
 /// Dark-channel / transmission window radius (15×15) — `raw_core`'s `DARK_RADIUS`.
@@ -65,6 +67,20 @@ const SKY_MASK_BLUR_RADIUS: u32 = 8;
 const T0: f32 = 0.1;
 /// Rec.2020 luma weights — raw-core's guide weights (same add order).
 const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
+/// The haze map's fixed proxy long edge (#3287) —
+/// `raw_core::stages::dehaze::HAZE_PROXY_LONG_EDGE`, pinned by a test.
+pub const HAZE_PROXY_LONG_EDGE: u32 = 2048;
+
+/// The haze map's proxy grid for a `width × height` frame —
+/// `raw_core::stages::dehaze::proxy_dims`, pinned by a test.
+pub fn proxy_dims(width: u32, height: u32) -> (u32, u32) {
+    let long = u64::from(width.max(height).max(1));
+    let scale = |edge: u32| {
+        let scaled = (u64::from(edge) * u64::from(HAZE_PROXY_LONG_EDGE) + long / 2) / long;
+        scaled.max(1) as u32
+    };
+    (scale(width), scale(height))
+}
 /// Per-channel airlight floor applied INSIDE transmission only.
 const A_FLOOR: f32 = 1e-6;
 
@@ -112,15 +128,30 @@ struct AbParams {
     _pad1: u32,
 }
 
-/// `dehaze_recover.wgsl` uniform: count + precomputed scale. The RAW airlight
-/// rides a SEPARATE uniform (#1033), so it isn't packed here.
+/// `dehaze_recover.wgsl` uniform: render dims, precomputed scale and the
+/// proxy grid the map planes live on. The RAW airlight rides a SEPARATE
+/// uniform (#1033), so it isn't packed here.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct RecoverParams {
-    count: u32,
+    width: u32,
+    height: u32,
     scale: f32, // clamp(dehaze / 100, -1, 1)
     _pad0: u32,
+    proxy_width: u32,
+    proxy_height: u32,
     _pad1: u32,
+    _pad2: u32,
+}
+
+/// `dehaze_downsample.wgsl` uniform: source and proxy dims.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct DownsampleParams {
+    src_width: u32,
+    src_height: u32,
+    proxy_width: u32,
+    proxy_height: u32,
 }
 
 /// Where a [`DehazePass`] gets its atmospheric light A from.
@@ -198,170 +229,218 @@ impl Pass for DehazePass {
             encoder.copy_buffer_to_buffer(src, 0, dst, 0, byte_len);
             return;
         }
-        let count = width * height;
-
-        // The standalone airlight UNIFORM (#1033) the transmission + recovery
-        // kernels read (binding 3 / binding 5). Pooled (zero-alloc re-render) with
-        // `UNIFORM | COPY_DST | COPY_SRC` — `COPY_DST` so it can be filled by EITHER
-        // a CPU `write_buffer` or an on-GPU `copy_buffer_to_buffer`.
-        let airlight_uniform = airlight::alloc_airlight_uniform(ctx);
-
-        // 1. Dark channel (mode 0) — direct 2D 15×15 window min, clamp-to-edge.
-        // Mode 0 ignores the airlight; bind the (still-to-be-filled) uniform anyway
-        // so every `dehaze_min` dispatch uses the SAME 4-binding layout.
-        let dc = spatial::alloc_plane(ctx, width, height, "dehaze-dc");
-        let dc_params = MinParams {
-            width,
-            height,
-            mode: 0,
-            _pad0: 0,
-        };
-        spatial::encode_simple(
-            ctx,
-            encoder,
-            ctx.dehaze_min_pipeline(),
-            bytemuck::bytes_of(&dc_params),
-            &[src, &dc, &airlight_uniform],
-            count,
-            "dehaze-dark-channel",
-        );
-
-        // 1b. Fill the airlight uniform from the chosen source (#1033). CPU: write
-        //     the pre-computed A directly. On-GPU: run the histogram + reduce over
-        //     `src` and its dark channel `dc`, then copy the result (GPU→GPU, no
-        //     readback) into the uniform. Either way the transmission + recovery
-        //     dispatches below read A from the same binding.
-        match &self.airlight {
-            AirlightSource::Cpu(a) => {
-                let a_uniform = AirlightUniform {
-                    value: [a[0], a[1], a[2], 0.0],
-                };
-                ctx.queue
-                    .write_buffer(&airlight_uniform, 0, bytemuck::bytes_of(&a_uniform));
-            }
-            AirlightSource::OnGpu => {
-                let a_out = airlight::encode_airlight(ctx, encoder, src, &dc, count);
-                encoder.copy_buffer_to_buffer(
-                    &a_out,
-                    0,
-                    &airlight_uniform,
-                    0,
-                    airlight::AIRLIGHT_BYTE_LEN,
-                );
-            }
-        }
-
-        // 2. Transmission (mode 1) — same window, A in the uniform (clamped in-kernel).
-        let t_raw = spatial::alloc_plane(ctx, width, height, "dehaze-t-raw");
-        let t_params = MinParams {
-            width,
-            height,
-            mode: 1,
-            _pad0: 0,
-        };
-        spatial::encode_simple(
-            ctx,
-            encoder,
-            ctx.dehaze_min_pipeline(),
-            bytemuck::bytes_of(&t_params),
-            &[src, &t_raw, &airlight_uniform],
-            count,
-            "dehaze-transmission",
-        );
-
-        // 3. Guided refine (GENERAL, guide=luma p=t): pack pre-blur products into
-        //    two vec2 planes, blur each, derive a/b, blur a/b.
-        let m1 = spatial::alloc_plane_vec2(ctx, width, height, "dehaze-m1");
-        let m2 = spatial::alloc_plane_vec2(ctx, width, height, "dehaze-m2");
-        let prod_params = CountParams {
-            count,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        spatial::encode_simple(
-            ctx,
-            encoder,
-            ctx.dehaze_products_pipeline(),
-            bytemuck::bytes_of(&prod_params),
-            &[src, &t_raw, &m1, &m2],
-            count,
-            "dehaze-products",
-        );
-
-        let mean_m1 = spatial::alloc_plane_vec2(ctx, width, height, "dehaze-mean-m1");
-        let mean_m2 = spatial::alloc_plane_vec2(ctx, width, height, "dehaze-mean-m2");
-        spatial::box_blur_vec2_encode(ctx, encoder, &m1, &mean_m1, width, height, GUIDED_RADIUS);
-        spatial::box_blur_vec2_encode(ctx, encoder, &m2, &mean_m2, width, height, GUIDED_RADIUS);
-
-        let ab = spatial::alloc_plane_vec2(ctx, width, height, "dehaze-ab");
-        let ab_params = AbParams {
-            count,
-            eps: GUIDED_EPS,
-            _pad0: 0,
-            _pad1: 0,
-        };
-        spatial::encode_simple(
-            ctx,
-            encoder,
-            ctx.dehaze_guided_ab_pipeline(),
-            bytemuck::bytes_of(&ab_params),
-            &[&mean_m1, &mean_m2, &ab],
-            count,
-            "dehaze-guided-ab",
-        );
-
-        let mean_ab = spatial::alloc_plane_vec2(ctx, width, height, "dehaze-mean-ab");
-        spatial::box_blur_vec2_encode(ctx, encoder, &ab, &mean_ab, width, height, GUIDED_RADIUS);
-
-        // 4. Sky mask: raw smoothstep over the dark channel, then a radius-8 blur.
-        let sky_raw = spatial::alloc_plane(ctx, width, height, "dehaze-sky-raw");
-        let sky_params = CountParams {
-            count,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        spatial::encode_simple(
-            ctx,
-            encoder,
-            ctx.dehaze_sky_mask_pipeline(),
-            bytemuck::bytes_of(&sky_params),
-            &[&dc, &sky_raw],
-            count,
-            "dehaze-sky-mask",
-        );
-        let sky = spatial::alloc_plane(ctx, width, height, "dehaze-sky");
-        spatial::box_blur_encode(
-            ctx,
-            encoder,
-            &sky_raw,
-            &sky,
-            width,
-            height,
-            SKY_MASK_BLUR_RADIUS,
-        );
-
-        // 5. Recovery (MULTI-INPUT, 4 storage + 2 uniforms): orig + mean_ab + sky →
-        //    dst, with A read from the airlight uniform (binding 5, #1033 — so A is
-        //    NOT a 5th storage binding; storage stays at the 4-cap).
-        let scale = (self.dehaze / 100.0).clamp(-1.0, 1.0);
-        let rec_params = RecoverParams {
-            count,
-            scale,
-            _pad0: 0,
-            _pad1: 0,
-        };
-        spatial::encode_simple(
-            ctx,
-            encoder,
-            ctx.dehaze_recover_pipeline(),
-            bytemuck::bytes_of(&rec_params),
-            &[src, &mean_ab, &sky, dst, &airlight_uniform],
-            count,
-            "dehaze-recover",
-        );
+        let map = encode_haze_map(ctx, encoder, src, dims, &self.airlight);
+        encode_recover(ctx, encoder, src, dst, dims, self.dehaze, &map);
     }
+}
+
+/// The haze map's GPU planes (#3287), all on the proxy grid.
+pub(crate) struct HazeMapPlanes {
+    pub proxy: (u32, u32),
+    /// Box-filtered guided coefficients `(mean_a, mean_b)`, vec2 per texel.
+    pub coefficients: spatial::Plane,
+    /// Feathered sky mask, one f32 per texel.
+    pub sky: spatial::Plane,
+    /// The airlight uniform (rgb = raw A) the recovery reads.
+    pub airlight: spatial::Plane,
+}
+
+/// Measure the haze map of the frame in `src` (`dims`) on the fixed proxy
+/// grid: downsample, dark channel, airlight, transmission, guided
+/// coefficients and sky mask — `raw_core::stages::dehaze::HazeMap::measure`.
+pub(crate) fn encode_haze_map(
+    ctx: &GpuContext,
+    encoder: &mut wgpu::CommandEncoder,
+    src: &wgpu::Buffer,
+    dims: (u32, u32),
+    airlight_source: &AirlightSource,
+) -> HazeMapPlanes {
+    let (width, height) = dims;
+    let (pw, ph) = proxy_dims(width, height);
+    let count = pw * ph;
+
+    // 0. The proxy image every map kernel reads.
+    let proxy = spatial::alloc_rgba(ctx, pw, ph, "dehaze-proxy");
+    let down_params = DownsampleParams {
+        src_width: width,
+        src_height: height,
+        proxy_width: pw,
+        proxy_height: ph,
+    };
+    spatial::encode_simple(
+        ctx,
+        encoder,
+        ctx.dehaze_downsample_pipeline(),
+        bytemuck::bytes_of(&down_params),
+        &[src, &proxy],
+        count,
+        "dehaze-downsample",
+    );
+
+    // The standalone airlight UNIFORM (#1033) the transmission + recovery
+    // kernels read. Pooled with `UNIFORM | COPY_DST | COPY_SRC`, so it can be
+    // filled by EITHER a CPU `write_buffer` or an on-GPU copy.
+    let airlight_uniform = airlight::alloc_airlight_uniform(ctx);
+
+    // 1. Dark channel (mode 0) — direct 2D 15×15 window min, clamp-to-edge.
+    // Mode 0 ignores the airlight; bind the (still-to-be-filled) uniform anyway
+    // so every `dehaze_min` dispatch uses the SAME 4-binding layout.
+    let dc = spatial::alloc_plane(ctx, pw, ph, "dehaze-dc");
+    let dc_params = MinParams {
+        width: pw,
+        height: ph,
+        mode: 0,
+        _pad0: 0,
+    };
+    spatial::encode_simple(
+        ctx,
+        encoder,
+        ctx.dehaze_min_pipeline(),
+        bytemuck::bytes_of(&dc_params),
+        &[&proxy, &dc, &airlight_uniform],
+        count,
+        "dehaze-dark-channel",
+    );
+
+    // 1b. Fill the airlight uniform: a CPU-measured A, or the on-GPU
+    //     histogram + reduce over the proxy and its dark channel (no readback).
+    match airlight_source {
+        AirlightSource::Cpu(a) => {
+            let a_uniform = AirlightUniform {
+                value: [a[0], a[1], a[2], 0.0],
+            };
+            ctx.queue
+                .write_buffer(&airlight_uniform, 0, bytemuck::bytes_of(&a_uniform));
+        }
+        AirlightSource::OnGpu => {
+            let a_out = airlight::encode_airlight(ctx, encoder, &proxy, &dc, count);
+            encoder.copy_buffer_to_buffer(
+                &a_out,
+                0,
+                &airlight_uniform,
+                0,
+                airlight::AIRLIGHT_BYTE_LEN,
+            );
+        }
+    }
+
+    // 2. Transmission (mode 1) — same window, A in the uniform (clamped in-kernel).
+    let t_raw = spatial::alloc_plane(ctx, pw, ph, "dehaze-t-raw");
+    let t_params = MinParams {
+        width: pw,
+        height: ph,
+        mode: 1,
+        _pad0: 0,
+    };
+    spatial::encode_simple(
+        ctx,
+        encoder,
+        ctx.dehaze_min_pipeline(),
+        bytemuck::bytes_of(&t_params),
+        &[&proxy, &t_raw, &airlight_uniform],
+        count,
+        "dehaze-transmission",
+    );
+
+    // 3. Guided refine coefficients (GENERAL, guide=luma p=t): pack pre-blur
+    //    products into two vec2 planes, blur each, derive a/b, blur a/b.
+    let m1 = spatial::alloc_plane_vec2(ctx, pw, ph, "dehaze-m1");
+    let m2 = spatial::alloc_plane_vec2(ctx, pw, ph, "dehaze-m2");
+    let prod_params = CountParams {
+        count,
+        _pad0: 0,
+        _pad1: 0,
+        _pad2: 0,
+    };
+    spatial::encode_simple(
+        ctx,
+        encoder,
+        ctx.dehaze_products_pipeline(),
+        bytemuck::bytes_of(&prod_params),
+        &[&proxy, &t_raw, &m1, &m2, &airlight_uniform],
+        count,
+        "dehaze-products",
+    );
+
+    let mean_m1 = spatial::alloc_plane_vec2(ctx, pw, ph, "dehaze-mean-m1");
+    let mean_m2 = spatial::alloc_plane_vec2(ctx, pw, ph, "dehaze-mean-m2");
+    spatial::box_blur_vec2_encode(ctx, encoder, &m1, &mean_m1, pw, ph, GUIDED_RADIUS);
+    spatial::box_blur_vec2_encode(ctx, encoder, &m2, &mean_m2, pw, ph, GUIDED_RADIUS);
+
+    let ab = spatial::alloc_plane_vec2(ctx, pw, ph, "dehaze-ab");
+    let ab_params = AbParams {
+        count,
+        eps: GUIDED_EPS,
+        _pad0: 0,
+        _pad1: 0,
+    };
+    spatial::encode_simple(
+        ctx,
+        encoder,
+        ctx.dehaze_guided_ab_pipeline(),
+        bytemuck::bytes_of(&ab_params),
+        &[&mean_m1, &mean_m2, &ab],
+        count,
+        "dehaze-guided-ab",
+    );
+
+    let mean_ab = spatial::alloc_plane_vec2(ctx, pw, ph, "dehaze-mean-ab");
+    spatial::box_blur_vec2_encode(ctx, encoder, &ab, &mean_ab, pw, ph, GUIDED_RADIUS);
+
+    // 4. Sky mask: raw smoothstep over the dark channel, then a radius-8 blur.
+    let sky_raw = spatial::alloc_plane(ctx, pw, ph, "dehaze-sky-raw");
+    spatial::encode_simple(
+        ctx,
+        encoder,
+        ctx.dehaze_sky_mask_pipeline(),
+        bytemuck::bytes_of(&prod_params),
+        &[&dc, &sky_raw],
+        count,
+        "dehaze-sky-mask",
+    );
+    let sky = spatial::alloc_plane(ctx, pw, ph, "dehaze-sky");
+    spatial::box_blur_encode(ctx, encoder, &sky_raw, &sky, pw, ph, SKY_MASK_BLUR_RADIUS);
+
+    HazeMapPlanes {
+        proxy: (pw, ph),
+        coefficients: mean_ab,
+        sky,
+        airlight: airlight_uniform,
+    }
+}
+
+/// Recovery (MULTI-INPUT, 4 storage + 2 uniforms): the full-resolution
+/// `src` plus the proxy map planes → `dst`, with A read from the airlight
+/// uniform (binding 5, #1033 — so A is NOT a 5th storage binding).
+pub(crate) fn encode_recover(
+    ctx: &GpuContext,
+    encoder: &mut wgpu::CommandEncoder,
+    src: &wgpu::Buffer,
+    dst: &wgpu::Buffer,
+    dims: (u32, u32),
+    dehaze: f32,
+    map: &HazeMapPlanes,
+) {
+    let (width, height) = dims;
+    let rec_params = RecoverParams {
+        width,
+        height,
+        scale: (dehaze / 100.0).clamp(-1.0, 1.0),
+        _pad0: 0,
+        proxy_width: map.proxy.0,
+        proxy_height: map.proxy.1,
+        _pad1: 0,
+        _pad2: 0,
+    };
+    spatial::encode_simple(
+        ctx,
+        encoder,
+        ctx.dehaze_recover_pipeline(),
+        bytemuck::bytes_of(&rec_params),
+        &[src, &map.coefficients, &map.sky, dst, &map.airlight],
+        width * height,
+        "dehaze-recover",
+    );
 }
 
 // Parity tests live in a sibling file to keep this module under the 600-LOC

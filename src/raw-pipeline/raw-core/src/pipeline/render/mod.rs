@@ -474,6 +474,7 @@ fn render_display_scene_with_context_cancellable(
         DetailContext {
             target,
             native_highlight: None,
+            haze: None,
             model: model.clone(),
             active_model: active_model.clone(),
             ae_gain,

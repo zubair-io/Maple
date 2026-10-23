@@ -1,270 +1,254 @@
 //! Dehaze's CPU oracle (epic #925 P2 wave 3b / #990) — split from `dehaze.rs` for
-//! the file-size budget (#1033 pushed the parent past 600 LOC). A faithful,
-//! line-for-line port of `raw_core::stages::dehaze`'s PRIVATE primitives
-//! (`box_blur` / `guided_filter` / `dark_channel` / `atmospheric_light` /
-//! `transmission` / `sky_mask` / `recover_with_mask`) plus the public entry points
-//! [`apply_dehaze`] (the full-stage oracle) and [`compute_airlight`] (the global
-//! atmospheric-light reduction, byte-exact vs raw-core). The dehaze parity test
-//! (`dehaze/tests.rs`) pins this oracle — and transitively the GPU kernels — to
-//! the REAL `raw_core::stages::dehaze::apply`, so a transcription slip here cannot
-//! mask a kernel bug. Shares the stage constants from the parent via `use super::*`.
+//! the file-size budget. A faithful port of `raw_core::stages::dehaze`: the
+//! haze map measured on the fixed proxy grid (#3287 — `resample`, the 15×15
+//! window minimum, `atmospheric_light`, the guided-filter coefficients and the
+//! sky mask) and the bilinear-sampled per-pixel recovery, plus the public entry
+//! points [`apply_dehaze`] (the full-stage oracle) and [`compute_airlight`] (the
+//! global atmospheric-light reduction on the proxy grid, byte-exact vs raw-core).
+//! The dehaze parity test (`dehaze/tests.rs`) pins this oracle — and
+//! transitively the GPU kernels — to the REAL `raw_core::stages::dehaze::apply`,
+//! so a transcription slip here cannot mask a kernel bug. Shares the stage
+//! constants from the parent via `use super::*`.
 
 use super::*;
 
-// ── CPU oracle: verbatim port of raw-core's dehaze primitives ─────────────────
-//
-// `box_blur` / `guided_filter` / `dark_channel` / `atmospheric_light` /
-// `transmission` / `sky_mask` / `recover_with_mask` are private in raw-core, so
-// these copies keep the oracle self-contained. The parity test pins the GPU (and
-// transitively this oracle) to the REAL `raw_core::stages::dehaze::apply`, so a
-// transcription slip here cannot mask a kernel bug. Kept line-faithful.
+fn to_rgb(buf: &[f32]) -> Vec<[f32; 3]> {
+    buf.chunks_exact(4).map(|c| [c[0], c[1], c[2]]).collect()
+}
 
-/// Dark channel: 15×15 window min of `min(r,g,b)`, CLAMP-TO-EDGE borders.
-/// Faithful to `raw_core::stages::dehaze::dark_channel`.
-fn dark_channel(pixels: &[[f32; 3]], w: usize, h: usize) -> Vec<f32> {
-    let wi = w as i32;
-    let hi = h as i32;
-    let r = DARK_RADIUS as i32;
-    let mut out = vec![0.0f32; w * h];
-    for y in 0..hi {
-        for x in 0..wi {
-            let mut m = f32::INFINITY;
-            for dy in -r..=r {
-                for dx in -r..=r {
-                    let ux = (x + dx).clamp(0, wi - 1) as usize;
-                    let uy = (y + dy).clamp(0, hi - 1) as usize;
-                    let p = pixels[uy * w + ux];
-                    let local_min = p[0].min(p[1]).min(p[2]);
-                    if local_min < m {
-                        m = local_min;
-                    }
+fn span(i: usize, src: usize, dst: usize) -> (usize, usize) {
+    let start = i * src / dst;
+    (start, ((i + 1) * src / dst).max(start + 1))
+}
+
+fn resample(pixels: &[[f32; 3]], w: usize, h: usize, pw: usize, ph: usize) -> Vec<[f32; 3]> {
+    let mut out = vec![[0.0f32; 3]; pw * ph];
+    for j in 0..ph {
+        let (y0, y1) = span(j, h, ph);
+        for i in 0..pw {
+            let (x0, x1) = span(i, w, pw);
+            let mut sum = [0.0f32; 3];
+            for y in y0..y1 {
+                for p in &pixels[y * w + x0..y * w + x1] {
+                    sum[0] += p[0];
+                    sum[1] += p[1];
+                    sum[2] += p[2];
                 }
             }
-            out[(y * wi + x) as usize] = m;
+            let n = ((y1 - y0) * (x1 - x0)) as f32;
+            out[j * pw + i] = [sum[0] / n, sum[1] / n, sum[2] / n];
         }
     }
     out
 }
 
-/// Atmospheric light A: mean of the original image at the brightest 0.1% of
-/// dark-channel positions. Faithful to
-/// `raw_core::stages::dehaze::atmospheric_light` — INCLUDING the exact
-/// `sort_unstable_by` descending comparator (tie-breaks must match: on a small
-/// image `top_n` is tiny, so one swapped pixel shifts A enough to fail parity).
+fn window_min(values: &[f32], w: usize, h: usize) -> Vec<f32> {
+    let r = DARK_RADIUS;
+    let mut out = vec![0.0f32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let mut m = f32::INFINITY;
+            for yy in y.saturating_sub(r)..=(y + r).min(h - 1) {
+                for xx in x.saturating_sub(r)..=(x + r).min(w - 1) {
+                    m = m.min(values[yy * w + xx]);
+                }
+            }
+            out[y * w + x] = m;
+        }
+    }
+    out
+}
+
 fn atmospheric_light(pixels: &[[f32; 3]], dc: &[f32]) -> [f32; 3] {
     let n = dc.len();
     let top_n = (n / 1000).max(1);
     let mut idx: Vec<usize> = (0..n).collect();
-    idx.sort_unstable_by(|&a, &b| {
-        dc[b]
-            .partial_cmp(&dc[a])
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    let mut sum = [0.0f32; 3];
+    idx.sort_by(|a, b| dc[*b].total_cmp(&dc[*a]).then(a.cmp(b)));
+    let mut sum = [0.0f64; 3];
     for &i in &idx[..top_n] {
         let p = pixels[i];
-        sum[0] += p[0];
-        sum[1] += p[1];
-        sum[2] += p[2];
+        sum[0] += f64::from(p[0]);
+        sum[1] += f64::from(p[1]);
+        sum[2] += f64::from(p[2]);
     }
-    let k = top_n as f32;
-    [sum[0] / k, sum[1] / k, sum[2] / k]
+    let k = top_n as f64;
+    sum.map(|s| (s / k) as f32)
 }
 
-/// Transmission: `1 - ω·(15×15 window min of min(rgb/A))`, clamp-to-edge, with
-/// each A floored at 1e-6. Faithful to `raw_core::stages::dehaze::transmission`.
-fn transmission(pixels: &[[f32; 3]], w: usize, h: usize, a: [f32; 3]) -> Vec<f32> {
-    let wi = w as i32;
-    let hi = h as i32;
-    let r = DARK_RADIUS as i32;
-    let mut out = vec![0.0f32; w * h];
-    for y in 0..hi {
-        for x in 0..wi {
-            let mut m = f32::INFINITY;
-            for dy in -r..=r {
-                for dx in -r..=r {
-                    let ux = (x + dx).clamp(0, wi - 1) as usize;
-                    let uy = (y + dy).clamp(0, hi - 1) as usize;
-                    let p = pixels[uy * w + ux];
-                    let scaled_min = (p[0] / a[0].max(A_FLOOR))
-                        .min(p[1] / a[1].max(A_FLOOR))
-                        .min(p[2] / a[2].max(A_FLOOR));
-                    if scaled_min < m {
-                        m = scaled_min;
-                    }
-                }
-            }
-            out[(y * wi + x) as usize] = 1.0 - OMEGA * m;
+fn running_mean(line: &[f32], r: usize) -> Vec<f32> {
+    let n = line.len();
+    let right0 = r.min(n - 1);
+    let mut acc: f64 = line[..=right0].iter().map(|&v| f64::from(v)).sum();
+    let mut count = right0 + 1;
+    let mut out = vec![(acc / count as f64) as f32];
+    for x in 1..n {
+        if x + r < n {
+            acc += f64::from(line[x + r]);
+            count += 1;
         }
+        if x > r {
+            acc -= f64::from(line[x - r - 1]);
+            count -= 1;
+        }
+        out.push((acc / count as f64) as f32);
     }
     out
 }
 
-/// Separable box blur (shrinking partial average) — faithful to
-/// `raw_core::stages::dehaze::box_blur` (the same running accumulator as
-/// clarity's `box_blur_channel`). `r` here is always > 0 in the dehaze path.
 fn box_blur(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
-    let mut tmp = vec![0.0f32; buf.len()];
-    for y in 0..h {
-        let row = &buf[y * w..(y + 1) * w];
-        let out_row = &mut tmp[y * w..(y + 1) * w];
-        let right0 = r.min(w - 1);
-        let mut acc: f32 = row[0..=right0].iter().sum();
-        let mut count = right0 + 1;
-        out_row[0] = acc / count as f32;
-        for x in 1..w {
-            if x + r < w {
-                acc += row[x + r];
-                count += 1;
-            }
-            if x > r {
-                acc -= row[x - r - 1];
-                count -= 1;
-            }
-            out_row[x] = acc / count as f32;
-        }
-    }
+    let rows: Vec<f32> = buf
+        .chunks_exact(w)
+        .flat_map(|row| running_mean(row, r))
+        .collect();
     let mut out = vec![0.0f32; buf.len()];
     for x in 0..w {
-        let bot0 = r.min(h - 1);
-        let mut acc: f32 = (0..=bot0).map(|i| tmp[i * w + x]).sum();
-        let mut count = bot0 + 1;
-        out[x] = acc / count as f32;
-        for y in 1..h {
-            if y + r < h {
-                acc += tmp[(y + r) * w + x];
-                count += 1;
-            }
-            if y > r {
-                acc -= tmp[(y - r - 1) * w + x];
-                count -= 1;
-            }
-            out[y * w + x] = acc / count as f32;
+        let column: Vec<f32> = (0..h).map(|y| rows[y * w + x]).collect();
+        for (y, v) in running_mean(&column, r).into_iter().enumerate() {
+            out[y * w + x] = v;
         }
     }
     out
 }
 
-#[derive(Clone, Copy)]
-struct GuidedFilterConfig {
-    w: usize,
-    h: usize,
-    r: usize,
-    eps: f32,
-}
-
-/// GENERAL guided filter (guide != p) — faithful to
-/// `raw_core::stages::dehaze::guided_filter`. Six box blurs over the cross terms.
-fn guided_filter(guide: &[f32], p: &[f32], config: GuidedFilterConfig) -> Vec<f32> {
-    let GuidedFilterConfig { w, h, r, eps } = config;
+fn guided_coefficients(guide: &[f32], p: &[f32], w: usize, h: usize) -> Vec<[f32; 2]> {
+    let r = GUIDED_RADIUS as usize;
     let n = guide.len();
     let mean_i = box_blur(guide, w, h, r);
     let mean_p = box_blur(p, w, h, r);
-    let ip: Vec<f32> = guide.iter().zip(p.iter()).map(|(&a, &b)| a * b).collect();
-    let mean_ip = box_blur(&ip, w, h, r);
+    let ip: Vec<f32> = guide.iter().zip(p).map(|(&a, &b)| a * b).collect();
     let ii: Vec<f32> = guide.iter().map(|&a| a * a).collect();
+    let mean_ip = box_blur(&ip, w, h, r);
     let mean_ii = box_blur(&ii, w, h, r);
-
-    let cov_ip: Vec<f32> = (0..n).map(|i| mean_ip[i] - mean_i[i] * mean_p[i]).collect();
-    // Clamp at zero to absorb box-blur roundoff (var can never be physically
-    // negative) — matches raw-core's dehaze.rs and the dehaze_guided_ab.wgsl
-    // shader this oracle validates against.
-    let var_i: Vec<f32> = (0..n)
-        .map(|i| (mean_ii[i] - mean_i[i] * mean_i[i]).max(0.0))
-        .collect();
-    let a: Vec<f32> = (0..n).map(|i| cov_ip[i] / (var_i[i] + eps)).collect();
-    let b: Vec<f32> = (0..n).map(|i| mean_p[i] - a[i] * mean_i[i]).collect();
-
+    let mut a = vec![0.0f32; n];
+    let mut b = vec![0.0f32; n];
+    for k in 0..n {
+        let cov = mean_ip[k] - mean_i[k] * mean_p[k];
+        let var = (mean_ii[k] - mean_i[k] * mean_i[k]).max(0.0);
+        a[k] = cov / (var + GUIDED_EPS);
+        b[k] = mean_p[k] - a[k] * mean_i[k];
+    }
     let mean_a = box_blur(&a, w, h, r);
     let mean_b = box_blur(&b, w, h, r);
-    (0..n).map(|i| mean_a[i] * guide[i] + mean_b[i]).collect()
+    mean_a
+        .into_iter()
+        .zip(mean_b)
+        .map(|(a, b)| [a, b])
+        .collect()
 }
 
-/// `smoothstep(edge0, edge1, x)` — faithful to raw-core's helper / the WGSL builtin.
 #[inline]
 fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Sky mask: `smoothstep(0.40, 0.60, dc)` then a radius-8 box blur. Faithful to
-/// `raw_core::stages::dehaze::sky_mask`.
-fn sky_mask(dc: &[f32], w: usize, h: usize) -> Vec<f32> {
-    let raw: Vec<f32> = dc
+#[inline]
+fn luma(p: [f32; 3]) -> f32 {
+    LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2]
+}
+
+struct ProxyMap {
+    pw: usize,
+    ph: usize,
+    airlight: [f32; 3],
+    coefficients: Vec<[f32; 2]>,
+    sky: Vec<f32>,
+}
+
+fn proxy_and_dark_channel(
+    buf: &[f32],
+    width: usize,
+    height: usize,
+) -> (Vec<[f32; 3]>, Vec<f32>, usize, usize) {
+    let (pw, ph) = proxy_dims(width as u32, height as u32);
+    let (pw, ph) = (pw as usize, ph as usize);
+    let proxy = resample(&to_rgb(buf), width, height, pw, ph);
+    let mins: Vec<f32> = proxy.iter().map(|p| p[0].min(p[1]).min(p[2])).collect();
+    let dc = window_min(&mins, pw, ph);
+    (proxy, dc, pw, ph)
+}
+
+fn measure(buf: &[f32], width: usize, height: usize) -> ProxyMap {
+    let (proxy, dc, pw, ph) = proxy_and_dark_channel(buf, width, height);
+    let a = atmospheric_light(&proxy, &dc);
+    let scaled: Vec<f32> = proxy
+        .iter()
+        .map(|p| {
+            (p[0] / a[0].max(A_FLOOR))
+                .min(p[1] / a[1].max(A_FLOOR))
+                .min(p[2] / a[2].max(A_FLOOR))
+        })
+        .collect();
+    let t_raw: Vec<f32> = window_min(&scaled, pw, ph)
+        .into_iter()
+        .map(|m| 1.0 - OMEGA * m)
+        .collect();
+    let guide: Vec<f32> = proxy.iter().map(|&p| luma(p) - luma(a)).collect();
+    let raw_sky: Vec<f32> = dc
         .iter()
         .map(|&v| smoothstep(SKY_MASK_LOW, SKY_MASK_HIGH, v))
         .collect();
-    box_blur(&raw, w, h, SKY_MASK_BLUR_RADIUS as usize)
-}
-
-/// The per-pixel recovery + sky-mask blend. Faithful to
-/// `raw_core::stages::dehaze::recover_with_mask` (RAW A in the recovery divide).
-fn recover_with_mask(
-    pixels: &mut [[f32; 3]],
-    dehaze: f32,
-    t_refined: &[f32],
-    a: [f32; 3],
-    mask: &[f32],
-) {
-    let scale = (dehaze / 100.0).clamp(-1.0, 1.0);
-    for (i, p) in pixels.iter_mut().enumerate() {
-        let t = t_refined[i].clamp(0.0, 1.0);
-        let (j_r, j_g, j_b) = if scale >= 0.0 {
-            let point_min = (p[0] / a[0].max(A_FLOOR))
-                .min(p[1] / a[1].max(A_FLOOR))
-                .min(p[2] / a[2].max(A_FLOOR));
-            let point_transmission = (1.0 - OMEGA * point_min).clamp(0.0, 1.0);
-            let supported_t = t.max(point_transmission);
-            if supported_t == 1.0 {
-                continue;
-            }
-            let t_eff = (supported_t + (1.0 - supported_t) * (1.0 - scale)).max(T0);
-            (
-                (p[0] - a[0]) / t_eff + a[0],
-                (p[1] - a[1]) / t_eff + a[1],
-                (p[2] - a[2]) / t_eff + a[2],
-            )
-        } else {
-            let t_haze = 1.0 - (-scale) * (1.0 - t);
-            let veil = 1.0 - t_haze;
-            (
-                p[0] * t_haze + a[0] * veil,
-                p[1] * t_haze + a[1] * veil,
-                p[2] * t_haze + a[2] * veil,
-            )
-        };
-        let m = mask[i].clamp(0.0, 1.0);
-        let inv_m = 1.0 - m;
-        *p = [
-            inv_m * j_r + m * p[0],
-            inv_m * j_g + m * p[1],
-            inv_m * j_b + m * p[2],
-        ];
+    ProxyMap {
+        pw,
+        ph,
+        airlight: a,
+        coefficients: guided_coefficients(&guide, &t_raw, pw, ph),
+        sky: box_blur(&raw_sky, pw, ph, SKY_MASK_BLUR_RADIUS as usize),
     }
 }
 
-/// Compute the atmospheric light A for `buf` (interleaved RGBA f32) EXACTLY as
-/// `raw_core::stages::dehaze::apply` does: the dark channel, then the mean of the
-/// original RGB at the brightest top-0.1% of dark-channel positions. Public so
-/// [`DehazePass`] can run this global reduction CPU-side and pass A into the
-/// kernels as a uniform (the cleanest headless-parity path for a global
-/// reduction). The returned A is RAW (unclamped); the per-channel 1e-6 floor is
-/// the transmission kernel's concern only.
+fn axis_taps(index: usize, frame: usize, proxy: usize) -> (usize, usize, f32) {
+    let u = ((index as f32 + 0.5) * (proxy as f32 / frame as f32) - 0.5).max(0.0);
+    let last = proxy - 1;
+    let i0 = (u.floor() as usize).min(last);
+    let i1 = (i0 + 1).min(last);
+    (i0, i1, (u - i0 as f32).clamp(0.0, 1.0))
+}
+
+fn recover_pixel(p: [f32; 3], t: f32, a: [f32; 3], scale: f32, mask: f32) -> Option<[f32; 3]> {
+    let t = t.clamp(0.0, 1.0);
+    let j = if scale >= 0.0 {
+        let point_min = (p[0] / a[0].max(A_FLOOR))
+            .min(p[1] / a[1].max(A_FLOOR))
+            .min(p[2] / a[2].max(A_FLOOR));
+        let point_transmission = (1.0 - OMEGA * point_min).clamp(0.0, 1.0);
+        let supported_t = t.max(point_transmission);
+        if supported_t == 1.0 {
+            return None;
+        }
+        let t_eff = (supported_t + (1.0 - supported_t) * (1.0 - scale)).max(T0);
+        [0, 1, 2].map(|c| (p[c] - a[c]) / t_eff + a[c])
+    } else {
+        let t_haze = 1.0 - (-scale) * (1.0 - t);
+        let veil = 1.0 - t_haze;
+        [0, 1, 2].map(|c| p[c] * t_haze + a[c] * veil)
+    };
+    let m = mask.clamp(0.0, 1.0);
+    let inv_m = 1.0 - m;
+    Some([0, 1, 2].map(|c| inv_m * j[c] + m * p[c]))
+}
+
+/// The frame `buf` (`width × height` RGBA f32) block-averaged onto the haze
+/// map's proxy grid, as RGBA f32, with the grid's dims.
+#[cfg(test)]
+pub(crate) fn proxy_rgba(buf: &[f32], width: usize, height: usize) -> (Vec<f32>, usize, usize) {
+    let (pw, ph) = proxy_dims(width as u32, height as u32);
+    let (pw, ph) = (pw as usize, ph as usize);
+    let proxy = resample(&to_rgb(buf), width, height, pw, ph);
+    (
+        proxy.iter().flat_map(|p| [p[0], p[1], p[2], 1.0]).collect(),
+        pw,
+        ph,
+    )
+}
+
+/// The atmospheric light A dehaze recovers with: measured on the proxy grid
+/// of the frame `buf` (`width × height` RGBA f32), byte-exact vs raw-core.
 pub fn compute_airlight(buf: &[f32], width: usize, height: usize) -> [f32; 3] {
-    let pixels = to_rgb(buf);
-    let dc = dark_channel(&pixels, width, height);
-    atmospheric_light(&pixels, &dc)
+    let (proxy, dc, _, _) = proxy_and_dark_channel(buf, width, height);
+    atmospheric_light(&proxy, &dc)
 }
 
-/// Convert an interleaved RGBA f32 buffer to `[[f32;3]]` (drop alpha).
-fn to_rgb(buf: &[f32]) -> Vec<[f32; 3]> {
-    buf.chunks_exact(4).map(|c| [c[0], c[1], c[2]]).collect()
-}
-
-/// The CPU oracle: dehaze an interleaved RGBA f32 buffer (alpha untouched), a
-/// line-for-line port of `raw_core::stages::dehaze::apply`. `dehaze` in
-/// [-100, +100]; the `|dehaze| < 1e-3` no-op short-circuit is handled here as in
-/// raw-core. `width × height` must equal `buf.len() / 4`.
 pub fn apply_dehaze(buf: &mut [f32], width: usize, height: usize, dehaze: f32) {
     assert_eq!(
         buf.len(),
@@ -274,34 +258,28 @@ pub fn apply_dehaze(buf: &mut [f32], width: usize, height: usize, dehaze: f32) {
     if dehaze.abs() < 1e-3 {
         return;
     }
-    let mut pixels = to_rgb(buf);
-
-    let dc = dark_channel(&pixels, width, height);
-    let a = atmospheric_light(&pixels, &dc);
-    let t_raw = transmission(&pixels, width, height, a);
-
-    let guide: Vec<f32> = pixels
-        .iter()
-        .map(|p| LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2])
-        .collect();
-    let t_refined = guided_filter(
-        &guide,
-        &t_raw,
-        GuidedFilterConfig {
-            w: width,
-            h: height,
-            r: GUIDED_RADIUS as usize,
-            eps: GUIDED_EPS,
-        },
-    );
-
-    let sky = sky_mask(&dc, width, height);
-    recover_with_mask(&mut pixels, dehaze, &t_refined, a, &sky);
-
-    for (i, p) in pixels.iter().enumerate() {
-        buf[i * 4] = p[0];
-        buf[i * 4 + 1] = p[1];
-        buf[i * 4 + 2] = p[2];
-        // alpha (buf[i*4+3]) untouched
+    let map = measure(buf, width, height);
+    let scale = (dehaze / 100.0).clamp(-1.0, 1.0);
+    let bilerp =
+        |plane: &dyn Fn(usize) -> f32, tx: (usize, usize, f32), ty: (usize, usize, f32)| {
+            let at = |i: usize, j: usize| plane(j * map.pw + i);
+            let top = at(tx.0, ty.0) + tx.2 * (at(tx.1, ty.0) - at(tx.0, ty.0));
+            let bottom = at(tx.0, ty.1) + tx.2 * (at(tx.1, ty.1) - at(tx.0, ty.1));
+            top + ty.2 * (bottom - top)
+        };
+    for y in 0..height {
+        let ty = axis_taps(y, height, map.ph);
+        for x in 0..width {
+            let tx = axis_taps(x, width, map.pw);
+            let k = (y * width + x) * 4;
+            let p = [buf[k], buf[k + 1], buf[k + 2]];
+            let a = bilerp(&|i| map.coefficients[i][0], tx, ty);
+            let b = bilerp(&|i| map.coefficients[i][1], tx, ty);
+            let m = bilerp(&|i| map.sky[i], tx, ty);
+            let guide = luma(p) - luma(map.airlight);
+            if let Some(out) = recover_pixel(p, a * guide + b, map.airlight, scale, m) {
+                buf[k..k + 3].copy_from_slice(&out);
+            }
+        }
     }
 }

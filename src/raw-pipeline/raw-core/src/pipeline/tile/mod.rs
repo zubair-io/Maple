@@ -228,6 +228,7 @@ fn develop_tile_oriented_f32(
         decoded_wb_anchor,
         ae_gain,
         None,
+        None,
         cancel,
     )
 }
@@ -241,6 +242,7 @@ fn develop_tile_with_frame(
     decoded_wb_anchor: Option<(f32, f32)>,
     ae_gain: f32,
     frame: Option<&HighlightFrameContext>,
+    haze: Option<&crate::stages::dehaze::FrameHaze>,
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>)> {
     if cancel.is_cancelled() {
@@ -289,6 +291,20 @@ fn develop_tile_with_frame(
     // Where this padded crop sits in the developed frame — what vignette and
     // local adjustments anchor their fields to (#1157).
     let window = TileWindow::for_padded_crop(raw, rx, ry, divisor);
+    // A caller without a retained map pays for the frame's proxy develop on
+    // this tile; `DetailContext` measures it once per edit instead.
+    let measured_haze = match haze {
+        None if crate::stages::dehaze::any_engaged(model) => Some(
+            crate::pipeline::develop_sized::haze_map_from_raw(raw, model, cancel)?,
+        ),
+        _ => None,
+    };
+    let haze = haze.or(measured_haze.as_ref());
+    if haze.is_some_and(|haze| !haze.covers(model)) {
+        return Err(crate::error::Error::Pipeline(
+            "tile haze maps were measured for another model; measure them for this one".into(),
+        ));
+    }
     let lazy_scene = highlight_frame::LazyScene::new(raw, model, cancel);
     let highlight_frame = match frame {
         Some(context) => context.anchor((rx / divisor, ry / divisor), model)?,
@@ -344,6 +360,7 @@ fn develop_tile_with_frame(
             active_area,
             tile_origin: (rx / divisor, ry / divisor),
             highlight_frame,
+            haze,
         },
         cancel,
     )?;
@@ -530,6 +547,20 @@ pub fn render_scene_linear_tile_cancellable_f32(
         ae_gain,
         cancel,
     )
+}
+
+/// [`render_scene_linear_tile_cancellable_f32`] with the frame's retained
+/// haze map (#3287), so the tile need not measure it.
+pub(crate) fn render_scene_linear_tile_with_haze_cancellable_f32(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: TileRect,
+    quality: RenderQuality,
+    ae_gain: f32,
+    haze: Option<&crate::stages::dehaze::FrameHaze>,
+    cancel: crate::CancelToken<'_>,
+) -> Result<(u32, u32, Vec<f32>)> {
+    develop_tile_with_frame(raw, model, rect, quality, None, ae_gain, None, haze, cancel)
 }
 
 fn pack_fp16(pixels: &[f32]) -> Vec<u16> {

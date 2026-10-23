@@ -89,6 +89,7 @@ pub use scene_linear_chain::{
     apply_scene_linear_chain_f32_with_film, apply_scene_linear_chain_f32_with_film_cancellable,
     apply_scene_linear_chain_f32_with_patches, apply_scene_linear_chain_with_patches,
     encode_display_f32, encode_display_srgb_f32, encode_display_u10_f32,
+    scene_linear_chain_haze_map, scene_linear_chain_haze_map_cancellable,
     scene_linear_chain_window_reach_px, ChainOptions, ChainWindow,
 };
 pub use tile::{

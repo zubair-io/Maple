@@ -35,6 +35,12 @@ struct Params {
 @group(0) @binding(2) var<storage, read> t_buf: array<f32>;
 @group(0) @binding(3) var<storage, read_write> m1_buf: array<vec2<f32>>;
 @group(0) @binding(4) var<storage, read_write> m2_buf: array<vec2<f32>>;
+// Raw airlight A (#1033); the guide is luma measured from luma(A) (#3287) —
+// raw-core's `guide`, keeping the window sums well-conditioned near A.
+struct Airlight {
+    value: vec4<f32>,
+};
+@group(0) @binding(5) var<uniform> airlight: Airlight;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
@@ -43,7 +49,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         return;
     }
     let p = image_buf[i];
-    let luma = LUMA_R * p.r + LUMA_G * p.g + LUMA_B * p.b;
+    let a = airlight.value;
+    let luma = (LUMA_R * p.r + LUMA_G * p.g + LUMA_B * p.b) - (LUMA_R * a.r + LUMA_G * a.g + LUMA_B * a.b);
     let t = t_buf[i];
     m1_buf[i] = vec2<f32>(luma, t);
     m2_buf[i] = vec2<f32>(luma * t, luma * luma);

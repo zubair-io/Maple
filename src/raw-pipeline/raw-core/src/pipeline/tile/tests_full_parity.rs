@@ -112,6 +112,36 @@ fn cases() -> Vec<Case> {
             max_abs: 0.0,
         },
         Case {
+            name: "dehaze +50 (full-frame proxy haze map)",
+            model: AdjustmentModel {
+                dehaze: 50.0,
+                ..base.clone()
+            },
+            max_abs: 0.0,
+        },
+        Case {
+            name: "dehaze -50 (full-frame proxy haze map)",
+            model: AdjustmentModel {
+                dehaze: -50.0,
+                ..base.clone()
+            },
+            max_abs: 0.0,
+        },
+        Case {
+            name: "per-mask dehaze (the frame's per-layer haze map)",
+            model: AdjustmentModel {
+                local_adjustments: vec![LocalAdjustment {
+                    adjustments: PartialAdjustments {
+                        dehaze: Some(60.0),
+                        ..PartialAdjustments::default()
+                    },
+                    ..radial_layer()
+                }],
+                ..base.clone()
+            },
+            max_abs: 0.0,
+        },
+        Case {
             name: "capture sharpening (computed overlap)",
             model: AdjustmentModel {
                 capture_sharpening_amount: 60.0,
@@ -127,6 +157,7 @@ fn cases() -> Vec<Case> {
                 shadows: 30.0,
                 clarity: 20.0,
                 texture: 20.0,
+                dehaze: 40.0,
                 capture_sharpening_amount: 60.0,
                 capture_sharpening_sigma: 1.5,
                 vignette_amount: -40.0,

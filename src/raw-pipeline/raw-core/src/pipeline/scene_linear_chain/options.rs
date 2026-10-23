@@ -59,6 +59,11 @@ pub struct ChainOptions<'a> {
     pub mask_long_edge: Option<u32>,
     /// Full-frame pre-AE anchor; required for detail crops.
     pub whites_anchor_ev: Option<f32>,
+    /// The full frame's dehaze maps (#3287). `None` measures them from this
+    /// buffer, which is only correct when the buffer IS the whole frame; a
+    /// windowed render with dehaze engaged (globally or in a layer) requires
+    /// them.
+    pub haze_map: Option<&'a crate::stages::dehaze::FrameHaze>,
 }
 
 impl Default for ChainOptions<'_> {
@@ -75,6 +80,7 @@ impl Default for ChainOptions<'_> {
             nr_sampling_scale: 1.0,
             mask_long_edge: None,
             whites_anchor_ev: None,
+            haze_map: None,
         }
     }
 }

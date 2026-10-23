@@ -173,11 +173,12 @@ fn detail_rejects_perspective_unsupported_stage_and_padded_allocation() {
         .to_string()
         .contains("perspective"));
     context.model.perspective_vertical = 0.0;
-    context.active_model.dehaze = 30.0;
+    context.active_model.deep_denoise = 30.0;
     assert!(render_detail_tile(&raw, &context, rect, None, u64::MAX)
         .unwrap_err()
         .to_string()
-        .contains("dehaze"));
+        .contains("deep denoise"));
+    context.active_model.deep_denoise = 0.0;
     let invalid = TileRect {
         src_x: u32::MAX,
         ..rect

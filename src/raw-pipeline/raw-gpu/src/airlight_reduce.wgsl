@@ -96,10 +96,16 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
     let threshold_bin = tau;
 
     // ── Phase 2: masked partial sums (each thread strides over the image). ──
+    // Selected samples are summed in blocks of 64 before joining the thread's
+    // total: on the 2048-texel haze-map grid (#3287) a flat bright region (sky)
+    // can select ~10^4 samples per thread, and one running f32 sum of that many
+    // drifts by ~1e-3 relative.
     var lr: f32 = 0.0;
     var lg: f32 = 0.0;
     var lb: f32 = 0.0;
     var lc: f32 = 0.0;
+    var block = vec3<f32>(0.0, 0.0, 0.0);
+    var in_block: u32 = 0u;
     var i: u32 = tid;
     loop {
         if (i >= n) { break; }
@@ -107,14 +113,22 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
         // "selected" (bin >= tau) is consistent with the scanned counts.
         let bin = dc_to_bin(dc_buf[i], bins);
         if (bin >= threshold_bin) {
-            let p = orig_buf[i];
-            lr = lr + p.r;
-            lg = lg + p.g;
-            lb = lb + p.b;
+            block = block + orig_buf[i].rgb;
+            in_block = in_block + 1u;
             lc = lc + 1.0;
+            if (in_block == 64u) {
+                lr = lr + block.r;
+                lg = lg + block.g;
+                lb = lb + block.b;
+                block = vec3<f32>(0.0, 0.0, 0.0);
+                in_block = 0u;
+            }
         }
         i = i + WG;
     }
+    lr = lr + block.r;
+    lg = lg + block.g;
+    lb = lb + block.b;
     sum_r[tid] = lr;
     sum_g[tid] = lg;
     sum_b[tid] = lb;
