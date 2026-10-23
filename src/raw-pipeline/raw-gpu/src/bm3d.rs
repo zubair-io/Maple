@@ -232,6 +232,7 @@ impl Pass for DeepDenoisePass {
                 HIGH_PASS_KERNEL[0],
                 HIGH_PASS_KERNEL[1],
                 HIGH_PASS_KERNEL[2],
+                // Must stay 0.0: `opaque()` in common.wgsl XORs its bits in.
                 0.0,
             ],
             basis: std::array::from_fn(|i| std::array::from_fn(|j| basis[i / 2][(i % 2) * 4 + j])),
