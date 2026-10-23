@@ -22,14 +22,22 @@ fn split(x: f32) -> vec2<f32> {
     let hi = bitcast<f32>(bitcast<u32>(x) & 0xfffff000u);
     return vec2<f32>(hi, x - hi);
 }
+// Mesa NIR factors `fma(a, b, fma(a, c, d))` into `fma(a, b + c, d)`, which
+// folds the halves back together. XOR with a uniform zero gives each product
+// its own operands, which no compiler can prove equal.
+fn opaque(x: f32) -> f32 {
+    return bitcast<f32>(bitcast<u32>(x) ^ bitcast<u32>(p.highpass.w));
+}
 fn exact_mul_add(a: f32, b: f32, acc: f32) -> f32 {
     let s = split(a);
     let t = split(b);
-    return fma(s.y, t.y, fma(s.y, t.x, fma(s.x, t.y, fma(s.x, t.x, acc))));
+    let hi_lo = fma(opaque(s.x), t.y, fma(s.x, t.x, acc));
+    return fma(opaque(s.y), opaque(t.y), fma(s.y, opaque(t.x), hi_lo));
 }
 fn exact_square_add(d: f32, acc: f32) -> f32 {
     let s = split(d);
-    return fma(s.y, s.y, fma(s.x, s.y + s.y, fma(s.x, s.x, acc)));
+    let lo = opaque(s.y);
+    return fma(s.y, s.y, fma(opaque(s.x), lo + lo, fma(s.x, s.x, acc)));
 }
 fn luminance(rgb: vec3<f32>) -> f32 {
     let blue = exact_mul_add(p.luma.z, rgb.z, 0.0);
