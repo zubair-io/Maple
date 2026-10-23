@@ -84,10 +84,10 @@ extension ImageEditPipeline {
   }
 
   /// The whole frame's dehaze maps for the patch (#3287): `frame`, the decoded
-  /// base the whole-image chain renders, at that chain's own resolution — its
-  /// tone curves, clarity and texture do not commute with a downscale, so
-  /// only the same buffer measures the same maps. Rust memoises the last
-  /// result. `nil` when no dehaze is engaged; throws when it is but the
+  /// base the CPU whole-image chain renders, at its own resolution — tone
+  /// curves, clarity and texture do not commute with a downscale. The GPU
+  /// canvas prescales its copy, so its map can part slightly (#5215). Rust
+  /// memoises the last result. `nil` when no dehaze is engaged; throws when it is but the
   /// decoded frame is not available.
   nonisolated func hazeMap(
     frame: CIImage?,

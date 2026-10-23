@@ -47,7 +47,8 @@ pub(super) fn missing_map() -> Error {
 /// maps equal the ones that chain measures. `None` when dehaze is off
 /// everywhere. Hand them to a windowed render of the same frame through
 /// [`ChainOptions::haze_map`]; they stay valid while `model` changes only in
-/// its dehaze amounts or in stages after the ones they were measured at.
+/// dehaze amounts no downstream map depends on (see `dehaze::haze_key`) or in
+/// stages after the ones they were measured at.
 pub fn scene_linear_chain_haze_map(
     frame_rgba: &[f32],
     width: u32,
@@ -98,9 +99,11 @@ pub fn scene_linear_chain_haze_map_cancellable(
     // whole-frame chain runs it: tone curves, clarity and texture do not
     // commute with the proxy's downsample, so measuring after a smaller
     // prefix would hand a window another frame's map.
-    let mut img = super::endcaps::unpack_f32(frame_rgba, width, height);
-    img.whites_anchor_ev = options.whites_anchor_ev;
-    img.nr_sampling_scale = options.nr_sampling_scale;
+    let mut img = crate::image::Image {
+        whites_anchor_ev: options.whites_anchor_ev,
+        nr_sampling_scale: options.nr_sampling_scale,
+        ..super::endcaps::unpack_f32(frame_rgba, width, height)
+    };
     apply_pre_dehaze(&mut img, model, &whole, cancel)?;
     let global = dehaze::engaged(model.dehaze).then(|| HazeMap::measure(&img));
     if !local_adjustments::spatial::any_dehaze_engaged(&model.local_adjustments) {
