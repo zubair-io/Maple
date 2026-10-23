@@ -48,6 +48,7 @@ impl LiveSession {
         let packed_byte_len = (dims.0 as u64) * (dims.1 as u64) * std::mem::size_of::<u32>() as u64;
         encoder.copy_buffer_to_buffer(&self.dither_out, 0, &self.readback, 0, packed_byte_len);
         let submission = ctx.queue.submit(Some(encoder.finish()));
+        self.haze.submitted();
         let packed = limits::map_packed_readback(ctx, &self.readback).await?;
         Ok((unpack_rgb_u8(&packed), submission))
     }
@@ -96,16 +97,9 @@ impl LiveSession {
             AirlightSource::Resident(std::sync::Arc::clone(&self.haze), 0),
             &mut sink,
         );
-        self.settle_haze(sink.index)
-    }
-
-    /// Both callers submit the encoder exactly when the encode returned
-    /// `Some`; a dropped encoder never ran the haze maps' copies.
-    pub(super) fn settle_haze(&self, index: Option<usize>) -> Option<usize> {
-        match index {
-            Some(_) => self.haze.submitted(),
-            None => self.haze.abandoned(),
+        if sink.index.is_none() {
+            self.haze.abandoned();
         }
-        index
+        sink.index
     }
 }

@@ -1,22 +1,20 @@
 use super::{encode_haze_map, encode_recover, AirlightSource, HazeMapPlanes};
 use crate::context::GpuContext;
 
-/// Detached frame-pool bucket of slot 0's measurement; slot `i` uses `+ i`.
-const DETACHED_BUCKET: u64 = 0x4841_5A45_0000_0000;
-
 /// A live session's resident haze maps (#3287), one slot per dehaze stage.
 /// A map depends only on the pixels its dehaze receives, so each is keyed by
 /// the frame pool's digest of the kernels and inputs that produced them
 /// (`FramePool::frame_digest`) plus the render dims; the session clears them
 /// when its source image changes.
 ///
-/// Measuring pools its resources in a detached bucket per slot, outside the
-/// frame's own, so a frame that reuses the map leaves every later stage on
+/// Measuring pools its resources in a detached bucket per slot and proxy
+/// size, owned by this residency and outside the frame's own, so a frame that reuses the map leaves every later stage on
 /// its cached slots and the frame digest unchanged, and a chain-signature
 /// change (a downstream stage crossing its gate) keeps the map.
 #[derive(Default)]
 pub struct HazeResidency {
     slots: std::sync::Mutex<Vec<Option<ResidentHaze>>>,
+    owner: std::sync::Arc<()>,
     #[cfg(test)]
     measured: std::sync::atomic::AtomicU64,
 }
@@ -94,10 +92,14 @@ impl HazeResidency {
         }
         let slot = &mut slots[index];
         if !slot.as_ref().is_some_and(|resident| resident.key == key) {
+            let (pw, ph) = super::proxy_dims(dims.0, dims.1);
+            let bucket = std::sync::Arc::as_ptr(&self.owner) as u64
+                ^ (index as u64).rotate_left(48)
+                ^ (u64::from(pw) << 32 | u64::from(ph)).rotate_left(16);
             let saved = ctx
                 .frame_pool
                 .borrow_mut()
-                .enter_detached(DETACHED_BUCKET + index as u64);
+                .enter_detached(bucket, &self.owner);
             let measured = encode_haze_map(ctx, encoder, src, dims, &AirlightSource::OnGpu);
             ctx.frame_pool.borrow_mut().leave_detached(saved);
             let planes = match slot.take() {
@@ -109,7 +111,7 @@ impl HazeResidency {
                 (&measured.sky, &planes.sky),
                 (&measured.airlight, &planes.airlight),
             ] {
-                encoder.copy_buffer_to_buffer(from, 0, to, 0, from.size());
+                encoder.copy_buffer_to_buffer(from, 0, to, 0, to.size());
             }
             *slot = Some(ResidentHaze {
                 key,

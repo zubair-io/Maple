@@ -440,6 +440,7 @@ impl LiveSession {
             );
         }
         let submission = ctx.queue.submit(Some(encoder.finish()));
+        self.haze.submitted();
         if inputs.scope.enabled {
             self.scope_after_submit(submission);
         }

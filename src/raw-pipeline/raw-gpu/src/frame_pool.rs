@@ -164,12 +164,14 @@ impl FramePool {
     pub(crate) fn retire_sessions(&mut self) {
         let used = self.buckets.len();
         let previous = self.recent;
-        self.buckets.retain(|_, bucket| {
+        let live = |bucket: &Bucket| {
             bucket
                 .owner
                 .as_ref()
                 .is_none_or(|owner| owner.strong_count() > 0)
-        });
+        };
+        self.buckets.retain(|_, bucket| live(bucket));
+        self.detached.retain(|_, bucket| live(bucket));
         self.recent = [0; 4];
         let mut position = 0;
         for key in previous.into_iter().take(used) {
@@ -220,13 +222,14 @@ impl FramePool {
     /// one signature (the haze map, #3287) measures here, so skipping it never
     /// shifts a later stage's cached slots, and its resources survive a change
     /// of chain signature.
-    pub(crate) fn enter_detached(&mut self, key: u64) -> DetachedFrame {
+    /// The bucket lives while `owner` does, like a session's own buckets.
+    pub(crate) fn enter_detached(&mut self, key: u64, owner: &Arc<()>) -> DetachedFrame {
         let saved = DetachedFrame {
             sig: self.current_sig,
             cursors: (self.dispatch_cursor, self.scratch_cursor),
             digest: self.frame_digest,
         };
-        self.detached.entry(key).or_default();
+        self.detached.entry(key).or_default().owner = Some(Arc::downgrade(owner));
         self.in_detached = true;
         self.current_sig = key;
         self.dispatch_cursor = 0;
