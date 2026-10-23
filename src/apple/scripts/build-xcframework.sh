@@ -377,10 +377,12 @@ TARGETS=(
     "x86_64-apple-darwin"  # x86_64-apple-macos
 )
 
+# Run rustup from the workspace so it resolves the same pinned toolchain
+# (src/raw-pipeline/rust-toolchain.toml) that cargo builds with (#5226).
 for target in "${TARGETS[@]}"; do
-    if ! rustup target list --installed | grep -q "^${target}$"; then
+    if ! (cd "$RAW_PIPELINE_DIR" && rustup target list --installed) | grep -q "^${target}$"; then
         echo "==> Installing Rust target: $target"
-        rustup target add "$target"
+        (cd "$RAW_PIPELINE_DIR" && rustup target add "$target")
     fi
 done
 
