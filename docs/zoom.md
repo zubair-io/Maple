@@ -108,11 +108,11 @@ The pad is why a tile render is fast rather than a full develop: the core linear
 
 The following model conditions are rejected at the entry (`tile/guards.rs`) with an `Err`, which the FFI maps to code `10` and the Apple caller turns into a whole-image fallback:
 
-| Rejected when                          | Why                                                                                                                                                                                                                                       |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `deep_denoise != 0`                    | BM3D's reference-patch grid is frame-anchored; per-tile grids would seam                                                                                                                                                                  |
-| unsupported `OpcodeList3`              | Only a single radial `WarpRectilinear` with identical finite per-plane coefficients and no tangential distortion is supported. GainMap, unknown or multiple opcodes, and differing lateral-CA planes fall back to the whole-image render. |
-| automatic lateral CA is enabled        | Its estimator requires the full sensor; a tile cannot substitute its local estimate.                                                                                                                                                      |
+| Rejected when                   | Why                                                                                                                                                                                                                                       |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deep_denoise != 0`             | BM3D's reference-patch grid is frame-anchored; per-tile grids would seam                                                                                                                                                                  |
+| unsupported `OpcodeList3`       | Only a single radial `WarpRectilinear` with identical finite per-plane coefficients and no tangential distortion is supported. GainMap, unknown or multiple opcodes, and differing lateral-CA planes fall back to the whole-image render. |
+| automatic lateral CA is enabled | Its estimator requires the full sensor; a tile cannot substitute its local estimate.                                                                                                                                                      |
 
 Two format conditions are rejected the same way: LinearRaw DNGs and Fuji X-Trans RAFs both go to the whole-image entry.
 
