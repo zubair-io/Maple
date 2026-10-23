@@ -93,15 +93,14 @@ fn inputs<'a>(view: &HsmRetargetView<'a>, d: &HsmLiveDelta) -> WbHsmInputs<'a> {
         w_target: d.w_target,
         w_anchor: d.w_anchor,
         inverse_iterations: d.inverse_iterations,
+        refine_steps: raw_core::color::hsm::NEGATIVE_REFINE_STEPS,
     }
 }
 
-/// Relative to max(|value|, 1). Looser than the plain WB pass's 1e-4: a
-/// pixel the anchor table pushes into its saturation clamp has no exact
-/// inverse, and the fixed-point iterations there magnify last-ulp
-/// differences between Metal and the CPU (measured worst 1.8e-4 on a
-/// fully saturated red, still ~20× below one 8-bit display step).
-const PARITY_TOLERANCE: f32 = 5e-4;
+/// Relative to max(|value|, 1). Metal and the CPU differ in last-ulp
+/// transcendental results (sRGB `pow`, hue `rem_euclid`), which the inverse
+/// steps carry; measured worst 2.6e-5, on the 6×4×3 table.
+const PARITY_TOLERANCE: f32 = 1e-4;
 
 #[test]
 fn wgsl_hsm_white_balance_matches_raw_core() {

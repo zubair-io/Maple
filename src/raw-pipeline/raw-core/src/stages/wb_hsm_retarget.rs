@@ -13,10 +13,11 @@
 //! where `R` is ProPhoto→Rec.2020, `M_pro` the camera-gain conjugation
 //! [`SliderFrameExport::rec2020_delta_matrix`] already derives (moved into
 //! ProPhoto), and `H_w` the HueSatMap blended between the two endpoint
-//! tables at weight `w`. `H_A⁻¹` is a fixed-point inverse
-//! ([`HSM_INVERSE_ITERATIONS`] steps, solved in HSV) and `floor` the develop's DCP exit soft
-//! floor (uniform lift of a negative channel). The endpoint tables are session-constant:
-//! a tick only recomputes two weights and three 3×3 matrices.
+//! tables at weight `w`. `H_A⁻¹` is the HSV-space inverse
+//! `hsm::invert_one_blended` ([`HSM_INVERSE_ITERATIONS`] steps) and `floor`
+//! the develop's DCP exit soft floor (uniform lift of a negative channel).
+//! The endpoint tables are session-constant: a tick only recomputes two
+//! weights and three 3×3 matrices.
 //!
 //! The tables travel as one flat `f32` wire ([`WbHsmRetarget::wire`]) so
 //! the FFI and WASM hosts hand a borrowed `(ptr, len)` per tick; the GPU

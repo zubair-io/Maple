@@ -277,25 +277,25 @@ fn cpu_live_wb_drag_matches_refine_on_every_moving_hsm_fixture() {
 /// at a small residual. The chroma pre-filter and deep denoise do not
 /// commute with any white-balance change, HueSatMap or not; that residual
 /// predates #5099, the plain 3×3 carries it too, and the refine pass
-/// resolves it on release. Measured on test_0007 at 512 px, HSM vs plain
-/// mean ΔE00 at 2000 K: capture 0.033 vs 1.76, chroma 0.59 vs 1.87, deep
-/// denoise 0.73 vs 2.02. The gate: capture sharpening stays inside a
-/// near-seamless ceiling, and every stage keeps the HueSatMap delta at or
-/// ahead of the plain 3×3 on every drag.
+/// resolves it on release. Measured at 512 px, HSM vs plain mean ΔE00 at
+/// 2000 K, test_0007 / test_0005: capture sharpening 0.033 / 0.058 vs 1.76
+/// / 5.71, chroma pre-filter 0.59 / 0.31 vs 1.87 / 5.58, deep denoise
+/// 0.72 / 0.44 vs 2.02 / 5.79. The gate: each stage changes the bake,
+/// capture sharpening stays inside a near-seamless ceiling, and every stage
+/// keeps the HueSatMap delta at or ahead of the plain 3×3 on mean and p95
+/// at every drag.
 #[test]
 #[cfg_attr(
     not(feature = "fixtures"),
     ignore = "needs test-fixtures/raws (fixtures feature)"
 )]
-fn spatial_prefix_stages_keep_the_hsm_delta_ahead_of_the_plain_3x3_test_0007() {
-    let path = crate::test_support::fixtures::require_raw("test_0007.DNG");
-    let raw = crate::decode::decode(&path).expect("decode test_0007");
+fn spatial_prefix_stages_keep_the_hsm_delta_ahead_of_the_plain_3x3() {
     let sharpened_ceiling = SeamStats {
-        mean: 0.06,
+        mean: 0.07,
         p95: 0.6,
-        max: 3.0,
+        max: 8.0,
         over_one: 2000,
-        max_channel: 16,
+        max_channel: 20,
     };
     let stages = [
         (
@@ -320,21 +320,56 @@ fn spatial_prefix_stages_keep_the_hsm_delta_ahead_of_the_plain_3x3_test_0007() {
             },
         ),
     ];
-    let failures: Vec<String> = stages
-        .iter()
-        .flat_map(|(stage, prefix)| {
-            let runs = seam_runs(&raw, stage, prefix).expect("test_0007 moves its HueSatMap");
-            runs.into_iter().filter_map(move |run| {
-                let behind = run.with_hsm.mean > run.plain.mean + 1e-4;
-                let sharpened_over =
-                    *stage == "capture sharpening" && !run.with_hsm.within(&sharpened_ceiling);
-                (behind || sharpened_over).then(|| {
-                    format!(
-                        "{stage} [{}]: HSM {:?} vs plain {:?}",
-                        run.case, run.with_hsm, run.plain
-                    )
+    let bake = |raw: &crate::image::RawImage, model: &AdjustmentModel| {
+        render_scene_linear_sized_from_raw_with_quality_f32_cancellable(
+            raw,
+            &AdjustmentModel {
+                auto_exposure: AutoExposureMode::Off,
+                ..model.clone()
+            },
+            RenderQuality::Preview,
+            LONG_EDGE,
+            CancelToken::never(),
+        )
+        .expect("bake")
+        .2
+    };
+    let failures: Vec<String> = ["test_0005.RAF", "test_0007.DNG"]
+        .into_iter()
+        .flat_map(|fixture| {
+            let path = crate::test_support::fixtures::require_raw(fixture);
+            let raw = crate::decode::decode(&path).expect("decode");
+            let plain_bake = bake(&raw, &AdjustmentModel::default());
+            stages
+                .iter()
+                .flat_map(|(stage, prefix)| {
+                    let moved = bake(&raw, prefix)
+                        .iter()
+                        .zip(&plain_bake)
+                        .map(|(a, b)| (a - b).abs())
+                        .fold(0.0f32, f32::max);
+                    assert!(
+                        moved > 1e-3,
+                        "{fixture}: {stage} must change the bake ({moved})"
+                    );
+                    let label = format!("{fixture} {stage}");
+                    let runs = seam_runs(&raw, &label, prefix).expect("a moving HueSatMap");
+                    runs.into_iter()
+                        .filter_map(|run| {
+                            let behind = run.with_hsm.mean > run.plain.mean + 1e-4
+                                || run.with_hsm.p95 > run.plain.p95 + 0.05;
+                            let sharpened_over = *stage == "capture sharpening"
+                                && !run.with_hsm.within(&sharpened_ceiling);
+                            (behind || sharpened_over).then(|| {
+                                format!(
+                                    "{label} [{}]: HSM {:?} vs plain {:?}",
+                                    run.case, run.with_hsm, run.plain
+                                )
+                            })
+                        })
+                        .collect::<Vec<_>>()
                 })
-            })
+                .collect::<Vec<_>>()
         })
         .collect();
     assert!(failures.is_empty(), "{failures:#?}");

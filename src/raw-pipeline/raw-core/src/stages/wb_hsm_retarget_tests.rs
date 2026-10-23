@@ -455,3 +455,52 @@ fn blended_lookup_matches_develop_when_endpoint_and_spatial_unwrap_branches_diff
         }
     }
 }
+
+/// The blended inverse undoes the blended forward on negative-channel
+/// pixels too, where the forward lifts by the input's deficit and a
+/// desaturating table shrinks it on the way out (the #5099 review case:
+/// `[-0.05, 0.45, 0.60]` under a 0.96 saturation scale), and on saturated,
+/// near-neutral and HDR pixels, for linear and sRGB tables.
+#[test]
+fn blended_inverse_round_trips_including_negative_channels() {
+    use crate::color::hsm::{apply_one_blended, invert_one_blended};
+    let flat = |hue: f32, sat: f32, val: f32| [hue, sat, val].repeat(4 * 2 * 2);
+    let pixels = [
+        [-0.05, 0.45, 0.60],
+        [-0.12, 0.3, 0.05],
+        [0.8, 0.2, 0.1],
+        [0.18, 0.18, 0.181],
+        [2.5, 1.2, 0.3],
+        [0.02, 0.6, 0.9],
+    ];
+    for encoding in [HsmEncoding::Linear, HsmEncoding::Srgb] {
+        for (cold, warm) in [
+            (flat(4.0, 0.96, 1.01), flat(-3.0, 0.9, 1.02)),
+            (flat(6.0, 1.3, 0.97), flat(-5.0, 1.15, 1.0)),
+        ] {
+            for t in [0.0, 0.4, 1.0] {
+                for p in pixels {
+                    let y = apply_one_blended(p, [4, 2, 2], encoding, (&cold, &warm), t);
+                    let x = invert_one_blended(y, [4, 2, 2], encoding, (&cold, &warm), t, 4);
+                    let back = apply_one_blended(x, [4, 2, 2], encoding, (&cold, &warm), t);
+                    let clipped = {
+                        let (_, s, _) = crate::color::hsm::rgb_to_hsv(back);
+                        s >= 0.999
+                    };
+                    for c in 0..3 {
+                        assert!(
+                            (back[c] - y[c]).abs() < 1e-4,
+                            "{encoding:?} t={t} {p:?}: forward of the inverse {back:?} vs {y:?}"
+                        );
+                        if !clipped {
+                            assert!(
+                                (x[c] - p[c]).abs() < 1e-3,
+                                "{encoding:?} t={t} {p:?}: pre-image {x:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
