@@ -35,18 +35,53 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
+const val PRESET_SCHEMA_VERSION = 1
+
 /**
  * Source-specific fields from `NON_COPYABLE_FIELDS` in `raw-core` that must not be captured
  * or applied in user presets (`src/raw-pipeline/raw-core/src/types/adjustment/schema/groups/mod.rs`).
  */
 val nonCopyablePresetFields: Set<String> =
-    setOf("capture_sharpening_radius", "wb_sample_x", "wb_sample_y", "wb_algorithm_version")
+    setOf("capture_sharpening_radius", "wb_sample_x", "wb_sample_y", "wb_algorithm_version", "lens_profile")
 
 /**
- * Android-exposed non-numeric XMP attributes that participate in saved user presets.
+ * Canonical snake_case string/enum adjustment fields that map to Android-exposed XMP attributes.
  */
-val copyablePresetAttributes: Set<String> =
-    setOf("crs:ConvertToGrayscale", "papp:FilmLook", "papp:Profile")
+val copyablePresetStringFields: Set<String> =
+    setOf("black_white", "film_look", "profile")
+
+private fun normalizePresetStringFieldKey(key: String): String =
+    when (key) {
+        "crs:ConvertToGrayscale" -> "black_white"
+        "papp:FilmLook" -> "film_look"
+        "papp:Profile" -> "profile"
+        else -> key
+    }
+
+private fun normalizePresetStringFieldValue(key: String, raw: String): String =
+    when (key) {
+        "black_white" ->
+            if (raw == "1" || raw.equals("True", ignoreCase = true) || raw.equals("On", ignoreCase = true)) "On"
+            else "Off"
+        else -> raw
+    }
+
+private fun presetStringFieldToXmp(key: String, value: String): Pair<String, String?>? =
+    when (key) {
+        "black_white" ->
+            when (value) {
+                "On" -> "crs:ConvertToGrayscale" to "True"
+                "Off" -> "crs:ConvertToGrayscale" to null
+                else -> null
+            }
+        "film_look" -> "papp:FilmLook" to value.takeIf { it.isNotEmpty() }
+        "profile" ->
+            when (value) {
+                "Auto", "Neutral" -> "papp:Profile" to value
+                else -> null
+            }
+        else -> null
+    }
 
 /**
  * Built-in presets matching Apple's `builtin-presets.json` (#5193).
@@ -57,6 +92,7 @@ data class BuiltInPreset(
     val fields: Map<String, Float>,
     val attributes: Map<String, String> = emptyMap(),
     val userCreated: Boolean = false,
+    val schemaVersion: Int = PRESET_SCHEMA_VERSION,
 )
 
 val builtInPresets: List<BuiltInPreset> =
@@ -74,9 +110,16 @@ fun MapleViewModel.applyBuiltInPreset(preset: BuiltInPreset) {
             setField(name, value)
         }
     }
-    val knownAttributes = preset.attributes.filterKeys { it in copyablePresetAttributes }
-    if (knownAttributes.isNotEmpty()) {
-        setAttributes(knownAttributes, commit = false)
+    val xmpUpdates = buildMap<String, String?> {
+        for ((k, v) in preset.attributes) {
+            val canonicalKey = normalizePresetStringFieldKey(k)
+            val canonicalVal = normalizePresetStringFieldValue(canonicalKey, v)
+            val mapped = presetStringFieldToXmp(canonicalKey, canonicalVal)
+            if (mapped != null) put(mapped.first, mapped.second)
+        }
+    }
+    if (xmpUpdates.isNotEmpty()) {
+        setAttributes(xmpUpdates, commit = false)
     }
     commitGesture()
 }
@@ -86,14 +129,16 @@ fun encodeUserPresetsJson(presets: List<BuiltInPreset>): String {
     for (preset in presets) {
         val fieldsObj = JSONObject()
         for ((k, v) in preset.fields) fieldsObj.put(k, v.toDouble())
-        val attrsObj = JSONObject()
-        for ((k, v) in preset.attributes) attrsObj.put(k, v)
+        for ((k, v) in preset.attributes) {
+            val canonicalKey = normalizePresetStringFieldKey(k)
+            fieldsObj.put(canonicalKey, normalizePresetStringFieldValue(canonicalKey, v))
+        }
         array.put(
             JSONObject()
                 .put("id", preset.id)
+                .put("schemaVersion", preset.schemaVersion)
                 .put("name", preset.name)
                 .put("fields", fieldsObj)
-                .put("attributes", attrsObj)
         )
     }
     return array.toString()
@@ -102,32 +147,52 @@ fun encodeUserPresetsJson(presets: List<BuiltInPreset>): String {
 fun decodeUserPresetsJson(raw: String?): List<BuiltInPreset> {
     if (raw.isNullOrBlank()) return emptyList()
     return runCatching {
-        val array = JSONArray(raw)
+        val trimmed = raw.trim()
+        val array =
+            if (trimmed.startsWith("{")) {
+                JSONObject(trimmed).optJSONArray("presets") ?: return@runCatching emptyList()
+            } else {
+                JSONArray(trimmed)
+            }
         buildList {
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
                 val id = obj.optString("id").takeIf { it.isNotBlank() } ?: continue
                 val name = obj.optString("name").takeIf { it.isNotBlank() } ?: continue
+                val schemaVersion = obj.optInt("schemaVersion", PRESET_SCHEMA_VERSION)
                 val fieldsObj = obj.optJSONObject("fields")
                 val fields = mutableMapOf<String, Float>()
+                val attributes = mutableMapOf<String, String>()
                 if (fieldsObj != null) {
                     val keys = fieldsObj.keys()
                     while (keys.hasNext()) {
                         val key = keys.next()
-                        if (key !in nonCopyablePresetFields) {
-                            val v = fieldsObj.optDouble(key)
-                            if (v.isFinite()) fields[key] = v.toFloat()
+                        if (key in nonCopyablePresetFields) continue
+                        val rawVal = fieldsObj.opt(key)
+                        when (rawVal) {
+                            is Number -> {
+                                val d = rawVal.toDouble()
+                                if (d.isFinite()) fields[key] = d.toFloat()
+                            }
+                            is String -> {
+                                val canonicalKey = normalizePresetStringFieldKey(key)
+                                attributes[canonicalKey] = normalizePresetStringFieldValue(canonicalKey, rawVal)
+                            }
+                            is Boolean -> {
+                                attributes[key] = rawVal.toString()
+                            }
                         }
                     }
                 }
+                // Legacy fallback for any preset saved with a top-level "attributes" object
                 val attrsObj = obj.optJSONObject("attributes")
-                val attributes = mutableMapOf<String, String>()
                 if (attrsObj != null) {
                     val attrKeys = attrsObj.keys()
                     while (attrKeys.hasNext()) {
                         val key = attrKeys.next()
-                        val v = attrsObj.optString(key).takeIf { it.isNotBlank() }
-                        if (v != null) attributes[key] = v
+                        val v = attrsObj.optString(key).takeIf { it.isNotBlank() } ?: continue
+                        val canonicalKey = normalizePresetStringFieldKey(key)
+                        attributes[canonicalKey] = normalizePresetStringFieldValue(canonicalKey, v)
                     }
                 }
                 if (fields.isNotEmpty() || attributes.isNotEmpty()) {
@@ -138,6 +203,7 @@ fun decodeUserPresetsJson(raw: String?): List<BuiltInPreset> {
                             fields = fields,
                             attributes = attributes,
                             userCreated = true,
+                            schemaVersion = schemaVersion,
                         )
                     )
                 }
@@ -168,42 +234,49 @@ fun MapleState.savablePresetFields(): Map<String, Float> {
 fun MapleState.savablePresetAttributes(): Map<String, String> = buildMap {
     val bw = document.attribute("crs:ConvertToGrayscale")
     if (bw == "1" || bw.equals("True", ignoreCase = true)) {
-        put("crs:ConvertToGrayscale", "True")
+        put("black_white", "On")
     }
     val film = document.attribute("papp:FilmLook").orEmpty()
     if (film.isNotEmpty()) {
-        put("papp:FilmLook", film)
+        put("film_look", film)
     }
     val profile =
         document.attribute("papp:Profile")
             ?: if (document.attribute("papp:Look") == "Neutral") "Neutral" else "Auto"
     if (profile != "Auto") {
-        put("papp:Profile", profile)
+        put("profile", profile)
     }
 }
 
 fun MapleState.isPresetActive(preset: BuiltInPreset): Boolean {
     val knownFields = preset.fields.filterKeys { it in AdjustmentFields.byName && it !in nonCopyablePresetFields }
-    val knownAttrs = preset.attributes.filterKeys { it in copyablePresetAttributes }
+    val knownAttrs =
+        preset.attributes.entries
+            .map { (k, v) ->
+                val ck = normalizePresetStringFieldKey(k)
+                ck to normalizePresetStringFieldValue(ck, v)
+            }
+            .filter { (ck, _) -> ck in copyablePresetStringFields }
     return (knownFields.isNotEmpty() || knownAttrs.isNotEmpty()) &&
         knownFields.all { (name, target) ->
             val current = values[name] ?: return@all false
             abs(current - target) <= 1e-3f
         } &&
         knownAttrs.all { (name, target) ->
-            val current = document.attribute(name)
             when (name) {
-                "crs:ConvertToGrayscale" -> {
-                    val isMono = current == "1" || current.equals("True", ignoreCase = true)
-                    val targetMono = target == "1" || target.equals("True", ignoreCase = true)
-                    isMono == targetMono
+                "black_white" -> {
+                    val bw = document.attribute("crs:ConvertToGrayscale")
+                    val currentVal = if (bw == "1" || bw.equals("True", ignoreCase = true)) "On" else "Off"
+                    currentVal == target
                 }
-                "papp:Profile" -> {
+                "film_look" -> document.attribute("papp:FilmLook").orEmpty() == target
+                "profile" -> {
                     val activeProfile =
-                        current ?: if (document.attribute("papp:Look") == "Neutral") "Neutral" else "Auto"
+                        document.attribute("papp:Profile")
+                            ?: if (document.attribute("papp:Look") == "Neutral") "Neutral" else "Auto"
                     activeProfile == target
                 }
-                else -> current == target
+                else -> false
             }
         }
 }
@@ -233,13 +306,16 @@ internal fun BuiltInPresetsRow(
                     preset.fields.keys.filter {
                         it in AdjustmentFields.byName && it !in nonCopyablePresetFields
                     }
-                val knownAttrs = preset.attributes.keys.filter { it in copyablePresetAttributes }
+                val knownAttrs =
+                    preset.attributes.keys
+                        .map(::normalizePresetStringFieldKey)
+                        .filter { it in copyablePresetStringFields }
                 val supported =
                     (knownFields.isNotEmpty() || knownAttrs.isNotEmpty()) &&
                         knownFields.all {
                             AdjustmentFields.byName[it]?.let(state::supportsField) == true
                         } &&
-                        ("papp:Profile" !in knownAttrs || state.values["_raw"] != 0f)
+                        ("profile" !in knownAttrs || state.values["_raw"] != 0f)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     FilterChip(
                         selected = active,
