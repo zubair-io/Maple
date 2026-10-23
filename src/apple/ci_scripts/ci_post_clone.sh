@@ -87,6 +87,10 @@ fi
 # targets installed on any other channel leave cargo auto-installing a bare
 # pinned toolchain with no Apple targets (#5226).
 RUST_TOOLCHAIN_FILE="$REPO_ROOT/src/raw-pipeline/rust-toolchain.toml"
+if [ ! -f "$RUST_TOOLCHAIN_FILE" ]; then
+    echo "ERROR: $RUST_TOOLCHAIN_FILE not found" >&2
+    exit 1
+fi
 RUST_TOOLCHAIN="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' "$RUST_TOOLCHAIN_FILE")"
 if [ -z "$RUST_TOOLCHAIN" ]; then
     echo "ERROR: no toolchain channel found in $RUST_TOOLCHAIN_FILE" >&2
