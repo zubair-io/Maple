@@ -46,7 +46,7 @@ namespace Maple.WinUI.Services
         {
             var p = MapleAdjustmentParams.From(
                 model, frame.DecodedTemperature, frame.DecodedTint, frame.Iso, frame.WhitesAnchorEv, frame.NrSamplingScale);
-            ApplyWbFrame(ref p, frame.WbFrame);
+            ApplyWbExports(ref p, frame);
             p.skip_agx = frame.IsRaster ? 1u : 0u;
             p.local_adjustments_ptr = tick.local_adjustments_ptr;
             p.local_adjustments_len = tick.local_adjustments_len;
