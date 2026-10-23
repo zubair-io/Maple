@@ -68,6 +68,14 @@ val builtInPresets: List<BuiltInPreset> =
         BuiltInPreset("builtin-no-color-nr", "No Color NR", mapOf("nr_color" to 0f)),
     )
 
+fun MapleViewModel.applyBuiltInPreset(preset: BuiltInPreset) {
+    preset.fields.forEach { (name, value) -> setField(name, value) }
+    if (preset.attributes.isNotEmpty()) {
+        setAttributes(preset.attributes, commit = false)
+    }
+    commitGesture()
+}
+
 fun encodeUserPresetsJson(presets: List<BuiltInPreset>): String {
     val array = JSONArray()
     for (preset in presets) {
@@ -163,14 +171,6 @@ fun MapleState.savablePresetAttributes(): Map<String, String> = buildMap {
     if (film.isNotEmpty()) {
         put("papp:FilmLook", film)
     }
-}
-
-fun MapleViewModel.applyBuiltInPreset(preset: BuiltInPreset) {
-    preset.fields.forEach { (name, value) -> setField(name, value) }
-    if (preset.attributes.isNotEmpty()) {
-        setAttributes(preset.attributes, commit = false)
-    }
-    commitGesture()
 }
 
 fun MapleState.isPresetActive(preset: BuiltInPreset): Boolean =
