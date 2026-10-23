@@ -89,9 +89,11 @@ impl LiveSession {
             cancel,
             index: Some(0),
         };
+        let layers = crate::local_adjustments::logical_layers(&inputs.local_adjustments).count();
+        self.haze.truncate(1 + layers);
         crate::live_chain::visit_live_chain(
             inputs,
-            AirlightSource::Resident(std::sync::Arc::clone(&self.haze)),
+            AirlightSource::Resident(std::sync::Arc::clone(&self.haze), 0),
             &mut sink,
         );
         sink.index
