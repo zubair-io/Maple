@@ -94,21 +94,6 @@ impl HazeMap {
     }
 }
 
-/// `img` block-averaged onto its proxy grid when it is larger than it — the
-/// cheapest whole frame that still measures the same map.
-pub fn downsample_to_proxy(img: Image) -> Image {
-    if img.width.max(img.height) <= HAZE_PROXY_LONG_EDGE {
-        return img;
-    }
-    let (width, height) = proxy_dims(img.width, img.height);
-    Image {
-        width,
-        height,
-        pixels: resample(&img, width as usize, height as usize),
-        ..img
-    }
-}
-
 /// Block-average `img` onto a `pw × ph` grid. Proxy pixel `i` covers source
 /// columns `[i·W/pw, max(i·W/pw + 1, (i+1)·W/pw))` (integer division), so a
 /// larger source is area-averaged and a smaller one is sampled nearest. The

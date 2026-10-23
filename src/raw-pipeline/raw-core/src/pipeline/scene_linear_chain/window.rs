@@ -273,6 +273,90 @@ mod tests {
         );
     }
 
+    /// #3287 review: on a frame above the proxy grid with a tone curve and
+    /// clarity, which do not commute with a downsample, the window's map is
+    /// the whole-frame chain's own, so the patch dehazes exactly as it does.
+    #[test]
+    fn a_large_frame_with_curves_and_clarity_windows_from_the_frames_own_map() {
+        let (width, height) = (2304u32, 1536u32);
+        let input: Vec<f32> = (0..width * height)
+            .flat_map(|i| {
+                let (x, y) = (i % width, i / width);
+                let veil = 0.25 + 0.55 * (1.0 - y as f32 / height as f32);
+                let object = (x / 61 + y / 47) % 2 == 0;
+                let fine = if (x + y) % 3 == 0 { 0.03 } else { -0.01 };
+                let v = if object { 0.05 } else { 0.18 } + fine;
+                [
+                    v * (1.0 - veil) + 0.8 * veil,
+                    v + 0.35 * veil,
+                    0.65 * veil,
+                    1.0,
+                ]
+            })
+            .collect();
+        let options = ChainOptions {
+            whites_anchor_ev: Some(0.0),
+            ..Default::default()
+        };
+        let model = AdjustmentModel {
+            dehaze: 50.0,
+            clarity: 40.0,
+            tone_curve_luma: crate::types::ToneCurve::new(vec![
+                (0.0, 0.0),
+                (0.25, 0.14),
+                (0.75, 0.86),
+                (1.0, 1.0),
+            ]),
+            sharpen_amount: 0.0,
+            nr_color: 0.0,
+            nr_luminance: 0.0,
+            ..Default::default()
+        };
+        let full =
+            crate::pipeline::apply_scene_linear_chain_f32(&input, width, height, &model, &options)
+                .unwrap();
+        let map =
+            crate::pipeline::scene_linear_chain_haze_map(&input, width, height, &model, &options)
+                .unwrap()
+                .expect("dehaze engaged");
+        let window = ChainWindow {
+            x: 1500,
+            y: 700,
+            full_width: width,
+            full_height: height,
+        };
+        let reach = scene_linear_chain_window_reach_px(&model, window);
+        let (px, py) = (window.x - reach, window.y - reach);
+        let (pw, ph) = (160 + 2 * reach, 120 + 2 * reach);
+        let patch = apply_scene_linear_chain_f32_windowed(
+            &crop(&input, width, px, py, pw, ph),
+            pw,
+            ph,
+            &model,
+            &ChainOptions {
+                haze_map: Some(&map),
+                ..options
+            },
+            None,
+            ChainWindow {
+                x: px,
+                y: py,
+                ..window
+            },
+        )
+        .unwrap();
+        let expected = crop(&full, width, px, py, pw, ph);
+        let worst = (reach..reach + 120)
+            .flat_map(|row| (reach..reach + 160).map(move |col| (row, col)))
+            .flat_map(|(row, col)| {
+                let k = ((row * pw + col) * 4) as usize;
+                (0..3).map(move |c| k + c)
+            })
+            .map(|k| (patch[k] - expected[k]).abs())
+            .fold(0.0f32, f32::max);
+        assert!(worst < 1e-5, "large-frame dehaze window drifted {worst}");
+    }
+
     /// With the frame's haze maps (#3287) a window recovers exactly as the
     /// whole-frame chain does over the same pixels, global and per mask.
     #[test]

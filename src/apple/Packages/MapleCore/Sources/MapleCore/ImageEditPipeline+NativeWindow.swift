@@ -83,11 +83,12 @@ extension ImageEditPipeline {
     return AutoProfileLUT.apply(profileLUT, to: image)
   }
 
-  /// The whole frame's dehaze maps for the patch (#3287): `frame` rendered at
-  /// no more than the maps' proxy edge (`maple_dehaze_proxy_long_edge`; they
-  /// are measured on that grid whatever the input size), then measured by
-  /// Rust, which memoises the last result. `nil` when no dehaze is engaged;
-  /// throws when it is but the decoded frame is not available.
+  /// The whole frame's dehaze maps for the patch (#3287): `frame`, the decoded
+  /// base the whole-image chain renders, at that chain's own resolution — its
+  /// tone curves, clarity and texture do not commute with a downscale, so
+  /// only the same buffer measures the same maps. Rust memoises the last
+  /// result. `nil` when no dehaze is engaged; throws when it is but the
+  /// decoded frame is not available.
   nonisolated func hazeMap(
     frame: CIImage?,
     model: AdjustmentModel,
@@ -104,21 +105,18 @@ extension ImageEditPipeline {
         code: 8, message: "native detail: dehaze needs the decoded frame for its haze map")
     }
     let extent = frame.extent
-    let scale = min(1, CGFloat(maple_dehaze_proxy_long_edge()) / max(extent.width, extent.height))
-    let scaled = frame.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-    let w = Int((extent.width * scale).rounded(.down))
-    let h = Int((extent.height * scale).rounded(.down))
+    let w = Int(extent.width.rounded())
+    let h = Int(extent.height.rounded())
     guard w > 0, h > 0 else { return nil }
     let rowBytes = w * 16
     return try autoreleasepool {
       var bytes = Data(count: rowBytes * h)
       bytes.withUnsafeMutableBytes { buf in
         context.render(
-          scaled,
+          frame,
           toBitmap: buf.baseAddress!,
           rowBytes: rowBytes,
-          bounds: CGRect(
-            x: scaled.extent.minX, y: scaled.extent.minY, width: CGFloat(w), height: CGFloat(h)),
+          bounds: CGRect(x: extent.minX, y: extent.minY, width: CGFloat(w), height: CGFloat(h)),
           format: .RGBAf,
           colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
         )
