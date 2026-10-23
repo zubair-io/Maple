@@ -3,7 +3,7 @@
 //! A windowed chain cannot measure dehaze from its patch, so the host hands it
 //! the maps of the frame the patch sits in: `maple_scene_linear_chain_haze_map_f32`
 //! runs the per-tick chain up to dehaze on the host's whole-frame decoded
-//! buffer (any resolution — the map lives on a fixed proxy grid) and returns an
+//! buffer (the one the whole-image chain runs on, at its resolution: the prefix does not commute with a downsample) and returns an
 //! opaque [`MapleHazeMap`] for the window entries. The last measurement is
 //! memoised process-wide, keyed by the frame's content digest and everything
 //! upstream of dehaze, so a pan or a dehaze-slider move at 100% does not

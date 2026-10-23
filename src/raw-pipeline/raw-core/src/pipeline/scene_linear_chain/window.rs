@@ -357,6 +357,61 @@ mod tests {
         assert!(worst < 1e-5, "large-frame dehaze window drifted {worst}");
     }
 
+    /// Equal haze keys measure equal maps: dragging the last dehaze layer
+    /// leaves every map, the upstream layer's included, unchanged.
+    #[test]
+    fn models_with_equal_haze_keys_measure_equal_maps() {
+        let (width, height) = (160u32, 120u32);
+        let input: Vec<f32> = (0..width * height)
+            .flat_map(|i| {
+                let (x, y) = (i % width, i / width);
+                let v = if (x / 19 + y / 13) % 2 == 0 {
+                    0.07
+                } else {
+                    0.21
+                };
+                let veil = 0.3 + 0.5 * (1.0 - y as f32 / height as f32);
+                [
+                    v * (1.0 - veil) + 0.8 * veil,
+                    v + 0.3 * veil,
+                    0.6 * veil,
+                    1.0,
+                ]
+            })
+            .collect();
+        let layer = |center: f32, amount: f32| {
+            LocalAdjustment::radial(
+                Point2::new(center, 0.5),
+                Point2::new(0.3, 0.35),
+                PartialAdjustments {
+                    dehaze: Some(amount),
+                    ..Default::default()
+                },
+            )
+        };
+        let model = |last: f32| AdjustmentModel {
+            dehaze: 25.0,
+            local_adjustments: vec![layer(0.35, 40.0), layer(0.65, last)],
+            ..Default::default()
+        };
+        let measure = |m: &AdjustmentModel| {
+            crate::pipeline::scene_linear_chain_haze_map(
+                &input,
+                width,
+                height,
+                m,
+                &ChainOptions::default(),
+            )
+            .unwrap()
+            .unwrap()
+        };
+        assert_eq!(
+            crate::stages::dehaze::haze_key(&model(30.0)),
+            crate::stages::dehaze::haze_key(&model(-70.0))
+        );
+        assert_eq!(measure(&model(30.0)), measure(&model(-70.0)));
+    }
+
     /// With the frame's haze maps (#3287) a window recovers exactly as the
     /// whole-frame chain does over the same pixels, global and per mask.
     #[test]

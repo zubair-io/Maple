@@ -84,15 +84,18 @@ pub fn haze_key(model: &crate::xmp::AdjustmentModel) -> crate::xmp::AdjustmentMo
         .local_adjustments
         .iter()
         .enumerate()
-        .map(|(i, layer)| match Some(i) == last {
-            true => crate::types::LocalAdjustment {
-                adjustments: crate::types::PartialAdjustments {
-                    dehaze: layer.adjustments.dehaze.map(engagement),
-                    ..layer.adjustments.clone()
-                },
-                ..layer.clone()
-            },
-            false => layer.clone(),
+        .map(|(i, layer)| {
+            if Some(i) == last {
+                crate::types::LocalAdjustment {
+                    adjustments: crate::types::PartialAdjustments {
+                        dehaze: layer.adjustments.dehaze.map(engagement),
+                        ..layer.adjustments.clone()
+                    },
+                    ..layer.clone()
+                }
+            } else {
+                layer.clone()
+            }
         })
         .collect();
     crate::xmp::AdjustmentModel {
@@ -260,3 +263,7 @@ mod tests;
 #[cfg(test)]
 #[path = "dehaze_transmission_tests.rs"]
 mod transmission_tests;
+
+#[cfg(test)]
+#[path = "dehaze_key_tests.rs"]
+mod key_tests;
