@@ -33,7 +33,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         let q = src[u32(at.y) * params.width + u32(at.x)];
         uniform_neighborhood = uniform_neighborhood && all(q.rgb == p.rgb);
         let yt = luma(q.rgb);
-        let scale = 0.5 * (yc + yt) + params.pedestal;
+        let scale = abs(0.5 * (yc + yt)) + params.pedestal;
         let t = (yt - yc) / (params.sigma * scale);
         let weight = tap.z / (1.0 + t * t);
         num += weight * (vec2<f32>(q.r - yt, q.b - yt) - c);

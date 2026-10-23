@@ -68,3 +68,44 @@ fn chroma_prefilter_uniform_fields_are_exact_identity() {
         }
     }
 }
+
+#[test]
+fn chroma_prefilter_signed_luma_levels_stay_finite_and_match_cpu() {
+    let ctx = GpuContext::new_blocking().expect("GPU parity requires an adapter");
+    let (w, h) = (29, 23);
+    let mut state = 0x2545_f491_u32;
+    let signed: Vec<f32> = (0..w * h * 4)
+        .map(|i| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            if i % 4 == 3 {
+                0.5
+            } else {
+                (state as f32 / u32::MAX as f32) * 3.4 - 0.4
+            }
+        })
+        .collect();
+    // Neighbours at luma exactly -PEDESTAL zeroed the unsigned range scale.
+    let mut zero_level = [-PEDESTAL, -PEDESTAL, -PEDESTAL, 1.0].repeat((w * h) as usize);
+    zero_level[5 * 4..5 * 4 + 3].copy_from_slice(&[0.2, -0.04, 0.1]);
+    for input in [signed, zero_level] {
+        let mut cpu = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+        for (p, q) in cpu.pixels.iter_mut().zip(input.chunks_exact(4)) {
+            *p = [q[0], q[1], q[2]];
+        }
+        raw_core::stages::chroma_prefilter::apply(&mut cpu, 100.0);
+        let image = GpuImage::upload(&ctx, &input, w, h);
+        let gpu = ChainRunner::new(&ctx, &image)
+            .run_blocking(&[&ChromaPrefilterPass { strength: 100.0 }]);
+        for (p, q) in cpu.pixels.iter().zip(gpu.chunks_exact(4)) {
+            for c in 0..3 {
+                assert!(q[c].is_finite() && p[c].is_finite(), "{p:?} vs {q:?}");
+                assert!(
+                    (p[c] - q[c]).abs() <= 2e-6 * p[c].abs().max(1.0),
+                    "{p:?} vs {q:?}"
+                );
+            }
+        }
+    }
+}

@@ -286,6 +286,18 @@ impl FramePool {
     pub fn alloc_count(&self) -> u64 {
         self.alloc_count.get()
     }
+
+    /// Bytes of every pooled buffer, which stay resident between renders.
+    #[cfg(test)]
+    pub(crate) fn retained_bytes(&self) -> u64 {
+        self.buckets
+            .values()
+            .flat_map(|bucket| {
+                let scratch = bucket.scratch.iter().map(|entry| entry.buffer.size());
+                scratch.chain(bucket.dispatches.iter().map(|entry| entry.uniform.size()))
+            })
+            .sum()
+    }
 }
 
 /// Get-or-create the next pooled scratch plane of `byte_len` bytes for the

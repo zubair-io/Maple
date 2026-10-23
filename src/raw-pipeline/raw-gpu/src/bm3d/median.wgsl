@@ -13,7 +13,7 @@ fn histogram_luma(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocatio
     let prefix = atomicLoad(&state[0]);
     let shift = p.sort.x;
     for (var i = lane; i < 256u; i += 64u) {
-        if base + i >= u32(p.extra.z) { continue; }
+        if base + i >= p.control.z { continue; }
         let bits = samples[base + i];
         let key = select(bits ^ 0x80000000u, ~bits, (bits & 0x80000000u) != 0u);
         if shift < 24u && (key >> (shift + 8u)) != (prefix >> (shift + 8u)) { continue; }

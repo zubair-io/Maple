@@ -1,11 +1,16 @@
-//! Two-pass BM3D on the GPU, using raw-core's tuning and DCT basis (#5099).
-//! Prefix adoption and full-size latency qualification remain tracked by #5099.
+//! Two-pass BM3D on the GPU, using raw-core's tuning and DCT basis: the
+//! capture-stage deep denoise refine (#5217). Host wiring is #5213 S5.
 //! Matching and collaborative filtering run on device. Reference patches are
-//! filtered in bounded tiles with reusable patch spectra. Each output pixel
-//! has one writer and visits contributing groups in fixed order, without float
-//! atomics. All scratch uses the live frame pool.
+//! filtered in tiles bounded by [`GpuContext::bm3d_binding_cap`] with reusable
+//! patch spectra. Each output pixel has one writer and visits contributing
+//! groups in fixed order, without float or fixed-point atomics. All scratch
+//! uses the live frame pool.
 
-use crate::{chain::Pass, context::GpuContext, spatial};
+use crate::{
+    chain::{CancelToken, Pass},
+    context::GpuContext,
+    spatial,
+};
 
 #[path = "../../raw-core/src/stages/bm3d/parameters.rs"]
 mod parameters;
@@ -38,9 +43,8 @@ pub(crate) struct Pipelines {
 impl GpuContext {
     fn bm3d_pipelines(&self) -> &Pipelines {
         self.bm3d_pipelines.get_or_init(|| {
-            let coefficients=dct_basis().iter().flatten().map(|v|format!("{v:?}")).collect::<Vec<_>>().join(",");
-            let header=format!("{}\nconst DCT_BASIS:array<f32,64>=array<f32,64>({coefficients});\nfn basis(k:u32,n:u32)->f32 {{return DCT_BASIS[k*8u+n];}}",include_str!("bm3d/common.wgsl"));
-            let header=header.as_str();
+            let header = shader_header();
+            let header = header.as_str();
             let sample = format!("{header}\n{}", include_str!("bm3d/sample.wgsl"));
             let select = format!("{header}\n{}", include_str!("bm3d/select.wgsl"));
             let median = format!("{header}\n{}", include_str!("bm3d/median.wgsl"));
@@ -81,24 +85,17 @@ impl GpuContext {
                 include_str!("bm3d/cache_subgroup.wgsl"),
                 subgroup_width,
             );
-            let cache_hard = subgroups::source(header, "", include_str!("bm3d/cache_hard.wgsl"), include_str!("bm3d/cache_spectra_portable.wgsl"), include_str!("bm3d/cache_subgroup.wgsl"), subgroup_width);
+            let cache_hard = subgroups::source(
+                header,
+                "",
+                include_str!("bm3d/cache_hard.wgsl"),
+                include_str!("bm3d/cache_spectra_portable.wgsl"),
+                include_str!("bm3d/cache_subgroup.wgsl"),
+                subgroup_width,
+            );
             let gather = format!("{header}\n{}", include_str!("bm3d/gather_estimates.wgsl"));
             let reconstruct = format!("{header}\n{}", include_str!("bm3d/reconstruct.wgsl"));
-            // Every workgroup scratch read follows an explicit write and
-            // barrier in these kernels. Native pipelines can avoid clearing
-            // it twice; WebGPU retains its required automatic initialization.
-            let compile = |source: &str, entry: &str| {
-                let shader=self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label:Some(entry),source:wgpu::ShaderSource::Wgsl(source.into()),
-                });
-                self.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label:Some(entry),layout:None,module:&shader,entry_point:Some(entry),
-                    compilation_options:wgpu::PipelineCompilationOptions {
-                        zero_initialize_workgroup_memory:cfg!(target_arch="wasm32"),
-                        ..Default::default()
-                    },cache:None,
-                })
-            };
+            let compile = |source: &str, entry: &str| compile(&self.device, source, entry);
             Pipelines {
                 #[cfg(test)]
                 subgroup_width,
@@ -122,6 +119,42 @@ impl GpuContext {
     }
 }
 
+/// The shared header with raw-core's DCT basis baked in as WGSL literals.
+fn shader_header() -> String {
+    let coefficients = dct_basis()
+        .iter()
+        .flatten()
+        .map(|v| format!("{v:?}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "{}\nconst DCT_BASIS: array<f32, 64> = array<f32, 64>({coefficients});\n\
+         fn basis(k: u32, n: u32) -> f32 {{ return DCT_BASIS[k * 8u + n]; }}",
+        include_str!("bm3d/common.wgsl")
+    )
+}
+
+fn compile(device: &wgpu::Device, source: &str, entry: &str) -> wgpu::ComputePipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(entry),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some(entry),
+        layout: None,
+        module: &shader,
+        entry_point: Some(entry),
+        compilation_options: wgpu::PipelineCompilationOptions {
+            // Every workgroup scratch read follows an explicit write and
+            // barrier in these kernels. Native pipelines can avoid clearing
+            // it twice; WebGPU retains its required automatic initialization.
+            zero_initialize_workgroup_memory: cfg!(target_arch = "wasm32"),
+            ..Default::default()
+        },
+        cache: None,
+    })
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Params {
@@ -141,6 +174,11 @@ struct Params {
 /// Input-referred deep denoise, in the same strength units as raw-core.
 pub struct DeepDenoisePass {
     pub strength: f32,
+    /// Checked before every cache tile. A cancelled pass leaves `dst`
+    /// unspecified: run it under the same token so
+    /// [`crate::ChainRunner::run_cancellable`] discards the result. Encoding
+    /// submits bounded chunks of tiles, replacing the encoder it is handed.
+    pub cancel: Option<CancelToken>,
 }
 
 impl Pass for DeepDenoisePass {
@@ -170,19 +208,14 @@ impl Pass for DeepDenoisePass {
         let basis = dct_basis();
         let params = Params {
             dims: [width, height, nx, ny],
-            control: [0; 4],
+            control: [0, 0, samples, 0],
             scale: [
                 SIGMA_K * strength,
                 CHROMA_SIGMA_RATIO,
                 T_MATCH_SQ,
                 LAMBDA_HT,
             ],
-            extra: [
-                ANCHOR_PEDESTAL,
-                HF_K * strength,
-                samples as f32,
-                samples as f32,
-            ],
+            extra: [ANCHOR_PEDESTAL, HF_K * strength, 0.0, 0.0],
             sort: [
                 0,
                 width.next_power_of_two().trailing_zeros(),
@@ -297,9 +330,21 @@ impl Pass for DeepDenoisePass {
             #[cfg(test)]
             tests::profile_boundary(ctx, encoder, "matching");
             encoder.clear_buffer(&accum, 0, None);
-            cached.encode(
-                ctx, encoder, src, guide, &groups, &selected, &accum, &params, wiener,
+            let completed = cached.encode(
+                ctx,
+                encoder,
+                src,
+                guide,
+                &groups,
+                &selected,
+                &accum,
+                &params,
+                wiener,
+                self.cancel.as_ref(),
             );
+            if !completed {
+                return;
+            }
             let output = if wiener == 0 { &basic } else { dst };
             #[cfg(test)]
             tests::profile_boundary(ctx, encoder, "filter");

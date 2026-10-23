@@ -4,8 +4,9 @@
 //! only, as part of the decode product: in the capture stage's fixed as-shot
 //! Rec.2020 basis (#5213), after retouch and before BM3D, capture
 //! sharpening, white balance, DCP and all user adjustments. Because it lands inside the cached decoded
-//! scene-linear buffer, its per-slider-tick cost is zero. No GPU port —
-//! the stage never runs per tick (spec § 3.1 "Gates").
+//! scene-linear buffer, its per-slider-tick cost is zero; it never runs per
+//! tick (spec § 3.1 "Gates"). `raw_gpu::ChromaPrefilterPass` is its
+//! capture-refine twin (#5217).
 //!
 //! ## Algorithm (clean-room per the design spec)
 //!
