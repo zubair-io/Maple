@@ -42,8 +42,8 @@ const HEADER_LEN: usize = 6;
 
 /// Steps of the anchor-table inverse (`hsm::invert_one_blended`, solved in
 /// HSV). Each step leaves an error proportional to how fast the table
-/// varies across the lattice: four leave test_0005 and test_0007 at mean
-/// ΔE00 ≤ 0.011 against a fresh develop and the synthetic tables of
+/// varies across the lattice: four leave test_0007 at mean ΔE00 ≤ 0.011
+/// against a fresh develop and the synthetic tables of
 /// `wb_hsm_retarget_tests` within 2e-5 scene-linear; each step is one
 /// table evaluation per pixel per tick.
 pub const HSM_INVERSE_ITERATIONS: u32 = 4;
