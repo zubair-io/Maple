@@ -86,9 +86,10 @@ extension ImageEditPipeline {
   /// The whole frame's dehaze maps for the patch (#3287): `frame`, the decoded
   /// base the CPU whole-image chain renders, at its own resolution — tone
   /// curves, clarity and texture do not commute with a downscale. The GPU
-  /// canvas prescales its copy, so its map can part slightly (#5215). Rust
-  /// memoises the last result. `nil` when no dehaze is engaged; throws when it is but the
-  /// decoded frame is not available.
+  /// canvas prescales its copy, so its map can part slightly (#5215). Kept in
+  /// `NativeDetailHazeCache` per (frame, `sceneLinearHazeKey`), so a pan or a
+  /// dehaze move renders no frame copy. `nil` when no dehaze is engaged;
+  /// throws when it is but the decoded frame is not available.
   nonisolated func hazeMap(
     frame: CIImage?,
     model: AdjustmentModel,
@@ -96,14 +97,27 @@ extension ImageEditPipeline {
     curves: PipelineRenderer.ChainToneCurves,
     noiseProfile: [Float]?
   ) throws -> PipelineRenderer.HazeMap? {
-    guard
-      abs(model.dehaze) >= 1e-3
-        || model.localAdjustments.contains(where: { abs($0.adjustments.dehaze ?? 0) >= 1e-3 })
-    else { return nil }
+    let key = PipelineRenderer.sceneLinearHazeKey(
+      params: params, curves: curves, noiseProfile: noiseProfile,
+      localAdjustments: model.localAdjustments)
+    guard key != 0 else { return nil }
     guard let frame else {
       throw PipelineError.renderFailed(
         code: 8, message: "native detail: dehaze needs the decoded frame for its haze map")
     }
+    return try NativeDetailHazeCache.shared.map(frame: frame, key: key) {
+      try measureHazeMap(
+        frame: frame, model: model, params: params, curves: curves, noiseProfile: noiseProfile)
+    }
+  }
+
+  nonisolated private func measureHazeMap(
+    frame: CIImage,
+    model: AdjustmentModel,
+    params: MapleAdjustmentParams,
+    curves: PipelineRenderer.ChainToneCurves,
+    noiseProfile: [Float]?
+  ) throws -> PipelineRenderer.HazeMap? {
     let extent = frame.extent
     let w = Int(extent.width.rounded())
     let h = Int(extent.height.rounded())

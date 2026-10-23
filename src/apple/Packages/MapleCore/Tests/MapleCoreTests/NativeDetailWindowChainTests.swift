@@ -158,6 +158,33 @@ final class NativeDetailWindowChainTests: XCTestCase {
       "no dehaze, no map")
   }
 
+  /// #3287: a pan or a dehaze move reuses the patch's haze map without
+  /// rendering the decoded frame again; an upstream edit measures anew.
+  func testHazeMapCacheHitRendersNoFrameCopy() throws {
+    let pixels = frame()
+    let image = CIImage(
+      bitmapData: data(pixels), bytesPerRow: full.w * 16,
+      size: CGSize(width: full.w, height: full.h), format: .RGBAf,
+      colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!)
+    let pipeline = ImageEditPipeline()
+    let map = { (m: AdjustmentModel) in
+      try pipeline.hazeMap(
+        frame: image, model: m, params: PipelineRenderer.makeParams(from: m, whitesAnchorEv: 0),
+        curves: PipelineRenderer.ChainToneCurves(model: m), noiseProfile: nil)
+    }
+    var m = model()
+    m.dehaze = 30
+    let before = NativeDetailHazeCache.shared.measurements
+    let first = try XCTUnwrap(try map(m))
+    m.dehaze = -60
+    m.sharpenAmount = 70
+    XCTAssertTrue(try XCTUnwrap(try map(m)) === first, "a dehaze move must reuse the map")
+    XCTAssertEqual(NativeDetailHazeCache.shared.measurements, before + 1)
+    m.exposure = 0.6
+    XCTAssertFalse(try XCTUnwrap(try map(m)) === first, "an upstream edit must measure anew")
+    XCTAssertEqual(NativeDetailHazeCache.shared.measurements, before + 2)
+  }
+
   func testDecodeRectWidensToTheChainReach() {
     let detail = CGRect(x: 6000, y: 3500, width: 1200, height: 900)
     let size = CGSize(width: 13000, height: 8000)

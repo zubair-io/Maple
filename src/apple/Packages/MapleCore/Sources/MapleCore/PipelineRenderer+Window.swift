@@ -78,6 +78,22 @@ extension PipelineRenderer {
     return map.map(HazeMap.init)
   }
 
+  /// `maple_scene_linear_chain_haze_key`: a digest of everything the haze
+  /// maps for `params` depend on except the frame's pixels; `0` when no
+  /// dehaze is engaged.
+  public static func sceneLinearHazeKey(
+    params: MapleAdjustmentParams,
+    curves: ChainToneCurves,
+    noiseProfile: [Float]?,
+    localAdjustments: [LocalAdjustment]
+  ) -> UInt64 {
+    withChainPointers(params, noiseProfile: noiseProfile, localAdjustments: localAdjustments) {
+      bound in
+      var p = bound
+      return curves.withMapleToneCurves { maple_scene_linear_chain_haze_key(&p, $0) }
+    }
+  }
+
   /// `applyChainAndEncodeDisplayTarget` for a patch at `window` in the full
   /// frame (`maple_apply_chain_and_encode_display_target_window_f32`).
   /// Dehaze needs `haze`, the frame's maps from `sceneLinearHazeMap`.

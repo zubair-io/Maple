@@ -338,3 +338,38 @@ fn dehaze_without_a_map_and_a_null_window_are_refused() {
         1
     );
 }
+
+#[test]
+fn the_haze_key_digest_ignores_amounts_and_stages_no_map_depends_on() {
+    use crate::scene_linear_chain_haze::maple_scene_linear_chain_haze_key;
+    let key = |p: &MapleAdjustmentParams| unsafe {
+        maple_scene_linear_chain_haze_key(p, std::ptr::null())
+    };
+    let base = MapleAdjustmentParams {
+        dehaze: 30.0,
+        ..params(0.0, 0.0, 0.0)
+    };
+    assert_eq!(key(&params(0.0, 0.0, 0.0)), 0, "no dehaze, no key");
+    assert_ne!(key(&base), 0);
+    assert_eq!(
+        key(&base),
+        key(&MapleAdjustmentParams {
+            dehaze: -70.0,
+            ..base
+        })
+    );
+    assert_eq!(
+        key(&base),
+        key(&MapleAdjustmentParams {
+            sharpen_amount: 90.0,
+            ..base
+        })
+    );
+    assert_ne!(
+        key(&base),
+        key(&MapleAdjustmentParams {
+            exposure: 0.7,
+            ..base
+        })
+    );
+}
