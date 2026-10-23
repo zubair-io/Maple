@@ -195,3 +195,7 @@ mod tests_scope;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_chain/tests_capacity.rs"]
 mod tests_capacity;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_chain/tests_mask_bits.rs"]
+mod tests_mask_bits;

@@ -28,6 +28,79 @@ const _: () = assert!(
      Widen the encoding or increase the shift before adding a 5th variant."
 );
 
+/// One bit per gated pass in [`active_mask`]; bits 30–31 carry the input
+/// shape. Every flag must be its own bit: two passes sharing one would let a
+/// toggle of either leave `chain_signature` unchanged while the pass list
+/// changes, and the frame pool would then replay the wrong bind groups.
+pub(super) mod bit {
+    pub(super) const CAPTURE_SHARPENING: u32 = 1 << 0;
+    pub(super) const WHITE_BALANCE: u32 = 1 << 1;
+    pub(super) const SCENE_TONE: u32 = 1 << 2;
+    pub(super) const TONE_CURVES: u32 = 1 << 3;
+    pub(super) const VIBRANCE: u32 = 1 << 4;
+    pub(super) const SATURATION: u32 = 1 << 5;
+    pub(super) const CLARITY: u32 = 1 << 6;
+    pub(super) const TEXTURE: u32 = 1 << 7;
+    pub(super) const DEHAZE: u32 = 1 << 8;
+    pub(super) const VIGNETTE: u32 = 1 << 9;
+    pub(super) const SHARPEN: u32 = 1 << 10;
+    pub(super) const NR_LUMINANCE: u32 = 1 << 11;
+    pub(super) const NR_COLOR: u32 = 1 << 12;
+    pub(super) const GRAIN: u32 = 1 << 13;
+    pub(super) const COLOR_GRADE: u32 = 1 << 14;
+    pub(super) const HSL: u32 = 1 << 15;
+    pub(super) const LOCAL_ADJUSTMENTS: u32 = 1 << 16;
+    pub(super) const FILM_LOOK: u32 = 1 << 17;
+    pub(super) const DISPLAY_TONE_CURVE: u32 = 1 << 18;
+    pub(super) const DEFRINGE: u32 = 1 << 19;
+    pub(super) const PROFILE_CURVE: u32 = 1 << 20;
+    pub(super) const RESIDUAL_LUT: u32 = 1 << 21;
+    pub(super) const COLOR_CURVES: u32 = 1 << 22;
+    pub(super) const WB_HUE_SAT_MAP: u32 = 1 << 23;
+
+    pub(super) const ALL: [u32; 24] = [
+        CAPTURE_SHARPENING,
+        WHITE_BALANCE,
+        SCENE_TONE,
+        TONE_CURVES,
+        VIBRANCE,
+        SATURATION,
+        CLARITY,
+        TEXTURE,
+        DEHAZE,
+        VIGNETTE,
+        SHARPEN,
+        NR_LUMINANCE,
+        NR_COLOR,
+        GRAIN,
+        COLOR_GRADE,
+        HSL,
+        LOCAL_ADJUSTMENTS,
+        FILM_LOOK,
+        DISPLAY_TONE_CURVE,
+        DEFRINGE,
+        PROFILE_CURVE,
+        RESIDUAL_LUT,
+        COLOR_CURVES,
+        WB_HUE_SAT_MAP,
+    ];
+}
+
+const _: () = {
+    let mut seen = 0u32;
+    let mut i = 0;
+    while i < bit::ALL.len() {
+        assert!(bit::ALL[i].count_ones() == 1, "a pass flag must be one bit");
+        assert!(
+            seen & bit::ALL[i] == 0,
+            "two passes share an active_mask bit"
+        );
+        assert!(bit::ALL[i] < 1 << 30, "bits 30-31 carry the input shape");
+        seen |= bit::ALL[i];
+        i += 1;
+    }
+};
+
 /// The active-stage bitmask — which gated passes [`build_live_split`](super::build_live_split) includes
 /// for `inputs`, one bit per gated stage (the ungated view-tail core — `agx`,
 /// `display_encode`, `srgb_gamma` — always runs, so it isn't represented).
@@ -49,80 +122,80 @@ pub(crate) fn active_mask(inputs: &FullChainInputs) -> u32 {
     m |= ((inputs.input_shape as u32) & 0b11) << 30;
     // Bit 0: capture_sharpening — RAW-only (#1331); always 0 for non-RAW shapes.
     if is_raw_shape && inputs.capture_sharpening.is_some() {
-        m |= 1 << 0;
+        m |= bit::CAPTURE_SHARPENING;
     }
     // Bit 1: WB — engaged for ALL shapes when the slider is outside the skip
     // band (the builder now includes WB unconditionally for non-RAW too).
     if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
-        m |= 1 << 1;
+        m |= bit::WHITE_BALANCE;
         // The HueSatMap variant binds a fourth (table) buffer (#5099).
         if inputs.wb_hsm.is_some() {
-            m |= 1 << 22;
+            m |= bit::WB_HUE_SAT_MAP;
         }
     }
     if !scene_tone_is_noop(&inputs.tone) {
-        m |= 1 << 2;
+        m |= bit::SCENE_TONE;
     }
     if !tone_curves_is_noop(&inputs.tone_curves) {
-        m |= 1 << 3;
+        m |= bit::TONE_CURVES;
     }
     if inputs.vibrance.abs() >= SLIDER_EPS {
-        m |= 1 << 4;
+        m |= bit::VIBRANCE;
     }
     if inputs.saturation.abs() >= SLIDER_EPS {
-        m |= 1 << 5;
+        m |= bit::SATURATION;
     }
     if !hsl_pass_for(inputs).is_noop() {
-        m |= 1 << 15;
+        m |= bit::HSL;
     }
     if inputs.clarity.abs() >= SLIDER_EPS {
-        m |= 1 << 6;
+        m |= bit::CLARITY;
     }
     if inputs.texture.abs() >= SLIDER_EPS {
-        m |= 1 << 7;
+        m |= bit::TEXTURE;
     }
     if inputs.dehaze.abs() >= SLIDER_EPS {
-        m |= 1 << 8;
+        m |= bit::DEHAZE;
     }
     if local_adjustments_are_active(&inputs.local_adjustments, inputs.scope.layer) {
-        m |= 1 << 16;
+        m |= bit::LOCAL_ADJUSTMENTS;
     }
     // Bit 19: defringe (#3411) — same predicate as the `build_live_split`
     // gate above. Only presence changes the dispatch/bind-group shape (the
     // six sliders ride a fixed-size params uniform), so no content hash is
     // folded in.
     if inputs.defringe.is_engaged() {
-        m |= 1 << 19;
+        m |= bit::DEFRINGE;
     }
     if inputs.vignette_amount.abs() >= SLIDER_EPS {
-        m |= 1 << 9;
+        m |= bit::VIGNETTE;
     }
     if inputs.sharpen_amount.abs() >= SLIDER_EPS {
-        m |= 1 << 10;
+        m |= bit::SHARPEN;
     }
     if inputs.nr_luminance.abs() >= SLIDER_EPS {
-        m |= 1 << 11;
+        m |= bit::NR_LUMINANCE;
     }
     if inputs.nr_color.abs() >= SLIDER_EPS {
-        m |= 1 << 12;
+        m |= bit::NR_COLOR;
     }
     if inputs.grain_amount.abs() >= SLIDER_EPS {
-        m |= 1 << 13;
+        m |= bit::GRAIN;
     }
     if !color_grade_is_identity(&crate::full_chain::color_grade_sliders(inputs)) {
-        m |= 1 << 14;
+        m |= bit::COLOR_GRADE;
     }
     // Bit 17: film look (epic #2683, Task 7) — same predicate as the
     // `build_live_split` gate (loaded LUT + engaged strength).
     if inputs.film_lut_size > 0 && inputs.film_strength > SLIDER_EPS {
-        m |= 1 << 17;
+        m |= bit::FILM_LOOK;
     }
     // Bit 18: display-referred tone curves (#2232) — same predicate as the
     // `build_live_split` gate above. Fixed-stride pooled buffer (NUM_SLOTS ×
     // SLOT_STRIDE, like `tone_curves`'), so no extra content-hash fold is
     // needed below — only presence changes the dispatch/bind-group shape.
     if !display_tone_curve_is_identity(&inputs.display_tone_curves) {
-        m |= 1 << 18;
+        m |= bit::DISPLAY_TONE_CURVE;
     }
     // Bits 20/21: Auto Profile look — the EXACT `build_live_split` gate
     // predicates (RAW shape + per-artifact presence). A Neutral→Auto fit
@@ -130,13 +203,13 @@ pub(crate) fn active_mask(inputs: &FullChainInputs) -> u32 {
     // a fresh pool bucket. (The LUT edge is additionally folded into
     // `chain_signature` for its variable pooled-buffer size, #1079.)
     if is_raw_shape && profile_curve_is_active(&inputs.profile_curve_flat) {
-        m |= 1 << 20;
+        m |= bit::PROFILE_CURVE;
     }
     if is_raw_shape && residual_lut_is_active(inputs.residual_lut_size, &inputs.residual_lut_data) {
-        m |= 1 << 21;
+        m |= bit::RESIDUAL_LUT;
     }
     if !color_curves_is_identity(&inputs.color_curves) {
-        m |= 1 << 22;
+        m |= bit::COLOR_CURVES;
     }
     m
 }
