@@ -27,6 +27,7 @@ struct HazeKey {
     model: raw_core::xmp::AdjustmentModel,
     decoded: (f32, f32),
     wb_frame: raw_core::stages::wb_camera::SliderFrameExport,
+    wb_hsm: u64,
     whites_anchor_ev: Option<f32>,
     nr_sampling_scale: f32,
 }
@@ -37,6 +38,20 @@ fn digest(frame: &[f32]) -> u64 {
     frame.iter().fold(0xcbf2_9ce4_8422_2325, |h, v| {
         (h ^ u64::from(v.to_bits())).wrapping_mul(0x0000_0100_0000_01b3)
     })
+}
+
+/// Digest of the decode's HueSatMap wire and scalars (#5099), which the WB
+/// stage ahead of dehaze re-lerps.
+///
+/// # Safety
+/// `p.wb_hsm_ptr` null or valid for `p.wb_hsm_len` `f32`s.
+unsafe fn wb_hsm_digest(p: &MapleAdjustmentParams) -> u64 {
+    let wire: &[f32] = if p.wb_hsm_ptr.is_null() {
+        &[]
+    } else {
+        std::slice::from_raw_parts(p.wb_hsm_ptr, p.wb_hsm_len)
+    };
+    digest(wire) ^ digest(&[p.wb_hsm_as_shot_cct, p.wb_hsm_exposure_gain]).rotate_left(1)
 }
 
 /// Measure (or reuse) the haze maps the whole-frame chain would measure for
@@ -86,6 +101,7 @@ pub unsafe extern "C" fn maple_scene_linear_chain_haze_map_f32(
             model: dehaze::haze_key(&ci.model),
             decoded: (options.decoded_temp, options.decoded_tint),
             wb_frame: ci.wb_frame,
+            wb_hsm: wb_hsm_digest(p),
             whites_anchor_ev: options.whites_anchor_ev,
             nr_sampling_scale: options.nr_sampling_scale,
         };
@@ -153,7 +169,7 @@ pub unsafe extern "C" fn maple_scene_linear_chain_haze_key(
             .map(|r| (r.id, r.digest.clone(), r.width, r.height))
             .collect();
         let described = format!(
-            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{}",
             raw_core::xmp::AdjustmentModel {
                 mask_rasters: Vec::new(),
                 ..key
@@ -163,6 +179,7 @@ pub unsafe extern "C" fn maple_scene_linear_chain_haze_key(
             ci.wb_frame,
             options.whites_anchor_ev,
             options.nr_sampling_scale,
+            wb_hsm_digest(p),
         );
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         std::hash::Hash::hash(&described, &mut hasher);
