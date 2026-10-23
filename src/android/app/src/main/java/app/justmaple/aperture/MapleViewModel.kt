@@ -813,7 +813,7 @@ internal constructor(
         if (trimmed.isEmpty() || (fields.isEmpty() && attributes.isEmpty())) return null
         val preset =
             BuiltInPreset(
-                id = "user-${System.currentTimeMillis()}-${state.value.userPresets.size}",
+                id = java.util.UUID.randomUUID().toString().lowercase(java.util.Locale.ROOT),
                 name = trimmed,
                 fields = fields,
                 attributes = attributes,
