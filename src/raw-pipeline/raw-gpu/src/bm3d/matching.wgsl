@@ -36,7 +36,7 @@ fn match_groups(@builtin(workgroup_id) id: vec3<u32>, @builtin(local_invocation_
     workgroupBarrier();
     let row_width = hi.x - lo.x + 1u;
     let candidates = row_width * (hi.y - lo.y + 1u);
-    let sigma = p.scale.x * (bitcast<f32>(samples[2]) + p.extra.x);
+    let sigma = p.scale.x * (max(bitcast<f32>(samples[2]), 0.0) + p.extra.x);
     let tau = p.scale.z * sigma * sigma;
     for (var c = lane; c < 512u; c += 256u) {
         locations[c] = c;

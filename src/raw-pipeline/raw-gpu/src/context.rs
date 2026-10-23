@@ -8,7 +8,7 @@
 //! dispatch.
 
 use crate::frame_pool::FramePool;
-use std::cell::{OnceCell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::sync::Arc;
 
 /// Shared device/queue handles plus lazily-compiled, cached compute pipelines.
@@ -276,14 +276,16 @@ pub struct GpuContext {
     /// `sharpen_mix`: the edge-aware amount/masking blend (central-difference
     /// gradient on the luma plane). 4 storage (observed + sharpened + luma + dst).
     pub(crate) sharpen_mix_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Capture-stage refine passes (#5217): post-DCP Oklab recovery, BM3D and
+    /// the chroma prefilter.
+    pub(crate) post_dcp_highlight_pipeline: OnceCell<wgpu::ComputePipeline>,
+    pub(crate) bm3d_pipelines: OnceCell<crate::bm3d::Pipelines>,
+    pub(crate) chroma_prefilter_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled capture-sharpening pipelines (epic #925 P3 wave 2 / #991).
     /// Richardson–Lucy deconvolution on a luma plane (Rec.709 weights — raw-core's
     /// deliberate approximation), TRUE Gaussian PSF with clamp-to-edge borders.
     /// All five entry points share one WGSL module (`capture_sharpening.wgsl`).
     /// `cs_extract`: RGBA → luma plane (Rec.709). 2 storage.
-    pub(crate) post_dcp_highlight_pipeline: OnceCell<wgpu::ComputePipeline>,
-    pub(crate) bm3d_pipelines: OnceCell<crate::bm3d::Pipelines>,
-    pub(crate) chroma_prefilter_pipeline: OnceCell<wgpu::ComputePipeline>,
     pub(crate) cs_extract_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// `cs_gaussian`: separable true-Gaussian blur of a scalar plane (CPU-uploaded
     /// kernel weights, clamp-to-edge), one axis per dispatch. 3 storage
@@ -329,6 +331,27 @@ pub struct GpuContext {
     /// is dormant and allocators fall back to plain creates (so stage unit tests
     /// are unaffected). See [`crate::frame_pool`].
     pub(crate) frame_pool: RefCell<FramePool>,
+    bm3d_binding_cap: Cell<u32>,
+}
+
+/// Default ceiling on each BM3D patch-cache binding. Memory-constrained hosts
+/// lower it per context; #5213 targets 32 MiB on iPhone.
+pub const DEFAULT_BM3D_BINDING_CAP: u32 = 128 << 20;
+const MIN_BM3D_BINDING_CAP: u32 = 1 << 20;
+
+impl GpuContext {
+    /// Bound the BM3D patch-spectra and filtered-group bindings to `bytes`
+    /// (clamped to at least 1 MiB and to the device limit); larger images are
+    /// filtered in more tiles. Takes effect on the next encode.
+    pub fn set_bm3d_binding_cap(&self, bytes: u32) {
+        self.bm3d_binding_cap.set(bytes.max(MIN_BM3D_BINDING_CAP));
+    }
+
+    pub fn bm3d_binding_cap(&self) -> u32 {
+        self.bm3d_binding_cap
+            .get()
+            .min(self.device.limits().max_storage_buffer_binding_size)
+    }
 }
 
 /// The device limits Maple requests: `downlevel_defaults()` as the baseline,
@@ -480,6 +503,7 @@ impl GpuContext {
             vectorscope_pipeline: OnceCell::new(),
             scope_snapshot_pipeline: OnceCell::new(),
             frame_pool: RefCell::new(FramePool::default()),
+            bm3d_binding_cap: Cell::new(DEFAULT_BM3D_BINDING_CAP),
         })
     }
 

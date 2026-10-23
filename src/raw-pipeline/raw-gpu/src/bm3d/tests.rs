@@ -58,7 +58,10 @@ fn bm3d_intermediate_parity() {
     let input = fixture(w, h);
     let image = GpuImage::upload(&ctx, &input, w, h);
     CAPTURE.with_borrow_mut(|v| *v = Some(Vec::new()));
-    ChainRunner::new(&ctx, &image).run_blocking(&[&DeepDenoisePass { strength: 20.0 }]);
+    ChainRunner::new(&ctx, &image).run_blocking(&[&DeepDenoisePass {
+        strength: 20.0,
+        cancel: None,
+    }]);
     let captures = CAPTURE.with_borrow_mut(|v| v.take().unwrap());
     let values: Vec<Vec<f32>> = captures
         .iter()
@@ -82,7 +85,7 @@ fn bm3d_intermediate_parity() {
     });
     let mut sample: Vec<f32> = noisy[0].iter().step_by(8).copied().collect();
     sample.sort_unstable_by(f32::total_cmp);
-    let sigma = SIGMA_K * 0.2 * (sample[sample.len() / 2] + ANCHOR_PEDESTAL);
+    let sigma = SIGMA_K * 0.2 * (sample[sample.len() / 2].max(0.0) + ANCHOR_PEDESTAL);
     let tau = T_MATCH_SQ * sigma * sigma;
     assert_eq!(
         f32::from_bits(values[0][0].to_bits()),
@@ -256,7 +259,7 @@ fn bm3d_transpose_matches_indexed_basis() {
     }
 }
 
-fn fixture(w: u32, h: u32) -> Vec<f32> {
+pub(super) fn fixture(w: u32, h: u32) -> Vec<f32> {
     (0..w * h)
         .flat_map(|i| {
             let y = 0.2 + (i % w) as f32 / w as f32 * 0.4;
@@ -284,7 +287,10 @@ fn bm3d_gpu_matches_cpu_both_passes_and_clamped_grid() {
             raw_core::stages::bm3d::apply(&mut cpu, strength, None);
             let image = GpuImage::upload(&ctx, &input, w, h);
             let runner = ChainRunner::new(&ctx, &image);
-            let pass = DeepDenoisePass { strength };
+            let pass = DeepDenoisePass {
+                strength,
+                cancel: None,
+            };
             let gpu = runner.run_blocking(&[&pass]);
             let again = runner.run_blocking(&[&pass]);
             assert_eq!(gpu, again, "GPU BM3D must be deterministic");
@@ -311,20 +317,29 @@ fn bm3d_gpu_noop_and_uniform_fields() {
         let input = fixture(w, h);
         let image = GpuImage::upload(&ctx, &input, w, h);
         assert_eq!(
-            ChainRunner::new(&ctx, &image).run_blocking(&[&DeepDenoisePass { strength }]),
+            ChainRunner::new(&ctx, &image).run_blocking(&[&DeepDenoisePass {
+                strength,
+                cancel: None
+            }]),
             input
         );
     }
     for rgb in [[0.18, 0.18, 0.18, 0.7], [-0.2, 0.4, 2.1, 1.0]] {
         let input = rgb.repeat(17 * 13);
         let image = GpuImage::upload(&ctx, &input, 17, 13);
-        let gpu =
-            ChainRunner::new(&ctx, &image).run_blocking(&[&DeepDenoisePass { strength: 100.0 }]);
+        let gpu = ChainRunner::new(&ctx, &image).run_blocking(&[&DeepDenoisePass {
+            strength: 100.0,
+            cancel: None,
+        }]);
         for (i, (a, b)) in input.iter().zip(&gpu).enumerate() {
             assert_eq!(a, b, "uniform lane {i} field {rgb:?}");
         }
     }
 }
 
+#[path = "tests/cancellation.rs"]
+mod cancellation;
+#[path = "tests/latency.rs"]
+mod latency;
 #[path = "tests/qualification.rs"]
 mod qualification;

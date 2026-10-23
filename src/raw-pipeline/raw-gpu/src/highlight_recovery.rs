@@ -1,4 +1,4 @@
-//! GPU twin of the optional post-DCP Oklab recovery stage for #5099 replay.
+//! GPU twin of the optional post-DCP Oklab recovery stage (#5217).
 use crate::{chain::Pass, context::GpuContext};
 
 #[path = "../../raw-core/src/stages/highlight_recovery_oklab_params.rs"]
@@ -13,7 +13,8 @@ struct Params {
     pad: u32,
 }
 
-/// Run only for the OklabChromaReduction mode, before repairs and denoising.
+/// Run only for the OklabChromaReduction mode, after the DCP and before the
+/// auto-exposure gain (#5213 amendment 1), at the pre-AE clip ceiling.
 pub struct PostDcpHighlightPass;
 
 impl Pass for PostDcpHighlightPass {

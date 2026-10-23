@@ -8,6 +8,11 @@ mod batch;
 
 const SPECTRUM_FLOATS: u32 = (BLOCK * BLOCK + 1) as u32;
 const ESTIMATE_FLOATS: u32 = (GROUP_MAX * BLOCK * BLOCK + 1) as u32;
+/// Work per submission: a few milliseconds of GPU time. Every tile ends a
+/// compute pass and Metal caps live command buffers, so a frame cut into
+/// thousands of small tiles must not stay in one submission.
+const SUBMIT_GROUPS: u32 = 4096;
+const SUBMIT_TILES: u32 = 64;
 
 pub(super) struct Workspace {
     flags: Arc<wgpu::Buffer>,
@@ -29,13 +34,7 @@ impl Workspace {
         let halo = 2 * SEARCH_HALF as u32 + 1;
         let patch_width = width - block + 1;
         let patch_height = height - block + 1;
-        let limit = ctx
-            .device
-            .limits()
-            .max_storage_buffer_binding_size
-            .min(128 * 1024 * 1024);
-        #[cfg(test)]
-        let limit = TEST_CACHE_LIMIT.with(|override_limit| limit.min(override_limit.get()));
+        let limit = ctx.bm3d_binding_cap();
         let bytes_per_patch = SPECTRUM_FLOATS * 2 * 4;
         let maximum_width = (limit / (bytes_per_patch * halo)).max(1);
         let columns = if patch_width <= maximum_width {
@@ -154,8 +153,12 @@ impl Workspace {
         accum: &wgpu::Buffer,
         params: &Params,
         wiener: u32,
-    ) {
+        cancel: Option<&CancelToken>,
+    ) -> bool {
         let pipelines = ctx.bm3d_pipelines();
+        let mut in_flight = None;
+        let mut pending_groups = 0;
+        let mut pending_tiles = 0;
         let [width, height, nx, ny] = params.dims;
         let dispatch = |encoder: &mut wgpu::CommandEncoder,
                         pipeline: &wgpu::ComputePipeline,
@@ -187,8 +190,25 @@ impl Workspace {
         };
         for row in (0..ny).step_by(self.rows as usize) {
             for col in (0..nx).step_by(self.columns as usize) {
+                #[cfg(test)]
+                if let Some(cancel) = cancel {
+                    let tile = TILES_ENCODED.with(|count| count.replace(count.get() + 1));
+                    if tile == CANCEL_AT_TILE.with(std::cell::Cell::get) {
+                        cancel.cancel();
+                    }
+                }
+                if cancel.is_some_and(CancelToken::is_cancelled) {
+                    return false;
+                }
+                if pending_groups >= SUBMIT_GROUPS || pending_tiles >= SUBMIT_TILES {
+                    in_flight = submit_tile(ctx, encoder, in_flight.take());
+                    pending_groups = 0;
+                    pending_tiles = 0;
+                }
                 let columns = self.columns.min(nx - col);
                 let rows = self.rows.min(ny - row);
+                pending_groups += columns * rows;
+                pending_tiles += 1;
                 let x0 = (col * STRIDE as u32)
                     .min(width - BLOCK as u32)
                     .saturating_sub(SEARCH_HALF as u32);
@@ -285,10 +305,39 @@ impl Workspace {
                 );
             }
         }
+        true
     }
+}
+
+/// Hand the encoded tiles to the GPU and, on native, wait for the submission
+/// before them, so one stays queued while the next is encoded and a
+/// cancellation costs at most about two submissions of GPU time. Browsers cannot block; there the
+/// split only keeps each command buffer short.
+fn submit_tile(
+    ctx: &GpuContext,
+    encoder: &mut wgpu::CommandEncoder,
+    previous: Option<wgpu::SubmissionIndex>,
+) -> Option<wgpu::SubmissionIndex> {
+    let next = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("bm3d-tile"),
+        });
+    let submitted = ctx
+        .queue
+        .submit(Some(std::mem::replace(encoder, next).finish()));
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(previous) = previous {
+        ctx.device
+            .poll(wgpu::Maintain::WaitForSubmissionIndex(previous));
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = previous;
+    Some(submitted)
 }
 
 #[cfg(test)]
 thread_local! {
-    pub(super) static TEST_CACHE_LIMIT: std::cell::Cell<u32> = const { std::cell::Cell::new(u32::MAX) };
+    pub(super) static CANCEL_AT_TILE: std::cell::Cell<u32> = const { std::cell::Cell::new(u32::MAX) };
+    pub(super) static TILES_ENCODED: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }

@@ -37,11 +37,11 @@ pub const SPATIAL_W: [f32; 8] = [
 ];
 
 /// Relative range sigma at strength 100. The Cauchy range weight is
-/// `1 / (1 + (ΔY / (σ·scale))²)` with `scale = (Y_c + Y_t)/2 + PEDESTAL`,
+/// `1 / (1 + (ΔY / (σ·scale))²)` with `scale = |Y_c + Y_t|/2 + PEDESTAL`,
 /// so σ is a *relative* luma difference: at strength 100 a tap whose luma
 /// differs from the center by 50% of the local level still carries half
 /// weight. Relative normalisation keeps the response invariant to the
-/// per-camera post-DCP scale (the stage runs before auto-exposure).
+/// per-camera capture scale (the stage runs before auto-exposure).
 pub const SIGMA_MAX_REL: f32 = 0.5;
 
 /// Pedestal added to the local luma scale so deep-shadow noise (where the

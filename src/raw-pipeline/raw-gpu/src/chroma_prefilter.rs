@@ -1,4 +1,4 @@
-//! GPU twin of the input-referred chroma prefilter (#5099).
+//! GPU twin of the capture-stage chroma prefilter (#5217).
 //! Every pixel reads the same immutable neighborhood as raw-core. Parameters
 //! come directly from its source; uniforms and bindings use the live pool.
 
