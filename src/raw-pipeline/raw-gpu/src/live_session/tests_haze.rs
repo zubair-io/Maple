@@ -165,3 +165,105 @@ fn a_reused_global_map_keeps_the_layer_map_key() {
         "a deleted layer releases its map"
     );
 }
+
+/// Encodes like the live session's own sink, but cancels the render right
+/// after the pass that measured a haze map.
+struct CancelAfterMeasure<'s> {
+    session: &'s LiveSession,
+    ctx: &'s GpuContext,
+    encoder: &'s mut wgpu::CommandEncoder,
+    cancel: CancelToken,
+    index: Option<usize>,
+}
+
+impl<'i> crate::live_chain::LivePassSink<'i> for CancelAfterMeasure<'_> {
+    fn push<T: Pass + 'i>(&mut self, pass: T) {
+        if let Some(index) = self.index {
+            let before = self.session.haze.measured();
+            self.index = self.session.encode_chain(
+                self.ctx,
+                self.encoder,
+                std::iter::once(&pass as &dyn Pass),
+                index,
+                Some(&self.cancel),
+            );
+            if self.session.haze.measured() > before {
+                self.cancel.cancel();
+            }
+        }
+    }
+}
+
+#[test]
+fn a_frame_cancelled_after_measuring_leaves_no_resident_map() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let input = scene_linear_rgba(96, 64);
+    let session = LiveSession::new(&ctx, &input, 96, 64).expect("session");
+    let model = |exposure: f32, dehaze: f32| raw_core::xmp::AdjustmentModel {
+        exposure,
+        dehaze,
+        sharpen_amount: 60.0,
+        ..noop_model()
+    };
+    render(&session, &ctx, &model(0.0, 40.0));
+
+    let mut case = aggressive_case();
+    case.model = model(0.5, 40.0);
+    let inputs = case.gpu_inputs_for(&input);
+    let sig = chain_signature(&inputs, session.image.dims(), session.session_id);
+    ctx.frame_pool
+        .borrow_mut()
+        .begin_session_frame(sig, &session.pool_owner);
+    let mut encoder = ctx
+        .device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    let mut sink = CancelAfterMeasure {
+        session: &session,
+        ctx: &ctx,
+        encoder: &mut encoder,
+        cancel: CancelToken::new(),
+        index: Some(0),
+    };
+    crate::live_chain::visit_live_chain(
+        &inputs,
+        AirlightSource::Resident(std::sync::Arc::clone(&session.haze), 0),
+        &mut sink,
+    );
+    let abandoned = session.settle_haze(sink.index);
+    ctx.frame_pool.borrow_mut().end_frame();
+    drop(encoder);
+    assert_eq!(abandoned, None, "the render must be cancelled after dehaze");
+    assert_eq!(session.haze.measured(), 2);
+
+    let ticked = render(&session, &ctx, &model(0.5, 70.0));
+    assert_eq!(
+        session.haze.measured(),
+        3,
+        "a map whose frame was never submitted must be measured again"
+    );
+    let fresh = LiveSession::new(&ctx, &input, 96, 64).expect("session");
+    assert_eq!(ticked, render(&fresh, &ctx, &model(0.5, 70.0)));
+}
+
+#[test]
+fn a_downstream_gate_change_keeps_the_resident_map() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let input = scene_linear_rgba(96, 64);
+    let session = LiveSession::new(&ctx, &input, 96, 64).expect("session");
+    let model = |sharpen: f32| raw_core::xmp::AdjustmentModel {
+        exposure: 0.3,
+        dehaze: 40.0,
+        sharpen_amount: sharpen,
+        ..noop_model()
+    };
+    render(&session, &ctx, &model(0.0));
+    let sharpened = render(&session, &ctx, &model(60.0));
+    render(&session, &ctx, &model(0.0));
+    assert_eq!(
+        session.haze.measured(),
+        1,
+        "crossing a downstream stage's gate must not re-measure"
+    );
+    let fresh = LiveSession::new(&ctx, &input, 96, 64).expect("session");
+    assert_eq!(sharpened, render(&fresh, &ctx, &model(60.0)));
+}

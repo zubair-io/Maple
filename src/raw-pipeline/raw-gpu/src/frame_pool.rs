@@ -113,11 +113,22 @@ struct ScratchEntry {
     contents: Option<Vec<u8>>,
 }
 
+/// The frame state [`FramePool::enter_detached`] saves.
+pub(crate) struct DetachedFrame {
+    sig: u64,
+    cursors: (usize, usize),
+    digest: u64,
+}
+
 /// The dims/signature-keyed pool. Lives on [`GpuContext`] behind a `RefCell`
 /// (interior mutability — `Pass::encode` only sees `&GpuContext`). Single render
 /// in flight per context (ctx is `!Sync`), so the cursors are unambiguous.
 #[derive(Default)]
 pub struct FramePool {
+    /// Buckets of stages pooled outside the frame's own (see
+    /// [`FramePool::enter_detached`]), and whether one is active.
+    detached: HashMap<u64, Bucket>,
+    in_detached: bool,
     /// Per-signature buckets. The key is the chain signature
     /// ([`crate::live_chain::chain_signature`]). Four shapes retain neutral and
     /// active edits for both fast and refined sessions. Further shapes evict
@@ -203,39 +214,43 @@ impl FramePool {
         self.frame_digest
     }
 
-    /// The current `(dispatch, scratch)` cursors.
-    pub(crate) fn cursors(&self) -> (usize, usize) {
-        (self.dispatch_cursor, self.scratch_cursor)
+    /// Pool the next dispatches in the detached bucket `key` instead of the
+    /// frame's own, with their own cursors and digest, until
+    /// [`FramePool::leave_detached`]. A stage that runs only on some frames of
+    /// one signature (the haze map, #3287) measures here, so skipping it never
+    /// shifts a later stage's cached slots, and its resources survive a change
+    /// of chain signature.
+    pub(crate) fn enter_detached(&mut self, key: u64) -> DetachedFrame {
+        let saved = DetachedFrame {
+            sig: self.current_sig,
+            cursors: (self.dispatch_cursor, self.scratch_cursor),
+            digest: self.frame_digest,
+        };
+        self.detached.entry(key).or_default();
+        self.in_detached = true;
+        self.current_sig = key;
+        self.dispatch_cursor = 0;
+        self.scratch_cursor = 0;
+        saved
     }
 
-    /// Step over a span of resources a stage pooled on an earlier frame of
-    /// this signature but does not need now, so every later stage keeps the
-    /// cursors its cached entries were built at. `false` (nothing skipped)
-    /// when this signature's bucket has not pooled the span yet: the caller
-    /// must then encode it for real.
-    pub(crate) fn skip(&mut self, (dispatches, scratch): (usize, usize)) -> bool {
-        if !self.frame_active {
-            return false;
-        }
-        let (d, s) = (
-            self.dispatch_cursor + dispatches,
-            self.scratch_cursor + scratch,
-        );
-        let pooled = self
-            .buckets
-            .get(&self.current_sig)
-            .is_some_and(|bucket| bucket.dispatches.len() >= d && bucket.scratch.len() >= s);
-        if pooled {
-            self.dispatch_cursor = d;
-            self.scratch_cursor = s;
-        }
-        pooled
+    /// Return to the frame's own bucket, cursors and digest.
+    pub(crate) fn leave_detached(&mut self, saved: DetachedFrame) {
+        self.in_detached = false;
+        self.current_sig = saved.sig;
+        (self.dispatch_cursor, self.scratch_cursor) = saved.cursors;
+        self.frame_digest = saved.digest;
     }
 
-    /// Continue this frame's digest from `digest`, the value a skipped span
-    /// left it at when it was last encoded for real.
-    pub(crate) fn resume_digest(&mut self, digest: u64) {
-        self.frame_digest = digest;
+    fn active_bucket(&mut self, sig: u64) -> &mut Bucket {
+        let buckets = if self.in_detached {
+            &mut self.detached
+        } else {
+            &mut self.buckets
+        };
+        buckets
+            .get_mut(&sig)
+            .expect("bucket created when its frame began")
     }
 
     fn digest(&mut self, bytes: &[u8]) {
@@ -255,6 +270,7 @@ impl FramePool {
     /// LRU: their unique signature salt prevents reuse of another image's bindings.
     pub fn reset(&mut self) {
         self.buckets.clear();
+        self.detached.clear();
         self.frame_active = false;
         self.dispatch_cursor = 0;
         self.scratch_cursor = 0;
@@ -318,7 +334,7 @@ fn pool_buffer(
     let sig = pool.current_sig;
     let cursor = pool.scratch_cursor;
     pool.scratch_cursor += 1;
-    let bucket = pool.buckets.get_mut(&sig).expect("active bucket");
+    let bucket = pool.active_bucket(sig);
     if let Some(entry) = bucket.scratch.get_mut(cursor) {
         // Data snapshots are allocated on misses only. A size or lease-kind
         // change is a miss; writable scratch must invalidate any cached bytes.
@@ -357,7 +373,7 @@ fn pool_buffer(
         buffer: Arc::clone(&buffer),
         contents: contents.map(<[u8]>::to_vec),
     };
-    let bucket = pool.buckets.get_mut(&sig).expect("active bucket");
+    let bucket = pool.active_bucket(sig);
     if cursor < bucket.scratch.len() {
         bucket.scratch[cursor] = entry;
     } else {
@@ -421,10 +437,7 @@ pub(crate) fn pool_dispatch(
     let cursor = pool.dispatch_cursor;
     pool.dispatch_cursor += 1;
     {
-        let bucket = pool
-            .buckets
-            .get_mut(&sig)
-            .expect("bucket created in begin_frame");
+        let bucket = pool.active_bucket(sig);
         if let Some(entry) = bucket.dispatches.get_mut(cursor) {
             // Reuse ONLY when the cached entry was built for THIS pipeline. A bind
             // group derived from a pipeline's auto layout is EXCLUSIVE to that
@@ -472,10 +485,7 @@ pub(crate) fn pool_dispatch(
         storage_id,
         _data: res.data,
     };
-    let bucket = pool
-        .buckets
-        .get_mut(&sig)
-        .expect("bucket created in begin_frame");
+    let bucket = pool.active_bucket(sig);
     // A fresh cursor appends (the first render fills the Vec in dispatch order); a
     // pipeline-mismatch rebuild REPLACES the stale entry at an existing cursor.
     // Either way the Vec stays dispatch-indexed.
