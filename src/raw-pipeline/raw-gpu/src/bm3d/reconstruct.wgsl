@@ -1,6 +1,7 @@
 @group(0) @binding(1) var<storage, read> noisy: array<vec4<f32>>;
 @group(0) @binding(2) var<storage, read> accum: array<vec2<f32>>;
 @group(0) @binding(3) var<storage, read_write> output: array<vec4<f32>>;
+@group(0) @binding(4) var<storage,read> groups:array<u32>;
 
 fn horizontal_blur(at: vec2<u32>) -> f32 {
     let center = luminance(noisy[at.y * p.dims.x + at.x].rgb);
@@ -28,6 +29,12 @@ fn reconstruct(@builtin(global_invocation_id) id: vec3<u32>) {
     let rgb = noisy[i].rgb;
     let original_y = luminance(rgb);
     let original = vec3<f32>(original_y, rgb.r - original_y, rgb.b - original_y);
+    // raw-core's hard pass is exact identity when no coefficient can be
+    // rejected. Preserve that same basic guide, including signed values.
+    if p.control.y==0u && bitcast<f32>(groups[0])<=0.0 {
+        output[i]=vec4<f32>(original,noisy[i].a);
+        return;
+    }
     var filtered = original;
     for (var c = 0u; c < 3u; c++) {
         let sums = accum[c * count + i];

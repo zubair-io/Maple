@@ -281,6 +281,7 @@ pub struct GpuContext {
     /// deliberate approximation), TRUE Gaussian PSF with clamp-to-edge borders.
     /// All five entry points share one WGSL module (`capture_sharpening.wgsl`).
     /// `cs_extract`: RGBA → luma plane (Rec.709). 2 storage.
+    pub(crate) post_dcp_highlight_pipeline: OnceCell<wgpu::ComputePipeline>,
     pub(crate) bm3d_pipelines: OnceCell<crate::bm3d::Pipelines>,
     pub(crate) chroma_prefilter_pipeline: OnceCell<wgpu::ComputePipeline>,
     pub(crate) cs_extract_pipeline: OnceCell<wgpu::ComputePipeline>,
@@ -398,7 +399,13 @@ impl GpuContext {
                     required_features: if cfg!(target_arch = "wasm32") {
                         wgpu::Features::empty()
                     } else {
-                        adapter.features() & wgpu::Features::SUBGROUP
+                        adapter.features()
+                            & (wgpu::Features::SUBGROUP
+                                | if cfg!(test) {
+                                    wgpu::Features::TIMESTAMP_QUERY
+                                } else {
+                                    wgpu::Features::empty()
+                                })
                     },
                     required_limits: adapter_clamped_limits(&adapter),
                     memory_hints: wgpu::MemoryHints::default(),
@@ -460,6 +467,7 @@ impl GpuContext {
             sharpen_luma_pipeline: OnceCell::new(),
             sharpen_usm_pipeline: OnceCell::new(),
             sharpen_mix_pipeline: OnceCell::new(),
+            post_dcp_highlight_pipeline: OnceCell::new(),
             bm3d_pipelines: OnceCell::new(),
             chroma_prefilter_pipeline: OnceCell::new(),
             cs_extract_pipeline: OnceCell::new(),
