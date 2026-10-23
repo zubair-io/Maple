@@ -302,6 +302,7 @@ export interface MigrationCandidate {
   id: ObjectId;
   maple_id: string | undefined;
   apple_rendered_path: string | null;
+  apple_live_video_path: string | null;
   place: Place | null;
   is_screenshot: boolean;
   exif: Pick<AssetExif, 'captured_at' | 'captured_year' | 'captured_month'> | null;
@@ -309,13 +310,14 @@ export interface MigrationCandidate {
 }
 
 /** The projection every candidate read selects, spelled once. */
-export const CANDIDATE_COLUMNS = `a.id, a.maple_id, a.apple_rendered_path, a.place,
+export const CANDIDATE_COLUMNS = `a.id, a.maple_id, a.apple_rendered_path, a.apple_live_video_path, a.place,
   a.is_screenshot, a.captured_at, a.captured_year, a.captured_month`;
 
 export interface CandidateRow {
   id: string;
   maple_id: string | null;
   apple_rendered_path: string | null;
+  apple_live_video_path: string | null;
   place: string | null;
   is_screenshot: number | null;
   captured_at: string | null;
@@ -408,6 +410,7 @@ export function toCandidate(row: CandidateRow, fileinfo: FileInfo[]): MigrationC
     id: toObjectId(row.id),
     maple_id: row.maple_id ?? undefined,
     apple_rendered_path: row.apple_rendered_path,
+    apple_live_video_path: row.apple_live_video_path,
     place: row.place === null ? null : (JSON.parse(row.place) as Place),
     is_screenshot: row.is_screenshot === 1,
     exif: dated

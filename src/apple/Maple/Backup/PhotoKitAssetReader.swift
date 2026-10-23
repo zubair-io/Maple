@@ -18,6 +18,7 @@ import ImageIO
 import MapleBackup
 import MapleCore
 import Photos
+import UniformTypeIdentifiers
 
 actor PhotoKitAssetReader: AssetReader {
 
@@ -131,10 +132,17 @@ actor PhotoKitAssetReader: AssetReader {
     return AssetReadResult(
       originalBytes: originalBytes,
       renderedBytes: renderedBytes,
+      renderedFilenameExtension: renderedResource.flatMap(Self.filenameExtension(of:)),
       liveVideoBytes: liveVideoBytes,
       liveVideoFilename: liveVideoFilename,
       sidecar: sidecar,
       mapleId: mapleId)
+  }
+
+  nonisolated private static func filenameExtension(of resource: PHAssetResource) -> String? {
+    let declared = UTType(resource.uniformTypeIdentifier)?.preferredFilenameExtension
+    let named = (resource.originalFilename as NSString).pathExtension
+    return declared ?? (named.isEmpty ? nil : named)
   }
 
   // MARK: - Cloud identifier resolution

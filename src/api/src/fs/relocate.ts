@@ -96,6 +96,8 @@ export interface RelocateVerifiedInfo {
    * copied alongside (#2667) — same best-effort contract as `sidecarPaths`,
    * omitted here (not present) for a companion that failed to copy. */
   companionPaths: string[];
+  /** The source each `companionPaths` entry was copied from, index for index. */
+  companionSources: string[];
 }
 
 export interface RelocateRequest {
@@ -113,7 +115,8 @@ export interface RelocateRequest {
   beforeSourceDelete?: () => Promise<void>;
   /** Absolute paths of extra non-sidecar companion files to carry alongside
    * the primary (#2667) — e.g. a PhotoKit backup's Apple-rendered JPEG
-   * (`apple_rendered_path`). Same treatment as a `.xmp` sidecar: base-swap
+   * (`apple_rendered_path`) or Live Photo `.mov` (`apple_live_video_path`).
+   * Same treatment as a `.xmp` sidecar: base-swap
    * renamed via `sidecarRenameTarget` when the companion's name shares the
    * primary's base (falling back to an unchanged basename in the new
    * directory when it doesn't — mirrors
@@ -499,7 +502,12 @@ async function copyRepointDelete(
   await req.beforeSourceDelete?.();
   const repointError = await runIdentityRepoint(
     req.onVerified,
-    { newAbsPath: finalDest, sidecarPaths: copiedSidecars, companionPaths },
+    {
+      newAbsPath: finalDest,
+      sidecarPaths: copiedSidecars,
+      companionPaths,
+      companionSources: movedCompanionSources,
+    },
     createdPaths,
   );
   if (repointError) return { kind: 'error', error: repointError };

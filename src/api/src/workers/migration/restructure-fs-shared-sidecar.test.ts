@@ -45,6 +45,7 @@ async function refile(filename: string): Promise<string> {
     filename,
     newDir: '2024',
     renderedRelOld: null,
+    liveVideoRelOld: null,
   });
   await finalize({
     libRoot: root,

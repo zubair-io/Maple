@@ -21,7 +21,7 @@ import * as fs from 'node:fs/promises';
 import * as fsSync from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { relocateFile } from './relocate.ts';
+import { relocateFile, type RelocateVerifiedInfo } from './relocate.ts';
 import { performCaseOnlyRename } from './relocate-case-only-rename.ts';
 
 /** Probed live (write `a`, stat `A`), same technique as
@@ -128,7 +128,7 @@ describe('relocateFile — case-only rename (#2704)', () => {
       await write('a/img.cr3', 'pixels');
       await write('a/img.xmp', 'edits');
       const captured: {
-        info?: { newAbsPath: string; sidecarPaths: string[]; companionPaths: string[] };
+        info?: RelocateVerifiedInfo;
       } = {};
       const outcome = await relocateFile({
         sourceAbsPath: abs('a/img.cr3'),
@@ -144,6 +144,7 @@ describe('relocateFile — case-only rename (#2704)', () => {
         newAbsPath: abs('a/IMG.CR3'),
         sidecarPaths: [abs('a/IMG.xmp')],
         companionPaths: [],
+        companionSources: [],
       });
     },
   );

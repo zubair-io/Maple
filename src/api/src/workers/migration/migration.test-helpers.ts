@@ -43,6 +43,7 @@ export interface SeedAsset {
   place?: object | null;
   exif?: object | null;
   appleRenderedPath?: string | null;
+  appleLiveVideoPath?: string | null;
   deletedAt?: string | null;
   /** The describe stage's structured output, which lives in `asset_detail`. */
   vision?: object | null;
@@ -88,6 +89,7 @@ function defaultColumns(id: string): Record<string, ColumnValue> {
     place: null,
     exif: null,
     apple_rendered_path: null,
+    apple_live_video_path: null,
     deleted_at: null,
     backup_layout_version: null,
     legacy_daydir_version: null,
@@ -115,6 +117,7 @@ function requestedColumns(asset: SeedAsset): Record<string, ColumnValue> {
     place: asJson(asset.place),
     exif: asJson(asset.exif),
     apple_rendered_path: asset.appleRenderedPath,
+    apple_live_video_path: asset.appleLiveVideoPath,
     deleted_at: asset.deletedAt,
     backup_layout_version: asset.backupLayoutVersion,
     legacy_daydir_version: asset.legacyDaydirVersion,
@@ -235,6 +238,7 @@ export interface MigrationAssetRow {
   is_screenshot: number | null;
   exif: string | null;
   apple_rendered_path: string | null;
+  apple_live_video_path: string | null;
   live_location_count: number;
   backup_layout_version: number | null;
   legacy_daydir_version: number | null;
@@ -246,7 +250,7 @@ export interface MigrationAssetRow {
 }
 
 const ASSET_COLUMNS = `id, media_kind, is_screenshot, exif, apple_rendered_path,
-  live_location_count, backup_layout_version, legacy_daydir_version, video_meta_version,
+  apple_live_video_path, live_location_count, backup_layout_version, legacy_daydir_version, video_meta_version,
   video_poster_rearm_version, video_screenshot_clear_version,
   preview_missing_redrive_version, geo_backfill_skipped`;
 

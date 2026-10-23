@@ -2,6 +2,22 @@ import { realpath } from '../fs/mirrored.ts';
 import { jailedFile } from '../cloud-backup/inventory.ts';
 import { assetOwnsRelPath } from '../db/repos/assets.location-owner.ts';
 import { findFolderByPath } from '../db/repos/folders.repo.ts';
+import { appleCompanionPaths, type AppleCompanionSlot } from '../db/apple-companions.ts';
+
+/** Every recorded companion of the asset that is safe to unlink — the rendered
+ * edit and the Live Photo `.mov` alike (#5243). */
+export async function resolvePurgeCompanions(
+  root: string,
+  recorded: Partial<Record<AppleCompanionSlot, string | null>>,
+  original: string,
+): Promise<string[]> {
+  const targets = await Promise.all(
+    appleCompanionPaths(recorded).map((relative) =>
+      resolvePurgeCompanion(root, relative, original),
+    ),
+  );
+  return targets.filter((target): target is string => target !== null);
+}
 
 /** Preserve the catalogue association until its recorded companion is erased.
  * Never follow a companion path outside its owning library or through a symlink,

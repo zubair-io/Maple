@@ -31,6 +31,7 @@ import * as path from 'node:path';
 import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import {
   SLUG,
+  appleLiveVideoPathOf,
   appleRenderedPathOf,
   clearLibraryCache,
   locationOf,
@@ -95,6 +96,43 @@ describe('library-relocate end-to-end — companion + dedupe (#2667)', () => {
 
     expect(locationOf(live.db, asset.assetId)).toMatchObject({ path: newRel });
     expect(appleRenderedPathOf(live.db, asset.assetId)).toBe(`${newRel}/IMG_5.jpg`);
+  });
+
+  it("carries an edited Live Photo's rendered image and .mov twin and repoints both slots (#5243)", async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-live-'));
+
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(dir, oldRel, 'IMG_7.HEIC'), 'pixels');
+    await fs.writeFile(path.join(dir, oldRel, 'IMG_7.rendered.JPEG'), 'apple-rendered-bytes');
+    await fs.writeFile(path.join(dir, oldRel, 'IMG_7.mov'), 'live-video-bytes');
+
+    const asset = seedRelocatableAsset(live.db, {
+      root: dir,
+      relPath: oldRel,
+      filename: 'IMG_7.HEIC',
+      mapleId: 'relocate-live-id',
+      metadataOverride: usPlaceText(),
+      appleRenderedPath: `${oldRel}/IMG_7.rendered.JPEG`,
+      appleLiveVideoPath: `${oldRel}/IMG_7.mov`,
+    });
+
+    const res = await postRelocate([`${SLUG}:${oldRel}/IMG_7.HEIC`]);
+    expect(res.status).toBe(200);
+    expect((await resultsOf(res))[0]).toMatchObject({ ok: true, outcome: 'moved' });
+
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_7.HEIC'), 'utf8')).toBe('pixels');
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_7.rendered.JPEG'), 'utf8')).toBe(
+      'apple-rendered-bytes',
+    );
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_7.mov'), 'utf8')).toBe('live-video-bytes');
+    for (const moved of ['IMG_7.HEIC', 'IMG_7.rendered.JPEG', 'IMG_7.mov'])
+      await expect(fs.stat(path.join(dir, oldRel, moved))).rejects.toThrow();
+
+    expect(appleRenderedPathOf(live.db, asset.assetId)).toBe(`${newRel}/IMG_7.rendered.JPEG`);
+    expect(appleLiveVideoPathOf(live.db, asset.assetId)).toBe(`${newRel}/IMG_7.mov`);
   });
 
   it('a byte-identical, companion-free destination dedupes: repoint + delete source, occupant survives', async () => {

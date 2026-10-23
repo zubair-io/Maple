@@ -1,3 +1,4 @@
+import { appleCompanionPaths } from '../db/apple-companions.ts';
 import { revertCreated, type RelocatePublication } from '../fs/relocate-publish.ts';
 import * as path from 'node:path';
 import type { ObjectId } from '../db/object-id.ts';
@@ -168,7 +169,7 @@ export async function discardIdenticalReplacement(
   return serializeSidecarWrites(slots, async () => {
     const sidecars = await listPairedSidecarsStrict(trashedPath);
     // Equal RAW bytes do not imply redundant edits or rendered companions.
-    if (sidecars.length || info.apple_rendered_path) return false;
+    if (sidecars.length || appleCompanionPaths(info).length) return false;
     const files = [trashedPath];
     for (const filename of files)
       await jailedFile(root, path.relative(root, filename).split(path.sep).join('/'));

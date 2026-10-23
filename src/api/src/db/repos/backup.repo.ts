@@ -32,6 +32,7 @@
  */
 
 import path from 'node:path';
+import type { AppleCompanionSlot } from '../apple-companions.ts';
 import { ObjectId } from '../object-id.ts';
 import { newObjectIdHex } from '../object-id.ts';
 import { classifyMediaType, mediaKindOfFilenames } from '../../indexer/media-types.ts';
@@ -540,22 +541,22 @@ export async function markDeletedFromPhotos(
 }
 
 /**
- * Point an asset at the Apple-rendered companion that was just uploaded beside
- * it.
+ * Point an asset's `slot` at the companion that was just uploaded beside it.
  *
  * One row, chosen by the same `(maple_id, this library)` pair the Mongo
  * `updateOne` matched on. The inner `LIMIT 1` is what keeps it `updateOne`
  * rather than `updateMany`: two libraries can hold the same content, and only
  * the one the companion was uploaded to should learn about it.
  */
-export async function setAppleRenderedPath(
+export async function setAppleCompanionPath(
   libraryId: ObjectId,
   mapleId: string,
+  slot: AppleCompanionSlot,
   relPath: string,
   dbOverride?: SqliteDb,
 ): Promise<UpdateOutcome> {
   const result = await sqliteDb(dbOverride).write(
-    `UPDATE assets SET apple_rendered_path = ?
+    `UPDATE assets SET ${slot} = ?
       WHERE id = (SELECT a.id FROM assets a
                    WHERE a.maple_id = ?
                      AND EXISTS (SELECT 1 FROM asset_locations l

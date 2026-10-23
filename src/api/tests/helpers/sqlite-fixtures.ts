@@ -174,6 +174,7 @@ export function seedBackupAsset(
     size?: number;
     deletedFromPhotos?: boolean;
     appleRenderedPath?: string | null;
+    appleLiveVideoPath?: string | null;
     isScreenshot?: boolean | null;
   },
 ): ObjectId {
@@ -182,14 +183,15 @@ export function seedBackupAsset(
     db,
     `INSERT INTO assets
        (id, size, mtime, indexed_at, maple_id, deleted_from_photos, apple_rendered_path,
-        is_screenshot)
-     VALUES (?, ?, 0, ?, ?, ?, ?, ?)`,
+        apple_live_video_path, is_screenshot)
+     VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?)`,
     id,
     opts.size ?? 1,
     new Date().toISOString(),
     opts.mapleId ?? null,
     opts.deletedFromPhotos ? 1 : 0,
     opts.appleRenderedPath ?? null,
+    opts.appleLiveVideoPath ?? null,
     opts.isScreenshot === undefined || opts.isScreenshot === null
       ? null
       : opts.isScreenshot

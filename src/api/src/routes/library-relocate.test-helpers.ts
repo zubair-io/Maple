@@ -84,6 +84,8 @@ export interface SeedAssetOptions {
   metadataOverride?: Record<string, unknown> | null;
   /** Relative path of the Apple-rendered JPEG companion, if there is one. */
   appleRenderedPath?: string | null;
+  /** Relative path of the Live Photo `.mov` twin, if there is one. */
+  appleLiveVideoPath?: string | null;
   capturedYear?: number;
   missingSince?: string | null;
   /**
@@ -125,9 +127,11 @@ export function seedRelocatableAsset(db: Database, options: SeedAssetOptions): S
   });
   run(
     db,
-    `UPDATE assets SET maple_id = ?, apple_rendered_path = ? WHERE id = ?`,
+    `UPDATE assets SET maple_id = ?, apple_rendered_path = ?, apple_live_video_path = ?
+      WHERE id = ?`,
     options.mapleId,
     options.appleRenderedPath ?? null,
+    options.appleLiveVideoPath ?? null,
     assetId,
   );
   if (options.metadataOverride != null) {
@@ -175,6 +179,14 @@ export function appleRenderedPathOf(db: Database, assetId: string): string | nul
   const row = db.query(`SELECT apple_rendered_path AS p FROM assets WHERE id = ?`).get(assetId) as {
     p: string | null;
   } | null;
+  return row?.p ?? null;
+}
+
+/** The stored Live Photo `.mov` twin path, which a move repoints. */
+export function appleLiveVideoPathOf(db: Database, assetId: string): string | null {
+  const row = db
+    .query(`SELECT apple_live_video_path AS p FROM assets WHERE id = ?`)
+    .get(assetId) as { p: string | null } | null;
   return row?.p ?? null;
 }
 

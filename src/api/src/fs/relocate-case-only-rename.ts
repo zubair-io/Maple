@@ -220,6 +220,7 @@ export async function performCaseOnlyRename(req: RelocateRequest): Promise<Reloc
         newAbsPath: req.destAbsPath,
         sidecarPaths: renamed.renamedSidecars.map((s) => s.to),
         companionPaths: [],
+        companionSources: [],
       });
     } catch (err) {
       await revertCaseOnlyRename(req, renamed.renamedSidecars);

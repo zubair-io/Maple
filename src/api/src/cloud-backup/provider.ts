@@ -90,7 +90,7 @@ export interface BackupManifest {
   hidden: boolean;
   files: Array<{
     path: string;
-    role: 'original' | 'sidecar' | 'companion';
+    role: 'original' | 'sidecar' | 'companion' | 'live-video';
     object: BackupObject;
   }>;
 }

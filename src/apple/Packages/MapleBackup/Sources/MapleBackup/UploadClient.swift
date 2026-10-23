@@ -422,7 +422,7 @@ public actor UploadClient {
       req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
       req.setValue(phassetLocalId, forHTTPHeaderField: "X-Maple-Phasset-Id")
       req.setValue(targetRelPath, forHTTPHeaderField: "X-Maple-Target-Rel-Path")
-      req.setValue(filenameExt, forHTTPHeaderField: "X-Maple-Rendered-Ext")
+      req.setValue(filenameExt, forHTTPHeaderField: "X-Maple-Filename-Ext")
       req.setValue(String(total), forHTTPHeaderField: "X-Maple-Total-Bytes")
       if let suffixOverride {
         req.setValue(suffixOverride, forHTTPHeaderField: "X-Maple-Suffix-Override")

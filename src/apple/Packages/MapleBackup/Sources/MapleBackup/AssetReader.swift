@@ -22,6 +22,9 @@ extension AssetReader {
 public struct AssetReadResult: Sendable {
   public let originalBytes: Data
   public let renderedBytes: Data?
+  /// Filename extension of the rendered bytes' own format (e.g. "jpeg" for
+  /// an edited RAW), which can differ from the original's.
+  public let renderedFilenameExtension: String?
   /// Bytes of the Live Photo .mov twin, if the asset is a Live Photo.
   /// Uploaded separately via the rendered endpoint with ext "mov".
   /// Lands as `<base>.mov` via suffix-override.
@@ -33,11 +36,13 @@ public struct AssetReadResult: Sendable {
 
   public init(
     originalBytes: Data, renderedBytes: Data?,
+    renderedFilenameExtension: String? = nil,
     liveVideoBytes: Data? = nil, liveVideoFilename: String? = nil,
     sidecar: PayloadAssembler.SidecarInput, mapleId: String
   ) {
     self.originalBytes = originalBytes
     self.renderedBytes = renderedBytes
+    self.renderedFilenameExtension = renderedFilenameExtension
     self.liveVideoBytes = liveVideoBytes
     self.liveVideoFilename = liveVideoFilename
     self.sidecar = sidecar

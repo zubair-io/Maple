@@ -151,6 +151,39 @@ describe('refile-backups end-to-end', () => {
     expect(await refileRemaining()).toBe(0);
   });
 
+  it("carries an edited Live Photo's rendered image and .mov twin and repoints both (#5243)", async () => {
+    using library = await createBackupLibrary('refile-live-');
+    const oldRel = '2024/Tokyo';
+    await writeFiles(library, oldRel, {
+      'IMG_LIVE.HEIC': 'pixels',
+      'IMG_LIVE.rendered.JPEG': 'rendered',
+      'IMG_LIVE.mov': 'live',
+    });
+
+    const id = seedAsset(library.db, {
+      mapleId: 'refile-live-id',
+      phassetDevices: ['dev'],
+      place: JAPAN,
+      exif: { captured_year: 2024 },
+      appleRenderedPath: `${oldRel}/IMG_LIVE.rendered.JPEG`,
+      appleLiveVideoPath: `${oldRel}/IMG_LIVE.mov`,
+      location: { libraryId: library.folderId, path: oldRel, filename: 'IMG_LIVE.HEIC' },
+    });
+
+    await runTick();
+
+    const newRel = '2024/Japan/Kyoto';
+    expect(location(library, id).path).toBe(newRel);
+    expect(assetRow(library.db, id)).toMatchObject({
+      apple_rendered_path: `${newRel}/IMG_LIVE.rendered.JPEG`,
+      apple_live_video_path: `${newRel}/IMG_LIVE.mov`,
+    });
+    const moved = path.join(library.root, newRel);
+    expect(await fs.readFile(path.join(moved, 'IMG_LIVE.rendered.JPEG'), 'utf8')).toBe('rendered');
+    expect(await fs.readFile(path.join(moved, 'IMG_LIVE.mov'), 'utf8')).toBe('live');
+    await expect(fs.stat(path.join(library.root, oldRel))).rejects.toThrow();
+  });
+
   it('unfreezes an asset stamped at an older generation and stuck at a stale POI path', async () => {
     // The exact frozen state the rewrite exists for: stamped at generation 2,
     // sitting at a pre-geocode POI path, with a place that now fully resolves.

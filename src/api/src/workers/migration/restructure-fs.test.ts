@@ -43,6 +43,7 @@ describe('planAndPlace — crash-safe ordering', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(plan.outcome).toBe('copied');
@@ -66,6 +67,7 @@ describe('planAndPlace — crash-safe ordering', () => {
       filename: 'CLIP.mov',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(plan.outcome).toBe('copied');
@@ -96,6 +98,7 @@ describe('planAndPlace — crash-safe ordering', () => {
       filename: 'IMG_1.MOV',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(await exists('2024/Tokyo/IMG_1.MOV')).toBe(true);
@@ -122,6 +125,7 @@ describe('planAndPlace — crash-safe ordering', () => {
       filename: 'CLIP.MOV',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(await exists('2024/Tokyo/CLIP.MOV')).toBe(true);
@@ -145,6 +149,7 @@ describe('planAndPlace — crash-safe ordering', () => {
       filename: 'IMG_1.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(await exists('2024/Tokyo/IMG_1.HEIC')).toBe(true);
@@ -165,9 +170,40 @@ describe('planAndPlace — crash-safe ordering', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: '2024/Tokyo/03-15/IMG.rendered.JPEG',
+      liveVideoRelOld: null,
     });
     expect(plan.newRenderedRel).toBe('2024/Tokyo/IMG.rendered.JPEG');
     expect(await exists('2024/Tokyo/IMG.rendered.JPEG')).toBe(true);
+  });
+
+  test("an edited Live Photo's rendered image and .mov twin both travel (#5243)", async () => {
+    await write('2024/Tokyo/03-15/IMG.HEIC', 'pixels');
+    await write('2024/Tokyo/03-15/IMG.rendered.JPEG', 'rendered');
+    await write('2024/Tokyo/03-15/IMG.mov', 'live');
+
+    const plan = await planAndPlace({
+      libRoot: root,
+      oldDir: '2024/Tokyo/03-15',
+      filename: 'IMG.HEIC',
+      newDir: '2024/Tokyo',
+      renderedRelOld: '2024/Tokyo/03-15/IMG.rendered.JPEG',
+      liveVideoRelOld: '2024/Tokyo/03-15/IMG.mov',
+    });
+    expect(plan.newRenderedRel).toBe('2024/Tokyo/IMG.rendered.JPEG');
+    expect(plan.newLiveVideoRel).toBe('2024/Tokyo/IMG.mov');
+    expect(await read('2024/Tokyo/IMG.mov')).toBe('live');
+
+    await finalize({
+      libRoot: root,
+      oldDirAbs: plan.oldDirAbs,
+      mapleId: undefined,
+      filename: 'IMG.HEIC',
+      sourcesToDelete: plan.sourcesToDelete,
+      carriedSidecars: plan.carriedSidecars,
+    });
+    expect(await exists('2024/Tokyo/03-15/IMG.mov')).toBe(false);
+    expect(await exists('2024/Tokyo/03-15/IMG.rendered.JPEG')).toBe(false);
+    expect(await exists('2024/Tokyo/03-15/IMG.HEIC')).toBe(false);
   });
 
   test('reports its publications; revertPlaced rolls them back leaving sources intact', async () => {
@@ -180,6 +216,7 @@ describe('planAndPlace — crash-safe ordering', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     // The new copies are tracked for rollback by the identity they were published with.
     const published = plan.publications.map((p) => p.path);
@@ -202,6 +239,7 @@ describe('planAndPlace — crash-safe ordering', () => {
         filename: 'GONE.HEIC',
         newDir: '2024/Tokyo',
         renderedRelOld: null,
+        liveVideoRelOld: null,
       }),
     ).rejects.toBeInstanceOf(SourceMissingError);
   });
@@ -218,6 +256,7 @@ describe('planAndPlace — collisions', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     expect(plan.outcome).toBe('deduped');
     expect(plan.newRelPath).toBe('2024/Tokyo/IMG.HEIC');
@@ -235,6 +274,7 @@ describe('planAndPlace — collisions', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     expect(plan.outcome).toBe('renamed');
     expect(plan.newRelPath).toBe('2024/Tokyo/IMG.1.HEIC');
@@ -253,6 +293,7 @@ describe('planAndPlace — collisions', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     expect(plan.outcome).toBe('renamed');
     expect(plan.newRelPath).toBe('2024/Tokyo/IMG.1.HEIC');
@@ -277,6 +318,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     await finalize({
       libRoot: root,
@@ -305,6 +347,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     await finalize({
       libRoot: root,
@@ -330,6 +373,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     await finalize({
       libRoot: root,
@@ -372,6 +416,7 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
       filename: 'IMG.HEIC',
       newDir: '2024/Tokyo',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     await finalize({
       libRoot: root,

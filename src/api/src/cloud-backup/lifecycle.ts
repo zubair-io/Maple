@@ -217,7 +217,7 @@ async function recordPurgeIntent(
     candidate && 'replacement' in candidate
       ? {
           sql: `AND (SELECT COUNT(*) FROM asset_locations WHERE asset_id=a.id)=1
-       AND a.apple_rendered_path IS NULL AND EXISTS
+       AND a.apple_rendered_path IS NULL AND a.apple_live_video_path IS NULL AND EXISTS
        (SELECT 1 FROM asset_locations WHERE asset_id=a.id AND library_id=? AND path=? AND filename=?)`,
           params: [
             candidate.replacement.libraryId,
