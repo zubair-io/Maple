@@ -48,13 +48,17 @@ val nonCopyablePresetFields: Set<String> =
  * Canonical snake_case string/enum adjustment fields that map to Android-exposed XMP attributes.
  */
 val copyablePresetStringFields: Set<String> =
-    setOf("black_white", "film_look", "profile")
+    setOf("black_white", "film_look", "profile", "wb_source")
+
+val allowedWbSources: Set<String> =
+    setOf("AsShot", "Auto", "Preset", "Sampled", "Manual")
 
 private fun normalizePresetStringFieldKey(key: String): String =
     when (key) {
         "crs:ConvertToGrayscale" -> "black_white"
         "papp:FilmLook" -> "film_look"
         "papp:Profile" -> "profile"
+        "papp:WbSource" -> "wb_source"
         else -> key
     }
 
@@ -80,6 +84,10 @@ private fun presetStringFieldToXmp(key: String, value: String): Pair<String, Str
                 "Auto", "Neutral" -> "papp:Profile" to value
                 else -> null
             }
+        "wb_source" ->
+            if (value in allowedWbSources) {
+                "papp:WbSource" to (if (value == "AsShot") null else value)
+            } else null
         else -> null
     }
 
@@ -119,12 +127,29 @@ fun MapleViewModel.applyBuiltInPreset(preset: BuiltInPreset) {
             setField(name, value)
         }
     }
+    val authoredWbPair =
+        preset.fields.entries.any { (k, v) ->
+            (k == "temperature" || k == "tint") && v.isFinite()
+        }
     val xmpUpdates = buildMap<String, String?> {
         for ((k, v) in preset.attributes) {
             val canonicalKey = normalizePresetStringFieldKey(k)
             val canonicalVal = normalizePresetStringFieldValue(canonicalKey, v)
             val mapped = presetStringFieldToXmp(canonicalKey, canonicalVal)
             if (mapped != null) put(mapped.first, mapped.second)
+        }
+        val authoredWbSource =
+            preset.attributes.entries
+                .firstOrNull { normalizePresetStringFieldKey(it.key) == "wb_source" }
+                ?.value
+                ?.takeIf { it in allowedWbSources }
+        if (authoredWbPair || authoredWbSource != null) {
+            val resolvedSource = authoredWbSource ?: "Preset"
+            put("papp:WbSource", if (resolvedSource == "AsShot") null else resolvedSource)
+            put("crs:WhiteBalance", if (resolvedSource == "AsShot") null else "Custom")
+            put("papp:WbSampleX", null)
+            put("papp:WbSampleY", null)
+            put("papp:WbAlgorithmVersion", null)
         }
     }
     if (xmpUpdates.isNotEmpty()) {
@@ -255,6 +280,10 @@ fun MapleState.savablePresetAttributes(): Map<String, String> = buildMap {
     if (profile != "Auto") {
         put("profile", profile)
     }
+    val wbSource = document.attribute("papp:WbSource").orEmpty()
+    if (wbSource in allowedWbSources && wbSource != "AsShot") {
+        put("wb_source", wbSource)
+    }
 }
 
 fun MapleState.isPresetActive(preset: BuiltInPreset): Boolean {
@@ -265,7 +294,9 @@ fun MapleState.isPresetActive(preset: BuiltInPreset): Boolean {
                 val ck = normalizePresetStringFieldKey(k)
                 ck to normalizePresetStringFieldValue(ck, v)
             }
-            .filter { (ck, _) -> ck in copyablePresetStringFields }
+            .filter { (ck, cv) ->
+                ck in copyablePresetStringFields && (ck != "wb_source" || cv in allowedWbSources)
+            }
     return (knownFields.isNotEmpty() || knownAttrs.isNotEmpty()) &&
         knownFields.all { (name, target) ->
             val current = values[name] ?: return@all false
@@ -284,6 +315,10 @@ fun MapleState.isPresetActive(preset: BuiltInPreset): Boolean {
                         document.attribute("papp:Profile")
                             ?: if (document.attribute("papp:Look") == "Neutral") "Neutral" else "Auto"
                     activeProfile == target
+                }
+                "wb_source" -> {
+                    val activeWbSource = document.attribute("papp:WbSource") ?: "AsShot"
+                    activeWbSource == target
                 }
                 else -> false
             }
