@@ -83,6 +83,25 @@ while IFS= read -r kernel; do
 	base="$(basename "$kernel")"
 	assembled="$TMP/assembled.wgsl"
 
+	# BM3D kernels share the exact header concatenated by GpuContext.
+	if [[ "$kernel" == "$WGSL_DIR/bm3d/"* && "$base" != "common.wgsl" ]]; then
+		if [[ "$base" == "filter_axes_subgroup.wgsl" ]]; then
+			cat "$WGSL_DIR/bm3d/common.wgsl" "$WGSL_DIR/bm3d/filter.wgsl" >"$assembled"
+			echo 'const SUBGROUP_WIDTH: u32 = 32u;' >>"$assembled"
+			cat "$kernel" >>"$assembled"
+		else
+			cat "$WGSL_DIR/bm3d/common.wgsl" "$kernel" >"$assembled"
+		fi
+		if validate "$assembled"; then
+			echo "PASS  $base  (+bm3d/common)"
+		else
+			echo "FAIL  $base — BM3D kernel does not validate:" >&2
+			sed 's/^/    /' "$TMP/err" >&2
+			fail=$((fail + 1))
+		fi
+		continue
+	fi
+
 	# Rung (a): standalone.
 	cp "$kernel" "$assembled"
 	if validate "$assembled"; then

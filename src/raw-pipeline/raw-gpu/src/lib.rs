@@ -202,8 +202,10 @@
 mod agx;
 mod airlight;
 mod auto_profile_curve;
+mod bm3d;
 mod capture_sharpening;
 mod chain;
+mod chroma_prefilter;
 mod clarity;
 mod context;
 mod context_pipelines;
@@ -294,8 +296,10 @@ pub use airlight::{encode_airlight, AIRLIGHT_BINS};
 pub use auto_profile_curve::{
     apply_auto_profile_curve, AutoProfileCurvePass, PROFILE_CURVE_FLAT_LEN,
 };
+pub use bm3d::DeepDenoisePass;
 pub use capture_sharpening::{CaptureSharpeningParams, CaptureSharpeningPass};
 pub use chain::{CancelToken, ChainRunner, Pass};
+pub use chroma_prefilter::ChromaPrefilterPass;
 pub use clarity::{apply_clarity, ClarityPass, CLARITY_GUIDED_RADIUS};
 pub use color_curves::{
     apply_color_curves, color_curves_is_identity, ColorCurveInputs, ColorCurvePoints,
