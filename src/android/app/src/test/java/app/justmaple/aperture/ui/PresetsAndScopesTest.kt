@@ -72,18 +72,33 @@ class PresetsAndScopesTest {
     }
 
     @Test
-    fun userPresetsEncodeDecodeAndTrackSavableFields() {
+    fun userPresetsEncodeDecodeAndTrackSavableFieldsAndAttributes() {
         val custom =
             listOf(
                 BuiltInPreset(
                     id = "user-1",
                     name = "Warm Film",
                     fields = mapOf("exposure" to 0.5f, "contrast" to 15f),
+                    attributes = mapOf("papp:FilmLook" to "kodak_portra_400", "crs:ConvertToGrayscale" to "True"),
                     userCreated = true,
                 )
             )
         val decoded = decodeUserPresetsJson(encodeUserPresetsJson(custom))
         assertEquals(custom, decoded)
+
+        // Preset with only non-numeric look attributes also round-trips and detects active state
+        val lookOnly =
+            listOf(
+                BuiltInPreset(
+                    id = "user-2",
+                    name = "Portra Only",
+                    fields = emptyMap(),
+                    attributes = mapOf("papp:FilmLook" to "kodak_portra_400"),
+                    userCreated = true,
+                )
+            )
+        val decodedLookOnly = decodeUserPresetsJson(encodeUserPresetsJson(lookOnly))
+        assertEquals(lookOnly, decodedLookOnly)
 
         val state =
             MapleState(
@@ -94,19 +109,41 @@ class PresetsAndScopesTest {
                         "temperature" to 5500f,
                         "_shot_temperature" to 5500f,
                         "_raw" to 1f,
-                    )
+                        "wb_algorithm_version" to 2f,
+                        "wb_sample_x" to 0.42f,
+                        "wb_sample_y" to 0.58f,
+                        "capture_sharpening_radius" to 1.2f,
+                    ),
+                document =
+                    app.justmaple.aperture.data.XmpDocument()
+                        .withAttribute("papp:FilmLook", "kodak_portra_400")
+                        .withAttribute("crs:ConvertToGrayscale", "True"),
             )
         assertEquals(mapOf("exposure" to 0.75f), state.savablePresetFields())
+        assertEquals(
+            mapOf("papp:FilmLook" to "kodak_portra_400", "crs:ConvertToGrayscale" to "True"),
+            state.savablePresetAttributes(),
+        )
+        assertTrue(state.isPresetActive(lookOnly.first()))
+        assertFalse(MapleState().isPresetActive(lookOnly.first()))
     }
 
     @Test
-    fun toneCurveZoneAndValueMappingMatchParametricSplits() {
-        assertEquals("parametric_shadows", toneCurveZoneFieldForX(0.10f))
-        assertEquals("parametric_darks", toneCurveZoneFieldForX(0.35f))
-        assertEquals("parametric_lights", toneCurveZoneFieldForX(0.60f))
-        assertEquals("parametric_highlights", toneCurveZoneFieldForX(0.85f))
-        assertEquals(0f, toneCurveValueForPoint(0.5f, 0.5f), 1e-4f)
-        assertTrue(toneCurveValueForPoint(0.25f, 0.5f) > 0f)
-        assertTrue(toneCurveValueForPoint(0.75f, 0.5f) < 0f)
+    fun toneCurveZoneAndRelativeDragMappingMatchCoreParametricSplits() {
+        // Default splits (25, 50, 75) on the core's logarithmic axis map to ~0.01125, 0.045, 0.18
+        assertEquals(0.01125f, parametricAxisToAuthoringX(25f), 1e-4f)
+        assertEquals(0.045f, parametricAxisToAuthoringX(50f), 1e-4f)
+        assertEquals(0.18f, parametricAxisToAuthoringX(75f), 1e-4f)
+
+        assertEquals("parametric_shadows", toneCurveZoneFieldForX(0.005f))
+        assertEquals("parametric_darks", toneCurveZoneFieldForX(0.025f))
+        assertEquals("parametric_lights", toneCurveZoneFieldForX(0.10f))
+        assertEquals("parametric_highlights", toneCurveZoneFieldForX(0.50f))
+
+        // Relative drag from starting slider value: no jump at startNy == currentNy
+        assertEquals(35f, toneCurveValueForDrag(startValue = 35f, startNy = 0.5f, currentNy = 0.5f), 1e-4f)
+        // Dragging up (smaller ny) increases value; dragging down decreases value
+        assertTrue(toneCurveValueForDrag(startValue = 0f, startNy = 0.5f, currentNy = 0.25f) > 0f)
+        assertTrue(toneCurveValueForDrag(startValue = 0f, startNy = 0.5f, currentNy = 0.75f) < 0f)
     }
 }

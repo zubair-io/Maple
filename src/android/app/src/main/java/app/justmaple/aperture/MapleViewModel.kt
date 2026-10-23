@@ -14,6 +14,7 @@ import app.justmaple.aperture.ui.decodeUserPresetsJson
 import app.justmaple.aperture.ui.encodeUserPresetsJson
 import app.justmaple.aperture.ui.forCropPreview
 import app.justmaple.aperture.ui.cropRect
+import app.justmaple.aperture.ui.savablePresetAttributes
 import app.justmaple.aperture.ui.savablePresetFields
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -808,12 +809,14 @@ internal constructor(
     fun saveUserPreset(name: String): BuiltInPreset? {
         val trimmed = name.trim()
         val fields = state.value.savablePresetFields()
-        if (trimmed.isEmpty() || fields.isEmpty()) return null
+        val attributes = state.value.savablePresetAttributes()
+        if (trimmed.isEmpty() || (fields.isEmpty() && attributes.isEmpty())) return null
         val preset =
             BuiltInPreset(
                 id = "user-${System.currentTimeMillis()}-${state.value.userPresets.size}",
                 name = trimmed,
                 fields = fields,
+                attributes = attributes,
                 userCreated = true,
             )
         val updated = state.value.userPresets + preset
