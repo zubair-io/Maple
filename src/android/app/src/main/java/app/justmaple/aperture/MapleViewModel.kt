@@ -9,8 +9,12 @@ import app.justmaple.aperture.data.*
 import app.justmaple.aperture.generated.AdjustmentFields
 import app.justmaple.aperture.ui.EditorGroup
 import app.justmaple.aperture.ui.CropAspectId
+import app.justmaple.aperture.ui.BuiltInPreset
+import app.justmaple.aperture.ui.decodeUserPresetsJson
+import app.justmaple.aperture.ui.encodeUserPresetsJson
 import app.justmaple.aperture.ui.forCropPreview
 import app.justmaple.aperture.ui.cropRect
+import app.justmaple.aperture.ui.savablePresetFields
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +39,7 @@ internal constructor(
             MapleState(
                 sources = library.sources,
                 showFilmstrip = preferences.getBoolean("filmstrip", true),
+                userPresets = decodeUserPresetsJson(preferences.getString("user-presets", null)),
                 cloudSigningIn = library.cloud.signingIn,
             )
         )
@@ -798,6 +803,29 @@ internal constructor(
     fun setFilmstrip(value: Boolean) {
         preferences.edit().putBoolean("filmstrip", value).apply()
         mutable.update { it.copy(showFilmstrip = value) }
+    }
+
+    fun saveUserPreset(name: String): BuiltInPreset? {
+        val trimmed = name.trim()
+        val fields = state.value.savablePresetFields()
+        if (trimmed.isEmpty() || fields.isEmpty()) return null
+        val preset =
+            BuiltInPreset(
+                id = "user-${System.currentTimeMillis()}-${state.value.userPresets.size}",
+                name = trimmed,
+                fields = fields,
+                userCreated = true,
+            )
+        val updated = state.value.userPresets + preset
+        preferences.edit().putString("user-presets", encodeUserPresetsJson(updated)).apply()
+        mutable.update { it.copy(userPresets = updated) }
+        return preset
+    }
+
+    fun deleteUserPreset(id: String) {
+        val updated = state.value.userPresets.filterNot { it.id == id }
+        preferences.edit().putString("user-presets", encodeUserPresetsJson(updated)).apply()
+        mutable.update { it.copy(userPresets = updated) }
     }
 
     private fun queueDraw(values: Map<String, Float>) {

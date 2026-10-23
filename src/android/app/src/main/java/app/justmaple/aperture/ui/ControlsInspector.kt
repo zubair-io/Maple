@@ -113,7 +113,7 @@ internal fun ControlsInspector(
                 Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         if (group == EditorGroup.Light && subTool == "curve")
-            ParametricToneCurvePlot(state)
+            ParametricToneCurvePlot(state, model = model)
         if (group == EditorGroup.Color && subTool == "wb")
             WbPresetChips(
                 wbPresets,

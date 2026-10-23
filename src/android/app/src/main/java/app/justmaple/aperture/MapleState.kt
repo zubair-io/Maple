@@ -41,6 +41,7 @@ data class MapleState(
     val cropAspect: app.justmaple.aperture.ui.CropAspectId = app.justmaple.aperture.ui.CropAspectId.Free,
     val cropAspectSwapped: Boolean = false,
     val autoWhiteBalanceInFlight: Boolean = false,
+    val userPresets: List<app.justmaple.aperture.ui.BuiltInPreset> = emptyList(),
     val cloudSigningIn: Boolean = false,
     val cloudConnectionsVersion: Int = 0,
 ) {

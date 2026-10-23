@@ -40,6 +40,7 @@ enum class ScopeMode(val label: String) {
     Histogram("Histogram"),
     Waveform("Waveform"),
     Parade("RGB Parade"),
+    Vectorscope("Vectorscope"),
 }
 
 internal data class RgbHistogram(
@@ -50,12 +51,16 @@ internal data class RgbHistogram(
     val paradeR: List<Float> = emptyList(),
     val paradeG: List<Float> = emptyList(),
     val paradeB: List<Float> = emptyList(),
+    val vectorscopeBins: Int = 0,
+    val vectorscope: List<Float> = emptyList(),
 ) {
     companion object {
         fun fromArgbPixels(pixels: IntArray, width: Int, height: Int): RgbHistogram {
             val sample = JSONObject(NativeBridge.scopePixels(pixels, width, height))
             fun values(array: JSONArray) = List(array.length()) { array.getDouble(it).toFloat() }
             val channels = sample.getJSONArray("channels")
+            val vsBins = sample.optInt("vectorscopeBins", 0)
+            val vsArray = sample.optJSONArray("vectorscope")
             return RgbHistogram(
                 channels = List(channels.length()) { values(channels.getJSONArray(it)) },
                 columns = sample.getInt("columns"), bins = sample.getInt("bins"),
@@ -63,6 +68,8 @@ internal data class RgbHistogram(
                 paradeR = values(sample.getJSONArray("paradeR")),
                 paradeG = values(sample.getJSONArray("paradeG")),
                 paradeB = values(sample.getJSONArray("paradeB")),
+                vectorscopeBins = vsBins,
+                vectorscope = if (vsArray != null) values(vsArray) else emptyList(),
             )
         }
     }
@@ -78,6 +85,45 @@ private fun DrawScope.scopeDensity(values: List<Float>, columns: Int, bins: Int,
             drawRect(color.copy(alpha = (0.12f + density * 0.78f).coerceIn(0f, 1f)),
                 topLeft = Offset(startX + (index / bins) * cellW, size.height - (index % bins + 1) * cellH),
                 size = Size(cellW + 0.5f, cellH + 0.5f))
+        }
+    }
+}
+
+private fun DrawScope.vectorscopePlot(values: List<Float>, grid: Int) {
+    val diameter = minOf(size.width, size.height)
+    val radius = diameter / 2f
+    val center = Offset(size.width / 2f, size.height / 2f)
+    drawCircle(
+        color = Color.White.copy(alpha = 0.2f),
+        radius = radius,
+        center = center,
+        style = Stroke(width = 0.75.dp.toPx()),
+    )
+    drawLine(
+        color = Color.White.copy(alpha = 0.15f),
+        start = Offset(center.x - radius, center.y),
+        end = Offset(center.x + radius, center.y),
+        strokeWidth = 0.5.dp.toPx(),
+    )
+    drawLine(
+        color = Color.White.copy(alpha = 0.15f),
+        start = Offset(center.x, center.y - radius),
+        end = Offset(center.x, center.y + radius),
+        strokeWidth = 0.5.dp.toPx(),
+    )
+    if (grid <= 0 || values.size != grid * grid) return
+    val cell = diameter / grid
+    val left = center.x - radius
+    val top = center.y - radius
+    values.forEachIndexed { index, density ->
+        if (density > 0f) {
+            val row = index / grid
+            val col = index % grid
+            drawRect(
+                color = MapleColors.primary.copy(alpha = (0.18f + density * 0.82f).coerceIn(0f, 1f)),
+                topLeft = Offset(left + col * cell, top + (grid - 1 - row) * cell),
+                size = Size(cell + 0.5f, cell + 0.5f),
+            )
         }
     }
 }
@@ -135,7 +181,8 @@ internal fun HistogramChip(
         when (mode) {
             ScopeMode.Histogram -> ScopeMode.Waveform
             ScopeMode.Waveform -> ScopeMode.Parade
-            ScopeMode.Parade -> ScopeMode.Histogram
+            ScopeMode.Parade -> ScopeMode.Vectorscope
+            ScopeMode.Vectorscope -> ScopeMode.Histogram
         }
     Box(
         Modifier.fillMaxSize()
@@ -192,6 +239,8 @@ internal fun HistogramChip(
                                 startX, bandWidth - 2.dp.toPx(), color)
                         }
                     }
+                    ScopeMode.Vectorscope ->
+                        vectorscopePlot(histogram.vectorscope, histogram.vectorscopeBins)
                 }
             }
             if (mode != ScopeMode.Histogram) {

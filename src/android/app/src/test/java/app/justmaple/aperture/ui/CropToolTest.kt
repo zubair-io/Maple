@@ -326,4 +326,50 @@ class CropToolTest {
         compose.onNodeWithTag("editor-crop-aspect-1:1").performClick()
         compose.onNodeWithTag("crop-reset-button").assertIsEnabled()
     }
+
+    @Test
+    fun selectingCropHidesPhoneDragBarAndDockWhileGeometryExposesPerspectiveFields() {
+        val app: Application = RuntimeEnvironment.getApplication()
+        val model = MapleViewModel(app, PhotoLibrary(app), IdleRenderer())
+        val photo =
+            Photo(
+                uri = Uri.parse("content://maple/photo/crop-phone"),
+                name = "crop-phone.dng",
+                size = 1024L,
+                modified = 0L,
+                parent = null,
+            )
+        val state =
+            MapleState(
+                selected = photo,
+                photos = listOf(photo),
+                mode = PhotoMode.Edit,
+                document = XmpDocument(),
+                documentLoaded = true,
+                values = mapOf("exposure" to 0f, "sharpen_amount" to 40f, "_raw" to 1f),
+            )
+        var armed by mutableStateOf("sharpen_amount")
+        var subTool by mutableStateOf("crop")
+        compose.setContent {
+            Box(Modifier.size(400.dp, 300.dp)) {
+                PhoneEditorControls(
+                    model = model,
+                    state = state,
+                    group = EditorGroup.Detail,
+                    armed = armed,
+                    onGroup = {},
+                    onArmed = { armed = it },
+                    onMore = {},
+                    activeSubTool = subTool,
+                    onSubToolChange = { subTool = it },
+                )
+            }
+        }
+        compose.onNodeWithTag("editor-crop-toolbar").assertIsDisplayed()
+        compose.onNodeWithTag("sub-tool-geometry").performClick()
+        compose.runOnIdle {
+            assertEquals("geometry", subTool)
+            assertEquals("perspective_vertical", armed)
+        }
+    }
 }
