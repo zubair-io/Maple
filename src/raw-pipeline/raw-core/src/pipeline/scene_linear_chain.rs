@@ -213,7 +213,7 @@ pub fn apply_scene_linear_chain(
         texture::apply(&mut img, model.texture)
     });
     stage("ffi_chain_dehaze", || {
-        dehaze_whole_frame(&mut img, model.dehaze, haze_map)
+        crate::stages::dehaze::apply_whole_frame(&mut img, model.dehaze, haze_map)
     });
     // Defringe (#3411) — develop's 12a position, between dehaze and local
     // adjustments. Both amounts at 0 (the default) is a bit-identical
@@ -400,7 +400,6 @@ pub fn apply_scene_linear_chain_f32_scoped(
 mod f32_chain;
 use f32_chain::apply_scene_linear_chain_f32_inner;
 mod haze;
-use haze::dehaze_whole_frame;
 pub use haze::{scene_linear_chain_haze_map, scene_linear_chain_haze_map_cancellable};
 mod window;
 pub use window::{

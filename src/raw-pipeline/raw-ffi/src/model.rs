@@ -5,15 +5,13 @@
 //! process-wide registry (`crate::mask_registry::resolve_into`) so every
 //! caller of these two functions gets working bitmap masks for free.
 //!
-//! Tile-path dehaze / deep-denoise guards. Dehaze relies on a full-image
-//! dark-channel computation; running it on a crop tile would produce a
-//! wrong dark channel (radius 67 px on the reference scenes). BM3D's
-//! reference-patch grid is frame-anchored, so per-tile grids would seam.
-//! The core tile entry (`render_scene_linear_tile_from_raw_with_quality`)
-//! rejects both itself (dehaze since #1084; deep denoise per #1105) — these
-//! FFI pre-checks remain as
-//! belt-and-braces with a shorter, host-facing error message, and both
-//! layers map to the same rc=10 "fall back to fit-zoom" contract.
+//! Tile-path deep-denoise guard. BM3D's reference-patch grid is
+//! frame-anchored, so per-tile grids would seam. The core tile entry
+//! (`render_scene_linear_tile_from_raw_with_quality`) rejects it itself
+//! (#1105) — this FFI pre-check remains as belt-and-braces with a shorter,
+//! host-facing error message, and both layers map to the same rc=10 "fall
+//! back to fit-zoom" contract. Dehaze tiles: the core recovers it from the
+//! frame's proxy haze maps (#3287).
 
 use crate::error::set_last_error;
 use raw_core::xmp;
@@ -76,30 +74,23 @@ pub(crate) fn load_xmp_model_from_doc(xmp_doc: Option<&str>) -> LoadModel {
     }
 }
 
-/// Returns `true` when `model.dehaze` is meaningfully non-zero (matches
-/// `dehaze::apply`'s own early-exit threshold of `1e-3`). Tile-path
-/// safety gate — see module doc.
-pub(crate) fn dehaze_active(model: &xmp::AdjustmentModel) -> bool {
-    model.dehaze.abs() > 1e-3
-}
-
 /// Returns `true` when `model.deep_denoise` is meaningfully non-zero
 /// (matches `bm3d::apply`'s early-exit threshold of `1e-3`). Tile-path
 /// safety gate (#1105): the BM3D reference-patch grid is anchored at the
 /// buffer origin, so a tile-relative grid would aggregate different
 /// groups than the full-frame render and seam at tile borders — the tile
-/// entries reject it exactly like dehaze, and the caller falls back to
-/// the full-image render.
+/// entries reject it, and the caller falls back to the full-image render.
 pub(crate) fn deep_denoise_active(model: &xmp::AdjustmentModel) -> bool {
     model.deep_denoise.abs() > 1e-3
 }
 
 /// The substrings a core tile-path error carries when the model, not the
-/// geometry, is what the tile chain cannot reproduce — dehaze's whole-frame
-/// statistics (#1084), BM3D's frame-anchored patch grid (#1105), vignette
-/// and local adjustments (#1109), capture sharpening, a DNG's OpcodeList3
-/// warp (#1932), and a repair spot whose destination-plus-source footprint
-/// the tile does not wholly hold (#3409).
+/// geometry, is what the tile chain cannot reproduce — BM3D's
+/// frame-anchored patch grid (#1105), a DNG's OpcodeList3 warp (#1932), a
+/// repair spot whose destination-plus-source footprint the tile does not
+/// wholly hold (#3409), and dehaze maps measured for another model
+/// (#3287). The vignette, local-adjustment and capture-sharpening needles
+/// predate #1157, which taught the tile chain to render them.
 ///
 /// Every tile entry maps these to rc=10, which the Apple caller turns into
 /// a bounded whole-image render. Listed once rather than at each of the four

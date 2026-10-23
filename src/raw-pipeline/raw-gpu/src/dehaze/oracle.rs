@@ -64,13 +64,10 @@ fn atmospheric_light(pixels: &[[f32; 3]], dc: &[f32]) -> [f32; 3] {
     let top_n = (n / 1000).max(1);
     let mut idx: Vec<usize> = (0..n).collect();
     idx.sort_by(|a, b| dc[*b].total_cmp(&dc[*a]).then(a.cmp(b)));
-    let mut sum = [0.0f64; 3];
-    for &i in &idx[..top_n] {
-        let p = pixels[i];
-        sum[0] += f64::from(p[0]);
-        sum[1] += f64::from(p[1]);
-        sum[2] += f64::from(p[2]);
-    }
+    let sum = idx[..top_n].iter().fold([0.0f64; 3], |s, &i| {
+        let p = pixels[i].map(f64::from);
+        [s[0] + p[0], s[1] + p[1], s[2] + p[2]]
+    });
     let k = top_n as f64;
     sum.map(|s| (s / k) as f32)
 }
@@ -119,14 +116,14 @@ fn guided_coefficients(guide: &[f32], p: &[f32], w: usize, h: usize) -> Vec<[f32
     let ii: Vec<f32> = guide.iter().map(|&a| a * a).collect();
     let mean_ip = box_blur(&ip, w, h, r);
     let mean_ii = box_blur(&ii, w, h, r);
-    let mut a = vec![0.0f32; n];
-    let mut b = vec![0.0f32; n];
-    for k in 0..n {
-        let cov = mean_ip[k] - mean_i[k] * mean_p[k];
-        let var = (mean_ii[k] - mean_i[k] * mean_i[k]).max(0.0);
-        a[k] = cov / (var + GUIDED_EPS);
-        b[k] = mean_p[k] - a[k] * mean_i[k];
-    }
+    let (a, b): (Vec<f32>, Vec<f32>) = (0..n)
+        .map(|k| {
+            let cov = mean_ip[k] - mean_i[k] * mean_p[k];
+            let var = (mean_ii[k] - mean_i[k] * mean_i[k]).max(0.0);
+            let a = cov / (var + GUIDED_EPS);
+            (a, mean_p[k] - a * mean_i[k])
+        })
+        .unzip();
     let mean_a = box_blur(&a, w, h, r);
     let mean_b = box_blur(&b, w, h, r);
     mean_a

@@ -65,7 +65,7 @@ fn render_base_with_haze(
     previous: Option<&DetailContext>,
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<u8>, DetailContext)> {
-    let (mut scene, mut context, _) = render_display_scene_with_context_cancellable(
+    let (mut scene, context, _) = render_display_scene_with_context_cancellable(
         raw,
         model,
         options.quality,
@@ -82,7 +82,10 @@ fn render_base_with_haze(
     let rgb = encode::dither_and_quantize(&mut scene);
     let (scene_w, scene_h) = (scene.width, scene.height);
     drop(scene);
-    context.haze = measure_haze(raw, &context.active_model, previous, cancel)?;
+    let context = DetailContext {
+        haze: measure_haze(raw, &context.active_model, previous, cancel)?,
+        ..context
+    };
     let (w, h, rgb) = finish::apply_geometry(
         rgb,
         scene_w,
@@ -97,11 +100,13 @@ fn render_base_with_haze(
     Ok((w, h, rgb, context))
 }
 
-/// The map native tiles of this edit recover with: the same Preview-density
-/// proxy develop a native-resolution export measures (#3287), so a patch and
-/// the export agree. `previous`'s map is kept when its model differs only in
-/// the dehaze amount, which the map does not depend on, on the same source. A cancelled
-/// measurement is reported, never replaced by a partial map.
+/// The maps native tiles of this edit recover with: measured by the same
+/// Preview-density proxy develop a native-resolution export uses (#3287), so
+/// a patch and the export agree. The base render above measures its own map
+/// from its sized buffer, so it can part from a patch by a code or so. A
+/// map from `previous` on the same source is kept while `haze_key` is
+/// unchanged. A cancelled measurement is reported, never replaced by a
+/// partial map.
 fn measure_haze(
     raw: &RawImage,
     active_model: &AdjustmentModel,
@@ -128,8 +133,8 @@ fn measure_haze(
     }
     let (frame_w, frame_h) = super::native_render_dims(raw);
     let model = crate::types::with_brush_rasters(active_model, frame_w, frame_h);
-    super::super::develop_sized::haze_map_from_raw(raw, &model, cancel)
-        .map(|map| Some(std::sync::Arc::new(map)))
+    super::super::develop_sized::frame_haze(raw, &model, cancel)
+        .map(|haze| haze.map(std::sync::Arc::new))
 }
 
 /// Retained-source counterpart for a native-detail session. The base keeps

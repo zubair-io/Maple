@@ -6,7 +6,7 @@
 
 use crate::buffers::MapleSceneLinearBuffer;
 use crate::error::{set_last_error, with_large_stack};
-use crate::model::{deep_denoise_active, dehaze_active, load_xmp_model_owned, LoadModel};
+use crate::model::{deep_denoise_active, load_xmp_model_owned, LoadModel};
 use raw_core::decode::decode_bytes;
 use std::ffi::{c_char, CStr};
 
@@ -21,9 +21,8 @@ use std::ffi::{c_char, CStr};
 /// Returns 0 on success. Error codes mirror `maple_render_file_scene_linear`
 /// plus:
 ///   - 9:  `src_w/src_h/out_w/out_h == 0` — bad tile geometry.
-///   - 10: model not tile-compatible — dehaze (whole-frame statistics +
-///          a radius-60 transmission refine; needs a full-frame proxy
-///          plane), BM3D deep denoise (frame-anchored patch grid, #1105),
+///   - 10: model not tile-compatible — BM3D deep denoise (frame-anchored
+///          patch grid, #1105),
 ///          a DNG carrying OpcodeList3 (#1932), or a repair spot whose
 ///          destination-plus-source footprint this tile does not wholly
 ///          hold (#3409 — a spot is not a point op, so a partial footprint
@@ -124,13 +123,9 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
             3 => raw_core::pipeline::RenderQuality::Auto,
             _ => raw_core::pipeline::RenderQuality::Full,
         };
-        if dehaze_active(&model) {
-            set_last_error("dehaze unsupported on tile path".into());
-            return 10;
-        }
         if deep_denoise_active(&model) {
             // #1105: BM3D's reference grid is frame-anchored — per-tile
-            // grids would seam. Same fallback contract as dehaze.
+            // grids would seam; the caller falls back to the full image.
             set_last_error("deepDenoise unsupported on tile path".into());
             return 10;
         }
@@ -155,10 +150,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
                     set_last_error(msg.clone());
                     // rc=10 — model not tile-compatible; caller should fall
                     // back to the full-image render. Covers the core entry's
-                    // dehaze / vignette / deep-denoise / local-adjustments /
-                    // capture-sharpening rejections (#1084, #1105, #1109) and
-                    // a repair spot whose footprint this tile does not hold
-                    // (#3409).
+                    // model rejections (`is_untileable_model_error`).
                     if crate::model::is_untileable_model_error(&msg) {
                         return 10;
                     }
@@ -264,13 +256,9 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
             3 => raw_core::pipeline::RenderQuality::Auto,
             _ => raw_core::pipeline::RenderQuality::Full,
         };
-        if dehaze_active(&model) {
-            set_last_error("dehaze unsupported on tile path".into());
-            return 10;
-        }
         if deep_denoise_active(&model) {
             // #1105: BM3D's reference grid is frame-anchored — per-tile
-            // grids would seam. Same fallback contract as dehaze.
+            // grids would seam; the caller falls back to the full image.
             set_last_error("deepDenoise unsupported on tile path".into());
             return 10;
         }
@@ -295,10 +283,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
                     set_last_error(msg.clone());
                     // rc=10 — model not tile-compatible; caller should fall
                     // back to the full-image render. Covers the core entry's
-                    // dehaze / vignette / deep-denoise / local-adjustments /
-                    // capture-sharpening rejections (#1084, #1105, #1109) and
-                    // a repair spot whose footprint this tile does not hold
-                    // (#3409).
+                    // model rejections (`is_untileable_model_error`).
                     if crate::model::is_untileable_model_error(&msg) {
                         return 10;
                     }

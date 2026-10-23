@@ -6,8 +6,9 @@
 //! histogram isn't representative of the whole scene — but the caller
 //! can thread in the gain a full-image develop already measured, see
 //! [`render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32`],
-//! #1167; dehaze, BM3D deep denoise and OpcodeList3 DNGs are rejected
-//! loudly at the entry — see `guards.rs`), then trims the overlap,
+//! #1167; dehaze recovers from the frame's proxy haze maps, #3287; BM3D
+//! deep denoise and unsupported OpcodeList3 DNGs are rejected loudly at
+//! the entry — see `guards.rs`), then trims the overlap,
 //! downsamples to the requested output size, and packs the result as
 //! oriented fp16 RGBA.
 //! This makes a 23-tile view of a 100 MP RAW land in ~10 s rather than
@@ -85,9 +86,8 @@ use region::{trim_image_to_inner, TileWindow};
 /// effective reach is `2 * 20 = 40 px`). Clarity is the binding
 /// stencil among the tile-safe stages. Other stages (demosaic 2 px,
 /// sharpen ≤ 9 px, nr_color ≤ 4 px, texture ≈ 4 px) sit comfortably
-/// inside this pad. Dehaze (radius 67) is NOT tile-safe —
-/// `render_scene_linear_tile_from_raw_with_quality` errors when
-/// `model.dehaze != 0`.
+/// inside this pad. Dehaze needs no pad: it recovers from the frame's
+/// proxy haze maps (#3287).
 ///
 /// 48 = 40 (clarity guided-filter reach) rounded up with headroom.
 /// The const assertion below ties this value to
@@ -167,17 +167,14 @@ pub(crate) fn tile_working_pixels(
 ///   hamilton_adams per `cfg(feature)`).
 ///
 /// Errors (the full set lives in `guards.rs`):
-/// - `model.dehaze != 0` → returns `Err` with a "dehaze" message; dehaze
-///   is global (frame statistics + a radius-60 transmission refine) and
-///   needs a full-frame proxy plane the tile chain does not build.
 /// - `model.deep_denoise != 0` → returns `Err` ("deep denoise"); the
 ///   BM3D reference-patch grid is frame-anchored, so per-tile grids
-///   would seam (#1105). Same fallback contract as dehaze.
+///   would seam (#1105). The host falls back to the full-image render.
 /// - a DNG carrying OpcodeList3 → returns `Err` ("OpcodeList3"); the
 ///   WarpRectilinear resample gathers from displaced source positions that
 ///   can exceed the overlap pad, and the tile chain does not apply opcodes,
 ///   so tiled output would disagree with (and seam against) the full render
-///   (#1932). Same fallback contract as dehaze.
+///   (#1932). Same fallback contract as deep denoise.
 /// - `out_w > src_w || out_h > src_h` → returns `Err` ("upscale"); the
 ///   tile path caps at native resolution.
 /// - `(out_w, out_h)` aspect does not match `(src_w, src_h)` aspect →
@@ -294,15 +291,13 @@ fn develop_tile_with_frame(
     // A caller without a retained map pays for the frame's proxy develop on
     // this tile; `DetailContext` measures it once per edit instead.
     let measured_haze = match haze {
-        None if crate::stages::dehaze::any_engaged(model) => Some(
-            crate::pipeline::develop_sized::haze_map_from_raw(raw, model, cancel)?,
-        ),
-        _ => None,
+        None => crate::pipeline::develop_sized::frame_haze(raw, model, cancel)?,
+        Some(_) => None,
     };
     let haze = haze.or(measured_haze.as_ref());
     if haze.is_some_and(|haze| !haze.covers(model)) {
         return Err(crate::error::Error::Pipeline(
-            "tile haze maps were measured for another model; measure them for this one".into(),
+            "tile dehaze maps were measured for another model; measure them for this one".into(),
         ));
     }
     let lazy_scene = highlight_frame::LazyScene::new(raw, model, cancel);

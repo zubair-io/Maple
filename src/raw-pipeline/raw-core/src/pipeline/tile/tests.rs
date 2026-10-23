@@ -1,6 +1,6 @@
 #![cfg(test)]
-//! Tests for the tile-rendering entry — rejection guards (dehaze,
-//! vignette, deep denoise, local adjustments, capture sharpening,
+//! Tests for the tile-rendering entry — rejection guards (vignette, deep
+//! denoise, local adjustments, capture sharpening,
 //! mismatched aspect, upscale). Split out of `super::mod` so the tile
 //! entry stays under the file-size budget (#114), following the
 //! `pipeline/develop/tests.rs` sibling pattern. Output-shape and
@@ -138,7 +138,7 @@ fn fake_raw(w: u32, h: u32) -> RawImage {
 /// Tile entry rejects `model.vignette_amount != 0` with a "vignette"
 /// error (#1109) — the stage's radial gain is anchored to the full
 /// frame and the tile entry does not thread the tile window through
-/// yet (#11). Same fake-RawImage rationale as the dehaze test.
+/// yet (#11). A synthetic `RawImage` suffices: the rejection fires before decode.
 /// #1157: vignette is a point op given the tile's window in the frame, so
 /// the tile path RENDERS it (`vignette::apply_windowed`) instead of
 /// refusing as it did under #1109. The bit-exact tile-vs-full parity lives
@@ -172,8 +172,8 @@ fn render_scene_linear_tile_renders_active_vignette() {
 /// error (#1105) — the BM3D reference-patch grid is frame-anchored, so
 /// per-tile grids would seam at tile borders. The FFI file/bytes tile
 /// entries pre-check this; the core gate covers the handle-based FFI
-/// entry and maple-cli too. Same fake-RawImage rationale as the dehaze
-/// test.
+/// entry and maple-cli too. The rejection fires before any decode
+/// work, so a synthetic `RawImage` suffices.
 #[test]
 fn render_scene_linear_tile_rejects_active_deep_denoise() {
     let raw = fake_raw(2048, 2048);
@@ -206,7 +206,7 @@ fn render_scene_linear_tile_rejects_active_deep_denoise() {
 /// Tile entry rejects a model carrying a non-identity local adjustment
 /// (#1084) — mask weights evaluate in full-image-normalized coordinates,
 /// which a padded crop cannot reproduce. Same loud-rejection contract
-/// (and same `Error::Pipeline` class) as the dehaze gate above; the host
+/// (and same `Error::Pipeline` class) as the deep-denoise gate; the host
 /// falls back to the full-image refine. Rejection fires before any
 /// decode / DCP work, so the synthetic `RawImage` suffices.
 /// #1157: local adjustments evaluate their masks in frame-normalised
@@ -249,7 +249,7 @@ fn render_scene_linear_tile_renders_active_local_adjustments() {
 /// Tile entry rejects a model with an active capture-sharpening amount
 /// (#1084) — the iterated Richardson–Lucy stencil reaches past
 /// `TILE_OVERLAP_PX` at the σ = 8 helper clamp. Same loud-rejection
-/// contract as dehaze. The gate reuses the full chain's engage predicate
+/// contract as deep denoise. The gate reuses the full chain's engage predicate
 /// (`capture_sharpening_params_from_model`), so `amount = 0` (the
 /// default, exercised by every other test here) keeps the tile path
 /// available.
@@ -338,8 +338,8 @@ fn render_scene_linear_tile_rejects_opcode_list3() {
 /// `(out_w, out_h)` with a non-matching aspect would silently
 /// produce a fit-within square instead of the requested rect. We
 /// reject loudly with a "matching aspect" message; the FFI surface
-/// maps that to rc=12. Same fake-RawImage rationale as the dehaze
-/// test (rejection fires before any decode work).
+/// maps that to rc=12. A synthetic `RawImage` suffices: the rejection
+/// fires before any decode work.
 #[test]
 fn render_scene_linear_tile_rejects_mismatched_aspect() {
     let raw = fake_raw(2048, 2048);
@@ -419,7 +419,7 @@ fn render_scene_linear_tile_rejects_mismatched_aspect() {
 }
 
 /// Tile entry rejects upscale requests (`out_w > src_w` or
-/// `out_h > src_h`). Same fake-RawImage rationale as the dehaze test.
+/// `out_h > src_h`). A synthetic `RawImage` suffices: the rejection fires before decode.
 #[test]
 fn render_scene_linear_tile_rejects_upscale() {
     let raw = fake_raw(2048, 2048);

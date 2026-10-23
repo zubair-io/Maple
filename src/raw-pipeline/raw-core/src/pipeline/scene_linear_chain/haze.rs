@@ -14,20 +14,6 @@ use crate::{
     xmp::AdjustmentModel,
 };
 
-pub(super) fn dehaze_whole_frame(
-    img: &mut crate::image::Image,
-    amount: f32,
-    haze: Option<&FrameHaze>,
-) {
-    match haze.and_then(|haze| haze.global.as_ref()) {
-        Some(map) => {
-            let frame = (img.width, img.height);
-            dehaze::apply_with_map(img, amount, map, (0, 0), frame)
-        }
-        None => dehaze::apply(img, amount),
-    }
-}
-
 /// The global stage. A window's maps were checked by the windowed entry.
 pub(super) fn dehaze(
     img: &mut crate::image::Image,
@@ -37,7 +23,7 @@ pub(super) fn dehaze(
 ) -> Result<()> {
     let map = haze.and_then(|haze| haze.global.as_ref());
     match (window, map) {
-        (None, _) => dehaze_whole_frame(img, amount, haze),
+        (None, _) => dehaze::apply_whole_frame(img, amount, haze),
         (Some(w), Some(map)) => dehaze::apply_with_map(
             img,
             amount,
@@ -55,9 +41,10 @@ pub(super) fn missing_map() -> Error {
     Error::Pipeline("native detail with dehaze needs the full frame's haze map".into())
 }
 
-/// The haze maps the per-tick chain would measure for `model` on this whole
+/// The haze maps the per-tick chain measures for `model` on this whole
 /// frame (`frame_rgba`, f32 RGBA, the same decoded scene-linear buffer the
-/// whole-image chain is fed, at any resolution). `None` when dehaze is off
+/// whole-image chain is fed, at any resolution; above the proxy grid it is
+/// first block-averaged onto it). `None` when dehaze is off
 /// everywhere. Hand them to a windowed render of the same frame through
 /// [`ChainOptions::haze_map`]; they stay valid while `model` changes only in
 /// its dehaze amounts or in stages after the ones they were measured at.
@@ -107,9 +94,15 @@ pub fn scene_linear_chain_haze_map_cancellable(
         haze_map: None,
         ..*options
     };
-    let mut img = super::endcaps::unpack_f32(frame_rgba, width, height);
-    img.whites_anchor_ev = options.whites_anchor_ev;
-    img.nr_sampling_scale = options.nr_sampling_scale;
+    // A frame larger than the proxy grid runs the chain at the grid's size:
+    // every host then measures from the same resolution, and a 200 MP raster
+    // never runs clarity at full size just to feed a 2048-texel map.
+    let unpacked = super::endcaps::unpack_f32(frame_rgba, width, height);
+    let mut img = dehaze::downsample_to_proxy(crate::image::Image {
+        whites_anchor_ev: options.whites_anchor_ev,
+        nr_sampling_scale: options.nr_sampling_scale,
+        ..unpacked
+    });
     apply_pre_dehaze(&mut img, model, &whole, cancel)?;
     let global = dehaze::engaged(model.dehaze).then(|| HazeMap::measure(&img));
     if !local_adjustments::spatial::any_dehaze_engaged(&model.local_adjustments) {

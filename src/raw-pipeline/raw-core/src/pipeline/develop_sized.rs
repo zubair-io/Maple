@@ -151,6 +151,17 @@ pub(super) fn develop_sized_prefix(
     develop_sized_after_dehaze(scene, raw, model).map(|scene| (scene, ae_gain))
 }
 
+/// [`haze_map_from_raw`] when `model` engages dehaze anywhere.
+pub(crate) fn frame_haze(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    cancel: CancelToken<'_>,
+) -> Result<Option<dehaze::FrameHaze>> {
+    dehaze::any_engaged(model)
+        .then(|| haze_map_from_raw(raw, model, cancel))
+        .transpose()
+}
+
 /// The frame's haze map (#3287), measured from a Preview-density develop
 /// sized to the map's own proxy grid, so a native-resolution develop and a
 /// native tile of the same frame measure the identical map without either
