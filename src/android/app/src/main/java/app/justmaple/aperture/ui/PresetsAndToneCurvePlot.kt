@@ -27,6 +27,7 @@ import app.justmaple.aperture.MapleViewModel
 import app.justmaple.aperture.generated.AdjustmentFields
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import app.justmaple.aperture.data.NativeBridge
 import kotlinx.coroutines.Dispatchers
@@ -35,12 +36,26 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
+ * Source-specific fields from `NON_COPYABLE_FIELDS` in `raw-core` that must not be captured
+ * or applied in user presets (`src/raw-pipeline/raw-core/src/types/adjustment/schema/groups/mod.rs`).
+ */
+val nonCopyablePresetFields: Set<String> =
+    setOf("capture_sharpening_radius", "wb_sample_x", "wb_sample_y", "wb_algorithm_version")
+
+/**
+ * Android-exposed non-numeric XMP attributes that participate in saved user presets.
+ */
+val copyablePresetAttributes: Set<String> =
+    setOf("crs:ConvertToGrayscale", "papp:FilmLook")
+
+/**
  * Built-in presets matching Apple's `builtin-presets.json` (#5193).
  */
 data class BuiltInPreset(
     val id: String,
     val name: String,
     val fields: Map<String, Float>,
+    val attributes: Map<String, String> = emptyMap(),
     val userCreated: Boolean = false,
 )
 
@@ -58,11 +73,14 @@ fun encodeUserPresetsJson(presets: List<BuiltInPreset>): String {
     for (preset in presets) {
         val fieldsObj = JSONObject()
         for ((k, v) in preset.fields) fieldsObj.put(k, v.toDouble())
+        val attrsObj = JSONObject()
+        for ((k, v) in preset.attributes) attrsObj.put(k, v)
         array.put(
             JSONObject()
                 .put("id", preset.id)
                 .put("name", preset.name)
                 .put("fields", fieldsObj)
+                .put("attributes", attrsObj)
         )
     }
     return array.toString()
@@ -77,18 +95,40 @@ fun decodeUserPresetsJson(raw: String?): List<BuiltInPreset> {
                 val obj = array.getJSONObject(i)
                 val id = obj.optString("id").takeIf { it.isNotBlank() } ?: continue
                 val name = obj.optString("name").takeIf { it.isNotBlank() } ?: continue
-                val fieldsObj = obj.optJSONObject("fields") ?: continue
+                val fieldsObj = obj.optJSONObject("fields")
                 val fields = mutableMapOf<String, Float>()
-                val keys = fieldsObj.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    if (key in AdjustmentFields.byName) {
-                        val v = fieldsObj.optDouble(key)
-                        if (v.isFinite()) fields[key] = v.toFloat()
+                if (fieldsObj != null) {
+                    val keys = fieldsObj.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        if (key in AdjustmentFields.byName && key !in nonCopyablePresetFields) {
+                            val v = fieldsObj.optDouble(key)
+                            if (v.isFinite()) fields[key] = v.toFloat()
+                        }
                     }
                 }
-                if (fields.isNotEmpty()) {
-                    add(BuiltInPreset(id = id, name = name, fields = fields, userCreated = true))
+                val attrsObj = obj.optJSONObject("attributes")
+                val attributes = mutableMapOf<String, String>()
+                if (attrsObj != null) {
+                    val attrKeys = attrsObj.keys()
+                    while (attrKeys.hasNext()) {
+                        val key = attrKeys.next()
+                        if (key in copyablePresetAttributes) {
+                            val v = attrsObj.optString(key).takeIf { it.isNotBlank() }
+                            if (v != null) attributes[key] = v
+                        }
+                    }
+                }
+                if (fields.isNotEmpty() || attributes.isNotEmpty()) {
+                    add(
+                        BuiltInPreset(
+                            id = id,
+                            name = name,
+                            fields = fields,
+                            attributes = attributes,
+                            userCreated = true,
+                        )
+                    )
                 }
             }
         }
@@ -99,6 +139,7 @@ fun MapleState.savablePresetFields(): Map<String, Float> {
     val currentValues = this.values
     return buildMap {
         for ((name, value) in currentValues) {
+            if (name in nonCopyablePresetFields) continue
             val spec = AdjustmentFields.byName[name] ?: continue
             val baseline =
                 when (name) {
@@ -113,16 +154,41 @@ fun MapleState.savablePresetFields(): Map<String, Float> {
     }
 }
 
+fun MapleState.savablePresetAttributes(): Map<String, String> = buildMap {
+    val bw = document.attribute("crs:ConvertToGrayscale")
+    if (bw == "1" || bw.equals("True", ignoreCase = true)) {
+        put("crs:ConvertToGrayscale", "True")
+    }
+    val film = document.attribute("papp:FilmLook").orEmpty()
+    if (film.isNotEmpty()) {
+        put("papp:FilmLook", film)
+    }
+}
+
 fun MapleViewModel.applyBuiltInPreset(preset: BuiltInPreset) {
     preset.fields.forEach { (name, value) -> setField(name, value) }
+    if (preset.attributes.isNotEmpty()) {
+        setAttributes(preset.attributes, commit = false)
+    }
     commitGesture()
 }
 
 fun MapleState.isPresetActive(preset: BuiltInPreset): Boolean =
-    preset.fields.isNotEmpty() &&
+    (preset.fields.isNotEmpty() || preset.attributes.isNotEmpty()) &&
         preset.fields.all { (name, target) ->
             val current = values[name] ?: return@all false
             abs(current - target) <= 1e-3f
+        } &&
+        preset.attributes.all { (name, target) ->
+            val current = document.attribute(name)
+            when (name) {
+                "crs:ConvertToGrayscale" -> {
+                    val isMono = current == "1" || current.equals("True", ignoreCase = true)
+                    val targetMono = target == "1" || target.equals("True", ignoreCase = true)
+                    isMono == targetMono
+                }
+                else -> current == target
+            }
         }
 
 @Composable
@@ -134,6 +200,8 @@ internal fun BuiltInPresetsRow(
     var saveDialogOpen by remember { mutableStateOf(false) }
     var presetName by remember { mutableStateOf("") }
     val savableFields = remember(state.values) { state.savablePresetFields() }
+    val savableAttributes = remember(state.document) { state.savablePresetAttributes() }
+    val hasSavableEdits = savableFields.isNotEmpty() || savableAttributes.isNotEmpty()
     val allPresets = remember(state.userPresets) { builtInPresets + state.userPresets }
 
     Column(modifier.fillMaxWidth().testTag("editor-presets-section")) {
@@ -179,7 +247,7 @@ internal fun BuiltInPresetsRow(
                         presetName = "Preset ${state.userPresets.size + 1}"
                         saveDialogOpen = true
                     },
-                    enabled = state.canEdit && savableFields.isNotEmpty(),
+                    enabled = state.canEdit && hasSavableEdits,
                     label = { Text("+ Save Preset", fontSize = 12.sp) },
                     modifier =
                         Modifier.semantics { contentDescription = "Save current edits as preset" }
@@ -208,7 +276,7 @@ internal fun BuiltInPresetsRow(
                         model.saveUserPreset(presetName)
                         saveDialogOpen = false
                     },
-                    enabled = presetName.isNotBlank() && savableFields.isNotEmpty(),
+                    enabled = presetName.isNotBlank() && hasSavableEdits,
                     modifier = Modifier.testTag("confirm-save-preset-button"),
                 ) {
                     Text("Save")
@@ -221,10 +289,51 @@ internal fun BuiltInPresetsRow(
     }
 }
 
+private const val PARAMETRIC_MIDGREY = 0.18f
+private const val PARAMETRIC_AXIS_MIDTONE = 50.0f
+private const val PARAMETRIC_AXIS_UNITS_PER_STOP = 12.5f
+private const val PARAMETRIC_REF_MAX = 4.0f
+private const val PARAMETRIC_AXIS_MAX = 100.0f
+private const val PARAMETRIC_MIN_SPLIT_GAP = 1.0f
+
+/**
+ *Enforces ordered parametric splits with at least 1 axis unit gap, matching
+ * `ordered_splits` in `src/raw-pipeline/raw-core/src/stages/tone_curves/parametric.rs`.
+ */
+fun orderedParametricSplits(
+    shadowSplit: Float = 25f,
+    midtoneSplit: Float = 50f,
+    highlightSplit: Float = 75f,
+): Triple<Float, Float, Float> {
+    val midtone =
+        midtoneSplit.coerceIn(
+            2f * PARAMETRIC_MIN_SPLIT_GAP,
+            PARAMETRIC_AXIS_MAX - 2f * PARAMETRIC_MIN_SPLIT_GAP,
+        )
+    val shadow = shadowSplit.coerceIn(PARAMETRIC_MIN_SPLIT_GAP, midtone - PARAMETRIC_MIN_SPLIT_GAP)
+    val highlight =
+        highlightSplit.coerceIn(
+            midtone + PARAMETRIC_MIN_SPLIT_GAP,
+            PARAMETRIC_AXIS_MAX - PARAMETRIC_MIN_SPLIT_GAP,
+        )
+    return Triple(shadow, midtone, highlight)
+}
+
+/**
+ * Maps a parametric exposure-axis position `p` in `[0, 100]` to the normalized `[0, 1]`
+ * authoring coordinate `x` (where `1.0` = `REF_MAX = 4.0`), matching `axis_to_authoring_x`
+ * in `src/raw-pipeline/raw-core/src/stages/tone_curves/parametric.rs`.
+ */
+fun parametricAxisToAuthoringX(p: Float): Float {
+    val stops = (p - PARAMETRIC_AXIS_MIDTONE) / PARAMETRIC_AXIS_UNITS_PER_STOP
+    val luma = PARAMETRIC_MIDGREY * 2.0.pow(stops.toDouble()).toFloat()
+    return (luma / PARAMETRIC_REF_MAX).coerceIn(0f, 1f)
+}
+
 /**
  * Maps a normalized horizontal position `nx` in `[0, 1]` on the parametric tone curve plot
  * to the corresponding parametric zone field name (`parametric_shadows`, `parametric_darks`,
- * `parametric_lights`, or `parametric_highlights`) using the current split points.
+ * `parametric_lights`, or `parametric_highlights`) using the core's logarithmic split transform.
  */
 fun toneCurveZoneFieldForX(
     nx: Float,
@@ -232,9 +341,10 @@ fun toneCurveZoneFieldForX(
     midtoneSplit: Float = 50f,
     highlightSplit: Float = 75f,
 ): String {
-    val s = (shadowSplit / 100f).coerceIn(0.1f, 0.9f)
-    val m = (midtoneSplit / 100f).coerceIn(s, 0.9f)
-    val h = (highlightSplit / 100f).coerceIn(m, 0.95f)
+    val (sAxis, mAxis, hAxis) = orderedParametricSplits(shadowSplit, midtoneSplit, highlightSplit)
+    val s = parametricAxisToAuthoringX(sAxis)
+    val m = parametricAxisToAuthoringX(mAxis)
+    val h = parametricAxisToAuthoringX(hAxis)
     return when {
         nx < s -> "parametric_shadows"
         nx < m -> "parametric_darks"
@@ -244,14 +354,14 @@ fun toneCurveZoneFieldForX(
 }
 
 /**
- * Maps a normalized vertical coordinate `ny` in `[0, 1]` (top = 0, bottom = 1) at horizontal
- * coordinate `nx` in `[0, 1]` to a parametric zone slider value in `[-100, +100]`.
- * Above the identity diagonal (`1 - ny > nx`) raises the zone; below lowers it.
+ * Maps a relative vertical drag from `startNy` to `currentNy` (both in `[0, 1]`, top = 0,
+ * bottom = 1) onto the starting parametric zone slider value in `[-100, +100]`.
+ * Dragging up (`currentNy < startNy`) raises the zone; dragging down lowers it, without
+ * jumping the slider on initial touch-down.
  */
-fun toneCurveValueForPoint(nx: Float, ny: Float): Float {
-    val targetY = (1f - ny).coerceIn(0f, 1f)
-    val base = nx.coerceIn(0f, 1f)
-    return ((targetY - base) * 200f).roundToInt().toFloat().coerceIn(-100f, 100f)
+fun toneCurveValueForDrag(startValue: Float, startNy: Float, currentNy: Float): Float {
+    val delta = ((startNy - currentNy) * 200f).coerceIn(-200f, 200f)
+    return (startValue + delta).roundToInt().toFloat().coerceIn(-100f, 100f)
 }
 
 @Composable
@@ -268,6 +378,7 @@ internal fun ParametricToneCurvePlot(
     val mSplit = state.values["parametric_midtone_split"] ?: 50f
     val hSplit = state.values["parametric_highlight_split"] ?: 75f
     val currentSplits by rememberUpdatedState(Triple(sSplit, mSplit, hSplit))
+    val currentValues by rememberUpdatedState(state.values)
     val currentCanEdit by rememberUpdatedState(state.canEdit)
     val xml = remember(shadows, darks, lights, highlights, sSplit, mSplit, hSplit) {
         state.document.serialize()
@@ -303,11 +414,10 @@ internal fun ParametricToneCurvePlot(
                         val h = size.height.toFloat().coerceAtLeast(1f)
                         val (s, m, hl) = currentSplits
                         val startNx = (down.position.x / w).coerceIn(0f, 1f)
+                        val startNy = (down.position.y / h).coerceIn(0f, 1f)
                         val zoneField = toneCurveZoneFieldForX(startNx, s, m, hl)
-                        model.setField(
-                            zoneField,
-                            toneCurveValueForPoint(startNx, (down.position.y / h).coerceIn(0f, 1f)),
-                        )
+                        val startValue = currentValues[zoneField] ?: 0f
+                        var moved = false
                         var committed = false
                         try {
                             do {
@@ -315,14 +425,16 @@ internal fun ParametricToneCurvePlot(
                                 val change = event.changes.firstOrNull { it.pressed } ?: break
                                 if (change.positionChanged()) {
                                     val ny = (change.position.y / h).coerceIn(0f, 1f)
-                                    model.setField(zoneField, toneCurveValueForPoint(startNx, ny))
+                                    val nextValue = toneCurveValueForDrag(startValue, startNy, ny)
+                                    model.setField(zoneField, nextValue)
+                                    moved = true
                                     change.consume()
                                 }
                             } while (event.changes.any { it.pressed })
-                            model.commitGesture()
+                            if (moved) model.commitGesture()
                             committed = true
                         } finally {
-                            if (!committed) model.commitGesture()
+                            if (moved && !committed) model.commitGesture()
                         }
                     }
                 }
@@ -358,9 +470,10 @@ internal fun ParametricToneCurvePlot(
                         strokeWidth = 1.dp.toPx(),
                     )
                 }
-                // Split point vertical markers
-                for (split in listOf(sSplit, mSplit, hSplit)) {
-                    val sx = (split / 100f).coerceIn(0f, 1f) * w
+                // Split point vertical markers mapped to authoring x
+                val (sAxis, mAxis, hAxis) = orderedParametricSplits(sSplit, mSplit, hSplit)
+                for (splitAxis in listOf(sAxis, mAxis, hAxis)) {
+                    val sx = parametricAxisToAuthoringX(splitAxis) * w
                     drawLine(
                         color = MapleColors.primary.copy(alpha = 0.25f),
                         start = Offset(sx, 0f),
