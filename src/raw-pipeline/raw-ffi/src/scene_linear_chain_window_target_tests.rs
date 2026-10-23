@@ -10,8 +10,13 @@ use crate::scene_linear_chain_curves_target::{
     maple_apply_chain_and_encode_display_target_window_f32,
     maple_scene_linear_chain_window_reach_px,
 };
+use crate::scene_linear_chain_haze::{maple_haze_map_free, maple_scene_linear_chain_haze_map_f32};
 use crate::scene_linear_chain_tests::default_params;
+use crate::MapleHazeMap;
 use std::ffi::CStr;
+
+/// The haze-map memo is process-wide; tests that read it hold this.
+static HAZE_MEMO: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 const FULL_W: u32 = 960;
 const FULL_H: u32 = 640;
@@ -73,6 +78,14 @@ unsafe fn full_frame(p: &MapleAdjustmentParams, target: u32) -> Vec<f32> {
 /// Develops the patch the way Apple does: grown by the reported reach,
 /// clamped to the frame, run through the windowed entry, interior returned.
 unsafe fn windowed_patch(p: &MapleAdjustmentParams, target: u32) -> (u32, Vec<f32>) {
+    windowed_patch_with(p, target, std::ptr::null())
+}
+
+unsafe fn windowed_patch_with(
+    p: &MapleAdjustmentParams,
+    target: u32,
+    haze: *const MapleHazeMap,
+) -> (u32, Vec<f32>) {
     let (px, py, pw, ph) = PATCH;
     let reach = maple_scene_linear_chain_window_reach_px(p, &window(0, 0));
     let (x0, y0) = (px.saturating_sub(reach), py.saturating_sub(reach));
@@ -94,6 +107,7 @@ unsafe fn windowed_patch(p: &MapleAdjustmentParams, target: u32) -> (u32, Vec<f3
         std::ptr::null(),
         target,
         &window(x0, y0),
+        haze,
         out.as_mut_ptr(),
     );
     assert_eq!(rc, 0, "{:?}", CStr::from_ptr(maple_last_error()));
@@ -188,6 +202,7 @@ fn a_patch_without_the_reach_shows_why_it_is_needed() {
             std::ptr::null(),
             0,
             &window(px, py),
+            std::ptr::null(),
             out.as_mut_ptr(),
         )
     };
@@ -195,8 +210,107 @@ fn a_patch_without_the_reach_shows_why_it_is_needed() {
     assert!(max_abs(&full, &out) > 1e-3);
 }
 
+/// #3287: with the frame's haze maps the windowed entry renders dehaze —
+/// global and per mask — exactly as the full-frame entry does.
 #[test]
-fn dehaze_and_a_null_window_are_refused() {
+fn a_dehaze_patch_with_the_frame_map_matches_the_full_frame() {
+    let _memo = HAZE_MEMO
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let layer = raw_core::types::LocalAdjustment::radial(
+        raw_core::types::Point2::new(0.35, 0.4),
+        raw_core::types::Point2::new(0.3, 0.3),
+        raw_core::types::PartialAdjustments {
+            dehaze: Some(-35.0),
+            ..Default::default()
+        },
+    );
+    let local = raw_core::types::local_adjustment::flat::layers_to_flat(&[layer]);
+    let p = MapleAdjustmentParams {
+        dehaze: 45.0,
+        local_adjustments_ptr: local.as_ptr(),
+        local_adjustments_len: local.len(),
+        ..params(-40.0, 0.0, 30.0)
+    };
+    let frame = textured_frame();
+    let mut haze: *mut MapleHazeMap = std::ptr::null_mut();
+    let rc = unsafe {
+        maple_scene_linear_chain_haze_map_f32(
+            frame.as_ptr(),
+            FULL_W,
+            FULL_H,
+            &p,
+            std::ptr::null(),
+            &mut haze,
+        )
+    };
+    assert_eq!(rc, 0);
+    assert!(!haze.is_null());
+    let mut again: *mut MapleHazeMap = std::ptr::null_mut();
+    let rc = unsafe {
+        maple_scene_linear_chain_haze_map_f32(
+            frame.as_ptr(),
+            FULL_W,
+            FULL_H,
+            &MapleAdjustmentParams { dehaze: 80.0, ..p },
+            std::ptr::null(),
+            &mut again,
+        )
+    };
+    assert_eq!(rc, 0);
+    // The per-mask map depends on the global amount, so a global move with a
+    // dehaze layer measures again; without the layer it would be reused.
+    assert!(!std::sync::Arc::ptr_eq(unsafe { &(*haze).0 }, unsafe {
+        &(*again).0
+    }));
+    unsafe { maple_haze_map_free(again) };
+    let full = full_interior(&unsafe { full_frame(&p, 0) });
+    let (_, patch) = unsafe { windowed_patch_with(&p, 0, haze) };
+    unsafe { maple_haze_map_free(haze) };
+    let diff = max_abs(&full, &patch);
+    assert!(diff <= 1e-4, "dehaze patch differs by {diff}");
+}
+
+#[test]
+fn a_global_dehaze_move_reuses_the_frame_map() {
+    let _memo = HAZE_MEMO
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let p = MapleAdjustmentParams {
+        dehaze: 30.0,
+        ..params(0.0, 0.0, 0.0)
+    };
+    let frame = textured_frame();
+    let measure = |p: &MapleAdjustmentParams| unsafe {
+        let mut haze: *mut MapleHazeMap = std::ptr::null_mut();
+        let rc = maple_scene_linear_chain_haze_map_f32(
+            frame.as_ptr(),
+            FULL_W,
+            FULL_H,
+            p,
+            std::ptr::null(),
+            &mut haze,
+        );
+        assert_eq!(rc, 0);
+        haze
+    };
+    let (first, second) = (
+        measure(&p),
+        measure(&MapleAdjustmentParams { dehaze: -60.0, ..p }),
+    );
+    assert!(std::sync::Arc::ptr_eq(unsafe { &(*first).0 }, unsafe {
+        &(*second).0
+    }));
+    unsafe {
+        maple_haze_map_free(first);
+        maple_haze_map_free(second);
+    }
+    let off = measure(&params(0.0, 0.0, 0.0));
+    assert!(off.is_null(), "no dehaze, no map");
+}
+
+#[test]
+fn dehaze_without_a_map_and_a_null_window_are_refused() {
     let input = textured_frame();
     let mut out = vec![0.0f32; input.len()];
     let p = MapleAdjustmentParams {
@@ -212,6 +326,7 @@ fn dehaze_and_a_null_window_are_refused() {
             std::ptr::null(),
             0,
             w,
+            std::ptr::null(),
             out.as_mut_ptr(),
         )
     };

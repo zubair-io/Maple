@@ -89,7 +89,11 @@ impl LiveSession {
             cancel,
             index: Some(0),
         };
-        crate::live_chain::visit_live_chain(inputs, AirlightSource::OnGpu, &mut sink);
+        crate::live_chain::visit_live_chain(
+            inputs,
+            AirlightSource::Resident(std::sync::Arc::clone(&self.haze)),
+            &mut sink,
+        );
         sink.index
     }
 }

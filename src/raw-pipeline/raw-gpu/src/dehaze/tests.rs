@@ -426,3 +426,27 @@ fn wgsl_dehaze_retains_positive_observations_and_signed_hdr_range() {
         }
     }
 }
+
+/// The proxy grid is single-sourced in spirit: raw-gpu carries its own copy
+/// (it does not depend on raw-core outside tests), pinned here (#3287).
+#[test]
+fn the_proxy_grid_matches_raw_core() {
+    assert_eq!(
+        HAZE_PROXY_LONG_EDGE,
+        raw_core::stages::dehaze::HAZE_PROXY_LONG_EDGE
+    );
+    for (w, h) in [
+        (1, 1),
+        (48, 40),
+        (300, 200),
+        (4000, 6000),
+        (12288, 8192),
+        (9000, 1),
+    ] {
+        assert_eq!(
+            proxy_dims(w, h),
+            raw_core::stages::dehaze::proxy_dims(w, h),
+            "{w}x{h}"
+        );
+    }
+}

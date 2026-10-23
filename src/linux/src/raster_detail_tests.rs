@@ -71,7 +71,7 @@ fn raster_native_patches_match_full_export_and_reuse_source_and_base() {
 }
 
 #[test]
-fn raster_detail_rejects_invalid_rects_budgets_and_global_dehaze() {
+fn raster_detail_rejects_invalid_rects_and_budgets_and_renders_dehaze() {
     let bytes = raw_core::png::encode(80, 60, &[90; 80 * 60 * 3]).unwrap();
     let image = pipeline::RasterDetailImage::open(&bytes, CancelToken::never()).unwrap();
     let rect = pipeline::TileRect {
@@ -105,11 +105,10 @@ fn raster_detail_rejects_invalid_rects_budgets_and_global_dehaze() {
         dehaze: 20.0,
         ..Default::default()
     };
-    assert!(image
+    let (w, h, _) = image
         .render_tile(&model, rect, None, 8_388_608, CancelToken::never())
-        .unwrap_err()
-        .to_string()
-        .contains("dehaze proxy"));
+        .expect("dehaze tiles from the source's haze map (#3287)");
+    assert_eq!((w, h), (32, 24));
 }
 
 #[test]

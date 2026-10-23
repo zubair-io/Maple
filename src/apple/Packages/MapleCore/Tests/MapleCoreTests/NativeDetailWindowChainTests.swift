@@ -1,4 +1,4 @@
-// NativeDetailWindowChainTests.swift — #5169.
+// NativeDetailWindowChainTests.swift — #5169, #3287.
 //
 // The 100% patch must render its interior exactly like the same pixels of
 // the full-frame chain. Driven through the same `PipelineRenderer` calls
@@ -61,9 +61,11 @@ final class NativeDetailWindowChainTests: XCTestCase {
     return m
   }
 
-  private func render(_ m: AdjustmentModel, target: CanvasColorSpace) throws -> (
-    full: [Float], window: [Float], halo: Int
-  ) {
+  private func render(_ m: AdjustmentModel, target: CanvasColorSpace, withHaze: Bool = false)
+    throws -> (
+      full: [Float], window: [Float], halo: Int
+    )
+  {
     let fullSize = CGSize(width: full.w, height: full.h)
     let params = PipelineRenderer.makeParams(from: m, whitesAnchorEv: 0)
     let source = frame()
@@ -71,6 +73,13 @@ final class NativeDetailWindowChainTests: XCTestCase {
       inputBytes: data(source), width: full.w, height: full.h, params: params,
       targetPrimaries: target.wireValue, curves: PipelineRenderer.ChainToneCurves(model: m),
       localAdjustments: m.localAdjustments)
+    let haze =
+      withHaze
+      ? try PipelineRenderer.sceneLinearHazeMap(
+        frameBytes: data(source), width: full.w, height: full.h, params: params,
+        curves: PipelineRenderer.ChainToneCurves(model: m), noiseProfile: nil,
+        localAdjustments: m.localAdjustments)
+      : nil
     let halo = PipelineRenderer.sceneLinearChainWindowReach(model: m, fullSize: fullSize)
     let grown = patch.insetBy(dx: -CGFloat(halo), dy: -CGFloat(halo))
       .intersection(CGRect(origin: .zero, size: fullSize))
@@ -79,7 +88,8 @@ final class NativeDetailWindowChainTests: XCTestCase {
       width: Int(grown.width), height: Int(grown.height), params: params,
       targetPrimaries: target.wireValue, curves: PipelineRenderer.ChainToneCurves(model: m),
       noiseProfile: nil, localAdjustments: m.localAdjustments,
-      window: PipelineRenderer.chainWindow(origin: grown.origin, fullSize: fullSize))
+      window: PipelineRenderer.chainWindow(origin: grown.origin, fullSize: fullSize),
+      haze: haze)
     let inner = patch.offsetBy(dx: -grown.minX, dy: -grown.minY)
     return (
       crop(floats(whole), width: full.w, patch),
@@ -120,10 +130,32 @@ final class NativeDetailWindowChainTests: XCTestCase {
     }
   }
 
-  func testWindowedChainRefusesDehaze() {
+  func testWindowedChainRefusesDehazeWithoutTheFrameHazeMap() {
     var m = model()
     m.dehaze = 40
     XCTAssertThrowsError(try render(m, target: .srgb))
+  }
+
+  /// #3287: with the whole frame's haze maps the patch dehazes exactly like
+  /// the full frame — global and per mask.
+  func testWindowedPatchMatchesTheFullFrameForDehazeWithTheFrameHazeMap() throws {
+    var global = model(clarity: 30)
+    global.dehaze = 45
+    var masked = model()
+    masked.localAdjustments[0].adjustments.dehaze = -40
+    for (name, m) in [("global", global), ("per-mask", masked)] {
+      let (whole, window, _) = try render(m, target: .srgb, withHaze: true)
+      let undehazed = try render(model(clarity: name == "global" ? 30 : 0), target: .srgb).full
+      XCTAssertGreaterThan(maxAbs(whole, undehazed), 1e-2, "\(name): dehaze must move the render")
+      XCTAssertLessThanOrEqual(maxAbs(whole, window), 1e-4, name)
+    }
+    XCTAssertNil(
+      try PipelineRenderer.sceneLinearHazeMap(
+        frameBytes: data(frame()), width: full.w, height: full.h,
+        params: PipelineRenderer.makeParams(from: model(), whitesAnchorEv: 0),
+        curves: PipelineRenderer.ChainToneCurves(model: model()), noiseProfile: nil,
+        localAdjustments: model().localAdjustments),
+      "no dehaze, no map")
   }
 
   func testDecodeRectWidensToTheChainReach() {

@@ -162,7 +162,16 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_curves_f32(
 ) -> i32 {
     crate::error::catch_panic_rc("maple_apply_chain_and_encode_display_curves_f32", || {
         chain_with_film(
-            in_ptr, width, height, params, curves, None, 0.0, out_ptr, None,
+            in_ptr,
+            width,
+            height,
+            params,
+            curves,
+            None,
+            0.0,
+            out_ptr,
+            None,
+            std::ptr::null(),
         )
     })
 }
@@ -199,6 +208,7 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_curves_film_f32(
                 strength,
                 out_ptr,
                 None,
+                std::ptr::null(),
             )
         },
     )
@@ -224,7 +234,10 @@ impl From<&MapleChainWindow> for raw_core::pipeline::ChainWindow {
 }
 
 /// # Safety
-/// Same lifetime and buffer contract as the Film entry; window must be valid.
+/// Same lifetime and buffer contract as the Film entry; window must be valid
+/// and `haze` null or a live `MapleHazeMap` — the frame's dehaze maps from
+/// `maple_scene_linear_chain_haze_map_f32`, required (else `8`) when dehaze is
+/// engaged globally or in a layer (#3287).
 #[no_mangle]
 pub unsafe extern "C" fn maple_apply_chain_and_encode_window_f32(
     in_ptr: *const f32,
@@ -235,6 +248,7 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_window_f32(
     film: *const crate::film::MapleFilmLut,
     strength: f32,
     window: *const MapleChainWindow,
+    haze: *const crate::MapleHazeMap,
     out_ptr: *mut f32,
 ) -> i32 {
     crate::error::catch_panic_rc("maple_apply_chain_and_encode_window_f32", || {
@@ -256,6 +270,7 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_window_f32(
             strength,
             out_ptr,
             Some(window.into()),
+            haze,
         )
     })
 }
@@ -270,6 +285,7 @@ unsafe fn chain_with_film(
     strength: f32,
     out_ptr: *mut f32,
     window: Option<raw_core::pipeline::ChainWindow>,
+    haze: *const crate::MapleHazeMap,
 ) -> i32 {
     if in_ptr.is_null() || params.is_null() || out_ptr.is_null() {
         set_last_error("apply_chain_and_encode_display_curves_f32: null pointer".into());
@@ -304,7 +320,10 @@ unsafe fn chain_with_film(
     if !curves.is_null() {
         inject_tone_curves(&mut ci.model, &*curves);
     }
-    let opts = ci.options(p.skip_agx != 0);
+    let opts = raw_core::pipeline::ChainOptions {
+        haze_map: haze.as_ref().map(|haze| &*haze.0),
+        ..ci.options(p.skip_agx != 0)
+    };
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
     let rendered = match window {

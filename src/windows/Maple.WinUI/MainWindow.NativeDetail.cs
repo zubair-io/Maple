@@ -221,7 +221,8 @@ public sealed partial class MainWindow
                 var rendered = new byte[checked(patch.Image.Width * patch.Image.Height * 4)];
                 float[]? scratch = null;
                 RenderEngine.RenderTick(patch.Image, model, ref scratch, rendered, film,
-                    new MapleChainWindow { X = decode.X, Y = decode.Y, FullWidth = geometry.CropWidth, FullHeight = geometry.CropHeight });
+                    new MapleChainWindow { X = decode.X, Y = decode.Y, FullWidth = geometry.CropWidth, FullHeight = geometry.CropHeight },
+                    anchor);
                 cancellation.ThrowIfCancellationRequested();
                 var result = new byte[checked((int)(published.Width * published.Height * 4))];
                 for (var row = 0u; row < published.Height; row++)

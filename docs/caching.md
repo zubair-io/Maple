@@ -316,6 +316,19 @@ The `thumb` stage also cascades: every successful write resets `cf-thumb-sync` t
 
 The derivative audit imports the same thumb and preview targets used by the stages, so its freshness decision cannot trail a pipeline bump.
 
+## Dehaze haze maps (#3287)
+
+Dehaze's frame-global half — atmospheric light, guided-filter coefficients and sky mask — is a `FrameHaze` measured on a fixed 2048-texel proxy grid ([pipeline](pipeline.md)). It depends only on the pixels dehaze receives, so every holder below keys it on the chain upstream of dehaze and reuses it while only the dehaze amount moves. All are memory-only and write nothing to disk or to the shared derivatives.
+
+| Holder                                  | Where                                                   | Key                                                                                                                                                                  | Invalidated by                                                                                    | Bound                                                   |
+| --------------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `DetailContext::haze`                   | raw-core `pipeline/render/detail.rs` (Web, Linux)       | Same retained source (pinned by the native-highlight context) + `dehaze::haze_key(active model)` — the model with the global amount dropped unless a layer engages dehaze | Any other model change; a new source; the context's drop                                         | One `FrameHaze` per context (~34 MB global map)         |
+| `RasterDetailImage` haze slot           | raw-core `pipeline/render/export/raster/detail.rs`      | `haze_key(model)`                                                                                                                                                    | A different key; the image's drop                                                                 | One `FrameHaze`                                          |
+| Window-chain memo                       | raw-ffi `scene_linear_chain_haze.rs` (Apple, Windows)   | FNV digest of the frame buffer's contents, its dims, `haze_key(model)`, decode WB anchor + slider frame, whites anchor and NR sampling scale                       | Any key change replaces it; hosts free their `MapleHazeMap` handles after each patch              | Process-wide single slot                                |
+| `LiveSession` resident map              | raw-gpu `dehaze.rs` `HazeResidency` (every GPU live path) | The frame pool's FNV digest of every pipeline, uniform and data lease encoded before dehaze, plus render dims                                                     | Any upstream edit (the digest moves); `update_image`; the session's drop                         | One set of proxy planes per session (~34 MB of buffers) |
+
+A tile without a retained context (`render_scene_linear_tile_*` with dehaze engaged, e.g. `maple-cli tile`) measures its map on that call; Apple and Windows tiles develop a stripped model, so their dehaze runs in the windowed chain from the memo above.
+
 ## Invalidation on move, rename, and relocate
 
 **Cache files are never physically relocated.** Both sides delete the old entry and let regeneration happen at the new path, because the key is path-derived and the new path simply has no entry yet.

@@ -48,6 +48,7 @@ impl<'a> ChainInputs<'a> {
                 .whites_anchor_ev
                 .is_finite()
                 .then_some(self.whites_anchor_ev),
+            haze_map: None,
         }
     }
 }
