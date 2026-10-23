@@ -124,7 +124,7 @@ pub const PRESENT_LUMINANCE_NOISE: u32 = 1 << 15;
 pub const PRESENT_DEFRINGE: u32 = 1 << 16;
 
 /// Slot index of the first spatial control (`texture`).
-const SPATIAL_BASE: usize = 32;
+pub(crate) const SPATIAL_BASE: usize = 32;
 
 /// Serialize a layer stack to the flat wire. The result length is always
 /// a multiple of `LAYER_FLAT_LEN`; a group adds one record per component.

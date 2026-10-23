@@ -134,6 +134,57 @@ pub fn haze_key(model: &AdjustmentModel) -> AdjustmentModel {
     }
 }
 
+/// Feed `h` the part of a flat layer stack ([`crate::types::layers_to_flat`])
+/// that [`haze_key`] keeps, without allocating: every layer up to the last
+/// one that engages dehaze, that layer reduced like `haze_key` reduces it.
+/// `false`, having fed nothing, when no layer engages dehaze.
+pub fn hash_haze_layers(flat: &[f32], h: &mut impl std::hash::Hasher) -> bool {
+    use crate::types::local_adjustment::flat::{
+        KIND_GROUP, LAYER_FLAT_LEN, PRESENT_DEFRINGE, PRESENT_DEHAZE, PRESENT_LUMINANCE_NOISE,
+        PRESENT_SHARPNESS, SPATIAL_BASE,
+    };
+    const KIND: usize = 6;
+    const PRESENT: usize = 8;
+    const DEHAZE: usize = SPATIAL_BASE + 2;
+    let dropped = PRESENT_SHARPNESS | PRESENT_LUMINANCE_NOISE | PRESENT_DEFRINGE;
+    let layers = || {
+        let mut rest = flat;
+        std::iter::from_fn(move || {
+            let head = rest.get(..LAYER_FLAT_LEN)?;
+            let records = if head[KIND] == KIND_GROUP {
+                1 + head[0].max(0.0) as usize
+            } else {
+                1
+            };
+            let (layer, tail) = rest.split_at((records * LAYER_FLAT_LEN).min(rest.len()));
+            rest = tail;
+            Some(layer)
+        })
+    };
+    let dehazes =
+        |layer: &[f32]| layer[PRESENT] as u32 & PRESENT_DEHAZE != 0 && engaged(layer[DEHAZE]);
+    let Some(last) = layers()
+        .enumerate()
+        .filter(|(_, l)| dehazes(l))
+        .map(|(i, _)| i)
+        .last()
+    else {
+        return false;
+    };
+    for (i, layer) in layers().take(last + 1).enumerate() {
+        for (slot, &value) in layer.iter().enumerate() {
+            let reduced = match (i == last, slot) {
+                (true, PRESENT) => ((value as u32) & !dropped) as f32,
+                (true, DEHAZE) => 1.0,
+                (true, slot) if (DEHAZE + 1..DEHAZE + 4).contains(&slot) => 0.0,
+                _ => value,
+            };
+            h.write_u32(reduced.to_bits());
+        }
+    }
+    true
+}
+
 fn pick(upstream: bool, value: f32, default: f32) -> f32 {
     if upstream {
         value
