@@ -11,7 +11,7 @@ use raw_core::stages::wb_camera::{HsmLiveDelta, HsmRetargetView};
 /// Endpoint tables over `dims` with hue deltas that cross ±180° between
 /// cells near the seam, saturation and value scales varying across the
 /// lattice, so every interpolation axis and the hue unwrap carry weight.
-fn wire(dims: [u32; 3], srgb: bool) -> Vec<f32> {
+fn wire(dims: [u32; 3], srgb: bool, sat_amp: f32) -> Vec<f32> {
     let table = |phase: f32, hue_amp: f32| -> Vec<f32> {
         let [hd, sd, vd] = dims;
         (0..hd)
@@ -23,7 +23,7 @@ fn wire(dims: [u32; 3], srgb: bool) -> Vec<f32> {
                 let seam = if h == 0 { 175.0 } else { 0.0 };
                 [
                     hue_amp * angle.sin() * sat + seam,
-                    1.0 + 0.15 * angle.cos() * sat,
+                    1.0 + sat_amp * angle.cos() * sat,
                     1.0 - 0.05 * angle.sin() * sat + 0.03 * val,
                 ]
             })
@@ -61,6 +61,8 @@ fn pixels() -> Vec<f32> {
     out.extend_from_slice(&[0.18, 0.18, 0.181, 1.0]);
     out.extend_from_slice(&[3.0, 1.5, 0.4, 0.5]);
     out.extend_from_slice(&[-0.03, 0.2, 0.5, 1.0]);
+    out.extend_from_slice(&[-0.05, 0.45, 0.60, 1.0]);
+    out.extend_from_slice(&[-0.12, 0.3, 0.05, 1.0]);
     out.extend_from_slice(&[0.0, 0.0, 0.0, 1.0]);
     out
 }
@@ -98,21 +100,26 @@ fn inputs<'a>(view: &HsmRetargetView<'a>, d: &HsmLiveDelta) -> WbHsmInputs<'a> {
 }
 
 /// Relative to max(|value|, 1). Metal and the CPU differ in the last ulp of
-/// the HSV round trips and `rem_euclid`, which the inverse steps carry;
-/// measured worst 2.6e-5 on Metal (the linear 6×4×3 table).
-const PARITY_TOLERANCE: f32 = 1e-4;
+/// the HSV round trips and `rem_euclid`, which the inverse steps carry, and
+/// on an sRGB table a boundary pixel's bisection can take the other side of
+/// a last-ulp comparison; measured worst on Metal 2.6e-5 (linear 6×4×3) and
+/// 1.1e-4 (the desaturating sRGB case).
+const PARITY_TOLERANCE: f32 = 3e-4;
 
 #[test]
 fn wgsl_hsm_white_balance_matches_raw_core() {
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = pixels();
     let count = (input.len() / 4) as u32;
-    for (dims, srgb) in [
-        ([90, 30, 1], false),
-        ([36, 8, 16], true),
-        ([6, 4, 3], false),
+    // The last case desaturates to 0.55, so negative pixels take the
+    // boundary lift solve (bisected on its sRGB axis).
+    for (dims, srgb, sat_amp) in [
+        ([90, 30, 1], false, 0.15),
+        ([36, 8, 16], true, 0.15),
+        ([6, 4, 3], false, 0.15),
+        ([6, 4, 3], true, 0.45),
     ] {
-        let flat = wire(dims, srgb);
+        let flat = wire(dims, srgb, sat_amp);
         let view = HsmRetargetView::from_wire(&flat, 4100.0, 1.0).expect("valid wire");
         for (w_target, w_anchor, gain) in [(0.0, 0.62, 1.0), (1.0, 0.3, 2.3), (0.45, 0.45, 0.6)] {
             let d = delta(w_target, w_anchor, gain);

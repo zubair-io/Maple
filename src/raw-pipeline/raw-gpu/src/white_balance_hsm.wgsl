@@ -272,12 +272,12 @@ fn lift_for_saturation(y: vec3<f32>, target_s: f32) -> f32 {
     let lo = min(min(y.x, y.y), y.z);
     let hi = max(max(y.x, y.y), y.z);
     if (params.srgb == 0u) {
-        return max((hi - lo) / target_s - hi, floor_lift);
+        return max((hi - lo) / max(target_s, 1e-6) - hi, floor_lift);
     }
     let span = max(hi - lo, 1e-6);
     var upper = floor_lift + span * 1e9;
-    for (var k = 0u; k < 32u; k = k + 1u) {
-        let l = floor_lift + span * f32(1u << min(k, 30u));
+    for (var k = 0u; k < 31u; k = k + 1u) {
+        let l = floor_lift + span * f32(1u << k);
         if (target_hsv(y, l).y <= target_s) {
             upper = l;
             break;
@@ -312,7 +312,11 @@ fn invert_table(y: vec3<f32>, w: f32) -> vec3<f32> {
         let ss = 1.0 + (shift.y - 1.0) * w_chroma;
         let vs = 1.0 + (shift.z - 1.0) * w_chroma;
         let on_boundary = lifted_out > 0.0 || s >= 1.0;
-        lift = select(lifted_out, lift_for_saturation(y, ss), on_boundary && ss < 1.0);
+        if (on_boundary && ss < 1.0) {
+            lift = lift_for_saturation(y, ss);
+        } else {
+            lift = lifted_out;
+        }
         let tgt = target_hsv(y, lift);
         h = rem_euclid(tgt.x - shift.x * w_chroma, 360.0);
         s = select(clamp(tgt.y / max(ss, 1e-6), 0.0, 1.0), 1.0, lift > 0.0);

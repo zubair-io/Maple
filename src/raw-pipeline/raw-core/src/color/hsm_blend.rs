@@ -42,7 +42,7 @@ pub fn apply_one_blended(
 ///   input's lift, so the output's own deficit is the lift;
 /// - under a desaturating table the output saturation is exactly the
 ///   table's scale, so the lift is the one that gives the lifted output that
-///   saturation ([`lift_for_saturation`]).
+///   saturation (`lift_for_saturation`).
 pub fn invert_one_blended(
     y: [f32; 3],
     dims: [u32; 3],
@@ -100,9 +100,9 @@ fn target(y: [f32; 3], lift: f32, encoding: HsmEncoding) -> (f32, f32, f32) {
     })
 }
 
-/// Bisection steps of [`lift_for_saturation`] on an sRGB-encoded table,
-/// where the lift has no closed form: 24 halvings of a bracket at most a few
-/// units wide land well under one 16-bit step.
+/// Bisection steps of `lift_for_saturation` on an sRGB-encoded table,
+/// where the lift has no closed form: 24 halvings shrink the bracket found
+/// to 6e-8 of its width.
 pub const LIFT_BISECTION_STEPS: u32 = 24;
 
 /// The lift `L ≥ deficit(y)` at which `y + L` has saturation `target_s`.
@@ -117,11 +117,11 @@ fn lift_for_saturation(y: [f32; 3], target_s: f32, encoding: HsmEncoding) -> f32
     }
     let (lo, hi) = (y[0].min(y[1]).min(y[2]), y[0].max(y[1]).max(y[2]));
     if matches!(encoding, HsmEncoding::Linear) {
-        return ((hi - lo) / target_s - hi).max(floor);
+        return ((hi - lo) / target_s.max(1e-6) - hi).max(floor);
     }
     let span = (hi - lo).max(1e-6);
-    let upper = (0..32)
-        .map(|k| floor + span * (1u32 << k.min(30)) as f32)
+    let upper = (0..31)
+        .map(|k| floor + span * (1u32 << k) as f32)
         .find(|l| target(y, *l, encoding).1 <= target_s)
         .unwrap_or(floor + span * 1e9);
     let (a, b) = (0..LIFT_BISECTION_STEPS).fold((floor, upper), |(a, b), _| {

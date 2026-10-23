@@ -474,7 +474,20 @@ fn blended_inverse_round_trips_including_negative_channels() {
         [0.02, 0.6, 0.9],
     ];
     for encoding in [HsmEncoding::Linear, HsmEncoding::Srgb] {
+        // Saturation scale varying with saturation (0.75 at the bottom of the
+        // axis, 0.9 at the top), so each step reads a different scale.
+        let by_saturation = |hue: f32| {
+            (0..4)
+                .flat_map(|_| {
+                    [0.75f32, 0.9]
+                        .into_iter()
+                        .flat_map(|ss| [[hue, ss, 1.0]; 2])
+                })
+                .flatten()
+                .collect::<Vec<f32>>()
+        };
         for (cold, warm, desaturates) in [
+            (by_saturation(3.0), by_saturation(-2.0), true),
             (flat(4.0, 0.96, 1.01), flat(-3.0, 0.9, 1.02), true),
             (flat(3.0, 0.55, 1.0), flat(-2.0, 0.6, 1.03), true),
             (flat(6.0, 1.3, 0.97), flat(-5.0, 1.15, 1.0), false),
@@ -484,16 +497,17 @@ fn blended_inverse_round_trips_including_negative_channels() {
                     let y = apply_one_blended(p, [4, 2, 2], encoding, (&cold, &warm), t);
                     let x = invert_one_blended(y, [4, 2, 2], encoding, (&cold, &warm), t, 4);
                     let back = apply_one_blended(x, [4, 2, 2], encoding, (&cold, &warm), t);
+                    let scale = y.iter().fold(1.0f32, |m, v| m.max(v.abs()));
                     for c in 0..3 {
                         assert!(
-                            (back[c] - y[c]).abs() < 1e-4,
+                            (back[c] - y[c]).abs() < 1e-4 * scale,
                             "{encoding:?} t={t} {p:?}: forward of the inverse {back:?} vs {y:?}"
                         );
                         // A boosting table clips saturation, so only a
                         // desaturating one has a unique pre-image.
                         if desaturates {
                             assert!(
-                                (x[c] - p[c]).abs() < 1e-3,
+                                (x[c] - p[c]).abs() < 1e-3 * scale,
                                 "{encoding:?} t={t} {p:?}: pre-image {x:?}"
                             );
                         }
