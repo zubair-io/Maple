@@ -8,9 +8,10 @@
 //
 // `H_w` is the HueSatMap blended between the cold and warm endpoint tables
 // at weight `w` (corresponding cells blended on the shorter hue arc before
-// spatial interpolation); `H_A⁻¹` is a fixed-point inverse of `inverse_iterations` steps;
-// `floor` lifts a negative channel uniformly, as the develop's DCP exit does. The two tables are
-// session-constant storage; a tick only changes the uniform.
+// spatial interpolation); `H_A⁻¹` is an HSV-space inverse of
+// `inverse_iterations` steps; `floor` lifts a negative channel uniformly, as
+// the develop's DCP exit does. The two tables are session-constant storage;
+// a tick only changes the uniform.
 //
 // Matrices arrive as vec4 ROWS (see white_balance.wgsl for why not mat3x3).
 
@@ -250,6 +251,34 @@ fn apply_table(p: vec3<f32>, w: f32) -> vec3<f32> {
     return out;
 }
 
+// `hsm::invert_one_blended`: the pre-image solved in HSV, each step undoing
+// the shift read at the current estimate.
+fn invert_table(y: vec3<f32>, w: f32) -> vec3<f32> {
+    let lift = max(-min(min(y.x, y.y), y.z), 0.0);
+    var rgb = y + vec3<f32>(lift, lift, lift);
+    if (params.srgb != 0u) {
+        rgb = vec3<f32>(srgb_encode(rgb.x), srgb_encode(rgb.y), srgb_encode(rgb.z));
+    }
+    let target_hsv = rgb_to_hsv(rgb);
+    var h = target_hsv.x;
+    var s = target_hsv.y;
+    var v = target_hsv.z;
+    for (var k = 0u; k < params.inverse_iterations; k = k + 1u) {
+        let shift = lookup_blended(w, h, s, v);
+        let w_chroma = clamp(s / 0.01, 0.0, 1.0);
+        let ss = 1.0 + (shift.y - 1.0) * w_chroma;
+        let vs = 1.0 + (shift.z - 1.0) * w_chroma;
+        h = rem_euclid(target_hsv.x - shift.x * w_chroma, 360.0);
+        s = clamp(target_hsv.y / max(ss, 1e-6), 0.0, 1.0);
+        v = target_hsv.z / max(vs, 1e-6);
+    }
+    var out = hsv_to_rgb(h, s, v);
+    if (params.srgb != 0u) {
+        out = vec3<f32>(srgb_decode(out.x), srgb_decode(out.y), srgb_decode(out.z));
+    }
+    return out - vec3<f32>(lift, lift, lift);
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) ng: vec3<u32>) {
     let i = gid.y * ng.x * 64u + gid.x;
@@ -258,10 +287,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     }
     let px = input_buf[i];
     let p = mat_rows(params.to_pro0, params.to_pro1, params.to_pro2, px.rgb);
-    var x = p;
-    for (var k = 0u; k < params.inverse_iterations; k = k + 1u) {
-        x = x + p - apply_table(x, params.w_anchor);
-    }
+    let x = invert_table(p, params.w_anchor);
     let moved = apply_table(mat_rows(params.delta0, params.delta1, params.delta2, x), params.w_target);
     let out = mat_rows(params.from_pro0, params.from_pro1, params.from_pro2, moved);
     let floor_lift = max(-min(min(out.x, out.y), out.z), 0.0);
