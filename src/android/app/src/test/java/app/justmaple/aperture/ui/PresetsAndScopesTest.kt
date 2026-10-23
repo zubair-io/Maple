@@ -79,11 +79,15 @@ class PresetsAndScopesTest {
                     id = "user-1",
                     name = "Warm Film",
                     fields = mapOf("exposure" to 0.5f, "contrast" to 15f),
-                    attributes = mapOf("papp:FilmLook" to "kodak_portra_400", "crs:ConvertToGrayscale" to "True"),
+                    attributes = mapOf("film_look" to "kodak_portra_400", "black_white" to "On"),
                     userCreated = true,
                 )
             )
-        val decoded = decodeUserPresetsJson(encodeUserPresetsJson(custom))
+        val encodedJson = encodeUserPresetsJson(custom)
+        assertTrue(encodedJson.contains("\"schemaVersion\":1"))
+        assertTrue(encodedJson.contains("\"film_look\":\"kodak_portra_400\""))
+        assertTrue(encodedJson.contains("\"black_white\":\"On\""))
+        val decoded = decodeUserPresetsJson(encodedJson)
         assertEquals(custom, decoded)
 
         // Preset with only non-numeric look attributes also round-trips and detects active state
@@ -93,7 +97,7 @@ class PresetsAndScopesTest {
                     id = "user-2",
                     name = "Portra Only",
                     fields = emptyMap(),
-                    attributes = mapOf("papp:FilmLook" to "kodak_portra_400", "papp:Profile" to "Neutral"),
+                    attributes = mapOf("film_look" to "kodak_portra_400", "profile" to "Neutral"),
                     userCreated = true,
                 )
             )
@@ -107,7 +111,7 @@ class PresetsAndScopesTest {
                     id = "user-3",
                     name = "Future Preset",
                     fields = mapOf("exposure" to 0.25f, "future_slider_v99" to 42f),
-                    attributes = mapOf("papp:FutureAttr" to "enabled"),
+                    attributes = mapOf("future_enum_v99" to "enabled"),
                     userCreated = true,
                 )
             )
@@ -136,9 +140,9 @@ class PresetsAndScopesTest {
         assertEquals(mapOf("exposure" to 0.75f), state.savablePresetFields())
         assertEquals(
             mapOf(
-                "papp:FilmLook" to "kodak_portra_400",
-                "crs:ConvertToGrayscale" to "True",
-                "papp:Profile" to "Neutral",
+                "film_look" to "kodak_portra_400",
+                "black_white" to "On",
+                "profile" to "Neutral",
             ),
             state.savablePresetAttributes(),
         )
