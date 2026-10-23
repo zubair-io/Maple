@@ -286,3 +286,85 @@ fn detail_keeps_the_exact_auto_pair_and_film_of_the_base() {
 
 #[path = "detail_crop_tests.rs"]
 mod crop_tests;
+
+/// #3287: a native-detail session tiles dehaze from the haze map its base
+/// measured, keeps that map while only the dehaze amount moves, and measures
+/// again when anything upstream of dehaze does.
+#[test]
+fn detail_dehaze_tiles_from_the_retained_map_and_keeps_it_across_amount_moves() {
+    let (raw, bytes) = chart();
+    let raw = std::sync::Arc::new(raw);
+    let retained = |model: &AdjustmentModel, previous: Option<DetailContext>| {
+        render_detail_base_retained(
+            std::sync::Arc::clone(&raw),
+            model,
+            RawInput::Bytes {
+                bytes: &bytes,
+                ext: "dng",
+            },
+            DetailRenderOptions {
+                target: crate::view::encode::TargetPrimaries::Srgb,
+                quality: RenderQuality::Amaze,
+                max_long_edge: 1024,
+                film_lut: None,
+            },
+            u64::MAX,
+            previous,
+        )
+        .unwrap()
+    };
+    let model = AdjustmentModel {
+        profile: Profile::Neutral,
+        sharpen_amount: 0.0,
+        nr_color: 0.0,
+        dehaze: 40.0,
+        ..Default::default()
+    };
+    let (w, h, rgb, context) = retained(&model, None);
+    let measured = context.haze.clone().expect("dehaze measures a map");
+    let rect = TileRect {
+        src_x: w / 4,
+        src_y: h / 4,
+        src_w: w / 2,
+        src_h: h / 2,
+        out_w: w / 2,
+        out_h: h / 2,
+    };
+    let (pw, ph, patch) = render_detail_tile(&raw, &context, rect, None, u64::MAX).unwrap();
+    let worst = (0..ph)
+        .flat_map(|y| (0..pw * 3).map(move |i| (y, i)))
+        .map(|(y, i)| {
+            let a = patch[(y * pw * 3 + i) as usize];
+            let b = rgb[((y + rect.src_y) * w * 3 + rect.src_x * 3 + i) as usize];
+            a.abs_diff(b)
+        })
+        .max()
+        .unwrap();
+    // The base measures its own map from this 520-px chart, which the
+    // 2048-texel proxy grid upsamples 4×, while the tile reads the
+    // Preview-density map a native export uses. On real 24–40 MP frames the
+    // two add under one code of mean seam to the base/patch floor.
+    assert!(
+        worst <= 6,
+        "dehaze tile parts from its base by {worst} codes"
+    );
+
+    let moved = AdjustmentModel {
+        dehaze: -60.0,
+        ..model.clone()
+    };
+    let (_, _, _, next) = retained(&moved, Some(context));
+    assert!(std::sync::Arc::ptr_eq(
+        &measured,
+        next.haze.as_ref().expect("still engaged")
+    ));
+    let upstream = AdjustmentModel {
+        exposure: 0.5,
+        ..moved
+    };
+    let (_, _, _, last) = retained(&upstream, Some(next));
+    assert!(!std::sync::Arc::ptr_eq(
+        &measured,
+        last.haze.as_ref().expect("still engaged")
+    ));
+}
