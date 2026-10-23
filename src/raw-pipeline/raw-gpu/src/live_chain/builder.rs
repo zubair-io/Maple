@@ -37,7 +37,11 @@ impl<'a> LivePassSink<'a> for BoxedSink<'a> {
 ///   starts. Splitting the point dispatch per layer is exactly equivalent to
 ///   fusing it — the equivalence the fused form is built on — so the only
 ///   thing that changes is where the spatial kernels get to run.
-fn push_local_adjustments<'a>(suffix: &mut impl LivePassSink<'a>, inputs: &'a FullChainInputs<'_>) {
+fn push_local_adjustments<'a>(
+    suffix: &mut impl LivePassSink<'a>,
+    inputs: &'a FullChainInputs<'_>,
+    airlight: &AirlightSource,
+) {
     let flat = &inputs.local_adjustments;
     if !local_adjustments_are_active(flat, inputs.scope.layer) {
         return;
@@ -55,7 +59,13 @@ fn push_local_adjustments<'a>(suffix: &mut impl LivePassSink<'a>, inputs: &'a Fu
         if layer_needs_spatial(layer) {
             suffix.push(
                 LocalSpatialPass::new(layer, &inputs.mask_rasters, is_scope_target)
-                    .with_orientation(inputs.mask_orientation),
+                    .with_orientation(inputs.mask_orientation)
+                    .with_airlight(match airlight {
+                        AirlightSource::Resident(residency, _) => {
+                            AirlightSource::Resident(std::sync::Arc::clone(residency), 1 + index)
+                        }
+                        _ => AirlightSource::OnGpu,
+                    }),
             );
             continue;
         }
@@ -232,7 +242,7 @@ pub(crate) fn visit_live_chain<'a>(
     }
     // Local adjustments (#1698) — develop's 12b position, between dehaze and
     // vignette. See the gate-predicate note in the module docs.
-    push_local_adjustments(sink, inputs);
+    push_local_adjustments(sink, inputs, &airlight);
     // Vignette (#1109) — develop's 12c position (after local_adjustments,
     // before sharpen). Same `apply` predicate as the raw-core stage's identity
     // short-circuit (`|amount| < 1e-3`); feather alone never engages the stage.

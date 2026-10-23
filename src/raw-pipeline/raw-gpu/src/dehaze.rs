@@ -52,6 +52,10 @@ mod oracle;
 pub(crate) use oracle::proxy_rgba;
 pub use oracle::{apply_dehaze, compute_airlight};
 
+#[path = "dehaze/residency.rs"]
+mod residency;
+pub use residency::HazeResidency;
+
 /// Dark-channel / transmission window radius (15×15) — `raw_core`'s `DARK_RADIUS`.
 const DARK_RADIUS: usize = 7;
 /// Transmission strength — `raw_core::stages::dehaze`'s `OMEGA`.
@@ -179,89 +183,11 @@ pub enum AirlightSource {
     /// Compute the airlight on-GPU during `encode` (the live path, #1033).
     OnGpu,
     /// [`AirlightSource::OnGpu`], keeping the whole haze map resident across
-    /// renders (#3287): a render whose chain up to dehaze is unchanged — a
-    /// dehaze-slider tick — skips the map and runs only the recovery.
-    Resident(std::sync::Arc<HazeResidency>),
-}
-
-/// A live session's resident haze map (#3287). The map depends only on the
-/// pixels dehaze receives, so it is keyed by the frame pool's digest of the
-/// kernels and inputs that produced them (`FramePool::frame_digest`) plus the
-/// render dims; the session clears it when its source image changes.
-#[derive(Default)]
-pub struct HazeResidency {
-    slot: std::sync::Mutex<Option<ResidentHaze>>,
-    #[cfg(test)]
-    measured: std::sync::atomic::AtomicU64,
-}
-
-struct ResidentHaze {
-    key: (u64, (u32, u32)),
-    planes: HazeMapPlanes,
-    /// The `(dispatch, scratch)` pool span measuring the map occupies, which
-    /// a reusing frame steps over to keep later stages on their cached slots.
-    span: (usize, usize),
-}
-
-impl HazeResidency {
-    /// Forget the map; the next dehaze render measures again.
-    pub fn clear(&self) {
-        *self
-            .slot
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-    }
-
-    /// How many renders measured the map (test hook).
-    #[cfg(test)]
-    pub(crate) fn measured(&self) -> u64 {
-        self.measured.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    fn encode(
-        &self,
-        ctx: &GpuContext,
-        encoder: &mut wgpu::CommandEncoder,
-        src: &wgpu::Buffer,
-        dst: &wgpu::Buffer,
-        dims: (u32, u32),
-        dehaze: f32,
-    ) {
-        let key = (ctx.frame_pool.borrow().frame_digest(), dims);
-        let mut slot = self
-            .slot
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let reusable = slot.as_ref().is_some_and(|resident| {
-            resident.key == key && ctx.frame_pool.borrow_mut().skip(resident.span)
-        });
-        if !reusable {
-            let start = ctx.frame_pool.borrow().cursors();
-            let measured = encode_haze_map(ctx, encoder, src, dims, &AirlightSource::OnGpu);
-            let end = ctx.frame_pool.borrow().cursors();
-            let resident = match slot.take() {
-                Some(resident) if resident.planes.proxy == measured.proxy => resident.planes,
-                _ => HazeMapPlanes::resident(ctx, measured.proxy),
-            };
-            for (from, to) in [
-                (&measured.coefficients, &resident.coefficients),
-                (&measured.sky, &resident.sky),
-                (&measured.airlight, &resident.airlight),
-            ] {
-                encoder.copy_buffer_to_buffer(from, 0, to, 0, from.size());
-            }
-            *slot = Some(ResidentHaze {
-                key,
-                planes: resident,
-                span: (end.0 - start.0, end.1 - start.1),
-            });
-            #[cfg(test)]
-            self.measured
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        }
-        let planes = &slot.as_ref().expect("measured above").planes;
-        encode_recover(ctx, encoder, src, dst, dims, dehaze, planes);
-    }
+    /// renders (#3287) in one slot of the session's residency — `0` for the
+    /// global stage, `1 + layer` for a layer's per-mask dehaze: a render whose
+    /// chain up to that dehaze is unchanged — a dehaze-slider tick — skips the
+    /// map and runs only the recovery.
+    Resident(std::sync::Arc<HazeResidency>, usize),
 }
 
 /// A GPU-resident dehaze stage. Carries the `dehaze` slider value ([-100, +100])
@@ -315,8 +241,8 @@ impl Pass for DehazePass {
             encoder.copy_buffer_to_buffer(src, 0, dst, 0, byte_len);
             return;
         }
-        if let AirlightSource::Resident(residency) = &self.airlight {
-            residency.encode(ctx, encoder, src, dst, dims, self.dehaze);
+        if let AirlightSource::Resident(residency, index) = &self.airlight {
+            residency.encode(ctx, encoder, src, dst, dims, self.dehaze, *index);
             return;
         }
         let map = encode_haze_map(ctx, encoder, src, dims, &self.airlight);
@@ -429,7 +355,7 @@ pub(crate) fn encode_haze_map(
             ctx.queue
                 .write_buffer(&airlight_uniform, 0, bytemuck::bytes_of(&a_uniform));
         }
-        AirlightSource::OnGpu | AirlightSource::Resident(_) => {
+        AirlightSource::OnGpu | AirlightSource::Resident(..) => {
             let a_out = airlight::encode_airlight(ctx, encoder, &proxy, &dc, count);
             encoder.copy_buffer_to_buffer(
                 &a_out,

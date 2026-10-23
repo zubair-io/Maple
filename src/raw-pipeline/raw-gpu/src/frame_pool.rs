@@ -232,6 +232,12 @@ impl FramePool {
         pooled
     }
 
+    /// Continue this frame's digest from `digest`, the value a skipped span
+    /// left it at when it was last encoded for real.
+    pub(crate) fn resume_digest(&mut self, digest: u64) {
+        self.frame_digest = digest;
+    }
+
     fn digest(&mut self, bytes: &[u8]) {
         self.frame_digest = bytes.iter().fold(self.frame_digest, |h, &b| {
             (h ^ u64::from(b)).wrapping_mul(FNV_PRIME)
