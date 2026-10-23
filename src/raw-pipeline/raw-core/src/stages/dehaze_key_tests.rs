@@ -148,3 +148,74 @@ fn the_haze_key_ignores_every_stage_downstream_of_the_last_map() {
         key(layered)
     );
 }
+
+/// `hash_haze_layers` keeps exactly the layer part of `haze_key`, so a host
+/// that hashes the flat wire agrees with every `haze_key` holder.
+#[test]
+fn hashing_the_flat_layers_agrees_with_the_haze_key() {
+    let layer = |exposure: f32, adjustments: PartialAdjustments| {
+        LocalAdjustment::radial(
+            Point2::new(0.4, 0.5),
+            Point2::new(0.3, 0.2),
+            PartialAdjustments {
+                exposure: Some(exposure),
+                ..adjustments
+            },
+        )
+    };
+    let dehaze = |amount: f32| PartialAdjustments {
+        dehaze: Some(amount),
+        ..Default::default()
+    };
+    let stacks = [
+        vec![layer(0.2, PartialAdjustments::default())],
+        vec![layer(0.2, dehaze(30.0))],
+        vec![layer(0.2, dehaze(-60.0))],
+        vec![layer(0.5, dehaze(30.0))],
+        vec![layer(
+            0.2,
+            PartialAdjustments {
+                sharpness: Some(40.0),
+                luminance_noise: Some(20.0),
+                defringe: Some(10.0),
+                ..dehaze(30.0)
+            },
+        )],
+        vec![layer(
+            0.2,
+            PartialAdjustments {
+                clarity: Some(25.0),
+                ..dehaze(30.0)
+            },
+        )],
+        vec![
+            layer(0.2, dehaze(30.0)),
+            layer(0.9, PartialAdjustments::default()),
+        ],
+        vec![layer(0.2, dehaze(10.0)), layer(0.9, dehaze(30.0))],
+        vec![layer(0.2, dehaze(50.0)), layer(0.9, dehaze(30.0))],
+        vec![layer(0.2, dehaze(50.0)), layer(0.9, dehaze(-5.0))],
+    ];
+    let hashed = |layers: &[LocalAdjustment]| {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let any = hash_haze_layers(&crate::types::layers_to_flat(layers), &mut h);
+        (any, std::hash::Hasher::finish(&h))
+    };
+    let keyed = |layers: &[LocalAdjustment]| {
+        haze_key(&AdjustmentModel {
+            local_adjustments: layers.to_vec(),
+            ..Default::default()
+        })
+        .local_adjustments
+    };
+    for a in &stacks {
+        for b in &stacks {
+            assert_eq!(
+                hashed(a) == hashed(b),
+                keyed(a) == keyed(b),
+                "{a:?} vs {b:?}"
+            );
+        }
+        assert_eq!(hashed(a).0, !keyed(a).is_empty());
+    }
+}

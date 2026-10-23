@@ -17,7 +17,7 @@ pub use map::{proxy_dims, HazeMap, HAZE_PROXY_LONG_EDGE};
 
 #[path = "dehaze_key.rs"]
 mod key;
-pub use key::haze_key;
+pub use key::{hash_haze_layers, haze_key};
 
 /// Existing dark-channel transmission factor, shared with generated WGSL.
 pub const TRANSMISSION_OMEGA: f32 = 0.95;
