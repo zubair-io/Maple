@@ -3,6 +3,7 @@
 
 use super::maple_scene_linear_chain_haze_key;
 use crate::scene_linear_chain::MapleAdjustmentParams;
+use crate::scene_linear_chain_curves::MapleToneCurves;
 use crate::scene_linear_chain_tests::default_params;
 use raw_core::types::{layers_to_flat, LocalAdjustment, PartialAdjustments, Point2};
 
@@ -70,7 +71,7 @@ fn computing_the_key_allocates_nothing() {
         wb_hsm_len: wire.len(),
         ..layered(&flat)
     };
-    let curves = crate::scene_linear_chain_curves::MapleToneCurves {
+    let curves = MapleToneCurves {
         luma_ptr: curve.as_ptr(),
         luma_len: curve.len(),
         // SAFETY: every field is a nullable pointer, a length or a scalar.
@@ -116,6 +117,51 @@ fn every_parameter_is_hashed_or_downstream() {
         assert_eq!(
             moved,
             !DOWNSTREAM.contains(&name.as_str()),
+            "{name}: hashed must equal upstream"
+        );
+    }
+}
+
+/// The tone-curve wire feeds the maps except its display-referred curves,
+/// which run after AgX.
+#[test]
+fn every_scene_curve_is_hashed_and_display_curves_are_not() {
+    let flat = dehaze_layer();
+    let p = layered(&flat);
+    let point = [0.0f32, 0.0, 0.5, 0.6, 1.0, 1.0];
+    // SAFETY: every field is a nullable pointer, a length or a scalar.
+    let identity = || -> MapleToneCurves { unsafe { std::mem::zeroed() } };
+    let key = |c: &MapleToneCurves| unsafe { maple_scene_linear_chain_haze_key(&p, c) };
+    let base = key(&identity());
+    let layout = crate::abi_layout::describe("MapleToneCurves").expect("exported");
+    for field in layout.split(';').skip(1) {
+        let (name, offset) = field.split_once('=').expect("name=offset");
+        let offset: usize = offset.parse().expect("offset");
+        if name.ends_with("_len") {
+            continue;
+        }
+        let mut curves = identity();
+        unsafe {
+            let at = (&mut curves as *mut MapleToneCurves as *mut u8).add(offset);
+            if let Some(stem) = name.strip_suffix("_ptr") {
+                at.cast::<*const f32>().write(point.as_ptr());
+                let len = layout
+                    .split(';')
+                    .find_map(|f| f.strip_prefix(&format!("{stem}_len=")))
+                    .expect("paired length")
+                    .parse::<usize>()
+                    .expect("offset");
+                (&mut curves as *mut MapleToneCurves as *mut u8)
+                    .add(len)
+                    .cast::<usize>()
+                    .write(point.len());
+            } else {
+                *at ^= 0x5a;
+            }
+        }
+        assert_eq!(
+            key(&curves) != base,
+            !name.starts_with("display_"),
             "{name}: hashed must equal upstream"
         );
     }

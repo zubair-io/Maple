@@ -20,7 +20,7 @@ namespace Maple.WinUI.Services
         private static int _measurements;
 
         /// <summary>How many lookups measured; tests assert a hit measures nothing.</summary>
-        public static int Measurements => Volatile.Read(ref _measurements);
+        internal static int Measurements => Volatile.Read(ref _measurements);
 
         /// <summary>The cached maps for <paramref name="frame"/> under
         /// <paramref name="key"/>, if any, with a reference added for the
