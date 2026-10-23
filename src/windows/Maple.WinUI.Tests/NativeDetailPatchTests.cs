@@ -139,7 +139,7 @@ public class NativeDetailPatchTests
         fixed (float* source = patch)
         fixed (float* result = output)
             Assert.Equal(0, RawFfi.ApplyWindow(source, decode.Width, decode.Height, &parameters, null,
-                IntPtr.Zero, 0, &window, result));
+                IntPtr.Zero, 0, &window, IntPtr.Zero, result));
         return Interior(output, decode.Width, decode, published);
     }
 
