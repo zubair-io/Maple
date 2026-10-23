@@ -7,6 +7,22 @@ import { ADJUSTMENT_RANGES } from '../generated/adjustment-tables.generated';
 import { AUTO_WB_ALGORITHM_VERSION } from '../generated/white-balance-presets.generated';
 import { isSupportedRaw } from '../state/raw-extensions';
 import { stableStringify } from './edit-transaction';
+import { seedWhiteBalanceModel } from '../state/library-store-white-balance';
+
+function isCurrentAutoModel(
+  editor: EditorStateService,
+  id: AssetId,
+  before: AdjustmentModel,
+): boolean {
+  const current = editor.currentAdjustment();
+  if (current === before) return true;
+  const reading = editor.library.asShotWbFor(id);
+  if (!reading || before.partialWhiteBalance) return false;
+  // Decode may resolve untouched As Shot values while analysis runs. Only
+  // accept the exact hydration already used by the store, never a user edit.
+  const hydrated = seedWhiteBalanceModel(before, reading);
+  return hydrated !== before && stableStringify(current) === stableStringify(hydrated);
+}
 
 function autoAdjustmentPatch(
   result: AutoAdjustPatch,
@@ -50,11 +66,11 @@ export async function applyAutoInto(
   const history = editor.undoHistory();
   const asset = editor.library.assets().find((item) => item.id === id);
   if (editor.imageId() !== id || !before || !asset || !isSupportedRaw(asset.filename)) return false;
-  // Both identities change on edits/undo or rebinding, so switching away and
-  // back cannot revive an old recommendation even if the values match again.
+  // History identity rejects edits/undo and rebinding, including a switch
+  // away and back. Camera As Shot hydration alone is not an authored edit.
   const stillCurrent = () =>
     editor.imageId() === id &&
-    editor.currentAdjustment() === before &&
+    isCurrentAutoModel(editor, id, before) &&
     editor.undoHistory() === history;
   editor.autoResult.set(null);
   editor.autoInFlight.set(true);
@@ -63,8 +79,9 @@ export async function applyAutoInto(
     if (!stillCurrent()) return false;
     const ext = asset.filename.split('.').pop()?.toLowerCase() ?? 'dng';
     const result = await editor.pipeline.computeAutoAdjustments(bytes, ext);
-    if (!stillCurrent()) return false;
-    return commitRecommendation(editor, id, before, result, whiteBalanceOnly);
+    const current = editor.currentAdjustment();
+    if (!current || !stillCurrent()) return false;
+    return commitRecommendation(editor, id, current, result, whiteBalanceOnly);
   } catch (error) {
     console.warn('[editor] Auto analysis failed:', error);
     if (stillCurrent()) editor.autoResult.set('Auto could not be applied');
