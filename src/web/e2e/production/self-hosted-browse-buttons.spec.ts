@@ -22,6 +22,7 @@ const RESPONSES = new Map<string, unknown>([
     ],
   ],
   ['/api/fs/list', { path: '/', parent: null, entries: [] }],
+  ['/api/fs/roots', { roots: ['/'] }],
   [
     '/api/metadata/snapshots',
     {
@@ -65,6 +66,62 @@ async function respond(route: Route): Promise<void> {
 }
 
 for (const width of [1440, 768, 390]) {
+  test(`Self Hosted allowed-root modal keyboard ownership at ${width}px`, async ({
+    page,
+  }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chrome-self-hosted');
+    await page.setViewportSize({ width, height: 900 });
+    const listed: string[] = [];
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error') errors.push(message.text());
+    });
+    await page.route('**/api/**', async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === '/api/fs/roots') {
+        await route.fulfill({ json: { roots: ['/srv/photos', '/mnt/archive'] } });
+      } else if (url.pathname === '/api/fs/list') {
+        const path = url.searchParams.get('path')!;
+        listed.push(path);
+        expect(['/srv/photos', '/mnt/archive']).toContain(path);
+        await route.fulfill({ json: { path, parent: null, entries: [] } });
+      } else await respond(route);
+    });
+    await page.goto('/settings/sources');
+    const add = page.getByRole('button', { name: 'Add source', exact: true });
+    await add.click();
+    const dialog = page.getByRole('dialog', { name: 'Pick a library folder', exact: true });
+    await expect(dialog).toBeFocused();
+    await expect(dialog.locator('code')).toHaveText('/srv/photos');
+    const roots = dialog.getByRole('combobox', { name: 'Filesystem root', exact: true });
+    await roots.selectOption('/mnt/archive');
+    await expect(dialog.locator('code')).toHaveText('/mnt/archive');
+    await expect(dialog.getByRole('button', { name: '↑ Up', exact: true })).toBeDisabled();
+    const choose = dialog.getByRole('button', { name: 'Use this folder', exact: true });
+    await expect(choose).toBeEnabled();
+    await choose.focus();
+    await choose.press('Tab');
+    await expect(roots).toBeFocused();
+    await roots.press('Shift+Tab');
+    await expect(choose).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath(`allowed-root-picker-${width}.png`) });
+    await choose.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(add).toBeFocused();
+    await add.press('Enter');
+    await expect(dialog).toBeVisible();
+    const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
+    await cancel.focus();
+    await cancel.press('Enter');
+    await expect(dialog).toHaveCount(0);
+    await expect(add).toBeFocused();
+    expect(listed).toContain('/srv/photos');
+    expect(listed).toContain('/mnt/archive');
+    expect(listed).not.toContain('/');
+    expect(errors).toEqual([]);
+  });
+
   test(`Self Hosted library picker keyboard and navigation at ${width}px`, async ({
     page,
   }, testInfo) => {
