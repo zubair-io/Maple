@@ -73,10 +73,13 @@ class PresetsAndScopesTest {
 
     @Test
     fun userPresetsEncodeDecodeAndTrackSavableFieldsAndAttributes() {
+        val uuid = java.util.UUID.randomUUID().toString().lowercase(java.util.Locale.ROOT)
+        assertTrue(isSafeUserPresetId(uuid))
+        assertFalse(isSafeUserPresetId("user-1"))
         val custom =
             listOf(
                 BuiltInPreset(
-                    id = "user-1",
+                    id = uuid,
                     name = "Warm Film",
                     fields = mapOf("exposure" to 0.5f, "contrast" to 15f),
                     attributes = mapOf("film_look" to "kodak_portra_400", "black_white" to "On"),
@@ -94,7 +97,7 @@ class PresetsAndScopesTest {
         val lookOnly =
             listOf(
                 BuiltInPreset(
-                    id = "user-2",
+                    id = "00000000-0000-4000-8000-000000000002",
                     name = "Portra Only",
                     fields = emptyMap(),
                     attributes = mapOf("film_look" to "kodak_portra_400", "profile" to "Neutral"),
@@ -108,7 +111,7 @@ class PresetsAndScopesTest {
         val forwardCompat =
             listOf(
                 BuiltInPreset(
-                    id = "user-3",
+                    id = "00000000-0000-4000-8000-000000000003",
                     name = "Future Preset",
                     fields = mapOf("exposure" to 0.25f, "future_slider_v99" to 42f),
                     attributes = mapOf("future_enum_v99" to "enabled"),

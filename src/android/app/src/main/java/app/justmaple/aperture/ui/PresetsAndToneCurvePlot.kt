@@ -84,6 +84,15 @@ private fun presetStringFieldToXmp(key: String, value: String): Pair<String, Str
     }
 
 /**
+ * Validates that a user preset ID contains only lowercase hex digits and hyphens (length 1..64),
+ * matching `PresetStore.isSafeID` on Apple (`src/apple/Packages/MapleCore/Sources/MapleCore/Editor/PresetStore.swift`).
+ */
+fun isSafeUserPresetId(id: String): Boolean =
+    id.isNotEmpty() &&
+        id.length <= 64 &&
+        id.all { (it in '0'..'9') || (it in 'a'..'f') || (it in 'A'..'F') || it == '-' }
+
+/**
  * Built-in presets matching Apple's `builtin-presets.json` (#5193).
  */
 data class BuiltInPreset(
