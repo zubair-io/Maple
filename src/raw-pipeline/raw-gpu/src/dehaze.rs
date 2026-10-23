@@ -176,6 +176,90 @@ pub enum AirlightSource {
     Cpu([f32; 3]),
     /// Compute the airlight on-GPU during `encode` (the live path, #1033).
     OnGpu,
+    /// [`AirlightSource::OnGpu`], keeping the whole haze map resident across
+    /// renders (#3287): a render whose chain up to dehaze is unchanged — a
+    /// dehaze-slider tick — skips the map and runs only the recovery.
+    Resident(std::sync::Arc<HazeResidency>),
+}
+
+/// A live session's resident haze map (#3287). The map depends only on the
+/// pixels dehaze receives, so it is keyed by the frame pool's digest of the
+/// kernels and inputs that produced them (`FramePool::frame_digest`) plus the
+/// render dims; the session clears it when its source image changes.
+#[derive(Default)]
+pub struct HazeResidency {
+    slot: std::sync::Mutex<Option<ResidentHaze>>,
+    #[cfg(test)]
+    measured: std::sync::atomic::AtomicU64,
+}
+
+struct ResidentHaze {
+    key: (u64, (u32, u32)),
+    planes: HazeMapPlanes,
+    /// The `(dispatch, scratch)` pool span measuring the map occupies, which
+    /// a reusing frame steps over to keep later stages on their cached slots.
+    span: (usize, usize),
+}
+
+impl HazeResidency {
+    /// Forget the map; the next dehaze render measures again.
+    pub fn clear(&self) {
+        *self
+            .slot
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    }
+
+    /// How many renders measured the map (test hook).
+    #[cfg(test)]
+    pub(crate) fn measured(&self) -> u64 {
+        self.measured.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn encode(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        src: &wgpu::Buffer,
+        dst: &wgpu::Buffer,
+        dims: (u32, u32),
+        dehaze: f32,
+    ) {
+        let key = (ctx.frame_pool.borrow().frame_digest(), dims);
+        let mut slot = self
+            .slot
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let reusable = slot.as_ref().is_some_and(|resident| {
+            resident.key == key && ctx.frame_pool.borrow_mut().skip(resident.span)
+        });
+        if !reusable {
+            let start = ctx.frame_pool.borrow().cursors();
+            let measured = encode_haze_map(ctx, encoder, src, dims, &AirlightSource::OnGpu);
+            let end = ctx.frame_pool.borrow().cursors();
+            let resident = match slot.take() {
+                Some(resident) if resident.planes.proxy == measured.proxy => resident.planes,
+                _ => HazeMapPlanes::resident(ctx, measured.proxy),
+            };
+            for (from, to) in [
+                (&measured.coefficients, &resident.coefficients),
+                (&measured.sky, &resident.sky),
+                (&measured.airlight, &resident.airlight),
+            ] {
+                encoder.copy_buffer_to_buffer(from, 0, to, 0, from.size());
+            }
+            *slot = Some(ResidentHaze {
+                key,
+                planes: resident,
+                span: (end.0 - start.0, end.1 - start.1),
+            });
+            #[cfg(test)]
+            self.measured
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        let planes = &slot.as_ref().expect("measured above").planes;
+        encode_recover(ctx, encoder, src, dst, dims, dehaze, planes);
+    }
 }
 
 /// A GPU-resident dehaze stage. Carries the `dehaze` slider value ([-100, +100])
@@ -229,8 +313,39 @@ impl Pass for DehazePass {
             encoder.copy_buffer_to_buffer(src, 0, dst, 0, byte_len);
             return;
         }
+        if let AirlightSource::Resident(residency) = &self.airlight {
+            residency.encode(ctx, encoder, src, dst, dims, self.dehaze);
+            return;
+        }
         let map = encode_haze_map(ctx, encoder, src, dims, &self.airlight);
         encode_recover(ctx, encoder, src, dst, dims, self.dehaze, &map);
+    }
+}
+
+impl HazeMapPlanes {
+    /// Session-owned planes for a resident map (outside the frame pool, so no
+    /// later frame can hand them to another kernel).
+    fn resident(ctx: &GpuContext, (pw, ph): (u32, u32)) -> Self {
+        let buffer = |label: &str, size: u64, usage: wgpu::BufferUsages| {
+            std::sync::Arc::new(ctx.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size,
+                usage: usage | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }))
+        };
+        let texels = u64::from(pw) * u64::from(ph);
+        let storage = wgpu::BufferUsages::STORAGE;
+        HazeMapPlanes {
+            proxy: (pw, ph),
+            coefficients: buffer("dehaze-resident-coefficients", texels * 8, storage),
+            sky: buffer("dehaze-resident-sky", texels * 4, storage),
+            airlight: buffer(
+                "dehaze-resident-airlight",
+                airlight::AIRLIGHT_BYTE_LEN,
+                wgpu::BufferUsages::UNIFORM,
+            ),
+        }
     }
 }
 
@@ -312,7 +427,7 @@ pub(crate) fn encode_haze_map(
             ctx.queue
                 .write_buffer(&airlight_uniform, 0, bytemuck::bytes_of(&a_uniform));
         }
-        AirlightSource::OnGpu => {
+        AirlightSource::OnGpu | AirlightSource::Resident(_) => {
             let a_out = airlight::encode_airlight(ctx, encoder, &proxy, &dc, count);
             encoder.copy_buffer_to_buffer(
                 &a_out,

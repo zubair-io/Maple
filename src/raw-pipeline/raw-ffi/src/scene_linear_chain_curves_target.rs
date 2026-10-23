@@ -39,6 +39,7 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_target_curves_f32(
                 target_primaries,
                 out_ptr,
                 None,
+                std::ptr::null(),
             )
         },
     )
@@ -50,11 +51,14 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_target_curves_f32(
 /// from the full frame and masks, vignette and grain use full-frame
 /// coordinates. The patch must carry
 /// [`maple_scene_linear_chain_window_reach_px`] of context around what the
-/// caller publishes. Dehaze needs the whole frame and returns `8`.
+/// caller publishes. Dehaze (global or per mask) recovers with `haze`, the
+/// frame's maps from `maple_scene_linear_chain_haze_map_f32` (#3287); a null
+/// `haze` with dehaze engaged returns `8`.
 ///
 /// # Safety
 /// As [`maple_apply_chain_and_encode_display_target_curves_f32`];
-/// additionally `window` must point at a valid `MapleChainWindow`.
+/// additionally `window` must point at a valid `MapleChainWindow` and `haze`
+/// be null or a live `MapleHazeMap`.
 #[no_mangle]
 pub unsafe extern "C" fn maple_apply_chain_and_encode_display_target_window_f32(
     in_ptr: *const f32,
@@ -64,6 +68,7 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_target_window_f32(
     curves: *const MapleToneCurves,
     target_primaries: u32,
     window: *const MapleChainWindow,
+    haze: *const crate::MapleHazeMap,
     out_ptr: *mut f32,
 ) -> i32 {
     crate::error::catch_panic_rc(
@@ -82,6 +87,7 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_target_window_f32(
                 target_primaries,
                 out_ptr,
                 Some(window.into()),
+                haze,
             )
         },
     )
@@ -119,6 +125,7 @@ unsafe fn chain_and_encode_target(
     target_primaries: u32,
     out_ptr: *mut f32,
     window: Option<raw_core::pipeline::ChainWindow>,
+    haze: *const crate::MapleHazeMap,
 ) -> i32 {
     let context = if window.is_some() {
         "apply_chain_and_encode_display_target_window_f32"
@@ -158,7 +165,10 @@ unsafe fn chain_and_encode_target(
     if !curves.is_null() {
         inject_tone_curves(&mut ci.model, &*curves);
     }
-    let opts = ci.options(p.skip_agx != 0);
+    let opts = raw_core::pipeline::ChainOptions {
+        haze_map: haze.as_ref().map(|haze| &*haze.0),
+        ..ci.options(p.skip_agx != 0)
+    };
     let input = std::slice::from_raw_parts(in_ptr, lanes);
     let chained = match window {
         Some(window) => raw_core::pipeline::apply_scene_linear_chain_f32_windowed(

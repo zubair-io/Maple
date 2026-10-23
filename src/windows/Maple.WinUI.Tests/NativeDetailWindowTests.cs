@@ -40,8 +40,8 @@ public class NativeDetailWindowTests
                     fixed (float* pixels = patch)
                     fixed (float* result = actual)
                         Assert.Equal(0, withFilm
-                            ? RawFfi.ApplyWindow(pixels, 41, 29, &parameters, null, film, 37, &window, result)
-                            : RawFfi.ApplyWindow(pixels, 41, 29, &parameters, null, IntPtr.Zero, 0, &window, result));
+                            ? RawFfi.ApplyWindow(pixels, 41, 29, &parameters, null, film, 37, &window, IntPtr.Zero, result)
+                            : RawFfi.ApplyWindow(pixels, 41, 29, &parameters, null, IntPtr.Zero, 0, &window, IntPtr.Zero, result));
                     Assert.Equal(Crop(full, x, y), actual);
                 }
             }

@@ -4,15 +4,18 @@
 // curves, mask stack, encode target and Auto Profile tail as the fused path,
 // but the chain runs windowed: the patch's position in the full frame is
 // passed down, so the S/H mask, masks, vignette and grain match the
-// full-frame render. No perspective warp: native detail falls back to the
-// whole-image refine for perspective, as it does for dehaze.
+// full-frame render. Dehaze recovers with the haze maps of `fullFrame`, the
+// whole decoded base (#3287). No perspective warp: native detail falls back
+// to the whole-image refine for perspective.
 
 import CoreImage
 import Foundation
+import RawPipeline
 
 extension ImageEditPipeline {
   nonisolated public func processSceneLinearWindow(
     decoded: CIImage,
+    fullFrame: CIImage?,
     model: AdjustmentModel,
     origin: CGPoint,
     fullSize: CGSize,
@@ -39,6 +42,9 @@ extension ImageEditPipeline {
       iso: iso,
       wbFrame: frame, whitesAnchorEv: whitesAnchorEv, nrSamplingScale: 1
     )
+    let curves = PipelineRenderer.ChainToneCurves(model: model)
+    let haze = try hazeMap(
+      frame: fullFrame, model: model, params: params, curves: curves, noiseProfile: noiseProfile)
     let rowBytes = w * 16
     let encoded: Data = try autoreleasepool {
       var input = Data(count: rowBytes * h)
@@ -56,10 +62,11 @@ extension ImageEditPipeline {
         try PipelineRenderer.applyChainAndEncodeDisplayTargetWindow(
           inputBytes: input, width: w, height: h, params: params,
           targetPrimaries: targetPrimaries.wireValue,
-          curves: PipelineRenderer.ChainToneCurves(model: model),
+          curves: curves,
           noiseProfile: noiseProfile,
           localAdjustments: model.localAdjustments,
-          window: PipelineRenderer.chainWindow(origin: origin, fullSize: fullSize)
+          window: PipelineRenderer.chainWindow(origin: origin, fullSize: fullSize),
+          haze: haze
         )
       }
     }
@@ -74,5 +81,52 @@ extension ImageEditPipeline {
       colorSpace: tag
     )
     return AutoProfileLUT.apply(profileLUT, to: image)
+  }
+
+  /// The whole frame's dehaze maps for the patch (#3287): `frame` rendered at
+  /// no more than the maps' 2048-texel proxy edge (they are measured on that
+  /// grid whatever the input size), then measured by Rust, which memoises the
+  /// last result. `nil` when no dehaze is engaged.
+  nonisolated func hazeMap(
+    frame: CIImage?,
+    model: AdjustmentModel,
+    params: MapleAdjustmentParams,
+    curves: PipelineRenderer.ChainToneCurves,
+    noiseProfile: [Float]?
+  ) throws -> PipelineRenderer.HazeMap? {
+    guard
+      abs(model.dehaze) >= 1e-3
+        || model.localAdjustments.contains(where: { abs($0.adjustments.dehaze ?? 0) >= 1e-3 })
+    else { return nil }
+    guard let frame else {
+      throw PipelineError.renderFailed(
+        code: 8, message: "native detail: dehaze needs the decoded frame for its haze map")
+    }
+    let extent = frame.extent
+    let scale = min(1, 2048 / max(extent.width, extent.height))
+    let scaled = frame.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+    let w = Int((extent.width * scale).rounded(.down))
+    let h = Int((extent.height * scale).rounded(.down))
+    guard w > 0, h > 0 else { return nil }
+    let rowBytes = w * 16
+    return try autoreleasepool {
+      var bytes = Data(count: rowBytes * h)
+      bytes.withUnsafeMutableBytes { buf in
+        context.render(
+          scaled,
+          toBitmap: buf.baseAddress!,
+          rowBytes: rowBytes,
+          bounds: CGRect(
+            x: scaled.extent.minX, y: scaled.extent.minY, width: CGFloat(w), height: CGFloat(h)),
+          format: .RGBAf,
+          colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        )
+      }
+      return try mapleStage("native detail haze map") {
+        try PipelineRenderer.sceneLinearHazeMap(
+          frameBytes: bytes, width: w, height: h, params: params, curves: curves,
+          noiseProfile: noiseProfile, localAdjustments: model.localAdjustments)
+      }
+    }
   }
 }

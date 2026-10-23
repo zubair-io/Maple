@@ -163,6 +163,9 @@ mod scene_linear_chain_curves;
 // warp for hosts that run the chain over the scene-linear FFI buffer.
 mod perspective_entry;
 mod scene_linear_chain_curves_target;
+// #3287: the whole frame's dehaze maps a native-detail window recovers with.
+mod scene_linear_chain_haze;
+pub use scene_linear_chain_haze::MapleHazeMap;
 // Multi-format developed export (#2584): the C-ABI shim over
 // raw_core::export (JPEG / 16-bit TIFF / PNG, ICC-tagged, long-edge cap).
 mod export_file;

@@ -94,6 +94,9 @@ struct DispatchEntry {
     _data: Vec<Arc<wgpu::Buffer>>,
 }
 
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
 /// The per-signature cache bucket: dispatch entries indexed by their order within
 /// the render, plus a pool of scratch planes (also order-indexed) the spatial
 /// stages draw from. A monotonic cursor over each is rewound at frame start.
@@ -133,6 +136,12 @@ pub struct FramePool {
     /// Count of ACTUAL `create_buffer` / `create_bind_group` calls (misses) — the
     /// allocation accounting hook. Never bumped on reuse.
     alloc_count: Cell<u64>,
+    /// FNV-1a digest of every pipeline, parameter block and data lease handed
+    /// to the pool so far this frame, rewound at frame start. Two frames whose
+    /// digests agree at the same point in the chain ran the same kernels on
+    /// the same inputs up to it — how dehaze knows its prefix is unchanged
+    /// and its resident haze map still holds (#3287).
+    frame_digest: u64,
     #[cfg(test)]
     uniform_upload_count: Cell<u64>,
     #[cfg(test)]
@@ -185,7 +194,48 @@ impl FramePool {
         self.frame_active = true;
         self.dispatch_cursor = 0;
         self.scratch_cursor = 0;
+        self.frame_digest = FNV_OFFSET;
         self.buckets.entry(sig).or_default();
+    }
+
+    /// The digest of everything pooled so far this frame (see `frame_digest`).
+    pub(crate) fn frame_digest(&self) -> u64 {
+        self.frame_digest
+    }
+
+    /// The current `(dispatch, scratch)` cursors.
+    pub(crate) fn cursors(&self) -> (usize, usize) {
+        (self.dispatch_cursor, self.scratch_cursor)
+    }
+
+    /// Step over a span of resources a stage pooled on an earlier frame of
+    /// this signature but does not need now, so every later stage keeps the
+    /// cursors its cached entries were built at. `false` (nothing skipped)
+    /// when this signature's bucket has not pooled the span yet: the caller
+    /// must then encode it for real.
+    pub(crate) fn skip(&mut self, (dispatches, scratch): (usize, usize)) -> bool {
+        if !self.frame_active {
+            return false;
+        }
+        let (d, s) = (
+            self.dispatch_cursor + dispatches,
+            self.scratch_cursor + scratch,
+        );
+        let pooled = self
+            .buckets
+            .get(&self.current_sig)
+            .is_some_and(|bucket| bucket.dispatches.len() >= d && bucket.scratch.len() >= s);
+        if pooled {
+            self.dispatch_cursor = d;
+            self.scratch_cursor = s;
+        }
+        pooled
+    }
+
+    fn digest(&mut self, bytes: &[u8]) {
+        self.frame_digest = bytes.iter().fold(self.frame_digest, |h, &b| {
+            (h ^ u64::from(b)).wrapping_mul(FNV_PRIME)
+        });
     }
 
     /// End the in-flight render. (Cursors stay where they are until the next
@@ -246,6 +296,9 @@ fn pool_buffer(
     make: impl FnOnce(&wgpu::Device) -> wgpu::Buffer,
 ) -> Arc<wgpu::Buffer> {
     let mut pool = ctx.frame_pool.borrow_mut();
+    if let Some(contents) = contents {
+        pool.digest(contents);
+    }
     if !pool.frame_active {
         pool.alloc_count.set(pool.alloc_count.get() + 1);
         let buffer = Arc::new(make(&ctx.device));
@@ -344,6 +397,8 @@ pub(crate) fn pool_dispatch(
     buffers.hash(&mut storage_hasher);
     let storage_id = storage_hasher.finish();
     let mut pool = ctx.frame_pool.borrow_mut();
+    pool.digest(&(pipeline_id as u64).to_le_bytes());
+    pool.digest(params);
     if !pool.frame_active {
         // Outside a pooled window: plain alloc (no caching).
         let res = make(&ctx.device);

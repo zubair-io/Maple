@@ -54,14 +54,10 @@ extension EditSession {
     // unmapped. (`NativeDetailRenderer` strips it from the tile develop, so
     // the chain is the one place it is applied.)
     let m = renderModel
-    // Dehaze measures haze over the whole frame and perspective warps it,
-    // so neither has a patch form: the bounded whole-image refine renders
-    // them, as on every other platform. The windowed chain refuses dehaze
-    // too; this only skips the tile develop that refusal would waste.
-    guard abs(m.dehaze) < 1e-3,
-      !m.localAdjustments.contains(where: { abs($0.adjustments.dehaze ?? 0) >= 1e-3 }),
-      m.perspective.isIdentity
-    else { return false }
+    // Perspective warps the whole frame, so it has no patch form: the
+    // bounded whole-image refine renders it. Dehaze recovers with the whole
+    // frame's haze maps, measured from the decoded base (#3287).
+    guard m.perspective.isIdentity else { return false }
     let publishedPatchRect = NativeDetailLOD.patchRect(
       visibleRect: viewportSourceRect,
       imageSize: nativeImageSize
@@ -169,6 +165,7 @@ extension EditSession {
         // masks, vignette and grain match the full-frame render (#5169).
         let processed = try pipeline.processSceneLinearWindow(
           decoded: decoded,
+          fullFrame: snapshot.image,
           model: m,
           origin: decodeRect.origin,
           fullSize: fullSize,
