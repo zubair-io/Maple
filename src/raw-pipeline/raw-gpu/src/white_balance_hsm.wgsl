@@ -34,7 +34,7 @@ struct Params {
     w_target: f32,
     w_anchor: f32,
     inverse_iterations: u32,
-    _pad0: u32,
+    refine_steps: u32,
     _pad1: u32,
     _pad2: u32,
 };
@@ -252,31 +252,39 @@ fn apply_table(p: vec3<f32>, w: f32) -> vec3<f32> {
 }
 
 // `hsm::invert_one_blended`: the pre-image solved in HSV, each step undoing
-// the shift read at the current estimate.
+// the shift read at the current estimate; a lifted or boundary pre-image
+// under a desaturating table then takes `refine_steps` RGB fixed-point steps.
 fn invert_table(y: vec3<f32>, w: f32) -> vec3<f32> {
     let lift = max(-min(min(y.x, y.y), y.z), 0.0);
     var rgb = y + vec3<f32>(lift, lift, lift);
     if (params.srgb != 0u) {
         rgb = vec3<f32>(srgb_encode(rgb.x), srgb_encode(rgb.y), srgb_encode(rgb.z));
     }
-    let target_hsv = rgb_to_hsv(rgb);
-    var h = target_hsv.x;
-    var s = target_hsv.y;
-    var v = target_hsv.z;
+    let tgt = rgb_to_hsv(rgb);
+    var h = tgt.x;
+    var s = tgt.y;
+    var v = tgt.z;
+    var ss = 1.0;
     for (var k = 0u; k < params.inverse_iterations; k = k + 1u) {
         let shift = lookup_blended(w, h, s, v);
         let w_chroma = clamp(s / 0.01, 0.0, 1.0);
-        let ss = 1.0 + (shift.y - 1.0) * w_chroma;
+        ss = 1.0 + (shift.y - 1.0) * w_chroma;
         let vs = 1.0 + (shift.z - 1.0) * w_chroma;
-        h = rem_euclid(target_hsv.x - shift.x * w_chroma, 360.0);
-        s = clamp(target_hsv.y / max(ss, 1e-6), 0.0, 1.0);
-        v = target_hsv.z / max(vs, 1e-6);
+        h = rem_euclid(tgt.x - shift.x * w_chroma, 360.0);
+        s = select(clamp(tgt.y / max(ss, 1e-6), 0.0, 1.0), 1.0, lift > 0.0);
+        v = tgt.z / max(vs, 1e-6);
     }
     var out = hsv_to_rgb(h, s, v);
     if (params.srgb != 0u) {
         out = vec3<f32>(srgb_decode(out.x), srgb_decode(out.y), srgb_decode(out.z));
     }
-    return out - vec3<f32>(lift, lift, lift);
+    var x = out - vec3<f32>(lift, lift, lift);
+    if ((lift > 0.0 || s >= 1.0) && ss < 1.0) {
+        for (var k = 0u; k < params.refine_steps; k = k + 1u) {
+            x = x + y - apply_table(x, w);
+        }
+    }
+    return x;
 }
 
 @compute @workgroup_size(64)

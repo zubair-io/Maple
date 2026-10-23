@@ -93,6 +93,38 @@ pub(crate) unsafe fn wb_hsm_from_flat<'a>(
     )
 }
 
+/// The GPU WB pass's retargeted HueSatMap (#5099) for the GPU-live params,
+/// borrowing the host's wire for the call; `None` without a valid wire or
+/// inside the identity band. Callers engage it only on the frame-anchored
+/// delta, whose Rec.2020 matrix is `wb_matrix`.
+#[cfg(feature = "gpu")]
+pub(crate) fn gpu_hsm_inputs<'a>(
+    p: &'a crate::gpu_live::MapleGpuLiveParams,
+    wb_frame: &raw_core::stages::wb_camera::SliderFrameExport,
+    wb_matrix: [[f32; 3]; 3],
+) -> Option<raw_gpu::WbHsmInputs<'a>> {
+    // SAFETY: the host keeps `wb_hsm_ptr` valid for `wb_hsm_len` f32s for
+    // the synchronous render call that owns `p`.
+    let view = unsafe {
+        wb_hsm_from_flat(
+            p.wb_hsm_ptr,
+            p.wb_hsm_len,
+            p.wb_hsm_as_shot_cct,
+            p.wb_hsm_exposure_gain,
+        )
+    }?;
+    let tick = view.live_delta(
+        wb_frame,
+        raw_core::math::Matrix3(wb_matrix),
+        (p.temperature, p.tint),
+        (p.decoded_temperature, p.decoded_tint),
+    )?;
+    let tables = raw_gpu::WbHsmTables::Borrowed(view.tables);
+    Some(raw_core::gpu_host::white_balance::wb_hsm_inputs(
+        &view, tables, &tick,
+    ))
+}
+
 /// The process-lifetime copy of a HueSatMap endpoint wire (#5099), shared by
 /// every decode of a body with the same profile tables. The decode buffer
 /// hands hosts this pointer and never frees it, so a host stores it with
