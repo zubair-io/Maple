@@ -17,10 +17,9 @@ final class NativeDetailHazeCache: @unchecked Sendable {
 
   private let lock = NSLock()
   private var entry: Entry?
-  #if DEBUG
-    private var measured = 0
-    var measurements: Int { lock.withLock { measured } }
-  #endif
+  private var measured = 0
+  /// How many lookups measured; tests assert a hit measures nothing.
+  var measurements: Int { lock.withLock { measured } }
 
   /// The maps for `frame` under `key`, measuring with `measure` on a miss.
   /// The lock is not held while measuring, so a superseded patch never
@@ -35,9 +34,7 @@ final class NativeDetailHazeCache: @unchecked Sendable {
     if let cached { return cached.map }
     let map = try measure()
     lock.withLock {
-      #if DEBUG
-        measured += 1
-      #endif
+      measured += 1
       entry = Entry(frame: frame, key: key, map: map)
     }
     return map
