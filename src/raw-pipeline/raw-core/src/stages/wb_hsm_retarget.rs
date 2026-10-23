@@ -14,7 +14,7 @@
 //! [`SliderFrameExport::rec2020_delta_matrix`] already derives (moved into
 //! ProPhoto), and `H_w` the HueSatMap blended between the two endpoint
 //! tables at weight `w`. `H_A⁻¹` is a fixed-point inverse
-//! ([`HSM_INVERSE_ITERATIONS`] steps) and `floor` the develop's DCP exit soft
+//! ([`HSM_INVERSE_ITERATIONS`] steps, solved in HSV) and `floor` the develop's DCP exit soft
 //! floor (uniform lift of a negative channel). The endpoint tables are session-constant:
 //! a tick only recomputes two weights and three 3×3 matrices.
 //!
@@ -39,12 +39,12 @@ use super::{camera_neutral_for, is_as_shot_target, SliderFrame, SliderFrameExpor
 /// Header floats ahead of the two tables on the flat wire.
 const HEADER_LEN: usize = 6;
 
-/// Fixed-point steps of the anchor-table inverse, as `hsm::invert_one`.
-/// Each step shrinks the residual by roughly the table's local slope. Four
-/// leave test_0007 at mean ΔE00 < 1e-4 against a fresh develop, and the
-/// steep synthetic value-axis tables of `wb_hsm_retarget_tests` under 1.7e-3
-/// scene-linear (under half an 8-bit step at mid-grey), where twelve reach float noise;
-/// each step is one table evaluation per pixel per tick.
+/// Steps of the anchor-table inverse (`hsm::invert_one_blended`, solved in
+/// HSV). Each step leaves an error proportional to how fast the table
+/// varies across the lattice: four leave test_0005 and test_0007 at mean
+/// ΔE00 ≤ 0.011 against a fresh develop and the synthetic tables of
+/// `wb_hsm_retarget_tests` within 2e-5 scene-linear; each step is one
+/// table evaluation per pixel per tick.
 pub const HSM_INVERSE_ITERATIONS: u32 = 4;
 
 /// The render profile's own CCT for a slider target — the illuminant its
@@ -266,11 +266,14 @@ impl<'a> HsmRetargetView<'a> {
 
     /// One Rec.2020 pixel through the module-doc composition.
     pub fn apply_pixel(&self, d: &HsmLiveDelta, rgb: Vec3) -> Vec3 {
-        let p = d.to_pro.mul_vec(rgb);
-        let x = (0..d.inverse_iterations).fold(p, |x, _| {
-            let y = self.apply_table(x, d.w_anchor);
-            [x[0] + p[0] - y[0], x[1] + p[1] - y[1], x[2] + p[2] - y[2]]
-        });
+        let x = hsm::invert_one_blended(
+            d.to_pro.mul_vec(rgb),
+            self.dims,
+            self.encoding,
+            self.cold_warm(),
+            d.w_anchor,
+            d.inverse_iterations,
+        );
         let moved = self.apply_table(d.delta_pro.mul_vec(x), d.w_target);
         let out = d.from_pro.mul_vec(moved);
         let lift = (-out[0].min(out[1]).min(out[2])).max(0.0);

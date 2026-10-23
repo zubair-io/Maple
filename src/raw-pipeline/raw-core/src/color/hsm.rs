@@ -183,6 +183,51 @@ pub fn apply_one_blended(
     })
 }
 
+/// The pre-image of `y` under [`apply_one_blended`], solved in HSV: the
+/// table shifts hue additively and scales saturation and value, so each
+/// step reads the shift at the current estimate and undoes it directly
+/// (`h = h' − Δh`, `s = s' / ss`, `v = v' / vs`). That converges at the
+/// rate the table varies across the lattice, not at its magnitude, so a
+/// strong saturation boost (1.8× on a bundled GFX 50S table) converges as
+/// fast as a gentle one, where an RGB-space fixed point stalls. A
+/// saturation clipped at 1 has no unique pre-image; the smallest one is
+/// returned, which the forward table maps back to the same clip.
+pub fn invert_one_blended(
+    y: [f32; 3],
+    dims: [u32; 3],
+    encoding: HsmEncoding,
+    tables: (&[f32], &[f32]),
+    t: f32,
+    iterations: u32,
+) -> [f32; 3] {
+    let lift = (-y[0].min(y[1]).min(y[2])).max(0.0);
+    let lifted = [y[0] + lift, y[1] + lift, y[2] + lift];
+    let encoded = if matches!(encoding, HsmEncoding::Srgb) {
+        lifted.map(linear_to_srgb_one)
+    } else {
+        lifted
+    };
+    let (h2, s2, v2) = rgb_to_hsv(encoded);
+    let (h, s, v) = (0..iterations).fold((h2, s2, v2), |(h, s, v), _| {
+        let (hd, ss, vs) = lookup_blended(dims, tables, t, h, s, v);
+        let w_chroma = (s / 0.01).clamp(0.0, 1.0);
+        let ss = 1.0 + (ss - 1.0) * w_chroma;
+        let vs = 1.0 + (vs - 1.0) * w_chroma;
+        (
+            (h2 - hd * w_chroma).rem_euclid(360.0),
+            (s2 / ss.max(1e-6)).clamp(0.0, 1.0),
+            v2 / vs.max(1e-6),
+        )
+    });
+    let rgb = hsv_to_rgb(h, s, v);
+    let decoded = if matches!(encoding, HsmEncoding::Srgb) {
+        rgb.map(srgb_to_linear_one)
+    } else {
+        rgb
+    };
+    [decoded[0] - lift, decoded[1] - lift, decoded[2] - lift]
+}
+
 /// The interpolated (hueDelta, satScale, valScale) of the `t`-blend of two
 /// same-shape tables at `(hue, sat, val)`. See [`apply_one_blended`].
 #[inline]

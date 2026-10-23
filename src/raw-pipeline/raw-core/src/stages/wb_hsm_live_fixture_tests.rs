@@ -87,19 +87,20 @@ pub(crate) fn seam_stats(a: &[u8], b: &[u8]) -> SeamStats {
 }
 
 /// Realistic and extreme drags off a fixture's as-shot `anchor`, each with
-/// its ceiling, for every fixture whose HueSatMap moves. Landing on
-/// test_0007 (512 px long edge) with the HueSatMap carried: mean/p95
-/// 0.000 at every drag, at most 2 pixels past 1 ΔE00 (max 3.0, 11 u8 steps,
-/// at the extremes, where the table's saturation clamp has no exact
-/// inverse). The plain 3×3 it replaces: mean 0.11 (warm 500 K) to 1.78
-/// (2000 K), max channel up to 27.
+/// its ceiling, for every fixture whose HueSatMap moves (test_0005, Fujifilm
+/// GFX 50S with its bundled tables, and test_0007, Canon 5D Mark III). With
+/// the HueSatMap carried, at 512 px: mean ΔE00 ≤ 0.011 and p95 0.000 at
+/// every drag. The outliers, at most 227 of 174,592 pixels past 1 ΔE00 (max
+/// 5.9, 15 u8 steps), sit where the as-shot bake clipped a saturation the
+/// GFX table boosts up to 1.85×, which no inverse can recover. The plain 3×3
+/// it replaces: mean 0.11 to 7.1, max channel up to 64.
 pub(crate) fn seam_cases(anchor: (f32, f32)) -> [(&'static str, (f32, f32), SeamStats); 6] {
     let drag = SeamStats {
         mean: 0.02,
         p95: 0.05,
-        max: 3.5,
-        over_one: 8,
-        max_channel: 13,
+        max: 6.5,
+        over_one: 400,
+        max_channel: 16,
     };
     [
         (
@@ -124,6 +125,39 @@ pub(crate) fn seam_cases(anchor: (f32, f32)) -> [(&'static str, (f32, f32), Seam
 /// The case failures of one fixture, or `None` when its profile's HueSatMap
 /// does not move with white balance (the plain 3×3 is then the whole story).
 fn seam_failures(raw: &crate::image::RawImage, name: &str) -> Option<Vec<String>> {
+    let runs = seam_runs(raw, name, &AdjustmentModel::default())?;
+    Some(
+        runs.into_iter()
+            .filter_map(|run| {
+                (!run.with_hsm.within(&run.ceiling)).then(|| {
+                    format!(
+                        "{name} [{}] {:?} over {:?}",
+                        run.case, run.with_hsm, run.ceiling
+                    )
+                })
+            })
+            .collect(),
+    )
+}
+
+/// One drag's live-vs-refine agreement with the HueSatMap carried and
+/// with the plain 3×3, against that drag's ceiling.
+struct SeamRun {
+    case: &'static str,
+    ceiling: SeamStats,
+    with_hsm: SeamStats,
+    plain: SeamStats,
+}
+
+/// Every [`seam_cases`] drag of one fixture over a bake that keeps
+/// `prefix`'s decode-product stages (capture sharpening, chroma
+/// pre-filter, deep denoise). `None` when the fixture's HueSatMap does not
+/// move with white balance (the plain 3×3 is then the whole story).
+fn seam_runs(
+    raw: &crate::image::RawImage,
+    name: &str,
+    prefix: &AdjustmentModel,
+) -> Option<Vec<SeamRun>> {
     let (profile, source) = dcp::profile_for_with_source(raw).ok()?;
     // The decode exports no frame for these tiers (`wb_exports`), so no live
     // HueSatMap either.
@@ -139,7 +173,7 @@ fn seam_failures(raw: &crate::image::RawImage, name: &str) -> Option<Vec<String>
         sharpen_amount: 0.0,
         nr_color: 0.0,
         nr_luminance: 0.0,
-        ..AdjustmentModel::default()
+        ..prefix.clone()
     };
     let develop = |model: &AdjustmentModel| {
         render_scene_linear_sized_from_raw_with_quality_f32_cancellable(
@@ -152,9 +186,9 @@ fn seam_failures(raw: &crate::image::RawImage, name: &str) -> Option<Vec<String>
         .expect("develop")
     };
     let (w, h, bake) = develop(&bake_model);
-    let failures = seam_cases(anchor)
+    let runs = seam_cases(anchor)
         .into_iter()
-        .filter_map(|(case, target, ceiling)| {
+        .map(|(case, target, ceiling)| {
             let model = AdjustmentModel {
                 temperature: target.0,
                 tint: target.1,
@@ -163,27 +197,39 @@ fn seam_failures(raw: &crate::image::RawImage, name: &str) -> Option<Vec<String>
                 ..bake_model.clone()
             };
             let (_, _, refine) = develop(&model);
-            let live = apply_scene_linear_chain_f32(
-                &bake,
-                w,
-                h,
-                &model,
-                &ChainOptions {
-                    decoded_temp: anchor.0,
-                    decoded_tint: anchor.1,
-                    wb_frame: Some(&frame),
-                    wb_hsm: Some(hsm.view(1.0)),
-                    skip_agx: true,
-                    ..ChainOptions::default()
-                },
-            )
-            .expect("live chain");
-            let s = seam_stats(&display_u8(&live, w, h), &display_u8(&refine, w, h));
-            eprintln!("{name} CPU live-vs-refine [{case}] @ {target:?}: {s:?}");
-            (!s.within(&ceiling)).then(|| format!("{name} [{case}] {s:?} over {ceiling:?}"))
+            let refine_u8 = display_u8(&refine, w, h);
+            let live = |wb_hsm| {
+                let out = apply_scene_linear_chain_f32(
+                    &bake,
+                    w,
+                    h,
+                    &model,
+                    &ChainOptions {
+                        decoded_temp: anchor.0,
+                        decoded_tint: anchor.1,
+                        wb_frame: Some(&frame),
+                        wb_hsm,
+                        skip_agx: true,
+                        ..ChainOptions::default()
+                    },
+                )
+                .expect("live chain");
+                seam_stats(&display_u8(&out, w, h), &refine_u8)
+            };
+            let run = SeamRun {
+                case,
+                ceiling,
+                with_hsm: live(Some(hsm.view(1.0))),
+                plain: live(None),
+            };
+            eprintln!(
+                "{name} CPU live-vs-refine [{case}] @ {target:?}: HSM {:?} | plain {:?}",
+                run.with_hsm, run.plain
+            );
+            run
         })
         .collect();
-    Some(failures)
+    Some(runs)
 }
 
 /// Every fixture whose profile moves its HueSatMap with white balance;
@@ -221,4 +267,75 @@ fn cpu_live_wb_drag_matches_refine_on_every_moving_hsm_fixture() {
         failures.is_empty(),
         "live-vs-refine seam over budget: {failures:#?}"
     );
+}
+
+/// Capture sharpening, the chroma pre-filter and deep denoise run after
+/// DCP inside the decode product, so the live delta undoes the anchor's
+/// HueSatMap on an already filtered buffer: `H_A⁻¹(S(H_A(x)))` where a
+/// refine has `S(H_T(x))`. For a smooth table the conjugation is `S` to
+/// first order, which leaves capture sharpening (near-linear, per channel)
+/// at a small residual. The chroma pre-filter and deep denoise do not
+/// commute with any white-balance change, HueSatMap or not; that residual
+/// predates #5099, the plain 3×3 carries it too, and the refine pass
+/// resolves it on release. Measured on test_0007 at 512 px, HSM vs plain
+/// mean ΔE00 at 2000 K: capture 0.033 vs 1.76, chroma 0.59 vs 1.87, deep
+/// denoise 0.73 vs 2.02. The gate: capture sharpening stays inside a
+/// near-seamless ceiling, and every stage keeps the HueSatMap delta at or
+/// ahead of the plain 3×3 on every drag.
+#[test]
+#[cfg_attr(
+    not(feature = "fixtures"),
+    ignore = "needs test-fixtures/raws (fixtures feature)"
+)]
+fn spatial_prefix_stages_keep_the_hsm_delta_ahead_of_the_plain_3x3_test_0007() {
+    let path = crate::test_support::fixtures::require_raw("test_0007.DNG");
+    let raw = crate::decode::decode(&path).expect("decode test_0007");
+    let sharpened_ceiling = SeamStats {
+        mean: 0.06,
+        p95: 0.6,
+        max: 3.0,
+        over_one: 2000,
+        max_channel: 16,
+    };
+    let stages = [
+        (
+            "capture sharpening",
+            AdjustmentModel {
+                capture_sharpening_amount: 100.0,
+                ..AdjustmentModel::default()
+            },
+        ),
+        (
+            "chroma pre-filter",
+            AdjustmentModel {
+                chroma_prefilter: 60.0,
+                ..AdjustmentModel::default()
+            },
+        ),
+        (
+            "deep denoise",
+            AdjustmentModel {
+                deep_denoise: 50.0,
+                ..AdjustmentModel::default()
+            },
+        ),
+    ];
+    let failures: Vec<String> = stages
+        .iter()
+        .flat_map(|(stage, prefix)| {
+            let runs = seam_runs(&raw, stage, prefix).expect("test_0007 moves its HueSatMap");
+            runs.into_iter().filter_map(move |run| {
+                let behind = run.with_hsm.mean > run.plain.mean + 1e-4;
+                let sharpened_over =
+                    *stage == "capture sharpening" && !run.with_hsm.within(&sharpened_ceiling);
+                (behind || sharpened_over).then(|| {
+                    format!(
+                        "{stage} [{}]: HSM {:?} vs plain {:?}",
+                        run.case, run.with_hsm, run.plain
+                    )
+                })
+            })
+        })
+        .collect();
+    assert!(failures.is_empty(), "{failures:#?}");
 }
