@@ -367,4 +367,23 @@ fn detail_dehaze_tiles_from_the_retained_map_and_keeps_it_across_amount_moves() 
         &measured,
         last.haze.as_ref().expect("still engaged")
     ));
+    // Dragging the only per-mask dehaze layer keeps its map too (#3287).
+    let layered = |amount: f32| AdjustmentModel {
+        local_adjustments: vec![crate::types::LocalAdjustment::radial(
+            crate::types::Point2::new(0.5, 0.5),
+            crate::types::Point2::new(0.3, 0.3),
+            crate::types::PartialAdjustments {
+                dehaze: Some(amount),
+                ..Default::default()
+            },
+        )],
+        ..model.clone()
+    };
+    let (_, _, _, first) = retained(&layered(20.0), Some(last));
+    let kept = first.haze.clone().expect("layer dehaze measures");
+    let (_, _, _, dragged) = retained(&layered(70.0), Some(first));
+    assert!(std::sync::Arc::ptr_eq(
+        &kept,
+        dragged.haze.as_ref().unwrap()
+    ));
 }

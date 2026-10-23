@@ -13,7 +13,7 @@ use crate::image::{ColorSpace, Image};
 
 #[path = "dehaze_map.rs"]
 mod map;
-pub use map::{downsample_to_proxy, proxy_dims, HazeMap, HAZE_PROXY_LONG_EDGE};
+pub use map::{proxy_dims, HazeMap, HAZE_PROXY_LONG_EDGE};
 
 /// Existing dark-channel transmission factor, shared with generated WGSL.
 pub const TRANSMISSION_OMEGA: f32 = 0.95;
@@ -67,16 +67,40 @@ impl FrameHaze {
     }
 }
 
-/// The part of `model` a [`FrameHaze`] depends on, for keying a retained one:
-/// the model itself, except that the global amount drops out when no layer
-/// engages dehaze (each layer's map is measured downstream of the global
-/// stage, so it does depend on the global amount). Two models with equal
-/// keys measure equal maps.
+/// The part of `model` a [`FrameHaze`] depends on, for keying a retained one.
+/// A dehaze amount matters only through the maps measured downstream of it:
+/// the global amount feeds every layer's map, a layer's amount feeds later
+/// layers' maps, and the last dehaze layer's amount feeds none. Those amounts
+/// with no downstream map are reduced to whether they engage (which decides
+/// whether their own map exists), so dragging them keeps the key. Two models
+/// with equal keys measure equal maps.
 pub fn haze_key(model: &crate::xmp::AdjustmentModel) -> crate::xmp::AdjustmentModel {
-    let layered =
-        crate::stages::local_adjustments::spatial::any_dehaze_engaged(&model.local_adjustments);
+    let engagement = |v: f32| if engaged(v) { 1.0 } else { 0.0 };
+    let last = model
+        .local_adjustments
+        .iter()
+        .rposition(|layer| layer.adjustments.dehaze.is_some_and(engaged));
+    let local_adjustments = model
+        .local_adjustments
+        .iter()
+        .enumerate()
+        .map(|(i, layer)| match Some(i) == last {
+            true => crate::types::LocalAdjustment {
+                adjustments: crate::types::PartialAdjustments {
+                    dehaze: layer.adjustments.dehaze.map(engagement),
+                    ..layer.adjustments.clone()
+                },
+                ..layer.clone()
+            },
+            false => layer.clone(),
+        })
+        .collect();
     crate::xmp::AdjustmentModel {
-        dehaze: if layered { model.dehaze } else { 0.0 },
+        dehaze: match last {
+            Some(_) => model.dehaze,
+            None => engagement(model.dehaze),
+        },
+        local_adjustments,
         ..model.clone()
     }
 }

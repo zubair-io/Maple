@@ -42,9 +42,9 @@ pub(super) fn missing_map() -> Error {
 }
 
 /// The haze maps the per-tick chain measures for `model` on this whole
-/// frame (`frame_rgba`, f32 RGBA, the same decoded scene-linear buffer the
-/// whole-image chain is fed, at any resolution; above the proxy grid it is
-/// first block-averaged onto it). `None` when dehaze is off
+/// frame (`frame_rgba`, f32 RGBA): hand it the same decoded scene-linear
+/// buffer, at the same resolution, the whole-image chain is fed, and the
+/// maps equal the ones that chain measures. `None` when dehaze is off
 /// everywhere. Hand them to a windowed render of the same frame through
 /// [`ChainOptions::haze_map`]; they stay valid while `model` changes only in
 /// its dehaze amounts or in stages after the ones they were measured at.
@@ -94,15 +94,13 @@ pub fn scene_linear_chain_haze_map_cancellable(
         haze_map: None,
         ..*options
     };
-    // A frame larger than the proxy grid runs the chain at the grid's size:
-    // every host then measures from the same resolution, and a 200 MP raster
-    // never runs clarity at full size just to feed a 2048-texel map.
-    let unpacked = super::endcaps::unpack_f32(frame_rgba, width, height);
-    let mut img = dehaze::downsample_to_proxy(crate::image::Image {
-        whites_anchor_ev: options.whites_anchor_ev,
-        nr_sampling_scale: options.nr_sampling_scale,
-        ..unpacked
-    });
+    // The prefix runs at the frame's own resolution, exactly as the
+    // whole-frame chain runs it: tone curves, clarity and texture do not
+    // commute with the proxy's downsample, so measuring after a smaller
+    // prefix would hand a window another frame's map.
+    let mut img = super::endcaps::unpack_f32(frame_rgba, width, height);
+    img.whites_anchor_ev = options.whites_anchor_ev;
+    img.nr_sampling_scale = options.nr_sampling_scale;
     apply_pre_dehaze(&mut img, model, &whole, cancel)?;
     let global = dehaze::engaged(model.dehaze).then(|| HazeMap::measure(&img));
     if !local_adjustments::spatial::any_dehaze_engaged(&model.local_adjustments) {

@@ -118,15 +118,6 @@ pub unsafe extern "C" fn maple_scene_linear_chain_haze_map_f32(
     })
 }
 
-/// Long edge of the grid the haze maps are measured on, so a host can hand
-/// over its frame at no more than that size.
-#[no_mangle]
-pub extern "C" fn maple_dehaze_proxy_long_edge() -> u32 {
-    crate::error::catch_panic("maple_dehaze_proxy_long_edge", 0, || {
-        dehaze::HAZE_PROXY_LONG_EDGE
-    })
-}
-
 /// Free a map from [`maple_scene_linear_chain_haze_map_f32`]. Null is a no-op.
 ///
 /// # Safety
