@@ -53,6 +53,20 @@ val toneCurveFieldNames =
 val toneCurveFields: List<AdjustmentField>
     get() = toneCurveFieldNames.map(AdjustmentFields.byName::getValue)
 
+val geometryFieldNames =
+    listOf(
+        "perspective_vertical",
+        "perspective_horizontal",
+        "perspective_rotate",
+        "perspective_scale",
+        "perspective_aspect",
+        "perspective_x",
+        "perspective_y",
+    )
+
+val geometryFields: List<AdjustmentField>
+    get() = geometryFieldNames.map(AdjustmentFields.byName::getValue)
+
 fun subToolsFor(group: EditorGroup): List<EditorSubTool> =
     when (group) {
         EditorGroup.Light ->
@@ -66,7 +80,11 @@ fun subToolsFor(group: EditorGroup): List<EditorSubTool> =
         EditorGroup.Effects ->
             listOf(EditorSubTool("basic", "Basic"), EditorSubTool("presets", "Presets"))
         EditorGroup.Detail ->
-            listOf(EditorSubTool("basic", "Basic"), EditorSubTool("crop", "Crop"))
+            listOf(
+                EditorSubTool("basic", "Basic"),
+                EditorSubTool("crop", "Crop"),
+                EditorSubTool("geometry", "Geometry"),
+            )
     }
 
 fun fieldsForSubTool(
@@ -77,6 +95,7 @@ fun fieldsForSubTool(
     when {
         group == EditorGroup.Detail && subToolId == "crop" -> emptyList()
         group == EditorGroup.Light && subToolId == "curve" -> toneCurveFields
+        group == EditorGroup.Detail && subToolId == "geometry" -> geometryFields
         fullInspector -> group.fields
         else -> group.tools.map { AdjustmentFields.byName.getValue(it.field) }
     }

@@ -1,6 +1,8 @@
 package app.justmaple.aperture.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -12,6 +14,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -23,10 +27,12 @@ import app.justmaple.aperture.MapleViewModel
 import app.justmaple.aperture.generated.AdjustmentFields
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import app.justmaple.aperture.data.NativeBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * Built-in presets matching Apple's `builtin-presets.json` (#5193).
@@ -35,6 +41,7 @@ data class BuiltInPreset(
     val id: String,
     val name: String,
     val fields: Map<String, Float>,
+    val userCreated: Boolean = false,
 )
 
 val builtInPresets: List<BuiltInPreset> =
@@ -45,6 +52,66 @@ val builtInPresets: List<BuiltInPreset> =
         BuiltInPreset("builtin-no-sharpening", "No Sharpening", mapOf("sharpen_amount" to 0f)),
         BuiltInPreset("builtin-no-color-nr", "No Color NR", mapOf("nr_color" to 0f)),
     )
+
+fun encodeUserPresetsJson(presets: List<BuiltInPreset>): String {
+    val array = JSONArray()
+    for (preset in presets) {
+        val fieldsObj = JSONObject()
+        for ((k, v) in preset.fields) fieldsObj.put(k, v.toDouble())
+        array.put(
+            JSONObject()
+                .put("id", preset.id)
+                .put("name", preset.name)
+                .put("fields", fieldsObj)
+        )
+    }
+    return array.toString()
+}
+
+fun decodeUserPresetsJson(raw: String?): List<BuiltInPreset> {
+    if (raw.isNullOrBlank()) return emptyList()
+    return runCatching {
+        val array = JSONArray(raw)
+        buildList {
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                val id = obj.optString("id").takeIf { it.isNotBlank() } ?: continue
+                val name = obj.optString("name").takeIf { it.isNotBlank() } ?: continue
+                val fieldsObj = obj.optJSONObject("fields") ?: continue
+                val fields = mutableMapOf<String, Float>()
+                val keys = fieldsObj.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    if (key in AdjustmentFields.byName) {
+                        val v = fieldsObj.optDouble(key)
+                        if (v.isFinite()) fields[key] = v.toFloat()
+                    }
+                }
+                if (fields.isNotEmpty()) {
+                    add(BuiltInPreset(id = id, name = name, fields = fields, userCreated = true))
+                }
+            }
+        }
+    }.getOrDefault(emptyList())
+}
+
+fun MapleState.savablePresetFields(): Map<String, Float> {
+    val currentValues = this.values
+    return buildMap {
+        for ((name, value) in currentValues) {
+            val spec = AdjustmentFields.byName[name] ?: continue
+            val baseline =
+                when (name) {
+                    "temperature" -> currentValues["_shot_temperature"] ?: spec.initial
+                    "tint" -> currentValues["_shot_tint"] ?: spec.initial
+                    else -> spec.initial
+                }
+            if (abs(value - baseline) > 1e-4f) {
+                put(name, value)
+            }
+        }
+    }
+}
 
 fun MapleViewModel.applyBuiltInPreset(preset: BuiltInPreset) {
     preset.fields.forEach { (name, value) -> setField(name, value) }
@@ -64,35 +131,134 @@ internal fun BuiltInPresetsRow(
     state: MapleState,
     modifier: Modifier = Modifier,
 ) {
+    var saveDialogOpen by remember { mutableStateOf(false) }
+    var presetName by remember { mutableStateOf("") }
+    val savableFields = remember(state.values) { state.savablePresetFields() }
+    val allPresets = remember(state.userPresets) { builtInPresets + state.userPresets }
+
     Column(modifier.fillMaxWidth().testTag("editor-presets-section")) {
         LazyRow(
             Modifier.fillMaxWidth().testTag("editor-presets-row"),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            items(builtInPresets, key = { it.id }) { preset ->
+            items(allPresets, key = { it.id }) { preset ->
                 val active = state.isPresetActive(preset)
                 val supported =
                     preset.fields.keys.all {
                         AdjustmentFields.byName[it]?.let(state::supportsField) == true
                     }
-                FilterChip(
-                    selected = active,
-                    onClick = { model.applyBuiltInPreset(preset) },
-                    enabled = state.canEdit && supported,
-                    label = { Text(preset.name, fontSize = 12.sp) },
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FilterChip(
+                        selected = active,
+                        onClick = { model.applyBuiltInPreset(preset) },
+                        enabled = state.canEdit && supported,
+                        label = { Text(preset.name, fontSize = 12.sp) },
+                        modifier =
+                            Modifier.semantics { contentDescription = "Preset ${preset.name}" }
+                                .testTag("preset-chip-${preset.id}"),
+                    )
+                    if (preset.userCreated) {
+                        TextButton(
+                            onClick = { model.deleteUserPreset(preset.id) },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                            modifier =
+                                Modifier.semantics {
+                                        contentDescription = "Delete preset ${preset.name}"
+                                    }
+                                    .testTag("delete-preset-${preset.id}"),
+                        ) {
+                            Text("×", fontSize = 14.sp, color = MapleColors.muted)
+                        }
+                    }
+                }
+            }
+            item(key = "save-user-preset") {
+                AssistChip(
+                    onClick = {
+                        presetName = "Preset ${state.userPresets.size + 1}"
+                        saveDialogOpen = true
+                    },
+                    enabled = state.canEdit && savableFields.isNotEmpty(),
+                    label = { Text("+ Save Preset", fontSize = 12.sp) },
                     modifier =
-                        Modifier.semantics { contentDescription = "Preset ${preset.name}" }
-                            .testTag("preset-chip-${preset.id}"),
+                        Modifier.semantics { contentDescription = "Save current edits as preset" }
+                            .testTag("save-user-preset-chip"),
                 )
             }
         }
     }
+
+    if (saveDialogOpen) {
+        AlertDialog(
+            onDismissRequest = { saveDialogOpen = false },
+            title = { Text("Save User Preset") },
+            text = {
+                OutlinedTextField(
+                    value = presetName,
+                    onValueChange = { presetName = it },
+                    label = { Text("Preset name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("save-preset-name-input"),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        model.saveUserPreset(presetName)
+                        saveDialogOpen = false
+                    },
+                    enabled = presetName.isNotBlank() && savableFields.isNotEmpty(),
+                    modifier = Modifier.testTag("confirm-save-preset-button"),
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { saveDialogOpen = false }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+/**
+ * Maps a normalized horizontal position `nx` in `[0, 1]` on the parametric tone curve plot
+ * to the corresponding parametric zone field name (`parametric_shadows`, `parametric_darks`,
+ * `parametric_lights`, or `parametric_highlights`) using the current split points.
+ */
+fun toneCurveZoneFieldForX(
+    nx: Float,
+    shadowSplit: Float = 25f,
+    midtoneSplit: Float = 50f,
+    highlightSplit: Float = 75f,
+): String {
+    val s = (shadowSplit / 100f).coerceIn(0.1f, 0.9f)
+    val m = (midtoneSplit / 100f).coerceIn(s, 0.9f)
+    val h = (highlightSplit / 100f).coerceIn(m, 0.95f)
+    return when {
+        nx < s -> "parametric_shadows"
+        nx < m -> "parametric_darks"
+        nx < h -> "parametric_lights"
+        else -> "parametric_highlights"
+    }
+}
+
+/**
+ * Maps a normalized vertical coordinate `ny` in `[0, 1]` (top = 0, bottom = 1) at horizontal
+ * coordinate `nx` in `[0, 1]` to a parametric zone slider value in `[-100, +100]`.
+ * Above the identity diagonal (`1 - ny > nx`) raises the zone; below lowers it.
+ */
+fun toneCurveValueForPoint(nx: Float, ny: Float): Float {
+    val targetY = (1f - ny).coerceIn(0f, 1f)
+    val base = nx.coerceIn(0f, 1f)
+    return ((targetY - base) * 200f).roundToInt().toFloat().coerceIn(-100f, 100f)
 }
 
 @Composable
 internal fun ParametricToneCurvePlot(
     state: MapleState,
     modifier: Modifier = Modifier,
+    model: MapleViewModel? = null,
 ) {
     val shadows = state.values["parametric_shadows"] ?: 0f
     val darks = state.values["parametric_darks"] ?: 0f
@@ -101,6 +267,8 @@ internal fun ParametricToneCurvePlot(
     val sSplit = state.values["parametric_shadow_split"] ?: 25f
     val mSplit = state.values["parametric_midtone_split"] ?: 50f
     val hSplit = state.values["parametric_highlight_split"] ?: 75f
+    val currentSplits by rememberUpdatedState(Triple(sSplit, mSplit, hSplit))
+    val currentCanEdit by rememberUpdatedState(state.canEdit)
     val xml = remember(shadows, darks, lights, highlights, sSplit, mSplit, hSplit) {
         state.document.serialize()
     }
@@ -126,6 +294,38 @@ internal fun ParametricToneCurvePlot(
     ) {
         Box(
             Modifier.size(180.dp)
+                .pointerInput(model) {
+                    if (model == null) return@pointerInput
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        if (!currentCanEdit) return@awaitEachGesture
+                        val w = size.width.toFloat().coerceAtLeast(1f)
+                        val h = size.height.toFloat().coerceAtLeast(1f)
+                        val (s, m, hl) = currentSplits
+                        val startNx = (down.position.x / w).coerceIn(0f, 1f)
+                        val zoneField = toneCurveZoneFieldForX(startNx, s, m, hl)
+                        model.setField(
+                            zoneField,
+                            toneCurveValueForPoint(startNx, (down.position.y / h).coerceIn(0f, 1f)),
+                        )
+                        var committed = false
+                        try {
+                            do {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.pressed } ?: break
+                                if (change.positionChanged()) {
+                                    val ny = (change.position.y / h).coerceIn(0f, 1f)
+                                    model.setField(zoneField, toneCurveValueForPoint(startNx, ny))
+                                    change.consume()
+                                }
+                            } while (event.changes.any { it.pressed })
+                            model.commitGesture()
+                            committed = true
+                        } finally {
+                            if (!committed) model.commitGesture()
+                        }
+                    }
+                }
                 .semantics {
                     contentDescription =
                         String.format(
@@ -136,7 +336,8 @@ internal fun ParametricToneCurvePlot(
                             lights,
                             highlights,
                         )
-                },
+                }
+                .testTag("tone-curve-canvas"),
         ) {
             Canvas(Modifier.fillMaxSize()) {
                 val w = size.width
@@ -154,6 +355,16 @@ internal fun ParametricToneCurvePlot(
                         color = Color.White.copy(alpha = 0.12f),
                         start = Offset(0f, h * frac),
                         end = Offset(w, h * frac),
+                        strokeWidth = 1.dp.toPx(),
+                    )
+                }
+                // Split point vertical markers
+                for (split in listOf(sSplit, mSplit, hSplit)) {
+                    val sx = (split / 100f).coerceIn(0f, 1f) * w
+                    drawLine(
+                        color = MapleColors.primary.copy(alpha = 0.25f),
+                        start = Offset(sx, 0f),
+                        end = Offset(sx, h),
                         strokeWidth = 1.dp.toPx(),
                     )
                 }
