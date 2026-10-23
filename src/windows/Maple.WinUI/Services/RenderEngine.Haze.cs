@@ -16,20 +16,19 @@ namespace Maple.WinUI.Services
             MapleChainWindow window, DecodedImage? hazeFrame, float* input, MapleAdjustmentParams* p,
             MapleToneCurves* curves, float* output)
         {
-            var haze = hazeFrame != null && DehazeEngaged(model)
-                ? MeasureHaze(hazeFrame, model, *p, curves)
-                : IntPtr.Zero;
+            var haze = hazeFrame != null && DehazeEngaged(model) ? RentHaze(hazeFrame, model, *p, curves) : null;
             try
             {
+                var handle = haze?.DangerousGetHandle() ?? IntPtr.Zero;
                 return string.IsNullOrEmpty(model.FilmLook)
                     ? RawFfi.ApplyWindow(input, (uint)image.Width, (uint)image.Height, p, curves,
-                        IntPtr.Zero, 0, &window, haze, output)
+                        IntPtr.Zero, 0, &window, handle, output)
                     : RawFfi.ApplyWindow(input, (uint)image.Width, (uint)image.Height, p, curves,
-                        film!.NativeHandle!, (float)model.FilmStrength, &window, haze, output);
+                        film!.NativeHandle!, (float)model.FilmStrength, &window, handle, output);
             }
             finally
             {
-                if (haze != IntPtr.Zero) RawFfi.maple_haze_map_free(haze);
+                haze?.DangerousRelease();
             }
         }
 
@@ -39,9 +38,9 @@ namespace Maple.WinUI.Services
 
         /// <summary>The dehaze maps of <paramref name="frame"/> under the
         /// frame's own decode anchors and the tick's pinned curves and layers
-        /// (#3287). Rust memoises the last measurement, so pans and dehaze
-        /// moves reuse it.</summary>
-        private static IntPtr MeasureHaze(DecodedImage frame, AdjustmentState model,
+        /// (#3287), from <see cref="NativeDetailHazeCache"/>: a pan or a dehaze
+        /// move hashes the parameters only and never touches the frame.</summary>
+        private static HazeMapHandle? RentHaze(DecodedImage frame, AdjustmentState model,
             MapleAdjustmentParams tick, MapleToneCurves* curves)
         {
             var p = MapleAdjustmentParams.From(
@@ -50,14 +49,23 @@ namespace Maple.WinUI.Services
             p.skip_agx = frame.IsRaster ? 1u : 0u;
             p.local_adjustments_ptr = tick.local_adjustments_ptr;
             p.local_adjustments_len = tick.local_adjustments_len;
+            var key = RawFfi.maple_scene_linear_chain_haze_key(&p, curves);
+            if (key == 0) return null;
+            return NativeDetailHazeCache.TryRent(frame, key, out var cached)
+                ? cached
+                : NativeDetailHazeCache.StoreAndRent(frame, key, MeasureHaze(frame, &p, curves));
+        }
+
+        private static HazeMapHandle? MeasureHaze(DecodedImage frame, MapleAdjustmentParams* p, MapleToneCurves* curves)
+        {
             fixed (float* framePtr = frame.Pixels)
             {
                 var rc = RawFfi.maple_scene_linear_chain_haze_map_f32(
-                    framePtr, (uint)frame.Width, (uint)frame.Height, &p, curves, out var haze);
+                    framePtr, (uint)frame.Width, (uint)frame.Height, p, curves, out var haze);
                 if (rc != 0)
                     throw new InvalidOperationException(
                         $"native-detail haze map failed (rc={rc}): {RawFfi.LastError() ?? "unknown"}");
-                return haze;
+                return haze == IntPtr.Zero ? null : new HazeMapHandle(haze);
             }
         }
     }

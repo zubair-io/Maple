@@ -30,6 +30,13 @@ public static unsafe partial class RawFfi
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern void maple_haze_map_free(IntPtr haze);
 
+    /// <summary>A digest of everything the haze maps for
+    /// <paramref name="parameters"/> depend on except the frame's pixels
+    /// (#3287); 0 when no dehaze is engaged. Allocates nothing.</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    public static extern ulong maple_scene_linear_chain_haze_key(
+        MapleAdjustmentParams* parameters, MapleToneCurves* curves);
+
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern uint maple_scene_linear_chain_window_reach_px(
         MapleAdjustmentParams* parameters, MapleChainWindow* window);
@@ -93,6 +100,19 @@ public sealed class RawDetailHandle : SafeHandleZeroOrMinusOneIsInvalid
     protected override bool ReleaseHandle()
     {
         RawFfi.maple_close_raw_handle(handle);
+        return true;
+    }
+}
+
+/// <summary>An owned <c>MapleHazeMap</c> (#3287), freed when the last user
+/// releases it.</summary>
+public sealed class HazeMapHandle : SafeHandleZeroOrMinusOneIsInvalid
+{
+    internal HazeMapHandle(IntPtr value) : base(true) => SetHandle(value);
+
+    protected override bool ReleaseHandle()
+    {
+        RawFfi.maple_haze_map_free(handle);
         return true;
     }
 }

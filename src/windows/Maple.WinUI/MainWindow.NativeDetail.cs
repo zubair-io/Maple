@@ -73,6 +73,7 @@ public sealed partial class MainWindow
         if (NativeDetailOverlay != null) NativeDetailOverlay.Visibility = Visibility.Collapsed;
         if (ZoomReadout != null) ZoomReadout.Text = "Fit";
         _ = _detailDecoder.ResetAsync();
+        NativeDetailHazeCache.Clear();
     }
 
     private double DisplayScale => ZoomHost.XamlRoot?.RasterizationScale ?? 1.0;
