@@ -138,7 +138,8 @@ class PresetsAndScopesTest {
                     app.justmaple.aperture.data.XmpDocument()
                         .withAttribute("papp:FilmLook", "kodak_portra_400")
                         .withAttribute("crs:ConvertToGrayscale", "True")
-                        .withAttribute("papp:Profile", "Neutral"),
+                        .withAttribute("papp:Profile", "Neutral")
+                        .withAttribute("papp:WbSource", "Auto"),
             )
         assertEquals(mapOf("exposure" to 0.75f), state.savablePresetFields())
         assertEquals(
@@ -146,6 +147,7 @@ class PresetsAndScopesTest {
                 "film_look" to "kodak_portra_400",
                 "black_white" to "On",
                 "profile" to "Neutral",
+                "wb_source" to "Auto",
             ),
             state.savablePresetAttributes(),
         )
