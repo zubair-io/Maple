@@ -26,13 +26,9 @@ therefore load-bearing.
 - Bundled fields: `ColorMatrix1/2`, `ForwardMatrix1/2`,
   `CalibrationIlluminant1/2`, optionally `ProfileHueSatMap1/2`
   (off by default; opt in for every body with `--include-hsm`, or per body
-  with a repeatable `--hsm-ucm`. The committed bundle carries the tables
-  for `Fujifilm GFX 50S` only (#4645): against their embedded JPEGs they
-  improved test_0005, while the GFX 50R and Leica M10 tables made
-  test_0012 and test_0017 worse. Source: `Adobe Standard/Fujifilm GFX 50S
-Adobe Standard.dcp`, sha256 `69959c20dac69b7e6af63966236cce4619de5694871949fa927767685834e1e0`;
-  regenerate with the `--hsm-ucm "Fujifilm GFX 50S"` command in
-  `convert_dcps.py`'s usage, or the tables are dropped),
+  with a repeatable `--hsm-ucm`. No body is opted in: the `Fujifilm GFX 50S`
+  tables bundled by #4645 were reverted in #5224 after the per-axis
+  HueSatMap refinement (#5145) turned them into a test_0005 regression),
   `BaselineExposureOffset`. `ProfileToneCurve` and `ProfileLookTable`
   are dropped (Maple's AgX view transform + DisplayLookCurve replace
   them).
@@ -107,9 +103,8 @@ by users, and the bundle has no entry for them today:
 1. Verify the source `.dcp` is in the upstream tooling's
    `CameraRaw/CameraProfiles/` directory.
 2. Re-run `src/scripts/convert_dcps.py` to regenerate
-   `profiles.bin`, keeping every existing `--hsm-ucm` (see the committed
-   command in its usage), then run `tools/codegen.sh`: the bundle digest
-   is stamped into the generated camera-support registry. The script walks the parent dir recursively and
+   `profiles.bin`, then run `tools/codegen.sh`: the bundle digest is
+   stamped into the generated camera-support registry. The script walks the parent dir recursively and
    picks up both the canonical `*Standard/` profiles and the
    per-creative-style variants under `Camera/<body>/`.
 3. If rawler's reported UCM doesn't match the bundle's UCM (run

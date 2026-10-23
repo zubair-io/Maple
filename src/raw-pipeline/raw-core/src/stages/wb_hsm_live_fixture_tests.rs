@@ -87,13 +87,12 @@ pub(crate) fn seam_stats(a: &[u8], b: &[u8]) -> SeamStats {
 }
 
 /// Realistic and extreme drags off a fixture's as-shot `anchor`, each with
-/// its ceiling, for every fixture whose HueSatMap moves (test_0005, Fujifilm
-/// GFX 50S with its bundled tables, and test_0007, Canon 5D Mark III). With
+/// its ceiling, for every fixture whose HueSatMap moves (test_0007, Canon
+/// 5D Mark III; test_0005 lost its bundled GFX 50S tables in #5224). With
 /// the HueSatMap carried, at 512 px: mean ΔE00 ≤ 0.011 and p95 0.000 at
-/// every drag. The outliers, at most 227 of 174,592 pixels past 1 ΔE00 (max
-/// 5.9, 15 u8 steps), sit where the as-shot bake clipped a saturation the
-/// GFX table boosts up to 1.85×, which no inverse can recover. The plain 3×3
-/// it replaces: mean 0.11 to 7.1, max channel up to 64.
+/// every drag. The ceilings also allow for pixels where the as-shot bake
+/// clipped a saturation the table boosts, which no inverse can recover. The
+/// plain 3×3 it replaces: mean 0.11 to 7.1, max channel up to 64.
 pub(crate) fn seam_cases(anchor: (f32, f32)) -> [(&'static str, (f32, f32), SeamStats); 6] {
     let drag = SeamStats {
         mean: 0.02,
@@ -277,14 +276,13 @@ fn cpu_live_wb_drag_matches_refine_on_every_moving_hsm_fixture() {
 /// at a small residual. The chroma pre-filter and deep denoise do not
 /// commute with any white-balance change, HueSatMap or not; that residual
 /// predates #5099, the plain 3×3 carries it too, and the refine pass
-/// resolves it on release. Measured at 512 px, HSM vs plain mean ΔE00 at
-/// 2000 K, test_0007 / test_0005: capture sharpening 0.033 / 0.058 vs 1.76
-/// / 5.71, chroma pre-filter 0.59 / 0.31 vs 1.87 / 5.58, deep denoise
-/// 0.72 / 0.44 vs 2.02 / 5.79. The gate: each stage changes the bake;
-/// capture sharpening stays inside its ceiling (mean 0.07; its worst pixels,
-/// max 7.5 ΔE00 / 19 u8 steps on test_0005, are the bake's clipped
-/// saturation); and every stage keeps the HueSatMap delta at or ahead of the
-/// plain 3×3 on mean, and within 0.05 of it on p95, at every drag.
+/// resolves it on release. Measured at 512 px on test_0007, HSM vs plain
+/// mean ΔE00 at 2000 K: capture sharpening 0.033 vs 1.76, chroma pre-filter
+/// 0.59 vs 1.87, deep denoise 0.72 vs 2.02. The gate: each stage changes the
+/// bake; capture sharpening stays inside its ceiling (mean 0.07); and every
+/// stage keeps the HueSatMap delta at or ahead of the plain 3×3 on mean, and
+/// within 0.05 of it on p95, at every drag. test_0005 left the set when its
+/// bundled GFX 50S tables were reverted (#5224).
 #[test]
 #[cfg_attr(
     not(feature = "fixtures"),
@@ -335,7 +333,7 @@ fn spatial_prefix_stages_keep_the_hsm_delta_ahead_of_the_plain_3x3() {
         .expect("bake")
         .2
     };
-    let failures: Vec<String> = ["test_0005.RAF", "test_0007.DNG"]
+    let failures: Vec<String> = ["test_0007.DNG"]
         .into_iter()
         .flat_map(|fixture| {
             let path = crate::test_support::fixtures::require_raw(fixture);

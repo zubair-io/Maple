@@ -374,21 +374,11 @@ fn transcode_rejects_bad_magic() {
     assert!(transcode_v1_to_v3(b"NOPExxxxxxxxxxxx").is_none());
 }
 
-/// The shipped bundle carries HSM for the GFX 50S (#4645), so its v3
-/// transcode must reference a non-empty pool.
+/// #5224: no bundled body carries HueSatMap tables, so the shipped bundle's
+/// v3 transcode has an empty HSM pool. Opting a body in with
+/// `convert_dcps.py --hsm-ucm` must update this test with gate evidence.
 #[test]
-fn shipped_bundle_v3_references_hsm_pool() {
+fn shipped_bundle_v3_has_an_empty_hsm_pool() {
     let enc = transcode_v1_to_v3(PROFILES_BIN).expect("shipped bundle transcodes");
-    assert!(
-        enc.pool_count > 0,
-        "shipped v3 bundle must reference the GFX 50S HSM pool entries"
-    );
-    let index = parse_index(&enc.idx);
-    assert!(
-        index
-            .records
-            .values()
-            .any(|r| r.hsm1_pool_index.is_some() || r.hsm2_pool_index.is_some()),
-        "at least one body must reference an HSM pool entry"
-    );
+    assert_eq!(enc.pool_count, 0);
 }

@@ -49,11 +49,9 @@ Usage:
       --src "<path-to-external-profile-directory>" \
       --out src/raw-pipeline/raw-core/src/color/profiles/profiles.bin
 
-  # The committed bundle (#4645): HSM for the GFX 50S only.
-  python3 src/scripts/convert_dcps.py \
-      --src "<...>/CameraRaw/CameraProfiles" \
-      --out src/raw-pipeline/raw-core/src/color/profiles/profiles.bin \
-      --hsm-ucm "Fujifilm GFX 50S"
+  # Opt one body into HSM (repeatable). The committed bundle opts none in:
+  # the GFX 50S tables (#4645) were reverted in #5224.
+  python3 src/scripts/convert_dcps.py --src ... --out ... --hsm-ucm "<UCM>"
 
   # Include HSM (HueSatMap data) for every body — adds ~72 MB:
   python3 src/scripts/convert_dcps.py --src ... --out ... --include-hsm
