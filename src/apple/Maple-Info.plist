@@ -1,78 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!--
-  Minimal Info.plist — exists ONLY to host CFBundleURLTypes for the
-  `maple://` URL scheme (responsive-program deep links, #624).
-
-  The Xcode 17 / SDK 26.4 Info.plist synthesizer doesn't allowlist
-  `INFOPLIST_KEY_CFBundleURLTypes`, so the equivalent
-  INFOPLIST_KEY_* build setting is silently dropped (same pattern as
-  `UIAppFonts`, `NSBonjourServices`, `NSHighResolutionCapable` —
-  verified empirically against a built `Maple.app/Contents/Info.plist`).
-  URL schemes have no runtime registration API (unlike fonts, which
-  use `CTFontManagerRegisterFontsForURL` from `MapleApp.init`), so the
-  scheme MUST land in the built plist for LaunchServices to associate
-  `maple://` with the bundle id.
-
-  `GENERATE_INFOPLIST_FILE = YES` remains on — Xcode merges this file
-  with the synthesized keys. Add unsupported-by-synthesizer keys here;
-  everything else stays in `project.pbxproj` as `INFOPLIST_KEY_*`.
--->
 <plist version="1.0">
 <dict>
-	<key>UTExportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>app.justmaple.asset-selection</string>
-			<key>UTTypeDescription</key>
-			<string>Maple Photo Selection</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-		</dict>
-	</array>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>app.justmaple.aperture</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>maple</string>
-			</array>
-		</dict>
-	</array>
-	<!--
-	  Self-hosted servers are commonly reachable directly over plain HTTP on
-	  the LAN (the Bun process itself never terminates TLS — only a public-
-	  facing reverse proxy/tunnel does). Without this, ATS blocks every
-	  LocalNetworkResolver probe/request at the network layer, so the LAN-
-	  address feature silently never activates. NSAllowsLocalNetworking (not
-	  NSAllowsArbitraryLoads) permits HTTP only to local-network hosts,
-	  leaving the HTTPS requirement intact for internet hosts.
-	-->
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
-	<!--
-	  Document-type claims (#2796). The open-file runtime has existed since
-	  #1589 (`.onOpenURL` → DocumentOpenRouter → AppShell), but without
-	  CFBundleDocumentTypes LaunchServices never lists Maple in Finder's
-	  "Open With" and iOS never offers it from the Files app.
-
-	  RAW coverage uses the `public.camera-raw-image` umbrella UTI: every
-	  system-declared vendor RAW type (DNG, CR2/CR3, NEF, ARW, RAF, ORF,
-	  IIQ, …) conforms to it, so one claim tracks the OS's own RAW
-	  knowledge without redeclaring system UTIs. Role Viewer +
-	  LSHandlerRank Alternate: Maple shows up in "Open With" and can be
-	  chosen as default by the user, but never steals double-click default
-	  from Preview/Photos on install — and Viewer is the honest role for a
-	  non-destructive editor that never writes the original.
-	-->
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -104,13 +33,34 @@
 			</array>
 		</dict>
 	</array>
-	<!--
-	  iOS: open Files-app documents in place (a security-scoped URL to the
-	  original) instead of copying into Maple's sandbox inbox — in-place is
-	  what DocumentOpenRouter's scope-holding expects, and a copy would
-	  break the sidecar-next-to-original contract. Ignored on macOS.
-	-->
-	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>app.justmaple.aperture</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>maple</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Maple Photo Selection</string>
+			<key>UTTypeIdentifier</key>
+			<string>app.justmaple.asset-selection</string>
+		</dict>
+	</array>
 </dict>
 </plist>
