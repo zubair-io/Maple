@@ -22,11 +22,11 @@ const child: SidebarEntry = {
 
 describe('MoveToTreePickerComponent', () => {
   it('can open an ineligible source folder, fetch a newly created child, and select the child', () => {
-    const refreshFolderListing = vi.fn();
+    const refreshFolderChildren = vi.fn();
     TestBed.configureTestingModule({
       imports: [MoveToTreePickerComponent],
       providers: [
-        { provide: LibraryStateService, useValue: { refreshFolderListing } },
+        { provide: LibraryStateService, useValue: { refreshFolderChildren } },
         {
           provide: DRAG_MOVE_CAPABILITY,
           useValue: {
@@ -47,9 +47,12 @@ describe('MoveToTreePickerComponent', () => {
 
     root.click();
     expect(selected).toEqual([]);
-    expect(root.getAttribute('aria-disabled')).toBe('false');
+    expect(root.getAttribute('aria-disabled')).toBe('true');
     (root.querySelector('button') as HTMLButtonElement).click();
-    expect(refreshFolderListing).toHaveBeenCalledWith(source.id);
+    expect(refreshFolderChildren).toHaveBeenCalledWith(source.id);
+    (root.querySelector('button') as HTMLButtonElement).click();
+    (root.querySelector('button') as HTMLButtonElement).click();
+    expect(refreshFolderChildren).toHaveBeenCalledTimes(1);
 
     fixture.componentRef.setInput('nodes', [{ ...source, children: [child] }]);
     fixture.detectChanges();
@@ -59,5 +62,33 @@ describe('MoveToTreePickerComponent', () => {
     expect(rows).toHaveLength(2);
     rows[1].click();
     expect(selected).toEqual([child]);
+  });
+
+  it('does not refresh a Windows filesystem path as a Maple address', () => {
+    const refreshFolderChildren = vi.fn();
+    const expandFsFolder = vi.fn();
+    const windowsFolder: SidebarEntry = {
+      kind: 'folder',
+      id: 'c:\\photos',
+      absPath: 'c:\\photos',
+      label: 'Photos',
+      count: null,
+    };
+    TestBed.configureTestingModule({
+      imports: [MoveToTreePickerComponent],
+      providers: [
+        { provide: LibraryStateService, useValue: { refreshFolderChildren, expandFsFolder } },
+        { provide: DRAG_MOVE_CAPABILITY, useValue: { dropDisabledReason: () => null } },
+      ],
+    });
+    const fixture = TestBed.createComponent(MoveToTreePickerComponent);
+    fixture.componentRef.setInput('nodes', [windowsFolder]);
+    fixture.componentRef.setInput('sourceFolderId', 'c:\\source');
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    button.click();
+    expect(refreshFolderChildren).not.toHaveBeenCalled();
+    expect(expandFsFolder).toHaveBeenCalledWith(windowsFolder);
   });
 });

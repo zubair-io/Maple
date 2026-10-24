@@ -6,10 +6,10 @@
   @let reasonId = reasonElementId(entry);
 
   <div
-    [class]="rowClass(isSelected, !!disabledReason && !expandable)"
+    [class]="rowClass(isSelected, !!disabledReason)"
     role="treeitem"
     [attr.aria-selected]="isSelected"
-    [attr.aria-disabled]="!!disabledReason && !expandable"
+    [attr.aria-disabled]="!!disabledReason"
     [attr.aria-describedby]="reasonId"
     [style.padding-left.px]="8 + level() * 16"
     [title]="titleFor(entry)"

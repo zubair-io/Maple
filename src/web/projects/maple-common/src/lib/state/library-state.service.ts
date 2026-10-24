@@ -190,6 +190,10 @@ export class LibraryStateService {
     this.fetch_.refreshFolderListing(sourceId);
   }
 
+  refreshFolderChildren(sourceId: string): void {
+    this.fetch_.refreshFolderListing(sourceId, true);
+  }
+
   absPathFor(assetId: AssetId): string | undefined {
     return this.store.absPathFor(assetId);
   }

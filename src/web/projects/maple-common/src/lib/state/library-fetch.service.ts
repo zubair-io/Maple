@@ -636,12 +636,14 @@ export class LibraryFetch {
    * actually did (partial-failure batches, auto-suffixed collisions, etc.
    * — see the design doc's "refresh, don't mutate" note on drag-and-drop).
    *
+   * `childrenOnly` is for the Move picker: it refreshes only sidebar children,
+   * preserving unsaved asset ratings, flags, and labels in the grid.
    * Safe to call for a folder that isn't currently selected: `_applyFolderListing`
    * only replaces `store.assets`/`store.gridFolders` entries keyed to THIS
    * `sourceId`, and `_attachFolderChildren` only patches that node's sidebar
    * subtree — neither touches the currently-displayed selection.
    */
-  refreshFolderListing(sourceId: string): void {
+  refreshFolderListing(sourceId: string, childrenOnly = false): void {
     if (this.store.backend !== 'self-hosted') return;
     if (!sourceId.includes(':')) return;
     try {
@@ -650,7 +652,8 @@ export class LibraryFetch {
         addr,
         (listing, fresh) => {
           if (!fresh) return; // only the network-authoritative pass matters here
-          this._applyFolderListing(sourceId, listing);
+          if (childrenOnly) this._attachFolderChildren(sourceId, listing.folders);
+          else this._applyFolderListing(sourceId, listing);
         },
         () => {
           // Best-effort — a failed background refresh leaves the grid/tree
@@ -783,18 +786,6 @@ export class LibraryFetch {
     this._attachFolderChildren(sourceId, listing.folders);
   }
 
-  /**
-   * Replace the children of the sidebar node identified by `sourceId` (a
-   * registered library root or a previously-loaded subfolder) with folder
-   * entries derived from `dirs`. Marks the node as `loaded` so the chevron
-   * doesn't trigger another fetch.
-   *
-   * For children whose id already exists under this node, we preserve the
-   * existing entry (carrying over `childrenStatus`, `children`, etc.) so
-   * a refetch of a parent doesn't wipe a deeper expanded subtree — the
-   * listing describes which directories exist, not their per-child
-   * expanded state.
-   */
   /**
    * Replace the children of the sidebar node identified by `sourceId` with
    * folder entries derived from a `FolderListing`. Marks the node as `loaded`.
