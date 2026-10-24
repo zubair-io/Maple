@@ -107,7 +107,14 @@ final class ExportPanelVM {
   }
 
   func outputFileName(for asset: AssetRef) -> String {
-    "\(asset.displayName).\(format.fileExtension)"
+    // PhotoKit uses its slash-bearing localIdentifier as the display name
+    // until the original filename is looked up. Keep that identity in the
+    // name, but never let it create subdirectories in the staging location.
+    let safeName = asset.displayName
+      .components(separatedBy: CharacterSet(charactersIn: "/\\:"))
+      .joined(separator: "_")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return "\(safeName.isEmpty ? "Untitled" : safeName).\(format.fileExtension)"
   }
 
   // MARK: - Resolution & Dimensions
