@@ -6,45 +6,50 @@
   @let reasonId = reasonElementId(entry);
 
   <div
-    [class]="rowClass(isSelected, !!disabledReason)"
-    role="presentation"
-    [style.padding-left.px]="8 + level() * 16"
+    role="treeitem"
+    [attr.aria-label]="entry.label"
+    [attr.aria-selected]="isSelected"
+    [attr.aria-expanded]="expandable ? open : null"
   >
-    <button
-      type="button"
-      class="mtd-chevron flex h-3.5 w-3.5 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent text-[10px] text-text-muted transition-transform duration-[120ms]"
-      [class.invisible]="!expandable"
-      [class.cursor-default]="!expandable"
-      [class.rotate-90]="open"
-      [disabled]="!expandable"
-      [attr.aria-label]="(open ? 'Collapse ' : 'Expand ') + entry.label"
-      (click)="toggleOpen(entry); $event.stopPropagation()"
-    >
-      ▸
-    </button>
     <div
-      class="flex h-full min-w-0 flex-1 items-center"
-      role="treeitem"
-      [attr.aria-selected]="isSelected"
-      [attr.aria-disabled]="!!disabledReason"
-      [attr.aria-describedby]="reasonId"
-      [title]="titleFor(entry)"
-      (click)="onRowClick(entry)"
+      [class]="rowClass(isSelected && !disabledReason, false)"
+      [style.padding-left.px]="8 + level() * 16"
     >
-      <span class="overflow-hidden text-ellipsis whitespace-nowrap">{{ entry.label }}</span>
-      <!-- The selection target alone is disabled; the sibling chevron stays
-           available to keyboard and assistive-technology users. -->
+      <button
+        type="button"
+        class="mtd-chevron flex h-3.5 w-3.5 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent text-[10px] text-text-muted transition-transform duration-[120ms]"
+        [class.invisible]="!expandable"
+        [class.cursor-default]="!expandable"
+        [class.rotate-90]="open"
+        [disabled]="!expandable"
+        [attr.aria-label]="(open ? 'Collapse ' : 'Expand ') + entry.label"
+        (click)="toggleOpen(entry); $event.stopPropagation()"
+      >
+        ▸
+      </button>
+      <button
+        type="button"
+        class="flex h-full min-w-0 flex-1 items-center overflow-hidden border-none bg-transparent text-left text-inherit"
+        [class.cursor-not-allowed]="!!disabledReason"
+        [class.opacity-50]="!!disabledReason"
+        [disabled]="!!disabledReason"
+        [attr.aria-describedby]="reasonId"
+        [title]="titleFor(entry)"
+        (click)="onRowClick(entry)"
+      >
+        <span class="overflow-hidden text-ellipsis whitespace-nowrap">{{ entry.label }}</span>
+      </button>
       <span class="sr-only" [id]="reasonId">{{ disabledReason }}</span>
     </div>
+    @if (showChildren(entry)) {
+      <app-move-to-tree-picker
+        role="group"
+        [nodes]="childFolders(entry)"
+        [level]="level() + 1"
+        [selectedId]="selectedId()"
+        [sourceFolderId]="sourceFolderId()"
+        (select)="select.emit($event)"
+      />
+    }
   </div>
-
-  @if (showChildren(entry)) {
-    <app-move-to-tree-picker
-      [nodes]="childFolders(entry)"
-      [level]="level() + 1"
-      [selectedId]="selectedId()"
-      [sourceFolderId]="sourceFolderId()"
-      (select)="select.emit($event)"
-    />
-  }
 }

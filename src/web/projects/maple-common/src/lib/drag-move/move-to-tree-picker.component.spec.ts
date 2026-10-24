@@ -45,11 +45,14 @@ describe('MoveToTreePickerComponent', () => {
     const selected: SidebarEntry[] = [];
     fixture.componentInstance.select.subscribe((node) => selected.push(node));
 
-    root.click();
+    const sourceLabel = root.querySelectorAll('button')[1] as HTMLButtonElement;
+    sourceLabel.click();
     expect(selected).toEqual([]);
-    expect(root.getAttribute('aria-disabled')).toBe('true');
-    const chevron = root.parentElement!.querySelector('button') as HTMLButtonElement;
-    expect(root.contains(chevron)).toBe(false);
+    expect(root.getAttribute('aria-disabled')).toBeNull();
+    expect(sourceLabel.disabled).toBe(true);
+    const chevron = root.querySelector('button') as HTMLButtonElement;
+    expect(root.contains(chevron)).toBe(true);
+    expect(chevron.disabled).toBe(false);
     expect(chevron.getAttribute('aria-disabled')).toBeNull();
     expect(chevron.getAttribute('aria-label')).toBe('Expand Photos');
     chevron.click();
@@ -64,7 +67,8 @@ describe('MoveToTreePickerComponent', () => {
       '[role=treeitem]',
     ) as NodeListOf<HTMLElement>;
     expect(rows).toHaveLength(2);
-    rows[1].click();
+    expect(rows[0].querySelector('[role=group]')?.contains(rows[1])).toBe(true);
+    (rows[1].querySelectorAll('button')[1] as HTMLButtonElement).click();
     expect(selected).toEqual([child]);
   });
 
