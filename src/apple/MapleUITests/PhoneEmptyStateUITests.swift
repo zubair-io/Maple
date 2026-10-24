@@ -65,16 +65,15 @@ import XCTest
         "Drawer did not offer the All Photos row.")
       allPhotos.tap()
 
-      let connect = app.buttons["photos-auth-panel"]
+      let connect = app.otherElements["photos-auth-panel"].buttons["photos-auth-action"]
       guard connect.waitForExistence(timeout: 15) else {
-        print("Photos library without permission panel: \(app.debugDescription)")
         let tree = XCTAttachment(string: app.debugDescription)
         tree.name = "Photos library without permission panel"
         tree.lifetime = .keepAlways
         add(tree)
         // Chrome images and drawer cells are not evidence that PhotoKit
         // access was granted. Only actual photo thumbnails qualify.
-        let thumbnails = grid.descendants(matching: .any)
+        let thumbnails = app.buttons
           .matching(NSPredicate(format: "identifier BEGINSWITH %@", "thumb-"))
           .count
         try XCTSkipIf(
