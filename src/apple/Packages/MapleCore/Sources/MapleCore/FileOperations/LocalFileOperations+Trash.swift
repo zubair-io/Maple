@@ -216,7 +216,7 @@ extension LocalFileOperations {
     }
   }
 
-  /// Permanently unlinks a trashed item — primary, sidecar, and its
+  /// Permanently unlinks a trashed item — primary, sidecars, and its
   /// marker — with no further recovery. Best-effort on the sidecar/marker
   /// (matches every other cleanup path in this module); the primary
   /// unlink is the one call that throws.
@@ -231,13 +231,19 @@ extension LocalFileOperations {
   public static func permanentlyDeleteFromMapleTrash(_ item: TrashedItem, libraryRoot: URL) throws {
     try requireUnderMapleTrash(item.primaryPath, libraryRoot: libraryRoot)
     let fm = FileManager.default
+    let primary = URL(fileURLWithPath: item.primaryPath)
+    let variants = try LocalWorkflowVariants.paired(with: primary)
+    let shared = SidecarOwnership.localStemClaimedBySibling(primary)
     try fm.removeItem(atPath: item.primaryPath)
-    if let sidecarPath = item.sidecarPath,
-      !SidecarOwnership.localStemClaimedBySibling(URL(fileURLWithPath: item.primaryPath))
-    {
-      try? fm.removeItem(atPath: sidecarPath)
+    if !shared {
+      if let sidecarPath = item.sidecarPath {
+        try? fm.removeItem(atPath: sidecarPath)
+      }
+      for variant in variants {
+        try? fm.removeItem(at: variant)
+      }
     }
-    removeTrashedMarker(forItemAt: URL(fileURLWithPath: item.primaryPath))
+    removeTrashedMarker(forItemAt: primary)
   }
 
   /// Throws `.invalidDestination` unless `path` resolves to somewhere
