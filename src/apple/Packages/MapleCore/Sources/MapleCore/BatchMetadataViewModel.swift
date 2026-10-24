@@ -8,6 +8,7 @@
 // preserved and only touched metadata fields overwritten.
 
 import Foundation
+import MapleBackup
 
 // MARK: - MetadataFieldKey
 
@@ -161,9 +162,15 @@ public final class BatchMetadataViewModel: Identifiable {
         }
     }
 
-    public init(assets: [AssetRef], sessions: [AssetRef.ID: EditSession]) {
+    private let photoKitSidecarRoot: URL?
+
+    public init(
+        assets: [AssetRef], sessions: [AssetRef.ID: EditSession],
+        photoKitSidecarRoot: URL? = nil
+    ) {
         self.assets = assets
         self.sessions = sessions
+        self.photoKitSidecarRoot = photoKitSidecarRoot
     }
 
     /// Clear the apply error (called by the alert dismissal binding).
@@ -181,11 +188,15 @@ public final class BatchMetadataViewModel: Identifiable {
 
         // Read XmpMetadata (IPTC/EXIF fields), keywords, and CullingState from
         // each asset's sidecar in parallel.
+        let photoKitSidecarRoot = self.photoKitSidecarRoot
         let loadedTriples: [(XmpMetadata, [String], CullingState)] = await withTaskGroup(
             of: (XmpMetadata, [String], CullingState).self
         ) { group in
             for asset in assets {
-                group.addTask { await self.readMetadataAndKeywords(for: asset) }
+                group.addTask {
+                    await Self.readMetadataAndKeywords(
+                        for: asset, photoKitSidecarRoot: photoKitSidecarRoot)
+                }
             }
             var results: [(XmpMetadata, [String], CullingState)] = []
             for await result in group { results.append(result) }
@@ -252,14 +263,21 @@ public final class BatchMetadataViewModel: Identifiable {
     /// Read the IPTC/EXIF metadata block and full CullingState (keywords, stars,
     /// flag) from the asset's sidecar.  `nonisolated` so the TaskGroup disk reads
     /// run off the main actor without round-tripping back for each asset.
-    nonisolated private func readMetadataAndKeywords(
-        for asset: AssetRef
+    nonisolated private static func readMetadataAndKeywords(
+        for asset: AssetRef, photoKitSidecarRoot: URL?
     ) async -> (XmpMetadata, [String], CullingState) {
-        guard let url = asset.primaryURL else { return (XmpMetadata(), [], CullingState()) }
-        let sidecarURL = SidecarPath.sidecarURL(for: url)
-        guard FileManager.default.fileExists(atPath: sidecarURL.path),
-              let xml = try? String(contentsOf: sidecarURL, encoding: .utf8)
-        else {
+        let xml: String
+        if let url = asset.primaryURL {
+            let sidecarURL = SidecarPath.sidecarURL(for: url)
+            guard FileManager.default.fileExists(atPath: sidecarURL.path),
+                  let contents = try? String(contentsOf: sidecarURL, encoding: .utf8)
+            else { return (XmpMetadata(), [], CullingState()) }
+            xml = contents
+        } else if asset.thumbnailProvenance == .photoKit, let id = asset.stableID,
+                  let store = try? makePhotoKitStore(id: id, root: photoKitSidecarRoot),
+                  let contents = try? await store.readWorkflowXML() {
+            xml = contents
+        } else {
             return (XmpMetadata(), [], CullingState())
         }
         let meta = XMPParser.parseMetadata(xml)
@@ -269,6 +287,10 @@ public final class BatchMetadataViewModel: Identifiable {
     }
 
     private func applyToAsset(_ asset: AssetRef) async throws {
+        if asset.thumbnailProvenance == .photoKit, let id = asset.stableID {
+            try await applyToPhotoKit(asset, id: id)
+            return
+        }
         guard let url = asset.primaryURL else {
             throw UnsupportedSourceError(assetName: asset.displayName)
         }
@@ -312,6 +334,53 @@ public final class BatchMetadataViewModel: Identifiable {
         try await session.setCulling { Self.applyTouchedCulling(touched, to: &$0) }
         await session.sidecarUpdateTask?.value
         await store.update(model: session.model, culling: session.culling, metadata: merged)
+        await store.flush()
+    }
+
+    private nonisolated static func makePhotoKitStore(
+        id: String, root: URL?
+    ) throws -> PhotoKitSidecarStore {
+        if let root {
+            return PhotoKitSidecarStore(
+                phassetLocalId: id, sidecars: AppSupportSidecarStore(root: root))
+        }
+        return try PhotoKitSidecarStore(phassetLocalId: id)
+    }
+
+    private func applyToPhotoKit(_ asset: AssetRef, id: String) async throws {
+        let store = try Self.makePhotoKitStore(id: id, root: photoKitSidecarRoot)
+        let existingXml = try await store.readWorkflowXML() ?? ""
+        var merged = XMPParser.parseMetadata(existingXml)
+        Self.applyTouched(touchedMetadata, into: &merged)
+
+        guard let session = sessions[asset.id] else {
+            try await applyToPhotoKitPrimary(store, metadata: merged)
+            return
+        }
+        await session.loadSidecar()
+        guard session.hasLoadedSidecar else {
+            throw session.sidecarError ?? CancellationError()
+        }
+        guard session.workflow.selectedVariantId == WorkflowContract.primaryVariantID,
+              let liveStore = session.sidecarStore as? PhotoKitSidecarStore
+        else {
+            let primary = (session.primarySidecarStore as? PhotoKitSidecarStore) ?? store
+            try await applyToPhotoKitPrimary(primary, metadata: merged)
+            return
+        }
+        let touched = touchedMetadata
+        try await session.setCulling { Self.applyTouchedCulling(touched, to: &$0) }
+        await session.sidecarUpdateTask?.value
+        await liveStore.update(model: session.model, culling: session.culling, metadata: merged)
+        await liveStore.flush()
+    }
+
+    private func applyToPhotoKitPrimary(
+        _ store: PhotoKitSidecarStore, metadata: XmpMetadata
+    ) async throws {
+        let (model, culling) = try await store.loadIfPresent() ?? (.default, CullingState())
+        await store.update(
+            model: model, culling: applyingTouchedCulling(to: culling), metadata: metadata)
         await store.flush()
     }
 
