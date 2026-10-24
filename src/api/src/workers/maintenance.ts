@@ -15,9 +15,9 @@
  *                      default but idles until an operator enables a specific
  *                      migration via /settings/workers (each migration has its
  *                      own toggle; the worker-level pause is the standard one).
- *   - generated-search — invents themed photo collections daily via Ollama for
- *                      the widget / Maple TV / settings surfaces. Starts
- *                      PAUSED: it needs Ollama configured, and a paused start
+ *   - generated-search — invents themed photo collections daily via its assigned
+ *                      text model for the widget / Maple TV / settings surfaces.
+ *                      Starts PAUSED: it needs that model configured, and a paused start
  *                      keeps a fresh install from filling those surfaces with
  *                      junk before an operator has looked at it.
  *   - deduplicate    — collapses assets with >1 live on-disk location, moving

@@ -38,9 +38,9 @@ const AI_WORKERS = [
   {
     id: 'generated-search',
     name: 'Generated search',
-    detail: 'Curated search collections · Ollama text generation',
+    detail: 'Curated search collections · Ollama or OpenAI-compatible text generation',
     multiple: false,
-    providers: ['ollama'],
+    providers: ['ollama', 'openai'],
   },
   {
     id: 'semantic-search',

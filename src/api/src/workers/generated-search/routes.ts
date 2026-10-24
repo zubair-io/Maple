@@ -10,7 +10,7 @@ import { rejectLegacyAiWrite } from '../../routes/ai-legacy-write.ts';
  * DB-backed config, not env vars, per the CLAUDE.md settings rule — the
  * worker re-reads on its next pass, so a change takes effect with no restart
  * and no shell access on the server. The worker starts PAUSED (it needs
- * Ollama configured), so `paused: false` here is what actually turns the
+ * a text model configured), so `paused: false` here is what actually turns the
  * feature on.
  */
 

@@ -1,5 +1,5 @@
 /**
- * The gate between raw Ollama JSON and a query the generated-search worker
+ * The gate between raw model JSON and a query the generated-search worker
  * will execute.
  *
  * The model is grammar-constrained by a `format` JSON Schema, but that is
