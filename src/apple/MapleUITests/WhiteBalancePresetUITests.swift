@@ -18,7 +18,7 @@ import XCTest
       XCTAssertTrue(picker.waitForExistence(timeout: 10))
       let provenance = app.staticTexts["editor-wb-provenance"]
       XCTAssertTrue(provenance.waitForExistence(timeout: 5))
-      let initial = provenance.label
+      let initial = try XCTUnwrap(provenance.value as? String)
       attach(app, "Before preset selection")
       picker.click()
       for name in [
@@ -36,7 +36,7 @@ import XCTest
       app.menuItems["Auto"].click()
       let autoSource = XCTNSPredicateExpectation(
         predicate: NSPredicate(
-          format: "label MATCHES %@", "White balance: Auto · version [1-9][0-9]*"),
+          format: "value MATCHES %@", "White balance: Auto · version [1-9][0-9]*"),
         object: provenance)
       XCTAssertEqual(XCTWaiter.wait(for: [autoSource], timeout: 60), .completed)
       attach(app, "Auto white balance")
@@ -46,7 +46,7 @@ import XCTest
 
     private func waitForLabel(_ element: XCUIElement, _ label: String) {
       let changed = XCTNSPredicateExpectation(
-        predicate: NSPredicate(format: "label == %@", label), object: element)
+        predicate: NSPredicate(format: "value == %@", label), object: element)
       XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 60), .completed)
     }
 
