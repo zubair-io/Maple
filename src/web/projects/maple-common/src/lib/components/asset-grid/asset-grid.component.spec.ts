@@ -276,7 +276,7 @@ describe('AssetGridComponent — scroll resets on folder navigation (#4792)', ()
             selectedAssetIds: () => new Set<AssetId>(),
             isSelecting: () => false,
             selectedFolderIds: () => new Set<string>(),
-            backendLoading: () => false,
+            backendLoading: () => assetsInSelectedFolder().length === 0,
             backendError: () => undefined,
             ensureThumbnailUrl: vi.fn(),
             subscribeThumbUrl: () => () => {},
@@ -338,6 +338,10 @@ describe('AssetGridComponent — scroll resets on folder navigation (#4792)', ()
     scrollHeight = 1200;
 
     await vi.waitFor(() => expect(grid.scrollTop).toBe(500));
+    expect(memory.forSource('lib:2026')).toBeNull();
+    memory.remember({ sourceId: 'lib:2026', assetId: 'a1' as AssetId, scrollTop: 500 });
+    assetsInSelectedFolder.set([{ ...makeAsset('a2'), aspectRatio: 3 / 2 }]);
+    fixture.detectChanges();
     expect(memory.forSource('lib:2026')).toBeNull();
   });
 });
