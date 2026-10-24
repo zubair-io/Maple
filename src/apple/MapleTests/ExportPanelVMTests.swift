@@ -129,6 +129,24 @@ final class ExportPanelVMTests: XCTestCase {
     XCTAssertNil(received.value?.maxSidePixels, "share exports are full resolution")
   }
 
+  func testPhotoKitIdentifierStagesAsOneFile() async throws {
+    let bytes = Data([0xFF, 0xD8, 0xFF])
+    let image = stubImage
+    let vm = ExportPanelVM(render: { _ in image }, encode: { _, _ in bytes })
+    let session = EditSession.preview(displayName: "ED7AC36B-A150/L0/001")
+
+    await vm.stageForSharing(session: session, in: directory)
+
+    XCTAssertNil(vm.exportError)
+    let url = try XCTUnwrap(vm.stagedFile?.url)
+    XCTAssertEqual(url.lastPathComponent, "ED7AC36B-A150_L0_001.jpg")
+    XCTAssertEqual(
+      url.deletingLastPathComponent().standardizedFileURL, directory.standardizedFileURL)
+    XCTAssertEqual(try Data(contentsOf: url), bytes)
+    XCTAssertEqual(
+      try FileManager.default.contentsOfDirectory(atPath: directory.path), [url.lastPathComponent])
+  }
+
   func testStageForSharingSurfacesEncoderFailureWithoutAFile() async throws {
     struct Boom: LocalizedError {
       var errorDescription: String? { "render exploded" }
