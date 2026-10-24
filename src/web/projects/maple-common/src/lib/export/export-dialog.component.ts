@@ -29,6 +29,7 @@ import {
   signal,
 } from '@angular/core';
 import type { Asset } from '../models/asset';
+import type { Crop } from '../models/adjustment-model';
 import type {
   ExportColorSpace,
   ExportFormat,
@@ -40,7 +41,7 @@ import {
   DEFAULT_QUALITY,
   FORMAT_CHOICES,
   SIZE_PRESETS,
-  outputDimensions,
+  croppedOutputDimensions,
   supportsQuality,
 } from './export-dialog.vm';
 import { MuiExportModalComponent } from '../ui/export-modal/mui-export-modal.component';
@@ -71,6 +72,7 @@ export class ExportDialogComponent {
   readonly visible = input<boolean>(false);
   /** The image to export. `null` disables the confirm button. */
   readonly asset = input<Asset | null>(null);
+  readonly crop = input<Crop | null>(null);
   /** Emitted when the dialog should close (done, error, or user cancel). */
   readonly dismiss = output<void>();
 
@@ -145,7 +147,12 @@ export class ExportDialogComponent {
    */
   readonly sizeHint = computed(() => {
     const asset = this.asset();
-    const size = outputDimensions(asset?.width ?? 0, asset?.height ?? 0, this.maxSidePixels());
+    const size = croppedOutputDimensions(
+      asset?.width ?? 0,
+      asset?.height ?? 0,
+      this.maxSidePixels(),
+      this.crop(),
+    );
     return size.width > 0 && size.height > 0
       ? `Output: ${size.width} × ${size.height} px. Never upscales.`
       : 'Never upscales beyond the original resolution.';
