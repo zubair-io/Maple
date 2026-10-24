@@ -1193,7 +1193,12 @@ struct AppShell: View {
       selectedAssetCount: browseVM.isSelecting
         ? browseVM.selectedIDs.count : (browseVM.selectedID != nil ? 1 : 0),
       folderRefreshGeneration: folderRefreshGeneration,
-      onPickPhotosFilter: { filter in loadPhotos(filter: filter) },
+      onPickPhotosFilter: { filter in
+        loadPhotos(filter: filter)
+        #if os(iOS)
+          isDrawerOpen = false
+        #endif
+      },
       onRequestPhotosAccess: { requestPhotosAccess() },
       photosAuthGeneration: photosAuthGeneration,
       onAddSMB: { showSMBSheet = true },
