@@ -8,6 +8,7 @@
  *
  * Body (both routes):
  *   ids: string[]                 — ordered asset ids
+ *   source_addresses?: string[]   — selected file paths, parallel to ids
  *   template: string              — e.g. "{date:%Y%m%d}_{original}_{n}.{ext}"
  *   sequence_start?: number       — default 0
  *   sequence_pad_width?: number   — default 0 (no padding)
@@ -21,6 +22,7 @@ import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
 
 const TemplateFieldsSchema = {
   ids: t.Array(t.String(), { minItems: 1 }),
+  source_addresses: t.Optional(t.Array(t.String(), { minItems: 1 })),
   template: t.String({ minLength: 1, maxLength: 512 }),
   sequence_start: t.Optional(t.Number({ minimum: 0 })),
   sequence_pad_width: t.Optional(t.Number({ minimum: 0 })),
@@ -62,8 +64,13 @@ export const batchRenameRoutes = new Elysia()
         set.status = 400;
         return { error: 'ids contains a malformed asset id' };
       }
+      if (body.source_addresses && body.source_addresses.length !== ids.length) {
+        set.status = 400;
+        return { error: 'source_addresses must match ids length' };
+      }
       const items = await previewBatchRename({
         ids,
+        sourceAddresses: body.source_addresses,
         template: body.template,
         sequenceStart: body.sequence_start ?? 0,
         sequencePadWidth: body.sequence_pad_width ?? 0,
@@ -96,8 +103,13 @@ export const batchRenameRoutes = new Elysia()
         set.status = 400;
         return { error: 'ids contains a malformed asset id' };
       }
+      if (body.source_addresses && body.source_addresses.length !== ids.length) {
+        set.status = 400;
+        return { error: 'source_addresses must match ids length' };
+      }
       const results = await batchRenameAssets({
         ids,
+        sourceAddresses: body.source_addresses,
         template: body.template,
         sequenceStart: body.sequence_start ?? 0,
         sequencePadWidth: body.sequence_pad_width ?? 0,

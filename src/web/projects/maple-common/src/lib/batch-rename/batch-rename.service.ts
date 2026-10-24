@@ -168,6 +168,7 @@ export class BatchRenameService {
     return this.http
       .post<RawPreviewResponse>(`${this.base}/assets/batch-rename/preview`, {
         ids: withIds.map((row) => row.id),
+        source_addresses: withIds.map((row) => row.address),
         template: options.template,
         sequence_start: options.sequenceStart,
         sequence_pad_width: options.sequencePadWidth,
@@ -219,6 +220,7 @@ export class BatchRenameService {
     return this.http
       .post<RawApplyResponse>(`${this.base}/assets/batch-rename`, {
         ids: withIds.map((row) => row.id),
+        source_addresses: withIds.map((row) => row.address),
         template: options.template,
         sequence_start: options.sequenceStart,
         sequence_pad_width: options.sequencePadWidth,
