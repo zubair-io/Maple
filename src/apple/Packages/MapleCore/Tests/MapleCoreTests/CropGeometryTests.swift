@@ -180,6 +180,19 @@ final class CropGeometryTests: XCTestCase {
         XCTAssertEqual(size.height, 1500, accuracy: 1e-6)
     }
 
+    func testExportOutputSizeUsesPixelRoundedCropRect() {
+        let crop = Crop(top: 0, left: 1.0 / 6.0, bottom: 1, right: 5.0 / 6.0)
+        let fast = CropImageStage.exportOutputSize(
+            crop, uncroppedSize: CGSize(width: 1280, height: 853))
+        XCTAssertEqual(fast, CGSize(width: 854, height: 853))
+        let full = CropImageStage.exportOutputSize(
+            crop, uncroppedSize: CGSize(width: 6000, height: 4000))
+        XCTAssertEqual(full, CGSize(width: 4000, height: 4000))
+        XCTAssertEqual(
+            CropImageStage.exportOutputSize(.identity, uncroppedSize: CGSize(width: 1280, height: 853)),
+            CGSize(width: 1280, height: 853))
+    }
+
     func testCroppedSizePureAngleKeepsFullFrame() {
         // A pure-straighten crop (full-frame rect) keeps the full extent —
         // the renderer cuts the same axis-aligned rect out of the rotated
