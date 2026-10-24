@@ -2,13 +2,16 @@
 // source (issue #2631).
 //
 // macOS owns a real Trash the user already knows how to look in, so a
-// filesystem-source delete goes straight to `FileManager.trashItem` — one
-// syscall, recoverable from Finder, no copy-verify-delete needed because the
-// OS is the one doing the moving. iOS/iPadOS has no OS trash for a
+// filesystem-source delete goes through Finder's recycle operation, so Finder
+// records the original locations for Put Back. iOS/iPadOS has no OS trash for a
 // security-scoped folder, so it falls back to `.maple/trash/<rel>` under the
 // library root via the SAME relocate primitive every other move here uses.
 
 import Foundation
+
+#if os(macOS)
+  import AppKit
+#endif
 
 extension LocalFileOperations {
 
@@ -22,30 +25,62 @@ extension LocalFileOperations {
   }
 
   #if os(macOS)
-    /// The real OS Trash. No `#if`-independent counterpart to test against —
-    /// `FileManager.trashItem` is Apple's own contract to keep, not logic
-    /// this module owns.
+    /// Finder's recycle operation records original locations for Put Back.
+    /// `FileManager.trashItem` moves bytes to Trash but leaves Finder without
+    /// that restore action (#5343).
     static func trashToOSTrash(_ primaryURL: URL) async throws -> RelocateOutcome {
       let fm = FileManager.default
       let sidecarURL = SidecarPath.sidecarURL(for: primaryURL)
       let sidecarShared = SidecarOwnership.localStemClaimedBySibling(primaryURL)
       let variants = try LocalWorkflowVariants.paired(with: primaryURL)
-      var trashedPrimary: NSURL?
-      try fm.trashItem(at: primaryURL, resultingItemURL: &trashedPrimary)
+      var originals = [primaryURL]
+      if !sidecarShared {
+        if fm.fileExists(atPath: sidecarURL.path) { originals.append(sidecarURL) }
+        originals.append(contentsOf: variants)
+      }
+      var recycled: [URL: URL] = [:]
+      // Finder records Put Back for only the first URL in a recycle batch.
+      // Give every owned companion its own recycle request (#5343).
+      for (index, original) in originals.enumerated() {
+        if index > 0 {
+          // The recycle callback precedes Finder's Put Back registration.
+          // Back-to-back requests leave later items without an original path.
+          try await Task.sleep(for: .seconds(2))
+        }
+        recycled[original] = try await recycleInFinder(original)
+      }
+      guard let trashedPrimary = recycled[primaryURL] else {
+        throw CocoaError(.fileWriteUnknown)
+      }
 
       let trashedSidecarURL =
-        !fm.fileExists(atPath: sidecarURL.path)
-        ? nil : sidecarShared ? trashCopy(of: sidecarURL) : trashedItem(sidecarURL)
-      for variant in variants {
-        _ = sidecarShared ? trashCopy(of: variant) : trashedItem(variant)
+        sidecarShared
+        ? (fm.fileExists(atPath: sidecarURL.path) ? trashCopy(of: sidecarURL) : nil)
+        : recycled[sidecarURL]
+      if sidecarShared {
+        for variant in variants { _ = trashCopy(of: variant) }
       }
       await invalidateDerivedCaches(forOldPrimaryPath: primaryURL.path)
       return RelocateOutcome(
-        primaryPath: (trashedPrimary as URL?)?.path ?? primaryURL.path,
+        primaryPath: trashedPrimary.path,
         sidecarPath: trashedSidecarURL?.path,
         renamedDueToCollision: false,
         sidecarFollowed: trashedSidecarURL != nil
       )
+    }
+
+    private static func recycleInFinder(_ url: URL) async throws -> URL {
+      let destinations: [URL: URL] = try await withCheckedThrowingContinuation { continuation in
+        NSWorkspace.shared.recycle([url]) { destinations, error in
+          if let error {
+            continuation.resume(throwing: error)
+          } else {
+            continuation.resume(returning: destinations)
+          }
+        }
+      }
+      guard let destination = destinations[url] else { throw CocoaError(.fileWriteUnknown) }
+      return destination
     }
 
     private static func trashedItem(_ url: URL) -> URL? {

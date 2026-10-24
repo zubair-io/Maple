@@ -266,9 +266,8 @@ final class LocalFileOperationsTrashTests: XCTestCase {
   // MARK: - Real OS Trash (macOS only)
 
   #if os(macOS)
-    /// This exercises the ACTUAL `FileManager.trashItem` call against the
-    /// real system Trash — the acceptance criterion is literally "uses the
-    /// real OS Trash," which isn't provable any other way. The trashed
+    /// This exercises Finder's `NSWorkspace.recycle` operation against the
+    /// real system Trash. The trashed
     /// artifact (a throwaway temp-dir fixture) is permanently deleted again
     /// immediately after the assertions so the test doesn't leave residue
     /// in the user's actual Trash.
