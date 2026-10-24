@@ -11,7 +11,7 @@ test('Hosted editor chrome, metadata, export, and Back are complete actions', as
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'chrome-hosted');
-  test.setTimeout(240_000);
+  test.setTimeout(120_000);
   const { folder, rawPath, originalHash } = await openDisposableHostedEditor(
     page,
     'editor-action-chrome',
@@ -68,26 +68,24 @@ test('Hosted editor chrome, metadata, export, and Back are complete actions', as
     'aria-pressed',
     'true',
   );
-  await page.getByRole('radio', { name: '3 stars' }).click();
-  await expect(page.getByRole('radio', { name: '3 stars' })).toHaveAttribute(
-    'aria-checked',
-    'true',
-  );
-  await page.getByRole('button', { name: 'Add keyword' }).click();
-  await page.getByRole('textbox', { name: 'New keyword' }).fill('audit');
-  await page.getByRole('textbox', { name: 'New keyword' }).press('Enter');
-  await expect(page.getByRole('button', { name: /Keyword: audit/ })).toBeVisible();
+  const rating = infoPanel.getByRole('slider', { name: 'Rating' });
+  await rating.getByRole('button', { name: '3 stars' }).click();
+  await expect(rating).toHaveAttribute('aria-valuenow', '3');
+  const keyword = infoPanel.getByRole('textbox', { name: '+ add' });
+  await keyword.fill('audit');
+  await keyword.press('Enter');
+  await expect(infoPanel.getByRole('button', { name: 'Remove audit' })).toBeVisible();
   await info.click();
   await expect(infoPanel).toHaveCount(0);
 
   await exportButton.click();
   const dialog = page.getByRole('dialog', { name: 'Export image' });
   await expect(dialog).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Close' })).toBeFocused();
-  await page.getByLabel('Format').selectOption('jpeg');
-  await page.getByLabel('Quality').fill('91');
-  await page.getByLabel('Colour space').selectOption('srgb');
-  await page.getByLabel('Size').selectOption('1024');
+  await expect(dialog).toBeFocused();
+  await dialog.getByRole('radio', { name: 'JPEG' }).click();
+  await dialog.getByRole('textbox', { name: 'Quality' }).fill('91');
+  await dialog.getByRole('radio', { name: 'sRGB' }).click();
+  await dialog.getByRole('radio', { name: 'Long edge 1024 px' }).click();
   await expect(dialog).toContainText(/Output: \d+ × \d+ px/);
   const downloadPromise = page.waitForEvent('download');
   await dialog.getByRole('button', { name: 'Export', exact: true }).click();
