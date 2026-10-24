@@ -43,6 +43,14 @@ describe('search-filters — counting and chips', () => {
     expect(activeFilterChips(f)).toEqual([{ kind: 'owner', label: 'alice@example.com' }]);
   });
 
+  it('shows and clears the GPS-only scope from an unlabeled Map pin', () => {
+    const f = { ...EMPTY_FILTERS, scope: 'places' as const };
+    expect(activeFilterCount(f)).toBe(1);
+    expect(activeFilterChips(f)).toEqual([{ kind: 'scope', label: 'Photos with location' }]);
+    expect(filtersToParams(f).scope).toBe('places');
+    expect(removeChip(f, { kind: 'scope', label: 'Photos with location' }).scope).toBeNull();
+  });
+
   it('labels a custom range and counts it as one dimension', () => {
     const f = setCustomRange(EMPTY_FILTERS, '2026-01-01', '2026-02-01');
     expect(activeFilterCount(f)).toBe(1);
@@ -245,6 +253,13 @@ describe('parseDeepLinkFilters', () => {
     expect(parseDeepLinkFilters(from({ people: '[Square Bracket Band], AC/DC' }))).toEqual({
       people: ['[Square Bracket Band]', 'AC/DC'],
     });
+  });
+
+  it('parses only the supported Map scope and keeps it in the URL', () => {
+    const filters = parseDeepLinkFilters(from({ scope: 'places' }));
+    expect(filters).toEqual({ scope: 'places' });
+    expect(searchFilterQueryParams({ ...EMPTY_FILTERS, ...filters })['scope']).toBe('places');
+    expect(parseDeepLinkFilters(from({ scope: 'albums' }))).toBeNull();
   });
 
   it('returns null when nothing valid is present, so plain /search?q= keeps defaults', () => {
