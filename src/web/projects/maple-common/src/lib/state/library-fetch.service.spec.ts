@@ -12,6 +12,8 @@ import type {
 } from '../addressing/library-source';
 import { parseAddress, formatAddress } from '../addressing/maple-address';
 import type { MapleAddress } from '../addressing/maple-address';
+import { cameraLocationRows } from '../info/info-panel.vm';
+import { selfHostedAssetFromImage } from './library-fetch.service';
 
 // ---------------------------------------------------------------------------
 // Helpers for building test fixtures
@@ -102,6 +104,42 @@ describe('M2 addressing — library-source FolderListing contract', () => {
   it('makeListing matches formatAddress', () => {
     const listing = makeListing('2026/jan', [], []);
     expect(listing.address).toBe(`${LIB_SLUG}:2026/jan`);
+  });
+});
+
+describe('Self-Hosted indexed Info metadata', () => {
+  it('projects the folder response EXIF into the Preview Info rows', () => {
+    const image: ImageEntry = {
+      ...makeImage('test_0003.CR2', 'test_0003.CR2'),
+      indexed: true,
+      exif: {
+        camera_make: 'Canon',
+        camera_model: 'Canon EOS 5DS R',
+        lens: 'EF50mm f/1.2L USM',
+        aperture: 5.6,
+        shutter: '1/250',
+        iso: 200,
+        focal_length: 50,
+        gps: { lat: 40.7128, lng: -74.006 },
+      },
+    };
+    const asset = selfHostedAssetFromImage(image, `${LIB_SLUG}:`);
+    expect(
+      Object.fromEntries(cameraLocationRows(asset).map((row) => [row.label, row.value])),
+    ).toMatchObject({
+      Body: 'Canon EOS 5DS R',
+      Lens: 'EF50mm f/1.2L USM',
+      Aperture: 'f/5.6',
+      Shutter: '1/250',
+      ISO: '200',
+      Focal: '50mm',
+      Coords: '40.7128, -74.0060',
+    });
+  });
+
+  it('keeps placeholders for genuinely absent metadata', () => {
+    const asset = selfHostedAssetFromImage(makeImage('new.jpg', 'new.jpg'), `${LIB_SLUG}:`);
+    expect(cameraLocationRows(asset).map((row) => row.value)).toEqual(Array(8).fill('—'));
   });
 });
 
