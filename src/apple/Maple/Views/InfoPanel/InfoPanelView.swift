@@ -99,6 +99,15 @@ struct InfoPanelView: View {
           InfoSheetHeader(onClose: onClose)
         }
         AssetFilenameRow(session: session)
+        if let session, let error = session.sidecarError {
+          MuiBanner(
+            variant: .error,
+            message: session.sidecarLoadFailed
+              ? "Can't read this photo's XMP sidecar. Ratings, flags, and keywords are unavailable. Check the sidecar or connection, then reopen the photo."
+              : "Changes to this photo could not be saved. \(error.localizedDescription)"
+          )
+          .accessibilityIdentifier("info-panel-sidecar-error")
+        }
         RatingFlagsRow(session: session)
         if showsHistogram {
           HistogramBlock(session: session)
