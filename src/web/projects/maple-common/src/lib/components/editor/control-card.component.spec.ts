@@ -278,6 +278,30 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
     expect(model.filmStrength).toBe(defaults.filmStrength);
   });
 
+  it('resets every HSL and B&W mixer field with one Color-group undo boundary', () => {
+    const adjustment = defaultAdjustmentModel();
+    adjustment.hueAdjustmentRed = 25;
+    adjustment.saturationAdjustmentGreen = -12;
+    adjustment.luminanceAdjustmentMagenta = 40;
+    adjustment.grayMixerBlue = 33;
+    const { componentInstance, updateAdjustment, commit } = render({
+      activeGroup: 'color',
+      adjustment,
+    });
+
+    componentInstance.resetGroup();
+
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(updateAdjustment).toHaveBeenCalledTimes(1);
+    const model: AdjustmentModel = updateAdjustment.mock.lastCall?.[1];
+    const defaults = defaultAdjustmentModel();
+    for (const tool of ['hsl', 'bwMix'] as const) {
+      for (const sub of subParamsFor(tool)) {
+        expect(model[sub.field]).toBe(defaults[sub.field]);
+      }
+    }
+  });
+
   it('a real Color slider replaces a named preset and Undo restores its provenance', async () => {
     const lib = makeLibraryStub();
     const focusedAssetId = signal<string | null>('asset-1');
