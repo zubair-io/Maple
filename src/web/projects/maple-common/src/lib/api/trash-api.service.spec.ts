@@ -24,6 +24,18 @@ describe('TrashApiService', () => {
 
   afterEach(() => http.verify());
 
+  it('sends an explicit root sentinel for Restore All, while preserving subfolder paths', () => {
+    svc.restoreFolder('library-1', '').subscribe();
+    const root = http.expectOne('/api/folders/library-1/restore-folder');
+    expect(root.request.headers.get('X-Maple-Target-Path')).toBe('.');
+    root.flush({ total: 0, succeeded: 0, failed: 0, items: [] });
+
+    svc.restoreFolder('library-1', 'a/b').subscribe();
+    const subfolder = http.expectOne('/api/folders/library-1/restore-folder');
+    expect(subfolder.request.headers.get('X-Maple-Target-Path')).toBe('a%2Fb');
+    subfolder.flush({ total: 0, succeeded: 0, failed: 0, items: [] });
+  });
+
   describe('deleteAsset', () => {
     it('sends intent=trash on the query string and resolves ok on 204', () => {
       let outcome: unknown;
