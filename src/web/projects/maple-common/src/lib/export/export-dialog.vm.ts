@@ -5,6 +5,7 @@
 // on their own.
 
 import type { ExportColorSpace, ExportFormat } from '../raw-pipeline/raw-pipeline.types';
+import { isCropRectValid, isIdentityCrop, type Crop } from '../models/adjustment-model';
 
 /** A selectable output format, with the copy shown next to it. */
 export interface FormatChoice {
@@ -100,4 +101,30 @@ export function outputDimensions(
     width: Math.max(1, Math.round(nativeWidth * scale)),
     height: Math.max(1, Math.round(nativeHeight * scale)),
   };
+}
+
+/** Match the native export's size cap, pixel-rounded crop, then rotation. */
+export function croppedOutputDimensions(
+  nativeWidth: number,
+  nativeHeight: number,
+  maxSidePixels: number | undefined,
+  crop: Crop | null | undefined,
+): { width: number; height: number } {
+  const sized = outputDimensions(nativeWidth, nativeHeight, maxSidePixels);
+  if (!crop || isIdentityCrop(crop) || sized.width <= 0 || sized.height <= 0) return sized;
+
+  // raw-core's rect_in_pixels uses the full frame for an invalid rectangle,
+  // while still allowing a pure rotation. Keep the picker in step with it.
+  const rect = isCropRectValid(crop)
+    ? crop
+    : { top: 0, left: 0, bottom: 1, right: 1, angle: crop.angle };
+  const x = Math.min(sized.width - 1, Math.max(0, Math.round(rect.left * sized.width)));
+  const y = Math.min(sized.height - 1, Math.max(0, Math.round(rect.top * sized.height)));
+  const right = Math.min(sized.width, Math.max(x + 1, Math.round(rect.right * sized.width)));
+  const bottom = Math.min(sized.height, Math.max(y + 1, Math.round(rect.bottom * sized.height)));
+  const width = right - x;
+  const height = bottom - y;
+  const angle = ((crop.angle % 360) + 360) % 360;
+  const swapsAxes = Math.abs(angle - 90) <= 0.01 || Math.abs(angle - 270) <= 0.01;
+  return swapsAxes ? { width: height, height: width } : { width, height };
 }
