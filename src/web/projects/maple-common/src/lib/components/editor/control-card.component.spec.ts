@@ -16,13 +16,15 @@ import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { makeLibraryStub } from '../../editor/editor-state.test-helpers';
-import { defaultAdjustmentModel } from '../../models/adjustment-model';
+import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
+import { subParamsFor } from '../../editor/tool-sub-param';
 
 function render(
   inputs: {
     activeGroup?: string;
     activeTool?: string | null;
     blackWhiteOn?: boolean;
+    adjustment?: AdjustmentModel;
   } = {},
 ): {
   fixture: ComponentFixture<ControlCardComponent>;
@@ -45,7 +47,7 @@ function render(
   TestBed.resetTestingModule();
   const focusedAssetId = signal<string | null>('asset-1');
   const capabilities = new LensCorrectionCapabilities();
-  const adjustmentFor = vi.fn(() => signal(defaultAdjustmentModel()));
+  const adjustmentFor = vi.fn(() => signal(inputs.adjustment ?? defaultAdjustmentModel()));
   const updateAdjustment = vi.fn();
   const commit = vi.fn();
   const haptic = vi.fn();
@@ -227,6 +229,30 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
         wbAlgorithmVersion: 0,
       }),
     );
+  });
+
+  it('resets every HSL and B&W mixer field with one Color-group undo boundary', () => {
+    const adjustment = defaultAdjustmentModel();
+    adjustment.hueAdjustmentRed = 25;
+    adjustment.saturationAdjustmentGreen = -12;
+    adjustment.luminanceAdjustmentMagenta = 40;
+    adjustment.grayMixerBlue = 33;
+    const { componentInstance, updateAdjustment, commit } = render({
+      activeGroup: 'color',
+      adjustment,
+    });
+
+    componentInstance.resetGroup();
+
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(updateAdjustment).toHaveBeenCalledTimes(1);
+    const model = updateAdjustment.mock.lastCall?.[1];
+    const defaults = defaultAdjustmentModel();
+    for (const tool of ['hsl', 'bwMix'] as const) {
+      for (const sub of subParamsFor(tool)) {
+        expect(model[sub.field]).toBe(defaults[sub.field]);
+      }
+    }
   });
 
   it('a real Color slider replaces a named preset and Undo restores its provenance', async () => {
