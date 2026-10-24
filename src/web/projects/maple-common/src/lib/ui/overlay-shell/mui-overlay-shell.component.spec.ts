@@ -9,6 +9,7 @@ import { MuiOverlayShellComponent } from './mui-overlay-shell.component';
   standalone: true,
   imports: [MuiOverlayShellComponent],
   template: `
+    <button type="button" class="trigger">Open export</button>
     <mui-overlay-shell
       [open]="open()"
       [size]="'lg'"
@@ -91,6 +92,24 @@ describe('MuiOverlayShellComponent', () => {
     document.dispatchEvent(shiftTabEvent);
     expect(shiftTabEvent.defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(last);
+  });
+
+  it('returns keyboard focus to the trigger after the modal closes', async () => {
+    const { fixture, host } = render();
+    host.open.set(false);
+    fixture.detectChanges();
+    const trigger = fixture.nativeElement.querySelector('.trigger') as HTMLButtonElement;
+    trigger.focus();
+
+    host.open.set(true);
+    fixture.detectChanges();
+    await Promise.resolve();
+    expect(document.activeElement).toBe(fixture.nativeElement.querySelector('[role="dialog"]'));
+
+    host.open.set(false);
+    fixture.detectChanges();
+    await Promise.resolve();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it('renders in contained mode without the fixed scrim class', () => {
