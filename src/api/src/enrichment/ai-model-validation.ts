@@ -1,5 +1,13 @@
-import { assignmentModel, type AiConnectionsConfig } from './ai-connections.ts';
+import { assignmentModel, type AiConnection, type AiConnectionsConfig } from './ai-connections.ts';
 import { listProviderModels } from './ai-providers.service.ts';
+
+function connectionChanged(old: AiConnection | undefined, connection: AiConnection): boolean {
+  return (
+    old?.provider !== connection.provider ||
+    old?.api_key !== connection.api_key ||
+    old?.url !== connection.url
+  );
+}
 
 /** Validate changed cloud assignments against the selected account, never fallback suggestions. */
 export async function validateAssignedModels(
@@ -13,15 +21,17 @@ export async function validateAssignedModels(
       if (!a.connection_ids.includes(connection.id)) return false;
       const previous = current.assignments[worker];
       return (
-        old?.provider !== connection.provider ||
-        old?.api_key !== connection.api_key ||
+        connectionChanged(old, connection) ||
         !previous ||
         assignmentModel(previous, connection.id) !== assignmentModel(a, connection.id) ||
         !previous?.connection_ids.includes(connection.id)
       );
     });
     if (!changed.length) continue;
-    const result = await listProviderModels(connection.provider, { apiKey: connection.api_key });
+    const result = await listProviderModels(connection.provider, {
+      url: connection.url,
+      apiKey: connection.api_key,
+    });
     if (result.source !== 'live')
       return `Could not verify models for ${connection.name}. ${result.error ?? 'Try again.'}`;
     const invalid = changed.find(

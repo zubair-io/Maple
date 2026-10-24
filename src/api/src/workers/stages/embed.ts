@@ -28,7 +28,7 @@ import {
 import {
   EMBED_BATCH_SIZE,
   embedTexts,
-  type OllamaEmbedTarget,
+  type EmbedTarget,
 } from '../../enrichment/ollama-embed-client.ts';
 import { upsertAssetVectorStatement } from '../../db/repos/asset-vectors.repo.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
@@ -58,10 +58,7 @@ interface EmbeddedText {
   endpoint: string;
 }
 
-type EmbedBatchFn = (
-  target: OllamaEmbedTarget,
-  inputs: readonly string[],
-) => Promise<Float32Array[]>;
+type EmbedBatchFn = (target: EmbedTarget, inputs: readonly string[]) => Promise<Float32Array[]>;
 
 let embedBatchImpl: EmbedBatchFn = (target, inputs) => embedTexts(target, inputs);
 

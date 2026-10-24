@@ -1,9 +1,13 @@
 /**
  * OpenAI vision provider.
  *
- * Posts to `/v1/chat/completions` with the image as an `image_url` content
+ * Posts to `/chat/completions` with the image as an `image_url` content
  * part (data-URI base64). Default model `gpt-4o-mini`. Tracks input + output
  * tokens; computes cost from the published per-million-token rates.
+ *
+ * A custom base URL points the same protocol at any OpenAI-compatible server
+ * (vLLM, llama.cpp, Strata, …); those calls are not priced against OpenAI's
+ * rate card.
  *
  * Spec: `docs/indexer-enrichment.md` §6.
  */
@@ -19,8 +23,7 @@ import {
   type DescribeResult,
 } from './index.ts';
 
-const ENDPOINT = 'https://api.openai.com/v1/chat/completions';
-const MODELS_ENDPOINT = 'https://api.openai.com/v1/models';
+export const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_TOKENS = 2048;
 
@@ -38,6 +41,7 @@ const FALLBACK_RATE = { in_per_m: 0.15, out_per_m: 0.6 };
 
 export interface OpenAIProviderConfig {
   apiKey: string;
+  baseUrl?: string | null;
   /** Per-call request timeout in milliseconds. Default 30_000. */
   requestTimeoutMs?: number;
   /** Test override. */
@@ -55,19 +59,23 @@ export class OpenAIProvider implements DescribeProvider {
   readonly name = 'openai' as const;
 
   private readonly apiKey: string;
+  private readonly baseUrl: string;
+  private readonly billed: boolean;
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
 
   constructor(config: OpenAIProviderConfig) {
     this.apiKey = config.apiKey;
+    this.baseUrl = openAiBaseUrl(config.baseUrl);
+    this.billed = this.baseUrl === OPENAI_DEFAULT_BASE_URL;
     this.timeoutMs = config.requestTimeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.fetchImpl = config.fetchImpl ?? fetch;
   }
 
-  /** GET `/v1/models` — verifies the key works without spending tokens. */
+  /** GET `/models` — verifies the key works without spending tokens. */
   // fallow-ignore-next-line unused-class-member -- part of the DescribeProvider contract; callers use it through the interface
   async health(): Promise<void> {
-    const res = await this.timedFetch(MODELS_ENDPOINT, {
+    const res = await this.timedFetch(`${this.baseUrl}/models`, {
       method: 'GET',
       headers: this.headers(),
     });
@@ -94,7 +102,7 @@ export class OpenAIProvider implements DescribeProvider {
         },
       ],
     });
-    const res = await this.timedFetch(ENDPOINT, {
+    const res = await this.timedFetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { ...this.headers(), 'content-type': 'application/json' },
       body,
@@ -113,7 +121,7 @@ export class OpenAIProvider implements DescribeProvider {
       typeof parsed.usage?.prompt_tokens === 'number' ? parsed.usage.prompt_tokens : 0;
     const outTokens =
       typeof parsed.usage?.completion_tokens === 'number' ? parsed.usage.completion_tokens : 0;
-    const cost = priceForModel(opts.model, inTokens, outTokens);
+    const cost = this.billed ? priceForModel(opts.model, inTokens, outTokens) : 0;
     const text = billedOutputText(
       'OpenAI',
       cost,
@@ -139,6 +147,10 @@ export class OpenAIProvider implements DescribeProvider {
       fetchImpl: this.fetchImpl,
     });
   }
+}
+
+export function openAiBaseUrl(raw: string | null | undefined): string {
+  return raw?.trim().replace(/\/+$/, '') || OPENAI_DEFAULT_BASE_URL;
 }
 
 function firstChoiceFinishReason(choices: unknown): unknown {

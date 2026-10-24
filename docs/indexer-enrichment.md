@@ -18,10 +18,18 @@ Describe and Video Describe can mix Ollama and cloud connections, each with its
 own model. Requests rotate round-robin through healthy connections with capacity.
 Connection concurrency caps each worker's pool; Describe's stage
 concurrency is derived from its assigned pool. Generated search chooses its own
-Ollama text-generation connection/model. Semantic search chooses its own Ollama
-embedding connection/model, reachable from the API host. Those two workers
-currently support Ollama only. Their settings no longer follow Describe after the
-first unified save. Whisper and face-model controls remain on their worker cards.
+Ollama text-generation connection/model and supports Ollama only. Semantic search
+chooses its own embedding connection/model, reachable from the API host: an Ollama
+server (`/api/embed`) or an OpenAI-compatible server (`<base URL>/embeddings` with the
+connection's bearer key). Either way the model must be bge-m3, because in-process
+search embeds queries with bge-m3. A saved embedding endpoint override is always an
+Ollama server. Their settings no longer follow Describe after the first unified save.
+
+An OpenAI connection has an optional base URL. Blank means `https://api.openai.com/v1`;
+any other value points the same protocol and bearer key at an OpenAI-compatible server
+(vLLM, llama.cpp, Strata, …), which model discovery lists unfiltered and the describe
+workers record at `cost_usd` 0. Changing the base URL discards the saved key, so a key
+is never sent to a host it was not entered for. Whisper and face-model controls remain on their worker cards.
 
 Before that first save, the API imports the effective legacy configuration for
 review, preserving all Describe servers, capacity, worker model overrides, and the
@@ -327,4 +335,5 @@ Describe and Video Describe accept mixed local/cloud connections, rotate request
 among healthy connections with capacity, and retain per-connection concurrency and retry failover.
 Each request uses the selected connection's model and records its provider/model in result metadata.
 Older assignments without `connection_models` retain their shared model until edited.
-Generated search and semantic search remain single-connection Ollama workers.
+Generated search and semantic search remain single-connection workers; generated search is
+Ollama-only, semantic search accepts Ollama or an OpenAI-compatible server.

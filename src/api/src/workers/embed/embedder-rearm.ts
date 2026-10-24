@@ -1,20 +1,28 @@
+import { createHash } from 'node:crypto';
 import { EMBED_STAGE } from '../../db/repos/assets.stage-rearm.ts';
 import { rearmEmbedForEmbedderChange } from '../../db/repos/asset-vectors.repo.ts';
 import { WorkerConfigRepo } from '../../db/repos/worker-config.repo.ts';
-import type { OllamaEmbedTarget } from '../../enrichment/ollama-embed-client.ts';
+import type { EmbedTarget } from '../../enrichment/ollama-embed-client.ts';
 import { currentEmbedderTarget } from './embedder-target.ts';
 
 const SWEEP_INTERVAL_MS = 60_000;
 
 const sweep = { lastAt: 0 };
 
+/** A corrected key must revive dead-lettered rows, so the key counts, but only as a short digest. */
+function embedderFingerprint(target: EmbedTarget): string {
+  const base = `${target.model} @ ${target.url}`;
+  if (!target.apiKey) return base;
+  return `${base} key:${createHash('sha256').update(target.apiKey).digest('hex').slice(0, 8)}`;
+}
+
 /**
  * Re-queues vectors written by a different model or endpoint than `target`. Dead-lettered rows
  * are revived too, but only when the target differs from what the stage last recorded (in
  * `worker_config.ai_model`), so permanently failing assets are not retried on every sweep.
  */
-export async function rearmForEmbedderTarget(target: OllamaEmbedTarget): Promise<void> {
-  const fingerprint = `${target.model} @ ${target.url}`;
+export async function rearmForEmbedderTarget(target: EmbedTarget): Promise<void> {
+  const fingerprint = embedderFingerprint(target);
   const repo = new WorkerConfigRepo();
   const targetChanged = (await repo.load(EMBED_STAGE))?.ai_model !== fingerprint;
   await rearmEmbedForEmbedderChange(target, { includeDead: targetChanged });

@@ -23,7 +23,10 @@
           <div class="section-heading">
             <div>
               <h2 id="connections-title">Provider connections</h2>
-              <p>Each Ollama server or cloud account is a separate connection.</p>
+              <p>
+                Each Ollama server, OpenAI-compatible server or cloud account is a separate
+                connection.
+              </p>
             </div>
             <mui-button (pressed)="addConnection()">Add connection</mui-button>
           </div>
@@ -76,6 +79,19 @@
                         (valueChange)="updateConnection(c.id, { url: $event })"
                     /></label>
                   } @else {
+                    @if (c.provider === 'openai') {
+                      <label class="wide"
+                        >Base URL<mui-input
+                          [ariaLabel]="'Base URL for ' + c.name"
+                          [value]="c.url"
+                          placeholder="https://api.openai.com/v1"
+                          (valueChange)="updateConnection(c.id, { url: $event, has_key: false })"
+                      /></label>
+                      <p class="hint wide">
+                        Leave blank for OpenAI, or enter any OpenAI-compatible server, such as
+                        http://192.168.0.10:8080/v1. Changing it requires the key again.
+                      </p>
+                    }
                     <label class="wide"
                       >API key<mui-input
                         [masked]="true"
@@ -201,8 +217,9 @@
           <h2 id="embedder-title">Search vectors</h2>
           <p>
             The embed stage turns each photo’s caption, people, place, transcript and text into a
-            search vector. Leave a field blank to follow the Semantic search assignment above.
-            Changing the model re-embeds the whole library.
+            search vector. Leave a field blank to follow the Semantic search assignment above; an
+            endpoint entered here must be an Ollama server. Changing the model re-embeds the whole
+            library.
           </p>
           <div class="fields">
             <label class="wide"

@@ -9,13 +9,18 @@ import {
 
 const target = { url: 'http://ollama.test:11434/', model: 'bge-m3' };
 
-function replying(body: unknown, status = 200): { fetchImpl: FetchImpl; calls: unknown[] } {
+function replying(
+  body: unknown,
+  status = 200,
+): { fetchImpl: FetchImpl; calls: unknown[]; headers: unknown[] } {
   const calls: unknown[] = [];
+  const headers: unknown[] = [];
   const fetchImpl: FetchImpl = async (input, init) => {
     calls.push({ input, body: JSON.parse(String(init.body)) });
+    headers.push(init.headers);
     return new Response(JSON.stringify(body), { status });
   };
-  return { fetchImpl, calls };
+  return { fetchImpl, calls, headers };
 }
 
 describe('embedTexts', () => {
@@ -35,6 +40,36 @@ describe('embedTexts', () => {
     ]);
     expect(Array.from(vectors[0]!)).toEqual([Math.fround(0.6), Math.fround(0.8)]);
     expect(Array.from(vectors[1]!)).toEqual([0, 1]);
+  });
+
+  it('calls an OpenAI-compatible /embeddings with the key and restores input order', async () => {
+    const { fetchImpl, calls, headers } = replying({
+      data: [
+        { index: 1, embedding: [0, 2] },
+        { index: 0, embedding: [3, 4] },
+      ],
+    });
+    const vectors = await embedTexts(
+      { url: 'http://strata.test:8080/v1/', model: 'bge-m3', protocol: 'openai', apiKey: 'sk-s' },
+      ['a', 'b'],
+      fetchImpl,
+    );
+    expect(calls).toEqual([
+      {
+        input: 'http://strata.test:8080/v1/embeddings',
+        body: { model: 'bge-m3', input: ['a', 'b'] },
+      },
+    ]);
+    expect(headers).toEqual([{ 'Content-Type': 'application/json', Authorization: 'Bearer sk-s' }]);
+    expect(Array.from(vectors[0]!)).toEqual([Math.fround(0.6), Math.fround(0.8)]);
+    expect(Array.from(vectors[1]!)).toEqual([0, 1]);
+  });
+
+  it('rejects an OpenAI-compatible answer without a data array', async () => {
+    const { fetchImpl } = replying({ embeddings: [[1, 0]] });
+    await expect(
+      embedTexts({ ...target, protocol: 'openai', apiKey: 'k' }, ['a'], fetchImpl),
+    ).rejects.toThrow('openai embed returned a malformed response');
   });
 
   it('rejects a non-OK answer', async () => {
