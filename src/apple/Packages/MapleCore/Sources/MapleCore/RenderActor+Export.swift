@@ -23,7 +23,7 @@ extension RenderActor {
     else { return asset.isRaw }
     if let resolved = resolvedIsRaw(for: asset.id) { return resolved }
     let bytes = try await provider()
-    guard let resolved = AssetRef.detectIsRaw(bytes: bytes) else { return asset.isRaw }
+    let resolved = AssetRef.detectIsRaw(bytes: bytes) ?? asset.isRaw
     recordResolvedIsRaw(asset.id, resolved)
     return resolved
   }
