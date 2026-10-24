@@ -22,6 +22,7 @@
 //! occupancy is one chunk.
 
 use raw_core::export::{export_from_raw_with_film, ExportFormat, ExportOptions};
+use raw_core::export_recipe::{export_bytes_with_recipe, ExportRecipe};
 use raw_core::pipeline::RawInput;
 use raw_core::view::encode::TargetPrimaries;
 use raw_core::xmp as xmp_mod;
@@ -183,15 +184,34 @@ fn export_core_with_film(
     max_long_edge: u32,
     film_lut_bytes: &[u8],
 ) -> Result<MapleExport, String> {
-    let format = ExportFormat::from_str(format)
-        .ok_or_else(|| format!("export_bytes: unsupported format '{format}'"))?;
+    let format_name = format;
+    let format = ExportFormat::from_str(format_name)
+        .ok_or_else(|| format!("export_bytes: unsupported format '{format_name}'"))?;
+    let requested_edge = (max_long_edge > 0).then_some(max_long_edge);
 
-    let raw_img = raw_core::decode::decode_bytes(raw, ext).map_err(|e| e.to_string())?;
-    crate::cpu_budget::validate_export_dimensions(
-        raw_img.width,
-        raw_img.height,
-        (max_long_edge > 0).then_some(max_long_edge),
-    )?;
+    // The editor can develop an ordinary JPEG/PNG/WebP, but the RAW decoder
+    // used below cannot. Route those baked containers through the shared
+    // raster export chain. TIFF is ambiguous (camera RAWs use it too), so
+    // retain the RAW path when it decodes and fall back to raster otherwise.
+    let baked_container = raw.starts_with(&[0xff, 0xd8])
+        || raw.starts_with(b"\x89PNG\r\n\x1a\n")
+        || (raw.starts_with(b"RIFF") && raw.get(8..12) == Some(b"WEBP"));
+    let raw_img = if baked_container {
+        None
+    } else {
+        match raw_core::decode::decode_bytes(raw, ext) {
+            Ok(image) => Some(image),
+            Err(_) if matches!(ext.to_ascii_lowercase().as_str(), "tif" | "tiff") => None,
+            Err(error) => return Err(error.to_string()),
+        }
+    };
+    let (width, height) = if let Some(image) = &raw_img {
+        (image.width, image.height)
+    } else {
+        let metadata = raw_core::raster::probe_raster_metadata(raw).map_err(|e| e.to_string())?;
+        (metadata.width, metadata.height)
+    };
+    crate::cpu_budget::validate_export_dimensions(width, height, requested_edge)?;
 
     let model = crate::mask_registry::parse_model(xmp.as_deref()).map_err(|e| e.to_string())?;
 
@@ -200,7 +220,7 @@ fn export_core_with_film(
         quality,
         target: target_primaries(color_space),
         // 0 is the "native resolution" sentinel; anything else is a real cap.
-        max_long_edge: (max_long_edge > 0).then_some(max_long_edge),
+        max_long_edge: requested_edge,
     };
 
     // Empty bytes ⇒ no look loaded — the same "None" contract
@@ -213,14 +233,36 @@ fn export_core_with_film(
         Some(raw_core::film::decode_mlut(film_lut_bytes).map_err(|e| e.to_string())?)
     };
 
-    let exported = export_from_raw_with_film(
-        &raw_img,
-        &model,
-        Some(RawInput::Bytes { bytes: raw, ext }),
-        &options,
-        film_lut.as_ref(),
-    )
-    .map_err(|e| e.to_string())?;
+    let exported = if let Some(raw_img) = &raw_img {
+        export_from_raw_with_film(
+            raw_img,
+            &model,
+            Some(RawInput::Bytes { bytes: raw, ext }),
+            &options,
+            film_lut.as_ref(),
+        )
+        .map_err(|e| e.to_string())?
+    } else {
+        let recipe = ExportRecipe {
+            format: format_name.to_string(),
+            quality: matches!(format, ExportFormat::Jpeg | ExportFormat::Avif)
+                .then_some(quality as u32),
+            bit_depth: if format == ExportFormat::Tiff16 {
+                16
+            } else {
+                8
+            },
+            max_long_edge: requested_edge,
+            output_profile: if color_space == "display-p3" {
+                "display-p3"
+            } else {
+                "srgb"
+            }
+            .to_string(),
+            ..ExportRecipe::default()
+        };
+        export_bytes_with_recipe(raw, ext, &model, &recipe, film_lut.as_ref())?
+    };
 
     Ok(MapleExport {
         width: exported.width,
@@ -319,6 +361,30 @@ mod tests {
             Ok(_) => panic!("an unknown format must be rejected"),
         };
         assert!(err.contains("unsupported format"), "got: {err}");
+    }
+
+    #[test]
+    fn a_jpeg_source_exports_through_the_raster_chain() {
+        let image = image::RgbImage::from_pixel(8, 4, image::Rgb([120, 80, 40]));
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 95)
+            .encode_image(&image)
+            .expect("encode source JPEG");
+
+        for format in ["jpeg", "png", "tiff"] {
+            let full = export_core(&jpeg, "jpg", None, format, 92, "srgb", 0)
+                .unwrap_or_else(|error| panic!("{format} export failed: {error}"));
+            assert_eq!((full.width, full.height), (8, 4), "{format}");
+            let decoded = image::load_from_memory(&full.bytes).expect("encoded export decodes");
+            assert_eq!((decoded.width(), decoded.height()), (8, 4), "{format}");
+        }
+
+        let smaller =
+            export_core(&jpeg, "jpg", None, "jpeg", 92, "srgb", 4).expect("resized JPEG export");
+        assert_eq!((smaller.width, smaller.height), (4, 2));
+        let no_upscale =
+            export_core(&jpeg, "jpg", None, "jpeg", 92, "srgb", 16).expect("no-upscale export");
+        assert_eq!((no_upscale.width, no_upscale.height), (8, 4));
     }
 
     /// Repo-root fixture path. Skip-pass when the gitignored RAW is absent,
