@@ -72,6 +72,22 @@ const SLIDER_TOOLS: Partial<Record<ToolGroup, readonly ToolId[]>> = {
   detail: ['sharpen', 'noise', 'colorNR'],
 };
 
+/** Add Color's field-less mixer and curve defaults to the group reset. */
+function addColorSubtoolDefaults(patch: Partial<AdjustmentModel>): void {
+  const defaults = defaultGeneratedAdjustmentModel();
+  for (const tool of ['hsl', 'bwMix'] as const) {
+    for (const sub of subParamsFor(tool)) {
+      (patch as Record<string, number>)[sub.field] = defaults[sub.field];
+    }
+  }
+  patch.colorCurveHueVsHue = { points: [] };
+  patch.colorCurveHueVsSat = { points: [] };
+  patch.colorCurveHueVsLuma = { points: [] };
+  patch.colorCurveLumaVsSat = { points: [] };
+  patch.colorCurveSatVsSat = { points: [] };
+  patch.colorCurveSatVsLuma = { points: [] };
+}
+
 /** A sub-tool row entry: `id` is the `ToolId` it arms, `null` for Basic —
  *  the group's plain sliders. */
 interface Subtool {
@@ -404,18 +420,7 @@ export class ControlCardComponent {
       }
     }
     if (group === 'color') {
-      const defaults = defaultGeneratedAdjustmentModel();
-      for (const tool of ['hsl', 'bwMix'] as const) {
-        for (const sub of subParamsFor(tool)) {
-          (patch as Record<string, number>)[sub.field] = defaults[sub.field];
-        }
-      }
-      patch.colorCurveHueVsHue = { points: [] };
-      patch.colorCurveHueVsSat = { points: [] };
-      patch.colorCurveHueVsLuma = { points: [] };
-      patch.colorCurveLumaVsSat = { points: [] };
-      patch.colorCurveSatVsSat = { points: [] };
-      patch.colorCurveSatVsLuma = { points: [] };
+      addColorSubtoolDefaults(patch);
     } else if (group === 'effects') {
       const defaults = defaultGeneratedAdjustmentModel();
       patch.colorGradeBlending = defaults.colorGradeBlending;
