@@ -13,10 +13,10 @@ import Foundation
 // MARK: - RelocateMode
 
 public enum RelocateMode: Sendable, Equatable {
-    /// Delete the source (primary + sidecar) once the copy is verified.
-    case move
-    /// Leave the source in place — the destination is a duplicate.
-    case copy
+  /// Delete the source (primary + sidecar) once the copy is verified.
+  case move
+  /// Leave the source in place — the destination is a duplicate.
+  case copy
 }
 
 // MARK: - CollisionPolicy
@@ -26,17 +26,17 @@ public enum RelocateMode: Sendable, Equatable {
 /// external-reconciliation), the other two for user-initiated operations
 /// that have already resolved a Skip/Replace/Keep-Both prompt.
 public enum CollisionPolicy: Sendable, Equatable {
-    /// Append `.N` before the extension until free — never overwrites.
-    /// Matches the API's `pickFreePath` (`src/api/src/fs/trash.ts`).
-    case autoSuffix
-    /// Fail with `FileOperationError.destinationExists` rather than touch
-    /// an existing file. The right default for a user-facing operation that
-    /// hasn't asked the user yet.
-    case fail
-    /// Overwrite the existing destination (primary + its sidecar, if any) —
-    /// the user explicitly chose Replace. A destination sidecar another
-    /// same-stem photo there still uses is never overwritten (#4707).
-    case replace
+  /// Append `.N` before the extension until free — never overwrites.
+  /// Matches the API's `pickFreePath` (`src/api/src/fs/trash.ts`).
+  case autoSuffix
+  /// Fail with `FileOperationError.destinationExists` rather than touch
+  /// an existing file. The right default for a user-facing operation that
+  /// hasn't asked the user yet.
+  case fail
+  /// Overwrite the existing destination (primary + its sidecar, if any) —
+  /// the user explicitly chose Replace. A destination sidecar another
+  /// same-stem photo there still uses is never overwritten (#4707).
+  case replace
 }
 
 // MARK: - RelocatePlan
@@ -48,52 +48,61 @@ public enum CollisionPolicy: Sendable, Equatable {
 /// staged copy exist, which is exactly the on-disk state a real crash
 /// between `plan` and `finalize` would leave behind.
 public struct RelocatePlan: Sendable, Equatable {
-    public let mode: RelocateMode
-    public let sourcePrimaryPath: String
-    public let sourceSidecarPath: String?
-    public let finalPrimaryPath: String
-    public let finalSidecarPath: String?
-    public let renamedDueToCollision: Bool
-    /// Paths this planning step created (the staged copies). `revert` (and
-    /// a `finalize` that decides not to proceed) removes exactly these,
-    /// leaving the source and everything else untouched. Mirrors
-    /// `PlacePlan.createdPaths` in `restructure-fs.ts`. Empty for a
-    /// case-only rename (`sourceAlreadyRelocated`) — nothing was COPIED,
-    /// the source itself was renamed in place.
-    public let createdPaths: [String]
-    /// True when `planRelocate` already fully relocated the source itself
-    /// — the case-only-rename shape (see `classifySameFile`), performed as
-    /// a single atomic `moveItem` because source and target are the SAME
-    /// underlying file on a case-insensitive-but-case-preserving
-    /// filesystem. `finalize` must NOT attempt to delete
-    /// `sourcePrimaryPath` when this is true: on such a filesystem that
-    /// path now resolves to the very file that was just renamed.
-    public let sourceAlreadyRelocated: Bool
-    /// True when finalize must leave `sourceSidecarPath` in place: another
-    /// same-stem photo still uses it, or it maps onto itself (an
-    /// extension-only rename) — #4707.
-    public let retainsSourceSidecar: Bool
+  public let mode: RelocateMode
+  public let sourcePrimaryPath: String
+  public let sourceSidecarPath: String?
+  /// UUID workflow branches copied with the photo. These source paths are
+  /// removed only after their verified destination copies are published.
+  public let sourceVariantPaths: [String]
+  public let finalPrimaryPath: String
+  public let finalSidecarPath: String?
+  public let finalVariantPaths: [String]
+  public let renamedDueToCollision: Bool
+  /// Paths this planning step created (the staged copies). `revert` (and
+  /// a `finalize` that decides not to proceed) removes exactly these,
+  /// leaving the source and everything else untouched. Mirrors
+  /// `PlacePlan.createdPaths` in `restructure-fs.ts`. Empty for a
+  /// case-only rename (`sourceAlreadyRelocated`) — nothing was COPIED,
+  /// the source itself was renamed in place.
+  public let createdPaths: [String]
+  /// True when `planRelocate` already fully relocated the source itself
+  /// — the case-only-rename shape (see `classifySameFile`), performed as
+  /// a single atomic `moveItem` because source and target are the SAME
+  /// underlying file on a case-insensitive-but-case-preserving
+  /// filesystem. `finalize` must NOT attempt to delete
+  /// `sourcePrimaryPath` when this is true: on such a filesystem that
+  /// path now resolves to the very file that was just renamed.
+  public let sourceAlreadyRelocated: Bool
+  /// True when finalize must leave `sourceSidecarPath` in place: another
+  /// same-stem photo still uses it, or it maps onto itself (an
+  /// extension-only rename) — #4707.
+  public let retainsSourceSidecar: Bool
 
-    public init(mode: RelocateMode, sourcePrimaryPath: String, sourceSidecarPath: String?,
-                finalPrimaryPath: String, finalSidecarPath: String?,
-                renamedDueToCollision: Bool, createdPaths: [String],
-                sourceAlreadyRelocated: Bool = false, retainsSourceSidecar: Bool = false) {
-        self.mode = mode
-        self.sourcePrimaryPath = sourcePrimaryPath
-        self.sourceSidecarPath = sourceSidecarPath
-        self.finalPrimaryPath = finalPrimaryPath
-        self.finalSidecarPath = finalSidecarPath
-        self.renamedDueToCollision = renamedDueToCollision
-        self.createdPaths = createdPaths
-        self.sourceAlreadyRelocated = sourceAlreadyRelocated
-        self.retainsSourceSidecar = retainsSourceSidecar
-    }
+  public init(
+    mode: RelocateMode, sourcePrimaryPath: String, sourceSidecarPath: String?,
+    finalPrimaryPath: String, finalSidecarPath: String?,
+    renamedDueToCollision: Bool, createdPaths: [String],
+    sourceAlreadyRelocated: Bool = false, retainsSourceSidecar: Bool = false,
+    sourceVariantPaths: [String] = [], finalVariantPaths: [String] = []
+  ) {
+    self.mode = mode
+    self.sourcePrimaryPath = sourcePrimaryPath
+    self.sourceSidecarPath = sourceSidecarPath
+    self.sourceVariantPaths = sourceVariantPaths
+    self.finalPrimaryPath = finalPrimaryPath
+    self.finalSidecarPath = finalSidecarPath
+    self.finalVariantPaths = finalVariantPaths
+    self.renamedDueToCollision = renamedDueToCollision
+    self.createdPaths = createdPaths
+    self.sourceAlreadyRelocated = sourceAlreadyRelocated
+    self.retainsSourceSidecar = retainsSourceSidecar
+  }
 
-    /// True when `finalize` has nothing left to do — either a case-only
-    /// rename already did everything (`sourceAlreadyRelocated`), or
-    /// (defensively, for a plan built by hand rather than by
-    /// `planRelocate`) nothing was ever staged.
-    public var isNoop: Bool { createdPaths.isEmpty }
+  /// True when `finalize` has nothing left to do — either a case-only
+  /// rename already did everything (`sourceAlreadyRelocated`), or
+  /// (defensively, for a plan built by hand rather than by
+  /// `planRelocate`) nothing was ever staged.
+  public var isNoop: Bool { createdPaths.isEmpty }
 }
 
 // MARK: - SameFileClassification
@@ -110,24 +119,26 @@ public struct RelocatePlan: Sendable, Equatable {
 /// as a direct atomic move rather than copy-verify-delete or the collision
 /// branch.
 public enum SameFileClassification: Sendable, Equatable {
-    case different
-    case identical
-    case caseOnlyRename
+  case different
+  case identical
+  case caseOnlyRename
 }
 
 // MARK: - RelocateOutcome
 
 public struct RelocateOutcome: Sendable, Equatable {
-    public let primaryPath: String
-    public let sidecarPath: String?
-    public let renamedDueToCollision: Bool
-    public let sidecarFollowed: Bool
+  public let primaryPath: String
+  public let sidecarPath: String?
+  public let renamedDueToCollision: Bool
+  public let sidecarFollowed: Bool
 
-    public init(primaryPath: String, sidecarPath: String?,
-                renamedDueToCollision: Bool, sidecarFollowed: Bool) {
-        self.primaryPath = primaryPath
-        self.sidecarPath = sidecarPath
-        self.renamedDueToCollision = renamedDueToCollision
-        self.sidecarFollowed = sidecarFollowed
-    }
+  public init(
+    primaryPath: String, sidecarPath: String?,
+    renamedDueToCollision: Bool, sidecarFollowed: Bool
+  ) {
+    self.primaryPath = primaryPath
+    self.sidecarPath = sidecarPath
+    self.renamedDueToCollision = renamedDueToCollision
+    self.sidecarFollowed = sidecarFollowed
+  }
 }
