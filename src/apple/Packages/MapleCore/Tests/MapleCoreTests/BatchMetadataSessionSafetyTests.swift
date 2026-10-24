@@ -2,6 +2,7 @@
 // stale or variant develop settings into an asset's Primary sidecar (#4709).
 // Every case round-trips a REAL .xmp beside the committed synthetic DNG.
 
+import MapleBackup
 import XCTest
 
 @testable import MapleCore
@@ -156,6 +157,101 @@ final class BatchMetadataSessionSafetyTests: EditorTestCase {
     } catch {
       XCTAssertEqual(failedAssets(error), [remote.id])
     }
+  }
+
+  func testPhotoKitBatchWritesBothSidecarsAndPreservesExistingEdits() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "batch-photokit")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let backing = AppSupportSidecarStore(root: root)
+    let ids = ["PHOTO-ONE/L0/001", "PHOTO-TWO/L0/001"]
+    let assets = ids.map { id in
+      AssetRef(
+        displayName: "\(id).dng", hintExtension: "dng", stableID: id,
+        thumbnailProvenance: .photoKit, bytesProvider: { Data() })
+    }
+    for (index, id) in ids.enumerated() {
+      var model = AdjustmentModel.default
+      model.exposure = Double(index + 1)
+      var metadata = XmpMetadata()
+      metadata.title = "Original \(index + 1)"
+      let store = PhotoKitSidecarStore(phassetLocalId: id, sidecars: backing)
+      await store.update(
+        model: model, culling: CullingState(stars: index + 1), metadata: metadata)
+      await store.flush()
+    }
+
+    let vm = BatchMetadataViewModel(
+      assets: assets, sessions: [:], photoKitSidecarRoot: root)
+    await vm.loadExistingMetadata()
+    XCTAssertTrue(vm.mixedFields.contains(.title))
+    XCTAssertTrue(vm.mixedFields.contains(.rating))
+    var touched = TouchedMetadata()
+    touched.instructions = "QA batch metadata"
+    vm.touchedMetadata = touched
+    try await vm.apply()
+
+    for (index, id) in ids.enumerated() {
+      let xml = try XCTUnwrap(backing.read(phassetLocalId: id))
+      let (model, culling) = try XMPParser.parse(xml)
+      let metadata = XMPParser.parseMetadata(xml)
+      XCTAssertEqual(model.exposure, Double(index + 1), accuracy: 1e-9)
+      XCTAssertEqual(culling.stars, index + 1)
+      XCTAssertEqual(metadata.title, "Original \(index + 1)")
+      XCTAssertEqual(metadata.instructions, "QA batch metadata")
+    }
+  }
+
+  func testPhotoKitBatchRejectsCorruptSidecarWithoutReplacingIt() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "batch-photokit-corrupt")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let id = "CORRUPT/L0/001"
+    let backing = AppSupportSidecarStore(root: root)
+    let sidecar = backing.sidecarURL(phassetLocalId: id)
+    try Self.unreadableSidecar.write(to: sidecar)
+    let asset = AssetRef(
+      displayName: "corrupt.dng", hintExtension: "dng", stableID: id,
+      thumbnailProvenance: .photoKit, bytesProvider: { Data() })
+    let vm = BatchMetadataViewModel(
+      assets: [asset], sessions: [:], photoKitSidecarRoot: root)
+    vm.touchedMetadata.instructions = "Must not write"
+
+    do {
+      try await vm.apply()
+      XCTFail("a corrupt PhotoKit sidecar must fail")
+    } catch {
+      XCTAssertEqual(failedAssets(error), [asset.id])
+    }
+    XCTAssertEqual(try Data(contentsOf: sidecar), Self.unreadableSidecar)
+  }
+
+  func testPhotoKitLiveSessionKeepsBatchRatingOnNextEdit() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "batch-photokit-session")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let id = "LIVE-PHOTO/L0/001"
+    let backing = AppSupportSidecarStore(root: root)
+    let asset = AssetRef(
+      displayName: "live.dng", hintExtension: "dng", stableID: id,
+      thumbnailProvenance: .photoKit, bytesProvider: { Data() })
+    let store = PhotoKitSidecarStore(phassetLocalId: id, sidecars: backing)
+    let session = EditSession(asset: asset, remoteSidecarStore: store)
+    await session.loadSidecar()
+    let vm = BatchMetadataViewModel(
+      assets: [asset], sessions: [asset.id: session], photoKitSidecarRoot: root)
+    vm.touchedMetadata.stars = 4
+    vm.touchedMetadata.instructions = "From batch"
+    try await vm.apply()
+    XCTAssertEqual(session.culling.stars, 4)
+
+    session.beginEdit()
+    session.model.contrast = 25
+    session.endEdit()
+    await session.flushPendingSidecarWrite()
+
+    let xml = try XCTUnwrap(backing.read(phassetLocalId: id))
+    let (model, culling) = try XMPParser.parse(xml)
+    XCTAssertEqual(model.contrast, 25, accuracy: 1e-9)
+    XCTAssertEqual(culling.stars, 4)
+    XCTAssertEqual(XMPParser.parseMetadata(xml).instructions, "From batch")
   }
 
   /// A culling change that lands while the batch waits on the session's
