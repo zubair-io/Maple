@@ -31,6 +31,7 @@ describe('coerceFfiRequest', () => {
         'renderBitmap',
         'renderDevelop',
         'renderThumb',
+        'sidecarAdjustments',
         'validateAvif',
       ].sort(),
     );

@@ -126,6 +126,33 @@ pub unsafe extern "C" fn maple_validate_export_recipe(recipe_json: *const c_char
     })
 }
 
+/// Whether a sidecar document parsed exactly as `maple_export_recipe_to_file`
+/// parses it carries render adjustments. Returns 0 for the default model (an
+/// empty or metadata-only sidecar), 1 when authored, and 4 with last-error when
+/// the document does not parse.
+/// # Safety
+/// `xmp_xml` must point to a NUL-terminated UTF-8 string, or be null (rejected).
+#[no_mangle]
+pub unsafe extern "C" fn maple_xmp_has_render_adjustments(xmp_xml: *const c_char) -> i32 {
+    crate::error::catch_panic_rc("maple_xmp_has_render_adjustments", || {
+        let result = text(xmp_xml).and_then(|xml| {
+            if xml.is_empty() {
+                return Ok(false);
+            }
+            raw_core::xmp::parse(&xml)
+                .map(|model| model.has_render_adjustments())
+                .map_err(|e| format!("xmp parse: {e}"))
+        });
+        match result {
+            Ok(authored) => i32::from(authored),
+            Err(error) => {
+                set_last_error(error);
+                4
+            }
+        }
+    })
+}
+
 /// Render the validated recipe's output name using the shared format extension and sequence.
 /// Output is UTF-8, not NUL terminated. Returns 0 on success, 1 with last-error on failure.
 /// # Safety
@@ -252,6 +279,41 @@ mod tests {
             "unsupported settings must fail before output publication"
         );
         assert_eq!(std::fs::read(&source).unwrap(), original);
+    }
+    #[test]
+    fn metadata_only_sidecars_carry_no_render_adjustments() {
+        let xml = |attributes: &str| {
+            CString::new(format!(
+                r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" xmlns:papp="http://ns.justmaple.app/photo/1.0/" {attributes}><dc:subject><rdf:Bag><rdf:li>travel</rdf:li></rdf:Bag></dc:subject></rdf:Description></rdf:RDF></x:xmpmeta>"#
+            ))
+            .unwrap()
+        };
+        let has =
+            |document: &CString| unsafe { maple_xmp_has_render_adjustments(document.as_ptr()) };
+        assert_eq!(has(&CString::new("").unwrap()), 0);
+        assert_eq!(
+            has(&CString::new(r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"/></x:xmpmeta>"#).unwrap()),
+            0
+        );
+        assert_eq!(
+            has(&xml(
+                r#"xmp:Rating="3" xmp:Label="Red" papp:Flag="pick" papp:Profile="Auto" crs:Version="11.0" crs:ProcessVersion="11.0" crs:HasSettings="True""#
+            )),
+            0
+        );
+        for edit in [
+            r#"crs:Exposure2012="0.5""#,
+            r#"crs:Temperature="6500""#,
+            r#"papp:Profile="Neutral""#,
+            r#"papp:FilmLook="color_negative_kodak_portra_400""#,
+        ] {
+            assert_eq!(has(&xml(edit)), 1, "{edit}");
+        }
+        assert_eq!(has(&xml(r#"papp:Profile="NotAProfile""#)), 4);
+        assert_eq!(
+            unsafe { maple_xmp_has_render_adjustments(std::ptr::null()) },
+            4
+        );
     }
     #[test]
     fn preflight_rejects_unsupported_choices_and_nulls_without_rendering() {

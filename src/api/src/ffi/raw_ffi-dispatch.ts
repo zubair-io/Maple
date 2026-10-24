@@ -60,6 +60,14 @@ export async function handleFfiRequest(
       error: error ?? undefined,
     };
   }
+  if (req.type === 'sidecarAdjustments') {
+    // A dylib that predates the check cannot tell, so it develops every
+    // sidecar exactly as it did before #5231.
+    const verdict = ffi.xmpHasRenderAdjustments?.(req.xmp) ?? { authored: true };
+    return 'error' in verdict
+      ? { type: req.type, id: req.id, ok: false, error: verdict.error }
+      : { type: req.type, id: req.id, ok: true, authored: verdict.authored };
+  }
   if (req.type === 'asShot') {
     const baseline = ffi.asShotWhiteBalance(req.rawPath);
     return baseline
