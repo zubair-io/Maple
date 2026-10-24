@@ -125,8 +125,10 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
         !rows.some((row) =>
           row.items.some((item) => item.kind === 'image' && item.asset.id === position.assetId),
         )
-      )
+      ) {
+        if (!this.state.backendLoading()) this.returnPosition.clear();
         return;
+      }
       if (this.restoreFrame !== null) return;
       let attempts = 0;
       const restoreWhenMeasured = () => {
