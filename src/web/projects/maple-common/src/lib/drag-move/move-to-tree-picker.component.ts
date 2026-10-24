@@ -58,8 +58,9 @@ export class MoveToTreePickerComponent {
   protected readonly openNodeIds = signal<Set<string>>(new Set());
   private readonly refreshedNodeIds = new Set<string>();
 
-  private isAddressedFolder(node: SidebarEntry): boolean {
+  private isSameLibraryAddressedFolder(node: SidebarEntry): boolean {
     const sourceId = this.sourceFolderId();
+    if (!sourceId.includes(':')) return false;
     const slug = sourceId.slice(0, sourceId.indexOf(':'));
     return (
       node.kind === 'folder' &&
@@ -78,7 +79,7 @@ export class MoveToTreePickerComponent {
     // Addressed folders can have children that have not been fetched into the
     // sidebar tree yet. Keep their chevrons available even when the row itself
     // cannot be selected as a destination (for example, the source folder).
-    return !!node.absPath || this.isAddressedFolder(node) || this.hasChildren(node);
+    return !!node.absPath || this.isSameLibraryAddressedFolder(node) || this.hasChildren(node);
   }
 
   protected isOpen(node: SidebarEntry): boolean {
@@ -95,7 +96,7 @@ export class MoveToTreePickerComponent {
     if (willOpen && this.canExpand(node)) {
       // Re-read addressed folders on demand: the picker may open after a new
       // child was created while the sidebar's cached children are still stale.
-      if (this.isAddressedFolder(node)) {
+      if (this.isSameLibraryAddressedFolder(node)) {
         if (!this.refreshedNodeIds.has(node.id)) {
           this.refreshedNodeIds.add(node.id);
           this.state.refreshFolderChildren(node.id);
