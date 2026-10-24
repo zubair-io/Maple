@@ -428,4 +428,30 @@ final class WorkflowSidecarTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: raw), Data([42]))
   }
 
+  func testCaseOnlyRawRenameKeepsSharedJpegVariantVisible() async throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    guard SidecarOwnership.localVolumeFoldsCase(dir) else {
+      throw XCTSkip("Requires a case-folding volume")
+    }
+    let raw = dir.appendingPathComponent("photo.dng")
+    let jpeg = dir.appendingPathComponent("photo.jpg")
+    try Data([42]).write(to: raw)
+    try Data([43]).write(to: jpeg)
+    try Data(xml().utf8).write(to: SidecarPath.sidecarURL(for: raw))
+    let variant = try record()
+    _ = try await WorkflowVariantStore(rawURL: raw).create(variant)
+
+    _ = try await LocalFileOperations.relocate(
+      raw, to: dir, newBasename: "PHOTO.DNG", mode: .move)
+
+    let listed = try await WorkflowVariantStore(rawURL: jpeg).list()
+    XCTAssertEqual(Set(listed.map(\.variantId)), Set(["primary", variant.variantId]))
+    XCTAssertTrue(listed.allSatisfy(\.exists))
+    XCTAssertEqual(listed.last?.workflow, variant)
+    let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+    XCTAssertTrue(names.contains("PHOTO.v\(variant.variantId).xmp"))
+  }
+
 }

@@ -19,6 +19,8 @@ public actor WorkflowVariantStore {
   public func list() throws -> [WorkflowVariantSidecar] {
     let primary = primarySidecarURL
     let prefix = primary.deletingPathExtension().lastPathComponent + ".v"
+    let foldsCase = SidecarOwnership.localVolumeFoldsCase(primary.deletingLastPathComponent())
+    let matchingPrefix = foldsCase ? prefix.lowercased() : prefix
     let files: [URL]
     do {
       files = try FileManager.default.contentsOfDirectory(
@@ -31,11 +33,16 @@ public actor WorkflowVariantStore {
       .sorted { $0.lastPathComponent < $1.lastPathComponent }
     let siblings = try sorted.compactMap { file -> WorkflowVariantSidecar? in
       let name = file.lastPathComponent
-      guard name.hasPrefix(prefix), name.hasSuffix(".xmp") else { return nil }
+      let matchingName = foldsCase ? name.lowercased() : name
+      guard matchingName.hasPrefix(matchingPrefix), matchingName.hasSuffix(".xmp") else {
+        return nil
+      }
       let id = String(name.dropFirst(prefix.count).dropLast(4))
       guard id.count == 36 else { return nil }  // Other tools' .v2 files are not UUID variants.
       let expected = try variantURL(id)
-      guard expected.lastPathComponent == name else {
+      let matchingExpected =
+        foldsCase ? expected.lastPathComponent.lowercased() : expected.lastPathComponent
+      guard matchingExpected == matchingName else {
         throw failure("Noncanonical variant filename: \(name)")
       }
       return try inspect(id)
