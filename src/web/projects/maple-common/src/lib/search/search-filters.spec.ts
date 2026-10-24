@@ -241,6 +241,12 @@ describe('parseDeepLinkFilters', () => {
     expect(parseDeepLinkFilters((key) => preset[key] ?? null)).toEqual({ datePreset: 'last30' });
   });
 
+  it('accepts legacy comma-separated names beginning with a bracket', () => {
+    expect(parseDeepLinkFilters(from({ people: '[Square Bracket Band], AC/DC' }))).toEqual({
+      people: ['[Square Bracket Band]', 'AC/DC'],
+    });
+  });
+
   it('returns null when nothing valid is present, so plain /search?q= keeps defaults', () => {
     expect(parseDeepLinkFilters(from({}))).toBeNull();
     expect(parseDeepLinkFilters(from({ q: 'beach' }))).toBeNull();

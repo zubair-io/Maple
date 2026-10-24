@@ -548,6 +548,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected onRecentTap(q: string): void {
     this.query.set(q);
     this.queryChange.emit(q);
+    this.emitNavigationChange();
     // Promote the tapped recent back to the head so the list reflects
     // most-recent-first ordering even when re-tapping older items.
     const next = pushRecent(this.recent(), q);
