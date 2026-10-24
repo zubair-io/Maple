@@ -8,6 +8,7 @@
 // DOM in them.
 
 import { TestBed } from '@angular/core/testing';
+import { HttpErrorResponse } from '@angular/common/http';
 import { describe, expect, it } from 'vitest';
 import { SidecarSaveStateService } from './sidecar-save-state.service';
 
@@ -64,6 +65,34 @@ describe('SidecarSaveStateService', () => {
     expect(state.statusText()).toEqual({
       state: 'error',
       text: 'Edits are not saved. Check folder permissions or available storage, then try again.',
+    });
+  });
+
+  it('explains a real HTTP connection failure without exposing the request path', () => {
+    const state = make();
+    const revision = state.queued('asset-1');
+    state.failed(
+      'asset-1',
+      revision,
+      new HttpErrorResponse({ status: 0, url: '/api/xmp/private/path' }),
+    );
+    expect(state.statusText()).toEqual({
+      state: 'error',
+      text: 'Edits are not saved. Check your connection and try again.',
+    });
+  });
+
+  it('recognizes the service worker response when the Self Hosted server is offline', () => {
+    const state = make();
+    const revision = state.queued('asset-1');
+    state.failed(
+      'asset-1',
+      revision,
+      new HttpErrorResponse({ status: 504, url: '/api/xmp/private/path' }),
+    );
+    expect(state.statusText()).toEqual({
+      state: 'error',
+      text: 'Edits are not saved. Check your connection to the server and try again.',
     });
   });
 

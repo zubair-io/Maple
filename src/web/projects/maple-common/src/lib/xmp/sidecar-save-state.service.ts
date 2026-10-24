@@ -10,28 +10,32 @@ interface AssetSaveState {
   error: string | null;
 }
 
+function httpSaveFailureMessage(status: number): string {
+  if (status === 0) return 'Check your connection and try again.';
+  if (status >= 502 && status <= 504) return 'Check your connection to the server and try again.';
+  if (status === 401 || status === 403) return 'Check your access to this folder and try again.';
+  if (status >= 500) return 'Check folder permissions or available storage, then try again.';
+  return 'Please try again.';
+}
+
+function responseStatus(error: unknown): number | null {
+  if (error === null || typeof error !== 'object') return null;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === 'number' ? status : null;
+}
+
+function responseMessage(error: unknown): string | null {
+  if (error === null || typeof error !== 'object') return null;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === 'string' && message.trim() ? message : null;
+}
+
 function saveFailureMessage(error: unknown): string {
+  const status = responseStatus(error);
+  if (status !== null) return httpSaveFailureMessage(status);
   if (error instanceof Error) return error.message || 'Please try again.';
   if (typeof error === 'string') return error.trim() || 'Please try again.';
-
-  if (error !== null && typeof error === 'object') {
-    const response = error as { status?: unknown; message?: unknown };
-    if (typeof response.status === 'number') {
-      if (response.status === 0) return 'Check your connection and try again.';
-      if (response.status === 401 || response.status === 403) {
-        return 'Check your access to this folder and try again.';
-      }
-      if (response.status >= 500) {
-        return 'Check folder permissions or available storage, then try again.';
-      }
-      return 'Please try again.';
-    }
-    if (typeof response.message === 'string' && response.message.trim()) {
-      return response.message;
-    }
-  }
-
-  return 'Please try again.';
+  return responseMessage(error) ?? 'Please try again.';
 }
 
 /** What `<mui-status-text>` should show for a given phase, or `null` to
