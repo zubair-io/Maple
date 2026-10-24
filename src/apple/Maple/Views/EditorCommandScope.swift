@@ -97,6 +97,14 @@ struct EditorCommandScope: ViewModifier {
       router?.finishNudge()
       return .ignored
     }
+    #if os(iOS)
+      if press.characters.lowercased() == "z", press.modifiers.contains(.command),
+        press.modifiers.intersection([.control, .option]).isEmpty
+      {
+        guard press.phase == .down else { return .handled }
+        return perform(press.modifiers.contains(.shift) ? .redo : .undo)
+      }
+    #endif
     // A focused knot owns its arrow event before the ancestor scope (#4384).
     // Modifier-based pan and commands still fall through to the normal routes.
     let knotKey = [.leftArrow, .rightArrow, .upArrow, .downArrow].contains(press.key)
