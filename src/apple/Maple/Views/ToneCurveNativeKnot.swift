@@ -164,7 +164,10 @@
         let next =
           index
           + (press.modifiers.contains(.shift) || press.key == KeyEquivalent("\u{19}") ? -1 : 1)
-        guard responders?.contains(next) == true else { return .ignored }
+        guard responders?.contains(next) == true else {
+          if press.phase == .down { _ = resignFirstResponder() }
+          return .ignored
+        }
         if press.phase == .down { responders?.focus(next) }
         return .handled
       }
