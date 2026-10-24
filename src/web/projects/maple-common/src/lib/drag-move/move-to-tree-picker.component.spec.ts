@@ -48,10 +48,14 @@ describe('MoveToTreePickerComponent', () => {
     root.click();
     expect(selected).toEqual([]);
     expect(root.getAttribute('aria-disabled')).toBe('true');
-    (root.querySelector('button') as HTMLButtonElement).click();
+    const chevron = root.parentElement!.querySelector('button') as HTMLButtonElement;
+    expect(root.contains(chevron)).toBe(false);
+    expect(chevron.getAttribute('aria-disabled')).toBeNull();
+    expect(chevron.getAttribute('aria-label')).toBe('Expand Photos');
+    chevron.click();
     expect(refreshFolderChildren).toHaveBeenCalledWith(source.id);
-    (root.querySelector('button') as HTMLButtonElement).click();
-    (root.querySelector('button') as HTMLButtonElement).click();
+    chevron.click();
+    chevron.click();
     expect(refreshFolderChildren).toHaveBeenCalledTimes(1);
 
     fixture.componentRef.setInput('nodes', [{ ...source, children: [child] }]);
