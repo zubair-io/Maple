@@ -59,12 +59,10 @@ describe('OpenAI-compatible connections', () => {
     );
   });
 
-  it('still keep generated search on Ollama', () => {
+  it('can also serve generated search', () => {
     const config = strataConfig();
     config.assignments['generated-search'] = { connection_ids: ['strata'], model: 'qwen' };
-    expect(validateAiConnections(config)).toBe(
-      'Generated search supports only ollama connections.',
-    );
+    expect(validateAiConnections(config)).toBeNull();
   });
 
   it('embed over the OpenAI protocol with the connection key', () => {

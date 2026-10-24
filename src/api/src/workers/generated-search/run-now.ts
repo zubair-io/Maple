@@ -24,7 +24,7 @@ const log = childLogger('generated-search');
 let inFlight = false;
 let current: Promise<void> | null = null;
 /** Test seam: the route calls `startRunNow()` with no args, so route tests
- * install a stub here rather than letting a real pass hit DB + Ollama. */
+ * install a stub here rather than letting a real pass hit DB + the text model. */
 let runnerOverride: (() => Promise<GeneratedSearchSummary>) | null = null;
 
 export interface RunNowResult {

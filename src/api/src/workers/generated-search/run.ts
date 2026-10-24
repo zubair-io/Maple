@@ -8,8 +8,8 @@ import { assignedAi } from '../../enrichment/ai-connections.ts';
  * handful of library-level documents on a schedule, which is why it lives
  * beside trash-gc and dedupe in `maintenance.ts`.
  *
- * Starts PAUSED (see `config.repo.ts`). The job needs Ollama configured and
- * reachable, and a paused start keeps a fresh install from quietly filling
+ * Starts PAUSED (see `config.repo.ts`). The job needs a text model configured
+ * and reachable, and a paused start keeps a fresh install from quietly filling
  * the widget with junk before an operator has looked at it.
  */
 
@@ -21,6 +21,9 @@ import { buildDigest } from './build-digest.ts';
 import { loadGeneratedSearchConfig, type GeneratedSearchConfig } from './config.repo.ts';
 import { runProposalLoop } from './loop.ts';
 import { createOllamaJsonClient } from './ollama-adapter.ts';
+import type { FetchLike, JsonClient } from './json-client.ts';
+import type { AiConnection } from '../../enrichment/ai-connections.ts';
+import { createOpenAiJsonClient } from './openai-json-adapter.ts';
 import { pruneGeneratedSearches, type GeneratedSearchInput } from './repo.ts';
 import {
   claimLibraryRun,
@@ -121,22 +124,34 @@ export interface RunOptions {
 }
 
 /** A saved AI assignment is independent; legacy deployments retain their
- * existing endpoint/model until the unified settings are first saved. */
-async function resolveModelEndpoint(
+ * existing Ollama endpoint/model until the unified settings are first saved. */
+async function resolveJsonClient(
   config: GeneratedSearchConfig,
-): Promise<{ model: string; url: string }> {
+): Promise<{ model: string; client: JsonClient }> {
   const enrichment = resolveEnrichmentConfig(await loadEnrichmentConfig());
   const assigned = assignedAi(enrichment.ai_connections, 'generated-search');
-  const legacyModel = config.model.length > 0 ? config.model : enrichment.describe_model;
-  return assigned === null
-    ? { model: legacyModel, url: enrichment.describe_provider_url }
-    : { model: assigned.model, url: assigned.primary.url };
+  if (assigned === null) {
+    const model = config.model.length > 0 ? config.model : enrichment.describe_model;
+    return { model, client: createOllamaJsonClient(enrichment.describe_provider_url, model) };
+  }
+  return { model: assigned.model, client: jsonClientFor(assigned.primary, assigned.model) };
+}
+
+/** The assigned connection's protocol decides the client: OpenAI chat completions or Ollama generate. */
+export function jsonClientFor(
+  connection: Pick<AiConnection, 'provider' | 'url' | 'api_key'>,
+  model: string,
+  fetchImpl?: FetchLike,
+): JsonClient {
+  return connection.provider === 'openai'
+    ? createOpenAiJsonClient(connection.url, connection.api_key, model, fetchImpl)
+    : createOllamaJsonClient(connection.url, model, fetchImpl);
 }
 
 async function realLibraryPass(config: GeneratedSearchConfig, now: Date): Promise<LibraryPass> {
-  const { model, url } = await resolveModelEndpoint(config);
+  const { model, client } = await resolveJsonClient(config);
   const ctx = {
-    client: createOllamaJsonClient(url, model),
+    client,
     config,
     model,
     generatedFor: dayKey(now),
