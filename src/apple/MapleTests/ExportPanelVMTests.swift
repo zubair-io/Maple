@@ -7,10 +7,10 @@
 
 import CoreImage
 import Foundation
-import MapleCore
 import XCTest
 
 @testable import Maple
+@testable import MapleCore
 
 /// Lets a test hold the encoder inside the panel's encode step and inspect
 /// where it ran. `enterAndWait` is called from whatever thread the VM put
@@ -350,6 +350,22 @@ final class ExportPanelVMTests: XCTestCase {
   }
 
   // MARK: - Resolution Options
+
+  func testOutputDimensionsFollowCommittedCropAtFullResolution() {
+    var model = AdjustmentModel.default
+    model.crop = Crop(top: 0, left: 1.0 / 6.0, bottom: 1, right: 5.0 / 6.0)
+    let session = EditSession.preview(model: model)
+    session.nativeImageSize = CGSize(width: 6000, height: 4000)
+
+    let vm = ExportPanelVM()
+    vm.sizeOption = .full
+    XCTAssertEqual(vm.outputDimensions(for: session), CGSize(width: 4000, height: 4000))
+    XCTAssertEqual(vm.outputDimensionsDescription(for: session), "Size: 4000 × 4000 px (Full)")
+
+    vm.sizeOption = .fast
+    XCTAssertEqual(vm.outputDimensions(for: session), CGSize(width: 1281, height: 1280))
+    XCTAssertEqual(vm.outputDimensionsDescription(for: session), "Size: 1281 × 1280 px")
+  }
 
   func testSizeOptionDefaultsToFastAndPassesToRenderer() async throws {
     let image = stubImage

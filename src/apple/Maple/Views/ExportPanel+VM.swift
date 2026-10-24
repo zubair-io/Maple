@@ -150,19 +150,21 @@ final class ExportPanelVM {
   func outputDimensions(for session: EditSession) -> CGSize? {
     let native = session.nativeImageSize
     guard native.width > 0, native.height > 0 else { return nil }
+    let uncropped: CGSize
     switch sizeOption {
     case .full:
-      return native
+      uncropped = native
     case .fast:
       let edge = CGFloat(fastExportLongEdge(for: session))
       let maxNative = max(native.width, native.height)
       guard maxNative > 0 else { return nil }
       let scale = min(edge / maxNative, 1.0)
-      return CGSize(
+      uncropped = CGSize(
         width: (native.width * scale).rounded(),
         height: (native.height * scale).rounded()
       )
     }
+    return CropImageStage.exportOutputSize(session.model.crop, uncroppedSize: uncropped)
   }
 
   /// Formatted description for the Output section, e.g. "Size: 2040 × 1360 px".
