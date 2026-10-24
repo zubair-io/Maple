@@ -6,6 +6,7 @@ import { ServiceApiKeysComponent } from './service-api-keys.component';
 
 describe('ServiceApiKeysComponent', () => {
   let fixture: ComponentFixture<ServiceApiKeysComponent>;
+  const activeExpiry = (): string => new Date(Date.now() + 90 * 86_400_000).toISOString();
 
   const key = (overrides: Partial<ServiceApiKey> = {}): ServiceApiKey => ({
     keyId: '0000000000000001',
@@ -13,7 +14,7 @@ describe('ServiceApiKeysComponent', () => {
     name: 'SugarMaple',
     scopes: ['assets:search'],
     createdAt: '2026-07-26T12:00:00.000Z',
-    expiresAt: '2026-10-24T12:00:00.000Z',
+    expiresAt: activeExpiry(),
     revokedAt: null,
     lastUsedAt: null,
     ...overrides,
@@ -26,7 +27,7 @@ describe('ServiceApiKeysComponent', () => {
     name: 'SugarMaple',
     scopes: ['assets:search'],
     createdAt: '2026-07-26T12:00:00.000Z',
-    expiresAt: '2026-10-24T12:00:00.000Z',
+    expiresAt: activeExpiry(),
   });
 
   async function setup(authStub: Partial<AuthService>): Promise<void> {

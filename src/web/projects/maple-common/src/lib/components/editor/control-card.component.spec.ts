@@ -16,13 +16,15 @@ import { EditorStateService } from '../../editor/editor-state.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { makeLibraryStub } from '../../editor/editor-state.test-helpers';
-import { defaultAdjustmentModel } from '../../models/adjustment-model';
+import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
+import { subParamsFor } from '../../editor/tool-sub-param';
 
 function render(
   inputs: {
     activeGroup?: string;
     activeTool?: string | null;
     blackWhiteOn?: boolean;
+    adjustment?: AdjustmentModel;
   } = {},
 ): {
   fixture: ComponentFixture<ControlCardComponent>;
@@ -45,7 +47,7 @@ function render(
   TestBed.resetTestingModule();
   const focusedAssetId = signal<string | null>('asset-1');
   const capabilities = new LensCorrectionCapabilities();
-  const adjustmentFor = vi.fn(() => signal(defaultAdjustmentModel()));
+  const adjustmentFor = vi.fn(() => signal(inputs.adjustment ?? defaultAdjustmentModel()));
   const updateAdjustment = vi.fn();
   const commit = vi.fn();
   const haptic = vi.fn();
@@ -227,6 +229,45 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
         wbAlgorithmVersion: 0,
       }),
     );
+  });
+
+  it('resets Effects sliders, grading wheels, and film in one undo boundary', () => {
+    const defaults = defaultAdjustmentModel();
+    const adjustment = defaultAdjustmentModel();
+    adjustment.exposure = 1;
+    adjustment.clarity = 5;
+    for (const tool of ['vignette', 'grain', 'colorGrade'] as const) {
+      for (const sub of subParamsFor(tool)) {
+        (adjustment as unknown as Record<string, number>)[sub.field] = defaults[sub.field] + 1;
+      }
+    }
+    adjustment.colorGradeBlending = 99;
+    adjustment.colorGradeShadowEdge = 0.6;
+    adjustment.colorGradeHighlightEdge = 0.6;
+    adjustment.filmLook = 'kodak-portra-400';
+    adjustment.filmStrength = 99;
+    const { componentInstance, updateAdjustment, commit } = render({
+      activeGroup: 'effects',
+      adjustment,
+    });
+
+    componentInstance.resetGroup();
+
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(updateAdjustment).toHaveBeenCalledTimes(1);
+    const model: AdjustmentModel = updateAdjustment.mock.lastCall?.[1];
+    expect(model.exposure).toBeUndefined();
+    expect(model.clarity).toBe(defaults.clarity);
+    for (const tool of ['vignette', 'grain', 'colorGrade'] as const) {
+      for (const sub of subParamsFor(tool)) {
+        expect(model[sub.field]).toBe(defaults[sub.field]);
+      }
+    }
+    expect(model.colorGradeBlending).toBe(defaults.colorGradeBlending);
+    expect(model.colorGradeShadowEdge).toBe(defaults.colorGradeShadowEdge);
+    expect(model.colorGradeHighlightEdge).toBe(defaults.colorGradeHighlightEdge);
+    expect(model.filmLook).toBe(defaults.filmLook);
+    expect(model.filmStrength).toBe(defaults.filmStrength);
   });
 
   it('a real Color slider replaces a named preset and Undo restores its provenance', async () => {
