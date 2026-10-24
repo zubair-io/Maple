@@ -177,6 +177,7 @@ LocalAdjustmentFlatTests
 LocalFileOperationsExternalRenameTests
 LocalFileOperationsFolderTests
 LocalFileOperationsRelocateTests
+LocalWorkflowVariantRelocateTests
 LocalFileOperationsTrashTests
 
 # KTLO qualification batch 4 (#3657): map geometry and offscreen bitmaps,
