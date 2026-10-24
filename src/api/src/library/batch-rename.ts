@@ -71,6 +71,42 @@ export interface BatchRenamePreviewItem {
   duplicate: boolean;
 }
 
+async function resolveBatchSource(
+  fileinfo: FileInfo[],
+  sourceAddress: string | undefined,
+): Promise<{ kind: 'ok'; source: FileInfo } | { kind: 'error'; error: string }> {
+  if (sourceAddress === undefined) {
+    const live = fileinfo.filter((entry) => !entry.deleted_at && !entry.missing_since);
+    if (live.length === 0) return { kind: 'error', error: 'asset has no live location' };
+    if (live.length > 1) {
+      return {
+        kind: 'error',
+        error: 'source address required for an asset with multiple locations',
+      };
+    }
+    return { kind: 'ok', source: live[0]! };
+  }
+
+  try {
+    const resolved = await resolveAddressString(sourceAddress);
+    const relPath = parseAddressString(sourceAddress).relPath;
+    if (!relPath) return { kind: 'error', error: 'source address must name a file' };
+    const directory = path.posix.dirname(relPath);
+    const source = fileinfo.find(
+      (entry) =>
+        !entry.deleted_at &&
+        entry.library_id.equals(resolved.libraryId) &&
+        entry.path === (directory === '.' ? '' : directory) &&
+        entry.filename === path.posix.basename(relPath),
+    );
+    return source
+      ? { kind: 'ok', source }
+      : { kind: 'error', error: 'source address no longer belongs to this asset' };
+  } catch {
+    return { kind: 'error', error: 'invalid source address' };
+  }
+}
+
 /** Render one item's new name against its live `fileinfo`, without any
  * filesystem or database write — shared by `previewBatchRename` and
  * `batchRenameAssets` so preview and apply always agree on what a given
@@ -87,39 +123,9 @@ async function renderItemName(
   const view = await loadAssetLocationView(id);
   if (!view) return { kind: 'not-found' };
 
-  let primary: FileInfo | null;
-  const sourceAddress = input.sourceAddresses?.[index];
-  if (sourceAddress !== undefined) {
-    try {
-      const resolved = await resolveAddressString(sourceAddress);
-      const relPath = parseAddressString(sourceAddress).relPath;
-      if (!relPath) return { kind: 'error', error: 'source address must name a file' };
-      const directory = path.posix.dirname(relPath);
-      primary =
-        view.fileinfo.find(
-          (entry) =>
-            !entry.deleted_at &&
-            entry.library_id.equals(resolved.libraryId) &&
-            entry.path === (directory === '.' ? '' : directory) &&
-            entry.filename === path.posix.basename(relPath),
-        ) ?? null;
-      if (!primary)
-        return { kind: 'error', error: 'source address no longer belongs to this asset' };
-    } catch {
-      return { kind: 'error', error: 'invalid source address' };
-    }
-  } else {
-    const live = view.fileinfo.filter((entry) => !entry.deleted_at && !entry.missing_since);
-    if (live.length === 0) return { kind: 'error', error: 'asset has no live location' };
-    if (live.length > 1) {
-      return {
-        kind: 'error',
-        error: 'source address required for an asset with multiple locations',
-      };
-    }
-    primary = live[0]!;
-  }
-  if (!primary) return { kind: 'error', error: 'asset has no live location' };
+  const selected = await resolveBatchSource(view.fileinfo, input.sourceAddresses?.[index]);
+  if (selected.kind === 'error') return { kind: 'error', error: selected.error };
+  const primary = selected.source;
 
   const { stem, ext } = splitStemExt(primary.filename);
   const rendered = renderTemplatedName({
