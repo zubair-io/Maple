@@ -19,9 +19,12 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { relocateRoutes } from './relocate.ts';
-import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
+import {
+  setLibraryBySlugForTests,
+  setLibraryRootsForTests,
+} from '../../indexer/libraries.cache.ts';
 import { fakeAuth } from '../../../tests/helpers/test-auth.ts';
-import { newObjectIdHex } from '../../db/object-id.ts';
+import { newObjectIdHex, ObjectId } from '../../db/object-id.ts';
 import { locationRows } from '../../../tests/helpers/assets-route-fixtures.ts';
 import {
   createLiveTestDatabase,
@@ -176,15 +179,27 @@ async function seedOnDisk(
 
 /** Register one library root under `root` and wire the roots cache to it. */
 function seedLibrary(db: Database): string {
-  const libraryId = insertFolder(db, { path: root, slug: 'relocate-route-test' });
+  const libraryId = insertFolder(db, {
+    path: root,
+    slug: 'relocate-route-test',
+  });
   setLibraryRootsForTests(new Map([[libraryId, root]]));
+  setLibraryBySlugForTests('relocate-route-test', {
+    libraryId: new ObjectId(libraryId),
+    root,
+    label: 'relocate-route-test',
+  });
   return libraryId;
 }
 
 /** Write `a/IMG_1.dng` under `root` and seed a matching asset. */
 async function seedAssetOnDisk(db: Database): Promise<string> {
   const libraryId = seedLibrary(db);
-  return seedOnDisk(db, libraryId, { relPath: 'a', filename: 'IMG_1.dng', content: 'pixels' });
+  return seedOnDisk(db, libraryId, {
+    relPath: 'a',
+    filename: 'IMG_1.dng',
+    content: 'pixels',
+  });
 }
 
 describe('POST /api/assets/:id/relocate — replace collision guard (#2843)', () => {
@@ -238,6 +253,74 @@ describe('POST /api/assets/:id/relocate — replace collision guard (#2843)', ()
 });
 
 describe('POST /api/assets/:id/relocate — end to end', () => {
+  test('moves the selected location of a deduplicated asset with its XMP, leaving the other copy', async () => {
+    const libraryId = seedLibrary(live.db);
+    const id = await seedOnDisk(live.db, libraryId, {
+      relPath: 'a',
+      filename: 'canonical.jpg',
+      content: 'same pixels',
+    });
+    await fs.writeFile(path.join(root, 'a', 'selected.jpg'), 'same pixels');
+    await fs.writeFile(path.join(root, 'a', 'selected.xmp'), '<xmp>rating 3</xmp>');
+    insertLocation(live.db, {
+      assetId: id,
+      libraryId,
+      ordinal: 1,
+      path: 'a',
+      filename: 'selected.jpg',
+    });
+    await fs.mkdir(path.join(root, 'b'));
+
+    const res = await postRelocate(id, {
+      mode: 'move',
+      collision: 'skip',
+      destination_path: 'b',
+      source_address: 'relocate-route-test:a/selected.jpg',
+    });
+
+    expect(res.status).toBe(200);
+    expect(await fs.readFile(path.join(root, 'a', 'canonical.jpg'), 'utf8')).toBe('same pixels');
+    expect(await fs.readFile(path.join(root, 'b', 'selected.jpg'), 'utf8')).toBe('same pixels');
+    expect(await fs.readFile(path.join(root, 'b', 'selected.xmp'), 'utf8')).toBe(
+      '<xmp>rating 3</xmp>',
+    );
+    await expect(fs.stat(path.join(root, 'a', 'selected.jpg'))).rejects.toThrow();
+    const locations = locationRows(live.db, id);
+    expect(locations.find((entry) => entry.filename === 'canonical.jpg')?.path).toBe('a');
+    expect(locations.find((entry) => entry.filename === 'selected.jpg')?.path).toBe('b');
+  });
+
+  test('rejects an ambiguous ID-only move and a stale source address without moving files', async () => {
+    const libraryId = seedLibrary(live.db);
+    const id = await seedOnDisk(live.db, libraryId, {
+      relPath: 'a',
+      filename: 'canonical.jpg',
+      content: 'same pixels',
+    });
+    await fs.writeFile(path.join(root, 'a', 'selected.jpg'), 'same pixels');
+    insertLocation(live.db, {
+      assetId: id,
+      libraryId,
+      ordinal: 1,
+      path: 'a',
+      filename: 'selected.jpg',
+    });
+    await fs.mkdir(path.join(root, 'b'));
+    const body = { mode: 'move', collision: 'skip', destination_path: 'b' };
+
+    expect((await postRelocate(id, body)).status).toBe(409);
+    expect(
+      (
+        await postRelocate(id, {
+          ...body,
+          source_address: 'relocate-route-test:a/unknown.jpg',
+        })
+      ).status,
+    ).toBe(409);
+    expect(await fs.readFile(path.join(root, 'a', 'canonical.jpg'), 'utf8')).toBe('same pixels');
+    expect(await fs.readFile(path.join(root, 'a', 'selected.jpg'), 'utf8')).toBe('same pixels');
+  });
+
   test('moves the asset, returns the new path, and repoints the catalogue', async () => {
     const id = await seedAssetOnDisk(live.db);
 
