@@ -25,12 +25,21 @@
  *                                           library, and `destination_path`
  *                                           always resolves under the
  *                                           asset's OWN library root.
+ *   source_address?: string               — selected file location when an
+ *                                           asset has identical-content copies
  */
 
 import { Elysia, t } from 'elysia';
+import * as path from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
+import type { FileInfo } from '../../db/schema.ts';
+import { loadAssetLocationView } from '../../db/repos/assets.locations.repo.ts';
 import { relocateAsset } from '../../library/relocate-asset.ts';
-import { validateRelPathShape } from '../../library/address.ts';
+import {
+  parseAddressString,
+  resolveAddressString,
+  validateRelPathShape,
+} from '../../library/address.ts';
 import { isSafeFilename } from '../../backup/path-formatter.ts';
 import { resolveAssetIdOrRespond, relocateResultResponse } from './_shared.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
@@ -46,6 +55,7 @@ const RelocateBodySchema = t.Object({
   destination_path: t.String(),
   destination_filename: t.Optional(t.String()),
   destination_library_id: t.Optional(t.String()),
+  source_address: t.Optional(t.String()),
 });
 
 /** Fast, I/O-free rejection of an obviously-hostile `destination_path` /
@@ -90,6 +100,48 @@ export const relocateRoutes = new Elysia().post(
       }
     }
 
+    const view = await loadAssetLocationView(id);
+    if (!view) {
+      set.status = 404;
+      return { error: 'Asset not found' };
+    }
+    let source: FileInfo | undefined;
+    if (body.source_address !== undefined) {
+      let resolved;
+      let relPath: string;
+      try {
+        resolved = await resolveAddressString(body.source_address);
+        relPath = parseAddressString(body.source_address).relPath;
+      } catch (err) {
+        set.status = (err as { status?: number }).status ?? 400;
+        return { error: 'Invalid source address' };
+      }
+      if (!relPath) {
+        set.status = 400;
+        return { error: 'Source address must name a file' };
+      }
+      const filename = path.posix.basename(relPath);
+      const directory = path.posix.dirname(relPath);
+      source = view.fileinfo.find(
+        (entry) =>
+          !entry.deleted_at &&
+          entry.library_id.equals(resolved.libraryId) &&
+          entry.path === (directory === '.' ? '' : directory) &&
+          entry.filename === filename,
+      );
+      if (!source) {
+        set.status = 409;
+        return { error: 'Source address no longer belongs to this asset' };
+      }
+    } else if (
+      view.fileinfo.filter((entry) => !entry.deleted_at && !entry.missing_since).length !== 1
+    ) {
+      set.status = 409;
+      return {
+        error: 'Source address required for an asset with multiple locations',
+      };
+    }
+
     const result = await relocateAsset({
       id,
       mode: body.mode,
@@ -97,6 +149,7 @@ export const relocateRoutes = new Elysia().post(
       destinationPath: body.destination_path,
       destinationFilename: body.destination_filename,
       destinationLibraryId,
+      ...(source ? { activeFileInfoOverride: source } : {}),
     });
 
     const { status, body: responseBody } = relocateResultResponse(result);
