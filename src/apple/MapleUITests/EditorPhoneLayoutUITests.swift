@@ -139,6 +139,7 @@ import XCTest
           }
           XCTAssertFalse(element(app, "editor-hsl-section").exists)
         }
+        tapTool(app, "mask")
         let addMask = element(app, "editor-mask-add-menu")
         wait(
           addMask,

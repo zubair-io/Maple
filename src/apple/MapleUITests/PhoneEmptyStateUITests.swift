@@ -26,66 +26,73 @@
 import XCTest
 
 #if os(iOS)
-import UIKit
+  import UIKit
 
-final class PhoneEmptyStateUITests: XCTestCase {
+  final class PhoneEmptyStateUITests: XCTestCase {
 
     override func setUpWithError() throws {
-        continueAfterFailure = false
-        try XCTSkipUnless(
-            UIDevice.current.userInterfaceIdiom == .phone,
-            "Phone-shell gate — the iPad/Mac path renders BrowseGrid, covered elsewhere."
-        )
+      continueAfterFailure = false
+      try XCTSkipUnless(
+        UIDevice.current.userInterfaceIdiom == .phone,
+        "Phone-shell gate — the iPad/Mac path renders BrowseGrid, covered elsewhere."
+      )
     }
 
     /// Select the Photos library from the drawer on a build that has no
     /// Photos permission, and assert the permission panel takes over the
     /// grid. Before #2924 this assertion failed on a blank screen.
     func testPhotosPermissionPanelIsReachableFromTheLibraryTab() throws {
-        let app = XCUIApplication()
-        app.launch()
+      let app = XCUIApplication()
+      app.launch()
 
-        // The grid surface itself must exist before anything else is
-        // meaningful — it's the identifier the empty state and the
-        // populated grid share, so its absence is a shell failure rather
-        // than an empty-state failure.
-        let grid = app.otherElements["library-grid"]
-        XCTAssertTrue(grid.waitForExistence(timeout: 30),
-                      "Library grid never appeared on the phone shell.")
+      // The grid surface itself must exist before anything else is
+      // meaningful — it's the identifier the empty state and the
+      // populated grid share, so its absence is a shell failure rather
+      // than an empty-state failure.
+      let grid = app.otherElements["library-grid"]
+      XCTAssertTrue(
+        grid.waitForExistence(timeout: 30),
+        "Library grid never appeared on the phone shell.")
 
-        // Open the drawer and pick All Photos. Deliberately NOT relying on
-        // the cold-start auto-pick: this test asserts the panel is
-        // reachable by the route a user actually takes, and stays valid
-        // whatever `autoPickInitialSource()` chooses.
-        app.buttons["Library"].tap()
-        let allPhotos = app.buttons["All Photos"]
-        XCTAssertTrue(allPhotos.waitForExistence(timeout: 10),
-                      "Drawer did not offer the All Photos row.")
-        allPhotos.tap()
+      // Open the drawer and pick All Photos. Deliberately NOT relying on
+      // the cold-start auto-pick: this test asserts the panel is
+      // reachable by the route a user actually takes, and stays valid
+      // whatever `autoPickInitialSource()` chooses.
+      app.navigationBars.buttons["Library"].tap()
+      let allPhotos = app.buttons["All Photos"]
+      XCTAssertTrue(
+        allPhotos.waitForExistence(timeout: 10),
+        "Drawer did not offer the All Photos row.")
+      allPhotos.tap()
 
-        let panel = app.otherElements["photos-auth-panel"]
-        guard panel.waitForExistence(timeout: 15) else {
-            // Either the library is authorized (photos loaded, no panel is
-            // correct) or we regressed. Distinguish the two so an
-            // authorized simulator skips instead of reporting a false
-            // failure — and so a genuine regression still fails.
-            let cells = app.cells.count + app.images.count
-            try XCTSkipIf(
-                cells > 0,
-                "Photo library is authorized on this simulator — no permission panel to assert. "
-                + "Erase the simulator (xcrun simctl erase) to exercise this gate."
-            )
-            return XCTFail("No permission panel and no photos: the phone Library tab is blank.")
-        }
+      let connect = app.buttons["photos-auth-panel"]
+      guard connect.waitForExistence(timeout: 15) else {
+        print("Photos library without permission panel: \(app.debugDescription)")
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = "Photos library without permission panel"
+        tree.lifetime = .keepAlways
+        add(tree)
+        // Chrome images and drawer cells are not evidence that PhotoKit
+        // access was granted. Only actual photo thumbnails qualify.
+        let thumbnails = grid.descendants(matching: .any)
+          .matching(NSPredicate(format: "identifier BEGINSWITH %@", "thumb-"))
+          .count
+        try XCTSkipIf(
+          thumbnails > 0,
+          "Photo library is authorized on this simulator — no permission panel to assert. "
+            + "Erase the simulator (xcrun simctl erase) to exercise this gate."
+        )
+        return XCTFail("No permission panel and no photos: the phone Library tab is blank.")
+      }
 
-        // The panel is only useful if its action is live. `onGrantPhotosAccess`
-        // was never threaded into LibraryGrid, so before #2924 the Connect
-        // button rendered `.disabled` even once the panel existed.
-        let connect = panel.buttons.firstMatch
-        XCTAssertTrue(connect.exists, "Permission panel rendered without an action button.")
-        XCTAssertTrue(connect.isEnabled,
-                      "Connect button is disabled — onGrantPhotosAccess was not wired through.")
+      // The panel is only useful if its action is live. `onGrantPhotosAccess`
+      // was never threaded into LibraryGrid, so before #2924 the Connect
+      // button rendered `.disabled` even once the panel existed.
+      XCTAssertTrue(
+        connect.isEnabled,
+        "Connect button is disabled — onGrantPhotosAccess was not wired through.")
+      XCTAssertTrue(connect.isHittable, "Connect button is covered by the Library drawer.")
     }
-}
+  }
 
 #endif
