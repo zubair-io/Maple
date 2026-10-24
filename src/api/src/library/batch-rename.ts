@@ -22,13 +22,17 @@
  */
 
 import type { ObjectId } from '../db/object-id.ts';
+import type { FileInfo } from '../db/schema.ts';
+import * as path from 'node:path';
 import { loadAssetLocationView } from '../db/repos/assets.locations.repo.ts';
-import { activeFileInfo, relocateAsset, type RelocateAssetInput } from './relocate-asset.ts';
+import { relocateAsset, type RelocateAssetInput } from './relocate-asset.ts';
+import { parseAddressString, resolveAddressString } from './address.ts';
 import { isSafeFilename } from '../backup/path-formatter.ts';
 import { extensionChanged, renderTemplatedName, splitStemExt } from './filename-template.ts';
 
 export interface BatchRenameTemplateInput {
   ids: ObjectId[];
+  sourceAddresses?: string[];
   template: string;
   sequenceStart: number;
   sequencePadWidth: number;
@@ -76,14 +80,45 @@ async function renderItemName(
   index: number,
   input: BatchRenameTemplateInput,
 ): Promise<
-  | { kind: 'ok'; oldFilename: string; oldPath: string; newFilename: string }
+  | { kind: 'ok'; oldFilename: string; oldPath: string; newFilename: string; source: FileInfo }
   | { kind: 'not-found' }
   | { kind: 'error'; error: string }
 > {
   const view = await loadAssetLocationView(id);
   if (!view) return { kind: 'not-found' };
 
-  const primary = activeFileInfo(view);
+  let primary: FileInfo | null;
+  const sourceAddress = input.sourceAddresses?.[index];
+  if (sourceAddress !== undefined) {
+    try {
+      const resolved = await resolveAddressString(sourceAddress);
+      const relPath = parseAddressString(sourceAddress).relPath;
+      if (!relPath) return { kind: 'error', error: 'source address must name a file' };
+      const directory = path.posix.dirname(relPath);
+      primary =
+        view.fileinfo.find(
+          (entry) =>
+            !entry.deleted_at &&
+            entry.library_id.equals(resolved.libraryId) &&
+            entry.path === (directory === '.' ? '' : directory) &&
+            entry.filename === path.posix.basename(relPath),
+        ) ?? null;
+      if (!primary)
+        return { kind: 'error', error: 'source address no longer belongs to this asset' };
+    } catch {
+      return { kind: 'error', error: 'invalid source address' };
+    }
+  } else {
+    const live = view.fileinfo.filter((entry) => !entry.deleted_at && !entry.missing_since);
+    if (live.length === 0) return { kind: 'error', error: 'asset has no live location' };
+    if (live.length > 1) {
+      return {
+        kind: 'error',
+        error: 'source address required for an asset with multiple locations',
+      };
+    }
+    primary = live[0]!;
+  }
   if (!primary) return { kind: 'error', error: 'asset has no live location' };
 
   const { stem, ext } = splitStemExt(primary.filename);
@@ -106,6 +141,7 @@ async function renderItemName(
     oldFilename: primary.filename,
     oldPath: primary.path,
     newFilename: rendered.name,
+    source: primary,
   };
 }
 
@@ -142,7 +178,7 @@ export async function previewBatchRename(
       });
       continue;
     }
-    const key = `${rendered.oldPath}/${rendered.newFilename}`;
+    const key = `${rendered.source.library_id.toHexString()}:${rendered.oldPath}/${rendered.newFilename}`;
     const duplicate = seen.has(key);
     seen.add(key);
     out.push({
@@ -178,6 +214,7 @@ export async function batchRenameAssets(input: BatchRenameInput): Promise<BatchR
       mode: 'move',
       collision: input.collision,
       destinationFilename: rendered.newFilename,
+      activeFileInfoOverride: rendered.source,
     });
 
     switch (outcome.kind) {
