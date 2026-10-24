@@ -58,6 +58,8 @@ export class ExportRecipeQueueService {
   );
   private cancelled = false;
   private destroyed = false;
+  private reconnectCancelled = false;
+  private reconnectTask: Promise<void> | null = null;
   private readonly ready: Promise<void>;
 
   constructor() {
@@ -68,7 +70,7 @@ export class ExportRecipeQueueService {
       .then((record) => {
         this.record.set(record && !record.serverJobId ? recoverBrowserQueue(record) : record);
         if (record?.serverJobId && this.server && navigator.locks)
-          void this.reconnectServerJob(record.id);
+          this.reconnectTask = this.reconnectServerJob(record.id);
       })
       .catch((error: unknown) => this.reportError(error));
   }
@@ -77,15 +79,28 @@ export class ExportRecipeQueueService {
    * saved snapshot on reopen without implicitly resuming a cancelled job. */
   private async reconnectServerJob(id: string): Promise<void> {
     try {
-      await navigator.locks.request('maple-export-queue', async () => {
-        if (this.destroyed) return;
-        const latest = await readExportQueue();
-        if (!latest || latest.id !== id || !latest.serverJobId) return;
-        this.record.set(latest);
-        await this.pollServer(latest);
-      });
+      for (;;) {
+        if (this.destroyed || this.reconnectCancelled) return;
+        const active = await navigator.locks.request('maple-export-queue', async () => {
+          if (this.destroyed || this.reconnectCancelled) return false;
+          const latest = await readExportQueue();
+          if (!latest || latest.id !== id || !latest.serverJobId) return false;
+          const job = await firstValueFrom(this.server!.get(latest.serverJobId));
+          if (this.destroyed || this.reconnectCancelled) return false;
+          this.applyServerSummary(latest, job);
+          await this.save(latest);
+          this.reportProgress(latest, '');
+          if (job.status !== 'queued' && job.status !== 'running') {
+            if (job.error) this.error.set(job.error);
+            return false;
+          }
+          return true;
+        });
+        if (!active) return;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
     } catch (error) {
-      if (!this.destroyed) this.reportError(error);
+      if (!this.destroyed && !this.reconnectCancelled) this.reportError(error);
     }
   }
 
@@ -189,6 +204,9 @@ export class ExportRecipeQueueService {
     work: (latest: RecipeQueueRecord | null) => Promise<void>,
   ): Promise<void> {
     if (this.running()) return;
+    this.reconnectCancelled = true;
+    await this.reconnectTask;
+    this.reconnectTask = null;
     this.running.set(true);
     this.error.set(null);
     this.cancelled = false;
