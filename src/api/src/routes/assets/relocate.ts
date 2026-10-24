@@ -78,6 +78,47 @@ function validateDestinationShape(body: {
   return null;
 }
 
+async function resolveSourceFileInfo(
+  fileinfo: FileInfo[],
+  sourceAddress?: string,
+): Promise<{ source?: FileInfo; error?: string; status?: number }> {
+  if (sourceAddress === undefined) {
+    if (fileinfo.filter((entry) => !entry.deleted_at && !entry.missing_since).length !== 1) {
+      return {
+        status: 409,
+        error: 'Source address required for an asset with multiple locations',
+      };
+    }
+    return {};
+  }
+
+  let resolved;
+  let relPath: string;
+  try {
+    resolved = await resolveAddressString(sourceAddress);
+    relPath = parseAddressString(sourceAddress).relPath;
+  } catch (err) {
+    return {
+      status: (err as { status?: number }).status ?? 400,
+      error: 'Invalid source address',
+    };
+  }
+  if (!relPath) return { status: 400, error: 'Source address must name a file' };
+
+  const filename = path.posix.basename(relPath);
+  const directory = path.posix.dirname(relPath);
+  const source = fileinfo.find(
+    (entry) =>
+      !entry.deleted_at &&
+      entry.library_id.equals(resolved.libraryId) &&
+      entry.path === (directory === '.' ? '' : directory) &&
+      entry.filename === filename,
+  );
+  return source
+    ? { source }
+    : { status: 409, error: 'Source address no longer belongs to this asset' };
+}
+
 export const relocateRoutes = new Elysia().post(
   '/:id/relocate',
   async ({ params, body, set }) => {
@@ -105,41 +146,10 @@ export const relocateRoutes = new Elysia().post(
       set.status = 404;
       return { error: 'Asset not found' };
     }
-    let source: FileInfo | undefined;
-    if (body.source_address !== undefined) {
-      let resolved;
-      let relPath: string;
-      try {
-        resolved = await resolveAddressString(body.source_address);
-        relPath = parseAddressString(body.source_address).relPath;
-      } catch (err) {
-        set.status = (err as { status?: number }).status ?? 400;
-        return { error: 'Invalid source address' };
-      }
-      if (!relPath) {
-        set.status = 400;
-        return { error: 'Source address must name a file' };
-      }
-      const filename = path.posix.basename(relPath);
-      const directory = path.posix.dirname(relPath);
-      source = view.fileinfo.find(
-        (entry) =>
-          !entry.deleted_at &&
-          entry.library_id.equals(resolved.libraryId) &&
-          entry.path === (directory === '.' ? '' : directory) &&
-          entry.filename === filename,
-      );
-      if (!source) {
-        set.status = 409;
-        return { error: 'Source address no longer belongs to this asset' };
-      }
-    } else if (
-      view.fileinfo.filter((entry) => !entry.deleted_at && !entry.missing_since).length !== 1
-    ) {
-      set.status = 409;
-      return {
-        error: 'Source address required for an asset with multiple locations',
-      };
+    const sourceResult = await resolveSourceFileInfo(view.fileinfo, body.source_address);
+    if (sourceResult.error) {
+      set.status = sourceResult.status ?? 400;
+      return { error: sourceResult.error };
     }
 
     const result = await relocateAsset({
@@ -149,7 +159,7 @@ export const relocateRoutes = new Elysia().post(
       destinationPath: body.destination_path,
       destinationFilename: body.destination_filename,
       destinationLibraryId,
-      ...(source ? { activeFileInfoOverride: source } : {}),
+      ...(sourceResult.source ? { activeFileInfoOverride: sourceResult.source } : {}),
     });
 
     const { status, body: responseBody } = relocateResultResponse(result);
