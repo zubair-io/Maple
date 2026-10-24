@@ -35,6 +35,7 @@ import { FolderEntry } from '../folder-access/folder-access.types';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import { LibraryFetch } from './library-fetch.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
+import { selectSidebarEntry } from '../shells/browse-shell/source-selection';
 
 // This spec constructs the real BrowsePreferencesService (via
 // LibraryStateService); its persistence effects write `cm.*` keys into the
@@ -208,6 +209,36 @@ describe('LibraryStateService.addImportedAsset', () => {
       'f-summer-photos-2',
       'f-summer-photos-3',
     ]);
+  });
+
+  it('switches the active handle when selecting a previous same-name Hosted folder', async () => {
+    const folderAccess = TestBed.inject(FolderAccessService);
+    const folderA = { name: 'First', read: true, write: true };
+    const folderB = { name: 'Second', read: true, write: true };
+    const listEntries = vi.spyOn(folderAccess, 'listEntries').mockImplementation(async (folder) => [
+      {
+        name: 'same-name.dng',
+        kind: 'file',
+        getFile: () =>
+          Promise.resolve(
+            new File([new Uint8Array([folder === folderA ? 1 : 2])], 'same-name.dng'),
+          ),
+        getSubFolder: () => Promise.reject(new Error('not a folder')),
+      },
+    ]);
+    vi.spyOn(folderAccess, 'readFile').mockRejectedValue(new Error('cache miss'));
+
+    await svc.openFolder(folderA);
+    const assetA = svc.assets().find((asset) => asset.folderId === 'f-first');
+    await svc.openFolder(folderB);
+    expect(svc.currentFolder()).toBe(folderB);
+
+    selectSidebarEntry(svc, 'f-first');
+
+    await vi.waitFor(() => expect(svc.currentFolder()).toBe(folderA));
+    expect(svc.selectedSourceId()).toBe('f-first');
+    expect(listEntries).toHaveBeenLastCalledWith(folderA);
+    expect(svc.assetsInSelectedFolder().map((asset) => asset.id)).toEqual([assetA!.id]);
   });
 
   it('writes the active fallback namespace assets to its .maple index', async () => {
