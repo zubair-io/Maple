@@ -7,13 +7,8 @@
 
   <div
     [class]="rowClass(isSelected, !!disabledReason)"
-    role="treeitem"
-    [attr.aria-selected]="isSelected"
-    [attr.aria-disabled]="!!disabledReason"
-    [attr.aria-describedby]="reasonId"
+    role="presentation"
     [style.padding-left.px]="8 + level() * 16"
-    [title]="titleFor(entry)"
-    (click)="onRowClick(entry)"
   >
     <button
       type="button"
@@ -22,17 +17,25 @@
       [class.cursor-default]="!expandable"
       [class.rotate-90]="open"
       [disabled]="!expandable"
-      [attr.aria-label]="open ? 'Collapse' : 'Expand'"
+      [attr.aria-label]="(open ? 'Collapse ' : 'Expand ') + entry.label"
       (click)="toggleOpen(entry); $event.stopPropagation()"
     >
       ▸
     </button>
-    <span class="overflow-hidden text-ellipsis whitespace-nowrap">{{ entry.label }}</span>
-    <!-- Visually-hidden: the row's `title` already covers hover, this
-         covers keyboard/AT users who can't hover (#2644 review). Always
-         rendered (empty when the row is eligible) so the row's own
-         `aria-describedby` binding above stays unconditional. -->
-    <span class="sr-only" [id]="reasonId">{{ disabledReason }}</span>
+    <div
+      class="flex h-full min-w-0 flex-1 items-center"
+      role="treeitem"
+      [attr.aria-selected]="isSelected"
+      [attr.aria-disabled]="!!disabledReason"
+      [attr.aria-describedby]="reasonId"
+      [title]="titleFor(entry)"
+      (click)="onRowClick(entry)"
+    >
+      <span class="overflow-hidden text-ellipsis whitespace-nowrap">{{ entry.label }}</span>
+      <!-- The selection target alone is disabled; the sibling chevron stays
+           available to keyboard and assistive-technology users. -->
+      <span class="sr-only" [id]="reasonId">{{ disabledReason }}</span>
+    </div>
   </div>
 
   @if (showChildren(entry)) {
