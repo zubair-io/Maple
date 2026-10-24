@@ -27,8 +27,11 @@ import {
   SearchComponent,
   SearchResult,
   parseDeepLinkFilters,
+  searchFilterQueryParams,
   viewRouteCommands,
   type SearchFilters,
+  type SearchNavigationState,
+  type SearchSortOrder,
 } from '@maple-common';
 
 @Component({
@@ -39,9 +42,10 @@ import {
     <app-search
       [initialQuery]="initialQuery"
       [initialFilters]="initialFilters"
+      [initialSort]="initialSort"
       [autoFocus]="autoFocus"
       (photoTap)="onPhotoTap($event)"
-      (queryChange)="onQueryChange($event)"
+      (navigationChange)="onNavigationChange($event)"
     />
   `,
   styles: [
@@ -78,6 +82,10 @@ export class SearchPageComponent implements AfterViewInit {
   protected readonly initialFilters: Partial<SearchFilters> | null = parseDeepLinkFilters((key) =>
     this.route.snapshot.queryParamMap.get(key),
   );
+  protected readonly initialSort: SearchSortOrder =
+    this.route.snapshot.queryParamMap.get('sort') === 'captured_asc'
+      ? 'captured_asc'
+      : 'captured_desc';
 
   ngAfterViewInit(): void {
     // Belt-and-suspenders: `autoFocus` input drives a queueMicrotask focus,
@@ -89,15 +97,31 @@ export class SearchPageComponent implements AfterViewInit {
   protected onPhotoTap(r: SearchResult): void {
     // Web Preview Surface Task 6c: route results to the fast Preview surface
     // at /view/:slug/**. Prefer canonical address if present, otherwise r.id.
-    void this.router.navigate(viewRouteCommands(r.address ?? r.id));
+    const state = this.searchEl?.navigationState();
+    const returnTo = state
+      ? this.router.serializeUrl(
+          this.router.createUrlTree(['/search'], { queryParams: this.searchQueryParams(state) }),
+        )
+      : '/search';
+    void this.router.navigate(viewRouteCommands(r.address ?? r.id), {
+      queryParams: { returnTo },
+    });
   }
 
-  protected onQueryChange(q: string): void {
-    const trimmed = q.trim();
+  protected onNavigationChange(state: SearchNavigationState): void {
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: trimmed ? { q: trimmed } : {},
+      queryParams: { ...this.searchQueryParams(state), placeQuery: null },
+      queryParamsHandling: 'merge',
       replaceUrl: true,
     });
+  }
+
+  private searchQueryParams(state: SearchNavigationState): Record<string, string | null> {
+    return {
+      q: state.query || null,
+      ...searchFilterQueryParams(state.filters),
+      sort: state.sort === 'captured_asc' ? state.sort : null,
+    };
   }
 }

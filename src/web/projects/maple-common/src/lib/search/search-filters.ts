@@ -284,11 +284,38 @@ function parseSceneType(raw: string | null): string | null {
   return raw !== null && SCENE_TYPES.has(raw) ? raw : null;
 }
 
-function parsePeopleCsv(raw: string | null): readonly string[] {
+function parseNames(raw: string | null): readonly string[] {
+  if (raw?.startsWith('[')) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.every((name) => typeof name === 'string')) {
+        return parsed.map((name) => name.trim()).filter((name) => name.length > 0);
+      }
+    } catch {
+      return [];
+    }
+    return [];
+  }
   return (raw ?? '')
     .split(',')
     .map((name) => name.trim())
     .filter((name) => name.length > 0);
+}
+
+/** Keep interactive Search filters in its URL so returning from Preview, browser
+ * Back, and a copied deep link all rebuild the same result set. Null values
+ * remove filters that were previously present in the route. */
+export function searchFilterQueryParams(f: SearchFilters): Record<string, string | null> {
+  return {
+    datePreset: f.datePreset,
+    from: f.from,
+    to: f.to,
+    people: f.people.length ? JSON.stringify(f.people) : null,
+    places: f.places.length ? JSON.stringify(f.places) : null,
+    sceneType: f.sceneType,
+    month: f.month === null ? null : String(f.month),
+    ownerId: f.ownerId,
+  };
 }
 
 /**
@@ -301,33 +328,39 @@ function parsePeopleCsv(raw: string | null): readonly string[] {
  * valid is present, so plain `/search?q=` navigation keeps the component's
  * default state.
  */
-export function parseDeepLinkFilters(
-  get: (key: string) => string | null,
-): Partial<SearchFilters> | null {
+function parseDeepLinkDate(get: (key: string) => string | null): Partial<SearchFilters> {
   const from = parseBareDate(get('from'));
   const to = parseBareDate(get('to'));
-  const month = parseMonth(get('month'));
-  const sceneType = parseSceneType(get('sceneType'));
-  const people = parsePeopleCsv(get('people'));
-  const rawOwnerId = get('ownerId') ?? get('owner_id');
-  const ownerId = rawOwnerId !== null && rawOwnerId.trim().length > 0 ? rawOwnerId.trim() : null;
-
-  const empty =
-    from === null &&
-    to === null &&
-    month === null &&
-    sceneType === null &&
-    people.length === 0 &&
-    ownerId === null;
-  if (empty) return null;
+  const rawPreset = get('datePreset');
+  const datePreset = DATE_PRESETS.find((p) => p.id === rawPreset)?.id ?? null;
+  if (datePreset !== null) return { datePreset };
   return {
     ...(from !== null ? { from } : {}),
     ...(to !== null ? { to } : {}),
+  };
+}
+
+function parseDeepLinkFacets(get: (key: string) => string | null): Partial<SearchFilters> {
+  const month = parseMonth(get('month'));
+  const sceneType = parseSceneType(get('sceneType'));
+  const people = parseNames(get('people'));
+  const places = parseNames(get('places'));
+  const rawOwnerId = get('ownerId') ?? get('owner_id');
+  const ownerId = rawOwnerId !== null && rawOwnerId.trim().length > 0 ? rawOwnerId.trim() : null;
+  return {
     ...(month !== null ? { month } : {}),
     ...(sceneType !== null ? { sceneType } : {}),
     ...(people.length > 0 ? { people } : {}),
+    ...(places.length > 0 ? { places } : {}),
     ...(ownerId !== null ? { ownerId } : {}),
   };
+}
+
+export function parseDeepLinkFilters(
+  get: (key: string) => string | null,
+): Partial<SearchFilters> | null {
+  const filters = { ...parseDeepLinkDate(get), ...parseDeepLinkFacets(get) };
+  return Object.keys(filters).length > 0 ? filters : null;
 }
 
 /**
