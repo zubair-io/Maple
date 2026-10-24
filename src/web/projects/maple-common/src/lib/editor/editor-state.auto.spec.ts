@@ -228,4 +228,85 @@ describe('EditorStateService — applyAuto (#1379/#2255)', () => {
     svc.imageId.set(null);
     expect(await svc.applyAuto(ID)).toBe(false);
   });
+
+  it('accepts camera As Shot hydration during analysis and undoes to the resolved values', async () => {
+    let resolvePatch!: (patch: AutoAdjustPatch) => void;
+    pipeline.computeAutoAdjustments.mockReturnValue(
+      new Promise((resolve) => (resolvePatch = resolve)),
+    );
+    const analysis = svc.applyAuto(ID);
+    lib.setAsShot(ID, { temperature: 3750, tint: 18 });
+    lib.updateAdjustment(ID, { temperature: 3750, tint: 18 });
+    resolvePatch(pipeline.patch);
+
+    expect(await analysis).toBe(true);
+    expect(svc.autoResult()).toBe('Auto applied · Exposure +0.50 EV');
+    expect(svc.undoHistory()).toHaveLength(1);
+    expect(lib.adjustmentFor(ID)().wbSource).toBe('Auto');
+    svc.undo();
+    expect(lib.adjustmentFor(ID)().temperature).toBe(3750);
+    expect(lib.adjustmentFor(ID)().tint).toBe(18);
+    expect(lib.adjustmentFor(ID)().wbSource).toBe('AsShot');
+    svc.redo();
+    expect(lib.adjustmentFor(ID)().temperature).toBe(pipeline.patch.temperature);
+  });
+
+  it.each([
+    { exposure: 1 },
+    { whiteBalancePreset: 'Custom' as const, wbSource: 'Manual' as const },
+  ])('rejects an intervening edit even when camera WB hydrates: %j', async (edit) => {
+    let resolvePatch!: (patch: AutoAdjustPatch) => void;
+    pipeline.computeAutoAdjustments.mockReturnValue(
+      new Promise((resolve) => (resolvePatch = resolve)),
+    );
+    const analysis = svc.applyAuto(ID);
+    lib.setAsShot(ID, { temperature: 3750, tint: 18 });
+    lib.updateAdjustment(ID, { temperature: 3750, tint: 18, ...edit });
+    const edited = lib.adjustmentFor(ID)();
+    resolvePatch(pipeline.patch);
+
+    expect(await analysis).toBe(false);
+    expect(lib.adjustmentFor(ID)()).toBe(edited);
+    expect(svc.autoResult()).toBeNull();
+    expect(svc.undoHistory()).toHaveLength(0);
+  });
+
+  it('rejects an edit followed by Undo even when camera hydration matches the starting model', async () => {
+    let resolvePatch!: (patch: AutoAdjustPatch) => void;
+    pipeline.computeAutoAdjustments.mockReturnValue(
+      new Promise((resolve) => (resolvePatch = resolve)),
+    );
+    const analysis = svc.applyAuto(ID);
+    svc.commit();
+    lib.updateAdjustment(ID, { exposure: 1 });
+    svc.endEdit();
+    svc.undo();
+    lib.setAsShot(ID, { temperature: 3750, tint: 18 });
+    lib.updateAdjustment(ID, { temperature: 3750, tint: 18 });
+    resolvePatch(pipeline.patch);
+
+    expect(await analysis).toBe(false);
+    expect(lib.adjustmentFor(ID)().exposure).toBe(0);
+    expect(lib.adjustmentFor(ID)().temperature).toBe(3750);
+    expect(svc.autoResult()).toBeNull();
+    expect(svc.canRedo()).toBe(true);
+  });
+
+  it('rejects a result after switching away and back before camera hydration', async () => {
+    let resolvePatch!: (patch: AutoAdjustPatch) => void;
+    pipeline.computeAutoAdjustments.mockReturnValue(
+      new Promise((resolve) => (resolvePatch = resolve)),
+    );
+    const analysis = svc.applyAuto(ID);
+    svc.bind('other-image');
+    svc.bind(ID);
+    lib.setAsShot(ID, { temperature: 3750, tint: 18 });
+    lib.updateAdjustment(ID, { temperature: 3750, tint: 18 });
+    resolvePatch(pipeline.patch);
+
+    expect(await analysis).toBe(false);
+    expect(lib.adjustmentFor(ID)().wbSource).toBe('AsShot');
+    expect(svc.autoResult()).toBeNull();
+    expect(svc.undoHistory()).toHaveLength(0);
+  });
 });
