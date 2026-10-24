@@ -306,7 +306,7 @@ export class ControlCardComponent {
       this.pendingNoisePanel = false;
       this.armCountAtNoiseStart = this.editorState.toolArmCount;
     }
-    this.editorState.commit();
+    this.editorState.commit('adjustment', this.labelFor(tool));
     // Marks the gesture for the command router (#2450): navigation is
     // refused while a drag is in flight, so the ticks below can never be
     // applied to a different asset than the one the drag started on.
