@@ -279,6 +279,7 @@ describe('AssetGridComponent — scroll resets on folder navigation (#4792)', ()
             backendLoading: () => assetsInSelectedFolder().length === 0,
             backendError: () => undefined,
             ensureThumbnailUrl: vi.fn(),
+            thumbnailFailed: () => false,
             subscribeThumbUrl: () => () => {},
             cancelQueuedThumbnail: vi.fn(),
             selectedSourceId,
@@ -293,7 +294,6 @@ describe('AssetGridComponent — scroll resets on folder navigation (#4792)', ()
   });
 
   afterEach(() => vi.unstubAllGlobals());
-
   function scrolledGrid(): HTMLElement {
     const grid = fixture.componentInstance.gridContainerRef.nativeElement;
     Object.defineProperty(grid, 'scrollTop', { value: 500, writable: true, configurable: true });
