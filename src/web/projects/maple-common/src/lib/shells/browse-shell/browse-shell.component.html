@@ -148,6 +148,7 @@
 @if (dragMove.collisionPrompt(); as prompt) {
   <app-drag-move-collision-dialog
     [filename]="prompt.filename"
+    [replaceUnavailable]="prompt.replaceUnavailable ?? false"
     (resolve)="onDragMoveCollisionResolved($event)"
   />
 }

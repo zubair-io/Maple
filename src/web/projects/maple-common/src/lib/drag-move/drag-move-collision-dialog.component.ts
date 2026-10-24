@@ -35,6 +35,7 @@ import { MuiButtonComponent } from '../ui/button/mui-button.component';
 })
 export class DragMoveCollisionDialogComponent implements AfterViewInit {
   readonly filename = input.required<string>();
+  readonly replaceUnavailable = input(false);
 
   readonly resolve = output<DragMoveCollisionPolicy>();
 

@@ -25,6 +25,7 @@
 // app) is what keeps `BunApiBackendService` out of Hosted's static bundle.
 
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { BunApiBackendService, type ApiCollisionPolicy } from '../api/bun-api-backend.service';
 import { FolderCrudService } from '../api/folder-crud.service';
 import { LibraryStateService } from '../state/library-state.service';
@@ -158,7 +159,8 @@ export class DragMoveService implements DragMoveCapability {
   }
 
   resolveCollision(policy: DragMoveCollisionPolicy): void {
-    if (!this.collisionPrompt()) return;
+    const prompt = this.collisionPrompt();
+    if (!prompt || (policy === 'replace' && prompt.replaceUnavailable)) return;
     this.collisionPrompt.set(null);
     if (policy === 'skip') {
       this.skipped++;
@@ -200,6 +202,15 @@ export class DragMoveService implements DragMoveCapability {
         this._processHead('skip');
       },
       error: (err: unknown) => {
+        if (
+          collision === 'replace' &&
+          err instanceof HttpErrorResponse &&
+          err.status === 409 &&
+          typeof err.error?.occupied_by_asset_id === 'string'
+        ) {
+          this.collisionPrompt.set({ filename: item.filename, replaceUnavailable: true });
+          return;
+        }
         this.failed.push({
           assetId: item.assetId,
           filename: item.filename,

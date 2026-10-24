@@ -13,14 +13,21 @@
 
     <div class="p-4">
       <p class="m-0 text-[12px] leading-[1.4] text-text-main">
-        "{{ filename() }}" already exists at the destination. Skip it, replace it, or keep both?
+        @if (replaceUnavailable()) {
+          Maple can't safely replace "{{ filename() }}" because it is already in your library.
+          Choose Skip or Keep Both.
+        } @else {
+          "{{ filename() }}" already exists at the destination. Skip it, replace it, or keep both?
+        }
       </p>
     </div>
 
     <div class="dmc-footer flex justify-end gap-2 border-t-[0.5px] border-border px-4 py-3">
       <mui-button #skipButton variant="ghost" (pressed)="onSkip()">Skip</mui-button>
       <mui-button variant="ghost" (pressed)="onKeepBoth()">Keep Both</mui-button>
-      <mui-button variant="primary" (pressed)="onReplace()">Replace</mui-button>
+      @if (!replaceUnavailable()) {
+        <mui-button variant="primary" (pressed)="onReplace()">Replace</mui-button>
+      }
     </div>
   </div>
 </div>
