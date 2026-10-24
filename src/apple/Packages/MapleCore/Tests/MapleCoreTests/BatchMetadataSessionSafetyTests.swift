@@ -254,6 +254,40 @@ final class BatchMetadataSessionSafetyTests: EditorTestCase {
     XCTAssertEqual(XMPParser.parseMetadata(xml).instructions, "From batch")
   }
 
+  func testPhotoKitReboundPrimaryKeepsBatchRatingOnNextEdit() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "batch-photokit-rebound")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let id = "LIVE-PHOTO/L0/002"
+    let backing = AppSupportSidecarStore(root: root)
+    let asset = AssetRef(
+      displayName: "rebound.dng", hintExtension: "dng", stableID: id,
+      thumbnailProvenance: .photoKit, bytesProvider: { Data() })
+    let store = PhotoKitSidecarStore(phassetLocalId: id, sidecars: backing)
+    let session = EditSession(asset: asset, remoteSidecarStore: store)
+    await session.workflow.reload(session: session)
+    await session.workflow.createVariant(name: "Night", session: session)
+    XCTAssertNil(session.workflow.errorText)
+    await session.workflow.selectVariant(WorkflowContract.primaryVariantID, session: session)
+    XCTAssertNil(session.workflow.errorText)
+    XCTAssertTrue(session.sidecarStore is XMPSidecarStore)
+
+    let vm = BatchMetadataViewModel(
+      assets: [asset], sessions: [asset.id: session], photoKitSidecarRoot: root)
+    vm.touchedMetadata.stars = 4
+    try await vm.apply()
+    XCTAssertEqual(session.culling.stars, 4)
+
+    session.beginEdit()
+    session.model.contrast = 25
+    session.endEdit()
+    await session.flushPendingSidecarWrite()
+
+    let xml = try XCTUnwrap(backing.read(phassetLocalId: id))
+    let (model, culling) = try XMPParser.parse(xml)
+    XCTAssertEqual(model.contrast, 25, accuracy: 1e-9)
+    XCTAssertEqual(culling.stars, 4)
+  }
+
   /// A culling change that lands while the batch waits on the session's
   /// pending save must survive the batch's write, not be replaced by the
   /// culling the batch captured before it waited.
