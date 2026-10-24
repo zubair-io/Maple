@@ -1440,7 +1440,7 @@ public actor RemoteCatalog {
   /// on-device `CollisionPolicy` and the API's wire strings).
   public func relocateAsset(
     assetID: String, mode: RelocateMode, collision: CollisionPolicy,
-    destinationPath: String, destinationFilename: String? = nil
+    destinationPath: String, destinationFilename: String? = nil, sourceAddress: String? = nil
   ) async throws -> RelocateAssetResult {
     try Self.validateAssetID(assetID)
     var req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/relocate"))
@@ -1452,6 +1452,7 @@ public actor RemoteCatalog {
       "destination_path": destinationPath,
     ]
     if let destinationFilename { body["destination_filename"] = destinationFilename }
+    if let sourceAddress { body["source_address"] = sourceAddress }
     req.httpBody = try JSONSerialization.data(withJSONObject: body)
     let (data, resp) = try await http.data(for: req)
     let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
