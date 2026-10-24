@@ -16,6 +16,7 @@ import {
   togglePlace,
   togglePreset,
   parseDeepLinkFilters,
+  searchFilterQueryParams,
 } from './search-filters';
 
 const NOW = new Date('2026-08-15T12:00:00');
@@ -213,6 +214,31 @@ describe('parseDeepLinkFilters', () => {
       sceneType: 'indoor',
       people: ['Zoe', 'Greyson'],
     });
+  });
+
+  it('round-trips interactive filters through Search URL parameters', () => {
+    const filters = {
+      ...EMPTY_FILTERS,
+      from: '2000-01-01',
+      to: '2000-12-31',
+      people: ['Zoe'],
+      places: ['Portland, OR'],
+      month: 1,
+      sceneType: 'outdoor',
+      ownerId: 'owner-1',
+    };
+    const params = searchFilterQueryParams(filters);
+    expect(parseDeepLinkFilters((key) => params[key] ?? null)).toEqual({
+      from: filters.from,
+      to: filters.to,
+      people: filters.people,
+      places: filters.places,
+      month: filters.month,
+      sceneType: filters.sceneType,
+      ownerId: filters.ownerId,
+    });
+    const preset = searchFilterQueryParams({ ...EMPTY_FILTERS, datePreset: 'last30' });
+    expect(parseDeepLinkFilters((key) => preset[key] ?? null)).toEqual({ datePreset: 'last30' });
   });
 
   it('returns null when nothing valid is present, so plain /search?q= keeps defaults', () => {

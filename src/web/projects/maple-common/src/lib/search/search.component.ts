@@ -49,7 +49,6 @@ import { Subscription } from 'rxjs';
 import {
   AppliedDateFilter,
   SearchFacets,
-  SearchParams,
   SearchResult,
   SearchService,
   isRankEngineChanged,
@@ -74,12 +73,12 @@ import {
   activeFilterChips,
   inferredDateChip,
   activeFilterCount,
-  filtersToParams,
   hasActiveFilters,
   removeChip,
   togglePerson,
   togglePlace,
 } from './search-filters';
+import { buildSearchParams, filterHostClass } from './search-view-helpers';
 
 /** Inline-chip cap inside the pill — the rest collapse into "+N". */
 const MAX_INLINE_CHIPS = 2;
@@ -90,6 +89,11 @@ const MAX_INLINE_CHIPS = 2;
 const TAG_TOKEN = /(^|\s)@([^\s@]*)$/;
 
 export type SearchSortOrder = 'captured_desc' | 'captured_asc';
+export interface SearchNavigationState {
+  readonly query: string;
+  readonly filters: SearchFilters;
+  readonly sort: SearchSortOrder;
+}
 
 @Component({
   selector: 'app-search',
@@ -106,16 +110,7 @@ export type SearchSortOrder = 'captured_desc' | 'captured_asc';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SearchComponent implements OnInit, AfterViewInit {
-  /** Mutually-exclusive display pair for the filter host's mobile bottom-
-   * sheet vs desktop docked-column presentation (Tailwind port #3071) —
-   * `display` used to be `none` by default and flipped by `.open` below
-   * 1024px (always visible at ≥1024px); folded into one computed string
-   * rather than a base class plus a conditional add-on. */
-  protected filterHostClass(open: boolean): string {
-    const base =
-      'fixed inset-x-0 bottom-0 z-[41] h-[78%] w-auto overflow-hidden rounded-t-2xl shadow-[0_-8px_32px_rgba(0,0,0,0.4)] lg:static lg:z-auto lg:h-auto lg:w-[320px] lg:shrink-0 lg:min-h-0 lg:overflow-visible lg:rounded-none lg:border-l lg:border-border lg:shadow-none';
-    return open ? `${base} flex` : `${base} hidden lg:flex`;
-  }
+  protected readonly filterHostClass = filterHostClass;
   /** When true, focus the search bar on init (phone tab activation, the
    * drawer search pill's `autoFocus=1` deep link). */
   readonly autoFocus = input<boolean>(false);
@@ -128,12 +123,15 @@ export class SearchComponent implements OnInit, AfterViewInit {
    * init into the ordinary `filters` state, so every seeded value renders
    * as a removable chip rather than as invisible query narrowing. */
   readonly initialFilters = input<Partial<SearchFilters> | null>(null);
+  readonly initialSort = input<SearchSortOrder>('captured_desc');
 
   /** Emitted when the user taps a photo result — hosts route to the
    * preview/editor surface. */
   readonly photoTap = output<SearchResult>();
   /** Emitted when the query input changes or is cleared (hosts sync `?q=`). */
   readonly queryChange = output<string>();
+  /** A single snapshot prevents query/filter URL updates racing each other. */
+  readonly navigationChange = output<SearchNavigationState>();
 
   private readonly searchService = inject(SearchService);
   private readonly fs = inject(FilesystemBrowseService);
@@ -312,6 +310,15 @@ export class SearchComponent implements OnInit, AfterViewInit {
     if (seededFilters !== null) {
       this.filters.set({ ...EMPTY_FILTERS, ...seededFilters });
     }
+    this.sort.set(this.initialSort());
+  }
+
+  navigationState(): SearchNavigationState {
+    return { query: this.query().trim(), filters: this.filters(), sort: this.sort() };
+  }
+
+  private emitNavigationChange(): void {
+    this.navigationChange.emit(this.navigationState());
   }
 
   ngAfterViewInit(): void {
@@ -371,23 +378,8 @@ export class SearchComponent implements OnInit, AfterViewInit {
     });
   }
 
-  private buildParams(paging: { page?: number; cursor?: string; rankPin?: string }): SearchParams {
-    const text = this.effectiveText();
-    return {
-      // The box is the *content* search: the term routes to `placeQuery`
-      // (unified search_blob + NL dates + semantic ranking), never `q`
-      // (filename substring) — see #502/#518.
-      ...(text.length > 0 ? { placeQuery: text } : {}),
-      ...filtersToParams(this.filters()),
-      // With residual text the server ranks by relevance and ignores
-      // `sort`; the meta row shows "Best match" then instead of the
-      // Newest/Oldest control, so the UI never promises an order the
-      // server won't deliver.
-      ...(text.length === 0 ? { sort: this.sort() } : {}),
-      ...(paging.cursor !== undefined ? { cursor: paging.cursor } : { page: paging.page ?? 0 }),
-      ...(paging.rankPin !== undefined ? { rankPin: paging.rankPin } : {}),
-      limit: 30,
-    };
+  private buildParams(paging: { page?: number; cursor?: string; rankPin?: string }) {
+    return buildSearchParams(this.effectiveText(), this.filters(), this.sort(), paging);
   }
 
   // ── Thumbnails ───────────────────────────────────────────────────────────
@@ -434,12 +426,14 @@ export class SearchComponent implements OnInit, AfterViewInit {
     // reopens the picker for the new fragment.
     if (this.tagFragment() !== this.dismissedTag()) this.dismissedTag.set(null);
     this.queryChange.emit(q);
+    this.emitNavigationChange();
   }
 
   protected onClear(): void {
     this.query.set('');
     this.dismissedTag.set(null);
     this.queryChange.emit('');
+    this.emitNavigationChange();
   }
 
   protected onSubmit(): void {
@@ -452,6 +446,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
 
   protected onChipRemove(chip: ActiveFilterChip): void {
     this.filters.set(removeChip(this.filters(), chip));
+    this.emitNavigationChange();
   }
 
   protected onFiltersTap(): void {
@@ -462,10 +457,12 @@ export class SearchComponent implements OnInit, AfterViewInit {
 
   protected onFiltersChange(f: SearchFilters): void {
     this.filters.set(f);
+    this.emitNavigationChange();
   }
 
   protected onClearAll(): void {
     this.filters.set(EMPTY_FILTERS);
+    this.emitNavigationChange();
   }
 
   protected onPanelDismiss(): void {
@@ -484,6 +481,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
     this.query.set(stripped);
     this.dismissedTag.set(null);
     this.queryChange.emit(stripped);
+    this.emitNavigationChange();
     this.searchBar?.focus();
   }
 
@@ -503,6 +501,7 @@ export class SearchComponent implements OnInit, AfterViewInit {
   protected onSortChange(e: Event): void {
     const v = (e.target as HTMLSelectElement).value;
     this.sort.set(v === 'captured_asc' ? 'captured_asc' : 'captured_desc');
+    this.emitNavigationChange();
   }
 
   protected onLoadMore(): void {
