@@ -59,6 +59,7 @@ import { LibraryStateService } from '../../state/library-state.service';
 import { gradientFor } from '../develop/gradient-catalog';
 import { defaultGeneratedAdjustmentModel } from '../../generated/adjustment-model.generated';
 import type { AdjustmentModel } from '../../models/adjustment-model';
+import { subParamsFor } from '../../editor/tool-sub-param';
 
 /** Tools shown as sliders in the control card (excludes crop/presets/hsl/
  *  bwMix — bwMix (#276) has no single primary drag-bar field, same reason
@@ -385,7 +386,7 @@ export class ControlCardComponent {
     this.editorState.haptic('reset');
   }
 
-  /** Reset all sliders in the active group. */
+  /** Reset the active group's sliders and multi-parameter tools. */
   resetGroup(): void {
     const current = this.currentAdj();
     if (!current) return;
@@ -403,6 +404,12 @@ export class ControlCardComponent {
       }
     }
     if (group === 'color') {
+      const defaults = defaultGeneratedAdjustmentModel();
+      for (const tool of ['hsl', 'bwMix'] as const) {
+        for (const sub of subParamsFor(tool)) {
+          (patch as Record<string, number>)[sub.field] = defaults[sub.field];
+        }
+      }
       patch.colorCurveHueVsHue = { points: [] };
       patch.colorCurveHueVsSat = { points: [] };
       patch.colorCurveHueVsLuma = { points: [] };
