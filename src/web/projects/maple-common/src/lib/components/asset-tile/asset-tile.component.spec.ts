@@ -18,6 +18,7 @@
 // dependencies asynchronously even with `deferBlockBehavior: Manual`.
 
 import { TestBed, DeferBlockBehavior } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { describe, it, expect, beforeEach } from 'vitest';
 
 import { AssetTileComponent } from './asset-tile.component';
@@ -36,6 +37,7 @@ function configure(
     ensureThumbnailUrl?: (a: Asset) => void;
     cancelQueuedThumbnail?: (id: AssetId) => void;
     isSelecting?: () => boolean;
+    thumbnailFailed?: (id: AssetId) => boolean;
   } = {},
 ) {
   TestBed.resetTestingModule();
@@ -53,6 +55,7 @@ function configure(
           cancelQueuedThumbnail: overrides.cancelQueuedThumbnail ?? (() => {}),
           subscribeThumbUrl,
           isSelecting: overrides.isSelecting ?? (() => false),
+          thumbnailFailed: overrides.thumbnailFailed ?? (() => false),
         },
       },
     ],
@@ -161,6 +164,32 @@ describe('AssetTileComponent — component-owned thumbnail signal', () => {
 });
 
 describe('AssetTileComponent — no-preview badge', () => {
+  it('shows an unavailable badge after a RAW thumbnail fails, then hides it when an image arrives', async () => {
+    const failed = signal(false);
+    let pushThumb: ThumbCb = () => {};
+    configure(
+      (_id, cb) => {
+        pushThumb = cb;
+        cb(undefined);
+        return () => {};
+      },
+      { thumbnailFailed: () => failed() },
+    );
+    await TestBed.compileComponents();
+    const fixture = TestBed.createComponent(AssetTileComponent);
+    fixture.componentRef.setInput('asset', makeAsset('lib:broken.dng', 'broken.dng'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('PREVIEW UNAVAILABLE');
+
+    failed.set(true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('PREVIEW UNAVAILABLE');
+
+    pushThumb('blob:valid');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('PREVIEW UNAVAILABLE');
+  });
+
   async function render(filename: string, thumbUrl: string | undefined = undefined) {
     configure(syncStub(thumbUrl));
     await TestBed.compileComponents();
