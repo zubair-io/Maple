@@ -51,6 +51,16 @@ export function histogramBinsFromBuffer(buf: Buffer): HistogramBins {
   return { r, g, b };
 }
 
+/** Decode the little-endian `f32` temperature/tint pair that
+ * `maple_as_shot_white_balance_file` writes. Null unless the temperature is a
+ * positive finite Kelvin value and the tint is finite. */
+export function whiteBalanceFromBuffer(pair: Buffer): { temperature: number; tint: number } | null {
+  const temperature = pair.readFloatLE(0);
+  const tint = pair.readFloatLE(4);
+  const valid = Number.isFinite(temperature) && temperature > 0 && Number.isFinite(tint);
+  return valid ? { temperature, tint } : null;
+}
+
 /** Batch-rename filename-template render result, mirroring
  * `raw_core::filename::render_filename`'s error taxonomy (#2628). One-to-one
  * with `MapleFilenameResult`'s `error_code` values. `-1` (bad pointer/UTF-8)
@@ -273,12 +283,7 @@ function loadFfi(): RawFfi | null {
         const raw = Buffer.from(rawAbsPath + '\0');
         const pair = Buffer.alloc(8);
         const rc = lib.symbols.maple_as_shot_white_balance_file(ptr(raw), ptr(pair));
-        if (rc !== 0) return null;
-        const temperature = pair.readFloatLE(0);
-        const tint = pair.readFloatLE(4);
-        return Number.isFinite(temperature) && temperature > 0 && Number.isFinite(tint)
-          ? { temperature, tint }
-          : null;
+        return rc === 0 ? whiteBalanceFromBuffer(pair) : null;
       },
       computeHistogramBins(
         rawAbsPath: string,

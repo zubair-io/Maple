@@ -93,3 +93,29 @@ describe('histogramBinsFromBuffer', () => {
     expect(bins.b[0]).toBe(0);
   });
 });
+
+describe('whiteBalanceFromBuffer', () => {
+  function pair(temperature: number, tint: number): Buffer {
+    const buf = Buffer.alloc(8);
+    buf.writeFloatLE(temperature, 0);
+    buf.writeFloatLE(tint, 4);
+    return buf;
+  }
+
+  it('decodes a positive finite temperature and a finite tint', async () => {
+    const { whiteBalanceFromBuffer } = await import('../src/ffi/raw_ffi.ts');
+    expect(whiteBalanceFromBuffer(pair(5000, -12.5))).toEqual({ temperature: 5000, tint: -12.5 });
+  });
+
+  it('rejects a non-positive or non-finite temperature and a non-finite tint', async () => {
+    const { whiteBalanceFromBuffer } = await import('../src/ffi/raw_ffi.ts');
+    for (const [temperature, tint] of [
+      [0, 0],
+      [-5000, 0],
+      [Number.NaN, 0],
+      [Number.POSITIVE_INFINITY, 0],
+      [5000, Number.NaN],
+    ])
+      expect(whiteBalanceFromBuffer(pair(temperature, tint))).toBeNull();
+  });
+});
