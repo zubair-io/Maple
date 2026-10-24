@@ -100,6 +100,27 @@ struct InfoPanelView: View {
         }
         AssetFilenameRow(session: session)
         RatingFlagsRow(session: session)
+        if let session, let error = session.sidecarError {
+          VStack(alignment: .leading, spacing: 8) {
+            Label(
+              session.hasLoadedSidecar
+                ? "Changes could not be saved" : "Photo settings could not be loaded",
+              systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.subheadline.weight(.semibold))
+            .accessibilityIdentifier("sidecar-save-error")
+            Text(error.localizedDescription)
+              .font(.caption)
+            if session.hasLoadedSidecar {
+              Button("Retry Save") {
+                Task { try? await session.flushPendingSidecarWriteConfirmed() }
+              }
+              .buttonStyle(.bordered)
+              .accessibilityIdentifier("sidecar-save-retry")
+            }
+          }
+          .foregroundStyle(.red)
+        }
         if showsHistogram {
           HistogramBlock(session: session)
         }
