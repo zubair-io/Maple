@@ -44,8 +44,8 @@ public enum LocalFileOperations {
     return await finalizeRelocate(plan)
   }
 
-  /// Copy (never move) the primary file — and its `.xmp` sidecar, if one
-  /// exists — into `destinationDir`, verifying each copy. Nothing is
+  /// Copy (never move) the primary file and its canonical/UUID workflow
+  /// `.xmp` sidecars into `destinationDir`, verifying each copy. Nothing is
   /// deleted and the source is untouched no matter how this call ends,
   /// including when it throws. The one exception is a case-only rename
   /// (see `classifySameFile`), which is performed directly here as an
@@ -99,8 +99,10 @@ public enum LocalFileOperations {
     try fm.createDirectory(at: destinationDir, withIntermediateDirectories: true)
     let sourceSidecarURL = SidecarPath.sidecarURL(for: sourcePrimaryURL)
     let hasSourceSidecar = fm.fileExists(atPath: sourceSidecarURL.path)
+    let sourceVariants = try LocalWorkflowVariants.paired(with: sourcePrimaryURL)
     let (resolvedTargetURL, renamed) = try await resolveCollision(
-      at: targetURL, collision: collision, ownSidecar: hasSourceSidecar ? sourceSidecarURL : nil)
+      at: targetURL, collision: collision, ownSidecar: hasSourceSidecar ? sourceSidecarURL : nil,
+      sourcePrimaryURL: sourcePrimaryURL)
     let sidecarTargetURL = SidecarPath.sidecarURL(for: resolvedTargetURL)
 
     // The shared-sidecar ownership rule (#4707, docs/xmp-canonical-format.md
@@ -120,9 +122,25 @@ public enum LocalFileOperations {
     {
       throw FileOperationError.destinationExists(sidecarTargetURL.path)
     }
+    // Replace must not silently attach an old occupant's UUID branches to
+    // this photo. Other policies have already resolved these collisions to
+    // a free stem above; recheck before any byte copies for a racing writer.
+    if try LocalWorkflowVariants.occupied(at: resolvedTargetURL, excluding: sourcePrimaryURL) {
+      throw FileOperationError.destinationExists(resolvedTargetURL.path)
+    }
     let sourceClaimed = SidecarOwnership.localStemClaimedBySibling(
       sourcePrimaryURL, excluding: [resolvedTargetURL])
     let copiesSidecar = hasSourceSidecar && !sidecarMapsOntoItself && !joinsCarriedSidecar
+    let variantPairs = try sourceVariants.map { variant in
+      (
+        source: variant,
+        destination: try LocalWorkflowVariants.target(
+          for: variant, from: sourcePrimaryURL, to: resolvedTargetURL)
+      )
+    }.filter { !SidecarOwnership.sameLocalFile($0.source.path, $0.destination.path) }
+    let variantCopies = variantPairs.filter {
+      !SidecarOwnership.localSidecarAlreadyCarried($0.source.path, at: $0.destination.path)
+    }
 
     let primaryTmp = try stageVerifiedCopy(
       from: sourcePrimaryURL, forDestination: resolvedTargetURL)
@@ -137,17 +155,52 @@ public enum LocalFileOperations {
       throw error
     }
 
-    // Publish the verified temp(s) as an atomic pair: any existing
-    // occupant primary is backed up without unpublishing it first and
-    // atomically restored if publishing or clearing the sidecar fails (#4704).
-    try publishStagedPair(
-      primaryTmp: primaryTmp,
-      primaryDestination: resolvedTargetURL,
-      sidecarTmp: sidecarTmp,
-      sidecarDestination: sidecarTargetURL,
-      clearStaleSidecar: !hasSourceSidecar && collision == .replace && !destinationClaimed,
-      sourcePrimaryURL: sourcePrimaryURL
-    )
+    var variantTemps: [(source: URL, destination: URL, temp: URL)] = []
+    do {
+      for pair in variantCopies {
+        let type = try fm.attributesOfItem(atPath: pair.source.path)[.type] as? FileAttributeType
+        guard type == .typeRegular else {
+          throw FileOperationError.underlying(
+            "workflow branch is not a regular file: \(pair.source.path)")
+        }
+        let temp = try stageVerifiedCopy(from: pair.source, forDestination: pair.destination)
+        variantTemps.append((pair.source, pair.destination, temp))
+      }
+    } catch {
+      try? fm.removeItem(at: primaryTmp)
+      if let sidecarTmp { try? fm.removeItem(at: sidecarTmp) }
+      for item in variantTemps { try? fm.removeItem(at: item.temp) }
+      throw error
+    }
+
+    // Publish branches under exclusive names before the primary pair. If a
+    // later publication fails, all source files still exist and the new
+    // branches are withdrawn. Never replace an unrelated UUID branch.
+    var publishedVariants: [URL] = []
+    do {
+      for item in variantTemps {
+        try fm.moveItem(at: item.temp, to: item.destination)
+        publishedVariants.append(item.destination)
+      }
+
+      // Publish the verified temp(s) as an atomic pair: any existing
+      // occupant primary is backed up without unpublishing it first and
+      // atomically restored if publishing or clearing the sidecar fails (#4704).
+      try publishStagedPair(
+        primaryTmp: primaryTmp,
+        primaryDestination: resolvedTargetURL,
+        sidecarTmp: sidecarTmp,
+        sidecarDestination: sidecarTargetURL,
+        clearStaleSidecar: !hasSourceSidecar && collision == .replace && !destinationClaimed,
+        sourcePrimaryURL: sourcePrimaryURL
+      )
+    } catch {
+      try? fm.removeItem(at: primaryTmp)
+      if let sidecarTmp { try? fm.removeItem(at: sidecarTmp) }
+      for item in variantTemps { try? fm.removeItem(at: item.temp) }
+      for variant in publishedVariants { try? fm.removeItem(at: variant) }
+      throw error
+    }
 
     return RelocatePlan(
       mode: mode, sourcePrimaryPath: sourcePrimaryURL.path,
@@ -155,8 +208,11 @@ public enum LocalFileOperations {
       finalPrimaryPath: resolvedTargetURL.path,
       finalSidecarPath: hasSourceSidecar ? sidecarTargetURL.path : nil,
       renamedDueToCollision: renamed,
-      createdPaths: [resolvedTargetURL.path] + (copiesSidecar ? [sidecarTargetURL.path] : []),
-      retainsSourceSidecar: sidecarMapsOntoItself || sourceClaimed)
+      createdPaths: [resolvedTargetURL.path] + (copiesSidecar ? [sidecarTargetURL.path] : [])
+        + publishedVariants.map(\.path),
+      retainsSourceSidecar: sidecarMapsOntoItself || sourceClaimed,
+      sourceVariantPaths: variantPairs.map { $0.source.path },
+      finalVariantPaths: variantPairs.map { $0.destination.path })
   }
 
   /// Delete the sources (`mode == .move` only), invalidate the derived
@@ -175,7 +231,7 @@ public enum LocalFileOperations {
     let outcome = RelocateOutcome(
       primaryPath: plan.finalPrimaryPath, sidecarPath: plan.finalSidecarPath,
       renamedDueToCollision: plan.renamedDueToCollision,
-      sidecarFollowed: plan.finalSidecarPath != nil
+      sidecarFollowed: plan.finalSidecarPath != nil || !plan.finalVariantPaths.isEmpty
     )
     guard !plan.isNoop, plan.mode == .move else { return outcome }
 
@@ -194,6 +250,17 @@ public enum LocalFileOperations {
         fileOpsLog.error(
           "finalizeRelocate: source sidecar unlink failed after a verified copy (\(sourceSidecarPath, privacy: .public)): \(error.localizedDescription, privacy: .public)"
         )
+      }
+    }
+    if !plan.retainsSourceSidecar {
+      for sourceVariantPath in plan.sourceVariantPaths {
+        do {
+          try fm.removeItem(atPath: sourceVariantPath)
+        } catch {
+          fileOpsLog.error(
+            "finalizeRelocate: source workflow branch unlink failed after a verified copy (\(sourceVariantPath, privacy: .public)): \(error.localizedDescription, privacy: .public)"
+          )
+        }
       }
     }
     await invalidateDerivedCaches(forOldPrimaryPath: plan.sourcePrimaryPath)
@@ -429,10 +496,14 @@ public enum LocalFileOperations {
   /// a directory as "occupied" via plain `fileExists`, so only `.replace`
   /// needs an explicit guard.
   private static func resolveCollision(
-    at targetURL: URL, collision: CollisionPolicy, ownSidecar: URL?
+    at targetURL: URL, collision: CollisionPolicy, ownSidecar: URL?, sourcePrimaryURL: URL
   ) async throws -> (url: URL, renamed: Bool) {
     let fm = FileManager.default
-    guard assetDestinationOccupied(targetURL.path, ownSidecar: ownSidecar) else {
+    guard
+      try assetDestinationOccupied(
+        targetURL.path, ownSidecar: ownSidecar,
+        sourcePrimaryURL: sourcePrimaryURL)
+    else {
       return (targetURL, false)
     }
     switch collision {
@@ -448,7 +519,9 @@ public enum LocalFileOperations {
       return (targetURL, false)
     case .autoSuffix:
       let free = try await CollisionResolver.pickFreePath(targetURL.path) { candidate in
-        assetDestinationOccupied(candidate, ownSidecar: ownSidecar)
+        try assetDestinationOccupied(
+          candidate, ownSidecar: ownSidecar,
+          sourcePrimaryURL: sourcePrimaryURL)
       }
       return (URL(fileURLWithPath: free), true)
     }
@@ -457,9 +530,16 @@ public enum LocalFileOperations {
   /// Occupied for a whole asset (#4707): the primary name itself, or its
   /// derived sidecar name unless that is the moving asset's own sidecar or
   /// already holds exactly its bytes.
-  private static func assetDestinationOccupied(_ path: String, ownSidecar: URL?) -> Bool {
+  private static func assetDestinationOccupied(
+    _ path: String, ownSidecar: URL?, sourcePrimaryURL: URL
+  ) throws -> Bool {
     let fm = FileManager.default
     guard !fm.fileExists(atPath: path) else { return true }
+    if try LocalWorkflowVariants.occupied(
+      at: URL(fileURLWithPath: path), excluding: sourcePrimaryURL)
+    {
+      return true
+    }
     let sidecar = SidecarPath.sidecarURL(for: URL(fileURLWithPath: path)).path
     guard fm.fileExists(atPath: sidecar) else { return false }
     guard let own = ownSidecar?.path else { return true }

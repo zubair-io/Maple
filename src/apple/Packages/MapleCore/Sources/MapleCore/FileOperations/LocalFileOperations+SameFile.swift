@@ -71,41 +71,49 @@ extension LocalFileOperations {
   /// "occupying" its own destination. Does its own cache/index cleanup
   /// inline (there is no separate `finalize` step for an already-atomic
   /// rename — see `RelocatePlan.sourceAlreadyRelocated`). Throws (leaving
-  /// the source untouched — `moveItem` either fully succeeds or doesn't
-  /// touch anything) if the rename itself fails, e.g. a permissions
-  /// error; a failed rename is a genuine failure the caller must see, not
-  /// a silent no-op.
+  /// the primary untouched) if the rename itself fails, e.g. a permissions
+  /// error. Sidecars move first and are rolled back in reverse order on a
+  /// failure, so a failed branch cannot quietly orphan the user's edits.
   static func performCaseOnlyRename(source: URL, target: URL) async throws -> RelocatePlan {
     let fm = FileManager.default
     let sourceSidecarURL = SidecarPath.sidecarURL(for: source)
     let hadSidecar = fm.fileExists(atPath: sourceSidecarURL.path)
-
-    try fm.moveItem(at: source, to: target)
-
-    var finalSidecarPath: String?
-    var sourceSidecarPath: String?
-    if hadSidecar {
-      let targetSidecarURL = SidecarPath.sidecarURL(for: target)
-      sourceSidecarPath = sourceSidecarURL.path
-      // Best-effort, matching `moveSidecarsAlongside`'s "RAW moved,
-      // sidecar left in place" contract — the primary rename above is
-      // already complete and safe (an atomic rename has no partial
-      // state to revert), so a sidecar rename failure doesn't unwind
-      // it.
-      do {
-        try fm.moveItem(at: sourceSidecarURL, to: targetSidecarURL)
-      } catch {
-        sameFileLog.error(
-          "performCaseOnlyRename: sidecar moveItem failed (\(sourceSidecarURL.path, privacy: .public)): \(error.localizedDescription, privacy: .public)"
-        )
+    let variants = try LocalWorkflowVariants.paired(with: source)
+    let variantMoves = try variants.map {
+      (source: $0, target: try LocalWorkflowVariants.target(for: $0, from: source, to: target))
+    }
+    let targetSidecarURL = SidecarPath.sidecarURL(for: target)
+    var moved: [(source: URL, target: URL)] = []
+    do {
+      for pair in variantMoves where pair.source.path != pair.target.path {
+        try fm.moveItem(at: pair.source, to: pair.target)
+        moved.append(pair)
       }
-      finalSidecarPath = fm.fileExists(atPath: targetSidecarURL.path) ? targetSidecarURL.path : nil
+      if hadSidecar, sourceSidecarURL.path != targetSidecarURL.path {
+        try fm.moveItem(at: sourceSidecarURL, to: targetSidecarURL)
+        moved.append((sourceSidecarURL, targetSidecarURL))
+      }
+      try fm.moveItem(at: source, to: target)
+    } catch {
+      for pair in moved.reversed() {
+        do {
+          try fm.moveItem(at: pair.target, to: pair.source)
+        } catch {
+          sameFileLog.error(
+            "performCaseOnlyRename: rollback failed (\(pair.target.path, privacy: .public)): \(error.localizedDescription, privacy: .public)"
+          )
+        }
+      }
+      throw error
     }
 
     let plan = RelocatePlan(
-      mode: .move, sourcePrimaryPath: source.path, sourceSidecarPath: sourceSidecarPath,
-      finalPrimaryPath: target.path, finalSidecarPath: finalSidecarPath,
-      renamedDueToCollision: false, createdPaths: [], sourceAlreadyRelocated: true)
+      mode: .move, sourcePrimaryPath: source.path,
+      sourceSidecarPath: hadSidecar ? sourceSidecarURL.path : nil,
+      finalPrimaryPath: target.path,
+      finalSidecarPath: hadSidecar ? targetSidecarURL.path : nil,
+      renamedDueToCollision: false, createdPaths: [], sourceAlreadyRelocated: true,
+      finalVariantPaths: variantMoves.map { $0.target.path })
     await invalidateDerivedCaches(forOldPrimaryPath: source.path)
     // Same index repoint `finalizeRelocate` performs for every other
     // move (#2847): without it the `LibraryIndex` still lists the OLD
