@@ -24,6 +24,31 @@ final class ExportEditParityTests: XCTestCase {
     XCTAssertEqual(cgImage.height, 48)
   }
 
+  func testUnrecognizedExtensionlessBytesCacheTheFallbackClassification() async throws {
+    actor ProviderCalls {
+      private var count = 0
+      func bytes() -> Data {
+        count += 1
+        return Data([0x01, 0x02, 0x03])
+      }
+      func value() -> Int { count }
+    }
+    let calls = ProviderCalls()
+    let asset = AssetRef(
+      displayName: "extensionless-photo-id", hintExtension: nil,
+      stableID: "unknown-export-type-test", bytesProvider: { await calls.bytes() })
+    XCTAssertNil(AssetRef.detectIsRaw(bytes: Data([0x01, 0x02, 0x03])))
+    XCTAssertTrue(asset.isRaw)
+
+    let actor = RenderActor(pipeline: ImageEditPipeline())
+    let first = try await actor.isRawForExport(asset)
+    let second = try await actor.isRawForExport(asset)
+    let readCount = await calls.value()
+    XCTAssertTrue(first)
+    XCTAssertEqual(second, first)
+    XCTAssertEqual(readCount, 1)
+  }
+
   func testExportKeepsLiveCropAndExposureBeforeAutosave() async throws {
     let directory = try SidecarContractIO.makeTempDirectory(prefix: "export-edits")
     defer { try? FileManager.default.removeItem(at: directory) }
