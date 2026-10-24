@@ -122,6 +122,8 @@ export class LibraryFetch {
   private readonly xmpRestore = inject(XmpAdjustmentRestoreService);
   private readonly slugRegistry = inject(LibrarySlugRegistry);
   private readonly singleFileXmp = inject(SingleFileXmpService);
+  private readonly hostedFolderHandles = new Map<string, MapleFolderHandle>();
+  private hostedFolderActivation: Promise<void> = Promise.resolve();
 
   // ── Index write debounce ──────────────────────────────────────────────────
   private _indexWriteTimer: ReturnType<typeof setTimeout> | null = null;
@@ -159,6 +161,26 @@ export class LibraryFetch {
   }
 
   // ── Folder open ────────────────────────────────────────────────────────────
+
+  activateHostedFolder(folderId: string): boolean {
+    const folder = this.hostedFolderHandles.get(folderId);
+    if (!folder) return false;
+
+    const activation = this.hostedFolderActivation.then(async () => {
+      if (this.store.currentFolder() === folder) {
+        this.selection.selectedSourceId.set(folderId);
+      } else {
+        await this.openFolder(folder);
+      }
+      this.status.backendError.set(null);
+    });
+    this.hostedFolderActivation = activation.catch((error: unknown) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.status.backendError.set(`Failed to open folder: ${detail}`);
+      console.error('LibraryFetch: hosted folder activation failed', error);
+    });
+    return true;
+  }
 
   /**
    * Open a folder, load its assets, and integrate the .maple/ cache.
@@ -305,6 +327,7 @@ export class LibraryFetch {
     // can still be rendered, so attaching the new folder sooner could route a
     // last-second edit to the wrong directory.
     this.store.currentFolder.set(folder);
+    this.hostedFolderHandles.set(folderId, folder);
 
     // 3. Ensure the folder appears in the sidebar tree.
     this.store.ensureFolder(folderId, folder.name);
