@@ -419,6 +419,12 @@ export class ControlCardComponent {
       }
     }
     if (group === 'color') {
+      const defaults = defaultGeneratedAdjustmentModel();
+      for (const tool of ['hsl', 'bwMix'] as const) {
+        for (const sub of subParamsFor(tool)) {
+          (patch as Record<string, number>)[sub.field] = defaults[sub.field];
+        }
+      }
       patch.colorCurveHueVsHue = { points: [] };
       patch.colorCurveHueVsSat = { points: [] };
       patch.colorCurveHueVsLuma = { points: [] };
