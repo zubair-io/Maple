@@ -62,7 +62,14 @@ export class MoveToTreePickerComponent {
   }
 
   protected canExpand(node: SidebarEntry): boolean {
-    return !!node.absPath || this.hasChildren(node);
+    // Addressed folders can have children that have not been fetched into the
+    // sidebar tree yet. Keep their chevrons available even when the row itself
+    // cannot be selected as a destination (for example, the source folder).
+    const sameLibrary =
+      node.kind === 'folder' &&
+      node.id.includes(':') &&
+      node.id.split(':', 1)[0] === this.sourceFolderId().split(':', 1)[0];
+    return !!node.absPath || sameLibrary || this.hasChildren(node);
   }
 
   protected isOpen(node: SidebarEntry): boolean {
@@ -76,8 +83,11 @@ export class MoveToTreePickerComponent {
       willOpen ? next.add(node.id) : next.delete(node.id);
       return next;
     });
-    if (willOpen && this.canExpand(node) && node.childrenStatus === undefined) {
-      this.state.expandFsFolder(node);
+    if (willOpen && this.canExpand(node)) {
+      // Re-read addressed folders on demand: the picker may open after a new
+      // child was created while the sidebar's cached children are still stale.
+      if (node.id.includes(':')) this.state.refreshFolderListing(node.id);
+      else if (node.childrenStatus === undefined) this.state.expandFsFolder(node);
     }
   }
 
