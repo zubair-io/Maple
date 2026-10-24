@@ -44,12 +44,19 @@ class StubSearchService {
   }
 }
 
-function setup(q?: string): {
+function setup(
+  q?: string,
+  extraParams: Record<string, string> = {},
+): {
   fixture: ComponentFixture<SearchPageComponent>;
   stub: StubSearchService;
 } {
   const stub = new StubSearchService();
-  const route = { snapshot: { queryParamMap: convertToParamMap(q !== undefined ? { q } : {}) } };
+  const route = {
+    snapshot: {
+      queryParamMap: convertToParamMap({ ...extraParams, ...(q !== undefined ? { q } : {}) }),
+    },
+  };
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [SearchPageComponent],
@@ -119,6 +126,21 @@ describe('SearchPageComponent (Self-Hosted) ?q wiring', () => {
 
     vi.advanceTimersByTime(300);
     expect(stub.calls.length).toBe(0);
+  });
+
+  it('opens an unlabeled Map pin into a visible GPS-only result scope', () => {
+    const { fixture, stub } = setup(undefined, { scope: 'places' });
+    fixture.detectChanges();
+    vi.advanceTimersByTime(300);
+    expect(stub.calls[0]?.scope).toBe('places');
+    expect(fixture.nativeElement.textContent).toContain('Photos with location');
+  });
+
+  it('opens a labeled Map pin as a content search', () => {
+    const { fixture, stub } = setup(undefined, { placeQuery: 'Reykjavik' });
+    fixture.detectChanges();
+    vi.advanceTimersByTime(300);
+    expect(stub.calls[0]?.placeQuery).toBe('Reykjavik');
   });
 
   it('syncs query and filters in one URL update', () => {

@@ -20,6 +20,8 @@ export const DATE_PRESETS: ReadonlyArray<{ id: DatePreset; label: string }> = [
 ];
 
 export interface SearchFilters {
+  /** GPS-only deep-link scope used when a Map pin has no place label. */
+  readonly scope: 'places' | null;
   readonly datePreset: DatePreset | null;
   /** Custom range bounds as bare `YYYY-MM-DD` dates (the server widens
    * them to full-day bounds). Either side may be null. */
@@ -43,6 +45,7 @@ export interface SearchFilters {
 }
 
 export const EMPTY_FILTERS: SearchFilters = {
+  scope: null,
   datePreset: null,
   from: null,
   to: null,
@@ -65,6 +68,7 @@ export function activeFilterCount(f: SearchFilters): number {
   return (
     f.people.length +
     f.places.length +
+    (f.scope !== null ? 1 : 0) +
     (dateActive ? 1 : 0) +
     (f.sceneType !== null ? 1 : 0) +
     (f.month !== null ? 1 : 0) +
@@ -73,7 +77,15 @@ export function activeFilterCount(f: SearchFilters): number {
 }
 
 export interface ActiveFilterChip {
-  readonly kind: 'date' | 'person' | 'place' | 'scene' | 'month' | 'inferred-date' | 'owner';
+  readonly kind:
+    | 'date'
+    | 'person'
+    | 'place'
+    | 'scene'
+    | 'month'
+    | 'inferred-date'
+    | 'owner'
+    | 'scope';
   readonly label: string;
   /** For `inferred-date`: the search text the window was derived from, shown
    * as attribution so the user can see WHY it is there. */
@@ -114,6 +126,7 @@ export function inferredDateChip(applied: AppliedDateFilter | undefined): Active
 export function activeFilterChips(f: SearchFilters): ActiveFilterChip[] {
   const dateLabel = dateChipLabel(f);
   return [
+    ...(f.scope !== null ? [{ kind: 'scope' as const, label: 'Photos with location' }] : []),
     ...(dateLabel !== null ? [{ kind: 'date' as const, label: dateLabel }] : []),
     ...f.people.map((p) => ({ kind: 'person' as const, label: p })),
     ...f.places.map((p) => ({ kind: 'place' as const, label: p })),
@@ -165,6 +178,8 @@ export function dateChipLabel(f: SearchFilters): string | null {
 /** Removing a chip clears the matching dimension/value. */
 export function removeChip(f: SearchFilters, chip: ActiveFilterChip): SearchFilters {
   switch (chip.kind) {
+    case 'scope':
+      return { ...f, scope: null };
     case 'date':
       return { ...f, datePreset: null, from: null, to: null };
     case 'person':
@@ -253,9 +268,13 @@ export function presetRange(preset: DatePreset, now: Date): { from: string; to: 
 export function filtersToParams(
   f: SearchFilters,
   now: Date = new Date(),
-): Pick<SearchParams, 'from' | 'to' | 'people' | 'place' | 'sceneType' | 'month' | 'ownerId'> {
+): Pick<
+  SearchParams,
+  'scope' | 'from' | 'to' | 'people' | 'place' | 'sceneType' | 'month' | 'ownerId'
+> {
   const range = f.datePreset !== null ? presetRange(f.datePreset, now) : { from: f.from, to: f.to };
   return {
+    ...(f.scope !== null ? { scope: f.scope } : {}),
     ...(range.from !== null ? { from: range.from } : {}),
     ...(range.to !== null ? { to: range.to } : {}),
     ...(f.people.length > 0 ? { people: [...f.people] } : {}),
@@ -306,6 +325,7 @@ function parseNames(raw: string | null): readonly string[] {
  * remove filters that were previously present in the route. */
 export function searchFilterQueryParams(f: SearchFilters): Record<string, string | null> {
   return {
+    scope: f.scope,
     datePreset: f.datePreset,
     from: f.from,
     to: f.to,
@@ -355,10 +375,18 @@ function parseDeepLinkFacets(get: (key: string) => string | null): Partial<Searc
   };
 }
 
+function parseDeepLinkScope(get: (key: string) => string | null): Partial<SearchFilters> {
+  return get('scope') === 'places' ? { scope: 'places' } : {};
+}
+
 export function parseDeepLinkFilters(
   get: (key: string) => string | null,
 ): Partial<SearchFilters> | null {
-  const filters = { ...parseDeepLinkDate(get), ...parseDeepLinkFacets(get) };
+  const filters = {
+    ...parseDeepLinkScope(get),
+    ...parseDeepLinkDate(get),
+    ...parseDeepLinkFacets(get),
+  };
   return Object.keys(filters).length > 0 ? filters : null;
 }
 
