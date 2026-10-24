@@ -212,6 +212,9 @@ fn export_core_with_film(
         (metadata.width, metadata.height)
     };
     crate::cpu_budget::validate_export_dimensions(width, height, requested_edge)?;
+    if raw_img.is_none() {
+        crate::cpu_budget::validate_raster_export_dimensions(width, height)?;
+    }
 
     let model = crate::mask_registry::parse_model(xmp.as_deref()).map_err(|e| e.to_string())?;
 
@@ -385,6 +388,27 @@ mod tests {
         let no_upscale =
             export_core(&jpeg, "jpg", None, "jpeg", 92, "srgb", 16).expect("no-upscale export");
         assert_eq!((no_upscale.width, no_upscale.height), (8, 4));
+    }
+
+    #[test]
+    fn a_capped_large_jpeg_is_rejected_before_full_resolution_decode() {
+        let image = image::RgbImage::from_pixel(8, 4, image::Rgb([120, 80, 40]));
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+            .encode_image(&image)
+            .expect("encode source JPEG");
+        let frame = jpeg
+            .windows(2)
+            .position(|marker| marker == [0xff, 0xc0])
+            .expect("baseline JPEG frame header");
+        jpeg[frame + 5..frame + 9].copy_from_slice(&[0x3e, 0x80, 0x3e, 0x80]);
+
+        let error = match export_core(&jpeg, "jpg", None, "jpeg", 92, "srgb", 4096) {
+            Err(error) => error,
+            Ok(_) => panic!("large raster must be rejected before decoding"),
+        };
+        assert!(error.contains("16000×16000"), "got: {error}");
+        assert!(error.contains("decode memory budget"), "got: {error}");
     }
 
     /// Repo-root fixture path. Skip-pass when the gitignored RAW is absent,
