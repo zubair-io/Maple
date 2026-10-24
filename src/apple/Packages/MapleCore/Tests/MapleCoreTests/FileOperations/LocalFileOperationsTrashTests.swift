@@ -256,5 +256,50 @@ final class LocalFileOperationsTrashTests: XCTestCase {
         "the OS decides the exact trashed name/path — it must exist somewhere")
       XCTAssertTrue(outcome.sidecarFollowed)
     }
+
+    func testTrashToOSTrashMovesUUIDVersionSidecars() async throws {
+      let stem = "qa-\(UUID().uuidString.lowercased())"
+      let source = FileOperationsTestSupport.write(
+        "pixels", to: root.appendingPathComponent("\(stem).dng"))
+      let version = root.appendingPathComponent(
+        "\(stem).v\(UUID().uuidString.lowercased()).xmp")
+      FileOperationsTestSupport.write("<version/>", to: version)
+
+      let outcome = try await LocalFileOperations.trashToOSTrash(source)
+      let trashedVersion = URL(fileURLWithPath: outcome.primaryPath)
+        .deletingLastPathComponent().appendingPathComponent(version.lastPathComponent)
+      defer {
+        try? FileManager.default.removeItem(atPath: outcome.primaryPath)
+        try? FileManager.default.removeItem(at: trashedVersion)
+      }
+
+      XCTAssertFalse(FileOperationsTestSupport.exists(source))
+      XCTAssertFalse(FileOperationsTestSupport.exists(version))
+      XCTAssertTrue(FileOperationsTestSupport.exists(trashedVersion))
+    }
+
+    func testTrashToOSTrashCopiesVersionsStillSharedWithSiblingPhoto() async throws {
+      let stem = "qa-\(UUID().uuidString.lowercased())"
+      let source = FileOperationsTestSupport.write(
+        "raw pixels", to: root.appendingPathComponent("\(stem).dng"))
+      let sibling = FileOperationsTestSupport.write(
+        "jpeg pixels", to: root.appendingPathComponent("\(stem).jpg"))
+      let version = root.appendingPathComponent(
+        "\(stem).v\(UUID().uuidString.lowercased()).xmp")
+      FileOperationsTestSupport.write("<shared-version/>", to: version)
+
+      let outcome = try await LocalFileOperations.trashToOSTrash(source)
+      let trashedVersion = URL(fileURLWithPath: outcome.primaryPath)
+        .deletingLastPathComponent().appendingPathComponent(version.lastPathComponent)
+      defer {
+        try? FileManager.default.removeItem(atPath: outcome.primaryPath)
+        try? FileManager.default.removeItem(at: trashedVersion)
+      }
+
+      XCTAssertFalse(FileOperationsTestSupport.exists(source))
+      XCTAssertTrue(FileOperationsTestSupport.exists(sibling))
+      XCTAssertTrue(FileOperationsTestSupport.exists(version))
+      XCTAssertTrue(FileOperationsTestSupport.exists(trashedVersion))
+    }
   #endif
 }

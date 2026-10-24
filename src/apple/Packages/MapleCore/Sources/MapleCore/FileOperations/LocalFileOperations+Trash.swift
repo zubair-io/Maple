@@ -29,12 +29,16 @@ extension LocalFileOperations {
       let fm = FileManager.default
       let sidecarURL = SidecarPath.sidecarURL(for: primaryURL)
       let sidecarShared = SidecarOwnership.localStemClaimedBySibling(primaryURL)
+      let variants = try LocalWorkflowVariants.paired(with: primaryURL)
       var trashedPrimary: NSURL?
       try fm.trashItem(at: primaryURL, resultingItemURL: &trashedPrimary)
 
       let trashedSidecarURL =
         !fm.fileExists(atPath: sidecarURL.path)
         ? nil : sidecarShared ? trashCopy(of: sidecarURL) : trashedItem(sidecarURL)
+      for variant in variants {
+        _ = sidecarShared ? trashCopy(of: variant) : trashedItem(variant)
+      }
       await invalidateDerivedCaches(forOldPrimaryPath: primaryURL.path)
       return RelocateOutcome(
         primaryPath: (trashedPrimary as URL?)?.path ?? primaryURL.path,
