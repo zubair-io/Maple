@@ -87,7 +87,6 @@ function addEffectsSubtoolDefaults(patch: Partial<AdjustmentModel>): void {
   patch.filmStrength = defaults.filmStrength;
 }
 
-/** Add Color's field-less mixer and curve defaults to the group reset. */
 function addColorSubtoolDefaults(patch: Partial<AdjustmentModel>): void {
   const defaults = defaultGeneratedAdjustmentModel();
   for (const tool of ['hsl', 'bwMix'] as const) {
