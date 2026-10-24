@@ -91,4 +91,23 @@ describe('MoveToTreePickerComponent', () => {
     expect(refreshFolderChildren).not.toHaveBeenCalled();
     expect(expandFsFolder).toHaveBeenCalledWith(windowsFolder);
   });
+
+  it('does not treat a colon-free source as the prefix of another library', () => {
+    const refreshFolderChildren = vi.fn();
+    TestBed.configureTestingModule({
+      imports: [MoveToTreePickerComponent],
+      providers: [
+        { provide: LibraryStateService, useValue: { refreshFolderChildren } },
+        { provide: DRAG_MOVE_CAPABILITY, useValue: { dropDisabledReason: () => null } },
+      ],
+    });
+    const fixture = TestBed.createComponent(MoveToTreePickerComponent);
+    fixture.componentRef.setInput('nodes', [{ ...child, id: 'photo:target' }]);
+    fixture.componentRef.setInput('sourceFolderId', 'photos');
+    fixture.detectChanges();
+
+    const button = fixture.nativeElement.querySelector('button') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(refreshFolderChildren).not.toHaveBeenCalled();
+  });
 });
