@@ -8,7 +8,6 @@
 // preserved and only touched metadata fields overwritten.
 
 import Foundation
-import MapleBackup
 
 // MARK: - MetadataFieldKey
 
@@ -341,8 +340,7 @@ public final class BatchMetadataViewModel: Identifiable {
         id: String, root: URL?
     ) throws -> PhotoKitSidecarStore {
         if let root {
-            return PhotoKitSidecarStore(
-                phassetLocalId: id, sidecars: AppSupportSidecarStore(root: root))
+            return PhotoKitSidecarStore(phassetLocalId: id, sidecarRoot: root)
         }
         return try PhotoKitSidecarStore(phassetLocalId: id)
     }
@@ -378,6 +376,8 @@ public final class BatchMetadataViewModel: Identifiable {
     private func applyToPhotoKitPrimary(
         _ store: PhotoKitSidecarStore, metadata: XmpMetadata
     ) async throws {
+        // A live session may use a different Primary store or have just
+        // flushed edits. Re-read its develop/culling state before publication.
         let (model, culling) = try await store.loadIfPresent() ?? (.default, CullingState())
         await store.update(
             model: model, culling: applyingTouchedCulling(to: culling), metadata: metadata)

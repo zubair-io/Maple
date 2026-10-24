@@ -16,6 +16,10 @@ public actor PhotoKitSidecarStore: WorkflowSidecarStoreProtocol {
     self.writer = XMPSidecarStore(sidecarURL: sidecars.sidecarURL(phassetLocalId: phassetLocalId))
   }
 
+  public init(phassetLocalId: String, sidecarRoot: URL) {
+    self.init(phassetLocalId: phassetLocalId, sidecars: AppSupportSidecarStore(root: sidecarRoot))
+  }
+
   public init(phassetLocalId: String) throws {
     self.init(
       phassetLocalId: phassetLocalId,
