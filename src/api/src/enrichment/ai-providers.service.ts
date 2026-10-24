@@ -14,7 +14,11 @@ import {
   type DescribeProviderName,
 } from './describe-providers/index.ts';
 import { DEFAULT_DESCRIBE_MODELS, asDescribeProvider } from './enrichment-config.repo.ts';
-import { OPENAI_DEFAULT_BASE_URL, openAiBaseUrl } from './describe-providers/openai.ts';
+import {
+  OPENAI_DEFAULT_BASE_URL,
+  allowsEnvOpenAiKey,
+  openAiBaseUrl,
+} from './describe-providers/openai.ts';
 
 export interface ProviderModelOptions {
   url?: string | null;
@@ -155,7 +159,9 @@ export async function listProviderModels(
   provider: DescribeProviderName,
   opts: ProviderModelOptions = {},
 ): Promise<{ models: string[]; source: 'live' | 'fallback'; error?: string }> {
-  const apiKey = opts.apiKey !== undefined ? opts.apiKey?.trim() || null : resolveEnvKey(provider);
+  const envKeyAllowed = provider !== 'openai' || allowsEnvOpenAiKey(opts.url);
+  const envKey = envKeyAllowed ? resolveEnvKey(provider) : null;
+  const apiKey = opts.apiKey !== undefined ? opts.apiKey?.trim() || null : envKey;
 
   try {
     const models = await fetchLiveModels(provider, opts, apiKey);

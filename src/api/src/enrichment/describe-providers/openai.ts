@@ -153,6 +153,11 @@ export function openAiBaseUrl(raw: string | null | undefined): string {
   return raw?.trim().replace(/\/+$/, '') || OPENAI_DEFAULT_BASE_URL;
 }
 
+/** The deployment's `MAPLE_OPENAI_API_KEY` belongs to OpenAI itself and must never reach another host. */
+export function allowsEnvOpenAiKey(raw: string | null | undefined): boolean {
+  return openAiBaseUrl(raw) === OPENAI_DEFAULT_BASE_URL;
+}
+
 function firstChoiceFinishReason(choices: unknown): unknown {
   const first = Array.isArray(choices) ? choices[0] : undefined;
   return first && typeof first === 'object'

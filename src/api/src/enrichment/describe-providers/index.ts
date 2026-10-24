@@ -25,7 +25,7 @@
 
 import { OllamaProvider } from './ollama.ts';
 import { AnthropicProvider } from './anthropic.ts';
-import { OpenAIProvider } from './openai.ts';
+import { OpenAIProvider, allowsEnvOpenAiKey } from './openai.ts';
 import { GeminiProvider } from './gemini.ts';
 
 export type DescribeProviderName = 'ollama' | 'anthropic' | 'openai' | 'gemini';
@@ -211,7 +211,7 @@ export function getDescribeProvider(
       });
     case 'openai':
       return new OpenAIProvider({
-        apiKey: resolveKey('openai', opts.apiKey),
+        apiKey: openAiKey(opts),
         baseUrl: opts.url,
         fetchImpl: opts.fetchImpl,
         requestTimeoutMs: opts.requestTimeoutMs,
@@ -227,6 +227,14 @@ export function getDescribeProvider(
       // factory branch fails the type check at compile time.
       throw new Error(`Unknown describe provider: ${String(name as string)}`);
   }
+}
+
+/** The deployment key is for OpenAI itself; a custom base URL needs the connection's own key. */
+function openAiKey(opts: ProviderFactoryOptions): string {
+  if (opts.apiKey === undefined && !allowsEnvOpenAiKey(opts.url)) {
+    throw new RemoteError('openai provider with a custom base URL needs its own API key', false);
+  }
+  return resolveKey('openai', opts.apiKey);
 }
 
 /** Look up `MAPLE_${PROVIDER}_API_KEY` when no explicit key is supplied.
