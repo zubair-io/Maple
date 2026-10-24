@@ -5,6 +5,58 @@
   /// Large-window Browse with cold thumbnails. Stages real RAW bytes in a
   /// disposable directory; the photographer's library is never the cache target.
   final class BrowseScrollingPerformanceTests: XCTestCase {
+    func testPreviewBackRevealsThePhotoOpenedBelowTheFold() throws {
+      continueAfterFailure = false
+      let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("Fixtures/layout/rgb-gradient.png")
+      let folder = FileManager.default.temporaryDirectory
+        .appendingPathComponent("maple-preview-return-\(UUID().uuidString)", isDirectory: true)
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: folder) }
+
+      let first = folder.appendingPathComponent("sample-00.png")
+      try FileManager.default.copyItem(at: fixture, to: first)
+      for index in 1..<40 {
+        try FileManager.default.linkItem(
+          at: first, to: folder.appendingPathComponent(String(format: "sample-%02d.png", index)))
+      }
+
+      let app = XCUIApplication()
+      app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = first.lastPathComponent
+      app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = folder.path
+      app.launchArguments = ["--uitest-browse"]
+      app.launch()
+      defer { app.terminate() }
+
+      let firstCell = app.buttons["thumb-sample-00"]
+      XCTAssertTrue(firstCell.waitForExistence(timeout: 20))
+      let lastCell = app.buttons["thumb-sample-39"]
+      let scroll = app.scrollViews["browse-scroll"]
+      XCTAssertTrue(scroll.exists)
+      for _ in 0..<12 where !lastCell.isHittable {
+        scroll.scroll(byDeltaX: 0, deltaY: -600)
+      }
+      XCTAssertTrue(lastCell.isHittable, "The last tile must be reachable below the fold")
+      XCTAssertFalse(firstCell.isHittable, "The grid must be scrolled away from its first row")
+
+      lastCell.doubleClick()
+      XCTAssertTrue(app.staticTexts["preview-filename"].waitForExistence(timeout: 10))
+      XCTAssertEqual(app.staticTexts["preview-filename"].label, "sample-39")
+      app.buttons["preview-back"].click()
+      XCTAssertTrue(scroll.waitForExistence(timeout: 10))
+      XCTAssertTrue(
+        lastCell.waitForExistence(timeout: 10) && lastCell.isHittable,
+        "Preview Back must bring the current tile back into the Browse viewport")
+      attachReturnScreenshot(app)
+    }
+
+    private func attachReturnScreenshot(_ app: XCUIApplication) {
+      let attachment = XCTAttachment(screenshot: app.screenshot())
+      attachment.name = "Browse after Preview Back"
+      attachment.lifetime = .keepAlways
+      add(attachment)
+    }
+
     func testCold500ImageFolderScrollsWhileThumbnailsLoad() throws {
       let fixture = try UITestFixtureRoot.locate("test_0017.dng")
       let folder = FileManager.default.temporaryDirectory

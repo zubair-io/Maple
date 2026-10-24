@@ -200,6 +200,17 @@ struct BrowseGrid: View {
             // enough to expose it.
             if let id = newID { proxy.scrollTo(id, anchor: nil) }
           }
+          .task {
+            // Preview replaces the Browse surface. When Back creates this
+            // scroll view again, selectedID is already set, so onChange does
+            // not fire and the grid otherwise starts at the first row.
+            await Task.yield()
+            guard !Task.isCancelled,
+              let id = vm.selectedID,
+              vm.assets.contains(where: { $0.id == id })
+            else { return }
+            proxy.scrollTo(id, anchor: nil)
+          }
           .onChange(of: vm.listingGeneration) { proxy.scrollTo(Self.topAnchorID, anchor: .top) }
         }
 
