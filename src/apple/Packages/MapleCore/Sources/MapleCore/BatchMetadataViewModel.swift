@@ -359,8 +359,11 @@ public final class BatchMetadataViewModel: Identifiable {
         guard session.hasLoadedSidecar else {
             throw session.sidecarError ?? CancellationError()
         }
+        let livePhotoKitStore = session.sidecarStore as? PhotoKitSidecarStore
+        let reboundPrimaryStore = session.sidecarStore as? XMPSidecarStore
         guard session.workflow.selectedVariantId == WorkflowContract.primaryVariantID,
-              let liveStore = session.sidecarStore as? PhotoKitSidecarStore
+              session.primarySidecarStore is PhotoKitSidecarStore,
+              livePhotoKitStore != nil || reboundPrimaryStore != nil
         else {
             let primary = (session.primarySidecarStore as? PhotoKitSidecarStore) ?? store
             try await applyToPhotoKitPrimary(primary, metadata: merged)
@@ -369,8 +372,15 @@ public final class BatchMetadataViewModel: Identifiable {
         let touched = touchedMetadata
         try await session.setCulling { Self.applyTouchedCulling(touched, to: &$0) }
         await session.sidecarUpdateTask?.value
-        await liveStore.update(model: session.model, culling: session.culling, metadata: merged)
-        await liveStore.flush()
+        if let livePhotoKitStore {
+            await livePhotoKitStore.update(
+                model: session.model, culling: session.culling, metadata: merged)
+            await livePhotoKitStore.flush()
+        } else if let reboundPrimaryStore {
+            await reboundPrimaryStore.update(
+                model: session.model, culling: session.culling, metadata: merged)
+            await reboundPrimaryStore.flush()
+        }
     }
 
     private func applyToPhotoKitPrimary(
