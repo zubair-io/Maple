@@ -10,6 +10,7 @@
     [attr.aria-label]="entry.label"
     [attr.aria-selected]="isSelected"
     [attr.aria-expanded]="expandable ? open : null"
+    [attr.aria-describedby]="reasonId"
   >
     <div
       [class]="rowClass(isSelected && !disabledReason, false)"
@@ -23,6 +24,7 @@
         [class.rotate-90]="open"
         [disabled]="!expandable"
         [attr.aria-label]="(open ? 'Collapse ' : 'Expand ') + entry.label"
+        [attr.aria-describedby]="reasonId"
         (click)="toggleOpen(entry); $event.stopPropagation()"
       >
         ▸

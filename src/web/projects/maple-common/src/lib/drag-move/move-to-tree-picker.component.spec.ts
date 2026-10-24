@@ -55,6 +55,10 @@ describe('MoveToTreePickerComponent', () => {
     expect(chevron.disabled).toBe(false);
     expect(chevron.getAttribute('aria-disabled')).toBeNull();
     expect(chevron.getAttribute('aria-label')).toBe('Expand Photos');
+    expect(chevron.getAttribute('aria-describedby')).toBe(root.getAttribute('aria-describedby'));
+    expect(root.querySelector(`#${chevron.getAttribute('aria-describedby')}`)?.textContent).toBe(
+      'Already in this folder',
+    );
     chevron.click();
     expect(refreshFolderChildren).toHaveBeenCalledWith(source.id);
     chevron.click();
