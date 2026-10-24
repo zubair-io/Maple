@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_EXPORT_RECIPE } from '../generated/export-recipe.generated';
 import { ExportRecipeRenderService } from './export-recipe-render.service';
@@ -157,5 +157,87 @@ describe('Self Hosted export queue reopening', () => {
     expect(queue.summary()?.applied).toEqual(['photo-1']);
     expect(create).not.toHaveBeenCalled();
     expect(resume).not.toHaveBeenCalled();
+  });
+
+  it('does not start two exports while waiting for reconnect to release its lock', async () => {
+    const job: ExportJobView = {
+      id: 'job-id',
+      status: 'done',
+      progress: { current: 2, total: 2 },
+      error: null,
+      result: {
+        applied: ['photo-1', 'photo-2'],
+        skipped: [],
+        failed: [],
+        remaining: [],
+        outputs: [],
+      },
+    };
+    get.mockReturnValue(of(job));
+    create.mockReturnValue(of(job));
+    let releaseReconnect: (() => void) | undefined;
+    let firstLock = true;
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: (
+          _name: string,
+          optionsOrCallback: unknown,
+          work?: (lock: Lock) => Promise<unknown>,
+        ) => {
+          const callback =
+            typeof optionsOrCallback === 'function'
+              ? (optionsOrCallback as (lock: Lock) => Promise<unknown>)
+              : work!;
+          if (!firstLock) return callback({ name: 'maple-export-queue' } as Lock);
+          firstLock = false;
+          return new Promise((resolve, reject) => {
+            releaseReconnect = () => {
+              Promise.resolve(callback({ name: 'maple-export-queue' } as Lock)).then(
+                resolve,
+                reject,
+              );
+            };
+          });
+        },
+      },
+    });
+
+    const queue = TestBed.inject(ExportRecipeQueueService);
+    await vi.waitFor(() => expect(releaseReconnect).toBeTypeOf('function'));
+    const first = queue.resume();
+    const second = queue.resume();
+    await vi.waitFor(() => expect(queue.running()).toBe(true));
+    releaseReconnect!();
+    await Promise.all([first, second]);
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(queue.summary()?.applied).toEqual(['photo-1', 'photo-2']);
+  });
+
+  it('retries a transient poll failure and clears the error after reconciliation', async () => {
+    const job: ExportJobView = {
+      id: 'job-id',
+      status: 'done',
+      progress: { current: 2, total: 2 },
+      error: null,
+      result: {
+        applied: ['photo-1', 'photo-2'],
+        skipped: [],
+        failed: [],
+        remaining: [],
+        outputs: [],
+      },
+    };
+    get.mockReturnValueOnce(throwError(() => new Error('temporary network failure')));
+    get.mockReturnValue(of(job));
+
+    const queue = TestBed.inject(ExportRecipeQueueService);
+    await vi.waitFor(() => expect(queue.summary()?.applied).toEqual(['photo-1', 'photo-2']), {
+      timeout: 5_000,
+    });
+
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(queue.error()).toBeNull();
   });
 });

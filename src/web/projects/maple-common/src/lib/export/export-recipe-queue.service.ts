@@ -89,15 +89,17 @@ export class ExportRecipeQueueService {
   /** A server export keeps running after its browser tab closes. Reconcile its
    * saved snapshot on reopen without implicitly resuming a cancelled job. */
   private async reconnectServerJob(id: string): Promise<void> {
-    try {
-      for (;;) {
-        if (this.reconnectStopped) return;
+    for (;;) {
+      if (this.reconnectStopped) return;
+      let delay = 500;
+      try {
         const active = await navigator.locks.request('maple-export-queue', async () => {
           if (this.reconnectStopped) return false;
           const latest = await readExportQueue();
           if (!this.isSavedServerJob(latest, id)) return false;
           const job = await firstValueFrom(this.server!.get(latest.serverJobId));
           if (this.reconnectStopped) return false;
+          this.error.set(null);
           this.applyServerSummary(latest, job);
           await this.save(latest);
           this.reportProgress(latest, '');
@@ -108,10 +110,12 @@ export class ExportRecipeQueueService {
           return true;
         });
         if (!active) return;
-        await new Promise((resolve) => setTimeout(resolve, 500));
+      } catch (error) {
+        if (this.reconnectStopped) return;
+        this.reportError(error);
+        delay = 2_000;
       }
-    } catch (error) {
-      if (!this.reconnectStopped) this.reportError(error);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 
@@ -215,13 +219,13 @@ export class ExportRecipeQueueService {
     work: (latest: RecipeQueueRecord | null) => Promise<void>,
   ): Promise<void> {
     if (this.running()) return;
-    this.reconnectCancelled = true;
-    await this.reconnectTask;
-    this.reconnectTask = null;
     this.running.set(true);
-    this.error.set(null);
-    this.cancelled = false;
+    this.reconnectCancelled = true;
     try {
+      await this.reconnectTask;
+      this.reconnectTask = null;
+      this.error.set(null);
+      this.cancelled = false;
       if (!navigator.locks)
         throw new Error(
           'Persistent export requires browser Web Locks. Use a current browser or the CLI.',
