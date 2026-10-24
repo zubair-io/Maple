@@ -62,6 +62,17 @@ export class ExportRecipeQueueService {
   private reconnectTask: Promise<void> | null = null;
   private readonly ready: Promise<void>;
 
+  private get reconnectStopped(): boolean {
+    return this.destroyed || this.reconnectCancelled;
+  }
+
+  private isSavedServerJob(
+    record: RecipeQueueRecord | null,
+    id: string,
+  ): record is RecipeQueueRecord & { serverJobId: string } {
+    return !!record && record.id === id && !!record.serverJobId;
+  }
+
   constructor() {
     inject(DestroyRef).onDestroy(() => {
       this.destroyed = true;
@@ -80,13 +91,13 @@ export class ExportRecipeQueueService {
   private async reconnectServerJob(id: string): Promise<void> {
     try {
       for (;;) {
-        if (this.destroyed || this.reconnectCancelled) return;
+        if (this.reconnectStopped) return;
         const active = await navigator.locks.request('maple-export-queue', async () => {
-          if (this.destroyed || this.reconnectCancelled) return false;
+          if (this.reconnectStopped) return false;
           const latest = await readExportQueue();
-          if (!latest || latest.id !== id || !latest.serverJobId) return false;
+          if (!this.isSavedServerJob(latest, id)) return false;
           const job = await firstValueFrom(this.server!.get(latest.serverJobId));
-          if (this.destroyed || this.reconnectCancelled) return false;
+          if (this.reconnectStopped) return false;
           this.applyServerSummary(latest, job);
           await this.save(latest);
           this.reportProgress(latest, '');
@@ -100,7 +111,7 @@ export class ExportRecipeQueueService {
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
     } catch (error) {
-      if (!this.destroyed && !this.reconnectCancelled) this.reportError(error);
+      if (!this.reconnectStopped) this.reportError(error);
     }
   }
 
