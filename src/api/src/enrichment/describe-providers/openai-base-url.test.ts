@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'bun:test';
 import { OpenAIProvider } from './openai.ts';
 import { getDescribeProvider } from './index.ts';
+import { listProviderModels } from '../ai-providers.service.ts';
+import { withTestEnv } from '../../test-support/env.test-helpers.ts';
 
 const FRAME = [Buffer.alloc(4)];
 const OPTS = { systemPrompt: 'p', model: 'qwen2.5-vl' };
@@ -51,5 +53,29 @@ describe('OpenAI provider base URL', () => {
     );
     expect(calls[0]!.url).toBe('https://api.openai.com/v1/chat/completions');
     expect(result.cost_usd).toBeCloseTo(0.75);
+  });
+});
+
+describe('OpenAI base URL with a deployment key', () => {
+  withTestEnv('MAPLE_OPENAI_API_KEY', 'environment-secret');
+
+  it('never sends the deployment OpenAI key to a custom base URL', async () => {
+    const { fetchImpl, calls } = recordingFetch();
+    expect(() => getDescribeProvider('openai', { url: 'http://lan:8080/v1', fetchImpl })).toThrow(
+      'custom base URL needs its own API key',
+    );
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = fetchImpl;
+    try {
+      const listed = await listProviderModels('openai', { url: 'http://lan:8080/v1' });
+      expect(listed.source).toBe('fallback');
+      expect(calls).toEqual([]);
+      await getDescribeProvider('openai', { fetchImpl }).health();
+      expect(calls).toEqual([
+        { url: 'https://api.openai.com/v1/models', auth: 'Bearer environment-secret' },
+      ]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });
