@@ -1,12 +1,12 @@
 {
   "backend": "xctest-macos",
   "command": "bash -c cd\\ src/apple/Packages/MapleCore\\ \\&\\&\\ swift\\ test\\ --filter\\ SidecarTransactionContract",
-  "corpus_hash": "blake3:803cb678264fe714691c8cfe59c9b1a11d9d2bfa60f314fce7a9df31c991adca",
+  "corpus_hash": "blake3:ea17accccf2d8d4b6570de3b9116ebaad7b49a298cf29c2ba6742856166329dd",
   "executed_cases": 12,
   "expected_cases": 12,
   "failed_cases": 0,
-  "git_sha": "65e3a50968dcb8949b8bb954e0369277ecdf012f",
-  "recorded_at": "2026-10-24T21:11:41Z",
+  "git_sha": "7f25c24b292269a05ba53f21adc190bc479bdd37",
+  "recorded_at": "2026-10-24T21:24:09Z",
   "skipped_cases": 0,
   "source": "sidecar_contract_apple"
 }
