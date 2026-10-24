@@ -111,7 +111,7 @@ export class SearchPageComponent implements AfterViewInit {
   protected onNavigationChange(state: SearchNavigationState): void {
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { ...this.searchQueryParams(state), placeQuery: null },
+      queryParams: { ...this.searchQueryParams(state), placeQuery: null, owner_id: null },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });

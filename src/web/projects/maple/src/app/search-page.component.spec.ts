@@ -140,6 +140,7 @@ describe('SearchPageComponent (Self-Hosted) ?q wiring', () => {
         q: 'paris',
         from: '2000-01-01',
         to: '2000-12-31',
+        owner_id: null,
       }),
       queryParamsHandling: 'merge',
       replaceUrl: true,
