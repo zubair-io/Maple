@@ -55,21 +55,29 @@ function parseIds(ids: string[]): ObjectId[] | null {
   return out;
 }
 
+function parseSelection(body: {
+  ids: string[];
+  source_addresses?: string[];
+}): { kind: 'ok'; ids: ObjectId[] } | { kind: 'error'; error: string } {
+  const ids = parseIds(body.ids);
+  if (!ids) return { kind: 'error', error: 'ids contains a malformed asset id' };
+  if (body.source_addresses && body.source_addresses.length !== ids.length) {
+    return { kind: 'error', error: 'source_addresses must match ids length' };
+  }
+  return { kind: 'ok', ids };
+}
+
 export const batchRenameRoutes = new Elysia()
   .post(
     '/batch-rename/preview',
     async ({ body, set }) => {
-      const ids = parseIds(body.ids);
-      if (!ids) {
+      const selection = parseSelection(body);
+      if (selection.kind === 'error') {
         set.status = 400;
-        return { error: 'ids contains a malformed asset id' };
-      }
-      if (body.source_addresses && body.source_addresses.length !== ids.length) {
-        set.status = 400;
-        return { error: 'source_addresses must match ids length' };
+        return { error: selection.error };
       }
       const items = await previewBatchRename({
-        ids,
+        ids: selection.ids,
         sourceAddresses: body.source_addresses,
         template: body.template,
         sequenceStart: body.sequence_start ?? 0,
@@ -98,17 +106,13 @@ export const batchRenameRoutes = new Elysia()
   .post(
     '/batch-rename',
     async ({ body, set }) => {
-      const ids = parseIds(body.ids);
-      if (!ids) {
+      const selection = parseSelection(body);
+      if (selection.kind === 'error') {
         set.status = 400;
-        return { error: 'ids contains a malformed asset id' };
-      }
-      if (body.source_addresses && body.source_addresses.length !== ids.length) {
-        set.status = 400;
-        return { error: 'source_addresses must match ids length' };
+        return { error: selection.error };
       }
       const results = await batchRenameAssets({
-        ids,
+        ids: selection.ids,
         sourceAddresses: body.source_addresses,
         template: body.template,
         sequenceStart: body.sequence_start ?? 0,
