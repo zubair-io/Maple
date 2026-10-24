@@ -36,6 +36,10 @@ public actor PhotoKitSidecarStore: WorkflowSidecarStoreProtocol {
     await writer.update(model: model, culling: culling)
   }
 
+  public func update(model: AdjustmentModel, culling: CullingState, metadata: XmpMetadata) async {
+    await writer.update(model: model, culling: culling, metadata: metadata)
+  }
+
   public func flush() async { await writer.flush() }
 
   public func writeConfirmed(model: AdjustmentModel, culling: CullingState) async throws {
