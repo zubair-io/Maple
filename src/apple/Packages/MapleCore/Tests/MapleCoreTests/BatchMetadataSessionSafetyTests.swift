@@ -288,6 +288,43 @@ final class BatchMetadataSessionSafetyTests: EditorTestCase {
     XCTAssertEqual(culling.stars, 4)
   }
 
+  func testPhotoKitVariantBatchPreservesLaterPrimaryEdits() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "batch-photokit-primary-refresh")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let id = "LIVE-PHOTO/L0/003"
+    let backing = AppSupportSidecarStore(root: root)
+    let asset = AssetRef(
+      displayName: "variant.dng", hintExtension: "dng", stableID: id,
+      thumbnailProvenance: .photoKit, bytesProvider: { Data() })
+    let store = PhotoKitSidecarStore(phassetLocalId: id, sidecars: backing)
+    let session = EditSession(asset: asset, remoteSidecarStore: store)
+    await session.workflow.reload(session: session)
+    await session.workflow.createVariant(name: "Night", session: session)
+    XCTAssertNil(session.workflow.errorText)
+    let variantID = session.workflow.selectedVariantId
+    await session.workflow.selectVariant(WorkflowContract.primaryVariantID, session: session)
+    XCTAssertNil(session.workflow.errorText)
+
+    session.beginEdit()
+    session.model.contrast = 25
+    session.endEdit()
+    try await session.setCulling { $0.flag = .pick }
+    await session.flushPendingSidecarWrite()
+    await session.workflow.selectVariant(variantID, session: session)
+    XCTAssertNil(session.workflow.errorText)
+
+    let vm = BatchMetadataViewModel(
+      assets: [asset], sessions: [asset.id: session], photoKitSidecarRoot: root)
+    vm.touchedMetadata.stars = 4
+    try await vm.apply()
+
+    let xml = try XCTUnwrap(backing.read(phassetLocalId: id))
+    let (model, culling) = try XMPParser.parse(xml)
+    XCTAssertEqual(model.contrast, 25, accuracy: 1e-9)
+    XCTAssertEqual(culling.flag, .pick)
+    XCTAssertEqual(culling.stars, 4)
+  }
+
   /// A culling change that lands while the batch waits on the session's
   /// pending save must survive the batch's write, not be replaced by the
   /// culling the batch captured before it waited.
