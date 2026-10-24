@@ -95,7 +95,9 @@ struct BrowseEmptyState: View {
         .frame(maxWidth: 380)
       Button(BrowseGridVM.photosAuthButtonTitle(canRequest: canRequest), action: action)
         .buttonStyle(.borderedProminent)
+        .accessibilityIdentifier("photos-auth-action")
     }
+    .accessibilityElement(children: .contain)
     .accessibilityIdentifier("photos-auth-panel")
   }
 

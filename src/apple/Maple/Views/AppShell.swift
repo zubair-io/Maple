@@ -229,6 +229,7 @@ struct AppShell: View {
     /// `@State` — only the snapped flag crosses the boundary, since the
     /// hamburger button in `iPhoneMain` writes it directly.
     @State private var isDrawerOpen: Bool = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The iPhone Library tab's NavigationStack path (Fast Preview §1).
     /// Hoisted here from `PhoneTabShell` (and passed back down as a binding)
@@ -1196,7 +1197,9 @@ struct AppShell: View {
       onPickPhotosFilter: { filter in
         loadPhotos(filter: filter)
         #if os(iOS)
-          isDrawerOpen = false
+          withAnimation(reduceMotion ? nil : MapleTokens.Motion.drawer) {
+            isDrawerOpen = false
+          }
         #endif
       },
       onRequestPhotosAccess: { requestPhotosAccess() },
