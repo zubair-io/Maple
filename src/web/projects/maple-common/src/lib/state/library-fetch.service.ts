@@ -21,6 +21,7 @@ import {
   LIBRARY_SOURCE,
   type LibrarySource,
   type FolderListing,
+  type ImageEntry,
 } from '../addressing/library-source';
 import { parseAddress, formatAddress, type MapleAddress } from '../addressing/maple-address';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
@@ -70,10 +71,45 @@ const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
   'mtime',
   'width',
   'height',
+  'camera',
+  'lens',
+  'aperture',
+  'shutter',
+  'iso',
+  'focalLength',
+  'gps',
+  'capturedAt',
 ];
 
 const assetsEqualForRender = (a: Asset, b: Asset): boolean =>
   shallowEqualByKeys(a, b, ASSET_RENDER_KEYS);
+
+/** Preserve the indexed fields already present in the Self-Hosted folder response. */
+export function selfHostedAssetFromImage(img: ImageEntry, sourceId: string): Asset {
+  return {
+    id: img.address,
+    filename: img.name,
+    folderId: sourceId,
+    rating: 0,
+    flag: 'unflagged',
+    colorLabel: null,
+    thumbnailGradient: '',
+    aspectRatio: img.width != null && img.height != null ? img.width / img.height : 3 / 2,
+    ...(img.width != null ? { width: img.width } : {}),
+    ...(img.height != null ? { height: img.height } : {}),
+    ...(img.isVideo ? { isVideo: true as const } : {}),
+    ...(img.exif?.camera_model || img.exif?.camera_make
+      ? { camera: img.exif.camera_model ?? img.exif.camera_make! }
+      : {}),
+    ...(img.exif?.lens ? { lens: img.exif.lens } : {}),
+    ...(img.exif?.aperture != null ? { aperture: `f/${img.exif.aperture}` } : {}),
+    ...(img.exif?.shutter ? { shutter: img.exif.shutter } : {}),
+    ...(img.exif?.iso != null ? { iso: img.exif.iso } : {}),
+    ...(img.exif?.focal_length != null ? { focalLength: `${img.exif.focal_length}mm` } : {}),
+    ...(img.exif?.gps ? { gps: { lat: img.exif.gps.lat, lon: img.exif.gps.lng } } : {}),
+    ...(img.capturedAt ? { capturedAt: img.capturedAt } : {}),
+  };
+}
 
 // RAW-extension detection moved to the dependency-free `raw-extensions`
 // module (so the raw-pipeline service can import it without an import cycle).
@@ -744,23 +780,7 @@ export class LibraryFetch {
       this.store.apiAssetIds.delete(id);
     }
 
-    const newAssets: Asset[] = listing.images.map((img) => {
-      const id: AssetId = img.address;
-      return {
-        id,
-        filename: img.name,
-        folderId: sourceId,
-        rating: 0,
-        flag: 'unflagged' as const,
-        colorLabel: null,
-        thumbnailGradient: '',
-        aspectRatio: 3 / 2,
-        // width/height from the listing when the server provides them.
-        ...(img.width != null ? { width: img.width } : {}),
-        ...(img.height != null ? { height: img.height, aspectRatio: img.width! / img.height } : {}),
-        ...(img.isVideo ? { isVideo: true as const } : {}),
-      };
-    });
+    const newAssets: Asset[] = listing.images.map((img) => selfHostedAssetFromImage(img, sourceId));
 
     this.store.assets.update((list) => {
       const others = list.filter((a) => a.folderId !== sourceId);
