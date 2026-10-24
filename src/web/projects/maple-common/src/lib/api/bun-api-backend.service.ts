@@ -942,6 +942,7 @@ export class BunApiBackendService {
             mode,
             collision,
             destination_path: destinationPath,
+            ...(assetIdOrAddress.includes(':') ? { source_address: assetIdOrAddress } : {}),
             ...(destinationFilename !== undefined
               ? { destination_filename: destinationFilename }
               : {}),
