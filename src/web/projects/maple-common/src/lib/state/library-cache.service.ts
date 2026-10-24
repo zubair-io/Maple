@@ -371,6 +371,10 @@ export class LibraryCache {
     return this.thumbChannel.get(id);
   }
 
+  thumbnailFailed(id: AssetId): boolean {
+    return this.thumbFails.has(id);
+  }
+
   /** Idempotently load the blob-URL thumbnail for one asset. Grid + filmstrip
    * call this on every visible row; it short-circuits when the URL is cached,
    * a load is in flight, or the load already failed this session

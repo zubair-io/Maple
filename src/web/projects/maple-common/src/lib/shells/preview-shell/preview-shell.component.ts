@@ -81,6 +81,10 @@ export class PreviewShellComponent implements OnDestroy {
 
   readonly thumbUrl = signal<string | undefined>(undefined);
   readonly previewUrl = signal<string | undefined>(undefined);
+  readonly imageUnavailable = computed(() => {
+    const id = this.state.focusedAssetId();
+    return !!id && !this.thumbUrl() && !this.previewUrl() && this.state.thumbnailFailed(id);
+  });
   private unsubThumb?: () => void;
   private unsubPreview?: () => void;
 

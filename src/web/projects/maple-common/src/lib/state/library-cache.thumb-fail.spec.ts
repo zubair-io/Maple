@@ -51,6 +51,7 @@ describe('LibraryCache — failed thumbnail is not re-requested (#2413)', () => 
     svc.ensureThumbnailUrl(asset);
     await settle();
     expect(thumbBlob).toHaveBeenCalledTimes(1);
+    expect(svc.thumbnailFailed(asset.id)).toBe(true);
 
     // A grid re-render (change detection tick, scroll, sibling load
     // completing) calls ensureThumbnailUrl again for the same still-failed
@@ -60,6 +61,8 @@ describe('LibraryCache — failed thumbnail is not re-requested (#2413)', () => 
     await settle();
 
     expect(thumbBlob).toHaveBeenCalledTimes(1);
+    svc.clearAll();
+    expect(svc.thumbnailFailed(asset.id)).toBe(false);
   });
 
   it('does not re-fire when the loader resolves with no thumb (no branch matched, no throw)', async () => {
@@ -89,6 +92,7 @@ describe('LibraryCache — failed thumbnail is not re-requested (#2413)', () => 
     svc.ensureThumbnailUrl(asset);
     await settle();
     expect(svc.thumbnailUrlFor('unrouted-id' as AssetId)).toBeUndefined();
+    expect(svc.thumbnailFailed(asset.id)).toBe(true);
     expect(getThumbSpy).not.toHaveBeenCalled(); // never reached — no apiId to call it with
 
     // Re-render calls it again for the still-unresolved asset. Before the
@@ -119,6 +123,7 @@ describe('LibraryCache — failed thumbnail is not re-requested (#2413)', () => 
     svc.ensureThumbnailUrl(asset);
     await settle();
     expect(thumbBlob).toHaveBeenCalledTimes(1);
+    expect(svc.thumbnailFailed(asset.id)).toBe(false);
 
     svc.ensureThumbnailUrl(asset); // after cancellation: retries
     await settle();

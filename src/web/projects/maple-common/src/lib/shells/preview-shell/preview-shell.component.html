@@ -96,6 +96,11 @@
             />
           }
         }
+        @if (imageUnavailable()) {
+          <p role="status" class="max-w-sm px-6 text-center text-sm text-white/80">
+            Preview unavailable. This file may be corrupt or unsupported.
+          </p>
+        }
       }
     </div>
 

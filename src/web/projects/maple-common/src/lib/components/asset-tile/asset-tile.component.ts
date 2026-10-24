@@ -87,6 +87,7 @@ export class AssetTileComponent {
    * placeholder stays) — see `createAssetThumbnailUrlSignal`'s doc for the
    * ownership/cleanup contract, shared verbatim with `<maple-asset-thumb>`. */
   readonly thumbUrl = createAssetThumbnailUrlSignal(this.asset);
+  readonly thumbnailFailed = computed(() => this.state.thumbnailFailed(this.asset().id));
 
   /** Uppercased extension (e.g. "MP3", "EIP", "MOV") when this asset is a
    * recognised no-preview format, else undefined — drives the "no preview
