@@ -736,6 +736,7 @@
   <app-export-dialog
     [visible]="exportOpen()"
     [asset]="state.focusedAsset()"
+    [crop]="editorState.currentAdjustment()?.crop ?? null"
     (dismiss)="exportOpen.set(false)"
   />
 </div>
