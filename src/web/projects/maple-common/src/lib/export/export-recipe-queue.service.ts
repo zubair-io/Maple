@@ -67,8 +67,26 @@ export class ExportRecipeQueueService {
     this.ready = readExportQueue()
       .then((record) => {
         this.record.set(record && !record.serverJobId ? recoverBrowserQueue(record) : record);
+        if (record?.serverJobId && this.server && navigator.locks)
+          void this.reconnectServerJob(record.id);
       })
       .catch((error: unknown) => this.reportError(error));
+  }
+
+  /** A server export keeps running after its browser tab closes. Reconcile its
+   * saved snapshot on reopen without implicitly resuming a cancelled job. */
+  private async reconnectServerJob(id: string): Promise<void> {
+    try {
+      await navigator.locks.request('maple-export-queue', async () => {
+        if (this.destroyed) return;
+        const latest = await readExportQueue();
+        if (!latest || latest.id !== id || !latest.serverJobId) return;
+        this.record.set(latest);
+        await this.pollServer(latest);
+      });
+    } catch (error) {
+      if (!this.destroyed) this.reportError(error);
+    }
   }
 
   async start(assets: readonly Asset[], value: unknown): Promise<void> {
