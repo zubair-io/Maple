@@ -170,8 +170,7 @@ fn needs_develop(xml: &str) -> Result<bool, String> {
     if xml.is_empty() {
         return Ok(false);
     }
-    let model = crate::xmp::parse(xml)?;
-    Ok(model != raw_core::types::AdjustmentModel::default())
+    Ok(crate::xmp::parse(xml)?.has_render_adjustments())
 }
 
 #[cfg(test)]

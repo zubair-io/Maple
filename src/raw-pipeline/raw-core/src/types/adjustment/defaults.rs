@@ -15,6 +15,15 @@ use super::*;
 /// Reference-renderer fresh-import sharpening amount, shared by CPU/GPU.
 pub(crate) const DEFAULT_SHARPEN_AMOUNT: f32 = 40.0;
 
+impl AdjustmentModel {
+    /// False exactly when the model is the fresh-import default: an empty or
+    /// metadata-only sidecar (rating, label, keywords) renders the camera's
+    /// unedited image, so hosts may serve the sidecarless derivative for it.
+    pub fn has_render_adjustments(&self) -> bool {
+        *self != Self::default()
+    }
+}
+
 impl Default for AdjustmentModel {
     fn default() -> Self {
         Self {

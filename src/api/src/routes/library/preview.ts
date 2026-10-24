@@ -29,6 +29,7 @@ import { previewOndemandLimiter } from '../../indexer/preview-ondemand-limiter.t
 import {
   safeStat,
   derivativeDecoderUnavailable,
+  derivativeGenerationFailure,
   resolveDerivativeAddress,
   MUTABLE_PREVIEW_CACHE,
   previewFileETag,
@@ -115,8 +116,7 @@ export const previewRoutes = new Elysia().get(
         { absPath, previewPath, err: err instanceof Error ? err.message : err },
         'preview read failed',
       );
-      set.status = 500;
-      return { error: 'Preview generation failed' };
+      return derivativeGenerationFailure(err, set, 'Preview generation failed');
     }
     const previewSt = await safeStat(previewPath);
     if (!previewSt) {
