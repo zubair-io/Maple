@@ -137,6 +137,13 @@ public enum ImageMetadataReader {
   /// embedded preview at IFD 0) → "100% zoom" rendered at preview size.
   /// Walking subimages or routing through CIRAWFilter fixes it.
   public static func readPixelSize(from url: URL) -> PixelSize? {
+    // iOS ImageIO can report only FFF's embedded JPEG preview. The TIFF
+    // SubIFD carries the actual RAW crop, which the renderer exports.
+    if url.pathExtension.lowercased() == "fff",
+      let size = readTiffPixelSize(from: url)
+    {
+      return size
+    }
     // RAW path — fast extent read, doesn't decode pixels.
     if let filter = CIRAWFilter(imageURL: url),
       let img = filter.outputImage
@@ -170,6 +177,11 @@ public enum ImageMetadataReader {
   /// URL to sniff. `nil` is allowed — CIRAWFilter will decline and the
   /// CGImageSource fallback handles non-RAW formats.
   public static func readPixelSize(from data: Data, identifierHint: String? = nil) -> PixelSize? {
+    if identifierHint?.lowercased() == "fff",
+      let size = readTiffPixelSize(from: data)
+    {
+      return size
+    }
     // RAW path — same metadata-only extent read as the URL variant.
     if let filter = makeRAWFilter(data: data, identifierHint: identifierHint),
       let img = filter.outputImage
