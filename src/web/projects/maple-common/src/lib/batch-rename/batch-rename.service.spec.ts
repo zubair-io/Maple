@@ -98,6 +98,7 @@ describe('BatchRenameService', () => {
     const call = http.expectOne('/api/assets/batch-rename/preview');
     expect(call.request.body).toEqual({
       ids: ['id-a', 'id-b'],
+      source_addresses: ['lib1:a.dng', 'lib1:b.dng'],
       template: '{original}_{n}.{ext}',
       sequence_start: 1,
       sequence_pad_width: 0,
@@ -177,6 +178,7 @@ describe('BatchRenameService', () => {
     const call = http.expectOne('/api/assets/batch-rename');
     expect(call.request.body).toEqual({
       ids: ['id-a'],
+      source_addresses: ['lib1:a.dng'],
       template: '{original}',
       sequence_start: 0,
       sequence_pad_width: 0,
