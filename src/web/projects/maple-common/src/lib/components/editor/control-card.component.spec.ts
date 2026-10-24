@@ -193,6 +193,14 @@ describe('ControlCardComponent — pointer/keyboard slider gestures push undo en
     expect(updateAdjustment).toHaveBeenCalledTimes(3);
   });
 
+  it('names a slider gesture for the changed tool even when a different tool was armed', () => {
+    const { componentInstance, commit } = render({ activeGroup: 'light' });
+
+    componentInstance.onSliderDragStart('contrast');
+
+    expect(commit).toHaveBeenCalledWith('adjustment', 'Contrast');
+  });
+
   it('manual Color sliders and resets clear AUTO provenance and preserve the other WB value', () => {
     const { componentInstance, updateAdjustment } = render({ activeGroup: 'color' });
     componentInstance.onSliderChange('temp', 5800);
