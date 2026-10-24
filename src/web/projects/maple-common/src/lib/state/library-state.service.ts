@@ -154,6 +154,10 @@ export class LibraryStateService {
     return this.fetch_.openFolder(folder);
   }
 
+  activateHostedFolder(folderId: string): boolean {
+    return this.fetch_.activateHostedFolder(folderId);
+  }
+
   // ── Self-Hosted bootstrap (Bun API) ────────────────────────────────────────
   loadFolderTree(): void {
     this.fetch_.loadFolderTree();
