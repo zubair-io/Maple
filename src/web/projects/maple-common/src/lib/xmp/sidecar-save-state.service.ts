@@ -10,6 +10,30 @@ interface AssetSaveState {
   error: string | null;
 }
 
+function saveFailureMessage(error: unknown): string {
+  if (error instanceof Error) return error.message || 'Please try again.';
+  if (typeof error === 'string') return error.trim() || 'Please try again.';
+
+  if (error !== null && typeof error === 'object') {
+    const response = error as { status?: unknown; message?: unknown };
+    if (typeof response.status === 'number') {
+      if (response.status === 0) return 'Check your connection and try again.';
+      if (response.status === 401 || response.status === 403) {
+        return 'Check your access to this folder and try again.';
+      }
+      if (response.status >= 500) {
+        return 'Check folder permissions or available storage, then try again.';
+      }
+      return 'Please try again.';
+    }
+    if (typeof response.message === 'string' && response.message.trim()) {
+      return response.message;
+    }
+  }
+
+  return 'Please try again.';
+}
+
 /** What `<mui-status-text>` should show for a given phase, or `null` to
  * render nothing — `root-shell`/`hosted-root-shell`'s `maple-save-status`
  * mount only ever surfaced unsaved/saving work and hard failures; a
@@ -81,7 +105,7 @@ export class SidecarSaveStateService {
     this.set(assetId, {
       revision,
       phase: 'error',
-      error: error instanceof Error ? error.message : String(error),
+      error: saveFailureMessage(error),
     });
   }
 

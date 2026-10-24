@@ -53,6 +53,30 @@ describe('SidecarSaveStateService', () => {
     });
   });
 
+  it('turns a structured server failure into useful save guidance', () => {
+    const state = make();
+    const revision = state.queued('asset-1');
+    state.failed('asset-1', revision, {
+      status: 500,
+      message: 'Http failure response for /api/xmp/private/path: 500 Internal Server Error',
+      error: '{"error":"EACCES /private/path"}',
+    });
+    expect(state.statusText()).toEqual({
+      state: 'error',
+      text: 'Edits are not saved. Check folder permissions or available storage, then try again.',
+    });
+  });
+
+  it('never shows object stringification for an unknown save failure', () => {
+    const state = make();
+    const revision = state.queued('asset-1');
+    state.failed('asset-1', revision, {});
+    expect(state.statusText()).toEqual({
+      state: 'error',
+      text: 'Edits are not saved. Please try again.',
+    });
+  });
+
   it('ignores completion from an older write revision', () => {
     const state = make();
     const stale = state.queued('asset-1');
