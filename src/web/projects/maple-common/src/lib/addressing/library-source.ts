@@ -25,6 +25,17 @@ export interface ImageEntry {
   width?: number;
   height?: number;
   capturedAt?: string;
+  /** Indexed camera metadata supplied by the Self-Hosted folder endpoint. */
+  exif?: {
+    camera_make?: string | null;
+    camera_model?: string | null;
+    lens?: string | null;
+    aperture?: number | null;
+    shutter?: string | null;
+    iso?: number | null;
+    focal_length?: number | null;
+    gps?: { lat: number; lng: number } | null;
+  } | null;
   /** True when the asset is a video container. Used for grid badge. */
   isVideo?: boolean;
 }
