@@ -74,7 +74,9 @@ extension EditSession {
 
   /// Bake the current model against a fresh full-quality decode for export.
   public func renderForExport(sizeOption: ExportSizeOption = .full) async throws -> CIImage {
-    let exportModel = try await ImportedWhiteBalanceResolver.resolve(asset: asset, model: model)
+    let exportIsRaw = try await renderActor.isRawForExport(asset)
+    let exportModel = try await ImportedWhiteBalanceResolver.resolve(
+      asset: asset, model: model, isRawOverride: exportIsRaw)
     let isFast = sizeOption == .fast
     let qualityOverride: PipelineRenderer.Quality? = isFast ? .preview : nil
     let targetSize: CGSize? = {
@@ -96,7 +98,7 @@ extension EditSession {
     // CIImage graph below — see `EditSession+FilmExport.swift` for why.
     // Returns `nil` (falls through) for every other case: no look,
     // non-RAW, sourceless, or an FFI render failure.
-    if !isFast, let filmExport = try await renderExportWithFilmLook() {
+    if !isFast, exportIsRaw, let filmExport = try await renderExportWithFilmLook() {
       return filmExport
     }
     // Resolve the look BEFORE the render (#3190 review follow-up): a
@@ -122,7 +124,7 @@ extension EditSession {
     // is full-RAW only), so apply `FilmLookCube` directly on the
     // display-encoded CIImage result.
     let developed =
-      (!isFast && asset.isRaw)
+      (!isFast && exportIsRaw)
       ? image
       : FilmLookCube.apply(
         to: image, lattice: filmLattice, strengthPct: exportModel.filmStrength)

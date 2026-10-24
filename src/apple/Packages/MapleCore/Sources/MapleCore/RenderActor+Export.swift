@@ -14,6 +14,20 @@ import Foundation
 extension RenderActor {
   // MARK: - Export (slice 2)
 
+  /// The interactive decode sniffs extensionless PhotoKit bytes, but export
+  /// has its own decode entry point. Use that same content classification so
+  /// a JPEG whose display name is a PhotoKit identifier never reaches rawler.
+  func isRawForExport(_ asset: AssetRef) async throws -> Bool {
+    guard asset.primaryURL == nil, asset.hintExtension == nil,
+      asset.explicitIsRaw == nil, let provider = asset.bytesProvider
+    else { return asset.isRaw }
+    if let resolved = resolvedIsRaw(for: asset.id) { return resolved }
+    let bytes = try await provider()
+    guard let resolved = AssetRef.detectIsRaw(bytes: bytes) else { return asset.isRaw }
+    recordResolvedIsRaw(asset.id, resolved)
+    return resolved
+  }
+
   public func renderForExport(
     asset: AssetRef,
     model: AdjustmentModel,
@@ -33,8 +47,9 @@ extension RenderActor {
   ) async throws -> CIImage {
     let pipeline = self.pipeline
     let m = model
+    let isRaw = try await isRawForExport(asset)
 
-    if !asset.isRaw {
+    if !isRaw {
       let decoded: CIImage
       if targetSize != nil,
         decodedForAssetID == asset.id,
@@ -98,14 +113,14 @@ extension RenderActor {
       if let targetSize {
         decodeResult = await pipeline.decodeSceneLinearSized(
           asset: asset, targetSize: targetSize, xmpPath: sidecar, quality: quality,
-          profileOverride: asset.isRaw ? m.profile : nil,
-          autoExposureOverride: asset.isRaw ? m.autoExposure : nil
+          profileOverride: isRaw ? m.profile : nil,
+          autoExposureOverride: isRaw ? m.autoExposure : nil
         )
       } else {
         decodeResult = await pipeline.decodeSceneLinear(
           asset: asset, quality: quality, xmpPath: sidecar,
-          profileOverride: asset.isRaw ? m.profile : nil,
-          autoExposureOverride: asset.isRaw ? m.autoExposure : nil
+          profileOverride: isRaw ? m.profile : nil,
+          autoExposureOverride: isRaw ? m.autoExposure : nil
         )
       }
     }
