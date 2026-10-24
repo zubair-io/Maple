@@ -32,16 +32,29 @@ import XCTest
 
       let phoneControls = app.descendants(matching: .any)
         .matching(identifier: "editor-iphone-controls").firstMatch
-      let more = app.buttons["editor-dock-more"]
+      let toolDock = app.descendants(matching: .any)
+        .matching(identifier: "editor-tool-dock").firstMatch
+      let more = app.descendants(matching: .any)
+        .matching(identifier: "editor-dock-more").firstMatch
       let either = XCTNSPredicateExpectation(
-        predicate: NSPredicate { _, _ in phoneControls.exists || more.exists }, object: nil)
+        predicate: NSPredicate { _, _ in phoneControls.exists || toolDock.exists || more.exists },
+        object: nil)
       XCTAssertEqual(
         XCTWaiter.wait(for: [either], timeout: 10), .completed,
-        "Editor shows neither the phone controls nor the Duo rail")
+        "Editor shows no phone controls, tool dock, or Duo rail")
 
       let openHeal: () -> Void
       let openPresets: () -> Void
-      if phoneControls.exists {
+      if toolDock.exists {
+        let reveal = { (tool: XCUIElement, name: String) in
+          XCTAssertTrue(tool.waitForExistence(timeout: 5), "Tool dock missing \(name)")
+          for _ in 0..<4 where !tool.isHittable { toolDock.swipeUp() }
+          XCTAssertTrue(tool.isHittable, "\(name) cannot be scrolled into reach")
+          tool.tap()
+        }
+        openHeal = { reveal(app.buttons["editor-dock-tool-heal"], "Heal") }
+        openPresets = { reveal(app.buttons["editor-dock-tool-presets"], "Presets") }
+      } else if phoneControls.exists {
         guard UIDevice.current.name.localizedCaseInsensitiveContains("duo") else {
           throw XCTSkip("The Duo postures require an iPhone Duo simulator")
         }
@@ -189,7 +202,8 @@ import XCTest
       mask.tap()
       XCTAssertTrue(mask.isSelected, "Mask tap did not select its panel")
 
-      let more = app.buttons["editor-dock-more"]
+      let more = app.descendants(matching: .any)
+        .matching(identifier: "editor-dock-more").firstMatch
       XCTAssertTrue(more.isHittable, "More tools is hidden or clipped")
       more.tap()
       let heal = app.buttons["editor-dock-tool-heal"]
