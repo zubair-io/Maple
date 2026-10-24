@@ -123,13 +123,44 @@ final class LocalFileOperationsTrashTests: XCTestCase {
     let source = FileOperationsTestSupport.write(
       "pixels", to: root.appendingPathComponent("IMG_1.dng"))
     FileOperationsTestSupport.write("<xmp/>", to: SidecarPath.sidecarURL(for: source))
-    _ = try await LocalFileOperations.trashToMapleFolder(source, libraryRoot: root)
+    let version = root.appendingPathComponent(
+      "IMG_1.v\(UUID().uuidString.lowercased()).xmp")
+    FileOperationsTestSupport.write("<version/>", to: version)
+    let outcome = try await LocalFileOperations.trashToMapleFolder(source, libraryRoot: root)
+    let trashedVersion = URL(fileURLWithPath: outcome.primaryPath)
+      .deletingLastPathComponent().appendingPathComponent(version.lastPathComponent)
     let item = LocalFileOperations.listMapleTrash(libraryRoot: root)[0]
+
+    XCTAssertTrue(FileOperationsTestSupport.exists(trashedVersion))
 
     try LocalFileOperations.permanentlyDeleteFromMapleTrash(item, libraryRoot: root)
 
     XCTAssertFalse(FileManager.default.fileExists(atPath: item.primaryPath))
+    XCTAssertFalse(FileOperationsTestSupport.exists(trashedVersion))
     XCTAssertEqual(LocalFileOperations.listMapleTrash(libraryRoot: root).count, 0)
+  }
+
+  func testPermanentlyDeleteKeepsVersionsClaimedByTrashedSibling() throws {
+    let trash = root.appendingPathComponent(".maple/trash")
+    let raw = FileOperationsTestSupport.write("raw", to: trash.appendingPathComponent("PAIR.dng"))
+    let jpeg = FileOperationsTestSupport.write("jpeg", to: trash.appendingPathComponent("PAIR.jpg"))
+    let version = trash.appendingPathComponent(
+      "PAIR.v\(UUID().uuidString.lowercased()).xmp")
+    FileOperationsTestSupport.write("<shared-version/>", to: version)
+    LocalFileOperations.writeTrashedMarker(forItemAt: raw)
+    LocalFileOperations.writeTrashedMarker(forItemAt: jpeg)
+    let entries = LocalFileOperations.listMapleTrash(libraryRoot: root)
+    let rawEntry = try XCTUnwrap(
+      entries.first { SidecarOwnership.sameLocalFile($0.primaryPath, raw.path) })
+    let jpegEntry = try XCTUnwrap(
+      entries.first { SidecarOwnership.sameLocalFile($0.primaryPath, jpeg.path) })
+
+    try LocalFileOperations.permanentlyDeleteFromMapleTrash(rawEntry, libraryRoot: root)
+    XCTAssertTrue(FileOperationsTestSupport.exists(jpeg))
+    XCTAssertTrue(FileOperationsTestSupport.exists(version))
+
+    try LocalFileOperations.permanentlyDeleteFromMapleTrash(jpegEntry, libraryRoot: root)
+    XCTAssertFalse(FileOperationsTestSupport.exists(version))
   }
 
   /// Review finding — the ONE irreversible primitive in this module must
@@ -194,7 +225,12 @@ final class LocalFileOperationsTrashTests: XCTestCase {
 
   func testSweepExpiredMapleTrashPurgesOnlyItemsOlderThanTheThreshold() async throws {
     let old = FileOperationsTestSupport.write("old", to: root.appendingPathComponent("OLD.dng"))
+    let version = root.appendingPathComponent(
+      "OLD.v\(UUID().uuidString.lowercased()).xmp")
+    FileOperationsTestSupport.write("<old-version/>", to: version)
     let oldOutcome = try await LocalFileOperations.trashToMapleFolder(old, libraryRoot: root)
+    let trashedVersion = URL(fileURLWithPath: oldOutcome.primaryPath)
+      .deletingLastPathComponent().appendingPathComponent(version.lastPathComponent)
     let recent = FileOperationsTestSupport.write(
       "recent", to: root.appendingPathComponent("RECENT.dng"))
     _ = try await LocalFileOperations.trashToMapleFolder(recent, libraryRoot: root)
@@ -208,6 +244,7 @@ final class LocalFileOperationsTrashTests: XCTestCase {
     let purged = LocalFileOperations.sweepExpiredMapleTrash(libraryRoot: root, olderThanDays: 30)
 
     XCTAssertEqual(purged, 1)
+    XCTAssertFalse(FileOperationsTestSupport.exists(trashedVersion))
     let remaining = LocalFileOperations.listMapleTrash(libraryRoot: root)
     XCTAssertEqual(remaining.count, 1)
     XCTAssertEqual(remaining[0].displayName, "RECENT.dng")
