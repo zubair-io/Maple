@@ -59,6 +59,7 @@ import { LibraryStateService } from '../../state/library-state.service';
 import { gradientFor } from '../develop/gradient-catalog';
 import { defaultGeneratedAdjustmentModel } from '../../generated/adjustment-model.generated';
 import type { AdjustmentModel } from '../../models/adjustment-model';
+import { subParamsFor } from '../../editor/tool-sub-param';
 
 /** Tools shown as sliders in the control card (excludes crop/presets/hsl/
  *  bwMix — bwMix (#276) has no single primary drag-bar field, same reason
@@ -70,6 +71,21 @@ const SLIDER_TOOLS: Partial<Record<ToolGroup, readonly ToolId[]>> = {
   effects: ['clarity', 'texture', 'dehaze', 'vignette', 'grain'],
   detail: ['sharpen', 'noise', 'colorNR'],
 };
+
+/** Add the Effects sub-tools omitted from the single-slider card list. */
+function addEffectsSubtoolDefaults(patch: Partial<AdjustmentModel>): void {
+  const defaults = defaultGeneratedAdjustmentModel();
+  for (const tool of ['vignette', 'grain', 'colorGrade'] as const) {
+    for (const sub of subParamsFor(tool)) {
+      (patch as Record<string, number>)[sub.field] = defaults[sub.field];
+    }
+  }
+  patch.colorGradeBlending = defaults.colorGradeBlending;
+  patch.colorGradeShadowEdge = defaults.colorGradeShadowEdge;
+  patch.colorGradeHighlightEdge = defaults.colorGradeHighlightEdge;
+  patch.filmLook = defaults.filmLook;
+  patch.filmStrength = defaults.filmStrength;
+}
 
 /** A sub-tool row entry: `id` is the `ToolId` it arms, `null` for Basic —
  *  the group's plain sliders. */
@@ -385,7 +401,7 @@ export class ControlCardComponent {
     this.editorState.haptic('reset');
   }
 
-  /** Reset all sliders in the active group. */
+  /** Reset all adjustments in the active group. */
   resetGroup(): void {
     const current = this.currentAdj();
     if (!current) return;
@@ -410,10 +426,7 @@ export class ControlCardComponent {
       patch.colorCurveSatVsSat = { points: [] };
       patch.colorCurveSatVsLuma = { points: [] };
     } else if (group === 'effects') {
-      const defaults = defaultGeneratedAdjustmentModel();
-      patch.colorGradeBlending = defaults.colorGradeBlending;
-      patch.colorGradeShadowEdge = defaults.colorGradeShadowEdge;
-      patch.colorGradeHighlightEdge = defaults.colorGradeHighlightEdge;
+      addEffectsSubtoolDefaults(patch);
     }
     this.libraryState.updateAdjustment(id, manualAdjustmentPatch(patch, current));
     this.editorState.haptic('reset');
