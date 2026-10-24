@@ -108,7 +108,12 @@ export const aiConnectionRoutes = new Elysia({ prefix: '/connections' })
       await saveEnrichmentConfig({ ai_connections: config, ...embedder });
       const resolved = resolveEnrichmentConfig(await loadEnrichmentConfig());
       forgetEmbedderTarget();
-      await rearmForEmbedderTarget({ url: resolved.embedder_url, model: resolved.embedder_model });
+      await rearmForEmbedderTarget({
+        url: resolved.embedder_url,
+        model: resolved.embedder_model,
+        protocol: resolved.embedder_protocol,
+        apiKey: resolved.embedder_api_key,
+      });
       resetDescribeDeps();
       resetVideoDescribeDeps();
       return { ...publicAiConnections(config), embedder: await embedderView() };

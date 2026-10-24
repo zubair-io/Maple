@@ -1,4 +1,5 @@
 import { assignedAi, type AiConnectionsConfig } from './ai-connections.ts';
+import { openAiBaseUrl } from './describe-providers/openai.ts';
 /**
  * Pure resolver for the enrichment runtime config. Split out of
  * `enrichment-config.repo.ts` (which owns load/save + the shared types and
@@ -94,6 +95,10 @@ export interface ResolvedEnrichmentConfig {
   /** Endpoint and model the `embed` stage computes vectors with: the saved override, else the defaults above. */
   embedder_url: string;
   embedder_model: string;
+  /** Protocol and key of `embedder_url`: OpenAI only when it is an OpenAI semantic-search
+   * connection's endpoint; a saved endpoint override is always an Ollama server. */
+  embedder_protocol: 'ollama' | 'openai';
+  embedder_api_key: string | null;
   service_search_rate_limit_per_minute: number;
   /** Where each field came from. The UI renders this so the operator knows
    * whether they're seeing a saved value or an env-var fallback. */
@@ -378,7 +383,10 @@ export function resolveEnrichmentConfig(
   }
 
   const semantic = assignedAi(db?.ai_connections, 'semantic-search');
-  const defaultEmbedderUrl = semantic?.primary.url ?? describeUrl;
+  const semanticOpenAi = semantic?.primary.provider === 'openai' ? semantic.primary : null;
+  const defaultEmbedderUrl = semanticOpenAi
+    ? openAiBaseUrl(semanticOpenAi.url)
+    : (semantic?.primary.url ?? describeUrl);
   const defaultEmbedderModel = semantic?.model ?? DEFAULT_EMBEDDER_MODEL;
   const savedEmbedderOverrideUrl = db?.embedder_url?.trim();
   const savedEmbedderOverrideModel = db?.embedder_model?.trim();
@@ -411,6 +419,8 @@ export function resolveEnrichmentConfig(
     embedder_default_model: defaultEmbedderModel,
     embedder_url: savedEmbedderOverrideUrl || defaultEmbedderUrl,
     embedder_model: savedEmbedderOverrideModel || defaultEmbedderModel,
+    embedder_protocol: semanticOpenAi && !savedEmbedderOverrideUrl ? 'openai' : 'ollama',
+    embedder_api_key: (!savedEmbedderOverrideUrl && semanticOpenAi?.api_key) || null,
     service_search_rate_limit_per_minute: serviceSearchRateLimit.value,
     source: {
       nominatim_url: urlSource,

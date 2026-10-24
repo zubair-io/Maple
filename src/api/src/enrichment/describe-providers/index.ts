@@ -174,8 +174,8 @@ export function billedOutputText(
 }
 
 export interface ProviderFactoryOptions {
-  /** Override the provider URL (only meaningful for Ollama; the paid
-   * providers hard-code their endpoint). */
+  /** Override the provider URL: the Ollama server, or an OpenAI-compatible
+   * API root for the OpenAI provider. Anthropic and Gemini ignore it. */
   url?: string | null;
   /** Override the API key. When omitted, the provider reads
    * `MAPLE_${PROVIDER}_API_KEY` from env. Tests pass keys explicitly. */
@@ -212,6 +212,7 @@ export function getDescribeProvider(
     case 'openai':
       return new OpenAIProvider({
         apiKey: resolveKey('openai', opts.apiKey),
+        baseUrl: opts.url,
         fetchImpl: opts.fetchImpl,
         requestTimeoutMs: opts.requestTimeoutMs,
       });

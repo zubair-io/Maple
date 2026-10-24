@@ -16,6 +16,7 @@ import {
 } from '../enrichment/enrichment-config.repo.ts';
 import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
 import { listProviderModels, handleAiTestConnection } from '../enrichment/ai-providers.service.ts';
+import type { DescribeProviderName } from '../enrichment/describe-providers/index.ts';
 import { WorkerConfigRepo } from '../db/repos/worker-config.repo.ts';
 import { resetDescribeDeps } from '../workers/stages/describe.ts';
 import { resetVideoDescribeDeps } from '../workers/stages/video-describe.ts';
@@ -167,6 +168,15 @@ async function updateWorkerAssignments(
   }
 }
 
+/** These routes predate OpenAI base URLs: a URL here is an Ollama server, so a saved cloud key never follows it. */
+function legacyProviderUrl(
+  provider: DescribeProviderName,
+  url: string | null | undefined,
+  ollamaUrl: string,
+): string | null {
+  return provider === 'ollama' ? (url ?? ollamaUrl) : null;
+}
+
 export const aiRoutes = new Elysia({ prefix: '/api/ai' })
   .use(requireAuth)
   .use(aiConnectionRoutes)
@@ -268,7 +278,7 @@ export const aiRoutes = new Elysia({ prefix: '/api/ai' })
             ? undefined
             : config[`${provider}_api_key`];
       return await listProviderModels(provider, {
-        url: body.url ?? config.describe_provider_url,
+        url: legacyProviderUrl(provider, body.url, config.describe_provider_url),
         apiKey,
       });
     },
@@ -293,7 +303,7 @@ export const aiRoutes = new Elysia({ prefix: '/api/ai' })
             : config[`${provider}_api_key`];
       const result = await handleAiTestConnection(
         provider,
-        body.url ?? config.describe_provider_url,
+        legacyProviderUrl(provider, body.url, config.describe_provider_url),
         apiKey,
       );
       if (!result.ok && result.status) {
