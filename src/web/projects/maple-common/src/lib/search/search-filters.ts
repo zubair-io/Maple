@@ -292,9 +292,8 @@ function parseNames(raw: string | null): readonly string[] {
         return parsed.map((name) => name.trim()).filter((name) => name.length > 0);
       }
     } catch {
-      return [];
+      // A legacy comma-separated name can begin with '['.
     }
-    return [];
   }
   return (raw ?? '')
     .split(',')

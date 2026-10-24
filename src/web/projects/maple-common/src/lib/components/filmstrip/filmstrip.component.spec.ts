@@ -103,7 +103,9 @@ describe('FilmstripComponent', () => {
     fixture.detectChanges();
     fixture.componentInstance.select(ASSET);
     expect(selectAsset).toHaveBeenCalledWith(ASSET.id);
-    expect(navigate).toHaveBeenCalledWith(viewRouteCommands(ASSET.id));
+    expect(navigate).toHaveBeenCalledWith(viewRouteCommands(ASSET.id), {
+      queryParamsHandling: 'preserve',
+    });
   });
 
   it("a rendered thumb's thumbClick output invokes select() with the configured routeMode", () => {
@@ -118,7 +120,9 @@ describe('FilmstripComponent', () => {
     const thumb = el.querySelector('[data-id] .thumb') as HTMLElement;
     thumb.click();
     expect(selectSpy).toHaveBeenCalledWith(ASSET);
-    expect(navigate).toHaveBeenCalledWith(viewRouteCommands(ASSET.id));
+    expect(navigate).toHaveBeenCalledWith(viewRouteCommands(ASSET.id), {
+      queryParamsHandling: 'preserve',
+    });
   });
 
   it('expanded: the header reads FILM with a Hide toggle', () => {

@@ -86,6 +86,10 @@ export class FilmstripComponent implements AfterViewInit, OnDestroy {
     this.state.selectAsset(asset.id);
     const cmds =
       this.routeMode() === 'view' ? viewRouteCommands(asset.id) : editRouteCommands(asset.id);
-    void this.router.navigate(cmds);
+    if (this.routeMode() === 'view') {
+      void this.router.navigate(cmds, { queryParamsHandling: 'preserve' });
+    } else {
+      void this.router.navigate(cmds);
+    }
   }
 }
