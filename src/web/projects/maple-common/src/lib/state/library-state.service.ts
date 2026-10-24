@@ -301,6 +301,10 @@ export class LibraryStateService {
     return this.cache_.thumbnailUrlFor(id);
   }
 
+  thumbnailFailed(id: AssetId): boolean {
+    return this.cache_.thumbnailFailed(id);
+  }
+
   /** Subscribe a tile to thumbnail-URL changes for `id`; see LibraryCache. */
   subscribeThumbUrl(id: AssetId, cb: (url: string | undefined) => void): () => void {
     return this.cache_.subscribeThumbUrl(id, cb);
