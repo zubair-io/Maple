@@ -53,14 +53,14 @@ function mergedAttributes(blocks: XmlSpan[], primary: XmlSpan): Map<string, stri
 
 /** Match Preview's RDF subject and namespace semantics without a browser DOM. */
 export function parseFolderCulling(xml: string): FolderCulling {
-  let blocks: XmlSpan[];
-  try {
-    blocks = descriptions(xmlSpans(xml));
-  } catch {
-    // Some old sidecars are incomplete fragments; retain the tolerant reader.
-    const parsed = parseXmpMetadata(xml);
-    return { rating: parsed.rating, flag: parsed.flag, colorLabel: parsed.colorLabel };
-  }
+  const blocks = (() => {
+    try {
+      return descriptions(xmlSpans(xml));
+    } catch {
+      // Some old sidecars are incomplete fragments; retain the tolerant reader.
+      return [];
+    }
+  })();
   if (blocks.length === 0) {
     const parsed = parseXmpMetadata(xml);
     return { rating: parsed.rating, flag: parsed.flag, colorLabel: parsed.colorLabel };
