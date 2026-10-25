@@ -359,21 +359,25 @@ describe('EditPreviewPersistService — server-backed (Self-Hosted)', () => {
 });
 
 describe('EditPreviewPersistService — Hosted (File System Access folder handle)', () => {
-  it('caches an unedited RAW when its sidecar is absent', async () => {
+  it('skips a changed sidecar, then caches an unedited RAW when its sidecar is absent', async () => {
     convertToBlobImpl = async ({ type }) => new Blob(['x'], { type });
     const folder = { write: true };
     const writePreview = vi.fn(async () => {});
-    const assertUnchanged = vi.fn();
+    const assertUnchanged = vi.fn().mockImplementationOnce(() => {
+      throw new Error('external edit');
+    });
     const svc = setup({
       store: { backend: 'hosted', currentFolder: () => folder },
       mapleCache: { writePreview },
       sidecarFreshness: { readCurrent: vi.fn(async () => null), assertUnchanged },
     });
-
     svc.schedule('lib:2026/a.dng' as AssetId);
     await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
     await svc.whenIdle();
-
+    expect(writePreview).not.toHaveBeenCalled();
+    svc.schedule('lib:2026/a.dng' as AssetId);
+    await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
+    await svc.whenIdle();
     expect(assertUnchanged).toHaveBeenCalledWith(folder, '2026/a.xmp', null);
     expect(writePreview).toHaveBeenCalledWith(
       folder,
