@@ -20,11 +20,8 @@
  * scope and pulling it in here would add an unused branch to every caller.
  */
 
-import {
-  isExcludedLocation,
-  refusesMoveUnderMarker,
-  type IgnoreVerdictMemo,
-} from '../fs/mapleignore.ts';
+import { isExcludedLocation, type IgnoreVerdictMemo } from '../fs/mapleignore.ts';
+import { refusesMoveUnderMarker } from '../fs/mapleignore-guard.ts';
 import * as path from 'node:path';
 // Read-only re-stat of the restored file — routed through `fs/mirrored.ts`
 // (which re-exports the full `node:fs/promises` surface) rather than a

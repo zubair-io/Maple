@@ -36,7 +36,8 @@
  * cannot be written in the first place, so the race is prevented rather than
  * repaired. See `db/repos/assets.refile.ts`.
  */
-import { isExcludedLocation, refusesMoveUnderMarker } from '../fs/mapleignore.ts';
+import { isExcludedLocation } from '../fs/mapleignore.ts';
+import { refusesMoveUnderMarker } from '../fs/mapleignore-guard.ts';
 import type { WithId } from '../db/object-id.ts';
 import * as path from 'node:path';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';

@@ -118,7 +118,11 @@ async function requireSidecarResolution(
  * root (#4749). */
 export async function authorizeSidecarWrite(destPath: string): Promise<OpResult<string>> {
   const resolution = await requireSidecarResolution(destPath, await safeWriteAllowed(destPath));
-  if (!resolution.ok || !(await refusesFileUnderMarker(destPath))) return resolution;
+  if (!resolution.ok) return resolution;
+  const written = resolution.data ?? destPath;
+  if (!(await refusesFileUnderMarker(destPath)) && !(await refusesFileUnderMarker(written))) {
+    return resolution;
+  }
   return { ok: false, error: `Sidecar path "${destPath}" is under a .mapleignore folder` };
 }
 
