@@ -95,7 +95,7 @@ public class NativeDetailWindowTests
         DecodedImage Image(float[] pixels, int width, int height) => new()
         {
             Pixels = pixels, Width = width, Height = height, NoiseProfile = [], Iso = 100, AeGain = 1,
-            WhitesAnchorEv = 0, DecodedTemperature = 6500, DecodedTint = 0, WbFrame = new float[82],
+            WhitesAnchorEv = 0, DecodedTemperature = 6500, DecodedTint = 0,
         };
         var frame = Image(input, 96, 80);
         var patch = Image(Crop(input, 21, 27), 41, 29);

@@ -1,13 +1,13 @@
 namespace Maple.WinUI.Services
 {
     /// <summary>
-    /// Refine-phase decode-quality plan for the sized scene-linear FFI
+    /// Refine-phase decode-quality plan for the sized capture-decode FFI
     /// request (#3417 + review), mirroring Apple's
     /// <c>ImageEditPipeline.refineDecodeQuality</c> (#2143). Pure decision
     /// logic — no I/O, no FFI, no WinUI — so it is unit-testable without a
     /// live decode.
     ///
-    /// <c>maple_render_file_scene_linear_sized_f32</c>'s Preview quality (a
+    /// <c>maple_render_file_capture_sized_f32</c>'s Preview quality (a
     /// half-res 2×2-binned demosaic) caps its OWN output at roughly half the
     /// sensor's native long edge no matter what <c>maxLongEdge</c> the
     /// caller requests — a request beyond that cap silently returns the

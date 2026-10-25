@@ -55,11 +55,13 @@ public static unsafe partial class RawFfi
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     public static extern uint maple_raw_handle_orientation(RawDetailHandle handle);
 
+    /// <summary>A capture tile (#5377): pixels in the fixed as-shot basis
+    /// with no exposure gain, rendered with the whole-frame decode's creative
+    /// stage. Free with <see cref="maple_free_scene_linear_buffer_f32"/>.</summary>
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-    public static extern int maple_render_handle_scene_linear_tile_ae_f32(
+    public static extern int maple_render_handle_capture_tile_f32(
         RawDetailHandle handle, uint x, uint y, uint width, uint height,
         uint outputWidth, uint outputHeight, int qualityPreview,
-        float decodedTemperature, float decodedTint, float aeGain,
         MapleSceneLinearBufferF32* output);
 }
 

@@ -45,15 +45,18 @@ namespace Maple.WinUI.Services
         {
             var p = MapleAdjustmentParams.From(
                 model, frame.DecodedTemperature, frame.DecodedTint, frame.Iso, frame.WhitesAnchorEv, frame.NrSamplingScale);
-            ApplyWbExports(ref p, frame);
             p.skip_agx = frame.IsRaster ? 1u : 0u;
             p.local_adjustments_ptr = tick.local_adjustments_ptr;
             p.local_adjustments_len = tick.local_adjustments_len;
-            var key = RawFfi.maple_scene_linear_chain_haze_key(&p, curves);
-            if (key == 0) return null;
-            if (NativeDetailHazeCache.TryRent(frame, key, out var cached)) return cached;
-            var measured = MeasureHaze(frame, &p, curves);
-            return measured == null ? null : NativeDetailHazeCache.StoreAndRent(frame, key, measured);
+            fixed (MapleCaptureCreative* creative = frame.Creative)
+            {
+                p.creative_ptr = creative;
+                var key = RawFfi.maple_scene_linear_chain_haze_key(&p, curves);
+                if (key == 0) return null;
+                if (NativeDetailHazeCache.TryRent(frame, key, out var cached)) return cached;
+                var measured = MeasureHaze(frame, &p, curves);
+                return measured == null ? null : NativeDetailHazeCache.StoreAndRent(frame, key, measured);
+            }
         }
 
         private static HazeMapHandle? MeasureHaze(DecodedImage frame, MapleAdjustmentParams* p, MapleToneCurves* curves)

@@ -35,7 +35,6 @@ public static unsafe partial class RenderEngine
                 Pixels = pixels, Width = (int)buffer.width, Height = (int)buffer.height,
                 IsRaster = true, NoiseProfile = Array.Empty<float>(), Iso = 100, AeGain = 1,
                 WhitesAnchorEv = float.NaN, DecodedTemperature = 6500, DecodedTint = 0,
-                WbFrame = new float[WbFrameFloatCount],
             };
         }
         finally { RawFfi.maple_free_scene_linear_buffer_f32(&buffer); }

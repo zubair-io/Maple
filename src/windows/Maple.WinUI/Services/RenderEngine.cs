@@ -9,14 +9,16 @@ using Maple.WinUI.Services.Metadata;
 namespace Maple.WinUI.Services
 {
     /// <summary>
-    /// A decoded scene-linear f32 base image plus the decode-exported state the
-    /// per-tick chain needs (WB slider frame, noise profile, ISO, AE gain).
-    /// Pixels are copied into managed memory at decode time so the Rust buffer
-    /// can be freed immediately.
+    /// A decoded f32 base image plus the decode-exported state the per-tick
+    /// chain needs (creative stage, noise profile, ISO). A RAW is a capture
+    /// decode (#5377): its pixels stop before white balance and the camera
+    /// profile, and <see cref="Creative"/> renders them at the absolute slider
+    /// pair. Pixels are copied into managed memory at decode time so the Rust
+    /// buffer can be freed immediately.
     /// </summary>
     public sealed class DecodedImage
     {
-        public required float[] Pixels { get; init; }        // RGBA f32, scene-linear
+        public required float[] Pixels { get; init; }        // RGBA f32: capture basis (RAW) or scene-linear (raster)
         public required int Width { get; init; }
         public required int Height { get; init; }
         public required float[] NoiseProfile { get; init; }  // empty when absent
@@ -26,14 +28,10 @@ namespace Maple.WinUI.Services
         public float NrSamplingScale { get; init; } = 1f;
         public required float DecodedTemperature { get; init; }
         public required float DecodedTint { get; init; }
-        /// <summary>Raw copy of the wb_frame_* export block, in struct order,
-        /// applied verbatim onto MapleAdjustmentParams for each tick.</summary>
-        public required float[] WbFrame { get; init; }
-        /// <summary>The decode's HueSatMap endpoint wire (#5099), owned by the
-        /// native core for the life of the process; zero when absent.</summary>
-        public IntPtr WbHueSatMap { get; init; }
-        public nuint WbHueSatMapLength { get; init; }
-        public float WbHueSatMapAsShotCct { get; init; }
+        /// <summary>The capture decode's creative stage, pointed at by every
+        /// tick's <c>creative_ptr</c>; null for a raster, which keeps the
+        /// scene-linear white-balance delta.</summary>
+        public CaptureCreative? Creative { get; init; }
         public bool IsRaster { get; init; }
         public CameraSupportMetadata? CameraSupport { get; init; }
         /// <summary>What the core resolved for the sidecar's lens selection
@@ -63,7 +61,7 @@ namespace Maple.WinUI.Services
     }
 
     /// <summary>
-    /// CPU render pipeline: decode once to a scene-linear f32 base via the
+    /// CPU render pipeline: decode once to a capture f32 base via the
     /// stripped-XMP contract, then re-run the Rust per-tick chain
     /// (maple_apply_chain_and_encode_display_f32) on every adjustment change.
     /// The eventual DX12 SwapChainPanel path (#2561) replaces the presentation,
@@ -72,7 +70,7 @@ namespace Maple.WinUI.Services
     public static unsafe partial class RenderEngine
     {
         /// <summary>
-        /// Decode a RAW into a scene-linear f32 base, honoring the sidecar's
+        /// Decode a RAW into a capture f32 base, honoring the sidecar's
         /// decode-owned fields (lens corrections, capture sharpening, AE, ...)
         /// with chain-owned fields stripped. <paramref name="quality"/> is
         /// the caller's choice — <see cref="Decode"/> does not pick it: the
@@ -108,43 +106,42 @@ namespace Maple.WinUI.Services
             File.WriteAllText(tempXmpPath, strippedXmp);
             try
             {
-                var buffer = new MapleSceneLinearBufferF32();
-                var rc = RawFfi.maple_render_file_scene_linear_sized_f32(
-                    rawPath, tempXmpPath, (uint)maxLongEdge, quality, cancelFlag, &buffer);
+                var capture = new MapleCaptureBufferF32();
+                var rc = RawFfi.maple_render_file_capture_sized_f32(
+                    rawPath, tempXmpPath, (uint)maxLongEdge, quality, cancelFlag, &capture);
                 // Ordinary TIFFs share the RAW container signature. Try RAW
                 // first; only an actual decode failure may take the raster path.
                 if (rc == 7 && IsRasterExtension(rawPath))
                     return DecodeRaster(rawPath, model, maxLongEdge, cancelFlag);
                 if (rc != 0)
                     throw new InvalidOperationException(
-                        $"scene-linear decode failed (rc={rc}): {RawFfi.LastError() ?? "unknown"}");
+                        $"capture decode failed (rc={rc}): {RawFfi.LastError() ?? "unknown"}");
                 try
                 {
-                    var count = (int)(buffer.width * buffer.height * 4);
+                    var buffer = &capture.scene;
+                    var count = (int)(buffer->width * buffer->height * 4);
                     var pixels = new float[count];
-                    new ReadOnlySpan<float>(buffer.f32_rgba, count).CopyTo(pixels);
-                    var noise = new float[buffer.noise_profile_len];
-                    if (buffer.noise_profile_len > 0)
-                        new ReadOnlySpan<float>(buffer.noise_profile_data, (int)buffer.noise_profile_len)
+                    new ReadOnlySpan<float>(buffer->f32_rgba, count).CopyTo(pixels);
+                    var noise = new float[buffer->noise_profile_len];
+                    if (buffer->noise_profile_len > 0)
+                        new ReadOnlySpan<float>(buffer->noise_profile_data, (int)buffer->noise_profile_len)
                             .CopyTo(noise);
-                    var framePresent = buffer.wb_frame_scene_cct > 0f;
+                    var framePresent = buffer->wb_frame_scene_cct > 0f;
+                    var creative = new CaptureCreative(capture.creative);
                     var decoded = new DecodedImage
                     {
                         Pixels = pixels,
-                        Width = (int)buffer.width,
-                        Height = (int)buffer.height,
+                        Width = (int)buffer->width,
+                        Height = (int)buffer->height,
                         NoiseProfile = noise,
-                        Iso = buffer.iso,
-                        AeGain = buffer.ae_gain,
-                        WhitesAnchorEv = buffer.whites_anchor_ev,
-                        NrSamplingScale = buffer.nr_sampling_scale,
-                        DecodedTemperature = framePresent ? buffer.wb_frame_scene_cct : 6500f,
-                        DecodedTint = framePresent ? buffer.wb_frame_as_shot_tint : 0f,
-                        WbFrame = CopyWbFrame(&buffer),
-                        WbHueSatMap = (IntPtr)buffer.wb_hsm_data,
-                        WbHueSatMapLength = buffer.wb_hsm_len,
-                        WbHueSatMapAsShotCct = buffer.wb_hsm_as_shot_cct,
-                        CameraSupport = CameraSupportMetadata.ReadBuffer((IntPtr)buffer.camera_support_json),
+                        Iso = buffer->iso,
+                        AeGain = creative.AeGain,
+                        WhitesAnchorEv = buffer->whites_anchor_ev,
+                        NrSamplingScale = buffer->nr_sampling_scale,
+                        DecodedTemperature = framePresent ? buffer->wb_frame_scene_cct : 6500f,
+                        DecodedTint = framePresent ? buffer->wb_frame_as_shot_tint : 0f,
+                        Creative = creative,
+                        CameraSupport = CameraSupportMetadata.ReadBuffer((IntPtr)buffer->camera_support_json),
                         // Warm: the develop above left the RAW in the decode
                         // cache, so this is a metadata lookup, not a decode.
                         LensProfile = LensProfileStore.AssessForFile(rawPath, stripped.LensProfile),
@@ -174,7 +171,7 @@ namespace Maple.WinUI.Services
                 }
                 finally
                 {
-                    RawFfi.maple_free_scene_linear_buffer_f32(&buffer);
+                    RawFfi.maple_free_capture_buffer_f32(&capture);
                 }
             }
             finally
@@ -250,7 +247,6 @@ namespace Maple.WinUI.Services
 
             var p = MapleAdjustmentParams.From(
                 model, image.DecodedTemperature, image.DecodedTint, image.Iso, image.WhitesAnchorEv, image.NrSamplingScale);
-            ApplyWbExports(ref p, image);
             p.skip_agx = image.IsRaster ? 1u : 0u;
 
             // Point (#2576) and display-referred (#2232) curves ride a
@@ -267,7 +263,9 @@ namespace Maple.WinUI.Services
             fixed (float* displayLumaPtr = flat.DisplayLuma, displayRedPtr = flat.DisplayRed, displayGreenPtr = flat.DisplayGreen, displayBluePtr = flat.DisplayBlue)
             fixed (float* ccHH = flat.ColorCurveHueVsHue, ccHS = flat.ColorCurveHueVsSat, ccHL = flat.ColorCurveHueVsLuma)
             fixed (float* ccLS = flat.ColorCurveLumaVsSat, ccSS = flat.ColorCurveSatVsSat, ccSL = flat.ColorCurveSatVsLuma)
+            fixed (MapleCaptureCreative* creativePtr = image.Creative)
             {
+                p.creative_ptr = creativePtr;
                 if (image.NoiseProfile.Length > 0)
                 {
                     p.noise_profile_ptr = noisePtr;
@@ -501,10 +499,7 @@ namespace Maple.WinUI.Services
                 NrSamplingScale = src.NrSamplingScale * Math.Max(w, h) / Math.Max(src.Width, src.Height),
                 DecodedTemperature = src.DecodedTemperature,
                 DecodedTint = src.DecodedTint,
-                WbFrame = src.WbFrame,
-                WbHueSatMap = src.WbHueSatMap,
-                WbHueSatMapLength = src.WbHueSatMapLength,
-                WbHueSatMapAsShotCct = src.WbHueSatMapAsShotCct,
+                Creative = src.Creative,
                 IsRaster = src.IsRaster,
                 ProfileCurve = src.ProfileCurve,
                 ResidualLut = src.ResidualLut,

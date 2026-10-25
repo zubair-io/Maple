@@ -434,8 +434,10 @@ namespace Maple.WinUI.Services
                 fixed (float* ccLS = flat.ColorCurveLumaVsSat, ccSS = flat.ColorCurveSatVsSat, ccSL = flat.ColorCurveSatVsLuma)
                 fixed (float* localPtr = localFlat, filmPtr = _activeFilm?.Data)
                 fixed (MapleGpuLiveSession* fullHandle = &_gpuSession, halfHandle = &_gpuSessionHalf)
+                fixed (MapleCaptureCreative* creativePtr = image.Creative)
                 {
                     var handle = useHalf ? halfHandle : fullHandle;
+                    p.creative_ptr = creativePtr;
                     if (_activeFilm != null)
                     {
                         p.film_lut_ptr = filmPtr;

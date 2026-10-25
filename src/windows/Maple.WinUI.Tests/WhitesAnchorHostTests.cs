@@ -17,7 +17,7 @@ public class WhitesAnchorHostTests
             Pixels = new float[4], Width = 1, Height = 1,
             NoiseProfile = [], Iso = 100, AeGain = 1,
             WhitesAnchorEv = anchor, NrSamplingScale = 0.25f,
-            DecodedTemperature = 6500, DecodedTint = 0, WbFrame = new float[82],
+            DecodedTemperature = 6500, DecodedTint = 0,
         };
         var model = new AdjustmentState();
         var cpu = MapleAdjustmentParams.From(
