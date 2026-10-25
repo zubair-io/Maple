@@ -8,10 +8,6 @@ import { Asset, AssetId } from '../models/asset';
 import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import { FilesystemBrowseService, type DownloadProgress } from '../api/filesystem-browse.service';
 import { FolderEntry, MapleFolderHandle } from '../folder-access/folder-access.types';
-import { MapleCacheService } from '../maple-cache/maple-cache.service';
-import { hostedSidecarFingerprint } from '../maple-cache/hosted-sidecar-fingerprint';
-import { primarySidecarFilename } from '../xmp/sidecar-binding';
-import { HostedSidecarFreshnessService } from '../xmp/hosted-sidecar-freshness.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { resizeBitmapToCanvas, canvasToBlob } from '../raw-pipeline/image-utils';
 import { LibraryStore } from './library-store.service';
@@ -26,8 +22,8 @@ import { isM2Asset, readAssetBytes } from './library-cache.byte-source';
 import { previewLoader } from './library-cache.preview-loader';
 import { HostedByteSnapshotCache } from './hosted-byte-snapshot-cache';
 import { decodeHostedThumb } from './library-cache.hosted-thumb';
+import { HostedThumbCache } from './library-cache.hosted-thumb-cache';
 import { HostedSidecarErrors } from './hosted-sidecar-errors.service';
-import { previewLocation, type PreviewLocation } from './preview-location';
 import { ThumbLoadQueue, QUEUE_CLEARED_MESSAGE } from './library-cache.thumb-queue';
 
 @Injectable({ providedIn: 'root' })
@@ -37,11 +33,10 @@ export class LibraryCache {
   private readonly api = inject(SERVER_LIBRARY_IO, { optional: true });
   private readonly fsBrowse = inject(FilesystemBrowseService);
   private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
-  private readonly cache = inject(MapleCacheService);
+  private readonly hostedThumbCache = inject(HostedThumbCache);
   private readonly pipeline = inject(RawPipelineService);
   private readonly hostedPreview = inject(HostedPreviewResolver);
   private readonly sidecarErrors = inject(HostedSidecarErrors);
-  private readonly sidecars = inject(HostedSidecarFreshnessService);
   private readonly destroyRef = inject(DestroyRef, { optional: true });
 
   private _lastSelectedSourceId = this.selection.selectedSourceId();
@@ -462,11 +457,7 @@ export class LibraryCache {
   private async _tryReadCachedThumb(folder: MapleFolderHandle, asset: Asset): Promise<boolean> {
     if (this.sidecarErrors.errors().has(asset.id)) return false;
     try {
-      const location = previewLocation(asset.id);
-      const fingerprint = location
-        ? await hostedSidecarFingerprint(await this._currentSidecar(folder, location))
-        : undefined;
-      const cached = await this.cache.readThumb(folder, asset.filename, fingerprint);
+      const cached = await this.hostedThumbCache.read(folder, asset);
       if (cached) {
         this.cacheThumbnailUrl(asset.id, URL.createObjectURL(cached));
         return true;
@@ -540,11 +531,7 @@ export class LibraryCache {
     onThumbWritten?: (id: AssetId) => void,
   ): Promise<void> {
     const folder = this.store.currentFolder();
-    const location = previewLocation(asset.id);
-    const sidecarBefore =
-      folder && location && !this.sidecarErrors.errors().has(asset.id)
-        ? await this._currentSidecar(folder, location)
-        : undefined;
+    const sidecarBefore = folder ? await this.hostedThumbCache.snapshot(folder, asset) : undefined;
     const bitmap = await decodeHostedThumb(asset, {
       preview: this.hostedPreview,
       pipeline: this.pipeline,
@@ -558,29 +545,12 @@ export class LibraryCache {
     bitmap.close();
     const { blob, format } = await canvasToBlob(canvas);
     this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
-    if (folder?.write && !this.sidecarErrors.errors().has(asset.id)) {
-      if (location && sidecarBefore !== (await this._currentSidecar(folder, location))) return;
-      void this.cache
-        .writeThumb(
-          folder,
-          asset.filename,
-          blob,
-          format,
-          sidecarBefore === undefined ? undefined : await hostedSidecarFingerprint(sidecarBefore),
-        )
-        .then(() => onThumbWritten?.(asset.id));
+    if (folder?.write) {
+      void this.hostedThumbCache
+        .writeIfCurrent(folder, asset, blob, format, sidecarBefore)
+        .then((wrote) => wrote && onThumbWritten?.(asset.id));
     }
   }
-  private _currentSidecar(
-    folder: MapleFolderHandle,
-    location: PreviewLocation,
-  ): Promise<string | null> {
-    const path = [location.dir, primarySidecarFilename(location.filename)]
-      .filter(Boolean)
-      .join('/');
-    return this.sidecars.readCurrent(folder, path);
-  }
-
   private async _loadThumbInternal(
     asset: Asset,
     onThumbWritten?: (id: AssetId) => void,

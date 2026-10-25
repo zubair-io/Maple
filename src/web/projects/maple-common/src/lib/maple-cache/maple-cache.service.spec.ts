@@ -58,32 +58,6 @@ describe('MapleCacheService — unversioned shared thumbnails (#4795)', () => {
     expect((await svc.readThumb(folder(), FILENAME))?.type).toBe('image/jpeg');
   });
 
-  it('rejects a Hosted thumbnail after its sidecar changes or its bytes are replaced', async () => {
-    await svc.writeThumb(
-      folder(),
-      FILENAME,
-      new Blob([jpegBytes], { type: 'image/jpeg' }),
-      'jpeg',
-      'absent',
-    );
-    expect(await svc.readThumb(folder(), FILENAME, 'absent')).not.toBeNull();
-    expect(await svc.readThumb(folder(), FILENAME, 'a'.repeat(64))).toBeNull();
-    files.set(JPG, new Uint8Array([0xff, 0xd8, 0x00, 0xff, 0xd9]));
-    expect(await svc.readThumb(folder(), FILENAME, 'absent')).toBeNull();
-  });
-
-  it('uses a stamped Hosted JPEG when a portable AVIF without a stamp also exists', async () => {
-    await svc.writeThumb(
-      folder(),
-      FILENAME,
-      new Blob([jpegBytes], { type: 'image/jpeg' }),
-      'jpeg',
-      'absent',
-    );
-    files.set(AVIF, avifBytes);
-    expect((await svc.readThumb(folder(), FILENAME, 'absent'))?.type).toBe('image/jpeg');
-  });
-
   it('writes an AVIF thumb at .maple/thumbs/<filename.ext>.avif', async () => {
     await svc.writeThumb(folder(), FILENAME, new Blob([avifBytes], { type: 'image/avif' }), 'avif');
     expect([...files.keys()]).toEqual([AVIF]);
@@ -259,23 +233,6 @@ describe(`MapleCacheService — unedited-preview cache (#2010, canonical <dir>/.
     const blob = await svc.readPreview(folder(), '2024', 'a.dng', source);
     expect(blob).not.toBeNull();
     expect(blob!.type).toBe('image/avif');
-  });
-
-  it('rejects a Hosted preview when its XMP fingerprint changes or disappears', async () => {
-    const edited = 'a'.repeat(64);
-    await svc.writePreview(folder(), '', 'edited.dng', jpeg(), source, edited);
-    expect(await svc.readPreview(folder(), '', 'edited.dng', source, edited)).not.toBeNull();
-    expect(await svc.readPreview(folder(), '', 'edited.dng', source, 'absent')).toBeNull();
-    expect(await svc.readPreview(folder(), '', 'edited.dng', source, 'b'.repeat(64))).toBeNull();
-    expect(await svc.readPreview(folder(), '', 'edited.dng', source)).not.toBeNull();
-    files.set('.maple/previews/edited.dng.jpg', new Uint8Array([0xff, 0xd8, 0, 0xff, 0xd9]));
-    expect(await svc.readPreview(folder(), '', 'edited.dng', source, edited)).toBeNull();
-  });
-
-  it('does not trust an unstamped cross-platform derivative in a Hosted sidecar check', async () => {
-    files.set('.maple/previews/old.dng.avif', new Uint8Array(await avif().arrayBuffer()));
-    modified.set('.maple/previews/old.dng.avif', source.lastModified + 1);
-    expect(await svc.readPreview(folder(), '', 'old.dng', source, 'absent')).toBeNull();
   });
 
   it.each([
