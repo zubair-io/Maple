@@ -39,8 +39,8 @@ async function openLibrary(page: Page, additional: { name: string; bytes: number
       targetXmp: xmp(-0.5, 5050, 38),
     },
   );
-  await page.goto('/browse');
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page.goto('/');
+  await page.getByRole('button', { name: /Open a folder/ }).click();
   await expect(page.getByRole('button', { name: 'source.dng', exact: true })).toBeVisible();
 }
 
