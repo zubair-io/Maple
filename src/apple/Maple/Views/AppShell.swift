@@ -462,6 +462,17 @@ struct AppShell: View {
     browseVM.selectedID.flatMap { sessions[$0] }
   }
 
+  #if os(macOS)
+    private var nativeExportAssets: [AssetRef] {
+      if mode == .browse {
+        return browseVM.isSelecting
+          ? browseVM.selectedAssets(sessions: sessions)
+          : (browseVM.selectedVisibleAsset(sessions: sessions).map { [$0] } ?? [])
+      }
+      return selectedSession.map { [$0.asset] } ?? browseVM.selectedAsset.map { [$0] } ?? []
+    }
+  #endif
+
   /// Core "prune to a keep-set" primitive — both `pruneInactiveSessions`
   /// (editor-open) and `pruneSessionsForNewAssetList` (folder/library
   /// navigation) reduce their intent to "these asset ids must stay
@@ -1556,10 +1567,7 @@ struct AppShell: View {
     #if os(macOS)
       ToolbarItem {
         Button("Export recipes…") {
-          let assets =
-            browseVM.isSelecting
-            ? browseVM.selectedAssets(sessions: sessions)
-            : (selectedSession.map { [$0.asset] } ?? browseVM.selectedAsset.map { [$0] } ?? [])
+          let assets = nativeExportAssets
           for asset in assets { ensureSession(for: asset) }
           nativeExportSelection = NativeExportRecipeSelection(
             assets: assets,
