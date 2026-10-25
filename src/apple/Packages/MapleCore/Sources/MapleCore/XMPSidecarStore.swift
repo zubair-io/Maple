@@ -464,7 +464,7 @@ public enum XMPStoreError: Error, LocalizedError {
     case .encodingError: return "XMP serialization produced non-UTF8 data"
     case .externalConflict(let url):
       return
-        "Sidecar \(url.lastPathComponent) changed outside Maple. Your edit was not saved; restart Maple to load the newer version."
+        "Sidecar \(url.lastPathComponent) changed outside Maple. Maple did not overwrite it; restart Maple to load the newer version."
     case .publishedContentMismatch(let url):
       return "Sidecar \(url.lastPathComponent) no longer holds the bytes that were published"
     }
