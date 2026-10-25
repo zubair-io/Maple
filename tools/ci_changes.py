@@ -112,6 +112,18 @@ SWIFT_WEB_INPUTS = frozenset(
     )
 )
 SWIFT_DOCS = frozenset(("docs/design/maple-ui/apple-icon-inventory.json",))
+# A sidecar contract record selects only its owning suite (api-tests re-checks
+# the API one with record.sh --check) and codegen, which derives the capability
+# registry from it; registry changes land in generated files that select their
+# own platforms.
+SIDECAR_CONTRACT_RECORDS = {
+    "test-fixtures/qualification/sidecar_contract_api.json": frozenset(
+        ("api", "codegen")
+    ),
+    "test-fixtures/qualification/sidecar_contract_apple.json": frozenset(
+        ("swift", "codegen")
+    ),
+}
 METADATA = frozenset(
     name + extension
     for name in ("README", "AGENTS", "CLAUDE", "LICENSE")
@@ -140,6 +152,8 @@ def dependencies(path):
         and any(part in ("scripts", "ci_scripts") for part in parts[:-1])
     ):
         return ALL
+    if path in SIDECAR_CONTRACT_RECORDS:
+        return SIDECAR_CONTRACT_RECORDS[path]
     if path.startswith(("src/raw-pipeline/", "test-fixtures/", "tools/qualification/")):
         return BUILDS
     if path.startswith("src/apple/MapleUITests/Goldens/.calibration/"):

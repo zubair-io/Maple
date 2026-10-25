@@ -48,6 +48,9 @@ on:
       - 'src/scripts/stage_diff*.py'
       - 'test-fixtures/banding_budgets.json'
       - 'test-fixtures/qualification/**'
+      # No job here reads the sidecar contract records (tools/ci_changes.py).
+      - '!test-fixtures/qualification/sidecar_contract_api.json'
+      - '!test-fixtures/qualification/sidecar_contract_apple.json'
       - 'tools/qualification/**'
       - '.github/workflows/raw-pipeline.yml'
   pull_request:
@@ -90,6 +93,9 @@ on:
       - 'src/scripts/stage_diff*.py'
       - 'test-fixtures/banding_budgets.json'
       - 'test-fixtures/qualification/**'
+      # No job here reads the sidecar contract records (tools/ci_changes.py).
+      - '!test-fixtures/qualification/sidecar_contract_api.json'
+      - '!test-fixtures/qualification/sidecar_contract_apple.json'
       - 'tools/qualification/**'
       - '.github/workflows/raw-pipeline.yml'
 
