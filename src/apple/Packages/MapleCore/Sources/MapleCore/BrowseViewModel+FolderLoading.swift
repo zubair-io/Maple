@@ -1,6 +1,25 @@
 import Foundation
 
 extension BrowseViewModel {
+  /// Clear the previous source before folder setup suspends for cache or
+  /// bookmark work. A PhotoKit filter must never page into the new folder.
+  public func beginLoadingFilesystemFolder() {
+    loadGeneration &+= 1
+    invalidateGridFilterForAssetIdentityChange()
+    assets = []
+    subfolders = []
+    selectedID = nil
+    selectedIDs = []
+    currentSource = nil
+    pagedPhotoKitSource = nil
+    photoKitNextOffset = 0
+    photoKitTotalCount = 0
+    finishPhotoKitPageLoad()
+    loadError = nil
+    photosAuthNeeded = false
+    isLoading = true
+  }
+
   /// Enumerate and construct refs off MainActor, including NAS metadata reads.
   /// Publish only if this request still owns the current folder generation.
   public func loadFolder(url: URL) async {
@@ -9,7 +28,7 @@ extension BrowseViewModel {
       guard let self else { return }
       await self.loadFolder(url: url)
     }
-    loadGeneration &+= 1
+    beginLoadingFilesystemFolder()
     let gen = loadGeneration
 
     isLoading = true

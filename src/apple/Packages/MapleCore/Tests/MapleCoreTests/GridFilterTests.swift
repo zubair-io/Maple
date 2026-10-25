@@ -1,4 +1,5 @@
 import Foundation
+import MapleBackup
 import Testing
 
 @testable import MapleCore
@@ -40,6 +41,43 @@ struct GridFilterTests {
     waiter.cancel()
     await #expect(throws: CancellationError.self) { try await waiter.value }
     #expect(vm.photoKitPageWaiters.isEmpty)
+  }
+
+  @Test("Opening a local folder releases PhotoKit paging before enumeration")
+  func folderSwitchInvalidatesPhotoKitPaging() async throws {
+    let directory = try SidecarContractIO.makeTempDirectory(prefix: "grid-filter-folder-switch")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let localPhoto = directory.appendingPathComponent("local.jpg")
+    try Data([0xFF, 0xD8, 0xFF, 0xD9]).write(to: localPhoto)
+    let source = PhotoKitSource(
+      sidecarOverride: AppSupportSidecarStore(root: directory.appendingPathComponent("sidecars")))
+    let vm = BrowseViewModel()
+    vm.currentSource = source
+    vm.pagedPhotoKitSource = source
+    vm.photoKitNextOffset = 42
+    vm.photoKitTotalCount = 100
+    vm.isLoadingPhotoKitPage = true
+    vm.assets = [AssetRef.preview(displayName: "old-photo.jpg")]
+    vm.selectGridFilter(.picks)
+    let previousGeneration = vm.loadGeneration
+    let waiter = Task { try await vm.waitForActivePhotoKitPage() }
+    for _ in 0..<100 where vm.photoKitPageWaiters.isEmpty { await Task.yield() }
+    #expect(vm.photoKitPageWaiters.count == 1)
+
+    vm.beginLoadingFilesystemFolder()
+    try await waiter.value
+    #expect(vm.loadGeneration > previousGeneration)
+    #expect(vm.currentSource == nil)
+    #expect(vm.pagedPhotoKitSource == nil)
+    #expect(vm.photoKitNextOffset == 0)
+    #expect(vm.photoKitTotalCount == 0)
+    #expect(vm.assets.isEmpty)
+    #expect(vm.gridFilterLoading)
+
+    await vm.loadFolder(url: directory)
+    try await vm.loadRemainingPhotoKitForFilter()
+    #expect(vm.assets.map { $0.primaryURL?.lastPathComponent } == ["local.jpg"])
+    #expect(vm.pagedPhotoKitSource == nil)
   }
 
   @Test("Real XMP sidecars filter an offscreen pick and keep missing sidecars unedited")

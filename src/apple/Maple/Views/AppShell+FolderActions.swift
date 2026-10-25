@@ -55,6 +55,7 @@ extension AppShell {
     librarySelection = .folder(path: url.path)
     libraryTitle = url.lastPathComponent
     mode = .browse
+    browseVM.beginLoadingFilesystemFolder()
     Task { @MainActor in
       await ThumbnailLoader.shared.cancelAll()
       await ThumbnailDiskCache.shared.configure(folderURL: url)
@@ -125,6 +126,7 @@ extension AppShell {
       Task.detached { await ThumbnailLoader.shared.cancelAll() }
       librarySelection = .folder(path: url.path)
       libraryTitle = url.lastPathComponent
+      browseVM.beginLoadingFilesystemFolder()
       Task { @MainActor in
         guard librarySelection == .folder(path: url.path) else { return }
         await browseVM.loadFolder(url: url)
@@ -189,6 +191,7 @@ extension AppShell {
     libraryTitle = url.lastPathComponent
     currentRootBookmark = rootBookmark
     mode = .browse
+    browseVM.beginLoadingFilesystemFolder()
     Task { @MainActor in
       guard librarySelection == .folder(path: url.path) else { return }
       // Claim security scope via the root's bookmark. Child URLs live
@@ -252,6 +255,7 @@ extension AppShell {
     // settled bookmark yet" and falls through to a fresh mount.
     currentRootBookmark = nil
     mode = .browse
+    browseVM.beginLoadingFilesystemFolder()
     Task.detached { await ThumbnailLoader.shared.cancelAll() }
     // Resolve the bookmark, claim security scope, then run the native
     // filesystem walker (which populates `subfolders` + `assets`). We
@@ -277,6 +281,7 @@ extension AppShell {
         )
       #endif
       guard let folderURL = url else {
+        browseVM.isLoading = false
         browseVM.loadError = CocoaError(.fileReadNoPermission)
         return
       }
