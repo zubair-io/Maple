@@ -129,6 +129,9 @@ export class InfoPanelComponent {
    * pane, where the parent tab bar already says "Info". */
   readonly insideSheet = input<boolean>(false);
 
+  /** Phone sheets project their content even while closed. */
+  readonly visible = input<boolean>(true);
+
   /** Permit a server histogram when this surface has no live canvas pixels.
    * Editor callers disable this; Browse/Preview retain the default fallback. */
   readonly allowServerHistogramFallback = input<boolean>(true);
@@ -251,7 +254,7 @@ export class InfoPanelComponent {
     effect((onCleanup) => {
       const id = this.assetId();
       this.hostedExif.set(null);
-      if (!id || !this.hostedExifEnabled) return;
+      if (!id || !this.hostedExifEnabled || !this.visible()) return;
       let cancelled = false;
       onCleanup(() => {
         cancelled = true;

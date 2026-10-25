@@ -191,6 +191,7 @@
       <app-info-panel
         [asset]="state.focusedAsset()"
         [insideSheet]="true"
+        [visible]="infoOpen()"
         (close)="infoOpen.set(false)"
       />
     </mui-sheet-shell>

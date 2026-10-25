@@ -719,6 +719,7 @@
       <app-info-panel
         [asset]="state.focusedAsset()"
         [insideSheet]="true"
+        [visible]="infoOpen()"
         [allowServerHistogramFallback]="false"
         (close)="infoOpen.set(false)"
       />
