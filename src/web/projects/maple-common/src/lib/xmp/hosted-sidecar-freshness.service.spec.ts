@@ -15,6 +15,7 @@ import { defaultAdjustmentModel } from '../models/adjustment-model';
 import {
   initSync,
   workflow_checkpoint_xmp,
+  workflow_commit_xmp,
   workflow_embed_xmp,
   workflow_read_xmp,
   workflow_snapshot_xmp,
@@ -22,10 +23,12 @@ import {
 } from '../raw-pipeline/pkg/raw_wasm';
 import {
   parseSidecarWorkflow,
+  type WorkflowHistoryEntry,
   type SidecarWorkflow,
   type WorkflowSnapshot,
 } from '../generated/workflow.generated';
 import { SidecarSaveStateService } from './sidecar-save-state.service';
+import { HostedWorkflowWriterService } from './hosted-workflow-writer.service';
 import { WorkflowVariantStoreService } from './workflow-variant-store.service';
 import { WorkflowXmpService } from './workflow-xmp.service';
 import { XmpStoreService } from './xmp-store.service';
@@ -56,6 +59,9 @@ class InProcessWorkflowXmp {
   }
   async snapshot(snapshot: WorkflowSnapshot, xmp: string): Promise<string> {
     return workflow_snapshot_xmp(xmp, JSON.stringify(snapshot));
+  }
+  async commit(entry: WorkflowHistoryEntry, xmp: string): Promise<string> {
+    return workflow_commit_xmp(xmp, JSON.stringify(entry));
   }
 }
 
@@ -154,5 +160,26 @@ describe('Hosted sidecar external-change protection', () => {
     expect(final).toContain('xmp:Rating="2"');
     expect(JSON.parse(workflow_read_xmp(final)).snapshots).toHaveLength(1);
     expect(new Uint8Array(await fs.readFile(join(root, 'photo.dng')))).toEqual(raw);
+  });
+
+  it('discards a rejected history capture before saving after reload', async () => {
+    TestBed.inject(HostedWorkflowWriterService).capture(
+      folder,
+      'photo.xmp',
+      defaultAdjustmentModel(),
+      culling(2),
+      'slider',
+      'Rejected edit',
+    );
+    const external = sidecar(4);
+    await fs.writeFile(path(), external);
+    store.scheduleWrite('asset', folder, 'photo.dng', defaultAdjustmentModel(), culling(2));
+    await expect(store.flushAll()).rejects.toThrow('changed outside Maple');
+    store.replaceLoadedDocuments(folder, new Map([['photo.xmp', external]]));
+    store.scheduleWrite('asset', folder, 'photo.dng', defaultAdjustmentModel(), culling(3));
+    await store.flushAll();
+    const final = await fs.readFile(path(), 'utf8');
+    expect(final).toContain('xmp:Rating="3"');
+    expect(JSON.parse(workflow_read_xmp(final))).toBeNull();
   });
 });
