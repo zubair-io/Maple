@@ -28,9 +28,12 @@
 
     private var hasSelection: Bool { !selectedAssets.isEmpty }
 
-    /// Batch metadata's current writer only writes local XMP sidecars.
+    /// Batch metadata writes file sidecars and local PhotoKit sidecars.
     private var canEditMetadata: Bool {
-      hasSelection && selectedAssets.allSatisfy { $0.primaryURL != nil }
+      hasSelection
+        && selectedAssets.allSatisfy {
+          $0.primaryURL != nil || ($0.thumbnailProvenance == .photoKit && $0.stableID != nil)
+        }
     }
 
     private var canRenameOrMove: Bool {

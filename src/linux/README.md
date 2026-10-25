@@ -146,7 +146,8 @@ still finish before cancellation is observed. Crops and rotations use native pat
 straighten retains the canonical bilinear sampler and its full-image coordinates;
 filter, mask, grain and dither coordinates stay anchored to the full image.
 RAW patches retain sensor neighbours for demosaicing, then impose DefaultCrop
-before spatial color filters. Perspective and dehaze models use debounced
+before spatial color filters. Dehaze, global or per mask, tiles from the
+frame's proxy haze maps (#3287). Perspective models use debounced
 whole-image CPU refinement through
 shared export-quality RAW demosaicing or the shared raster renderer. Explicit
 zoom below 100% uses the same path at physical display resolution. Crop-relative

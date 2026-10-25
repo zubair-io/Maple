@@ -95,6 +95,19 @@ export interface ExportRecipeRequest {
   filmPath: string | null;
   outPath: string;
 }
+/** Ask whether a sidecar document carries render adjustments (#5231). */
+export interface SidecarAdjustmentsRequest {
+  type: 'sidecarAdjustments';
+  id: number;
+  xmp: string;
+}
+export interface SidecarAdjustmentsResponse {
+  type: 'sidecarAdjustments';
+  id: number;
+  ok: boolean;
+  authored?: boolean;
+  error?: string;
+}
 export interface AsShotRequest {
   type: 'asShot';
   id: number;
@@ -110,6 +123,7 @@ export interface AsShotResponse {
 
 export type FfiRequest =
   | AsShotRequest
+  | SidecarAdjustmentsRequest
   | ExportRecipeRequest
   | RegisterLensProfileRequest
   | RenderThumbRequest
@@ -122,6 +136,7 @@ export type FfiRequest =
  * unknown variants; the value below drives the runtime wire guard. */
 const requestTypes = {
   asShot: true,
+  sidecarAdjustments: true,
   exportRecipe: true,
   registerLensProfile: true,
   renderThumb: true,
@@ -191,6 +206,7 @@ export interface ValidateAvifResponse {
 export type FfiResponse =
   | { type: 'exportRecipe'; id: number; ok: boolean; error?: string }
   | AsShotResponse
+  | SidecarAdjustmentsResponse
   | RegisterLensProfileResponse
   | RenderThumbResponse
   | HistogramResponse

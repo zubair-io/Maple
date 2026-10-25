@@ -64,6 +64,12 @@ pub(crate) const FULL_DEVELOP_MAX_SENSOR_PX: u64 = 32_000_000;
 /// half-res demosaic branch always engages for clamped develops.
 pub(crate) const SIZED_DEVELOP_MAX_LONG_EDGE: u32 = 4096;
 
+/// Raster export decodes the entire source before applying the requested
+/// output cap. Its RGBA-f32 and scene-linear buffers alone retain at least
+/// 28 bytes per native pixel, before decoder and export stage allocations.
+/// Keep that native decode within a separate, conservative wasm heap budget.
+pub(crate) const RASTER_EXPORT_MAX_SOURCE_PX: u64 = 24_000_000;
+
 /// The effective `max_long_edge` a CPU develop of a `native_w × native_h`
 /// sensor may use: `requested` untouched for sensors that fit a full-res
 /// develop (`None` keeps meaning "unsized"), otherwise clamped to
@@ -104,6 +110,19 @@ pub(crate) fn validate_export_dimensions(
     Ok(())
 }
 
+pub(crate) fn validate_raster_export_dimensions(
+    native_w: u32,
+    native_h: u32,
+) -> Result<(), String> {
+    if u64::from(native_w) * u64::from(native_h) > RASTER_EXPORT_MAX_SOURCE_PX {
+        return Err(format!(
+            "Browser export of this {native_w}×{native_h} raster exceeds the renderer's 4 GiB decode memory budget, even with a smaller output size. \
+             Export with Windows, the CLI, or a Self Hosted server directory."
+        ));
+    }
+    Ok(())
+}
+
 /// The develop target the CPU fallback uses for an unsized request — exposed
 /// to the TS worker so its GPU-adapter-failure retry renders through
 /// `render_bytes_sized` at the SAME [`DEFAULT_TARGET_LONG_EDGE`] the failed
@@ -132,6 +151,16 @@ mod tests {
         assert!(validate_export_dimensions(12288, 8192, Some(2048)).is_ok());
         assert!(validate_export_dimensions(7360, 4912, Some(3680)).is_ok());
         assert!(validate_export_dimensions(7360, 4912, Some(3681)).is_err());
+    }
+
+    #[test]
+    fn capped_raster_export_still_checks_full_source_decode() {
+        assert!(validate_export_dimensions(16000, 16000, Some(4096)).is_ok());
+        let error = validate_raster_export_dimensions(16000, 16000).unwrap_err();
+        assert!(error.contains("decode memory budget"));
+        assert!(error.contains("smaller output size"));
+        assert!(validate_raster_export_dimensions(6000, 4000).is_ok());
+        assert!(validate_raster_export_dimensions(0, 0).is_ok());
     }
 
     /// Sensors at or below the full-develop budget pass through untouched —

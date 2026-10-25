@@ -31,8 +31,9 @@ import { deleteReapedWithoutActiveBackup, hardDelete } from '../db/repos/assets.
 import { prepareTrashPurge } from '../cloud-backup/lifecycle.ts';
 import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
 import { listPairedSidecars } from '../fs/xmp-conflict.ts';
+import { oldNameEditUnreadable } from '../fs/legacy-backup-sidecar.ts';
 import { assetAbsPath, assetLibraryPath } from '../indexer/images.repo.ts';
-import { resolvePurgeCompanion } from '../library/purge-rendered-companion.ts';
+import { resolvePurgeCompanions } from '../library/purge-rendered-companion.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -116,6 +117,14 @@ async function purgeTrashedAsset(
     return { purged: false, errors: 1 };
   }
 
+  // A purge would strand an old-name edit it can't read (#5063); keep both for a retry.
+  if (await oldNameEditUnreadable(absPath)) {
+    log.warn(
+      { _id: doc._id.toHexString() },
+      "purge skip — the photo's old-name edit can't be read",
+    );
+    return { purged: false, errors: 1 };
+  }
   if (!(await prepareTrashPurge(doc._id.toHexString(), capturedTrashPurge(doc)))) {
     log.info(
       { assetId: doc._id.toHexString() },
@@ -124,12 +133,8 @@ async function purgeTrashedAsset(
     return { purged: false, errors: 0 };
   }
   try {
-    const companion = await resolvePurgeCompanion(
-      assetLibraryPath(doc, libs)!,
-      doc.apple_rendered_path,
-      absPath,
-    );
-    if (companion) await unlink(companion);
+    const companions = await resolvePurgeCompanions(assetLibraryPath(doc, libs)!, doc, absPath);
+    for (const companion of companions) await unlink(companion);
   } catch (error) {
     log.warn(
       { _id: doc._id.toHexString(), err: String(error) },

@@ -34,6 +34,10 @@ export function onCanvasPointerDown(
   e: PointerEvent,
 ): void {
   if (e.button !== 0) return;
+  // A descendant that owns its pointer stream (the eyedropper pick overlay)
+  // must not start a scrub: that would commit an edit and capture the pointer,
+  // retargeting the click the overlay is waiting for.
+  if (e.target instanceof Element && e.target.closest('[data-owns-pointer]')) return;
   if (shell.canvasSvc.pixelScale() !== 0) return;
   if (!shell.editorState.armedToolAcceptsValueEdits()) return;
 

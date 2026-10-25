@@ -1,5 +1,7 @@
 name: Android
 on:
+  merge_group:
+    types: [checks_requested]
   pull_request:
   push:
     branches: [main]
@@ -23,7 +25,7 @@ jobs:
     # Cold dual-ABI release libraries and host parity must leave time for device tests.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -45,7 +47,22 @@ jobs:
         working-directory: src/android
         run: ./gradlew --no-daemon -PmapleAbis=arm64-v8a,x86_64 assembleDebug assembleDebugAndroidTest testDebugUnitTest lintDebug
       - name: Install software Vulkan for native parity
-        run: sudo apt-get update && sudo apt-get install -y libvulkan1 mesa-vulkan-drivers vulkan-tools
+        timeout-minutes: 8
+        run: |
+          # The runner's Azure HTTP mirror can stall beyond the whole job budget (#5206).
+          for mirrors in /etc/apt/apt-mirrors.txt /etc/apt/apt-mirrors-security.txt; do
+            if [[ -f "$mirrors" ]]; then
+              sudo sed -i \
+                -e 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' \
+                -e 's|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' \
+                -e 's|http://security.ubuntu.com/ubuntu|https://security.ubuntu.com/ubuntu|g' \
+                "$mirrors"
+            fi
+          done
+          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+          sudo timeout 180 apt-get "${apt_options[@]}" -o APT::Update::Error-Mode=any update
+          sudo timeout 180 apt-get "${apt_options[@]}" install -y --no-install-recommends \
+            libvulkan1 mesa-vulkan-drivers vulkan-tools
       - name: Gate Android native CPU/GPU parity
         working-directory: src/android
         env:
@@ -113,7 +130,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: python3 tools/ci_result.py android-build=android
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}

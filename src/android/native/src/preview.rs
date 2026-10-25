@@ -23,11 +23,13 @@ pub struct Session {
     raw: Option<Arc<RawImage>>,
     bytes: Arc<Vec<u8>>,
     ext: String,
+    detail: std::sync::OnceLock<crate::native_detail::SharedDetail>,
     prefix: AdjustmentModel,
     wb: Option<GpuWhiteBalance>,
     live: LiveSession,
     inputs: FullChainInputs<'static>,
     sampling: f32,
+    exposure: f32,
     edge: u32,
     auto_fit: bool,
     profile: raw_core::types::Profile,
@@ -72,6 +74,15 @@ pub fn is_raw(ext: &str) -> bool {
 }
 
 impl Session {
+    pub fn detail_source(&self) -> crate::native_detail::SharedDetail {
+        Arc::clone(self.detail.get_or_init(|| {
+            crate::native_detail::DetailSource::new(
+                self.raw.clone(),
+                Arc::clone(&self.bytes),
+                self.ext.clone(),
+            )
+        }))
+    }
     pub fn source_is_raw(&self) -> bool {
         self.raw.is_some()
     }
@@ -91,23 +102,41 @@ impl Session {
                 wb.slider_values(&as_shot)
             })
     }
-    pub fn aspect(&self) -> f32 {
+    fn oriented_dims(&self) -> (u32, u32) {
         let (w, h) = self.live.dims();
         let orientation = self
             .raw
             .as_ref()
             .map_or(ExifOrientation::Normal, |raw| raw.orientation);
-        let (w, h) = if orientation.swaps_wh() {
+        if orientation.swaps_wh() {
             (h, w)
         } else {
             (w, h)
-        };
+        }
+    }
+    pub fn uncropped_aspect(&self) -> f32 {
+        let (w, h) = self.oriented_dims();
+        w as f32 / h.max(1) as f32
+    }
+    pub fn aspect(&self) -> f32 {
+        let (w, h) = self.oriented_dims();
         let crop = raw_core::stages::crop::CropPresentation::new(&self.model.crop, w, h);
         crop.dims.0 as f32 / crop.dims.1.max(1) as f32
     }
     #[cfg(test)]
     pub fn open(path: &str, xml: &str, edge: u32) -> Result<Self, String> {
         Self::open_with_context(Rc::new(GpuContext::new_blocking()?), path, xml, edge)
+    }
+
+    pub fn prepare_auto_white_balance(
+        &self,
+        xml: &str,
+    ) -> Result<crate::auto_white_balance::AutoWhiteBalanceWork, String> {
+        let raw = self
+            .raw
+            .clone()
+            .ok_or("Auto white balance requires a RAW photo")?;
+        crate::auto_white_balance::AutoWhiteBalanceWork::new(raw, xml)
     }
 
     pub fn open_with_context(
@@ -125,14 +154,19 @@ impl Session {
             .to_ascii_lowercase();
         let edge = edge.clamp(1, ctx.device.limits().max_texture_dimension_2d);
         let raw = if is_raw(&ext) {
-            Some(Arc::new(
-                raw_core::decode::decode_bytes(&bytes, &ext).map_err(|e| e.to_string())?,
-            ))
+            Some(
+                raw_core::decode_cache::decode_bytes_cached(
+                    &raw_core::decode_cache::CacheKey::from_bytes(&bytes),
+                    &bytes,
+                    &ext,
+                )
+                .map_err(|e| e.to_string())?,
+            )
         } else {
             None
         };
         let base_model = without_capture(&model);
-        let (pixels, w, h, prefix, anchor, sampling) = if let Some(raw) = &raw {
+        let (pixels, w, h, prefix, anchor, sampling, exposure) = if let Some(raw) = &raw {
             develop_prefix_rgba(raw, &bytes, &ext, &base_model, edge)?
         } else {
             raw_core::pipeline::validate_raster_adjustments(&model).map_err(|e| e.to_string())?;
@@ -142,7 +176,7 @@ impl Session {
                 raw_core::CancelToken::never(),
             )
             .map_err(|e| e.to_string())?;
-            (pixels, w, h, model.clone(), 0.0, 1.0)
+            (pixels, w, h, model.clone(), 0.0, 1.0, 1.0)
         };
         let film = crate::film::resolve(&model.film_look)?;
         let inputs = if let Some(raw) = &raw {
@@ -192,7 +226,15 @@ impl Session {
                     anchor,
                 )
                 .0;
-                FastPreview::new(&ctx, &pixels, w, h, prefix.clone(), inputs, sampling)
+                FastPreview::new(
+                    &ctx,
+                    &pixels,
+                    w,
+                    h,
+                    prefix.clone(),
+                    inputs,
+                    (sampling, exposure),
+                )
             })
             .transpose()?;
         let auto_fit = auto_will_fit(&model, &bytes, &ext);
@@ -204,10 +246,12 @@ impl Session {
             bytes,
             ext,
             prefix,
+            detail: std::sync::OnceLock::new(),
             wb,
             live,
             inputs,
             sampling,
+            exposure,
             edge,
             auto_fit,
             profile,
@@ -241,7 +285,7 @@ impl Session {
                 &self.model,
                 &mut fast.inputs,
                 self.wb.as_ref(),
-                fast.sampling,
+                (fast.sampling, fast.exposure),
                 self.target_primaries,
                 true,
             )?;
@@ -252,7 +296,7 @@ impl Session {
                 &self.model,
                 &mut self.inputs,
                 self.wb.as_ref(),
-                self.sampling,
+                (self.sampling, self.exposure),
                 self.target_primaries,
                 false,
             )?;

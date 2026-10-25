@@ -104,6 +104,9 @@ export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, num
   defringe_green_amount: [0.0, 20.0],
   defringe_green_hue_lo: [0.0, 100.0],
   defringe_green_hue_hi: [0.0, 100.0],
+  color_grade_blending: [0.0, 100.0],
+  color_grade_shadow_edge: [0.1, 0.564622],
+  color_grade_highlight_edge: [0.564622, 0.9],
 };
 
 export const STRING_FIELDS: ReadonlySet<string> = new Set([

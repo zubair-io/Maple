@@ -19,10 +19,9 @@
 //!
 //! Each reach is the stage's own number, exported from the stage module so
 //! this table cannot drift from the kernel it describes. What is NOT here:
-//! dehaze (global statistics + a radius-60 guided filter — the proxy-plane
-//! half of § 5.3, tracked separately), BM3D deep denoise (frame-anchored
-//! patch grid, #1105), and OpcodeList3 (#1932); those stay rejected by
-//! `guards.rs`.
+//! dehaze, a point operation given the frame's proxy haze maps (#3287); and
+//! BM3D deep denoise (frame-anchored patch grid, #1105) and unsupported
+//! OpcodeList3 (#1932), which stay rejected by `guards.rs`.
 
 use super::TILE_OVERLAP_PX;
 use crate::image::RawImage;
@@ -82,23 +81,30 @@ pub(super) fn tile_overlap_px(
         + capture_sharpening_params_from_model(model)
             .map(|p| capture_sharpening::stencil_reach_px(&p))
             .unwrap_or(0)
-        + scene_tone_controls::sh_mask_reach_px(mask_long_edge, model)
+        + scene_linear_chain_reach_px(model, mask_long_edge);
+    let mosaic_px = (sum as u32).saturating_mul(qd);
+    TILE_OVERLAP_PX.max(mosaic_px)
+}
+
+/// Summed reach of the spatial stages the per-tick scene-linear chain runs,
+/// for a buffer whose full frame has long edge `mask_long_edge`: what a
+/// windowed chain patch must carry around its published rect (#5169).
+pub(crate) fn scene_linear_chain_reach_px(model: &AdjustmentModel, mask_long_edge: usize) -> usize {
+    scene_tone_controls::sh_mask_reach_px(mask_long_edge, model)
         + engaged(model.clarity, clarity::CLARITY_GUIDED_REACH_PX)
         + engaged(model.texture, texture::TEXTURE_GUIDED_REACH_PX)
         + defringe::params_from_model(model)
             .map(|_| defringe::DEFRINGE_REACH_PX)
             .unwrap_or(0)
         + local_spatial_reach_px(model)
-        + tail_reach_px(model);
-    let mosaic_px = (sum as u32).saturating_mul(qd);
-    TILE_OVERLAP_PX.max(mosaic_px)
+        + tail_reach_px(model)
 }
 
 /// Reach of the per-mask spatial controls (#3407). Every layer's engaged
 /// controls cascade on that layer's own scratch buffer, and layers cascade
 /// on each other, so the whole stack's reaches add — the same additive rule
-/// the global stages above follow. A layer that engages the per-mask dehaze
-/// control never reaches here: `guards.rs` rejects the render first.
+/// the global stages above follow. A layer's per-mask dehaze adds nothing:
+/// it recovers from the frame's per-layer haze map (#3287).
 fn local_spatial_reach_px(model: &AdjustmentModel) -> usize {
     model
         .local_adjustments

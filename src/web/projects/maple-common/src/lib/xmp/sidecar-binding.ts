@@ -1,5 +1,6 @@
 // Sidecar write bookkeeping shared with XmpStoreService; extracted to keep
 // the store under the file-size budget.
+import { VIDEO_EXTENSIONS } from '../state/no-preview-extensions';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import type { PassthroughBucket, XmpCulling, XmpMetadata } from './xmp.types';
@@ -35,7 +36,12 @@ export interface RetryableSidecarWrite {
 }
 
 export function primarySidecarFilename(rawFilename: string): string {
-  return rawFilename.replace(/\.[^.]+$/, '.xmp');
+  const leafStart = Math.max(rawFilename.lastIndexOf('/'), rawFilename.lastIndexOf('\\')) + 1;
+  const dot = rawFilename.lastIndexOf('.');
+  const stemEnd = dot > leafStart ? dot : rawFilename.length;
+  const extension = dot > leafStart ? rawFilename.slice(dot + 1).toLowerCase() : '';
+  if (VIDEO_EXTENSIONS.has(extension)) return `${rawFilename}.xmp`;
+  return rawFilename.slice(0, stemEnd) + '.xmp';
 }
 
 export function sameSidecar(a: HostedSidecarBinding, b: HostedSidecarBinding): boolean {

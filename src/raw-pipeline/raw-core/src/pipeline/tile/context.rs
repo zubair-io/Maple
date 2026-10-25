@@ -9,10 +9,11 @@ use crate::{
 };
 use std::sync::{Arc, OnceLock};
 
-/// Exact native-density highlight evidence. The owned immutable source prevents
+/// Native highlight evidence. The owned immutable source prevents
 /// context/source replacement and allocator-address reuse, without copying RAW
 /// samples or retaining full-frame RGB. Requested quality is never relabeled.
-/// The scene prior is sampled once, on the first tile that defers to tier 3.
+/// The Preview-density scene prior is sampled once, on the first tile that
+/// defers to tier 3.
 pub struct HighlightFrameContext {
     raw: Arc<RawImage>,
     quality: RenderQuality,
@@ -99,7 +100,7 @@ impl HighlightFrameContext {
 impl ScenePrior for HighlightFrameContext {
     fn scene(&self) -> Option<[f32; 3]> {
         *self.scene.get_or_init(|| {
-            super::highlight_frame::scene_prior(&self.raw, &self.model, self.quality)
+            super::highlight_frame::scene_prior(&self.raw, &self.model, crate::CancelToken::never())
         })
     }
 }
@@ -118,6 +119,7 @@ pub fn render_scene_linear_tile_from_frame_context_f32(
         rect,
         decoded_wb_anchor,
         ae_gain,
+        None,
         crate::CancelToken::never(),
     )
 }
@@ -128,6 +130,7 @@ pub(crate) fn render_scene_linear_tile_from_frame_context_cancellable_f32(
     rect: TileRect,
     decoded_wb_anchor: Option<(f32, f32)>,
     ae_gain: f32,
+    haze: Option<&crate::stages::dehaze::FrameHaze>,
     cancel: crate::CancelToken<'_>,
 ) -> Result<(u32, u32, Vec<f32>)> {
     super::develop_tile_with_frame(
@@ -138,6 +141,7 @@ pub(crate) fn render_scene_linear_tile_from_frame_context_cancellable_f32(
         decoded_wb_anchor,
         ae_gain,
         Some(context),
+        haze,
         cancel,
     )
 }

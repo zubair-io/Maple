@@ -127,3 +127,35 @@ pub(super) const COLOR_GRADE_GLOBAL_LUMINANCE: FieldSpec = FieldSpec {
     enum_name: "",
     doc: "Colour-grading global luminance offset (#275). XMP: crs:ColorGradeGlobalLum.",
 };
+
+// Zone-isolation controls (#5040): `papp:ColorGrade*` (deliberately NOT
+// `crs:ColorGradeBlending`, so Lightroom sidecars carrying ACR's own blending
+// formula do not change Maple's zone weights). Defaults (`100.0` and
+// `MIDTONE_ANCHOR_L = 0.564622`) reproduce pre-#5040 zone weights bit-for-bit.
+
+pub(super) const COLOR_GRADE_BLENDING: FieldSpec = FieldSpec {
+    name: "color_grade_blending",
+    kind: FieldKind::F32,
+    range: (0.0, 100.0),
+    default_f32: 100.0,
+    enum_name: "",
+    doc: "Colour-grading zone transition blending (#5040); 100 = full smooth ramp across [0, shadow_edge] and [highlight_edge, 1], 0 = crisp step near the edges. XMP: papp:ColorGradeBlending.",
+};
+
+pub(super) const COLOR_GRADE_SHADOW_EDGE: FieldSpec = FieldSpec {
+    name: "color_grade_shadow_edge",
+    kind: FieldKind::F32,
+    range: (0.10, 0.564622),
+    default_f32: 0.564622,
+    enum_name: "",
+    doc: "Colour-grading shadow zone upper Oklab-L edge (#5040); defaults to MIDTONE_ANCHOR_L (cbrt(0.18) ≈ 0.564622). XMP: papp:ColorGradeShadowEdge.",
+};
+
+pub(super) const COLOR_GRADE_HIGHLIGHT_EDGE: FieldSpec = FieldSpec {
+    name: "color_grade_highlight_edge",
+    kind: FieldKind::F32,
+    range: (0.564622, 0.90),
+    default_f32: 0.564622,
+    enum_name: "",
+    doc: "Colour-grading highlight zone lower Oklab-L edge (#5040); defaults to MIDTONE_ANCHOR_L (cbrt(0.18) ≈ 0.564622). XMP: papp:ColorGradeHighlightEdge.",
+};

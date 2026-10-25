@@ -248,6 +248,9 @@ export interface RenderSessionSuccess {
   id: number;
   type: 'render-session-success';
   colorSpace: string;
+  /** Presented frame dims after this render — they change with the model's crop. */
+  width: number;
+  height: number;
   /** See `DecodeSuccess.lensProfile` (#3479) — refreshed when the prefix
    *  re-developed for a new selection; absent on a scalar-params tick. */
   lensProfile?: LensProfileResolution;
@@ -348,6 +351,8 @@ export type WorkerResponse =
   | SampleWbError
   | import('./raw-pipeline.sample-range.types').SampleRangeSuccess
   | import('./raw-pipeline.sample-range.types').SampleRangeError
+  | import('./raw-pipeline.sample-range.types').SampleColorCurveSuccess
+  | import('./raw-pipeline.sample-range.types').SampleColorCurveError
   | RegisterMaskRasterSuccess
   | RegisterMaskRasterError
   | RegisterBrushRasterSuccess
@@ -453,6 +458,7 @@ export type WorkerRequest =
   | AutoAdjustRequest
   | SampleWbRequest
   | import('./raw-pipeline.sample-range.types').SampleRangeRequest
+  | import('./raw-pipeline.sample-range.types').SampleColorCurveRequest
   | RegisterMaskRasterRequest
   | ReleaseMaskRasterRequest
   | RegisterBrushRasterRequest

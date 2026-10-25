@@ -1,3 +1,4 @@
+import { captureSidecarWriteScope } from './xmp-change';
 /**
  * Shared helper: resolve and authorize a caller-supplied file path against
  * registered library roots.
@@ -80,7 +81,30 @@ export async function resolveAndAuthorizePath(
     };
   }
   const canonicalPath = await canonicalPathForAdmission(normalized);
-  return { ok: true, data: normalized, writeScope: path.dirname(canonicalPath) };
+  return {
+    ok: true,
+    data: normalized,
+    writeScope: path.dirname(canonicalPath),
+  };
+}
+
+/** Capture a primary/catalog binding only for a sidecar mutation. Reads,
+ * preview-cache uploads and exports need path authorization without edit state. */
+export async function resolveAndAuthorizeSidecarWrite(
+  raw: string | undefined,
+  dbOverride?: SqliteDb,
+) {
+  const authorized = await resolveAndAuthorizePath(raw, dbOverride);
+  return authorized.ok
+    ? {
+        ...authorized,
+        writeScope: await captureSidecarWriteScope(
+          authorized.data,
+          authorized.writeScope,
+          dbOverride,
+        ),
+      }
+    : authorized;
 }
 
 /** Resolve an existing path or preserve its missing tail below a real parent. */
@@ -117,4 +141,11 @@ export async function safeWriteAllowedForPath(filePath: string, dbOverride?: Sql
   return normalizedRoots.some((root) => isWithinRoot(root, resolved))
     ? { ok: true as const, data: resolved }
     : { ok: false as const, error: 'Photo is outside registered libraries' };
+}
+
+/** Reads need path access; mutations also capture the photo's current binding. */
+export function authorizeXmpRequest(raw: string | undefined, method: string) {
+  return method === 'GET' || method === 'HEAD'
+    ? resolveAndAuthorizePath(raw)
+    : resolveAndAuthorizeSidecarWrite(raw);
 }

@@ -7,6 +7,7 @@ struct EditorControls: View {
   @Bindable var state: EditorState
   let onPresetsTap: () -> Void
   var usesSystemToolRail = false
+  var showsScope = false
   @Environment(\.mapleLayout) private var layout
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -21,8 +22,16 @@ struct EditorControls: View {
       let shortCrop = isBottom && geometry.size.height < 500 && state.armedTool == .crop
       let bottomPanelHeight = shortCrop ? 96 : min(360, geometry.size.height * 0.40)
       ScrollViewReader { proxy in
-        arrangement {
-          StackedAdjustmentsPanel(state: state, showsHeader: !shortCrop)
+        // The scope owns a row above both trailing controls. Compact layouts
+        // keep it inside the inspector scroll area to preserve canvas space.
+        VStack(alignment: .trailing, spacing: 8) {
+          if showsScope && !isBottom {
+            VectorscopeHud(state: state)
+          }
+          arrangement {
+            StackedAdjustmentsPanel(
+              state: state, showsHeader: !shortCrop, showsScope: showsScope && isBottom
+            )
             .frame(width: isBottom ? nil : 320)
             // Keep a usable crop canvas in short compact windows. The
             // crop toolbar includes its own Reset and Done actions.
@@ -32,18 +41,19 @@ struct EditorControls: View {
             )
             .frame(maxHeight: isBottom ? nil : .infinity)
 
-          if !usesSystemToolRail {
-            ToolDock(
-              state: state, onPresetsTap: onPresetsTap,
-              horizontal: isBottom,
-              onGroupTap: { group in scroll(proxy, to: "group-\(group.rawValue)") })
+            if !usesSystemToolRail {
+              ToolDock(
+                state: state, onPresetsTap: onPresetsTap,
+                horizontal: isBottom,
+                onGroupTap: { group in scroll(proxy, to: "group-\(group.rawValue)") })
+            }
           }
+          .frame(height: isBottom ? bottomPanelHeight + 80 : nil)
         }
         // Report only the fixed controls footprint. The following outer
         // alignment frame fills the editor and must never exclude its canvas.
         .frame(
-          width: isBottom ? nil : (usesSystemToolRail ? 320 : 396),
-          height: isBottom ? bottomPanelHeight + 80 : nil
+          width: isBottom ? nil : (usesSystemToolRail ? 320 : 396)
         )
         // The inspector is scrollable for every tool; the dock scrolls too.
         // Wheel events over either must reach that surface, never the canvas.

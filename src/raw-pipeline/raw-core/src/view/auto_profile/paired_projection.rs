@@ -1,4 +1,5 @@
 use super::ColorLut;
+use rayon::prelude::*;
 
 fn minimum(prior: &[f32], i: usize, j: usize, epsilon: f64) -> f64 {
     (f64::from(prior[j]) - f64::from(prior[i])).min(epsilon)
@@ -7,7 +8,7 @@ fn minimum(prior: &[f32], i: usize, j: usize, epsilon: f64) -> f64 {
 fn project_edge(
     data: &mut [f32],
     prior: &[f32],
-    confidence: &[f64],
+    [wi, wj]: [f64; 2],
     i: usize,
     j: usize,
     epsilon: f64,
@@ -17,7 +18,6 @@ fn project_edge(
     if deficit <= 0. {
         return;
     }
-    let (wi, wj) = (confidence[i / 3], confidence[j / 3]);
     let mut a = f64::from(data[i]) - deficit * wj / (wi + wj);
     let mut b = f64::from(data[j]) + deficit * wi / (wi + wj);
     if a < 0. {
@@ -31,63 +31,68 @@ fn project_edge(
     data[j] = b.clamp(0., 1.) as f32;
 }
 
+/// Each channel is constrained only along its own axis and the grey
+/// diagonal, so the three channels are independent sequences; running them
+/// in parallel keeps every channel's update order and its bits (#5104).
 pub(super) fn constrain_to_prior(data: &mut [f32], prior: &ColorLut, confidence: &[f64]) {
-    let n = prior.size;
+    let channels: Vec<Vec<f32>> = (0..3)
+        .into_par_iter()
+        .map(|c| {
+            let mut values: Vec<f32> = data.iter().skip(c).step_by(3).copied().collect();
+            let reference: Vec<f32> = prior.data.iter().skip(c).step_by(3).copied().collect();
+            constrain_channel(&mut values, &reference, confidence, prior.size, c);
+            values
+        })
+        .collect();
+    for (node, values) in data.chunks_exact_mut(3).enumerate() {
+        for c in 0..3 {
+            values[c] = channels[c][node];
+        }
+    }
+}
+
+fn constrain_channel(data: &mut [f32], prior: &[f32], confidence: &[f64], n: usize, c: usize) {
     let epsilon = f64::from(0.002 / (n - 1) as f32);
+    let stride = [1, n, n * n][c];
+    let diagonal = 1 + n + n * n;
     for value in data.iter_mut() {
         *value = value.clamp(0., 1.);
     }
     for _ in 0..32 {
-        for z in 0..n {
-            for y in 0..n {
-                for x in 0..n {
-                    let i = ((z * n + y) * n + x) * 3;
-                    for (c, (coordinate, stride)) in
-                        [(x, 3), (y, 3 * n), (z, 3 * n * n)].into_iter().enumerate()
-                    {
-                        if coordinate + 1 < n {
-                            project_edge(
-                                data,
-                                &prior.data,
-                                confidence,
-                                i + c,
-                                i + stride + c,
-                                epsilon,
-                            );
-                        }
-                    }
-                }
+        for node in 0..data.len() {
+            if node / stride % n + 1 < n {
+                let j = node + stride;
+                project_edge(
+                    data,
+                    prior,
+                    [confidence[node], confidence[j]],
+                    node,
+                    j,
+                    epsilon,
+                );
             }
         }
         for k in 0..n - 1 {
-            let i = ((k * n + k) * n + k) * 3;
-            let j = (((k + 1) * n + k + 1) * n + k + 1) * 3;
-            for c in 0..3 {
-                project_edge(data, &prior.data, confidence, i + c, j + c, epsilon);
-            }
+            let i = k * diagonal;
+            let j = i + diagonal;
+            project_edge(data, prior, [confidence[i], confidence[j]], i, j, epsilon);
         }
     }
-    feasible_closure(data, prior, epsilon);
+    feasible_closure(data, prior, n, stride, epsilon);
 }
 
-fn feasible_closure(data: &mut [f32], prior: &ColorLut, epsilon: f64) {
-    let n = prior.size;
-    let count = n * n * n;
-    let strides = [1, n, n * n];
+fn feasible_closure(data: &mut [f32], prior: &[f32], n: usize, stride: usize, epsilon: f64) {
     let diagonal = 1 + n + n * n;
+    let on_diagonal = |node: usize| node % diagonal == 0;
     let mut upper = vec![1f64; data.len()];
-    for node in (0..count).rev() {
-        let xyz = [node % n, node / n % n, node / (n * n)];
-        for c in 0..3 {
-            let i = node * 3 + c;
-            if xyz[c] + 1 < n {
-                let j = (node + strides[c]) * 3 + c;
-                upper[i] = upper[i].min(upper[j] - minimum(&prior.data, i, j, epsilon));
-            }
-            if xyz[0] == xyz[1] && xyz[1] == xyz[2] && xyz[0] + 1 < n {
-                let j = (node + diagonal) * 3 + c;
-                upper[i] = upper[i].min(upper[j] - minimum(&prior.data, i, j, epsilon));
-            }
+    for node in (0..data.len()).rev() {
+        if node / stride % n + 1 < n {
+            let j = node + stride;
+            upper[node] = upper[node].min(upper[j] - minimum(prior, node, j, epsilon));
+        }
+        if on_diagonal(node) && node + diagonal < data.len() {
+            let j = node + diagonal;
+            upper[node] = upper[node].min(upper[j] - minimum(prior, node, j, epsilon));
         }
     }
     let mut result: Vec<f64> = data
@@ -96,20 +101,16 @@ fn feasible_closure(data: &mut [f32], prior: &ColorLut, epsilon: f64) {
         .map(|(&v, &limit)| f64::from(v).clamp(0., limit.max(0.)))
         .collect();
     // The constraint graph is acyclic; a forward closure under its feasible upper envelope finishes every edge.
-    for node in 0..count {
-        let xyz = [node % n, node / n % n, node / (n * n)];
-        for c in 0..3 {
-            let i = node * 3 + c;
-            if xyz[c] > 0 {
-                let j = (node - strides[c]) * 3 + c;
-                result[i] = result[i].max(result[j] + minimum(&prior.data, j, i, epsilon));
-            }
-            if xyz[0] == xyz[1] && xyz[1] == xyz[2] && xyz[0] > 0 {
-                let j = (node - diagonal) * 3 + c;
-                result[i] = result[i].max(result[j] + minimum(&prior.data, j, i, epsilon));
-            }
-            result[i] = result[i].min(upper[i]).clamp(0., 1.);
+    for node in 0..data.len() {
+        if node / stride % n > 0 {
+            let j = node - stride;
+            result[node] = result[node].max(result[j] + minimum(prior, j, node, epsilon));
         }
+        if on_diagonal(node) && node > 0 {
+            let j = node - diagonal;
+            result[node] = result[node].max(result[j] + minimum(prior, j, node, epsilon));
+        }
+        result[node] = result[node].min(upper[node]).clamp(0., 1.);
     }
     for (value, result) in data.iter_mut().zip(result) {
         *value = result as f32;
@@ -124,12 +125,12 @@ mod tests {
     fn supported_nodes_move_only_as_far_as_the_unchanged_constraint_requires() {
         let prior = [0., 0., 0., 1., 1., 1.];
         let mut data = [0.9, 0., 0., 0.1, 1., 1.];
-        project_edge(&mut data, &prior, &[1., 1e-8], 0, 3, 0.01);
+        project_edge(&mut data, &prior, [1., 1e-8], 0, 3, 0.01);
         assert!((data[0] - 0.9).abs() < 1e-7);
         assert!(data[3] - data[0] >= 0.01 - 1e-7);
         data[0] = 1.;
         data[3] = 0.5;
-        project_edge(&mut data, &prior, &[1., 1e-8], 0, 3, 0.01);
+        project_edge(&mut data, &prior, [1., 1e-8], 0, 3, 0.01);
         assert_eq!(data[3], 1.);
         assert!((data[0] - 0.99).abs() < 1e-7);
     }

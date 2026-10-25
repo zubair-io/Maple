@@ -276,6 +276,35 @@ real external/SMB document providers before a release.
 Canonical folder sidecars match names case-insensitively, retaining an existing
 file's casing through save and recovery. Ambiguous duplicate names stop edits.
 
+At 100% and above, Preview and Edit request a source-pixel window from the
+shared core rather than magnifying the 2048px preview. Original dimensions are
+read from metadata; a gesture made while those dimensions load retains its
+anchor. A separate CPU worker owns immutable decoded source data, the retained
+full-frame Auto context, and cancellation through JNI completion. Each request
+uses the cropped presentation coordinates and the current sRGB/P3 target;
+stale edits or navigation cannot publish a completed window. A bounded pan
+margin avoids rendering again for small movements. The GPU worker continues
+ordinary preview rendering independently.
+
+Native windows admit at most 8 megapixels of working pixels. Raster decoding
+reserves encoded bytes plus 44 bytes per pixel for the simultaneous RGB-f32 and
+two RGBA-f32 buffers against a 320 MiB decode budget. Headers and encoded size
+are checked before reading the full raster file. HEIC, HEIF and AVIF additionally
+preflight their dimensions before platform decoding, including the RGB32F TIFF's
+12 bytes per pixel and reserved header space in that same Rust-owned budget.
+Raster tile admission separately charges the retained full RGBA source and
+encoded bytes, then reserves 96 bytes per working pixel for window input,
+chain/scratch, display/quantized output and the JNI bitmap. The shared core
+checks that derived limit against both the requested tile and its expanded halo
+before allocating either window. Large viewports can therefore fall back to
+Preview only even when the source decode fits. Larger raster images,
+including typical 12 MP JPEGs, retain preview-only zoom rather than risking a
+native allocation failure. Unsupported RAW modes or edits (including Dehaze
+and Deep Denoise) also show an explicit preview-only message.
+They do not report a magnified preview as resolved native detail. Device tests
+check one-pixel texture and window placement in both Preview and Edit, RAW
+ownership after GPU teardown, cancellation, and sRGB/P3 bitmap tags.
+
 Native editor calls and surface ownership are serialized on one worker.
 `ANativeWindow` is retained until its wgpu surface is dropped. Only one decoded
 image is resident. Slider draws coalesce, and undo commits at gesture boundaries.
@@ -293,10 +322,9 @@ written into the user's photo folder.
 
 Use **Add Maple Cloud server** in Sources or Settings → Cloud for hosted and
 self-hosted servers; they use the same connection protocol. Maple opens the
-server’s HTTPS domain in the system browser for passkey sign-in. Android also
-polls the PKCE claim endpoint so an existing browser session can finish sign-in
-when the browser blocks an automatic custom-scheme callback. A one-time
-PKCE code returns through `maple-app://auth-success`; tokens never appear in
+server’s HTTPS domain in the system browser for passkey sign-in. Choose **Open
+Maple** on the browser confirmation page if it blocks the automatic callback.
+Android does not poll with state and verifier alone. A one-time PKCE code returns through `maple-app://auth-success`; tokens never appear in
 callback URLs. Access/refresh tokens and pending verifier/state are encrypted
 with an Android Keystore key, and expired access tokens refresh once before
 retrying. Loopback HTTP is supported for development. Disconnect revokes the

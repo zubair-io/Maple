@@ -8,6 +8,14 @@ import androidx.lifecycle.viewModelScope
 import app.justmaple.aperture.data.*
 import app.justmaple.aperture.generated.AdjustmentFields
 import app.justmaple.aperture.ui.EditorGroup
+import app.justmaple.aperture.ui.CropAspectId
+import app.justmaple.aperture.ui.BuiltInPreset
+import app.justmaple.aperture.ui.decodeUserPresetsJson
+import app.justmaple.aperture.ui.encodeUserPresetsJson
+import app.justmaple.aperture.ui.forCropPreview
+import app.justmaple.aperture.ui.cropRect
+import app.justmaple.aperture.ui.savablePresetAttributes
+import app.justmaple.aperture.ui.savablePresetFields
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,13 +33,14 @@ internal constructor(
 
     // The one seam the recovery tests (#4765) substitute — the JNI renderer;
     // the sidecar layer is always the real one (CLAUDE.md: no mocks there).
-    val renderer: PreviewRenderer = rendererOverride ?: EditorRenderer(::framePresented)
+    val renderer: PreviewRenderer = rendererOverride ?: EditorRenderer(library, ::framePresented)
     private val preferences = application.getSharedPreferences("maple-ui", 0)
     private val mutable =
         MutableStateFlow(
             MapleState(
                 sources = library.sources,
                 showFilmstrip = preferences.getBoolean("filmstrip", true),
+                userPresets = decodeUserPresetsJson(preferences.getString("user-presets", null)),
                 cloudSigningIn = library.cloud.signingIn,
             )
         )
@@ -40,6 +49,12 @@ internal constructor(
     private var generation = 0
     private var singleRequest = 0
     private var renderXml = ""
+    private var openingEdit: EditSnapshot? = null
+    private var nativeDimensionsJob: Job? = null
+    private var nativeDetailJob: Job? = null
+    private var nativeDetailSerial = 0
+    private var autoWhiteBalanceRequest = 0
+    private var autoWhiteBalanceJob: Job? = null
     private var baseline: String? = null
     private var saveJob: Job? = null
     private val saveLock = kotlinx.coroutines.sync.Mutex()
@@ -63,7 +78,6 @@ internal constructor(
             }
         }
         library.sources.firstOrNull()?.let(::browse)
-        if (library.cloud.signingIn) connectCloud { library.cloud.pollSignIn() }
     }
 
     fun report(failure: Throwable) = fail(failure)
@@ -81,7 +95,6 @@ internal constructor(
     }
         .onSuccess {
             mutable.update { it.copy(cloudSigningIn = true, error = null) }
-            connectCloud { library.cloud.pollSignIn() }
         }
         .onFailure(::fail)
         .getOrNull()
@@ -131,7 +144,7 @@ internal constructor(
                         mode = PhotoMode.Browse,
                         folder = null,
                         folderTrail = emptyList(),
-                        photos = emptyList(),
+                        photos = emptyList(), previewOrder = null,
                         folders = emptyList(),
                         selected = null,
                     )
@@ -172,7 +185,7 @@ internal constructor(
                     folder = folder,
                     folderTrail = it.trailTo(folder, ancestors),
                     folders = emptyList(),
-                    photos = emptyList(),
+                    photos = emptyList(), previewOrder = null,
                     mode = PhotoMode.Browse,
                     selected = null,
                     error = null,
@@ -207,21 +220,48 @@ internal constructor(
 
     fun open(photo: Photo) = viewModelScope.launch { open(photo, single = false) }
 
-    private suspend fun open(photo: Photo, single: Boolean) {
+    fun openFromBrowse(photo: Photo, visibleOrder: List<Photo>) = viewModelScope.launch {
+        open(photo, single = false, visibleOrder = visibleOrder.toList())
+    }
+
+    fun openAdjacent(delta: Int): Boolean {
+        val snapshot = state.value
+        val current = snapshot.selected ?: return false
+        val index = snapshot.navigationPhotos.indexOfFirst { it.uri == current.uri }
+        if (index < 0) return false
+        val target = snapshot.navigationPhotos.getOrNull(index + delta) ?: return false
+        open(target)
+        return true
+    }
+
+    private suspend fun open(photo: Photo, single: Boolean, visibleOrder: List<Photo>? = null) {
         if (!flush()) return
+        cancelNativeDetail()
+        nativeDimensionsJob?.cancel()
         val nextMode = if (state.value.mode == PhotoMode.Edit) PhotoMode.Edit else PhotoMode.Preview
         val token = ++generation
         baseline = null
+        openingEdit = null
+        ++autoWhiteBalanceRequest
+        autoWhiteBalanceJob?.cancel()
         mutable.update {
             it.copy(
+                nativeSourceSize = null,
+                nativeImageSize = null,
+                nativeDimensionsLoading = false,
+                cropAspect = CropAspectId.Free,
+                cropAspectSwapped = false,
                 selected = photo,
                 photos = if (single) listOf(photo) else it.photos,
+                previewOrder = if (single) null else visibleOrder ?: it.previewOrder,
                 folder = if (single) null else it.folder,
                 folderTrail = if (single) emptyList() else it.folderTrail,
                 folders = if (single) emptyList() else it.folders,
                 documentLoaded = false,
                 mode = nextMode,
                 canResetRawOnlySliders = false,
+                comparingBefore = false,
+                autoWhiteBalanceInFlight = false,
                 loading = true,
                 rendering = false,
                 document = XmpDocument(),
@@ -270,14 +310,16 @@ internal constructor(
             it.copy(rendering = true, values = emptyMap(), canResetRawOnlySliders = false)
         }
         try {
-            renderXml = snapshot.document.serialize()
+            renderXml = presentedXml(snapshot.document)
             val values =
                 library.withPreview(photo, 2048) { input ->
                     renderer.open(input.absolutePath, renderXml, 2048, token)
                 }
             if (token == generation) {
+                if (openingEdit == null) openingEdit = EditSnapshot(values, snapshot.document)
                 mutable.update { it.copy(values = values, rendering = !renderer.hasPresented) }
                 scheduleRefine(DrawRequest(token, renderer.revision, values, renderXml))
+                prepareNativeDimensions()
             }
         } catch (failure: Exception) {
             val canReset =
@@ -300,11 +342,19 @@ internal constructor(
     fun back() {
         viewModelScope.launch {
             if (!flush()) return@launch
+            cancelNativeDetail()
+            nativeDimensionsJob?.cancel()
             ++generation
+            ++autoWhiteBalanceRequest
+            autoWhiteBalanceJob?.cancel()
+            openingEdit = null
             renderer.shutdown()
             mutable.update {
                 it.copy(
+                    nativeDimensionsLoading = false,
                     mode = if (it.mode == PhotoMode.Edit) PhotoMode.Preview else PhotoMode.Browse,
+                    comparingBefore = false,
+                    autoWhiteBalanceInFlight = false,
                     rendering = false,
                     loading = false,
                 )
@@ -312,7 +362,190 @@ internal constructor(
         }
     }
 
+    private fun nativeProjection(document: XmpDocument, source: NativeImageSize? = state.value.nativeSourceSize): NativeImageSize? {
+        source ?: return null
+        val presented = if (state.value.cropToolActive) document.forCropPreview() else document
+        val angle = presented.attribute("crs:CropAngle")?.toFloatOrNull()?.takeIf { it.isFinite() } ?: 0f
+        return renderer.presentationSize(source, presented.cropRect().copy(angle = angle))
+    }
+
+    fun prepareNativeDimensions() {
+        val current = state.value
+        val photo = current.selected ?: return
+        if (current.nativeSourceSize != null || nativeDimensionsJob?.isActive == true || !current.documentLoaded) return
+        val token = generation
+        mutable.update { it.copy(nativeDimensionsLoading = true, nativeDetailError = null) }
+        nativeDimensionsJob = viewModelScope.launch {
+            try {
+                val source = renderer.nativeDimensions(photo)
+                if (token == generation && state.value.selected?.key == photo.key) mutable.update {
+                    it.copy(nativeSourceSize = source, nativeImageSize = nativeProjection(it.document, source),
+                        nativeDimensionsLoading = false,
+                        nativeDetailError = if (source == null) "Original dimensions are unavailable" else null)
+                }
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                if (token == generation) mutable.update {
+                    it.copy(nativeDimensionsLoading = false, nativeDetailError = "Could not read original dimensions")
+                }
+            }
+        }
+    }
+
+    fun cancelNativeDetail() {
+        ++nativeDetailSerial
+        nativeDetailJob?.cancel()
+        renderer.cancelNativeDetail()
+        val previous = state.value.nativeDetail
+        mutable.update { it.copy(nativeDetail = null, nativeDetailBusy = false, nativeDetailError = null) }
+        previous?.close()
+    }
+
+    private fun nativeDocument(): XmpDocument {
+        val current = state.value
+        return if (current.comparingBefore) openingEdit?.withCurrentCrop(current.document)?.document ?: current.document
+            else current.document
+    }
+
+    fun requestNativeDetail(region: NativeRegion?) {
+        val current = state.value
+        val photo = current.selected
+        if (region == null || photo == null || current.cropToolActive || !current.documentLoaded) {
+            cancelNativeDetail()
+            return
+        }
+        val size = current.nativeImageSize ?: run { prepareNativeDimensions(); return }
+        if (current.mode == PhotoMode.Edit && current.values.isEmpty()) return
+        val document = nativeDocument()
+        val cached = current.nativeDetail
+        if (cached?.photoKey == photo.key && cached.document == document && cached.region.contains(region)) {
+            ++nativeDetailSerial
+            nativeDetailJob?.cancel()
+            renderer.cancelNativeDetail()
+            mutable.update { it.copy(nativeDetailBusy = false, nativeDetailError = null) }
+            return
+        }
+        val serial = ++nativeDetailSerial
+        nativeDetailJob?.cancel()
+        renderer.cancelNativeDetail()
+        val token = generation
+        val published = region.withPanMargin(size)
+        val xml = if (current.mode == PhotoMode.Edit) renderXml else document.serialize()
+        val retained = cached?.takeIf { frame -> frame.photoKey == photo.key && frame.document == document }
+        mutable.update { it.copy(nativeDetailBusy = true, nativeDetailError = null, nativeDetail = retained) }
+        if (cached !== retained) cached?.close()
+        nativeDetailJob = viewModelScope.launch {
+            var unowned: android.graphics.Bitmap? = null
+            try {
+                delay(150)
+                val bitmap = renderer.nativeDetail(NativeDetailRequest(photo, xml, published, token, current.mode == PhotoMode.Edit))
+                unowned = bitmap
+                currentCoroutineContext().ensureActive()
+                if (serial == nativeDetailSerial && token == generation && state.value.selected?.key == photo.key && nativeDocument() == document) {
+                    val previous = state.value.nativeDetail
+                    mutable.update { it.copy(nativeDetail = NativeDetailFrame(photo.key, document, published, bitmap),
+                        nativeDetailBusy = false, nativeDetailError = null) }
+                    previous?.close()
+                    unowned = null
+                }
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                if (serial == nativeDetailSerial && token == generation) mutable.update {
+                    it.copy(nativeDetailBusy = false, nativeDetailError = nativeDetailFailure(failure))
+                }
+            } finally {
+                unowned?.recycle()
+                if (serial == nativeDetailSerial) mutable.update { it.copy(nativeDetailBusy = false) }
+            }
+        }
+    }
+
+    private fun nativeDetailFailure(failure: Exception): String {
+        val message = failure.message.orEmpty().lowercase()
+        return when {
+            "dehaze" in message -> "Native detail is unavailable with Dehaze enabled"
+            "deep denoise" in message -> "Native detail is unavailable with Deep Denoise enabled"
+            "budget" in message -> "Zoom in farther to stay within the native-detail memory limit"
+            "linearraw" in message || "x-trans" in message -> "Native detail is unavailable for this RAW format"
+            else -> "Native detail is unavailable for this image and its current edits"
+        }
+    }
+
+    private fun presentedXml(document: XmpDocument): String =
+        (if (state.value.cropToolActive) document.forCropPreview() else document).serialize()
+
+    fun setCropToolActive(active: Boolean) {
+        if (state.value.cropToolActive == active) return
+        cancelNativeDetail()
+        commitGesture()
+        mutable.update { it.copy(cropToolActive = active, comparingBefore = false) }
+        mutable.update { it.copy(nativeImageSize = nativeProjection(it.document)) }
+        renderXml = presentedXml(state.value.document)
+        renderer.invalidateModel()
+        if (state.value.mode == PhotoMode.Edit && state.value.values.isNotEmpty())
+            queueDraw(state.value.values)
+    }
+
+    fun setCropAspect(id: CropAspectId, swapped: Boolean = false) {
+        mutable.update { it.copy(cropAspect = id, cropAspectSwapped = swapped) }
+    }
+
+    fun hasComparisonEdits(current: MapleState = state.value): Boolean =
+        openingEdit?.let { it.withCurrentCrop(current.document) != EditSnapshot(current.values, current.document) } ?: false
+
+    fun setComparingBefore(before: Boolean) {
+        val current = state.value
+        if (current.mode != PhotoMode.Edit || current.values.isEmpty()) return
+        if (current.comparingBefore == before) return
+        val comparison = if (before) (openingEdit ?: return).withCurrentCrop(current.document) else snapshot()
+        cancelNativeDetail()
+        mutable.update { it.copy(comparingBefore = before) }
+        val drawValues = comparison.values
+        renderXml = presentedXml(comparison.document)
+        renderer.invalidateModel()
+        queueDraw(drawValues)
+    }
+
+    fun applyWhiteBalancePreset(name: String) {
+        val current = state.value
+        if (!current.canEdit || current.values.isEmpty()) return
+        val preset = app.justmaple.aperture.generated.WhiteBalancePresets.fixed.single { it.name == name }
+        commitGesture()
+        beginGesture()
+        restore(snapshot().withWhiteBalancePreset(preset))
+        commitGesture()
+    }
+
+    fun autoWhiteBalance() {
+        val current = state.value
+        if (!current.canEdit || current.values["_raw"] != 1f || current.autoWhiteBalanceInFlight) return
+        commitGesture()
+        val before = snapshot()
+        val token = generation
+        val revision = renderer.revision
+        val request = ++autoWhiteBalanceRequest
+        mutable.update { it.copy(autoWhiteBalanceInFlight = true) }
+        autoWhiteBalanceJob = viewModelScope.launch {
+            try {
+                val result = renderer.autoWhiteBalance(before.document.serialize())
+                if (token != generation || revision != renderer.revision || snapshot() != before || !state.value.canEdit) return@launch
+                val next = before.withAutoWhiteBalance(result)
+                if (next.values == before.values && next.document.serialize() == before.document.serialize()) return@launch
+                beginGesture()
+                restore(next)
+                commitGesture()
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                if (token == generation && revision == renderer.revision) fail(failure, "Could not analyze white balance")
+            } finally {
+                if (request == autoWhiteBalanceRequest) mutable.update { it.copy(autoWhiteBalanceInFlight = false) }
+            }
+        }
+    }
+
     fun surface(surface: Surface?, width: Int, height: Int, wideColor: Boolean = false) {
+        cancelNativeDetail()
+        mutable.update { it.copy(nativeSurfaceRevision = it.nativeSurfaceRevision + 1) }
         val binding = renderer.recordSurface(surface, width, height, wideColor)
         val token = generation
         if (state.value.mode == PhotoMode.Edit) mutable.update { it.copy(rendering = true) }
@@ -358,9 +591,11 @@ internal constructor(
                     doc.withField(AdjustmentFields.byName.getValue(key), values.getValue(key))
                 }
             else current.document.withField(field, next)
+        cancelNativeDetail()
         mutable.update {
-            it.copy(values = values, document = document, dirty = true)
+            it.copy(values = values, document = document, comparingBefore = false, dirty = true)
         }
+        renderXml = presentedXml(document)
         queueDraw(values)
         scheduleSave()
     }
@@ -377,8 +612,17 @@ internal constructor(
     }
 
     private fun restore(value: EditSnapshot) {
-        mutable.update { it.copy(values = value.values, document = value.document, dirty = true) }
-        renderXml = value.document.serialize()
+        cancelNativeDetail()
+        mutable.update {
+            it.copy(
+                values = value.values,
+                document = value.document,
+                nativeImageSize = nativeProjection(value.document),
+                comparingBefore = false,
+                dirty = true,
+            )
+        }
+        renderXml = presentedXml(value.document)
         // Field pushes drifted the native model (wb_source = Manual); an
         // identical XML string must still reload it (#4766).
         renderer.invalidateModel()
@@ -400,8 +644,18 @@ internal constructor(
 
     fun resetFields(names: List<String>) = resetControls(names, emptyList())
 
-    fun resetGroup(group: EditorGroup) =
-        resetControls(group.fields.map { it.name }, group.resetAttributes)
+    fun resetGroup(group: EditorGroup) {
+        val extraNames =
+            when (group) {
+                EditorGroup.Light -> app.justmaple.aperture.ui.toneCurveFieldNames
+                EditorGroup.Color ->
+                    app.justmaple.aperture.ui.HslBand.entries
+                        .flatMap { app.justmaple.aperture.ui.hslBandFields(it) }
+                        .map { it.name }
+                else -> emptyList()
+            }
+        resetControls(group.fields.map { it.name } + extraNames, group.resetAttributes)
+    }
 
     private fun resetControls(names: List<String>, attributes: List<String>) {
         val current = state.value
@@ -418,15 +672,34 @@ internal constructor(
 
     fun resetField(name: String) = resetFields(listOf(name))
 
-    fun attribute(name: String, value: String?) {
-        if (!state.value.canChangeMetadata) return
+    fun togglePick() {
+        val picked = state.value.document.attribute("papp:Flag") == "pick"
+        attribute("papp:Flag", if (picked) null else "pick")
+    }
+
+    fun toggleReject() {
+        val rejected = state.value.document.attribute("papp:Flag") == "reject"
+        attribute("papp:Flag", if (rejected) null else "reject")
+    }
+
+    fun attribute(name: String, value: String?) = setAttributes(mapOf(name to value), commit = true)
+
+    fun setAttributes(updates: Map<String, String?>, commit: Boolean = true) {
+        if (!state.value.canChangeMetadata || updates.isEmpty()) return
+        cancelNativeDetail()
         val editing = state.value.mode == PhotoMode.Edit && state.value.values.isNotEmpty()
         if (editing) beginGesture()
-        mutable.update { it.copy(document = it.document.withAttribute(name, value), dirty = true) }
-        if (editing) commitGesture()
+        mutable.update { current ->
+            val nextDoc =
+                updates.entries.fold(current.document) { doc, (k, v) -> doc.withAttribute(k, v) }
+            current.copy(document = nextDoc, comparingBefore = false, dirty = true)
+        }
+        mutable.update { it.copy(nativeImageSize = nativeProjection(it.document)) }
+        if (editing && commit) commitGesture()
         scheduleSave()
         if (state.value.mode == PhotoMode.Edit) {
-            renderXml = state.value.document.serialize()
+            renderXml = presentedXml(state.value.document)
+            renderer.invalidateModel()
             queueDraw(state.value.values)
         }
     }
@@ -498,6 +771,7 @@ internal constructor(
             it.copy(
                 document = loaded.document,
                 documentLoaded = true,
+                comparingBefore = false,
                 loading = false,
                 dirty = false,
                 error = null,
@@ -530,6 +804,31 @@ internal constructor(
     fun setFilmstrip(value: Boolean) {
         preferences.edit().putBoolean("filmstrip", value).apply()
         mutable.update { it.copy(showFilmstrip = value) }
+    }
+
+    fun saveUserPreset(name: String): BuiltInPreset? {
+        val trimmed = name.trim()
+        val fields = state.value.savablePresetFields()
+        val attributes = state.value.savablePresetAttributes()
+        if (trimmed.isEmpty() || (fields.isEmpty() && attributes.isEmpty())) return null
+        val preset =
+            BuiltInPreset(
+                id = java.util.UUID.randomUUID().toString().lowercase(java.util.Locale.ROOT),
+                name = trimmed,
+                fields = fields,
+                attributes = attributes,
+                userCreated = true,
+            )
+        val updated = state.value.userPresets + preset
+        preferences.edit().putString("user-presets", encodeUserPresetsJson(updated)).apply()
+        mutable.update { it.copy(userPresets = updated) }
+        return preset
+    }
+
+    fun deleteUserPreset(id: String) {
+        val updated = state.value.userPresets.filterNot { it.id == id }
+        preferences.edit().putString("user-presets", encodeUserPresetsJson(updated)).apply()
+        mutable.update { it.copy(userPresets = updated) }
     }
 
     private fun queueDraw(values: Map<String, Float>) {
@@ -609,15 +908,23 @@ internal constructor(
         }
     }
 
-    suspend fun export(destination: Uri, xmp: Boolean) {
+    suspend fun export(
+        destination: Uri,
+        xmp: Boolean,
+        options: app.justmaple.aperture.ui.ExportOptions = app.justmaple.aperture.ui.ExportOptions(),
+    ) {
         check(flush()) { "Save the sidecar before exporting" }
         val snapshot = state.value
         check(snapshot.documentLoaded && !snapshot.loading) { "Load the photo before exporting" }
         val photo = snapshot.selected ?: error("Choose a photo")
-        PhotoExport(getApplication(), library).write(photo, snapshot.document, destination, xmp)
+        PhotoExport(getApplication(), library)
+            .write(photo, snapshot.document, destination, xmp, options)
     }
 
     override fun onCleared() {
+        state.value.nativeDetail?.close()
+        nativeDimensionsJob?.cancel()
+        nativeDetailJob?.cancel()
         refineJob?.cancel()
         draws.close()
         renderer.close()

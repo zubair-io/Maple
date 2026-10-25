@@ -25,7 +25,7 @@ import {
   linkPhasset,
   listBackupState,
   markDeletedFromPhotos,
-  setAppleRenderedPath,
+  setAppleCompanionPath,
   type PhassetLink,
 } from './backup.repo.ts';
 import type { SqliteDb } from './db-handle.ts';
@@ -54,6 +54,7 @@ function assetRow(db: Database, mapleId: string) {
     is_screenshot: number | null;
     size: number;
     apple_rendered_path: string | null;
+    apple_live_video_path: string | null;
     deleted_from_photos: number;
   };
 }
@@ -484,9 +485,10 @@ describe('the Apple-rendered companion pointer', () => {
     const lib = library(handle.db);
     await seedUpload(db, lib);
 
-    const outcome = await setAppleRenderedPath(
+    const outcome = await setAppleCompanionPath(
       lib,
       'content-1',
+      'apple_rendered_path',
       '2024/Tokyo/IMG_0001.rendered.HEIC',
       db,
     );
@@ -502,7 +504,27 @@ describe('the Apple-rendered companion pointer', () => {
     const lib = library(handle.db);
     const elsewhere = library(handle.db, '/libraries/elsewhere');
     await seedUpload(db, lib);
-    expect((await setAppleRenderedPath(elsewhere, 'content-1', 'x.HEIC', db)).matchedCount).toBe(0);
+    const outcome = await setAppleCompanionPath(
+      elsewhere,
+      'content-1',
+      'apple_rendered_path',
+      'x.HEIC',
+      db,
+    );
+    expect(outcome.matchedCount).toBe(0);
     expect(assetRow(handle.db, 'content-1').apple_rendered_path).toBeNull();
+  });
+
+  test("a Live Photo's .mov lands in its own slot and leaves the rendered edit's alone", async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const lib = library(handle.db);
+    await seedUpload(db, lib);
+    await setAppleCompanionPath(lib, 'content-1', 'apple_rendered_path', 'IMG.rendered.JPEG', db);
+    await setAppleCompanionPath(lib, 'content-1', 'apple_live_video_path', 'IMG.mov', db);
+    expect(assetRow(handle.db, 'content-1')).toMatchObject({
+      apple_rendered_path: 'IMG.rendered.JPEG',
+      apple_live_video_path: 'IMG.mov',
+    });
   });
 });

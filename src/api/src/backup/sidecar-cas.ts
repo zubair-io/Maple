@@ -24,7 +24,7 @@ import {
 } from '../fs/sidecar-io.ts';
 import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
 // Mirror-aware drop-in, so the sidecar's directory replicates with it.
-import fs from '../fs/mirrored.ts';
+import fs, { replicatePathUnder } from '../fs/mirrored.ts';
 import path from 'node:path';
 
 type SidecarCasOutcome =
@@ -216,6 +216,12 @@ export async function publishSidecarCas(
         shared,
         options.beforeWrite ?? (async () => undefined),
       );
+      const landed = outcome.kind === 'written' || outcome.kind === 'diverged';
+      // The write is pinned to the resolved target; mirrors are keyed by the configured root.
+      // An unaliased path was already replicated by the mirrored write itself.
+      if (landed && path.resolve(target) !== path.resolve(destination)) {
+        replicatePathUnder(target, destination);
+      }
       if (LANDED.has(outcome.kind)) await options.afterLanded?.(outcome);
       return outcome;
     },

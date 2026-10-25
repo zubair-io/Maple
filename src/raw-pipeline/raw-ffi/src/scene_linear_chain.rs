@@ -295,6 +295,22 @@ pub struct MapleAdjustmentParams {
     /// default, also what a zero-initialised or older host sends), `1` =
     /// legacy diagonal Rec.2020 gains. Unknown values fall back to CAT16.
     pub wb_method: u32,
+    /// Colour-grading zone-isolation controls (#5040). Zero-filled `(0, 0, 0)`
+    /// resolves to `(100.0, MIDTONE_ANCHOR_L, MIDTONE_ANCHOR_L)`.
+    pub color_grade_blending: f32,
+    pub color_grade_shadow_edge: f32,
+    pub color_grade_highlight_edge: f32,
+    /// The decode's `MapleSceneLinearBufferF32.wb_hsm_data`/`wb_hsm_len`,
+    /// passed back verbatim (#5099): the HueSatMap endpoints the WB delta
+    /// re-lerps at the target. Null/0 (a stale host) keeps the plain 3×3
+    /// delta. Borrowed for the call only.
+    pub wb_hsm_ptr: *const f32,
+    pub wb_hsm_len: usize,
+    /// The decode's `wb_hsm_as_shot_cct` and `ae_gain` (the auto-exposure
+    /// gain baked into the buffer after DCP), passed back verbatim. A zero
+    /// gain reads as 1; a zero as-shot CCT disables the HueSatMap (plain 3×3).
+    pub wb_hsm_as_shot_cct: f32,
+    pub wb_hsm_exposure_gain: f32,
 }
 
 /// Decode the local-adjustment layer stack (#1698) out of the C params, and

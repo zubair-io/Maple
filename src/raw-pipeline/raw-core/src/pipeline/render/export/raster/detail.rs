@@ -1,11 +1,15 @@
 //! Immutable oriented raster source for native detail windows (#4317).
 use super::*;
 use crate::pipeline::{apply_scene_linear_chain_f32_windowed_cancellable, ChainWindow, TileRect};
+use crate::stages::dehaze::FrameHaze;
 
 pub struct RasterDetailImage {
     width: u32,
     height: u32,
     rgba: Vec<f32>,
+    /// The frame's dehaze maps for the last model that needed them (#3287),
+    /// keyed by [`crate::stages::dehaze::haze_key`].
+    haze: std::sync::Mutex<Option<(AdjustmentModel, std::sync::Arc<FrameHaze>)>>,
 }
 
 impl RasterDetailImage {
@@ -15,7 +19,40 @@ impl RasterDetailImage {
             width,
             height,
             rgba,
+            haze: std::sync::Mutex::new(None),
         })
+    }
+
+    /// The whole source's haze maps for `model`, measured once and reused
+    /// while only dehaze amounts the maps do not depend on change.
+    fn frame_haze(
+        &self,
+        model: &AdjustmentModel,
+        options: &ChainOptions<'_>,
+        cancel: crate::CancelToken<'_>,
+    ) -> Result<Option<std::sync::Arc<FrameHaze>>> {
+        if !crate::stages::dehaze::any_engaged(model) {
+            return Ok(None);
+        }
+        let key = crate::stages::dehaze::haze_key(model);
+        let mut slot = self
+            .haze
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((_, haze)) = slot.as_ref().filter(|(cached, _)| *cached == key) {
+            return Ok(Some(haze.clone()));
+        }
+        let haze = crate::pipeline::scene_linear_chain_haze_map_cancellable(
+            &self.rgba,
+            self.width,
+            self.height,
+            model,
+            options,
+            cancel,
+        )?
+        .map(std::sync::Arc::new);
+        *slot = haze.clone().map(|haze| (key, haze));
+        Ok(haze)
     }
 
     pub fn dimensions(&self) -> (u32, u32) {
@@ -28,6 +65,25 @@ impl RasterDetailImage {
         rect: TileRect,
         film: Option<&FilmLut>,
         max_working_pixels: u64,
+        cancel: crate::CancelToken<'_>,
+    ) -> Result<(u32, u32, Vec<u8>)> {
+        self.render_tile_with_target(
+            model,
+            rect,
+            film,
+            max_working_pixels,
+            TargetPrimaries::Srgb,
+            cancel,
+        )
+    }
+
+    pub fn render_tile_with_target(
+        &self,
+        model: &AdjustmentModel,
+        rect: TileRect,
+        film: Option<&FilmLut>,
+        max_working_pixels: u64,
+        target: TargetPrimaries,
         cancel: crate::CancelToken<'_>,
     ) -> Result<(u32, u32, Vec<u8>)> {
         if cancel.is_cancelled() {
@@ -91,14 +147,19 @@ impl RasterDetailImage {
                 self.rgba[start..start + w as usize * 4].iter().copied()
             })
             .collect();
+        let options = ChainOptions {
+            skip_agx: true,
+            ..Default::default()
+        };
+        let haze = self.frame_haze(model, &options, cancel)?;
         let output = apply_scene_linear_chain_f32_windowed_cancellable(
             &input,
             w,
             h,
             model,
             &ChainOptions {
-                skip_agx: true,
-                ..Default::default()
+                haze_map: haze.as_deref(),
+                ..options
             },
             film,
             ChainWindow {
@@ -120,7 +181,7 @@ impl RasterDetailImage {
             nr_sampling_scale: 1.0,
             whites_anchor_ev: None,
         };
-        encode::rec2020_to_display(&mut image, TargetPrimaries::Srgb);
+        encode::rec2020_to_display(&mut image, target);
         encode::srgb_gamma_encode(&mut image);
         let rgb = encode::dither_and_quantize_windowed(&mut image, (x, y));
         let result: Vec<u8> = (rect.src_y - y..rect.src_y - y + rect.src_h)
@@ -133,5 +194,81 @@ impl RasterDetailImage {
             return Err(Error::Cancelled);
         }
         mapped.apply_rgb(result, cancel)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ::image::{codecs::png::PngEncoder, ExtendedColorType, ImageEncoder};
+
+    #[test]
+    fn native_raster_window_matches_each_requested_display_target() {
+        let (w, h) = (96, 80);
+        let rgb: Vec<u8> = (0..w * h)
+            .flat_map(|i| [(i % w * 2) as u8, (i / w * 3) as u8, 160])
+            .collect();
+        let mut bytes = Vec::new();
+        PngEncoder::new(&mut bytes)
+            .write_image(&rgb, w, h, ExtendedColorType::Rgb8)
+            .unwrap();
+        let source = RasterDetailImage::open(&bytes, crate::CancelToken::never()).unwrap();
+        let model = AdjustmentModel {
+            exposure: 0.3,
+            grain_amount: 25.0,
+            sharpen_amount: 0.0,
+            nr_color: 0.0,
+            ..Default::default()
+        };
+        let rect = TileRect {
+            src_x: 16,
+            src_y: 12,
+            src_w: 32,
+            src_h: 24,
+            out_w: 32,
+            out_h: 24,
+        };
+        let mut previous = None;
+        for target in [TargetPrimaries::Srgb, TargetPrimaries::P3] {
+            let (_, _, pixels) = super::super::render_export_raster(
+                &bytes,
+                &model,
+                None,
+                target,
+                ExportDepth::Eight,
+                None,
+            )
+            .unwrap();
+            let ExportPixels::Eight(full) = pixels else {
+                panic!("expected eight-bit reference");
+            };
+            let (_, _, patch) = source
+                .render_tile_with_target(
+                    &model,
+                    rect,
+                    None,
+                    1024 * 1024,
+                    target,
+                    crate::CancelToken::never(),
+                )
+                .unwrap();
+            for y in 0..rect.src_h {
+                for x in 0..rect.src_w {
+                    for c in 0..3 {
+                        let actual = patch[((y * rect.src_w + x) * 3 + c) as usize];
+                        let expected =
+                            full[(((y + rect.src_y) * w + x + rect.src_x) * 3 + c) as usize];
+                        assert!(
+                            actual.abs_diff(expected) <= 1,
+                            "target {target:?} at ({x},{y})"
+                        );
+                    }
+                }
+            }
+            if let Some(previous) = previous.take() {
+                assert_ne!(previous, patch);
+            }
+            previous = Some(patch);
+        }
     }
 }

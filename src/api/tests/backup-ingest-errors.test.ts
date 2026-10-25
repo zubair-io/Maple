@@ -261,4 +261,55 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     expect(siblingExists).toBe(false);
     expect(findAssetIdByMapleId(suite.handle.db, mapleId)).not.toBeNull();
   });
+
+  // #5063: a photo moved before movers carried old-name sidecars left its
+  // `IMG.HEIC.xmp` behind; a new photo landing at that name would inherit it.
+  test('a stranded old-name backup edit keeps a new photo off its name', async () => {
+    const fname = 'IMG_STRANDED.HEIC';
+    const targetDir = path.join(suite.handle.tmpLib, '2024/Misc');
+    await fs.mkdir(targetDir, { recursive: true });
+    const stranded = path.join(targetDir, `${fname}.xmp`);
+    const edit = '<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">old</x:xmpmeta>';
+    await fs.writeFile(stranded, edit);
+
+    const r = await authedHandle(
+      ingest(Buffer.alloc(64, 5), {
+        'X-Maple-Device-Id': deviceId,
+        'X-Maple-Phasset-Id': 'ABC/L0/STRANDED',
+        'X-Maple-Capture-Date': '2024-07-05T12:00:00Z',
+        'X-Maple-Filename': fname,
+        'X-Maple-Total-Bytes': '64',
+        'X-Maple-Maple-Id': '0230c7f1d1a1b2c3d4e5f60718293a4b',
+        'Content-Range': 'bytes 0-63/64',
+      }),
+    );
+
+    expect(r.status).toBe(200);
+    expect((await r.json()).target_rel_path).toBe('2024/Misc/IMG_STRANDED-1.HEIC');
+    expect(await fs.readFile(stranded, 'utf8')).toBe(edit);
+  });
+
+  test('a stranded old-name edit stored in a different case also keeps a new photo off its name', async () => {
+    const targetDir = path.join(suite.handle.tmpLib, '2024/Misc');
+    await fs.mkdir(targetDir, { recursive: true });
+    await fs.writeFile(
+      path.join(targetDir, 'img_case.heic.xmp'),
+      '<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/">old</x:xmpmeta>',
+    );
+
+    const r = await authedHandle(
+      ingest(Buffer.alloc(64, 6), {
+        'X-Maple-Device-Id': deviceId,
+        'X-Maple-Phasset-Id': 'ABC/L0/STRANDED-CASE',
+        'X-Maple-Capture-Date': '2024-07-06T12:00:00Z',
+        'X-Maple-Filename': 'IMG_CASE.HEIC',
+        'X-Maple-Total-Bytes': '64',
+        'X-Maple-Maple-Id': '0240c7f1d1a1b2c3d4e5f60718293a4b',
+        'Content-Range': 'bytes 0-63/64',
+      }),
+    );
+
+    expect(r.status).toBe(200);
+    expect((await r.json()).target_rel_path).toBe('2024/Misc/IMG_CASE-1.HEIC');
+  });
 });

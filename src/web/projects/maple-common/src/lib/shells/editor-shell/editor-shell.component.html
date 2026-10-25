@@ -41,11 +41,14 @@
     </div>
   } @else {
     <div class="hsl-panel contents">
-      <app-value-chip class="pointer-events-none" />
-      <div class="w-full overflow-x-auto">
-        <app-sub-param-row />
-      </div>
-      <app-drag-bar class="w-full" />
+      <pro-color-curves-ribbon #colorCurves />
+      @if (!colorCurves.curvesMode()) {
+        <app-value-chip class="pointer-events-none" />
+        <div class="w-full overflow-x-auto">
+          <app-sub-param-row />
+        </div>
+        <app-drag-bar class="w-full" />
+      }
     </div>
   }
 </ng-template>
@@ -733,6 +736,7 @@
   <app-export-dialog
     [visible]="exportOpen()"
     [asset]="state.focusedAsset()"
+    [crop]="editorState.currentAdjustment()?.crop ?? null"
     (dismiss)="exportOpen.set(false)"
   />
 </div>

@@ -173,7 +173,6 @@ struct PhotoThumbnailCell: View {
         .accessibilityHidden(true)
       }
     }
-    .modifier(TapWithFrame(onTap: onTap, onFrameChange: onFrameChange))
     // Drag preview (#2779): the cell's already-decoded bitmap (or the
     // sync `cachedImage` peek used above for the tile itself) — no
     // new decode work for the preview closure. `nil` when neither is
@@ -187,13 +186,16 @@ struct PhotoThumbnailCell: View {
     .onAppear { onAppear?() }
     .modifier(OptionalContextMenu(items: contextMenuItems))
     // Accessibility: UITest harness resolves cells by displayName via
-    // `app.otherElements["thumb-<displayName>"]` — mirrors LibraryCell's
+    // `app.buttons["thumb-<displayName>"]` — mirrors LibraryCell's
     // `.accessibilityIdentifier("thumb-\(asset.displayName)")`.
     .accessibilityElement(children: .ignore)
     .accessibilityAddTraits(.isButton)
     .accessibilityIdentifier("thumb-\(item.displayName)")
     .accessibilityLabel(accessibilityLabelText)
     .accessibilityHint(accessibilityHintText)
+    // Attach activation after the final accessibility element: ignoring the
+    // thumbnail's children must not discard its VoiceOver press action.
+    .modifier(TapWithFrame(onTap: onTap, onFrameChange: onFrameChange))
     .task(id: item.id) { await onLoad?() }
     .task(id: decodedKey) {
       let key = decodedKey

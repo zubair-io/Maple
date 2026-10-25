@@ -115,7 +115,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
             f32_rgba,
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
-            &wb_frame_export(&raw_img),
+            &wb_exports(&raw_img),
             ae_gain,
             whites_anchor_ev,
             nr_sampling_scale,
@@ -217,7 +217,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
             f32_rgba,
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
-            &wb_frame_export(&raw_img),
+            &wb_exports(&raw_img),
             ae_gain,
             whites_anchor_ev,
             nr_sampling_scale,
@@ -309,7 +309,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
             f32_rgba,
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
-            &wb_frame_export(&raw_img),
+            &wb_exports(&raw_img),
             ae_gain,
             whites_anchor_ev,
             nr_sampling_scale,
@@ -412,7 +412,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
             f32_rgba,
             raw_img.noise_profile.as_deref(),
             raw_img.iso,
-            &wb_frame_export(&raw_img),
+            &wb_exports(&raw_img),
             ae_gain,
             whites_anchor_ev,
             nr_sampling_scale,
@@ -425,29 +425,46 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
     })
 }
 
-/// Resolve the WB slider-frame export for a decoded RAW (#1781): the
+/// The decode's white-balance exports: the slider frame plus, on a
+/// dual-HueSatMap ForwardMatrix profile, the HueSatMap endpoints the live
+/// drag re-lerps (#5099).
+pub(crate) struct WbExports {
+    pub frame: raw_core::stages::wb_camera::SliderFrameExport,
+    pub hsm: Option<raw_core::stages::wb_camera::WbHsmRetarget>,
+}
+
+impl WbExports {
+    pub(crate) const ABSENT: WbExports = WbExports {
+        frame: raw_core::stages::wb_camera::SliderFrameExport::ABSENT,
+        hsm: None,
+    };
+}
+
+/// Resolve the WB exports for a decoded RAW (#1781, #5099): the
 /// `wb_camera::SliderFrame` data + in-frame as-shot `(scene_cct, tint)`, so
 /// the host can derive per-tick WB deltas in the develop chain's own
-/// calibration frame. Gated on EXACTLY the tiers `pipeline::develop` gates
-/// `wb_camera` on (real calibration, pre-gained Bayer/full-LinearRaw source);
-/// everything else exports `SliderFrameExport::ABSENT`, matching the develop
-/// chain's own post-DCP CAT16 fallback.
-pub(crate) fn wb_frame_export(
-    raw: &raw_core::RawImage,
-) -> raw_core::stages::wb_camera::SliderFrameExport {
-    use raw_core::stages::wb_camera::SliderFrameExport;
+/// calibration frame, and the HueSatMap endpoints. Gated on EXACTLY the
+/// tiers `pipeline::develop` gates `wb_camera` on (real calibration,
+/// pre-gained Bayer/full-LinearRaw source); everything else exports
+/// [`WbExports::ABSENT`], matching the develop chain's own post-DCP CAT16
+/// fallback.
+pub(crate) fn wb_exports(raw: &raw_core::RawImage) -> WbExports {
+    use raw_core::stages::wb_camera::{SliderFrameExport, WbHsmRetarget};
     let skip_pre_gain =
         matches!(raw.cfa, raw_core::image::CfaPattern::LinearRgb) && raw.white_level <= 255;
     if skip_pre_gain {
-        return SliderFrameExport::ABSENT;
+        return WbExports::ABSENT;
     }
     match raw_core::color::dcp::profile_for_with_source(raw) {
         Ok((profile, source))
             if !matches!(source, raw_core::color::dcp::ProfileSource::RawlerFallback) =>
         {
-            SliderFrameExport::resolve(raw, &profile)
+            WbExports {
+                frame: SliderFrameExport::resolve(raw, &profile),
+                hsm: WbHsmRetarget::resolve(&profile),
+            }
         }
-        _ => SliderFrameExport::ABSENT,
+        _ => WbExports::ABSENT,
     }
 }
 

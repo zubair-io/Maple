@@ -124,13 +124,15 @@ public actor SMBSource {
     }
     // One unsuspended swap, compared against the connection live NOW (a concurrent connect
     // may have finished meanwhile): no reentrant call mixes two shares' state. Another share
-    // retires every earlier ref; an address change alone keeps them (#4987).
+    // retires every earlier ref and its relocations; an address change alone keeps both
+    // (#4987, #5051).
     let switchesShare =
       self.credentials?.share != credentials.share
       || self.credentials?.username != credentials.username
-    let switchesServer = switchesShare || self.credentials?.host != credentials.host
-    if switchesServer { relocatedPaths = [:] }
-    if switchesShare { listingID = UUID() }
+    if switchesShare {
+      relocatedPaths = [:]
+      listingID = UUID()
+    }
     self.credentials = credentials
     self.client = mgr
     _assets = listed
@@ -268,9 +270,7 @@ public actor SMBSource {
   /// Write XMP sidecar bytes over SMB with retry (3 attempts, exponential back-off).
   public func writeSidecar(_ data: Data, for asset: SMBAsset) async throws {
     guard let client else { throw SMBError.notConnected }
-    let sidecarPath = (asset.path as NSString)
-      .deletingPathExtension
-      .appending(".xmp")
+    let sidecarPath = SMBFileOperations.sidecarPath(for: asset.path)
     try await writeWithRetry(data: data, to: sidecarPath, client: client)
   }
 
@@ -313,46 +313,40 @@ public actor SMBSource {
     }.sorted { $0.path < $1.path }
   }
 
-  private func writeWithRetry(
-    data: Data, to path: String, client: SMB2Manager,
-    maxAttempts: Int = 3
-  ) async throws {
-    var lastError: Error?
-    for attempt in 0..<maxAttempts {
-      do {
-        _ = try await client.publishSidecar(atPath: path) { current in
-          let incoming = String(decoding: data, as: UTF8.self)
-          _ = try XMPParser.parse(incoming)
-          let candidate = try WorkflowSidecarCore.variantWorkflow(
-            xmp: incoming, variantId: WorkflowContract.primaryVariantID)
-          guard let current else { return data }
-          let confirmed = String(decoding: current, as: UTF8.self)
-          _ = try XMPParser.parse(confirmed)
-          guard
-            let record = try WorkflowSidecarCore.variantWorkflow(
-              xmp: confirmed, variantId: WorkflowContract.primaryVariantID)
-          else {
-            return data
-          }
-          guard candidate == nil || candidate == record else {
-            throw WorkflowSidecarError(message: "Workflow changed. Refresh before saving.")
-          }
-          return Data(try WorkflowSidecarCore.embed(record, in: incoming).utf8)
+  /// Reopen the same manager after a dropped socket, retaining listing/ref
+  /// ownership and the store's idempotent publication. User disconnect or
+  /// connection changes stop this write rather than resurrecting the old share.
+  private func confirmSidecarConnection(_ expected: SMB2Manager) async throws {
+    guard client === expected, let credentials else { throw SMBError.notConnected }
+    try await expected.connectShare(name: credentials.share)
+    guard client === expected else { throw SMBError.notConnected }
+  }
+
+  private func writeWithRetry(data: Data, to path: String, client: SMB2Manager) async throws {
+    try await Self.retrySidecarWrite {
+      try await self.confirmSidecarConnection(client)
+      _ = try await client.publishSidecar(atPath: path) { current in
+        let incoming = String(decoding: data, as: UTF8.self)
+        _ = try XMPParser.parse(incoming)
+        let candidate = try WorkflowSidecarCore.variantWorkflow(
+          xmp: incoming, variantId: WorkflowContract.primaryVariantID)
+        guard let current else { return data }
+        let confirmed = String(decoding: current, as: UTF8.self)
+        _ = try XMPParser.parse(confirmed)
+        guard
+          let record = try WorkflowSidecarCore.variantWorkflow(
+            xmp: confirmed, variantId: WorkflowContract.primaryVariantID)
+        else {
+          return data
         }
-        return
-      } catch let error as WorkflowSidecarError {
-        // A changed semantic workflow requires refresh, not a network retry.
-        throw error
-      } catch {
-        lastError = error
-        if attempt < maxAttempts - 1 {
-          let delay = UInt64(pow(2.0, Double(attempt))) * 1_000_000_000
-          try await Task.sleep(nanoseconds: delay)
+        guard candidate == nil || candidate == record else {
+          throw WorkflowSidecarError(message: "Workflow changed. Refresh before saving.")
         }
+        return Data(try WorkflowSidecarCore.embed(record, in: incoming).utf8)
       }
     }
-    throw lastError ?? SMBError.writeFailedAfterRetries
   }
+
 }
 
 // MARK: - SMBIdCacheStorage
@@ -461,19 +455,23 @@ extension SMBSource: ImageSource {
 
   public func rawBytes(for ref: ImageRef) async throws -> Data {
     guard let client else { throw SMBError.notConnected }
-    return try await client.contents(atPath: path(for: ref), range: Range<UInt64>?.none)
+    return try await client.contents(atPath: listedPath(for: ref), range: Range<UInt64>?.none)
   }
 
   public func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {
     guard let client else { throw SMBError.notConnected }
-    let xml = XMPSerializer.serialize(model: sidecar.model, culling: sidecar.culling)
-    guard let data = xml.data(using: .utf8) else {
-      throw XMPStoreError.encodingError
+    let store = SMBSidecarStore(source: self, ref: ref)
+    // Adopt the published document first: the store's compare-and-swap
+    // publish refuses to replace a sidecar it has not read.
+    try await Self.retrySidecarWrite {
+      try await self.confirmSidecarConnection(client)
+      _ = try await store.loadIfPresent()
     }
-    let sidecarPath = (try mutationPath(for: ref) as NSString)
-      .deletingPathExtension
-      .appending(".xmp")
-    try await writeWithRetry(data: data, to: sidecarPath, client: client)
+    // Retain one store and publication identity across uncertain transport replies.
+    try await Self.retrySidecarWrite {
+      try await self.confirmSidecarConnection(client)
+      try await store.writeConfirmed(model: sidecar.model, culling: sidecar.culling)
+    }
   }
 
   /// `false` when the source moved to another share while the file op ran.

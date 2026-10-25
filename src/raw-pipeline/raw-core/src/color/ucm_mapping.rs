@@ -13,11 +13,6 @@
 //!     `Hasselblad 50-15-Coated5`. Different naming convention, same
 //!     sensor.
 //!
-//!   * DJI Mavic 3 Pro's Hasselblad L3D-100c sensor: rawler reports
-//!     `Hasselblad L3D-100c`; the bundle ships under the drone's body
-//!     code `DJI FC4382 Mavic3Pro`. The L3D-100c is unique to the
-//!     Mavic 3 Pro, so this is a 1:1 mapping.
-//!
 //!   * Pixel mobile (Pixel 6 Pro etc.): rawler reports the bare body
 //!     name (`Google Pixel 6 Pro`); the bundle ships per-lens entries
 //!     (`Google Pixel 6 Pro Rear Main Camera`,
@@ -76,15 +71,6 @@ pub fn alias_for(source_key: &str) -> Option<&'static str> {
         // body shell. Verified by inspecting the bundled profile set
         // (see `convert_dcps.py` + the bundle parser).
         "Hasselblad H2D-39" => Some("Hasselblad 39-Coated"),
-        // ── DJI Mavic 3 Pro (Hasselblad L3D-100c sensor) ──────────────
-        // The L3D-100c is the 100 MP main-camera sensor on the Mavic 3
-        // Pro. The bundle files it under the drone body code FC4382.
-        // The L3D-100c is unique to the Mavic 3 Pro, so this is 1:1.
-        // FC4370 is the same sensor on the Mavic 3 Cine variant — we
-        // don't map there explicitly because rawler would have to
-        // report something other than `Hasselblad L3D-100c` to reach
-        // here, and that case doesn't exist in our fixtures.
-        "Hasselblad L3D-100c" => Some("DJI FC4382 Mavic3Pro"),
         // ── Google Pixel 6 Pro ────────────────────────────────────────
         // Default to the Rear Main Camera profile. The Pixel 6 Pro's
         // RAW pipeline most often produces output from the main wide
@@ -140,6 +126,7 @@ mod tests {
             noise_profile: None,
             sensor_gain_maps: None,
             opcode_list3: None,
+            opcode_skips: Vec::new(),
             aperture: None,
             focal_length: None,
             lens_metadata: Default::default(),
@@ -156,12 +143,9 @@ mod tests {
     }
 
     #[test]
-    fn hasselblad_l3d_100c_aliases_to_dji_fc4382() {
+    fn hasselblad_l3d_100c_is_not_aliased_to_a_different_body() {
         let raw = make_raw("Hasselblad L3D-100c");
-        assert_eq!(
-            map_to_bundle_ucm(&raw, "Hasselblad L3D-100c"),
-            Some("DJI FC4382 Mavic3Pro")
-        );
+        assert_eq!(map_to_bundle_ucm(&raw, "Hasselblad L3D-100c"), None);
     }
 
     #[test]

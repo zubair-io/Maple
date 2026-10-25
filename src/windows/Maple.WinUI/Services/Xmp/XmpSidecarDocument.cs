@@ -319,6 +319,9 @@ namespace Maple.WinUI.Services.Xmp
             F("crs:ColorGradeGlobalHue", a => a.ColorGradeGlobalHue, (a, v) => a.ColorGradeGlobalHue = v),
             F("crs:ColorGradeGlobalSat", a => a.ColorGradeGlobalSaturation, (a, v) => a.ColorGradeGlobalSaturation = v),
             F("crs:ColorGradeGlobalLum", a => a.ColorGradeGlobalLuminance, (a, v) => a.ColorGradeGlobalLuminance = v),
+            F("papp:ColorGradeBlending", a => a.ColorGradeBlending, (a, v) => a.ColorGradeBlending = v),
+            F("papp:ColorGradeShadowEdge", a => a.ColorGradeShadowEdge, (a, v) => a.ColorGradeShadowEdge = v),
+            F("papp:ColorGradeHighlightEdge", a => a.ColorGradeHighlightEdge, (a, v) => a.ColorGradeHighlightEdge = v),
             F("crs:HueAdjustmentRed", a => a.HueAdjustmentRed, (a, v) => a.HueAdjustmentRed = v),
             F("crs:HueAdjustmentOrange", a => a.HueAdjustmentOrange, (a, v) => a.HueAdjustmentOrange = v),
             F("crs:HueAdjustmentYellow", a => a.HueAdjustmentYellow, (a, v) => a.HueAdjustmentYellow = v),
@@ -399,6 +402,12 @@ namespace Maple.WinUI.Services.Xmp
                 ("crs:ToneCurvePV2012Red", a => a.DisplayToneCurveRed),
                 ("crs:ToneCurvePV2012Green", a => a.DisplayToneCurveGreen),
                 ("crs:ToneCurvePV2012Blue", a => a.DisplayToneCurveBlue),
+                ("papp:ColorCurveHueVsHue", a => a.ColorCurveHueVsHue),
+                ("papp:ColorCurveHueVsSat", a => a.ColorCurveHueVsSat),
+                ("papp:ColorCurveHueVsLuma", a => a.ColorCurveHueVsLuma),
+                ("papp:ColorCurveLumaVsSat", a => a.ColorCurveLumaVsSat),
+                ("papp:ColorCurveSatVsSat", a => a.ColorCurveSatVsSat),
+                ("papp:ColorCurveSatVsLuma", a => a.ColorCurveSatVsLuma),
             };
 
         /// <summary>The six-color label vocabulary (#1657).</summary>

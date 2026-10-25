@@ -1,8 +1,8 @@
 /**
  * Thumbnail generation for the indexer thumb stage.
  *
- * For RAW files: develops with an authored XMP sidecar when present; otherwise
- * delegates to `maple_render_thumbnail_avif_to_file` via raw-ffi to extract
+ * For RAW files: develops when the XMP sidecar carries authored adjustments.
+ * With no sidecar, or an empty or metadata-only one, delegates to `maple_render_thumbnail_avif_to_file` via raw-ffi to extract
  * the embedded preview JPEG, downsample, and write an
  * AVIF directly to `<dir>/.maple/thumbs/<filename>.avif`. No buffer
  * crosses the `bun:ffi` boundary (Bun 1.3.x's `toBuffer`-backed Buffers

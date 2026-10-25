@@ -154,12 +154,13 @@ final class ChainCurvesWiringTests: XCTestCase {
   }
 
   func testGpuLiveParamsBindDisplayCurves() {
+    var buffers = GpuColorCurveBuffers()
     var model = AdjustmentModel.default
     model.displayToneCurveLuma = ToneCurve(points: [(x: 0, y: 0), (x: 1, y: 0.5)])
     model.displayToneCurveBlue = ToneCurve(points: [(x: 0.2, y: 0.3)])
     let base = MapleGpuLiveParams()
 
-    GpuLiveSession.withDisplayCurvesBound(base, model) { p in
+    GpuLiveSession.withDisplayCurvesBound(base, model, buffers: &buffers) { p in
       XCTAssertEqual(p.display_tone_curve_luma_len, 4)
       XCTAssertEqual(p.display_tone_curve_luma_ptr?[3], 0.5)
       XCTAssertEqual(p.display_tone_curve_blue_len, 2)
@@ -167,7 +168,7 @@ final class ChainCurvesWiringTests: XCTestCase {
       XCTAssertNil(p.display_tone_curve_red_ptr)
       XCTAssertEqual(p.display_tone_curve_green_len, 0)
     }
-    GpuLiveSession.withDisplayCurvesBound(base, .default) { p in
+    GpuLiveSession.withDisplayCurvesBound(base, .default, buffers: &buffers) { p in
       XCTAssertNil(p.display_tone_curve_luma_ptr)
       XCTAssertEqual(p.display_tone_curve_luma_len, 0)
     }

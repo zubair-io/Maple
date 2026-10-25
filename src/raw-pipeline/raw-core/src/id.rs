@@ -318,6 +318,19 @@ mod tests {
         );
     }
 
+    /// #5001: the server dates this QuickTime file from its creationdate key
+    /// (`2026-04-05T11:26:20-0700` → UTC); the device must hash the same
+    /// primary form. Pinned by `tests/maple-id-contract.test.ts` and
+    /// `VideoCaptureDateTests` too.
+    #[test]
+    fn dated_video_primary_matches_typescript_golden() {
+        let bytes = include_bytes!("../../../../test-fixtures/ids/dated-video.mov");
+        assert_eq!(
+            MapleId::primary(bytes, "2026-04-05T18:26:20.000Z", None, None).to_hex(),
+            "01b176338229c1cb8b9ddfc6235e829d"
+        );
+    }
+
     #[test]
     fn shared_typescript_parser_vectors() {
         let vectors: serde_json::Value =

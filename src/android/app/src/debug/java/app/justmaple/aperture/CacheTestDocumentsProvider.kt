@@ -27,6 +27,8 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
     @Volatile private var unsafeName = false
     @Volatile private var pausePublication = false
     @Volatile private var pauseSidecarRead: String? = null
+    private val childQueries = java.util.concurrent.atomic.AtomicInteger()
+    private val sidecarReads = java.util.concurrent.atomic.AtomicInteger()
     @Volatile private var blocked = false
     @Volatile private var release = CountDownLatch(1)
 
@@ -57,7 +59,10 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
         parentDocumentId: String,
         projection: Array<out String>?,
         sortOrder: String?,
-    ): Cursor = cursor(projection, file(parentDocumentId).listFiles().orEmpty().toList())
+    ): Cursor {
+        childQueries.incrementAndGet()
+        return cursor(projection, file(parentDocumentId).listFiles().orEmpty().toList())
+    }
 
     private fun cursor(projection: Array<out String>?, files: List<File>) =
         MatrixCursor(
@@ -110,6 +115,7 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
         signal: CancellationSignal?,
     ): ParcelFileDescriptor {
         if (readOnly && mode != "r") throw FileNotFoundException("Read-only fixture provider")
+        if (mode == "r" && file(documentId).extension == "xmp") sidecarReads.incrementAndGet()
         if (
             (pausePublication && mode == "rw" && file(documentId).name.endsWith("tmp.avif")) ||
                 (mode == "r" && file(documentId).name == pauseSidecarRead)
@@ -155,7 +161,7 @@ class CacheTestDocumentsProvider : DocumentsProvider() {
     }
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
-        if (method == "cache-test-state") return Bundle().apply { putBoolean("blocked", blocked) }
+        if (method == "cache-test-state") return Bundle().apply { putBoolean("blocked", blocked); putInt("childQueries", childQueries.get()); putInt("sidecarReads", sidecarReads.get()) }
         if (method == "cache-test-release") {
             release.countDown()
             return Bundle()

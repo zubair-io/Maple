@@ -1,3 +1,4 @@
+import { handoffUserWithProof } from './auth-handoff-proof.ts';
 // src/api/src/routes/auth-native-code.ts
 //
 // Native one-time PKCE code exchange (#856). Extracted from auth.ts to keep
@@ -6,7 +7,6 @@
 //   POST /api/auth/native-code         (authed) — the web app issues a code
 //   POST /api/auth/native-code/redeem  (public) — the native app redeems it
 import { Elysia, t } from 'elysia';
-import { ObjectId } from '../db/object-id.ts';
 import { findUserById } from '../db/repos/auth.users.repo.ts';
 import { signAccessToken } from '../auth/tokens.ts';
 import { accessClaimsFor, toPublicAuthUser } from '../auth/permissions.ts';
@@ -73,18 +73,8 @@ export const nativeCodeRedeemRoutes = new Elysia().post(
   { body: t.Object({ code: t.String(), code_verifier: t.String() }) },
 );
 
-/**
- * Public polling claim (#3063). Chromium blocks the web app's script-initiated
- * `maple-app://` redirect when the tab has no user gesture — exactly the
- * already-signed-in browser case (#2963/#2964) — so the code the web app mints
- * can be stranded server-side. The native app polls here with the ceremony's
- * `state` and its private PKCE verifier; possession of the verifier proves the
- * same principal `/redeem` would, without the redirect-bound raw code. 404
- * while nothing matching is pending (keep polling); single-use thereafter.
- *
- * Rate limit: its own per-IP bucket, sized for a 2s poll cadence (60/min) so
- * polling never starves the shared `auth:` budget the other flows use.
- */
+/** Public callback-code claim. State, PKCE and the one-time callback code
+ * must all match. Code-less polling never authenticates, including on a shared IP. */
 export const nativeCodeClaimRoutes = new Elysia().post(
   '/api/auth/native-code/claim',
   async ({ body, set, request }) => {
@@ -104,7 +94,17 @@ export const nativeCodeClaimRoutes = new Elysia().post(
       set.status = 400;
       return { error: 'invalid state' };
     }
-    const redeemed = await claimNativeCode(body.state, body.code_verifier);
+    if (body.code !== undefined && !/^[A-Za-z0-9_-]{16,128}$/.test(body.code)) {
+      set.status = 400;
+      return { error: 'invalid code' };
+    }
+    if (body.code === undefined) {
+      set.status = 404;
+      return { error: 'no pending code' };
+    }
+    const redeemed = await claimNativeCode(body.state, body.code_verifier, {
+      code: body.code,
+    });
     if (!redeemed) {
       set.status = 404;
       return { error: 'no pending code' };
@@ -116,21 +116,30 @@ export const nativeCodeClaimRoutes = new Elysia().post(
     }
     return tokens;
   },
-  { body: t.Object({ state: t.String(), code_verifier: t.String() }) },
+  {
+    body: t.Object({
+      state: t.String(),
+      code_verifier: t.String(),
+      code: t.Optional(t.String()),
+    }),
+  },
 );
 
 /**
- * Authed issue. The web app calls this once a passkey ceremony has established
- * the session, passing the PKCE challenge + opaque state the Apple shell handed
- * it. Returns a short-lived single-use `code` the web app redirects to the
- * app's allowed scheme — tokens never ride in the redirect.
+ * Authed issue. The web app calls this after explicit user consent (#4673),
+ * passing the PKCE challenge + opaque state the native shell handed it.
+ * Requires persistent-login proof (`maple_refresh` cookie or `refresh_token`
+ * body) or fresh passkey step-up (`X-Step-Up` header) so an access-only JWT
+ * cannot mint a 90-day refresh family. Returns a short-lived single-use `code`
+ * the web app redirects to the app's allowed scheme — tokens never ride in the
+ * redirect.
  *
  * Self-gating: `requireAuth` is `.use`d on this instance's own chain (the same
  * pattern as `/me`), so its scoped derive stays contained when mounted.
  */
 export const nativeCodeIssueRoutes = new Elysia().use(requireAuth).post(
   '/api/auth/native-code',
-  async ({ body, auth, set }) => {
+  async ({ body, auth, cookie, headers, set }) => {
     // The challenge is base64url(sha256(verifier)) — fixed charset + length.
     // Sanitize before storing (same defensive instinct as the scheme check).
     if (!/^[A-Za-z0-9_-]{43,128}$/.test(body.code_challenge)) {
@@ -141,8 +150,10 @@ export const nativeCodeIssueRoutes = new Elysia().use(requireAuth).post(
       set.status = 400;
       return { error: 'invalid state' };
     }
+    const userId = await handoffUserWithProof({ auth, body, cookie, headers, set }, jwtSecret());
+    if (!userId) return { error: 'refresh-token proof or step-up required' };
     const issued = await issueNativeCode({
-      userId: new ObjectId(auth.user.sub),
+      userId,
       codeChallenge: body.code_challenge,
       state: body.state,
       deviceLabel: body.device_label?.slice(0, 64) || 'Apple device',
@@ -154,6 +165,7 @@ export const nativeCodeIssueRoutes = new Elysia().use(requireAuth).post(
       code_challenge: t.String(),
       state: t.String(),
       device_label: t.Optional(t.String()),
+      refresh_token: t.Optional(t.String()),
     }),
   },
 );

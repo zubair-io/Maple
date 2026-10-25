@@ -335,6 +335,7 @@ pub(super) fn direct_raw_gpu(
         wb_matrix,
         wb_temperature: model.temperature,
         wb_tint: model.tint,
+        wb_hsm: None,
         tone: [
             model.exposure,
             model.brightness,
@@ -439,6 +440,9 @@ pub(super) fn direct_raw_gpu(
         color_grade_global_hue: model.color_grade_global_hue,
         color_grade_global_saturation: model.color_grade_global_saturation,
         color_grade_global_luminance: model.color_grade_global_luminance,
+        color_grade_blending: model.color_grade_blending,
+        color_grade_shadow_edge: model.color_grade_shadow_edge,
+        color_grade_highlight_edge: model.color_grade_highlight_edge,
         sharpen_amount: model.sharpen_amount,
         sharpen_radius: model.sharpen_radius,
         sharpen_detail: model.sharpen_detail,
@@ -468,6 +472,14 @@ pub(super) fn direct_raw_gpu(
             red: model.display_tone_curve_red.points.clone(),
             green: model.display_tone_curve_green.points.clone(),
             blue: model.display_tone_curve_blue.points.clone(),
+        },
+        color_curves: raw_gpu::ColorCurveInputs {
+            hue_vs_hue: model.color_curve_hue_vs_hue.points.clone().into(),
+            hue_vs_sat: model.color_curve_hue_vs_sat.points.clone().into(),
+            hue_vs_luma: model.color_curve_hue_vs_luma.points.clone().into(),
+            luma_vs_sat: model.color_curve_luma_vs_sat.points.clone().into(),
+            sat_vs_sat: model.color_curve_sat_vs_sat.points.clone().into(),
+            sat_vs_luma: model.color_curve_sat_vs_luma.points.clone().into(),
         },
     };
     let ctx = GpuContext::new_blocking().expect("gpu context");

@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'bun:test';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
@@ -184,6 +184,11 @@ describe('runTrashGcOnce', () => {
     // A neighbour that merely starts with the same stem is not a paired
     // sidecar and must survive the purge.
     writeFileSync(join(root, 'shot (2).xmp'), '<xmp/>');
+    // Its pre-#5021 backup edit goes with it (#5063); another tool's never does.
+    const maple = '<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/"/>';
+    writeFileSync(join(root, 'shot.dng.xmp'), maple);
+    writeFileSync(join(root, 'other.dng'), 'y');
+    writeFileSync(join(root, 'other.dng.xmp'), '<x:xmpmeta xmlns:darktable="x"/>');
 
     trashedAsset(live.db, {
       libraryId,
@@ -199,7 +204,36 @@ describe('runTrashGcOnce', () => {
     expect(existsSync(join(root, variant))).toBe(false);
     expect(existsSync(join(root, 'shot.v2.xmp'))).toBe(true);
     expect(existsSync(join(root, 'shot (2).xmp'))).toBe(true);
+    expect(existsSync(join(root, 'shot.dng.xmp'))).toBe(false);
+    expect(existsSync(join(root, 'other.dng.xmp'))).toBe(true);
   });
+
+  it.skipIf(process.getuid?.() === 0)(
+    "keeps the row and the photo while its old-name edit can't be read",
+    async () => {
+      using live = await createLiveTestDatabase();
+      const root = mkdtempSync(join(tmpdir(), 'maple-trash-gc-old-name-unreadable-'));
+      const libraryId = registerLibrary(live.db, root);
+      writeFileSync(join(root, 'shot.dng'), 'x');
+      const legacy = join(root, 'shot.dng.xmp');
+      writeFileSync(legacy, '<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/"/>');
+      chmodSync(legacy, 0o000);
+      trashedAsset(live.db, {
+        libraryId,
+        filename: 'shot.dng',
+        deletedAt: new Date(Date.now() - 60 * DAY_MS).toISOString(),
+      });
+      try {
+        const summary = await runTrashGcOnce({ retentionDays: 30 });
+
+        expect(summary).toEqual({ scanned: 1, purged: 0, errors: 1 });
+      } finally {
+        chmodSync(legacy, 0o644);
+      }
+      expect(existsSync(join(root, 'shot.dng'))).toBe(true);
+      expect(existsSync(legacy)).toBe(true);
+    },
+  );
 
   it('tolerates a file that is already gone', async () => {
     using live = await createLiveTestDatabase();

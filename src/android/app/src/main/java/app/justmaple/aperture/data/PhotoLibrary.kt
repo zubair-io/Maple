@@ -215,8 +215,31 @@ class PhotoLibrary(private val context: Context) {
         return file
     }
 
+    /** Metadata reads retain the immutable original without creating a full OS-decoded raster. */
+    suspend fun <T> withSourceMetadata(photo: Photo, action: suspend (File) -> T): T = originals.withLock {
+        val source = withContext(Dispatchers.IO) {
+            val folder = File(context.cacheDir, "originals").apply { mkdirs() }
+            sourceOriginal(photo, folder)
+        }
+        action(source)
+    }
+
     suspend fun <T> withOriginal(photo: Photo, action: suspend (File) -> T): T =
         withMaterialized(photo, null, action)
+
+    suspend fun <T> withNativeDetailOriginal(photo: Photo, action: suspend (File) -> T): T = originals.withLock {
+        if (photo.extension in setOf("heic", "heif", "avif")) {
+            withContext(Dispatchers.IO) {
+                val source = sourceOriginal(photo, File(context.cacheDir, "originals").apply { mkdirs() })
+                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeFile(source.path, bounds)
+                check(NativeBridge.platformNativeDetailFits(bounds.outWidth, bounds.outHeight, source.length())) {
+                    "Native detail raster exceeds the decode memory budget"
+                }
+            }
+        }
+        action(materialize(photo, null))
+    }
 
     suspend fun <T> withPreview(photo: Photo, edge: Int, action: suspend (File) -> T): T =
         withMaterialized(photo, edge, action)
@@ -385,6 +408,35 @@ class PhotoLibrary(private val context: Context) {
             sidecars.singleOrNull(),
         )
     }
+
+    /** Refresh each folder once, then read its sidecar bytes from that sibling snapshot. */
+    suspend fun loadSidecars(photos: List<Photo>): Map<String, LoadedSidecar> =
+        withContext(Dispatchers.IO) {
+            buildMap {
+                for ((parent, siblings) in photos.groupBy { it.parent }) {
+                    currentCoroutineContext().ensureActive()
+                    if (parent != null && siblings.none { CloudLibrary.isCloud(it.uri) })
+                        io.withLock {
+                            currentCoroutineContext().ensureActive()
+                            local.list(parent, fresh = true)
+                        }
+                    for (photo in siblings) {
+                        currentCoroutineContext().ensureActive()
+                        try {
+                            val xml = io.withLock {
+                                currentCoroutineContext().ensureActive()
+                                readSidecar(photo)
+                            }
+                            currentCoroutineContext().ensureActive()
+                            put(photo.uri.toString(), LoadedSidecar(XmpDocument(xml ?: XmpDocument.EMPTY), xml))
+                        } catch (failure: Exception) {
+                            if (failure is kotlinx.coroutines.CancellationException) throw failure
+                            // Match single-photo culling recovery: unreadable marks remain unknown.
+                        }
+                    }
+                }
+            }
+        }
 
     suspend fun loadSidecar(photo: Photo): LoadedSidecar = io.withLock {
         withContext(Dispatchers.IO) {

@@ -33,6 +33,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\Maple.UI\MuiColorGradeZoneWeightsMath.cs" Link="MapleUI\Molecules\MuiColorGradeZoneWeightsMath.cs" />
     <Content Include="Assets\Map\**\*" CopyToOutputDirectory="PreserveNewest" />
     <EmbeddedResource Include="..\..\apple\Packages\MapleCore\Sources\MapleCore\Resources\builtin-presets.json" LogicalName="Maple.BuiltinPresets.json" />
     <Content Include="Assets\maple.ico">

@@ -10,7 +10,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import app.justmaple.aperture.*
 import app.justmaple.aperture.R
@@ -24,8 +23,18 @@ internal fun ControlsInspector(
     state: MapleState,
     group: EditorGroup,
     modifier: Modifier,
+    activeSubTool: String? = null,
+    onSubToolChange: ((String) -> Unit)? = null,
 ) {
     var filmsOpen by remember { mutableStateOf(false) }
+    val subTools = remember(group) { subToolsFor(group) }
+    var internalSubTool by remember(group) { mutableStateOf(subTools.first().id) }
+    val subTool = activeSubTool ?: internalSubTool
+    val setSubTool: (String) -> Unit = {
+        internalSubTool = it
+        onSubToolChange?.invoke(it)
+    }
+    var band by remember(group) { mutableStateOf(HslBand.Red) }
     val filmId = state.document.attribute("papp:FilmLook").orEmpty()
     val bw = state.document.attribute("crs:ConvertToGrayscale")
     val monochrome = bw == "1" || bw.equals("True", ignoreCase = true)
@@ -96,39 +105,54 @@ internal fun ControlsInspector(
                     }
                 }
             }
-        key(group) {
+        if (subTools.size > 1)
+            SubToolSelector(
+                subTools,
+                subTool,
+                setSubTool,
+                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        if (group == EditorGroup.Light && subTool == "curve")
+            ParametricToneCurvePlot(state, model = model)
+        if (group == EditorGroup.Color && subTool == "wb")
+            WbPresetChips(
+                wbPresets,
+                model::applyWbPreset,
+                state,
+                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        if (group == EditorGroup.Color && subTool == "hsl")
+            HslBandChips(band, { band = it }, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        if (group == EditorGroup.Effects && subTool == "presets")
+            BuiltInPresetsRow(
+                model,
+                state,
+                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        if (group == EditorGroup.Detail && subTool == "crop")
+            CropControlsSection(model, state, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        val sliderFields =
+            when {
+                group == EditorGroup.Color && subTool == "hsl" -> hslBandFields(band)
+                else -> fieldsForSubTool(group, subTool, fullInspector = true)
+            }
+        key(group, subTool, band) {
             LazyColumn(Modifier.weight(1f).testTag("adjustment-sliders")) {
                 items(
-                    group.fields.filter {
+                    sliderFields.filter {
                         state.supportsField(it) && (!it.name.startsWith("gray_mixer_") || monochrome)
                     },
                     key = { it.name },
                 ) { field ->
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                        Row {
-                            Text(
-                                fieldLabel(field),
-                                Modifier.weight(1f),
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            Text(
-                                displayValue(field, state.values[field.name] ?: field.initial),
-                                color = MapleColors.muted,
-                                fontFamily = FontFamily.Monospace,
-                                style = MaterialTheme.typography.labelMedium,
-                            )
-                        }
-                        AdjustmentSlider(
-                            field,
-                            state.values[field.name] ?: field.initial,
-                            onChange = { model.setField(field.name, it) },
-                            onCommit = model::commitGesture,
-                            enabled =
-                                state.canEdit &&
-                                    (field.name != "film_strength" || filmId.isNotEmpty()) &&
-                                    (!field.name.startsWith("gray_mixer_") || monochrome),
-                        )
-                    }
+                    AdjustmentSliderRow(
+                        field,
+                        state.values[field.name] ?: field.initial,
+                        state.canEdit &&
+                            (field.name != "film_strength" || filmId.isNotEmpty()) &&
+                            (!field.name.startsWith("gray_mixer_") || monochrome),
+                        onChange = { model.setField(field.name, it) },
+                        onCommit = model::commitGesture,
+                    )
                 }
             }
         }

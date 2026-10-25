@@ -29,6 +29,11 @@ namespace Maple.WinUI.Services
         /// <summary>Raw copy of the wb_frame_* export block, in struct order,
         /// applied verbatim onto MapleAdjustmentParams for each tick.</summary>
         public required float[] WbFrame { get; init; }
+        /// <summary>The decode's HueSatMap endpoint wire (#5099), owned by the
+        /// native core for the life of the process; zero when absent.</summary>
+        public IntPtr WbHueSatMap { get; init; }
+        public nuint WbHueSatMapLength { get; init; }
+        public float WbHueSatMapAsShotCct { get; init; }
         public bool IsRaster { get; init; }
         public CameraSupportMetadata? CameraSupport { get; init; }
         /// <summary>What the core resolved for the sidecar's lens selection
@@ -136,6 +141,9 @@ namespace Maple.WinUI.Services
                         DecodedTemperature = framePresent ? buffer.wb_frame_scene_cct : 6500f,
                         DecodedTint = framePresent ? buffer.wb_frame_as_shot_tint : 0f,
                         WbFrame = CopyWbFrame(&buffer),
+                        WbHueSatMap = (IntPtr)buffer.wb_hsm_data,
+                        WbHueSatMapLength = buffer.wb_hsm_len,
+                        WbHueSatMapAsShotCct = buffer.wb_hsm_as_shot_cct,
                         CameraSupport = CameraSupportMetadata.ReadBuffer((IntPtr)buffer.camera_support_json),
                         // Warm: the develop above left the RAW in the decode
                         // cache, so this is a metadata lookup, not a decode.
@@ -223,9 +231,13 @@ namespace Maple.WinUI.Services
         /// bytes ready for a WriteableBitmap. Reuses caller-provided scratch
         /// buffers to keep the tick allocation-free after the first call.
         /// </summary>
+        /// <param name="hazeFrame">The whole decoded frame a windowed tick sits
+        /// in; its dehaze maps (#3287) are measured from it when dehaze is
+        /// engaged.</param>
         public static void RenderTick(
             DecodedImage image, AdjustmentState model,
-            ref float[]? chainScratch, byte[] bgraOut, FilmLut? film = null, MapleChainWindow? window = null)
+            ref float[]? chainScratch, byte[] bgraOut, FilmLut? film = null, MapleChainWindow? window = null,
+            DecodedImage? hazeFrame = null)
         {
             if (!string.IsNullOrEmpty(model.FilmLook) && (film?.Id != model.FilmLook || film.NativeHandle == null))
                 throw new InvalidOperationException($"Film look '{model.FilmLook}' has not been loaded.");
@@ -238,7 +250,7 @@ namespace Maple.WinUI.Services
 
             var p = MapleAdjustmentParams.From(
                 model, image.DecodedTemperature, image.DecodedTint, image.Iso, image.WhitesAnchorEv, image.NrSamplingScale);
-            ApplyWbFrame(ref p, image.WbFrame);
+            ApplyWbExports(ref p, image);
             p.skip_agx = image.IsRaster ? 1u : 0u;
 
             // Point (#2576) and display-referred (#2232) curves ride a
@@ -250,18 +262,11 @@ namespace Maple.WinUI.Services
             // local adjustments" (raw-core's bit-identical short-circuit).
             var localFlat = LocalAdjustmentFlat.ToFlat(model.LocalAdjustments);
 
-            fixed (float* inPtr = image.Pixels)
-            fixed (float* outPtr = chainScratch)
-            fixed (float* noisePtr = image.NoiseProfile)
-            fixed (float* lumaPtr = flat.Luma)
-            fixed (float* redPtr = flat.Red)
-            fixed (float* greenPtr = flat.Green)
-            fixed (float* bluePtr = flat.Blue)
-            fixed (float* displayLumaPtr = flat.DisplayLuma)
-            fixed (float* displayRedPtr = flat.DisplayRed)
-            fixed (float* displayGreenPtr = flat.DisplayGreen)
-            fixed (float* displayBluePtr = flat.DisplayBlue)
-            fixed (float* localPtr = localFlat)
+            fixed (float* inPtr = image.Pixels, outPtr = chainScratch, noisePtr = image.NoiseProfile, localPtr = localFlat)
+            fixed (float* lumaPtr = flat.Luma, redPtr = flat.Red, greenPtr = flat.Green, bluePtr = flat.Blue)
+            fixed (float* displayLumaPtr = flat.DisplayLuma, displayRedPtr = flat.DisplayRed, displayGreenPtr = flat.DisplayGreen, displayBluePtr = flat.DisplayBlue)
+            fixed (float* ccHH = flat.ColorCurveHueVsHue, ccHS = flat.ColorCurveHueVsSat, ccHL = flat.ColorCurveHueVsLuma)
+            fixed (float* ccLS = flat.ColorCurveLumaVsSat, ccSS = flat.ColorCurveSatVsSat, ccSL = flat.ColorCurveSatVsLuma)
             {
                 if (image.NoiseProfile.Length > 0)
                 {
@@ -290,13 +295,10 @@ namespace Maple.WinUI.Services
                 curves.display_green_len = (nuint)flat.DisplayGreen.Length;
                 curves.display_blue_ptr = displayBluePtr;
                 curves.display_blue_len = (nuint)flat.DisplayBlue.Length;
+                flat.BindColorCurves(ref curves, ccHH, ccHS, ccHL, ccLS, ccSS, ccSL);
                 int rc;
                 if (window is { } detailWindow)
-                    rc = string.IsNullOrEmpty(model.FilmLook)
-                        ? RawFfi.ApplyWindow(inPtr, (uint)image.Width, (uint)image.Height, &p, &curves,
-                            IntPtr.Zero, 0, &detailWindow, outPtr)
-                        : RawFfi.ApplyWindow(inPtr, (uint)image.Width, (uint)image.Height, &p, &curves,
-                            film!.NativeHandle!, (float)model.FilmStrength, &detailWindow, outPtr);
+                    rc = ApplyWindow(image, model, film, detailWindow, hazeFrame, inPtr, &p, &curves, outPtr);
                 else rc = string.IsNullOrEmpty(model.FilmLook)
                     ? RawFfi.maple_apply_chain_and_encode_display_curves_f32(
                         inPtr, (uint)image.Width, (uint)image.Height, &p, &curves, outPtr)
@@ -500,6 +502,9 @@ namespace Maple.WinUI.Services
                 DecodedTemperature = src.DecodedTemperature,
                 DecodedTint = src.DecodedTint,
                 WbFrame = src.WbFrame,
+                WbHueSatMap = src.WbHueSatMap,
+                WbHueSatMapLength = src.WbHueSatMapLength,
+                WbHueSatMapAsShotCct = src.WbHueSatMapAsShotCct,
                 IsRaster = src.IsRaster,
                 ProfileCurve = src.ProfileCurve,
                 ResidualLut = src.ResidualLut,
@@ -509,58 +514,6 @@ namespace Maple.WinUI.Services
                 ProfileSource = src.ProfileSource,
                 ProfileFit = src.ProfileFit,
             };
-        }
-
-        /// <summary>The wb_frame block spans 82 floats in both the buffer
-        /// export and the params struct, in identical field order
-        /// (9+1+9+1+1+1+9+9+3+1+9+1+9+1+9+9).</summary>
-        public const int WbFrameFloatCount = 82;
-
-        private static float[] CopyWbFrame(MapleSceneLinearBufferF32* b)
-        {
-            var f = new float[WbFrameFloatCount];
-            var i = 0;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_m_cold[k];
-            f[i++] = b->wb_frame_cct_cold;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_m_warm[k];
-            f[i++] = b->wb_frame_cct_warm;
-            f[i++] = b->wb_frame_scene_cct;
-            f[i++] = b->wb_frame_as_shot_tint;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_cm[k];
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_forward_matrix[k];
-            for (var k = 0; k < 3; k++) f[i++] = b->wb_frame_render_scene_white_xyz[k];
-            f[i++] = b->wb_frame_render_wb_already_baked;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_cm_cold[k];
-            f[i++] = b->wb_frame_render_cct_cold;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_cm_warm[k];
-            f[i++] = b->wb_frame_render_cct_warm;
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_fm_cold[k];
-            for (var k = 0; k < 9; k++) f[i++] = b->wb_frame_render_fm_warm[k];
-            return f;
-        }
-
-        private static void ApplyWbFrame(ref MapleAdjustmentParams p, float[] f)
-        {
-            var i = 0;
-            fixed (MapleAdjustmentParams* pp = &p)
-            {
-                for (var k = 0; k < 9; k++) pp->wb_frame_m_cold[k] = f[i++];
-                pp->wb_frame_cct_cold = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_m_warm[k] = f[i++];
-                pp->wb_frame_cct_warm = f[i++];
-                pp->wb_frame_scene_cct = f[i++];
-                pp->wb_frame_as_shot_tint = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_cm[k] = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_forward_matrix[k] = f[i++];
-                for (var k = 0; k < 3; k++) pp->wb_frame_render_scene_white_xyz[k] = f[i++];
-                pp->wb_frame_render_wb_already_baked = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_cm_cold[k] = f[i++];
-                pp->wb_frame_render_cct_cold = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_cm_warm[k] = f[i++];
-                pp->wb_frame_render_cct_warm = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_fm_cold[k] = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_fm_warm[k] = f[i++];
-            }
         }
     }
 }

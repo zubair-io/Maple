@@ -86,6 +86,7 @@
     /// on iPhone this seeds the Search tab rather than the mac/iPad overlay
     /// (#3163) — see `AppShell+Map.swift.selectMapPlace`.
     let onSelectMapPlace: (MapPlaceSearchTarget) -> Void
+    let onSignInForMap: (URL) -> Void
     let onSelectLocalAsset: (ImageRef) -> Void
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
@@ -152,6 +153,7 @@
         sessions: $sessions,
         onSelectCloudAsset: onSelectCloudAsset,
         onSelectMapPlace: onSelectMapPlace,
+        onSignInForMap: onSignInForMap,
         // `isSearchActive` is always false above, so `CloudSearchView`
         // never mounts here and never calls this — required by
         // `AppShellCenterColumn`'s init but otherwise dead on iPhone.

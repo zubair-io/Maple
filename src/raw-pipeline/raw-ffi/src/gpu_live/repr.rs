@@ -366,4 +366,35 @@ pub struct MapleGpuLiveParams {
     pub whites_anchor_ev: f32,
     /// Output pixels per developed full-frame pixel. Nonpositive/nonfinite means native.
     pub nr_sampling_scale: f32,
+    /// Colour-grading zone-isolation controls (#5040). Zero-filled `(0, 0, 0)`
+    /// resolves to `(100.0, MIDTONE_ANCHOR_L, MIDTONE_ANCHOR_L)`.
+    pub color_grade_blending: f32,
+    pub color_grade_shadow_edge: f32,
+    pub color_grade_highlight_edge: f32,
+    /// Oklab secondary color curves (#5041, Stage 22b): flat `(x, y)` f32 pairs;
+    /// `len` = float count (`2 * points`). Null/zero = identity.
+    pub color_curve_hue_vs_hue_ptr: *const f32,
+    pub color_curve_hue_vs_hue_len: usize,
+    pub color_curve_hue_vs_sat_ptr: *const f32,
+    pub color_curve_hue_vs_sat_len: usize,
+    pub color_curve_hue_vs_luma_ptr: *const f32,
+    pub color_curve_hue_vs_luma_len: usize,
+    pub color_curve_luma_vs_sat_ptr: *const f32,
+    pub color_curve_luma_vs_sat_len: usize,
+    pub color_curve_sat_vs_sat_ptr: *const f32,
+    pub color_curve_sat_vs_sat_len: usize,
+    pub color_curve_sat_vs_luma_ptr: *const f32,
+    pub color_curve_sat_vs_luma_len: usize,
+    // --- retargeted HueSatMap (#5099) — the decode's
+    //     `MapleSceneLinearBufferF32.wb_hsm_data`/`wb_hsm_len`, passed back
+    //     verbatim. With a present `wb_frame_*` block the WB pass re-lerps
+    //     the HueSatMap at the target, as a develop does. Null/0 (a stale
+    //     host) keeps the plain 3×3, bit-identical. Borrowed for the call. ---
+    pub wb_hsm_ptr: *const f32,
+    pub wb_hsm_len: usize,
+    /// The decode's `wb_hsm_as_shot_cct` and `ae_gain` (the auto-exposure
+    /// gain baked into the buffer after DCP), passed back verbatim. A zero
+    /// gain reads as 1; a zero as-shot CCT disables the HueSatMap (plain 3×3).
+    pub wb_hsm_as_shot_cct: f32,
+    pub wb_hsm_exposure_gain: f32,
 }

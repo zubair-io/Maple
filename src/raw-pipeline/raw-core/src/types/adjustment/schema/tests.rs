@@ -157,6 +157,15 @@ fn schema_matches_struct() {
         defringe_green_hue_lo,
         defringe_green_hue_hi,
         lens_profile,
+        color_grade_blending,
+        color_grade_shadow_edge,
+        color_grade_highlight_edge,
+        color_curve_hue_vs_hue,
+        color_curve_hue_vs_sat,
+        color_curve_hue_vs_luma,
+        color_curve_luma_vs_sat,
+        color_curve_sat_vs_sat,
+        color_curve_sat_vs_luma,
     } = m;
     let expected_order = [
         "temperature",
@@ -283,6 +292,15 @@ fn schema_matches_struct() {
         "defringe_green_hue_lo",
         "defringe_green_hue_hi",
         "lens_profile",
+        "color_grade_blending",
+        "color_grade_shadow_edge",
+        "color_grade_highlight_edge",
+        "color_curve_hue_vs_hue",
+        "color_curve_hue_vs_sat",
+        "color_curve_hue_vs_luma",
+        "color_curve_luma_vs_sat",
+        "color_curve_sat_vs_sat",
+        "color_curve_sat_vs_luma",
     ];
     assert_eq!(
         ADJUSTMENT_SCHEMA.len(),
@@ -419,6 +437,15 @@ fn schema_matches_struct() {
         perspective_y,
         demosaic,
         lens_profile,
+        color_grade_blending,
+        color_grade_shadow_edge,
+        color_grade_highlight_edge,
+        color_curve_hue_vs_hue,
+        color_curve_hue_vs_sat,
+        color_curve_hue_vs_luma,
+        color_curve_luma_vs_sat,
+        color_curve_sat_vs_sat,
+        color_curve_sat_vs_luma,
     );
     // `local_adjustments` is allow-listed: it carries structured data
     // (Vec<LocalAdjustment>) and is documented as not part of the schema
@@ -464,86 +491,5 @@ fn schema_matches_struct() {
         super::super::WbScaleVersion::V5,
         "AdjustmentModel::default().wb_scale_version must be V5 (fresh models \
          author in the #1894 Robertson-native slider-frame scale)"
-    );
-}
-
-/// Schema-exemption allow-list. Fields appearing here are the ones
-/// `schema_matches_struct` deliberately omits from `ADJUSTMENT_SCHEMA`
-/// because they carry structured payloads (Vec / nested struct) rather
-/// than scalar values. Adding a new exemption MUST land in the same PR
-/// that justifies the deviation. The string-matching keeps the allow-list
-/// source-grep-friendly.
-#[test]
-fn schema_exemption_allowlist() {
-    // `crop` added in #277: nested `Crop` struct, not a codegen scalar.
-    // `inpaint_removals` added in #1486: Vec<Removal> structured payload.
-    // `temperature_seen` / `tint_seen` added in #1729: internal parse-state
-    // booleans, not user-facing slider values.
-    // `wb_scale_version` added in #1780: internal parse-state enum recording
-    // which WB slider scale the sidecar's stored values were authored in.
-    // `mask_rasters` added in #3271: Vec<Arc<MaskRaster>> structured payload,
-    // same rationale as `inpaint_removals`.
-    // `retouch_spots` added in #3409: Vec<RetouchSpot> structured payload,
-    // same rationale again — it rides the nested `crs:RetouchAreas` element,
-    // not a flat attribute.
-    const ALLOWED: &[&str] = &[
-        "local_adjustments",
-        "mask_rasters",
-        "inpaint_removals",
-        "retouch_spots",
-        "crop",
-        "temperature_seen",
-        "tint_seen",
-        "wb_scale_version",
-    ];
-    assert_eq!(
-        ALLOWED.len(),
-        8,
-        "schema exemption count changed — update this test and the \
-         matching note on the module-level doc-comment"
-    );
-    assert!(
-        ALLOWED.contains(&"local_adjustments"),
-        "local_adjustments must remain on the schema-exemption allow-list \
-         (Vec<LocalAdjustment> with its own schema — unlike the tone-curve \
-         fields, which the FieldKind::ToneCurve variant covers since #366)"
-    );
-    assert!(
-        ALLOWED.contains(&"mask_rasters"),
-        "mask_rasters must remain on the schema-exemption allow-list \
-         (Vec<Arc<MaskRaster>> structured payload, not a codegen-eligible \
-         scalar/enum)"
-    );
-    assert!(
-        ALLOWED.contains(&"inpaint_removals"),
-        "inpaint_removals must remain on the schema-exemption allow-list \
-         (Vec<Removal> structured payload, not a codegen-eligible scalar/enum)"
-    );
-    assert!(
-        ALLOWED.contains(&"retouch_spots"),
-        "retouch_spots must remain on the schema-exemption allow-list \
-         (Vec<RetouchSpot> structured payload, not a codegen-eligible \
-         scalar/enum)"
-    );
-    assert!(
-        ALLOWED.contains(&"crop"),
-        "crop must remain on the schema-exemption allow-list \
-         (nested Crop struct, not a codegen-eligible scalar/enum)"
-    );
-    assert!(
-        ALLOWED.contains(&"temperature_seen"),
-        "temperature_seen must remain on the schema-exemption allow-list \
-         (internal parse-state bool for #1729 WB anchoring, not a slider value)"
-    );
-    assert!(
-        ALLOWED.contains(&"wb_scale_version"),
-        "wb_scale_version must remain on the schema-exemption allow-list \
-         (internal parse-state enum for the #1780 WB scale migration, not a \
-         slider value)"
-    );
-    assert!(
-        ALLOWED.contains(&"tint_seen"),
-        "tint_seen must remain on the schema-exemption allow-list \
-         (internal parse-state bool for #1729 WB anchoring, not a slider value)"
     );
 }

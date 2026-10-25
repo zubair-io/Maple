@@ -204,6 +204,27 @@ namespace Maple.WinUI.Native
         public float defringe_green_hue_hi;
         public float whites_anchor_ev;
         public float nr_sampling_scale;
+        public float color_grade_blending;
+        public float color_grade_shadow_edge;
+        public float color_grade_highlight_edge;
+        public float* color_curve_hue_vs_hue_ptr;
+        public nuint color_curve_hue_vs_hue_len;
+        public float* color_curve_hue_vs_sat_ptr;
+        public nuint color_curve_hue_vs_sat_len;
+        public float* color_curve_hue_vs_luma_ptr;
+        public nuint color_curve_hue_vs_luma_len;
+        public float* color_curve_luma_vs_sat_ptr;
+        public nuint color_curve_luma_vs_sat_len;
+        public float* color_curve_sat_vs_sat_ptr;
+        public nuint color_curve_sat_vs_sat_len;
+        public float* color_curve_sat_vs_luma_ptr;
+        public nuint color_curve_sat_vs_luma_len;
+        // Retargeted HueSatMap (#5099): the decode's wb_hsm_data/wb_hsm_len,
+        // passed back verbatim (process-lifetime, no pinning needed).
+        public float* wb_hsm_ptr;
+        public nuint wb_hsm_len;
+        public float wb_hsm_as_shot_cct;
+        public float wb_hsm_exposure_gain;
 
         /// <summary>
         /// Build live-chain params from the canonical model + decode exports.
@@ -302,6 +323,9 @@ namespace Maple.WinUI.Native
                 color_grade_global_hue = (float)m.ColorGradeGlobalHue,
                 color_grade_global_saturation = (float)m.ColorGradeGlobalSaturation,
                 color_grade_global_luminance = (float)m.ColorGradeGlobalLuminance,
+                color_grade_blending = (float)m.ColorGradeBlending,
+                color_grade_shadow_edge = (float)m.ColorGradeShadowEdge,
+                color_grade_highlight_edge = (float)m.ColorGradeHighlightEdge,
                 defringe_purple_amount = (float)m.DefringePurpleAmount,
                 defringe_purple_hue_lo = (float)m.DefringePurpleHueLo,
                 defringe_purple_hue_hi = (float)m.DefringePurpleHueHi,
@@ -318,6 +342,10 @@ namespace Maple.WinUI.Native
                 perspective_y = (float)m.PerspectiveY,
             };
             WriteWbFrame(ref p, image.WbFrame);
+            p.wb_hsm_ptr = (float*)image.WbHueSatMap;
+            p.wb_hsm_len = image.WbHueSatMapLength;
+            p.wb_hsm_as_shot_cct = image.WbHueSatMapAsShotCct;
+            p.wb_hsm_exposure_gain = image.AeGain;
             return p;
         }
 

@@ -71,6 +71,7 @@ use crate::auto_profile_curve::{profile_curve_is_active, AutoProfileCurvePass};
 use crate::capture_sharpening::{CaptureSharpeningParams, CaptureSharpeningPass};
 use crate::chain::Pass;
 use crate::clarity::ClarityPass;
+use crate::color_curves::{color_curves_is_identity, ColorCurveInputs, ColorCurvesPass};
 use crate::defringe::{DefringeInputs, DefringePass};
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
@@ -145,17 +146,13 @@ pub struct FullChainInputs<'a> {
     /// `wb_cat16_matrix` or a diagonal from `wb_gains`).
     pub wb_matrix: [[f32; 3]; 3],
     /// The white-balance temperature (Kelvin) + tint the `wb_matrix` was derived
-    /// from. Carried alongside the matrix so the LIVE builder
-    /// ([`crate::build_live_chain`]) can gate WB on raw-core's EXACT short-circuit
-    /// predicate — `(temp - 6500).abs() < 0.5 && tint.abs() < 0.5` — instead of a
-    /// matrix near-identity test, which is structurally broken here: at 6500K the
-    /// CAT16 round-trip yields a matrix ~6.9e-3 off identity (so a matrix-identity
-    /// gate wrongly fires), and a temp 0.5K past the skip band produces a matrix
-    /// indistinguishable from the 6500K one (no tolerance separates apply from
-    /// skip). The composition builder ([`build_split`]) ignores these — it always
-    /// pushes WB — so they're inert outside the live path.
+    /// from. Carried alongside the matrix so [`crate::build_live_chain`] can gate
+    /// WB on raw-core's exact short-circuit predicate.
     pub wb_temperature: f32,
     pub wb_tint: f32,
+    /// The retargeted HueSatMap for the WB pass on a dual-HueSatMap
+    /// ForwardMatrix profile (#5099). `None` keeps the plain `wb_matrix`.
+    pub wb_hsm: Option<crate::WbHsmInputs<'a>>,
     /// Scene-tone-controls sliders (exposure / brightness / highlights /
     /// shadows / whites / blacks), each `[-100, 100]` (exposure in EV).
     pub tone: [f32; 6],
@@ -311,29 +308,21 @@ pub struct FullChainInputs<'a> {
     /// bit-identical pre-#3411 output. Appended at the struct tail per the
     /// append-only convention.
     pub defringe: DefringeInputs,
-    /// EXIF tag (1..=8) taking the uploaded buffer to the upright frame the
-    /// masks in `local_adjustments` are authored in (#4426). 1 for a host
-    /// that uploads an already-oriented decode (Apple, Windows); the
-    /// sensor-framed prefix hosts (Web, Linux) pass the RAW's own tag.
+    /// EXIF tag (1..=8) taking the uploaded buffer to the upright frame (#4426).
     pub mask_orientation: u32,
+    /// Colour-grading zone-isolation controls (#5040). Zero-filled `(0, 0, 0)`
+    /// resolves to `(100.0, MIDTONE_ANCHOR_L, MIDTONE_ANCHOR_L)`.
+    pub color_grade_blending: f32,
+    pub color_grade_shadow_edge: f32,
+    pub color_grade_highlight_edge: f32,
+    /// Oklab secondary color curves (#5041, Stage 22b).
+    pub color_curves: ColorCurveInputs<'a>,
 }
 
-// `InputShape` lives in a sibling file to keep this module inside the
-// file-size budget (same split shape as `live_chain`'s `noop` / `signature`).
 mod shape;
 pub use shape::InputShape;
 
-/// Where the scene-linear / view boundary sits in the assembled Vec, expressed
-/// as the count of passes that run BEFORE `dehaze` (the prefix whose output
-/// dehaze's airlight must be measured from). The parity test runs `[..PREFIX]`,
-/// reads back, derives the airlight, then runs `dehaze` + the suffix. This is
-/// computed from the same builder so the split can't drift from the assembly.
-///
-/// Returns `(prefix_passes, dehaze_and_suffix_passes)` where concatenating them
-/// in order is identical to a single full Vec — the canonical assembly artifact.
-/// Gather the thirteen colour-grading sliders off the chain inputs — the
-/// single place the `split_tone_*` / `color_grade_*` field split is
-/// resolved, shared by the full chain, the live chain and the gate.
+/// Gather the sixteen colour-grading sliders off the chain inputs.
 pub fn color_grade_sliders(inputs: &FullChainInputs) -> ColorGradeSliders {
     ColorGradeSliders {
         shadow: [
@@ -357,6 +346,9 @@ pub fn color_grade_sliders(inputs: &FullChainInputs) -> ColorGradeSliders {
             inputs.color_grade_global_luminance,
         ],
         balance: inputs.split_tone_balance,
+        blending: inputs.color_grade_blending,
+        shadow_edge: inputs.color_grade_shadow_edge,
+        highlight_edge: inputs.color_grade_highlight_edge,
     }
 }
 
@@ -394,6 +386,7 @@ pub fn build_split<'a>(
     }
     prefix.push(Box::new(WhiteBalancePass {
         matrix: inputs.wb_matrix,
+        hsm: inputs.wb_hsm.as_ref(),
     }));
     prefix.push(Box::new(SceneToneControlsPass {
         exposure: inputs.tone[0],
@@ -414,6 +407,11 @@ pub fn build_split<'a>(
     // HSL (#1112) / black & white (#276) — scene-linear, after saturation,
     // before clarity.
     prefix.push(Box::new(hsl_pass_for(inputs)));
+    if !color_curves_is_identity(&inputs.color_curves) {
+        prefix.push(Box::new(ColorCurvesPass {
+            inputs: &inputs.color_curves,
+        }));
+    }
     prefix.push(Box::new(ClarityPass {
         clarity: inputs.clarity,
     }));

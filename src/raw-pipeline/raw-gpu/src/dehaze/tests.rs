@@ -275,8 +275,10 @@ fn compute_airlight_is_byte_exact_vs_independent_selection() {
         "A must be finite, got {a:?}"
     );
 
-    let pixels: Vec<[f32; 3]> = input.chunks_exact(4).map(|c| [c[0], c[1], c[2]]).collect();
-    let dc = independent_dark_channel(&pixels, w, h);
+    // A is measured on the haze map's proxy grid (#3287).
+    let (proxy, pw, ph) = crate::dehaze::proxy_rgba(&input, w, h);
+    let pixels: Vec<[f32; 3]> = proxy.chunks_exact(4).map(|c| [c[0], c[1], c[2]]).collect();
+    let dc = independent_dark_channel(&pixels, pw, ph);
     let n = dc.len();
     let top_n = (n / 1000).max(1);
     let mut idx: Vec<usize> = (0..n).collect();
@@ -422,5 +424,41 @@ fn wgsl_dehaze_retains_positive_observations_and_signed_hdr_range() {
                 }
             }
         }
+    }
+}
+
+/// The proxy grid is single-sourced in spirit: raw-gpu carries its own copy
+/// (it does not depend on raw-core outside tests), pinned here (#3287).
+#[test]
+fn the_proxy_grid_matches_raw_core() {
+    assert_eq!(
+        HAZE_PROXY_LONG_EDGE,
+        raw_core::stages::dehaze::HAZE_PROXY_LONG_EDGE
+    );
+    for (w, h) in [
+        (1, 1),
+        (48, 40),
+        (300, 200),
+        (4000, 6000),
+        (12288, 8192),
+        (9000, 1),
+    ] {
+        assert_eq!(
+            proxy_dims(w, h),
+            raw_core::stages::dehaze::proxy_dims(w, h),
+            "{w}x{h}"
+        );
+    }
+}
+
+/// An empty frame (#3287) is a no-op on the oracle and the GPU pass alike.
+#[test]
+fn an_empty_frame_dehazes_to_itself() {
+    for (w, h) in [(0usize, 7usize), (7, 0), (0, 0)] {
+        let mut buf: Vec<f32> = Vec::new();
+        apply_dehaze(&mut buf, w, h, 40.0);
+        assert_eq!(compute_airlight(&buf, w, h), [1.0; 3]);
+        let pass = DehazePass::new(&buf, w, h, 40.0);
+        assert_eq!(pass.dehaze, 40.0);
     }
 }

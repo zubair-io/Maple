@@ -79,7 +79,7 @@ fn develop_prefix_rgba_caps_long_edge() {
     let raw_img = raw_core::decode::decode_bytes(&bytes, ext).expect("decode synthetic DNG");
     let model = AdjustmentModel::default();
 
-    let (rgba, w, h, _prefix, _whites_anchor_ev, nr_sampling_scale) =
+    let (rgba, w, h, _prefix, _whites_anchor_ev, nr_sampling_scale, _ae_gain) =
         super::develop_prefix_rgba(&raw_img, &bytes, ext, &model, 16).expect("sized develop");
     assert_eq!(
         (w, h),
@@ -120,14 +120,15 @@ fn develop_prefix_rgba_uncapped_matches_unsized_develop() {
     let raw_img = raw_core::decode::decode_bytes(&bytes, ext).expect("decode synthetic DNG");
     let model = AdjustmentModel::default();
 
-    let (rgba, w, h, prefix, whites_anchor_ev, nr_sampling_scale) = super::develop_prefix_rgba(
-        &raw_img,
-        &bytes,
-        ext,
-        &model,
-        super::DEFAULT_TARGET_LONG_EDGE,
-    )
-    .expect("sized develop");
+    let (rgba, w, h, prefix, whites_anchor_ev, nr_sampling_scale, _ae_gain) =
+        super::develop_prefix_rgba(
+            &raw_img,
+            &bytes,
+            ext,
+            &model,
+            super::DEFAULT_TARGET_LONG_EDGE,
+        )
+        .expect("sized develop");
 
     // The pre-#1080 reference: the UNSIZED develop of the same stripped prefix,
     // packed the same way.

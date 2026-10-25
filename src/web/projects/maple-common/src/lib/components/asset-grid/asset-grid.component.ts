@@ -14,6 +14,7 @@ import {
   Injector,
   OnDestroy,
   ViewChild,
+  afterRenderEffect,
   computed,
   effect,
   inject,
@@ -22,6 +23,7 @@ import {
 import { Router } from '@angular/router';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { RowHeightsVirtualScrollDirective } from './row-heights-virtual-scroll';
+import { BrowseReturnPositionService } from './browse-return-position.service';
 import { DragDropModule } from '@angular/cdk/drag-drop';
 import { LibraryStateService } from '../../state/library-state.service';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
@@ -103,12 +105,50 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
   private readonly injector = inject(Injector);
   protected readonly dragMove = inject(DRAG_MOVE_CAPABILITY);
   private readonly trash = inject(TRASH_CAPABILITY);
+  private readonly returnPosition = inject(BrowseReturnPositionService);
   protected readonly assetGridDropListId = ASSET_GRID_DROP_LIST_ID;
 
   readonly STAR_INDICES = [1, 2, 3, 4, 5];
 
   private containerWidth = signal<number>(800);
   private ro?: ResizeObserver;
+  private restoreFrame: number | null = null;
+
+  constructor() {
+    afterRenderEffect(() => {
+      const sourceId = this.state.selectedSourceId();
+      const rows = this.gridRows();
+      const position = this.returnPosition.forSource(sourceId);
+      const grid = this.gridContainerRef?.nativeElement;
+      if (!position || !grid) return;
+      if (
+        !rows.some((row) =>
+          row.items.some((item) => item.kind === 'image' && item.asset.id === position.assetId),
+        )
+      ) {
+        if (!this.state.backendLoading()) this.returnPosition.clear();
+        return;
+      }
+      if (this.restoreFrame !== null) return;
+      let attempts = 0;
+      const restoreWhenMeasured = () => {
+        if (this.returnPosition.forSource(this.state.selectedSourceId()) !== position) {
+          this.restoreFrame = null;
+          return;
+        }
+        // CDK publishes its scroll height after this render pass. A write before
+        // that happens is clamped to zero and loses the saved position.
+        if (attempts++ < 20 && position.scrollTop > 0 && grid.scrollHeight <= grid.clientHeight) {
+          this.restoreFrame = requestAnimationFrame(restoreWhenMeasured);
+          return;
+        }
+        grid.scrollTop = position.scrollTop;
+        this.returnPosition.clear();
+        this.restoreFrame = null;
+      };
+      this.restoreFrame = requestAnimationFrame(restoreWhenMeasured);
+    });
+  }
 
   readonly gridRows = computed((): GridRow[] => {
     const folders = this.state.foldersInSelectedFolder();
@@ -192,9 +232,14 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
   }
 
   private scrollToTopOnFolderChange(grid: HTMLElement): void {
+    let previousSourceId = this.state.selectedSourceId();
     effect(
       () => {
-        this.state.selectedSourceId();
+        const sourceId = this.state.selectedSourceId();
+        if (sourceId === previousSourceId) return;
+        if (this.returnPosition.forSource(previousSourceId)) this.returnPosition.clear();
+        previousSourceId = sourceId;
+        if (this.returnPosition.forSource(sourceId)) return;
         grid.scrollTop = 0;
       },
       { injector: this.injector },
@@ -203,6 +248,7 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.ro?.disconnect();
+    if (this.restoreFrame !== null) cancelAnimationFrame(this.restoreFrame);
   }
 
   // (Thumbnail loading moved to LibraryStateService.ensureThumbnailUrl —
@@ -233,6 +279,15 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
     const range = e.shiftKey;
     this.state.selectAsset(asset.id, additive, range);
     if (additive || range) return;
+
+    const sourceId = this.state.selectedSourceId();
+    if (sourceId) {
+      this.returnPosition.remember({
+        sourceId,
+        assetId: asset.id,
+        scrollTop: this.gridContainerRef?.nativeElement.scrollTop ?? 0,
+      });
+    }
 
     // Split the slug:relPath id into /view/:slug/** segments — passing the whole
     // id as one segment makes Preview resolve a bogus address and bounce back

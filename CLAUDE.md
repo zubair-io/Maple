@@ -256,7 +256,7 @@ cargo run --release -p raw-core --example stage-trace -- <DNG> <X> <Y>
 cargo run --release -p raw-core --example raw-stats -- <DNG>
 ```
 
-Fixtures at `test-fixtures/raws/` (repo-root, not under `src/raw-pipeline/`) are gitignored. Reference RAW is a 100MP Hasselblad L3D-100c (DJI Mavic 3 Pro) frame at `test-fixtures/raws/dji-mavic3pro-100mp.dng`.
+Fixtures at `test-fixtures/raws/` (repo-root, not under `src/raw-pipeline/`) are gitignored. Reference RAW is a 100MP Hasselblad L3D-100c (DJI Mavic 4 Pro) frame at `test-fixtures/raws/dji-mavic3pro-100mp.dng`.
 
 ### Shared Rust builds (sccache) — required on any machine with several worktrees
 

@@ -212,6 +212,9 @@ prefix_policy! {
         color_grade_global_hue: 0.0,
         color_grade_global_saturation: 0.0,
         color_grade_global_luminance: 0.0,
+        color_grade_blending: 100.0,
+        color_grade_shadow_edge: 0.564622,
+        color_grade_highlight_edge: 0.564622,
         // Display-referred point curves (#2232) — display-tail like grain /
         // color_grade, entirely inside the GPU chain (post-AgX); pin so
         // dragging a display-curve control can't spuriously re-develop.
@@ -219,6 +222,12 @@ prefix_policy! {
         display_tone_curve_red: Default::default(),
         display_tone_curve_green: Default::default(),
         display_tone_curve_blue: Default::default(),
+        color_curve_hue_vs_hue: Default::default(),
+        color_curve_hue_vs_sat: Default::default(),
+        color_curve_hue_vs_luma: Default::default(),
+        color_curve_luma_vs_sat: Default::default(),
+        color_curve_sat_vs_sat: Default::default(),
+        color_curve_sat_vs_luma: Default::default(),
         // Sharpen is short-circuited (`amount = 0`), so its sub-params are inert;
         // pin them to defaults so dragging radius/detail/masking (with the GPU's
         // real `sharpen_amount` active) doesn't spuriously re-develop.

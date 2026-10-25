@@ -1,6 +1,7 @@
 package app.justmaple.aperture.ui
 
 import android.net.Uri
+import android.content.Context
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
@@ -19,11 +20,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import app.justmaple.aperture.*
 import app.justmaple.aperture.R
 import app.justmaple.aperture.data.Folder
@@ -37,9 +41,33 @@ internal fun BrowseGrid(
     folders: List<Folder>,
     folderPicker: () -> Unit,
 ) {
-    var columns by rememberSaveable { mutableIntStateOf(3) }
+    val context = LocalContext.current.applicationContext
+    val gridPreferences = remember(context) { context.getSharedPreferences("browse-grid", Context.MODE_PRIVATE) }
+    var columns by rememberSaveable { mutableIntStateOf(gridPreferences.getInt("columns", 3).coerceIn(1, 7)) }
+    LaunchedEffect(columns) { gridPreferences.edit().putInt("columns", columns).apply() }
+    var filter by rememberSaveable { mutableStateOf(BrowseFilter.All) }
+    var sort by rememberSaveable { mutableStateOf(BrowseSort.Name) }
+    var culling by remember { mutableStateOf(emptyMap<String, PhotoCulling>()) }
     val gridState = rememberFolderGridState(state.folder?.uri)
     val directories = folders.filter { it.name != ".." }
+    LaunchedEffect(photos, state.selected?.uri, state.document, state.documentLoaded) {
+        culling =
+            withContext(Dispatchers.IO) {
+                val loaded = model.library.loadSidecars(photos)
+                photos.associate { photo ->
+                    val marks =
+                        if (state.documentLoaded && photo.uri == state.selected?.uri)
+                            cullingOf(state.document)
+                        else
+                            loaded[photo.uri.toString()]?.let { cullingOf(it.document) } ?: PhotoCulling()
+                    photo.uri.toString() to marks
+                }
+            }
+    }
+    val visible = remember(photos, culling, filter, sort) {
+        applyBrowseCulling(photos, culling, filter, sort)
+    }
+    val pinchColumns = Modifier.gridPinch(gridState, columns) { columns = it }
     if (state.loading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(color = MapleColors.primary)
@@ -59,7 +87,7 @@ internal fun BrowseGrid(
                 listOfNotNull(
                         "${directories.size} ${if (directories.size == 1) "folder" else "folders"}"
                             .takeIf { directories.isNotEmpty() },
-                        "${photos.size} ${if (photos.size == 1) "photo" else "photos"}",
+                        "${visible.size} ${if (visible.size == 1) "photo" else "photos"}",
                     )
                     .joinToString(" · ")
             Text(
@@ -76,6 +104,7 @@ internal fun BrowseGrid(
                 columns++
             }
         }
+        BrowseFilterBar(filter, { filter = it }, sort, { sort = it })
         if (photos.isEmpty() && directories.isEmpty()) {
             MuiEmptyState(
                 if (state.folder == null) "Your library, in Maple" else "No photos here",
@@ -91,7 +120,7 @@ internal fun BrowseGrid(
             val rows = directories.chunked(folderColumns)
             LazyVerticalGrid(
                 GridCells.Fixed(columns),
-                Modifier.fillMaxSize().testTag("browse-grid"),
+                Modifier.fillMaxSize().testTag("browse-grid").then(pinchColumns),
                 state = gridState,
                 contentPadding = PaddingValues(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -110,12 +139,15 @@ internal fun BrowseGrid(
                         row.forEach { folder -> FolderTile(folder) { model.browse(folder) } }
                     }
                 }
-                items(photos, key = { "photo:${it.uri}" }) { photo ->
+                items(visible, key = { "photo:${it.uri}" }) { photo ->
+                    val marks = culling[photo.uri.toString()] ?: PhotoCulling()
                     PhotoThumbnail(
                         photo,
                         model.library,
-                        Modifier.aspectRatio(1f).clickable { model.open(photo) },
+                        Modifier.aspectRatio(1f).clickable { model.openFromBrowse(photo, visible) },
                         revision = state.document.original.takeIf { photo == state.selected },
+                        pick = marks.pick,
+                        rating = marks.rating,
                     )
                 }
             }

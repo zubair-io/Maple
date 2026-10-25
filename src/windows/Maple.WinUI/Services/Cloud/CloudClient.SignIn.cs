@@ -6,9 +6,7 @@ using System.Threading.Tasks;
 namespace Maple.WinUI.Services.Cloud
 {
     /// <summary>Sign-in ceremonies: the health/auth-mode probe, the browser
-    /// passkey/PKCE flow's URL builder and one-time-code redeem, and the
-    /// poll-based claim variant (#3063) used when the browser can't launch
-    /// the maple-app:// callback itself.</summary>
+    /// passkey/PKCE flow's URL builder and callback-code redeem.</summary>
     public sealed partial class CloudClient
     {
         // --- Connection / auth ---
@@ -19,9 +17,8 @@ namespace Maple.WinUI.Services.Cloud
         public string? RefreshToken { get; private set; }
         public event Action<string>? RefreshTokenRotated;
 
-        /// <summary>The redirect callback (redeem) and the claim poll consume the
-        /// same single-use code; one runs at a time, and whichever finishes
-        /// second adopts the first one's tokens instead of re-spending the code.</summary>
+        /// <summary>Duplicate callbacks consume the same single-use code; only
+        /// one redeems it and later callbacks adopt its tokens.</summary>
         private readonly SemaphoreSlim _signInGate = new(1, 1);
         private string? _signedInMessage;
 
@@ -107,56 +104,5 @@ namespace Maple.WinUI.Services.Cloud
             }
         }
 
-        /// <summary>Poll-claim the pending ceremony's code by state + private
-        /// PKCE verifier (POST /api/auth/native-code/claim, #3063). The
-        /// completion channel that does not depend on the browser launching
-        /// maple-app:// — Chromium refuses that launch without a user gesture,
-        /// which is exactly the already-signed-in-browser case. Returns
-        /// Ok=true once signed in. Ok=false + Fatal=false means keep polling:
-        /// 404 (nothing pending yet), 429 (rate-limited), 5xx and network
-        /// errors are all transient here. Ok=false + Fatal=true is a
-        /// permanent, operator-visible failure (bad request, user deleted) —
-        /// the ceremony can never complete, so stop polling and surface it.</summary>
-        public async Task<(bool Ok, bool Fatal, string Message)> ClaimNativeCodeAsync(
-            string state, string codeVerifier, CancellationToken ct)
-        {
-            await _signInGate.WaitAsync(ct);
-            try
-            {
-                return _signedInMessage is { } done
-                    ? (true, false, done)
-                    : await ClaimNativeCodeCoreAsync(state, codeVerifier, ct);
-            }
-            finally
-            {
-                _signInGate.Release();
-            }
-        }
-
-        private async Task<(bool Ok, bool Fatal, string Message)> ClaimNativeCodeCoreAsync(
-            string state, string codeVerifier, CancellationToken ct)
-        {
-            try
-            {
-                using var response = await _http.PostAsync("api/auth/native-code/claim",
-                    JsonContent(new { state, code_verifier = codeVerifier }), ct);
-                var status = (int)response.StatusCode;
-                if (status == 404 || status == 429 || status >= 500)
-                    return (false, false, $"no code yet ({status})");
-                if (!response.IsSuccessStatusCode)
-                    return (false, true, $"sign-in claim rejected ({status}).");
-                var tokens = await ReadJsonAsync<CloudRedeemResponse>(response, ct);
-                if (string.IsNullOrEmpty(tokens?.AccessToken))
-                    return (false, true, "claim returned no access token.");
-                _accessToken = tokens!.AccessToken;
-                RefreshToken = tokens.RefreshToken;
-                _signedInMessage = $"Signed in as {tokens.User?.Email ?? "user"}.";
-                return (true, false, _signedInMessage);
-            }
-            catch (HttpRequestException ex)
-            {
-                return (false, false, $"claim unreachable: {ex.Message}");
-            }
-        }
     }
 }

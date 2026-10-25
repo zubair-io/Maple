@@ -6,42 +6,52 @@
   @let reasonId = reasonElementId(entry);
 
   <div
-    [class]="rowClass(isSelected, !!disabledReason)"
     role="treeitem"
+    [attr.aria-label]="entry.label"
     [attr.aria-selected]="isSelected"
-    [attr.aria-disabled]="!!disabledReason"
+    [attr.aria-expanded]="expandable ? open : null"
     [attr.aria-describedby]="reasonId"
-    [style.padding-left.px]="8 + level() * 16"
-    [title]="titleFor(entry)"
-    (click)="onRowClick(entry)"
   >
-    <button
-      type="button"
-      class="mtd-chevron flex h-3.5 w-3.5 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent text-[10px] text-text-muted transition-transform duration-[120ms]"
-      [class.invisible]="!expandable"
-      [class.cursor-default]="!expandable"
-      [class.rotate-90]="open"
-      [disabled]="!expandable"
-      [attr.aria-label]="open ? 'Collapse' : 'Expand'"
-      (click)="toggleOpen(entry); $event.stopPropagation()"
+    <div
+      [class]="rowClass(isSelected && !disabledReason, false)"
+      [style.padding-left.px]="8 + level() * 16"
     >
-      ▸
-    </button>
-    <span class="overflow-hidden text-ellipsis whitespace-nowrap">{{ entry.label }}</span>
-    <!-- Visually-hidden: the row's `title` already covers hover, this
-         covers keyboard/AT users who can't hover (#2644 review). Always
-         rendered (empty when the row is eligible) so the row's own
-         `aria-describedby` binding above stays unconditional. -->
-    <span class="sr-only" [id]="reasonId">{{ disabledReason }}</span>
+      <button
+        type="button"
+        class="mtd-chevron flex h-3.5 w-3.5 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent text-[10px] text-text-muted transition-transform duration-[120ms]"
+        [class.invisible]="!expandable"
+        [class.cursor-default]="!expandable"
+        [class.rotate-90]="open"
+        [disabled]="!expandable"
+        [attr.aria-label]="(open ? 'Collapse ' : 'Expand ') + entry.label"
+        [attr.aria-describedby]="reasonId"
+        (click)="toggleOpen(entry); $event.stopPropagation()"
+      >
+        ▸
+      </button>
+      <button
+        type="button"
+        class="flex h-full min-w-0 flex-1 items-center overflow-hidden border-none bg-transparent text-left text-inherit"
+        [class.cursor-not-allowed]="!!disabledReason"
+        [class.opacity-50]="!!disabledReason"
+        [disabled]="!!disabledReason"
+        [attr.aria-describedby]="reasonId"
+        [title]="titleFor(entry)"
+        (click)="onRowClick(entry)"
+      >
+        <span class="overflow-hidden text-ellipsis whitespace-nowrap">{{ entry.label }}</span>
+      </button>
+      <span class="sr-only" [id]="reasonId">{{ disabledReason }}</span>
+    </div>
+    @if (showChildren(entry)) {
+      <app-move-to-tree-picker
+        role="group"
+        [nodes]="childFolders(entry)"
+        [level]="level() + 1"
+        [selectedId]="selectedId()"
+        [sourceFolderId]="sourceFolderId()"
+        (select)="select.emit($event)"
+      />
+    }
   </div>
-
-  @if (showChildren(entry)) {
-    <app-move-to-tree-picker
-      [nodes]="childFolders(entry)"
-      [level]="level() + 1"
-      [selectedId]="selectedId()"
-      [sourceFolderId]="sourceFolderId()"
-      (select)="select.emit($event)"
-    />
-  }
 }

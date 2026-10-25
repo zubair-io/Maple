@@ -100,6 +100,9 @@ pub struct LiveSession {
     /// lifetime.
     session_id: u64,
     pool_owner: std::sync::Arc<()>,
+    /// The dehaze map kept across renders (#3287), so a dehaze-slider tick
+    /// runs only the recovery. Cleared when the source image changes.
+    haze: std::sync::Arc<crate::dehaze::HazeResidency>,
     /// The vectorscope scope-pass histogram, the RGB8 snapshot (#3251) and
     /// their double-buffered `MAP_READ` staging (#3272) — see
     /// `live_session/scope.rs`. Session-owned
@@ -203,6 +206,7 @@ impl LiveSession {
             airlight_readback_fallback,
             session_id,
             pool_owner: std::sync::Arc::new(()),
+            haze: Default::default(),
             scope: scope::ScopeBuffers::new(ctx, (width, height)),
         })
     }
@@ -228,6 +232,7 @@ impl LiveSession {
         );
         ctx.queue
             .write_buffer(&self.image.buffer, 0, bytemuck::cast_slice(pixels));
+        self.haze.clear();
     }
 
     /// Cumulative pool allocation count (the honest zero-alloc hook): the number
@@ -435,6 +440,7 @@ impl LiveSession {
             );
         }
         let submission = ctx.queue.submit(Some(encoder.finish()));
+        self.haze.submitted();
         if inputs.scope.enabled {
             self.scope_after_submit(submission);
         }
@@ -482,6 +488,9 @@ mod tests_pool;
 mod tests_preparation;
 // The double-buffered scope readback gate (#3272) — own file (600-LOC
 // budget), reuses `limits` (`pub(super)` there).
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_session/tests_haze.rs"]
+mod tests_haze;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests_scope.rs"]
 mod tests_scope;

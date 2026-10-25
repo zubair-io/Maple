@@ -94,6 +94,9 @@ struct DispatchEntry {
     _data: Vec<Arc<wgpu::Buffer>>,
 }
 
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
 /// The per-signature cache bucket: dispatch entries indexed by their order within
 /// the render, plus a pool of scratch planes (also order-indexed) the spatial
 /// stages draw from. A monotonic cursor over each is rewound at frame start.
@@ -110,11 +113,22 @@ struct ScratchEntry {
     contents: Option<Vec<u8>>,
 }
 
+/// The frame state [`FramePool::enter_detached`] saves.
+pub(crate) struct DetachedFrame {
+    sig: u64,
+    cursors: (usize, usize),
+    digest: u64,
+}
+
 /// The dims/signature-keyed pool. Lives on [`GpuContext`] behind a `RefCell`
 /// (interior mutability — `Pass::encode` only sees `&GpuContext`). Single render
 /// in flight per context (ctx is `!Sync`), so the cursors are unambiguous.
 #[derive(Default)]
 pub struct FramePool {
+    /// Buckets of stages pooled outside the frame's own (see
+    /// [`FramePool::enter_detached`]), and whether one is active.
+    detached: HashMap<u64, Bucket>,
+    in_detached: bool,
     /// Per-signature buckets. The key is the chain signature
     /// ([`crate::live_chain::chain_signature`]). Four shapes retain neutral and
     /// active edits for both fast and refined sessions. Further shapes evict
@@ -133,6 +147,12 @@ pub struct FramePool {
     /// Count of ACTUAL `create_buffer` / `create_bind_group` calls (misses) — the
     /// allocation accounting hook. Never bumped on reuse.
     alloc_count: Cell<u64>,
+    /// FNV-1a digest of every pipeline, parameter block and data lease handed
+    /// to the pool so far this frame, rewound at frame start. Two frames whose
+    /// digests agree at the same point in the chain ran the same kernels on
+    /// the same inputs up to it — how dehaze knows its prefix is unchanged
+    /// and its resident haze map still holds (#3287).
+    frame_digest: u64,
     #[cfg(test)]
     uniform_upload_count: Cell<u64>,
     #[cfg(test)]
@@ -144,12 +164,14 @@ impl FramePool {
     pub(crate) fn retire_sessions(&mut self) {
         let used = self.buckets.len();
         let previous = self.recent;
-        self.buckets.retain(|_, bucket| {
+        let live = |bucket: &Bucket| {
             bucket
                 .owner
                 .as_ref()
                 .is_none_or(|owner| owner.strong_count() > 0)
-        });
+        };
+        self.buckets.retain(|_, bucket| live(bucket));
+        self.detached.retain(|_, bucket| live(bucket));
         self.recent = [0; 4];
         let mut position = 0;
         for key in previous.into_iter().take(used) {
@@ -185,7 +207,59 @@ impl FramePool {
         self.frame_active = true;
         self.dispatch_cursor = 0;
         self.scratch_cursor = 0;
+        self.frame_digest = FNV_OFFSET;
         self.buckets.entry(sig).or_default();
+    }
+
+    /// The digest of everything pooled so far this frame (see `frame_digest`).
+    pub(crate) fn frame_digest(&self) -> u64 {
+        self.frame_digest
+    }
+
+    /// Pool the next dispatches in the detached bucket `key` instead of the
+    /// frame's own, with their own cursors and digest, until
+    /// [`FramePool::leave_detached`]. A stage that runs only on some frames of
+    /// one signature (the haze map, #3287) measures here, so skipping it never
+    /// shifts a later stage's cached slots, and its resources survive a change
+    /// of chain signature.
+    /// The bucket lives while `owner` does, like a session's own buckets.
+    pub(crate) fn enter_detached(&mut self, key: u64, owner: &Arc<()>) -> DetachedFrame {
+        let saved = DetachedFrame {
+            sig: self.current_sig,
+            cursors: (self.dispatch_cursor, self.scratch_cursor),
+            digest: self.frame_digest,
+        };
+        self.detached.entry(key).or_default().owner = Some(Arc::downgrade(owner));
+        self.in_detached = true;
+        self.current_sig = key;
+        self.dispatch_cursor = 0;
+        self.scratch_cursor = 0;
+        saved
+    }
+
+    /// Return to the frame's own bucket, cursors and digest.
+    pub(crate) fn leave_detached(&mut self, saved: DetachedFrame) {
+        self.in_detached = false;
+        self.current_sig = saved.sig;
+        (self.dispatch_cursor, self.scratch_cursor) = saved.cursors;
+        self.frame_digest = saved.digest;
+    }
+
+    fn active_bucket(&mut self, sig: u64) -> &mut Bucket {
+        let buckets = if self.in_detached {
+            &mut self.detached
+        } else {
+            &mut self.buckets
+        };
+        buckets
+            .get_mut(&sig)
+            .expect("bucket created when its frame began")
+    }
+
+    fn digest(&mut self, bytes: &[u8]) {
+        self.frame_digest = bytes.iter().fold(self.frame_digest, |h, &b| {
+            (h ^ u64::from(b)).wrapping_mul(FNV_PRIME)
+        });
     }
 
     /// End the in-flight render. (Cursors stay where they are until the next
@@ -199,6 +273,7 @@ impl FramePool {
     /// LRU: their unique signature salt prevents reuse of another image's bindings.
     pub fn reset(&mut self) {
         self.buckets.clear();
+        self.detached.clear();
         self.frame_active = false;
         self.dispatch_cursor = 0;
         self.scratch_cursor = 0;
@@ -210,6 +285,18 @@ impl FramePool {
     /// same-signature re-render leaves this UNCHANGED.
     pub fn alloc_count(&self) -> u64 {
         self.alloc_count.get()
+    }
+
+    /// Bytes of every pooled buffer, which stay resident between renders.
+    #[cfg(test)]
+    pub(crate) fn retained_bytes(&self) -> u64 {
+        self.buckets
+            .values()
+            .flat_map(|bucket| {
+                let scratch = bucket.scratch.iter().map(|entry| entry.buffer.size());
+                scratch.chain(bucket.dispatches.iter().map(|entry| entry.uniform.size()))
+            })
+            .sum()
     }
 }
 
@@ -246,6 +333,9 @@ fn pool_buffer(
     make: impl FnOnce(&wgpu::Device) -> wgpu::Buffer,
 ) -> Arc<wgpu::Buffer> {
     let mut pool = ctx.frame_pool.borrow_mut();
+    if let Some(contents) = contents {
+        pool.digest(contents);
+    }
     if !pool.frame_active {
         pool.alloc_count.set(pool.alloc_count.get() + 1);
         let buffer = Arc::new(make(&ctx.device));
@@ -259,7 +349,7 @@ fn pool_buffer(
     let sig = pool.current_sig;
     let cursor = pool.scratch_cursor;
     pool.scratch_cursor += 1;
-    let bucket = pool.buckets.get_mut(&sig).expect("active bucket");
+    let bucket = pool.active_bucket(sig);
     if let Some(entry) = bucket.scratch.get_mut(cursor) {
         // Data snapshots are allocated on misses only. A size or lease-kind
         // change is a miss; writable scratch must invalidate any cached bytes.
@@ -298,7 +388,7 @@ fn pool_buffer(
         buffer: Arc::clone(&buffer),
         contents: contents.map(<[u8]>::to_vec),
     };
-    let bucket = pool.buckets.get_mut(&sig).expect("active bucket");
+    let bucket = pool.active_bucket(sig);
     if cursor < bucket.scratch.len() {
         bucket.scratch[cursor] = entry;
     } else {
@@ -344,6 +434,8 @@ pub(crate) fn pool_dispatch(
     buffers.hash(&mut storage_hasher);
     let storage_id = storage_hasher.finish();
     let mut pool = ctx.frame_pool.borrow_mut();
+    pool.digest(&(pipeline_id as u64).to_le_bytes());
+    pool.digest(params);
     if !pool.frame_active {
         // Outside a pooled window: plain alloc (no caching).
         let res = make(&ctx.device);
@@ -360,10 +452,7 @@ pub(crate) fn pool_dispatch(
     let cursor = pool.dispatch_cursor;
     pool.dispatch_cursor += 1;
     {
-        let bucket = pool
-            .buckets
-            .get_mut(&sig)
-            .expect("bucket created in begin_frame");
+        let bucket = pool.active_bucket(sig);
         if let Some(entry) = bucket.dispatches.get_mut(cursor) {
             // Reuse ONLY when the cached entry was built for THIS pipeline. A bind
             // group derived from a pipeline's auto layout is EXCLUSIVE to that
@@ -411,10 +500,7 @@ pub(crate) fn pool_dispatch(
         storage_id,
         _data: res.data,
     };
-    let bucket = pool
-        .buckets
-        .get_mut(&sig)
-        .expect("bucket created in begin_frame");
+    let bucket = pool.active_bucket(sig);
     // A fresh cursor appends (the first render fills the Vec in dispatch order); a
     // pipeline-mismatch rebuild REPLACES the stale entry at an existing cursor.
     // Either way the Vec stays dispatch-indexed.

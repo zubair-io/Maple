@@ -427,21 +427,13 @@ namespace Maple.WinUI.Services
                     && _pending == null && ReferenceEquals(state, _lastRendered) ? 1 : 0);
                 p.scope_layer = -1;
                 int rc;
-                fixed (float* noisePtr = image.NoiseProfile)
-                fixed (float* curvePtr = image.ProfileCurve)
-                fixed (float* residualPtr = image.ResidualLut)
-                fixed (float* tcLuma = flat.Luma)
-                fixed (float* tcRed = flat.Red)
-                fixed (float* tcGreen = flat.Green)
-                fixed (float* tcBlue = flat.Blue)
-                fixed (float* dcLuma = flat.DisplayLuma)
-                fixed (float* dcRed = flat.DisplayRed)
-                fixed (float* dcGreen = flat.DisplayGreen)
-                fixed (float* dcBlue = flat.DisplayBlue)
-                fixed (float* localPtr = localFlat)
-                fixed (float* filmPtr = _activeFilm?.Data)
-                fixed (MapleGpuLiveSession* fullHandle = &_gpuSession)
-                fixed (MapleGpuLiveSession* halfHandle = &_gpuSessionHalf)
+                fixed (float* noisePtr = image.NoiseProfile, curvePtr = image.ProfileCurve, residualPtr = image.ResidualLut)
+                fixed (float* tcLuma = flat.Luma, tcRed = flat.Red, tcGreen = flat.Green, tcBlue = flat.Blue)
+                fixed (float* dcLuma = flat.DisplayLuma, dcRed = flat.DisplayRed, dcGreen = flat.DisplayGreen, dcBlue = flat.DisplayBlue)
+                fixed (float* ccHH = flat.ColorCurveHueVsHue, ccHS = flat.ColorCurveHueVsSat, ccHL = flat.ColorCurveHueVsLuma)
+                fixed (float* ccLS = flat.ColorCurveLumaVsSat, ccSS = flat.ColorCurveSatVsSat, ccSL = flat.ColorCurveSatVsLuma)
+                fixed (float* localPtr = localFlat, filmPtr = _activeFilm?.Data)
+                fixed (MapleGpuLiveSession* fullHandle = &_gpuSession, halfHandle = &_gpuSessionHalf)
                 {
                     var handle = useHalf ? halfHandle : fullHandle;
                     if (_activeFilm != null)
@@ -473,6 +465,7 @@ namespace Maple.WinUI.Services
                     p.display_tone_curve_green_len = (nuint)flat.DisplayGreen.Length;
                     p.display_tone_curve_blue_ptr = dcBlue;
                     p.display_tone_curve_blue_len = (nuint)flat.DisplayBlue.Length;
+                    flat.BindColorCurves(ref p, ccHH, ccHS, ccHL, ccLS, ccSS, ccSL);
                     if (image.NoiseProfile.Length > 0)
                     {
                         p.noise_profile_ptr = noisePtr;

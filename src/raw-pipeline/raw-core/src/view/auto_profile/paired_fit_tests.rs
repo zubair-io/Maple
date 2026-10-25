@@ -510,7 +510,10 @@ fn geometric_training_preserves_colors_and_retains_the_existing_fit_when_guards_
         .zip(&prior.data)
         .all(|(a, b)| (*a - b).abs() < 1e-5));
     let original_solution = solve_observations(&original.rows, &prior).unwrap().0;
-    let existing = select_step(&original_solution, &prior, &original.rows, &original.rows);
+    let existing =
+        select_step(&original_solution, &prior, &original.rows, &original.rows).map(|base| {
+            super::refinement::refine(&base, &original.rows, &original.rows).unwrap_or(base)
+        });
     assert_eq!(result.map(|lut| lut.data), existing.map(|lut| lut.data));
 }
 

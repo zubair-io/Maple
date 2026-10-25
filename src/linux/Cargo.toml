@@ -29,6 +29,7 @@ dirs = "6"
 
 # Keep the shared workspace's decoder safety patches in every native host.
 [patch.crates-io]
+rawler = { path = "../raw-pipeline/third_party/rawler" }
 rav1d = { path = "../raw-pipeline/third_party/rav1d" }
 zune-jpeg = { path = "../raw-pipeline/third_party/zune-jpeg" }
 avif-parse = { path = "../raw-pipeline/third_party/avif-parse" }

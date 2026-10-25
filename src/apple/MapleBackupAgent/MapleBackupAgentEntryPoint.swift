@@ -64,16 +64,7 @@ struct MapleBackupAgentEntryPoint {
     let state = try BackupStateStore(databaseURL: stateURL)
 
     let queue = InProcessBackupQueue()
-    // Rehydrate pending tasks from the shared state DB so we resume the
-    // app's backlog instead of starting cold.
-    for task in try await state.tasks(in: .pending) {
-      await queue.enqueue(task, priority: .background)
-    }
-    for task in try await state.tasks(in: .uploading) {
-      // Anything left in .uploading from a crashed run goes back to .pending.
-      try await state.transition(task.id, to: .pending)
-      await queue.enqueue(task, priority: .background)
-    }
+    try await state.rehydrate(into: queue, priority: .background)
 
     // #855: backup routes are gated, so the agent must send a bearer too. It
     // reads the same Keychain-backed tokens the app saved — which requires the

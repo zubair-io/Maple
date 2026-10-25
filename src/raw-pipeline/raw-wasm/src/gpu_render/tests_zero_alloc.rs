@@ -47,6 +47,7 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
         wb_matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         wb_temperature: 6500.0,
         wb_tint: 0.0,
+        wb_hsm: None,
         tone: [0.0; 6],
         tone_curves: ToneCurveInputs {
             parametric: [0.0; 4],
@@ -85,6 +86,9 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
         color_grade_global_hue: 0.0,
         color_grade_global_saturation: 0.0,
         color_grade_global_luminance: 0.0,
+        color_grade_blending: 100.0,
+        color_grade_shadow_edge: 0.564622,
+        color_grade_highlight_edge: 0.564622,
         hsl_hue: [0.0; 8],
         hsl_sat: [0.0; 8],
         hsl_lum: [0.0; 8],
@@ -120,6 +124,7 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
         film_lut_key: 0,
         film_lut_data: Vec::new().into(),
         display_tone_curves: raw_gpu::DisplayToneCurveInputs::default(),
+        color_curves: raw_gpu::ColorCurveInputs::default(),
     };
     let cancel = CancelToken::new();
 
@@ -194,8 +199,14 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
         if state == 2 {
             auto_profile::cache::insert_lut(key, auto_profile::lut::ColorLut::identity(3));
         }
-        let mut model = AdjustmentModel::default();
-        let (rgba, w, h, prefix, anchor, _) =
+        let mut model = AdjustmentModel {
+            color_curve_hue_vs_hue: raw_core::types::adjustment::ToneCurve::new(vec![
+                (0.1, 0.7),
+                (0.7, 0.3),
+            ]),
+            ..Default::default()
+        };
+        let (rgba, w, h, prefix, anchor, _, _) =
             develop_prefix_rgba(&raw, &bytes, "dng", &model, 64).unwrap();
         let gpu = ctx.map(|ctx| (ctx, raw_gpu::LiveSession::new(ctx, &rgba, w, h).unwrap()));
         let mut cached = LiveProfile::new(&raw, &bytes, "dng", &model, None, 0, anchor);

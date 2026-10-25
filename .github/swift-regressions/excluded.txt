@@ -29,7 +29,6 @@ CloudCacheTests host talks to a host service (keychain, FileProvider, network, P
 CloudDropEligibilityTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudErrorMessageTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudHistogramClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-CloudHostTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudPathSidecarTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudSearchClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudSearchTypesTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
@@ -123,7 +122,6 @@ PhotoKitChangeObserverTests host talks to a host service (keychain, FileProvider
 PhotoKitInputShapeTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PhotoKitMergeAdapterTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PhotoKitSidecarStoreTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
-PhotoKitSourceXMPTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 PreviewPathContractTests slow render or decode workload that costs minutes on the runner
 ProTokensAccentTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 QuickLookThumbDiskCacheTests slow render or decode workload that costs minutes on the runner
@@ -163,7 +161,6 @@ SidecarTransactionContractSMBTests host talks to a host service (keychain, FileP
 SliderTickPerfTests slow render or decode workload that costs minutes on the runner
 SourceSelectionTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 ThumbnailDecoderTests slow render or decode workload that costs minutes on the runner
-ThumbnailDiskCacheKeyTests slow render or decode workload that costs minutes on the runner
 ThumbnailDiskCacheSourcelessScopeTests gpu needs a real Metal device
 ThumbnailEncoderTests slow render or decode workload that costs minutes on the runner
 ThumbnailFetchGateTests slow render or decode workload that costs minutes on the runner

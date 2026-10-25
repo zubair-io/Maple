@@ -190,6 +190,10 @@ export class LibraryStateService {
     this.fetch_.refreshFolderListing(sourceId);
   }
 
+  refreshFolderChildren(sourceId: string): void {
+    this.fetch_.refreshFolderListing(sourceId, true);
+  }
+
   absPathFor(assetId: AssetId): string | undefined {
     return this.store.absPathFor(assetId);
   }
@@ -299,6 +303,10 @@ export class LibraryStateService {
 
   thumbnailUrlFor(id: AssetId): string | undefined {
     return this.cache_.thumbnailUrlFor(id);
+  }
+
+  thumbnailFailed(id: AssetId): boolean {
+    return this.cache_.thumbnailFailed(id);
   }
 
   /** Subscribe a tile to thumbnail-URL changes for `id`; see LibraryCache. */

@@ -444,7 +444,7 @@ final class BackupEngineTests: XCTestCase {
     func testLivePhotoTwinUsesSuffixOverride() async throws {
         // ingest 200 → sidecar 200 → rendered (live-mov) 200
         StubURLProtocol.stub = .sequence([
-            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .ok(json: #"{"maple_id":"\#(Self.ingestedMapleId)","target_rel_path":"2024/03/15/IMG.heic"}"#),
             .status(200),
             .status(200),
         ])
@@ -480,8 +480,42 @@ final class BackupEngineTests: XCTestCase {
         XCTAssertNotNil(renderedReq, "expected a rendered-companion upload for the .mov twin")
         XCTAssertEqual(renderedReq?.value(forHTTPHeaderField: "X-Maple-Suffix-Override"), "mov",
                        "Live Photo .mov twin must use suffix-override 'mov'")
-        XCTAssertEqual(renderedReq?.value(forHTTPHeaderField: "X-Maple-Rendered-Ext"), "mov",
+        XCTAssertEqual(renderedReq?.value(forHTTPHeaderField: "X-Maple-Filename-Ext"), "mov",
                        "Live Photo .mov twin must declare 'mov' extension")
+        XCTAssertEqual(renderedReq?.value(forHTTPHeaderField: "X-Maple-Maple-Id"), Self.ingestedMapleId,
+                       "the .mov twin's final chunk must name the original's ingested id (#5241)")
     }
+
+    /// #5241: the server files a rendered companion under the asset whose id
+    /// its final chunk names, so that id is the one ingest stored for the
+    /// original, not the device's pre-ingest hash.
+    func testRenderedCompanionFinalChunkCarriesIngestedMapleId() async throws {
+        StubURLProtocol.stub = .sequence([
+            .ok(json: #"{"maple_id":"\#(Self.ingestedMapleId)","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .ok(json: #"{"target_rel_path":"2024/03/15/IMG.rendered.heic"}"#),
+        ])
+        let (engine, queue, state, _, tmpRoot) =
+            try freshHarness(companionBackoff: { _ in 0 }, reader: RenderedAssetReader())
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        try await engine.processOne()
+
+        let renderedReqs = StubURLProtocol.recordedRequests
+            .filter { $0.url?.path.contains("backup/rendered") == true }
+        XCTAssertEqual(renderedReqs.count, 1)
+        let sent = renderedReqs.last?.value(forHTTPHeaderField: "X-Maple-Maple-Id")
+        XCTAssertEqual(sent, Self.ingestedMapleId)
+        XCTAssertNotNil(sent?.range(of: "^[0-9a-f]{32}$", options: .regularExpression),
+                        "the server rejects a final chunk whose id is not 32 hex characters")
+        XCTAssertEqual(renderedReqs.last?.value(forHTTPHeaderField: "X-Maple-Filename-Ext"), "jpeg",
+                       "a JPEG rendering of a HEIC original must be named by its own format (#5244)")
+    }
+
+    private static let ingestedMapleId = "02371b94aade2246ba56c6770a7624e1"
 
 }

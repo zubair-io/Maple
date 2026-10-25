@@ -90,9 +90,9 @@ export interface SupportedCamera {
 
 export const CAMERA_SUPPORT_BUILD = {
   schemaVersion: 1,
-  bundledModelCount: 1406,
+  bundledModelCount: 1459,
   profileBundleFormat: 1,
-  profileBundleDigest: 'blake3:0d0e7faaccc650703b010ed846dd8af6fe43396a11d0b44d176c9208aa78f62a',
+  profileBundleDigest: 'blake3:a05149467e0d8d78a67d2b0344968bd1553185c25a8fc773fc6f658fcfc59869',
 } as const;
 
 /**
@@ -291,7 +291,7 @@ export const FIXTURED_CAMERAS: readonly SupportedCamera[] = [
   },
   {
     key: 'Hasselblad L3D-100c',
-    displayName: 'DJI Mavic 3 Pro (Hasselblad L3D-100c, 100 MP)',
+    displayName: 'DJI Mavic 4 Pro (Hasselblad L3D-100c, 100 MP)',
     fixture: 'test_0000.DNG',
     fixtureDigest: 'blake3:fed0379afc16033a471279c7391b572b19572ab03d058feebbd16bf3a21f7107',
     tier: 'profiled',

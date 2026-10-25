@@ -156,7 +156,7 @@ def dependencies(path):
     if path == (
         "src/apple/Packages/MapleCore/Sources/MapleCore/Resources/builtin-presets.json"
     ):
-        return {"api", "maple", "web", "codegen", "swift"}
+        return {"api", "maple", "web", "codegen", "swift", "android"}
     if path.startswith(
         (
             "src/apple/Maple/Assets.xcassets/AppIcon.appiconset/",
@@ -179,6 +179,15 @@ def dependencies(path):
         in (
             "src/api/src/routes/xmp.sidecar-contract.test.ts",
             "src/api/src/routes/xmp.ts",
+            "src/api/src/routes/xmp-change.ts",
+            "src/api/src/routes/xmp-path-auth.ts",
+            "src/api/src/routes/folders.upload.ts",
+            "src/api/src/routes/folders.upload-sidecar-admission.ts",
+            "src/api/src/fs/primary-replacement-admission.ts",
+            "src/api/src/fs/relocate-replace-fence.ts",
+            "src/api/src/fs/xmp-sidecar-path.ts",
+            "src/api/src/fs/errno-code.ts",
+            "src/api/src/fs/root.ts",
             "src/api/src/xmp",
             "src/api/src/fs/sidecar-io.ts",
             "src/api/src/fs/sidecar-write-order.ts",
@@ -198,6 +207,11 @@ def dependencies(path):
         or path.startswith("src/web/e2e/recipe-interchange/")
         else set()
     )
+    if path == (
+        "src/android/app/src/main/java/app/justmaple/aperture/ui/"
+        "PresetsAndToneCurvePlot.kt"
+    ):
+        return {"api", "android"}
     if path.startswith("src/android/"):
         return {"android"} | codegen
     if path == "src/maple/package.json":
@@ -266,7 +280,7 @@ def git(repo, *args):
 
 
 def select(event_name, event, repo="."):
-    if event_name not in ("pull_request", "push"):
+    if event_name not in ("pull_request", "push", "merge_group"):
         return selection(
             ALL, "Manual, reusable, or unknown event; running all consumers."
         )
@@ -279,11 +293,19 @@ def select(event_name, event, repo="."):
             if head_ref.startswith("release/next-v"):
                 return selection(ALL, "Release PR override; running all consumers.")
             base, head = valid_sha(pr["base"]["sha"]), valid_sha(pr["head"]["sha"])
+        elif event_name == "merge_group":
+            group = event["merge_group"]
+            base, head = valid_sha(group["base_sha"]), valid_sha(group["head_sha"])
         else:
             base, head = valid_sha(event["before"]), valid_sha(event["after"])
         for sha in (base, head):
             if git(repo, "cat-file", "-t", sha).strip() != b"commit":
                 raise ValueError("Event SHA is not a commit")
+        if event_name == "merge_group":
+            git(repo, "merge-base", "--is-ancestor", base, head)
+            # base_sha can be an earlier synthetic queue commit. A later group
+            # must still run consumers changed by every PR ahead of it.
+            return selection(ALL, "Merge group; running all consumers on combined head.")
         start = (
             valid_sha(git(repo, "merge-base", "--all", base, head).decode().strip())
             if event_name == "pull_request"

@@ -247,6 +247,11 @@
                 iconLeading="wb-eyedrop"
                 [iconOnly]="true"
                 [loading]="session.rangeSampleInFlight()"
+                [disabled]="session.rangeSampleUnavailable() !== null"
+                [title]="session.rangeSampleUnavailable()"
+                [ariaDescribedby]="
+                  session.rangeSampleUnavailable() ? 'mask-range-eyedropper-reason' : null
+                "
                 ariaLabel="Sample a colour for the range"
                 testId="mask-range-eyedropper"
                 (pressed)="onEyedropper()"
@@ -254,6 +259,11 @@
             </div>
           }
         </div>
+        @if (session.range() && session.rangeSampleUnavailable(); as reason) {
+          <span id="mask-range-eyedropper-reason">
+            <mui-text variant="body" color="muted">{{ reason }}</mui-text>
+          </span>
+        }
         @if (session.rangeMessage(); as message) {
           <mui-text variant="body" color="muted" data-testid="mask-range-message">
             {{ message }}

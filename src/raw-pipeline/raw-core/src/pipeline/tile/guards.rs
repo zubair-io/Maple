@@ -8,9 +8,11 @@
 //! What is NOT here any more (#1157): vignette and local adjustments are
 //! point ops given the tile's window in the frame, which `develop.rs` now
 //! threads through (`TileWindow`); capture sharpening and the S/H detail
-//! mask have finite, computable stencils, which `overlap.rs` pads for. The
-//! remaining rejections are the stages whose correct tile form needs a
-//! full-frame proxy plane or a coordinate mapping that does not exist yet.
+//! mask have finite, computable stencils, which `overlap.rs` pads for; and
+//! dehaze, global or per mask, recovers from the full frame's proxy haze
+//! maps (#3287). The remaining rejections are the stages whose correct tile
+//! form needs a coordinate mapping or a frame-anchored grid that does not
+//! exist yet.
 
 use super::TileRect;
 use crate::{error::Result, image::RawImage, xmp::AdjustmentModel};
@@ -60,25 +62,6 @@ pub(super) fn reject_untileable(
     if model.auto_lateral_ca == crate::types::adjustment::AutoLateralCa::On {
         return reject(
             "tile path is not supported with automatic lateral CA (full-frame estimation required; use the full-image render entry instead)",
-        );
-    }
-    // Dehaze is global — atmospheric light and the dark channel are
-    // statistics of the whole frame — and its transmission map is refined
-    // by a radius-60 guided filter. Neither survives a crop; the correct
-    // tile form is a full-frame proxy plane (tone-zoom design § 5.3), which
-    // the tile chain does not build yet. Refuse loudly.
-    if model.dehaze.abs() > 1e-3 {
-        return reject(
-            "tile path is not supported when dehaze != 0 (global statistics + radius-60 transmission refine need a full-frame proxy plane)",
-        );
-    }
-    // The same rejection for the PER-MASK dehaze control (#3407): a layer's
-    // dehaze runs the identical global kernel on that layer's scratch copy,
-    // so it inherits the identical whole-frame dependency. The threshold
-    // matches `stages::local_adjustments::spatial`'s own engage check.
-    if crate::stages::local_adjustments::spatial::any_dehaze_engaged(&model.local_adjustments) {
-        return reject(
-            "tile path is not supported when a local-adjustment layer sets dehaze != 0 (global statistics + radius-60 transmission refine need a full-frame proxy plane). See #3407.",
         );
     }
     // BM3D deep denoise (#1105): the reference-patch grid is anchored at the
@@ -138,7 +121,7 @@ pub(super) fn is_supported_tile_opcode_list(
     list: &crate::pipeline::pano::opcodes::OpcodeList3,
 ) -> bool {
     use crate::pipeline::pano::opcodes::PanoOpcode;
-    if list.skipped_unknown > 0 || list.opcodes.len() != 1 {
+    if !list.skipped.is_empty() || list.opcodes.len() != 1 {
         return false;
     }
     match &list.opcodes[0] {

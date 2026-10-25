@@ -50,12 +50,12 @@
 //!
 //! ## Bundle size
 //!
-//! Matrices-only bundle is ~210 KB for all 1,447 profiles. With HSM the
-//! bundle balloons to ~72 MB (HSM is mostly per-body 90×30×1×3×4 ≈ 32 KB,
-//! two illuminants). The matrices alone fix the catastrophic-ΔE cases that
-//! motivated this ticket; HSM is a refinement that can be turned on later if
-//! the per-fixture color-checker analysis says it's necessary. The reader
-//! supports both layouts — `flags & 0x10` / `flags & 0x20` per profile.
+//! Matrices for every body take ~273 KB. With HSM for every body the bundle
+//! balloons to ~72 MB (HSM is mostly per-body 90×30×1×3×4 ≈ 32 KB, two
+//! illuminants), so `convert_dcps.py --hsm-ucm` opts single bodies in only
+//! where the embedded-JPEG gate shows it helps. None is opted in today: the
+//! GFX 50S tables (#4645) were reverted in #5224. The reader supports both
+//! layouts — `flags & 0x10` / `flags & 0x20` per profile.
 //!
 //! ## Module layout
 //!
@@ -105,7 +105,7 @@ pub fn transcode_v1_to_v3(v1_bytes: &[u8]) -> Option<EncodedV3> {
 /// Embedded bundle blob — produced by `src/scripts/convert_dcps.py`.
 /// `include_bytes!` is a compile-time macro: the file MUST exist at
 /// `profiles/profiles.bin` for the crate to build. The bundle is committed
-/// to the repo (currently ~256 KB, well under any practical limit), so
+/// to the repo (currently ~273 KB, well under any practical limit), so
 /// every developer / CI runner gets it via `git clone`. Regenerate by
 /// re-running the converter against an upstream reference renderer install.
 ///
@@ -129,7 +129,7 @@ pub(crate) const MAGIC: &[u8; 4] = b"MDCP";
 ///
 ///   * `1` — **inline matrices-only** (v1): 16-byte header then N uncompressed
 ///     records, each carrying its HSM table(s) inline. The historical, and
-///     still SHIPPED, `profiles.bin` (~263 KB, matrices only — HSM flags
+///     still SHIPPED, `profiles.bin` (~273 KB, matrices only — HSM flags
 ///     clear). [`parser::parse_bundle`] reads it.
 ///   * `3` — **v3 split** (ticket #829, PR #831): an uncompressed index region
 ///     (header + pool offset directory + records that reference HSM by pool
@@ -208,8 +208,8 @@ pub fn lookup_profile(raw: &RawImage) -> Option<&'static MapleProfile> {
     }
     // UCM-naming-mismatch fallback (#345 step 3). Some rawler-reported
     // UCMs differ from the bundle's authoring UCM by vendor naming
-    // convention only (Hasselblad medium-format, DJI Mavic 3 Pro's
-    // Hasselblad sensor, etc.). The alias table maps the source string
+    // convention only (Hasselblad medium-format, Pixel per-lens entries,
+    // etc.). The alias table maps the source string
     // to the bundle's string deterministically — no fuzzy matching.
     if let Some(alias) = ucm_mapping::map_to_bundle_ucm(raw, &key.unique_camera_model) {
         if let Some(profile) = table.get(&CameraKey::new(alias)) {
@@ -286,8 +286,8 @@ pub fn camera_key_for(raw: &RawImage) -> CameraKey {
 /// bundle (per PR #324) ships matrices only — HSM data is ~72 MB and the
 /// catastrophic-ΔE fixtures don't need it — so the fallback is what's
 /// actually exercised on every body whose source DNG ships HSM (Canon
-/// 5DM3/5DM4 DNGs in the fixture set, every iPhone DNG). When the bundle
-/// is regenerated with `--include-hsm`, the bundled tables take precedence.
+/// 5DM3/5DM4 DNGs in the fixture set, every iPhone DNG). A body regenerated
+/// with `--include-hsm` or `--hsm-ucm` takes its bundled tables.
 ///
 /// The DcpProfile's PLT / PTC fields are not set here (they live on
 /// `RawImage`); the caller (`pipeline::develop`) decides whether to apply
@@ -398,6 +398,9 @@ mod tests {
             "iPhone13,3 back camera",
             "Canon EOS 5D Mark IV",
             "Canon EOS 5D Mark III",
+            // test_0000 (DJI Mavic 4 Pro): resolves by its own UCM since
+            // #4661, not through an alias to the Mavic 3 Pro's FC4382.
+            "Hasselblad L3D-100c",
         ];
         for ucm in expected {
             assert!(
@@ -405,6 +408,13 @@ mod tests {
                 "bundle missing UCM {}",
                 ucm
             );
+        }
+
+        // #5224: no body carries bundled HueSatMap tables; the GFX 50S set
+        // (#4645) regressed test_0005 once #5145 refined the HSM lookup.
+        for ucm in ["Fujifilm GFX 50S", "Fujifilm GFX 50R", "LEICA M10"] {
+            let p = table.get(&CameraKey::new(ucm)).expect("bundled body");
+            assert!(p.hsm1.is_none() && p.hsm2.is_none(), "{ucm}");
         }
 
         // Sanity: dual-illuminant Apple wide camera has both CMs and both FMs.

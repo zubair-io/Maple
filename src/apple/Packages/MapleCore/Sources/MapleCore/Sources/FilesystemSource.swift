@@ -370,19 +370,11 @@ extension FilesystemSource: ImageSource {
         guard let url = ref.url else {
             throw ImageSourceError.notFound(ref.id)
         }
-        let sidecarURL = SidecarPath.sidecarURL(for: url)
         let scope = findScopedParent(for: url)
         let accessing = scope?.startAccessingSecurityScopedResource() ?? false
         defer { if accessing { scope?.stopAccessingSecurityScopedResource() } }
-        // Atomic temp + replace; matches XMPSidecarStore.writeAtomically.
-        let xml = XMPSerializer.serialize(model: sidecar.model, culling: sidecar.culling)
-        guard let data = xml.data(using: .utf8) else {
-            throw XMPStoreError.encodingError
-        }
-        let tmpURL = sidecarURL.deletingLastPathComponent()
-            .appendingPathComponent(".\(sidecarURL.lastPathComponent).tmp")
-        try data.write(to: tmpURL, options: .atomic)
-        _ = try FileManager.default.replaceItemAt(sidecarURL, withItemAt: tmpURL)
+        try await XMPSidecarStore(rawURL: url)
+            .writeConfirmed(model: sidecar.model, culling: sidecar.culling)
     }
 
     /// Filesystem has no index; return `nil` to signal "cannot search".

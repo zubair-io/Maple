@@ -5,9 +5,9 @@
 use crate::auto_profile::{maple_compute_profile_curve, maple_compute_profile_lut};
 use crate::buffers::{maple_free_buffer, MapleImageBuffer};
 use crate::error::maple_last_error;
-use crate::render::{
-    bin_rgb888, maple_compute_look_lut, maple_histogram_bytes, maple_histogram_file,
-    maple_render_bytes, maple_render_file, HISTOGRAM_BINS_LEN,
+use crate::render::{maple_compute_look_lut, maple_render_bytes, maple_render_file};
+use crate::render_histogram::{
+    bin_rgb888, maple_histogram_bytes, maple_histogram_file, HISTOGRAM_BINS_LEN,
 };
 use raw_core::test_support::synth_dng::SyntheticGreyDng;
 use std::ffi::{CStr, CString};

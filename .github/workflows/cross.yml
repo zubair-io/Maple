@@ -37,6 +37,10 @@
 name: cross
 
 on:
+  # #4951 validates combined CI only; #4952 adds required release contexts on
+  # group SHAs before #4614 enables the Main merge queue.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
   pull_request:
@@ -57,7 +61,7 @@ jobs:
     if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -70,7 +74,7 @@ jobs:
     if: needs.changes.outputs.codegen == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -82,7 +86,7 @@ jobs:
     if: needs.changes.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -94,7 +98,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Need history back to the merge base (PR) or previous push SHA so
           # we can diff to compute the changed-files list. Cheap on GH runners.
@@ -113,6 +117,9 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.sha }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_REF: ${{ github.event.merge_group.base_ref }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -122,6 +129,14 @@ jobs:
             git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
             MERGE_BASE="$(git merge-base "origin/${BASE_REF}" HEAD)"
             git diff --name-only --diff-filter=ACMR "${MERGE_BASE}" HEAD > /tmp/changed.txt
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            [[ "$GROUP_BASE" =~ ^[0-9a-fA-F]{40}$ && "$GROUP_HEAD" = "$(git rev-parse HEAD)" && "$GROUP_REF" = refs/heads/* ]] || exit 1
+            git check-ref-format "$GROUP_REF"
+            git cat-file -e "${GROUP_BASE}^{commit}"
+            git merge-base --is-ancestor "$GROUP_BASE" "$GROUP_HEAD"
+            git fetch --no-tags origin "$GROUP_REF"
+            target_base="$(git merge-base FETCH_HEAD "$GROUP_HEAD")"
+            git diff --name-only --diff-filter=ACMR "$target_base" "$GROUP_HEAD" > /tmp/changed.txt
           else
             # push to main: format only files touched in that push. Fall back
             # to HEAD~1..HEAD if `before` is unavailable (e.g. force-push,
@@ -170,7 +185,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -190,7 +205,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The script + allowlist land in #205. Until that merges, skip-pass so
       # cross.yml stays green on main. Once #205 lands the guard is a no-op.
@@ -214,14 +229,14 @@ jobs:
 
   budget-headroom:
     name: budget-headroom (changed files may not grow past 570 LOC)
-    # Only meaningful on PRs — needs a merge base to diff against. On a push to
-    # main there are no "changed files" relative to main, so nothing to gate.
-    if: github.event_name == 'pull_request'
+    # Compare PRs and groups with their target branch merge base.
+    # Pushes to main have no changed-file headroom gate.
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Need history back to the merge base of the PR.
           fetch-depth: 0
@@ -230,6 +245,7 @@ jobs:
         run: bash tools/check-budget-headroom.sh --self-test
 
       - name: Fetch base branch
+        if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
@@ -241,17 +257,31 @@ jobs:
       - name: Check headroom on changed files
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
-        run: bash tools/check-budget-headroom.sh "origin/${BASE_REF}"
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_REF: ${{ github.event.merge_group.base_ref }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "merge_group" ]; then
+            [[ "$GROUP_BASE" =~ ^[0-9a-fA-F]{40}$ && "$GROUP_HEAD" = "$(git rev-parse HEAD)" && "$GROUP_REF" = refs/heads/* ]] || exit 1
+            git check-ref-format "$GROUP_REF"
+            git cat-file -e "${GROUP_BASE}^{commit}"
+            git merge-base --is-ancestor "$GROUP_BASE" "$GROUP_HEAD"
+            git fetch --no-tags origin "$GROUP_REF"
+            bash tools/check-budget-headroom.sh "$(git merge-base FETCH_HEAD "$GROUP_HEAD")"
+          else
+            bash tools/check-budget-headroom.sh "origin/${BASE_REF}"
+          fi
 
   allowlist-shrinks-only:
     name: allowlist-shrinks-only
-    # Only meaningful on PRs — needs a merge base to diff against.
-    if: github.event_name == 'pull_request'
+    # Compare PRs and groups with their target branch merge base.
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Need history back to the merge base of the PR.
           fetch-depth: 0
@@ -270,18 +300,32 @@ jobs:
         if: steps.probe.outputs.have_allowlist == 'true'
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_REF: ${{ github.event.merge_group.base_ref }}
         run: |
           set -euo pipefail
           # Fetch the base branch tip so `git merge-base` can find the true
           # fork point. checkout@v4 with fetch-depth: 0 fetches all branches'
           # commits, but not always the named ref — be explicit.
-          git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
-          merge_base="$(git merge-base "origin/${BASE_REF}" HEAD)"
+          if [ "${{ github.event_name }}" = "merge_group" ]; then
+            [[ "$GROUP_BASE" =~ ^[0-9a-fA-F]{40}$ && "$GROUP_HEAD" = "$(git rev-parse HEAD)" && "$GROUP_REF" = refs/heads/* ]] || exit 1
+            git check-ref-format "$GROUP_REF"
+            git cat-file -e "${GROUP_BASE}^{commit}"
+            git merge-base --is-ancestor "$GROUP_BASE" "$GROUP_HEAD"
+            git fetch --no-tags origin "$GROUP_REF"
+            merge_base="$(git merge-base FETCH_HEAD "$GROUP_HEAD")"
+          else
+            git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+            merge_base="$(git merge-base "origin/${BASE_REF}" HEAD)"
+          fi
           echo "MERGE_BASE=${merge_base}" >> "$GITHUB_ENV"
           echo "merge base: ${merge_base}"
 
       - name: Compare allowlist length against merge base
         if: steps.probe.outputs.have_allowlist == 'true'
+        env:
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
         run: |
           set -euo pipefail
 
@@ -354,8 +398,15 @@ jobs:
           # `\*\.$1(...|$)` put `$` before a closing paren, which isn't
           # that, and isn't guaranteed to behave as an anchor there).
           extension_already_gated() {
-            grep -Eq -- "\*\.$1[^A-Za-z0-9_]" "$gate_script_tmp"
+            grep -Eq -- "\*\.$1[^A-Za-z0-9_]" "$2"
           }
+
+          group_gate_tmp="$(mktemp)"
+          group_paths="$(mktemp)"
+          if [ -n "$GROUP_BASE" ]; then
+            git show "${GROUP_BASE}:tools/check-file-budget.sh" > "$group_gate_tmp"
+            git show "${GROUP_BASE}:tools/budget-allowlist.txt" | extract_paths /dev/stdin | sort > "$group_paths"
+          fi
 
           head_total="$(extract_paths tools/budget-allowlist.txt | wc -l | tr -d ' ')"
 
@@ -385,21 +436,25 @@ jobs:
           rm -f "$base_tmp"
 
           failed=0
-          for ext in $(sed -E 's/^.*\.([A-Za-z0-9]+)$/\1/' "$head_paths" | sort -u); do
-            if extension_already_gated "$ext"; then
+          while read -r ext; do
+            if extension_already_gated "$ext" "$gate_script_tmp" || extension_already_gated "$ext" "$group_gate_tmp"; then
+              comparison_paths="$base_paths"
+              if ! extension_already_gated "$ext" "$gate_script_tmp"; then
+                comparison_paths="$group_paths"
+              fi
               while read -r new_path; do
                 [ -n "$new_path" ] || continue
-                echo "::error::budget-allowlist.txt gained a new .${ext} entry (${new_path}) — that extension was already gated at the merge base and the allowlist is append-forbidden for it. Split the offending file instead of allowlisting it."
+                echo "::error::budget-allowlist.txt gained a new .${ext} entry (${new_path}) — that extension was already gated at the target merge base or prior group boundary. Split the offending file instead of allowlisting it."
                 failed=1
-              done < <(comm -13 <(grep -E "\.${ext}\$" "$base_paths") <(grep -E "\.${ext}\$" "$head_paths"))
+              done < <(comm -13 <(grep -E "\.${ext}\$" "$comparison_paths") <(grep -E "\.${ext}\$" "$head_paths"))
             else
               new_count="$(grep -c -E "\.${ext}\$" "$head_paths" || true)"
               if [ "${new_count:-0}" -gt 0 ]; then
                 echo "::notice::.${ext} entries (${new_count}) are new in this PR — allowed once as day-0 seeding for a language newly brought under the file-budget gate. Any further growth of .${ext} is append-forbidden starting now."
               fi
             fi
-          done
-          rm -f "$head_paths" "$base_paths" "$gate_script_tmp"
+          done < <(sed -E 's/^.*\.([A-Za-z0-9]+)$/\1/' "$head_paths" | sort -u)
+          rm -f "$head_paths" "$base_paths" "$gate_script_tmp" "$group_gate_tmp" "$group_paths"
 
           if [ "$failed" -ne 0 ]; then
             exit 1
@@ -409,11 +464,14 @@ jobs:
 
   budgets-ratchet-shrinks-only:
     name: budgets-ratchet-shrinks-only
+    permissions:
+      contents: read
+      pull-requests: read
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Need history back to the merge base of the PR (same rationale as
           # allowlist-shrinks-only above). Harmless on push.
@@ -429,25 +487,36 @@ jobs:
       - name: check_budget_ratchet self-test
         run: python3 tools/check_budget_ratchet.py --self-test
 
-      # The ratchet diff is only meaningful on PRs (needs a merge base). On
-      # push to main there is no "base branch" to ratchet against — the
-      # self-test above still runs.
+      # PRs and merge groups use their target branch merge base.
+      # Pushes to main still run only the checker's self-test.
       - name: Compute merge base
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_REF: ${{ github.event.merge_group.base_ref }}
         run: |
           set -euo pipefail
           # Fetch the base branch tip so `git merge-base` can find the true
           # fork point (checkout@v4 with fetch-depth: 0 fetches commits, not
           # always the named ref — be explicit).
-          git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
-          merge_base="$(git merge-base "origin/${BASE_REF}" HEAD)"
+          if [ "${{ github.event_name }}" = "merge_group" ]; then
+            [[ "$GROUP_BASE" =~ ^[0-9a-fA-F]{40}$ && "$GROUP_HEAD" = "$(git rev-parse HEAD)" && "$GROUP_REF" = refs/heads/* ]] || exit 1
+            git check-ref-format "$GROUP_REF"
+            git cat-file -e "${GROUP_BASE}^{commit}"
+            git merge-base --is-ancestor "$GROUP_BASE" "$GROUP_HEAD"
+            git fetch --no-tags origin "$GROUP_REF"
+            merge_base="$(git merge-base FETCH_HEAD "$GROUP_HEAD")"
+          else
+            git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+            merge_base="$(git merge-base "origin/${BASE_REF}" HEAD)"
+          fi
           echo "MERGE_BASE=${merge_base}" >> "$GITHUB_ENV"
           echo "merge base: ${merge_base}"
 
       - name: Enforce budgets.json one-way ratchet vs merge base
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         env:
           # Written to a file with printf below, never interpolated into a
           # command — PR bodies are attacker-controlled text.
@@ -455,6 +524,9 @@ jobs:
           # On pull_request runs HEAD is the synthetic merge commit, whose message is
           # "Merge <sha> into <sha>" — read the PR head commit instead (Copilot, #3114).
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_REF: ${{ github.event.merge_group.base_ref }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # If budgets.json didn't exist at the merge base (brand-new file),
@@ -470,10 +542,22 @@ jobs:
           # `RE-BASELINE: <fixture>/<case>.<metric>: <justification>` lines in
           # the PR body and/or the head commit message — either location is
           # fine, and the commit message is what survives "Rebase and merge"
-          # into main's history, since the PR body itself does not.
+          # into main's history, since the PR body itself does not. A
+          # merge_group run has no pull_request payload, so the queued PR
+          # bodies come from the API queue entries whose exact head/base commit
+          # chain connects this synthetic head to MERGE_BASE. A stale or incomplete
+          # queue snapshot fails closed rather than guessing from the ref name.
           marker="$(mktemp)"
           printf '%s\n' "$PR_BODY" > "$marker"
-          git log -1 --format=%B "${HEAD_SHA:-HEAD}" >> "$marker"
+          if [ "${{ github.event_name }}" = "merge_group" ]; then
+            git log --format=%B "${MERGE_BASE}..HEAD" >> "$marker"
+            [[ "$GROUP_REF" = refs/heads/* ]] || exit 1
+            python3 tools/ci_group_bodies.py --repository "$GITHUB_REPOSITORY" \
+              --branch "${GROUP_REF#refs/heads/}" --base "$MERGE_BASE" \
+              --head "$GROUP_HEAD" >> "$marker"
+          else
+            git log -1 --format=%B "${HEAD_SHA:-HEAD}" >> "$marker"
+          fi
           # The script fails (exit 1) if any existing budget cell was raised
           # (without a matching marker) or removed vs the base branch. New
           # cells (added coverage) pass.
@@ -488,7 +572,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -547,7 +631,7 @@ jobs:
     name: maple-ui-contracts (component-contract docs are complete)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Run contract linter self-test
         run: bash tools/check-maple-ui-contracts.test.sh
@@ -567,7 +651,7 @@ jobs:
     name: editor-parity-manifest (editor surface matches the parity manifest)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -587,7 +671,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Need history back to the merge base so fallow can scope its
           # audit to files changed in this PR/push (same rationale as
@@ -626,7 +710,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Need history back to the merge base so fallow can scope its
           # audit to files changed in this PR/push (same rationale as
@@ -684,7 +768,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history so we can resolve the merge-base / pushed range below.
           # The scan itself is bounded to this PR/push's own commits via
@@ -737,6 +821,9 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.sha }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD: ${{ github.event.merge_group.head_sha }}
+          GROUP_REF: ${{ github.event.merge_group.base_ref }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -747,6 +834,13 @@ jobs:
             # origin/<base>..HEAD selects commits reachable from HEAD but not
             # from the base ref — i.e. this PR's own new commits.
             RANGE="origin/${BASE_REF}..HEAD"
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            [[ "$GROUP_BASE" =~ ^[0-9a-fA-F]{40}$ && "$GROUP_HEAD" = "$(git rev-parse HEAD)" && "$GROUP_REF" = refs/heads/* ]] || exit 1
+            git check-ref-format "$GROUP_REF"
+            git cat-file -e "${GROUP_BASE}^{commit}"
+            git merge-base --is-ancestor "$GROUP_BASE" "$GROUP_HEAD"
+            git fetch --no-tags origin "$GROUP_REF"
+            RANGE="$(git merge-base FETCH_HEAD "$GROUP_HEAD")..${GROUP_HEAD}"
           else
             # push: scan the pushed range. Fall back to HEAD~1..HEAD if `before`
             # is unavailable (force-push, branch-create, or the all-zeros
@@ -783,12 +877,12 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: >-
           python3 tools/ci_result.py
           ci-selection-tests=ci nlm-exp-tests=codegen release-handoff-tests=release
           format-check=always oxlint-api=api file-budget=always
-          budget-headroom=pr allowlist-shrinks-only=pr
+          budget-headroom=pr-or-group allowlist-shrinks-only=pr-or-group
           budgets-ratchet-shrinks-only=always codegen-drift=codegen
           maple-ui-contracts=always editor-parity-manifest=always
           fallow-audit-web=web fallow-audit-api=api gitleaks=always

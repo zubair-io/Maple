@@ -40,6 +40,7 @@ function markDeprecated(set: { headers: Record<string, unknown> }): void {
 }
 
 import { Elysia, t } from 'elysia';
+import { SidecarWriteBindingChangedError } from '../../fs/sidecar-write-order';
 import { readXmp, writeXmpWithPrecondition, deleteXmpSidecar } from '../../fs/xmp.ts';
 import {
   readConflictSidecar,
@@ -49,9 +50,15 @@ import {
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { setHasXmp, recordSidecarEdit } from '../../db/assets.repo.ts';
 import { resolveAssetLocationOrRespond } from './_shared.ts';
-import { resolveAndAuthorizePath } from '../xmp-path-auth.ts';
+import { resolveAndAuthorizeSidecarWrite } from '../xmp-path-auth.ts';
 
 export const xmpRoutes = new Elysia()
+  .onError(({ error, set }) => {
+    if (error instanceof SidecarWriteBindingChangedError) {
+      set.status = 409;
+      return { error: error.message };
+    }
+  })
   // Read XMP sidecar
   .get('/:id/xmp', async ({ params, query, set }) => {
     markDeprecated(set);
@@ -126,6 +133,7 @@ export const xmpRoutes = new Elysia()
           conflict,
           xmlContent,
           request.signal,
+          writeScope,
         );
         if (!outcome.ok) {
           set.status = 400;
@@ -205,7 +213,7 @@ export const xmpRoutes = new Elysia()
     const conflict = typeof query.conflict === 'string' ? query.conflict : null;
     const result =
       conflict !== null
-        ? await deleteConflictSidecar(absPath, conflict)
+        ? await deleteConflictSidecar(absPath, conflict, writeScope)
         : await deleteXmpSidecar(absPath, writeScope, request.signal);
     if (!result.ok) {
       set.status = 400;
@@ -232,7 +240,7 @@ async function resolveWritableAssetOrRespond(idParam: string, set: { status?: nu
   const resolved = await resolveAssetLocationOrRespond(idParam, set);
   if ('error' in resolved) return resolved;
 
-  const authorized = await resolveAndAuthorizePath(resolved.absPath);
+  const authorized = await resolveAndAuthorizeSidecarWrite(resolved.absPath);
   if (!authorized.ok) {
     set.status = authorized.status;
     return { error: authorized.error };

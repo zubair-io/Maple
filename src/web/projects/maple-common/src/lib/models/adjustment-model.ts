@@ -22,6 +22,7 @@ import {
 export type { GeneratedAdjustmentModel } from '../generated/adjustment-model.generated';
 export type { HighlightRecoveryMode } from '../generated/adjustment-model.generated';
 export type { BlackWhiteMode } from '../generated/adjustment-model.generated';
+export type { ToneCurveMode } from '../generated/adjustment-model.generated';
 export { defaultGeneratedAdjustmentModel } from '../generated/adjustment-model.generated';
 // Ranges live in the sibling generated file (#2683 — split out to keep both
 // generated files well under the file-size budget as the schema grows).

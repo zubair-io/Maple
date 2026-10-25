@@ -20,7 +20,7 @@ fn corner_product_table(values: u32) -> HsmTable {
 fn hue_and_saturation_interpolate_independently() {
     let table = corner_product_table(1);
     for (h, s) in [(0.25, 0.5), (0.7, 0.2), (0.4, 0.8)] {
-        let (hd, ss, vs) = lookup(&table, h * 90.0, s, 0.6);
+        let (hd, ss, vs) = lookup(table.dims, &table.data, h * 90.0, s, 0.6);
         assert_eq!(hd, 0.0);
         assert!((ss - (1.0 + 0.4 * h * s)).abs() < 1e-6, "{h},{s}: {ss}");
         assert!((vs - (1.0 + 0.8 * h * s)).abs() < 1e-6, "{h},{s}: {vs}");
@@ -39,7 +39,7 @@ fn all_three_axes_interpolate_independently() {
         (0.6, 0.2, 0.4),
         (0.6, 0.4, 0.2),
     ] {
-        let (hd, ss, vs) = lookup(&table, h * 90.0, s, v);
+        let (hd, ss, vs) = lookup(table.dims, &table.data, h * 90.0, s, v);
         assert_eq!(hd, 0.0);
         assert!(
             (ss - (1.0 + 0.4 * h * s * v)).abs() < 1e-6,
@@ -56,11 +56,11 @@ fn all_three_axes_interpolate_independently() {
 fn trilinear_cells_retain_hdr_lookup_boundary() {
     let table = corner_product_table(2);
     assert_eq!(
-        lookup(&table, 22.5, 0.5, 1.0),
-        lookup(&table, 22.5, 0.5, 4.0)
+        lookup(table.dims, &table.data, 22.5, 0.5, 1.0),
+        lookup(table.dims, &table.data, 22.5, 0.5, 4.0)
     );
     assert_eq!(
-        lookup(&table, 22.5, 0.5, 0.0),
-        lookup(&table, 22.5, 0.5, -0.5)
+        lookup(table.dims, &table.data, 22.5, 0.5, 0.0),
+        lookup(table.dims, &table.data, 22.5, 0.5, -0.5)
     );
 }

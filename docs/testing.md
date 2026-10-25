@@ -310,16 +310,32 @@ The job sets `MAPLE_REQUIRE_GPU=1`, which turns raw-wasm's developer-friendly "n
 
 ### Metal and browser-WebGPU coverage (#2315)
 
+**Dehaze's proxy haze map (#3287)** is gated at three layers, all in the commands above. `raw-core`'s `stages::dehaze` tests pin the separable window minimum against the direct one, that a window recovers bit-exactly from the frame's map, and that the same synthetic scene dehazes alike at fit and at native resolution (and that the pre-#3287 per-buffer windows did not). `raw-gpu`'s `dehaze/tests.rs` holds the WGSL map and recovery to 1e-4 of `raw_core::stages::dehaze::apply` and pins the proxy grid to raw-core's; `live_session/tests_haze.rs` proves a dehaze-slider tick reuses the resident map with zero allocations and renders exactly what a fresh measurement does. The tile gates (`tile/tests_full_parity.rs`, fixture-free, and the fixture-gated `tests_render_anchors::tile_matches_full_chain_with_all_spatial_sliders`) carry global and per-mask dehaze cases, and `raw-ffi`'s `scene_linear_chain_window_target_tests.rs` gates the Apple/Windows windowed entry with the frame's map.
+
 Two additional jobs provide backend-specific evidence. Both currently set **`continue-on-error: true`** in their workflows, so inspect their individual outcomes rather than treating a green workflow summary as proof of execution or parity:
 
 - **`raw-gpu-metal`** (`raw-pipeline.yml`, `macos-latest`) runs `cargo test -p raw-gpu` unmodified, on the real Metal backend a GitHub-hosted macOS runner exposes to headless wgpu. It is deliberately minimal — just the parity tests themselves — because the compile gates and the WGSL naga-frontend validation are backend-independent and already run on Linux. `raw-gpu`'s tests hard-`.expect()` a `GpuContext`, so a missing Metal adapter fails this job outright rather than soft-passing; a clean run is itself the proof the runner has one.
 - **`web-webgpu-smoke`** (`web.yml`, `ubuntu-latest`) runs two existing dev-server e2e specs — `e2e/raw-open.spec.ts` (a real RAW decode with no WASM trap) and `e2e/slider-tick-render.perf.spec.ts` (opens a real live GPU/WASM render session and drives the Exposure slider through real per-tick renders) — in headless Chromium with `--enable-unsafe-webgpu` (set by the perf spec's own `launchOptions`, the flag that makes a WebGPU adapter resolve at all in headless Chrome). Both specs already skip-pass without the gitignored `test-fixtures/raws/test_0006.DNG`, the same convention as every other fixture-gated gate, so an unprovisioned run supplies no RAW-open or slider-render evidence — but unlike `color-pipeline`'s fixture probe (which skips before provisioning any toolchain), this job still pays the full Rust/wasm-pack + raw-wasm-build + Chromium-install setup cost every run, the same cost `web-build`/`web-test`/`web-test-common` already pay unconditionally.
+
+The colour-curves work is gated at four layers. `raw-core` pins the stage (`color_curves_tests.rs`), the eyedropper's orientation mapping against the orientation matrix for all eight EXIF tags, and the zone-weight goldens; `raw-gpu` pins the WGSL twin against `raw-core` (`color_curves/tests.rs`, within 1e-4, neutral bit-exact) and runs on Metal in `raw-gpu-metal`. The four sidecar writers share one canonical block and the omit-on-default rules (`tests_color_curves.rs`, `ColorCurveXMPTests.swift`, `color-curves-xmp.spec.ts`, `ColorCurveXmpTests.cs`), and the three editors' strips and split handles are tested against the same goldens or math (`color-grading-panel.spec.ts`, `tone-curve-splits.spec.ts`, `ColorGradeZoneEdgeTests`, `ColorGradeZoneWeightsTests`). `e2e/production/color-curves-ui.spec.ts` drives the real Hosted editor in Chrome: mode switch, six curve pills, ribbon knots, Lock Skin and the eyedropper.
 
 The physical upright-canvas regression (`cd src/web && bun x playwright test
 --config=playwright.orientation.config.ts`) requires `test_0013.DNG` and a real
 Chrome WebGPU adapter. It fails if either is absent. It compares upright canvas,
 native dimensions, crop bounds and a radial mask's pixel changes against its
 handle, then reopens the real OPFS sidecar through the CPU path.
+
+The physical crop regression (`cd src/web && bun x playwright test
+--config=playwright.crop-live.config.ts`) has the same prerequisites and fails
+the same way. On the same Rotate90 RAW it applies a rectangle, a quarter-turn,
+a free-angle crop and a free-angle crop over perspective to the live WebGPU
+canvas, then reopens the OPFS sidecar through the CPU path. The two canvases
+must have identical presented dimensions and agree within a coarse spatial
+budget, the canvas colour space must survive the resize, and clearing the crop
+and perspective must restore the full frame. Pixel-exact placement is gated
+natively, not here: `present_texture_tests` compares the GPU present with the
+CPU display tail within 1 LSB for every EXIF orientation, including off-axis
+crops over perspective.
 
 Real hardware — locally, and through the Apple UITest harness — remains the deeper signal for both surfaces; these two jobs are the cheap, always-on backstop against a divergence reaching `main` with every existing check green.
 
@@ -364,7 +380,7 @@ The visual harnesses in `src/apple/MapleUITests/` all follow one shape: stage a 
 | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MapleUITests`         | One fixture at default settings vs a committed golden (`Goldens/test_0017-default.png`). Budgets: mean ≤ 5, p95 ≤ 10, max ≤ 30, bias ≤ 0.05. Deleting the PNG re-records it and fails with "baseline written"          |
 | `SyntheticGreyUITests` | The Apple path (Rust FFI scene-linear → Metal AgX → Metal sRGB encode) lands on the same grey the Rust CPU tail produces: every pixel neutral within ±2 LSB, canvas mean within ±3 LSB of six per-case expected values |
-| `CIEDE2000Tests`       | Cross-validates the Swift ΔE₀₀ port against `compare_images.py` on a committed calibration PNG pair                                                                                                                    |
+| `CIEDE2000Tests`       | Cross-validates the Swift ΔE₀₀ port against `compare_images.py` on the committed calibration cases, bundled as the `Goldens` folder                                                                                    |
 
 Fixture-dependent classes call `XCTSkip` when the RAW isn't present at the repo default, mirroring the shell harnesses — and fail when it isn't present at an explicitly named `TEST_RUNNER_MAPLE_UITEST_FIXTURE_ROOT`.
 
@@ -553,14 +569,16 @@ Recording evidence:
 # run records failed_cases > 0, which is exactly what demotes the capabilities using it).
 tools/qualification/record.sh grey_adjustments cpu-reference -- bash src/scripts/test_grey_adjustments.sh
 tools/qualification/record.sh sidecar_contract_apple xctest-macos -- \
-  bash -c 'cd src/apple/Packages/MapleCore && swift test --filter SidecarTransactionContract'
+  swift test --package-path src/apple/Packages/MapleCore --filter SidecarTransactionContract
 tools/qualification/record.sh gpu_chain_parity_metal metal -- \
-  bash -c 'cd src/raw-pipeline && MAPLE_REQUIRE_GPU=1 cargo test -p raw-wasm --features gpu gpu_render'
+  bash -c 'cd src/raw-pipeline && MAPLE_REQUIRE_GPU=1 cargo test -p raw-wasm --features gpu gpu_render -- --include-ignored'
 # Retired ACR color_harness records are historical; run the Auto JPEG gate directly.
 
 # Then regenerate the registry and commit both.
 bash tools/codegen.sh
 ```
+
+The Metal qualification requires `test-fixtures/raws/test_0006.DNG` and includes the otherwise ignored physical lossy-DNG white-balance case: all 24 cases must execute without skips.
 
 The wrapper parses `cargo test`, `bun test`, `swift test`, and the colour harness's own `qualification: executed=… failed=… skipped=…` line, then calls `qualification-record` (`src/raw-pipeline/codegen/src/qualification_record.rs`) to stamp the expected count and corpus hash. Sources, accepted backends, expected counts, and corpora are all declared in `capability_registry/mod.rs`; adding a test to a suite means bumping its `expected_cases` there and re-recording in the same PR.
 

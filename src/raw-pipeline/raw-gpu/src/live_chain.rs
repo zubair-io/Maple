@@ -64,6 +64,7 @@ use crate::agx::AgxPass;
 use crate::auto_profile_curve::{profile_curve_is_active, AutoProfileCurvePass};
 use crate::capture_sharpening::CaptureSharpeningPass;
 use crate::clarity::ClarityPass;
+use crate::color_curves::{color_curves_is_identity, ColorCurvesPass};
 use crate::color_grade::{color_grade_is_identity, ColorGradePass};
 use crate::defringe::DefringePass;
 use crate::dehaze::{AirlightSource, DehazePass};
@@ -176,7 +177,7 @@ pub fn view_tail_pass_count(inputs: &FullChainInputs) -> usize {
 // drift from the P4a gate's. Native test builds only.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_chain/tests.rs"]
-mod tests;
+pub(crate) mod tests;
 // The input-shape + sub-parameter pass-inclusion gates live in their own file
 // (600-LOC file budget); they reuse `tests::{neutral_case, run_live_chain,
 // TEST_SESSION_ID}` (`pub(super)` there). Same split shape as `gpu_render`'s
@@ -194,3 +195,7 @@ mod tests_scope;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_chain/tests_capacity.rs"]
 mod tests_capacity;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_chain/tests_mask_bits.rs"]
+mod tests_mask_bits;

@@ -30,6 +30,8 @@
 name: apple
 
 on:
+  merge_group:
+    types: [checks_requested]
   workflow_call:
     outputs:
       validated_sha:
@@ -62,7 +64,7 @@ jobs:
     outputs:
       sha: ${{ steps.revision.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: python3 tools/ci_result.py swift-build=swift swift-ui=swift swift-regressions=swift swift-regressions-coverage=swift
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
@@ -75,9 +77,13 @@ jobs:
     if: needs.changes.outputs.swift == 'true'
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Test release archive platform detection
         run: python3 src/apple/ci_scripts/test_post_xcodebuild.py
+      - name: Verify the Apple removal fixture copy matches test-fixtures/removal
+        run: |
+          python3 tools/test_removal_fixture_copies.py
+          python3 tools/check_removal_fixture_copies.py
       - name: Test xcframework input fingerprint across checkout roots
         run: bash src/apple/scripts/tests/test_xcframework_fingerprint.sh
 
@@ -156,7 +162,7 @@ jobs:
     if: needs.changes.outputs.swift == 'true'
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Select newest Xcode
         run: |
           set -euo pipefail
@@ -186,7 +192,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: python3 tools/check-swift-regressions-coverage.py
 
   swift-regressions:
@@ -200,7 +206,7 @@ jobs:
       MAPLE_GPU_LIVE: '1'
       MAPLE_FILEPROVIDER_TEST_API_ROOT: ${{ github.workspace }}/src/api
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -295,6 +301,7 @@ jobs:
           cp -R test-fixtures/export-recipes "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           cp -R test-fixtures/file-operations "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           cp -R test-fixtures/look-profiles "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
+          cp -R test-fixtures/ids "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/"
           mkdir -p "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/batch-transfer"
           cp test-fixtures/batch-transfer/{source,target}.dng "$MAPLE_SWIFT_TEST_ROOT/test-fixtures/batch-transfer/"
       # Independent saved-recipe transport gate (#4207), using the real host archive.

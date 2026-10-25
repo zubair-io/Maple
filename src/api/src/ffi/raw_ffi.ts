@@ -51,6 +51,16 @@ export function histogramBinsFromBuffer(buf: Buffer): HistogramBins {
   return { r, g, b };
 }
 
+/** Decode the little-endian `f32` temperature/tint pair that
+ * `maple_as_shot_white_balance_file` writes. Null unless the temperature is a
+ * positive finite Kelvin value and the tint is finite. */
+export function whiteBalanceFromBuffer(pair: Buffer): { temperature: number; tint: number } | null {
+  const temperature = pair.readFloatLE(0);
+  const tint = pair.readFloatLE(4);
+  const valid = Number.isFinite(temperature) && temperature > 0 && Number.isFinite(tint);
+  return valid ? { temperature, tint } : null;
+}
+
 /** Batch-rename filename-template render result, mirroring
  * `raw_core::filename::render_filename`'s error taxonomy (#2628). One-to-one
  * with `MapleFilenameResult`'s `error_code` values. `-1` (bad pointer/UTF-8)
@@ -73,6 +83,10 @@ export interface RawFfi {
     filmPath: string | null,
     outPath: string,
   ): string | null;
+  /** Whether a sidecar document parses, exactly as the recipe renderer parses
+   * it, to anything other than the default model. Absent on a dylib built
+   * before #5231; callers then treat the sidecar as authored. */
+  xmpHasRenderAdjustments?(xmp: string): { authored: boolean } | { error: string };
   asShotWhiteBalance(rawAbsPath: string): { temperature: number; tint: number } | null;
   /**
    * Render a RAW+XMP and return a 3×256 RGB histogram (R/G/B channel counts),
@@ -262,17 +276,14 @@ function loadFfi(): RawFfi | null {
       },
     });
 
+    const xmpHasRenderAdjustments = bindSidecarAdjustmentCheck(libPath);
     return {
+      ...(xmpHasRenderAdjustments ? { xmpHasRenderAdjustments } : {}),
       asShotWhiteBalance(rawAbsPath) {
         const raw = Buffer.from(rawAbsPath + '\0');
         const pair = Buffer.alloc(8);
         const rc = lib.symbols.maple_as_shot_white_balance_file(ptr(raw), ptr(pair));
-        if (rc !== 0) return null;
-        const temperature = pair.readFloatLE(0);
-        const tint = pair.readFloatLE(4);
-        return Number.isFinite(temperature) && temperature > 0 && Number.isFinite(tint)
-          ? { temperature, tint }
-          : null;
+        return rc === 0 ? whiteBalanceFromBuffer(pair) : null;
       },
       computeHistogramBins(
         rawAbsPath: string,
@@ -373,5 +384,29 @@ function loadFfi(): RawFfi | null {
   } catch (err) {
     log.error({ err: err instanceof Error ? err.message : err }, 'failed to load native library');
     return null;
+  }
+}
+
+/** Bound on its own so a dylib that predates the symbol still loads every
+ * other entry; the caller then fails closed by developing the sidecar. */
+function bindSidecarAdjustmentCheck(libPath: string): RawFfi['xmpHasRenderAdjustments'] {
+  try {
+    const { dlopen, FFIType, ptr } = require('bun:ffi') as typeof BunFfi;
+    const { symbols } = dlopen(libPath, {
+      maple_xmp_has_render_adjustments: { args: [FFIType.ptr], returns: FFIType.i32 },
+      maple_last_error: { args: [], returns: FFIType.cstring },
+    });
+    return (xmp) => {
+      const document = Buffer.from(xmp + '\0', 'utf-8');
+      const rc = symbols.maple_xmp_has_render_adjustments(ptr(document));
+      if (rc === 0 || rc === 1) return { authored: rc === 1 };
+      return { error: String(symbols.maple_last_error() ?? `sidecar check failed (rc ${rc})`) };
+    };
+  } catch (err) {
+    log.warn(
+      { libPath, err: err instanceof Error ? err.message : err },
+      'maple_xmp_has_render_adjustments unavailable; RAW sidecars are always developed',
+    );
+    return undefined;
   }
 }

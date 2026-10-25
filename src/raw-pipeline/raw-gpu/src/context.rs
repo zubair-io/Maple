@@ -8,7 +8,7 @@
 //! dispatch.
 
 use crate::frame_pool::FramePool;
-use std::cell::{OnceCell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::sync::Arc;
 
 /// Shared device/queue handles plus lazily-compiled, cached compute pipelines.
@@ -55,6 +55,8 @@ pub struct GpuContext {
     /// no generated color matrices (the WB matrix is a per-pass uniform). Built
     /// on first use via [`GpuContext::white_balance_pipeline`].
     pub(crate) white_balance_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled `white_balance_hsm.wgsl` (#5099).
+    pub(crate) white_balance_hsm_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled scene-tone-controls compute pipeline
     /// (`scene_tone_controls.wgsl`). A P2 scene-linear stage (#990); five
     /// luma-coupled tone steps, no Oklab, so no generated color matrices. Built
@@ -86,6 +88,8 @@ pub struct GpuContext {
     /// color matrices). The #1112 scene-linear Oklab HSL stage. Built on first
     /// use via [`GpuContext::hsl_pipeline`].
     pub(crate) hsl_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled Oklab secondary color curves pipeline (`color_curves.wgsl`, #5041).
+    pub(crate) color_curves_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled masked shadows/highlights compute pipeline
     /// (`scene_tone_sh.wgsl`, #1103): one tone step through the tonal detail
     /// mask (blurred-luma regional vs per-pixel mix). Built on first use via
@@ -232,6 +236,7 @@ pub struct GpuContext {
     /// uniform + airlight uniform + RGBA-orig + ab-in + sky-in + RGBA-out — the
     /// airlight rides a SECOND uniform, so storage stays at 4 / the cap; #1033).
     pub(crate) dehaze_recover_pipeline: OnceCell<wgpu::ComputePipeline>,
+    pub(crate) dehaze_downsample_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled on-GPU airlight histogram pipeline (`airlight_hist.wgsl`).
     /// The dehaze C5b reduction (epic #925 P4b / #1033): an atomic histogram of the
     /// dark channel, stage 1 of computing the atmospheric light A on-device (no
@@ -271,6 +276,11 @@ pub struct GpuContext {
     /// `sharpen_mix`: the edge-aware amount/masking blend (central-difference
     /// gradient on the luma plane). 4 storage (observed + sharpened + luma + dst).
     pub(crate) sharpen_mix_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Capture-stage refine passes (#5217): post-DCP Oklab recovery, BM3D and
+    /// the chroma prefilter.
+    pub(crate) post_dcp_highlight_pipeline: OnceCell<wgpu::ComputePipeline>,
+    pub(crate) bm3d_pipelines: OnceCell<crate::bm3d::Pipelines>,
+    pub(crate) chroma_prefilter_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled capture-sharpening pipelines (epic #925 P3 wave 2 / #991).
     /// Richardson–Lucy deconvolution on a luma plane (Rec.709 weights — raw-core's
     /// deliberate approximation), TRUE Gaussian PSF with clamp-to-edge borders.
@@ -321,6 +331,27 @@ pub struct GpuContext {
     /// is dormant and allocators fall back to plain creates (so stage unit tests
     /// are unaffected). See [`crate::frame_pool`].
     pub(crate) frame_pool: RefCell<FramePool>,
+    bm3d_binding_cap: Cell<u32>,
+}
+
+/// Default ceiling on each BM3D patch-cache binding. Memory-constrained hosts
+/// lower it per context; #5213 targets 32 MiB on iPhone.
+pub const DEFAULT_BM3D_BINDING_CAP: u32 = 128 << 20;
+const MIN_BM3D_BINDING_CAP: u32 = 1 << 20;
+
+impl GpuContext {
+    /// Bound the BM3D patch-spectra and filtered-group bindings to `bytes`
+    /// (clamped to at least 1 MiB and to the device limit); larger images are
+    /// filtered in more tiles. Takes effect on the next encode.
+    pub fn set_bm3d_binding_cap(&self, bytes: u32) {
+        self.bm3d_binding_cap.set(bytes.max(MIN_BM3D_BINDING_CAP));
+    }
+
+    pub fn bm3d_binding_cap(&self) -> u32 {
+        self.bm3d_binding_cap
+            .get()
+            .min(self.device.limits().max_storage_buffer_binding_size)
+    }
 }
 
 /// The device limits Maple requests: `downlevel_defaults()` as the baseline,
@@ -388,7 +419,17 @@ impl GpuContext {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("maple-gpu"),
-                    required_features: wgpu::Features::empty(),
+                    required_features: if cfg!(target_arch = "wasm32") {
+                        wgpu::Features::empty()
+                    } else {
+                        adapter.features()
+                            & (wgpu::Features::SUBGROUP
+                                | if cfg!(test) {
+                                    wgpu::Features::TIMESTAMP_QUERY
+                                } else {
+                                    wgpu::Features::empty()
+                                })
+                    },
                     required_limits: adapter_clamped_limits(&adapter),
                     memory_hints: wgpu::MemoryHints::default(),
                 },
@@ -409,12 +450,14 @@ impl GpuContext {
             exposure_pipeline: OnceCell::new(),
             vibrance_pipeline: OnceCell::new(),
             white_balance_pipeline: OnceCell::new(),
+            white_balance_hsm_pipeline: OnceCell::new(),
             scene_tone_controls_pipeline: OnceCell::new(),
             vignette_pipeline: OnceCell::new(),
             local_adjustments_pipeline: OnceCell::new(),
             grain_pipeline: OnceCell::new(),
             color_grade_pipeline: OnceCell::new(),
             hsl_pipeline: OnceCell::new(),
+            color_curves_pipeline: OnceCell::new(),
             scene_tone_sh_pipeline: OnceCell::new(),
             display_encode_pipeline: OnceCell::new(),
             srgb_gamma_pipeline: OnceCell::new(),
@@ -437,6 +480,7 @@ impl GpuContext {
             dehaze_guided_ab_pipeline: OnceCell::new(),
             dehaze_sky_mask_pipeline: OnceCell::new(),
             dehaze_recover_pipeline: OnceCell::new(),
+            dehaze_downsample_pipeline: OnceCell::new(),
             airlight_hist_pipeline: OnceCell::new(),
             airlight_reduce_pipeline: OnceCell::new(),
             nr_extract_pipeline: OnceCell::new(),
@@ -446,6 +490,9 @@ impl GpuContext {
             sharpen_luma_pipeline: OnceCell::new(),
             sharpen_usm_pipeline: OnceCell::new(),
             sharpen_mix_pipeline: OnceCell::new(),
+            post_dcp_highlight_pipeline: OnceCell::new(),
+            bm3d_pipelines: OnceCell::new(),
+            chroma_prefilter_pipeline: OnceCell::new(),
             cs_extract_pipeline: OnceCell::new(),
             cs_gaussian_pipeline: OnceCell::new(),
             cs_ratio_pipeline: OnceCell::new(),
@@ -456,6 +503,7 @@ impl GpuContext {
             vectorscope_pipeline: OnceCell::new(),
             scope_snapshot_pipeline: OnceCell::new(),
             frame_pool: RefCell::new(FramePool::default()),
+            bm3d_binding_cap: Cell::new(DEFAULT_BM3D_BINDING_CAP),
         })
     }
 

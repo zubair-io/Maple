@@ -6,6 +6,49 @@ import XCTest
 
 @MainActor
 final class ExportEditParityTests: XCTestCase {
+  func testExtensionlessPhotoKitJPEGExportsAtFullSize() async throws {
+    let source = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 64, height: 48))
+    let bytes = try MapleExporter.encodeImage(source, options: ExportOptions(format: .jpegSRGB))
+    let asset = AssetRef(
+      displayName: "ED7AC36B-A150-4C38-BB8C-B6D696F4F2ED/L0/001",
+      hintExtension: nil, stableID: "photokit-jpeg-test", bytesProvider: { bytes })
+    XCTAssertTrue(asset.isRaw, "extensionless refs default to RAW until bytes are inspected")
+
+    let session = EditSession(asset: asset)
+    let image = try await session.renderForExport(sizeOption: .full)
+    XCTAssertEqual(image.extent.size, CGSize(width: 64, height: 48))
+    let exported = try MapleExporter.encodeImage(image, options: ExportOptions(format: .jpegSRGB))
+    let decoded = try XCTUnwrap(CGImageSourceCreateWithData(exported as CFData, nil))
+    let cgImage = try XCTUnwrap(CGImageSourceCreateImageAtIndex(decoded, 0, nil))
+    XCTAssertEqual(cgImage.width, 64)
+    XCTAssertEqual(cgImage.height, 48)
+  }
+
+  func testUnrecognizedExtensionlessBytesCacheTheFallbackClassification() async throws {
+    actor ProviderCalls {
+      private var count = 0
+      func bytes() -> Data {
+        count += 1
+        return Data([0x01, 0x02, 0x03])
+      }
+      func value() -> Int { count }
+    }
+    let calls = ProviderCalls()
+    let asset = AssetRef(
+      displayName: "extensionless-photo-id", hintExtension: nil,
+      stableID: "unknown-export-type-test", bytesProvider: { await calls.bytes() })
+    XCTAssertNil(AssetRef.detectIsRaw(bytes: Data([0x01, 0x02, 0x03])))
+    XCTAssertTrue(asset.isRaw)
+
+    let actor = RenderActor(pipeline: ImageEditPipeline())
+    let first = try await actor.isRawForExport(asset)
+    let second = try await actor.isRawForExport(asset)
+    let readCount = await calls.value()
+    XCTAssertTrue(first)
+    XCTAssertEqual(second, first)
+    XCTAssertEqual(readCount, 1)
+  }
+
   func testExportKeepsLiveCropAndExposureBeforeAutosave() async throws {
     let directory = try SidecarContractIO.makeTempDirectory(prefix: "export-edits")
     defer { try? FileManager.default.removeItem(at: directory) }

@@ -89,16 +89,14 @@ impl HsmTable {
             encoding,
         })
     }
+}
 
-    /// Fetch the (hueDelta, satScale, valScale) at lattice index `(h, s, v)`.
-    /// Caller's responsibility to respect dim bounds.
-    #[inline]
-    fn entry(&self, h: usize, s: usize, v: usize) -> [f32; 3] {
-        let sat_d = self.dims[1] as usize;
-        let val_d = self.dims[2] as usize;
-        let i = ((h * sat_d + s) * val_d + v) * 3;
-        [self.data[i], self.data[i + 1], self.data[i + 2]]
-    }
+/// Fetch the (hueDelta, satScale, valScale) at lattice index `(h, s, v)` of a
+/// flat table laid out as [`HsmTable::data`]. Caller respects dim bounds.
+#[inline]
+fn entry(dims: [u32; 3], data: &[f32], h: usize, s: usize, v: usize) -> [f32; 3] {
+    let i = ((h * dims[1] as usize + s) * dims[2] as usize + v) * 3;
+    [data[i], data[i + 1], data[i + 2]]
 }
 
 /// Interpolate two HSM tables of identical shape and encoding, per
@@ -162,6 +160,17 @@ pub fn lerp_tables(cold: &HsmTable, warm: &HsmTable, t: f32) -> Option<HsmTable>
 /// wide-gamut tail intact without a hard branch.
 #[inline]
 pub fn apply_one(p: [f32; 3], table: &HsmTable) -> [f32; 3] {
+    apply_one_with(p, table.encoding, |h, s, v| {
+        lookup(table.dims, &table.data, h, s, v)
+    })
+}
+
+#[inline]
+fn apply_one_with(
+    p: [f32; 3],
+    encoding: HsmEncoding,
+    lookup_at: impl Fn(f32, f32, f32) -> (f32, f32, f32),
+) -> [f32; 3] {
     // 0. Perform a soft lift for negative components instead of an abrupt bypass
     let min_original = p[0].min(p[1]).min(p[2]);
     let lift = if min_original < 0.0 {
@@ -172,7 +181,7 @@ pub fn apply_one(p: [f32; 3], table: &HsmTable) -> [f32; 3] {
     let mut rgb = [p[0] + lift, p[1] + lift, p[2] + lift];
 
     // 1. Pre-encode if sRGB (operates on each channel independently).
-    if matches!(table.encoding, HsmEncoding::Srgb) {
+    if matches!(encoding, HsmEncoding::Srgb) {
         rgb[0] = linear_to_srgb_one(rgb[0]);
         rgb[1] = linear_to_srgb_one(rgb[1]);
         rgb[2] = linear_to_srgb_one(rgb[2]);
@@ -180,7 +189,7 @@ pub fn apply_one(p: [f32; 3], table: &HsmTable) -> [f32; 3] {
     // 2. RGB → HSV.
     let (h, s, v) = rgb_to_hsv(rgb);
     // 3. Lookup (hueDelta, satScale, valScale) via trilinear interp.
-    let (hd, ss, vs) = lookup(table, h, s, v);
+    let (hd, ss, vs) = lookup_at(h, s, v);
 
     // Achromatic singularity blend: smoothly fade shifts to identity near zero saturation.
     // This prevents wild hue swings from introducing step discontinuities in brightness.
@@ -197,7 +206,7 @@ pub fn apply_one(p: [f32; 3], table: &HsmTable) -> [f32; 3] {
     // 5. HSV → RGB.
     let mut out = hsv_to_rgb(new_h, new_s, new_v);
     // 6. Post-decode if sRGB.
-    if matches!(table.encoding, HsmEncoding::Srgb) {
+    if matches!(encoding, HsmEncoding::Srgb) {
         out[0] = srgb_to_linear_one(out[0]);
         out[1] = srgb_to_linear_one(out[1]);
         out[2] = srgb_to_linear_one(out[2]);
@@ -325,10 +334,21 @@ fn linear_to_srgb_one(v: f32) -> f32 {
 
 /// Look up (hueDelta, satScale, valScale) via trilinear interpolation.
 /// Hue dimension wraps circularly; sat and val clamp at the edges.
-fn lookup(table: &HsmTable, hue: f32, sat: f32, val: f32) -> (f32, f32, f32) {
-    let hd = table.dims[0] as i32;
-    let sd = table.dims[1] as i32;
-    let vd = table.dims[2] as i32;
+fn lookup(dims: [u32; 3], data: &[f32], hue: f32, sat: f32, val: f32) -> (f32, f32, f32) {
+    lookup_with(dims, hue, sat, val, |h, s, v| entry(dims, data, h, s, v))
+}
+
+#[inline]
+fn lookup_with(
+    dims: [u32; 3],
+    hue: f32,
+    sat: f32,
+    val: f32,
+    entry_at: impl Fn(usize, usize, usize) -> [f32; 3],
+) -> (f32, f32, f32) {
+    let hd = dims[0] as i32;
+    let sd = dims[1] as i32;
+    let vd = dims[2] as i32;
 
     // Hue: full 360° range maps onto `hd` cells (each cell is 360/hd wide),
     // wrapping at the seam. Index space is `hue * hd / 360`.
@@ -359,14 +379,14 @@ fn lookup(table: &HsmTable, hue: f32, sat: f32, val: f32) -> (f32, f32, f32) {
     };
 
     // Eight-corner entries.
-    let c000 = table.entry(h0 as usize, s0 as usize, v0 as usize);
-    let c100 = table.entry(h1 as usize, s0 as usize, v0 as usize);
-    let c010 = table.entry(h0 as usize, s1 as usize, v0 as usize);
-    let c110 = table.entry(h1 as usize, s1 as usize, v0 as usize);
-    let c001 = table.entry(h0 as usize, s0 as usize, v1 as usize);
-    let c101 = table.entry(h1 as usize, s0 as usize, v1 as usize);
-    let c011 = table.entry(h0 as usize, s1 as usize, v1 as usize);
-    let c111 = table.entry(h1 as usize, s1 as usize, v1 as usize);
+    let c000 = entry_at(h0 as usize, s0 as usize, v0 as usize);
+    let c100 = entry_at(h1 as usize, s0 as usize, v0 as usize);
+    let c010 = entry_at(h0 as usize, s1 as usize, v0 as usize);
+    let c110 = entry_at(h1 as usize, s1 as usize, v0 as usize);
+    let c001 = entry_at(h0 as usize, s0 as usize, v1 as usize);
+    let c101 = entry_at(h1 as usize, s0 as usize, v1 as usize);
+    let c011 = entry_at(h0 as usize, s1 as usize, v1 as usize);
+    let c111 = entry_at(h1 as usize, s1 as usize, v1 as usize);
 
     // Unwrap hue coordinates relative to c000[0] so standard linear combination preserves shortest-arc.
     let unwrap_hue = |val: f32, ref_val: f32| -> f32 {
@@ -430,16 +450,24 @@ fn lookup(table: &HsmTable, hue: f32, sat: f32, val: f32) -> (f32, f32, f32) {
     // propagate (`-180·0.5 = -90` vs the wrong `+180·0.5 = +90`). A single
     // ±360 fold then lands any magnitude in `[-180, 180]`, mapping `-180 → -180`
     // and `+180 → +180` while still wrapping `350 → -10`, `-350 → 10`.
-    let m = out[0] % 360.0;
-    let signed_hue_delta = if m > 180.0 {
+    (signed_degrees(out[0]), out[1], out[2])
+}
+
+#[inline]
+fn signed_degrees(degrees: f32) -> f32 {
+    let m = degrees % 360.0;
+    if m > 180.0 {
         m - 360.0
     } else if m < -180.0 {
         m + 360.0
     } else {
         m
-    };
-    (signed_hue_delta, out[1], out[2])
+    }
 }
+
+#[path = "hsm_blend.rs"]
+mod blend;
+pub use blend::{apply_one_blended, invert_one_blended, LIFT_BISECTION_STEPS};
 
 #[cfg(test)]
 #[path = "hsm_tests.rs"]

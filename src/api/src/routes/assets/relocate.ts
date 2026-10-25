@@ -25,12 +25,21 @@
  *                                           library, and `destination_path`
  *                                           always resolves under the
  *                                           asset's OWN library root.
+ *   source_address?: string               — selected file location when an
+ *                                           asset has identical-content copies
  */
 
 import { Elysia, t } from 'elysia';
+import * as path from 'node:path';
 import { ObjectId } from '../../db/object-id.ts';
+import type { FileInfo } from '../../db/schema.ts';
+import { loadAssetLocationView } from '../../db/repos/assets.locations.repo.ts';
 import { relocateAsset } from '../../library/relocate-asset.ts';
-import { validateRelPathShape } from '../../library/address.ts';
+import {
+  parseAddressString,
+  resolveAddressString,
+  validateRelPathShape,
+} from '../../library/address.ts';
 import { isSafeFilename } from '../../backup/path-formatter.ts';
 import { resolveAssetIdOrRespond, relocateResultResponse } from './_shared.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
@@ -46,6 +55,7 @@ const RelocateBodySchema = t.Object({
   destination_path: t.String(),
   destination_filename: t.Optional(t.String()),
   destination_library_id: t.Optional(t.String()),
+  source_address: t.Optional(t.String()),
 });
 
 /** Fast, I/O-free rejection of an obviously-hostile `destination_path` /
@@ -66,6 +76,47 @@ function validateDestinationShape(body: {
     return 'destination_filename is not a valid single-segment filename';
   }
   return null;
+}
+
+async function resolveSourceFileInfo(
+  fileinfo: FileInfo[],
+  sourceAddress?: string,
+): Promise<{ source?: FileInfo; error?: string; status?: number }> {
+  if (sourceAddress === undefined) {
+    if (fileinfo.filter((entry) => !entry.deleted_at && !entry.missing_since).length !== 1) {
+      return {
+        status: 409,
+        error: 'Source address required for an asset with multiple locations',
+      };
+    }
+    return {};
+  }
+
+  let resolved;
+  let relPath: string;
+  try {
+    resolved = await resolveAddressString(sourceAddress);
+    relPath = parseAddressString(sourceAddress).relPath;
+  } catch (err) {
+    return {
+      status: (err as { status?: number }).status ?? 400,
+      error: 'Invalid source address',
+    };
+  }
+  if (!relPath) return { status: 400, error: 'Source address must name a file' };
+
+  const filename = path.posix.basename(relPath);
+  const directory = path.posix.dirname(relPath);
+  const source = fileinfo.find(
+    (entry) =>
+      !entry.deleted_at &&
+      entry.library_id.equals(resolved.libraryId) &&
+      entry.path === (directory === '.' ? '' : directory) &&
+      entry.filename === filename,
+  );
+  return source
+    ? { source }
+    : { status: 409, error: 'Source address no longer belongs to this asset' };
 }
 
 export const relocateRoutes = new Elysia().post(
@@ -90,6 +141,17 @@ export const relocateRoutes = new Elysia().post(
       }
     }
 
+    const view = await loadAssetLocationView(id);
+    if (!view) {
+      set.status = 404;
+      return { error: 'Asset not found' };
+    }
+    const sourceResult = await resolveSourceFileInfo(view.fileinfo, body.source_address);
+    if (sourceResult.error) {
+      set.status = sourceResult.status ?? 400;
+      return { error: sourceResult.error };
+    }
+
     const result = await relocateAsset({
       id,
       mode: body.mode,
@@ -97,6 +159,7 @@ export const relocateRoutes = new Elysia().post(
       destinationPath: body.destination_path,
       destinationFilename: body.destination_filename,
       destinationLibraryId,
+      ...(sourceResult.source ? { activeFileInfoOverride: sourceResult.source } : {}),
     });
 
     const { status, body: responseBody } = relocateResultResponse(result);

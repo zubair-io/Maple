@@ -1,9 +1,10 @@
+import type { SidecarWriteScope } from '../../fs/sidecar-write-order';
 /** Per-photo preparation and conditional sidecar write; originals are never opened for writing. */
 import { createHash } from 'node:crypto';
 import { stat } from '../../fs/mirrored.ts';
 import { xmpSidecarPath, writeXmpWithPrecondition } from '../../fs/xmp.ts';
 import { safeReadFile, safeWriteAllowed } from '../../fs/root.ts';
-import { resolveAndAuthorizePath } from '../../routes/xmp-path-auth.ts';
+import { resolveAndAuthorizeSidecarWrite } from '../../routes/xmp-path-auth.ts';
 import { applyTransferPatch, type XmpTransferPatch } from '../../xmp/transfer-patch.ts';
 import { relativeWhiteBalancePatch, type WhiteBalanceCorrection } from './batch-white-balance.ts';
 import type { SyncTarget } from './batch-sync-payload.ts';
@@ -30,8 +31,10 @@ async function readSidecar(path: string): Promise<{ xml: string; mtime: number |
   };
 }
 
-async function authorizedPath(target: SyncTarget): Promise<{ path: string; writeScope: string }> {
-  const authorized = await resolveAndAuthorizePath(target.path);
+async function authorizedPath(
+  target: SyncTarget,
+): Promise<{ path: string; writeScope: SidecarWriteScope }> {
+  const authorized = await resolveAndAuthorizeSidecarWrite(target.path);
   if (!authorized.ok) throw new Error(authorized.error);
   const allowed = await safeWriteAllowed(authorized.data);
   if (!allowed.ok) throw new Error(allowed.error ?? 'Photo is outside the library');
@@ -43,7 +46,7 @@ export type PreparedTarget =
   | {
       action: 'write';
       path: string;
-      writeScope: string;
+      writeScope: SidecarWriteScope;
       xml: string;
       mtime: number | null;
       entry: SyncEntry;

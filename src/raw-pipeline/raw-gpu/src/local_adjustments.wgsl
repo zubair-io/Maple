@@ -446,10 +446,13 @@ fn saturation_pixel(rgb: vec3<f32>, scale: f32) -> vec3<f32> {
         return oklab_to_rec2020(vec3<f32>(l, a_hat * c_target, b_hat * c_target));
     }
     let rgb_target = oklab_to_rec2020(vec3<f32>(l, a_hat * c_target, b_hat * c_target));
-    if (min(rgb_target.r, min(rgb_target.g, rgb_target.b)) >= -GAMUT_EPS) {
+    // #4664: engage the soft knee before the target crosses the hull.
+    let c_probe = c_target / GAMUT_KNEE_FRACTION;
+    let rgb_probe = oklab_to_rec2020(vec3<f32>(l, a_hat * c_probe, b_hat * c_probe));
+    if (min(rgb_probe.r, min(rgb_probe.g, rgb_probe.b)) >= -GAMUT_EPS) {
         return rgb_target;
     }
-    let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_target);
+    let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_probe);
     let c_out = max(soft_compress(c_target, c_hull), c_in);
     return oklab_to_rec2020(vec3<f32>(l, a_hat * c_out, b_hat * c_out));
 }
@@ -476,17 +479,37 @@ fn vibrance_pixel(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
         return oklab_to_rec2020(vec3<f32>(l, a_hat * c_target, b_hat * c_target));
     }
     let rgb_target = oklab_to_rec2020(vec3<f32>(l, a_hat * c_target, b_hat * c_target));
-    if (min(rgb_target.r, min(rgb_target.g, rgb_target.b)) >= -GAMUT_EPS) {
+    // #4664: engage the soft knee before the target crosses the hull.
+    let c_probe = c_target / GAMUT_KNEE_FRACTION;
+    let rgb_probe = oklab_to_rec2020(vec3<f32>(l, a_hat * c_probe, b_hat * c_probe));
+    if (min(rgb_probe.r, min(rgb_probe.g, rgb_probe.b)) >= -GAMUT_EPS) {
         return rgb_target;
     }
-    let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_target);
+    let c_hull = bisect_gamut_hull(l, a_hat, b_hat, c_probe);
     let c_out = max(soft_compress(c_target, c_hull), chroma);
     return oklab_to_rec2020(vec3<f32>(l, a_hat * c_out, b_hat * c_out));
 }
 
+// raw_core::stages::hsl::hsl_soft_compress: the knee span is limited by the
+// input chroma plus the edit's Oklab distance (#4664).
+fn shoulder_soft_compress(c_target: f32, c_hull: f32, c_input: f32, edit_distance: f32, input_in_gamut: bool) -> f32 {
+    let shoulder = (1.0 - GAMUT_KNEE_FRACTION) * c_hull;
+    let span = select(shoulder, min(shoulder, max(c_hull - c_input, 0.0) + edit_distance), input_in_gamut);
+    let c_thresh = c_hull - span;
+    if (c_target <= c_thresh) {
+        return c_target;
+    }
+    let d = c_target - c_thresh;
+    let d_max = c_hull - c_thresh;
+    if (d_max <= 0.0) {
+        return c_hull;
+    }
+    return c_thresh + d_max * (d / (d + d_max));
+}
+
 // raw_core::stages::local_adjustments::hue::rotate_pixel — Oklab hue rotation
-// with the saturation kernel's soft-knee gamut handling. No `.max(c)` floor on
-// the compressed chroma (the hull narrows at the rotated hue).
+// with the HSL kernel's soft-knee gamut handling. No `.max(c)` floor on the
+// compressed chroma (the hull narrows at the rotated hue).
 fn hue_rotate_pixel(rgb: vec3<f32>, delta_rad: f32) -> vec3<f32> {
     let lab = rec2020_to_oklab(rgb);
     let l = lab.x;
@@ -503,11 +526,14 @@ fn hue_rotate_pixel(rgb: vec3<f32>, delta_rad: f32) -> vec3<f32> {
     let rot_a = a_hat * cos_dh - b_hat * sin_dh;
     let rot_b = a_hat * sin_dh + b_hat * cos_dh;
     let hue_target = oklab_to_rec2020(vec3<f32>(l, rot_a * c, rot_b * c));
-    if (min(hue_target.r, min(hue_target.g, hue_target.b)) >= -GAMUT_EPS) {
+    let c_probe = c / GAMUT_KNEE_FRACTION;
+    let hue_probe = oklab_to_rec2020(vec3<f32>(l, rot_a * c_probe, rot_b * c_probe));
+    if (min(hue_probe.r, min(hue_probe.g, hue_probe.b)) >= -GAMUT_EPS) {
         return hue_target;
     }
-    let c_hull = bisect_gamut_hull(l, rot_a, rot_b, c);
-    let c_out = soft_compress(c, c_hull);
+    let c_hull = bisect_gamut_hull(l, rot_a, rot_b, c_probe);
+    let rotation_distance = c * length(vec2<f32>(rot_a - a_hat, rot_b - b_hat));
+    let c_out = shoulder_soft_compress(c, c_hull, c, rotation_distance, min(rgb.x, min(rgb.y, rgb.z)) >= -GAMUT_EPS);
     return oklab_to_rec2020(vec3<f32>(l, rot_a * c_out, rot_b * c_out));
 }
 

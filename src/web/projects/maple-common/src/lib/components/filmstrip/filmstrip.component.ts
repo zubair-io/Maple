@@ -39,6 +39,7 @@ export class FilmstripComponent implements AfterViewInit, OnDestroy {
   state = inject(LibraryStateService);
   private router = inject(Router);
   private readonly injector = inject(Injector);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   private cleanupEffect?: () => void;
 
@@ -80,12 +81,21 @@ export class FilmstripComponent implements AfterViewInit, OnDestroy {
 
   toggleCollapsed(): void {
     this.collapsed.update((v) => !v);
+    // The disclosure button is replaced by the other layout; keep keyboard
+    // focus on the new button so Space can reverse the action.
+    requestAnimationFrame(() => {
+      this.host.nativeElement.querySelector<HTMLButtonElement>('.strip-toggle')?.focus();
+    });
   }
 
   select(asset: Asset): void {
     this.state.selectAsset(asset.id);
     const cmds =
       this.routeMode() === 'view' ? viewRouteCommands(asset.id) : editRouteCommands(asset.id);
-    void this.router.navigate(cmds);
+    if (this.routeMode() === 'view') {
+      void this.router.navigate(cmds, { queryParamsHandling: 'preserve' });
+    } else {
+      void this.router.navigate(cmds);
+    }
   }
 }

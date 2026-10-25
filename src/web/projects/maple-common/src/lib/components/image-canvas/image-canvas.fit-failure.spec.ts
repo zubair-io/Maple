@@ -36,6 +36,7 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
         captureRenderSerializer: () => () => '<xmp/>',
         hasProvisionalPreview: () => false,
         recordNativeDims: vi.fn(),
+        recordPaintedDims: vi.fn(),
         markColdOpenDone: vi.fn(),
         state: {
           updateAssetDimensions: vi.fn(),

@@ -37,11 +37,12 @@ import { callNativeRetrying } from '../fs/native-call';
 import { parseSidecarWorkflow, PRIMARY_VARIANT_ID } from '../generated/workflow.generated.ts';
 import { mergeMetadataIntoXmp } from '../xmp/metadata-serializer.ts';
 import { xmpSidecarPath, writeXmpAtomic, deleteXmpSidecar } from '../fs/xmp.ts';
-import { resolveAndAuthorizePath } from './xmp-path-auth.ts';
+import { authorizeXmpRequest } from './xmp-path-auth.ts';
 import { publishSidecarChange } from './xmp-change';
 import {
   serializeSidecarWrite,
   SidecarWritePathDeniedError,
+  SidecarWriteBindingChangedError,
   waitForAbortable,
 } from '../fs/sidecar-write-order';
 import { writeSidecarAtomic } from '../fs/sidecar-io';
@@ -61,10 +62,16 @@ import { computeBodyETag } from '../runtime/http-etag';
 // returning an empty XMP stub on ENOENT.
 
 export const xmpPathRoutes = new Elysia()
+  .onError(({ error, set }) => {
+    if (error instanceof SidecarWriteBindingChangedError) {
+      set.status = 409;
+      return { error: error.message };
+    }
+  })
   .use(xmpVariantRoutes)
   // All four operations use the same authorized, normalized path (#4036).
-  .resolve(async ({ query }) => {
-    const authorized = await resolveAndAuthorizePath(query.path);
+  .resolve(async ({ query, request }) => {
+    const authorized = await authorizeXmpRequest(query.path, request.method);
     if (!authorized.ok) return status(authorized.status, { error: authorized.error });
     return {
       rawPath: authorized.data,
@@ -132,7 +139,8 @@ export const xmpPathRoutes = new Elysia()
           },
         );
       } catch (error) {
-        if (error instanceof SidecarWritePathDeniedError) set.status = 403;
+        if (error instanceof SidecarWriteBindingChangedError) set.status = 409;
+        else if (error instanceof SidecarWritePathDeniedError) set.status = 403;
         return {
           error: error instanceof Error ? error.message : String(error),
         };
@@ -157,7 +165,10 @@ export const xmpPathRoutes = new Elysia()
       // path so a symlink to the original or outside the jail cannot be
       // followed (#4749).
       const allowed = await authorizeSidecarRead(sidecar);
-      if (!allowed.ok) return status(403, { error: allowed.error ?? 'Sidecar path not allowed' });
+      if (!allowed.ok)
+        return status(403, {
+          error: allowed.error ?? 'Sidecar path not allowed',
+        });
       try {
         const body = await readSidecarNoFollow(allowed.data ?? sidecar);
         set.headers['Content-Type'] = 'application/xml';
@@ -193,12 +204,7 @@ export const xmpPathRoutes = new Elysia()
   .post(
     '/api/xmp',
     async ({ rawPath, writeScope, body, set, request }) => {
-      const xmlContent =
-        typeof body === 'string'
-          ? body
-          : (body as unknown) instanceof Uint8Array
-            ? new TextDecoder().decode(body as unknown as Uint8Array)
-            : String(body);
+      const xmlContent = typeof body === 'string' ? body : String(body);
       const match = request.headers.get('If-Match');
       const absent = request.headers.get('If-None-Match');
       if (
@@ -230,8 +236,9 @@ export const xmpPathRoutes = new Elysia()
       const outcome = await writeXmpAtomic(rawPath, xmlContent, request.signal, writeScope);
       if (!outcome.ok) {
         // Includes failed durable writes and unsupported workflow metadata;
-        // either failure leaves the existing sidecar untouched.
-        set.status = 500;
+        // either failure leaves the existing sidecar untouched. A stale
+        // primary binding is an expected, reloadable concurrency conflict.
+        set.status = outcome.conflict ? 409 : 500;
         return { error: outcome.error };
       }
       await publishSidecarChange(rawPath, true);

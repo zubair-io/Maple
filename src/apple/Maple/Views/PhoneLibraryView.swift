@@ -64,6 +64,7 @@
     /// Map pin/cluster tap (#2830) → AppShell activates search filtered by
     /// the resolved target (a place name, or the has-GPS scope fallback).
     let onSelectMapPlace: (MapPlaceSearchTarget) -> Void
+    let onSignInForMap: (URL) -> Void
     let onSelectLocalAsset: (ImageRef) -> Void
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
@@ -120,6 +121,7 @@
         showsBrowseToolbar: !LibraryDestination.presentsPreviewHero(in: libraryPath),
         onSelectCloudAsset: onSelectCloudAsset,
         onSelectMapPlace: onSelectMapPlace,
+        onSignInForMap: onSignInForMap,
         onSelectLocalAsset: onSelectLocalAsset,
         onGrantPhotosAccess: onGrantPhotosAccess,
         onNavigateFolder: onNavigateFolder,

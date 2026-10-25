@@ -14,7 +14,18 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { mkdtemp, rm, writeFile, mkdir, stat } from 'node:fs/promises';
+import {
+  lstat,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+  mkdir,
+  stat,
+  readdir,
+  rename,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import {
@@ -26,6 +37,9 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { foldersFileOpsRoutes } from './folders-file-ops.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
+import { setMirrorRoots, clearMirrorRoots } from '../fs/mirror-registry.ts';
+import { flushPendingMirrorOps } from '../fs/mirrored.ts';
+import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
 
 /** One row of the change feed, as the table stores it. */
 interface ChangeRow {
@@ -201,6 +215,234 @@ describe('non-asset file delete/relocate routes', () => {
       }),
     );
   }
+
+  async function holdSave(sidecar: string, bytes: string) {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const inside = new Promise<void>((resolve) => (entered = resolve));
+    const save = serializeSidecarWrite(sidecar, async () => {
+      entered();
+      await gate;
+      await writeFile(sidecar, bytes);
+    });
+    await inside;
+    return { release, save };
+  }
+
+  it('a raw .xmp move waits for a save to its source, so the saved bytes move (#5134)', async () => {
+    const sourceAbs = nodePath.join(folderPath, 'loose.xmp');
+    await writeFile(sourceAbs, 'before');
+    const held = await holdSave(sourceAbs, 'saved meanwhile');
+
+    const moving = postRelocate({
+      source_path: 'loose.xmp',
+      mode: 'move',
+      collision: 'auto-suffix',
+      destination_path: '',
+      destination_filename: 'moved.xmp',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    held.release();
+    await held.save;
+
+    expect((await moving).status).toBe(200);
+    expect(await readFile(nodePath.join(folderPath, 'moved.xmp'), 'utf8')).toBe('saved meanwhile');
+    await expect(stat(sourceAbs)).rejects.toThrow();
+  });
+
+  it('preserves the requested leaf spelling for a case-only raw-sidecar rename', async () => {
+    await writeFile(nodePath.join(folderPath, 'photo.xmp'), '<edits/>');
+    const renamed = await postRelocate({
+      source_path: 'photo.xmp',
+      mode: 'move',
+      collision: 'auto-suffix',
+      destination_path: '',
+      destination_filename: 'PHOTO.xmp',
+    });
+    expect(renamed.status).toBe(200);
+    expect(await readdir(folderPath)).toEqual(['PHOTO.xmp']);
+    expect(await readFile(nodePath.join(folderPath, 'PHOTO.xmp'), 'utf8')).toBe('<edits/>');
+  });
+
+  it('a raw .xmp Replace through a symlinked folder waits for a save to the real file (#5134)', async () => {
+    await mkdir(nodePath.join(folderPath, 'real'), { recursive: true });
+    await symlink(nodePath.join(folderPath, 'real'), nodePath.join(folderPath, 'alias'));
+    const realTarget = nodePath.join(folderPath, 'real/target.xmp');
+    await writeFile(nodePath.join(folderPath, 'incoming.xmp'), 'incoming');
+    await writeFile(realTarget, 'old');
+    const held = await holdSave(realTarget, 'saved meanwhile');
+
+    const replacing = postRelocate({
+      source_path: 'incoming.xmp',
+      mode: 'copy',
+      collision: 'replace',
+      destination_path: 'alias',
+      destination_filename: 'target.xmp',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await readFile(realTarget, 'utf8')).toBe('old');
+    held.release();
+    await held.save;
+
+    expect((await replacing).status).toBe(200);
+    expect(await readFile(realTarget, 'utf8')).toBe('incoming');
+  });
+
+  it('an alias retargeted while the save barrier is held cannot redirect a sidecar Replace', async () => {
+    await mkdir(nodePath.join(folderPath, 'real'));
+    await mkdir(nodePath.join(folderPath, 'other'));
+    const alias = nodePath.join(folderPath, 'alias');
+    await symlink(nodePath.join(folderPath, 'real'), alias);
+    const target = nodePath.join(folderPath, 'real/target.xmp');
+    const other = nodePath.join(folderPath, 'other/target.xmp');
+    await writeFile(target, 'old');
+    await writeFile(other, 'unrelated');
+    await writeFile(nodePath.join(folderPath, 'incoming.xmp'), 'incoming');
+    const held = await holdSave(target, 'saved meanwhile');
+    const replacing = postRelocate({
+      source_path: 'incoming.xmp',
+      mode: 'copy',
+      collision: 'replace',
+      destination_path: 'alias',
+      destination_filename: 'target.xmp',
+    });
+    try {
+      await Bun.sleep(100);
+      await rm(alias);
+      await symlink(nodePath.join(folderPath, 'other'), alias);
+      held.release();
+      await held.save;
+      const res = await replacing;
+      expect(res.status).toBe(200);
+      expect((await res.json()).new_path).toBe('real');
+      expect(await readFile(target, 'utf8')).toBe('incoming');
+      expect(await readFile(other, 'utf8')).toBe('unrelated');
+    } finally {
+      held.release();
+      await held.save;
+      await replacing;
+    }
+  });
+
+  for (const mode of ['move', 'copy'] as const) {
+    it(`a raw .xmp that is a symlink to a photo is refused (${mode}) (#5134)`, async () => {
+      await writeFile(nodePath.join(folderPath, 'photo.dng'), 'original pixels');
+      const link = nodePath.join(folderPath, 'photo.xmp');
+      await symlink(nodePath.join(folderPath, 'photo.dng'), link);
+
+      const res = await postRelocate({
+        source_path: 'photo.xmp',
+        mode,
+        collision: 'auto-suffix',
+        destination_path: 'elsewhere',
+        destination_filename: 'photo.xmp',
+      });
+
+      expect(res.status).toBe(403);
+      expect(await readFile(nodePath.join(folderPath, 'photo.dng'), 'utf8')).toBe(
+        'original pixels',
+      );
+      expect((await lstat(link)).isSymbolicLink()).toBe(true);
+      await expect(stat(nodePath.join(folderPath, 'elsewhere'))).rejects.toThrow();
+    });
+  }
+
+  it('a raw .xmp moves into a folder that does not exist yet (#5134)', async () => {
+    await writeFile(nodePath.join(folderPath, 'stray.xmp'), 'edit');
+
+    const res = await postRelocate({
+      source_path: 'stray.xmp',
+      mode: 'move',
+      collision: 'auto-suffix',
+      destination_path: 'new/folder',
+      destination_filename: 'stray.xmp',
+    });
+
+    expect(res.status).toBe(200);
+    expect(await readFile(nodePath.join(folderPath, 'new/folder/stray.xmp'), 'utf8')).toBe('edit');
+  });
+
+  it('a raw .xmp Replace waits for a save to its destination, never racing it (#5134)', async () => {
+    const sourceAbs = nodePath.join(folderPath, 'incoming.xmp');
+    const destAbs = nodePath.join(folderPath, 'target.xmp');
+    await writeFile(sourceAbs, 'incoming');
+    await writeFile(destAbs, 'old');
+    const held = await holdSave(destAbs, 'saved meanwhile');
+
+    const replacing = postRelocate({
+      source_path: 'incoming.xmp',
+      mode: 'copy',
+      collision: 'replace',
+      destination_path: '',
+      destination_filename: 'target.xmp',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await readFile(destAbs, 'utf8')).toBe('old');
+    held.release();
+    await held.save;
+
+    expect((await replacing).status).toBe(200);
+    expect(await readFile(destAbs, 'utf8')).toBe('incoming');
+  });
+
+  for (const extension of ['xml', 'bak']) {
+    it(`renames a raw XMP to .${extension} after its pending save`, async () => {
+      const source = nodePath.join(folderPath, 'edits.xmp');
+      await writeFile(source, '<old/>');
+      const held = await holdSave(source, '<saved/>');
+      const moving = postRelocate({
+        source_path: 'edits.xmp',
+        mode: 'move',
+        collision: 'auto-suffix',
+        destination_path: '',
+        destination_filename: `edits.${extension}`,
+      });
+      try {
+        await Bun.sleep(30);
+        held.release();
+        await held.save;
+        expect((await moving).status).toBe(200);
+        expect(await readFile(nodePath.join(folderPath, `edits.${extension}`), 'utf8')).toBe(
+          '<saved/>',
+        );
+        await expect(stat(source)).rejects.toThrow();
+      } finally {
+        held.release();
+        await held.save;
+        await moving;
+      }
+    });
+  }
+
+  it('replicates a canonical raw-sidecar move through a configured library alias', async () => {
+    const physical = folderPath + '-physical';
+    const mirror = folderPath + '-mirror';
+    await rename(folderPath, physical);
+    await symlink(physical, folderPath);
+    await mkdir(mirror);
+    setMirrorRoots({ [folderPath]: [mirror] });
+    try {
+      await writeFile(nodePath.join(physical, 'edits.xmp'), '<edit/>');
+      await writeFile(nodePath.join(mirror, 'edits.xmp'), '<edit/>');
+      const result = await postRelocate({
+        source_path: 'edits.xmp',
+        mode: 'move',
+        collision: 'auto-suffix',
+        destination_path: 'new',
+        destination_filename: 'moved.xmp',
+      });
+      expect(result.status).toBe(200);
+      await flushPendingMirrorOps();
+      expect(await readFile(nodePath.join(mirror, 'new/moved.xmp'), 'utf8')).toBe('<edit/>');
+      await expect(stat(nodePath.join(mirror, 'edits.xmp'))).rejects.toThrow();
+    } finally {
+      await flushPendingMirrorOps();
+      clearMirrorRoots();
+      await rm(physical, { recursive: true, force: true });
+      await rm(mirror, { recursive: true, force: true });
+    }
+  });
 
   it('renames a non-asset file (move, same dir) and emits delete+create changes', async () => {
     const source = 'clip.mov';

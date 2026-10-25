@@ -5,6 +5,8 @@
 name: raw-pipeline
 
 on:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
     paths:
@@ -100,7 +102,7 @@ jobs:
     name: WASM NLM SIMD scalar bit parity
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -128,7 +130,7 @@ jobs:
     name: build-raw-ffi (host compile gate)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo registry + raw-pipeline target
         uses: actions/cache@v4
@@ -345,7 +347,7 @@ jobs:
       MAPLE_REQUIRE_GPU: '1'
       RUST_BACKTRACE: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo registry + raw-pipeline target
         uses: actions/cache@v4
@@ -386,6 +388,12 @@ jobs:
       - name: Render-sized profile ABI guards
         working-directory: src/raw-pipeline
         run: cargo test -p raw-ffi --features gpu --lib gpu_auto_profile::sized::tests
+
+      # 2b. #5158: the separate-artifact fit honours every develop quality wire
+      #     value (AMaZE/Auto must not collapse to Preview). CPU-only, cache-seeded.
+      - name: Auto Profile fit quality-wire guards
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-ffi --features gpu --lib auto_profile_quality_tests
 
       # 3. Retained composition against the isolated residual kernel (#4212).
       - name: Retained Auto composition residual-kernel parity
@@ -482,7 +490,7 @@ jobs:
     env:
       RUST_BACKTRACE: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo registry + raw-pipeline target
         uses: actions/cache@v4
@@ -526,7 +534,7 @@ jobs:
     name: rust-tests (cargo test -p raw-core + grey gates)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v7
         with:
@@ -623,7 +631,7 @@ jobs:
     name: color-pipeline (Auto vs embedded JPEG)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Auto needs RAWs and their embedded previews, not external references.
       - name: Probe fixtures
@@ -700,7 +708,7 @@ jobs:
     name: pano-pipeline (test_pano_pipeline.sh)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Probe fixtures
         id: probe

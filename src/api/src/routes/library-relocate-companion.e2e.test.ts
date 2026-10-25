@@ -18,13 +18,20 @@
  * is its own file. Nothing skips (#3787).
  */
 
-import { describe, it, expect, afterEach } from 'bun:test';
+import { describe, it, expect, afterEach, spyOn } from 'bun:test';
+import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
+import * as relocateRepo from '../db/repos/assets.relocate.repo.ts';
+import * as ownership from '../fs/sidecar-ownership.ts';
+import * as xmpConflict from '../fs/xmp-conflict.ts';
+import * as mirrored from '../fs/mirrored.ts';
+import * as restructure from '../workers/migration/restructure-fs.ts';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createLiveTestDatabase } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import {
   SLUG,
+  appleLiveVideoPathOf,
   appleRenderedPathOf,
   clearLibraryCache,
   locationOf,
@@ -91,6 +98,43 @@ describe('library-relocate end-to-end — companion + dedupe (#2667)', () => {
     expect(appleRenderedPathOf(live.db, asset.assetId)).toBe(`${newRel}/IMG_5.jpg`);
   });
 
+  it("carries an edited Live Photo's rendered image and .mov twin and repoints both slots (#5243)", async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-live-'));
+
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(dir, ...oldRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(dir, oldRel, 'IMG_7.HEIC'), 'pixels');
+    await fs.writeFile(path.join(dir, oldRel, 'IMG_7.rendered.JPEG'), 'apple-rendered-bytes');
+    await fs.writeFile(path.join(dir, oldRel, 'IMG_7.mov'), 'live-video-bytes');
+
+    const asset = seedRelocatableAsset(live.db, {
+      root: dir,
+      relPath: oldRel,
+      filename: 'IMG_7.HEIC',
+      mapleId: 'relocate-live-id',
+      metadataOverride: usPlaceText(),
+      appleRenderedPath: `${oldRel}/IMG_7.rendered.JPEG`,
+      appleLiveVideoPath: `${oldRel}/IMG_7.mov`,
+    });
+
+    const res = await postRelocate([`${SLUG}:${oldRel}/IMG_7.HEIC`]);
+    expect(res.status).toBe(200);
+    expect((await resultsOf(res))[0]).toMatchObject({ ok: true, outcome: 'moved' });
+
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_7.HEIC'), 'utf8')).toBe('pixels');
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_7.rendered.JPEG'), 'utf8')).toBe(
+      'apple-rendered-bytes',
+    );
+    expect(await fs.readFile(path.join(dir, newRel, 'IMG_7.mov'), 'utf8')).toBe('live-video-bytes');
+    for (const moved of ['IMG_7.HEIC', 'IMG_7.rendered.JPEG', 'IMG_7.mov'])
+      await expect(fs.stat(path.join(dir, oldRel, moved))).rejects.toThrow();
+
+    expect(appleRenderedPathOf(live.db, asset.assetId)).toBe(`${newRel}/IMG_7.rendered.JPEG`);
+    expect(appleLiveVideoPathOf(live.db, asset.assetId)).toBe(`${newRel}/IMG_7.mov`);
+  });
+
   it('a byte-identical, companion-free destination dedupes: repoint + delete source, occupant survives', async () => {
     using live = await createLiveTestDatabase();
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-dedupe-'));
@@ -130,6 +174,297 @@ describe('library-relocate end-to-end — companion + dedupe (#2667)', () => {
       path: newRel,
       filename: 'IMG_6.dng',
     });
+  });
+
+  it('a sidecar first written while a dedupe repoints follows the photo to the survivor (#5069)', async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-dedupe-late-'));
+    const root = dir;
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(root, ...oldRel.split('/')), { recursive: true });
+    await fs.mkdir(path.join(root, ...newRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(root, oldRel, 'IMG_7.dng'), 'identical-pixels');
+    await fs.writeFile(path.join(root, newRel, 'IMG_7.dng'), 'identical-pixels');
+    seedRelocatableAsset(live.db, {
+      root,
+      relPath: oldRel,
+      filename: 'IMG_7.dng',
+      mapleId: 'relocate-dedupe-late-id',
+      metadataOverride: usPlaceText(),
+    });
+    const realRepoint = relocateRepo.repointAssetLocation;
+    const repoint = spyOn(relocateRepo, 'repointAssetLocation').mockImplementation(async (args) => {
+      await fs.writeFile(path.join(root, oldRel, 'IMG_7.xmp'), 'first edit');
+      return realRepoint(args);
+    });
+    try {
+      const res = await postRelocate([`${SLUG}:${oldRel}/IMG_7.dng`]);
+      expect((await resultsOf(res))[0]!.outcome).toBe('moved');
+    } finally {
+      repoint.mockRestore();
+    }
+
+    expect(await fs.readFile(path.join(root, newRel, 'IMG_7.xmp'), 'utf8')).toBe('first edit');
+    await expect(fs.stat(path.join(root, oldRel, 'IMG_7.xmp'))).rejects.toThrow();
+  });
+
+  it('a first save admitted during geo repoint keeps its source photo until publication', async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-dedupe-admitted-'));
+    const root = dir;
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    const source = path.join(root, oldRel, 'IMG_7.dng');
+    const sidecar = path.join(root, oldRel, 'IMG_7.xmp');
+    await fs.mkdir(path.dirname(source), { recursive: true });
+    await fs.mkdir(path.join(root, newRel), { recursive: true });
+    await fs.writeFile(source, 'identical-pixels');
+    await fs.writeFile(path.join(root, newRel, 'IMG_7.dng'), 'identical-pixels');
+    seedRelocatableAsset(live.db, {
+      root,
+      relPath: oldRel,
+      filename: 'IMG_7.dng',
+      mapleId: 'relocate-admitted-id',
+      metadataOverride: usPlaceText(),
+    });
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const realRepoint = relocateRepo.repointAssetLocation;
+    let saving: Promise<void> | undefined;
+    const repoint = spyOn(relocateRepo, 'repointAssetLocation').mockImplementation(async (args) => {
+      saving = serializeSidecarWrite(sidecar, async () => {
+        entered.resolve();
+        await release.promise;
+        await fs.writeFile(sidecar, 'first edit');
+      });
+      await entered.promise;
+      return realRepoint(args);
+    });
+    const moving = postRelocate([`${SLUG}:${oldRel}/IMG_7.dng`]);
+    try {
+      await entered.promise;
+      await Bun.sleep(25);
+      expect(await fs.readFile(source, 'utf8')).toBe('identical-pixels');
+      release.resolve();
+      await saving;
+      expect((await resultsOf(await moving))[0]!.outcome).toBe('moved');
+      expect(await fs.readFile(source, 'utf8')).toBe('identical-pixels');
+      expect(await fs.readFile(sidecar, 'utf8')).toBe('first edit');
+    } finally {
+      release.resolve();
+      await saving;
+      await moving;
+      repoint.mockRestore();
+    }
+  });
+
+  it("a late sidecar that can't follow keeps the source photo beside it (#5069)", async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-dedupe-late-stuck-'));
+    const root = dir;
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(root, ...oldRel.split('/')), { recursive: true });
+    await fs.mkdir(path.join(root, ...newRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(root, oldRel, 'IMG_8.dng'), 'identical-pixels');
+    await fs.writeFile(path.join(root, newRel, 'IMG_8.dng'), 'identical-pixels');
+    seedRelocatableAsset(live.db, {
+      root,
+      relPath: oldRel,
+      filename: 'IMG_8.dng',
+      mapleId: 'relocate-dedupe-stuck-id',
+      metadataOverride: usPlaceText(),
+    });
+    const realRepoint = relocateRepo.repointAssetLocation;
+    const repoint = spyOn(relocateRepo, 'repointAssetLocation').mockImplementation(async (args) => {
+      await fs.writeFile(path.join(root, oldRel, 'IMG_8.xmp'), 'first edit');
+      return realRepoint(args);
+    });
+    const publish = spyOn(ownership, 'publishSidecarSnapshot').mockRejectedValue(new Error('EIO'));
+    try {
+      await postRelocate([`${SLUG}:${oldRel}/IMG_8.dng`]);
+    } finally {
+      repoint.mockRestore();
+      publish.mockRestore();
+    }
+
+    expect(await fs.readFile(path.join(root, oldRel, 'IMG_8.xmp'), 'utf8')).toBe('first edit');
+    expect(await fs.readFile(path.join(root, oldRel, 'IMG_8.dng'), 'utf8')).toBe(
+      'identical-pixels',
+    );
+  });
+
+  it('a filesystem error after the dedupe repoint is logged, keeps the source and still finalizes (#5069)', async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-dedupe-after-repoint-'));
+    const root = dir;
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(root, ...oldRel.split('/')), { recursive: true });
+    await fs.mkdir(path.join(root, ...newRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(root, oldRel, 'IMG_9.dng'), 'identical-pixels');
+    await fs.writeFile(path.join(root, newRel, 'IMG_9.dng'), 'identical-pixels');
+    const asset = seedRelocatableAsset(live.db, {
+      root,
+      relPath: oldRel,
+      filename: 'IMG_9.dng',
+      mapleId: 'relocate-dedupe-after-repoint-id',
+      metadataOverride: usPlaceText(),
+    });
+    const realRepoint = relocateRepo.repointAssetLocation;
+    let repointed = false;
+    const repoint = spyOn(relocateRepo, 'repointAssetLocation').mockImplementation(async (args) => {
+      const result = await realRepoint(args);
+      repointed = true;
+      return result;
+    });
+    const realList = xmpConflict.listPairedSidecarsStrict;
+    const list = spyOn(xmpConflict, 'listPairedSidecarsStrict').mockImplementation(async (raw) => {
+      if (repointed) throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      return realList(raw);
+    });
+    const finalize = spyOn(restructure, 'finalize');
+    try {
+      const results = await resultsOf(await postRelocate([`${SLUG}:${oldRel}/IMG_9.dng`]));
+      expect(results[0]).toMatchObject({ ok: true, outcome: 'moved' });
+      expect(finalize).toHaveBeenCalled();
+    } finally {
+      repoint.mockRestore();
+      list.mockRestore();
+      finalize.mockRestore();
+    }
+    expect(locationOf(live.db, asset.assetId)).toMatchObject({ path: newRel });
+    expect(await fs.readFile(path.join(root, oldRel, 'IMG_9.dng'), 'utf8')).toBe(
+      'identical-pixels',
+    );
+  });
+
+  it('a source folder misread after the repoint keeps the source photo beside its late edit (#5069)', async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-dedupe-misread-'));
+    const root = dir;
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(root, ...oldRel.split('/')), { recursive: true });
+    await fs.mkdir(path.join(root, ...newRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(root, oldRel, 'IMG_10.dng'), 'identical-pixels');
+    await fs.writeFile(path.join(root, newRel, 'IMG_10.dng'), 'identical-pixels');
+    seedRelocatableAsset(live.db, {
+      root,
+      relPath: oldRel,
+      filename: 'IMG_10.dng',
+      mapleId: 'relocate-dedupe-misread-id',
+      metadataOverride: usPlaceText(),
+    });
+    const late = path.join(root, oldRel, 'IMG_10.xmp');
+    const realRepoint = relocateRepo.repointAssetLocation;
+    let repointed = false;
+    const repoint = spyOn(relocateRepo, 'repointAssetLocation').mockImplementation(async (args) => {
+      const result = await realRepoint(args);
+      await fs.writeFile(late, 'late edit');
+      repointed = true;
+      return result;
+    });
+    // What the best-effort listing reports when a read of the folder fails.
+    const realList = xmpConflict.listPairedSidecars;
+    const list = spyOn(xmpConflict, 'listPairedSidecars').mockImplementation(async (raw) =>
+      repointed ? [] : realList(raw),
+    );
+    try {
+      await postRelocate([`${SLUG}:${oldRel}/IMG_10.dng`]);
+    } finally {
+      repoint.mockRestore();
+      list.mockRestore();
+    }
+    expect(await fs.readFile(late, 'utf8')).toBe('late edit');
+    expect(await fs.readFile(path.join(root, oldRel, 'IMG_10.dng'), 'utf8')).toBe(
+      'identical-pixels',
+    );
+  });
+
+  it("a sibling check that can't read the folder keeps the source photo beside its late edit (#5069)", async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-dedupe-sibling-unread-'));
+    const root = dir;
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(root, ...oldRel.split('/')), { recursive: true });
+    await fs.mkdir(path.join(root, ...newRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(root, oldRel, 'IMG_11.dng'), 'identical-pixels');
+    await fs.writeFile(path.join(root, newRel, 'IMG_11.dng'), 'identical-pixels');
+    seedRelocatableAsset(live.db, {
+      root,
+      relPath: oldRel,
+      filename: 'IMG_11.dng',
+      mapleId: 'relocate-dedupe-sibling-unread-id',
+      metadataOverride: usPlaceText(),
+    });
+    const late = path.join(root, oldRel, 'IMG_11.xmp');
+    const realRepoint = relocateRepo.repointAssetLocation;
+    let repointed = false;
+    const repoint = spyOn(relocateRepo, 'repointAssetLocation').mockImplementation(async (args) => {
+      const result = await realRepoint(args);
+      await fs.writeFile(late, 'late edit');
+      repointed = true;
+      return result;
+    });
+    const publish = spyOn(ownership, 'publishSidecarSnapshot').mockRejectedValue(new Error('EIO'));
+    // Only the sibling check reads the folder with file types; that read fails.
+    const realReaddir = mirrored.readdir as (...args: unknown[]) => Promise<unknown>;
+    const readdir = spyOn(mirrored, 'readdir').mockImplementation(((...args: unknown[]) =>
+      repointed && (args[1] as { withFileTypes?: boolean } | undefined)?.withFileTypes
+        ? Promise.reject(Object.assign(new Error('EIO'), { code: 'EIO' }))
+        : realReaddir(...args)) as unknown as typeof mirrored.readdir);
+    try {
+      await postRelocate([`${SLUG}:${oldRel}/IMG_11.dng`]);
+    } finally {
+      repoint.mockRestore();
+      publish.mockRestore();
+      readdir.mockRestore();
+    }
+    expect(await fs.readFile(late, 'utf8')).toBe('late edit');
+    expect(await fs.readFile(path.join(root, oldRel, 'IMG_11.dng'), 'utf8')).toBe(
+      'identical-pixels',
+    );
+  });
+
+  it('a broken same-stem symlink is no sibling: the source photo stays beside its late edit (#5069)', async () => {
+    using live = await createLiveTestDatabase();
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'relocate-dedupe-broken-link-'));
+    const root = dir;
+    const oldRel = '2024/Loose';
+    const newRel = '2024/California/Berkeley';
+    await fs.mkdir(path.join(root, ...oldRel.split('/')), { recursive: true });
+    await fs.mkdir(path.join(root, ...newRel.split('/')), { recursive: true });
+    await fs.writeFile(path.join(root, oldRel, 'IMG_12.dng'), 'identical-pixels');
+    await fs.writeFile(path.join(root, newRel, 'IMG_12.dng'), 'identical-pixels');
+    seedRelocatableAsset(live.db, {
+      root,
+      relPath: oldRel,
+      filename: 'IMG_12.dng',
+      mapleId: 'relocate-dedupe-broken-link-id',
+      metadataOverride: usPlaceText(),
+    });
+    const late = path.join(root, oldRel, 'IMG_12.xmp');
+    const realRepoint = relocateRepo.repointAssetLocation;
+    const repoint = spyOn(relocateRepo, 'repointAssetLocation').mockImplementation(async (args) => {
+      const result = await realRepoint(args);
+      await fs.writeFile(late, 'late edit');
+      await fs.symlink(path.join(root, 'gone.jpg'), path.join(root, oldRel, 'IMG_12.jpg'));
+      return result;
+    });
+    const publish = spyOn(ownership, 'publishSidecarSnapshot').mockRejectedValue(new Error('EIO'));
+    try {
+      await postRelocate([`${SLUG}:${oldRel}/IMG_12.dng`]);
+    } finally {
+      repoint.mockRestore();
+      publish.mockRestore();
+    }
+    expect(await fs.readFile(late, 'utf8')).toBe('late edit');
+    expect(await fs.readFile(path.join(root, oldRel, 'IMG_12.dng'), 'utf8')).toBe(
+      'identical-pixels',
+    );
   });
 
   it('a byte-identical destination but a source carrying a sidecar never dedupes — it renames', async () => {

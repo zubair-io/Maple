@@ -21,6 +21,8 @@
 name: face-clustering
 
 on:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
     paths:
@@ -44,7 +46,7 @@ jobs:
     name: face-clustering (test_face_clustering.sh)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:

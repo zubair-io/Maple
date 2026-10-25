@@ -30,7 +30,8 @@
 //! calibration ACR's own slider scale is defined in — the DNG's embedded
 //! dual-CM pair when present, the render profile otherwise; see its doc
 //! for the measured test_0000 evidence (embedded-frame as-shot 5507.7 K vs
-//! bundle-frame 7471.6 K, a ~48-mired anchoring error when conflated).
+//! 7471.6 K in the Mavic 3 Pro profile it was aliased to before #4661, a
+//! ~48-mired anchoring error when conflated).
 //! `white_balance::apply_pre_gain` already divided the buffer by
 //! `as_shot_neutral`, so this gain is what's left to multiply in to make a
 //! reading of `target_neutral_camera` become `(1, 1, 1)` instead.
@@ -223,6 +224,11 @@ mod frame_delta;
 
 pub use frame::SliderFrame;
 pub use frame_delta::SliderFrameExport;
+
+#[path = "wb_hsm_retarget.rs"]
+mod hsm_retarget;
+use hsm_retarget::retarget_render_cct;
+pub use hsm_retarget::{HsmLiveDelta, HsmRetargetView, WbHsmRetarget, HSM_INVERSE_ITERATIONS};
 
 // WB slider-scale migration (#1780): converts pre-#1756 (V1) stored
 // temperature/tint into this module's slider frame at develop time. Split
@@ -489,8 +495,10 @@ pub fn apply_delta(
 /// weight for the camera→PCS transform comes from the target xy's own
 /// CCT. On Maple's FM path (`dcp::apply_colorimetry` with
 /// `forward_matrix` present) the camera→PCS transform IS the
-/// ForwardMatrix, so the FM re-interpolates at the target. The non-FM
-/// Bradford fallback deliberately does NOT move: it is Maple's own
+/// ForwardMatrix, so the FM re-interpolates at the target, and the
+/// dual-illuminant HueSatMap with it, as dng_sdk's `HueSatMapForWhite`
+/// does (#4633). The non-FM
+/// Bradford fallback, HueSatMap included, deliberately does NOT move: it is Maple's own
 /// construction (the SDK has no FM-absent WB-divided path), its as-shot
 /// Bradford source is what keeps the camera-space gain the SOLE carrier
 /// of the cast (module doc), and retargeting its CM/white was measured
@@ -502,8 +510,8 @@ pub fn apply_delta(
 /// than the slider ([`SliderFrame`] doc), so re-interpolating at the
 /// literal slider temperature would read a CCT in the wrong frame —
 /// test_0000's "Daylight 5500 K" is near-as-shot in its embedded slider
-/// frame, but 5500 K read in the bundle frame is ~48 mired cool of the
-/// bundle's own 7471.6 K as-shot. The mapping goes through the one
+/// frame, but 5500 K read in the pre-#4661 aliased bundle frame was ~48
+/// mired cool of that profile's 7471.6 K as-shot. The mapping goes through the one
 /// quantity both frames agree on — the physical camera neutral: project
 /// the slider target to `n_T` in the slider frame, then ask the RENDER
 /// profile's own iterative CCT solve (`dcp::compute_as_shot_cct`) what
@@ -521,15 +529,23 @@ pub fn retargeted_render_profile(
     let Some(e) = profile.cm_endpoints else {
         return profile; // single-calibration render profile: nothing to re-interpolate
     };
-    if is_as_shot_target(frame, temperature, tint) {
+    let Some(render_cct) = retarget_render_cct(frame, &e, temperature, tint) else {
         return profile;
-    }
-    let target_neutral = camera_neutral_for(frame.cm_for_cct(temperature), temperature, tint);
-    let render_cct =
-        dcp::compute_as_shot_cct(target_neutral, e.m_cold, e.cct_cold, e.m_warm, e.cct_warm);
+    };
     let forward_matrix = profile.forward_matrix_for_cct(render_cct);
+    let hsm = match (&profile.hsm_endpoints, forward_matrix) {
+        (Some(h), Some(_)) => dcp::lerp_hsm_for_cct(
+            Some(&h.cold),
+            Some(&h.warm),
+            e.cct_cold,
+            e.cct_warm,
+            render_cct,
+        ),
+        _ => profile.hsm.clone(),
+    };
     DcpProfile {
         forward_matrix,
+        hsm,
         ..profile
     }
 }
@@ -545,3 +561,7 @@ mod frame_tests;
 #[cfg(test)]
 #[path = "wb_camera_continuity_tests.rs"]
 mod continuity_tests;
+
+#[cfg(test)]
+#[path = "wb_hsm_live_fixture_tests.rs"]
+mod hsm_live_fixture_tests;

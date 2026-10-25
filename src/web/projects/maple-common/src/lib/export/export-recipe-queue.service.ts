@@ -58,7 +58,20 @@ export class ExportRecipeQueueService {
   );
   private cancelled = false;
   private destroyed = false;
+  private reconnectCancelled = false;
+  private reconnectTask: Promise<void> | null = null;
   private readonly ready: Promise<void>;
+
+  private get reconnectStopped(): boolean {
+    return this.destroyed || this.reconnectCancelled;
+  }
+
+  private isSavedServerJob(
+    record: RecipeQueueRecord | null,
+    id: string,
+  ): record is RecipeQueueRecord & { serverJobId: string } {
+    return !!record && record.id === id && !!record.serverJobId;
+  }
 
   constructor() {
     inject(DestroyRef).onDestroy(() => {
@@ -67,8 +80,43 @@ export class ExportRecipeQueueService {
     this.ready = readExportQueue()
       .then((record) => {
         this.record.set(record && !record.serverJobId ? recoverBrowserQueue(record) : record);
+        if (record?.serverJobId && this.server && navigator.locks)
+          this.reconnectTask = this.reconnectServerJob(record.id);
       })
       .catch((error: unknown) => this.reportError(error));
+  }
+
+  /** A server export keeps running after its browser tab closes. Reconcile its
+   * saved snapshot on reopen without implicitly resuming a cancelled job. */
+  private async reconnectServerJob(id: string): Promise<void> {
+    for (;;) {
+      if (this.reconnectStopped) return;
+      let delay = 500;
+      try {
+        const active = await navigator.locks.request('maple-export-queue', async () => {
+          if (this.reconnectStopped) return false;
+          const latest = await readExportQueue();
+          if (!this.isSavedServerJob(latest, id)) return false;
+          const job = await firstValueFrom(this.server!.get(latest.serverJobId));
+          if (this.reconnectStopped) return false;
+          this.error.set(null);
+          this.applyServerSummary(latest, job);
+          await this.save(latest);
+          this.reportProgress(latest, '');
+          if (job.status !== 'queued' && job.status !== 'running') {
+            if (job.error) this.error.set(job.error);
+            return false;
+          }
+          return true;
+        });
+        if (!active) return;
+      } catch (error) {
+        if (this.reconnectStopped) return;
+        this.reportError(error);
+        delay = 2_000;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
 
   async start(assets: readonly Asset[], value: unknown): Promise<void> {
@@ -172,9 +220,12 @@ export class ExportRecipeQueueService {
   ): Promise<void> {
     if (this.running()) return;
     this.running.set(true);
-    this.error.set(null);
-    this.cancelled = false;
+    this.reconnectCancelled = true;
     try {
+      await this.reconnectTask;
+      this.reconnectTask = null;
+      this.error.set(null);
+      this.cancelled = false;
       if (!navigator.locks)
         throw new Error(
           'Persistent export requires browser Web Locks. Use a current browser or the CLI.',

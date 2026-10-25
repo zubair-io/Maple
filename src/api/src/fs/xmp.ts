@@ -1,3 +1,4 @@
+import type { SidecarWriteScope } from './sidecar-write-order';
 /**
  * XMP sidecar read/write and .maple/ thumbnail cache management.
  *
@@ -16,6 +17,7 @@ import {
   authorizeUnlessAborted,
   deleteSidecar,
   writeSidecarAtomic,
+  writeSidecarExclusive,
   writeSidecarCreateOnly,
   isMissingSidecar,
   readSidecarNoFollow,
@@ -27,11 +29,13 @@ import { createHash } from 'node:crypto';
 import type { OpResult } from './root.ts';
 import type { AssetDoc } from '../db/schema.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
-import { isVideoFilename } from '../indexer/media-types.ts';
+import { xmpSidecarPath } from './xmp-sidecar-path';
+export { xmpSidecarPath } from './xmp-sidecar-path';
 import { prepareWorkflowWrite } from '../xmp/workflow-write.ts';
 import {
   serializeSidecarWrite,
   SidecarWritePathDeniedError,
+  SidecarWriteBindingChangedError,
   waitForAbortable,
 } from './sidecar-write-order';
 
@@ -42,25 +46,6 @@ import {
  */
 export function sha256Prefix16(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 16);
-}
-
-/**
- * Resolve the expected XMP sidecar path for a given raw/image/video file.
- *
- * Images use the classic stem-swap convention (`IMG_1.ARW` → `IMG_1.xmp`).
- * Videos KEEP their extension and append `.xmp` (`clip.mov` → `clip.mov.xmp`),
- * the industry-standard full-name convention. This is load-bearing for Apple
- * Live Photos, which store the still and the motion clip as two independent
- * same-stem assets (`IMG_1234.HEIC` + `IMG_1234.MOV`). Under stem-swap both
- * would resolve to `IMG_1234.xmp` and clobber each other; full-name for the
- * video gives it its own `IMG_1234.MOV.xmp` and leaves the photo's sidecar
- * untouched. Existing photo sidecars are NOT migrated — only video naming
- * changes.
- */
-export function xmpSidecarPath(rawAbsPath: string): string {
-  if (isVideoFilename(rawAbsPath)) return rawAbsPath + '.xmp';
-  const ext = path.extname(rawAbsPath);
-  return rawAbsPath.slice(0, -ext.length) + '.xmp';
 }
 
 /**
@@ -146,8 +131,8 @@ export async function writeXmpAtomic(
   rawAbsPath: string,
   xmlContent: string,
   signal?: AbortSignal,
-  admissionScope?: string,
-): Promise<OpResult<string>> {
+  admissionScope?: SidecarWriteScope,
+): Promise<OpResult<string> & { conflict?: boolean }> {
   try {
     return await serializeSidecarWrite(
       xmpSidecarPath(rawAbsPath),
@@ -161,6 +146,7 @@ export async function writeXmpAtomic(
   } catch (error) {
     return {
       ok: false,
+      ...(error instanceof SidecarWriteBindingChangedError ? { conflict: true } : {}),
       error: error instanceof Error ? error.message : String(error),
     };
   }
@@ -174,7 +160,7 @@ export async function updateXmpAtomic(
   rawAbsPath: string,
   merge: (existingXml: string) => string,
   signal?: AbortSignal,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
 ): Promise<OpResult<'written' | 'unchanged'>> {
   try {
     return await serializeSidecarWrite(
@@ -366,6 +352,8 @@ export type XmpWriteOutcome =
   | { kind: 'conflict'; conflictPath: string; conflictMtime: Date }
   | { kind: 'error'; error: string };
 
+const CONFLICT_COPY_ATTEMPTS = 5;
+
 /**
  * Atomic XMP write with an optional mtime precondition, or a create-only
  * precondition.
@@ -386,8 +374,9 @@ export type XmpWriteOutcome =
  * which is correct for a modify with no known prior version but silently
  * destroys an existing sidecar when used from a create path (#2532).
  *
- * The `requireAbsent` check-and-write is genuinely atomic (#2784), not a
- * `stat` followed by a `rename` — see `writeSidecarCreateOnly`. A caller's
+ * The `requireAbsent` check-and-write is an atomic link (#2784) — see
+ * `writeSidecarCreateOnly`; on a volume without hard links it is an absence
+ * check then a rename inside this function's save barrier (#5151). A caller's
  * own local existence check (e.g. the FileProvider extension's client-side
  * `createOnlyPrecondition` stat) is necessarily racy — another writer can
  * create the sidecar after that stat runs and before this call lands — so
@@ -400,7 +389,7 @@ export async function writeXmpWithPrecondition(
   ifMtimeMatchesEpoch: number | null,
   deviceName: string,
   requireAbsent: boolean = false,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
   signal?: AbortSignal,
 ): Promise<XmpWriteOutcome> {
   try {
@@ -408,19 +397,30 @@ export async function writeXmpWithPrecondition(
       xmpSidecarPath(rawAbsPath),
       async (sidecar) => {
         signal?.throwIfAborted();
+        // Exclusive: the movers publish conflict copies under other barriers (#5071).
         const writeConflictCopy = async (): Promise<XmpWriteOutcome> => {
-          signal?.throwIfAborted();
-          const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName, signal);
-          signal?.throwIfAborted();
-          const written = await writeSidecarAtomic(
-            conflictPath,
-            xmlContent,
-            'Conflict-copy write failed',
-            signal,
-          );
-          return written.ok
-            ? { kind: 'conflict', conflictPath, conflictMtime: written.mtime }
-            : { kind: 'error', error: written.error };
+          for (let attempt = 0; attempt < CONFLICT_COPY_ATTEMPTS; attempt++) {
+            signal?.throwIfAborted();
+            const conflictPath = await pickFreeConflictPath(rawAbsPath, deviceName, signal);
+            signal?.throwIfAborted();
+            const written = await writeSidecarExclusive(
+              conflictPath,
+              xmlContent,
+              'Conflict-copy write failed',
+              signal,
+            );
+            if (written.ok)
+              return {
+                kind: 'conflict',
+                conflictPath,
+                conflictMtime: written.mtime,
+              };
+            if (!('exists' in written)) return { kind: 'error', error: written.error };
+          }
+          return {
+            kind: 'error',
+            error: `Conflict-copy write failed: no free name beside ${rawAbsPath}`,
+          };
         };
 
         if (requireAbsent) {
@@ -467,6 +467,7 @@ export async function writeXmpWithPrecondition(
       },
     );
   } catch (error) {
+    if (error instanceof SidecarWriteBindingChangedError) throw error;
     return {
       kind: 'error',
       error: error instanceof Error ? error.message : String(error),
@@ -480,7 +481,7 @@ export async function writeXmpWithPrecondition(
  */
 export async function deleteXmpSidecar(
   rawAbsPath: string,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
   signal?: AbortSignal,
 ): Promise<OpResult & { existed?: boolean }> {
   try {
@@ -507,6 +508,7 @@ export async function deleteXmpSidecar(
       },
     );
   } catch (error) {
+    if (error instanceof SidecarWriteBindingChangedError) throw error;
     return {
       ok: false,
       error: error instanceof Error ? error.message : String(error),

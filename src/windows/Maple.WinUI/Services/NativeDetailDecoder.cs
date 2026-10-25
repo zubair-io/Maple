@@ -14,6 +14,7 @@ public sealed record NativeDetailImage(NativeDetailRegion Region, MapleRawGeomet
 // #3876: retained mosaic and bounded scene-linear patches; viewport composition is tracked separately in the issue.
 public sealed class NativeDetailDecoder : IAsyncDisposable
 {
+    public const uint MaximumPatchEdge = 16384;
     public const ulong MaximumPatchPixels = 16 * 1024 * 1024;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private RawDetailHandle? _handle;
@@ -89,7 +90,7 @@ public sealed class NativeDetailDecoder : IAsyncDisposable
         if (region.Width == 0 || region.Height == 0
             || region.X >= _geometry.CropWidth || region.Y >= _geometry.CropHeight
             || region.Width > _geometry.CropWidth - region.X || region.Height > _geometry.CropHeight - region.Y
-            || region.Width > 16384 || region.Height > 16384
+            || region.Width > MaximumPatchEdge || region.Height > MaximumPatchEdge
             || (ulong)region.Width * region.Height > MaximumPatchPixels)
             throw new ArgumentOutOfRangeException(nameof(region), "Native detail patch exceeds the source or memory bounds.");
         var buffer = new MapleSceneLinearBufferF32();
@@ -110,7 +111,10 @@ public sealed class NativeDetailDecoder : IAsyncDisposable
                 NoiseProfile = anchor.NoiseProfile, Iso = anchor.Iso,
                 AeGain = anchor.AeGain, WhitesAnchorEv = anchor.WhitesAnchorEv,
                 DecodedTemperature = anchor.DecodedTemperature, DecodedTint = anchor.DecodedTint,
-                WbFrame = anchor.WbFrame, CameraSupport = anchor.CameraSupport, LensProfile = anchor.LensProfile,
+                WbFrame = anchor.WbFrame,
+                WbHueSatMap = anchor.WbHueSatMap, WbHueSatMapLength = anchor.WbHueSatMapLength,
+                WbHueSatMapAsShotCct = anchor.WbHueSatMapAsShotCct,
+                CameraSupport = anchor.CameraSupport, LensProfile = anchor.LensProfile,
                 ProfileCurve = anchor.ProfileCurve, ResidualLut = anchor.ResidualLut, ResidualLutSize = anchor.ResidualLutSize,
                 DisplayLut = anchor.DisplayLut, DisplayLutN = anchor.DisplayLutN,
                 ProfileSource = anchor.ProfileSource,

@@ -80,6 +80,12 @@ describe('xmpSidecarPath', () => {
     expect(xmpSidecarPath('/photos/clip.jpg')).toBe('/photos/clip.xmp');
   });
 
+  test('an extensionless name gets its own sidecar, not a folder-wide .xmp (#5060)', () => {
+    expect(xmpSidecarPath('2024/Misc/IMG')).toBe('2024/Misc/IMG.xmp');
+    expect(xmpSidecarPath('a.b/IMG')).toBe('a.b/IMG.xmp');
+    expect(xmpSidecarPath('/photos/.hidden')).toBe('/photos/.hidden.xmp');
+  });
+
   test('video keeps its extension (full-name): clip.mov → clip.mov.xmp (M5 — #1635)', () => {
     expect(xmpSidecarPath('/photos/clip.mov')).toBe('/photos/clip.mov.xmp');
     expect(xmpSidecarPath('/photos/clip.mp4')).toBe('/photos/clip.mp4.xmp');

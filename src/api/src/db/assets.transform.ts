@@ -181,6 +181,8 @@ export interface AssetCoreInfo {
   original_path: string | null;
   /** Relative Apple-rendered companion path, retained for permanent erasure. */
   apple_rendered_path?: string;
+  /** Relative Live Photo `.mov` twin path, retained for permanent erasure. */
+  apple_live_video_path?: string;
   /** Carried for the trash route. */
   place: Place | null;
   description: string | null;

@@ -119,12 +119,14 @@ export class TrashApiService {
   }
 
   /** Recursively restore every trashed asset whose `original_path` was
-   * under `targetRelPath` (empty string = the whole library root). */
+   * under `targetRelPath` (empty string = the whole library root). The
+   * restore-folder route uses `.` as an explicit root sentinel because a
+   * zero-length header is rejected as missing by the shared path validator. */
   restoreFolder(folderId: string, targetRelPath: string): Observable<TrashBatchSummary> {
     return this.http.post<TrashBatchSummary>(
       `${this.base}/folders/${folderId}/restore-folder`,
       null,
-      { headers: { 'X-Maple-Target-Path': encodeURIComponent(targetRelPath) } },
+      { headers: { 'X-Maple-Target-Path': encodeURIComponent(targetRelPath || '.') } },
     );
   }
 

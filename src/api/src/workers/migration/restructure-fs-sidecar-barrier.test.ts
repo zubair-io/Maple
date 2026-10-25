@@ -37,6 +37,7 @@ async function place(): Promise<PlacePlan> {
     filename: 'IMG.HEIC',
     newDir: '2024',
     renderedRelOld: null,
+    liveVideoRelOld: null,
   });
 }
 
@@ -98,6 +99,7 @@ describe('refile sidecar barrier (#5061)', () => {
             filename: 'IMG.HEIC',
             newDir: '2024',
             renderedRelOld: null,
+            liveVideoRelOld: null,
           }),
         ).rejects.toThrow();
         expect((await fs.readdir(abs('2024'))).sort()).toEqual(['03-15']);
@@ -117,6 +119,7 @@ describe('refile sidecar barrier (#5061)', () => {
       filename: 'IMG.HEIC',
       newDir: '2024',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     };
 
     const plan = await planAndPlace(args);
@@ -152,6 +155,7 @@ describe('refile sidecar barrier (#5061)', () => {
         filename: 'IMG.HEIC',
         newDir: '2024',
         renderedRelOld: null,
+        liveVideoRelOld: null,
       });
       await new Promise((resolve) => setTimeout(resolve, 20));
       await fs.writeFile(abs('2024/03-15/IMG.xmp'), 'edit 2');
@@ -236,6 +240,7 @@ describe('refile sidecar barrier (#5061)', () => {
           filename: 'IMG.HEIC',
           newDir: '2024',
           renderedRelOld: '2024/03-15/IMG-rendered.jpg',
+          liveVideoRelOld: null,
         }),
       ).rejects.toThrow('EIO');
     } finally {
@@ -266,6 +271,7 @@ describe('refile sidecar barrier (#5061)', () => {
           filename: 'IMG.HEIC',
           newDir: '2024',
           renderedRelOld: '2024/03-15/IMG-rendered.jpg',
+          liveVideoRelOld: null,
         }),
       ).rejects.toThrow('EIO');
     } finally {
@@ -287,6 +293,7 @@ describe('refile sidecar barrier (#5061)', () => {
       filename: name,
       newDir: '2024',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
 
     expect(plan.newRelPath).toBe(`2024/${name}`);
@@ -302,6 +309,7 @@ describe('refile sidecar barrier (#5061)', () => {
       filename: 'IMG.HEIC',
       newDir: '2024',
       renderedRelOld: null,
+      liveVideoRelOld: null,
     });
     await write('2024/03-15/IMG.xmp', 'first edit');
 
@@ -378,5 +386,37 @@ describe('refile sidecar barrier (#5061)', () => {
 
     expect((await fs.readdir(abs('2024'))).filter((name) => name.includes('.tmp.'))).toEqual([]);
     expect(await read('2024/03-15/IMG.xmp')).toBe('edit 2');
+  });
+
+  test('a sidecar first written after a dedupe listed the photo follows it to the survivor (#5069)', async () => {
+    await write('2024/03-15/IMG.HEIC', 'pixels');
+    await write('2024/IMG.HEIC', 'pixels');
+    const plan = await planAndPlace({
+      libRoot: root,
+      oldDir: '2024/03-15',
+      filename: 'IMG.HEIC',
+      newDir: '2024',
+      renderedRelOld: null,
+      liveVideoRelOld: null,
+    });
+    expect(plan.outcome).toBe('deduped');
+    await write('2024/03-15/IMG.xmp', 'first edit');
+
+    const late = await carryLateRefileSidecars(
+      abs('2024/03-15/IMG.HEIC'),
+      abs(plan.newRelPath),
+      plan.carriedSidecars,
+    );
+    await finalize({
+      libRoot: root,
+      oldDirAbs: plan.oldDirAbs,
+      mapleId: undefined,
+      filename: 'IMG.HEIC',
+      sourcesToDelete: plan.sourcesToDelete,
+      carriedSidecars: [...plan.carriedSidecars, ...late],
+    });
+
+    expect(await read('2024/IMG.xmp')).toBe('first edit');
+    expect(await read('2024/03-15/IMG.xmp')).toBeNull();
   });
 });

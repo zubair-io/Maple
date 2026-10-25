@@ -20,7 +20,10 @@
  *   X-Maple-Suffix-Override — optional; when set, the final filename is
  *                             `<base>.<suffix-override>` instead of
  *                             `<base>.rendered.<ext>`. Used by the Live Photo
- *                             .mov path to skip the `.rendered.` infix.
+ *                             .mov path to skip the `.rendered.` infix; that
+ *                             upload gets its own session and is recorded as
+ *                             the asset's apple_live_video_path rather than
+ *                             its apple_rendered_path.
  *   X-Maple-PHAsset-Cloud-Id — optional; Apple PHCloudIdentifier. When two
  *                             devices on the same iCloud library both back
  *                             up the rendered companion for the same photo,
@@ -46,9 +49,9 @@ import {
 } from './backup-id.ts';
 import { openChunkSession, takeChunk } from './backup-chunk.ts';
 import { Elysia, t } from 'elysia';
-import { setAppleRenderedPath } from '../db/repos/backup.repo.ts';
+import { setAppleCompanionPath } from '../db/repos/backup.repo.ts';
 import { assetOwnsRelPath } from '../db/repos/assets.location-owner.ts';
-import { filesIdentical } from '../backup/fs-util.ts';
+import { filesIdentical, moveNoClobber } from '../backup/fs-util.ts';
 import type { ObjectId } from '../db/object-id.ts';
 import { uploadSessions } from '../backup/upload-session.ts';
 import { isSafeFilenamePart, containedJoin } from '../backup/path-safety.ts';
@@ -56,7 +59,6 @@ import { child as childLogger } from '../log.ts';
 // Mirror-aware drop-in: the rendered-companion publish replicates to the
 // library's backup root(s). `link` and `copyFile` are both mirror-aware.
 import fs from '../fs/mirrored.ts';
-import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 
 const log = childLogger('backup-rendered');
@@ -78,20 +80,9 @@ const log = childLogger('backup-rendered');
  * Cross-filesystem fallback uses `open(O_CREAT | O_EXCL)` via `fs.open(dst, "wx")`
  * — the kernel-level analog that's atomic w.r.t. concurrent creates. */
 async function atomicMove(src: string, dst: string): Promise<void> {
-  try {
-    await fs.link(src, dst);
-    await fs.unlink(src);
-    return;
-  } catch (e: any) {
-    if (e?.code === 'EEXIST') throw e;
-    if (e?.code !== 'EXDEV') throw e;
+  if (!(await moveNoClobber(src, dst))) {
+    throw Object.assign(new Error(`Rendered destination is occupied: ${dst}`), { code: 'EEXIST' });
   }
-  // Cross-filesystem: copy with COPYFILE_EXCL (O_CREAT | O_EXCL) so a
-  // concurrent create still surfaces EEXIST atomically, then drop the tmp.
-  // Going through the mirror-aware `copyFile` (rather than a raw FileHandle
-  // write) is what lets the rendered companion replicate to the backup root.
-  await fs.copyFile(src, dst, fsConstants.COPYFILE_EXCL);
-  await fs.unlink(src);
 }
 
 /**
@@ -248,14 +239,18 @@ async function placeRenderedFile(
 }
 
 /**
- * The cloud id a rendered session claims, which is the photo's with a suffix.
+ * The cloud id a companion session claims, which is the photo's with a suffix.
  *
- * The suffix is what namespaces rendered sessions apart from the original-asset
- * sessions for the same photo. Without it a rendered upload from device B sees
- * device A's ORIGINAL session as a busy peer and backs off for nothing.
+ * The suffix is what namespaces companion sessions apart from the original-asset
+ * sessions for the same photo, and from each other. Without it a rendered upload
+ * from device B sees device A's ORIGINAL session as a busy peer and backs off
+ * for nothing.
  */
-function renderedSessionCloudId(phCloudId: string | undefined): string | undefined {
-  return phCloudId === undefined ? undefined : `${phCloudId}::rendered`;
+function companionSessionCloudId(
+  phCloudId: string | undefined,
+  companion: string,
+): string | undefined {
+  return phCloudId === undefined ? undefined : `${phCloudId}::${companion}`;
 }
 
 function badRequest(error: string): Response {
@@ -284,10 +279,12 @@ export const backupRenderedRoutes = new Elysia().post(
     // Compute target rel-path for the rendered companion.
     const targetRelPath = renderedRelPath(originalRelPath, filenameExt, suffixOverride);
 
-    // Use synthetic phid so rendered sessions don't collide with original sessions.
-    const syntheticPhid = `${phid}::rendered`;
+    // A Live Photo's .mov and its Apple-rendered edit are separate uploads of
+    // the same photo, so each gets its own session, apart from the original's.
+    const companion = suffixOverride === undefined ? 'rendered' : 'live';
+    const syntheticPhid = `${phid}::${companion}`;
 
-    const renderedCloudId = renderedSessionCloudId(phCloudId);
+    const renderedCloudId = companionSessionCloudId(phCloudId, companion);
 
     const opened = await openChunkSession({
       libraryId,
@@ -340,11 +337,12 @@ export const backupRenderedRoutes = new Elysia().post(
     if (placed instanceof Response) return placed;
     await uploadSessions.complete({ sessionId: session._id, mapleId, resolvedRelPath: placed });
 
-    // Persist apple_rendered_path on the matching asset. Post
+    // Record the companion on the matching asset. Post
     // drop-abs-path-2026-05-21 the per-library pointer is the asset's
     // locations, so the update is scoped by a location in this library plus
     // the content-addressed `maple_id`.
-    await setAppleRenderedPath(libraryId, mapleId, placed);
+    const slot = companion === 'live' ? 'apple_live_video_path' : 'apple_rendered_path';
+    await setAppleCompanionPath(libraryId, mapleId, slot, placed);
 
     log.debug({ phid, targetRelPath: placed, mapleId }, 'rendered ingest complete');
     set.status = 200;

@@ -179,6 +179,9 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   numericField('crs:ColorGradeGlobalHue', 'colorGradeGlobalHue'),
   numericField('crs:ColorGradeGlobalSat', 'colorGradeGlobalSaturation'),
   numericField('crs:ColorGradeGlobalLum', 'colorGradeGlobalLuminance'),
+  numericField('papp:ColorGradeBlending', 'colorGradeBlending'),
+  numericField('papp:ColorGradeShadowEdge', 'colorGradeShadowEdge'),
+  numericField('papp:ColorGradeHighlightEdge', 'colorGradeHighlightEdge'),
   // ---- HSL 8-band per-channel fields (ticket #1112) ----
   // Scene-linear Oklab, normalized raised-cosine partition; range -100..+100.
   // ACR-compatible crs: keys for sidecar interchange.

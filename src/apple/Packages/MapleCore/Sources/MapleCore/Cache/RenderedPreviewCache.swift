@@ -86,20 +86,28 @@ public actor RenderedPreviewCache {
   }
 
   func captureWrite(for assetURL: URL, screenWidth: Int, sidecarURL: URL? = nil) -> WriteSnapshot? {
-    let expected = assetURL.deletingLastPathComponent()
-      .appendingPathComponent(".maple/previews", isDirectory: true).standardizedFileURL
     // An old session can start its exit task after the new folder configured
     // this shared actor. Do not place its derived file under that new folder.
-    guard cacheDir?.standardizedFileURL.path == expected.path else { return nil }
+    guard isOwnFolder(of: assetURL) else { return nil }
     return writeSnapshot(for: assetURL, screenWidth: screenWidth, sidecarURL: sidecarURL)
   }
 
+  private func isOwnFolder(of assetURL: URL) -> Bool {
+    let expected = assetURL.deletingLastPathComponent()
+      .appendingPathComponent(".maple/previews", isDirectory: true).standardizedFileURL
+    return cacheDir?.standardizedFileURL.path == expected.path
+  }
+
+  /// The disk directory is the configured one only when it is the asset's own
+  /// folder: a file opened from another saved folder (the unified Timeline,
+  /// #5033) stays in memory rather than landing in the open folder. The GPU
+  /// exit path (`captureWrite`) drops such a write entirely.
   private func writeSnapshot(for assetURL: URL, screenWidth: Int, sidecarURL: URL?) -> WriteSnapshot
   {
     WriteSnapshot(
       assetURL: assetURL, screenWidth: screenWidth, sidecarURL: sidecarURL,
       key: cacheKey(for: assetURL, screenWidth: screenWidth, sidecarURL: sidecarURL),
-      directory: cacheDir)
+      directory: isOwnFolder(of: assetURL) ? cacheDir : nil)
   }
 
   public func storePreview(

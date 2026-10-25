@@ -48,6 +48,7 @@ impl LiveSession {
         let packed_byte_len = (dims.0 as u64) * (dims.1 as u64) * std::mem::size_of::<u32>() as u64;
         encoder.copy_buffer_to_buffer(&self.dither_out, 0, &self.readback, 0, packed_byte_len);
         let submission = ctx.queue.submit(Some(encoder.finish()));
+        self.haze.submitted();
         let packed = limits::map_packed_readback(ctx, &self.readback).await?;
         Ok((unpack_rgb_u8(&packed), submission))
     }
@@ -89,7 +90,16 @@ impl LiveSession {
             cancel,
             index: Some(0),
         };
-        crate::live_chain::visit_live_chain(inputs, AirlightSource::OnGpu, &mut sink);
+        let layers = crate::local_adjustments::logical_layers(&inputs.local_adjustments).count();
+        self.haze.truncate(1 + layers);
+        crate::live_chain::visit_live_chain(
+            inputs,
+            AirlightSource::Resident(std::sync::Arc::clone(&self.haze), 0),
+            &mut sink,
+        );
+        if sink.index.is_none() {
+            self.haze.abandoned();
+        }
         sink.index
     }
 }

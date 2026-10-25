@@ -302,7 +302,7 @@ fn lookup_returns_signed_hue_delta_not_wrapped() {
         data.push(1.0);
     }
     let table = HsmTable::new([2, 2, 2], data, HsmEncoding::Linear).unwrap();
-    let (hd, _, _) = lookup(&table, 30.0, 0.5, 0.5);
+    let (hd, _, _) = lookup(table.dims, &table.data, 30.0, 0.5, 0.5);
     assert!(
         (hd - (-10.0)).abs() < 1e-3,
         "expected signed hueDelta ≈ -10, got {hd}"
@@ -326,7 +326,7 @@ fn lookup_normalizes_hue_delta_at_the_180_boundary() {
             data.push(1.0);
         }
         let table = HsmTable::new([2, 2, 2], data, HsmEncoding::Linear).unwrap();
-        lookup(&table, 30.0, 0.5, 0.5).0
+        lookup(table.dims, &table.data, 30.0, 0.5, 0.5).0
     };
     // Boundary cases: exact ±180 must keep their sign (not fold to +180).
     assert!(

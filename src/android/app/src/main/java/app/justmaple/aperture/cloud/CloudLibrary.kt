@@ -30,8 +30,6 @@ class CloudLibrary(context: Context) {
 
     suspend fun complete(callback: Uri): Folder = source(signIn.complete(callback))
 
-    suspend fun pollSignIn(): Folder? = signIn.poll()?.let(::source)
-
     private fun source(server: CloudServer) =
         Folder(root(server.id), Uri.parse(server.origin).authority ?: server.origin)
 

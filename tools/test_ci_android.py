@@ -253,5 +253,59 @@ class AndroidScriptTests(unittest.TestCase):
         self.assertFalse(commands)
 
 
+class AndroidBootServiceTests(unittest.TestCase):
+    def run_boot_health(self, services, focus="launcher"):
+        runner = (SCRIPTS / "test-device-ci.sh").read_text()
+        start = runner.index("boot_ui_health() {")
+        end = runner.index("\n}\n", start) + 2
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = root / "services.txt"
+            fixture.write_text(services)
+            adb = root / "adb"
+            adb.write_text(
+                '#!/bin/sh\ncase "$*" in\n'
+                '"shell dumpsys window") if [ "$BOOT_FOCUS" = anr ]; then '
+                'echo "mCurrentFocus=Application Not Responding: com.android.systemui"; '
+                'else echo "mCurrentFocus=com.google.android.apps.nexuslauncher/.NexusLauncherActivity"; fi;;\n'
+                '"shell dumpsys activity services") cat "$BOOT_SERVICE_FIXTURE";;\n'
+                '"shell pidof com.android.systemui") echo 1020;;\n'
+                "*) exit 1;;\nesac\n"
+            )
+            adb.chmod(0o755)
+            sleep = root / "sleep"
+            sleep.write_text("#!/bin/sh\nexit 0\n")
+            sleep.chmod(0o755)
+            return subprocess.run(
+                ["bash", "-c", runner[start:end] + "\nboot_ui_health\n"],
+                check=False,
+                cwd=SCRIPTS.parent,
+                env={
+                    **os.environ,
+                    "PATH": f"{root}:{os.environ['PATH']}",
+                    "artifacts": str(root),
+                    "BOOT_SERVICE_FIXTURE": str(fixture),
+                    "BOOT_FOCUS": focus,
+                },
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+    def test_starting_keyguard_cannot_report_a_healthy_boot(self):
+        services = "  * ServiceRecord{123 u0 com.android.systemui/.keyguard.KeyguardService}\n    executeNesting=1 executeFg=true\n"
+        result = self.run_boot_health(services)
+        self.assertEqual(result.returncode, 1, result.stderr)
+
+    def test_other_services_do_not_make_idle_keyguard_busy(self):
+        services = "  * ServiceRecord{abc u0 other/.Service}\n    executeNesting=2\n  * ServiceRecord{123 u0 com.android.systemui/.keyguard.KeyguardService}\n    executeNesting=0 executeFg=true\n  * ServiceRecord{def u0 other/.LastService}\n    executeNesting=1\n"
+        result = self.run_boot_health(services)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_observed_anr_requests_the_existing_bounded_recovery(self):
+        result = self.run_boot_health("", focus="anr")
+        self.assertEqual(result.returncode, 2, result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

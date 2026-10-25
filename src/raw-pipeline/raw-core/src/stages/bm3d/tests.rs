@@ -335,3 +335,44 @@ fn every_strength_cleans_flat_noise_substantially() {
         );
     }
 }
+
+#[test]
+fn nonpositive_hard_threshold_preserves_exact_basic_guide() {
+    let (w, h) = (23, 19);
+    let noisy: [Vec<f32>; 3] = std::array::from_fn(|c| {
+        (0..w * h)
+            .map(|i| -2.0 + ((i * 13 + c * 7) % 97) as f32 / 101.0)
+            .collect()
+    });
+    for sigma in [0.0, -0.1] {
+        let actual = run_pass(
+            &noisy,
+            w,
+            h,
+            [
+                sigma,
+                sigma * CHROMA_SIGMA_RATIO,
+                sigma * CHROMA_SIGMA_RATIO,
+            ],
+            T_MATCH_SQ * sigma * sigma,
+            PassKind::Hard,
+            PASS_1,
+            None,
+            &|| false,
+        )
+        .unwrap();
+        assert_eq!(actual, noisy);
+        assert!(run_pass(
+            &noisy,
+            w,
+            h,
+            [sigma; 3],
+            1.0,
+            PassKind::Hard,
+            PASS_1,
+            None,
+            &|| true
+        )
+        .is_none());
+    }
+}

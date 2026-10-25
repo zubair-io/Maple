@@ -15,6 +15,15 @@ use super::*;
 /// Reference-renderer fresh-import sharpening amount, shared by CPU/GPU.
 pub(crate) const DEFAULT_SHARPEN_AMOUNT: f32 = 40.0;
 
+impl AdjustmentModel {
+    /// False exactly when the model is the fresh-import default: an empty or
+    /// metadata-only sidecar (rating, label, keywords) renders the camera's
+    /// unedited image, so hosts may serve the sidecarless derivative for it.
+    pub fn has_render_adjustments(&self) -> bool {
+        *self != Self::default()
+    }
+}
+
 impl Default for AdjustmentModel {
     fn default() -> Self {
         Self {
@@ -197,6 +206,17 @@ impl Default for AdjustmentModel {
             defringe_green_hue_lo: 40.0,
             defringe_green_hue_hi: 60.0,
             lens_profile: String::new(),
+            // Per-#5040: zone-isolation defaults reproduce pre-#5040 zone weights bit-for-bit.
+            color_grade_blending: 100.0,
+            color_grade_shadow_edge: 0.564622,
+            color_grade_highlight_edge: 0.564622,
+            // Per-#5041: Oklab secondary color curves default to identity (empty `Vec`).
+            color_curve_hue_vs_hue: ToneCurve::default(),
+            color_curve_hue_vs_sat: ToneCurve::default(),
+            color_curve_hue_vs_luma: ToneCurve::default(),
+            color_curve_luma_vs_sat: ToneCurve::default(),
+            color_curve_sat_vs_sat: ToneCurve::default(),
+            color_curve_sat_vs_luma: ToneCurve::default(),
         }
     }
 }

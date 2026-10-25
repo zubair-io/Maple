@@ -16,6 +16,10 @@ public actor PhotoKitSidecarStore: WorkflowSidecarStoreProtocol {
     self.writer = XMPSidecarStore(sidecarURL: sidecars.sidecarURL(phassetLocalId: phassetLocalId))
   }
 
+  public init(phassetLocalId: String, sidecarRoot: URL) {
+    self.init(phassetLocalId: phassetLocalId, sidecars: AppSupportSidecarStore(root: sidecarRoot))
+  }
+
   public init(phassetLocalId: String) throws {
     self.init(
       phassetLocalId: phassetLocalId,
@@ -34,6 +38,10 @@ public actor PhotoKitSidecarStore: WorkflowSidecarStoreProtocol {
 
   public func update(model: AdjustmentModel, culling: CullingState) async {
     await writer.update(model: model, culling: culling)
+  }
+
+  public func update(model: AdjustmentModel, culling: CullingState, metadata: XmpMetadata) async {
+    await writer.update(model: model, culling: culling, metadata: metadata)
   }
 
   public func flush() async { await writer.flush() }

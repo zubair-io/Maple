@@ -1,11 +1,12 @@
 //! Decode-time chroma pre-filter (#1104, tone/zoom design spec § 3.1).
 //!
 //! A luma-guided sparse cross-bilateral filter applied to opponent chroma
-//! only, as part of the decode product: after DCP colorimetry and post-DCP
-//! highlight recovery, before capture sharpening / auto-exposure / WB-delta
-//! and all user adjustments. Because it lands inside the cached decoded
-//! scene-linear buffer, its per-slider-tick cost is zero. No GPU port —
-//! the stage never runs per tick (spec § 3.1 "Gates").
+//! only, as part of the decode product: in the capture stage's fixed as-shot
+//! Rec.2020 basis (#5213), after retouch and before BM3D, capture
+//! sharpening, white balance, DCP and all user adjustments. Because it lands inside the cached decoded
+//! scene-linear buffer, its per-slider-tick cost is zero; it never runs per
+//! tick (spec § 3.1 "Gates"). `raw_gpu::ChromaPrefilterPass` is its
+//! capture-refine twin (#5217).
 //!
 //! ## Algorithm (clean-room per the design spec)
 //!
@@ -49,55 +50,9 @@ use rayon::prelude::*;
 
 use crate::image::{ColorSpace, Image};
 
-/// Rec.2020 luma weights — same constants as `stages::scene_tone_controls`
-/// and the WGSL kernels.
-const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
-
-/// The 8 off-center sparse taps (center is implicit, weight 1). Two 4-tap
-/// 90°-rotation orbits: radius √5 ≈ 2.24 px and radius √17 ≈ 4.12 px, so
-/// the kernel spans 9 px corner-to-corner. Every offset has at least one
-/// odd coordinate (decorrelates from the 2×2 Bayer period — a same-CFA-site
-/// offset is (even, even)) and none is ≡ (0, 0) mod 6 (X-Trans period).
-/// Each orbit sums to zero displacement, so the kernel is directionally
-/// unbiased.
-const TAPS: [(i32, i32); 8] = [
-    (1, -2),
-    (-2, -1),
-    (2, 1),
-    (-1, 2),
-    (4, 1),
-    (-1, 4),
-    (-4, -1),
-    (1, -4),
-];
-
-/// Quadratic spatial penalty: `w = 1 / (1 + r² / R0²)` with `R0² = 16`
-/// (≈ the outer-orbit radius squared). Inner orbit (r² = 5) → 16/21;
-/// outer orbit (r² = 17) → 16/33. Indexed in step with [`TAPS`].
-const SPATIAL_W: [f32; 8] = [
-    16.0 / 21.0,
-    16.0 / 21.0,
-    16.0 / 21.0,
-    16.0 / 21.0,
-    16.0 / 33.0,
-    16.0 / 33.0,
-    16.0 / 33.0,
-    16.0 / 33.0,
-];
-
-/// Relative range sigma at strength 100. The Cauchy range weight is
-/// `1 / (1 + (ΔY / (σ·scale))²)` with `scale = (Y_c + Y_t)/2 + PEDESTAL`,
-/// so σ is a *relative* luma difference: at strength 100 a tap whose luma
-/// differs from the center by 50% of the local level still carries half
-/// weight. Relative normalisation keeps the response invariant to the
-/// per-camera post-DCP scale (the stage runs before auto-exposure).
-const SIGMA_MAX_REL: f32 = 0.5;
-
-/// Pedestal added to the local luma scale so deep-shadow noise (where the
-/// *relative* fluctuation is huge but the *absolute* signal is tiny) is
-/// still smoothed: below ~0.01 (≈ −4 EV under mid-grey) differences are
-/// effectively measured against the pedestal instead of the signal.
-const PEDESTAL: f32 = 0.01;
+#[path = "chroma_prefilter_params.rs"]
+mod parameters;
+use parameters::*;
 
 /// Apply the decode-time chroma pre-filter. `strength` is the
 /// `papp:ChromaPrefilter` slider value in `[0, 100]`; `< 1e-3` (the
@@ -149,8 +104,10 @@ pub fn apply(img: &mut Image, strength: f32) {
                 let j = ny as usize * w + nx as usize;
                 let yt = ys_ref[j];
                 // Range weight from LUMA difference only (Cauchy falloff,
-                // relative to the local level + pedestal).
-                let scale = 0.5 * (yc + yt) + PEDESTAL;
+                // relative to the local level + pedestal). The level's
+                // magnitude keeps the scale positive on the signed
+                // capture-first basis (#5213), where luma can go negative.
+                let scale = (0.5 * (yc + yt)).abs() + PEDESTAL;
                 let t = (yt - yc) / (sigma * scale);
                 let wr = 1.0 / (1.0 + t * t);
                 let wk = SPATIAL_W[k] * wr;

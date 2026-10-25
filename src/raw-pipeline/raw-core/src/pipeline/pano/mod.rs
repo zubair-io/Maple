@@ -314,6 +314,7 @@ fn develop_scene_linear_for_pano(
             raw,
             HighlightRecoveryMode::default(),
             effective_quality_divisor(quality, raw.cfa),
+            None,
         )
     });
     dump_after("pano_00b_highlight_recovery", &camera_rgb);

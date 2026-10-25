@@ -8,6 +8,7 @@ import { assertDerivativeCacheDirectory } from '../../indexer/derivative-cache.t
 import { isVideoFilename } from '../../indexer/media-types.ts';
 import { ffmpegBinary } from '../../thumbs/video-poster.ts';
 import { ffiPool } from '../../ffi/ffi-pool.ts';
+import { AuthoredSidecarRenderError } from '../../thumbs/raw-sidecar-render.ts';
 import type { Stats } from 'node:fs';
 import { t, type Context } from 'elysia';
 import { resolveAddress, type ResolvedAddress } from '../../library/address.ts';
@@ -371,6 +372,24 @@ export async function derivativeDecoderUnavailable(sourcePath: string): Promise<
   return ffiPool().available()
     ? null
     : 'Derivative FFI not built — run src/api/scripts/build-raw-ffi.sh to build native/libraw_ffi.* first';
+}
+
+/** Authored edits that cannot be developed are a property of the asset, not a
+ * server fault (#5231), so they answer 422 rather than the generic 500. */
+export function derivativeGenerationFailure(
+  error: unknown,
+  set: Context['set'],
+  fallback: string,
+): { error: string; code?: string } {
+  if (error instanceof AuthoredSidecarRenderError) {
+    set.status = 422;
+    return {
+      error: 'The edits saved for this photo cannot be developed',
+      code: 'authored-edits-unrenderable',
+    };
+  }
+  set.status = 500;
+  return { error: fallback };
 }
 
 export async function resolveDerivativeAddress(

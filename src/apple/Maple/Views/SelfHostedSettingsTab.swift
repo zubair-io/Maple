@@ -9,6 +9,10 @@ import MapleUI
 import OSLog
 import SwiftUI
 
+#if os(iOS)
+  import WatchConnectivity
+#endif
+
 private let selfHostedSettingsLog = Logger(subsystem: "app.justmaple.aperture", category: "signin")
 
 #if os(iOS)
@@ -41,13 +45,14 @@ struct SelfHostedSettingsTab: View {
 
   @State private var registry = CloudServerRegistry.shared
   @State private var localNetwork = LocalNetworkResolver.shared
-  /// Single sheet entry point. `.fresh` for "Add Server…", `.prefilled(host)`
+  /// Single sheet entry point. `.fresh` for "Add Server…", `.prefilled(serverText)`
   /// for a per-server "Sign In" (#1381).
   @State private var sheetTarget: AddCloudSheetTarget?
   /// Parallel sheet trigger for "Pair Apple TV…" (#2082) — see
   /// `PairSheetTarget`.
   #if os(iOS)
     @State private var pairSheetTarget: PairSheetTarget?
+    @State private var showsWatchPairing = false
   #endif
   /// Per-server signed-in state, derived from Keychain token presence. This
   /// is a separate macOS Settings scene, so it can't observe the app's
@@ -153,7 +158,7 @@ struct SelfHostedSettingsTab: View {
               // a server signed out) — offer a way back in (#1381).
               if signedIn[url] == false {
                 Button("Sign In") {
-                  sheetTarget = .prefilled(url.host ?? url.absoluteString)
+                  sheetTarget = .prefilled(CloudHost.signInPrefill(for: url))
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
@@ -199,6 +204,10 @@ struct SelfHostedSettingsTab: View {
       HStack {
         Spacer()
         #if os(iOS)
+          if WCSession.isSupported() {
+            Button("Connect Apple Watch…") { showsWatchPairing = true }
+              .accessibilityLabel("Connect Apple Watch")
+          }
           Button("Pair Apple TV…") { pairSheetTarget = .pairing(PairAppleTVViewModel()) }
             .accessibilityLabel("Pair Apple TV")
         #endif
@@ -243,6 +252,7 @@ struct SelfHostedSettingsTab: View {
       )
     }
     #if os(iOS)
+      .sheet(isPresented: $showsWatchPairing) { WatchPairingSheet() }
       .sheet(item: $pairSheetTarget) { target in
         switch target {
         case .pairing(let viewModel):

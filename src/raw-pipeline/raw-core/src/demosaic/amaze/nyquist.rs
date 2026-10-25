@@ -1,7 +1,8 @@
 //! AMaZE stage 5 A–D: the Nyquist texture mask, 13×13 area interpolation of
 //! `hvwt` inside Nyquist regions, the green populate at R/B sites, and the
-//! G-curvature Nyquist refinement. 1:1 port of the scalar branch of
-//! `amaze_demosaic_RT.cc` (engine 836–1013), operating on one tile.
+//! G-curvature Nyquist refinement. A port of the scalar branch of
+//! `amaze_demosaic_RT.cc` (engine 836–1013), operating on one tile, except
+//! that stage C reads its diagonal weights from a stage-B snapshot (#4660).
 
 use super::scratch::{at, hf, Scratch, Tile, TS};
 use crate::image::CfaPattern;
@@ -183,7 +184,12 @@ pub(super) fn reconstruct_green(s: &mut Scratch, t: &Tile, pattern: CfaPattern) 
         }
     }
 
-    // --- C. Populate G at R/B sites (engine 972–988).
+    // --- C. Populate G at R/B sites (engine 972–988). Upstream rewrites
+    // `hvwt` in place, so a site's NW/NE neighbours were already replaced in
+    // raster order; read the stage-B weights from a snapshot in `vcdalt`,
+    // which is dead after stage 2 (#4660).
+    let snapshot_len = s.hvwt.len();
+    s.vcdalt[..snapshot_len].copy_from_slice(&s.hvwt);
     for rr in 8..t.rr1 - 8 {
         let cc0 = rb_coset_start(pattern, rr, 8);
         for cc in (cc0..t.cc1 - 8).step_by(2) {
@@ -191,8 +197,11 @@ pub(super) fn reconstruct_green(s: &mut Scratch, t: &Tile, pattern: CfaPattern) 
             // Prefer the diagonal-neighbour hvwt when it discriminates more
             // strongly than the local one.
             let hvwtalt = 0.25
-                * (s.hvwt[hf(i, -m1)] + s.hvwt[hf(i, p1)] + s.hvwt[hf(i, -p1)] + s.hvwt[hf(i, m1)]);
-            if (0.5 - s.hvwt[i >> 1]).abs() < (0.5 - hvwtalt).abs() {
+                * (s.vcdalt[hf(i, -m1)]
+                    + s.vcdalt[hf(i, p1)]
+                    + s.vcdalt[hf(i, -p1)]
+                    + s.vcdalt[hf(i, m1)]);
+            if (0.5 - s.vcdalt[i >> 1]).abs() < (0.5 - hvwtalt).abs() {
                 s.hvwt[i >> 1] = hvwtalt;
             }
             s.dgrb0[i >> 1] = s.hvwt[i >> 1] * s.vcd[i] + (1.0 - s.hvwt[i >> 1]) * s.hcd[i];
@@ -258,3 +267,7 @@ pub(super) fn reconstruct_green(s: &mut Scratch, t: &Tile, pattern: CfaPattern) 
         }
     }
 }
+
+#[cfg(test)]
+#[path = "nyquist_tests.rs"]
+mod tests;

@@ -28,12 +28,7 @@ import {
   listFolderTrash,
   resetFolderStages,
 } from '../db/repos/folder-assets.repo.ts';
-import {
-  UploadConflictError,
-  isIndexedUpload,
-  streamUploadedBody,
-  finalizeUploadedFile,
-} from './folders.upload.ts';
+import { UploadConflictError, streamUploadedBody, finalizeUploadedFile } from './folders.upload.ts';
 import { parseFolderTrashPage, folderTrashItem } from './folders.trash-page.ts';
 import { validateRoot } from '../fs/root.ts';
 import { rootsConnected } from '../fs/root-connectivity.ts';
@@ -43,10 +38,29 @@ import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
 import { requireFileAccessBeforeHandle } from '../auth/middleware.ts';
 import { handleEvent } from '../workers/discover/index.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { isCataloguedFilename } from '../indexer/media-types.ts';
 import { slugify, dedupeSlug } from '../library/slug.ts';
 import { realpathJailCheck } from '../library/address.ts';
 import { safeObjectId } from '../db/object-id.ts';
 import type { FolderWithId } from '../db/schema.ts';
+
+function folderContainsMoveTarget(source: string, target: string): boolean {
+  const relative = nodePath.relative(source, target);
+  return relative === '' || (!relative.startsWith('..') && !nodePath.isAbsolute(relative));
+}
+
+async function validateFolderMoveSource(source: string) {
+  try {
+    return (await stat(source)).isDirectory()
+      ? null
+      : { status: 400, error: 'Source is not a directory' };
+  } catch {
+    return { status: 404, error: 'Source folder not found' };
+  }
+}
+
+import { captureUploadedSidecarAdmission } from './folders.upload-sidecar-admission';
+import { SidecarWriteBindingChangedError } from '../fs/sidecar-write-order';
 
 const log = childLogger('folders');
 
@@ -595,7 +609,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       if (destination instanceof Response) return destination;
       const { folder, target, parts } = destination;
       const filename = parts[parts.length - 1]!;
-      const isMedia = isIndexedUpload(filename);
+      const isMedia = isCataloguedFilename(filename);
 
       const absPath = nodePath.join(folder.path, target);
 
@@ -609,6 +623,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // to trash, so a duplicate upload never destroys the prior copy.
       const tmp = nodePath.join(dir, `.upload-${randomUUID()}`);
       try {
+        const sidecarAdmission = await captureUploadedSidecarAdmission(absPath);
         await streamUploadedBody(tmp, request.body as ReadableStream<Uint8Array> | null);
         // Serialize only the publication/Trash/catalog section. Body writes
         // remain streamed in parallel to independent temporary paths.
@@ -622,12 +637,16 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
             isMedia,
             mtimeHeader: headers['x-maple-file-mtime'],
             ownerId,
+            sidecarAdmission,
           }),
         );
         set.status = 201;
         return result;
       } catch (error) {
-        set.status = error instanceof UploadConflictError ? 409 : 500;
+        set.status =
+          error instanceof UploadConflictError || error instanceof SidecarWriteBindingChangedError
+            ? 409
+            : 500;
         return { error: error instanceof Error ? error.message : String(error) };
       }
     },
@@ -754,22 +773,15 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // Reject moving a folder onto itself or into its own subtree — that
       // would either be a no-op or an `fs.rename` error, and silently
       // mangles the tree if it ever succeeded.
-      const rel = nodePath.relative(absSource, absTarget);
-      if (rel === '' || (!rel.startsWith('..') && !nodePath.isAbsolute(rel))) {
+      if (folderContainsMoveTarget(absSource, absTarget)) {
         set.status = 400;
         return { error: 'Cannot move a folder into itself or its own subtree' };
       }
 
-      let srcStat;
-      try {
-        srcStat = await stat(absSource);
-      } catch {
-        set.status = 404;
-        return { error: 'Source folder not found' };
-      }
-      if (!srcStat.isDirectory()) {
-        set.status = 400;
-        return { error: 'Source is not a directory' };
+      const sourceError = await validateFolderMoveSource(absSource);
+      if (sourceError) {
+        set.status = sourceError.status;
+        return { error: sourceError.error };
       }
 
       // Refuse to clobber an existing destination. `fs.rename` would

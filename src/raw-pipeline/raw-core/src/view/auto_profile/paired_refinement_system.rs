@@ -1,9 +1,180 @@
 use super::{projection::is_neutral_node, Observation, TrainingRow};
 
+use rayon::prelude::*;
+
+const CHUNK: usize = 2048;
+
+/// Assembly may cost at most this many row walks' worth of multiply-adds per
+/// solve; the full-resolution 100 MP fixture needs about 53.
+const ASSEMBLY_WORK_PER_ROW_TERM: usize = 64;
+
+/// The training rows' sparsity laid out row-major and node-major with rows in
+/// their original order, so `scatter`, the Jacobi diagonal and the row-walk
+/// product keep the original bits. The assembled product sums in a different
+/// order, moving Auto by ≤ 1/255 (#5104); rows too wide to assemble within
+/// budget keep the row walk.
+pub(super) struct Pattern {
+    row_start: Vec<usize>,
+    row_nodes: Vec<usize>,
+    row_weights: Vec<f64>,
+    node_start: Vec<usize>,
+    node_rows: Vec<usize>,
+    node_weights: Vec<f64>,
+    edge_start: Vec<usize>,
+    edge_peers: Vec<(usize, bool)>,
+    normal: Option<NormalPattern>,
+}
+
+struct NormalPattern {
+    start: Vec<usize>,
+    columns: Vec<usize>,
+}
+
+impl Pattern {
+    pub(super) fn new(rows: &[TrainingRow<'_>], size: usize, edges: &[(usize, usize)]) -> Self {
+        let count = size.pow(3);
+        let row_start: Vec<_> = std::iter::once(0)
+            .chain(rows.iter().scan(0, |end, entry| {
+                *end += entry.row.artifact_weights.len();
+                Some(*end)
+            }))
+            .collect();
+        let (row_nodes, row_weights): (Vec<_>, Vec<_>) = rows
+            .iter()
+            .flat_map(|entry| entry.row.artifact_weights.iter().copied())
+            .unzip();
+        let node_start = offsets(count, row_nodes.iter().copied());
+        let mut cursor = node_start.clone();
+        let mut node_rows = vec![0; row_nodes.len()];
+        let mut node_weights = vec![0.; row_nodes.len()];
+        for (row, entry) in rows.iter().enumerate() {
+            for &(i, w) in &entry.row.artifact_weights {
+                node_rows[cursor[i]] = row;
+                node_weights[cursor[i]] = w;
+                cursor[i] += 1;
+            }
+        }
+        let edge_start = offsets(count, edges.iter().flat_map(|&(i, j)| [i, j]));
+        let mut cursor = edge_start.clone();
+        let mut edge_peers = vec![(0, false); edges.len() * 2];
+        for &(i, j) in edges {
+            edge_peers[cursor[i]] = (j, true);
+            cursor[i] += 1;
+            edge_peers[cursor[j]] = (i, false);
+            cursor[j] += 1;
+        }
+        let pattern = Self {
+            row_start,
+            row_nodes,
+            row_weights,
+            node_start,
+            node_rows,
+            node_weights,
+            edge_start,
+            edge_peers,
+            normal: None,
+        };
+        Self {
+            normal: normal_pattern(&pattern, count),
+            ..pattern
+        }
+    }
+
+    /// `out[i] = Σ coefficient[k] · per_row[row_k]` over node `i`'s rows, in row order.
+    pub(super) fn scatter(&self, coefficients: &[f64], per_row: &[f64], out: &mut [f64]) {
+        out.par_chunks_mut(CHUNK)
+            .enumerate()
+            .for_each(|(chunk, out)| {
+                for (offset, value) in out.iter_mut().enumerate() {
+                    let node = chunk * CHUNK + offset;
+                    for k in self.node_start[node]..self.node_start[node + 1] {
+                        *value += coefficients[k] * per_row[self.node_rows[k]];
+                    }
+                }
+            });
+    }
+}
+
+/// Column sets of `Σ wᵣ·aᵣaᵣᵀ`, or `None` when assembling it would cost more
+/// than the budget or hold more entries than the row layout itself.
+fn normal_pattern(pattern: &Pattern, count: usize) -> Option<NormalPattern> {
+    let terms = pattern.row_nodes.len();
+    let budget = (ASSEMBLY_WORK_PER_ROW_TERM as u64).saturating_mul(terms as u64);
+    pattern
+        .row_start
+        .windows(2)
+        .map(|r| ((r[1] - r[0]) as u64).pow(2))
+        .try_fold(0u64, |work, k2| Some(work + k2).filter(|&w| w <= budget))?;
+    let mut seen = vec![usize::MAX; count];
+    let mut start = Vec::with_capacity(count + 1);
+    start.push(0);
+    let mut columns = Vec::new();
+    for node in 0..count {
+        let first = columns.len();
+        for &row in &pattern.node_rows[pattern.node_start[node]..pattern.node_start[node + 1]] {
+            for &j in &pattern.row_nodes[pattern.row_start[row]..pattern.row_start[row + 1]] {
+                if seen[j] != node {
+                    seen[j] = node;
+                    columns.push(j);
+                }
+            }
+        }
+        if columns.len() > terms {
+            return None;
+        }
+        columns[first..].sort_unstable();
+        start.push(columns.len());
+    }
+    Some(NormalPattern { start, columns })
+}
+
+/// The weighted data term `Σ wᵣ·aᵣaᵣᵀ`, one sorted sparse row per node.
+fn assemble(
+    pattern: &Pattern,
+    normal: &NormalPattern,
+    coefficients: &[f64],
+    count: usize,
+) -> Vec<f64> {
+    let rows: Vec<Vec<f64>> = (0..count)
+        .into_par_iter()
+        .map_init(
+            || vec![0.; count],
+            |scratch, node| {
+                for k in pattern.node_start[node]..pattern.node_start[node + 1] {
+                    let row = pattern.node_rows[k];
+                    let range = pattern.row_start[row]..pattern.row_start[row + 1];
+                    for (&j, &w) in pattern.row_nodes[range.clone()]
+                        .iter()
+                        .zip(&pattern.row_weights[range])
+                    {
+                        scratch[j] += coefficients[k] * w;
+                    }
+                }
+                normal.columns[normal.start[node]..normal.start[node + 1]]
+                    .iter()
+                    .map(|&j| std::mem::take(&mut scratch[j]))
+                    .collect()
+            },
+        )
+        .collect();
+    rows.concat()
+}
+
+fn offsets(count: usize, nodes: impl Iterator<Item = usize>) -> Vec<usize> {
+    let mut start = vec![0; count + 1];
+    for node in nodes {
+        start[node + 1] += 1;
+    }
+    for i in 0..count {
+        start[i + 1] += start[i];
+    }
+    start
+}
+
 pub(super) struct System<'a> {
-    rows: &'a [TrainingRow<'a>],
-    weights: &'a [f64],
-    edges: &'a [(usize, usize)],
+    pattern: &'a Pattern,
+    coefficients: Vec<f64>,
+    normal: Option<(&'a NormalPattern, Vec<f64>)>,
     pub diagonal: Vec<f64>,
     lambda: f64,
     ridge: f64,
@@ -11,24 +182,29 @@ pub(super) struct System<'a> {
 }
 
 impl<'a> System<'a> {
-    pub(super) fn new(
-        rows: &'a [TrainingRow<'a>],
-        weights: &'a [f64],
-        size: usize,
-        edges: &'a [(usize, usize)],
-    ) -> Self {
+    pub(super) fn new(pattern: &'a Pattern, weights: &[f64], size: usize) -> Self {
         let count = size.pow(3);
-        let lambda = 1e-5 * 8. / (size - 1) as f64 * 20.;
+        // The regression-weighted data term pulls on every region at once;
+        // weaker smoothness lets that kink the Auto tail's colour ramps (#5119).
+        let lambda = 1e-5 * 8. / (size - 1) as f64 * 20. * 300.;
         let ridge = 1e-8 * 9f64.powi(3) / count as f64 * 20.;
+        let coefficients: Vec<f64> = pattern
+            .node_rows
+            .iter()
+            .zip(&pattern.node_weights)
+            .map(|(&row, &w)| weights[row] * w)
+            .collect();
         let mut diagonal = vec![ridge; count];
-        for (entry, &weight) in rows.iter().zip(weights) {
-            for &(i, w) in &entry.row.artifact_weights {
-                diagonal[i] += weight * w * w;
+        for (node, value) in diagonal.iter_mut().enumerate() {
+            for k in pattern.node_start[node]..pattern.node_start[node + 1] {
+                *value += coefficients[k] * pattern.node_weights[k];
             }
         }
-        for &(i, j) in edges {
-            diagonal[i] += lambda;
-            diagonal[j] += lambda;
+        // One λ per edge, not degree·λ: the repeated sum keeps the diagonal's bits.
+        for (node, value) in diagonal.iter_mut().enumerate() {
+            for _ in pattern.edge_start[node]..pattern.edge_start[node + 1] {
+                *value += lambda;
+            }
         }
         let fixed: Vec<_> = (0..count).map(|i| is_neutral_node(i, size)).collect();
         for i in 0..count {
@@ -36,45 +212,101 @@ impl<'a> System<'a> {
                 diagonal[i] = 1.;
             }
         }
+        let normal = pattern
+            .normal
+            .as_ref()
+            .map(|normal| (normal, assemble(pattern, normal, &coefficients, count)));
         Self {
+            pattern,
+            coefficients,
+            normal,
             fixed,
-            rows,
-            weights,
-            edges,
             diagonal,
             lambda,
             ridge,
         }
     }
 
-    fn multiply(&self, values: &[f64]) -> Vec<f64> {
-        let mut result: Vec<_> = values.iter().map(|v| v * self.ridge).collect();
-        for (entry, &weight) in self.rows.iter().zip(self.weights) {
-            let value: f64 = entry
-                .row
-                .artifact_weights
-                .iter()
-                .map(|&(i, w)| w * values[i])
-                .sum();
-            for &(i, w) in &entry.row.artifact_weights {
-                result[i] += weight * w * value;
-            }
-        }
-        for &(i, j) in self.edges {
-            let delta = self.lambda * (values[i] - values[j]);
-            result[i] += delta;
-            result[j] -= delta;
-        }
-        for i in 0..result.len() {
-            if self.fixed[i] {
-                result[i] = values[i];
-            }
-        }
-        result
+    pub(super) fn coefficients(&self) -> &[f64] {
+        &self.coefficients
     }
 
-    pub(super) fn solve(&self, rhs: &[f64], initial: Vec<f64>) -> Option<Vec<f64>> {
+    fn multiply(&self, values: &[f64], per_row: &mut [f64], result: &mut [f64]) {
+        let pattern = self.pattern;
+        if self.normal.is_none() {
+            per_row
+                .par_chunks_mut(CHUNK)
+                .enumerate()
+                .for_each(|(chunk, out)| {
+                    for (offset, value) in out.iter_mut().enumerate() {
+                        let row = chunk * CHUNK + offset;
+                        let range = pattern.row_start[row]..pattern.row_start[row + 1];
+                        *value = pattern.row_nodes[range.clone()]
+                            .iter()
+                            .zip(&pattern.row_weights[range])
+                            .map(|(&i, &w)| w * values[i])
+                            .sum();
+                    }
+                });
+        }
+        result
+            .par_chunks_mut(CHUNK)
+            .enumerate()
+            .for_each(|(chunk, out)| {
+                for (offset, value) in out.iter_mut().enumerate() {
+                    let node = chunk * CHUNK + offset;
+                    if self.fixed[node] {
+                        *value = values[node];
+                        continue;
+                    }
+                    *value = values[node] * self.ridge;
+                    match &self.normal {
+                        Some((normal, entries)) => {
+                            let range = normal.start[node]..normal.start[node + 1];
+                            for (&column, &entry) in
+                                normal.columns[range.clone()].iter().zip(&entries[range])
+                            {
+                                *value += entry * values[column];
+                            }
+                        }
+                        None => {
+                            for k in pattern.node_start[node]..pattern.node_start[node + 1] {
+                                *value += self.coefficients[k] * per_row[pattern.node_rows[k]];
+                            }
+                        }
+                    }
+                    for &(peer, first) in
+                        &pattern.edge_peers[pattern.edge_start[node]..pattern.edge_start[node + 1]]
+                    {
+                        if first {
+                            *value += self.lambda * (values[node] - values[peer]);
+                        } else {
+                            *value -= self.lambda * (values[peer] - values[node]);
+                        }
+                    }
+                }
+            });
+    }
+
+    #[cfg(test)]
+    fn product_terms(&self) -> usize {
+        let data_terms = self
+            .normal
+            .as_ref()
+            .map_or(2 * self.pattern.row_nodes.len(), |(_, entries)| {
+                entries.len()
+            });
+        data_terms + self.pattern.edge_peers.len() + self.diagonal.len()
+    }
+
+    pub(super) fn solve(&self, rhs: &[f64], initial: Vec<f64>) -> Option<(Vec<f64>, usize)> {
         let dot = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(u, v)| u * v).sum::<f64>();
+        let mut ap = vec![0.; rhs.len()];
+        let walked_rows = self
+            .normal
+            .as_ref()
+            .map_or(self.pattern.row_start.len() - 1, |_| 0);
+        let mut per_row = vec![0.; walked_rows];
         let mut rhs = rhs.to_vec();
         let mut x = initial;
         for i in 0..x.len() {
@@ -83,20 +315,22 @@ impl<'a> System<'a> {
                 rhs[i] = 0.;
             }
         }
-        let ax = self.multiply(&x);
-        let mut r: Vec<_> = rhs.iter().zip(ax).map(|(b, a)| b - a).collect();
+        self.multiply(&x, &mut per_row, &mut ap);
+        let mut products = 1;
+        let mut r: Vec<_> = rhs.iter().zip(&ap).map(|(b, a)| b - a).collect();
         let mut z: Vec<_> = r.iter().zip(&self.diagonal).map(|(v, d)| v / d).collect();
         let mut p = z.clone();
         let mut rz = dot(&r, &z);
         let norm = dot(&rhs, &rhs);
         if norm < 1e-25 {
-            return Some(vec![0.; rhs.len()]);
+            return Some((vec![0.; rhs.len()], products));
         }
         for _ in 0..256 {
             if dot(&r, &r) <= norm * 1e-12 {
                 break;
             }
-            let ap = self.multiply(&p);
+            self.multiply(&p, &mut per_row, &mut ap);
+            products += 1;
             let denominator = dot(&p, &ap);
             if !denominator.is_finite() || denominator <= 0. {
                 return None;
@@ -114,7 +348,7 @@ impl<'a> System<'a> {
             }
             rz = next;
         }
-        x.iter().all(|v| v.is_finite()).then_some(x)
+        x.iter().all(|v| v.is_finite()).then_some((x, products))
     }
 }
 
@@ -140,44 +374,5 @@ pub(super) fn prediction(lut: &[f32], row: &Observation) -> [f64; 3] {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn matrix_free_solution_matches_its_independent_normal_equation_residual() {
-        let row = Observation {
-            weights: vec![],
-            artifact_weights: vec![(1, 0.25), (2, 0.75)],
-            source: [0.; 3],
-            target: [0.; 3],
-            baseline: [0.; 3],
-            population: 1,
-            validation: false,
-            in_bias_region: true,
-            region: 0,
-        };
-        let rows = [TrainingRow {
-            row: &row,
-            groups: [0, 1],
-            count: 2,
-        }];
-        let weights = [2.];
-        let edges = edges(2);
-        let system = System::new(&rows, &weights, 2, &edges);
-        let rhs = vec![0., 0.5, 1.5, 0., 0., 0., 0., 0.];
-        let solved = system.solve(&rhs, vec![0.; 8]).unwrap();
-        let mut residual: Vec<_> = solved.iter().map(|v| v * system.ridge).collect();
-        let predicted = 0.25 * solved[1] + 0.75 * solved[2];
-        residual[1] += 0.5 * predicted;
-        residual[2] += 1.5 * predicted;
-        for &(i, j) in &edges {
-            let delta = system.lambda * (solved[i] - solved[j]);
-            residual[i] += delta;
-            residual[j] -= delta;
-        }
-        residual[0] = solved[0];
-        residual[7] = solved[7];
-        assert_eq!(solved[0], 0.);
-        assert_eq!(solved[7], 0.);
-        assert!(residual.iter().zip(rhs).all(|(a, b)| (a - b).abs() < 1e-6));
-    }
-}
+#[path = "paired_refinement_system_tests.rs"]
+mod tests;

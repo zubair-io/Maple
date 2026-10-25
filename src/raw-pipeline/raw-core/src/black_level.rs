@@ -67,6 +67,15 @@ pub fn reduce_black_levels(
     }
 }
 
+/// Whether the decode is Canon's reduced CR2 (sRAW/mRAW): RGB reconstructed
+/// from YCbCr with the sensor black already removed, at the reconstruction's
+/// own white scale. rawler still reports the sensor's ColorData black for it,
+/// while LibRaw and the DNG Converter both declare 0, and sensor-unit
+/// calibration (camconst) does not apply to its scale (#4644).
+pub fn is_reconstructed_canon_rgb(cfa: CfaPattern, canon_cr2: bool) -> bool {
+    matches!((cfa, canon_cr2), (CfaPattern::LinearRgb, true))
+}
+
 fn per_colour(rgb: [f32; 3]) -> [u32; 4] {
     // Slot 3 mirrors blue so a reader of the unused fourth slot sees a real
     // channel's black rather than a stray value.
@@ -98,6 +107,13 @@ mod tests {
         1, 1, 0, 1, 1, 2, //
         0, 2, 1, 2, 0, 1, //
     ];
+
+    #[test]
+    fn only_a_linear_rgb_cr2_is_reconstructed_canon_rgb() {
+        assert!(is_reconstructed_canon_rgb(CfaPattern::LinearRgb, true));
+        assert!(!is_reconstructed_canon_rgb(CfaPattern::LinearRgb, false));
+        assert!(!is_reconstructed_canon_rgb(CfaPattern::Rggb, true));
+    }
 
     #[test]
     fn bayer_four_entry_table_is_kept_per_position_unchanged() {

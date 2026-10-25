@@ -18,6 +18,7 @@ import {
   parseWildcardSegments,
   wildcardSlugParams,
   derivativeDecoderUnavailable,
+  derivativeGenerationFailure,
   resolveDerivativeAddress,
 } from './shared.ts';
 
@@ -81,8 +82,7 @@ async function serveThumb(
       { absPath, thumbPath, err: err instanceof Error ? err.message : err },
       'thumbnail read failed',
     );
-    set.status = 500;
-    return { error: 'Thumbnail generation failed' };
+    return derivativeGenerationFailure(err, set, 'Thumbnail generation failed');
   }
 }
 

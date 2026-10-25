@@ -67,6 +67,7 @@ public actor GpuLiveSession {
   /// The opaque Rust handle (`maple_gpu_live_open` → `…_close`). `nil` once closed
   /// or if the open failed.
   var handle: MapleGpuLiveSession?
+  var colorCurveBuffers = GpuColorCurveBuffers()
   public let width: Int
   public let height: Int
 
@@ -464,7 +465,7 @@ public actor GpuLiveSession {
                 p.noise_profile_len = UInt32(np.count)
               }
               p.iso = iso
-              return Self.withDisplayCurvesBound(p, model) { p in
+              return Self.withDisplayCurvesBound(p, model, buffers: &colorCurveBuffers) { p in
                 withFilmLutBound(p) { pp in
                   withScopeBound(pp) { ppp in
                     withLocalAdjustmentsBound(ppp, model) { pppp in

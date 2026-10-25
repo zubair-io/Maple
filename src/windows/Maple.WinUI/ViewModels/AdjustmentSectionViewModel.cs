@@ -242,6 +242,7 @@ namespace Maple.WinUI.ViewModels
                     Sl("Highlights Lum", -100, 100, 1, m => m.ColorGradeHighlightLuminance, (m, v) => m.ColorGradeHighlightLuminance = v, plain),
                     Sl("Global Lum", -100, 100, 1, m => m.ColorGradeGlobalLuminance, (m, v) => m.ColorGradeGlobalLuminance = v, plain),
                     Sl("Balance", -100, 100, 1, m => m.SplitToneBalance, (m, v) => m.SplitToneBalance = v, plain),
+                    Sl("Blending", 0, 100, 1, m => m.ColorGradeBlending, (m, v) => m.ColorGradeBlending = v),
                 }, expanded: false),
 
                 new("Detail", new[]

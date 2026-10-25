@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { HttpErrorResponse } from '@angular/common/http';
 import { of, throwError } from 'rxjs';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -229,6 +230,52 @@ describe('DragMoveService', () => {
     expect(relocateAssetSpy).toHaveBeenLastCalledWith(ASSET_A.id, 'move', 'replace', '2026/France');
     expect(service.collisionPrompt()).toBeNull();
     expect(service.resultSummary()?.moved).toBe(1);
+  });
+
+  it('offers Keep Both or Skip after the server refuses to replace an indexed photo', () => {
+    relocateAssetSpy.mockReturnValueOnce(of({ kind: 'skipped', reason: 'collision' }));
+    service.beginMove([ASSET_A.id], SOURCE_FOLDER_ID, TARGET_NODE, 'move');
+    relocateAssetSpy.mockReturnValueOnce(
+      throwError(
+        () =>
+          new HttpErrorResponse({
+            status: 409,
+            error: {
+              error: 'destination is occupied by another asset',
+              occupied_by_asset_id: 'other',
+            },
+          }),
+      ),
+    );
+    service.resolveCollision('replace');
+
+    expect(service.collisionPrompt()).toEqual({
+      filename: ASSET_A.filename,
+      replaceUnavailable: true,
+    });
+    expect(service.resultSummary()).toBeNull();
+    service.resolveCollision('replace');
+    expect(relocateAssetSpy).toHaveBeenCalledTimes(2);
+
+    relocateAssetSpy.mockReturnValueOnce(
+      of({
+        kind: 'relocated',
+        newAbsPath: '/x/IMG_0001.1.CR3',
+        newPath: 'France',
+        newFilename: 'IMG_0001.1.CR3',
+        renamedOnCollision: true,
+      }),
+    );
+    service.resolveCollision('keep-both');
+
+    expect(relocateAssetSpy).toHaveBeenLastCalledWith(
+      ASSET_A.id,
+      'move',
+      'keep-both',
+      '2026/France',
+    );
+    expect(service.resultSummary()?.moved).toBe(1);
+    expect(service.resultSummary()?.failed).toEqual([]);
   });
 
   it('resolveCollision(skip) counts the item as skipped, not failed, and continues', () => {

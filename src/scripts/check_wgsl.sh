@@ -83,6 +83,72 @@ while IFS= read -r kernel; do
 	base="$(basename "$kernel")"
 	assembled="$TMP/assembled.wgsl"
 
+	# Mirror the runtime's explicit portable/native helper assembly. Validate
+	# both subgroup widths as well as the portable module, independent of GPU.
+	if [[ "$kernel" == "$WGSL_DIR/bm3d/"* && "$base" != "common.wgsl" && "$base" != "basis_uniform.wgsl" ]]; then
+		shared=""
+		portable=""
+		native=""
+		case "$base" in
+		filter.wgsl | filter_helpers.wgsl | filter_portable.wgsl | filter_axes_subgroup.wgsl)
+			module="filter.wgsl"
+			shared="filter_helpers.wgsl"
+			portable="filter_portable.wgsl"
+			native="filter_axes_subgroup.wgsl"
+			;;
+		matching.wgsl | matching_portable.wgsl | matching_subgroup.wgsl)
+			module="matching.wgsl"
+			portable="matching_portable.wgsl"
+			native="matching_subgroup.wgsl"
+			;;
+		scan_selected.wgsl | scan_selected_portable.wgsl | scan_subgroup.wgsl)
+			module="scan_selected.wgsl"
+			portable="scan_selected_portable.wgsl"
+			native="scan_subgroup.wgsl"
+			;;
+		cache_hard.wgsl)
+			module="cache_hard.wgsl"
+			portable="cache_spectra_portable.wgsl"
+			native="cache_subgroup.wgsl"
+			;;
+		cache_spectra.wgsl | cache_spectra_portable.wgsl | cache_subgroup.wgsl)
+			module="cache_spectra.wgsl"
+			portable="cache_spectra_portable.wgsl"
+			native="cache_subgroup.wgsl"
+			;;
+		*) module="$base" ;;
+		esac
+		for variant in portable 32 64; do
+			[[ "$variant" == portable || -n "$native" ]] || continue
+			cat "$WGSL_DIR/bm3d/common.wgsl" "$WGSL_DIR/bm3d/basis_uniform.wgsl" >"$assembled"
+			if [[ -n "$shared" ]]; then cat "$WGSL_DIR/bm3d/$shared" >>"$assembled"; fi
+			if [[ "$variant" == portable ]]; then
+				if [[ -n "$portable" ]]; then cat "$WGSL_DIR/bm3d/$portable" >>"$assembled"; fi
+			else
+				echo "const SUBGROUP_WIDTH: u32 = ${variant}u;" >>"$assembled"
+				cat "$WGSL_DIR/bm3d/$native" >>"$assembled"
+			fi
+			cat "$WGSL_DIR/bm3d/$module" >>"$assembled"
+			if validate "$assembled"; then
+				echo "PASS  $base  (+bm3d/$variant)"
+			else
+				echo "FAIL  $base — BM3D $variant module does not validate:" >&2
+				sed 's/^/    /' "$TMP/err" >&2
+				fail=$((fail + 1))
+			fi
+		done
+		continue
+	fi
+
+	if [[ "$base" == "basis_uniform.wgsl" ]]; then
+		cat "$WGSL_DIR/bm3d/common.wgsl" "$kernel" >"$assembled"
+		if validate "$assembled"; then echo "PASS  $base"; else
+			fail=$((fail + 1))
+			cat "$TMP/err" >&2
+		fi
+		continue
+	fi
+
 	# Rung (a): standalone.
 	cp "$kernel" "$assembled"
 	if validate "$assembled"; then

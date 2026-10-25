@@ -56,13 +56,30 @@ export class MoveToTreePickerComponent {
   private readonly dragMove = inject(DRAG_MOVE_CAPABILITY);
 
   protected readonly openNodeIds = signal<Set<string>>(new Set());
+  private readonly refreshedNodeIds = new Set<string>();
+
+  private isSameLibraryAddressedFolder(node: SidebarEntry): boolean {
+    const sourceId = this.sourceFolderId();
+    if (!sourceId.includes(':')) return false;
+    const slug = sourceId.slice(0, sourceId.indexOf(':'));
+    return (
+      node.kind === 'folder' &&
+      /^[a-z0-9-]+$/.test(slug) &&
+      !/^[a-zA-Z]:[\\/]/.test(sourceId) &&
+      node.id.startsWith(`${slug}:`) &&
+      !/^[a-zA-Z]:[\\/]/.test(node.id)
+    );
+  }
 
   protected hasChildren(node: SidebarEntry): boolean {
     return (node.children?.length ?? 0) > 0;
   }
 
   protected canExpand(node: SidebarEntry): boolean {
-    return !!node.absPath || this.hasChildren(node);
+    // Addressed folders can have children that have not been fetched into the
+    // sidebar tree yet. Keep their chevrons available even when the row itself
+    // cannot be selected as a destination (for example, the source folder).
+    return !!node.absPath || this.isSameLibraryAddressedFolder(node) || this.hasChildren(node);
   }
 
   protected isOpen(node: SidebarEntry): boolean {
@@ -76,8 +93,17 @@ export class MoveToTreePickerComponent {
       willOpen ? next.add(node.id) : next.delete(node.id);
       return next;
     });
-    if (willOpen && this.canExpand(node) && node.childrenStatus === undefined) {
-      this.state.expandFsFolder(node);
+    if (willOpen && this.canExpand(node)) {
+      // Re-read addressed folders on demand: the picker may open after a new
+      // child was created while the sidebar's cached children are still stale.
+      if (this.isSameLibraryAddressedFolder(node)) {
+        if (!this.refreshedNodeIds.has(node.id)) {
+          this.refreshedNodeIds.add(node.id);
+          this.state.refreshFolderChildren(node.id);
+        }
+      } else if (node.childrenStatus === undefined) {
+        this.state.expandFsFolder(node);
+      }
     }
   }
 

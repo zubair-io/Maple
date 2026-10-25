@@ -1,9 +1,15 @@
+import type { SidecarWriteScope } from './sidecar-write-order';
 /** Portable sibling storage; originals are never opened for writing (#4040). */
 import * as path from 'node:path';
 import { callNativeRetrying } from './native-call';
 import * as fs from './mirrored';
 import { primarySidecarDestination, xmpSidecarPath } from './xmp';
-import { serializeSidecarWrite, waitForAbortable } from './sidecar-write-order';
+import {
+  serializeSidecarWrite,
+  serializeSidecarWrites,
+  SidecarWritePathDeniedError,
+  waitForAbortable,
+} from './sidecar-write-order';
 import {
   authorizeSidecarWrite,
   writeSidecarAtomic,
@@ -134,6 +140,7 @@ export async function createWorkflowVariant(
   workflow: SidecarWorkflow,
   sourceId = PRIMARY_VARIANT_ID,
   signal?: AbortSignal,
+  admissionScope?: SidecarWriteScope,
 ): Promise<VariantSidecar> {
   if (workflow.variantId === PRIMARY_VARIANT_ID)
     throw new WorkflowVariantError(
@@ -141,31 +148,50 @@ export async function createWorkflowVariant(
       'Create a new variant identity; the primary already exists.',
     );
   const destination = await variantPath(rawPath, workflow.variantId, signal);
-  const source = await readWorkflowVariant(rawPath, sourceId, signal);
-  if (source === null)
-    throw new WorkflowVariantError(409, 'Commit the source adjustments before creating a variant.');
-  const output = await nativeValue('workflowEmbedXmp', [JSON.stringify(workflow), source], signal);
-  const outcome = await writeSidecarCreateOnly(
-    destination,
-    output,
-    'Variant create failed',
-    signal,
-  );
-  if (!outcome.ok)
-    throw new WorkflowVariantError(
-      'exists' in outcome ? 409 : 500,
-      'exists' in outcome
-        ? 'Variant identity already exists. Choose a new identity.'
-        : outcome.error,
-    );
-  return inspect(rawPath, workflow.variantId, signal);
+  const sourcePath = await variantPath(rawPath, sourceId, signal);
+  // The destination reservation also serializes two creators of the same id (#5151).
+  return serializeSidecarWrites(
+    [xmpSidecarPath(rawPath), sourcePath, destination],
+    async () => {
+      const source = await readWorkflowVariant(rawPath, sourceId, signal);
+      if (source === null)
+        throw new WorkflowVariantError(
+          409,
+          'Commit the source adjustments before creating a variant.',
+        );
+      const output = await nativeValue(
+        'workflowEmbedXmp',
+        [JSON.stringify(workflow), source],
+        signal,
+      );
+      const outcome = await writeSidecarCreateOnly(
+        destination,
+        output,
+        'Variant create failed',
+        signal,
+      );
+      if (!outcome.ok)
+        throw new WorkflowVariantError(
+          'exists' in outcome ? 409 : 500,
+          'exists' in outcome
+            ? 'Variant identity already exists. Choose a new identity.'
+            : outcome.error,
+        );
+      return inspect(rawPath, workflow.variantId, signal);
+    },
+    { signal, admissionScope },
+  ).catch((error: unknown) => {
+    if (error instanceof SidecarWritePathDeniedError)
+      throw new WorkflowVariantError(409, error.message);
+    throw error;
+  });
 }
 export async function writeWorkflowVariant(
   rawPath: string,
   id: string,
   xml: string,
   signal?: AbortSignal,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
 ): Promise<string> {
   return serializeSidecarWrite(
     admissionDestination(rawPath, id),
@@ -195,6 +221,7 @@ export async function writeWorkflowVariant(
     {
       admissionScope,
       signal,
+      primarySidecar: xmpSidecarPath(rawPath),
       resolveDestination: () => barrierPath(rawPath, id, signal),
     },
   );
@@ -208,7 +235,7 @@ export function commitWorkflowVariant(
   xmp: string,
   entry: WorkflowHistoryEntry,
   signal?: AbortSignal,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
 ): Promise<string> {
   return mutateVariant(
     rawPath,
@@ -234,7 +261,7 @@ export function snapshotWorkflowVariant(
   snapshot: WorkflowSnapshot,
   initialXmp?: string,
   signal?: AbortSignal,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
 ): Promise<string> {
   return mutateVariant(
     rawPath,
@@ -259,7 +286,7 @@ export function restoreWorkflowVariant(
   expectedXmp: string,
   entry: WorkflowHistoryEntry,
   signal?: AbortSignal,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
 ): Promise<string> {
   return mutateVariant(
     rawPath,
@@ -280,7 +307,7 @@ async function mutateVariant(
   expectedXmp: string | null,
   convert: (current: string | null) => Promise<string>,
   signal?: AbortSignal,
-  admissionScope?: string,
+  admissionScope?: SidecarWriteScope,
 ): Promise<string> {
   return serializeSidecarWrite(
     admissionDestination(rawPath, id),
@@ -315,6 +342,7 @@ async function mutateVariant(
     {
       admissionScope,
       signal,
+      primarySidecar: xmpSidecarPath(rawPath),
       resolveDestination: () => barrierPath(rawPath, id, signal),
     },
   );

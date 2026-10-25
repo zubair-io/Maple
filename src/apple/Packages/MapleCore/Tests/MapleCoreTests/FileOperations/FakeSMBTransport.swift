@@ -27,6 +27,12 @@ actor FakeSMBTransport: SMBFileTransport {
   private var files: [String: Entry] = [:]
   private var directories: Set<String> = ["/"]
 
+  /// Some servers leave the file index number at 0; when `false`, every
+  /// `documentIdentifierKey` reads 0 so tests can pin the fail-safe side.
+  var reportsFileIdentity = true
+
+  func setReportsFileIdentity(_ reports: Bool) { reportsFileIdentity = reports }
+
   /// Fault injection for the crash-safety test: when set, `copyItem`
   /// throws instead of succeeding the next time `toPath` matches. This is
   /// a seam on the FAKE transport only — production `SMBFileOperations`
@@ -44,6 +50,23 @@ actor FakeSMBTransport: SMBFileTransport {
   private(set) var consumedPaths: [String] = []
   private var failCopiesInto: String?
   private var replacementAtRestoreMark: (item: String, contents: String)?
+  private var replacementAtPublish: (trigger: String, item: String, contents: String)?
+  private var replacementAtCopy: (source: String, item: String, contents: String)?
+  func setReplacementAtCopy(_ source: String, item: String, contents: String) {
+    replacementAtCopy = (source, item, contents)
+  }
+  private var foldsCase = false
+
+  func setFoldsCase(_ value: Bool) { foldsCase = value }
+
+  func setReplacementAtPublish(_ trigger: String, item: String, contents: String) {
+    replacementAtPublish = (trigger, item, contents)
+  }
+
+  private func lookup(_ path: String) -> Entry? {
+    files[path]
+      ?? (foldsCase ? files.first { $0.key.lowercased() == path.lowercased() }?.value : nil)
+  }
 
   func setFailCopiesInto(_ directory: String) { failCopiesInto = directory }
 
@@ -81,15 +104,23 @@ actor FakeSMBTransport: SMBFileTransport {
   }
 
   func fileExists(at path: String) -> Bool { files[path] != nil }
+
+  /// Every file outside `.maple/` with its contents, for whole-tree assertions.
+  func allFiles() -> [String: String] {
+    files.filter { !$0.key.contains("/.maple/") }
+      .mapValues { String(decoding: $0.data, as: UTF8.self) }
+  }
+
   func directoryExists(at path: String) -> Bool { directories.contains(path) }
 
   // MARK: - SMBFileTransport
 
   func attributesOfItem(atPath path: String) async throws -> [URLResourceKey: any Sendable] {
-    if let entry = files[path] {
+    if let entry = lookup(path) {
       return [
         .fileSizeKey: NSNumber(value: entry.data.count), .contentModificationDateKey: entry.mtime,
-        .documentIdentifierKey: NSNumber(value: entry.inode), .isRegularFileKey: true,
+        .documentIdentifierKey: NSNumber(value: reportsFileIdentity ? entry.inode : 0),
+        .isRegularFileKey: true,
         .isSymbolicLinkKey: false,
       ]
     }
@@ -151,6 +182,10 @@ actor FakeSMBTransport: SMBFileTransport {
     guard let source = files[path] else { throw FakeSMBTransportError.notFound(path) }
     guard files[toPath] == nil, !directories.contains(toPath) else { throw POSIXError(.EEXIST) }
     files[toPath] = entry(data: source.data, mtime: source.mtime)
+    if let replacement = replacementAtCopy, replacement.source == path {
+      seed(replacement.contents, at: replacement.item)
+      replacementAtCopy = nil
+    }
     registerDirectory((toPath as NSString).deletingLastPathComponent)
   }
 
@@ -171,7 +206,7 @@ actor FakeSMBTransport: SMBFileTransport {
     atPath path: String, expectedIdentity: UInt64,
     consume: @Sendable @escaping (Data) -> Void
   ) async throws {
-    guard let file = files[path], file.inode == expectedIdentity else { throw POSIXError(.ESTALE) }
+    guard let file = lookup(path), file.inode == expectedIdentity else { throw POSIXError(.ESTALE) }
     consume(file.data)
   }
   func moveRestoreFile(
@@ -179,6 +214,10 @@ actor FakeSMBTransport: SMBFileTransport {
     consume: @Sendable @escaping (Data) -> Void,
     validate: @Sendable @escaping (UInt64) -> Bool
   ) async throws {
+    if let replacement = replacementAtPublish, replacement.trigger == toPath {
+      seed(replacement.contents, at: replacement.item)
+      replacementAtPublish = nil
+    }
     guard let captured = files[path], captured.inode == expectedIdentity
     else {
       throw POSIXError(.ESTALE)

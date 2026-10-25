@@ -44,7 +44,7 @@ fn attach_warp(raw: &mut RawImage, warp: WarpRectilinearOpcode) {
     let aa = ActiveAreaRect::full(raw.width, raw.height);
     let list = crate::pipeline::pano::opcodes::OpcodeList3 {
         opcodes: vec![PanoOpcode::WarpRectilinear(warp)],
-        skipped_unknown: 0,
+        skipped: Vec::new(),
     };
     raw.opcode_list3 = Some((list, aa));
 }
@@ -143,7 +143,7 @@ fn reject_unsupported_opcode_forms() {
                 map_planes: 1,
                 gains: vec![1.0; 4],
             })],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         aa,
     ));
@@ -157,7 +157,7 @@ fn reject_unsupported_opcode_forms() {
                 center_x: 0.5,
                 center_y: 0.5,
             })],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         aa,
     ));
@@ -170,7 +170,7 @@ fn reject_unsupported_opcode_forms() {
                 PanoOpcode::WarpRectilinear(identity_warp()),
                 PanoOpcode::WarpRectilinear(identity_warp()),
             ],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         aa,
     ));
@@ -183,7 +183,7 @@ fn reject_unsupported_opcode_forms() {
                 [1.0, 0.0, 0.0, 0.0],
                 [0.05, 0.0],
             ))],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         aa,
     ));
@@ -206,7 +206,7 @@ fn reject_unsupported_opcode_forms() {
                 center_x: 0.5,
                 center_y: 0.5,
             })],
-            skipped_unknown: 0,
+            skipped: Vec::new(),
         },
         aa,
     ));

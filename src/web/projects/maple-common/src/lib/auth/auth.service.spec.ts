@@ -121,6 +121,7 @@ describe('AuthService native code handoff (#856)', () => {
   });
 
   it('hands the app a one-time CODE (not tokens) and echoes state', async () => {
+    auth.user.set({ id: 'native-user', email: 'owner@maple.local', role: 'owner' });
     const navigated: string[] = [];
     (auth as unknown as { navigateTo: (u: string) => void }).navigateTo = (u) => navigated.push(u);
 
@@ -183,6 +184,43 @@ describe('AuthService resumes the native handoff for an already-signed-in sessio
     expect(navigated).toEqual([`maple-app://auth-success?code=CODE-RESUMED&state=${STATE}`]);
   });
 
+  it('coalesces the ceremony completion and consent click into one issuance', async () => {
+    makeService(nativeUrl());
+    auth.user.set(signedInUser);
+    const first = (
+      auth as unknown as { postNativeAuthSuccess: () => Promise<boolean> }
+    ).postNativeAuthSuccess();
+    const second = auth.resumeNativeHandoff();
+    ctrl.expectOne('/api/auth/native-code').flush({ code: 'CODE-COALESCED' });
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(navigated).toEqual([`maple-app://auth-success?code=CODE-COALESCED&state=${STATE}`]);
+  });
+
+  it('does not launch a callback after consent is cancelled while issuance is in flight', async () => {
+    makeService(nativeUrl());
+    auth.user.set(signedInUser);
+    const pending = auth.resumeNativeHandoff();
+    const request = ctrl.expectOne('/api/auth/native-code');
+    auth.dismissNativeHandoff();
+    request.flush({ code: 'CODE-CANCELLED' });
+    expect(await pending).toBe(false);
+    expect(auth.nativeLaunchUrl()).toBeNull();
+    expect(navigated).toEqual([]);
+  });
+
+  it('never opens a prepared callback after switching accounts', async () => {
+    makeService(nativeUrl());
+    auth.user.set(signedInUser);
+    const pending = auth.resumeNativeHandoff();
+    ctrl.expectOne('/api/auth/native-code').flush({ code: 'CODE-FIRST-ACCOUNT' });
+    await pending;
+    auth.user.set({ ...signedInUser, id: 'another-user' });
+    auth.openNativeHandoff();
+    expect(navigated).toHaveLength(1);
+    expect(auth.nativeLaunchUrl()).toBeNull();
+  });
+
   it('does nothing while signed out — the sign-in ceremony owns that case', async () => {
     makeService(nativeUrl());
 
@@ -199,6 +237,34 @@ describe('AuthService resumes the native handoff for an already-signed-in sessio
     await auth.resumeNativeHandoff();
 
     expect(navigated).toEqual([]);
+  });
+
+  it('dismissNativeHandoff clears pendingNativeHandoff and scrubs the URL without issuing a code (#4673)', () => {
+    makeService(`${nativeUrl()}&platform=Windows&device_label=Surface`);
+    expect(auth.pendingNativeHandoff()).toMatchObject({
+      platform: 'Windows',
+      device: 'Surface',
+      explicitDeviceLabel: 'Surface',
+    });
+
+    auth.dismissNativeHandoff();
+
+    expect(auth.pendingNativeHandoff()).toBeNull();
+    expect(window.location.search).toBe('');
+    expect(navigated).toEqual([]);
+  });
+
+  it('redeemLanHandoff does not auto-issue a native code when native_callback is also in the URL (#4673)', async () => {
+    makeService(`${nativeUrl()}&lan_handoff=LAN123`);
+    const p = auth.redeemLanHandoff('LAN123');
+    ctrl.expectOne('/api/auth/lan-handoff/redeem').flush({
+      access_token: 'AT-lan',
+      user: signedInUser,
+    });
+    expect(await p).toBe(true);
+    // ctrl.verify() in afterEach asserts /api/auth/native-code was NOT called.
+    expect(navigated).toEqual([]);
+    expect(auth.pendingNativeHandoff()).not.toBeNull();
   });
 });
 

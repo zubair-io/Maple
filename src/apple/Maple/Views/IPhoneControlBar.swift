@@ -13,6 +13,7 @@ struct IPhoneControlBar: View {
   var onPresetsTap: () -> Void = {}
   var maximumPanelHeight: CGFloat = 300
   var showsGroupTabs = true
+  var showsScope = false
   @State private var controlsHeight: CGFloat = 0
 
   var body: some View {
@@ -34,9 +35,14 @@ struct IPhoneControlBar: View {
         .frame(height: min(maximumPanelHeight, controlsHeight))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("editor-iphone-selected-control")
-        .onChange(of: controlsHeight) { _, _ in revealSelectedControl(proxy) }
+        .onChange(of: controlsHeight) { _, _ in
+          if !showsScope { revealSelectedControl(proxy) }
+        }
         .onChange(of: maximumPanelHeight) { _, _ in revealSelectedControl(proxy) }
         .onChange(of: state.armedTool) { _, _ in revealSelectedControl(proxy) }
+        .onChange(of: showsScope) { _, visible in
+          if visible { proxy.scrollTo("editor-phone-scope", anchor: .top) }
+        }
       }
 
       HStack {
@@ -50,7 +56,7 @@ struct IPhoneControlBar: View {
             MuiIcon(name: "rotate_left", size: .sm)
           }
           .font(.caption)
-          .frame(minHeight: 44)
+          .frame(minHeight: 32)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Reset all adjustments")
@@ -74,19 +80,24 @@ struct IPhoneControlBar: View {
 
   private var contextualControls: some View {
     VStack(spacing: 0) {
-      if state.armedGroup == .color {
+      // Share the bounded scroll area so the scope cannot cover the header,
+      // pinned group tabs, tool pills, or another adjustment control.
+      if showsScope {
+        VectorscopeHud(state: state).padding(12).id("editor-phone-scope")
+      }
+      if state.armedGroup == .color && state.armedTool != .hsl {
         ColorAccessoryRow(state: state, compactStyle: true)
           .transition(.opacity)
       }
       // Demosaic kernel override (#3413) — the compact editor's counterpart
       // to the inspector's Detail row, mirroring how the Colour accessory
       // above appears in both.
-      if state.armedGroup == .detail {
+      if state.armedGroup == .detail
+        && (state.armedTool == .sharpen || state.armedTool == .noise)
+      {
         DemosaicAccessoryRow(state: state)
           .transition(.opacity)
       }
-
-      SubParamRow(state: state)
 
       selectedToolControl.id("iphone-armed-control")
     }
@@ -105,66 +116,69 @@ struct IPhoneControlBar: View {
       // 24 sub-params and no single primary field, so the band
       // chips + three per-band sliders are its control surface.
       HSLSection(state: state)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
     } else if state.armedTool == .colorGrade {
       ColorGradingPanel(state: state)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
     } else if state.armedTool == .toneCurve {
       // Curve plot + four region sliders replace the drag bar
       // (#367): Tone Curve has eight fields and no single primary
       // one, so the plot and the region sliders are its surface.
       ToneCurveSection(state: state)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
     } else if state.armedTool == .filmLook {
       // Category-grouped film catalog + strength slider replace
       // the drag bar (#2683): Film has no single primary field
       // (the catalog pick is a string id), so this is its whole
       // control surface, same swap as Tone Curve.
       FilmSection(state: state)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
     } else if state.armedTool == .geometry {
       // Seven manual-geometry sliders replace the drag bar (#3410):
       // Geometry has no single primary field, so this is its whole
       // control surface, same swap as Lens.
       GeometrySection(state: state)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
     } else if state.armedTool == .lensCorrections {
       // Master toggle + three DNG-correction sliders replace the
       // drag bar (#2231): Lens has no single primary field, so
       // this is its whole control surface, same swap as Tone
       // Curve / Film.
       LensCorrectionsSection(state: state)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
     } else if state.armedTool == .defringe {
       // Six defringe sliders replace the drag bar (#3411): Defringe
       // has no single primary field either, so this is its whole
       // control surface — same swap as Lens above, but per-tick
       // rather than decode-product.
       DefringeSection(state: state)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
     } else if state.armedTool == .mask {
       // Keep the selected mask's controls scrollable without allowing the
       // layer stack to cover the photograph on a short landscape screen.
       MaskPanel(state: state)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
     } else if state.armedTool == .heal {
       // Brush + spot list replace the drag bar (#3409): Heal writes a spot
       // list, not a scalar, so this is its whole control surface — the same
       // swap Mask and Geometry make.
       RetouchPanel(state: state)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
     } else {
-      DragBar(state: state)
-        .padding(.vertical, 7)
+      VStack(spacing: 0) {
+        SubParamRow(state: state)
+        DragBar(state: state)
+          .padding(.vertical, 6)
+      }
     }
 
   }

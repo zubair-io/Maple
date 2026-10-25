@@ -162,7 +162,9 @@ pub(in crate::pipeline) fn recover_sensor_highlights(
     raw: &RawImage,
     mode: crate::xmp::HighlightRecoveryMode,
     divisor: u32,
+    prior: Option<&dyn crate::stages::highlight_recovery::ScenePrior>,
 ) {
+    let active_area = highlight_active_area(raw, divisor);
     let neutral = if raw.cfa == CfaPattern::LinearRgb && raw.white_level <= 255 {
         [1.; 3]
     } else {
@@ -173,8 +175,12 @@ pub(in crate::pipeline) fn recover_sensor_highlights(
         mode,
         neutral,
         raw.baseline_exposure,
-        highlight_active_area(raw, divisor),
-        None,
+        active_area,
+        prior.map(|prior| crate::stages::highlight_recovery::FrameAnchor {
+            prior,
+            origin: (0, 0),
+            active_origin: active_area.map_or((0, 0), |aa| (aa.x as i32, aa.y as i32)),
+        }),
         crate::sensor_gain_maps::ClipGainContext::new(raw, (0, 0), divisor),
     );
 }

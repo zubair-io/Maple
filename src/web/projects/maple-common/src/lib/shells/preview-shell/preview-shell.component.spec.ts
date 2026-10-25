@@ -37,12 +37,14 @@ function setup(opts: {
   focusedAsset?: { id: string; filename: string } | null;
   focusedAssetId?: string | null;
   backend?: string;
+  returnTo?: string;
   hydrate?: (id: string) => Synth | null;
   registeredFolders?: any[];
 }) {
   const selectAsset = vi.fn();
   const openSelfHostedSubfolder = vi.fn();
   const navigate = vi.fn();
+  const navigateByUrl = vi.fn();
   const hydrateSelfHostedFsAsset = vi.fn(opts.hydrate ?? (() => null));
   const subscribeThumbUrl = vi.fn(() => () => {});
   const subscribePreviewUrl = vi.fn(() => () => {});
@@ -57,6 +59,7 @@ function setup(opts: {
     url: of(urlSegments),
     snapshot: {
       paramMap: convertToParamMap(opts.slug ? { slug: opts.slug } : {}),
+      queryParamMap: convertToParamMap(opts.returnTo ? { returnTo: opts.returnTo } : {}),
       url: urlSegments,
     },
   };
@@ -85,7 +88,7 @@ function setup(opts: {
   TestBed.configureTestingModule({
     providers: [
       { provide: ActivatedRoute, useValue: route },
-      { provide: Router, useValue: { navigate } },
+      { provide: Router, useValue: { navigate, navigateByUrl } },
       { provide: LibraryStateService, useValue: state },
     ],
   });
@@ -105,6 +108,7 @@ function setup(opts: {
     subscribePreviewUrl,
     ensureThumbnailUrl,
     navigate,
+    navigateByUrl,
     focusNext,
     focusPrev,
     setRating,
@@ -138,6 +142,24 @@ describe('PreviewShellComponent', () => {
   it('goBack() navigates to /browse', () => {
     const { comp, navigate } = setup({ slug: null, segments: [] });
     comp.goBack();
+    expect(navigate).toHaveBeenCalledWith(['/browse']);
+  });
+
+  it('goBack() returns to the Search query and filters when opened from a result', () => {
+    const returnTo = '/search?q=winter&from=2000-01-01&to=2000-12-31';
+    const { comp, navigateByUrl } = setup({ slug: null, segments: [], returnTo });
+    comp.goBack();
+    expect(navigateByUrl).toHaveBeenCalledWith(returnTo);
+  });
+
+  it('does not follow an external returnTo URL', () => {
+    const { comp, navigate, navigateByUrl } = setup({
+      slug: null,
+      segments: [],
+      returnTo: '//other.example/search',
+    });
+    comp.goBack();
+    expect(navigateByUrl).not.toHaveBeenCalled();
     expect(navigate).toHaveBeenCalledWith(['/browse']);
   });
 
@@ -236,7 +258,7 @@ describe('PreviewShellComponent', () => {
     });
     expect(navigate).toHaveBeenCalledWith(
       viewRouteCommands('lawrence:2014/Lawrence/WP_20140910_10_25_58_Pro.jpg'),
-      { replaceUrl: true },
+      { replaceUrl: true, queryParamsHandling: 'preserve' },
     );
   });
 
@@ -377,7 +399,9 @@ describe('PreviewShellComponent', () => {
     });
     comp.goNext();
     expect(focusNext).toHaveBeenCalled();
-    expect(navigate).toHaveBeenCalledWith(viewRouteCommands('library:2026/b.jpg'));
+    expect(navigate).toHaveBeenCalledWith(viewRouteCommands('library:2026/b.jpg'), {
+      queryParamsHandling: 'preserve',
+    });
   });
 
   it('goPrev() calls focusPrev then navigates to the newly focused asset', () => {
@@ -389,7 +413,9 @@ describe('PreviewShellComponent', () => {
     });
     comp.goPrev();
     expect(focusPrev).toHaveBeenCalled();
-    expect(navigate).toHaveBeenCalledWith(viewRouteCommands('library:2026/z.jpg'));
+    expect(navigate).toHaveBeenCalledWith(viewRouteCommands('library:2026/z.jpg'), {
+      queryParamsHandling: 'preserve',
+    });
   });
 
   it('goNext()/goPrev() do not navigate when there is no focused asset', () => {

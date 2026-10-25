@@ -52,7 +52,7 @@ public actor ThumbnailLoader {
   }()
   let decodeSlots = BoundedAsyncSemaphore(value: maxConcurrentDecodes)
 
-  /// In-flight loads, keyed by `cacheKey(for: assetURL)`. When two grid
+  /// In-flight loads, keyed by `ThumbnailDiskCache.memoryKey(for:)`. When two grid
   /// cells request the same thumbnail simultaneously (happens on scroll /
   /// layout churn), the second call awaits the first's Task instead of
   /// starting a duplicate decode. Major CPU win on large folders.
@@ -121,7 +121,7 @@ public actor ThumbnailLoader {
     //    `await acquireDecodeSlot()` here would suspend the actor
     //    mid-registration and reopen the race — the Jules finding on
     //    PR #1907's display-preview path, same fix).
-    let coalescingKey = ThumbnailDiskCache.cacheKey(for: assetURL)
+    let coalescingKey = ThumbnailDiskCache.memoryKey(for: assetURL)
     if let existing = inFlight[coalescingKey], !existing.isCancelled {
       return await awaitThumbnail(existing)
     }
@@ -184,11 +184,9 @@ public actor ThumbnailLoader {
     let accessing = scope.startAccessingSecurityScopedResource()
     defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
 
-    // ASSET-RELATIVE .maple/thumbs — render-time derivatives written
-    // next to the asset (e.g. a pano in Panoramas/) are found even when
-    // the singleton cache is configured for a different (parent) folder.
-    // (#1365.) The disk-cache hit at step 1 short-circuits before this,
-    // so RAWs in their own folder never pay for it.
+    // ASSET-RELATIVE .maple/thumbs (#1365) — the same file step 1 reads,
+    // retried here under the claimed scope for callers whose step-1 read
+    // had none.
     let relThumb = MapleSidecarPaths.thumbURL(for: assetURL)
     if let data = MapleSidecarPaths.readDerivative(
       at: relThumb, legacy: MapleSidecarPaths.legacyThumbURL(for: assetURL))
@@ -374,7 +372,7 @@ public actor ThumbnailLoader {
     //    previously had no coalescing at all: two cells requesting the
     //    same PhotoKit/SelfHosted asset each ran their own fetch +
     //    render). Namespaced so a stable id can never collide with the
-    //    URL overload's basename-hash keys.
+    //    URL overload's `memoryKey(for:)` keys.
     let coalescingKey = "sourceless:" + key
     if let existing = inFlight[coalescingKey], !existing.isCancelled {
       return await awaitThumbnail(existing)
@@ -385,9 +383,13 @@ public actor ThumbnailLoader {
     let provider = asset.bytesProvider
     let hint = asset.hintExtension ?? ""
     // Built once, reused by both the source.thumb() branch and the
-    // fallback's write-back call below — only id+displayName are
-    // needed; URL is unused for sourceless adapters.
-    let ref = stableID.map { ImageRef(id: $0, displayName: displayName) }
+    // fallback's write-back call below. The SMB location pins the read and
+    // write-back to the copy and share that listed it (#5051).
+    let smbPath = asset.smbPath
+    let smbSourceID = asset.smbSourceID
+    let ref = stableID.map {
+      ImageRef(id: $0, displayName: displayName, smbPath: smbPath, smbSourceID: smbSourceID)
+    }
     let task = Task.detached(priority: .utility) { () -> Data? in
       do { try await self.acquireDecodeSlot() } catch { return nil }
       let result = await self.produceSourcelessThumbnail(

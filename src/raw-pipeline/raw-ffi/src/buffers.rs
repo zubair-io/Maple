@@ -210,6 +210,17 @@ pub struct MapleSceneLinearBufferF32 {
     pub whites_anchor_ev: f32,
     /// Output pixels per developed full-frame pixel; native detail crops use 1.
     pub nr_sampling_scale: f32,
+    /// The profile's HueSatMap endpoints as `wb_camera::WbHsmRetarget`'s
+    /// flat wire (#5099), passed back verbatim as the per-tick paths'
+    /// `wb_hsm_ptr`/`wb_hsm_len`. Null when the profile's HueSatMap does not
+    /// move with white balance. Valid for the life of the process (shared
+    /// per profile, `wb_frame_flat::intern_hsm_wire`): NOT freed with the
+    /// buffer, so a host keeps the pointer itself rather than a copy.
+    pub wb_hsm_data: *const f32,
+    pub wb_hsm_len: usize,
+    /// This photo's render-profile as-shot CCT, the anchor table's weight
+    /// (`WbHsmRetarget::as_shot_cct`); per photo, so not in the shared wire.
+    pub wb_hsm_as_shot_cct: f32,
 }
 
 impl MapleSceneLinearBufferF32 {
@@ -242,6 +253,9 @@ impl MapleSceneLinearBufferF32 {
             wb_frame_render_fm_warm: [0.0; 9],
             whites_anchor_ev: f32::NAN,
             nr_sampling_scale: 1.0,
+            wb_hsm_data: std::ptr::null(),
+            wb_hsm_len: 0,
+            wb_hsm_as_shot_cct: 0.0,
             ae_gain: 1.0,
             has_lens_corrections: 0,
             lens_correction_ca_inert: 1,

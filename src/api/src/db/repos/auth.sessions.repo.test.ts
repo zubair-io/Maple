@@ -327,25 +327,25 @@ describe('native login handoff', () => {
     expect(await redeemNativeCode(code, verifier, db)).toBeNull();
   });
 
-  test('the polling claim path redeems by state and verifier, without the code', async () => {
+  test('the callback claim requires state, verifier and code', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const userId = await seedUser(db);
-    await issueNativeCode(
+    const { code } = await issueNativeCode(
       { userId, codeChallenge: pkceS256(verifier), state: 'state-2', deviceLabel: 'Mac' },
       db,
     );
-    const claimed = await claimNativeCode('state-2', verifier, db);
+    const claimed = await claimNativeCode('state-2', verifier, { code }, db);
     expect(claimed?.userId.toHexString()).toBe(userId.toHexString());
     expect(claimed?.state).toBe('state-2');
-    expect(await claimNativeCode('state-2', verifier, db)).toBeNull();
+    expect(await claimNativeCode('state-2', verifier, { code }, db)).toBeNull();
   });
 
   test('the polling claim spends one code even when a state repeats', async () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const userId = await seedUser(db);
-    await issueNativeCode(
+    const first = await issueNativeCode(
       { userId, codeChallenge: pkceS256(verifier), state: 'state-3', deviceLabel: 'Mac' },
       db,
     );
@@ -353,7 +353,7 @@ describe('native login handoff', () => {
       { userId, codeChallenge: pkceS256(verifier), state: 'state-3', deviceLabel: 'Mac' },
       db,
     );
-    expect(await claimNativeCode('state-3', verifier, db)).not.toBeNull();
+    expect(await claimNativeCode('state-3', verifier, { code: first.code }, db)).not.toBeNull();
     const spent = await db.read<{ n: number }>(
       `SELECT COUNT(*) AS n FROM native_auth_codes WHERE consumed_at IS NOT NULL`,
     );
@@ -364,11 +364,11 @@ describe('native login handoff', () => {
     using handle = await createTestDatabase();
     const db = testSqliteDb(handle.db);
     const userId = await seedUser(db);
-    await issueNativeCode(
+    const { code } = await issueNativeCode(
       { userId, codeChallenge: pkceS256(verifier), state: 'state-4', deviceLabel: 'Mac' },
       db,
     );
-    expect(await claimNativeCode('state-4', 'c'.repeat(64), db)).toBeNull();
+    expect(await claimNativeCode('state-4', 'c'.repeat(64), { code }, db)).toBeNull();
   });
 
   test('nothing is stored that the raw code could be recovered from', async () => {
@@ -381,6 +381,21 @@ describe('native login handoff', () => {
     );
     const rows = await db.read<Record<string, unknown>>(`SELECT * FROM native_auth_codes`);
     expect(JSON.stringify(rows)).not.toContain(code);
+  });
+
+  test('state and verifier alone cannot spend a code, including legacy rows (#4673)', async () => {
+    using handle = await createTestDatabase();
+    const db = testSqliteDb(handle.db);
+    const userId = await seedUser(db);
+    const { code } = await issueNativeCode(
+      { userId, codeChallenge: pkceS256(verifier), state: 'state-proof', deviceLabel: 'Mac' },
+      db,
+    );
+    expect(await claimNativeCode('state-proof', verifier, {}, db)).toBeNull();
+    expect(await claimNativeCode('state-proof', verifier, { code: 'wrong' }, db)).toBeNull();
+    const claimed = await claimNativeCode('state-proof', verifier, { code }, db);
+    expect(claimed?.userId.toHexString()).toBe(userId.toHexString());
+    expect(await claimNativeCode('state-proof', verifier, { code }, db)).toBeNull();
   });
 });
 
@@ -408,20 +423,18 @@ describe('LAN handoff', () => {
 });
 
 describe('the native-code claim lookup is keyed', () => {
-  test('polling for a pending code seeks the state index rather than scanning', async () => {
+  test('the atomic claim seeks the unique code hash rather than scanning', async () => {
     using handle = await createTestDatabase();
-    // `claimNativeCode` runs this once per poll, and the Apple shell polls in
-    // a loop while it waits for the browser to finish signing in.
     const rows = handle.db
       .query(
         `EXPLAIN QUERY PLAN
-           SELECT id FROM native_auth_codes
-            WHERE state = ? AND code_challenge = ? AND consumed_at IS NULL AND expires_at > ?
-            ORDER BY created_at, id LIMIT 1`,
+      UPDATE native_auth_codes SET consumed_at = ?
+      WHERE code_hash = ? AND consumed_at IS NULL AND expires_at > ?
+        AND state = ? AND code_challenge = ?`,
       )
-      .all('s', 'c', NOW) as Array<{ detail: string }>;
+      .all(NOW, 'hash', NOW, 'state', 'challenge') as Array<{ detail: string }>;
     const detail = rows.map((row) => row.detail).join('\n');
-    expect(detail).toContain('native_auth_codes_state');
+    expect(detail).toContain('code_hash=?');
     expect(detail).not.toContain('SCAN');
   });
 });

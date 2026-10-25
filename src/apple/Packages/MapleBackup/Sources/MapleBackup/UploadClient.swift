@@ -383,11 +383,16 @@ public actor UploadClient {
   ///   two devices on the same iCloud library both try to upload the
   ///   rendered companion for the same photo and return 423 to the
   ///   second one.
+  /// - Parameter mapleId: The parent original's id as the ingest reply
+  ///   stored it, sent as `X-Maple-Maple-Id` on the final chunk. The server
+  ///   records the companion on the asset with that id, so it is never the
+  ///   companion's own content hash.
   public func uploadRendered(
     phassetLocalId: String,
     targetRelPath: String,
     filenameExt: String,
     bytes: Data,
+    mapleId: String,
     onProgress: (@Sendable (_ sent: Int64, _ total: Int64) async -> Void)? = nil,
     suffixOverride: String? = nil,
     phassetCloudId: String? = nil
@@ -417,7 +422,7 @@ public actor UploadClient {
       req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
       req.setValue(phassetLocalId, forHTTPHeaderField: "X-Maple-Phasset-Id")
       req.setValue(targetRelPath, forHTTPHeaderField: "X-Maple-Target-Rel-Path")
-      req.setValue(filenameExt, forHTTPHeaderField: "X-Maple-Rendered-Ext")
+      req.setValue(filenameExt, forHTTPHeaderField: "X-Maple-Filename-Ext")
       req.setValue(String(total), forHTTPHeaderField: "X-Maple-Total-Bytes")
       if let suffixOverride {
         req.setValue(suffixOverride, forHTTPHeaderField: "X-Maple-Suffix-Override")
@@ -425,6 +430,7 @@ public actor UploadClient {
       if let phassetCloudId {
         req.setValue(phassetCloudId, forHTTPHeaderField: "X-Maple-PHAsset-Cloud-Id")
       }
+      if isFinal { req.setValue(mapleId, forHTTPHeaderField: "X-Maple-Maple-Id") }
       req.httpBody = chunk
 
       let (data, response) = try await transport(req)

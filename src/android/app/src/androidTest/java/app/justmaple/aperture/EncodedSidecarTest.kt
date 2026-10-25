@@ -19,7 +19,7 @@ class EncodedSidecarTest {
         val i = InstrumentationRegistry.getInstrumentation()
         val context = i.targetContext
         val library = PhotoLibrary(context)
-        val renderer = EditorRenderer {}
+        val renderer = EditorRenderer(library) {}
         try {
             for ((name, bom, label) in
                 listOf(

@@ -9,6 +9,8 @@
 name: web
 
 on:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
   pull_request:
@@ -27,7 +29,7 @@ jobs:
     name: build-wasm (shared pkg)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Pinned to match raw-wasm/rust-toolchain.toml. rustup would resolve
       # the toolchain file automatically when wasm-pack runs from raw-wasm/,
@@ -75,7 +77,7 @@ jobs:
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -181,7 +183,7 @@ jobs:
     # accidental watch-mode hang burning the full job budget.
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -223,7 +225,7 @@ jobs:
     # accidental watch-mode hang burning the full job budget.
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -263,6 +265,10 @@ jobs:
       - name: Test batch transfer recovery and real Hosted UI
         working-directory: src/web
         run: bun run e2e:batch-transfer
+
+      - name: Test eyedroppers refuse JPEG and PNG sources
+        working-directory: src/web
+        run: bun x playwright test e2e/eyedropper-non-raw.spec.ts
 
       - name: Upload batch transfer browser failure artifacts
         if: failure()
@@ -307,7 +313,7 @@ jobs:
     continue-on-error: true
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Probe smoke RAW fixture
         id: fixture
@@ -392,7 +398,7 @@ jobs:
       # including processes launched from src/web with a copied npm package.
       MAPLE_NATIVE_LIB: ${{ github.workspace }}/src/api/native/libraw_ffi.so
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -423,7 +429,9 @@ jobs:
             src/raw-pipeline/target
           key: web-workflow-native-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
       - name: Build real server workflow library
-        run: bash src/api/scripts/build-raw-ffi.sh
+        run: |
+          bash src/api/scripts/build-raw-ffi.sh
+          echo "MAPLE_NATIVE_LIB=$GITHUB_WORKSPACE/src/api/native/libraw_ffi.so" >> "$GITHUB_ENV"
       - name: Install Playwright Chrome
         working-directory: src/web
         run: bun x playwright install --with-deps chrome
@@ -530,7 +538,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: >-
           python3 tools/ci_result.py build-wasm=web web-build=web
           web-test=web web-test-common=web web-webgpu-smoke=web web-workflow-acceptance=web

@@ -2,11 +2,13 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { DatePipe } from '@angular/common';
 import { AuthService, MuiButtonComponent, type DeviceSession } from '@maple-common';
 
-/**
- * Paired devices (Apple TVs) — lists platform-marked device sessions and
- * revokes them. Milestone B of the Maple TV epic; the sessions are minted by
- * the iOS app during TV pairing (milestone C).
- */
+const PLATFORM_LABELS: ReadonlyMap<string, string> = new Map([
+  ['tvos', 'Apple TV'],
+  ['watchos', 'Apple Watch'],
+]);
+
+/** Lists and revokes platform-marked paired-device sessions (Apple TV, Apple Watch). */
+
 @Component({
   selector: 'maple-paired-devices',
   standalone: true,
@@ -26,9 +28,8 @@ export class PairedDevicesComponent {
     this.reload();
   }
 
-  /** User-facing platform name — the wire value is an internal enum ('tvos'). */
   platformLabel(platform: string): string {
-    return platform === 'tvos' ? 'Apple TV' : platform;
+    return PLATFORM_LABELS.get(platform) ?? platform;
   }
 
   reload(): void {

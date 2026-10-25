@@ -15,6 +15,10 @@ pub(super) fn default_params() -> MapleAdjustmentParams {
     MapleAdjustmentParams {
         nr_sampling_scale: 1.0,
         wb_method: 0,
+        wb_hsm_ptr: std::ptr::null(),
+        wb_hsm_len: 0,
+        wb_hsm_as_shot_cct: 0.0,
+        wb_hsm_exposure_gain: 0.0,
         whites_anchor_ev: f32::NAN,
         temperature: 5500.0,
         tint: 0.0,
@@ -69,6 +73,9 @@ pub(super) fn default_params() -> MapleAdjustmentParams {
         color_grade_global_hue: 0.0,
         color_grade_global_saturation: 0.0,
         color_grade_global_luminance: 0.0,
+        color_grade_blending: 100.0,
+        color_grade_shadow_edge: 0.564622,
+        color_grade_highlight_edge: 0.564622,
         // Per-band HSL (identity — these tests only exercise the FFI shim's
         // pointer/geometry guards, not HSL math). Added to keep the struct
         // initializer complete after the 8-band HSL fields landed.

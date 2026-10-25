@@ -7,6 +7,8 @@ import android.provider.DocumentsContract
 import android.system.Os
 import android.system.OsConstants
 import app.justmaple.aperture.cloud.CloudLibrary
+import app.justmaple.aperture.ui.ExportColorSpace
+import app.justmaple.aperture.ui.ExportOptions
 import java.io.File
 import java.io.OutputStream
 import java.util.UUID
@@ -16,6 +18,15 @@ import kotlinx.coroutines.withContext
 /** Keeps the verified destination descriptor open through publication; never reopens with wt. */
 internal class PhotoExport(private val context: Context, private val library: PhotoLibrary) {
     suspend fun write(photo: Photo, document: XmpDocument, destination: Uri, xmp: Boolean) =
+        write(photo, document, destination, xmp, ExportOptions())
+
+    suspend fun write(
+        photo: Photo,
+        document: XmpDocument,
+        destination: Uri,
+        xmp: Boolean,
+        options: ExportOptions = ExportOptions(),
+    ) =
         withContext(Dispatchers.IO) {
             check(destination != photo.uri) {
                 "Choose an export destination other than the original"
@@ -41,13 +52,17 @@ internal class PhotoExport(private val context: Context, private val library: Ph
                 val bytes = XmpEncoding.encode(document.serialize())
                 writeVerified(photo, destination) { it.write(bytes) }
             } else {
-                val temp = File(context.cacheDir, "export-${UUID.randomUUID()}.jpg")
+                val temp = File(context.cacheDir, "export-${UUID.randomUUID()}.${options.format.extension}")
                 try {
                     library.withOriginal(photo) { source ->
-                        NativeBridge.export(
+                        NativeBridge.exportConfigured(
                             source.absolutePath,
                             document.serialize(),
                             temp.absolutePath,
+                            options.format.wireName,
+                            options.quality,
+                            options.maxEdge,
+                            options.colorSpace == ExportColorSpace.DISPLAY_P3,
                         )
                     }
                     writeVerified(photo, destination) { output ->

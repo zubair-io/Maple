@@ -5,9 +5,10 @@
 //! themselves architecturally (see the per-stage notes at each chain
 //! position):
 //!
-//! * dehaze and deep_denoise — rejected loudly at the tile entry
-//!   (`super::guards`) so the host falls back to the full-image render
-//!   (#1105; dehaze awaits a full-frame proxy plane),
+//! * deep_denoise — rejected loudly at the tile entry (`super::guards`) so
+//!   the host falls back to the full-image render (#1105),
+//! * dehaze — recovers from the full frame's proxy haze maps (#3287),
+//!   carried in [`TileAnchors::haze`],
 //! * auto_exposure — a tile is a sub-region, so its own histogram isn't
 //!   representative of the whole scene; this chain never recomputes the
 //!   anchor gain per-tile (#1167). Instead it accepts the scalar
@@ -25,19 +26,18 @@ use crate::{
     error::Result,
     image::RawImage,
     stages::{
-        chroma_prefilter, clarity, defringe, highlight_recovery, highlight_recovery_oklab, hsl,
-        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
-        wb_camera, white_balance,
+        clarity, color_curves, defringe, highlight_recovery, hsl, noise_reduction, saturation,
+        scene_tone_controls, sharpen, texture, tone_curves, vibrance,
     },
     xmp::AdjustmentModel,
 };
 
+use super::colour::{develop_colour, TileColour};
 use super::region::{clip_to_default_crop, trim_image_to_inner, TileWindow};
 use crate::pipeline::{
-    capture_sharpening_helper::capture_sharpening_params_from_model,
     develop::effective_quality_divisor, native_render_dims, stage, RenderQuality,
 };
-use crate::stages::{capture_sharpening, local_adjustments, retouch, vignette};
+use crate::stages::{local_adjustments, vignette};
 
 /// The per-render values the tile entry threads into the chain besides the
 /// mosaic and the model: the host-measured anchors (WB delta anchor, #1725;
@@ -57,6 +57,9 @@ pub(super) struct TileAnchors<'a> {
     /// Padded crop's top-left in full demosaiced coordinates (sensor / divisor).
     pub tile_origin: (u32, u32),
     pub highlight_frame: crate::stages::highlight_recovery::FrameAnchor<'a>,
+    /// The full frame's haze maps (#3287); `Some` whenever dehaze is
+    /// engaged, globally or in a layer.
+    pub haze: Option<&'a crate::stages::dehaze::FrameHaze>,
 }
 
 pub(super) struct DevelopedTile {
@@ -82,11 +85,9 @@ pub(super) fn full_frame_long_edge(raw: &RawImage, quality: RenderQuality) -> us
 /// the tile path so the linearize + crop pair runs once on the padded
 /// crop and the develop chain runs on a small image. Mirrors
 /// `develop_scene_linear_from_raw_with_quality` but without the leading
-/// `linearize` call and **without** dehaze / vignette / deep_denoise /
-/// local_adjustments / capture_sharpening (the tile entry errors before
-/// this fn runs when any of them is active — see the rejection block in
-/// `render_scene_linear_tile_from_raw_with_quality`, #1084 / #1105 /
-/// #1109).
+/// `linearize` call. Deep denoise never reaches it (the entry refuses it,
+/// #1105); vignette and local adjustments run windowed, capture sharpening
+/// on the computed pad, and dehaze from the frame's haze maps (#3287).
 ///
 /// `decoded_wb_anchor` is the app's live-chain / tile-refine DELTA contract
 /// (#1725 band fix): `Some((decoded_temp, decoded_tint))` applies
@@ -128,6 +129,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
         active_area,
         tile_origin,
         highlight_frame,
+        haze,
     } = anchors;
     if raw.cfa == crate::image::CfaPattern::LinearRgb {
         return Err(crate::error::Error::Pipeline(
@@ -166,6 +168,9 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
             crate::sensor_gain_maps::ClipGainContext::new(raw, sensor_origin, divisor),
         )
     });
+    if cancel.is_cancelled() {
+        return Err(crate::error::Error::Cancelled);
+    }
     // DNG OpcodeList3 (#376, #4288): vendor corrections applied in
     // ActiveArea coordinates after baseline exposure, AsShot pre-gain and
     // highlight recovery, before DefaultCrop and DCP, matching full develop.
@@ -216,214 +221,24 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     if cancel.is_cancelled() {
         return Err(crate::error::Error::Cancelled);
     }
-    let (mut camera_rgb, window, mut inner) = stage("tile_crop_to_default", || {
+    let (camera_rgb, window, mut inner) = stage("tile_crop_to_default", || {
         clip_to_default_crop(camera_rgb, window, inner)
     });
     let (profile, profile_source) =
         stage("tile_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
-    // Camera-space user white balance (#1726) — mirrors the full-res
-    // develop chain; see `pipeline::develop` and `stages::wb_camera` for
-    // the design writeup. This function rejects LinearRaw at the top (see
-    // the guard above), so the only tier gate needed here is
-    // `RawlerFallback`.
-    //
-    // `decoded_wb_anchor` (#1725 delta contract) takes precedence over
-    // `resolve_target`'s absolute As-Shot seeding when both apply: a
-    // `Some` anchor means the caller has its own decoded/live reference
-    // point in hand (see `stages::wb_camera::apply_delta`'s doc for why
-    // that reference point can differ from `resolve_target`'s
-    // `profile.scene_cct` idealized-locus seed — a real camera's as-shot
-    // chromaticity can sit far enough off the locus that no
-    // `(temperature, tint)` pair within the slider's ±100 tint range
-    // reaches it, so `apply`'s single fixed identity point isn't always
-    // reachable). `apply_delta`'s own identity short-circuit (`target ==
-    // anchor`) is what actually decides no-op-ness in that case.
-    let camera_wb_target = if !matches!(profile_source, dcp::ProfileSource::RawlerFallback) {
-        let frame = wb_camera::SliderFrame::resolve(raw, &profile);
-        let target = stage("tile_wb_camera::apply", || match decoded_wb_anchor {
-            Some((decoded_temperature, decoded_tint)) => {
-                wb_camera::apply_delta(
-                    &mut camera_rgb,
-                    &frame,
-                    raw.as_shot_neutral,
-                    (model.temperature, model.tint),
-                    (decoded_temperature, decoded_tint),
-                );
-                // The anchor contract promises the caller hydrated the
-                // model to explicit values (see `apply_delta`'s doc), so
-                // the model pair IS the render target the full develop of
-                // this same model would retarget DCP at.
-                (model.temperature, model.tint)
-            }
-            None => {
-                // `resolve_target_versioned` (#1780): V1 (pre-#1756)
-                // sidecar temperature/tint convert into the slider frame
-                // here, mirroring the full develop chain. The Some(anchor)
-                // branch above is the live-delta contract (#1725) and is
-                // deliberately untouched — its values come from the host's
-                // live model, not from a parsed sidecar.
-                let (target_temperature, target_tint) = wb_camera::resolve_target_versioned(
-                    model,
-                    &frame,
-                    &profile,
-                    raw.as_shot_neutral,
-                );
-                wb_camera::apply(
-                    &mut camera_rgb,
-                    &frame,
-                    raw.as_shot_neutral,
-                    target_temperature,
-                    target_tint,
-                );
-                (target_temperature, target_tint)
-            }
-        });
-        Some((frame, target))
-    } else {
-        None
-    };
-    let camera_wb_applied = camera_wb_target.is_some();
-    // DNG-spec `SetWhiteXY` retarget (#1727) — mirrors `pipeline::develop`:
-    // DCP's rendering matrices track the user's target when camera-space
-    // WB moved off as-shot, keeping a tile bit-consistent with a full
-    // develop of the same model. As-shot targets return the profile
-    // unchanged. See `wb_camera::retargeted_render_profile`.
-    let dcp_profile = match &camera_wb_target {
-        Some((frame, (target_temperature, target_tint))) => {
-            wb_camera::retargeted_render_profile(frame, profile, *target_temperature, *target_tint)
-        }
-        None => profile,
-    };
-    // Colorimetry-only DCP per #425 — PLT and PTC no longer run on any
-    // path (see `pipeline::develop` for the strategic rationale).
-    let mut scene = stage("tile_dcp_apply", || {
-        dcp::apply_colorimetry(&camera_rgb, &dcp_profile)
-    })?;
-    // Ticket #471: opt-in post-DCP Oklab chroma-reduction highlight
-    // recovery. No-op for every other mode — see `pipeline::develop` for
-    // the strategic rationale.
-    stage("tile_highlight_recovery_oklab", || {
-        highlight_recovery_oklab::apply_post_dcp(&mut scene, model.highlight_recovery)
-    });
-    // ProfileGainTableMap is not applied on any path (#2774) — see
-    // `pipeline::develop` for the rationale.
-    // Clone / heal repair spots (#3409) — same chain position as the full
-    // develop. A spot is NOT a point op: it reads a whole neighbourhood and
-    // its source can sit anywhere in the frame, so a tile holding only part
-    // of a spot's footprint cannot reproduce it and is refused here rather
-    // than rendered without the repair. A tile no spot reaches renders
-    // normally, which is why this is not a whole-model guard like dehaze's.
-    stage("tile_retouch", || {
-        retouch::apply_windowed(&mut scene, &model.retouch_spots, window.origin, window.full)
-    })?;
-    // Decode-time chroma pre-filter (#1104). Translation-invariant with a
-    // ±4 px stencil — well inside TILE_OVERLAP_PX (48), so the padded tile
-    // renders the same pixels the full-image path does. No-op at default 0.
-    stage("tile_chroma_prefilter", || {
-        chroma_prefilter::apply(&mut scene, model.chroma_prefilter)
-    });
-    // deep_denoise (BM3D, #1105) intentionally omitted — its reference-patch
-    // grid is frame-anchored, so a tile-relative grid would seam at tile
-    // borders. The tile entry rejects `deep_denoise != 0` before this fn
-    // runs (and the FFI file/bytes tile entries pre-check it as well — see
-    // `raw-ffi/src/model.rs::deep_denoise_active`).
-    //
-    // Capture sharpening (#1157) — same chain position as the full develop
-    // (after the chroma prefilter, before the scene anchor). The iterated
-    // Richardson–Lucy stencil reaches `iterations × 2 × ⌈3σ⌉` px (96 at the
-    // σ = 8 clamp), which the tile entry's overlap calculator pads for
-    // (`capture_sharpening::stencil_reach_px`), so the padded crop's interior
-    // sees the same neighbourhood the whole-image pass does.
-    if let Some(params) = capture_sharpening_params_from_model(model) {
-        stage("tile_capture_sharpening", || {
-            capture_sharpening::apply_capture_sharpening(&mut scene, &params)
-        });
-    }
-    // Per-image scene-anchor gain (#1167). A tile's own histogram is not
-    // representative of the whole scene, so this chain never RECOMPUTES the
-    // anchor — `ae_gain` is a scalar the caller already measured from a
-    // full-image (or sized) develop of the same model (see this function's
-    // doc comment). Applied at EXACTLY the chain position
-    // `stages::auto_exposure::apply` occupies in the full/sized develop
-    // chains: after chroma_prefilter/deep_denoise/capture_sharpening (the
-    // latter two are rejected loudly at the tile entry, same as dehaze), and
-    // before the post-DCP white-balance block below. Position matters here
-    // for two reasons: (a) genuinely non-commutative downstream stages —
-    // `scene_tone_controls`' shaping (shadows/highlights/whites/blacks/
-    // contrast) and `tone_curves` are nonlinear in pixel value, so a scalar
-    // applied after them yields different pixels than one applied before;
-    // (b) bit-exact parity — the linear WB matrix/diagonal multiplies in
-    // between DO commute with a scalar algebraically, but not bit-for-bit
-    // under f32 rounding, and bit-equality with the full chain is this
-    // path's test contract (`tile_matches_full_chain_*`). So the multiply
-    // must land at the same relative position the full chain uses, not just
-    // "somewhere before the pixels are returned." `1.0` (every pre-#1167
-    // caller) is a bit-identical no-op.
-    if (ae_gain - 1.0).abs() > 1e-6 {
-        stage("tile_auto_exposure", || {
-            for p in &mut scene.pixels {
-                p[0] *= ae_gain;
-                p[1] *= ae_gain;
-                p[2] *= ae_gain;
-            }
-        });
-    }
-    // Post-DCP white balance — skipped entirely when camera-space WB
-    // already ran (#1726; see `pipeline::develop` for the full rationale):
-    // that stage normalised `camera_rgb` to the user's target illuminant
-    // pre-DCP, so neither the delta nor the absolute post-DCP contract
-    // below should also fire, or the shift would double-count. Falls
-    // through to the pre-#1726 WB contract split (#1725 band fix)
-    // unchanged for the `RawlerFallback` tier, where `camera_wb_applied`
-    // is false:
-    //
-    // - `decoded_wb_anchor = Some((decoded_temp, decoded_tint))`: the caller
-    //   is the app's live-chain / tile-refine flow, which treats slider
-    //   values as a DELTA vs. the buffer's decode-time WB — exactly like
-    //   `pipeline::apply_scene_linear_chain` (the GPU-live per-tick FFI
-    //   entry) does. Applying `model.temperature`/`model.tint` here via
-    //   `resolve_wb` + ABSOLUTE `apply` (the pre-fix behavior) shifted the
-    //   tile away from the GPU-live frame's IDENTITY render whenever the
-    //   as-shot CCT was off D65 — the horizontal band. `apply_delta` with
-    //   the SAME anchor the live chain used makes slider==as-shot render
-    //   IDENTITY through both paths.
-    // - `None`: the caller is the maple-cli / XMP-render family (or any
-    //   caller that predates the anchor), where ABSOLUTE semantics are
-    //   correct — `crs:Temperature` in an XMP sidecar is an absolute ACR
-    //   value, not a delta. Falls through to the pre-fix `resolve_wb` +
-    //   `apply` path unchanged.
-    if !camera_wb_applied {
-        match decoded_wb_anchor {
-            Some((decoded_temp, decoded_tint)) => {
-                stage("tile_white_balance_delta", || {
-                    white_balance::apply_delta(
-                        &mut scene,
-                        model.temperature,
-                        model.tint,
-                        decoded_temp,
-                        decoded_tint,
-                        model.wb_method,
-                    )
-                });
-            }
-            None => {
-                // ACR anchoring (#1729 / round-trip fix): delegate to
-                // `white_balance::resolve_wb` — the single source of truth
-                // for WB resolution semantics, shared by the
-                // develop/mod.rs and develop_sized.rs XMP/CLI render
-                // sites.
-                let (effective_temperature, effective_tint) = white_balance::resolve_wb(model);
-                stage("tile_white_balance", || {
-                    white_balance::apply(
-                        &mut scene,
-                        effective_temperature,
-                        effective_tint,
-                        model.wb_method,
-                    )
-                });
-            }
-        }
-    }
+    let mut scene = develop_colour(
+        camera_rgb,
+        TileColour {
+            raw,
+            model,
+            profile,
+            profile_source,
+            decoded_wb_anchor,
+            ae_gain,
+            window,
+            cancel,
+        },
+    )?;
     // The S/H detail mask blurs at σ = 15 px · longEdge/2000 of the FULL
     // frame, not of this padded crop (#2476) — anchoring on the crop gave
     // every tile a radius set by its own geometry and a render that
@@ -454,19 +269,31 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // full-resolution preview. Point op with no neighbour gather, so it is
     // trivially tile-safe; identity short-circuits on the all-default model.
     stage("tile_hsl", || hsl::apply_model(&mut scene, model));
+    stage("tile_color_curves", || {
+        color_curves::apply_model(&mut scene, model)
+    });
     stage("tile_clarity", || clarity::apply(&mut scene, model.clarity));
     stage("tile_texture", || texture::apply(&mut scene, model.texture));
-    // dehaze intentionally omitted — global statistics plus a radius-60
-    // transmission refine; the tile entry rejects `dehaze != 0` before this
-    // function runs, until the full-frame proxy plane exists (§ 5.3).
-    //
+    // Dehaze (#3287) is a point op given the full frame's proxy haze map,
+    // sampled at the tile's place in the frame — the whole-image recovery
+    // restricted to this tile, so it adds nothing to the pad.
+    if let Some(map) = haze.and_then(|haze| haze.global.as_ref()) {
+        stage("tile_dehaze", || {
+            crate::stages::dehaze::apply_with_map(
+                &mut scene,
+                model.dehaze,
+                map,
+                window.origin,
+                window.full,
+            )
+        });
+    }
     // Local adjustments and vignette (#1157): both are point ops GIVEN the
     // tile's window in the frame — mask weights evaluate in coordinates
     // normalised to the FULL frame and the vignette ellipse is centred on
     // it — so they take `window` (origin + frame extent at this develop
     // resolution) and reproduce the whole-image field exactly. Same chain
-    // positions as the full develop: after texture (where dehaze would sit),
-    // before sharpen.
+    // positions as the full develop: after dehaze, before sharpen.
     stage("tile_defringe", || defringe::apply_model(&mut scene, model));
     stage("tile_local_adjustments", || {
         let (layers, rasters) = crate::pipeline::mask::orient_adjustments_to_sensor(
@@ -474,7 +301,23 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
             &model.mask_rasters,
             raw.orientation,
         );
-        local_adjustments::apply_windowed(&mut scene, &layers, &rasters, window.origin, window.full)
+        match haze {
+            Some(haze) => local_adjustments::apply_windowed_with_haze(
+                &mut scene,
+                &layers,
+                &rasters,
+                window.origin,
+                window.full,
+                &haze.layers,
+            ),
+            None => local_adjustments::apply_windowed(
+                &mut scene,
+                &layers,
+                &rasters,
+                window.origin,
+                window.full,
+            ),
+        }
     });
     stage("tile_vignette", || {
         vignette::apply_windowed(

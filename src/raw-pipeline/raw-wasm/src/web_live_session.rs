@@ -58,7 +58,7 @@ use crate::gpu_render::{
     develop_prefix_rgba, effective_target_long_edge, inferred_auto_will_fit,
     model_from_live_params, resolve_target_color_space, session_prefix_matches, GpuWhiteBalance,
 };
-use crate::web_live_geometry::{display_dims, present_geometry};
+use crate::web_live_geometry::presentation;
 use raw_core::xmp::AdjustmentModel;
 use raw_gpu::{GpuContext, LiveSession, WebPresentSurface};
 use wasm_bindgen::prelude::*;
@@ -85,8 +85,12 @@ pub struct WebLiveSession {
     /// The persistent WebGPU present surface over the `OffscreenCanvas` (transferred
     /// from the main thread via `transferControlToOffscreen`). Owns the surface +
     /// the compiled present pipeline; created ONCE in `open`, so a per-tick present
-    /// recompiles nothing and reconfigures no swapchain (#1038).
+    /// recompiles nothing (#1038). Its swapchain is reconfigured only when the
+    /// presented frame changes size.
     present: WebPresentSurface,
+    /// The surface's canvas, resized when the presented frame changes (a user
+    /// crop appearing, changing or clearing).
+    canvas: OffscreenCanvas,
     /// The upload-once image + persistent ping-pong / dither buffers. Recreated
     /// only on a prefix-affecting edit (re-develop) — never per hot-path tick.
     session: LiveSession,
@@ -101,15 +105,17 @@ pub struct WebLiveSession {
     whites_anchor_ev: f32,
     white_balance: GpuWhiteBalance,
     nr_sampling_scale: f32,
+    /// Auto-exposure gain baked into the uploaded prefix after DCP (#5099).
+    ae_gain: f32,
     /// The EFFECTIVE develop long-edge cap (#1080): the caller's viewport target
     /// normalized + clamped to the device texture cap in `open`. Fixed for the
     /// session's lifetime, so a prefix re-develop reproduces the same dims and
-    /// the canvas surface never needs resizing.
+    /// the develop never changes size.
     target_long_edge: u32,
-    /// Oriented viewport image dims — also the canvas +
-    /// surface dims. ≤ `target_long_edge` on the long edge (#1080). The present
-    /// maps into sensor-framed session dims; dims never change across ticks (same
-    /// image, same target), so the canvas is sized once on open.
+    /// PRESENTED frame dims — also the canvas + surface dims: the oriented
+    /// viewport image with the model's crop applied, ≤ `target_long_edge` on
+    /// the long edge (#1080). The present maps into the sensor-framed session
+    /// dims; they change only when the model's crop does (`present_for_model`).
     width: u32,
     height: u32,
     /// NATIVE oriented dims (`native_render_dims`) — what a full-res render of
@@ -226,7 +232,7 @@ impl WebLiveSession {
         // cached for the re-develop check. Native dims ride the handle so the
         // editor's zoom math stays full-res-aware (#1101 contract).
         let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
-        let (rgba, width, height, prefix_model, whites_anchor_ev, nr_sampling_scale) =
+        let (rgba, width, height, prefix_model, whites_anchor_ev, nr_sampling_scale, ae_gain) =
             develop_prefix_rgba(&raw_img, &raw, &ext, &model, target_long_edge)
                 .map_err(|e| JsError::new(&e))?;
 
@@ -234,13 +240,13 @@ impl WebLiveSession {
         // surfaces as a JsError for the same CPU fallback.
         let session = LiveSession::new(&ctx, &rgba, width, height).map_err(|e| JsError::new(&e))?;
 
-        // Size the canvas to the upright viewport. The present maps display
-        // coordinates back into the sensor-framed resident chain. CSS
+        // Size the canvas to the presented frame (upright, cropped). The present
+        // maps its coordinates back into the sensor-framed resident chain. CSS
         // scales the element to the layout box on the main thread. Then build the
         // persistent present surface ONCE (surface + configure + colour-space
         // retag + present-pipeline compile) — every tick reuses it. `None` (the
         // pre-#3191 call shape) preserves the historical always-P3 request.
-        let (width, height) = display_dims(raw_img.orientation, (width, height));
+        let (width, height) = presentation(raw_img.orientation, (width, height), &model).dims;
         canvas.set_width(width);
         canvas.set_height(height);
         let requested_color_space = resolve_target_color_space(target_color_space.as_deref());
@@ -256,6 +262,7 @@ impl WebLiveSession {
             raw,
             ext,
             present,
+            canvas,
             session,
             prefix_model,
             live_profile: None,
@@ -263,6 +270,7 @@ impl WebLiveSession {
             whites_anchor_ev,
             white_balance,
             nr_sampling_scale,
+            ae_gain,
             target_long_edge,
             width,
             height,
@@ -444,7 +452,7 @@ impl WebLiveSession {
             &self.ext,
             &mut self.auto_will_fit_cache,
         ) {
-            let (rgba, w, h, prefix_model, whites_anchor_ev, nr_sampling_scale) =
+            let (rgba, w, h, prefix_model, whites_anchor_ev, nr_sampling_scale, ae_gain) =
                 develop_prefix_rgba(
                     &self.raw_img,
                     &self.raw,
@@ -468,6 +476,7 @@ impl WebLiveSession {
             self.live_profile = None;
             self.whites_anchor_ev = whites_anchor_ev;
             self.nr_sampling_scale = nr_sampling_scale;
+            self.ae_gain = ae_gain;
             self.lens_profile_json = crate::lens_profile::metadata(&self.raw_img, model);
         }
         self.present_for_model(model)
@@ -491,7 +500,7 @@ impl WebLiveSession {
         profile.update(model);
         let auto_fit = profile.auto_fit;
         let inputs = &mut profile.inputs;
-        self.white_balance.apply(model, inputs);
+        self.white_balance.apply(model, self.ae_gain, inputs);
         inputs.nr_sampling_scale = self.nr_sampling_scale;
         // Masks are authored upright; the resident chain remains sensor-framed.
         inputs.mask_orientation = self.raw_img.orientation.exif_tag();
@@ -514,12 +523,22 @@ impl WebLiveSession {
         // The present recompiles nothing (the pipeline + surface are session-owned);
         // it only fetches the next surface texture, encodes the dither/quantize pass,
         // and presents — zero readback.
-        self.present.present(
-            &self.ctx,
-            &self.session,
-            final_idx,
-            present_geometry(self.raw_img.orientation, self.session.dims(), model),
-        )?;
+        let presented = presentation(self.raw_img.orientation, self.session.dims(), model);
+        if presented.dims != (self.width, self.height) {
+            self.canvas.set_width(presented.dims.0);
+            self.canvas.set_height(presented.dims.1);
+            if let Err(error) =
+                self.present
+                    .resize(&self.ctx, &self.canvas, presented.dims.0, presented.dims.1)
+            {
+                self.canvas.set_width(self.width);
+                self.canvas.set_height(self.height);
+                return Err(error);
+            }
+            (self.width, self.height) = presented.dims;
+        }
+        self.present
+            .present(&self.ctx, &self.session, final_idx, presented.geometry)?;
         self.auto_fit.set(auto_fit);
         Ok(self.present.color_space().to_string())
     }

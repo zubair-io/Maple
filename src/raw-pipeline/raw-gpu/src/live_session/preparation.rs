@@ -71,6 +71,7 @@ impl LiveSession {
         ctx.frame_pool.borrow_mut().end_frame();
         inputs.tone = original_tone;
         drop(encoder);
+        self.haze.abandoned();
         result
             .map(|_| true)
             .ok_or_else(|| "Exposure preparation cancelled".into())

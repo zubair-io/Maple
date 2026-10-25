@@ -32,11 +32,20 @@ export abstract class OverlayFocusBase implements OnDestroy {
   readonly dismissed = output<void>();
 
   readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
+  private previousFocus: HTMLElement | null = null;
+  private wasOpen = false;
 
   constructor() {
     effect(() => {
       if (this.open()) {
+        if (!this.wasOpen) {
+          const active = document.activeElement;
+          this.previousFocus =
+            active instanceof HTMLElement && active !== document.body ? active : null;
+        }
+        this.wasOpen = true;
         queueMicrotask(() => {
+          if (!this.open()) return;
           const target = this.focusTarget();
           if (target) target.focus();
           else this.panel()?.nativeElement.focus();
@@ -44,6 +53,17 @@ export abstract class OverlayFocusBase implements OnDestroy {
         document.addEventListener('keydown', this.onKeydown);
       } else {
         document.removeEventListener('keydown', this.onKeydown);
+        if (this.wasOpen) {
+          const previous = this.previousFocus;
+          queueMicrotask(() => {
+            const active = document.activeElement;
+            if (previous?.isConnected && (active === document.body || !active?.isConnected)) {
+              previous.focus();
+            }
+          });
+        }
+        this.previousFocus = null;
+        this.wasOpen = false;
       }
     });
   }

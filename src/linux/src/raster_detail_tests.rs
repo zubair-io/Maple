@@ -71,7 +71,7 @@ fn raster_native_patches_match_full_export_and_reuse_source_and_base() {
 }
 
 #[test]
-fn raster_detail_rejects_invalid_rects_budgets_and_global_dehaze() {
+fn raster_detail_rejects_invalid_rects_and_budgets() {
     let bytes = raw_core::png::encode(80, 60, &[90; 80 * 60 * 3]).unwrap();
     let image = pipeline::RasterDetailImage::open(&bytes, CancelToken::never()).unwrap();
     let rect = pipeline::TileRect {
@@ -101,15 +101,74 @@ fn raster_detail_rejects_invalid_rects_budgets_and_global_dehaze() {
             CancelToken::never()
         )
         .is_err());
+}
+
+/// #3287: a dehazed raster patch recovers from the whole source's haze map,
+/// so it shows exactly the pixels the full export does.
+#[test]
+fn dehazed_raster_patch_matches_the_full_export() {
+    let (w, h) = (160u32, 120u32);
+    let pixels: Vec<u8> = (0..w * h)
+        .flat_map(|i| {
+            let (x, y) = (i % w, i / w);
+            let veil = 120 + (h - y) as u8 / 2;
+            let object = (x / 17 + y / 13) % 2 == 0;
+            let v = if object { veil / 3 } else { veil };
+            [v, v.saturating_sub(10), v.saturating_add(15)]
+        })
+        .collect();
+    let bytes = raw_core::png::encode(w, h, &pixels).unwrap();
     let model = AdjustmentModel {
-        dehaze: 20.0,
+        dehaze: 45.0,
         ..Default::default()
     };
-    assert!(image
+    let (ew, eh, export) = pipeline::render_export_raster(
+        &bytes,
+        &model,
+        None,
+        raw_core::view::encode::TargetPrimaries::Srgb,
+        pipeline::ExportDepth::Eight,
+        None,
+    )
+    .unwrap();
+    let pipeline::ExportPixels::Eight(rgb) = export else {
+        panic!("eight-bit reference")
+    };
+    let undehazed = pipeline::render_export_raster(
+        &bytes,
+        &AdjustmentModel::default(),
+        None,
+        raw_core::view::encode::TargetPrimaries::Srgb,
+        pipeline::ExportDepth::Eight,
+        None,
+    )
+    .unwrap();
+    let pipeline::ExportPixels::Eight(plain) = undehazed.2 else {
+        panic!("eight-bit reference")
+    };
+    assert!(rgb.iter().zip(&plain).any(|(a, b)| a.abs_diff(*b) > 8));
+    let full = egui::ColorImage::from_rgb([ew as usize, eh as usize], &rgb);
+    let rect = pipeline::TileRect {
+        src_x: 37,
+        src_y: 21,
+        src_w: 64,
+        src_h: 48,
+        out_w: 64,
+        out_h: 48,
+    };
+    let image = pipeline::RasterDetailImage::open(&bytes, CancelToken::never()).unwrap();
+    let (pw, ph, patch) = image
         .render_tile(&model, rect, None, 8_388_608, CancelToken::never())
-        .unwrap_err()
-        .to_string()
-        .contains("dehaze proxy"));
+        .unwrap();
+    let patch = egui::ColorImage::from_rgb([pw as usize, ph as usize], &patch);
+    let worst = patch
+        .pixels
+        .iter()
+        .zip(&crop(&full, rect))
+        .flat_map(|(a, b)| (0..3).map(move |c| a[c].abs_diff(b[c])))
+        .max()
+        .unwrap();
+    assert!(worst <= 1, "dehazed patch parts from the export by {worst}");
 }
 
 #[test]

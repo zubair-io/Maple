@@ -1,11 +1,15 @@
+import { publishExclusive, PublishCollisionError } from '../../fs/relocate-publish.ts';
+import { syncCopiedFile } from '../../fs/sync-file.ts';
 /**
  * Sidecar relocation for external-rename reconciliation (#4702).
  *
  * Moves (or copies, when a live same-stem sibling still uses the source
  * sidecar) `<oldstem>.xmp` to `<newstem>.xmp` under `serializeSidecarWrite` on
- * both paths. Publishes exclusively (`link` + `unlink` with `COPYFILE_EXCL`
- * fallback) so an occupied `<newstem>.xmp` is never clobbered — on `EEXIST`,
+ * both paths. Publishes exclusively with a hard link or an owned, flushed
+ * copy so an occupied `<newstem>.xmp` is never clobbered — on `EEXIST`,
  * the incoming sidecar lands at `<newstem> (conflict from rename).xmp`.
+ * A pre-#5021 `<name>.<ext>.xmp` follows separately, after those locks are
+ * released, and stays in place when its destination is taken (#5063).
  */
 import * as path from 'node:path';
 import type { ObjectId } from '../../db/object-id.ts';
@@ -17,12 +21,20 @@ import {
   serializeSidecarWrite,
   SidecarWritePathDeniedError,
 } from '../../fs/sidecar-write-order.ts';
+import { sidecarAlreadyCarried } from '../../fs/sidecar-ownership.ts';
 import { pickFreeConflictPath } from '../../fs/xmp-conflict.ts';
 import { xmpSidecarPath } from '../../fs/xmp.ts';
+import {
+  legacyBackupSidecar,
+  locateLegacyBackupEdit,
+  oldNameSlotTaken,
+  readLegacyAt,
+} from '../../fs/legacy-backup-sidecar.ts';
 import { child } from '../../log.ts';
 
 const log = child('discover:rename-reconcile');
 const NON_PRIMARY_EXTENSIONS = new Set(['.xmp', '.hidden']);
+const RENAME_CONFLICT_ATTEMPTS = 5;
 
 function comparablePath(p: string): string {
   return path.resolve(p).normalize('NFC').toLowerCase().normalize('NFC');
@@ -209,18 +221,11 @@ async function hasLiveSameStemSibling(
 
 async function linkExclusive(src: string, dst: string): Promise<'published' | 'exists'> {
   try {
-    await fs.link(src, dst);
+    await publishExclusive(src, dst);
     return 'published';
-  } catch (err) {
-    if (isErrno(err, 'EEXIST')) return 'exists';
-    if (!isErrno(err, 'EXDEV') && !isErrno(err, 'ENOTSUP') && !isErrno(err, 'EPERM')) throw err;
-    try {
-      await fs.copyFile(src, dst, fs.constants.COPYFILE_EXCL);
-      return 'published';
-    } catch (copyErr) {
-      if (isErrno(copyErr, 'EEXIST')) return 'exists';
-      throw copyErr;
-    }
+  } catch (error) {
+    if (error instanceof PublishCollisionError) return 'exists';
+    throw error;
   }
 }
 
@@ -253,6 +258,7 @@ async function publishSidecarExclusive(
   const tmp = `${authorizedDst}.tmp.${process.pid}-${crypto.randomUUID()}`;
   try {
     await fs.copyFile(authorizedSrc, tmp);
+    await syncCopiedFile(tmp);
     return await linkExclusive(tmp, authorizedDst);
   } finally {
     await fs.unlink(tmp).catch(() => {});
@@ -261,7 +267,7 @@ async function publishSidecarExclusive(
 
 /** Moves (or copies, when a live sibling still shares the stem) the sidecar
  * from the old RAW's path to the new one under `serializeSidecarWrite` on both
- * paths (#4702). Publishes with `link` + `unlink` (`COPYFILE_EXCL` fallback) so
+ * paths (#4702). Publishes with a hard link or an owned, flushed copy so
  * an occupied `<newstem>.xmp` is never clobbered — on `EEXIST` the incoming
  * sidecar lands at `<newstem> (conflict from rename).xmp` instead. */
 export async function moveSidecarIfPresent(
@@ -329,4 +335,81 @@ export async function moveSidecarIfPresent(
     );
     return false;
   }
+}
+
+/** A taken name, as the canonical move does: the edit lands beside the photo as
+ * `<newstem> (conflict from rename).xmp` rather than staying behind with none. */
+async function publishRenameConflict(source: string, newAbsPath: string, root: string) {
+  // Another writer can take the picked name before the exclusive publish; pick again.
+  for (let attempt = 0; attempt < RENAME_CONFLICT_ATTEMPTS; attempt++) {
+    const conflictPath = await pickFreeConflictPath(newAbsPath, 'rename');
+    const outcome = await serializeSidecarWrite(
+      conflictPath,
+      (authorized) => publishSidecarExclusive(source, authorized, root, false),
+      {
+        admissionScope: root,
+        resolveDestination: () => authorizeSidecarWrite(conflictPath, root),
+      },
+    );
+    if (outcome === 'published') return;
+  }
+  throw new Error(`rename-reconcile: no free conflict name for ${newAbsPath}`);
+}
+
+/** Carries a photo's pre-#5021 `IMG.dng.xmp` to its new full name (#5063), so the
+ * canonical-sidecars migration still finds it. Runs after the canonical move's
+ * locks are released; a taken name gets a conflict copy, and a failure leaves it in place. */
+export async function moveLegacySidecarIfPresent(
+  oldAbsPath: string,
+  newAbsPath: string,
+  root: string,
+): Promise<void> {
+  const newLegacy = legacyBackupSidecar(newAbsPath);
+  if (newLegacy === null) return;
+  // A case- or normalization-sensitive volume can hold more than one spelling;
+  // each follows the photo, the later ones as conflict copies.
+  const handled = new Set<string>();
+  try {
+    for (;;) {
+      // As stored, case variant included; a folder that can't be listed throws.
+      const found = await locateLegacyBackupEdit(oldAbsPath, handled);
+      if (found === null) return;
+      handled.add(found.legacy);
+      await moveOneLegacySidecar(oldAbsPath, newAbsPath, newLegacy, found.legacy, root);
+    }
+  } catch (err) {
+    // No retry path: discover re-attaches the renamed photo by content even if
+    // this rename were declined, so the edit is kept at the old path and flagged.
+    log.error(
+      { oldAbsPath, newLegacy, err: err instanceof Error ? err.message : err },
+      'rename-reconcile: old-name sidecar move failed — left in place',
+    );
+  }
+}
+
+async function moveOneLegacySidecar(
+  oldAbsPath: string,
+  newAbsPath: string,
+  newLegacy: string,
+  oldLegacy: string,
+  root: string,
+): Promise<void> {
+  await withBothSidecarWriteLocks(oldLegacy, newLegacy, root, async (resolvedOld, resolvedNew) => {
+    // The lexical name: the ownership check compares folder entries, which a
+    // symlinked root's realpath would never match.
+    if ((await readLegacyAt(oldAbsPath, oldLegacy)) === null) return;
+    const classification = await classifySameFile(resolvedOld, resolvedNew);
+    if (classification === 'identical') return;
+    if (classification === 'case-only-rename') return fs.rename(resolvedOld, resolvedNew);
+    // On a case-sensitive volume the edit's own spelling counts as taking its slot,
+    // so only the exclusive publish decides: an occupied spelling gets a conflict copy.
+    const ownSpelling =
+      path.basename(oldLegacy).toLowerCase() === path.basename(newLegacy).toLowerCase();
+    const landed =
+      (ownSpelling || !(await oldNameSlotTaken(newAbsPath))) &&
+      (await publishSidecarExclusive(resolvedOld, resolvedNew, root, false)) === 'published';
+    if (landed) return;
+    if (await sidecarAlreadyCarried(resolvedOld, resolvedNew)) return fs.unlink(resolvedOld);
+    await publishRenameConflict(resolvedOld, newAbsPath, root);
+  });
 }

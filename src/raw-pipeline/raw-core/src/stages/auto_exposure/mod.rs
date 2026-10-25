@@ -138,11 +138,18 @@ pub fn compute_scene_anchor_gain(image: &Image) -> f32 {
     // the [P25..P75) band is order-independent, so the multiset returned by
     // the chained partitions is bit-equivalent to the fully-sorted band's
     // slice.
-    let mut luma: Vec<f32> = image
-        .pixels
-        .iter()
-        .map(|p| LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2])
-        .collect();
+    anchor_gain_from_luma(image.pixels.iter().map(|&p| scene_luma(p)).collect())
+}
+
+/// The Rec.2020 luma [`compute_scene_anchor_gain`] ranks.
+pub(crate) fn scene_luma(p: [f32; 3]) -> f32 {
+    LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2]
+}
+
+/// [`compute_scene_anchor_gain`] over a luma list already built with
+/// [`scene_luma`], so a caller can measure an image it never materialises
+/// (the capture-first as-shot anchor, #5213).
+pub(crate) fn anchor_gain_from_luma(mut luma: Vec<f32>) -> f32 {
     // NaN filter — scene-linear luma can technically carry NaN if the DCP
     // path mishandled an edge pixel; we drop them so the percentile math
     // doesn't degenerate (and so the unstable cmp closure can't see NaN).
@@ -241,14 +248,19 @@ pub fn apply(image: &mut Image, model: &AdjustmentModel) -> f32 {
         AutoExposureMode::Off => 1.0,
         AutoExposureMode::On => {
             let gain = compute_scene_anchor_gain(image);
-            if (gain - 1.0).abs() > 1e-6 {
-                for p in &mut image.pixels {
-                    p[0] *= gain;
-                    p[1] *= gain;
-                    p[2] *= gain;
-                }
-            }
+            apply_gain(image, gain);
             gain
+        }
+    }
+}
+
+/// The multiply [`apply`] makes, for a gain measured elsewhere.
+pub(crate) fn apply_gain(image: &mut Image, gain: f32) {
+    if (gain - 1.0).abs() > 1e-6 {
+        for p in &mut image.pixels {
+            p[0] *= gain;
+            p[1] *= gain;
+            p[2] *= gain;
         }
     }
 }

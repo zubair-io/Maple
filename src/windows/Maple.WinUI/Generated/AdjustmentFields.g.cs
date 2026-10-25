@@ -133,13 +133,22 @@ public static class AdjustmentFields
         new("defringe_green_hue_lo", "DefringeGreenHueLo", "Number", 0.0, 100.0, 40.0, true, "Absolute"),
         new("defringe_green_hue_hi", "DefringeGreenHueHi", "Number", 0.0, 100.0, 60.0, true, "Absolute"),
         new("lens_profile", "LensProfile", "String", 0.0, 0.0, 0.0, false, "Unsupported"),
+        new("color_grade_blending", "ColorGradeBlending", "Number", 0.0, 100.0, 100.0, true, "Absolute"),
+        new("color_grade_shadow_edge", "ColorGradeShadowEdge", "Number", 0.1, 0.564622, 0.564622, true, "Absolute"),
+        new("color_grade_highlight_edge", "ColorGradeHighlightEdge", "Number", 0.564622, 0.9, 0.564622, true, "Absolute"),
+        new("color_curve_hue_vs_hue", "ColorCurveHueVsHue", "Curve", 0.0, 0.0, 0.0, true, "Absolute"),
+        new("color_curve_hue_vs_sat", "ColorCurveHueVsSat", "Curve", 0.0, 0.0, 0.0, true, "Absolute"),
+        new("color_curve_hue_vs_luma", "ColorCurveHueVsLuma", "Curve", 0.0, 0.0, 0.0, true, "Absolute"),
+        new("color_curve_luma_vs_sat", "ColorCurveLumaVsSat", "Curve", 0.0, 0.0, 0.0, true, "Absolute"),
+        new("color_curve_sat_vs_sat", "ColorCurveSatVsSat", "Curve", 0.0, 0.0, 0.0, true, "Absolute"),
+        new("color_curve_sat_vs_luma", "ColorCurveSatVsLuma", "Curve", 0.0, 0.0, 0.0, true, "Absolute"),
     };
 
     public static readonly AdjustmentGroupSpec[] Groups =
     {
         new("white_balance", "White Balance", new[] { "temperature", "tint", "temperature_seen", "tint_seen", "wb_method", "wb_scale_version", "wb_source" }),
         new("tone", "Tone", new[] { "exposure", "brightness", "contrast", "highlights", "shadows", "whites", "blacks", "parametric_highlights", "parametric_lights", "parametric_darks", "parametric_shadows", "parametric_shadow_split", "parametric_midtone_split", "parametric_highlight_split", "auto_exposure", "tone_curve_mode", "tone_curve_luma", "tone_curve_red", "tone_curve_green", "tone_curve_blue", "display_tone_curve_luma", "display_tone_curve_red", "display_tone_curve_green", "display_tone_curve_blue" }),
-        new("color", "Color", new[] { "vibrance", "saturation", "hue_adjustment_red", "hue_adjustment_orange", "hue_adjustment_yellow", "hue_adjustment_green", "hue_adjustment_aqua", "hue_adjustment_blue", "hue_adjustment_purple", "hue_adjustment_magenta", "saturation_adjustment_red", "saturation_adjustment_orange", "saturation_adjustment_yellow", "saturation_adjustment_green", "saturation_adjustment_aqua", "saturation_adjustment_blue", "saturation_adjustment_purple", "saturation_adjustment_magenta", "luminance_adjustment_red", "luminance_adjustment_orange", "luminance_adjustment_yellow", "luminance_adjustment_green", "luminance_adjustment_aqua", "luminance_adjustment_blue", "luminance_adjustment_purple", "luminance_adjustment_magenta", "black_white", "gray_mixer_red", "gray_mixer_orange", "gray_mixer_yellow", "gray_mixer_green", "gray_mixer_aqua", "gray_mixer_blue", "gray_mixer_purple", "gray_mixer_magenta", "split_tone_shadow_hue", "split_tone_shadow_saturation", "split_tone_highlight_hue", "split_tone_highlight_saturation", "split_tone_balance", "color_grade_shadow_luminance", "color_grade_midtone_hue", "color_grade_midtone_saturation", "color_grade_midtone_luminance", "color_grade_highlight_luminance", "color_grade_global_hue", "color_grade_global_saturation", "color_grade_global_luminance", "highlight_recovery", "look", "profile" }),
+        new("color", "Color", new[] { "vibrance", "saturation", "hue_adjustment_red", "hue_adjustment_orange", "hue_adjustment_yellow", "hue_adjustment_green", "hue_adjustment_aqua", "hue_adjustment_blue", "hue_adjustment_purple", "hue_adjustment_magenta", "saturation_adjustment_red", "saturation_adjustment_orange", "saturation_adjustment_yellow", "saturation_adjustment_green", "saturation_adjustment_aqua", "saturation_adjustment_blue", "saturation_adjustment_purple", "saturation_adjustment_magenta", "luminance_adjustment_red", "luminance_adjustment_orange", "luminance_adjustment_yellow", "luminance_adjustment_green", "luminance_adjustment_aqua", "luminance_adjustment_blue", "luminance_adjustment_purple", "luminance_adjustment_magenta", "black_white", "gray_mixer_red", "gray_mixer_orange", "gray_mixer_yellow", "gray_mixer_green", "gray_mixer_aqua", "gray_mixer_blue", "gray_mixer_purple", "gray_mixer_magenta", "split_tone_shadow_hue", "split_tone_shadow_saturation", "split_tone_highlight_hue", "split_tone_highlight_saturation", "split_tone_balance", "color_grade_shadow_luminance", "color_grade_midtone_hue", "color_grade_midtone_saturation", "color_grade_midtone_luminance", "color_grade_highlight_luminance", "color_grade_global_hue", "color_grade_global_saturation", "color_grade_global_luminance", "color_grade_blending", "color_grade_shadow_edge", "color_grade_highlight_edge", "color_curve_hue_vs_hue", "color_curve_hue_vs_sat", "color_curve_hue_vs_luma", "color_curve_luma_vs_sat", "color_curve_sat_vs_sat", "color_curve_sat_vs_luma", "highlight_recovery", "look", "profile" }),
         new("detail", "Detail", new[] { "clarity", "texture", "dehaze", "sharpen_amount", "sharpen_radius", "sharpen_detail", "sharpen_masking", "capture_sharpening_amount", "capture_sharpening_sigma", "nr_luminance", "nr_color", "chroma_prefilter", "hot_pixel_suppression", "deep_denoise", "lens_profile_enable", "lens_correction_distortion", "lens_correction_ca", "lens_correction_vignetting", "demosaic", "auto_lateral_ca", "defringe_purple_amount", "defringe_purple_hue_lo", "defringe_purple_hue_hi", "defringe_green_amount", "defringe_green_hue_lo", "defringe_green_hue_hi" }),
         new("effects", "Effects", new[] { "vignette_amount", "vignette_feather", "grain_amount", "grain_size", "grain_roughness", "film_look", "film_strength" }),
         new("geometry", "Geometry", new[] { "crop", "perspective_vertical", "perspective_horizontal", "perspective_rotate", "perspective_scale", "perspective_aspect", "perspective_x", "perspective_y" }),
@@ -157,13 +166,22 @@ public static class AdjustmentFields
         ["capture_sharpening_sigma"] = "Absolute",
         ["chroma_prefilter"] = "Absolute",
         ["clarity"] = "Absolute",
+        ["color_curve_hue_vs_hue"] = "Absolute",
+        ["color_curve_hue_vs_luma"] = "Absolute",
+        ["color_curve_hue_vs_sat"] = "Absolute",
+        ["color_curve_luma_vs_sat"] = "Absolute",
+        ["color_curve_sat_vs_luma"] = "Absolute",
+        ["color_curve_sat_vs_sat"] = "Absolute",
+        ["color_grade_blending"] = "Absolute",
         ["color_grade_global_hue"] = "Absolute",
         ["color_grade_global_luminance"] = "Absolute",
         ["color_grade_global_saturation"] = "Absolute",
+        ["color_grade_highlight_edge"] = "Absolute",
         ["color_grade_highlight_luminance"] = "Absolute",
         ["color_grade_midtone_hue"] = "Absolute",
         ["color_grade_midtone_luminance"] = "Absolute",
         ["color_grade_midtone_saturation"] = "Absolute",
+        ["color_grade_shadow_edge"] = "Absolute",
         ["color_grade_shadow_luminance"] = "Absolute",
         ["contrast"] = "Absolute",
         ["crop"] = "AssetRelative",
@@ -334,6 +352,9 @@ public static class AdjustmentFields
         ["color_grade_global_hue"] = new[] { "crs:ColorGradeGlobalHue" },
         ["color_grade_global_saturation"] = new[] { "crs:ColorGradeGlobalSat" },
         ["color_grade_global_luminance"] = new[] { "crs:ColorGradeGlobalLum" },
+        ["color_grade_blending"] = new[] { "papp:ColorGradeBlending" },
+        ["color_grade_shadow_edge"] = new[] { "papp:ColorGradeShadowEdge" },
+        ["color_grade_highlight_edge"] = new[] { "papp:ColorGradeHighlightEdge" },
         ["hue_adjustment_red"] = new[] { "crs:HueAdjustmentRed" },
         ["hue_adjustment_orange"] = new[] { "crs:HueAdjustmentOrange" },
         ["hue_adjustment_yellow"] = new[] { "crs:HueAdjustmentYellow" },
@@ -413,5 +434,42 @@ public static class AdjustmentFields
         ["display_tone_curve_red"] = "crs:ToneCurvePV2012Red",
         ["display_tone_curve_green"] = "crs:ToneCurvePV2012Green",
         ["display_tone_curve_blue"] = "crs:ToneCurvePV2012Blue",
+        ["color_curve_hue_vs_hue"] = "papp:ColorCurveHueVsHue",
+        ["color_curve_hue_vs_sat"] = "papp:ColorCurveHueVsSat",
+        ["color_curve_hue_vs_luma"] = "papp:ColorCurveHueVsLuma",
+        ["color_curve_luma_vs_sat"] = "papp:ColorCurveLumaVsSat",
+        ["color_curve_sat_vs_sat"] = "papp:ColorCurveSatVsSat",
+        ["color_curve_sat_vs_luma"] = "papp:ColorCurveSatVsLuma",
     };
+}
+
+public static class ColorCurveEditorTuning
+{
+    public const double AnchorSpread = 0.08;
+    public const double MinKnotGap = 0.015;
+    public const int MaxKnots = 16;
+    public const double MaxHueSlope = 2.5;
+}
+
+public static class ColorCurveCalibration
+{
+    public static readonly System.Collections.Generic.IReadOnlyList<(string Id, string Label, double HueDeg, uint Swatch)> QuickHueAnchors = System.Array.AsReadOnly(new (string, string, double, uint)[]
+    {
+        ("red", "Red", 29.0, 0xC4493A),
+        ("yellow", "Yellow", 110.0, 0xE3D24A),
+        ("green", "Green", 142.0, 0x3FAE6A),
+        ("cyan", "Cyan", 195.0, 0x45B6C4),
+        ("blue", "Blue", 264.0, 0x3B6FB0),
+        ("magenta", "Magenta", 328.0, 0xC64FB0),
+    });
+    public static readonly System.Collections.Generic.IReadOnlyList<double> SkinToneGuardDeg = System.Array.AsReadOnly(new double[] { 38.0, 55.0, 72.0, });
+}
+
+public static class ParametricAxisTuning
+{
+    public const double Midgrey = 0.18;
+    public const double Midtone = 50.0;
+    public const double UnitsPerStop = 12.5;
+    public const double Top = 105.92414;
+    public const double ReferenceMax = 4.0;
 }

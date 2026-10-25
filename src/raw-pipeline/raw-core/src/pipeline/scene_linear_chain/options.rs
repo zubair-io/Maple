@@ -30,6 +30,9 @@ pub struct ChainOptions<'a> {
     /// (or an absent export) keeps the legacy `white_balance::apply_delta`
     /// bit-identical.
     pub wb_frame: Option<&'a crate::stages::wb_camera::SliderFrameExport>,
+    /// The profile's HueSatMap endpoints (#5099): with `wb_frame`, the
+    /// delta also re-lerps the HueSatMap at the target as a develop does.
+    pub wb_hsm: Option<crate::stages::wb_camera::HsmRetargetView<'a>>,
     /// Flips off the AgX view-transform tail. Set true for the non-RAW
     /// input path, where the JPEG / HEIF input already has a tone curve
     /// baked in by the camera and applying AgX would double-tone-map.
@@ -56,6 +59,17 @@ pub struct ChainOptions<'a> {
     pub mask_long_edge: Option<u32>,
     /// Full-frame pre-AE anchor; required for detail crops.
     pub whites_anchor_ev: Option<f32>,
+    /// The full frame's dehaze maps (#3287). `None` measures them from this
+    /// buffer, which is only correct when the buffer IS the whole frame; a
+    /// windowed render with dehaze engaged (globally or in a layer) requires
+    /// them.
+    pub haze_map: Option<&'a crate::stages::dehaze::FrameHaze>,
+    /// Capture-first creative stage (#5213): when set, the buffer must be a
+    /// capture result in the fixed as-shot basis (a decode with no capture
+    /// stage engaged still has to be moved into it), and this replaces the
+    /// white-balance delta. Hosts adopt it with the capture-first decode
+    /// product (#5213 S3).
+    pub creative: Option<&'a crate::pipeline::CreativeStage>,
 }
 
 impl Default for ChainOptions<'_> {
@@ -64,6 +78,7 @@ impl Default for ChainOptions<'_> {
             decoded_temp: 6500.0,
             decoded_tint: 0.0,
             wb_frame: None,
+            wb_hsm: None,
             skip_agx: false,
             target_primaries: TargetPrimaries::Srgb,
             noise_profile: None,
@@ -71,6 +86,8 @@ impl Default for ChainOptions<'_> {
             nr_sampling_scale: 1.0,
             mask_long_edge: None,
             whites_anchor_ev: None,
+            haze_map: None,
+            creative: None,
         }
     }
 }

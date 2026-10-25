@@ -24,6 +24,7 @@ struct Params {
     midtone: vec4<f32>,
     highlight: vec4<f32>,
     global: vec4<f32>,
+    edges: vec4<f32>,   // [s0, s1, h0, h1] smoothstep edges (#5040)
     balance_exp: f32,   // exp2(-balance / 100)
     count: u32,         // number of RGBA pixels
     _pad0: u32,
@@ -75,8 +76,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     // partition of unity, C¹ at both hand-offs.
     let l = clamp(lab.x, 0.0, 1.0);
     let lb = pow(l, params.balance_exp);
-    let ws = 1.0 - smoothstep(0.0, MIDTONE_ANCHOR_L, lb);
-    let wh = smoothstep(MIDTONE_ANCHOR_L, 1.0, lb);
+    let ws = 1.0 - smoothstep(params.edges.x, params.edges.y, lb);
+    let wh = smoothstep(params.edges.z, params.edges.w, lb);
     let wm = 1.0 - ws - wh;
 
     let shift = params.global.xyz

@@ -17,7 +17,8 @@
 //! - Black levels: `blacklevel.{levels, cpp, width, height}` is the full
 //!   per-site table, reduced by `crate::black_level::reduce_black_levels`
 //!   (rawler's own `as_bayer_array()` collapses anything but a 4-entry
-//!   table to `[levels[0]; 4]`, #4730). White levels:
+//!   table to `[levels[0]; 4]`, #4730); Canon's reduced CR2 RGB is already
+//!   black-referenced and decodes with black 0 (#4644). White levels:
 //!   `whitelevel.as_bayer_array() -> [f32; 4]`.
 //! - WB: `wb_coeffs: [f32; 4]` in RGBE order; index 1 is Green, used as the
 //!   normalising channel.
@@ -38,7 +39,7 @@ use rayon::prelude::*;
 
 use crate::color::illuminant::Illuminant as CoreIlluminant;
 use crate::error::Error;
-use crate::image::{CfaPattern, CropRect, ExifOrientation, RawImage};
+use crate::image::{CfaPattern, ExifOrientation, RawImage};
 use crate::math::Matrix3;
 use crate::Result;
 
@@ -271,7 +272,13 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         .and_then(|md| md.exif.iso_speed_ratings.map(|v| v as u32))
         .unwrap_or(100);
 
-    {
+    let reconstructed_canon_rgb = crate::black_level::is_reconstructed_canon_rgb(
+        cfa,
+        decoder
+            .as_ref()
+            .is_some_and(|dec| matches!(dec.format_hint(), FormatHint::CR2)),
+    );
+    if !reconstructed_canon_rgb {
         if let Some(lin) =
             crate::camera_calibration::lookup_linearization(&raw.clean_make, &raw.clean_model, iso)
         {
@@ -284,6 +291,12 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
             }
         }
     }
+
+    let black_level = if reconstructed_canon_rgb {
+        [0; 4]
+    } else {
+        black_level
+    };
 
     // ── 5. Raw pixel data ─────────────────────────────────────────────────
     let source_is_float = matches!(&raw.data, RawImageData::Float(_));
@@ -319,15 +332,32 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         }
     };
 
-    let white_level = effective_white_level_for_source_data(
-        &raw_data,
-        width,
-        height,
+    let (raw_data, white_level) = crate::masked_margin::refill_masked_margins(
+        raw_data,
+        width as usize,
+        height as usize,
+        &cfa,
+        raw.active_area.map(|r| crate::masked_margin::ActiveArea {
+            left: r.p.x,
+            top: r.p.y,
+            width: r.d.w,
+            height: r.d.h,
+            declared: decoded_as_dng,
+        }),
         &black_level,
         white_level,
-        has_uniform_declared_white_level,
-        cfa,
-        source_is_float,
+        |data| {
+            effective_white_level_for_source_data(
+                data,
+                width,
+                height,
+                &black_level,
+                white_level,
+                has_uniform_declared_white_level,
+                cfa,
+                source_is_float,
+            )
+        },
     );
 
     // ── 6. White balance ──────────────────────────────────────────────────
@@ -526,18 +556,14 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
                     Some((illum, m))
                 };
             // ForwardMatrix maps *reference* white-balanced camera RGB →
-            // XYZ-D50, but the sensor buffer is *individual* camera RGB. Fold
-            // `individualToReference = inv(diag(AB) × CameraCalibrationN)` into
-            // FM so it consumes this unit's RGB directly — matching the DNG SDK
-            // `fCameraToPCS = forwardMatrix * Invert(refCameraWhite) *
-            // individualToReference`. Exactly `FM` when the calibration is
-            // identity (i.e. every FM-shipping body today — Apple etc.), so no
-            // fixture moves; a singular correction leaves FM untouched.
+            // XYZ-D50; resolve this unit's calibration for the as-shot
+            // pre-gained buffer DCP receives (#4646, `forward_calibration`).
             let fold_i2r = |illum: CoreIlluminant, fm: Matrix3| -> Matrix3 {
-                match individual_correction(illum).inverse() {
-                    Some(i2r) => fm.mul_mat(&i2r),
-                    None => fm,
-                }
+                crate::color::forward_calibration::balanced_forward_matrix(
+                    fm,
+                    individual_correction(illum),
+                    as_shot_neutral,
+                )
             };
             if let Some((illum, m)) =
                 read_fm(DngTag::ForwardMatrix1, DngTag::CalibrationIlluminant1)
@@ -605,52 +631,10 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     });
 
     // ── 10. Default-crop rectangle (DNG § 6.3 DefaultCropOrigin/Size) ────
-    // Rawler's `crop_area` is consistently populated for DNG / CR2 / CR3 /
-    // ARW / NEF / RAF / ORF / RW2 from either the camera-table per-body
-    // crop or the DNG tags themselves (see rawler/src/decoders/dng.rs:248).
-    // Prefer it as the primary source. Fall back to reading DNG tags
-    // directly only when rawler returns None — covers the rare malformed-
-    // metadata case.
-    //
-    // Coordinates are sensor-absolute. The pipeline applies the crop
-    // post-demosaic and (for half-res Preview) halves the rect at
-    // apply-time, so we don't even-align here.
-    //
-    // test_0002 (DNG without crop tags), test_0013 (iPhone DNG, ditto),
-    // test_0016 (X3F that rawler can't decode) hit the None path. The
-    // pipeline treats None as "no crop" — full-sensor render, matches
-    // ACR's behaviour on these fixtures.
-    let crop_rect: Option<CropRect> = raw
-        .crop_area
-        .and_then(|r| {
-            CropRect::clamped(
-                r.p.x as u32,
-                r.p.y as u32,
-                r.d.w as u32,
-                r.d.h as u32,
-                width,
-                height,
-            )
-        })
-        .or_else(|| {
-            // Fallback: read DNG tags directly. Rawler already does this
-            // for DNG sources (`get_crop` in decoders/dng.rs), so this
-            // path is hit only when the source claims to be a DNG but
-            // rawler routed it to a non-DNG decoder that doesn't know
-            // about `DefaultCrop*` (vanishingly rare in practice — none
-            // of the slice-1 fixtures hit it). Kept as belt-and-braces.
-            let ifd = root_ifd.as_ref()?;
-            let origin = ifd.get_entry(DngTag::DefaultCropOrigin)?;
-            let size = ifd.get_entry(DngTag::DefaultCropSize)?;
-            if origin.value.count() < 2 || size.value.count() < 2 {
-                return None;
-            }
-            let x = origin.value.force_f32(0).round() as u32;
-            let y = origin.value.force_f32(1).round() as u32;
-            let w = size.value.force_f32(0).round() as u32;
-            let h = size.value.force_f32(1).round() as u32;
-            CropRect::clamped(x, y, w, h, width, height)
-        });
+    // Shared with the cold dimensions query (`raw_dimensions::from_source`)
+    // so the two can never disagree on how the rectangle is read.
+    let crop_rect =
+        crate::raw_dimensions::default_crop(raw.crop_area, width, height, root_ifd.as_deref());
 
     let md = decoder
         .as_ref()
@@ -670,7 +654,13 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         }
     });
 
-    let opcode_list3 = crate::pipeline::pano::opcodes::read_opcode_list3(bytes, ext, width, height);
+    let opcodes = crate::sensor_gain_maps::read(
+        bytes,
+        ext,
+        width,
+        height,
+        crate::masked_margin::cfa_period(&cfa) as u32,
+    );
 
     // Assemble first with a placeholder BE, then resolve the bundled-profile
     // contribution against the fully-populated RawImage (§ 1b compose chain).
@@ -700,8 +690,9 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         crop_rect,
         iso,
         noise_profile,
-        sensor_gain_maps: crate::sensor_gain_maps::read(bytes, ext, width, height),
-        opcode_list3,
+        sensor_gain_maps: opcodes.sensor_gain_maps,
+        opcode_list3: opcodes.list3,
+        opcode_skips: opcodes.skipped,
         aperture,
         focal_length,
         lens_metadata: crate::lens_profile::LensMetadata {
@@ -739,6 +730,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         0.0
     };
     image.baseline_exposure = compose_baseline_exposure(be_from_tags, be_from_bundle, be_override);
+    crate::sensor_gain_maps::log_skipped_required_once(&image);
     Ok(image)
 }
 
@@ -904,7 +896,7 @@ fn read_encoding(ifd: &rawler::formats::tiff::IFD, tag: DngTag) -> crate::color:
 
 /// Map rawler's `Orientation` enum to our `ExifOrientation`. Used as the
 /// fallback when `raw_metadata().exif.orientation` is absent.
-fn rawler_orientation_to_core(o: &rawler::decoders::Orientation) -> ExifOrientation {
+pub(crate) fn rawler_orientation_to_core(o: &rawler::decoders::Orientation) -> ExifOrientation {
     use rawler::decoders::Orientation as R;
     match o {
         R::Normal | R::Unknown => ExifOrientation::Normal,
@@ -2320,8 +2312,8 @@ mod tests {
 
     /// #1947: a per-unit-calibrated body ships non-identity `AnalogBalance`
     /// and `CameraCalibrationN`. Decode must fold them into the stored matrices
-    /// per the DNG SDK: `CM' = diag(AB) × CC × CM` (individual XYZ→camera) and
-    /// `FM' = FM × inv(diag(AB) × CC)` (individual → reference before FM).
+    /// per the DNG SDK: `CM' = diag(AB) × CC × CM` (individual XYZ→camera), and
+    /// FM resolved for the as-shot pre-gained buffer (`forward_calibration`).
     #[test]
     fn decode_folds_analog_balance_and_camera_calibration() {
         use crate::test_support::synth_dng::SyntheticGreyDng;
@@ -2352,12 +2344,31 @@ mod tests {
         // Tags round-trip through 1e-6 rationals; allow a loose fp tolerance.
         assert_matrix_close(got_cm, &want_cm, 1e-3, "folded ColorMatrix");
 
-        let want_fm = fm.mul_mat(&correction.inverse().expect("correction invertible"));
+        // #4646: dng_sdk maps unbalanced RGB `p` with `FM · diag(R·w)⁻¹ · R`,
+        // R = correction⁻¹; DCP receives `p / w`, so a neutral (`p = w`) must
+        // land on FM's own white and a coloured sample on the SDK's XYZ.
         let got_fm = raw
             .forward_matrices
             .get(&CoreIlluminant::D65)
             .expect("D65 forward matrix present");
-        assert_matrix_close(got_fm, &want_fm, 1e-3, "folded ForwardMatrix");
+        let white = raw.as_shot_neutral;
+        let to_reference = correction.inverse().expect("correction invertible");
+        let reference_white = to_reference.mul_vec(white);
+        let sdk = |p: [f32; 3]| {
+            let reference = to_reference.mul_vec(p);
+            fm.mul_vec(std::array::from_fn(|c| reference[c] / reference_white[c]))
+        };
+        for p in [white, [0.3, 0.6, 0.1], [0.7, 0.2, 0.5]] {
+            let balanced = got_fm.mul_vec(std::array::from_fn(|c| p[c] / white[c]));
+            let want = sdk(p);
+            assert!(
+                balanced
+                    .iter()
+                    .zip(&want)
+                    .all(|(a, b)| (a - b).abs() < 1e-3),
+                "{p:?}: {balanced:?} vs {want:?}"
+            );
+        }
     }
 
     /// #1947 safety: with the calibration tags at their default identity (the
@@ -2727,6 +2738,23 @@ mod tests {
             raw.raw_data.len(),
             3 * raw.width as usize * raw.height as usize,
             "LinearRaw raw_data must be interleaved RGB (3 × w × h)"
+        );
+    }
+
+    /// #4644: Canon's reduced CR2 (test_0010, 5D Mark IV sRAW) reconstructs
+    /// black-referenced RGB, so it decodes with black 0 like LibRaw and the
+    /// DNG Converter; the same body's Bayer CR2 (test_0009) keeps its black.
+    #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
+    fn reduced_canon_cr2_is_black_referenced_but_bayer_cr2_is_not() {
+        let reduced = decode_path(&require_raw("test_0010.CR2")).expect("decode sRAW CR2");
+        assert_eq!(reduced.cfa, CfaPattern::LinearRgb);
+        assert_eq!(reduced.black_level, [0; 4]);
+        let bayer = decode_path(&require_raw("test_0009.CR2")).expect("decode Bayer CR2");
+        assert!(
+            bayer.black_level.iter().all(|&b| b > 0),
+            "{:?}",
+            bayer.black_level
         );
     }
 }

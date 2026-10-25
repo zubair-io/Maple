@@ -93,30 +93,31 @@ describe('provideAuthBootstrap lan_handoff redemption', () => {
     expect(refresh).toHaveBeenCalled();
   });
 
-  // #2963 — a native app opened this URL to collect an auth code. If the
-  // refresh cookie above already signed us in, no passkey ceremony will run,
-  // so the handoff has to happen here or the app waits forever while the
-  // browser just shows the library.
-  it('hands an already-live session to a waiting native app, after hydration', async () => {
+  // #4673 — a crafted URL with `?native_callback=maple-app` and a live
+  // refresh cookie must NEVER issue a native code automatically on boot; code
+  // issuance requires an explicit click in `NativeHandoffConsentComponent`.
+  it('does not auto-issue a native handoff code during bootstrap when a refresh cookie is live (#4673)', async () => {
     refresh.mockResolvedValue('refreshed');
-    window.history.replaceState({}, '', '/?native_callback=maple-app');
+    window.history.replaceState(
+      {},
+      '',
+      `/?native_callback=maple-app&code_challenge=${'A'.repeat(43)}&state=state-abcdef`,
+    );
 
     await boot();
 
-    expect(resumeNativeHandoff).toHaveBeenCalled();
-    expect(resumeNativeHandoff.mock.invocationCallOrder[0]).toBeGreaterThan(
-      loadMe.mock.invocationCallOrder[0],
-    );
+    expect(loadMe).toHaveBeenCalled();
+    expect(resumeNativeHandoff).not.toHaveBeenCalled();
   });
 
-  it('still attempts the native handoff when a lan_handoff redemption short-circuits', async () => {
+  it('does not auto-issue a native handoff code when lan_handoff redemption succeeds (#4673)', async () => {
     redeemLanHandoff.mockResolvedValue(true);
     window.history.replaceState({}, '', '/?native_callback=maple-app&lan_handoff=CODE123');
 
     await boot();
 
     expect(refresh).not.toHaveBeenCalled();
-    expect(resumeNativeHandoff).toHaveBeenCalled();
+    expect(resumeNativeHandoff).not.toHaveBeenCalled();
   });
 
   it('does nothing lan_handoff-specific when the param is absent', async () => {

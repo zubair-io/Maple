@@ -46,6 +46,7 @@
 use rayon::prelude::*;
 
 use crate::image::Image;
+use crate::stages::dehaze::HazeMap;
 use crate::stages::{clarity, defringe, dehaze, noise_reduction, sharpen, texture};
 use crate::types::PartialAdjustments;
 
@@ -80,10 +81,9 @@ pub fn engaged(a: &PartialAdjustments) -> bool {
         || on(a.defringe)
 }
 
-/// `true` when some layer engages the per-mask dehaze control. The tile
-/// path refuses such a render for the same reason it refuses the global
-/// slider: dehaze's atmospheric light and dark channel are statistics of
-/// the whole frame, which a padded crop cannot reproduce.
+/// `true` when some layer engages the per-mask dehaze control. Its haze map
+/// is a whole-frame statistic of that layer's scratch, so a window of the
+/// frame must be handed the frame's per-layer map (#3287).
 pub fn any_dehaze_engaged(layers: &[crate::types::LocalAdjustment]) -> bool {
     layers.iter().any(|l| on(l.adjustments.dehaze))
 }
@@ -92,8 +92,8 @@ pub fn any_dehaze_engaged(layers: &[crate::types::LocalAdjustment]) -> bool {
 /// pixels per side, for the tile path's overlap calculator. The controls
 /// cascade on one scratch buffer — each reads the previous one's output —
 /// so their reaches ADD, matching how `pipeline::tile::overlap` sums the
-/// global stages. Dehaze contributes nothing here because a layer that
-/// engages it is rejected outright by `pipeline::tile::guards`.
+/// global stages. Dehaze contributes nothing: given the frame's map it is a
+/// point operation (#3287).
 pub fn stencil_reach_px(a: &PartialAdjustments) -> usize {
     let reach = |value: Option<f32>, px: usize| if on(value) { px } else { 0 };
     reach(a.texture, texture::TEXTURE_GUIDED_REACH_PX)
@@ -103,13 +103,29 @@ pub fn stencil_reach_px(a: &PartialAdjustments) -> usize {
         + reach(a.defringe, defringe::DEFRINGE_REACH_PX)
 }
 
+/// Where one layer's per-mask dehaze gets its haze map (#3287).
+pub(super) enum LayerHaze<'a> {
+    /// Measure it from this layer's own scratch: `img` is the whole frame.
+    Measure,
+    /// Measure it from the whole-frame scratch and keep it for the frame's
+    /// windows.
+    Capture(&'a mut Option<HazeMap>),
+    /// Recover with the frame's map; `img` sits at `origin` in `frame`.
+    Given(Option<&'a HazeMap>, (i32, i32), (u32, u32)),
+}
+
 /// Apply this layer's spatial group to `img`, confined to the mask by
 /// `weights` (one entry per pixel of `img`, in `[0, 1]` — the same buffer
 /// the point pass just evaluated).
 ///
 /// A no-op when the layer engages none of the six, so callers need not
 /// pre-check.
-pub(super) fn apply_group(img: &mut Image, a: &PartialAdjustments, weights: &[f32]) {
+pub(super) fn apply_group(
+    img: &mut Image,
+    a: &PartialAdjustments,
+    weights: &[f32],
+    haze: LayerHaze<'_>,
+) {
     if !engaged(a) {
         return;
     }
@@ -129,8 +145,23 @@ pub(super) fn apply_group(img: &mut Image, a: &PartialAdjustments, weights: &[f3
     if let Some(v) = a.clarity {
         clarity::apply(&mut scratch, v);
     }
-    if let Some(v) = a.dehaze {
-        dehaze::apply(&mut scratch, v);
+    if let Some(v) = a.dehaze.filter(|v| dehaze::engaged(*v)) {
+        match haze {
+            LayerHaze::Measure => dehaze::apply(&mut scratch, v),
+            LayerHaze::Capture(slot) => {
+                let map = HazeMap::measure(&scratch);
+                let frame = (scratch.width, scratch.height);
+                dehaze::apply_with_map(&mut scratch, v, &map, (0, 0), frame);
+                *slot = Some(map);
+            }
+            LayerHaze::Given(map, origin, frame) => {
+                // Callers check `FrameHaze::covers` before rendering a window.
+                debug_assert!(map.is_some(), "per-mask dehaze window without its map");
+                if let Some(map) = map {
+                    dehaze::apply_with_map(&mut scratch, v, map, origin, frame);
+                }
+            }
+        }
     }
     if let Some(v) = a.sharpness {
         sharpen::apply(
@@ -248,7 +279,7 @@ mod tests {
             ..Default::default()
         };
         let zero = vec![0.0f32; img.pixels.len()];
-        apply_group(&mut img, &a, &zero);
+        apply_group(&mut img, &a, &zero, LayerHaze::Measure);
         assert_eq!(img.pixels, before.pixels);
     }
 
@@ -270,6 +301,7 @@ mod tests {
                 ..Default::default()
             },
             &vec![1.0; base.pixels.len()],
+            LayerHaze::Measure,
         );
         assert_eq!(local.pixels, global.pixels);
     }
@@ -288,6 +320,7 @@ mod tests {
                 ..Default::default()
             },
             &vec![0.5; base.pixels.len()],
+            LayerHaze::Measure,
         );
         for i in 0..base.pixels.len() {
             for c in 0..3 {
@@ -312,6 +345,7 @@ mod tests {
                 ..Default::default()
             },
             &vec![1.0; before.pixels.len()],
+            LayerHaze::Measure,
         );
         assert_eq!(img.pixels, before.pixels);
     }
@@ -333,7 +367,8 @@ mod tests {
                 sharpness: Some(50.0),
                 luminance_noise: Some(20.0),
                 defringe: Some(40.0),
-                // Dehaze contributes nothing: the tile entry rejects it.
+                // Dehaze contributes nothing: given the frame's map it is a
+                // point operation (#3287).
                 dehaze: Some(50.0),
                 ..Default::default()
             }),

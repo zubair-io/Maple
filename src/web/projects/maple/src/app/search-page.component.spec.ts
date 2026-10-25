@@ -18,6 +18,7 @@ import { Observable, Subject } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   API_BASE_URL,
+  EMPTY_FILTERS,
   HttpLibrarySource,
   LIBRARY_SOURCE,
   RECENT_QUERIES_KEY,
@@ -43,12 +44,19 @@ class StubSearchService {
   }
 }
 
-function setup(q?: string): {
+function setup(
+  q?: string,
+  extraParams: Record<string, string> = {},
+): {
   fixture: ComponentFixture<SearchPageComponent>;
   stub: StubSearchService;
 } {
   const stub = new StubSearchService();
-  const route = { snapshot: { queryParamMap: convertToParamMap(q !== undefined ? { q } : {}) } };
+  const route = {
+    snapshot: {
+      queryParamMap: convertToParamMap({ ...extraParams, ...(q !== undefined ? { q } : {}) }),
+    },
+  };
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [SearchPageComponent],
@@ -56,7 +64,20 @@ function setup(q?: string): {
       provideHttpClient(),
       provideHttpClientTesting(),
       { provide: ActivatedRoute, useValue: route },
-      { provide: Router, useValue: { navigate: vi.fn() } },
+      {
+        provide: Router,
+        useValue: {
+          navigate: vi.fn(),
+          createUrlTree: vi.fn((_commands, extras) => extras.queryParams),
+          serializeUrl: vi.fn((params: Record<string, string | null>) => {
+            const entries = Object.entries(params).filter(
+              (entry): entry is [string, string] => entry[1] !== null,
+            );
+            const query = new URLSearchParams(entries).toString();
+            return query ? `/search?${query}` : '/search';
+          }),
+        },
+      },
       { provide: SearchService, useValue: stub },
       { provide: API_BASE_URL, useValue: '/api' },
       // Self Hosted: FilesystemBrowseService resolves result thumbnails
@@ -107,18 +128,43 @@ describe('SearchPageComponent (Self-Hosted) ?q wiring', () => {
     expect(stub.calls.length).toBe(0);
   });
 
-  it('navigates to sync query parameters on queryChange output', () => {
+  it('opens an unlabeled Map pin into a visible GPS-only result scope', () => {
+    const { fixture, stub } = setup(undefined, { scope: 'places' });
+    fixture.detectChanges();
+    vi.advanceTimersByTime(300);
+    expect(stub.calls[0]?.scope).toBe('places');
+    expect(fixture.nativeElement.textContent).toContain('Photos with location');
+  });
+
+  it('opens a labeled Map pin as a content search', () => {
+    const { fixture, stub } = setup(undefined, { placeQuery: 'Reykjavik' });
+    fixture.detectChanges();
+    vi.advanceTimersByTime(300);
+    expect(stub.calls[0]?.placeQuery).toBe('Reykjavik');
+  });
+
+  it('syncs query and filters in one URL update', () => {
     const { fixture } = setup();
     fixture.detectChanges();
     const router = TestBed.inject(Router);
 
     const searchComp = fixture.componentInstance['searchEl'];
     expect(searchComp).toBeTruthy();
-    searchComp!.queryChange.emit('paris');
+    searchComp!.navigationChange.emit({
+      query: 'paris',
+      filters: { ...EMPTY_FILTERS, from: '2000-01-01', to: '2000-12-31' },
+      sort: 'captured_desc',
+    });
 
     expect(router.navigate).toHaveBeenCalledWith([], {
       relativeTo: expect.any(Object),
-      queryParams: { q: 'paris' },
+      queryParams: expect.objectContaining({
+        q: 'paris',
+        from: '2000-01-01',
+        to: '2000-12-31',
+        owner_id: null,
+      }),
+      queryParamsHandling: 'merge',
       replaceUrl: true,
     });
   });
@@ -150,10 +196,14 @@ describe('SearchPageComponent (Self-Hosted) ?q wiring', () => {
     };
 
     fixture.componentInstance['onPhotoTap'](hit);
-    expect(router.navigate).toHaveBeenCalledWith(['/view', 'photos', 'a.jpg']);
+    expect(router.navigate).toHaveBeenCalledWith(['/view', 'photos', 'a.jpg'], {
+      queryParams: { returnTo: '/search' },
+    });
 
     const hitNoAddress = { ...hit, address: null };
     fixture.componentInstance['onPhotoTap'](hitNoAddress);
-    expect(router.navigate).toHaveBeenCalledWith(['/view', 'fs:/srv/photos/a.jpg']);
+    expect(router.navigate).toHaveBeenCalledWith(['/view', 'fs:/srv/photos/a.jpg'], {
+      queryParams: { returnTo: '/search' },
+    });
   });
 });

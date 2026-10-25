@@ -79,8 +79,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "apple_canvas_golden",
@@ -178,8 +178,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "apple_canvas_golden",
@@ -255,6 +255,15 @@
         "color_grade_global_hue",
         "color_grade_global_saturation",
         "color_grade_global_luminance",
+        "color_grade_blending",
+        "color_grade_shadow_edge",
+        "color_grade_highlight_edge",
+        "color_curve_hue_vs_hue",
+        "color_curve_hue_vs_sat",
+        "color_curve_hue_vs_luma",
+        "color_curve_luma_vs_sat",
+        "color_curve_sat_vs_sat",
+        "color_curve_sat_vs_luma",
         "highlight_recovery",
         "look",
         "profile"
@@ -304,8 +313,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "apple_canvas_golden",
@@ -407,8 +416,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "apple_canvas_golden",
@@ -469,8 +478,8 @@
         },
         {
           "source": "gpu_chain_parity_metal",
-          "status": "stale_corpus",
-          "detail": "corpus changed since the record"
+          "status": "satisfied",
+          "detail": "satisfied"
         },
         {
           "source": "apple_canvas_golden",
@@ -884,6 +893,11 @@
         "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization+WhiteBalance.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSerialization.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarStore.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarFilePublication.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/XMPSidecarFilePublication.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/BatchMetadataViewModel.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/Sources/FilesystemSource.swift",
+        "src/apple/Packages/MapleCore/Sources/MapleCore/Sources/PhotoKitSource.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/Cloud/CloudSidecarStore.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/Cloud/CloudSidecarStore+Variants.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/Sources/SMBSource.swift",
@@ -892,18 +906,18 @@
         "src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPPassthroughTests.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/XmpMetadata+Empty.swift"
       ],
-      "corpus_hash": "blake3:e96f3ad2644648967d0d9f8da685eba15825d77b5f2acde69af8591a83e931bd",
+      "corpus_hash": "blake3:d2fc9a9f961a54f7f53161b9ba6c5873aa09f442e84ba79ae5b0287e84f99ea4",
       "status": "satisfied",
       "record": {
         "backend": "xctest-macos",
-        "corpus_hash": "blake3:e96f3ad2644648967d0d9f8da685eba15825d77b5f2acde69af8591a83e931bd",
+        "corpus_hash": "blake3:d2fc9a9f961a54f7f53161b9ba6c5873aa09f442e84ba79ae5b0287e84f99ea4",
         "expected_cases": 12,
         "executed_cases": 12,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "412881e776fa4dc1bf172fe3bd8ad5b90671f4d7",
-        "recorded_at": "2026-10-20T20:21:08Z",
-        "command": "bash -c cd\\ src/apple/Packages/MapleCore\\ \\&\\&\\ swift\\ test\\ --filter\\ SidecarTransactionContract"
+        "git_sha": "483060d10d67f3a8b7ccf78bb7d60d7affad6c49",
+        "recorded_at": "2026-10-25T00:15:10Z",
+        "command": "swift test --package-path src/apple/Packages/MapleCore --filter SidecarTransactionContract"
       }
     },
     {
@@ -915,23 +929,32 @@
       "corpus": [
         "src/api/src/routes/xmp.sidecar-contract.test.ts",
         "src/api/src/routes/xmp.ts",
+        "src/api/src/routes/xmp-change.ts",
+        "src/api/src/routes/xmp-path-auth.ts",
+        "src/api/src/routes/folders.upload.ts",
+        "src/api/src/routes/folders.upload-sidecar-admission.ts",
+        "src/api/src/fs/primary-replacement-admission.ts",
+        "src/api/src/fs/errno-code.ts",
+        "src/api/src/fs/root.ts",
+        "src/api/src/fs/relocate-replace-fence.ts",
         "src/api/src/xmp",
         "src/api/src/fs/sidecar-io.ts",
         "src/api/src/fs/sidecar-write-order.ts",
         "src/api/src/fs/xmp-conditional.ts",
-        "src/api/src/fs/xmp.ts"
+        "src/api/src/fs/xmp.ts",
+        "src/api/src/fs/xmp-sidecar-path.ts"
       ],
-      "corpus_hash": "blake3:9a7d121f0fa399ccfd0bb67bce95450d490bfa2d087c148a0811fb1b4afa6c0c",
+      "corpus_hash": "blake3:e8f351c202113f901bd0f559d61d05ab33e75de9fc9f543734635e65be4e7029",
       "status": "satisfied",
       "record": {
         "backend": "bun",
-        "corpus_hash": "blake3:9a7d121f0fa399ccfd0bb67bce95450d490bfa2d087c148a0811fb1b4afa6c0c",
+        "corpus_hash": "blake3:e8f351c202113f901bd0f559d61d05ab33e75de9fc9f543734635e65be4e7029",
         "expected_cases": 4,
         "executed_cases": 4,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "6264189730c5f1f2d811eb4a2f9577711d5c9ba0",
-        "recorded_at": "2026-10-20T01:32:36Z",
+        "git_sha": "1aaea92d4eb5eb56176f5109c1be0cec31da25f9",
+        "recorded_at": "2026-10-22T20:16:57Z",
         "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts\\ --timeout\\ 30000"
       }
     },
@@ -955,24 +978,24 @@
       "description": "render_bytes_gpu vs render_bytes on Metal (#2315)",
       "covers": ["apple"],
       "accepted_backends": ["metal"],
-      "expected_cases": 19,
+      "expected_cases": 24,
       "corpus": [
         "src/raw-pipeline/raw-wasm/src/gpu_render.rs",
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:1c31a9ef3635388c6154dbca1f4044a0a54985209ea1cd396e472388a5f1bb7a",
-      "status": "stale_corpus",
+      "corpus_hash": "blake3:c3f2b400b4b4fbf19887933c4f86c804def4b0d7fd1418e4fdbdf50d799a7f7c",
+      "status": "satisfied",
       "record": {
         "backend": "metal",
-        "corpus_hash": "blake3:5b8de61aa594b13da619d6d92d67addcd2357902826df4479b61b5b1eaab5a1c",
-        "expected_cases": 19,
-        "executed_cases": 19,
+        "corpus_hash": "blake3:c3f2b400b4b4fbf19887933c4f86c804def4b0d7fd1418e4fdbdf50d799a7f7c",
+        "expected_cases": 24,
+        "executed_cases": 24,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "fcbeacb7e4abc86e4abb0594ea55d017191d2f04",
-        "recorded_at": "2026-10-14T21:45:58Z",
-        "command": "bash -c cd\\ src/raw-pipeline\\ \\&\\&\\ MAPLE_REQUIRE_GPU=1\\ cargo\\ test\\ -p\\ raw-wasm\\ --features\\ gpu\\ gpu_render"
+        "git_sha": "4805df62328815aef26f31b6df58da3d5a59855c",
+        "recorded_at": "2026-10-23T01:28:32Z",
+        "command": "bash -c cd\\ src/raw-pipeline\\ \\&\\&\\ MAPLE_REQUIRE_GPU=1\\ cargo\\ test\\ -p\\ raw-wasm\\ --features\\ gpu\\ gpu_render\\ --\\ --include-ignored"
       }
     },
     {

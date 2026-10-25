@@ -81,6 +81,10 @@ export class PreviewShellComponent implements OnDestroy {
 
   readonly thumbUrl = signal<string | undefined>(undefined);
   readonly previewUrl = signal<string | undefined>(undefined);
+  readonly imageUnavailable = computed(() => {
+    const id = this.state.focusedAssetId();
+    return !!id && !this.thumbUrl() && !this.previewUrl() && this.state.thumbnailFailed(id);
+  });
   private unsubThumb?: () => void;
   private unsubPreview?: () => void;
 
@@ -175,7 +179,10 @@ export class PreviewShellComponent implements OnDestroy {
       const address = addressForAbsPath(absPath, folders);
       if (address) {
         const canonicalId = formatAddress(address);
-        void this.router.navigate(viewRouteCommands(canonicalId), { replaceUrl: true });
+        void this.router.navigate(viewRouteCommands(canonicalId), {
+          replaceUrl: true,
+          queryParamsHandling: 'preserve',
+        });
       }
     });
     this.applyRouteAddress();
@@ -188,6 +195,11 @@ export class PreviewShellComponent implements OnDestroy {
   }
 
   goBack(): void {
+    const returnTo = this.route.snapshot.queryParamMap.get('returnTo');
+    if (returnTo === '/search' || returnTo?.startsWith('/search?')) {
+      void this.router.navigateByUrl(returnTo);
+      return;
+    }
     // BrowseShell is the single library surface at every width (web
     // responsive foundation, #2279 — `/library` now just redirects here).
     void this.router.navigate(['/browse']);
@@ -234,13 +246,13 @@ export class PreviewShellComponent implements OnDestroy {
   goNext(): void {
     this.state.focusNext();
     const id = this.state.focusedAssetId();
-    if (id) void this.router.navigate(viewRouteCommands(id));
+    if (id) void this.router.navigate(viewRouteCommands(id), { queryParamsHandling: 'preserve' });
   }
 
   goPrev(): void {
     this.state.focusPrev();
     const id = this.state.focusedAssetId();
-    if (id) void this.router.navigate(viewRouteCommands(id));
+    if (id) void this.router.navigate(viewRouteCommands(id), { queryParamsHandling: 'preserve' });
   }
 
   // ── Keyboard shortcuts (nav + rating + flag) ─────────────────────────────

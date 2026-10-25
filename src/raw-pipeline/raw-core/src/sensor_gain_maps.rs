@@ -1,67 +1,252 @@
+use crate::image::{CfaPattern, RawImage};
 use crate::pipeline::pano::{
     opcode_apply::sample_lattice,
-    opcodes::{self, ActiveAreaRect, GainMapOpcode, PanoOpcode},
+    opcodes::{
+        self, ActiveAreaRect, GainMapOpcode, MapPolynomialOpcode, OpcodeList3, PanoOpcode,
+        SkipReason, SkippedOpcode,
+    },
 };
 
 mod clip_context;
 pub(crate) use clip_context::ClipGainContext;
 
+/// One OpcodeList2 step, executed in list order on black/white-normalised
+/// values: a declared transfer (#4629) or a gain map.
 #[derive(Clone, Debug)]
-pub struct SensorGainMaps {
-    pub maps: Vec<GainMapOpcode>,
-    pub active_area: ActiveAreaRect,
+pub enum SensorStep {
+    Transfer(MapPolynomialOpcode),
+    Gain(GainMapOpcode),
 }
 
-pub(crate) fn read(bytes: &[u8], ext: &str, width: u32, height: u32) -> Option<SensorGainMaps> {
-    let (list, active_area) =
-        opcodes::read_opcode_list(bytes, ext, width, height, rawler::tags::DngTag::OpcodeList2)?;
-    let maps: Vec<_> = list
-        .opcodes
+/// OpcodeList2 sensor-domain corrections.
+#[derive(Clone, Debug)]
+pub struct SensorGainMaps {
+    pub steps: Vec<SensorStep>,
+    pub active_area: ActiveAreaRect,
+    /// The mosaic's CFA period, so a refilled margin site maps to the same
+    /// source site `masked_margin` copied its data from.
+    pub cfa_period: u32,
+}
+
+/// The decode-time view of a source's opcode lists.
+pub(crate) struct DecodedOpcodes {
+    pub sensor_gain_maps: Option<SensorGainMaps>,
+    pub list3: Option<(OpcodeList3, ActiveAreaRect)>,
+    pub skipped: Vec<SkippedOpcode>,
+}
+
+pub(crate) fn read(
+    bytes: &[u8],
+    ext: &str,
+    width: u32,
+    height: u32,
+    cfa_period: u32,
+) -> DecodedOpcodes {
+    let lists = opcodes::read_opcode_lists(bytes, ext, width, height);
+    let skipped = [&lists.list1, &lists.list2, &lists.list3]
         .into_iter()
-        .filter_map(|op| match op {
-            PanoOpcode::GainMap(map) => Some(map),
-            _ => None,
-        })
+        .flatten()
+        .flat_map(|(list, _)| list.skipped.iter().copied())
         .collect();
-    (!maps.is_empty()).then_some(SensorGainMaps { maps, active_area })
+    DecodedOpcodes {
+        sensor_gain_maps: lists.list2.and_then(|(list, active_area)| {
+            let steps: Vec<_> = list
+                .opcodes
+                .into_iter()
+                .filter_map(|op| match op {
+                    PanoOpcode::GainMap(map) => Some(SensorStep::Gain(map)),
+                    PanoOpcode::MapPolynomial(polynomial) => Some(SensorStep::Transfer(polynomial)),
+                    _ => None,
+                })
+                .collect();
+            (!steps.is_empty()).then_some(SensorGainMaps {
+                steps,
+                active_area,
+                cfa_period,
+            })
+        }),
+        list3: lists.list3.filter(|(list, _)| !list.opcodes.is_empty()),
+        skipped,
+    }
+}
+
+/// Whether declared OpcodeList2 transfers execute on this image. 8-bit lossy
+/// LinearRaw keeps its gamma 2.4 guess instead: the downstream lossy white
+/// balance and exposure were tuned to it, and the declared transfer
+/// regresses the embedded-JPEG gate until they are re-derived (#5081).
+pub(crate) fn transfers_apply(raw: &RawImage) -> bool {
+    !(raw.cfa == CfaPattern::LinearRgb && raw.white_level <= 255)
+}
+
+/// Every required opcode the render does not execute: the parse-time skips
+/// plus any declared transfer held back by [`transfers_apply`].
+pub(crate) fn skipped_required(raw: &RawImage) -> Vec<SkippedOpcode> {
+    let held_back = raw
+        .sensor_gain_maps
+        .iter()
+        .filter(|_| !transfers_apply(raw))
+        .flat_map(|maps| &maps.steps)
+        .filter_map(|step| match step {
+            SensorStep::Transfer(p) if p.required => Some(SkippedOpcode {
+                list: opcodes::OpcodeListKind::List2,
+                id: Some(opcodes::OPCODE_ID_MAP_POLYNOMIAL),
+                required: true,
+                reason: SkipReason::NotApplied,
+            }),
+            _ => None,
+        });
+    raw.opcode_skips
+        .iter()
+        .copied()
+        .filter(|skip| skip.required)
+        .chain(held_back)
+        .collect()
+}
+
+/// Log each distinct skipped required opcode once per process: decode runs
+/// per open and per sized render, and the same file is reopened often.
+pub(crate) fn log_skipped_required_once(raw: &RawImage) {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+
+    static SEEN: OnceLock<Mutex<HashSet<SkippedOpcode>>> = OnceLock::new();
+    let skipped = skipped_required(raw);
+    if skipped.is_empty() {
+        return;
+    }
+    let mut seen = SEEN
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for skip in skipped.into_iter().filter(|skip| seen.insert(*skip)) {
+        eprintln!(
+            "[raw-core] {} renders without required DNG OpcodeList{} opcode {}: {:?}",
+            raw.unique_camera_model
+                .as_deref()
+                .unwrap_or(&raw.camera_model),
+            skip.list as u8,
+            skip.id.map_or_else(|| "?".to_string(), |id| id.to_string()),
+            skip.reason,
+        );
+    }
 }
 
 impl SensorGainMaps {
-    pub(crate) fn gain_at(&self, x: u32, y: u32, plane: u32) -> f32 {
-        let aa = self.active_area;
-        let Some(x) = x.checked_sub(aa.left) else {
-            return 1.;
+    /// `value` normalised to [0, 1], put through every step covering the site
+    /// in list order. Consecutive gains are multiplied together before they
+    /// meet the value, so a list without transfers is `value × Π gains`.
+    pub(crate) fn apply(&self, x: u32, y: u32, plane: u32, value: f32, transfers: bool) -> f32 {
+        let Some((x, y)) = self.site(x, y) else {
+            return value;
         };
-        let Some(y) = y.checked_sub(aa.top) else {
-            return 1.;
-        };
-        if x >= aa.width || y >= aa.height {
-            return 1.;
-        }
-        self.maps
+        let (value, gain) = self
+            .steps
             .iter()
-            .filter(|map| {
-                x >= map.left
-                    && x < map.right
-                    && y >= map.top
-                    && y < map.bottom
-                    && (x - map.left) % map.col_pitch == 0
-                    && (y - map.top) % map.row_pitch == 0
-                    && plane >= map.plane
-                    && plane - map.plane < map.planes
-            })
-            .map(|map| {
-                let h = (((x as f64 + 0.5) / aa.width as f64) - map.origin_h) / map.spacing_h;
-                let v = (((y as f64 + 0.5) / aa.height as f64) - map.origin_v) / map.spacing_v;
-                sample_lattice(map, v, h, plane.min(map.map_planes - 1))
-            })
-            .product()
+            .fold((value, 1.), |(v, g), step| match step {
+                SensorStep::Gain(map) if covers_gain(map, x, y, plane) => {
+                    (v, g * self.lattice_gain(map, x, y, plane))
+                }
+                SensorStep::Transfer(p) if transfers && p.covers(x, y, plane) => {
+                    (p.evaluate(v * g), 1.)
+                }
+                _ => (v, g),
+            });
+        value * gain
     }
+
+    /// A lower bound on every site's saturation level (`apply` of an encoded
+    /// 1), tracked as an interval through the steps; a site a step does not
+    /// cover keeps its value, so each step widens rather than replaces it.
+    pub(crate) fn saturation_floor(&self, transfers: bool) -> f32 {
+        let (floor, _) = self
+            .steps
+            .iter()
+            .fold((1f32, 1f32), |(low, high), step| match step {
+                SensorStep::Gain(map) => {
+                    let (min, max) = map
+                        .gains
+                        .iter()
+                        .fold((1f32, 1f32), |(a, b), &g| (a.min(g), b.max(g)));
+                    let products = [low * min, low * max, high * min, high * max];
+                    (
+                        products.into_iter().fold(f32::INFINITY, f32::min),
+                        products.into_iter().fold(f32::NEG_INFINITY, f32::max),
+                    )
+                }
+                SensorStep::Transfer(p) if transfers => {
+                    let (min, max) = p.range_over(low, high);
+                    (low.min(min), high.max(max))
+                }
+                SensorStep::Transfer(_) => (low, high),
+            });
+        floor
+    }
+
+    pub(crate) fn has_gains(&self) -> bool {
+        self.steps.iter().any(|s| matches!(s, SensorStep::Gain(_)))
+    }
+
+    pub(crate) fn has_transfers(&self) -> bool {
+        self.steps
+            .iter()
+            .any(|s| matches!(s, SensorStep::Transfer(_)))
+    }
+
+    /// A masked-margin sample carries the data of the nearest same-phase
+    /// active sample (`masked_margin`), so it takes that sample's gains too
+    /// (#4657) instead of a step at the active edge.
+    fn site(&self, x: u32, y: u32) -> Option<(u32, u32)> {
+        let aa = self.active_area;
+        let period = self.cfa_period;
+        if period <= 1 {
+            // LinearRaw margins are never refilled; leave their data alone.
+            let (x, y) = (x.checked_sub(aa.left)?, y.checked_sub(aa.top)?);
+            return (x < aa.width && y < aa.height).then_some((x, y));
+        }
+        if aa.width < period || aa.height < period {
+            return None;
+        }
+        let inside = |v: u32, lo: u32, len: u32| {
+            crate::masked_margin::nearest_active(
+                v as usize,
+                lo as usize,
+                (lo + len) as usize,
+                period as usize,
+            ) as u32
+                - lo
+        };
+        Some((inside(x, aa.left, aa.width), inside(y, aa.top, aa.height)))
+    }
+
+    fn lattice_gain(&self, map: &GainMapOpcode, x: u32, y: u32, plane: u32) -> f32 {
+        let aa = self.active_area;
+        let h = (((x as f64 + 0.5) / aa.width as f64) - map.origin_h) / map.spacing_h;
+        let v = (((y as f64 + 0.5) / aa.height as f64) - map.origin_v) / map.spacing_v;
+        sample_lattice(map, v, h, plane.min(map.map_planes - 1))
+    }
+}
+
+fn covers_gain(map: &GainMapOpcode, x: u32, y: u32, plane: u32) -> bool {
+    x >= map.left
+        && x < map.right
+        && y >= map.top
+        && y < map.bottom
+        && (x - map.left) % map.col_pitch == 0
+        && (y - map.top) % map.row_pitch == 0
+        && plane >= map.plane
+        && plane - map.plane < map.planes
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl SensorGainMaps {
+        fn saturation(&self, x: u32, y: u32, plane: u32) -> f32 {
+            self.apply(x, y, plane, 1., true)
+        }
+    }
+
     use crate::{
         decode::decode_bytes,
         linearize::{sensor_linearize, sensor_linearize_region},
@@ -79,7 +264,7 @@ mod tests {
             ..Default::default()
         };
         let raw = decode_bytes(&fixture.write_to_bytes(), "dng").unwrap();
-        assert_eq!(raw.sensor_gain_maps.as_ref().unwrap().maps.len(), 4);
+        assert_eq!(raw.sensor_gain_maps.as_ref().unwrap().steps.len(), 4);
         assert!(raw.opcode_list3.is_none());
         let mut control = raw.clone();
         control.sensor_gain_maps = None;
@@ -111,7 +296,8 @@ mod tests {
         let mut gm = map(1, 0, 2.);
         gm.gains = vec![1., 3., 5., 7.];
         let maps = SensorGainMaps {
-            maps: vec![gm],
+            cfa_period: 2,
+            steps: vec![SensorStep::Gain(gm)],
             active_area: ActiveAreaRect {
                 top: 3,
                 left: 5,
@@ -119,11 +305,11 @@ mod tests {
                 height: 8,
             },
         };
-        assert_eq!(maps.gain_at(4, 4, 0), 1.);
-        assert_eq!(maps.gain_at(5, 3, 0), 1.);
-        assert_eq!(maps.gain_at(6, 4, 0), 1.);
-        assert_eq!(maps.gain_at(5, 4, 1), 1.);
-        assert!((maps.gain_at(5, 4, 0) - 1.875).abs() < 1e-6);
+        assert_eq!(maps.saturation(4, 4, 0), 1.);
+        assert_eq!(maps.saturation(5, 3, 0), 1.);
+        assert_eq!(maps.saturation(6, 4, 0), 1.);
+        assert_eq!(maps.saturation(5, 4, 1), 1.);
+        assert!((maps.saturation(5, 4, 0) - 1.875).abs() < 1e-6);
         let fixture = SyntheticGreyDng {
             linear_value: 0.8,
             opcode_list2: Some(blob(&[map(0, 0, 4.)])),
@@ -137,6 +323,51 @@ mod tests {
             .any(|v| *v > 1.));
     }
 
+    /// #4657: a refilled margin sample copies the nearest same-phase active
+    /// sample, so it takes that sample's gain rather than none at all.
+    #[test]
+    fn margin_sites_take_their_source_sites_gain() {
+        let mut gm = map(0, 0, 1.);
+        gm.gains = vec![1., 3., 5., 7.];
+        let maps = SensorGainMaps {
+            cfa_period: 2,
+            steps: vec![SensorStep::Gain(gm)],
+            active_area: ActiveAreaRect {
+                top: 3,
+                left: 5,
+                width: 8,
+                height: 8,
+            },
+        };
+        for (margin, source) in [((0, 3), (6, 3)), ((1, 4), (5, 4)), ((14, 12), (12, 10))] {
+            assert_eq!(
+                maps.saturation(margin.0, margin.1, 0),
+                maps.saturation(source.0, source.1, 0),
+                "{margin:?} vs {source:?}"
+            );
+        }
+        // LinearRaw margins are never refilled, so they take no gain.
+        let linear = SensorGainMaps {
+            cfa_period: 1,
+            steps: maps.steps.clone(),
+            ..maps
+        };
+        assert_eq!(linear.saturation(0, 3, 0), 1.);
+        assert_eq!(linear.saturation(14, 12, 0), 1.);
+        // X-Trans repeats every 6 sites; the copy and its gain both step by 6.
+        let x_trans = SensorGainMaps {
+            cfa_period: 6,
+            ..maps
+        };
+        for (margin, source) in [((0, 3), (6, 3)), ((4, 4), (10, 4)), ((14, 12), (8, 6))] {
+            assert_eq!(
+                x_trans.saturation(margin.0, margin.1, 0),
+                x_trans.saturation(source.0, source.1, 0),
+                "x-trans {margin:?} vs {source:?}"
+            );
+        }
+    }
+
     #[test]
     fn gain_planes_use_absolute_image_plane_and_single_plane_maps_broadcast() {
         let mut gm = map(0, 0, 1.);
@@ -146,18 +377,23 @@ mod tests {
         gm.row_pitch = 1;
         gm.col_pitch = 1;
         gm.gains = [2., 3., 4.].repeat(4);
-        let mut maps = SensorGainMaps {
-            maps: vec![gm],
+        let maps = |gm: &GainMapOpcode| SensorGainMaps {
+            cfa_period: 2,
+            steps: vec![SensorStep::Gain(gm.clone())],
             active_area: ActiveAreaRect::full(64, 64),
         };
-        assert_eq!(maps.gain_at(12, 20, 0), 1.);
-        assert_eq!(maps.gain_at(12, 20, 1), 3.);
-        assert_eq!(maps.gain_at(12, 20, 2), 4.);
-        maps.maps[0].map_planes = 1;
-        maps.maps[0].gains = vec![5.; 4];
-        assert_eq!(maps.gain_at(12, 20, 0), 1.);
-        assert_eq!(maps.gain_at(12, 20, 1), 5.);
-        assert_eq!(maps.gain_at(12, 20, 2), 5.);
+        let per_plane = maps(&gm);
+        assert_eq!(per_plane.saturation(12, 20, 0), 1.);
+        assert_eq!(per_plane.saturation(12, 20, 1), 3.);
+        assert_eq!(per_plane.saturation(12, 20, 2), 4.);
+        let broadcast = maps(&GainMapOpcode {
+            map_planes: 1,
+            gains: vec![5.; 4],
+            ..gm
+        });
+        assert_eq!(broadcast.saturation(12, 20, 0), 1.);
+        assert_eq!(broadcast.saturation(12, 20, 1), 5.);
+        assert_eq!(broadcast.saturation(12, 20, 2), 5.);
     }
 
     #[test]
@@ -174,7 +410,8 @@ mod tests {
         gm.col_pitch = 1;
         gm.gains = [2., 3., 4.].repeat(4);
         raw.sensor_gain_maps = Some(SensorGainMaps {
-            maps: vec![gm],
+            cfa_period: 2,
+            steps: vec![SensorStep::Gain(gm)],
             active_area: ActiveAreaRect::full(raw.width, raw.height),
         });
         let image = crate::linearize::linearraw_to_camera_rgb(&raw).unwrap();
@@ -265,3 +502,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "sensor_gain_maps/transfer_tests.rs"]
+mod transfer_tests;

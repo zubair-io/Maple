@@ -49,13 +49,13 @@ describe('POST /api/folders/:id/trash-folder + /restore-folder', () => {
     await rm(folderPath, { recursive: true, force: true }).catch(() => {});
   });
 
-  function call(action: 'trash-folder' | 'restore-folder', target: string): Promise<Response> {
+  function call(action: 'trash-folder' | 'restore-folder', target?: string): Promise<Response> {
     const app = new Elysia().use(fakeAuth()).use(foldersTrashRoutes);
     const url = `http://localhost/api/folders/${folderId}/${action}`;
     return app.handle(
       new Request(url, {
         method: 'POST',
-        headers: { 'X-Maple-Target-Path': target },
+        headers: target === undefined ? {} : { 'X-Maple-Target-Path': target },
       }),
     );
   }
@@ -100,6 +100,34 @@ describe('POST /api/folders/:id/trash-folder + /restore-folder', () => {
     const restoredStat = await stat(nodePath.join(absDir, 'IMG_1.dng'));
     expect(restoredStat.isFile()).toBe(true);
     expect(deletedAt(assetId)).toBeNull();
+  });
+
+  it('restores the library root only when the restore route receives the explicit root sentinel', async () => {
+    const names = ['first.jpg', 'second.jpg'];
+    await mkdir(nodePath.join(folderPath, 'sub'));
+    for (const filename of names) {
+      await writeFile(nodePath.join(folderPath, 'sub', filename), filename);
+      await writeFile(nodePath.join(folderPath, 'sub', filename.replace('.jpg', '.xmp')), filename);
+      const assetId = insertAsset(live.db);
+      insertLocation(live.db, { assetId, libraryId: folderId, path: 'sub', filename });
+    }
+
+    expect((await call('trash-folder', 'sub')).status).toBe(200);
+    expect((await call('restore-folder')).status).toBe(400);
+    expect((await call('trash-folder', '.')).status).toBe(400);
+    for (const filename of names) {
+      await expect(stat(nodePath.join(folderPath, 'sub', filename))).rejects.toThrow();
+    }
+
+    const restored = await call('restore-folder', '.');
+    expect(restored.status).toBe(200);
+    expect(await restored.json()).toMatchObject({ total: 2, succeeded: 2, failed: 0 });
+    for (const filename of names) {
+      expect((await stat(nodePath.join(folderPath, 'sub', filename))).isFile()).toBe(true);
+      expect(
+        (await stat(nodePath.join(folderPath, 'sub', filename.replace('.jpg', '.xmp')))).isFile(),
+      ).toBe(true);
+    }
   });
 
   it('rejects a hostile X-Maple-Target-Path with 400, same as /mkdir and /move', async () => {

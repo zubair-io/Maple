@@ -1,19 +1,47 @@
 /** Scoped admission and canonical-path sequencing for sidecar writes (#4051). */
 import * as fs from 'node:fs/promises';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import * as path from 'node:path';
 import { resolveRealPath } from './root.ts';
+
+// A multi-name transaction may call helpers for names it already owns.
+// Never wait on another owner's keys while retaining this transaction's keys.
+const ownedKeys = new AsyncLocalStorage<{ keys: ReadonlySet<string>; active: boolean }>();
+function heldKeys(): ReadonlySet<string> | undefined {
+  const held = ownedKeys.getStore();
+  return held?.active ? held.keys : undefined;
+}
+async function withOwnedKeys<T>(keys: readonly string[], write: () => Promise<T>): Promise<T> {
+  const scope = { keys: new Set([...(heldKeys() ?? []), ...keys]), active: true };
+  try {
+    return await ownedKeys.run(scope, write);
+  } finally {
+    scope.active = false;
+  }
+}
 
 const pendingWrites = new Map<string, Promise<void>>();
 const inFlightKeys = new Map<string, Promise<string[]>>();
 const admissionTails = new Map<string, Promise<void>>();
 
+/** A route may bind a queued write to the primary and catalog location it read. */
+export type SidecarWriteScope =
+  | string
+  | {
+      directory: string;
+      validate(): Promise<void>;
+    };
+
 export interface SidecarWriteOrderOptions {
+  /** Reserve this photo's canonical sidecar alongside a named variant so
+   * purge/geo lifecycle fences also wait for variant publications. */
+  primarySidecar?: string;
   /**
    * Canonical library root used to keep slow destination checks from blocking
    * other libraries. Omitted scopes share one conservative lane because
    * lexical parent paths alone cannot distinguish symlink aliases.
    */
-  admissionScope?: string;
+  admissionScope?: SidecarWriteScope;
   /** Resolve and authorize the destination before invoking the write callback. */
   resolveDestination?: () => Promise<string>;
   /** Stop waiting for destination admission when its request is aborted. */
@@ -35,6 +63,9 @@ export function waitForAbortable<T>(promise: Promise<T>, signal?: AbortSignal): 
 }
 
 export class SidecarWritePathDeniedError extends Error {}
+
+/** A valid edit target changed while this request waited for publication. */
+export class SidecarWriteBindingChangedError extends SidecarWritePathDeniedError {}
 
 function isMissingPathError(error: unknown): boolean {
   return (
@@ -258,6 +289,14 @@ async function reserveActualDestinationKeys(
   return reserveAdditionalKeys(reservation, actualKeys);
 }
 
+async function validateWriteScope(
+  scope: SidecarWriteScope | undefined,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (typeof scope === 'object') await waitForAbortable(scope.validate(), signal);
+  signal?.throwIfAborted();
+}
+
 /**
  * One save barrier over several sidecars, reserving every name's keys at once.
  * Nesting `serializeSidecarWrite` calls instead would hold one key set while
@@ -267,22 +306,56 @@ async function reserveActualDestinationKeys(
 export async function serializeSidecarWrites<T>(
   destinations: readonly string[],
   write: () => Promise<T>,
+  options: SidecarWriteOrderOptions = {},
 ): Promise<T> {
   const admission = reserveAdmission('\0unscoped');
   let reservation: WriteReservation | undefined;
   try {
-    await admission.previous;
+    await waitForAbortable(admission.previous, options.signal);
     admission.acquired = true;
     const keySets = await Promise.all(
       destinations.map((destination) =>
         destinationKeys(destination, canonicalKeys(destination, false)),
       ),
     );
-    const registered = registerReservation([...new Set(keySets.flat())]);
+    const held = heldKeys();
+    const keys = [...new Set(keySets.flat())].filter((key) => !held?.has(key));
+    if (held && keys.some((key) => pendingWrites.has(key))) {
+      throw new SidecarWritePathDeniedError(
+        'Sidecar transaction encountered a busy new name; retry',
+      );
+    }
+    const registered = registerReservation(keys);
     reservation = registered.reservation;
     admission.release();
-    await registered.previousWrites;
-    return await write();
+    await waitForAbortable(registered.previousWrites, options.signal);
+    await validateWriteScope(options.admissionScope, options.signal);
+    return await withOwnedKeys(reservation.keys, write);
+  } finally {
+    if (options.signal?.aborted && !admission.acquired) admission.releaseAfterPrevious();
+    else admission.release();
+    if (reservation) releaseReservation(reservation, options.signal?.aborted === true);
+  }
+}
+
+/** Claim a newly chosen conflict name without waiting while holding source
+ * sidecars. A busy destination must be retried by the caller; waiting could
+ * deadlock with a multi-path relocate already queued behind the source. */
+export async function trySerializeSidecarWrite<T>(
+  destination: string,
+  write: () => Promise<T>,
+): Promise<{ acquired: false } | { acquired: true; value: T }> {
+  const admission = reserveAdmission('\0unscoped');
+  let reservation: WriteReservation | undefined;
+  try {
+    await admission.previous;
+    const keys = await destinationKeys(destination, canonicalKeys(destination, false));
+    const unheld = keys.filter((key) => !heldKeys()?.has(key));
+    if (unheld.some((key) => pendingWrites.has(key))) return { acquired: false };
+    const registered = registerReservation(unheld);
+    reservation = registered.reservation;
+    admission.release();
+    return { acquired: true, value: await withOwnedKeys(reservation.keys, write) };
   } finally {
     admission.release();
     if (reservation) releaseReservation(reservation, false);
@@ -294,13 +367,28 @@ export async function serializeSidecarWrite<T>(
   write: (resolvedDestination: string) => Promise<T>,
   options: SidecarWriteOrderOptions = {},
 ): Promise<T> {
+  if (heldKeys()) {
+    const resolved = await waitForAbortable(
+      Promise.resolve().then(() => options.resolveDestination?.() ?? destination),
+      options.signal,
+    );
+    return serializeSidecarWrites(
+      [destination, resolved],
+      () => write(path.resolve(resolved)),
+      options,
+    );
+  }
   // Keep admission ordered within a library, while reserving canonical path
   // keys before potentially slow authorization. This lets aliases queue in
   // arrival order without making unrelated libraries wait for path checks.
+  const scope =
+    typeof options.admissionScope === 'object'
+      ? options.admissionScope.directory
+      : options.admissionScope;
   const admissionScope =
-    options.admissionScope === undefined
+    scope === undefined
       ? '\0unscoped'
-      : path.resolve(options.admissionScope).normalize('NFC').toLowerCase().normalize('NFC');
+      : path.resolve(scope).normalize('NFC').toLowerCase().normalize('NFC');
   const admission = reserveAdmission(admissionScope);
   let canonicalKeyRequest: Promise<string[]> | undefined;
   let reservation: WriteReservation | undefined;
@@ -315,7 +403,15 @@ export async function serializeSidecarWrite<T>(
     canonicalKeyRequest = canonicalKeys(destination, options.resolveDestination !== undefined);
     void canonicalKeyRequest.catch(() => undefined);
     const reservedKeys = await waitForAbortable(
-      destinationKeys(destination, canonicalKeyRequest),
+      Promise.all([
+        destinationKeys(destination, canonicalKeyRequest),
+        options.primarySidecar
+          ? destinationKeys(
+              options.primarySidecar,
+              canonicalKeys(options.primarySidecar, options.resolveDestination !== undefined),
+            )
+          : Promise.resolve([]),
+      ]).then((keys) => [...new Set(keys.flat())]),
       options.signal,
     );
     const registered = registerReservation(reservedKeys);
@@ -334,6 +430,7 @@ export async function serializeSidecarWrite<T>(
     );
     reservation = actual.reservation;
     await waitForAbortable(actual.previousWrites, options.signal);
+    await validateWriteScope(options.admissionScope, options.signal);
     return await write(path.resolve(resolvedDestination));
   } finally {
     if (options.signal?.aborted && canonicalKeyRequest) {

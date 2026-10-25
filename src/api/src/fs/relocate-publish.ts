@@ -1,7 +1,11 @@
+import { errnoCode } from './errno-code';
+export { errnoCode } from './errno-code';
+import { syncCopiedFile, syncFileHandle } from './sync-file.ts';
+import { recordVerifiedPrimaryRollback } from './primary-replacement-admission';
 import { randomBytes } from 'node:crypto';
 import * as path from 'node:path';
 import * as fs from './mirrored.ts';
-import { filesIdentical } from '../backup/fs-util.ts';
+import { filesIdentical } from './file-bytes.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('fs/relocate-publish');
@@ -12,6 +16,9 @@ export interface RelocatePublication {
   path: string;
   dev: number;
   ino: number;
+  /** A Replace's displaced occupant, kept under a private name until the move
+   * commits (`releaseDisplaced`) or rolls back and restores it (#5072). */
+  displaced?: string;
 }
 
 /** Another writer holds the destination name; it is never replaced. */
@@ -25,11 +32,7 @@ export class PublishCollisionError extends Error {
   }
 }
 
-const LINK_UNSUPPORTED = new Set(['EXDEV', 'EPERM', 'EOPNOTSUPP', 'ENOTSUP', 'ENOSYS']);
-
-export function errnoCode(err: unknown): string | undefined {
-  return (err as NodeJS.ErrnoException | null)?.code;
-}
+export const LINK_UNSUPPORTED = new Set(['EXDEV', 'EPERM', 'EOPNOTSUPP', 'ENOTSUP', 'ENOSYS']);
 
 /** `.tmp.` in the basename keeps `mirrored.ts` from replicating the name. A
  * destination name too long for the suffix gets a short hidden sibling instead,
@@ -61,6 +64,7 @@ export async function copyVerifiedIntoPlace(
   const tmp = privateSiblingOf(destination);
   try {
     await fs.copyFile(src, tmp);
+    await syncCopiedFile(tmp);
     if (!(await filesIdentical(src, tmp))) {
       throw new Error(`relocate: copy verification failed: ${src} -> ${destination}`);
     }
@@ -74,8 +78,64 @@ export async function copyVerifiedIntoPlace(
 
 async function replaceWith(tmp: string, destination: string): Promise<RelocatePublication> {
   const identity = await fs.lstat(tmp);
-  await fs.rename(tmp, destination);
-  return { path: destination, dev: identity.dev, ino: identity.ino };
+  const displaced = await keepOccupant(destination);
+  await fs.rename(tmp, destination).catch(async (err: unknown) => {
+    if (displaced) await fs.unlink(displaced).catch(() => {});
+    throw err;
+  });
+  return {
+    path: destination,
+    dev: identity.dev,
+    ino: identity.ino,
+    ...(displaced ? { displaced } : {}),
+  };
+}
+
+/** A second name for the photo about to be replaced, so a rollback can put it
+ * back: a hard link, or a copy where links aren't supported. `null` when
+ * nothing is there to replace. */
+async function keepOccupant(destination: string): Promise<string | null> {
+  const kept = privateSiblingOf(destination);
+  try {
+    await fs.link(destination, kept);
+    return kept;
+  } catch (err) {
+    if (errnoCode(err) === 'ENOENT') return null;
+    if (!LINK_UNSUPPORTED.has(errnoCode(err) ?? '')) throw err;
+  }
+  await fs
+    .copyFile(destination, kept)
+    .then(() => syncCopiedFile(kept))
+    .catch(async (err: unknown) => {
+      await fs.unlink(kept).catch(() => {});
+      throw err;
+    });
+  return kept;
+}
+
+/** Take `file` off its name for the rest of the move: a rollback puts it back,
+ * a commit releases it. */
+export async function setAsideUntilCommit(
+  file: string,
+  publications: RelocatePublication[],
+): Promise<void> {
+  const aside = privateSiblingOf(file);
+  try {
+    await fs.rename(file, aside);
+  } catch (err) {
+    if (errnoCode(err) === 'ENOENT') return;
+    throw err;
+  }
+  publications.push({ path: file, dev: -1, ino: -1, displaced: aside });
+}
+
+/** The move committed: the displaced photos it kept are released. */
+export async function releaseDisplaced(
+  publications: readonly RelocatePublication[],
+): Promise<void> {
+  for (const { displaced } of publications) {
+    if (displaced) await fs.unlink(displaced).catch(() => {});
+  }
 }
 
 /** Publish the complete file at `tmp` under `destination` without ever
@@ -107,6 +167,9 @@ async function copyExclusive(source: string, destination: string): Promise<Reloc
   try {
     try {
       await streamInto(source, target);
+      // A temp the caller fsynced is a different file: flush the copy itself.
+      await syncFileHandle(target);
+      await target.chmod((await fs.stat(source)).mode & 0o777);
     } finally {
       await target.close();
     }
@@ -176,10 +239,11 @@ async function writeFully(target: fs.FileHandle, chunk: Buffer, position: number
   return chunk.length;
 }
 
-/** Withdraw every publication. Only an inode proven to be this relocation's
- * is ever removed. */
+/** Withdraw every publication, newest first so a file set aside comes back
+ * only once whatever replaced it is gone. Only an inode proven to be this
+ * relocation's is ever removed. */
 export async function revertCreated(publications: RelocatePublication[]): Promise<void> {
-  for (const publication of publications.splice(0)) await withdraw(publication);
+  for (const publication of publications.splice(0).reverse()) await withdraw(publication);
 }
 
 type Ownership = 'ours' | 'theirs' | 'unproven';
@@ -190,14 +254,31 @@ type Ownership = 'ours' | 'theirs' | 'unproven';
  * by that move is put back without replacing anything. */
 async function withdraw(publication: RelocatePublication): Promise<void> {
   const aside = await moveAside(publication.path);
-  if (!aside) return;
-  const identity = await fs.lstat(aside).catch(() => null);
-  const ownership: Ownership = !identity
-    ? 'unproven'
-    : samePublication(publication, identity)
-      ? 'ours'
-      : 'theirs';
-  await settleAside(aside, publication.path, ownership);
+  if (aside) {
+    const identity = await fs.lstat(aside).catch(() => null);
+    const ownership: Ownership = !identity
+      ? 'unproven'
+      : samePublication(publication, identity)
+        ? 'ours'
+        : 'theirs';
+    await settleAside(aside, publication.path, ownership);
+  }
+  if (publication.displaced) await restoreDisplaced(publication.displaced, publication.path);
+}
+
+/** Put the displaced photo back without replacing anything that took the name
+ * since; one that can't go back stays at its private name, logged. */
+async function restoreDisplaced(displaced: string, destination: string): Promise<void> {
+  try {
+    await publishExclusive(displaced, destination);
+    await recordVerifiedPrimaryRollback(destination);
+    await fs.unlink(displaced);
+  } catch (err) {
+    log.error(
+      { displaced, destination, err: err instanceof Error ? err.message : err },
+      'relocate rollback: a replaced file could not be put back — kept at its private name',
+    );
+  }
 }
 
 /** Same withdrawal when the inode is unknown: a random nonce written through

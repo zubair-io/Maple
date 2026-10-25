@@ -57,6 +57,7 @@ mod white_balance_sample;
 // Colour-range eyedropper for the mask panel (#362): same transport as the
 // white-balance sampler above, reads the pixel entering the local-adjustments
 // stage and returns a seeded `papp:Range*` quadruple.
+mod color_curve_sample;
 mod mask_range_sample;
 // BM3D deep-denoise progress bridge (#1153): the editor's determinate
 // indicator is fed by the stage's own per-row ticks, so raw-core's progress
@@ -129,6 +130,16 @@ mod render_develop;
 // of `render` per the 600-LOC file-size budget; `render::maple_render_file`
 // delegates its shared body here with `film_lut: None`.
 mod render_film;
+// `maple_histogram_{file,bytes}` + `bin_rgb888`, moved verbatim out of
+// `render` per the file-size budget (#5163).
+mod render_histogram;
+// Cold DefaultCrop dimensions from metadata alone (#5163) — the host's canvas
+// layout fallback for a RAW its own metadata reader cannot parse.
+mod raw_dimensions;
+// The shared display tail kept at f32 for a destination encoder (#5163).
+mod display_f32;
+#[cfg(test)]
+mod display_f32_tests;
 mod scene_linear;
 mod scene_linear_chain;
 // The C-visible vectorscope statistics block (#3272) — `MapleScopeStats` +
@@ -152,6 +163,9 @@ mod scene_linear_chain_curves;
 // warp for hosts that run the chain over the scene-linear FFI buffer.
 mod perspective_entry;
 mod scene_linear_chain_curves_target;
+// #3287: the whole frame's dehaze maps a native-detail window recovers with.
+mod scene_linear_chain_haze;
+pub use scene_linear_chain_haze::MapleHazeMap;
 // Multi-format developed export (#2584): the C-ABI shim over
 // raw_core::export (JPEG / 16-bit TIFF / PNG, ICC-tagged, long-edge cap).
 mod export_file;
@@ -195,6 +209,7 @@ pub use auto_adjustments::MapleAutoAdjustments;
 pub use auto_tone::MapleAutoTone;
 pub use buffers::{MapleImageBuffer, MapleSceneLinearBuffer};
 pub use cancel::MapleCancelFlag;
+pub use color_curve_sample::{maple_sample_color_curve_oriented, MapleColorCurveSample};
 // #1153: cbindgen needs visibility on the callback typedef; the
 // `#[no_mangle]` registration entry is exported regardless.
 pub use deep_denoise_progress::{maple_set_deep_denoise_progress, MapleDeepDenoiseProgressFn};
@@ -213,6 +228,12 @@ pub use workflow::{
 // integration tests the same way `maple_last_error` is below.
 pub use brush::maple_brush_rasterize;
 pub use mask_registry::{maple_mask_raster_register, maple_mask_raster_release};
+// #5163: cbindgen needs visibility on the f32 display buffer struct; the
+// entries are re-exported alongside it for Rust integration tests.
+pub use display_f32::{
+    maple_free_display_buffer_f32, maple_render_file_display_f32, MapleDisplayBufferF32,
+};
+pub use raw_dimensions::{maple_raw_dimensions_bytes, maple_raw_dimensions_file};
 pub use scene_linear_chain::MapleAdjustmentParams;
 // #3272: cbindgen needs visibility on the struct; ungated (the CPU fused
 // entry writes through it even without the `gpu` feature).
@@ -255,6 +276,8 @@ pub use raster_v2::{
 // under `src/` rather than scattering them in a `tests/` integration
 // directory (the FFI entries they exercise are crate-private through
 // `#[no_mangle]`, not `pub`, so integration-test access is awkward).
+#[cfg(test)]
+mod allocation_counter;
 #[cfg(test)]
 #[path = "auto_tone_tests.rs"]
 mod auto_tone_tests;
@@ -300,6 +323,8 @@ mod scene_linear_chain_patches_tests;
 #[cfg(test)]
 #[path = "scene_linear_chain_tests.rs"]
 mod scene_linear_chain_tests;
+#[cfg(test)]
+mod scene_linear_chain_window_target_tests;
 #[cfg(test)]
 mod scene_linear_sampling_tests;
 #[cfg(test)]

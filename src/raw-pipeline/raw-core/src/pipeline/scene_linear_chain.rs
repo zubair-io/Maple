@@ -105,6 +105,7 @@ pub fn apply_scene_linear_chain(
         decoded_temp,
         decoded_tint,
         wb_frame,
+        wb_hsm,
         skip_agx,
         target_primaries,
         noise_profile,
@@ -112,11 +113,13 @@ pub fn apply_scene_linear_chain(
         nr_sampling_scale,
         mask_long_edge,
         whites_anchor_ev,
+        haze_map,
+        creative,
     } = *opts;
     use crate::stages::{
-        clarity, color_grade, defringe, dehaze, display_tone_curve, grain, hsl, local_adjustments,
-        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
-        vignette, white_balance,
+        clarity, color_curves, color_grade, defringe, display_tone_curve, grain, hsl,
+        local_adjustments, noise_reduction, saturation, scene_tone_controls, sharpen, texture,
+        tone_curves, vibrance, vignette, white_balance,
     };
     use crate::view::agx;
 
@@ -167,21 +170,35 @@ pub fn apply_scene_linear_chain(
     // the SAME camera-calibration frame the develop chain reads the
     // sliders in — the frame-absent branch is the legacy generic CAT16
     // delta, bit-identical to pre-#1781.
-    stage("ffi_chain_white_balance", || match wb_frame {
-        Some(frame) if frame.is_present() => frame.apply_delta_rec2020(
-            &mut img,
-            (model.temperature, model.tint),
-            (decoded_temp, decoded_tint),
-        ),
-        _ => white_balance::apply_delta(
-            &mut img,
-            model.temperature,
-            model.tint,
-            decoded_temp,
-            decoded_tint,
-            model.wb_method,
-        ),
-    });
+    match creative {
+        Some(creative) => {
+            img = stage("ffi_chain_creative", || {
+                creative.render(
+                    img,
+                    crate::pipeline::capture_first::CaptureSpace::Basis,
+                    model,
+                    crate::pipeline::capture_first::Chain::Full,
+                )
+            })?
+            .0;
+        }
+        None => stage("ffi_chain_white_balance", || match wb_frame {
+            Some(frame) if frame.is_present() => frame.apply_delta_rec2020_with_hsm(
+                &mut img,
+                (model.temperature, model.tint),
+                (decoded_temp, decoded_tint),
+                wb_hsm,
+            ),
+            _ => white_balance::apply_delta(
+                &mut img,
+                model.temperature,
+                model.tint,
+                decoded_temp,
+                decoded_tint,
+                model.wb_method,
+            ),
+        }),
+    }
     // S/H detail mask anchored to the full frame (#2476).
     let sh_mask_anchor = mask_long_edge.unwrap_or_else(|| img.width.max(img.height)) as usize;
     stage("ffi_chain_scene_tone_controls", || {
@@ -200,13 +217,18 @@ pub fn apply_scene_linear_chain(
     // after saturation, before clarity. All-defaults is a bit-identical no-op
     // (the whole-stage short-circuit in hsl::apply guards this).
     stage("ffi_chain_hsl", || hsl::apply_model(&mut img, model));
+    stage("ffi_chain_color_curves", || {
+        color_curves::apply_model(&mut img, model)
+    });
     stage("ffi_chain_clarity", || {
         clarity::apply(&mut img, model.clarity)
     });
     stage("ffi_chain_texture", || {
         texture::apply(&mut img, model.texture)
     });
-    stage("ffi_chain_dehaze", || dehaze::apply(&mut img, model.dehaze));
+    stage("ffi_chain_dehaze", || {
+        crate::stages::dehaze::apply_whole_frame(&mut img, model.dehaze, haze_map)
+    });
     // Defringe (#3411) — develop's 12a position, between dehaze and local
     // adjustments. Both amounts at 0 (the default) is a bit-identical
     // no-op; the GPU live chain's `DefringePass` is gated on the same
@@ -391,10 +413,12 @@ pub fn apply_scene_linear_chain_f32_scoped(
 /// diverging.
 mod f32_chain;
 use f32_chain::apply_scene_linear_chain_f32_inner;
+mod haze;
+pub use haze::{scene_linear_chain_haze_map, scene_linear_chain_haze_map_cancellable};
 mod window;
 pub use window::{
     apply_scene_linear_chain_f32_windowed, apply_scene_linear_chain_f32_windowed_cancellable,
-    ChainWindow,
+    scene_linear_chain_window_reach_px, ChainWindow,
 };
 
 /// Patch-compositing wrappers ([`apply_scene_linear_chain_with_patches`],

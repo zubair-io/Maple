@@ -19,6 +19,10 @@
  * one such class no matter which module threw it.
  */
 
+import type { ObjectId } from '../db/object-id.ts';
+import { hasLivePrimaryRefreshToken } from '../db/repos/auth.device-sessions.repo.ts';
+import { verifyStepUpToken } from './tokens.ts';
+
 export { RefreshError } from './refresh-contract.ts';
 
 export {
@@ -29,3 +33,38 @@ export {
 } from '../db/repos/auth.refresh.repo.ts';
 
 export { listDeviceSessions, revokeDeviceSession } from '../db/repos/auth.device-sessions.repo.ts';
+
+/**
+ * Whether a caller has proven persistent-login authority (a live primary
+ * refresh token via cookie or request body) or fresh passkey step-up
+ * (`X-Step-Up` header) before minting a new refresh-token family (#4673).
+ *
+ * A short-lived 15-minute access JWT on its own cannot mint a 90-day refresh
+ * family via `/api/auth/native-code` or `/api/auth/lan-handoff`.
+ */
+export async function hasHandoffProof(
+  userId: ObjectId,
+  jwtSecret: string,
+  proof: {
+    cookie: { maple_refresh?: { value: unknown } };
+    body: { refresh_token?: string } | null;
+    headers: Record<string, string | undefined>;
+  },
+): Promise<boolean> {
+  if (typeof proof.headers['x-step-up'] === 'string' && proof.headers['x-step-up'].length > 0) {
+    try {
+      const claims = await verifyStepUpToken(proof.headers['x-step-up'], jwtSecret);
+      if (claims.sub === userId.toHexString()) return true;
+    } catch {
+      // Invalid or expired step-up token; fall through to check refresh proof.
+    }
+  }
+  // Each advertised proof channel stands on its own: stale browser cookies
+  // must not shadow a native client's valid explicit token (or vice versa).
+  const candidates = [proof.body?.refresh_token, proof.cookie.maple_refresh?.value];
+  for (const rawRefresh of new Set(candidates)) {
+    if (typeof rawRefresh !== 'string' || rawRefresh.length === 0) continue;
+    if (await hasLivePrimaryRefreshToken(userId, rawRefresh)) return true;
+  }
+  return false;
+}

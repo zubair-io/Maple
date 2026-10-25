@@ -1,5 +1,5 @@
 use raw_core::{
-    pipeline::{ExportDepth, ExportPixels, RawInput},
+    pipeline::{ExportDepth, RawInput},
     view::encode::TargetPrimaries,
 };
 use std::path::Path;
@@ -170,8 +170,7 @@ fn needs_develop(xml: &str) -> Result<bool, String> {
     if xml.is_empty() {
         return Ok(false);
     }
-    let model = crate::xmp::parse(xml)?;
-    Ok(model != raw_core::types::AdjustmentModel::default())
+    Ok(crate::xmp::parse(xml)?.has_render_adjustments())
 }
 
 #[cfg(test)]
@@ -197,10 +196,34 @@ mod tests {
 }
 
 pub fn export(path: &str, xml: &str, destination: &str) -> Result<(), String> {
-    if Path::new(destination).exists() {
-        return Err("Export destination already exists".into());
+    export_configured(path, xml, destination, "jpeg", 95, 0, false)
+}
+
+pub fn export_configured(
+    path: &str,
+    xml: &str,
+    destination: &str,
+    format: &str,
+    quality: u32,
+    edge: u32,
+    p3: bool,
+) -> Result<(), String> {
+    if !(1..=100).contains(&quality) {
+        return Err("Export quality must be 1–100".into());
     }
-    render_jpeg(path, xml, destination, None)
+    let options = raw_core::export::ExportOptions {
+        format: raw_core::export::ExportFormat::from_str(format)
+            .ok_or("Unsupported export format")?,
+        quality: quality as u8,
+        target: if p3 {
+            TargetPrimaries::P3
+        } else {
+            TargetPrimaries::Srgb
+        },
+        max_long_edge: (edge > 0).then_some(edge),
+    };
+    let bytes = render_export(path, xml, &options)?;
+    write_encoded(destination, &bytes, true)
 }
 
 fn render_jpeg(path: &str, xml: &str, destination: &str, edge: Option<u32>) -> Result<(), String> {
@@ -222,6 +245,24 @@ fn render_encoded(
     format: raw_core::export::ExportFormat,
     quality: u8,
 ) -> Result<(), String> {
+    let bytes = render_export(
+        path,
+        xml,
+        &raw_core::export::ExportOptions {
+            format,
+            quality,
+            target: TargetPrimaries::Srgb,
+            max_long_edge: edge,
+        },
+    )?;
+    write_encoded(destination, &bytes, edge.is_none())
+}
+
+fn render_export(
+    path: &str,
+    xml: &str,
+    options: &raw_core::export::ExportOptions,
+) -> Result<Vec<u8>, String> {
     let model = if xml.is_empty() {
         raw_core::types::AdjustmentModel::default()
     } else {
@@ -239,12 +280,7 @@ fn render_encoded(
             &raw,
             &model,
             Some(RawInput::Path(Path::new(path))),
-            &raw_core::export::ExportOptions {
-                format,
-                quality,
-                target: TargetPrimaries::Srgb,
-                max_long_edge: edge,
-            },
+            options,
             film.map(|f| f.0),
         )
         .map_err(|e| e.to_string())?
@@ -254,24 +290,26 @@ fn render_encoded(
         let (w, h, output) = raw_core::pipeline::render_export_raster(
             &input,
             &model,
-            edge,
-            TargetPrimaries::Srgb,
-            ExportDepth::Eight,
+            options.max_long_edge,
+            options.target,
+            if matches!(options.format, raw_core::export::ExportFormat::Tiff16) {
+                ExportDepth::Sixteen
+            } else {
+                ExportDepth::Eight
+            },
             film.map(|f| f.0),
         )
         .map_err(|e| e.to_string())?;
-        let ExportPixels::Eight(rgb) = output else {
-            return Err("Unexpected export depth".into());
-        };
-        raw_core::export::encode_raster(
-            &raw_core::raster::RasterImage::new_rgb(w, h, rgb),
-            format,
-            quality,
-        )
-        .map_err(|e| e.to_string())?
+        raw_core::export::encode_pixels(w, h, output, options)
+            .map_err(|e| e.to_string())?
+            .bytes
     };
+    Ok(bytes)
+}
+
+fn write_encoded(destination: &str, bytes: &[u8], exclusive: bool) -> Result<(), String> {
     use std::io::Write;
-    let mut file = if edge.is_some() {
+    let mut file = if !exclusive {
         std::fs::OpenOptions::new()
             .create(true)
             .truncate(true)
@@ -284,7 +322,7 @@ fn render_encoded(
             .open(destination)
     }
     .map_err(|e| e.to_string())?;
-    file.write_all(&bytes)
+    file.write_all(bytes)
         .and_then(|_| file.sync_all())
         .map_err(|e| e.to_string())
 }

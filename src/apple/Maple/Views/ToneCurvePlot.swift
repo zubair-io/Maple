@@ -46,6 +46,12 @@ struct ToneCurvePlot: View {
   let onEditingChanged: (Bool) -> Void
   let keyboardBridge: ToneCurveKeyboardBridge?
   let onKeyHandlerChanged: (((KeyPress) -> KeyPress.Result)?) -> Void
+  /// Optional active parametric region to shade behind the curve (#5039).
+  var activeRegion: ParametricRegion? = nil
+  var shadowSplit: Double = ToneCurveSplits.defaultShadow
+  var midtoneSplit: Double = ToneCurveSplits.defaultMidtone
+  var highlightSplit: Double = ToneCurveSplits.defaultHighlight
+  var onSelectedKnotChanged: ((Int?) -> Void)? = nil
 
   /// Knot hit radius, in authoring-domain units (≈ 8pt on a 220pt plot).
   private static let hitRadius = 0.05
@@ -53,6 +59,7 @@ struct ToneCurvePlot: View {
   private static let keyStep = 1.0 / 64.0
 
   @FocusState private var focusedKnot: Int?
+  @Environment(\.mapleLayout) private var layout
   #if os(iOS)
     @State private var knotResponders = ToneCurveKnotResponders()
   #endif
@@ -73,7 +80,7 @@ struct ToneCurvePlot: View {
     GeometryReader { geo in
       // Keep the endpoint glyph and its focus ring inside the inspector's clip.
       // Canvas drawing and pointer conversion share the same inner square.
-      let ringMargin: CGFloat = 10
+      let ringMargin: CGFloat = layout == .phone ? 6 : 10
       let size = max(0, min(geo.size.width, geo.size.height) - ringMargin * 2)
       ZStack {
         ZStack {
@@ -99,6 +106,10 @@ struct ToneCurvePlot: View {
       .frame(maxWidth: .infinity, alignment: .center)
     }
     .aspectRatio(1, contentMode: .fit)
+    .frame(
+      maxWidth: layout == .phone ? 176 : .infinity,
+      maxHeight: layout == .phone ? 176 : .infinity
+    )
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("editor-tone-curve-plot")
     .onChange(of: dragGestureActive) { old, new in
@@ -115,6 +126,7 @@ struct ToneCurvePlot: View {
     .onChange(of: channelName) { _, _ in
       insertedKnotFocus = nil
       focusedKnot = nil
+      onSelectedKnotChanged?(nil)
       #if os(iOS)
         knotResponders.resign()
       #endif
@@ -158,6 +170,19 @@ struct ToneCurvePlot: View {
   private func draw(context: GraphicsContext, size: CGSize) {
     let w = size.width
     let h = size.height
+
+    // Active parametric region window shading (#5039).
+    if let region = activeRegion {
+      ToneCurvePlotShading.drawActiveRegion(
+        context: context,
+        size: size,
+        region: region,
+        shadow: shadowSplit,
+        midtone: midtoneSplit,
+        highlight: highlightSplit,
+        tint: stroke
+      )
+    }
 
     // Quarter grid.
     var grid = Path()
@@ -251,6 +276,7 @@ struct ToneCurvePlot: View {
   }
 
   private func focusKnot(_ index: Int) {
+    onSelectedKnotChanged?(index)
     #if os(iOS)
       knotResponders.focus(index)
     #else

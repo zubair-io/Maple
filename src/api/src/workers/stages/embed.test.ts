@@ -150,6 +150,22 @@ describe('rearmForEmbedderTarget', () => {
     await rearmForEmbedderTarget({ ...target, model: 'other-model' });
     expect(stageRow(live.db, dead, 'embed')?.dead).toBe(0);
   });
+
+  it('revives dead-lettered assets when only the API key changes, recording just a digest', async () => {
+    using live = await createLiveTestDatabase();
+    const dead = seedClaimableAsset(live.db, {
+      stages: { embed: { version: 0, attempts: 3, dead: true } },
+    });
+    const keyed = { ...target, protocol: 'openai' as const, apiKey: 'sk-wrong' };
+    await rearmForEmbedderTarget(keyed);
+    live.db.run(`UPDATE stage_state SET dead = 1 WHERE asset_id = ? AND stage = 'embed'`, [dead]);
+
+    await rearmForEmbedderTarget({ ...keyed, apiKey: 'sk-right' });
+    expect(stageRow(live.db, dead, 'embed')?.dead).toBe(0);
+    const fingerprint = (await new WorkerConfigRepo().load('embed'))?.ai_model ?? '';
+    expect(fingerprint).toMatch(/^bge-m3 @ http:\/\/gpu:11434 key:[0-9a-f]{8}$/);
+    expect(fingerprint).not.toContain('sk-right');
+  });
 });
 
 describe('sweepEmbedderChange', () => {

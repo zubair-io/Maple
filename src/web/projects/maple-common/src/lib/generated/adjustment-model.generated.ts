@@ -288,6 +288,24 @@ export interface GeneratedAdjustmentModel {
   defringeGreenHueHi: number;
   /** Versioned LCP content reference (#2435), empty for embedded-only corrections. lcp1:<BLAKE3> requires an in-range match; lcp1-ack:<BLAKE3> records explicit acceptance of reported approximations. XMP key papp:LensProfile. Part of the decoded-image cache key. */
   lensProfile: string;
+  /** Colour-grading zone transition blending (#5040); 100 = full smooth ramp across [0, shadow_edge] and [highlight_edge, 1], 0 = crisp step near the edges. XMP: papp:ColorGradeBlending. Range: [0.0, 100.0]. */
+  colorGradeBlending: number;
+  /** Colour-grading shadow zone upper Oklab-L edge (#5040); defaults to MIDTONE_ANCHOR_L (cbrt(0.18) ≈ 0.564622). XMP: papp:ColorGradeShadowEdge. Range: [0.1, 0.564622]. */
+  colorGradeShadowEdge: number;
+  /** Colour-grading highlight zone lower Oklab-L edge (#5040); defaults to MIDTONE_ANCHOR_L (cbrt(0.18) ≈ 0.564622). XMP: papp:ColorGradeHighlightEdge. Range: [0.564622, 0.9]. */
+  colorGradeHighlightEdge: number;
+  /** Oklab Hue vs Hue secondary curve (#5041, `papp:ColorCurveHueVsHue`). Periodic over [0, 1); y = 0.5 is neutral (0 deg shift, full range +/-60 deg). Identity (empty) by default. */
+  colorCurveHueVsHue: ToneCurve;
+  /** Oklab Hue vs Sat secondary curve (#5041, `papp:ColorCurveHueVsSat`). Periodic over [0, 1); y = 0.5 is neutral (1x chroma, full range [0x, 2x]). Identity (empty) by default. */
+  colorCurveHueVsSat: ToneCurve;
+  /** Oklab Hue vs Luma secondary curve (#5041, `papp:ColorCurveHueVsLuma`). Periodic over [0, 1); y = 0.5 is neutral (1x L, full range [0.7x, 1.3x]). Identity (empty) by default. */
+  colorCurveHueVsLuma: ToneCurve;
+  /** Oklab Luma vs Sat secondary curve (#5041, `papp:ColorCurveLumaVsSat`). Scene-referred log-EV lightness axis; y = 0.5 is neutral (1x chroma, full range [0x, 2x]). Identity (empty) by default. */
+  colorCurveLumaVsSat: ToneCurve;
+  /** Oklab Sat vs Sat secondary curve (#5041, `papp:ColorCurveSatVsSat`). Normalized Oklab chroma axis (C / 0.32); y = 0.5 is neutral (1x chroma, full range [0x, 2x]). Identity (empty) by default. */
+  colorCurveSatVsSat: ToneCurve;
+  /** Oklab Sat vs Luma secondary curve (#5041, `papp:ColorCurveSatVsLuma`). Normalized Oklab chroma axis (C / 0.32); y = 0.5 is neutral (1x L, full range [0.7x, 1.3x]). Identity (empty) by default. */
+  colorCurveSatVsLuma: ToneCurve;
 }
 
 /** Canonical raw-core defaults, generated from `ADJUSTMENT_SCHEMA`. */
@@ -417,5 +435,40 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     defringeGreenHueLo: 40.0,
     defringeGreenHueHi: 60.0,
     lensProfile: '',
+    colorGradeBlending: 100.0,
+    colorGradeShadowEdge: 0.564622,
+    colorGradeHighlightEdge: 0.564622,
+    colorCurveHueVsHue: { points: [] },
+    colorCurveHueVsSat: { points: [] },
+    colorCurveHueVsLuma: { points: [] },
+    colorCurveLumaVsSat: { points: [] },
+    colorCurveSatVsSat: { points: [] },
+    colorCurveSatVsLuma: { points: [] },
   };
 }
+
+export const COLOR_CURVE_EDITOR = {
+  anchorSpread: 0.08,
+  minKnotGap: 0.015,
+  maxKnots: 16,
+  maxHueSlope: 2.5,
+} as const;
+export const COLOR_CURVE_CALIBRATION = {
+  quickHueAnchors: [
+    { id: 'red', label: 'Red', deg: 29, color: '#c4493a' },
+    { id: 'yellow', label: 'Yellow', deg: 110, color: '#e3d24a' },
+    { id: 'green', label: 'Green', deg: 142, color: '#3fae6a' },
+    { id: 'cyan', label: 'Cyan', deg: 195, color: '#45b6c4' },
+    { id: 'blue', label: 'Blue', deg: 264, color: '#3b6fb0' },
+    { id: 'magenta', label: 'Magenta', deg: 328, color: '#c64fb0' },
+  ],
+  skinToneGuardDeg: [38, 55, 72],
+} as const;
+
+export const PARAMETRIC_AXIS = {
+  midgrey: 0.18,
+  midtone: 50.0,
+  unitsPerStop: 12.5,
+  top: 105.92414,
+  referenceMax: 4.0,
+} as const;

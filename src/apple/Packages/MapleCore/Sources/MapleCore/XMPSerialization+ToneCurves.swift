@@ -39,51 +39,57 @@ import Foundation
 
 /// Shared wire-format constants and codecs for the point tone curves.
 enum ToneCurveXMP {
-    /// The eight curve parent elements, in canonical emit order: the four
-    /// scene-linear `papp:` curves (#365) followed by the four
-    /// display-referred `crs:` curves (#2232).
-    static let elements = [
-        "papp:SceneLinearToneCurve",
-        "papp:SceneLinearToneCurveRed",
-        "papp:SceneLinearToneCurveGreen",
-        "papp:SceneLinearToneCurveBlue",
-        "crs:ToneCurvePV2012",
-        "crs:ToneCurvePV2012Red",
-        "crs:ToneCurvePV2012Green",
-        "crs:ToneCurvePV2012Blue",
-    ]
+  /// The 14 curve parent elements, in canonical emit order: the four
+  /// scene-linear `papp:` curves (#365), the four display-referred
+  /// `crs:` curves (#2232), and the six Oklab secondary color curves (#5041).
+  static let elements = [
+    "papp:SceneLinearToneCurve",
+    "papp:SceneLinearToneCurveRed",
+    "papp:SceneLinearToneCurveGreen",
+    "papp:SceneLinearToneCurveBlue",
+    "crs:ToneCurvePV2012",
+    "crs:ToneCurvePV2012Red",
+    "crs:ToneCurvePV2012Green",
+    "crs:ToneCurvePV2012Blue",
+    "papp:ColorCurveHueVsHue",
+    "papp:ColorCurveHueVsSat",
+    "papp:ColorCurveHueVsLuma",
+    "papp:ColorCurveLumaVsSat",
+    "papp:ColorCurveSatVsSat",
+    "papp:ColorCurveSatVsLuma",
+  ]
 
-    /// PV2012's coordinate domain. Kept for familiarity and for
-    /// Lightroom-shaped tooling that inspects sidecars by eye.
-    static let wireScale = 255.0
+  /// PV2012's coordinate domain. Kept for familiarity and for
+  /// Lightroom-shaped tooling that inspects sidecars by eye.
+  static let wireScale = 255.0
 
-    /// True when `qual` is the `rdf:li` element regardless of the bound
-    /// prefix — a valid sidecar may bind the RDF namespace to any prefix, and
-    /// the Rust and TypeScript walkers match on the local name too.
-    static func isListItem(_ qual: String) -> Bool {
-        qual == "li" || qual.hasSuffix(":li")
-    }
+  /// True when `qual` is the `rdf:li` element regardless of the bound
+  /// prefix — a valid sidecar may bind the RDF namespace to any prefix, and
+  /// the Rust and TypeScript walkers match on the local name too.
+  static func isListItem(_ qual: String) -> Bool {
+    qual == "li" || qual.hasSuffix(":li")
+  }
 
-    /// Decode one `<rdf:li>x, y</rdf:li>` body into a `[0, 1]` control point.
-    /// Returns nil for anything that is not a finite numeric pair — a
-    /// malformed entry is dropped rather than failing the parse, matching how
-    /// the walker treats every other unrecognised construct.
-    static func parsePoint(_ text: String) -> ToneCurvePoint? {
-        let parts = text.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2,
-              let x = Double(parts[0].trimmingCharacters(in: .whitespacesAndNewlines)),
-              let y = Double(parts[1].trimmingCharacters(in: .whitespacesAndNewlines)),
-              x.isFinite, y.isFinite
-        else { return nil }
-        return (x: x / wireScale, y: y / wireScale)
-    }
+  /// Decode one `<rdf:li>x, y</rdf:li>` body into a `[0, 1]` control point.
+  /// Returns nil for anything that is not a finite numeric pair — a
+  /// malformed entry is dropped rather than failing the parse, matching how
+  /// the walker treats every other unrecognised construct.
+  static func parsePoint(_ text: String) -> ToneCurvePoint? {
+    let parts = text.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false)
+    guard parts.count == 2,
+      let x = Double(parts[0].trimmingCharacters(in: .whitespacesAndNewlines)),
+      let y = Double(parts[1].trimmingCharacters(in: .whitespacesAndNewlines)),
+      x.isFinite, y.isFinite
+    else { return nil }
+    return (x: x / wireScale, y: y / wireScale)
+  }
 
-    /// Format one `[0, 1]` coordinate back into the wire domain through the
-    /// canonical number codec (integers bare, non-integers at two decimals
-    /// with trailing zeros trimmed).
-    static func formatCoordinate(_ v: Double) -> String {
-        XMPSerializer.fmtNum(v * wireScale)
-    }
+  /// Format one `[0, 1]` coordinate back into the wire domain through the
+  /// canonical number codec (integers bare, non-integers at two decimals
+  /// with trailing zeros trimmed).
+  static func formatCoordinate(_ v: Double) -> String {
+    XMPSerializer.fmtNum(v * wireScale)
+  }
 }
 
 // MARK: - Parser walk
@@ -95,101 +101,110 @@ enum ToneCurveXMP {
 /// engine: four known parents, one known container, one known leaf. Anything
 /// else in the document is untouched.
 struct ToneCurveWalker {
-    /// Index into `ToneCurveXMP.elements` of the parent being read.
-    private var active: Int?
-    private var points: [ToneCurvePoint] = []
-    /// Accumulates `rdf:li` text — `XMLParser` may deliver a single leaf's
-    /// characters in several chunks.
-    private var listItemText: String?
+  /// Index into `ToneCurveXMP.elements` of the parent being read.
+  private var active: Int?
+  private var points: [ToneCurvePoint] = []
+  /// Accumulates `rdf:li` text — `XMLParser` may deliver a single leaf's
+  /// characters in several chunks.
+  private var listItemText: String?
 
-    /// Handle an element opening. Returns true when the element belongs to a
-    /// tone-curve subtree, in which case the caller skips its attribute walk
-    /// — these elements carry no Maple attributes.
-    mutating func start(_ qual: String) -> Bool {
-        if let index = ToneCurveXMP.elements.firstIndex(of: qual) {
-            active = index
-            points = []
-            listItemText = nil
-            return true
-        }
-        guard active != nil else { return false }
-        if ToneCurveXMP.isListItem(qual) {
-            listItemText = ""
-        }
-        // `rdf:Seq` (or any other wrapper) carries no value of its own.
-        return true
+  /// Handle an element opening. Returns true when the element belongs to a
+  /// tone-curve subtree, in which case the caller skips its attribute walk
+  /// — these elements carry no Maple attributes.
+  mutating func start(_ qual: String) -> Bool {
+    if let index = ToneCurveXMP.elements.firstIndex(of: qual) {
+      active = index
+      points = []
+      listItemText = nil
+      return true
     }
+    guard active != nil else { return false }
+    if ToneCurveXMP.isListItem(qual) {
+      listItemText = ""
+    }
+    // `rdf:Seq` (or any other wrapper) carries no value of its own.
+    return true
+  }
 
-    /// Accumulate text content while inside an `rdf:li`.
-    mutating func characters(_ chunk: String) {
-        guard listItemText != nil else { return }
-        listItemText! += chunk
-    }
+  /// Accumulate text content while inside an `rdf:li`.
+  mutating func characters(_ chunk: String) {
+    guard listItemText != nil else { return }
+    listItemText! += chunk
+  }
 
-    /// Handle an element closing, committing the finished curve onto `model`
-    /// when the parent element ends.
-    mutating func end(_ qual: String, into model: inout AdjustmentModel) {
-        guard let index = active else { return }
-        if ToneCurveXMP.isListItem(qual) {
-            if let text = listItemText, let point = ToneCurveXMP.parsePoint(text) {
-                points.append(point)
-            }
-            listItemText = nil
-            return
-        }
-        guard ToneCurveXMP.elements[index] == qual else { return }
-        let curve = ToneCurve(points: points)
-        switch index {
-        case 0: model.toneCurveLuma = curve
-        case 1: model.toneCurveRed = curve
-        case 2: model.toneCurveGreen = curve
-        case 3: model.toneCurveBlue = curve
-        case 4: model.displayToneCurveLuma = curve
-        case 5: model.displayToneCurveRed = curve
-        case 6: model.displayToneCurveGreen = curve
-        default: model.displayToneCurveBlue = curve
-        }
-        active = nil
-        points = []
-        listItemText = nil
+  /// Handle an element closing, committing the finished curve onto `model`
+  /// when the parent element ends.
+  mutating func end(_ qual: String, into model: inout AdjustmentModel) {
+    guard let index = active else { return }
+    if ToneCurveXMP.isListItem(qual) {
+      if let text = listItemText, let point = ToneCurveXMP.parsePoint(text) {
+        points.append(point)
+      }
+      listItemText = nil
+      return
     }
+    guard ToneCurveXMP.elements[index] == qual else { return }
+    let curve = ToneCurve(points: points)
+    switch index {
+    case 0: model.toneCurveLuma = curve
+    case 1: model.toneCurveRed = curve
+    case 2: model.toneCurveGreen = curve
+    case 3: model.toneCurveBlue = curve
+    case 4: model.displayToneCurveLuma = curve
+    case 5: model.displayToneCurveRed = curve
+    case 6: model.displayToneCurveGreen = curve
+    case 7: model.displayToneCurveBlue = curve
+    case 8: model.colorCurveHueVsHue = curve
+    case 9: model.colorCurveHueVsSat = curve
+    case 10: model.colorCurveHueVsLuma = curve
+    case 11: model.colorCurveLumaVsSat = curve
+    case 12: model.colorCurveSatVsSat = curve
+    default: model.colorCurveSatVsLuma = curve
+    }
+    active = nil
+    points = []
+    listItemText = nil
+  }
 }
 
 // MARK: - Serializer
 
 extension XMPSerializer {
-    /// Emit the nested tone-curve children for `model`, each line prefixed so
-    /// the parent element sits at `indent`.
-    ///
-    /// `indent` is a parameter because the three writers nest
-    /// `rdf:Description`'s children at different depths today; the block's
-    /// internal shape is identical everywhere, which is what the
-    /// cross-language parity tests pin.
-    ///
-    /// Returns the empty string when all eight curves (both families) are
-    /// identity, so an unedited model adds nothing to the document.
-    static func _buildToneCurvesBlock(model: AdjustmentModel, indent: String) -> String {
-        let curves = [
-            model.toneCurveLuma, model.toneCurveRed, model.toneCurveGreen, model.toneCurveBlue,
-            model.displayToneCurveLuma, model.displayToneCurveRed, model.displayToneCurveGreen,
-            model.displayToneCurveBlue,
-        ]
-        let blocks = zip(ToneCurveXMP.elements, curves).compactMap {
-            (element, curve) -> String? in
-            guard !curve.isIdentity else { return nil }
-            let items = curve.points.map { point in
-                let x = ToneCurveXMP.formatCoordinate(point.x)
-                let y = ToneCurveXMP.formatCoordinate(point.y)
-                return "\(indent)    <rdf:li>\(x), \(y)</rdf:li>"
-            }
-            return ([
-                "\(indent)<\(element)>",
-                "\(indent)  <rdf:Seq>",
-            ] + items + [
-                "\(indent)  </rdf:Seq>",
-                "\(indent)</\(element)>",
-            ]).joined(separator: "\n")
-        }
-        return blocks.joined(separator: "\n")
+  /// Emit the nested tone-curve children for `model`, each line prefixed so
+  /// the parent element sits at `indent`.
+  ///
+  /// `indent` is a parameter because the three writers nest
+  /// `rdf:Description`'s children at different depths today; the block's
+  /// internal shape is identical everywhere, which is what the
+  /// cross-language parity tests pin.
+  ///
+  /// Returns the empty string when all curves are
+  /// identity, so an unedited model adds nothing to the document.
+  static func _buildToneCurvesBlock(model: AdjustmentModel, indent: String) -> String {
+    let curves = [
+      model.toneCurveLuma, model.toneCurveRed, model.toneCurveGreen, model.toneCurveBlue,
+      model.displayToneCurveLuma, model.displayToneCurveRed, model.displayToneCurveGreen,
+      model.displayToneCurveBlue,
+      model.colorCurveHueVsHue, model.colorCurveHueVsSat, model.colorCurveHueVsLuma,
+      model.colorCurveLumaVsSat, model.colorCurveSatVsSat, model.colorCurveSatVsLuma,
+    ]
+    let blocks = zip(ToneCurveXMP.elements, curves).compactMap {
+      (element, curve) -> String? in
+      guard !curve.isIdentity else { return nil }
+      let items = curve.points.map { point in
+        let x = ToneCurveXMP.formatCoordinate(point.x)
+        let y = ToneCurveXMP.formatCoordinate(point.y)
+        return "\(indent)    <rdf:li>\(x), \(y)</rdf:li>"
+      }
+      return
+        ([
+          "\(indent)<\(element)>",
+          "\(indent)  <rdf:Seq>",
+        ] + items + [
+          "\(indent)  </rdf:Seq>",
+          "\(indent)</\(element)>",
+        ]).joined(separator: "\n")
     }
+    return blocks.joined(separator: "\n")
+  }
 }

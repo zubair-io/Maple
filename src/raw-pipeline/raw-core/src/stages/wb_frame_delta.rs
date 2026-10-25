@@ -81,7 +81,9 @@ use crate::{
     math::{Matrix3, Vec3},
 };
 
-use super::{camera_wb_gain, retargeted_render_profile, SliderFrame};
+use super::{
+    camera_wb_gain, retarget_render_cct, retargeted_render_profile, HsmRetargetView, SliderFrame,
+};
 // #2321: the as-shot tint estimator moved into the frame module (it is
 // what `SliderFrame::scene_tint` is built from); re-imported for the
 // estimator/render invariant tests in `wb_frame_delta_tests`, which keep
@@ -143,7 +145,7 @@ pub struct SliderFrameExport {
     pub render_wb_already_baked: f32,
     /// `profile.cm_endpoints.m_cold/cct_cold` — the render profile's OWN
     /// dual-illuminant CM pair (distinct from `m_cold`/`cct_cold` above,
-    /// which are the VALUE frame's). `render_cct_warm - render_cct_cold <
+    /// which are the VALUE frame's). `|render_cct_warm - render_cct_cold| <
     /// 1.0` ⇒ no render-profile endpoints (single-illuminant profile —
     /// `c_at` is then constant across every target/anchor, matching
     /// `retargeted_render_profile`'s own single-calibration short-circuit).
@@ -304,7 +306,7 @@ impl SliderFrameExport {
             .iter()
             .flatten()
             .all(|v| *v == 0.0);
-        let endpoints_present = self.render_cct_warm - self.render_cct_cold >= 1.0;
+        let endpoints_present = (self.render_cct_warm - self.render_cct_cold).abs() >= 1.0;
         fm_present || endpoints_present
     }
 
@@ -325,7 +327,7 @@ impl SliderFrameExport {
         let fm_cold_present = !self.render_fm_cold.0.iter().flatten().all(|v| *v == 0.0);
         let fm_warm_present = !self.render_fm_warm.0.iter().flatten().all(|v| *v == 0.0);
         let cm_endpoints =
-            (self.render_cct_warm - self.render_cct_cold >= 1.0).then(|| CmEndpoints {
+            ((self.render_cct_warm - self.render_cct_cold).abs() >= 1.0).then(|| CmEndpoints {
                 m_cold: self.render_cm_cold,
                 cct_cold: self.render_cct_cold,
                 m_warm: self.render_cm_warm,
@@ -344,6 +346,7 @@ impl SliderFrameExport {
             look_table: None,
             tone_curve: None,
             cm_endpoints,
+            hsm_endpoints: None,
         }
     }
 
@@ -407,6 +410,30 @@ impl SliderFrameExport {
             // Defensive: a singular calibration carries no usable frame —
             // behave exactly like the frame-absent legacy path.
             None => generic_cat16_delta(target, decoded),
+        }
+    }
+
+    /// The render profile's own CCT for a slider target, as a develop's
+    /// retarget reads it. `None` at the as-shot target or when the export
+    /// carries no render-profile calibration endpoints.
+    pub fn render_cct_at(&self, temperature: f32, tint: f32) -> Option<f32> {
+        let e = self.render_profile_shell().cm_endpoints?;
+        retarget_render_cct(&self.to_frame(), &e, temperature, tint)
+    }
+
+    /// [`Self::apply_delta_rec2020`] carrying the white-balance-retargeted
+    /// HueSatMap when the profile has one (#5099, `wb_hsm_retarget`).
+    pub fn apply_delta_rec2020_with_hsm(
+        &self,
+        img: &mut Image,
+        target: (f32, f32),
+        decoded: (f32, f32),
+        hsm: Option<HsmRetargetView<'_>>,
+    ) {
+        let delta = || self.rec2020_delta_matrix(target, decoded);
+        match hsm.and_then(|view| Some((view, view.live_delta(self, delta(), target, decoded)?))) {
+            Some((view, delta)) => view.apply_image(&delta, img),
+            None => self.apply_delta_rec2020(img, target, decoded),
         }
     }
 

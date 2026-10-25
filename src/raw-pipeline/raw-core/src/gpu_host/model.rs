@@ -30,7 +30,7 @@ fn to_gpu_rasters(
 
 #[derive(Default)]
 struct InputStorage {
-    curves: [Vec<(f32, f32)>; 8],
+    curves: [Vec<(f32, f32)>; 14],
     layers: Vec<f32>,
     rasters: Vec<raw_gpu::GpuMaskRaster>,
 }
@@ -129,7 +129,8 @@ fn build_with_storage(
         mut layers,
         rasters,
     } = storage;
-    let [luma, red, green, blue, display_luma, display_red, display_green, display_blue] = curves;
+    let [luma, red, green, blue, display_luma, display_red, display_green, display_blue, cc_hvh, cc_hvs, cc_hvl, cc_lvs, cc_svs, cc_svl] =
+        curves;
     crate::types::local_adjustment::flat::layers_to_flat_into(
         &model.local_adjustments,
         &mut layers,
@@ -152,6 +153,7 @@ fn build_with_storage(
         wb_matrix,
         wb_temperature: model.temperature,
         wb_tint: model.tint,
+        wb_hsm: None,
         tone: [
             model.exposure,
             model.brightness,
@@ -233,6 +235,9 @@ fn build_with_storage(
         color_grade_global_hue: model.color_grade_global_hue,
         color_grade_global_saturation: model.color_grade_global_saturation,
         color_grade_global_luminance: model.color_grade_global_luminance,
+        color_grade_blending: model.color_grade_blending,
+        color_grade_shadow_edge: model.color_grade_shadow_edge,
+        color_grade_highlight_edge: model.color_grade_highlight_edge,
         hsl_hue: [
             model.hue_adjustment_red,
             model.hue_adjustment_orange,
@@ -318,6 +323,14 @@ fn build_with_storage(
             green: reuse_points(display_green, &model.display_tone_curve_green.points),
             blue: reuse_points(display_blue, &model.display_tone_curve_blue.points),
         },
+        color_curves: raw_gpu::ColorCurveInputs {
+            hue_vs_hue: reuse_points(cc_hvh, &model.color_curve_hue_vs_hue.points).into(),
+            hue_vs_sat: reuse_points(cc_hvs, &model.color_curve_hue_vs_sat.points).into(),
+            hue_vs_luma: reuse_points(cc_hvl, &model.color_curve_hue_vs_luma.points).into(),
+            luma_vs_sat: reuse_points(cc_lvs, &model.color_curve_luma_vs_sat.points).into(),
+            sat_vs_sat: reuse_points(cc_svs, &model.color_curve_sat_vs_sat.points).into(),
+            sat_vs_luma: reuse_points(cc_svl, &model.color_curve_sat_vs_luma.points).into(),
+        },
     }
 }
 
@@ -352,6 +365,12 @@ pub fn update_chain_inputs(model: &AdjustmentModel, inputs: &mut FullChainInputs
                 std::mem::take(&mut inputs.display_tone_curves.red),
                 std::mem::take(&mut inputs.display_tone_curves.green),
                 std::mem::take(&mut inputs.display_tone_curves.blue),
+                std::mem::take(&mut inputs.color_curves.hue_vs_hue).into_owned(),
+                std::mem::take(&mut inputs.color_curves.hue_vs_sat).into_owned(),
+                std::mem::take(&mut inputs.color_curves.hue_vs_luma).into_owned(),
+                std::mem::take(&mut inputs.color_curves.luma_vs_sat).into_owned(),
+                std::mem::take(&mut inputs.color_curves.sat_vs_sat).into_owned(),
+                std::mem::take(&mut inputs.color_curves.sat_vs_luma).into_owned(),
             ],
             layers: std::mem::take(&mut inputs.local_adjustments),
             rasters: std::mem::take(&mut inputs.mask_rasters),

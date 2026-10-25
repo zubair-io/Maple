@@ -1,3 +1,5 @@
+import { parseSampleError } from './raw-pipeline.sample-error';
+
 // Mask colour-range eyedropper (#362) — worker request/response shapes.
 // Sibling of `raw-pipeline.sample-wb.types.ts`, same split reason: the
 // `WorkerRequest` / `WorkerResponse` unions live in a file already at its
@@ -53,10 +55,7 @@ export function parseRangeSampleError(raw: string): {
   kind: RangeSampleErrorKind;
   message: string;
 } {
-  const idx = raw.indexOf(': ');
-  const head = idx > 0 ? raw.slice(0, idx) : '';
-  const kind = KINDS.find((k) => k === head);
-  return kind ? { kind, message: raw.slice(idx + 2) } : { kind: 'develop', message: raw };
+  return parseSampleError(raw, KINDS, 'develop');
 }
 
 /** Error thrown to `RawPipelineService.sampleMaskRange` callers — carries
@@ -68,5 +67,48 @@ export class RangeSampleRejected extends Error {
   ) {
     super(message);
     this.name = 'RangeSampleRejected';
+  }
+}
+
+/** Main thread → worker: sample the Stage 22b Oklab color curve input (#5041). */
+export interface SampleColorCurveRequest {
+  id: number;
+  type: 'sample-color-curve';
+  bytes: ArrayBuffer;
+  ext: string;
+  xmp?: string;
+  nx: number;
+  ny: number;
+}
+
+export interface ColorCurveSampleResult {
+  uH: number;
+  uC: number;
+  uL: number;
+  l: number;
+  c: number;
+  hueDeg: number;
+}
+
+export interface SampleColorCurveSuccess {
+  id: number;
+  type: 'sample-color-curve-success';
+  sample: ColorCurveSampleResult;
+}
+
+export interface SampleColorCurveError {
+  id: number;
+  type: 'sample-color-curve-error';
+  kind: RangeSampleErrorKind;
+  message: string;
+}
+
+export class ColorCurveSampleRejected extends Error {
+  constructor(
+    readonly kind: RangeSampleErrorKind,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ColorCurveSampleRejected';
   }
 }

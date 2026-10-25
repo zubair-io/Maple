@@ -121,7 +121,8 @@ type PrimaryRenameResult =
  * `performCaseOnlyRename` to keep that function's own complexity down
  * (#2704 fallow-audit). */
 async function renamePrimaryAndSidecars(req: RelocateRequest): Promise<PrimaryRenameResult> {
-  const sourceSidecars = await listPairedSidecars(req.sourceAbsPath);
+  const sourceSidecars =
+    req.carrySidecars === false ? [] : await listPairedSidecars(req.sourceAbsPath);
   try {
     await fs.rename(req.sourceAbsPath, req.destAbsPath);
   } catch (err) {
@@ -219,6 +220,7 @@ export async function performCaseOnlyRename(req: RelocateRequest): Promise<Reloc
         newAbsPath: req.destAbsPath,
         sidecarPaths: renamed.renamedSidecars.map((s) => s.to),
         companionPaths: [],
+        companionSources: [],
       });
     } catch (err) {
       await revertCaseOnlyRename(req, renamed.renamedSidecars);

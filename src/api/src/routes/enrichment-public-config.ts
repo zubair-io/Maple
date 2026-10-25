@@ -23,6 +23,7 @@ const DEPRECATED_MEILISEARCH_FIELDS = {
 export async function toPublicConfig(resolved: ResolvedEnrichmentConfig) {
   const {
     ai_connections: _aiConnections,
+    embedder_api_key: _embedderApiKey,
     openai_api_key,
     anthropic_api_key,
     gemini_api_key,

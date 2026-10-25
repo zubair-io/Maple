@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -32,13 +33,16 @@ fun MuiIconButton(
     icon: ImageVector,
     enabled: Boolean = true,
     selected: Boolean? = null,
+    testTag: String? = null,
     onClick: () -> Unit,
 ) {
     val chosen = selected
+    var modifier = Modifier.size(44.dp).semantics { if (chosen != null) this.selected = chosen }
+    if (testTag != null) modifier = modifier.testTag(testTag)
     IconButton(
         onClick,
         enabled = enabled,
-        modifier = Modifier.size(44.dp).semantics { if (chosen != null) this.selected = chosen },
+        modifier = modifier,
     ) {
         Icon(
             icon,
@@ -81,6 +85,8 @@ fun PhotoThumbnail(
     modifier: Modifier = Modifier,
     fit: Boolean = false,
     revision: String? = null,
+    pick: Int? = null,
+    rating: Int? = null,
 ) {
     var image by
         remember(photo.key) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
@@ -132,6 +138,14 @@ fun PhotoThumbnail(
                 Modifier.size(16.dp),
                 strokeWidth = 1.dp,
                 color = MapleColors.muted,
+            )
+        val marksPick = pick
+        val marksRating = rating
+        if ((marksPick != null && marksPick != 0) || (marksRating != null && marksRating > 0))
+            CullingBadges(
+                marksPick ?: 0,
+                marksRating ?: 0,
+                Modifier.align(Alignment.BottomStart),
             )
     }
 }

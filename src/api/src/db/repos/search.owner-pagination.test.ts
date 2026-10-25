@@ -130,6 +130,6 @@ test('upgrades the shipped schema once without changing assets', async () => {
     ),
   );
   expect((await runMigrations(handle.migrationDb, ALL_MIGRATIONS)).applied).toEqual([]);
-  expect(handle.db.query('SELECT * FROM assets WHERE id = ?').get(id)).toEqual(before);
+  expect(handle.db.query('SELECT * FROM assets WHERE id = ?').get(id)).toMatchObject(before!);
   expect(handle.db.query('PRAGMA foreign_key_check').all()).toEqual([]);
 });

@@ -216,6 +216,7 @@ fn prefer(candidate: &ColorLut, observations: &[Observation], display: &[Observa
 struct Assessment {
     compatible: bool,
     native_bands_preserved: bool,
+    display_perceptual: f64,
 }
 
 fn assess(
@@ -277,6 +278,7 @@ fn assess_against(
         return Assessment {
             compatible: false,
             native_bands_preserved: true,
+            display_perceptual: f64::INFINITY,
         };
     }
     for row in display {
@@ -301,6 +303,7 @@ fn assess_against(
         return Assessment {
             compatible: false,
             native_bands_preserved: true,
+            display_perceptual: f64::INFINITY,
         };
     }
     let p95: Vec<f64> = tails
@@ -361,6 +364,7 @@ fn assess_against(
     Assessment {
         compatible,
         native_bands_preserved,
+        display_perceptual: perceptual[0],
     }
 }
 

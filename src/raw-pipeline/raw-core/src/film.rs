@@ -72,7 +72,10 @@ pub enum MlutError {
 /// untrusted bytes and returns a `Result`, this asserts fail-fast rather
 /// than silently emitting a malformed `.mlut` payload.
 pub fn encode_mlut(size: usize, data: &[f32]) -> Vec<u8> {
-    assert!(size >= 2, "encode_mlut: size {size} is degenerate (minimum is 2)");
+    assert!(
+        size >= 2,
+        "encode_mlut: size {size} is degenerate (minimum is 2)"
+    );
     assert!(
         size <= u16::MAX as usize,
         "encode_mlut: size {size} overflows the u16 grid-size header field"
@@ -304,7 +307,9 @@ mod tests {
         // Off-node point on identity lattice must reproduce the input.
         let out = tetra_sample(n, &data, [0.3, 0.7, 0.1]);
         assert!(
-            (out[0] - 0.3).abs() < 1e-6 && (out[1] - 0.7).abs() < 1e-6 && (out[2] - 0.1).abs() < 1e-6
+            (out[0] - 0.3).abs() < 1e-6
+                && (out[1] - 0.7).abs() < 1e-6
+                && (out[2] - 0.1).abs() < 1e-6
         );
     }
 }

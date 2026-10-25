@@ -14,6 +14,17 @@ use raw_core::pipeline::{
 use raw_core::view::auto_profile::cache::CacheKey as AutoCacheKey;
 use std::ffi::{c_char, CStr};
 
+/// Same wire enum as `maple_render_file` (`render.rs`); the fit must develop at
+/// the quality the host decoded at, so AMaZE/Auto never collapse to Preview (#5158).
+pub(crate) fn quality_from_wire(value: i32) -> RenderQuality {
+    match value {
+        1 => RenderQuality::Preview,
+        2 => RenderQuality::Amaze,
+        3 => RenderQuality::Auto,
+        _ => RenderQuality::Full,
+    }
+}
+
 /// Bake a fitted Auto Profile curve into a display-space `n³` 3D LUT (#817)
 /// and write it as `n * n * n * 3` f32 values into `out`.
 ///
@@ -124,8 +135,9 @@ pub unsafe extern "C" fn maple_compute_profile_lut(
 ///
 /// `quality_preview` mirrors `maple_render_file`: `0` = `RenderQuality::Full`
 /// (matches the parity harness / `maple-cli render`), `1` = `Preview`
-/// (half-res develop). Pass the same value the host's scene-linear decode
-/// used so the fitted curve matches the buffer being displayed.
+/// (half-res develop), `2` = AMaZE, `3` = Auto demosaic. Pass the same value
+/// the host's scene-linear decode used so the fitted curve matches the buffer
+/// being displayed.
 ///
 /// `out` must point to at least `PROFILE_CURVE_FLAT_LEN` writable f32. On
 /// success the full flat curve is written and `0` is returned.
@@ -212,11 +224,7 @@ pub unsafe extern "C" fn maple_compute_profile_curve(
                     return 7;
                 }
             };
-        let quality = if quality_preview != 0 {
-            RenderQuality::Preview
-        } else {
-            RenderQuality::Full
-        };
+        let quality = quality_from_wire(quality_preview);
         match fit_profile_curve_from_raw(&raw_img, &model, quality, RawInput::Path(raw_path)) {
             Some(curve) => {
                 let flat = curve.to_flat();
@@ -272,7 +280,8 @@ pub unsafe extern "C" fn maple_compute_profile_curve(
 /// must NOT fall back to plain AgX, which would render darker than Neutral).
 ///
 /// `quality_preview`: `0` = `Full` (matches the parity harness / `maple-cli`),
-/// `1` = `Preview` (half-res develop). Pass the value the host's decode used.
+/// `1` = `Preview` (half-res develop), `2` = AMaZE, `3` = Auto demosaic. Pass
+/// the value the host's decode used.
 ///
 /// This is a **per-image, one-shot** call (JPEG extract + full develop + fit +
 /// bake, orders of magnitude over the slider-tick budget). Both fits are cached
@@ -366,11 +375,7 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
         if model.profile != raw_core::xmp::Profile::Auto {
             return 1;
         }
-        let quality = if quality_preview != 0 {
-            RenderQuality::Preview
-        } else {
-            RenderQuality::Full
-        };
+        let quality = quality_from_wire(quality_preview);
         // #2035: cache-only probe BEFORE any file I/O — when the shared fit
         // LRUs already hold BOTH artifacts for `(path, mtime, quality)`, the
         // bake below needs nothing from the file, so the full-file read and
@@ -487,3 +492,7 @@ fn decode_auto_lut_cached(
 #[cfg(test)]
 #[path = "auto_profile_tests.rs"]
 mod auto_profile_tests;
+
+#[cfg(test)]
+#[path = "auto_profile_quality_tests.rs"]
+mod auto_profile_quality_tests;

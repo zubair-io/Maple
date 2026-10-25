@@ -7,7 +7,7 @@ namespace Maple.WinUI.Native
     /// C-ABI mirror of raw-ffi's MapleAdjustmentParams (scene_linear_chain.rs).
     /// Field order matches the Rust declaration byte-for-byte; fields are only
     /// ever appended at the tail (offset-stable ABI convention). Expected size
-    /// on x64: 712 bytes — asserted at startup by RawFfi.VerifyAbi().
+    /// on x64: 744 bytes — asserted at startup by RawFfi.VerifyAbi().
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct MapleAdjustmentParams
@@ -127,6 +127,15 @@ namespace Maple.WinUI.Native
         public float nr_sampling_scale;
         /// <summary>#4738: 0 = CAT16 (default), 1 = diagonal Rec.2020 gains.</summary>
         public uint wb_method;
+        public float color_grade_blending;
+        public float color_grade_shadow_edge;
+        public float color_grade_highlight_edge;
+        // Retargeted HueSatMap (#5099): the decode's wb_hsm_data/wb_hsm_len,
+        // passed back verbatim (process-lifetime, no pinning needed).
+        public float* wb_hsm_ptr;
+        public nuint wb_hsm_len;
+        public float wb_hsm_as_shot_cct;
+        public float wb_hsm_exposure_gain;
 
         /// <summary>
         /// Build params from the canonical model, mirroring the Swift reference
@@ -214,6 +223,9 @@ namespace Maple.WinUI.Native
                 color_grade_global_hue = (float)m.ColorGradeGlobalHue,
                 color_grade_global_saturation = (float)m.ColorGradeGlobalSaturation,
                 color_grade_global_luminance = (float)m.ColorGradeGlobalLuminance,
+                color_grade_blending = (float)m.ColorGradeBlending,
+                color_grade_shadow_edge = (float)m.ColorGradeShadowEdge,
+                color_grade_highlight_edge = (float)m.ColorGradeHighlightEdge,
                 sharpen_amount = (float)m.SharpenAmount,
                 sharpen_radius = (float)m.SharpenRadius,
                 sharpen_detail = (float)m.SharpenDetail,

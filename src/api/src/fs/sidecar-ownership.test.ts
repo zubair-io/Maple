@@ -18,10 +18,9 @@ import {
   assetDestinationOccupied,
   sameSidecarFile,
   joinCarriedSidecar,
-  readSidecarBytes,
   SidecarCollisionError,
-  SidecarNotRegularFileError,
 } from './sidecar-ownership.ts';
+import { readSidecarBytes, SidecarNotRegularFileError } from './sidecar-bytes.ts';
 
 let root: string;
 

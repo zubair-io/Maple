@@ -19,6 +19,10 @@
 		A1F0000100000000000000A1 /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1F0000200000000000000A1 /* MapleCore */; };
 		A1F0000300000000000000A1 /* RawPipeline.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1F0000400000000000000A1 /* RawPipeline.xcframework */; };
 		A1F0002400000000000000A1 /* film-luts in Resources */ = {isa = PBXBuildFile; fileRef = A1F0002300000000000000A1 /* film-luts */; };
+		AB3617000000000000000001 /* MapleWatch in Frameworks */ = {isa = PBXBuildFile; productRef = AB3617000000000000000002 /* MapleWatch */; };
+		AB3617000000000000000004 /* Packages/MapleWatch/Tests/MapleWatchTests/WatchSessionEndingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB3617000000000000000005 /* Packages/MapleWatch/Tests/MapleWatchTests/WatchSessionEndingTests.swift */; };
+		AB3617000000000000000006 /* Packages/MapleWatch/Tests/MapleWatchTests/WatchPhotoPageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB3617000000000000000007 /* Packages/MapleWatch/Tests/MapleWatchTests/WatchPhotoPageTests.swift */; };
+		AB3617000000000000000008 /* Packages/MapleWatch/Tests/MapleWatchTests/WatchImageStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB3617000000000000000009 /* Packages/MapleWatch/Tests/MapleWatchTests/WatchImageStoreTests.swift */; };
 		B1D0000100000000000000B1 /* MapleWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D0002100000000000000B1 /* MapleWidgetBundle.swift */; };
 		B1D0000200000000000000B1 /* GeneratedSearchProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D0002200000000000000B1 /* GeneratedSearchProvider.swift */; };
 		B1D0000300000000000000B1 /* GeneratedSearchWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D0002300000000000000B1 /* GeneratedSearchWidget.swift */; };
@@ -32,6 +36,7 @@
 		CD96B6E04439562F54AD13B8 /* MapleQuickLook.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 443236A672080511BD1FC170 /* MapleQuickLook.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CF1A2B3D4E5F6A7B8C9D0E1F /* RawPipeline.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1F0000400000000000000A1 /* RawPipeline.xcframework */; };
 		D681B5B31AAF3A2CEA529EAE /* MapleFileProviderIOS.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 521B6F9B85049DBA00FD7C56 /* MapleFileProviderIOS.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		E304FFF230574D2B00BC83EA /* Maple Watch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = E304FFD230574D2A00BC83EA /* Maple Watch Watch App.app */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E31E79CB300C6BD900617367 /* MapleCloudKit in Frameworks */ = {isa = PBXBuildFile; productRef = E31E79CA300C6BD900617367 /* MapleCloudKit */; };
 		E3DD948B2FB50EB9009392B4 /* MapleCore in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948A2FB50EB9009392B4 /* MapleCore */; };
 		E3DD948E2FB51A67009392B4 /* MapleBackup in Frameworks */ = {isa = PBXBuildFile; productRef = E3DD948D2FB51A67009392B4 /* MapleBackup */; };
@@ -45,13 +50,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		A4718000000000000000A1D2 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = A1F0001A00000000000000A1 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = E3DD94822FB50E55009392B4;
-			remoteInfo = MapleBackupAgent;
-		};
 		6C0BF6B7E85D714F2FFABA55 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A1F0001A00000000000000A1 /* Project object */;
@@ -66,6 +64,13 @@
 			remoteGlobalIDString = A1F0001000000000000000A1;
 			remoteInfo = Maple;
 		};
+		A4718000000000000000A1D2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1F0001A00000000000000A1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E3DD94822FB50E55009392B4;
+			remoteInfo = MapleBackupAgent;
+		};
 		B1D0006000000000000000B1 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A1F0001A00000000000000A1 /* Project object */;
@@ -79,6 +84,27 @@
 			proxyType = 1;
 			remoteGlobalIDString = FBF9A9CA395B79B5F88F2B88;
 			remoteInfo = MapleFileProvider;
+		};
+		E304FFDF30574D2B00BC83EA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1F0001A00000000000000A1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E304FFD130574D2A00BC83EA;
+			remoteInfo = "Maple Watch Watch App";
+		};
+		E304FFE930574D2B00BC83EA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1F0001A00000000000000A1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E304FFD130574D2A00BC83EA;
+			remoteInfo = "Maple Watch Watch App";
+		};
+		E304FFF030574D2B00BC83EA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1F0001A00000000000000A1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E304FFD130574D2A00BC83EA;
+			remoteInfo = "Maple Watch Watch App";
 		};
 		E378533E2F9AC54F00BDF307 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -116,6 +142,17 @@
 				D681B5B31AAF3A2CEA529EAE /* MapleFileProviderIOS.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E304FFF330574D2B00BC83EA /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				E304FFF230574D2B00BC83EA /* Maple Watch Watch App.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		E3DD94812FB50E55009392B4 /* CopyFiles */ = {
@@ -156,6 +193,9 @@
 		A1F0002300000000000000A1 /* film-luts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "film-luts"; path = "../../resources/film-luts"; sourceTree = "<group>"; };
 		A1F0006000000000000000A1 /* MapleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MapleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A8BB8561B7CB78D59F7D1DDC /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AB3617000000000000000005 /* Packages/MapleWatch/Tests/MapleWatchTests/WatchSessionEndingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/MapleWatch/Tests/MapleWatchTests/WatchSessionEndingTests.swift; sourceTree = SOURCE_ROOT; };
+		AB3617000000000000000007 /* Packages/MapleWatch/Tests/MapleWatchTests/WatchPhotoPageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/MapleWatch/Tests/MapleWatchTests/WatchPhotoPageTests.swift; sourceTree = SOURCE_ROOT; };
+		AB3617000000000000000009 /* Packages/MapleWatch/Tests/MapleWatchTests/WatchImageStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/MapleWatch/Tests/MapleWatchTests/WatchImageStoreTests.swift; sourceTree = SOURCE_ROOT; };
 		B1D0002100000000000000B1 /* MapleWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapleWidgetBundle.swift; sourceTree = "<group>"; };
 		B1D0002200000000000000B1 /* GeneratedSearchProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneratedSearchProvider.swift; sourceTree = "<group>"; };
 		B1D0002300000000000000B1 /* GeneratedSearchWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneratedSearchWidget.swift; sourceTree = "<group>"; };
@@ -167,6 +207,9 @@
 		BA39B6A9245FA00D972845C6 /* MapleFileProvider.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = MapleFileProvider.entitlements; sourceTree = "<group>"; };
 		C311E84456147F8B58D53877 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D297F45123C9B9F4FF4AC24F /* MapleQuickLook.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = MapleQuickLook.entitlements; sourceTree = "<group>"; };
+		E304FFD230574D2A00BC83EA /* Maple Watch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Maple Watch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		E304FFDE30574D2B00BC83EA /* Maple Watch Watch AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Maple Watch Watch AppTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		E304FFE830574D2B00BC83EA /* Maple Watch Watch AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Maple Watch Watch AppUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E31E79A1300C6A7D00617367 /* Maple TV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Maple TV.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E3A022FD8D059C9A3053CC6A /* FileProviderExtensionIOS.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileProviderExtensionIOS.swift; sourceTree = "<group>"; };
 		E3DD94832FB50E55009392B4 /* MapleBackupAgent */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MapleBackupAgent; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -178,10 +221,19 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		A40680000000000000000001 /* Exceptions for Maple TV Info */ = {
+		A40680000000000000000001 /* Exceptions for "Maple TV" folder in "Maple TV" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = ("MapleTV-Info.plist", );
+			membershipExceptions = (
+				"MapleTV-Info.plist",
+			);
 			target = E31E79A0300C6A7D00617367 /* Maple TV */;
+		};
+		A40680000000000000000002 /* Exceptions for "Maple Watch Watch App" folder in "Maple Watch Watch App" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"MapleWatch-Info.plist",
+			);
+			target = E304FFD130574D2A00BC83EA /* Maple Watch Watch App */;
 		};
 		E3EC0CF03047DFFD006325AD /* Exceptions for "MapleTopShelf" folder in "MapleTopShelf" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -200,6 +252,9 @@
 		};
 		A1F0006100000000000000A1 /* MapleUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFolders = (
+				Goldens,
+			);
 			path = MapleUITests;
 			sourceTree = "<group>";
 		};
@@ -208,9 +263,29 @@
 			path = MapleTests;
 			sourceTree = "<group>";
 		};
+		E304FFD330574D2A00BC83EA /* Maple Watch Watch App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A40680000000000000000002 /* Exceptions for "Maple Watch Watch App" folder in "Maple Watch Watch App" target */,
+			);
+			path = "Maple Watch Watch App";
+			sourceTree = "<group>";
+		};
+		E304FFE130574D2B00BC83EA /* Maple Watch Watch AppTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Maple Watch Watch AppTests";
+			sourceTree = "<group>";
+		};
+		E304FFEB30574D2B00BC83EA /* Maple Watch Watch AppUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Maple Watch Watch AppUITests";
+			sourceTree = "<group>";
+		};
 		E31E79A2300C6A7D00617367 /* Maple TV */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (A40680000000000000000001 /* Exceptions for Maple TV Info */, );
+			exceptions = (
+				A40680000000000000000001 /* Exceptions for "Maple TV" folder in "Maple TV" target */,
+			);
 			path = "Maple TV";
 			sourceTree = "<group>";
 		};
@@ -293,6 +368,28 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E304FFCF30574D2A00BC83EA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AB3617000000000000000001 /* MapleWatch in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E304FFDB30574D2B00BC83EA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E304FFE530574D2B00BC83EA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E31E799E300C6A7D00617367 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -364,6 +461,9 @@
 				E3DD94842FB50E55009392B4 /* MapleBackupAgent */,
 				E31E79A2300C6A7D00617367 /* Maple TV */,
 				E3EC0CE63047DFFD006325AD /* MapleTopShelf */,
+				E304FFD330574D2A00BC83EA /* Maple Watch Watch App */,
+				E304FFE130574D2B00BC83EA /* Maple Watch Watch AppTests */,
+				E304FFEB30574D2B00BC83EA /* Maple Watch Watch AppUITests */,
 				A1F0000E00000000000000A1 /* Frameworks */,
 				A1F0000F00000000000000A1 /* Products */,
 				E3FF1B052F9D8CE600FD7E5E /* Recovered References */,
@@ -410,6 +510,9 @@
 				521B6F9B85049DBA00FD7C56 /* MapleFileProviderIOS.appex */,
 				E31E79A1300C6A7D00617367 /* Maple TV.app */,
 				E3EC0CE33047DFFD006325AD /* MapleTopShelf.appex */,
+				E304FFD230574D2A00BC83EA /* Maple Watch Watch App.app */,
+				E304FFDE30574D2B00BC83EA /* Maple Watch Watch AppTests.xctest */,
+				E304FFE830574D2B00BC83EA /* Maple Watch Watch AppUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -444,6 +547,9 @@
 				A1F0006B00000000000000A1 /* MapleTests */,
 				A1F0006100000000000000A1 /* MapleUITests */,
 				A11A00020000000000000905 /* Maple/Backup/PhotoKitAssetReader.swift */,
+				AB3617000000000000000005 /* Packages/MapleWatch/Tests/MapleWatchTests/WatchSessionEndingTests.swift */,
+				AB3617000000000000000007 /* Packages/MapleWatch/Tests/MapleWatchTests/WatchPhotoPageTests.swift */,
+				AB3617000000000000000009 /* Packages/MapleWatch/Tests/MapleWatchTests/WatchImageStoreTests.swift */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -501,6 +607,7 @@
 				A1F0000A00000000000000A1 /* Frameworks */,
 				A1F0001300000000000000A1 /* Resources */,
 				BAD237F2A91BD12FDAF04E36 /* Embed Foundation Extensions */,
+				E304FFF330574D2B00BC83EA /* Embed Watch Content */,
 				A4718000000000000000A1E1 /* Embed backup agent (macOS) / declare background tasks (iOS) */,
 				A1F0005200000000000000A1 /* Stamp build provenance */,
 			);
@@ -512,6 +619,7 @@
 				F036300CB260BA8DAC101057 /* PBXTargetDependency */,
 				B1D0006100000000000000B1 /* PBXTargetDependency */,
 				A4718000000000000000A1D1 /* PBXTargetDependency */,
+				E304FFF130574D2B00BC83EA /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A1F0000900000000000000A1 /* Maple */,
@@ -587,6 +695,75 @@
 			productName = MapleWidget;
 			productReference = B1D0003000000000000000B1 /* MapleWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		E304FFD130574D2A00BC83EA /* Maple Watch Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E304FFFA30574D2B00BC83EA /* Build configuration list for PBXNativeTarget "Maple Watch Watch App" */;
+			buildPhases = (
+				E304FFCE30574D2A00BC83EA /* Sources */,
+				E304FFCF30574D2A00BC83EA /* Frameworks */,
+				E304FFD030574D2A00BC83EA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				E304FFD330574D2A00BC83EA /* Maple Watch Watch App */,
+			);
+			name = "Maple Watch Watch App";
+			packageProductDependencies = (
+				AB3617000000000000000002 /* MapleWatch */,
+			);
+			productName = "Maple Watch Watch App";
+			productReference = E304FFD230574D2A00BC83EA /* Maple Watch Watch App.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E304FFDD30574D2B00BC83EA /* Maple Watch Watch AppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E304FFFB30574D2B00BC83EA /* Build configuration list for PBXNativeTarget "Maple Watch Watch AppTests" */;
+			buildPhases = (
+				E304FFDA30574D2B00BC83EA /* Sources */,
+				E304FFDB30574D2B00BC83EA /* Frameworks */,
+				E304FFDC30574D2B00BC83EA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E304FFE030574D2B00BC83EA /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				E304FFE130574D2B00BC83EA /* Maple Watch Watch AppTests */,
+			);
+			name = "Maple Watch Watch AppTests";
+			packageProductDependencies = (
+			);
+			productName = "Maple Watch Watch AppTests";
+			productReference = E304FFDE30574D2B00BC83EA /* Maple Watch Watch AppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		E304FFE730574D2B00BC83EA /* Maple Watch Watch AppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E304FFFC30574D2B00BC83EA /* Build configuration list for PBXNativeTarget "Maple Watch Watch AppUITests" */;
+			buildPhases = (
+				E304FFE430574D2B00BC83EA /* Sources */,
+				E304FFE530574D2B00BC83EA /* Frameworks */,
+				E304FFE630574D2B00BC83EA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				E304FFEA30574D2B00BC83EA /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				E304FFEB30574D2B00BC83EA /* Maple Watch Watch AppUITests */,
+			);
+			name = "Maple Watch Watch AppUITests";
+			packageProductDependencies = (
+			);
+			productName = "Maple Watch Watch AppUITests";
+			productReference = E304FFE830574D2B00BC83EA /* Maple Watch Watch AppUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		E31E79A0300C6A7D00617367 /* Maple TV */ = {
 			isa = PBXNativeTarget;
@@ -688,7 +865,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2640;
-				LastUpgradeCheck = 2640;
+				LastUpgradeCheck = 2710;
 				TargetAttributes = {
 					A1F0001000000000000000A1 = {
 						CreatedOnToolsVersion = 16.0;
@@ -700,6 +877,17 @@
 					A1F0006500000000000000A1 = {
 						CreatedOnToolsVersion = 16.0;
 						TestTargetID = A1F0001000000000000000A1;
+					};
+					E304FFD130574D2A00BC83EA = {
+						CreatedOnToolsVersion = 26.4;
+					};
+					E304FFDD30574D2B00BC83EA = {
+						CreatedOnToolsVersion = 26.4;
+						TestTargetID = E304FFD130574D2A00BC83EA;
+					};
+					E304FFE730574D2B00BC83EA = {
+						CreatedOnToolsVersion = 26.4;
+						TestTargetID = E304FFD130574D2A00BC83EA;
 					};
 					E31E79A0300C6A7D00617367 = {
 						CreatedOnToolsVersion = 26.4;
@@ -722,6 +910,7 @@
 			mainGroup = A1F0000C00000000000000A1;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				AB3617000000000000000003 /* XCLocalSwiftPackageReference "Packages/MapleWatch" */,
 				A1F0001C00000000000000A1 /* XCLocalSwiftPackageReference "Packages/MapleCore" */,
 				E3DD948C2FB51A67009392B4 /* XCLocalSwiftPackageReference "Packages/MapleBackup" */,
 				E3DD94A22FB56003009392B4 /* XCLocalSwiftPackageReference "Packages/MapleUI" */,
@@ -741,6 +930,9 @@
 				246E80A8F95722377C731777 /* MapleFileProviderIOS */,
 				E31E79A0300C6A7D00617367 /* Maple TV */,
 				E3EC0CE23047DFFD006325AD /* MapleTopShelf */,
+				E304FFD130574D2A00BC83EA /* Maple Watch Watch App */,
+				E304FFDD30574D2B00BC83EA /* Maple Watch Watch AppTests */,
+				E304FFE730574D2B00BC83EA /* Maple Watch Watch AppUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -797,6 +989,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E304FFD030574D2A00BC83EA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E304FFDC30574D2B00BC83EA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E304FFE630574D2B00BC83EA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E31E799F300C6A7D00617367 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -814,26 +1027,6 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		A4718000000000000000A1E1 /* Embed backup agent (macOS) / declare background tasks (iOS) */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
-			);
-			name = "Embed backup agent (macOS) / declare background tasks (iOS)";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/bash;
-			shellScript = "set -eu\n# #4718. macOS: the closed-app backup helper ships INSIDE the app bundle so\n# SMAppService can register it (BundleProgram in the launchd plist points at\n# Contents/MacOS/MapleBackupAgent). iOS: the BGTask that does that job\n# there must be declared in Info.plist; GENERATE_INFOPLIST_FILE=YES has no\n# committed plist and Xcode has no INFOPLIST_KEY_ for the scheduler list,\n# so stamp both keys into the generated plist the way the provenance phase\n# does. inputPaths names the plist so this runs after ProcessInfoPlistFile.\ncase \"${PLATFORM_NAME}\" in\n  macosx)\n    APP=\"${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}\"\n    mkdir -p \"${APP}/MacOS\" \"${APP}/Library/LaunchAgents\"\n    cp -f \"${BUILT_PRODUCTS_DIR}/MapleBackupAgent\" \"${APP}/MacOS/MapleBackupAgent\"\n    cp -f \"${SRCROOT}/MapleBackupAgent/app.justmaple.aperture.backup.plist\" \"${APP}/Library/LaunchAgents/app.justmaple.aperture.backup.plist\"\n    ;;\n  iphoneos|iphonesimulator)\n    INFO_PLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n    PB=/usr/libexec/PlistBuddy\n    \"$PB\" -c \"Delete :BGTaskSchedulerPermittedIdentifiers\" \"$INFO_PLIST\" 2>/dev/null || true\n    \"$PB\" -c \"Add :BGTaskSchedulerPermittedIdentifiers array\" -c \"Add :BGTaskSchedulerPermittedIdentifiers:0 string app.justmaple.aperture.backup.refresh\" \"$INFO_PLIST\"\n    \"$PB\" -c \"Delete :UIBackgroundModes\" \"$INFO_PLIST\" 2>/dev/null || true\n    \"$PB\" -c \"Add :UIBackgroundModes array\" -c \"Add :UIBackgroundModes:0 string fetch\" -c \"Add :UIBackgroundModes:1 string processing\" \"$INFO_PLIST\"\n    ;;\nesac\n";
-		};
 		A1F0005000000000000000A1 /* Clean test fixtures */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -891,6 +1084,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
 			shellScript = "set -eu\n# #1804, #4183: stamp the git SHA + build date into the already-generated\n# Info.plist (GENERATE_INFOPLIST_FILE=YES, so there is no committed\n# Info.plist to edit source-side) so Settings > About can attribute a\n# device screenshot to a commit at a glance. Declares\n# $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH) in inputPaths so Xcode orders this\n# phase after ProcessInfoPlistFile rather than relying on buildPhases list\n# order (#4183). Xcode Cloud sets CI_COMMIT to the built commit\n# SHA; a local build falls back to `git rev-parse` against SRCROOT.\n#\n# shellPath is explicitly /bin/bash (Copilot review, #1804): the script\n# uses bash substring expansion (${CI_COMMIT:0:12}) below, which happens\n# to work under macOS's /bin/sh (itself bash) but shouldn't rely on that\n# — the sibling \"Build Rust xcframework\" phase makes the same choice\n# explicit rather than assumed.\n#\n# INFOPLIST_PATH (not CODESIGNING_FOLDER_PATH + \"/Info.plist\") because a\n# macOS app nests it at \"<name>.app/Contents/Info.plist\" while an iOS app\n# bundle is flat (\"<name>.app/Info.plist\") -- INFOPLIST_PATH already\n# encodes that per-platform difference, relative to TARGET_BUILD_DIR.\nINFO_PLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nif [ -f \"$INFO_PLIST\" ]; then\n  # CI_COMMIT is Xcode Cloud's FULL commit SHA, not abbreviated --\n  # truncate it to 12 chars here so BuildProvenance.swift's \"short\n  # (12-char) SHA\" doc comment holds in every build environment, not\n  # just local ones (where `git rev-parse --short=12` already truncates).\n  if [ -n \"${CI_COMMIT:-}\" ]; then\n    GIT_SHA=\"${CI_COMMIT:0:12}\"\n  else\n    GIT_SHA=\"$(git -C \"${SRCROOT}\" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)\"\n  fi\n  BUILD_DATE=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"\n  /usr/libexec/PlistBuddy -c \"Delete :MapleBuildGitSHA\" \"$INFO_PLIST\" 2>/dev/null || true\n  /usr/libexec/PlistBuddy -c \"Add :MapleBuildGitSHA string $GIT_SHA\" \"$INFO_PLIST\"\n  /usr/libexec/PlistBuddy -c \"Delete :MapleBuildDate\" \"$INFO_PLIST\" 2>/dev/null || true\n  /usr/libexec/PlistBuddy -c \"Add :MapleBuildDate string $BUILD_DATE\" \"$INFO_PLIST\"\nelse\n  # Copilot review (#1804): a silent no-op here is exactly the bug class\n  # this phase already caught once (the CODESIGNING_FOLDER_PATH vs.\n  # TARGET_BUILD_DIR/INFOPLIST_PATH mixup during development, which\n  # silently no-oped on macOS with BUILD SUCCEEDED). A warning, not a\n  # build failure: this phase is best-effort attribution, not something\n  # that should break an otherwise-good build if Xcode ever changes the\n  # Info.plist location shape again.\n  echo \"warning: Stamp build provenance — INFO_PLIST not found at $INFO_PLIST, skipping (build provenance will read as 'unknown')\" >&2\nfi\n";
+		};
+		A4718000000000000000A1E1 /* Embed backup agent (macOS) / declare background tasks (iOS) */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)",
+			);
+			name = "Embed backup agent (macOS) / declare background tasks (iOS)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "set -eu\n# #4718. macOS: the closed-app backup helper ships INSIDE the app bundle so\n# SMAppService can register it (BundleProgram in the launchd plist points at\n# Contents/MacOS/MapleBackupAgent). iOS: the BGTask that does that job\n# there must be declared in Info.plist; GENERATE_INFOPLIST_FILE=YES has no\n# committed plist and Xcode has no INFOPLIST_KEY_ for the scheduler list,\n# so stamp both keys into the generated plist the way the provenance phase\n# does. inputPaths names the plist so this runs after ProcessInfoPlistFile.\ncase \"${PLATFORM_NAME}\" in\n  macosx)\n    APP=\"${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}\"\n    mkdir -p \"${APP}/MacOS\" \"${APP}/Library/LaunchAgents\"\n    cp -f \"${BUILT_PRODUCTS_DIR}/MapleBackupAgent\" \"${APP}/MacOS/MapleBackupAgent\"\n    cp -f \"${SRCROOT}/MapleBackupAgent/app.justmaple.aperture.backup.plist\" \"${APP}/Library/LaunchAgents/app.justmaple.aperture.backup.plist\"\n    ;;\n  iphoneos|iphonesimulator)\n    INFO_PLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n    PB=/usr/libexec/PlistBuddy\n    \"$PB\" -c \"Delete :BGTaskSchedulerPermittedIdentifiers\" \"$INFO_PLIST\" 2>/dev/null || true\n    \"$PB\" -c \"Add :BGTaskSchedulerPermittedIdentifiers array\" -c \"Add :BGTaskSchedulerPermittedIdentifiers:0 string app.justmaple.aperture.backup.refresh\" \"$INFO_PLIST\"\n    \"$PB\" -c \"Delete :UIBackgroundModes\" \"$INFO_PLIST\" 2>/dev/null || true\n    \"$PB\" -c \"Add :UIBackgroundModes array\" -c \"Add :UIBackgroundModes:0 string fetch\" -c \"Add :UIBackgroundModes:1 string processing\" \"$INFO_PLIST\"\n    ;;\nesac\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -952,6 +1165,30 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E304FFCE30574D2A00BC83EA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E304FFDA30574D2B00BC83EA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AB3617000000000000000004 /* Packages/MapleWatch/Tests/MapleWatchTests/WatchSessionEndingTests.swift in Sources */,
+				AB3617000000000000000006 /* Packages/MapleWatch/Tests/MapleWatchTests/WatchPhotoPageTests.swift in Sources */,
+				AB3617000000000000000008 /* Packages/MapleWatch/Tests/MapleWatchTests/WatchImageStoreTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E304FFE430574D2B00BC83EA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		E31E799D300C6A7D00617367 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -977,15 +1214,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		A4718000000000000000A1D1 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			name = MapleBackupAgent;
-			platformFilters = (
-				macos,
-			);
-			target = E3DD94822FB50E55009392B4 /* MapleBackupAgent */;
-			targetProxy = A4718000000000000000A1D2 /* PBXContainerItemProxy */;
-		};
 		6E7046EBC2924B60E9A53BDF /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = MapleFileProvider;
@@ -1005,6 +1233,15 @@
 			target = A1F0001000000000000000A1 /* Maple */;
 			targetProxy = A1F0006900000000000000A1 /* PBXContainerItemProxy */;
 		};
+		A4718000000000000000A1D1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = MapleBackupAgent;
+			platformFilters = (
+				macos,
+			);
+			target = E3DD94822FB50E55009392B4 /* MapleBackupAgent */;
+			targetProxy = A4718000000000000000A1D2 /* PBXContainerItemProxy */;
+		};
 		A94BA048F0AF3949586FB40E /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = MapleQuickLook;
@@ -1019,6 +1256,22 @@
 			name = MapleWidget;
 			target = B1D0005000000000000000B1 /* MapleWidget */;
 			targetProxy = B1D0006000000000000000B1 /* PBXContainerItemProxy */;
+		};
+		E304FFE030574D2B00BC83EA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E304FFD130574D2A00BC83EA /* Maple Watch Watch App */;
+			targetProxy = E304FFDF30574D2B00BC83EA /* PBXContainerItemProxy */;
+		};
+		E304FFEA30574D2B00BC83EA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E304FFD130574D2A00BC83EA /* Maple Watch Watch App */;
+			targetProxy = E304FFE930574D2B00BC83EA /* PBXContainerItemProxy */;
+		};
+		E304FFF130574D2B00BC83EA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = E304FFD130574D2A00BC83EA /* Maple Watch Watch App */;
+			targetProxy = E304FFF030574D2B00BC83EA /* PBXContainerItemProxy */;
 		};
 		E3EC0CEB3047DFFD006325AD /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -1038,12 +1291,11 @@
 		05E3343BCA7A720B4BFAC48E /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CLANG_ENABLE_OBJC_WEAK = NO;
 				APS_ENVIRONMENT = production;
+				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = MapleFileProviderIOS/MapleFileProviderIOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MapleFileProviderIOS/Info.plist;
@@ -1074,7 +1326,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
+				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MapleFileProvider/Info.plist;
@@ -1088,6 +1340,7 @@
 				MARKETING_VERSION = 0.1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.FileProvider;
 				PRODUCT_NAME = MapleFileProvider;
+				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = macosx;
@@ -1101,7 +1354,7 @@
 				CODE_SIGN_ENTITLEMENTS = MapleQuickLook/MapleQuickLook.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
+				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MapleQuickLook/Info.plist;
@@ -1115,6 +1368,7 @@
 				MARKETING_VERSION = 0.1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.QuickLook;
 				PRODUCT_NAME = MapleQuickLook;
+				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = macosx;
@@ -1128,7 +1382,7 @@
 				CODE_SIGN_ENTITLEMENTS = MapleQuickLook/MapleQuickLook.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
+				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MapleQuickLook/Info.plist;
@@ -1142,6 +1396,7 @@
 				MARKETING_VERSION = 0.1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.QuickLook;
 				PRODUCT_NAME = MapleQuickLook;
+				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = macosx;
@@ -1152,12 +1407,11 @@
 		9D94FE34EA23DCDA6B91A786 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CLANG_ENABLE_OBJC_WEAK = NO;
 				APS_ENVIRONMENT = development;
+				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = MapleFileProviderIOS/MapleFileProviderIOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MapleFileProviderIOS/Info.plist;
@@ -1214,6 +1468,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -1238,6 +1493,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
@@ -1282,6 +1538,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -1299,6 +1556,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
@@ -1318,7 +1576,6 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_FILE_ACCESS_PICTURE_FOLDER = readwrite;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1341,7 +1598,9 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Maple;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSBonjourServices = _smb._tcp;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Maple uses the camera to scan your Apple TV's pairing code.";
 				"INFOPLIST_KEY_NSCameraUsageDescription[sdk=iphoneos*]" = "Maple uses the camera to scan your Apple TV's pairing code.";
 				"INFOPLIST_KEY_NSCameraUsageDescription[sdk=iphonesimulator*]" = "Maple uses the camera to scan your Apple TV's pairing code.";
 				"INFOPLIST_KEY_NSCameraUsageDescription[sdk=macosx*]" = "Maple uses the camera to scan your Apple TV's pairing code.";
@@ -1352,6 +1611,7 @@
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Maple needs access to your photo library to import RAW files.";
 				INFOPLIST_KEY_UIAppFonts = "Lato-Regular.ttf Lato-Bold.ttf Merriweather-Bold.ttf";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				"INFOPLIST_KEY_UILaunchStoryboardName[sdk=iphone*]" = LaunchScreen;
 				INFOPLIST_KEY_UIRequiresFullScreen = NO;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -1372,6 +1632,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture;
 				PRODUCT_NAME = Maple;
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
 				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
@@ -1402,7 +1663,6 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_FILE_ACCESS_PICTURE_FOLDER = readwrite;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1425,7 +1685,9 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Maple;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.photography";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSBonjourServices = _smb._tcp;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Maple uses the camera to scan your Apple TV's pairing code.";
 				"INFOPLIST_KEY_NSCameraUsageDescription[sdk=iphoneos*]" = "Maple uses the camera to scan your Apple TV's pairing code.";
 				"INFOPLIST_KEY_NSCameraUsageDescription[sdk=iphonesimulator*]" = "Maple uses the camera to scan your Apple TV's pairing code.";
 				"INFOPLIST_KEY_NSCameraUsageDescription[sdk=macosx*]" = "Maple uses the camera to scan your Apple TV's pairing code.";
@@ -1436,6 +1698,7 @@
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Maple needs access to your photo library to import RAW files.";
 				INFOPLIST_KEY_UIAppFonts = "Lato-Regular.ttf Lato-Bold.ttf Merriweather-Bold.ttf";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				"INFOPLIST_KEY_UILaunchStoryboardName[sdk=iphone*]" = LaunchScreen;
 				INFOPLIST_KEY_UIRequiresFullScreen = NO;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -1456,6 +1719,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture;
 				PRODUCT_NAME = Maple;
 				PROVISIONING_PROFILE_SPECIFIER = "";
+				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
 				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
@@ -1482,7 +1746,6 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -1505,7 +1768,6 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -1527,7 +1789,6 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -1550,7 +1811,6 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -1574,7 +1834,6 @@
 				CODE_SIGN_ENTITLEMENTS = MapleWidget/MapleWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MapleWidget/Info.plist;
@@ -1589,6 +1848,7 @@
 				MARKETING_VERSION = 0.1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.Widget;
 				PRODUCT_NAME = MapleWidget;
+				REGISTER_APP_GROUPS = YES;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SWIFT_VERSION = 5.0;
@@ -1602,7 +1862,6 @@
 				CODE_SIGN_ENTITLEMENTS = MapleWidget/MapleWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MapleWidget/Info.plist;
@@ -1617,6 +1876,7 @@
 				MARKETING_VERSION = 0.1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.Widget;
 				PRODUCT_NAME = MapleWidget;
+				REGISTER_APP_GROUPS = YES;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SWIFT_VERSION = 5.0;
@@ -1632,7 +1892,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
+				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MapleFileProvider/Info.plist;
@@ -1646,10 +1906,175 @@
 				MARKETING_VERSION = 0.1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.FileProvider;
 				PRODUCT_NAME = MapleFileProvider;
+				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		E304FFF430574D2B00BC83EA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QREP66JW5U;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Maple Watch Watch App/MapleWatch-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Maple Watch";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = app.justmaple.aperture;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.5;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.watch;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		E304FFF530574D2B00BC83EA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = QREP66JW5U;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Maple Watch Watch App/MapleWatch-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Maple Watch";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = app.justmaple.aperture;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.5;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.watch;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		E304FFF630574D2B00BC83EA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.5;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.watch.Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Maple Watch Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Maple Watch Watch App";
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		E304FFF730574D2B00BC83EA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.5;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.watch.Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Maple Watch Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Maple Watch Watch App";
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		E304FFF830574D2B00BC83EA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.5;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.watch.UITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_TARGET_NAME = "Maple Watch Watch App";
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		E304FFF930574D2B00BC83EA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.5;
+				PRODUCT_BUNDLE_IDENTIFIER = app.justmaple.aperture.watch.UITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_TARGET_NAME = "Maple Watch Watch App";
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Release;
 		};
@@ -1661,7 +2086,6 @@
 				CODE_SIGN_ENTITLEMENTS = "Maple TV/MapleTV.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Maple TV/MapleTV-Info.plist";
@@ -1699,7 +2123,6 @@
 				CODE_SIGN_ENTITLEMENTS = "Maple TV/MapleTV.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Maple TV/MapleTV-Info.plist";
@@ -1734,10 +2157,11 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = MapleBackupAgent/MapleBackupAgent.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = QREP66JW5U;
+				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -1751,10 +2175,11 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = MapleBackupAgent/MapleBackupAgent.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = QREP66JW5U;
+				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -1769,7 +2194,6 @@
 				CODE_SIGN_ENTITLEMENTS = MapleTopShelf/MapleTopShelf.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MapleTopShelf/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = MapleTopShelf;
@@ -1801,7 +2225,6 @@
 				CODE_SIGN_ENTITLEMENTS = MapleTopShelf/MapleTopShelf.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = QREP66JW5U;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MapleTopShelf/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = MapleTopShelf;
@@ -1902,6 +2325,33 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		E304FFFA30574D2B00BC83EA /* Build configuration list for PBXNativeTarget "Maple Watch Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E304FFF430574D2B00BC83EA /* Debug */,
+				E304FFF530574D2B00BC83EA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E304FFFB30574D2B00BC83EA /* Build configuration list for PBXNativeTarget "Maple Watch Watch AppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E304FFF630574D2B00BC83EA /* Debug */,
+				E304FFF730574D2B00BC83EA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E304FFFC30574D2B00BC83EA /* Build configuration list for PBXNativeTarget "Maple Watch Watch AppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E304FFF830574D2B00BC83EA /* Debug */,
+				E304FFF930574D2B00BC83EA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		E31E79C7300C6A7E00617367 /* Build configuration list for PBXNativeTarget "Maple TV" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1936,6 +2386,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/MapleCore;
 		};
+		AB3617000000000000000003 /* XCLocalSwiftPackageReference "Packages/MapleWatch" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/MapleWatch;
+		};
 		E3DD948C2FB51A67009392B4 /* XCLocalSwiftPackageReference "Packages/MapleBackup" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/MapleBackup;
@@ -1955,6 +2409,11 @@
 		A1F0000200000000000000A1 /* MapleCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MapleCore;
+		};
+		AB3617000000000000000002 /* MapleWatch */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB3617000000000000000003 /* XCLocalSwiftPackageReference "Packages/MapleWatch" */;
+			productName = MapleWatch;
 		};
 		AD2BAC138F82299C19BFC9C5 /* MapleCore */ = {
 			isa = XCSwiftPackageProductDependency;

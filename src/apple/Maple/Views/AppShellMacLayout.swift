@@ -72,6 +72,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
   /// Map pin/cluster tap (#2830) → AppShell activates search filtered by
   /// the resolved target (a place name, or the has-GPS scope fallback).
   let onSelectMapPlace: (MapPlaceSearchTarget) -> Void
+  let onSignInForMap: (URL) -> Void
   /// Dismiss the cloud search UI.
   let onCloseSearch: () -> Void
   let onSelectLocalAsset: (ImageRef) -> Void
@@ -220,6 +221,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
       sessions: $sessions,
       onSelectCloudAsset: onSelectCloudAsset,
       onSelectMapPlace: onSelectMapPlace,
+      onSignInForMap: onSignInForMap,
       onCloseSearch: onCloseSearch,
       onSelectLocalAsset: onSelectLocalAsset,
       onGrantPhotosAccess: onGrantPhotosAccess,

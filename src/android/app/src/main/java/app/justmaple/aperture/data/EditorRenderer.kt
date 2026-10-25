@@ -8,9 +8,23 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** The handle, GPU and ANativeWindow belong to exactly one serial worker. */
-class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
+class EditorRenderer(library: PhotoLibrary, private val onPresented: (Int) -> Unit) : PreviewRenderer {
+    private val nativeDetail = NativeDetailRenderer(library) { expectedEpoch ->
+        withContext(NonCancellable + dispatcher) {
+            check(handle != 0L && epoch == expectedEpoch) { "The photo changed before native detail could start" }
+            val source = if (values["_raw"] == 1f) NativeBridge.copyNativeDetail(handle) else 0L
+            source to NativeBridge.outputPrimaries(handle)
+        }
+    }
+    override suspend fun nativeDimensions(photo: Photo) = nativeDetail.dimensions(photo)
+    override suspend fun nativeDetail(request: NativeDetailRequest) = nativeDetail.render(request)
+    override fun cancelNativeDetail() = nativeDetail.invalidate()
+
+    private val analysisLock = Mutex()
     private val dispatcher =
         Executors.newSingleThreadExecutor { task ->
                 Thread(null, task, "Maple render", 16L * 1024 * 1024)
@@ -217,6 +231,29 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
         }
     }
 
+    override suspend fun autoWhiteBalance(document: String): app.justmaple.aperture.WhiteBalanceRecommendation =
+        analysisLock.withLock {
+            // Keep allocation, CPU use and release in one cancellation-safe
+            // lifetime. Waiting analyses acquire no extra RAW reference.
+            withContext(NonCancellable) {
+                val work = withContext(dispatcher) {
+                    check(handle != 0L) { "Open a RAW photo before Auto white balance" }
+                    NativeBridge.createAutoWhiteBalance(handle, document)
+                }
+                // The work owns immutable RAW data; navigation and GPU draws
+                // remain free to use/release the live renderer independently.
+                withContext(Dispatchers.Default) {
+                    try {
+                        val result = JSONObject(NativeBridge.runAutoWhiteBalance(work))
+                        app.justmaple.aperture.WhiteBalanceRecommendation(
+                            result.getDouble("temperature").toFloat(), result.getDouble("tint").toFloat(),
+                            result.getDouble("algorithmVersion").toFloat(),
+                        )
+                    } finally { NativeBridge.closeAutoWhiteBalance(work) }
+                }
+            }
+        }
+
     override suspend fun shutdown() = withContext(dispatcher) { release() }
 
     private fun readValues(): Map<String, Float> {
@@ -225,6 +262,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
             it.name to objectValues.optDouble(it.name, it.initial.toDouble()).toFloat()
         } +
             mapOf(
+                "_uncropped_aspect" to objectValues.getDouble("_uncropped_aspect").toFloat(),
                 "_aspect" to objectValues.optDouble("_aspect", 1.5).toFloat(),
                 "_raw" to objectValues.optDouble("_raw", 0.0).toFloat(),
                 "_shot_temperature" to objectValues.getDouble("_shot_temperature").toFloat(),
@@ -233,6 +271,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
     }
 
     private fun release() {
+        nativeDetail.clear()
         if (handle != 0L) NativeBridge.close(handle)
         handle = 0L
         attachedSurface = null
@@ -241,6 +280,7 @@ class EditorRenderer(private val onPresented: (Int) -> Unit) : PreviewRenderer {
     }
 
     override fun close() {
+        nativeDetail.close()
         invalidateDraws()
         // Enqueue teardown behind any native call; never close a rendering handle.
         dispatcher.executor.execute {

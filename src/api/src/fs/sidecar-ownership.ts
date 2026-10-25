@@ -14,13 +14,18 @@
  */
 import * as fs from './mirrored.ts';
 import * as path from 'node:path';
-import { listPairedSidecars } from './xmp-conflict.ts';
+import { listPairedSidecars, pickFreeConflictPath } from './xmp-conflict.ts';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
-import { serializeSidecarWrite, serializeSidecarWrites } from './sidecar-write-order.ts';
-import { isVideoFilename } from '../indexer/media-types';
+import {
+  serializeSidecarWrite,
+  serializeSidecarWrites,
+  trySerializeSidecarWrite,
+} from './sidecar-write-order.ts';
+import { isCataloguedFilename, isVideoFilename } from '../indexer/media-types';
+import { readSidecarBytes } from './sidecar-bytes.ts';
+import { isLegacyBackupSidecarOf, oldNameSlotTaken } from './legacy-backup-sidecar.ts';
 import { child as childLogger } from '../log.ts';
 import {
-  errnoCode,
   PublishCollisionError,
   privateSiblingOf,
   publishExclusive,
@@ -90,6 +95,63 @@ export async function sidecarStemClaimedBySibling(
   );
 }
 
+/** The positive answer a caller needs before removing a photo and leaving its
+ * sidecar to another: a distinct regular media file in the folder shares the
+ * stem. Extensionless regular files may be media and retain ownership.
+ * Symlinks and non-media extensions never count (#4694), nor does the primary's own entry under another spelling; a
+ * separately named hard link does. A folder or sibling that can't be read
+ * throws, so it is never taken as "owned elsewhere" (#5069). */
+export async function sidecarStemOwnedByAnotherFile(primaryAbsPath: string): Promise<boolean> {
+  const dir = path.dirname(primaryAbsPath);
+  const stem = stemOf(primaryAbsPath);
+  const primaryName = path.basename(primaryAbsPath).normalize('NFC').toLowerCase();
+  const self = await lstatUnlessGone(primaryAbsPath);
+  const candidates = (await fs.readdir(dir, { withFileTypes: true })).filter(
+    (entry) =>
+      !entry.isDirectory() &&
+      !entry.isSymbolicLink() &&
+      !entry.name.startsWith('.') &&
+      !STAGING_NAME.test(entry.name) &&
+      (isCataloguedFilename(entry.name) ||
+        isVideoFilename(entry.name) ||
+        path.extname(entry.name) === '') &&
+      stemOf(entry.name) === stem,
+  );
+  const distinct = await Array.fromAsync(candidates, async (entry) => {
+    const other = await lstatUnlessGone(path.join(dir, entry.name));
+    if (other === null || !other.isFile()) return false;
+    const primaryEntry =
+      self !== null &&
+      entry.name.normalize('NFC').toLowerCase() === primaryName &&
+      other.dev === self.dev &&
+      other.ino === self.ino;
+    return !primaryEntry;
+  });
+  return distinct.some(Boolean);
+}
+
+async function lstatUnlessGone(target: string) {
+  return fs.lstat(target).catch((err: NodeJS.ErrnoException) => {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  });
+}
+
+/** The photo's own sidecar that would land on `sidecar`; same-file aware, so a
+ * case-folding volume matches `IMG.xmp` to an existing `img.xmp`. */
+async function incomingSidecarFor(
+  sourceAbsPath: string,
+  candidate: string,
+  ownSidecars: readonly string[],
+  sidecar: string,
+): Promise<string | undefined> {
+  for (const own of ownSidecars) {
+    const target = sidecarRenameTarget(sourceAbsPath, candidate, own);
+    if (target !== null && (await sameSidecarFile(target, sidecar))) return own;
+  }
+  return undefined;
+}
+
 async function isOwnSidecar(ownSidecars: readonly string[], sidecar: string): Promise<boolean> {
   for (const own of ownSidecars) {
     if (await sameSidecarFile(own, sidecar)) return true;
@@ -106,46 +168,6 @@ export async function sidecarAlreadyCarried(source: string, dest: string): Promi
     null,
   ]);
   return a !== null && b !== null && a.equals(b);
-}
-
-/** A sidecar name that is a symlink or anything other than a regular file. */
-export class SidecarNotRegularFileError extends Error {
-  constructor(readonly sidecar: string) {
-    super(`relocate: sidecar is not a regular file (symlink?): ${sidecar}`);
-    this.name = 'SidecarNotRegularFileError';
-  }
-}
-
-/** Read that refuses a final-component symlink (#4749), so a sidecar link to
- * an original is never copied into a destination `.xmp`. Windows has no
- * `O_NOFOLLOW`, so the name is lstat'd first and the opened handle must be
- * that same file, which also closes a swap between the two calls. Callers
- * have already jailed the asset's folder; the DB-backed sidecar jail is not
- * consulted because a refusal would move the photo without its edits. */
-export async function readSidecarBytes(
-  sidecar: string,
-  noFollowFlag: number = fs.constants.O_NOFOLLOW ?? 0,
-): Promise<Buffer | null> {
-  const named = await fs.lstat(sidecar, { bigint: true }).catch((err: unknown) => {
-    if (errnoCode(err) === 'ENOENT') return null;
-    throw err;
-  });
-  if (named === null) return null;
-  if (!named.isFile()) throw new SidecarNotRegularFileError(sidecar);
-  const handle = await fs.open(sidecar, fs.constants.O_RDONLY | noFollowFlag).catch((err) => {
-    if (errnoCode(err) === 'ENOENT') return null;
-    throw errnoCode(err) === 'ELOOP' ? new SidecarNotRegularFileError(sidecar) : err;
-  });
-  if (handle === null) return null;
-  try {
-    const opened = await handle.stat({ bigint: true });
-    if (!opened.isFile() || opened.dev !== named.dev || opened.ino !== named.ino) {
-      throw new SidecarNotRegularFileError(sidecar);
-    }
-    return await handle.readFile();
-  } finally {
-    await handle.close();
-  }
 }
 
 export async function requireSidecarBytes(sidecar: string): Promise<Buffer> {
@@ -170,16 +192,30 @@ export async function assetDestinationOccupied(
     for (const sidecar of paired) {
       if (await isOwnSidecar(ownSidecars, sidecar)) continue;
       const incoming = sourceAbsPath
-        ? ownSidecars.find((own) => {
-            const target = sidecarRenameTarget(sourceAbsPath, candidate, own);
-            return target !== null && path.resolve(target) === path.resolve(sidecar);
-          })
+        ? await incomingSidecarFor(sourceAbsPath, candidate, ownSidecars, sidecar)
         : undefined;
       if (incoming && (await sidecarAlreadyCarried(incoming, sidecar))) continue;
       return true;
     }
-    return false;
+    return (
+      sourceAbsPath !== undefined &&
+      oldNameSlotBlocked(candidate, ownSidecars, paired, sourceAbsPath)
+    );
   }
+}
+
+/** A carried old-name edit (#5063) can't land where the listing sees nothing
+ * but something sits, or another file there owns the name. */
+async function oldNameSlotBlocked(
+  candidate: string,
+  ownSidecars: readonly string[],
+  paired: readonly string[],
+  sourceAbsPath: string,
+): Promise<boolean> {
+  if (!ownSidecars.some((own) => isLegacyBackupSidecarOf(sourceAbsPath, own))) return false;
+  const target = path.resolve(`${candidate}.xmp`);
+  if (paired.some((listed) => path.resolve(listed) === target)) return false;
+  return oldNameSlotTaken(candidate);
 }
 
 async function linkExclusive(tmp: string, dest: string): Promise<RelocatePublication> {
@@ -271,4 +307,42 @@ async function carryLateSave(current: Buffer, dest: string, snapshot: Buffer): P
     throw err;
   });
   return true;
+}
+
+/** Publish `bytes` at `dest` exclusively, through a verified temp. */
+export async function publishBytesExclusive(
+  dest: string,
+  bytes: Buffer,
+  publications?: RelocatePublication[],
+): Promise<void> {
+  const tmp = await writeVerifiedTemp(dest, bytes);
+  try {
+    const publication = await publishExclusive(tmp, dest);
+    publications?.push(publication);
+  } finally {
+    await fs.unlink(tmp).catch(() => {});
+  }
+}
+
+const CONFLICT_ATTEMPTS = 5;
+
+/** `bytes` as a `(conflict from move)` copy beside `photo`, which the
+ * migration never adopts; another writer can take the picked name first, so
+ * it picks again. False when no copy could be published. */
+export async function publishConflictBytes(
+  photo: string,
+  bytes: Buffer,
+  publications?: RelocatePublication[],
+): Promise<boolean> {
+  for (let attempt = 0; attempt < CONFLICT_ATTEMPTS; attempt++) {
+    const conflict = await pickFreeConflictPath(photo, 'move');
+    const published = await trySerializeSidecarWrite(conflict, () =>
+      publishBytesExclusive(conflict, bytes, publications),
+    ).then(
+      (result) => result.acquired,
+      () => false,
+    );
+    if (published) return true;
+  }
+  return false;
 }

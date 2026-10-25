@@ -385,6 +385,10 @@ mod tests_group;
 #[path = "local_adjustments/tests_orientation.rs"]
 mod tests_orientation;
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "local_adjustments/tests_gamut_knee.rs"]
+mod tests_gamut_knee;
+
 // The slider-tick timing harness — `#[ignore]`d, not a gate. Sibling file for
 // the same file-budget reason as `tests.rs`.
 #[cfg(all(test, not(target_arch = "wasm32")))]

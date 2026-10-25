@@ -18,9 +18,8 @@ public enum MapleIdDerivation {
     /// format, not display-formatted), and a chunked reader over the file's
     /// full bytes for the fallback-form path.
     ///
-    /// Tries primary form first: `DateTimeOriginal` is preferred over
-    /// `CreateDate` when both parse (mirrors the server indexer's
-    /// `asIsoDate(DateTimeOriginal) ?? asIsoDate(CreateDate)`,
+    /// Tries primary form first, dated by `ExifCaptureDate.capturedAt` (the
+    /// server indexer's `asIsoDate(DateTimeOriginal) ?? asIsoDate(CreateDate)`,
     /// `src/api/src/indexer/exif.ts`). `cameraSerial`/`shutterCount` are
     /// deliberately NOT read from EXIF and passed as the `MapleId.primary`
     /// defaults (`nil`/`0`) — the server indexer's `AssetExif` doesn't
@@ -29,9 +28,8 @@ public enum MapleIdDerivation {
     /// server's for the same file, not converge.
     ///
     /// Falls back to streaming form when no usable capture timestamp exists
-    /// (`ExifCaptureDate.iso8601UTC` returned `nil` for both keys, or both
-    /// keys were absent) OR when primary-form derivation itself fails (empty
-    /// head bytes, FFI error) — streams the WHOLE file through
+    /// (`ExifCaptureDate.capturedAt` returned `nil`) OR when primary-form
+    /// derivation itself fails (empty head bytes, FFI error) — streams the WHOLE file through
     /// `FallbackFormHasher` via `nextChunk`, called repeatedly **in file
     /// order** until it returns empty `Data`, signalling EOF. Callers
     /// (`FilesystemSource` via chunked `FileHandle` reads, `SMBSource` via
@@ -56,9 +54,8 @@ public enum MapleIdDerivation {
         filesize: UInt64,
         nextChunk: () async throws -> Data
     ) async rethrows -> String? {
-        let capturedAtISO8601 =
-            exifDateTimeOriginal.flatMap(ExifCaptureDate.iso8601UTC(fromExifString:))
-            ?? exifCreateDate.flatMap(ExifCaptureDate.iso8601UTC(fromExifString:))
+        let capturedAtISO8601 = ExifCaptureDate.capturedAt(
+            dateTimeOriginal: exifDateTimeOriginal, createDate: exifCreateDate)
 
         if let capturedAtISO8601,
            let primary = MapleId.primary(headBytes: headBytes, capturedAtISO8601: capturedAtISO8601) {

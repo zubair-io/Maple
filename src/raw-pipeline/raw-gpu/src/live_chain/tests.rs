@@ -564,4 +564,4 @@ fn chain_signature_differs_by_session_id_alone() {
 }
 
 #[path = "tests_allocation.rs"]
-mod allocations;
+pub(crate) mod allocations;

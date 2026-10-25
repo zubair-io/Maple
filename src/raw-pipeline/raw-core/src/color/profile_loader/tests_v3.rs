@@ -374,27 +374,11 @@ fn transcode_rejects_bad_magic() {
     assert!(transcode_v1_to_v3(b"NOPExxxxxxxxxxxx").is_none());
 }
 
-/// Staged-work marker (#829 foundation only): once #825 lands the HSM
-/// application math and the shipped bundle is regenerated WITH HSM data, this
-/// asserts the shipped v3 index references a non-empty pool (HSM resolvable).
-/// It is intentionally ignored today because #829 ships the v1 matrices-only
-/// bundle (HSM disabled, no behavior change, no web bloat) — transcoding it
-/// yields an EMPTY pool, which is the correct foundation state. Un-ignore when
-/// #825 flips HSM on.
+/// #5224: no bundled body carries HueSatMap tables, so the shipped bundle's
+/// v3 transcode has an empty HSM pool. Opting a body in with
+/// `convert_dcps.py --hsm-ucm` must update this test with gate evidence.
 #[test]
-#[ignore = "HSM disabled until #825 lands application-layer apply; foundation only per #829"]
-fn shipped_bundle_v3_references_hsm_pool() {
+fn shipped_bundle_v3_has_an_empty_hsm_pool() {
     let enc = transcode_v1_to_v3(PROFILES_BIN).expect("shipped bundle transcodes");
-    assert!(
-        enc.pool_count > 0,
-        "shipped v3 bundle must reference HSM pool entries once #825 enables HSM"
-    );
-    let index = parse_index(&enc.idx);
-    assert!(
-        index
-            .records
-            .values()
-            .any(|r| r.hsm1_pool_index.is_some() || r.hsm2_pool_index.is_some()),
-        "at least one body must reference an HSM pool entry"
-    );
+    assert_eq!(enc.pool_count, 0);
 }

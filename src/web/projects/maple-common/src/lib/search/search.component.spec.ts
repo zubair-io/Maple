@@ -551,8 +551,9 @@ describe('SearchComponent (unified search)', () => {
       expect(component().results()).toHaveLength(30);
     });
   });
-
   it('persists recents on submit and restores the query on recent tap', () => {
+    const navigation = vi.fn();
+    fixture.componentInstance.navigationChange.subscribe(navigation);
     typeInput(fixture, 'paris');
     const form = fixture.nativeElement.querySelector('form') as HTMLFormElement;
     form.dispatchEvent(new Event('submit'));
@@ -561,9 +562,9 @@ describe('SearchComponent (unified search)', () => {
     click(fixture, 'search-clear');
     fixture.detectChanges();
     click(fixture, 'recent-chip-paris');
-    const input = fixture.nativeElement.querySelector(
-      '[data-testid="search-input"]',
-    ) as HTMLInputElement;
-    expect(input.value).toBe('paris');
+    expect(fixture.nativeElement.querySelector('[data-testid="search-input"]')?.value).toBe(
+      'paris',
+    );
+    expect(navigation).toHaveBeenLastCalledWith(expect.objectContaining({ query: 'paris' }));
   });
 });

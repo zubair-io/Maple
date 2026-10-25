@@ -254,9 +254,13 @@
     <Compile Include="..\Maple.WinUI\Services\ScopeReadback.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\ScopeSampleTracker.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.DecodeOwned.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\RenderEngine.Haze.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\NativeDetailHazeCache.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.ProfileReuse.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\RenderEngine.Raster.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\RenderEngine.WbFrame.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\NativeDetailDecoder.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\NativeDetailPatch.cs" LinkBase="Services" />
     <!-- LensProfileStore.cs (#3480) — the %LOCALAPPDATA% LCP store
          RenderEngine.Decode restores from and the export executor consults:
          System.IO / System.Text.Json plus the RawFfi.LensProfile.cs externs
@@ -317,6 +321,7 @@
     <Compile Include="..\Maple.WinUI\Generated\CapabilityRegistry.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Generated\CameraSupportRegistry.g.cs" LinkBase="Generated" />
     <Compile Include="..\Maple.WinUI\Services\CameraSupportMetadata.cs" LinkBase="Services" />
+    <Compile Include="..\Maple.WinUI\Services\ColorCurveMath.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\Services\SaveTimeLabel.cs" LinkBase="Services" />
     <Compile Include="..\Maple.WinUI\ViewModels\SelectionLogic.cs" LinkBase="ViewModels" />
     <!-- The commit-on-release gesture state machine (#3414). WinUI-free by
@@ -365,6 +370,8 @@
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiVectorscopeMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiCurvePlotMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiToneCurveMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiToneCurveSplitsMath.cs" LinkBase="MapleUI\Molecules" />
+    <Compile Include="..\Maple.UI\MuiColorGradeZoneWeightsMath.cs" LinkBase="MapleUI" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiConnectionGraphMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MuiHeatmapMath.cs" LinkBase="MapleUI\Molecules" />
     <Compile Include="..\Maple.WinUI\MapleUI\Molecules\MediaTransportState.cs" LinkBase="MapleUI\Molecules" />

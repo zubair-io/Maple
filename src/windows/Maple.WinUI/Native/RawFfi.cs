@@ -20,9 +20,9 @@ namespace Maple.WinUI.Native
         public static void VerifyAbi()
         {
             var paramsSize = sizeof(MapleAdjustmentParams);
-            if (paramsSize != 712)
+            if (paramsSize != 744)
                 throw new InvalidOperationException(
-                    $"MapleAdjustmentParams is {paramsSize} bytes; the Rust ABI expects 712. " +
+                    $"MapleAdjustmentParams is {paramsSize} bytes; the Rust ABI expects 744. " +
                     "The C# mirror has drifted from raw-ffi/src/scene_linear_chain.rs.");
         }
 
@@ -216,6 +216,19 @@ namespace Maple.WinUI.Native
             float nx,
             float ny,
             out MapleWbSample outSample);
+
+        /// <summary>
+        /// Stage-input eyedropper for the Oklab secondary color curves (#5041).
+        /// Evaluates upstream stages through 8-band HSL and returns normalized
+        /// Oklab coordinates at (nx, ny) in the uncropped oriented frame.
+        /// </summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int maple_sample_color_curve_oriented(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string? xmpPath,
+            float nx,
+            float ny,
+            out MapleColorCurveSample outSample);
 
         // --- Filename-template engine (#2628): shared with Apple (C-FFI) and
         //     the Self Hosted API (bun:ffi) via the same raw-ffi symbol.

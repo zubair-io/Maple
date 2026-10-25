@@ -2,8 +2,8 @@
 //! The prefix, AE probe and Auto fit are the existing browser implementation.
 use super::model::{build_full_chain_inputs, stripped_prefix_model, NoiseProfileInputs};
 use crate::pipeline::{
-    develop_scene_linear_sized_from_raw_with_quality_cancellable, fit_auto_profile_from_raw,
-    RawInput, RenderQuality,
+    develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain,
+    fit_auto_profile_from_raw, RawInput, RenderQuality,
 };
 use crate::types::adjustment::{AutoExposureMode, Profile};
 use crate::view::auto_profile;
@@ -63,7 +63,8 @@ pub fn prefix_model_for(
 
 /// Develop the STRIPPED PREFIX to the post-`auto_exposure` scene-linear Rec.2020
 /// buffer the GPU chain consumes, packed to interleaved RGBA f32 (alpha 1.0) — the
-/// upload shape [`LiveSession::new`] expects, with model, white anchor and sampling scale.
+/// upload shape [`LiveSession::new`] expects, with model, white anchor, sampling scale
+/// and the auto-exposure gain the develop baked in after DCP.
 /// the returned `prefix_model` is the EXACT model this buffer was developed from
 /// (equal to [`prefix_model_for`]), so a caller can cache it and re-develop ONLY
 /// when it changes (the persistent session's zero-re-upload boundary — an identical
@@ -84,7 +85,7 @@ pub fn develop_prefix_rgba(
     ext: &str,
     model: &AdjustmentModel,
     max_long_edge: u32,
-) -> Result<(Vec<f32>, u32, u32, AdjustmentModel, f32, f32), String> {
+) -> Result<(Vec<f32>, u32, u32, AdjustmentModel, f32, f32, f32), String> {
     develop_prefix_rgba_cancellable(
         raw_img,
         raw,
@@ -104,7 +105,7 @@ pub fn develop_prefix_rgba_cancellable(
     model: &AdjustmentModel,
     max_long_edge: u32,
     cancel: crate::CancelToken<'_>,
-) -> Result<(Vec<f32>, u32, u32, AdjustmentModel, f32, f32), String> {
+) -> Result<(Vec<f32>, u32, u32, AdjustmentModel, f32, f32, f32), String> {
     if cancel.is_cancelled() {
         return Err(crate::Error::Cancelled.to_string());
     }
@@ -117,7 +118,7 @@ pub fn develop_prefix_rgba_cancellable(
     // it. With the `parallel` wasm feature + crossOriginIsolated the tiled
     // kernel (#1887) costs the same as bilinear; single-threaded fallbacks
     // pay the serial kernel at the same (open / prefix-change) cadence.
-    let scene = develop_scene_linear_sized_from_raw_with_quality_cancellable(
+    let (scene, ae_gain) = develop_scene_linear_sized_from_raw_with_quality_cancellable_with_gain(
         raw_img,
         &prefix_model,
         RenderQuality::Amaze,
@@ -147,6 +148,7 @@ pub fn develop_prefix_rgba_cancellable(
         prefix_model,
         whites_anchor_ev,
         nr_sampling_scale,
+        ae_gain,
     ))
 }
 

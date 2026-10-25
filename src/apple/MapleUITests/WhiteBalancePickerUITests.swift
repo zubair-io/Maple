@@ -35,7 +35,7 @@ import XCTest
       XCTAssertTrue(eyedropper.waitForExistence(timeout: 5))
       XCTAssertTrue(eyedropper.isEnabled)
       XCTAssertTrue(provenance.waitForExistence(timeout: 5))
-      let initialSource = provenance.label
+      let initialSource = try XCTUnwrap(provenance.value as? String)
       XCTAssertEqual(initialSource, "White balance: As Shot")
       attachScreenshot(app, name: "White balance before pick")
 
@@ -45,13 +45,13 @@ import XCTest
       XCTAssertTrue(cancel.waitForExistence(timeout: 5))
       app.typeKey(.escape, modifierFlags: [])
       waitForAbsence(cancel)
-      XCTAssertEqual(provenance.label, initialSource)
+      XCTAssertEqual(provenance.value as? String, initialSource)
 
       eyedropper.click()
       XCTAssertTrue(cancel.waitForExistence(timeout: 5))
       cancel.click()
       waitForAbsence(cancel)
-      XCTAssertEqual(provenance.label, initialSource)
+      XCTAssertEqual(provenance.value as? String, initialSource)
 
       eyedropper.click()
       XCTAssertTrue(cancel.waitForExistence(timeout: 5))
@@ -61,11 +61,11 @@ import XCTest
       // both the flyout at the right edge and the instruction card at the top.
       driver.canvasElement().coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.75)).click()
       let sampled = XCTNSPredicateExpectation(
-        predicate: NSPredicate(format: "label BEGINSWITH %@", "White balance: Sampled"),
+        predicate: NSPredicate(format: "value BEGINSWITH %@", "White balance: Sampled"),
         object: provenance)
       XCTAssertEqual(XCTWaiter.wait(for: [sampled], timeout: 30), .completed)
       XCTAssertNotNil(
-        provenance.label.range(
+        (provenance.value as? String)?.range(
           of: #"Sampled · \(0\.\d{3}, 0\.\d{3}\) · version [1-9]\d*"#,
           options: .regularExpression),
         "A successful pick must expose its normalized point and algorithm version")
@@ -77,7 +77,7 @@ import XCTest
       XCTAssertTrue(undo.isEnabled)
       undo.click()
       let restored = XCTNSPredicateExpectation(
-        predicate: NSPredicate(format: "label == %@", initialSource), object: provenance)
+        predicate: NSPredicate(format: "value == %@", initialSource), object: provenance)
       XCTAssertEqual(XCTWaiter.wait(for: [restored], timeout: 5), .completed)
     }
 

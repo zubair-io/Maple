@@ -6,12 +6,14 @@
 import * as path from 'node:path';
 import * as fs from '../../fs/mirrored.ts';
 import {
+  joinCarriedSidecar,
   publishSidecarSnapshot,
-  readSidecarBytes,
-  SidecarNotRegularFileError,
+  sidecarAlreadyCarried,
+  publishBytesExclusive,
   sidecarStemClaimedBySibling,
   writeVerifiedTemp,
 } from '../../fs/sidecar-ownership.ts';
+import { readSidecarBytes, SidecarNotRegularFileError } from '../../fs/sidecar-bytes.ts';
 import {
   PublishCollisionError,
   privateSiblingOf,
@@ -21,6 +23,7 @@ import {
 import { serializeSidecarWrites } from '../../fs/sidecar-write-order.ts';
 import { listPairedSidecars, pickFreeConflictPath } from '../../fs/xmp-conflict.ts';
 import { sidecarRenameTarget } from '../../fs/sidecar-rename.ts';
+import { isLegacyBackupSidecarOf, oldNameSlotTaken } from '../../fs/legacy-backup-sidecar.ts';
 import { child as childLogger } from '../../log.ts';
 
 const log = childLogger('migration:refile-sidecar');
@@ -33,6 +36,8 @@ export interface CarriedSidecar {
   snapshot: Buffer;
   /** The refiled photo's new path, which a conflict copy pairs with. */
   primary: string;
+  /** A same-stem sibling still uses the source (#4692 rule 1): it is copied, never taken. */
+  keepSource: boolean;
 }
 
 /** `null` for a link or other non-regular file, which stays where it is, as relocate leaves it (#4749). */
@@ -41,10 +46,15 @@ export async function carrySidecar(
   dest: string,
   primary: string,
   publications: RelocatePublication[],
+  keepSource = false,
 ): Promise<CarriedSidecar | null> {
   try {
-    const snapshot = await publishSidecarSnapshot(source, dest, publications);
-    return { source, dest, primary, snapshot };
+    // A pair refiled one photo at a time finds its shared sidecar already
+    // copied: it joins those bytes, with no publication a revert could remove.
+    const snapshot = (await sidecarAlreadyCarried(source, dest))
+      ? await joinCarriedSidecar(source, dest)
+      : await publishSidecarSnapshot(source, dest, publications);
+    return { source, dest, primary, snapshot, keepSource };
   } catch (err) {
     if (!(err instanceof SidecarNotRegularFileError)) throw err;
     log.warn({ source }, 'refile: sidecar is not a regular file — left in place');
@@ -72,7 +82,7 @@ async function atFreeConflictName<T>(
 }
 
 async function publishConflictCopy(carried: CarriedSidecar, bytes: Buffer): Promise<void> {
-  await atFreeConflictName(carried.primary, (conflict) => publishVerified(conflict, bytes));
+  await atFreeConflictName(carried.primary, (conflict) => publishBytesExclusive(conflict, bytes));
 }
 
 /** Sidecars that first appeared at the old path after `planAndPlace` listed
@@ -84,14 +94,19 @@ export async function carryLateRefileSidecars(
   newAbs: string,
   carried: readonly CarriedSidecar[],
 ): Promise<CarriedSidecar[]> {
-  if (await sidecarStemClaimedBySibling(oldAbs, [newAbs])) return [];
+  const sharedWithSibling = await sidecarStemClaimedBySibling(oldAbs, [newAbs]);
   const known = new Set(carried.map((entry) => path.resolve(entry.source)));
-  const late = (await listPairedSidecars(oldAbs)).filter((s) => !known.has(path.resolve(s)));
+  // An old-name edit (#5063) names one photo, so a sibling never keeps it.
+  const late = (await listPairedSidecars(oldAbs)).filter(
+    (s) =>
+      !known.has(path.resolve(s)) && (!sharedWithSibling || isLegacyBackupSidecarOf(oldAbs, s)),
+  );
   const moved: CarriedSidecar[] = [];
   for (const source of late) {
     const dest = sidecarRenameTarget(oldAbs, newAbs, source);
     if (dest === null) continue;
-    const entry = await carryLate(source, dest, newAbs).catch((err: unknown) => {
+    const oldName = isLegacyBackupSidecarOf(oldAbs, source);
+    const entry = await carryLate(source, dest, newAbs, oldName).catch((err: unknown) => {
       log.warn(
         { source, err: err instanceof Error ? err.message : err },
         'refile: sidecar created mid-refile left in place',
@@ -103,11 +118,17 @@ export async function carryLateRefileSidecars(
   return moved;
 }
 
+/** An old-name edit whose slot is taken or owned at the destination goes
+ * straight to a conflict copy, never onto another file's own sidecar (#5063). */
 async function carryLate(
   source: string,
   dest: string,
   primary: string,
+  oldName: boolean,
 ): Promise<CarriedSidecar | null> {
+  if (oldName && (await oldNameSlotTaken(primary))) {
+    return atFreeConflictName(primary, (conflict) => carrySidecar(source, conflict, primary, []));
+  }
   try {
     return await carrySidecar(source, dest, primary, []);
   } catch (err) {
@@ -179,21 +200,12 @@ async function putBack(carried: CarriedSidecar, aside: string): Promise<void> {
   await fs.unlink(aside).catch(() => {});
 }
 
-async function publishVerified(dest: string, bytes: Buffer): Promise<void> {
-  const tmp = await writeVerifiedTemp(dest, bytes);
-  try {
-    await publishExclusive(tmp, dest);
-  } finally {
-    await fs.unlink(tmp).catch(() => {});
-  }
-}
-
 /** Retire the source once the row points at the new path. A failure keeps it. */
 export async function settleRefiledSidecar(carried: CarriedSidecar): Promise<void> {
   await serializeSidecarWrites([carried.source, carried.dest], async () => {
     const current = await readSidecarBytes(carried.source);
     if (current === null) return;
     if (!current.equals(carried.snapshot)) await carryLateSave(carried, current);
-    await fs.unlink(carried.source);
+    if (!carried.keepSource) await fs.unlink(carried.source);
   });
 }

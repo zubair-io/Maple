@@ -37,120 +37,207 @@ fun PhotoSurface(
     showInspector: Boolean,
     onInfo: () -> Unit,
     onExport: () -> Unit,
+    posture: FoldablePosture = rememberFoldablePosture(),
+    onExportSidecar: () -> Unit = {},
 ) {
     var group by rememberSaveable { mutableStateOf(EditorGroup.Light) }
+    var subTool by rememberSaveable { mutableStateOf("basic") }
     var armed by rememberSaveable { mutableStateOf("exposure") }
     var more by rememberSaveable { mutableStateOf(false) }
     var adjustments by rememberSaveable { mutableStateOf(true) }
     var histogram by remember { mutableStateOf<Result<RgbHistogram>?>(null) }
     var hud by remember { mutableStateOf(false) }
-    val field =
-        AdjustmentFields.byName[armed]?.takeIf(state::supportsField)
-            ?: AdjustmentFields.byName.getValue("exposure")
-    val value = state.values[field.name] ?: field.initial
+    val zoomState = rememberCanvasZoomState()
     val editing = state.mode == PhotoMode.Edit
+    val cropActive = editing && group == EditorGroup.Detail && subTool == "crop"
+    val field = if (cropActive) null else AdjustmentFields.byName[armed]?.takeIf(state::supportsField)
+    val value = field?.let { state.values[it.name] ?: it.initial } ?: 0f
     if (state.selected == null) return
     val selectGroup: (EditorGroup) -> Unit = {
         group = it
+        subTool = subToolsFor(it).first().id
         armed = it.tools.first().field
     }
-    LaunchedEffect(armed, value) {
-        if (!state.loading && state.values.isNotEmpty()) {
+    val toggleAdjustments: () -> Unit = {
+        if (!showInspector) {
+            onInfo()
+            adjustments = true
+        } else adjustments = !adjustments
+    }
+    LaunchedEffect(field?.name, value) {
+        hud = false
+        if (field != null && !state.loading && state.values.isNotEmpty()) {
             hud = true
             delay(1_000)
             hud = false
         }
     }
-    BoxWithConstraints(Modifier.fillMaxSize().background(MapleColors.canvas)) {
-        val regular = tablet && maxWidth >= 600.dp
-        val dockMaxHeight = (maxHeight - 84.dp).coerceAtLeast(1.dp)
-        PhotoCanvas(model, state, { histogram = it }, Modifier.fillMaxSize())
-        if (regular && state.showFilmstrip)
-            FloatingFilmstrip(
-                model,
-                state,
-                Modifier.align(Alignment.CenterStart)
-                    .padding(start = 12.dp)
-                    .heightIn(max = (maxHeight - 96.dp).coerceAtLeast(1.dp)),
+    when (posture.kind) {
+        PostureKind.BookVerticalSplit ->
+            BookSplitPhotoSurface(
+                model = model,
+                state = state,
+                posture = posture,
+                zoomState = zoomState,
+                group = group,
+                subTool = subTool,
+                onSubTool = { subTool = it },
+                selectGroup = selectGroup,
+                armedField = field,
+                armedValue = value,
+                hud = hud,
+                histogram = histogram,
+                onHistogram = { histogram = it },
+                adjustments = adjustments,
+                showInspector = showInspector,
+                onToggleAdjustments = toggleAdjustments,
+                onInfo = onInfo,
+                onExport = onExport,
+                onExportSidecar = onExportSidecar,
             )
-        if (editing && regular && showInspector && adjustments) {
-            Row(
-                Modifier.align(Alignment.TopEnd)
-                    .padding(top = 72.dp, bottom = 12.dp, end = 12.dp)
-                    .fillMaxHeight(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                MapleGlass(
-                    Modifier.width(320.dp).fillMaxHeight().testTag("adjustments-panel"),
-                    RoundedCornerShape(16.dp),
-                ) {
-                    ControlsInspector(model, state, group, Modifier.fillMaxSize())
-                }
-                ToolDock(group, selectGroup, Modifier.heightIn(max = dockMaxHeight))
-            }
-        }
-        if (!regular)
-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-                if (state.showFilmstrip)
-                    MapleGlass(
-                        Modifier.fillMaxWidth(),
-                        RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-                    ) {
-                        HorizontalFilmstrip(model, state)
+        PostureKind.TabletopHorizontalSplit ->
+            TabletopSplitPhotoSurface(
+                model = model,
+                state = state,
+                posture = posture,
+                zoomState = zoomState,
+                group = group,
+                subTool = subTool,
+                onSubTool = { subTool = it },
+                armed = armed,
+                selectGroup = selectGroup,
+                onSelectArmed = { armed = it },
+                onMore = { more = true },
+                armedField = field,
+                armedValue = value,
+                hud = hud,
+                histogram = histogram,
+                onHistogram = { histogram = it },
+                adjustments = adjustments,
+                showInspector = showInspector,
+                onToggleAdjustments = toggleAdjustments,
+                onInfo = onInfo,
+                onExport = onExport,
+                onExportSidecar = onExportSidecar,
+            )
+        PostureKind.Normal ->
+            BoxWithConstraints(Modifier.fillMaxSize().background(MapleColors.canvas)) {
+                val regular = (tablet || posture.isWideLayout) && maxWidth >= 600.dp
+                val dockMaxHeight = (maxHeight - 84.dp).coerceAtLeast(1.dp)
+                val badgeStart =
+                    if (regular && state.showFilmstrip) 136.dp else 12.dp
+                val badgeBottom =
+                    when {
+                        regular -> 12.dp
+                        editing && adjustments && state.showFilmstrip -> 220.dp
+                        editing && adjustments -> 156.dp
+                        editing && state.showFilmstrip -> 76.dp
+                        !editing && state.showFilmstrip -> 132.dp
+                        !editing -> 72.dp
+                        else -> 12.dp
                     }
-                if (editing && adjustments)
-                    MapleGlass(
-                        Modifier.fillMaxWidth(),
-                        RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-                    ) {
-                        PhoneEditorControls(
-                            model,
-                            state,
-                            group,
-                            armed,
-                            selectGroup,
-                            { armed = it },
-                            { more = true },
-                        )
-                    }
-            }
-        if (!editing)
-            MapleGlass(
-                Modifier.align(Alignment.BottomCenter)
-                    .padding(bottom = if (!regular && state.showFilmstrip) 76.dp else 16.dp)
-                    .widthIn(max = 296.dp)
-                    .fillMaxWidth(),
-                CircleShape,
-            ) {
-                PreviewActions(model, state)
-            }
-        if (editing)
-            AnimatedVisibility(hud, Modifier.align(Alignment.Center)) {
-                MapleGlass(shape = CircleShape) {
-                    Text(
-                        "${group.label.uppercase()}  │  ${fieldLabel(field).uppercase()}  ${displayValue(field, value)}",
-                        Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
+                PhotoCanvas(
+                    model = model,
+                    state = state,
+                    onHistogram = { histogram = it },
+                    modifier = Modifier.fillMaxSize(),
+                    zoomState = zoomState,
+                    badgeStartPadding = badgeStart,
+                    badgeBottomPadding = badgeBottom,
+                    showCropOverlay = cropActive,
+                )
+                if (regular && state.showFilmstrip)
+                    FloatingFilmstrip(
+                        model,
+                        state,
+                        Modifier.align(Alignment.CenterStart)
+                            .padding(start = 12.dp)
+                            .heightIn(max = (maxHeight - 96.dp).coerceAtLeast(1.dp)),
                     )
+                if (editing && regular && showInspector && adjustments) {
+                    Row(
+                        Modifier.align(Alignment.TopEnd)
+                            .padding(top = 72.dp, bottom = 12.dp, end = 12.dp)
+                            .fillMaxHeight(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        MapleGlass(
+                            Modifier.width(320.dp).fillMaxHeight().testTag("adjustments-panel"),
+                            RoundedCornerShape(16.dp),
+                        ) {
+                            ControlsInspector(
+                                model,
+                                state,
+                                group,
+                                Modifier.fillMaxSize(),
+                                activeSubTool = subTool,
+                                onSubToolChange = { subTool = it },
+                            )
+                        }
+                        ToolDock(group, selectGroup, Modifier.heightIn(max = dockMaxHeight))
+                    }
                 }
+                if (!regular)
+                    Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+                        if (state.showFilmstrip)
+                            MapleGlass(
+                                Modifier.fillMaxWidth(),
+                                RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+                            ) {
+                                HorizontalFilmstrip(model, state)
+                            }
+                        if (editing && adjustments)
+                            MapleGlass(
+                                Modifier.fillMaxWidth(),
+                                RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                            ) {
+                                PhoneEditorControls(
+                                    model,
+                                    state,
+                                    group,
+                                    armed,
+                                    selectGroup,
+                                    { armed = it },
+                                    { more = true },
+                                    activeSubTool = subTool,
+                                    onSubToolChange = { subTool = it },
+                                )
+                            }
+                    }
+                if (!editing)
+                    MapleGlass(
+                        Modifier.align(Alignment.BottomCenter)
+                            .padding(bottom = if (!regular && state.showFilmstrip) 76.dp else 16.dp)
+                            .widthIn(max = 348.dp)
+                            .fillMaxWidth(),
+                        CircleShape,
+                    ) {
+                        PreviewActions(model, state)
+                    }
+                if (editing && field != null)
+                    AnimatedVisibility(hud, Modifier.align(Alignment.Center)) {
+                        MapleGlass(shape = CircleShape) {
+                            Text(
+                                "${group.label.uppercase()}  │  ${fieldLabel(field).uppercase()}  ${displayValue(field, value)}",
+                                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                    }
+                FloatingPhotoHeader(
+                    model = model,
+                    state = state,
+                    histogram = histogram,
+                    adjustments = adjustments && showInspector,
+                    onAdjustments = toggleAdjustments,
+                    onInfo = onInfo,
+                    onExport = onExport,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp),
+                    zoomState = zoomState,
+                )
             }
-        FloatingPhotoHeader(
-            model,
-            state,
-            histogram,
-            adjustments && showInspector,
-            onAdjustments = {
-                if (!showInspector) {
-                    onInfo()
-                    adjustments = true
-                } else adjustments = !adjustments
-            },
-            onInfo,
-            onExport,
-            Modifier.align(Alignment.TopCenter).padding(top = 8.dp),
-        )
     }
     if (more) {
         @OptIn(ExperimentalMaterial3Api::class)
@@ -163,13 +250,15 @@ fun PhotoSurface(
                 state,
                 group,
                 Modifier.fillMaxWidth().heightIn(max = 540.dp).height(460.dp),
+                activeSubTool = subTool,
+                onSubToolChange = { subTool = it },
             )
         }
     }
 }
 
 @Composable
-private fun ToolDock(group: EditorGroup, onSelect: (EditorGroup) -> Unit, modifier: Modifier) {
+internal fun ToolDock(group: EditorGroup, onSelect: (EditorGroup) -> Unit, modifier: Modifier) {
     MapleGlass(modifier.width(64.dp).testTag("editor-tool-dock"), RoundedCornerShape(18.dp)) {
         Column(
             Modifier.verticalScroll(rememberScrollState()).padding(vertical = 8.dp),
@@ -221,7 +310,7 @@ private fun FloatingFilmstrip(model: MapleViewModel, state: MapleState, modifier
                     Modifier.padding(8.dp).heightIn(max = 460.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    items(state.photos, key = { it.uri.toString() }) { photo ->
+                    items(state.navigationPhotos, key = { it.uri.toString() }) { photo ->
                         PhotoThumbnail(
                             photo,
                             model.library,
@@ -251,12 +340,12 @@ private fun FloatingFilmstrip(model: MapleViewModel, state: MapleState, modifier
 }
 
 @Composable
-private fun HorizontalFilmstrip(model: MapleViewModel, state: MapleState) {
+internal fun HorizontalFilmstrip(model: MapleViewModel, state: MapleState) {
     LazyRow(
         Modifier.fillMaxWidth().height(64.dp).padding(5.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        items(state.photos, key = { it.uri.toString() }) { photo ->
+        items(state.navigationPhotos, key = { it.uri.toString() }) { photo ->
             PhotoThumbnail(
                 photo,
                 model.library,

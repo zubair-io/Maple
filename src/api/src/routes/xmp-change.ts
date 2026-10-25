@@ -1,3 +1,12 @@
+import { listLibraryRoots } from '../db/repos/folders.repo';
+import type { SqliteDb } from '../db/repos/db-handle';
+import {
+  primaryIdentity,
+  primaryReplacementKey,
+  replacementAdmission,
+  replacementAllowsSave,
+} from '../fs/primary-replacement-admission';
+import { SidecarWriteBindingChangedError, type SidecarWriteScope } from '../fs/sidecar-write-order';
 /** Actual primary publication updates library sidecar state and the change feed (#3563 / #4051). */
 import { ObjectId } from '../db/object-id';
 import { mostSpecificRoot } from '../fs/root-match';
@@ -11,12 +20,55 @@ import { child as childLogger } from '../log';
 const log = childLogger('xmp-routes');
 
 /** Only registered libraries resolve; env and test roots carry synthetic keys. */
-async function assetAt(rawAbsPath: string): Promise<{ id: ObjectId; libraryId: ObjectId } | null> {
-  const hit = mostSpecificRoot(rawAbsPath, await loadLibraryRoots());
+async function assetAt(
+  rawAbsPath: string,
+  dbOverride?: SqliteDb,
+): Promise<{ id: ObjectId; libraryId: ObjectId } | null> {
+  const roots = dbOverride
+    ? new Map(
+        (await listLibraryRoots(dbOverride)).map((root) => [root.id.toHexString(), root.path]),
+      )
+    : await loadLibraryRoots();
+  const hit = mostSpecificRoot(rawAbsPath, roots);
   if (!hit || hit.relPath === '' || !ObjectId.isValid(hit.key)) return null;
   const libraryId = new ObjectId(hit.key);
-  const dto = await findDetailByAddress(libraryId, hit.relPath);
+  const dto = await findDetailByAddress(libraryId, hit.relPath, dbOverride);
   return dto ? { id: new ObjectId(dto.id), libraryId } : null;
+}
+
+/** Recheck after the save barrier: a purge/move must not leave an orphan edit,
+ * and Replace must not give a new primary the displaced photo's queued save. */
+export async function captureSidecarWriteScope(
+  rawPath: string,
+  directory: string,
+  dbOverride?: SqliteDb,
+): Promise<SidecarWriteScope> {
+  const key = await primaryReplacementKey(rawPath);
+  const admitted = replacementAdmission(key);
+  const [asset, identity] = await Promise.all([
+    assetAt(rawPath, dbOverride),
+    primaryIdentity(rawPath),
+  ]);
+  const captured = replacementAdmission(key);
+  const crossedReplacement = admitted.entry !== captured.entry;
+  return {
+    directory,
+    async validate() {
+      const [current, currentIdentity] = await Promise.all([
+        assetAt(rawPath, dbOverride),
+        primaryIdentity(rawPath),
+      ]);
+      if (
+        crossedReplacement ||
+        asset?.id.toHexString() !== current?.id.toHexString() ||
+        !replacementAllowsSave(key, admitted, identity, currentIdentity)
+      ) {
+        throw new SidecarWriteBindingChangedError(
+          'Photo moved, was replaced or was purged; reload before saving edits',
+        );
+      }
+    },
+  };
 }
 
 function announce(

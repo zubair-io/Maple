@@ -24,6 +24,12 @@ extension PipelineRenderer {
     let displayRed: [Float]
     let displayGreen: [Float]
     let displayBlue: [Float]
+    let colorCurveHueVsHue: [Float]
+    let colorCurveHueVsSat: [Float]
+    let colorCurveHueVsLuma: [Float]
+    let colorCurveLumaVsSat: [Float]
+    let colorCurveSatVsSat: [Float]
+    let colorCurveSatVsLuma: [Float]
     let mode: UInt32
     let parametricHighlights: Float
     let parametricLights: Float
@@ -42,6 +48,12 @@ extension PipelineRenderer {
       displayRed = GpuLiveSession.flattened(model.displayToneCurveRed)
       displayGreen = GpuLiveSession.flattened(model.displayToneCurveGreen)
       displayBlue = GpuLiveSession.flattened(model.displayToneCurveBlue)
+      colorCurveHueVsHue = GpuLiveSession.flattened(model.colorCurveHueVsHue)
+      colorCurveHueVsSat = GpuLiveSession.flattened(model.colorCurveHueVsSat)
+      colorCurveHueVsLuma = GpuLiveSession.flattened(model.colorCurveHueVsLuma)
+      colorCurveLumaVsSat = GpuLiveSession.flattened(model.colorCurveLumaVsSat)
+      colorCurveSatVsSat = GpuLiveSession.flattened(model.colorCurveSatVsSat)
+      colorCurveSatVsLuma = GpuLiveSession.flattened(model.colorCurveSatVsLuma)
       mode = model.toneCurveMode == .ratioPreserving ? 1 : 0
       parametricHighlights = Float(model.parametricHighlights)
       parametricLights = Float(model.parametricLights)
@@ -55,8 +67,11 @@ extension PipelineRenderer {
     /// True when the chain would render identically without curves — the
     /// caller can then keep the curve-less entry and its bit-exact output.
     public var isIdentity: Bool {
-      let noCurves = [luma, red, green, blue, displayLuma, displayRed, displayGreen, displayBlue]
-        .allSatisfy(\.isEmpty)
+      let noCurves = [
+        luma, red, green, blue, displayLuma, displayRed, displayGreen, displayBlue,
+        colorCurveHueVsHue, colorCurveHueVsSat, colorCurveHueVsLuma,
+        colorCurveLumaVsSat, colorCurveSatVsSat, colorCurveSatVsLuma,
+      ].allSatisfy(\.isEmpty)
       let noRegions =
         parametricHighlights == 0 && parametricLights == 0 && parametricDarks == 0
         && parametricShadows == 0
@@ -66,7 +81,11 @@ extension PipelineRenderer {
     func withMapleToneCurves<R>(
       _ body: (UnsafePointer<MapleToneCurves>) throws -> R
     ) rethrows -> R {
-      let arrays = [luma, red, green, blue, displayLuma, displayRed, displayGreen, displayBlue]
+      let arrays = [
+        luma, red, green, blue, displayLuma, displayRed, displayGreen, displayBlue,
+        colorCurveHueVsHue, colorCurveHueVsSat, colorCurveHueVsLuma,
+        colorCurveLumaVsSat, colorCurveSatVsSat, colorCurveSatVsLuma,
+      ]
       return try Self.withBufferPointers(arrays) { buffers in
         var c = MapleToneCurves()
         GpuLiveSession.bind(buffers[0], to: &c.luma_ptr, len: &c.luma_len)
@@ -77,6 +96,18 @@ extension PipelineRenderer {
         GpuLiveSession.bind(buffers[5], to: &c.display_red_ptr, len: &c.display_red_len)
         GpuLiveSession.bind(buffers[6], to: &c.display_green_ptr, len: &c.display_green_len)
         GpuLiveSession.bind(buffers[7], to: &c.display_blue_ptr, len: &c.display_blue_len)
+        GpuLiveSession.bind(
+          buffers[8], to: &c.color_curve_hue_vs_hue_ptr, len: &c.color_curve_hue_vs_hue_len)
+        GpuLiveSession.bind(
+          buffers[9], to: &c.color_curve_hue_vs_sat_ptr, len: &c.color_curve_hue_vs_sat_len)
+        GpuLiveSession.bind(
+          buffers[10], to: &c.color_curve_hue_vs_luma_ptr, len: &c.color_curve_hue_vs_luma_len)
+        GpuLiveSession.bind(
+          buffers[11], to: &c.color_curve_luma_vs_sat_ptr, len: &c.color_curve_luma_vs_sat_len)
+        GpuLiveSession.bind(
+          buffers[12], to: &c.color_curve_sat_vs_sat_ptr, len: &c.color_curve_sat_vs_sat_len)
+        GpuLiveSession.bind(
+          buffers[13], to: &c.color_curve_sat_vs_luma_ptr, len: &c.color_curve_sat_vs_luma_len)
         c.mode = mode
         c.parametric_highlights = parametricHighlights
         c.parametric_lights = parametricLights

@@ -18,10 +18,20 @@ Describe and Video Describe can mix Ollama and cloud connections, each with its
 own model. Requests rotate round-robin through healthy connections with capacity.
 Connection concurrency caps each worker's pool; Describe's stage
 concurrency is derived from its assigned pool. Generated search chooses its own
-Ollama text-generation connection/model. Semantic search chooses its own Ollama
-embedding connection/model, reachable from the API host. Those two workers
-currently support Ollama only. Their settings no longer follow Describe after the
-first unified save. Whisper and face-model controls remain on their worker cards.
+text-generation connection/model: an Ollama server (grammar-constrained `/api/generate`)
+or an OpenAI-compatible server (`<base URL>/chat/completions` with a `json_schema`
+response format and the connection's bearer key). Semantic search
+chooses its own embedding connection/model, reachable from the API host: an Ollama
+server (`/api/embed`) or an OpenAI-compatible server (`<base URL>/embeddings` with the
+connection's bearer key). Either way the model must be bge-m3, because in-process
+search embeds queries with bge-m3. A saved embedding endpoint override is always an
+Ollama server. Their settings no longer follow Describe after the first unified save.
+
+An OpenAI connection has an optional base URL. Blank means `https://api.openai.com/v1`;
+any other value points the same protocol and bearer key at an OpenAI-compatible server
+(vLLM, llama.cpp, Strata, …), which model discovery lists unfiltered and the describe
+workers record at `cost_usd` 0. Changing the base URL discards the saved key, so a key
+is never sent to a host it was not entered for. Whisper and face-model controls remain on their worker cards.
 
 Before that first save, the API imports the effective legacy configuration for
 review, preserving all Describe servers, capacity, worker model overrides, and the
@@ -209,7 +219,7 @@ These are not per-asset version-claim stages. Each runs its own interval loop an
 | `deduplicate`        | interval                 | Collapses an asset found at more than one live path down to one kept copy, **moving** the surplus originals and their sidecars into a reversible `_duplicates/` quarantine the sweep skips. A `.keep` marker pins every copy in its folder. `dry_run` previews without touching disk. Boots paused.                                                                                                                                                                                                                                                                          |
 | `mirror` scan + copy | hourly scan              | Detector enqueues `mirror_queue` rows for files missing or stale on a library's mirror; a separate copy worker drains the queue. An offline mirror root is skipped, never treated as "everything is missing".                                                                                                                                                                                                                                                                                                                                                                |
 | `derivative-audit`   | 6 h                      | Verifies each live asset's thumb/preview/description on disk and its thumbnail in R2, and issues the canonical five-field stage reset when a derivative has drifted (most often after a move left the `.maple` cache behind). It never renders or uploads — it only re-arms the owning stage.                                                                                                                                                                                                                                                                                |
-| `generated-search`   | daily                    | Invents themed photo collections per library via Ollama for the widget, Maple TV, and settings surfaces. Boots paused.                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `generated-search`   | daily                    | Invents themed photo collections per library via its assigned text model (Ollama or OpenAI-compatible) for the widget, Maple TV, and settings surfaces. Boots paused.                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `cache-gc`           | once per library at boot | Sweeps orphaned `.maple/{thumbs,previews}` files, including the retired `<maple_id>.avif` thumbs from when thumbnails were content-addressed. See [caching](caching.md).                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ## The JobRunner
@@ -327,4 +337,5 @@ Describe and Video Describe accept mixed local/cloud connections, rotate request
 among healthy connections with capacity, and retain per-connection concurrency and retry failover.
 Each request uses the selected connection's model and records its provider/model in result metadata.
 Older assignments without `connection_models` retain their shared model until edited.
-Generated search and semantic search remain single-connection Ollama workers.
+Generated search and semantic search remain single-connection workers; each accepts Ollama or an
+OpenAI-compatible server.

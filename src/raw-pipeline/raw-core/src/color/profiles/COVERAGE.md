@@ -20,12 +20,15 @@ therefore load-bearing.
 - Source: the upstream tooling's externally-calibrated profile set
   under `CameraRaw/CameraProfiles/`, re-encoded by
   `src/scripts/convert_dcps.py` into the Maple binary format.
-- Profile count: ~1,406 distinct UCMs (after dedup by
+- Profile count: ~1,459 distinct UCMs (after dedup by
   `dcp_preference`). Includes the upstream `Camera/` subdir of
   per-creative-style variants; UCM dedup keeps one entry per body.
 - Bundled fields: `ColorMatrix1/2`, `ForwardMatrix1/2`,
   `CalibrationIlluminant1/2`, optionally `ProfileHueSatMap1/2`
-  (off by default; opt in with `--include-hsm`),
+  (off by default; opt in for every body with `--include-hsm`, or per body
+  with a repeatable `--hsm-ucm`. No body is opted in: the `Fujifilm GFX 50S`
+  tables bundled by #4645 were reverted in #5224 after the per-axis
+  HueSatMap refinement (#5145) turned them into a test_0005 regression),
   `BaselineExposureOffset`. `ProfileToneCurve` and `ProfileLookTable`
   are dropped (Maple's AgX view transform + DisplayLookCurve replace
   them).
@@ -36,7 +39,7 @@ The 18 RAW fixtures in `test-fixtures/raws/`:
 
 | Fixture       | Body                       | UCM (rawler-reported)    | Bundle hit  | Notes                                                                                                                                                                         |
 | ------------- | -------------------------- | ------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| test_0000.DNG | DJI Mavic 3 Pro (100 MP)   | `Hasselblad L3D-100c`    | HIT (alias) | Aliased to `DJI FC4382 Mavic3Pro` (drone body code, same Hasselblad sensor).                                                                                                  |
+| test_0000.DNG | DJI Mavic 4 Pro (100 MP)   | `Hasselblad L3D-100c`    | HIT         | Bundled under its own UCM since #4661 (the old alias to the Mavic 3 Pro's `DJI FC4382 Mavic3Pro` was a different sensor).                                                     |
 | test_0001.RAW | Panasonic LX2              | `Panasonic DMC-LX2`      | HIT         |                                                                                                                                                                               |
 | test_0002.dng | Hasselblad H2D-39          | `Hasselblad H2D-39`      | HIT (alias) | Aliased to `Hasselblad 39-Coated` (upstream sensor-naming convention).                                                                                                        |
 | test_0003.CR2 | Canon 5DS R                | `Canon EOS 5DS R`        | HIT         |                                                                                                                                                                               |
@@ -66,7 +69,6 @@ a clear unsupported-format error instead of a silent decode fail.
 
 - **Canon EOS Kiss M / EOS Kiss M**: Japanese domestic release of the `Canon EOS M50` (identical sensor, color patterns, and color matrices). Aliased to `Canon EOS M50`.
 - **Canon EOS Kiss M2 / EOS Kiss M2**: Japanese domestic release of the `Canon EOS M50 Mark II`. Aliased to `Canon EOS M50 Mark II`.
-
 
 ## Known coverage gaps
 
@@ -101,7 +103,8 @@ by users, and the bundle has no entry for them today:
 1. Verify the source `.dcp` is in the upstream tooling's
    `CameraRaw/CameraProfiles/` directory.
 2. Re-run `src/scripts/convert_dcps.py` to regenerate
-   `profiles.bin`. The script walks the parent dir recursively and
+   `profiles.bin`, then run `tools/codegen.sh`: the bundle digest is
+   stamped into the generated camera-support registry. The script walks the parent dir recursively and
    picks up both the canonical `*Standard/` profiles and the
    per-creative-style variants under `Camera/<body>/`.
 3. If rawler's reported UCM doesn't match the bundle's UCM (run

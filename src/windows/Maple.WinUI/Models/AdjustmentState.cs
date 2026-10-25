@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Maple.WinUI.Generated;
 
 namespace Maple.WinUI.Models
 {
@@ -133,6 +134,11 @@ namespace Maple.WinUI.Models
         public double ColorGradeGlobalHue = 0.0;
         public double ColorGradeGlobalSaturation = 0.0;
         public double ColorGradeGlobalLuminance = 0.0;
+        public double ColorGradeBlending = 100.0;
+        private static readonly double DefaultGradeShadowEdge = System.Array.Find(AdjustmentFields.All, f => f.Name == "color_grade_shadow_edge")!.DefaultNumber;
+        private static readonly double DefaultGradeHighlightEdge = System.Array.Find(AdjustmentFields.All, f => f.Name == "color_grade_highlight_edge")!.DefaultNumber;
+        public double ColorGradeShadowEdge = DefaultGradeShadowEdge;
+        public double ColorGradeHighlightEdge = DefaultGradeHighlightEdge;
 
         // --- HSL 8-band (hue / sat / lum), all [-100, 100] ---
         public double HueAdjustmentRed, HueAdjustmentOrange, HueAdjustmentYellow, HueAdjustmentGreen,
@@ -161,6 +167,15 @@ namespace Maple.WinUI.Models
         public List<CurvePoint> DisplayToneCurveRed = new();
         public List<CurvePoint> DisplayToneCurveGreen = new();
         public List<CurvePoint> DisplayToneCurveBlue = new();
+
+        // --- Oklab secondary color curves (#5041, papp:ColorCurve*).
+        //     Applied in scene-linear Oklab after 8-band HSL. Identity = empty. ---
+        public List<CurvePoint> ColorCurveHueVsHue = new();
+        public List<CurvePoint> ColorCurveHueVsSat = new();
+        public List<CurvePoint> ColorCurveHueVsLuma = new();
+        public List<CurvePoint> ColorCurveLumaVsSat = new();
+        public List<CurvePoint> ColorCurveSatVsSat = new();
+        public List<CurvePoint> ColorCurveSatVsLuma = new();
 
         // --- Local adjustments (#280/#358): masked, per-region edits. A
         //     hand-written mirror of raw-core's `LocalAdjustment`, outside
@@ -234,6 +249,12 @@ namespace Maple.WinUI.Models
             c.DisplayToneCurveRed = new List<CurvePoint>(DisplayToneCurveRed);
             c.DisplayToneCurveGreen = new List<CurvePoint>(DisplayToneCurveGreen);
             c.DisplayToneCurveBlue = new List<CurvePoint>(DisplayToneCurveBlue);
+            c.ColorCurveHueVsHue = new List<CurvePoint>(ColorCurveHueVsHue);
+            c.ColorCurveHueVsSat = new List<CurvePoint>(ColorCurveHueVsSat);
+            c.ColorCurveHueVsLuma = new List<CurvePoint>(ColorCurveHueVsLuma);
+            c.ColorCurveLumaVsSat = new List<CurvePoint>(ColorCurveLumaVsSat);
+            c.ColorCurveSatVsSat = new List<CurvePoint>(ColorCurveSatVsSat);
+            c.ColorCurveSatVsLuma = new List<CurvePoint>(ColorCurveSatVsLuma);
             c.LocalAdjustments = new List<LocalAdjustment>(LocalAdjustments);
             return c;
         }

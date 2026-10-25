@@ -245,6 +245,8 @@ function postRenderSessionSuccess(
     id: req.id,
     type: 'render-session-success',
     colorSpace,
+    width: session.width,
+    height: session.height,
     // #3479: a scalar-params tick never re-develops, so only an XMP render
     // can have changed which imported profile the prefix consumed.
     autoFit: req.params ? undefined : session.autoFit,

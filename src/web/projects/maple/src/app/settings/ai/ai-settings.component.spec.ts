@@ -91,6 +91,16 @@ describe('AI connections and assignments', () => {
       'password',
     );
   });
+  it('offers a base URL only on OpenAI connections and saves what is typed', () => {
+    const baseUrl = fixture.nativeElement.querySelector('[aria-label="Base URL for Cloud"]');
+    expect(baseUrl.placeholder).toBe('https://api.openai.com/v1');
+    expect(fixture.nativeElement.querySelector('[aria-label="Base URL for GPU one"]')).toBeNull();
+    component.updateConnection('cloud', { url: 'http://strata:8080/v1' });
+    expect(component.config()?.connections.find((c) => c.id === 'cloud')?.url).toBe(
+      'http://strata:8080/v1',
+    );
+    expect(component.dirty()).toBe(true);
+  });
   it('can add another connection without replacing existing servers', () => {
     component.addConnection();
     expect(component.config()?.connections).toHaveLength(4);

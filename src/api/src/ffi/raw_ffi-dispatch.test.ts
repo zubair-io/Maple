@@ -44,6 +44,36 @@ describe('handleFfiRequest', () => {
     expect(calls).toEqual([]);
   });
 
+  it('answers the sidecar adjustment check, and treats every sidecar as authored on a dylib that predates it', async () => {
+    const req: FfiRequest = { type: 'sidecarAdjustments', id: 9, xmp: '<x:xmpmeta/>' };
+    const current = {
+      ...fakeFfi([]),
+      xmpHasRenderAdjustments: (xmp: string) => ({ authored: xmp === '<x:xmpmeta/>' }),
+    } as RawFfi;
+    expect(await handleFfiRequest(current, req)).toEqual({
+      type: 'sidecarAdjustments',
+      id: 9,
+      ok: true,
+      authored: true,
+    });
+    const unparsed = {
+      ...fakeFfi([]),
+      xmpHasRenderAdjustments: () => ({ error: 'xmp parse: unknown Profile' }),
+    } as RawFfi;
+    expect(await handleFfiRequest(unparsed, req)).toEqual({
+      type: 'sidecarAdjustments',
+      id: 9,
+      ok: false,
+      error: 'xmp parse: unknown Profile',
+    });
+    expect(await handleFfiRequest(fakeFfi([]), req)).toEqual({
+      type: 'sidecarAdjustments',
+      id: 9,
+      ok: true,
+      authored: true,
+    });
+  });
+
   it('reports a missing dylib without touching the binding', async () => {
     const req: FfiRequest = { type: 'histogram', id: 5, rawPath: '/a.dng', xmpPath: null };
     const res = await handleFfiRequest(null, req);

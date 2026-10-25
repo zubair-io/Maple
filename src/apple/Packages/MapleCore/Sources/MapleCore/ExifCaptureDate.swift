@@ -1,74 +1,18 @@
 // src/apple/Packages/MapleCore/Sources/MapleCore/ExifCaptureDate.swift
 //
 // EXIF DateTimeOriginal/CreateDate -> ISO 8601 UTC, byte-for-byte matching
-// the server indexer's `asIsoDate` (#1995).
+// the server indexer's `asIsoDate` (#1995, #5082).
 //
-// Ports the string branch of `src/api/src/indexer/exif.ts`'s `asIsoDate` —
-// Apple reads EXIF via ImageIO, which surfaces the raw
-// "YYYY:MM:DD HH:MM:SS" tag string (see `ImageMetadataReader
-// .readRawCaptureDateStrings`), not a pre-parsed `Date` the way exifr's
-// `reviveDate` hands the server's `normalizeExif` for most real photos. The
-// output of this function must be byte-identical to what the server would
-// compute for the same EXIF string, because maple_id's primary form hashes
-// this string verbatim (`raw_core::MapleId::primary` / `maple_id_primary`)
-// — any divergence here silently breaks cross-platform id parity (the same
-// photo hashes to two different ids depending on which side computed it).
-//
-// ## The timezone assumption — READ THIS BEFORE CHANGING ANYTHING BELOW
-//
-// EXIF `DateTimeOriginal` carries no timezone designator: "2024:06:01
-// 12:34:56" doesn't say whether that's UTC, PST, or anything else. The
-// server's `asIsoDate` (src/api/src/indexer/exif.ts) handles the ambiguity
-// by feeding the string (reformatted with a "T" separator, still with no
-// timezone suffix) to JavaScript's `new Date(...)` constructor. Per
-// ECMA-262, `Date.parse` of a date-time string that omits a timezone offset
-// is interpreted as **local time of the process that calls it** — i.e. the
-// answer depends on whatever timezone the Bun/Node indexer process happens
-// to be running in. This is not unique to the string-fallback branch:
-// exifr's own `reviveDate` (node_modules/exifr/src/dicts/tiff-revivers.mjs,
-// the path most real photos actually take, since exifr pre-parses
-// DateTimeOriginal into a `Date` before `asIsoDate` ever sees it) builds via
-// `new Date(year, month - 1, day)` + `.setHours/.setMinutes/.setSeconds` —
-// the multi-argument `Date` constructor, which is ALSO always local-time
-// interpretation. So the ambiguity is baked into every path the server can
-// take, not a quirk of one branch.
-//
-// This port assumes the indexer process's system timezone is **UTC**.
-// Evidence for that assumption, gathered from this repo — NOT proof of it:
-//   - `src/api/Dockerfile`'s runtime stage (`oven/bun:1.3-slim`, a Debian
-//     base) sets no `TZ` and installs no tzdata override; Debian slim images
-//     default to UTC absent explicit configuration.
-//   - `src/api/docker-compose.yml` (the `maple` service) and
-//     `src/api/maple.service` (the alternate bare-metal/systemd deploy path)
-//     likewise set no `TZ`.
-//   - This codebase's other UTC-bucketing conventions (see
-//     `docs/plans/2026-05-31-imports-feature.md`: "Bucketing timezone: UTC
-//     (matches formatBackupPath)") suggest UTC is the house default whenever
-//     a timezone choice has to be made without better information.
-//   - `PhotoKitAssetReader.readExifCaptureDateISO8601UTC`
-//     (`src/apple/Maple/Backup/PhotoKitAssetReader.swift`, the existing
-//     device-side PhotoKit backup path) already independently made the same
-//     UTC assumption for the identical reason, and its own doc comment
-//     flags the identical caveat. That is corroborating precedent, not
-//     independent proof.
-//
-// It is explicitly NOT proof: the bare-metal systemd deploy path
-// (`maple.service`) inherits whatever `/etc/localtime` the HOST machine has
-// configured, which nothing in this repo can see. This was verified
-// empirically during #1995 by running the real
-// `src/api/src/indexer/exif.ts` (`normalizeExif`) under `bun run` with
-// different `TZ` values — the SAME EXIF string produced `captured_at`
-// values that differed by exactly the process's UTC offset:
-//
-//     TZ=UTC:               "2024:06:01 12:34:56" -> "2024-06-01T12:34:56.000Z"
-//     TZ=America/New_York:  "2024:06:01 12:34:56" -> "2024-06-01T16:34:56.000Z"
-//
-// If the indexer's actual deployed host is not UTC, primary-form ids
-// computed by this function will NOT match the ids the server computes for
-// the same file, and Apple/server dedup will silently miss for every asset
-// with a capture timestamp. This is flagged as an open question for #1995 —
-// deliberately NOT silently resolved by guessing.
-
+// The server reads the RAW EXIF strings (`withRawCaptureDates` re-parses the
+// two date tags with exifr's revival off) and hands each to `asIsoDate`,
+// whose string branch feeds a "YYYY:MM:DD HH:MM:SS" prefix match to
+// `Date.UTC(...)`. That reads the wall-clock fields as UTC whatever the
+// indexer host's timezone, so the device needs no timezone assumption.
+// Apple reads the same raw strings through ImageIO (`ImageMetadataReader
+// .readRawCaptureDateStrings`). The output must be byte-identical to the
+// server's for the same string: maple_id's primary form hashes it verbatim
+// (`raw_core::MapleId::primary`), so any divergence gives the same photo two
+// ids.
 import Foundation
 
 public enum ExifCaptureDate {
@@ -102,81 +46,99 @@ public enum ExifCaptureDate {
     /// optionally "T"-separated, any trailing content ignored) as **UTC**
     /// wall-clock time and format it as an ISO 8601 string with millisecond
     /// precision — `YYYY-MM-DDTHH:mm:ss.000Z` — matching the server
-    /// indexer's `asIsoDate` output when the indexer process runs with UTC
-    /// as its system timezone (see the type's doc comment above for the
-    /// caveat on that assumption).
+    /// indexer's `asIsoDate` output.
     ///
-    /// Returns `nil` when `s` doesn't match the expected prefix, or when the
-    /// numeric components don't form a valid calendar date/time (month
-    /// outside 1–12, hour outside 0–23, minute/second outside 0–59, or a day
-    /// that doesn't exist in the given month/year — e.g. day 30 in
-    /// February). Real camera EXIF never emits out-of-range values here;
-    /// this port does not attempt to replicate JavaScript `Date` engines'
-    /// specific overflow/rejection quirks for malformed input (e.g. V8
-    /// silently rolls a day-of-month overflow into the next month while
-    /// rejecting an out-of-range month outright — an inconsistency not worth
-    /// reproducing for input that never occurs in practice). Callers should
-    /// treat `nil` as "no usable capture timestamp" and fall back to
-    /// fallback-form id derivation, exactly as the server does when
-    /// `asIsoDate` returns `null`.
+    /// Returns `nil` only when `s` doesn't match the prefix. A match is read
+    /// exactly as the server's `Date.UTC` reads it (#5082): out-of-range
+    /// fields roll forward (month 13 → January of the next year, day 0 → the
+    /// previous month's last day), years 0–99 mean 1900–1999, the calendar is
+    /// proleptic Gregorian, and years past 9999 use `toISOString`'s
+    /// `+YYYYYY` form. Camera placeholders such as `0000:00:00 00:00:00`
+    /// therefore date a photo (1899-11-30) on the device exactly as they do on
+    /// the server.
     public static func iso8601UTC(fromExifString s: String) -> String? {
         let ns = s as NSString
         guard
             let match = pattern.firstMatch(in: s, range: NSRange(location: 0, length: ns.length)),
             match.numberOfRanges == 7
         else { return nil }
-
-        func component(_ group: Int) -> Int? {
-            let r = match.range(at: group)
-            guard r.location != NSNotFound else { return nil }
-            return Int(ns.substring(with: r))
-        }
-
-        guard
-            let year = component(1), let month = component(2), let day = component(3),
-            let hour = component(4), let minute = component(5), let second = component(6)
-        else { return nil }
-
-        guard (1...12).contains(month), (0...23).contains(hour),
-              (0...59).contains(minute), (0...59).contains(second)
-        else { return nil }
-
-        var utcCalendar = Calendar(identifier: .gregorian)
-        // Force-unwrap is safe: "UTC" is always a valid TimeZone identifier
-        // on every platform Foundation ships on.
-        utcCalendar.timeZone = TimeZone(identifier: "UTC")!
-
-        var components = DateComponents()
-        components.year = year
-        components.month = month
-        components.day = day
-        components.hour = hour
-        components.minute = minute
-        components.second = second
-
-        guard let date = utcCalendar.date(from: components),
-              // Defends against `Calendar.date(from:)` normalizing an
-              // out-of-range day (e.g. Feb 30) into the following month
-              // instead of failing outright — Foundation's leniency here is
-              // implementation-defined and not something this port should
-              // depend on either way. Requiring the round-tripped day to
-              // match what was requested makes this function reject
-              // invalid calendar dates regardless of which behavior the
-              // underlying Calendar implementation chooses.
-              utcCalendar.component(.day, from: date) == day
-        else { return nil }
-
-        return isoFormatter.string(from: date)
+        let fields = (1...6).compactMap { Int(ns.substring(with: match.range(at: $0))) }
+        guard fields.count == 6 else { return nil }
+        let year = (0...99).contains(fields[0]) ? 1900 + fields[0] : fields[0]
+        let monthIndex = fields[1] - 1
+        let days =
+            daysFromCivil(
+                year: year + floorDiv(monthIndex, 12), month: floorMod(monthIndex, 12) + 1, day: 1)
+            + fields[2] - 1
+        let seconds = days * 86_400 + fields[3] * 3_600 + fields[4] * 60 + fields[5]
+        return toISOString(secondsSinceEpoch: seconds)
     }
 
-    /// ISO 8601 UTC formatter with millisecond precision —
-    /// `YYYY-MM-DDTHH:mm:ss.sssZ`, matching JavaScript's
-    /// `Date.prototype.toISOString()`, the exact wire format the server's
-    /// `asIsoDate` emits and `maple_id`'s primary form hashes.
-    private static let isoFormatter: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        f.timeZone = TimeZone(identifier: "UTC")!
-        return f
-    }()
+    /// The server's `asIsoDate(DateTimeOriginal) ?? asIsoDate(CreateDate)`,
+    /// for the raw EXIF strings ImageIO reports (`CreateDate` is EXIF
+    /// DateTimeDigitized).
+    ///
+    /// A field that is absent or doesn't match the EXIF prefix (including a
+    /// blank `    :  :     :  :  ` placeholder) falls through to the next.
+    /// For a non-prefix field with digits the server tries `new Date(...)`,
+    /// which the device cannot reproduce: when JavaScript rejects it the
+    /// server falls through too and the ids match; when JavaScript reads it
+    /// they differ whatever the device does, and a wrong date can only
+    /// collide with a file sharing its first 64 KB, which the primary form
+    /// also hashes.
+    ///
+    /// Each field is first trimmed the way exifr's `normalizeString` hands it
+    /// to the server: trailing NULs dropped, then surrounding whitespace.
+    public static func capturedAt(dateTimeOriginal: String?, createDate: String?) -> String? {
+        [dateTimeOriginal, createDate].lazy
+            .compactMap { $0.map(exifrNormalized) }
+            .compactMap(iso8601UTC(fromExifString:))
+            .first
+    }
+
+    private static func exifrNormalized(_ raw: String) -> String {
+        String(raw.reversed().drop { $0 == "\u{0}" }.reversed())
+            .trimmingCharacters(in: .ecmaScriptWhitespace)
+    }
+
+    private static func floorDiv(_ a: Int, _ b: Int) -> Int {
+        (a - floorMod(a, b)) / b
+    }
+
+    private static func floorMod(_ a: Int, _ b: Int) -> Int {
+        ((a % b) + b) % b
+    }
+
+    /// Days from 1970-01-01 to `year-month-day` in the proleptic Gregorian
+    /// calendar (Hinnant's `days_from_civil`), as ECMA-262's `MakeDay` counts.
+    private static func daysFromCivil(year: Int, month: Int, day: Int) -> Int {
+        let y = month <= 2 ? year - 1 : year
+        let era = floorDiv(y, 400)
+        let yearOfEra = y - era * 400
+        let dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1
+        let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
+        return era * 146_097 + dayOfEra - 719_468
+    }
+
+    /// `Date.prototype.toISOString` for a whole-second UTC instant.
+    private static func toISOString(secondsSinceEpoch: Int) -> String {
+        let days = floorDiv(secondsSinceEpoch, 86_400)
+        let secondOfDay = floorMod(secondsSinceEpoch, 86_400)
+        let z = days + 719_468
+        let era = floorDiv(z, 146_097)
+        let dayOfEra = z - era * 146_097
+        let yearOfEra = (dayOfEra - dayOfEra / 1460 + dayOfEra / 36_524 - dayOfEra / 146_096) / 365
+        let dayOfYear = dayOfEra - (365 * yearOfEra + yearOfEra / 4 - yearOfEra / 100)
+        let mp = (5 * dayOfYear + 2) / 153
+        let day = dayOfYear - (153 * mp + 2) / 5 + 1
+        let month = mp < 10 ? mp + 3 : mp - 9
+        let year = yearOfEra + era * 400 + (month <= 2 ? 1 : 0)
+        let yearText =
+            (0...9999).contains(year)
+            ? String(format: "%04d", year) : "+" + String(format: "%06d", year)
+        return yearText
+            + String(
+                format: "-%02d-%02dT%02d:%02d:%02d.000Z", month, day, secondOfDay / 3_600,
+                secondOfDay / 60 % 60, secondOfDay % 60)
+    }
 }

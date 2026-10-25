@@ -48,7 +48,8 @@ import {
 import { isSafeFilename } from '../backup/path-formatter.ts';
 import { isInsideMapleCache } from '../workers/discover/reserved-trees.ts';
 import { moveToTrash } from '../fs/trash.ts';
-import { relocateFile, type CollisionPolicy, type RelocateMode } from '../fs/relocate.ts';
+import type { relocateFile, CollisionPolicy, RelocateMode } from '../fs/relocate.ts';
+import { relocateRequestedFile } from './folders-file-relocate.ts';
 import { stat } from '../fs/mirrored.ts';
 import { requireFileAccess } from '../auth/middleware.ts';
 import { child as childLogger } from '../log.ts';
@@ -289,6 +290,10 @@ async function respondToTrashOutcome(
   return { status: 204 };
 }
 
+function isSidecarFilename(filename: string): boolean {
+  return nodePath.extname(filename).toLowerCase() === '.xmp';
+}
+
 /** Maps a `relocateFile` outcome to the route's `(status, body)`. The
  * `relocated` case also emits the change-feed rows the move/copy needs:
  * unlike an indexed asset (a stable Mongo `_id` survives a rename), a
@@ -486,13 +491,19 @@ export const foldersFileOpsRoutes = new Elysia({ prefix: '/api/folders' })
 
       const sourceAbsPath = nodePath.join(folderPath, body.source_path);
       const mode = body.mode as RelocateMode;
-      const outcome = await relocateFile({
+      const relocated = await relocateRequestedFile({
+        libraryRoot: folderPath,
         sourceAbsPath,
         destAbsPath: destCheck.destAbsPath,
         mode,
         collision: body.collision as CollisionPolicy,
-        callerTag: 'folders/file/relocate',
+        rawSidecar: isSidecarFilename(sourceFilename),
       });
+      if ('refused' in relocated) {
+        set.status = 403;
+        return { error: relocated.refused };
+      }
+      const { outcome } = relocated;
 
       const response = await respondToRelocateOutcome(outcome, {
         folderId,

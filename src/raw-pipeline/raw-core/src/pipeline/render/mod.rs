@@ -47,16 +47,20 @@ mod display_prefix;
 mod finish;
 pub use detail::{
     render_detail_base, render_detail_base_cancellable, render_detail_base_retained,
-    render_detail_tile, render_detail_tile_cancellable, DetailContext, DetailRenderOptions,
+    render_detail_base_retained_cancellable, render_detail_tile, render_detail_tile_cancellable,
+    DetailContext, DetailRenderOptions,
 };
 
 // Export render — the display chain at a caller-chosen depth / primaries (#943).
 mod export;
+// The same display tail kept at f32 for a destination encoder (#5163).
+mod float_export;
 pub use export::{
     decode_raster_base, render_export_from_raw, render_export_from_raw_with_film,
     render_export_raster, render_export_raster_cancellable, validate_raster_adjustments,
     ExportDepth, ExportPixels, RasterDetailImage,
 };
+pub use float_export::render_export_f32;
 
 // Synthetic-input render entries — the view transform applied to an already
 // scene-linear buffer (#943 size-budget split); re-exported so `pipeline::{…}`
@@ -468,7 +472,9 @@ fn render_display_scene_with_context_cancellable(
     Ok((
         scene,
         DetailContext {
+            target,
             native_highlight: None,
+            haze: None,
             model: model.clone(),
             active_model: active_model.clone(),
             ae_gain,

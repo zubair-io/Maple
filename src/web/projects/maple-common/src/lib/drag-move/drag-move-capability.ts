@@ -27,6 +27,8 @@ export interface DragMoveCollisionPrompt {
   /** Filename of the item currently blocked on a collision — the dialog
    * names it so Skip/Replace/Keep Both aren't ambiguous mid-batch. */
   filename: string;
+  /** The server refused Replace because the destination is another indexed photo. */
+  replaceUnavailable?: boolean;
 }
 
 export interface DragMoveCapability {

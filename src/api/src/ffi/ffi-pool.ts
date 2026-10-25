@@ -287,6 +287,30 @@ class FfiWorkerPool {
     });
   }
 
+  /** True when a validated sidecar document carries render adjustments, judged
+   * by the same parse the recipe renderer applies. Rides the bitmap lane: it
+   * is a parse, never a decode. Rejects when the document does not parse or
+   * the child fails, which callers treat as fail-closed. */
+  async sidecarHasRenderAdjustments(xmp: string): Promise<boolean> {
+    const id = this.requestId();
+    return new Promise((resolve, reject) => {
+      this.enqueue(
+        {
+          id,
+          post: (w) => w.postMessage({ type: 'sidecarAdjustments', id, xmp }),
+          onResponse: (msg) => {
+            if (msg.type !== 'sidecarAdjustments') return false;
+            if (msg.ok && typeof msg.authored === 'boolean') resolve(msg.authored);
+            else reject(new Error(msg.error ?? 'Sidecar adjustment check failed'));
+            return true;
+          },
+          onError: reject,
+        },
+        'bitmap',
+      );
+    });
+  }
+
   /** Read camera as-shot white balance in the isolated child process.
    * Rejects if the native library or the RAW's baseline is unavailable. */
   async asShotWhiteBalance(rawPath: string): Promise<{ temperature: number; tint: number }> {
@@ -348,7 +372,8 @@ class FfiWorkerPool {
   }
 
   /** Route one request onto its lane's queue. RAW is the default; only the
-   * cheap bitmap ops (`renderBitmap`, `validateAvif`) pass `'bitmap'`. */
+   * cheap ops (`renderBitmap`, `validateAvif`, `sidecarAdjustments`) pass
+   * `'bitmap'`. */
   private enqueue(req: PendingRequest, lane: FfiLane = 'raw'): void {
     (lane === 'bitmap' ? this.bitmapPool : this.slotPool).enqueue(req);
   }

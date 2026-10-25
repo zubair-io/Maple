@@ -11,7 +11,9 @@ import Foundation
 /// Pure source-geometry helpers shared by the renderer, session, and tests.
 enum NativeDetailLOD {
   static let minimumPixelScale: CGFloat = 1
-  /// Covers dehaze's 67 px stencil plus headroom for chained filters.
+  /// Floor on the filter context around a patch. The per-tick chain's actual
+  /// reach (`PipelineRenderer.sceneLinearChainWindowReach`) widens it when
+  /// the frame-scaled S/H mask needs more (#5169).
   static let filterHalo: CGFloat = 96
 
   /// Ticket #2063 pan-reuse margin — independent of `filterHalo`.
@@ -86,9 +88,9 @@ enum NativeDetailLOD {
   /// the oriented image bounds. Deliberately larger than the immediate
   /// viewport so an ordinary small pan's new `detailRect` still lands
   /// inside the previous publish and hits the containment fast path
-  /// instead of a fresh develop. `filterHalo` remains a separate, smaller
-  /// addition applied on top by `decodeRect` for filter-stencil context
-  /// only — it is never grown by this margin and is never itself
+  /// instead of a fresh develop. The chain's reach (at least
+  /// `filterHalo`) is added on top by `decodeRect` for filter-stencil
+  /// context only — it is never grown by this margin and is never itself
   /// published.
   static func patchRect(visibleRect: CGRect, imageSize: CGSize) -> CGRect {
     let base = detailRect(visibleRect: visibleRect, imageSize: imageSize)
@@ -104,36 +106,30 @@ enum NativeDetailLOD {
     return grown.isNull ? base : grown
   }
 
-  /// Source rect sent to the RAW tile entry. The halo gives clarity,
-  /// sharpening, and NR context beyond the displayed patch without ever
-  /// expanding work to the full sensor.
+  /// Source rect sent to the RAW tile entry. The halo (at least
+  /// `filterHalo`) gives the per-tick chain's spatial stages context beyond
+  /// the displayed patch without ever expanding work to the full sensor.
   ///
-  /// The result is additionally clamped to `CanvasMath.metalMaxTextureEdge`
-  /// per edge (#2061) — the halo inset only ever adds `2 * filterHalo`
-  /// (192px) beyond the caller's `detailRect`, but a pathological
-  /// viewport (an ultra-wide 2×-Retina display, or a very large source
-  /// image) can still produce a `detailRect` whose expanded form would
-  /// exceed the texture ceiling this tile is eventually uploaded into.
-  /// Clamping the size here (keeping the origin fixed) is defensive:
-  /// on ordinary hardware/viewports it never binds.
-  static func decodeRect(detailRect: CGRect, imageSize: CGSize) -> CGRect {
+  /// The complete patch and its required halo must fit Metal's texture edge
+  /// limit. Returning empty requests whole-image refinement; truncating one
+  /// side of the halo would make edge pixels disagree with that refinement.
+  static func decodeRect(
+    detailRect: CGRect, imageSize: CGSize, halo: CGFloat
+  ) -> CGRect {
     let bounds = CGRect(origin: .zero, size: imageSize)
     guard !detailRect.isEmpty, bounds.width > 0, bounds.height > 0 else {
       return .zero
     }
     let expanded =
       detailRect
-      .insetBy(dx: -filterHalo, dy: -filterHalo)
+      .insetBy(dx: -max(filterHalo, halo), dy: -max(filterHalo, halo))
       .integral
       .intersection(bounds)
-    guard !expanded.isNull else { return .zero }
     let maxEdge = CanvasMath.metalMaxTextureEdge
-    return CGRect(
-      x: expanded.minX,
-      y: expanded.minY,
-      width: min(expanded.width, maxEdge),
-      height: min(expanded.height, maxEdge)
-    )
+    guard !expanded.isNull, expanded.width <= maxEdge, expanded.height <= maxEdge else {
+      return .zero
+    }
+    return expanded
   }
 
   /// Convert a top-left-oriented source rect into the local CoreImage

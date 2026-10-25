@@ -21,6 +21,7 @@ import { Router } from '@angular/router';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { AssetGridComponent } from './asset-grid.component';
+import { BrowseReturnPositionService } from './browse-return-position.service';
 import { LibraryStateService } from '../../state/library-state.service';
 import { TRASH_CAPABILITY } from '../../trash/trash-capability';
 import { DRAG_MOVE_CAPABILITY } from '../../drag-move/drag-move-capability';
@@ -73,6 +74,7 @@ describe('AssetGridComponent — click semantics (#2404)', () => {
             selectFolder,
             openSelfHostedSubfolder,
             setFolderOpen,
+            selectedSourceId: () => 'lib:2026',
           },
         },
         { provide: Router, useValue: { navigate } },
@@ -89,6 +91,19 @@ describe('AssetGridComponent — click semantics (#2404)', () => {
     expect(navigate).toHaveBeenCalledTimes(1);
     // fs:/no-colon ids pass through as a single segment (route-address.ts).
     expect(navigate).toHaveBeenCalledWith(['/view', 'a1.jpg']);
+  });
+
+  it('remembers the visible grid offset before opening Preview', () => {
+    const returnPosition = TestBed.inject(BrowseReturnPositionService);
+    component.gridContainerRef = { nativeElement: { scrollTop: 680 } } as never;
+
+    component.onThumbClick(asset, click());
+
+    expect(returnPosition.forSource('lib:2026')).toEqual({
+      sourceId: 'lib:2026',
+      assetId: asset.id,
+      scrollTop: 680,
+    });
   });
 
   it('Cmd-click toggles selection and does not navigate', () => {
@@ -259,9 +274,14 @@ describe('AssetGridComponent — scroll resets on folder navigation (#4792)', ()
             foldersInSelectedFolder: () => [],
             assetsInSelectedFolder,
             selectedAssetIds: () => new Set<AssetId>(),
+            isSelecting: () => false,
             selectedFolderIds: () => new Set<string>(),
-            backendLoading: () => false,
+            backendLoading: () => assetsInSelectedFolder().length === 0,
             backendError: () => undefined,
+            ensureThumbnailUrl: vi.fn(),
+            thumbnailFailed: () => false,
+            subscribeThumbUrl: () => () => {},
+            cancelQueuedThumbnail: vi.fn(),
             selectedSourceId,
           },
         },
@@ -274,7 +294,6 @@ describe('AssetGridComponent — scroll resets on folder navigation (#4792)', ()
   });
 
   afterEach(() => vi.unstubAllGlobals());
-
   function scrolledGrid(): HTMLElement {
     const grid = fixture.componentInstance.gridContainerRef.nativeElement;
     Object.defineProperty(grid, 'scrollTop', { value: 500, writable: true, configurable: true });
@@ -298,6 +317,32 @@ describe('AssetGridComponent — scroll resets on folder navigation (#4792)', ()
     fixture.detectChanges();
 
     expect(grid.scrollTop).toBe(500);
+  });
+
+  it('restores the remembered offset after the virtual grid has its scroll height', async () => {
+    const memory = TestBed.inject(BrowseReturnPositionService);
+    memory.remember({ sourceId: 'lib:2026', assetId: 'a1' as AssetId, scrollTop: 500 });
+    fixture.destroy();
+
+    fixture = TestBed.createComponent(AssetGridComponent);
+    fixture.detectChanges();
+    const grid = fixture.componentInstance.gridContainerRef.nativeElement;
+    let scrollHeight = 0;
+    Object.defineProperty(grid, 'scrollHeight', { get: () => scrollHeight });
+    Object.defineProperty(grid, 'clientHeight', { value: 600 });
+    expect(grid.scrollTop).toBe(0);
+
+    assetsInSelectedFolder.set([{ ...makeAsset('a1'), aspectRatio: 3 / 2 }]);
+    fixture.detectChanges();
+    expect(memory.forSource('lib:2026')).not.toBeNull();
+    scrollHeight = 1200;
+
+    await vi.waitFor(() => expect(grid.scrollTop).toBe(500));
+    expect(memory.forSource('lib:2026')).toBeNull();
+    memory.remember({ sourceId: 'lib:2026', assetId: 'a1' as AssetId, scrollTop: 500 });
+    assetsInSelectedFolder.set([{ ...makeAsset('a2'), aspectRatio: 3 / 2 }]);
+    fixture.detectChanges();
+    expect(memory.forSource('lib:2026')).toBeNull();
   });
 });
 

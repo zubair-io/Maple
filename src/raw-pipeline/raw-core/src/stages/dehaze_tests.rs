@@ -1,7 +1,29 @@
-//! Unit tests for [`super`] (dark-channel-prior dehaze). Split out of
-//! `dehaze.rs` under the 600-LOC file-size budget. Contents moved verbatim.
+//! Unit tests for [`super`] (dark-channel-prior dehaze) and its proxy haze
+//! map (#3287). Split out of `dehaze.rs` under the 600-LOC file-size budget.
 
+use super::map::*;
 use super::*;
+
+fn plane(img: &Image) -> Vec<[f32; 3]> {
+    img.pixels.clone()
+}
+
+fn dark_channel(img: &Image) -> Vec<f32> {
+    let mins: Vec<f32> = img
+        .pixels
+        .iter()
+        .map(|p| p[0].min(p[1]).min(p[2]))
+        .collect();
+    window_min(&mins, img.width as usize, img.height as usize)
+}
+
+fn guided(guide: &[f32], p: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
+    guided_coefficients(guide, p, w, h, r, 1e-3)
+        .iter()
+        .zip(guide)
+        .map(|(c, &g)| c[0] * g + c[1])
+        .collect()
+}
 
 #[test]
 fn dark_channel_of_uniform_is_min_channel() {
@@ -40,7 +62,7 @@ fn atmospheric_light_picks_brightest_region() {
         }
     }
     let dc = dark_channel(&img);
-    let a = atmospheric_light(&img, &dc);
+    let a = atmospheric_light(&plane(&img), &dc);
     assert!(a[0] > 0.7, "A[R] = {}", a[0]);
     assert!(a[1] > 0.7);
     assert!(a[2] > 0.7);
@@ -52,10 +74,14 @@ fn transmission_is_high_for_bright_clear_regions() {
     for p in &mut img.pixels {
         *p = [1.0, 1.0, 1.0];
     }
-    let a = [1.0, 1.0, 1.0];
-    let t = transmission(&img, a);
-    // t = 1 - 0.95 * 1 = 0.05 for pure-white image with A=(1,1,1).
-    assert!(t.iter().all(|v| (*v - 0.05).abs() < 1e-5));
+    let map = measure_proxy(&plane(&img), 30, 30);
+    assert_eq!(map.airlight, [1.0; 3]);
+    // t = 1 - 0.95 * 1 = 0.05 for pure-white image with A=(1,1,1); a flat
+    // guide leaves the whole transmission in the `b` coefficient.
+    assert!(map
+        .coefficients
+        .iter()
+        .all(|c| (c[0] * guide([1.0; 3], map.airlight) + c[1] - 0.05).abs() < 1e-5));
 }
 
 #[test]
@@ -69,7 +95,7 @@ fn box_blur_of_constant_is_constant() {
 fn guided_filter_of_constants_is_constant() {
     let guide = vec![0.5f32; 40 * 40];
     let p = vec![0.7f32; 40 * 40];
-    let out = guided_filter(&guide, &p, 40, 40, GuidedOptions { r: 5, eps: 1e-3 });
+    let out = guided(&guide, &p, 40, 40, 5);
     assert!(out.iter().all(|v| (*v - 0.7).abs() < 1e-4));
 }
 
@@ -84,7 +110,7 @@ fn guided_filter_preserves_smooth_transmission() {
         }
     }
     let guide = p.clone();
-    let out = guided_filter(&guide, &p, w, h, GuidedOptions { r: 8, eps: 1e-3 });
+    let out = guided(&guide, &p, w, h, 8);
     for y in 10..20 {
         for x in 10..20 {
             let diff = (out[y * w + x] - p[y * w + x]).abs();
@@ -105,7 +131,7 @@ fn guided_filter_flat_bright_plane_stays_flat_and_finite() {
     // Non-round value so the box-blur accumulators actually round.
     let level = 3000.7f32;
     let p = vec![level; w * h];
-    let out = guided_filter(&p, &p, w, h, GuidedOptions { r: 5, eps: 1e-3 });
+    let out = guided(&p, &p, w, h, 5);
     for (i, &v) in out.iter().enumerate() {
         assert!(v.is_finite(), "index {} non-finite: {}", i, v);
         assert!(
@@ -319,8 +345,9 @@ fn dehaze_without_sky_mask_breaks_sky_preservation() {
     let before = img.pixels.clone();
 
     // Run the full recovery pipeline with a zero mask (mask disabled).
-    let zero_mask = vec![0.0f32; w * h];
-    apply_with_mask_override(&mut img, 100.0, &zero_mask);
+    let mut map = HazeMap::measure(&img);
+    map.sky.fill(0.0);
+    apply_with_map(&mut img, 100.0, &map, (0, 0), (w as u32, h as u32));
 
     // Check the exact same pure-sky band the masked test asserts on.
     // The masked test requires every pixel-channel here to move < 5%;
@@ -354,4 +381,164 @@ fn dehaze_positive_increases_contrast() {
     assert!(img.pixels.iter().all(|p| p.iter().all(|v| v.is_finite())));
     let after = img.pixels[10 * 30 + 10][0];
     assert!(after >= 0.0 && after <= 1.5);
+}
+
+#[test]
+fn separable_window_min_matches_the_direct_clamped_window() {
+    let (w, h) = (37usize, 23usize);
+    let values: Vec<f32> = (0..w * h)
+        .map(|i| ((i * 7919) % 1009) as f32 / 1009.0)
+        .collect();
+    let fast = window_min(&values, w, h);
+    for y in 0..h {
+        for x in 0..w {
+            let mut m = f32::INFINITY;
+            for dy in -7i32..=7 {
+                for dx in -7i32..=7 {
+                    let ux = (x as i32 + dx).clamp(0, w as i32 - 1) as usize;
+                    let uy = (y as i32 + dy).clamp(0, h as i32 - 1) as usize;
+                    m = m.min(values[uy * w + ux]);
+                }
+            }
+            assert_eq!(fast[y * w + x], m, "({x}, {y})");
+        }
+    }
+}
+
+#[test]
+fn proxy_grid_has_the_fixed_long_edge_and_keeps_aspect() {
+    assert_eq!(proxy_dims(12288, 8192), (2048, 1365));
+    assert_eq!(proxy_dims(4000, 6000), (1365, 2048));
+    assert_eq!(proxy_dims(60, 60), (2048, 2048));
+    assert_eq!(proxy_dims(9000, 1), (2048, 1));
+}
+
+/// A synthetic hazy landscape: a veil that thickens towards the horizon,
+/// darker objects on the ground and a bright sky, sampled as the block
+/// average of a continuous scene so every resolution sees the same picture.
+fn hazy_scene(w: u32, h: u32) -> Image {
+    let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+    for y in 0..h {
+        for x in 0..w {
+            let (u, v) = ((x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32);
+            let veil = 0.25 + 0.5 * (1.0 - v);
+            let object = ((u * 9.0).floor() as i32 + (v * 6.0).floor() as i32) % 2 == 0;
+            let albedo = if object {
+                [0.05, 0.08, 0.04]
+            } else {
+                [0.18, 0.16, 0.12]
+            };
+            img.pixels[(y * w + x) as usize] = if v < 0.2 {
+                [0.9, 0.92, 0.95]
+            } else {
+                [0, 1, 2].map(|c| albedo[c] * (1.0 - veil) + 0.85 * veil)
+            };
+        }
+    }
+    img
+}
+
+fn block_average(img: &Image, factor: u32) -> Image {
+    let (w, h) = (img.width / factor, img.height / factor);
+    let mut out = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+    for y in 0..h {
+        for x in 0..w {
+            let mut sum = [0.0f32; 3];
+            for dy in 0..factor {
+                for dx in 0..factor {
+                    let p = img.pixels[((y * factor + dy) * img.width + x * factor + dx) as usize];
+                    (0..3).for_each(|c| sum[c] += p[c]);
+                }
+            }
+            let n = (factor * factor) as f32;
+            out.pixels[(y * w + x) as usize] = sum.map(|s| s / n);
+        }
+    }
+    out
+}
+
+#[test]
+fn dehaze_looks_the_same_at_fit_and_at_native_resolution() {
+    let native_in = hazy_scene(3072, 2046);
+    let fit_in = block_average(&native_in, 3);
+    for amount in [50.0, -50.0, 100.0] {
+        let mut native = native_in.clone();
+        apply(&mut native, amount);
+        let mut fit = fit_in.clone();
+        apply(&mut fit, amount);
+        let native_at_fit = block_average(&native, 3);
+        let mut errors: Vec<f32> = native_at_fit
+            .pixels
+            .iter()
+            .zip(&fit.pixels)
+            .flat_map(|(a, b)| (0..3).map(move |c| (a[c] - b[c]).abs()))
+            .collect();
+        let moved = fit
+            .pixels
+            .iter()
+            .zip(&fit_in.pixels)
+            .map(|(a, b)| (a[1] - b[1]).abs())
+            .fold(0.0f32, f32::max);
+        errors.sort_by(f32::total_cmp);
+        let mean = errors.iter().sum::<f32>() / errors.len() as f32;
+        let p99 = errors[errors.len() * 99 / 100];
+        assert!(moved > 0.05, "{amount}: dehaze must act, moved {moved}");
+        assert!(
+            mean < 5e-4 && p99 < 5e-3,
+            "{amount}: fit vs native mean {mean} p99 {p99}"
+        );
+    }
+    // Load-bearing: measuring in each buffer's own pixels (the pre-#3287
+    // stage) puts the same scene measurably further apart.
+    let own = |img: &Image| {
+        let map = measure_proxy(&img.pixels, img.width as usize, img.height as usize);
+        let mut out = img.clone();
+        apply_with_map(&mut out, 100.0, &map, (0, 0), (img.width, img.height));
+        out
+    };
+    let native_at_fit = block_average(&own(&native_in), 3);
+    let fit = own(&fit_in);
+    let mean = native_at_fit
+        .pixels
+        .iter()
+        .zip(&fit.pixels)
+        .map(|(a, b)| (0..3).map(|c| (a[c] - b[c]).abs()).sum::<f32>() / 3.0)
+        .sum::<f32>()
+        / fit.pixels.len() as f32;
+    assert!(
+        mean > 5e-4,
+        "buffer-pixel windows should differ, mean {mean}"
+    );
+}
+
+#[test]
+fn a_window_recovers_exactly_like_the_whole_frame_from_the_frame_map() {
+    let frame = hazy_scene(640, 427);
+    let map = HazeMap::measure(&frame);
+    let mut whole = frame.clone();
+    apply(&mut whole, 60.0);
+    let (x0, y0, w, h) = (217u32, 101u32, 150u32, 90u32);
+    let mut window = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+    for y in 0..h {
+        for x in 0..w {
+            window.pixels[(y * w + x) as usize] =
+                frame.pixels[((y0 + y) * frame.width + x0 + x) as usize];
+        }
+    }
+    apply_with_map(
+        &mut window,
+        60.0,
+        &map,
+        (x0 as i32, y0 as i32),
+        (frame.width, frame.height),
+    );
+    for y in 0..h {
+        for x in 0..w {
+            assert_eq!(
+                window.pixels[(y * w + x) as usize].map(f32::to_bits),
+                whole.pixels[((y0 + y) * frame.width + x0 + x) as usize].map(f32::to_bits),
+                "({x}, {y})"
+            );
+        }
+    }
 }

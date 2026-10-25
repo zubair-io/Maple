@@ -253,8 +253,7 @@ public enum RawCoreBridge {
     m.luminanceAdjustmentBlue = d.luminanceAdjustmentBlue
     m.luminanceAdjustmentPurple = d.luminanceAdjustmentPurple
     m.luminanceAdjustmentMagenta = d.luminanceAdjustmentMagenta
-    // Black & white mix (#276) — same `hsl` stage as the 24 bands
-    // above; zeroed/defaulted here for the same double-apply reason.
+    // Black & white mix (#276) — same `hsl` stage as the 24 bands above.
     m.blackWhite = d.blackWhite
     m.grayMixerRed = d.grayMixerRed
     m.grayMixerOrange = d.grayMixerOrange
@@ -264,24 +263,23 @@ public enum RawCoreBridge {
     m.grayMixerBlue = d.grayMixerBlue
     m.grayMixerPurple = d.grayMixerPurple
     m.grayMixerMagenta = d.grayMixerMagenta
+    // Secondary Oklab color curves (#5041) — applied right after HSL in
+    // both decode and chain; stripped to prevent double-apply.
+    m.colorCurveHueVsHue = d.colorCurveHueVsHue
+    m.colorCurveHueVsSat = d.colorCurveHueVsSat
+    m.colorCurveHueVsLuma = d.colorCurveHueVsLuma
+    m.colorCurveLumaVsSat = d.colorCurveLumaVsSat
+    m.colorCurveSatVsSat = d.colorCurveSatVsSat
+    m.colorCurveSatVsLuma = d.colorCurveSatVsLuma
     // Vignette (#1109) — scene-linear radial gain, run in both the decode
-    // and the chain (after local adjustments, before the omitted sharpen).
-    // Zeroing amount short-circuits the stage; feather rides back to its
-    // default for a clean neutral reference.
+    // and the chain; zeroing amount short-circuits the stage.
     m.vignetteAmount = d.vignetteAmount
     m.vignetteFeather = d.vignetteFeather
     // Noise reduction (chain handles luminance; Metal handles color).
-    // nrLuminance default is 0 → decode early-exits, so default is fine.
     m.nrLuminance = d.nrLuminance
-    // nrColor / sharpenAmount: literal 0, NOT the 25/40 model defaults
-    // (#973). Their defaults are non-zero and the Rust decode only
-    // early-exits below 1e-3, so defaulting would run the stage in the
-    // decode AND have the live chain re-apply it — a double-apply.
-    // Zero makes the decode skip both; the chain owns the single live
-    // pass on BOTH the GPU (`SharpenPass` / `NlmColorPass`) and the CPU
-    // (`apply_scene_linear_chain_f32`) paths since #1043.
+    // nrColor / sharpenAmount: literal 0, NOT the 25/40 model defaults (#973)
+    // so the decode skips both and the chain owns the single live pass.
     m.nrColor = 0
-    // Sharpen (the chain handles it — see the nrColor note above).
     m.sharpenAmount = 0
     // Everything below is neutralised by Rust's `prefix_policy!`
     // (`raw-core/src/gpu_host/prefix.rs`) and was missing here (#4737).
@@ -314,6 +312,9 @@ public enum RawCoreBridge {
     m.colorGradeGlobalHue = d.colorGradeGlobalHue
     m.colorGradeGlobalSaturation = d.colorGradeGlobalSaturation
     m.colorGradeGlobalLuminance = d.colorGradeGlobalLuminance
+    m.colorGradeBlending = d.colorGradeBlending
+    m.colorGradeShadowEdge = d.colorGradeShadowEdge
+    m.colorGradeHighlightEdge = d.colorGradeHighlightEdge
     m.grainAmount = d.grainAmount
     m.grainSize = d.grainSize
     m.grainRoughness = d.grainRoughness

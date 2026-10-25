@@ -1,6 +1,7 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { downsample, openGpuCanvas } from './physical-canvas';
 import { expectProfileCanvas } from './profile-canvas-proof';
 
 const filename = 'test_0013.DNG'; // Physical Rotate90 RAW, 4032 × 3024 sensor.
@@ -8,23 +9,7 @@ test('Rotate90 WebGPU canvas agrees with upright native dimensions and overlays'
   page,
 }) => {
   test.setTimeout(240000);
-  const bytes = readFileSync(resolve('../../test-fixtures/raws', filename));
-  await page.route('**/physical-raw/' + filename, (route) =>
-    route.fulfill({ body: bytes, contentType: 'application/octet-stream' }),
-  );
-  await page.goto('http://localhost:4520');
-  await page.waitForFunction(() => Reflect.get(window, 'autoFitStatusUI')?.ready);
-  const folder = await page.evaluate(
-    (filename) => Reflect.get(window, 'autoFitStatusUI').mount([filename], undefined, true),
-    filename,
-  );
-  await expect
-    .poll(
-      () =>
-        page.evaluate(async () => (await Reflect.get(window, 'autoFitStatusUI').state()).gpuActive),
-      { timeout: 120000 },
-    )
-    .toBe(true);
+  const { bytes, folder } = await openGpuCanvas(page, filename);
   const dims = await page.evaluate(() =>
     Reflect.get(window, 'autoFitStatusUI').geometry({ profile: 'Neutral' }, 'crop'),
   );
@@ -41,7 +26,7 @@ test('Rotate90 WebGPU canvas agrees with upright native dimensions and overlays'
   const crop = await frame.boundingBox();
   const canvas = await surface.boundingBox();
   expect(crop!.width / crop!.height).toBeCloseTo(canvas!.width / canvas!.height, 2);
-  const baseline = await pixels(page);
+  const baseline = await downsample(page, 'canvas[data-gpu-live]');
   await page.evaluate(() =>
     Reflect.get(window, 'autoFitStatusUI').geometry(
       {
@@ -62,7 +47,7 @@ test('Rotate90 WebGPU canvas agrees with upright native dimensions and overlays'
       'mask',
     ),
   );
-  const masked = await pixels(page);
+  const masked = await downsample(page, 'canvas[data-gpu-live]');
   const changed = masked.map((value, index) => Math.max(0, baseline[index] - value));
   let weight = 0,
     x = 0,
@@ -133,13 +118,3 @@ test('Rotate90 WebGPU canvas agrees with upright native dimensions and overlays'
   await page.evaluate(() => Reflect.get(window, 'autoFitStatusUI').dispose());
   expect(readFileSync(resolve('../../test-fixtures/raws', filename))).toEqual(bytes);
 });
-
-async function pixels(page: Page): Promise<number[]> {
-  return page.locator('canvas[data-gpu-live]').evaluate((canvas: HTMLCanvasElement) => {
-    const probe = document.createElement('canvas');
-    probe.width = probe.height = 64;
-    const context = probe.getContext('2d')!;
-    context.drawImage(canvas, 0, 0, 64, 64);
-    return Array.from(context.getImageData(0, 0, 64, 64).data);
-  });
-}

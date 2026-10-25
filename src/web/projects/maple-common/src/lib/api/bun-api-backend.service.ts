@@ -889,6 +889,9 @@ export class BunApiBackendService {
           {
             new_filename: newFilename,
             collision,
+            // An asset id may have several identical-content file locations.
+            // Preserve the clicked path so the server renames that location.
+            ...(assetIdOrAddress.includes(':') ? { source_address: assetIdOrAddress } : {}),
           },
         )
         .pipe(
@@ -939,6 +942,7 @@ export class BunApiBackendService {
             mode,
             collision,
             destination_path: destinationPath,
+            ...(assetIdOrAddress.includes(':') ? { source_address: assetIdOrAddress } : {}),
             ...(destinationFilename !== undefined
               ? { destination_filename: destinationFilename }
               : {}),

@@ -4,6 +4,26 @@ import { setupFixture } from './preview-shell.test-helpers';
 const RESOLVED = '[data-testid="preview-surface"] img[data-preview-resolved="true"]';
 
 describe('preview surface observability', () => {
+  it('shows an accessible unavailable state only for the failed focused asset without a preview', () => {
+    const { fixture, state, failedThumbnailId } = setupFixture();
+    const status = () =>
+      fixture.nativeElement.querySelector('[data-testid="preview-surface"] [role="status"]');
+    expect(status()).toBeNull();
+
+    failedThumbnailId.set(state.focusedAssetId()!);
+    fixture.detectChanges();
+    expect(status()?.textContent).toContain('Preview unavailable');
+
+    fixture.componentInstance.previewUrl.set('blob:preview');
+    fixture.detectChanges();
+    expect(status()).toBeNull();
+
+    fixture.componentInstance.previewUrl.set(undefined);
+    state.focusedAssetId.set('library:next.jpg');
+    fixture.detectChanges();
+    expect(status()).toBeNull();
+  });
+
   it('opens the flag controls from the phone header', () => {
     const { fixture } = setupFixture();
     fixture.detectChanges();

@@ -74,29 +74,69 @@ extension GpuLiveSession {
 }
 
 extension GpuLiveSession {
-  /// Bind the display-referred curves (`crs:ToneCurvePV2012*`) into a
-  /// copy of `params` for the duration of `body` (#4738). The live path
-  /// never bound these, so an imported ACR curve rendered on export and
-  /// refine but never on the canvas.
+  /// Bind the display-referred curves (`crs:ToneCurvePV2012*`) and the six
+  /// Oklab secondary color curves (`papp:ColorCurve*`, #5041) into a
+  /// copy of `params` for the duration of `body` (#4738).
   static func withDisplayCurvesBound<R>(
     _ params: MapleGpuLiveParams,
     _ model: AdjustmentModel,
+    buffers: inout GpuColorCurveBuffers,
     _ body: (MapleGpuLiveParams) -> R
   ) -> R {
-    let luma = flattened(model.displayToneCurveLuma)
-    let red = flattened(model.displayToneCurveRed)
-    let green = flattened(model.displayToneCurveGreen)
-    let blue = flattened(model.displayToneCurveBlue)
+    let luma = Self.flattened(model.displayToneCurveLuma)
+    let red = Self.flattened(model.displayToneCurveRed)
+    let green = Self.flattened(model.displayToneCurveGreen)
+    let blue = Self.flattened(model.displayToneCurveBlue)
     return luma.withUnsafeBufferPointer { lu in
       red.withUnsafeBufferPointer { r in
         green.withUnsafeBufferPointer { g in
           blue.withUnsafeBufferPointer { b in
             var p = params
-            bind(lu, to: &p.display_tone_curve_luma_ptr, len: &p.display_tone_curve_luma_len)
-            bind(r, to: &p.display_tone_curve_red_ptr, len: &p.display_tone_curve_red_len)
-            bind(g, to: &p.display_tone_curve_green_ptr, len: &p.display_tone_curve_green_len)
-            bind(b, to: &p.display_tone_curve_blue_ptr, len: &p.display_tone_curve_blue_len)
-            return body(p)
+            Self.bind(lu, to: &p.display_tone_curve_luma_ptr, len: &p.display_tone_curve_luma_len)
+            Self.bind(r, to: &p.display_tone_curve_red_ptr, len: &p.display_tone_curve_red_len)
+            Self.bind(g, to: &p.display_tone_curve_green_ptr, len: &p.display_tone_curve_green_len)
+            Self.bind(b, to: &p.display_tone_curve_blue_ptr, len: &p.display_tone_curve_blue_len)
+            return withColorCurvesBound(p, model, buffers: &buffers, body)
+          }
+        }
+      }
+    }
+  }
+
+  static func withColorCurvesBound<R>(
+    _ params: MapleGpuLiveParams,
+    _ model: AdjustmentModel,
+    buffers: inout GpuColorCurveBuffers,
+    _ body: (MapleGpuLiveParams) -> R
+  ) -> R {
+    let hvh = buffers.hvh.resolve(model.colorCurveHueVsHue)
+    let hvs = buffers.hvs.resolve(model.colorCurveHueVsSat)
+    let hvl = buffers.hvl.resolve(model.colorCurveHueVsLuma)
+    let lvs = buffers.lvs.resolve(model.colorCurveLumaVsSat)
+    let svs = buffers.svs.resolve(model.colorCurveSatVsSat)
+    let svl = buffers.svl.resolve(model.colorCurveSatVsLuma)
+    return hvh.withUnsafeBufferPointer { pHvh in
+      hvs.withUnsafeBufferPointer { pHvs in
+        hvl.withUnsafeBufferPointer { pHvl in
+          lvs.withUnsafeBufferPointer { pLvs in
+            svs.withUnsafeBufferPointer { pSvs in
+              svl.withUnsafeBufferPointer { pSvl in
+                var p = params
+                Self.bind(
+                  pHvh, to: &p.color_curve_hue_vs_hue_ptr, len: &p.color_curve_hue_vs_hue_len)
+                Self.bind(
+                  pHvs, to: &p.color_curve_hue_vs_sat_ptr, len: &p.color_curve_hue_vs_sat_len)
+                Self.bind(
+                  pHvl, to: &p.color_curve_hue_vs_luma_ptr, len: &p.color_curve_hue_vs_luma_len)
+                Self.bind(
+                  pLvs, to: &p.color_curve_luma_vs_sat_ptr, len: &p.color_curve_luma_vs_sat_len)
+                Self.bind(
+                  pSvs, to: &p.color_curve_sat_vs_sat_ptr, len: &p.color_curve_sat_vs_sat_len)
+                Self.bind(
+                  pSvl, to: &p.color_curve_sat_vs_luma_ptr, len: &p.color_curve_sat_vs_luma_len)
+                return body(p)
+              }
+            }
           }
         }
       }

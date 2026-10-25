@@ -194,8 +194,24 @@ impl LocalSpatialPass {
                 .is_some_and(|layer| layer.len() == layer_flat.len()),
             "LocalSpatialPass takes exactly one complete logical layer"
         );
+        // The point kernel never reads the spatial values, so they leave its
+        // upload: the frame digest a resident per-mask haze map keys on must
+        // not move when only this layer's dehaze amount does (#3287).
+        let point_flat: Vec<f32> = layer_flat
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| {
+                let slot = i % crate::local_adjustments::LAYER_FLAT_LEN;
+                let spatial = SPATIAL_BASE_SLOT..SPATIAL_BASE_SLOT + 6;
+                if spatial.contains(&slot) {
+                    0.0
+                } else {
+                    v
+                }
+            })
+            .collect();
         Self {
-            point: LocalAdjustmentsPass::new(layer_flat, rasters).with_scope_layer(0),
+            point: LocalAdjustmentsPass::new(&point_flat, rasters).with_scope_layer(0),
             controls: SpatialControls::from_flat(layer_flat),
             is_scope_target,
             airlight: AirlightSource::OnGpu,

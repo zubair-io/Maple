@@ -4,7 +4,7 @@
 //! Absorbs the cm-level camera position drift that a pure rotation model
 //! cannot represent. After global BA + stage-D/E gating, residuals on
 //! well-shot sets with finite-depth subjects are dominated by a structural
-//! parallax floor (DJI Mavic 3 Pro 100 MP, ~10 cm baseline). A strongly
+//! parallax floor (DJI Mavic 4 Pro 100 MP, ~10 cm baseline). A strongly
 //! regularized per-frame **bilinear mesh correction** fit over the
 //! stage-D/E survivors reduces those residuals without changing the BA
 //! rotations or the compositing pipeline's resample count.

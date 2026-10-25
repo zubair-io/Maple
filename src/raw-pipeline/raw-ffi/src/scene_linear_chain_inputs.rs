@@ -21,6 +21,7 @@ pub(crate) struct ChainInputs<'a> {
     pub decoded_tint: f32,
     pub primaries: raw_core::view::encode::TargetPrimaries,
     pub wb_frame: raw_core::stages::wb_camera::SliderFrameExport,
+    pub wb_hsm: Option<raw_core::stages::wb_camera::HsmRetargetView<'a>>,
     pub noise_profile: Option<&'a [f32]>,
     pub iso: u32,
     pub whites_anchor_ev: f32,
@@ -34,6 +35,7 @@ impl<'a> ChainInputs<'a> {
             decoded_temp: self.decoded_temp,
             decoded_tint: self.decoded_tint,
             wb_frame: Some(&self.wb_frame),
+            wb_hsm: self.wb_hsm,
             skip_agx,
             target_primaries: self.primaries,
             noise_profile: self.noise_profile,
@@ -46,6 +48,9 @@ impl<'a> ChainInputs<'a> {
                 .whites_anchor_ev
                 .is_finite()
                 .then_some(self.whites_anchor_ev),
+            haze_map: None,
+            // The capture-first decode product reaches hosts in #5213 S3.
+            creative: None,
         }
     }
 }
@@ -154,6 +159,15 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
     model.color_grade_global_hue = p.color_grade_global_hue;
     model.color_grade_global_saturation = p.color_grade_global_saturation;
     model.color_grade_global_luminance = p.color_grade_global_luminance;
+    let (cg_blending, cg_shadow_edge, cg_highlight_edge) =
+        raw_core::stages::color_grade::color_grade_zone_or_defaults(
+            p.color_grade_blending,
+            p.color_grade_shadow_edge,
+            p.color_grade_highlight_edge,
+        );
+    model.color_grade_blending = cg_blending;
+    model.color_grade_shadow_edge = cg_shadow_edge;
+    model.color_grade_highlight_edge = cg_highlight_edge;
     model.look = raw_core::view::look::Look::from(p.look_mode);
     // Sharpen + chroma NR (#1043) — set EXPLICITLY from the params tail
     // rather than left at `AdjustmentModel::default()` (40 / 25), so a host
@@ -272,6 +286,16 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
         decoded_tint,
         primaries,
         wb_frame,
+        // SAFETY: the host keeps `wb_hsm_ptr` valid for `wb_hsm_len` f32s
+        // for the duration of this call.
+        wb_hsm: unsafe {
+            crate::wb_frame_flat::wb_hsm_from_flat(
+                p.wb_hsm_ptr,
+                p.wb_hsm_len,
+                p.wb_hsm_as_shot_cct,
+                p.wb_hsm_exposure_gain,
+            )
+        },
         noise_profile: noise_profile_slice,
         iso,
         whites_anchor_ev: p.whites_anchor_ev,

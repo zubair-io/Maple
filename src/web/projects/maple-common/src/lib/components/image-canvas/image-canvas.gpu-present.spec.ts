@@ -141,6 +141,7 @@ function makeHost(
     currentLayout: () => ({ canvasW: 800, canvasH: 600, pan: { x: 0, y: 0 } }),
     viewportTargetLongEdge: () => 1440,
     recordNativeDims: vi.fn(),
+    recordPaintedDims: vi.fn(),
   };
 }
 
@@ -162,6 +163,8 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const present = new ImageCanvasGpuPresent(host);
     const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
       colorSpace: 'srgb',
+      width: 4000,
+      height: 3000,
     });
     const params = new Float32Array(19);
     const auto = '<rdf:Description papp:Profile="Auto"/>';
@@ -195,6 +198,8 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const present = new ImageCanvasGpuPresent(host);
     const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
       colorSpace: 'srgb',
+      width: 4000,
+      height: 3000,
     });
 
     // 1. Set non-default prefix field (`highlightRecovery: 'Off'`).
@@ -226,10 +231,12 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const present = new ImageCanvasGpuPresent(host);
     const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
       colorSpace: 'srgb',
+      width: 4000,
+      height: 3000,
     });
     const params = new Float32Array(19);
     await present.render('Auto', 1, params);
-    let resolveNeutral!: (value: { colorSpace: string }) => void;
+    let resolveNeutral!: (value: { colorSpace: string; width: number; height: number }) => void;
     render.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -240,10 +247,26 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     Object.assign(host, { renderGeneration: 2 });
     await present.render('Auto', 2, params);
     expect(render).toHaveBeenLastCalledWith('Auto', undefined);
-    resolveNeutral({ colorSpace: 'srgb' });
+    resolveNeutral({ colorSpace: 'srgb', width: 4000, height: 3000 });
     expect(await pendingNeutral).toBe(false);
     await present.render('Auto', 2, params);
     expect(render).toHaveBeenLastCalledWith('Auto', params);
+  });
+
+  it('records the presented dims on open and after every render, even a superseded one', async () => {
+    const host = makeHost(() => Promise.resolve(makeOpenedSession()));
+    const present = new ImageCanvasGpuPresent(host);
+    await present.open('asset-1', new Uint8Array([1]), 'dng');
+    expect(host.recordPaintedDims).toHaveBeenLastCalledWith(800, 600);
+
+    const render = vi.mocked(host.pipeline.renderLiveSession);
+    render.mockResolvedValue({ colorSpace: 'srgb', width: 1200, height: 1500 });
+    await present.render('<cropped/>', 1);
+    expect(present.colorSpace()).toBe('srgb');
+    expect(host.recordPaintedDims).toHaveBeenLastCalledWith(1200, 1500);
+    render.mockResolvedValue({ colorSpace: 'srgb', width: 900, height: 600 });
+    await present.render('<stale/>', 0);
+    expect(host.recordPaintedDims).toHaveBeenLastCalledWith(900, 600);
   });
 
   it('publishes actual Auto provenance only for current XMP replies', async () => {
@@ -251,6 +274,8 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const present = new ImageCanvasGpuPresent(host);
     const render = vi.mocked(host.pipeline.renderLiveSession).mockResolvedValue({
       colorSpace: 'srgb',
+      width: 4000,
+      height: 3000,
       autoFit: true,
     });
     const params = new Float32Array(19);
@@ -259,7 +284,7 @@ describe('ImageCanvasGpuPresent — present-failure detection (#1572)', () => {
     const count = vi.mocked(host.state.seedLensProfile).mock.calls.length;
     await present.render('Auto', 1, params);
     expect(vi.mocked(host.state.seedLensProfile).mock.calls).toHaveLength(count);
-    render.mockResolvedValue({ colorSpace: 'srgb', autoFit: false });
+    render.mockResolvedValue({ colorSpace: 'srgb', width: 4000, height: 3000, autoFit: false });
     await present.render('Auto', 0);
     expect(vi.mocked(host.state.seedLensProfile).mock.calls).toHaveLength(count);
     await present.render('Auto', 1);

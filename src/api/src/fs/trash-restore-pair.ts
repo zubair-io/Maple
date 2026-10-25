@@ -3,6 +3,16 @@ import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { filesIdentical, moveNoClobber } from '../backup/fs-util.ts';
 import { listPairedSidecarsStrict } from './xmp-conflict.ts';
+import {
+  isLegacyBackupSidecarOf,
+  removePhotoUnlessOldNameEditStays,
+} from './legacy-backup-sidecar.ts';
+
+/** Whether a restore carries an old-name edit (#5063), which can't land on a taken slot. */
+export async function carriesOldNameEdit(source: string): Promise<boolean> {
+  const sidecars = await listPairedSidecars(source);
+  return sidecars.some((sidecar) => isLegacyBackupSidecarOf(source, sidecar));
+}
 import { workflowSidecarBase } from './workflow-sidecar-pairing';
 import { isVideoFilename } from '../indexer/media-types';
 import { sidecarRenameTarget } from './sidecar-rename.ts';
@@ -114,11 +124,17 @@ async function removeSources(
   sidecarClaimedInTrash: boolean,
   beforeSourceDelete?: () => Promise<void>,
 ): Promise<void> {
-  for (const entry of staged) {
+  const [primary, ...sidecars] = staged;
+  for (const entry of sidecars) {
     await beforeSourceDelete?.();
     const snapshot = snapshots.get(entry);
     const removal = snapshot
-      ? settleCarriedSidecar(entry.source, entry.destination, snapshot, sidecarClaimedInTrash)
+      ? settleCarriedSidecar(
+          entry.source,
+          entry.destination,
+          snapshot,
+          sidecarClaimedInTrash && !isLegacyBackupSidecarOf(primary!.source, entry.source),
+        )
       : fs.unlink(entry.source);
     await removal.catch((error) => {
       log.warn(
@@ -127,6 +143,20 @@ async function removeSources(
       );
     });
   }
+  await removeTrashedPrimary(primary!.source, beforeSourceDelete);
+}
+
+/** Last, and kept while an old-name edit of it is still beside it in the
+ * trash, the only place the migration looks for that edit (#5063). */
+async function removeTrashedPrimary(
+  source: string,
+  beforeSourceDelete?: () => Promise<void>,
+): Promise<void> {
+  const allowed = await (beforeSourceDelete?.() ?? Promise.resolve()).then(
+    () => true,
+    () => false,
+  );
+  if (allowed) await removePhotoUnlessOldNameEditStays(source, 'restore');
 }
 
 /** Copy and verify the complete pair before publishing any of it. Claim the

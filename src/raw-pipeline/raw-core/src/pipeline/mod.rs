@@ -21,6 +21,7 @@
 //! re-exported here so call sites that say `raw_core::pipeline::stage`,
 //! `raw_core::pipeline::RenderQuality`, etc. continue to compile unchanged.
 
+pub(crate) mod capture_first;
 pub(crate) mod capture_sharpening_helper;
 mod develop;
 mod develop_sized;
@@ -43,6 +44,7 @@ pub use inpaint_store::{patch_from_bytes, patch_to_bytes, patches_from_blob, pat
 #[path = "inpaint_seam_tests.rs"]
 mod inpaint_seam_tests;
 
+pub use capture_first::{CreativeAnchors, CreativeStage};
 pub use develop::{
     develop_scene_linear_from_raw_with_quality,
     develop_scene_linear_from_raw_with_quality_cancellable,
@@ -63,9 +65,10 @@ pub use render::{
     cached_auto_profile_fit, decode_raster_base, fit_auto_profile_from_raw,
     fit_auto_profile_from_raw_at_cap, fit_profile_curve_from_raw, native_render_dims,
     render_detail_base, render_detail_base_cancellable, render_detail_base_retained,
-    render_detail_tile, render_detail_tile_cancellable, render_export_from_raw,
-    render_export_from_raw_with_film, render_export_raster, render_export_raster_cancellable,
-    render_from_raw, render_from_raw_with_auto_fit, render_from_raw_with_quality,
+    render_detail_base_retained_cancellable, render_detail_tile, render_detail_tile_cancellable,
+    render_export_f32, render_export_from_raw, render_export_from_raw_with_film,
+    render_export_raster, render_export_raster_cancellable, render_from_raw,
+    render_from_raw_with_auto_fit, render_from_raw_with_quality,
     render_from_raw_with_quality_and_source, render_from_raw_with_quality_source_and_film,
     render_from_scene_linear, render_from_scene_linear_with_chain,
     render_scene_linear_from_raw_with_quality, render_scene_linear_from_raw_with_quality_f32,
@@ -87,7 +90,9 @@ pub use scene_linear_chain::{
     apply_scene_linear_chain_f32_windowed, apply_scene_linear_chain_f32_windowed_cancellable,
     apply_scene_linear_chain_f32_with_film, apply_scene_linear_chain_f32_with_film_cancellable,
     apply_scene_linear_chain_f32_with_patches, apply_scene_linear_chain_with_patches,
-    encode_display_f32, encode_display_srgb_f32, encode_display_u10_f32, ChainOptions, ChainWindow,
+    encode_display_f32, encode_display_srgb_f32, encode_display_u10_f32,
+    scene_linear_chain_haze_map, scene_linear_chain_haze_map_cancellable,
+    scene_linear_chain_window_reach_px, ChainOptions, ChainWindow,
 };
 pub use tile::{
     reject_untileable_tile, render_scene_linear_tile_cancellable_f32,

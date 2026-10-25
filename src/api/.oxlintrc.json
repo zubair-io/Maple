@@ -65,6 +65,8 @@
         "src/routes/xmp.workflow-cancel.test.ts",
         // #4722: stages disposable JPEG fixtures under os.tmpdir(), never library files.
         "src/workers/stages/exif.library-reload.test.ts",
+        // #5027: retargets a disposable symlinked library root with real fs so the swap is not itself mirrored.
+        "src/backup/sidecar-cas.test.ts",
         "tests/coverage.instrument.ts",
         "tests/coverage.preload.ts",
         "tests/coverage.preload.test.ts",
@@ -102,6 +104,8 @@
         "src/fs/root.test.ts",
         // #4995: primary jail tests create and retarget only temporary SQLite/XMP symlink fixtures.
         "src/fs/root.primary.test.ts",
+        // #5204: inject realpath read failures on owned temporary alias fixtures; writes stay mirrored.
+        "src/fs/primary-replacement-admission.test.ts",
         // #4981: mirror jail regressions stage symlinks and XMP only in owned temporary directories.
         "src/fs/root.mirror.test.ts",
         // #4981: successor probes use disposable temporary root fixtures.

@@ -12,12 +12,20 @@ const saved = [
 ] as const;
 
 describe('normalizeConnections', () => {
-  it('trims fields and keeps the saved key when none is sent', () => {
+  it('trims fields and keeps the saved key when none is sent for the same endpoint', () => {
     const [c] = normalizeConnections(
-      [{ id: 'a', name: ' A ', provider: 'openai', url: ' http://x/// ', concurrency: 1 }],
+      [{ id: 'a', name: ' A ', provider: 'openai', url: ' ', concurrency: 1 }],
       saved,
     );
-    expect(c).toMatchObject({ name: 'A', url: 'http://x', api_key: 'old-key' });
+    expect(c).toMatchObject({ name: 'A', url: '', api_key: 'old-key' });
+  });
+
+  it('drops the saved key when the endpoint changes, so it never reaches a new host', () => {
+    const [c] = normalizeConnections(
+      [{ id: 'a', name: 'A', provider: 'openai', url: ' http://x/// ', concurrency: 1 }],
+      saved,
+    );
+    expect(c).toMatchObject({ url: 'http://x', api_key: undefined });
   });
 
   it('clears or replaces a key that is sent', () => {
@@ -65,12 +73,14 @@ describe('embedderSaveOutcome', () => {
 });
 
 describe('probeApiKey', () => {
-  it('uses a sent key, else the saved key of the same connection', () => {
+  it('uses a sent key, else the saved key of the same connection and endpoint', () => {
     const base = { id: 'a', provider: 'openai' };
     expect(probeApiKey({ ...base, api_key: 'sent' }, saved)).toBe('sent');
     expect(probeApiKey({ ...base, api_key: null }, saved)).toBeNull();
     expect(probeApiKey(base, saved)).toBe('old-key');
     expect(probeApiKey({ id: 'a', provider: 'gemini' }, saved)).toBeUndefined();
+    expect(probeApiKey({ ...base, url: '' }, saved)).toBe('old-key');
+    expect(probeApiKey({ ...base, url: 'http://lan:8080/v1' }, saved)).toBeUndefined();
   });
 });
 

@@ -249,6 +249,31 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     if model.film_strength != 100.0 {
         out.push_str(&format!(r#" papp:FilmStrength="{}""#, model.film_strength));
     }
+    // Colour-grading zone-isolation controls (#5040) — emitted only when
+    // non-default under the canonical 2-decimal wire codec.
+    for (key, value, default) in [
+        (
+            "papp:ColorGradeBlending",
+            model.color_grade_blending,
+            100.0_f32,
+        ),
+        (
+            "papp:ColorGradeShadowEdge",
+            model.color_grade_shadow_edge,
+            0.564622_f32,
+        ),
+        (
+            "papp:ColorGradeHighlightEdge",
+            model.color_grade_highlight_edge,
+            0.564622_f32,
+        ),
+    ] {
+        let rounded = (value * 100.0).round() / 100.0;
+        let default_rounded = (default * 100.0).round() / 100.0;
+        if rounded.is_finite() && rounded != default_rounded {
+            out.push_str(&format!(r#" {key}="{rounded}""#));
+        }
+    }
     // Parametric tone-curve region sliders (#365) — Lightroom-compatible
     // PV2012 `crs:` keys, emitted only when non-default (0) to mirror the
     // Swift/TS writers. Both the omit test and the emitted value go through
@@ -417,6 +442,8 @@ mod black_white;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_color_curves;
 #[cfg(test)]
 mod tests_detail;
 #[cfg(test)]

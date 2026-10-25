@@ -4,14 +4,7 @@
  * sidecar is never replaced here — sidecars are written through the XMP routes
  * with their preconditions, so the raw upload answers 409 instead. */
 import * as path from 'node:path';
-import { open, rename, stat, unlink, utimes } from '../fs/mirrored.ts';
-import {
-  RAW_EXTENSIONS,
-  BITMAP_EXTENSIONS,
-  PSD_HDR_EXTENSIONS,
-  STUB_IMAGE_EXTENSIONS,
-  AUDIO_EXTENSIONS,
-} from '../fs/browse.ts';
+import { link, lstat, open, rename, stat, unlink, utimes } from '../fs/mirrored.ts';
 import { findAssetToReplaceAtAddress, upsertUploadedAsset } from '../db/repos/assets.address.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { ALL_STAGE_NAMES } from '../workers/stages/manifest.ts';
@@ -23,19 +16,15 @@ import {
 import type { FolderWithId } from '../db/schema.ts';
 import type { ObjectId } from '../db/object-id.ts';
 import { child } from '../log.ts';
+import { errnoCode, LINK_UNSUPPORTED, PublishCollisionError } from '../fs/relocate-publish.ts';
+import { withUploadedPrimaryFence } from '../fs/relocate-replace-fence';
+import { serializeSidecarWrite } from '../fs/sidecar-write-order.ts';
+import {
+  captureUploadedSidecarAdmission,
+  type UploadedSidecarAdmission,
+} from './folders.upload-sidecar-admission';
 
 const log = child('folders/upload');
-const mediaExtensions = [
-  RAW_EXTENSIONS,
-  BITMAP_EXTENSIONS,
-  PSD_HDR_EXTENSIONS,
-  STUB_IMAGE_EXTENSIONS,
-  AUDIO_EXTENSIONS,
-];
-export function isIndexedUpload(filename: string): boolean {
-  const extension = path.extname(filename).slice(1).toLowerCase();
-  return mediaExtensions.some((extensions) => extensions.has(extension));
-}
 function isSidecarUpload(filename: string): boolean {
   return path.extname(filename).toLowerCase() === '.xmp';
 }
@@ -91,6 +80,7 @@ interface UploadTarget {
   isMedia: boolean;
   mtimeHeader: string | undefined;
   ownerId: string | undefined;
+  sidecarAdmission?: UploadedSidecarAdmission;
 }
 interface TrashedReplacement {
   docId: ObjectId;
@@ -141,11 +131,53 @@ async function trashExistingUpload(input: UploadTarget): Promise<TrashedReplacem
   }
 }
 async function publishUploadedBody(input: UploadTarget): Promise<void> {
+  if (isSidecarUpload(input.filename)) return publishUploadedSidecar(input);
   try {
     await rename(input.tmp, input.absPath);
   } catch (error) {
     throw uploadError('rename', error);
   }
+}
+
+/** Inside the sidecar's save barrier and exclusive (#5067): a save through the
+ * XMP routes that landed after the existence check is never replaced. */
+async function publishUploadedSidecar(input: UploadTarget): Promise<void> {
+  const admission =
+    input.sidecarAdmission ?? (await captureUploadedSidecarAdmission(input.absPath));
+  await serializeSidecarWrite(
+    input.absPath,
+    async () => {
+      try {
+        await publishWhole(input.tmp, input.absPath);
+      } catch (error) {
+        if (!(error instanceof PublishCollisionError)) throw uploadError('publish', error);
+        refuseSidecarReplacement(input.target, input.filename);
+        throw error;
+      } finally {
+        await unlink(input.tmp).catch(() => {});
+      }
+      await preserveUploadMtime(input.absPath, input.mtimeHeader);
+    },
+    { primarySidecar: admission?.primarySidecar, admissionScope: admission?.scope },
+  );
+}
+/** Readers never see a partial sidecar: a hard link, or where links aren't
+ * supported (SMB) a rename after an absence check, which the barrier already
+ * guards against every in-process writer. */
+async function publishWhole(tmp: string, destination: string): Promise<void> {
+  try {
+    await link(tmp, destination);
+    return;
+  } catch (error) {
+    if (errnoCode(error) === 'EEXIST') throw new PublishCollisionError(destination);
+    if (!LINK_UNSUPPORTED.has(errnoCode(error) ?? '')) throw error;
+  }
+  const occupied = await lstat(destination).then(
+    () => true,
+    (error: unknown) => (errnoCode(error) === 'ENOENT' ? false : Promise.reject(error)),
+  );
+  if (occupied) throw new PublishCollisionError(destination);
+  await rename(tmp, destination);
 }
 async function preserveUploadMtime(filename: string, value: string | undefined): Promise<void> {
   if (typeof value !== 'string' || !/^\d+$/.test(value)) return;
@@ -205,11 +237,25 @@ async function announceUploadedFile(input: UploadTarget, assetId: ObjectId | nul
   });
 }
 export async function finalizeUploadedFile(input: UploadTarget) {
+  if (isSidecarUpload(input.filename)) return finalizeUpload(input);
+  // Raw uploads also replace a primary between owner lookup and scope capture.
+  // Keep their whole publication in the same generation as move/copy Replace.
+  try {
+    return await withUploadedPrimaryFence(input.absPath, () => finalizeUpload(input));
+  } catch (error) {
+    // Admission can fail before finalizeUpload owns the temporary file.
+    await removeFailedUpload(input.tmp);
+    throw error;
+  }
+}
+
+async function finalizeUpload(input: UploadTarget) {
   try {
     const trashed = await trashExistingUpload(input);
     await publishUploadedBody(input);
     const info = await stat(input.absPath);
-    await preserveUploadMtime(input.absPath, input.mtimeHeader);
+    if (!isSidecarUpload(input.filename))
+      await preserveUploadMtime(input.absPath, input.mtimeHeader);
     await discardRedundantTrash(input, trashed);
     // A replaced asset the indexer had catalogued (e.g. a video) is re-indexed
     // even when the extension is outside the direct-upload set, so the

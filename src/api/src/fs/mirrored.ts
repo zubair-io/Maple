@@ -49,6 +49,7 @@
  */
 
 import * as realFs from 'node:fs/promises';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import * as path from 'node:path';
 import { child as childLogger } from '../log.ts';
 import { resolveMirrorTargets, isMirroringActive, type MirrorTarget } from './mirror-registry.ts';
@@ -154,10 +155,29 @@ async function removeMirror(t: MirrorTarget): Promise<void> {
   }
 }
 
+// Canonical I/O must still address mirrors by the configured library spelling.
+// Scope this mapping to one operation: retargeting an alias cannot redirect I/O
+// or mutate the process-wide registry while another request is running.
+const mirrorRootScope = new AsyncLocalStorage<{ canonical: string; configured: string }>();
+
+export function withMirrorRoot<T>(canonical: string, configured: string, operation: () => T): T {
+  return mirrorRootScope.run({ canonical: path.resolve(canonical), configured }, operation);
+}
+
+function mirrorAddress(filename: string): string {
+  const scope = mirrorRootScope.getStore();
+  if (!scope) return filename;
+  const relative = path.relative(scope.canonical, path.resolve(filename));
+  return relative === '' ||
+    (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative))
+    ? path.join(scope.configured, relative)
+    : filename;
+}
+
 /** Targets for a path, or `[]` when nothing should replicate. */
 function targetsFor(p: string): MirrorTarget[] {
   if (!isMirroringActive() || !isReplicablePath(p)) return [];
-  return resolveMirrorTargets(p);
+  return resolveMirrorTargets(mirrorAddress(p));
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +200,7 @@ const _pending = new Set<Promise<void>>();
 const _chains = new Map<string, Promise<void>>();
 
 function schedule(work: () => Promise<unknown>, paths: readonly string[]): void {
-  const keys = paths.map((p) => path.resolve(p));
+  const keys = paths.map((p) => path.resolve(mirrorAddress(p)));
   const prior = Promise.all(keys.map((k) => _chains.get(k) ?? Promise.resolve()));
   const p: Promise<void> = prior
     .then(work)
@@ -351,6 +371,20 @@ export function replicatePath(absPath: string): void {
   const targets = targetsFor(absPath);
   if (targets.length)
     schedule(() => Promise.all(targets.map((t) => replicateFile(t, absPath))), [absPath]);
+}
+
+/**
+ * Replicate the committed file at `sourcePath` to the mirrors of `mirroredPath`
+ * — for a write that had to go through a symlink-resolved path while mirror
+ * roots are keyed by the configured (unresolved) library root.
+ */
+export function replicatePathUnder(sourcePath: string, mirroredPath: string): void {
+  const targets = targetsFor(mirroredPath);
+  if (targets.length)
+    schedule(
+      () => Promise.all(targets.map((t) => replicateFile(t, sourcePath))),
+      [mirroredPath, sourcePath],
+    );
 }
 
 export async function copyFile(src: string, dest: string, mode?: number): Promise<void> {

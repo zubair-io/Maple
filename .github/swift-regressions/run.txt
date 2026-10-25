@@ -104,7 +104,11 @@ ChangeFeedClientDateDecodingTests
 ChangeFeedClientRestartTests
 SSELineDecoderTests
 CollisionResolverTests
+ColorCurvePickerTests
+ColorCurveXMPTests
+ColorGradeZoneEdgeTests
 ColorGradingXMPTests
+ToneCurveSplitsTests
 
 # KTLO qualification batch 2 (#3655): generated/temporary inputs, stubbed
 # HTTP and the committed synthetic RAW; no private fixtures or UI auth.
@@ -146,6 +150,8 @@ FileOperationErrorTests
 FilesystemSourceCaptureDateTests
 FilesystemSourceExternalRenameTests
 FilesystemSourceMapleIdTests
+FilesystemSourceWriteXMPTests
+PhotoKitSourceXMPTests
 FilmLookCubeTests
 FilmLookXMPTests
 FilmLutStoreTests
@@ -215,6 +221,7 @@ MirrorConfigClientTests
 # KTLO qualification batch 5 (#3658): generated scene-linear FFI inputs,
 # isolated defaults/files, pure catalogs and stubbed HTTP clients.
 NativeDetailLODTests
+NativeDetailWindowChainTests
 PerspectiveXMPTests
 PhotoGridItemTests
 PhotosAccessMemoryTests
@@ -251,6 +258,7 @@ TVMapFocusOrderTests
 TVMapHeatmapTuningTests
 TVTimelineViewModelTests
 ToneCurveFlattenTests
+GpuCurveBufferTests
 
 # KTLO qualification batch 6 (#3659): WB sampling on committed synthetic
 # RAW, generated curves, temporary XMP files and stubbed HTTP/provider
@@ -261,6 +269,7 @@ ToneCurveXMPTests
 TranscribeSettingsFormTests
 URLPathHierarchyTests
 UploadRetryIdempotencyTests
+VideoCaptureDateTests
 WbDngTemperatureTests
 WbProvenanceXMPTests
 WbScaleVersionTests
@@ -287,6 +296,8 @@ XMPSerializationTests
 XMPSerializationWbMethodToneCurveModeTests
 XMPPassthroughNamespaceTests
 XMPSidecarStoreMetadataSaveTests
+XMPSidecarFilePublicationTests
+XMPSidecarDurableRecoveryTests
 DisplayPreviewPersistTests
 GpuPreviewPersistTests
 
@@ -361,6 +372,8 @@ SMBWhiteBalanceAcceptanceTests # #4085: all WB modes, actual SMB variants/reconn
 SMBWorkflowRecoveryTests # #4065: drop actual accepted SMB rename acknowledgement
 SMBDuplicateContentMutationTests # #4705: identical copies on owned Samba; mutations address the listed file
 SMBCrossShareMutationTests # #4987: two owned Samba shares; a ref never mutates the same path on another share
+SMBVideoSidecarTests # #5053: owned Samba share; a video and its same-stem photo keep separate sidecars
+SMBSourceWriteXMPTests # #5173: source writeXMP publishes through the SMB sidecar store on owned Samba
 # Decode sampling density, render parameter forwarding and chain-cache identity.
 NoiseSamplingScaleHostTests
 AgentEditServiceTests # live AI agent bridge: revision, undo, reject-not-clamp, real HTTP + .xmp
@@ -402,3 +415,22 @@ PanoMergePreviewTests
 
 # RGB bias precision (#4667): generated large images, no external fixtures.
 CIEDE2000BiasTests
+
+# Thumbnail cache keys and locations (#5033): hash vectors and small writes
+# into a temp dir, no render or decode; was mis-tagged slow in excluded.txt.
+ThumbnailDiskCacheKeyTests
+
+# Server URL parsing and the sign-in prefill round trip (#5033): pure string
+# work; was mis-tagged as talking to a host service in excluded.txt.
+CloudHostTests
+
+# Shared-sidecar ownership rule (#4707): real temp dirs + in-memory SMB transport.
+# SidecarStemRuleTests attaches a case-sensitive APFS sparse image with hdiutil
+# and fails (never skips) when the host cannot.
+LocalSidecarOwnershipTests
+SMBSidecarOwnershipTests
+SidecarStemRuleTests
+
+# Joined sidecar bytes are rechecked before restore and SMB relocation publish/delete.
+RestoreJoinedSidecarTests
+SMBRelocateJoinedSidecarTests

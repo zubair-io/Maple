@@ -30,9 +30,9 @@ extension AdjustmentModel {
     parametricLights: Double = 0,
     parametricDarks: Double = 0,
     parametricShadows: Double = 0,
-    parametricShadowSplit: Double = 25,
-    parametricMidtoneSplit: Double = 50,
-    parametricHighlightSplit: Double = 75,
+    parametricShadowSplit: Double = AdjustmentModel.parametricShadowSplitDefault,
+    parametricMidtoneSplit: Double = AdjustmentModel.parametricMidtoneSplitDefault,
+    parametricHighlightSplit: Double = AdjustmentModel.parametricHighlightSplitDefault,
     vibrance: Double = 0,
     saturation: Double = 0,
     clarity: Double = 0,
@@ -64,6 +64,9 @@ extension AdjustmentModel {
     colorGradeGlobalHue: Double = 0,
     colorGradeGlobalSaturation: Double = 0,
     colorGradeGlobalLuminance: Double = 0,
+    colorGradeBlending: Double = 100,
+    colorGradeShadowEdge: Double = ColorGradeZoneEdge.anchor,
+    colorGradeHighlightEdge: Double = ColorGradeZoneEdge.anchor,
     hueAdjustmentRed: Double = 0,
     hueAdjustmentOrange: Double = 0,
     hueAdjustmentYellow: Double = 0,
@@ -240,5 +243,9 @@ extension AdjustmentModel {
     self.lensProfile = lensProfile
     self.filmStrength = filmStrength
     self.demosaic = demosaic
+    // Wrapped properties use setters after every stored member is initialized.
+    self.colorGradeBlending = colorGradeBlending
+    self.colorGradeShadowEdge = colorGradeShadowEdge
+    self.colorGradeHighlightEdge = colorGradeHighlightEdge
   }
 }

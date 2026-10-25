@@ -23,6 +23,7 @@ struct TapWithFrame: ViewModifier {
       // A global geometry subscription here runs for every visible tile on
       // every scroll tick even though the Mac tap handler discards the rect.
       content.contentShape(Rectangle()).onTapGesture { onTap(.zero) }
+        .accessibilityAction { onTap(.zero) }
     #else
       let isWatched = onFrameChange != nil
       content
@@ -40,6 +41,7 @@ struct TapWithFrame: ViewModifier {
           if watched { onFrameChange?(latest.frame) }
         }
         .onTapGesture { onTap(latest.frame) }
+        .accessibilityAction { onTap(latest.frame) }
     #endif
   }
 }

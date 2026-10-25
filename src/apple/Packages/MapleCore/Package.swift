@@ -27,6 +27,7 @@ let package = Package(
     .macOS(.v14),
     .iOS(.v17),
     .tvOS(.v17),
+    .watchOS(.v10),
   ],
   products: [
     .library(name: "MapleCore", targets: ["MapleCore"]),
@@ -118,6 +119,9 @@ let package = Package(
         // copy verbatim (`cp`, not a symlink — SPM resources don't
         // follow symlinks reliably across platforms).
         .copy("Fixtures/layer-stack.json"),
+        // Byte-identical mirror of test-fixtures/removal (#5159); whole-directory
+        // copy keeps calibration/ as a subdirectory, like film-luts.
+        .copy("Fixtures/removal"),
       ]
     ),
   ],

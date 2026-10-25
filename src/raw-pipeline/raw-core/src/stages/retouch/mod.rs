@@ -1,9 +1,9 @@
 //! Clone / heal repair stage (#3409).
 //!
 //! Applies `AdjustmentModel.retouch_spots` to the scene-linear Rec.2020
-//! buffer as a **decode-product** edit: it runs immediately after DCP
-//! colorimetry and post-DCP highlight recovery, upstream of the chroma
-//! pre-filter, so the repaired pixels are denoised, sharpened, exposed and
+//! buffer as a **decode-product** edit: it runs first in the capture stage,
+//! in the fixed as-shot Rec.2020 basis ahead of white balance and DCP
+//! (#5213), upstream of the chroma pre-filter, so the repaired pixels are denoised, sharpened, exposed and
 //! graded exactly like the sensor data around them, and so a slider tick
 //! never re-runs the patch work. Changing the spot list therefore
 //! invalidates the decoded-image caches, the same family
@@ -34,7 +34,7 @@
 //! source can sit anywhere in the frame — so a window that holds only part
 //! of a spot's footprint cannot reproduce it. Such a tile is REFUSED loudly
 //! rather than rendered without the repair, matching how the tile path
-//! already refuses dehaze and deep denoise. A tile no spot reaches renders
+//! refuses deep denoise. A tile no spot reaches renders
 //! normally.
 
 use crate::cancel::CancelToken;

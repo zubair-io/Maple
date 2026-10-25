@@ -83,19 +83,39 @@ public enum SMBFileOperations {
     // exists (moving into an existing folder); a genuinely-missing one
     // surfaces for real on the `copyItem` call that follows.
     try? await transport.createDirectory(atPath: destinationDir)
-    let (resolvedTargetPath, renamed) = try await resolveCollision(
-      at: targetPath, collision: collision, transport: transport)
-
     let sourceSidecarPath = sidecarPath(for: sourcePrimaryPath)
+    let hasSourceSidecar = await exists(sourceSidecarPath, transport: transport)
+    let (resolvedTargetPath, renamed) = try await resolveCollision(
+      at: targetPath, collision: collision,
+      ownSidecar: hasSourceSidecar ? sourceSidecarPath : nil, transport: transport)
     let sidecarTargetPath = sidecarPath(for: resolvedTargetPath)
-    var resolvedSourceSidecarPath: String?
-    var finalSidecarPath: String?
+
+    // The shared-sidecar ownership rule (#4707, docs/xmp-canonical-format.md
+    // § "Moving, renaming and trashing a photo"), decided before any byte moves.
+    let sidecarMapsOntoItself = await SidecarOwnership.sameSMBFile(
+      sourceSidecarPath, sidecarTargetPath, transport: transport)
+    let destinationSidecarOccupied =
+      sidecarMapsOntoItself ? false : await exists(sidecarTargetPath, transport: transport)
+    let joinsCarriedSidecar =
+      hasSourceSidecar && destinationSidecarOccupied
+      ? await SidecarOwnership.smbSidecarAlreadyCarried(
+        sourceSidecarPath, at: sidecarTargetPath, transport: transport)
+      : false
+    let destinationClaimed = await SidecarOwnership.smbStemClaimedBySibling(
+      resolvedTargetPath, excluding: [sourcePrimaryPath], transport: transport)
+    if hasSourceSidecar, destinationSidecarOccupied, !joinsCarriedSidecar,
+      collision != .replace || destinationClaimed
+    {
+      throw FileOperationError.destinationExists(sidecarTargetPath)
+    }
+    let sourceClaimed = await SidecarOwnership.smbStemClaimedBySibling(
+      sourcePrimaryPath, excluding: [resolvedTargetPath], transport: transport)
+    let copiesSidecar = hasSourceSidecar && !sidecarMapsOntoItself && !joinsCarriedSidecar
     var sidecarTmp: String?
 
     let primaryTmp = try await stageVerifiedCopy(
       from: sourcePrimaryPath, to: resolvedTargetPath, transport: transport)
-    if await exists(sourceSidecarPath, transport: transport) {
-      resolvedSourceSidecarPath = sourceSidecarPath
+    if copiesSidecar {
       do {
         sidecarTmp = try await stageVerifiedCopy(
           from: sourceSidecarPath, to: sidecarTargetPath, transport: transport)
@@ -105,6 +125,13 @@ public enum SMBFileOperations {
       }
     }
 
+    if joinsCarriedSidecar,
+      !(await SidecarOwnership.smbSidecarAlreadyCarried(
+        sourceSidecarPath, at: sidecarTargetPath, transport: transport))
+    {
+      try? await transport.removeItem(atPath: primaryTmp)
+      throw FileOperationError.destinationExists(sidecarTargetPath)
+    }
     var createdPaths: [String] = []
     let primaryBackup: String?
     do {
@@ -140,8 +167,7 @@ public enum SMBFileOperations {
           )
       }
       createdPaths.append(sidecarTargetPath)
-      finalSidecarPath = sidecarTargetPath
-    } else if collision == .replace {
+    } else if !hasSourceSidecar, collision == .replace, !destinationClaimed {
       let staleSidecarPath = sidecarPath(for: resolvedTargetPath)
       if let attrs = try? await transport.attributesOfItem(atPath: staleSidecarPath),
         !isDirectory(attrs)
@@ -155,9 +181,11 @@ public enum SMBFileOperations {
 
     return RelocatePlan(
       mode: mode, sourcePrimaryPath: sourcePrimaryPath,
-      sourceSidecarPath: resolvedSourceSidecarPath,
-      finalPrimaryPath: resolvedTargetPath, finalSidecarPath: finalSidecarPath,
-      renamedDueToCollision: renamed, createdPaths: createdPaths)
+      sourceSidecarPath: hasSourceSidecar ? sourceSidecarPath : nil,
+      finalPrimaryPath: resolvedTargetPath,
+      finalSidecarPath: hasSourceSidecar ? sidecarTargetPath : nil,
+      renamedDueToCollision: renamed, createdPaths: createdPaths,
+      retainsSourceSidecar: sidecarMapsOntoItself || sourceClaimed)
   }
 
   /// Delete the sources (`mode == .move` only) and clear the OLD
@@ -193,7 +221,18 @@ public enum SMBFileOperations {
         "finalizeRelocate: source primary remove failed after a verified copy — a duplicate is left on the share (\(plan.sourcePrimaryPath, privacy: .public)): \(error.localizedDescription, privacy: .public)"
       )
     }
-    if let sourceSidecarPath = plan.sourceSidecarPath {
+    if let sourceSidecarPath = plan.sourceSidecarPath, !plan.retainsSourceSidecar {
+      // Recheck at cleanup too: a joined or copied sidecar may change after
+      // planning. Keep the source whenever its current edits are not carried.
+      guard let destination = plan.finalSidecarPath,
+        await SidecarOwnership.smbSidecarAlreadyCarried(
+          sourceSidecarPath, at: destination, transport: transport)
+      else {
+        fileOpsLog.error("finalizeRelocate: changed sidecar kept at source")
+        await invalidateDerivedCaches(
+          forOldPrimaryPath: plan.sourcePrimaryPath, transport: transport)
+        return outcome
+      }
       do {
         try await transport.removeItem(atPath: sourceSidecarPath)
       } catch {
@@ -257,68 +296,6 @@ public enum SMBFileOperations {
     for path in plan.createdPaths {
       try? await transport.removeItem(atPath: path)
     }
-  }
-
-  // MARK: - Same-file / case-only-rename guard
-
-  /// Classifies whether `source` and `target` name the same file on the
-  /// share, versus merely differing in case on a case-insensitive-but-
-  /// case-preserving share (the Windows/Samba default) versus genuinely
-  /// different locations. See `LocalFileOperations.classifySameFile` for
-  /// the full safety rationale — the property protected is identical:
-  /// `.replace`'s pre-copy removal must never delete the source itself.
-  ///
-  /// Limitation vs. the local engine: SMB has no local realpath/symlink
-  /// resolution available through `SMBFileTransport`, so this can only
-  /// compare the paths AS GIVEN — a destination reached via a different
-  /// mount point or a server-side symlink/junction to the same target is
-  /// NOT detected here. Case-only-rename detection (the other half of
-  /// the guard) has no such gap: it's pure string comparison and doesn't
-  /// depend on resolving anything.
-  static func classifySameFile(source: String, target: String) -> SameFileClassification {
-    if source == target { return .identical }
-    if source.caseInsensitiveCompare(target) == .orderedSame { return .caseOnlyRename }
-    return .different
-  }
-
-  /// The ONE relocate shape that bypasses copy-verify-delete AND
-  /// collision handling entirely — see
-  /// `LocalFileOperations.performCaseOnlyRename`'s doc comment for the
-  /// full rationale; `transport.moveItem` is the SMB equivalent of a
-  /// local atomic `rename(2)`.
-  private static func performCaseOnlyRename(
-    source: String, target: String, transport: SMBFileTransport
-  ) async throws -> RelocatePlan {
-    let sourceSidecarPath = sidecarPath(for: source)
-    let hadSidecar = await exists(sourceSidecarPath, transport: transport)
-
-    try await transport.moveItem(atPath: source, toPath: target)
-
-    var finalSidecarPath: String?
-    var resolvedSourceSidecarPath: String?
-    if hadSidecar {
-      let targetSidecarPath = sidecarPath(for: target)
-      resolvedSourceSidecarPath = sourceSidecarPath
-      do {
-        try await transport.moveItem(atPath: sourceSidecarPath, toPath: targetSidecarPath)
-      } catch {
-        fileOpsLog.error(
-          "performCaseOnlyRename: sidecar moveItem failed (\(sourceSidecarPath, privacy: .public)): \(error.localizedDescription, privacy: .public)"
-        )
-      }
-      finalSidecarPath =
-        await exists(targetSidecarPath, transport: transport) ? targetSidecarPath : nil
-    }
-
-    // Inline cache cleanup, matching `LocalFileOperations`' identical
-    // choice: `finalize` is a no-op for this plan (`isNoop`), and the
-    // old-cased basename is a different hash input / preview filename,
-    // so its entries are exactly as stale as after a real move.
-    await invalidateDerivedCaches(forOldPrimaryPath: source, transport: transport)
-    return RelocatePlan(
-      mode: .move, sourcePrimaryPath: source, sourceSidecarPath: resolvedSourceSidecarPath,
-      finalPrimaryPath: target, finalSidecarPath: finalSidecarPath,
-      renamedDueToCollision: false, createdPaths: [], sourceAlreadyRelocated: true)
   }
 
   // MARK: - Copy + verify
@@ -455,11 +432,14 @@ public enum SMBFileOperations {
   /// (possibly suffixed) final path and whether a suffix was applied.
   /// Mirrors `LocalFileOperations.resolveCollision`.
   private static func resolveCollision(
-    at targetPath: String, collision: CollisionPolicy, transport: SMBFileTransport
+    at targetPath: String, collision: CollisionPolicy, ownSidecar: String?,
+    transport: SMBFileTransport
   ) async throws -> (path: String, renamed: Bool) {
-    guard let attrs = try? await transport.attributesOfItem(atPath: targetPath) else {
-      return (targetPath, false)
+    let occupied = { (candidate: String) in
+      await assetDestinationOccupied(candidate, ownSidecar: ownSidecar, transport: transport)
     }
+    guard await occupied(targetPath) else { return (targetPath, false) }
+    let attrs = (try? await transport.attributesOfItem(atPath: targetPath)) ?? [:]
     switch collision {
     case .fail:
       throw FileOperationError.destinationExists(targetPath)
@@ -473,11 +453,24 @@ public enum SMBFileOperations {
       // deleted up front (#4703).
       return (targetPath, false)
     case .autoSuffix:
-      let free = try await CollisionResolver.pickFreePath(targetPath) { candidate in
-        await exists(candidate, transport: transport)
-      }
-      return (free, true)
+      return (try await CollisionResolver.pickFreePath(targetPath, exists: occupied), true)
     }
+  }
+
+  /// Occupied for a whole asset (#4707): the primary name itself, or its
+  /// derived sidecar name unless that is the moving asset's own sidecar or
+  /// already holds exactly its bytes.
+  private static func assetDestinationOccupied(
+    _ path: String, ownSidecar: String?, transport: SMBFileTransport
+  ) async -> Bool {
+    guard await !exists(path, transport: transport) else { return true }
+    let sidecar = sidecarPath(for: path)
+    guard await exists(sidecar, transport: transport) else { return false }
+    guard let own = ownSidecar else { return true }
+    guard await !SidecarOwnership.sameSMBFile(own, sidecar, transport: transport) else {
+      return false
+    }
+    return await !SidecarOwnership.smbSidecarAlreadyCarried(own, at: sidecar, transport: transport)
   }
 
   static func exists(_ path: String, transport: SMBFileTransport) async -> Bool {

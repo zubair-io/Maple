@@ -50,7 +50,7 @@
 //!   branch.
 //! - [`AutoProfileCurvePass`] + [`apply_auto_profile_curve`] — a P2 view-transform
 //!   stage (#990): the per-pixel fitted Auto Profile tone CURVE (`compress_input`
-//!   soft-knee + a 32-anchor per-channel piecewise-linear curve + an optional 3×3
+//!   soft-knee + a 32-anchor per-channel monotone cubic curve + an optional 3×3
 //!   matrix + Oklab chroma/offset/band corrections), NOT the residual 3D LUT. The
 //!   whole per-image curve rides a flat-f32 STORAGE buffer; the matrix/Oklab skip
 //!   flags are computed in-crate (replicating apply.rs's predicates) so the Pass
@@ -202,8 +202,10 @@
 mod agx;
 mod airlight;
 mod auto_profile_curve;
+mod bm3d;
 mod capture_sharpening;
 mod chain;
+mod chroma_prefilter;
 mod clarity;
 mod context;
 mod context_pipelines;
@@ -268,8 +270,10 @@ mod present_web;
 // a WebGPU `OffscreenCanvas` surface, zero readback. wasm-only — `SurfaceTarget::
 // OffscreenCanvas` is wgpu-gated on `#[cfg(any(webgpu, webgl))]`. Shares
 // `present_chain.wgsl` + `present_chain_pipeline` with the Apple path.
+mod color_curves;
 mod color_grade;
 mod grain;
+mod highlight_recovery;
 mod hsl;
 #[cfg(target_arch = "wasm32")]
 mod present_chain_web;
@@ -293,9 +297,15 @@ pub use airlight::{encode_airlight, AIRLIGHT_BINS};
 pub use auto_profile_curve::{
     apply_auto_profile_curve, AutoProfileCurvePass, PROFILE_CURVE_FLAT_LEN,
 };
+pub use bm3d::DeepDenoisePass;
 pub use capture_sharpening::{CaptureSharpeningParams, CaptureSharpeningPass};
 pub use chain::{CancelToken, ChainRunner, Pass};
+pub use chroma_prefilter::ChromaPrefilterPass;
 pub use clarity::{apply_clarity, ClarityPass, CLARITY_GUIDED_RADIUS};
+pub use color_curves::{
+    apply_color_curves, color_curves_is_identity, ColorCurveInputs, ColorCurvePoints,
+    ColorCurvesPass, COLOR_CURVES_FLAT_LEN, COLOR_CURVE_LUT_LEN, NUM_COLOR_CURVES,
+};
 pub use color_grade::{apply_color_grade, ColorGradePass, ColorGradeSliders};
 pub use context::GpuContext;
 pub use defringe::{DefringeInputs, DefringePass};
@@ -312,6 +322,7 @@ pub use full_chain::{
     build_full_chain_passes, build_split, BoxedPasses, FullChainInputs, InputShape, ScopeRequest,
 };
 pub use grain::{apply_grain, GrainOptions, GrainPass};
+pub use highlight_recovery::PostDcpHighlightPass;
 pub use hsl::{apply_hsl, HslPass};
 pub use image::GpuImage;
 pub use live_chain::{
@@ -346,7 +357,7 @@ pub use tone_curves::{
 };
 pub use vibrance::{apply_vibrance, VibrancePass};
 pub use vignette::{apply_vignette, VignetteOptions, VignettePass};
-pub use white_balance::{apply_white_balance, WhiteBalancePass};
+pub use white_balance::{apply_white_balance, WbHsmInputs, WbHsmTables, WhiteBalancePass};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use exposure::run_exposure_gpu;
