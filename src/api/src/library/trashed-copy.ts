@@ -88,6 +88,33 @@ export class OutsideTrashError extends Error {
   }
 }
 
+export class LibraryUnreachableError extends Error {
+  constructor(libraryRoot: string, cause: unknown) {
+    super(`library root "${libraryRoot}" is unreachable`, { cause });
+    this.name = 'LibraryUnreachableError';
+  }
+}
+
+/**
+ * The library root's real path, or `LibraryUnreachableError` while it cannot
+ * be resolved (an unmounted or offline volume). Every purge confirms this
+ * before treating a missing file as removed, since every file under an
+ * unreachable root also looks missing.
+ */
+export async function realLibraryRoot(libraryRoot: string): Promise<string> {
+  try {
+    return await realpath(libraryRoot);
+  } catch (error) {
+    throw new LibraryUnreachableError(libraryRoot, error);
+  }
+}
+
+export const libraryReachable = (libraryRoot: string): Promise<boolean> =>
+  realLibraryRoot(libraryRoot).then(
+    () => true,
+    () => false,
+  );
+
 const isStrictlyInside = (parent: string, child: string): boolean =>
   child !== parent && isWithinRoot(parent, child);
 
@@ -118,7 +145,7 @@ export async function checkTrashPurgeTarget(
   const trashRoot = path.resolve(libraryRoot, ...TRASH_SEGMENTS);
   const resolved = path.resolve(target);
   if (!isStrictlyInside(trashRoot, resolved)) throw new OutsideTrashError(target, libraryRoot);
-  const realRoot = await realpath(libraryRoot);
+  const realRoot = await realLibraryRoot(libraryRoot);
   const [realTrashRoot, realParent] = await Promise.all([
     realpathOrNull(trashRoot),
     realpathOrNull(path.dirname(resolved)),

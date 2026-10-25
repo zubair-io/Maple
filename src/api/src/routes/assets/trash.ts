@@ -37,12 +37,18 @@ import { trashAssetById, restoreAssetById } from '../../library/asset-trash.ts';
 import { prepareTrashPurge } from '../../cloud-backup/lifecycle.ts';
 import { capturedTrashPurge } from '../../cloud-backup/trash-purge-admission.ts';
 import {
+  LibraryUnreachableError,
+  libraryReachable,
   logPurgeFailure,
   purgeTrashedCopyCompanions,
   resolveTrashedCopy,
   unlinkTrashedCopy,
+  type TrashedCopy,
 } from '../../library/trashed-copy.ts';
-import { purgeKeepingSurvivor } from '../../library/trash-purge-survivor.ts';
+import {
+  purgeKeepingSurvivor,
+  type SurvivorPurgeOutcome,
+} from '../../library/trash-purge-survivor.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import type { RestoreAssetOutcome } from '../../library/asset-trash.ts';
 import { findCoreInfoById, hardDelete, parseAssetId } from '../../db/assets.repo.ts';
@@ -145,34 +151,10 @@ async function purgeTrashedAsset(
     return { error: 'Asset has no copy in Trash' };
   }
   const absPath = trashed.absPath;
-  if (await refusesFileUnderMarker(absPath)) {
-    set.status = 409;
-    return { error: 'The file is under a .mapleignore folder — it is never deleted from there' };
-  }
-  // A purge would strand an old-name edit it can't read (#5063); the user retries.
-  // Not 409: clients read that as "restored elsewhere".
-  if (await oldNameEditUnreadable(absPath)) {
-    set.status = 500;
-    return { error: "The photo's old-name backup edit can't be read — retry once it can" };
-  }
+  const refusal = await purgeRefusal(trashed, set);
+  if (refusal) return refusal;
   const kept = await purgeKeepingSurvivor(id, info, trashed);
-  if (kept.kind === 'kept') {
-    set.status = 200;
-    return {
-      asset_id: id.toHexString(),
-      state: 'live',
-      abs_path: kept.survivor.absPath,
-      cleanup: kept.pendingCleanup > 0 ? 'pending' : 'done',
-    };
-  }
-  if (kept.kind === 'changed') {
-    set.status = 409;
-    return { error: 'Trash state changed — refresh before deleting' };
-  }
-  if (kept.kind === 'retry') {
-    set.status = 500;
-    return { error: 'Backup cleanup of the trashed copy requires retry' };
-  }
+  if (kept.kind !== 'full-purge') return survivorResponse(id, kept, set);
   if (!(await admitTrashPurge(id, info, set)))
     return { error: 'Trash state changed — refresh before deleting' };
   try {
@@ -193,6 +175,51 @@ async function purgeTrashedAsset(
     abs_path: absPath,
   }).catch(() => {});
   return;
+}
+
+/** Why the trashed copy cannot be purged right now, or null when it can. */
+async function purgeRefusal(
+  trashed: TrashedCopy,
+  set: { status?: number | string },
+): Promise<{ error: string } | null> {
+  if (!(await libraryReachable(trashed.libraryRoot))) {
+    set.status = 503;
+    return { error: "The photo's library is unreachable — retry once it is back" };
+  }
+  if (await refusesFileUnderMarker(trashed.absPath)) {
+    set.status = 409;
+    return { error: 'The file is under a .mapleignore folder — it is never deleted from there' };
+  }
+  // A purge would strand an old-name edit it can't read (#5063); the user retries.
+  // Not 409: clients read that as "restored elsewhere".
+  if (await oldNameEditUnreadable(trashed.absPath)) {
+    set.status = 500;
+    return { error: "The photo's old-name backup edit can't be read — retry once it can" };
+  }
+  return null;
+}
+
+function survivorResponse(
+  id: ObjectId,
+  kept: Exclude<SurvivorPurgeOutcome, { kind: 'full-purge' }>,
+  set: { status?: number | string },
+): { error: string } | SurvivorKeptBody {
+  switch (kept.kind) {
+    case 'kept':
+      set.status = 200;
+      return {
+        asset_id: id.toHexString(),
+        state: 'live',
+        abs_path: kept.survivor.absPath,
+        cleanup: kept.pendingCleanup > 0 ? 'pending' : 'done',
+      };
+    case 'changed':
+      set.status = 409;
+      return { error: 'Trash state changed — refresh before deleting' };
+    case 'retry':
+      set.status = kept.error instanceof LibraryUnreachableError ? 503 : 500;
+      return { error: 'Backup cleanup of the trashed copy requires retry' };
+  }
 }
 
 async function admitTrashPurge(
