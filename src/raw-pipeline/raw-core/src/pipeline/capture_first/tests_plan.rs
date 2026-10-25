@@ -4,7 +4,7 @@
 use super::*;
 use crate::color::{
     dcp,
-    hsm::{self, HsmTable},
+    hsm::{self, HsmEncoding, HsmTable},
 };
 use crate::stages::highlight_recovery_oklab;
 use crate::test_support::creative::{creative_stage, fallback_stage, Tables};
@@ -41,13 +41,16 @@ fn floats<'a>(plan: &CreativePlan<'a>, t: &PlanTable, offset: usize) -> &'a [f32
     &plan.tables[offset..offset + len]
 }
 
+fn encoding(t: &PlanTable) -> HsmEncoding {
+    if t.srgb {
+        HsmEncoding::Srgb
+    } else {
+        HsmEncoding::Linear
+    }
+}
+
 fn single(plan: &CreativePlan<'_>, t: &PlanTable) -> HsmTable {
-    HsmTable::new(
-        t.dims,
-        floats(plan, t, t.cold_offset).to_vec(),
-        t.encoding(),
-    )
-    .unwrap()
+    HsmTable::new(t.dims, floats(plan, t, t.cold_offset).to_vec(), encoding(t)).unwrap()
 }
 
 fn through(plan: &CreativePlan<'_>, p: [f32; 3], mode: HighlightRecoveryMode) -> [f32; 3] {
@@ -55,7 +58,7 @@ fn through(plan: &CreativePlan<'_>, p: [f32; 3], mode: HighlightRecoveryMode) ->
         Some(warm) => hsm::apply_one_blended(
             p,
             t.dims,
-            t.encoding(),
+            encoding(t),
             (floats(plan, t, t.cold_offset), floats(plan, t, warm)),
             t.warm_weight,
         ),

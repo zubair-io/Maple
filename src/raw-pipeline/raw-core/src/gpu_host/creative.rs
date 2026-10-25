@@ -1,6 +1,4 @@
-//! The capture-first creative stage on the shared GPU chain (#5376): a
-//! tick's [`CreativePlan`] as the [`raw_gpu::CreativeInputs`] that replace the
-//! white-balance pass when the uploaded buffer is a capture result.
+//! A tick's [`CreativePlan`] as [`raw_gpu::CreativeInputs`] (#5376).
 use crate::pipeline::{CreativePlan, PlanTable};
 
 fn table(table: &PlanTable) -> raw_gpu::CreativeTable {
@@ -13,7 +11,6 @@ fn table(table: &PlanTable) -> raw_gpu::CreativeTable {
     }
 }
 
-/// Borrows the plan's wire, so a tick copies no table.
 pub fn creative_inputs<'a>(plan: &CreativePlan<'a>) -> raw_gpu::CreativeInputs<'a> {
     raw_gpu::CreativeInputs {
         to_pro: plan.to_pro.0,
@@ -45,7 +42,7 @@ mod tests {
         };
         let plan = stage.gpu_plan(&wire, &model).unwrap();
         let inputs = creative_inputs(&plan);
-        assert_eq!(inputs.tables.as_ptr(), wire.floats().as_ptr());
+        assert_eq!(inputs.tables.as_ptr(), plan.tables.as_ptr());
         assert_eq!(inputs.to_pro, plan.to_pro.0);
         assert_eq!(inputs.post, plan.post.0);
         let (hsm, want) = (inputs.hsm.unwrap(), plan.hsm.unwrap());

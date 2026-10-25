@@ -1,22 +1,7 @@
-//! The creative half of the capture-first live chain (#5376), replacing the
-//! white-balance pass for a host whose uploaded buffer is a capture result.
-//!
-//! The capture result is in the fixed as-shot Rec.2020 basis, signed and
-//! untouched by the user's white balance. One tick maps it through, in order:
-//!
-//! 1. [`CreativeDcpPass`]: `T_to_pro` (target camera matrix · white balance
-//!    gain · inverse basis), the target HueSatMap and the LookTable in linear
-//!    ProPhoto D50, then ProPhoto → Rec.2020 and the soft floor;
-//! 2. [`PostDcpHighlightPass`](crate::PostDcpHighlightPass) when the model
-//!    opted into Oklab recovery, at the pre-exposure ceiling;
-//! 3. [`CreativeGainPass`]: the exposure gain, folded with the post-DCP white
-//!    balance of the uncalibrated tiers. Applied last, so the table lookups
-//!    and the clip test never see it.
-//!
-//! The 3×3 matrices and table weights are derived per tick on the CPU
-//! (`raw_core::pipeline::CreativeStage::gpu_plan`) and arrive here as data;
-//! the tables are borrowed from the profile and pooled by content, so a
-//! warm tick uploads nothing.
+//! The creative half of the capture-first live chain (#5376): replaces the
+//! white-balance pass when the uploaded buffer is a capture result. Order and
+//! derivation are in docs/pipeline.md; the matrices and table weights arrive
+//! as data from `raw_core::pipeline::CreativeStage::gpu_plan`.
 
 use crate::chain::Pass;
 use crate::context::GpuContext;

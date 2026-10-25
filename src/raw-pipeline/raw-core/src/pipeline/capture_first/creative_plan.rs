@@ -1,18 +1,5 @@
-//! The creative stage as data (#5376): the per-tick constants the GPU twin of
-//! [`CreativeStage::render`] runs, derived from the same profile, white
-//! balance and exposure inputs without touching a pixel.
-//!
-//! ```text
-//!   pro  = T_to_pro · capture        T_to_pro = M_target · diag(g_wb) · M_fixed⁻¹
-//!   pro  = LookTable( HueSatMap_target( pro ) )
-//!   out  = soft_floor( pro→Rec.2020 · pro )
-//!   out  = post_dcp_recovery( out )                    (at the pre-AE ceiling)
-//!   out  = post · out                                  (post = fallback WB · ae_gain)
-//! ```
-//!
-//! The tables travel as one flat wire built once per profile
-//! ([`CreativeStage::gpu_wire`]); a tick's plan only names ranges of it, so a
-//! white-balance tick copies and uploads no table.
+//! Per-tick constants of the GPU twin of [`CreativeStage::render`] (#5376);
+//! see docs/pipeline.md. Tables travel as one wire built once per profile.
 
 use super::{basis_inverse, CreativeAnchors, CreativeStage};
 use crate::{
@@ -44,12 +31,6 @@ pub struct CreativeWire {
     look: Option<Span>,
 }
 
-impl CreativeWire {
-    pub fn floats(&self) -> &[f32] {
-        &self.floats
-    }
-}
-
 /// A table of the wire as the GPU reads it. A blended HueSatMap names both
 /// endpoint tables and the weight of the warm one.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -69,14 +50,6 @@ impl PlanTable {
             cold_offset: span.offset,
             warm_offset: None,
             warm_weight: 0.0,
-        }
-    }
-
-    pub fn encoding(&self) -> HsmEncoding {
-        if self.srgb {
-            HsmEncoding::Srgb
-        } else {
-            HsmEncoding::Linear
         }
     }
 }
@@ -213,7 +186,7 @@ impl CreativeStage {
         Ok(CreativePlan {
             to_pro: cam_to_pro.mul_mat(&gain).mul_mat(&inverse_basis),
             from_pro: m_pro_to_rec2020(),
-            tables: wire.floats(),
+            tables: &wire.floats,
             hsm,
             look: wire.look.map(PlanTable::single),
             highlight_recovery: model.highlight_recovery
@@ -227,8 +200,8 @@ impl CreativeStage {
         })
     }
 
-    /// The CPU reference the GPU creative stage is gated against: a capture
-    /// result in the fixed as-shot basis through [`Self::render`].
+    /// The CPU oracle the GPU creative stage is gated against.
+    #[doc(hidden)]
     pub fn render_basis(
         &self,
         capture: crate::image::Image,
