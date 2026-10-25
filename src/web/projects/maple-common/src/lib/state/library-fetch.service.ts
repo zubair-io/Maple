@@ -100,16 +100,28 @@ export function selfHostedAssetFromImage(img: ImageEntry, sourceId: string): Ass
     ...(img.width != null ? { width: img.width } : {}),
     ...(img.height != null ? { height: img.height } : {}),
     ...(img.isVideo ? { isVideo: true as const } : {}),
-    ...(img.exif?.camera_model || img.exif?.camera_make
-      ? { camera: img.exif.camera_model ?? img.exif.camera_make! }
-      : {}),
-    ...(img.exif?.lens ? { lens: img.exif.lens } : {}),
-    ...(img.exif?.aperture != null ? { aperture: `f/${img.exif.aperture}` } : {}),
-    ...(img.exif?.shutter ? { shutter: img.exif.shutter } : {}),
-    ...(img.exif?.iso != null ? { iso: img.exif.iso } : {}),
-    ...(img.exif?.focal_length != null ? { focalLength: `${img.exif.focal_length}mm` } : {}),
+    ...selfHostedCameraFields(img.exif),
+    ...selfHostedExposureFields(img.exif),
     ...(img.exif?.gps ? { gps: { lat: img.exif.gps.lat, lon: img.exif.gps.lng } } : {}),
     ...(img.capturedAt ? { capturedAt: img.capturedAt } : {}),
+  };
+}
+
+function selfHostedCameraFields(exif: ImageEntry['exif']): Partial<Asset> {
+  return {
+    ...(exif?.camera_model || exif?.camera_make
+      ? { camera: exif.camera_model ?? exif.camera_make! }
+      : {}),
+    ...(exif?.lens ? { lens: exif.lens } : {}),
+  };
+}
+
+function selfHostedExposureFields(exif: ImageEntry['exif']): Partial<Asset> {
+  return {
+    ...(exif?.aperture != null ? { aperture: `f/${exif.aperture}` } : {}),
+    ...(exif?.shutter ? { shutter: exif.shutter } : {}),
+    ...(exif?.iso != null ? { iso: exif.iso } : {}),
+    ...(exif?.focal_length != null ? { focalLength: `${exif.focal_length}mm` } : {}),
   };
 }
 
