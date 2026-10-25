@@ -58,6 +58,44 @@ final class BatchMetadataSessionSafetyTests: EditorTestCase {
     return failures.map(\.0.id)
   }
 
+  func testRemovedSelectedOriginalCannotReceiveOrphanMetadataSidecar() async throws {
+    let raw = try makeRaw()
+    let asset = AssetRef(url: raw)
+    let sidecar = SidecarPath.sidecarURL(for: raw)
+    let vm = BatchMetadataViewModel(assets: [asset], sessions: [:])
+    await vm.loadExistingMetadata()
+    try FileManager.default.removeItem(at: raw)
+    vm.touchedMetadata.city = "QA removed asset"
+
+    do {
+      try await vm.apply()
+      XCTFail("A removed selected original must fail the batch")
+    } catch {
+      XCTAssertEqual(failedAssets(error), [asset.id])
+    }
+    XCTAssertFalse(FileManager.default.fileExists(atPath: sidecar.path))
+  }
+
+  func testMissingOriginalFailsWithoutSkippingOtherSelectedAssets() async throws {
+    let missing = try makeRaw()
+    let present = try makeRaw()
+    let missingAsset = AssetRef(url: missing)
+    let presentAsset = AssetRef(url: present)
+    try FileManager.default.removeItem(at: missing)
+    let vm = BatchMetadataViewModel(assets: [missingAsset, presentAsset], sessions: [:])
+    vm.touchedMetadata.city = "QA city"
+
+    do {
+      try await vm.apply()
+      XCTFail("The missing original must be reported")
+    } catch {
+      XCTAssertEqual(failedAssets(error), [missingAsset.id])
+    }
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: SidecarPath.sidecarURL(for: missing).path))
+    XCTAssertEqual(try reparse(present).2.city, "QA city")
+  }
+
   func testUnloadedSessionHydratesBeforeTheBatchWrite() async throws {
     let raw = try makeRaw()
     try await saveSidecar(exposure: 1.5, stars: 1, title: "Kept", beside: raw)

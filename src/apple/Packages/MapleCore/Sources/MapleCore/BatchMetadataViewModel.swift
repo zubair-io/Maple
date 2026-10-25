@@ -292,6 +292,7 @@ public final class BatchMetadataViewModel: Identifiable {
       throw UnsupportedSourceError(assetName: asset.displayName)
     }
 
+    try BatchMetadataSource.requireAvailable(asset)
     // Video gets metadata-only XMP; keywords remain out of M5 scope.
     if SidecarPath.isVideo(url) {
       let store = XMPSidecarStore(rawURL: url)
