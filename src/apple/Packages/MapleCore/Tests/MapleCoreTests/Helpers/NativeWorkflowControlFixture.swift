@@ -51,13 +51,14 @@ enum NativeWorkflowControlFixture {
   static func replace(_ path: URL, session: EditSession, exposure: Double = 1.5, tag: String = "B")
     async throws
   {
-    let record = try record(path)
-    let changed = try WorkflowSidecarCore.embed(record, in: input(exposure: exposure, tag: tag))
-    try Data(changed.utf8).write(to: path, options: .atomic)
-    let parsed = try XMPParser.parse(changed)
+    // This fixture represents an edit made inside Maple. Publishing a complete
+    // XMP file behind the open session now correctly trips the external-change
+    // guard, so exercise the selected store's normal write path instead.
+    let parsed = try XMPParser.parse(input(exposure: exposure, tag: tag))
     session.model = parsed.0
     session.culling = parsed.1
-    await session.flushPendingSidecarWrite()
+    try await session.flushPendingSidecarWriteConfirmed()
+    XCTAssertEqual(try XMPParser.parse(xml(path)).0.exposure, exposure)
     await session.workflow.reload(session: session)
     XCTAssertNil(session.workflow.errorText)
   }
