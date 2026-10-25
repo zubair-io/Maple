@@ -431,7 +431,8 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
 
   cycleFilter(): void {
     const cur = this.state.filter();
-    const next = cur === 'all' ? 'picks' : cur === 'picks' ? '4stars' : 'all';
+    const next =
+      cur === 'all' ? 'picks' : cur === 'picks' ? '4stars' : cur === '4stars' ? 'edited' : 'all';
     this.state.filter.set(next);
     TypedStorage.set(STORAGE_KEYS.FILTER, next);
   }
