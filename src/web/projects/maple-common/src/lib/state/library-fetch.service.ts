@@ -28,6 +28,7 @@ import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { AuthService } from '../auth/auth.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import { hasXmlParseError } from '../xmp/xmp-dom-utils';
+import { HostedSidecarErrors } from './hosted-sidecar-errors.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import { WorkflowVariantStoreService } from '../xmp/workflow-variant-store.service';
 import { PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
@@ -153,6 +154,7 @@ interface PendingApiSidecar {
 
 @Injectable({ providedIn: 'root' })
 export class LibraryFetch {
+  private readonly sidecarErrors = inject(HostedSidecarErrors);
   private readonly store = inject(LibraryStore);
   private readonly status = inject(LibraryStatusService);
   private readonly selection = inject(LibrarySelection);
@@ -405,7 +407,7 @@ export class LibraryFetch {
       newPassthroughs,
       newMetadata,
     );
-    this.store.sidecarLoadErrors.set(sidecarLoadErrors);
+    this.sidecarErrors.errors.set(sidecarLoadErrors);
 
     // The handle becomes the active persistence target only after its assets
     // and sidecars have finished loading. Until this point the previous view

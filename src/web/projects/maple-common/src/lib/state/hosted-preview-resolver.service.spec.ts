@@ -12,6 +12,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 import { HostedPreviewResolver } from './hosted-preview-resolver.service';
 import { LibraryStore } from './library-store.service';
+import { HostedSidecarErrors } from './hosted-sidecar-errors.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { EmbeddedPreviewService } from '../raw-pipeline/embedded-preview.service';
 import type { Asset, AssetId } from '../models/asset';
@@ -29,7 +30,11 @@ function setup(
   TestBed.configureTestingModule({
     providers: [
       HostedPreviewResolver,
-      { provide: LibraryStore, useValue: { sidecarLoadErrors: () => new Map(), ...store } },
+      { provide: LibraryStore, useValue: store },
+      {
+        provide: HostedSidecarErrors,
+        useValue: { errors: store['sidecarLoadErrors'] ?? (() => new Map()) },
+      },
       { provide: MapleCacheService, useValue: mapleCache },
       { provide: EmbeddedPreviewService, useValue: previewExtractor },
     ],
