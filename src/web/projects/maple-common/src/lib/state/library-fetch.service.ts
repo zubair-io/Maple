@@ -289,8 +289,7 @@ export class LibraryFetch {
         newMetadata.set(id, metadata);
 
         edited = true;
-      } catch (error) {
-        if (binding.variantId !== PRIMARY_VARIANT_ID) throw error;
+      } catch {
         // No sidecar or unreadable — keep cache values, no adjustment override.
       }
 
