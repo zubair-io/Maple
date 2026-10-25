@@ -307,6 +307,24 @@ describe('checkTrashPurgeTarget', () => {
     }
   });
 
+  it('refuses everything when .maple/trash itself is a symlink back into the library', async () => {
+    await write(abs('kept', 'IMG.dng'), KEPT_RAW);
+    await mkdir(abs('.maple'), { recursive: true });
+    await symlink(root, abs('.maple', 'trash'));
+
+    await expect(
+      checkTrashPurgeTarget(abs('.maple', 'trash', 'kept', 'IMG.dng'), root),
+    ).rejects.toBeInstanceOf(OutsideTrashError);
+    expect(await readFile(abs('kept', 'IMG.dng'), 'utf8')).toBe(KEPT_RAW);
+  });
+
+  it('throws rather than reporting absent while the library root is unreachable', async () => {
+    const unmounted = path.join(outside, 'unmounted-volume');
+    await expect(
+      checkTrashPurgeTarget(path.join(unmounted, '.maple', 'trash', 'IMG.dng'), unmounted),
+    ).rejects.toThrow();
+  });
+
   it('refuses a Trash subdirectory that is a symlink out of the library', async () => {
     await write(path.join(outside, 'IMG.dng'), KEPT_RAW);
     await mkdir(abs('.maple', 'trash'), { recursive: true });

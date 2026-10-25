@@ -7,10 +7,19 @@
 import type { SqlStatement } from '../sqlite/protocol.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 
+/** A file's identity on disk, as decimal strings so 64-bit values survive. */
+export interface FileStamp {
+  dev: string;
+  ino: string;
+  size: string;
+  mtimeNs: string;
+}
+
 export interface LocalPurgeTarget {
   relPath: string;
   ownerRelPath: string;
   kind: 'trash' | 'companion';
+  stamp: FileStamp;
 }
 
 export interface LocalPurgeObligation {
@@ -21,6 +30,10 @@ export interface LocalPurgeObligation {
   owner_rel_path: string;
   kind: 'trash' | 'companion';
   attempts: number;
+  dev: string;
+  ino: string;
+  size: string;
+  mtime_ns: string;
 }
 
 export function recordLocalPurgeStatements(
@@ -29,12 +42,24 @@ export function recordLocalPurgeStatements(
   targets: readonly LocalPurgeTarget[],
 ): SqlStatement[] {
   return targets.map((target) => ({
-    sql: `INSERT INTO local_purge_obligations (asset_id, library_id, rel_path, owner_rel_path, kind)
-          VALUES (?, ?, ?, ?, ?)
+    sql: `INSERT INTO local_purge_obligations
+            (asset_id, library_id, rel_path, owner_rel_path, kind, dev, ino, size, mtime_ns)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT (library_id, rel_path) DO UPDATE SET
             asset_id = excluded.asset_id, owner_rel_path = excluded.owner_rel_path,
-            kind = excluded.kind, next_attempt_at = 0`,
-    params: [assetId, libraryId, target.relPath, target.ownerRelPath, target.kind],
+            kind = excluded.kind, dev = excluded.dev, ino = excluded.ino, size = excluded.size,
+            mtime_ns = excluded.mtime_ns, attempts = 0, next_attempt_at = 0, last_error = NULL`,
+    params: [
+      assetId,
+      libraryId,
+      target.relPath,
+      target.ownerRelPath,
+      target.kind,
+      target.stamp.dev,
+      target.stamp.ino,
+      target.stamp.size,
+      target.stamp.mtimeNs,
+    ],
   }));
 }
 
@@ -45,7 +70,8 @@ export function dueLocalPurges(
   dbOverride?: SqliteDb,
 ): Promise<LocalPurgeObligation[]> {
   return sqliteDb(dbOverride).read<LocalPurgeObligation>(
-    `SELECT id, asset_id, library_id, rel_path, owner_rel_path, kind, attempts
+    `SELECT id, asset_id, library_id, rel_path, owner_rel_path, kind, attempts,
+            dev, ino, size, mtime_ns
        FROM local_purge_obligations
       WHERE next_attempt_at <= ? AND (? IS NULL OR asset_id = ?)
       ORDER BY id`,

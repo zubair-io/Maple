@@ -3,7 +3,9 @@
  * the disk. Every attempt re-checks the guards from scratch: the trashed copy
  * and its sidecars must still resolve inside `.maple/trash/`, a companion must
  * still pass its library jail, nothing under a `.mapleignore` marker is
- * touched, and a path some photo has since claimed is never unlinked. Failures
+ * touched, a path some photo has since claimed is never unlinked, and the
+ * file must still be the one recorded (same device, inode, size and mtime),
+ * so a file that later took the same path is left alone. Failures
  * back off on the stage retry ladder and stay recorded until they succeed.
  */
 
@@ -23,7 +25,7 @@ import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';
 import { retryDelayMs } from '../workers/loop-policy.ts';
 import { resolvePurgeCompanion } from './purge-rendered-companion.ts';
-import { checkTrashPurgeTarget } from './trashed-copy.ts';
+import { checkTrashPurgeTarget, fileStampOf } from './trashed-copy.ts';
 
 const log = childLogger('local-purge');
 
@@ -46,6 +48,18 @@ async function unlinkTarget(row: LocalPurgeObligation, root: string): Promise<st
   return canonical;
 }
 
+/** The file at `target` is still the one recorded when the purge was kept. */
+async function isRecordedFile(row: LocalPurgeObligation, target: string): Promise<boolean> {
+  const stamp = await fileStampOf(target);
+  return (
+    stamp !== null &&
+    stamp.dev === row.dev &&
+    stamp.ino === row.ino &&
+    stamp.size === row.size &&
+    stamp.mtimeNs === row.mtime_ns
+  );
+}
+
 async function attempt(
   row: LocalPurgeObligation,
   libraries: ReadonlyMap<string, string>,
@@ -53,7 +67,7 @@ async function attempt(
   const root = libraries.get(row.library_id);
   if (!root) throw new Error('Library root is not registered');
   const target = await unlinkTarget(row, root);
-  if (target === null) return;
+  if (target === null || !(await isRecordedFile(row, target))) return;
   try {
     await unlinkPrimaryForPurge(target);
   } catch (error) {
