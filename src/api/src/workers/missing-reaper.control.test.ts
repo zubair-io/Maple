@@ -196,6 +196,25 @@ describe('startMissingReaper', () => {
     expect(stageRegistry.statuses()[MISSING_REAPER_NAME]).toBeUndefined();
   });
 
+  it('runs reap passes on its interval', async () => {
+    using live = await createLiveTestDatabase();
+    const libraryId = seedLibrary(live.db, { 'other.jpg': 'x' });
+    const assetId = seedAsset(live.db, libraryId, [{ filename: 'gone.jpg', missing: AGED }]);
+    const handle = startMissingReaper({ intervalMs: 10 });
+    await handle.ready;
+    try {
+      // Persist the running state the cross-process pause poller reads.
+      await stageRegistry.resume(MISSING_REAPER_NAME);
+      const deadline = Date.now() + 5_000;
+      while (assetRow(live.db, assetId).reason !== 'reaped' && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(assetRow(live.db, assetId).reason).toBe('reaped');
+    } finally {
+      handle.stop();
+    }
+  });
+
   it('persists pause across restarts (worker_config), running by default', async () => {
     using live = await createLiveTestDatabase();
     expect(storedPaused(live.db, MISSING_REAPER_NAME)).toBeUndefined();
