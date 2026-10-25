@@ -41,7 +41,7 @@ export class MuiToastContainerComponent {
   readonly exitStaggerMs = EXIT_STAGGER_MS;
 
   private static readonly POSITION_CLASS: Record<MuiToastContainerPosition, string> = {
-    'top-right': 'position-top-right top-6 right-6 items-end',
+    'top-right': 'position-top-right top-20 right-6 items-end max-w-sm',
     'bottom-right': 'position-bottom-right bottom-6 right-6 items-end flex-col-reverse',
     'bottom-center':
       'position-bottom-center bottom-6 left-1/2 -translate-x-1/2 items-center flex-col-reverse',
