@@ -64,7 +64,7 @@ extension ThumbnailLoader {
   /// resolves).
   ///
   /// Order of attempts:
-  ///   1. Fresh `.maple/previews/<filename>.avif` on disk — written by a
+  ///   1. Source-stamped `.maple/previews/<filename>.avif` on disk — written by a
   ///      previous call, the pano stitcher (#1365), or the editor's
   ///      idle/exit preview persist (`EditSession`, #2009).
   ///   2. RAW sidecar develop: regenerate the authored adjustments and film
@@ -153,7 +153,9 @@ extension ThumbnailLoader {
       at: previewURL.deletingLastPathComponent(),
       withIntermediateDirectories: true
     )
-    try? data.write(to: previewURL, options: .atomic)
+    if (try? data.write(to: previewURL, options: .atomic)) != nil {
+      LocalDerivativeSourceStamp.record(previewURL, for: url)
+    }
     return data
   }
 
@@ -192,6 +194,7 @@ extension ThumbnailLoader {
           at: previewURL, legacy: legacyURL, fileManager: fm)
           ? modificationDate(of: previewURL, fm) : nil)
     else { return nil }
+    guard LocalDerivativeSourceStamp.isFresh(previewURL, for: assetURL) else { return nil }
     let assetMtime =
       (try? fm.attributesOfItem(atPath: assetURL.path))?[
         .modificationDate

@@ -484,6 +484,10 @@ extension EditSession {
   nonisolated static func readMapleSidecarPreview(from url: URL) -> CIImage? {
     return autoreleasepool {
       guard
+        LocalDerivativeSourceStamp.isFresh(
+          MapleSidecarPaths.previewURL(for: url), for: url)
+      else { return nil }
+      guard
         let data = MapleSidecarPaths.readDerivative(
           at: MapleSidecarPaths.previewURL(for: url),
           legacy: MapleSidecarPaths.legacyPreviewURL(for: url))

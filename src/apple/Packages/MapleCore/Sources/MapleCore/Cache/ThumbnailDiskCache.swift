@@ -4,9 +4,8 @@
 // File: .maple/thumbs/<filename.ext>.avif — the asset's own filename,
 //   extension included, matching `.maple/previews/<filename.ext>.avif` and
 //   every other platform (#4793). Naming by basename (not the full path)
-//   lets `.maple/thumbs/` travel with the photos. A miss adopts the frozen
-//   legacy `<sha256Prefix16(basename)>.v25.avif` by rename, never by
-//   regenerating.
+//   lets `.maple/thumbs/` travel with the photos. An unstamped legacy entry
+//   cannot prove which original/XMP produced it, so it is regenerated.
 // Location: always the asset's OWN folder's `.maple/thumbs/`, never the most
 // recently configured folder's — the unified Timeline shows every saved folder
 // at once, and a sibling or parent folder's cache must not answer for (or be
@@ -100,7 +99,9 @@ public actor ThumbnailDiskCache {
     // 1. Memory
     if let img = memCache[key] { return img }
     // 2. Disk
-    guard let data = readThumb(at: thumbFileURL(for: assetURL), legacyKey: cacheKey(for: assetURL)),
+    let fileURL = thumbFileURL(for: assetURL)
+    guard LocalDerivativeSourceStamp.isFresh(fileURL, for: assetURL),
+      let data = readThumb(at: fileURL, legacyKey: cacheKey(for: assetURL)),
       let ci = CIImage(data: data)
     else { return nil }
     // Promote to memory cache
@@ -119,7 +120,9 @@ public actor ThumbnailDiskCache {
   public func thumbnailData(for assetURL: URL) -> Data? {
     let key = Self.memoryKey(for: assetURL)
     if let d = dataMemCache[key] { return d }
-    guard let data = readThumb(at: thumbFileURL(for: assetURL), legacyKey: cacheKey(for: assetURL))
+    let fileURL = thumbFileURL(for: assetURL)
+    guard LocalDerivativeSourceStamp.isFresh(fileURL, for: assetURL),
+      let data = readThumb(at: fileURL, legacyKey: cacheKey(for: assetURL))
     else { return nil }
     evictIfNeeded()
     dataMemCache[key] = data
@@ -134,6 +137,7 @@ public actor ThumbnailDiskCache {
     memCache.removeValue(forKey: key)
     dataMemCache.removeValue(forKey: key)
     syncPeekCache.removeObject(forKey: key as NSString)
+    LocalDerivativeSourceStamp.remove(thumbFileURL(for: assetURL))
     MapleSidecarPaths.removeDerivative(
       at: MapleSidecarPaths.thumbURL(for: assetURL),
       legacy: MapleSidecarPaths.legacyThumbURL(for: assetURL), fileManager: fm)
@@ -192,7 +196,9 @@ public actor ThumbnailDiskCache {
     guard let data = ThumbnailEncoder.encode(image, ctx: ctx) else { return }
     dataMemCache[key] = data
     syncPeekCache.setObject(data as NSData, forKey: key as NSString)
-    try? data.write(to: fileURL, options: .atomic)
+    if (try? data.write(to: fileURL, options: .atomic)) != nil {
+      LocalDerivativeSourceStamp.record(fileURL, for: assetURL)
+    }
   }
 
   /// Store pre-encoded AVIF bytes. Used by `ThumbnailLoader` which encodes
@@ -206,7 +212,10 @@ public actor ThumbnailDiskCache {
     evictIfNeeded()
     dataMemCache[key] = data
     syncPeekCache.setObject(data as NSData, forKey: key as NSString)
-    try? data.write(to: thumbFileURL(for: assetURL, creatingDirectory: true), options: .atomic)
+    let fileURL = thumbFileURL(for: assetURL, creatingDirectory: true)
+    if (try? data.write(to: fileURL, options: .atomic)) != nil {
+      LocalDerivativeSourceStamp.record(fileURL, for: assetURL)
+    }
   }
 
   /// Store pre-encoded AVIF bytes under an opaque stable key. Sibling of the
@@ -232,8 +241,8 @@ public actor ThumbnailDiskCache {
     return fileURL
   }
 
-  /// One read on a hit; on a miss, adopts the frozen `<legacyKey>.v25.avif`
-  /// sibling by rename (#4793).
+  /// One read on a hit. A source-stamped canonical hit is eligible for reuse;
+  /// an unstamped legacy sibling cannot pass the freshness gate above.
   private func readThumb(at fileURL: URL, legacyKey: String) -> Data? {
     MapleSidecarPaths.readDerivative(
       at: fileURL,
@@ -257,7 +266,8 @@ public actor ThumbnailDiskCache {
   /// full-path hash, so same-named files from two folders never share an entry
   /// and a file keeps one key whichever folder is open (#5033).
   public static func memoryKey(for url: URL) -> String {
-    MapleThumbCacheKey.sha256Prefix16("path:" + url.standardizedFileURL.path)
+    MapleThumbCacheKey.sha256Prefix16(
+      "path:" + url.standardizedFileURL.path + "|" + LocalDerivativeSourceStamp.signature(for: url))
   }
 
   /// File stem and memory key for a sourceless asset's opaque stable id.

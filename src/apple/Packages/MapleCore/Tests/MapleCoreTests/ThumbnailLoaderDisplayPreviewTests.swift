@@ -100,13 +100,14 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
     let staged = try XCTUnwrap(ThumbnailLoader.encodeDisplayPreview(from: stagedImage))
     XCTAssertEqual(try longEdge(of: staged), 160)
     try staged.write(to: previewURL)
+    LocalDerivativeSourceStamp.record(previewURL, for: assetURL)
 
     let data = await ThumbnailLoader.shared.loadDisplayPreview(
       for: AssetRef(url: assetURL))
     XCTAssertEqual(data, staged)
   }
 
-  func testServesLegacyV25TierByRenamingItIntoPlace() async throws {
+  func testUnstampedLegacyV25TierIsRegenerated() async throws {
     let assetURL = try writeJPEG(named: "l.jpg", width: 2400, height: 1600)
     let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
     try FileManager.default.createDirectory(
@@ -120,9 +121,10 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
 
     let data = await ThumbnailLoader.shared.loadDisplayPreview(for: AssetRef(url: assetURL))
 
-    XCTAssertEqual(data, staged, "the legacy tier is adopted, never regenerated (#4793)")
+    XCTAssertNotNil(data)
+    XCTAssertNotEqual(data, staged, "legacy bytes cannot prove which sidecar produced them")
     XCTAssertFalse(FileManager.default.fileExists(atPath: legacyURL.path))
-    XCTAssertEqual(try Data(contentsOf: previewURL), staged)
+    XCTAssertEqual(try Data(contentsOf: previewURL), data)
   }
 
   // MARK: - Edited-photo gate
@@ -189,10 +191,32 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
     let rendered = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 400, height: 250))
     let developed = try XCTUnwrap(ThumbnailLoader.encodeDisplayPreview(from: rendered))
     try developed.write(to: previewURL)
+    LocalDerivativeSourceStamp.record(previewURL, for: assetURL)
 
     let data = await ThumbnailLoader.shared.loadDisplayPreview(
       for: AssetRef(url: assetURL))
     XCTAssertEqual(data, developed)
+  }
+
+  func testRemovingEditedSidecarRejectsItsPreviewAfterColdOpen() async throws {
+    let assetURL = try writeJPEG(named: "removed.jpg", width: 2400, height: 1600)
+    try writeSidecar(for: assetURL, model: AdjustmentModel(exposure: 1.2))
+    let previewURL = MapleSidecarPaths.previewURL(for: assetURL)
+    try FileManager.default.createDirectory(
+      at: previewURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    let edited = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 400, height: 250))
+    let editedBytes = try XCTUnwrap(ThumbnailLoader.encodeDisplayPreview(from: edited))
+    try editedBytes.write(to: previewURL)
+    LocalDerivativeSourceStamp.record(previewURL, for: assetURL)
+    let beforeRemoval = await ThumbnailLoader.shared.loadDisplayPreview(
+      for: AssetRef(url: assetURL))
+    XCTAssertEqual(beforeRemoval, editedBytes)
+
+    try FileManager.default.removeItem(at: SidecarPath.sidecarURL(for: assetURL))
+    let refreshed = await ThumbnailLoader.shared.loadDisplayPreview(for: AssetRef(url: assetURL))
+    XCTAssertNotNil(refreshed)
+    XCTAssertNotEqual(refreshed, editedBytes, "removed edits must not survive in the preview")
+    XCTAssertEqual(try Data(contentsOf: previewURL), refreshed)
   }
 
   func testEditedSidecarRejectsCorruptRenderedTier() async throws {

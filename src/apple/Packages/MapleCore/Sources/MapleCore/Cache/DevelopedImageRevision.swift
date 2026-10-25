@@ -20,7 +20,14 @@ public final class DevelopedImageRevision {
 
   public func decodedKey(for id: String, url: URL?) -> String {
     let revision = revision(for: url)
-    return revision == 0 ? id : "\(id):developed:\(revision)"
+    let revisionKey = revision == 0 ? id : "\(id):developed:\(revision)"
+    guard let url, url.isFileURL, FileManager.default.fileExists(atPath: url.path) else {
+      return revisionKey
+    }
+    // A synced, replaced, or removed XMP can change pixels without going
+    // through `didPersist`. A fresh UI cell must not reuse the old bitmap.
+    let sourceStamp = LocalDerivativeSourceStamp.signature(for: url)
+    return "\(revisionKey):source:\(MapleThumbCacheKey.sha256Prefix16(sourceStamp))"
   }
 
   /// Cloud asset IDs name paths within a server, not globally unique images.

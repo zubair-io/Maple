@@ -548,8 +548,8 @@ public final class EditSession {
     if let url = asset.primaryURL {
       self.previewPersistence = DisplayPreviewPersistence(
         sink: LocalDisplayPreviewSink(
-          previewURL: MapleSidecarPaths.previewURL(for: url), scopeParentURL: asset.scopeParentURL,
-          sidecarStore: localSidecarStore))
+          previewURL: MapleSidecarPaths.previewURL(for: url), assetURL: url,
+          scopeParentURL: asset.scopeParentURL, sidecarStore: localSidecarStore))
     } else {
       self.previewPersistence = DisplayPreviewPersistence(sink: remotePreviewSink)
     }
