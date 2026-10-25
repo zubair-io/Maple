@@ -1,6 +1,4 @@
-// Edit-time preview persistence: debounce, source gates and both backends.
-// The real encoders run against stubbed canvas APIs so AVIF/JPEG paths work in jsdom.
-
+// Edit-time preview persistence across Hosted and Self-Hosted backends.
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Observable, of } from 'rxjs';
@@ -21,12 +19,9 @@ import type { Asset, AssetId } from '../models/asset';
 import type { DecodedImage } from '../raw-pipeline/raw-pipeline.types';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
 
-// The debounce is 2000ms internally (not exported — an implementation
-// detail); advance well past it.
 const PAST_DEBOUNCE_MS = 2100;
 const settle = (): Promise<void> => Promise.resolve().then(() => Promise.resolve());
 const canonicalDefaultXmp = new XmpSerializerService().serialize(defaultAdjustmentModel());
-
 class FakeCtx {
   drawImage(): void {}
 }
@@ -44,9 +39,6 @@ class FakeOffscreenCanvas {
     return convertToBlobImpl(opts);
   }
 }
-// Reassigned per test — controls whether the fake canvas can "genuinely"
-// encode AVIF (returns the requested type) or silently substitutes PNG
-// (the #2010 Chrome-148 reality), mirroring `image-utils.spec.ts`'s pattern.
 let convertToBlobImpl: (opts: { type: string; quality?: number }) => Promise<Blob>;
 
 const rawAsset = (filename = 'a.dng') => ({ filename }) as unknown as Asset;
@@ -359,18 +351,26 @@ describe('EditPreviewPersistService — server-backed (Self-Hosted)', () => {
 });
 
 describe('EditPreviewPersistService — Hosted (File System Access folder handle)', () => {
-  it('skips a changed sidecar, then caches an unedited RAW when its sidecar is absent', async () => {
+  it('recovers from a sidecar read error and conflict before caching an unedited RAW', async () => {
     convertToBlobImpl = async ({ type }) => new Blob(['x'], { type });
     const folder = { write: true };
     const writePreview = vi.fn(async () => {});
     const assertUnchanged = vi.fn().mockImplementationOnce(() => {
       throw new Error('external edit');
     });
+    const readCurrent = vi
+      .fn(async () => null)
+      .mockRejectedValueOnce(new Error('permission revoked'));
     const svc = setup({
       store: { backend: 'hosted', currentFolder: () => folder },
       mapleCache: { writePreview },
-      sidecarFreshness: { readCurrent: vi.fn(async () => null), assertUnchanged },
+      sidecarFreshness: { readCurrent, assertUnchanged },
     });
+    svc.schedule('lib:2026/a.dng' as AssetId);
+    await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
+    await svc.whenIdle();
+    expect(writePreview).not.toHaveBeenCalled();
+    expect(assertUnchanged).not.toHaveBeenCalled();
     svc.schedule('lib:2026/a.dng' as AssetId);
     await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
     await svc.whenIdle();

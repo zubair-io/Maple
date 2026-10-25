@@ -517,7 +517,6 @@ export class LibraryCache {
         }
       }
     }
-
     // 2. Self-Hosted API asset (older grid mounts that resolved an apiId).
     const apiId = this.store.apiAssetIds.get(asset.id);
     if (!apiId) return;
@@ -548,7 +547,8 @@ export class LibraryCache {
     if (folder?.write) {
       void this.hostedThumbCache
         .writeIfCurrent(folder, asset, blob, format, sidecarBefore)
-        .then((wrote) => wrote && onThumbWritten?.(asset.id));
+        .then((wrote) => wrote && onThumbWritten?.(asset.id))
+        .catch((error) => console.warn('[state] thumb write failed', asset.filename, error));
     }
   }
   private async _loadThumbInternal(
