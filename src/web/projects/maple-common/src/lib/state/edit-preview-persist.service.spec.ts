@@ -22,11 +22,14 @@ import { EditPreviewPersistService } from './edit-preview-persist.service';
 import { LibraryStore } from './library-store.service';
 import { LibraryCache } from './library-cache.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
+import { hostedSidecarFingerprint } from '../maple-cache/hosted-sidecar-fingerprint';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
 import { SERVER_WORKSPACE_PERSISTENCE } from '../workspace/workspace-persistence';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
+import { XmpParserService } from '../xmp/xmp-parser.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
+import { HostedSidecarFreshnessService } from '../xmp/hosted-sidecar-freshness.service';
 import type { Asset, AssetId } from '../models/asset';
 import type { DecodedImage } from '../raw-pipeline/raw-pipeline.types';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
@@ -135,7 +138,20 @@ function setup(opts: Setup = {}) {
         useValue: { decode: vi.fn(async () => fakeDecodedImage()), ...opts.pipeline },
       },
       { provide: XmpSerializerService, useValue: { serialize: () => '<xmp/>' } },
-      { provide: XmpStoreService, useValue: { bindingFor: () => ({ variantId: variantId() }) } },
+      { provide: XmpParserService, useValue: { parseAdjustmentModel: () => ({ model: {} }) } },
+      {
+        provide: XmpStoreService,
+        useValue: {
+          bindingFor: () => ({ variantId: variantId(), filename: 'a.xmp' }),
+        },
+      },
+      {
+        provide: HostedSidecarFreshnessService,
+        useValue: {
+          readCurrent: vi.fn(async () => '<xmp/>'),
+          assertUnchanged: vi.fn(),
+        },
+      },
     ],
   });
   return TestBed.inject(EditPreviewPersistService);
@@ -386,12 +402,20 @@ describe('EditPreviewPersistService — Hosted (File System Access folder handle
 
     svc.schedule('lib:2026/a.dng' as AssetId);
     await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
+    await svc.whenIdle();
 
     expect(writePreview).toHaveBeenCalledTimes(1);
-    expect(writePreview).toHaveBeenCalledWith(folder, '2026', 'a.dng', expect.any(Blob), {
-      size: 3,
-      lastModified: 1234,
-    });
+    expect(writePreview).toHaveBeenCalledWith(
+      folder,
+      '2026',
+      'a.dng',
+      expect.any(Blob),
+      {
+        size: 3,
+        lastModified: 1234,
+      },
+      await hostedSidecarFingerprint('<xmp/>'),
+    );
     const written = writePreview.mock.calls[0][3];
     expect(written.type).toBe('image/avif');
   });
@@ -416,6 +440,7 @@ describe('EditPreviewPersistService — Hosted (File System Access folder handle
       'a.dng',
       expect.any(Blob),
       { size: 3, lastModified: 1234 },
+      await hostedSidecarFingerprint('<xmp/>'),
     );
     expect(writePreview.mock.calls[0][3].type).toBe('image/jpeg');
   });
