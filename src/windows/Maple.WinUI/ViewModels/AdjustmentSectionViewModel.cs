@@ -279,7 +279,7 @@ namespace Maple.WinUI.ViewModels
 
                 // Lens corrections (#3480): the imported-LCP / embedded-opcode
                 // strengths. All three are DECODE-OWNED (the profile is applied
-                // in the scene-linear decode stage, before the default crop),
+                // in the capture decode stage, before the default crop),
                 // so they commit on release like capture sharpening; the Lens
                 // panel enables each row only for a family the resolved
                 // calibration actually covers (`IsEnabled` above).

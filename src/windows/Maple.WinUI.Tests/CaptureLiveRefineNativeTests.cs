@@ -1,21 +1,8 @@
-// The Windows live-vs-refine gate of the capture-first chain (#5378, the
-// host half of #5377's raw-ffi gate). The Windows host decodes through
-// RenderEngine.Decode and builds every tick with MapleGpuLiveParams.From /
-// RenderEngine.RenderTick, pointing creative_ptr at the decode's creative
-// stage. Both the GPU live chain and the CPU fallback must land within one
-// 8-bit step of a fresh sized develop of the same model, on every channel,
-// at the as-shot white balance, ±800 K, 2000 K and 50000 K, across the
-// capture stages (chroma prefilter, deep denoise, retouch, capture
-// sharpening), highlight recovery and auto exposure.
-//
-// The develop is the scene-linear sized decode with the target white balance
-// in its sidecar, encoded by the same CPU chain at an identity white balance.
-// The GPU's 8-bit encode rounds a quarter of the channels one step away from
-// the CPU's float encode on the scene-linear decode as well, so the gate is
-// the maximum step, not the count of differing channels.
-//
-// Armed by MAPLE_RAW_FFI_DLL plus the RAWs: test-fixtures/raws under the repo
-// root, or MAPLE_CAPTURE_TEST_RAWS naming a directory that holds them.
+// Live vs refine on the capture-first chain (#5378): the gate is the maximum
+// step, not the count of differing channels, because the GPU's 8-bit encode
+// rounds about a quarter of the channels one step away from the CPU's float
+// encode on the scene-linear decode as well. Armed by MAPLE_RAW_FFI_DLL plus
+// test_0005/test_0007 under test-fixtures/raws or MAPLE_CAPTURE_TEST_RAWS.
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;

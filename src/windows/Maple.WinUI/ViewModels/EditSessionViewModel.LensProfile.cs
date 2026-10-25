@@ -11,7 +11,7 @@ namespace Maple.WinUI.ViewModels
     /// #3568) lens profiles: the selection, the master toggle, the profile
     /// dropdown's options, and what the last decode resolved for this photo.
     /// Every selection write here is DECODE-OWNED — the profile is applied in
-    /// the scene-linear decode stage — so it goes through
+    /// the capture decode stage — so it goes through
     /// <see cref="ApplyDecodeFieldEdit"/> as one discrete, undoable edit
     /// followed by one re-decode, which in turn republishes
     /// <see cref="LensProfileResolution"/> and rebuilds the dropdown.</summary>

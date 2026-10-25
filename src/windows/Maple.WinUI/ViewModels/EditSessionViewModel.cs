@@ -12,7 +12,7 @@ using Maple.WinUI.Services.Xmp;
 namespace Maple.WinUI.ViewModels
 {
     /// <summary>
-    /// Per-session editing state: the selected photo's decoded scene-linear
+    /// Per-session editing state: the selected photo's decoded capture
     /// base, the canonical AdjustmentState, the render loop, debounced XMP
     /// sidecar persistence, and the undo stack. Library concerns live in the
     /// EditSessionViewModel.Library.cs partial.
@@ -100,7 +100,7 @@ namespace Maple.WinUI.ViewModels
         private bool _sidecarDirty;
         private float _asShotTemperature = 6500f;
         private float _asShotTint;
-        /// <summary>The photo the scene-linear decode has run (or is running)
+        /// <summary>The photo the capture decode has run (or is running)
         /// for — decode is lazy and only starts on Edit entry.</summary>
         private PhotoItem? _decodedPhoto;
         private (int Width, int Height)? _decodedImageSize;
@@ -263,7 +263,7 @@ namespace Maple.WinUI.ViewModels
             RequestEmbeddedPreview(photo);
         }
 
-        /// <summary>Start the scene-linear decode for the current photo if it
+        /// <summary>Start the capture decode for the current photo if it
         /// has not run yet — called when the Edit screen is entered. The
         /// embedded-JPEG preview stays on screen until the first chain frame.</summary>
         public void EnsureDecoded()
@@ -281,7 +281,7 @@ namespace Maple.WinUI.ViewModels
             DecodeCurrent(photo);
         }
 
-        /// <summary>Re-run the scene-linear decode for the current model without
+        /// <summary>Re-run the capture decode for the current model without
         /// resetting the undo stack (used at open and when a decode-owned field
         /// like AutoExposure changes). Always decodes at Preview first; see
         /// <see cref="ScheduleAmazeUpgrade"/> for the optional follow-up

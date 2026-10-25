@@ -57,7 +57,7 @@ namespace Maple.WinUI.Native
             IntPtr cancelFlag,
             MapleCaptureBufferF32* outBuffer);
 
-        /// <summary>Frees the pixels and noise profile of a capture buffer.
+        /// <summary>Frees the scene buffer's allocations of a capture buffer.
         /// The creative tables are shared and stay valid.</summary>
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void maple_free_capture_buffer_f32(
@@ -76,7 +76,7 @@ namespace Maple.WinUI.Native
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void maple_mask_raster_release(uint rasterId);
 
-        // --- Per-tick chain: scene-linear f32 in → display-encoded sRGB f32 out.
+        // --- Per-tick chain: capture basis (RAW) or scene-linear (raster) f32 in → display-encoded sRGB f32 out.
         //     Aliasing in/out is explicitly permitted for this fused entry. ---
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -216,7 +216,7 @@ namespace Maple.WinUI.Native
         /// <summary>
         /// The eyedropper. `nx`/`ny` are normalised [0, 1] in the UNCROPPED,
         /// EXIF-oriented frame — the frame the viewport presents (the
-        /// scene-linear decode is oriented, `render_scene_linear_sized_*`) —
+        /// capture decode is oriented, `maple_render_file_capture_sized_f32`) —
         /// and raw-ffi maps them back onto the sensor itself, the same entry
         /// Apple's `WhiteBalanceSampler` calls. `xmpPath` is the current edit
         /// model (a probe sidecar), so the sample develops with the user's

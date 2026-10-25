@@ -8,7 +8,7 @@
 // uses, not a second file-op path. On a successful relocate, this re-points
 // the PhotoItem the same way ApplyRenameOutcome already does for a single
 // rename (FilePath/FileName + thumbnail/preview cache invalidation) — see
-// that method's own doc comment for why the decoded scene-linear buffer
+// that method's own doc comment for why the decoded base buffer
 // doesn't need to change.
 //
 // MainWindow.BatchRename.cs (the ContentDialog, template field, live
