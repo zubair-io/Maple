@@ -67,17 +67,17 @@ extension ThumbnailLoader {
   ///   1. Source-stamped `.maple/previews/<filename>.avif` on disk — written by a
   ///      previous call, the pano stitcher (#1365), or the editor's
   ///      idle/exit preview persist (`EditSession`, #2009).
-  ///   2. RAW sidecar develop: regenerate the authored adjustments and film
-  ///      look from a validated XMP snapshot (#3973). Failed sidecar reads or
-  ///      renders return nil. Edited non-RAW sources retain their safe gate,
-  ///      since extracting their original pixels would revert their edits.
+  ///   2. Sidecar develop: regenerate authored adjustments and film from a
+  ///      validated XMP snapshot (#3973/#5346). Non-RAW sources use the same
+  ///      bounded bitmap chain as the editor, including crop. Failed sidecar
+  ///      reads or renders return nil instead of camera-original pixels.
   ///   3. Generate from the camera's embedded JPEG preview (never an
   ///      Apple-RAW full decode — its rendering diverges from the Maple
   ///      pipeline), AVIF-encode + persist to `.maple/previews/`, and return
   ///      the bytes. Non-RAW bitmaps with no useful embedded thumb decode
   ///      exactly, so they synthesize at target instead.
   ///
-  /// Returns nil when no tier is available (failed RAW develop, edited non-RAW, RAW without
+  /// Returns nil when no tier is available (failed sidecar develop, RAW without
   /// an embedded preview, video/stub/audio) — the caller keeps showing the
   /// thumbnail, which is never wrong, just lower-res.
   public func loadDisplayPreview(for asset: AssetRef) async -> Data? {
@@ -104,7 +104,7 @@ extension ThumbnailLoader {
     let isRaw = asset.isRaw
     let task = Task.detached(priority: .utility) { () -> Data? in
       do { try await self.acquireDecodeSlot() } catch { return nil }
-      let result = Self.produceDisplayPreview(url: url, scope: scope, isRaw: isRaw)
+      let result = await Self.produceDisplayPreview(url: url, scope: scope, isRaw: isRaw)
       await self.releaseDecodeSlot()
       return result
     }
@@ -123,7 +123,7 @@ extension ThumbnailLoader {
   /// Runs on a detached task under the decode-slot gate.
   private nonisolated static func produceDisplayPreview(
     url: URL, scope: URL, isRaw: Bool
-  ) -> Data? {
+  ) async -> Data? {
     let accessing = scope.startAccessingSecurityScopedResource()
     defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
 
@@ -133,19 +133,23 @@ extension ThumbnailLoader {
     }
     let developed: Data?
     do {
-      developed =
-        isRaw
-        ? try renderRawSidecarDerivative(
+      if isRaw {
+        developed = try renderRawSidecarDerivative(
           at: url, targetLongEdge: displayPreviewLongEdge,
           quality: displayPreviewAvifQuality
-        ) : nil
+        )
+      } else {
+        developed = try await renderNonRawSidecarDerivative(
+          at: url, targetLongEdge: displayPreviewLongEdge,
+          quality: displayPreviewAvifQuality)
+      }
     } catch {
       displayPreviewLogger.error(
-        "RAW sidecar preview failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+        "sidecar preview failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
       )
       return nil
     }
-    if !isRaw && sidecarHasVisualEdits(assetURL: url) {
+    if !isRaw && developed == nil && sidecarHasVisualEdits(assetURL: url) {
       return nil
     }
     guard let data = developed ?? displayPreviewAVIF(at: url, isRaw: isRaw) else { return nil }

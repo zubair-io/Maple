@@ -2,6 +2,53 @@ import CoreImage
 import Foundation
 
 extension ThumbnailLoader {
+  /// Rebuild a local bitmap derivative from a canonical XMP snapshot using
+  /// the same non-RAW color chain, film look and crop as the editor export.
+  /// A changed sidecar must never fall back to camera-original pixels.
+  static func renderNonRawSidecarDerivative(
+    at url: URL, targetLongEdge: CGFloat, quality: CGFloat,
+    filmBundle: Bundle = .main
+  ) async throws -> Data? {
+    let sidecar = SidecarPath.sidecarURL(for: url)
+    let xml: Data
+    do {
+      xml = try Data(contentsOf: sidecar)
+    } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+      return nil
+    }
+    let (model, _) = try XMPParser.parse(data: xml)
+    // Rating/flag saves seed as-shot WB without authoring a visual edit.
+    // Preserve the camera fast path for those sidecars; a WB-only external
+    // edit remains ambiguous until the XMP records an explicit edit intent.
+    guard model.isVisuallyEditedBeyondWhiteBalance else { return nil }
+    let crop = model.crop
+    let fraction = min(crop.right - crop.left, crop.bottom - crop.top)
+    let decodeEdge = min(4_096, targetLongEdge / CGFloat(max(fraction, 0.125)))
+    let pipeline = ImageEditPipeline()
+    guard
+      let decoded = await pipeline.decodeSceneLinearNonRaw(
+        asset: AssetRef(url: url),
+        targetSize: CGSize(width: decodeEdge, height: decodeEdge))
+    else { throw RawSidecarDerivativeError.decodeFailed }
+
+    let lattice = FilmLutStore(bundle: filmBundle).lattice(for: model.filmLook)
+    let filmActive = lattice != nil && model.filmStrength > 0
+    let processed = pipeline.processSceneLinearNonRaw(
+      decoded: decoded, model: model,
+      targetPrimariesOverride: filmActive ? .srgb : nil)
+    let developed = FilmLookCube.apply(
+      to: processed, lattice: lattice, strengthPct: model.filmStrength)
+    let cropped = CropImageStage.apply(crop, to: developed, nativeSize: decoded.extent.size)
+    let edge = max(cropped.extent.width, cropped.extent.height)
+    let scale = edge > targetLongEdge ? targetLongEdge / edge : 1
+    let sized = cropped.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+    guard
+      let data = ThumbnailEncoder.encode(
+        sized, ctx: rawSidecarEncodeContext, quality: quality)
+    else { throw RawSidecarDerivativeError.encodeFailed }
+    return data
+  }
+
   /// A missing sidecar keeps the embedded-preview path available. A present
   /// sidecar must validate and develop; errors never fall through to camera
   /// pixels. Runs inside the caller's detached decode-slot task (#3973).
@@ -85,5 +132,6 @@ extension ThumbnailLoader {
 }
 
 private enum RawSidecarDerivativeError: Error {
+  case decodeFailed
   case encodeFailed
 }
