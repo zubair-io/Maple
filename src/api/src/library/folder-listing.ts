@@ -24,7 +24,7 @@ import { child as childLogger } from '../log.ts';
 import { xmpSidecarPath } from '../fs/xmp-sidecar-path.ts';
 import { authorizeSidecarRead, readSidecarNoFollow } from '../fs/sidecar-io.ts';
 import { readFileWithFailover } from '../fs/mirror-read.ts';
-import { errnoCode } from '../fs/errno-code.ts';
+import { errnoCode } from '../fs/relocate-publish.ts';
 import { parseFolderCulling } from './folder-culling.ts';
 
 const log = childLogger('library/folder-listing');
@@ -245,9 +245,9 @@ async function imageCulling(child: Scanned, state: FolderState): Promise<ImageCu
     const checked = state.onDisk.has(name) ? await state.resolveChild(name) : null;
     if (!checked || path.extname(checked).toLowerCase() !== '.xmp') return {};
     const allowed = await authorizeSidecarRead(sidecar);
-    if (!allowed.ok) return {};
+    if (!allowed.ok || !allowed.data) return {};
     const parsed = parseFolderCulling(
-      await readFileWithFailover(allowed.data ?? checked, readSidecarNoFollow),
+      await readFileWithFailover(allowed.data, readSidecarNoFollow),
     );
     return {
       edited: true,
