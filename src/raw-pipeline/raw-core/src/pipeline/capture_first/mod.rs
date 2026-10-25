@@ -17,6 +17,7 @@
 //! exposure is measured on the as-shot render, so moving white balance no
 //! longer re-anchors exposure.
 
+mod base;
 mod creative;
 mod creative_plan;
 mod export;
@@ -30,6 +31,7 @@ mod tests_signed;
 mod tests_transport;
 mod transport;
 
+pub use base::{CaptureBase, CaptureRefineStages};
 pub(crate) use creative::CaptureSpace;
 pub use creative::{CreativeAnchors, CreativeStage};
 pub use creative_plan::{
@@ -95,19 +97,38 @@ pub(crate) fn engages_capture_stage(model: &AdjustmentModel) -> bool {
 /// is in the fixed as-shot basis. The returned [`CaptureSpace`] says which,
 /// for [`CreativeStage::render`].
 pub(crate) fn capture(
-    mut camera: Image,
+    camera: Image,
     profile: &DcpProfile,
     model: &AdjustmentModel,
     site: Site,
     chain: Chain,
     cancel: CancelToken<'_>,
 ) -> Result<(Image, CaptureSpace)> {
+    if !engages_capture_stage(model) {
+        camera.assert_space(ColorSpace::CameraNativeLinearRgb);
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        return Ok((camera, CaptureSpace::Camera));
+    }
+    let mut capture = capture_prefix(camera, profile, model, site, chain, cancel)?;
+    capture_spatial(&mut capture, model, chain, cancel)?;
+    Ok((capture, CaptureSpace::Basis))
+}
+
+/// The capture stages ahead of the GPU-refinable ones: the move into the
+/// basis, then retouch. A [`CaptureBase`] keeps this buffer (#5381).
+fn capture_prefix(
+    mut camera: Image,
+    profile: &DcpProfile,
+    model: &AdjustmentModel,
+    site: Site,
+    chain: Chain,
+    cancel: CancelToken<'_>,
+) -> Result<Image> {
     camera.assert_space(ColorSpace::CameraNativeLinearRgb);
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
-    }
-    if !engages_capture_stage(model) {
-        return Ok((camera, CaptureSpace::Camera));
     }
     let basis = dcp::camera_to_rec2020_matrix(profile)?;
     // Checked before seconds of denoise, not after: the creative stage needs it.
@@ -131,34 +152,40 @@ pub(crate) fn capture(
         )
     })?;
     dump(chain, "03c_retouch", &capture);
+    Ok(capture)
+}
+
+/// Chroma prefilter, BM3D and capture sharpening: the stages raw-gpu's
+/// capture passes reproduce (#5217), so a host can refine them there.
+fn capture_spatial(
+    capture: &mut Image,
+    model: &AdjustmentModel,
+    chain: Chain,
+    cancel: CancelToken<'_>,
+) -> Result<()> {
     stage(label!(chain, "capture_chroma_prefilter"), || {
-        chroma_prefilter::apply(&mut capture, model.chroma_prefilter)
+        chroma_prefilter::apply(capture, model.chroma_prefilter)
     });
-    dump(chain, "04a_chroma_prefilter", &capture);
+    dump(chain, "04a_chroma_prefilter", capture);
     // A tile never reaches here with BM3D engaged: its reference-patch grid
     // is frame-anchored, so the tile entry rejects `deep_denoise` first.
     stage(label!(chain, "capture_deep_denoise"), || {
-        bm3d::apply_cancellable(
-            &mut capture,
-            model.deep_denoise,
-            cancel,
-            bm3d::active_progress(),
-        )
+        bm3d::apply_cancellable(capture, model.deep_denoise, cancel, bm3d::active_progress())
     });
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
-    dump(chain, "04ab_deep_denoise", &capture);
+    dump(chain, "04ab_deep_denoise", capture);
     if let Some(params) = capture_sharpening_params_from_model(model) {
         stage(label!(chain, "capture_sharpening"), || {
-            capture_sharpening::apply_capture_sharpening_cancellable(&mut capture, &params, cancel)
+            capture_sharpening::apply_capture_sharpening_cancellable(capture, &params, cancel)
         })?;
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
     }
-    dump(chain, "04b_capture_sharpening", &capture);
-    Ok((capture, CaptureSpace::Basis))
+    dump(chain, "04b_capture_sharpening", capture);
+    Ok(())
 }
 
 fn basis_inverse(basis: &Matrix3) -> Result<Matrix3> {

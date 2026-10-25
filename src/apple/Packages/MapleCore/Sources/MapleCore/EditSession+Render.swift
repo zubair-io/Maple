@@ -149,14 +149,17 @@ extension EditSession {
     // Capped so a tiny crop on a 100 MP frame can't request an absurd
     // full-frame target (the source's own resolution is the real ceiling
     // — `prescaleForDisplay` never upscales past it anyway).
-    let targetSize: CGSize? = {
-      guard applyCrop, let t = targetSize else { return targetSize }
-      let fracW = max(crop.right - crop.left, CropGeometry.minCropFraction)
-      let fracH = max(crop.bottom - crop.top, CropGeometry.minCropFraction)
-      let scaleW = CGFloat(min(1.0 / fracW, 8.0))
-      let scaleH = CGFloat(min(1.0 / fracH, 8.0))
-      return CGSize(width: t.width * scaleW, height: t.height * scaleH)
-    }()
+    // #5381: an iPhone develops at most its capture edge while a refinable stage is on.
+    let targetSize = CaptureRefineBudget.clampedDecodeTarget(
+      model: m, isRaw: asset.isRaw,
+      target: {
+        guard applyCrop, let t = targetSize else { return targetSize }
+        let fracW = max(crop.right - crop.left, CropGeometry.minCropFraction)
+        let fracH = max(crop.bottom - crop.top, CropGeometry.minCropFraction)
+        let scaleW = CGFloat(min(1.0 / fracW, 8.0))
+        let scaleH = CGFloat(min(1.0 / fracH, 8.0))
+        return CGSize(width: t.width * scaleW, height: t.height * scaleH)
+      }())
     let cached = snapshot.image
     // Fast phase accepts any fresh cache (a downsampled decode is fine
     // for the viewport). Refine defers to `refineCacheSufficient` (#2039):

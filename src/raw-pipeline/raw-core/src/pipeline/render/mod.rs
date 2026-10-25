@@ -72,8 +72,8 @@ pub use synthetic::{render_from_scene_linear, render_from_scene_linear_with_chai
 // (#1170 size-budget split); re-exported so `pipeline::{…}` keeps resolving them.
 mod capture;
 pub use capture::{
-    render_capture_from_raw_f32, render_capture_sized_from_raw_f32,
-    render_capture_sized_sensor_framed_f32, CaptureRender,
+    finish_capture_refine, render_capture_from_raw_f32, render_capture_sized_from_raw_f32,
+    render_capture_sized_sensor_framed_f32, render_capture_with_base_from_raw_f32, CaptureRender,
 };
 mod scene_linear;
 pub use scene_linear::{

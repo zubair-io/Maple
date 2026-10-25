@@ -368,16 +368,12 @@ public actor ImageEditPipeline {
     public let image: CIImage
     public let noiseProfile: [Float]?
     public let iso: UInt32
-    /// Decode-exported WB slider frame (#1781); `nil` when the source
-    /// carries no frame. Survives the decode→render hand-off via
-    /// `DecodedSnapshot` so the per-tick chains and the As-Shot seed
-    /// use raw-core's numbers.
+    /// Decode-exported WB slider frame (#1781); `nil` when the source carries
+    /// no frame. The per-tick chains and the As-Shot seed use its numbers.
     public let wbFrame: WbSliderFrame?
-    /// Decode-exported auto-exposure gain (#1167/#2070); mirrors
-    /// `wbFrame`'s export contract (never optional — see
-    /// `MapleSceneLinearImageData.aeGain`). Survives the decode→render
-    /// hand-off via `DecodedSnapshot` so `NativeDetailRenderer` can
-    /// thread the SAME gain into a deep-zoom / native-detail tile.
+    /// Decode-exported auto-exposure gain (#1167/#2070), never optional (see
+    /// `MapleSceneLinearImageData.aeGain`); `NativeDetailRenderer` threads
+    /// the SAME gain into a deep-zoom / native-detail tile.
     public let aeGain: Float
     public let whitesAnchorEv: Float
     public let nrSamplingScale: Float
@@ -392,6 +388,8 @@ public actor ImageEditPipeline {
     public let lensCorrectionCaInert: Bool
     public let lensCorrectionDistortionInert: Bool
     public let cameraSupport: RawCameraSupport?
+    /// The sized decode's refine base (#5381); `nil` on every other path.
+    public var captureBase: CaptureBase? = nil
   }
 
   nonisolated public func decodeSceneLinear(
@@ -443,36 +441,7 @@ public actor ImageEditPipeline {
       )
       return nil
     }
-    // Build a CIImage directly from the f32 RGBA buffer (#487) tagged
-    // with extendedLinearITUR_2020.
-    // `CIImage(bitmapData:bytesPerRow:size:format:colorSpace:)` copies
-    // the bytes — `imageData.pixels` can be released after the call
-    // returns.
-    let w = imageData.width
-    let h = imageData.height
-    let bytesPerRow = w * imageData.bytesPerPixel
-    let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-    let ciImage = mapleStage("decode CIImage build") {
-      CIImage(
-        bitmapData: imageData.pixels,
-        bytesPerRow: bytesPerRow,
-        size: CGSize(width: w, height: h),
-        format: .RGBAf,
-        colorSpace: space
-      )
-    }
-    return SceneLinearDecodeResult(
-      image: ciImage,
-      noiseProfile: imageData.noiseProfile,
-      iso: imageData.iso,
-      wbFrame: imageData.wbFrame,
-      aeGain: imageData.aeGain,
-      whitesAnchorEv: imageData.whitesAnchorEv, nrSamplingScale: imageData.nrSamplingScale,
-      hasLensCorrections: imageData.hasLensCorrections,
-      lensCorrectionCaInert: imageData.lensCorrectionCaInert,
-      lensCorrectionDistortionInert: imageData.lensCorrectionDistortionInert,
-      cameraSupport: imageData.cameraSupport
-    )
+    return Self.sceneLinearResult(imageData)
   }
 
   // MARK: Decode (scene-linear sized — Plan 1 v2 viewport-sized FFI)
@@ -567,31 +536,7 @@ public actor ImageEditPipeline {
         profileOverride: profileOverride, autoExposureOverride: autoExposureOverride, cancel: cancel
       )
     }
-    let w = imageData.width
-    let h = imageData.height
-    let bytesPerRow = w * imageData.bytesPerPixel
-    let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-    let ciImage = mapleStage("decode CIImage build") {
-      CIImage(
-        bitmapData: imageData.pixels,
-        bytesPerRow: bytesPerRow,
-        size: CGSize(width: w, height: h),
-        format: .RGBAf,
-        colorSpace: space
-      )
-    }
-    return SceneLinearDecodeResult(
-      image: ciImage,
-      noiseProfile: imageData.noiseProfile,
-      iso: imageData.iso,
-      wbFrame: imageData.wbFrame,
-      aeGain: imageData.aeGain,
-      whitesAnchorEv: imageData.whitesAnchorEv, nrSamplingScale: imageData.nrSamplingScale,
-      hasLensCorrections: imageData.hasLensCorrections,
-      lensCorrectionCaInert: imageData.lensCorrectionCaInert,
-      lensCorrectionDistortionInert: imageData.lensCorrectionDistortionInert,
-      cameraSupport: imageData.cameraSupport
-    )
+    return Self.sceneLinearResult(imageData)
   }
 
   // MARK: Decode (non-RAW path — ImageIO + Core Image)

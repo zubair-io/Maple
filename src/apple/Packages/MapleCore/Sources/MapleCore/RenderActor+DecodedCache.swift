@@ -134,11 +134,19 @@ extension RenderActor {
     // cancelAll can flip it to abandon this decode.
     let cancelFlag = CancelFlag()
     decodeCancelFlag = cancelFlag
+    // #5381: a sized RAW decode may refine the cached decode's capture on
+    // the GPU instead of re-developing (see RenderActor+CaptureRefine).
+    let refineRequest = target.map {
+      CaptureRefineRequest(
+        asset: asset, profile: decodeProfile, autoExposure: decodeAutoExposure,
+        quality: decodeQuality, target: $0)
+    }
+    let refineBase = extensionIsRaw ? refineRequest.flatMap(captureRefineBase(for:)) : nil
     let task:
       Task<
         (
           CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Float, Float, Bool, Bool, Bool,
-          RawCameraSupport?
+          RawCameraSupport?, CaptureBase?
         )?,
         Never
       > =
@@ -197,7 +205,7 @@ extension RenderActor {
             return (
               nonRawImage, [Float]?.none, UInt32(0), WbSliderFrame?.none, Float(1.0), Float.nan,
               Float(1.0),
-              false, true, true, nil
+              false, true, true, nil, nil
             )
           }
           let asset = dispatchAsset
@@ -223,6 +231,21 @@ extension RenderActor {
               "live-model temp XMP could not be written; failing the decode rather than caching disk-state pixels under the live key"
             )
             return nil
+          }
+          if let refineBase {
+            switch pipeline.refineCaptureDecode(
+              base: refineBase, xmpPath: sidecar, profileOverride: decodeProfile,
+              autoExposureOverride: decodeAutoExposure, cancel: cancelFlag)
+            {
+            case .refined(let r):
+              return (
+                r.image, r.noiseProfile, r.iso, r.wbFrame, r.aeGain, r.whitesAnchorEv,
+                r.nrSamplingScale, r.hasLensCorrections, r.lensCorrectionCaInert,
+                r.lensCorrectionDistortionInert, r.cameraSupport, r.captureBase
+              )
+            case .cancelled: return nil
+            case .redevelop: break
+            }
           }
           // The session's staged file is also Auto Profile's source. A
           // bytes-FFI decode would use a different native cache key (Bytes
@@ -268,7 +291,7 @@ extension RenderActor {
               sizedResult.nrSamplingScale,
               sizedResult.hasLensCorrections,
               sizedResult.lensCorrectionCaInert, sizedResult.lensCorrectionDistortionInert,
-              sizedResult.cameraSupport
+              sizedResult.cameraSupport, sizedResult.captureBase
             )
           }
           // #940 — legacy full-resolution branch: `target == nil` no
@@ -291,7 +314,7 @@ extension RenderActor {
             refineResult.nrSamplingScale,
             refineResult.hasLensCorrections,
             refineResult.lensCorrectionCaInert, refineResult.lensCorrectionDistortionInert,
-            refineResult.cameraSupport
+            refineResult.cameraSupport, refineResult.captureBase
           )
         }
     decodeTask = task
@@ -314,7 +337,7 @@ extension RenderActor {
         decoded, decodeNoiseProfile, decodeISO, decodeWbFrame, decodeAeGain, decodeWhitesAnchorEv,
         decodeNrSamplingScale,
         decodeHasLensCorrections, decodeLensCorrectionCaInert, decodeLensCorrectionDistortionInert,
-        decodeCameraSupport
+        decodeCameraSupport, decodeCaptureBase
       ) = decodeResult
     else {
       decodeTask = nil
@@ -412,6 +435,7 @@ extension RenderActor {
       decodedLensCorrectionCaInert = decodeLensCorrectionCaInert
       decodedLensCorrectionDistortionInert = decodeLensCorrectionDistortionInert
       decodedCameraSupport = decodeCameraSupport
+      decodedCaptureBase = decodeCaptureBase.flatMap { base in refineRequest.map { (base, $0) } }
       // #2049: identity bump — any real write means the uploaded GPU
       // buffer (if any) is now potentially stale even at unchanged dims.
       decodeGeneration &+= 1
@@ -486,5 +510,6 @@ extension RenderActor {
     decodedLensCorrectionCaInert = true
     decodedLensCorrectionDistortionInert = true
     decodedCameraSupport = nil
+    decodedCaptureBase = nil
   }
 }

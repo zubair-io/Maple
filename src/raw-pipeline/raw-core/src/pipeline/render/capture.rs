@@ -6,8 +6,10 @@
 use crate::cancel::CancelToken;
 use crate::error::Result;
 use crate::image::{ExifOrientation, Image, RawImage};
-use crate::pipeline::capture_first::{Chain, CreativeHeader, CreativeStage, CreativeWire};
-use crate::pipeline::develop::{capture_colour, develop_camera};
+use crate::pipeline::capture_first::{
+    CaptureBase, Chain, CreativeHeader, CreativeStage, CreativeWire,
+};
+use crate::pipeline::develop::{capture_base, capture_colour, develop_camera};
 use crate::pipeline::develop_sized::develop_sized_camera;
 use crate::pipeline::orient::apply_orientation_f32_rgba;
 use crate::pipeline::{finite_or_zero, stage, RenderQuality};
@@ -77,6 +79,55 @@ fn sized_capture(
         cancel,
     );
     capture_colour(camera, input)
+}
+
+/// The capture decode (full resolution, or downsampled to `max_long_edge`)
+/// and its [`CaptureBase`] (#5381), so a later chroma prefilter, BM3D or
+/// capture-sharpening change can refine from the base. `loaded` is the model
+/// as the host supplied it; `model` the one developed (after the decode's
+/// own overrides). The capture stages run on the base, so the render equals
+/// [`render_capture_sized_from_raw_f32`]'s pixels.
+pub fn render_capture_with_base_from_raw_f32(
+    raw: &RawImage,
+    (loaded, model): (&AdjustmentModel, &AdjustmentModel),
+    quality: RenderQuality,
+    max_long_edge: Option<u32>,
+    cancel: CancelToken<'_>,
+) -> Result<(CaptureRender, CaptureBase)> {
+    let (chain, ready) = match max_long_edge {
+        Some(edge) => (
+            Chain::Sized,
+            develop_sized_camera(raw, model, quality, edge, cancel)?,
+        ),
+        None => (Chain::Full, develop_camera(raw, model, quality, cancel)?),
+    };
+    let (camera, input) = ready.colour(raw, model, chain, cancel);
+    let base = capture_base(camera, input, loaded)?;
+    let capture = base.refine_cpu(model, chain, cancel)?;
+    let render = finish_refine(&base, capture, model, chain)?;
+    Ok((render, base))
+}
+
+/// A refine of `base` at `model` (from [`CaptureBase::refine_model`]),
+/// given the refinable stages' output as sensor-frame RGBA, packed exactly
+/// as the decode packs its own result.
+pub fn finish_capture_refine(
+    base: &CaptureBase,
+    rgba: &[f32],
+    model: &AdjustmentModel,
+) -> Result<CaptureRender> {
+    let capture = base.image_from_rgba(rgba)?;
+    finish_refine(base, capture, model, Chain::Full)
+}
+
+fn finish_refine(
+    base: &CaptureBase,
+    capture: Image,
+    model: &AdjustmentModel,
+    chain: Chain,
+) -> Result<CaptureRender> {
+    let creative = base.creative_for(&capture, model, chain)?;
+    finish(model, (capture, creative), base.orientation)
 }
 
 fn finish(

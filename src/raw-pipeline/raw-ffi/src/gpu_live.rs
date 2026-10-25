@@ -88,6 +88,27 @@ fn lock_shared() -> std::sync::MutexGuard<'static, Option<GpuShared>> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Create the process-wide context on first use (a live open or a capture
+/// refine, whichever comes first).
+fn ensure_context(shared: &mut Option<GpuShared>) -> Result<(), String> {
+    if shared.is_some() {
+        return Ok(());
+    }
+    let ctx = GpuContext::new_blocking().map_err(|e| e.to_string())?;
+    // #4340: neutral frames omit this pass; finish driver compilation
+    // during initialization, before the first Exposure gesture.
+    #[cfg(target_os = "windows")]
+    ctx.prepare_scene_tone_controls();
+    *shared = Some(GpuShared {
+        ctx,
+        #[cfg(target_vendor = "apple")]
+        present_surface: None,
+        #[cfg(target_os = "windows")]
+        present_surface_winui: None,
+    });
+    Ok(())
+}
+
 mod repr;
 pub use repr::MapleGpuLiveParams;
 
@@ -176,26 +197,9 @@ pub unsafe extern "C" fn maple_gpu_live_open(
         // One process-wide GpuContext (#1769): created on the FIRST open, reused
         // by every subsequent open/render/present. See [`GpuShared`].
         let mut shared = lock_shared();
-        if shared.is_none() {
-            match GpuContext::new_blocking() {
-                Ok(ctx) => {
-                    // #4340: neutral frames omit this pass; finish driver compilation
-                    // during initialization, before the first Exposure gesture.
-                    #[cfg(target_os = "windows")]
-                    ctx.prepare_scene_tone_controls();
-                    *shared = Some(GpuShared {
-                        ctx,
-                        #[cfg(target_vendor = "apple")]
-                        present_surface: None,
-                        #[cfg(target_os = "windows")]
-                        present_surface_winui: None,
-                    });
-                }
-                Err(e) => {
-                    set_last_error(format!("gpu_live_open: {e}"));
-                    return -5;
-                }
-            }
+        if let Err(e) = ensure_context(&mut shared) {
+            set_last_error(format!("gpu_live_open: {e}"));
+            return -5;
         }
         let ctx = &shared.as_ref().expect("initialized above").ctx;
         // Validates dims against the device's REAL limits before allocating.
@@ -218,6 +222,7 @@ pub unsafe extern "C" fn maple_gpu_live_open(
     })
 }
 
+mod capture_refine;
 mod entries;
 mod inspection;
 pub use inspection::*;
@@ -293,6 +298,12 @@ mod gpu_live_wb_hsm_tests;
 mod gpu_live_wb_seam_tests;
 // The capture-first live chain (#5377): creative-stage parity, the WB drag's
 // allocations, and the fixture-gated live-vs-refine gate.
+#[cfg(test)]
+#[path = "gpu_live_capture_refine_physical_tests.rs"]
+mod gpu_live_capture_refine_physical_tests;
+#[cfg(test)]
+#[path = "gpu_live_capture_refine_tests.rs"]
+mod gpu_live_capture_refine_tests;
 #[cfg(test)]
 #[path = "gpu_live_capture_seam_tests.rs"]
 mod gpu_live_capture_seam_tests;

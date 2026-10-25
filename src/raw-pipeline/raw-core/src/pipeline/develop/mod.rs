@@ -48,7 +48,7 @@ mod colour;
 mod geometry;
 
 use super::capture_first::Chain;
-pub(crate) use colour::{capture_colour, develop_colour, CameraReady};
+pub(crate) use colour::{capture_base, capture_colour, develop_colour, CameraReady};
 
 pub(super) use geometry::{
     crop_to_default, effective_quality_divisor, highlight_active_area, lateral_ca,

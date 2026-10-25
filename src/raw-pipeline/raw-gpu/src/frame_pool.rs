@@ -237,6 +237,37 @@ impl FramePool {
         saved
     }
 
+    /// Pool a one-off frame (the capture refine, #5381) in its own detached
+    /// bucket: the live sessions' LRU is untouched, and
+    /// [`FramePool::end_transient_frame`] releases every buffer it pooled.
+    pub(crate) fn begin_transient_frame(&mut self, key: u64) {
+        self.detached.insert(key, Bucket::default());
+        self.in_detached = true;
+        self.current_sig = key;
+        self.frame_active = true;
+        self.dispatch_cursor = 0;
+        self.scratch_cursor = 0;
+        self.frame_digest = FNV_OFFSET;
+    }
+
+    /// End a transient frame and drop its bucket. The GPU keeps any buffer
+    /// still referenced by submitted work alive until that work completes.
+    pub(crate) fn end_transient_frame(&mut self, key: u64) {
+        self.detached.remove(&key);
+        self.in_detached = false;
+        self.frame_active = false;
+    }
+
+    /// Bytes pooled in a transient frame's bucket so far.
+    pub(crate) fn transient_bytes(&self, key: u64) -> u64 {
+        self.detached.get(&key).map_or(0, |bucket| {
+            let scratch = bucket.scratch.iter().map(|entry| entry.buffer.size());
+            scratch
+                .chain(bucket.dispatches.iter().map(|entry| entry.uniform.size()))
+                .sum()
+        })
+    }
+
     /// Return to the frame's own bucket, cursors and digest.
     pub(crate) fn leave_detached(&mut self, saved: DetachedFrame) {
         self.in_detached = false;

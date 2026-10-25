@@ -203,6 +203,7 @@ mod agx;
 mod airlight;
 mod auto_profile_curve;
 mod bm3d;
+mod capture_refine;
 mod capture_sharpening;
 mod chain;
 mod chroma_prefilter;
@@ -299,6 +300,7 @@ pub use auto_profile_curve::{
     apply_auto_profile_curve, AutoProfileCurvePass, PROFILE_CURVE_FLAT_LEN,
 };
 pub use bm3d::DeepDenoisePass;
+pub use capture_refine::{capture_refine_async, CaptureRefinePasses, CaptureRefineUsage};
 pub use capture_sharpening::{CaptureSharpeningParams, CaptureSharpeningPass};
 pub use chain::{CancelToken, ChainRunner, Pass};
 pub use chroma_prefilter::ChromaPrefilterPass;
@@ -361,6 +363,8 @@ pub use vibrance::{apply_vibrance, VibrancePass};
 pub use vignette::{apply_vignette, VignetteOptions, VignettePass};
 pub use white_balance::{apply_white_balance, WbHsmInputs, WbHsmTables, WhiteBalancePass};
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use capture_refine::capture_refine;
 #[cfg(not(target_arch = "wasm32"))]
 pub use exposure::run_exposure_gpu;
 

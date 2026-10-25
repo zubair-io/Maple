@@ -123,3 +123,7 @@ blake3 = "1"
 # RAW with no embedded JPEG preview (exercises the rc=8 fall-through).
 raw-core = { path = "../raw-core", features = ["test-support"] }
 tempfile = "3"
+
+# The capture-refine measurement (#5381) samples the process footprint.
+[target.'cfg(target_vendor = "apple")'.dev-dependencies]
+libc = "0.2"

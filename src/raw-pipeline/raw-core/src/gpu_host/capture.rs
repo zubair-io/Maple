@@ -2,6 +2,8 @@
 //! themselves (#5379): the capture decode in sensor framing, uploaded once,
 //! and the creative stage every tick renders it with in place of the
 //! white-balance pass. See docs/pipeline.md § "The capture decode".
+pub mod refine;
+
 use super::creative::creative_inputs;
 use super::model::stripped_prefix_model;
 use super::prepare::effective_ae_mode;

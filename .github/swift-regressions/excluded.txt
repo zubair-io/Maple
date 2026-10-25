@@ -23,6 +23,7 @@ AutoCubeEncodeErrorPathTests fixture needs the gitignored RAW fixtures (skip-pas
 AutoProfileCanvasParityTests fixture needs the gitignored RAW fixtures (skip-passes without them; the gate rejects skips)
 BackupSettingsTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 BatchAdjustmentPerformanceTests slow render or decode workload that costs minutes on the runner
+CaptureRefineTests gpu needs a real Metal device
 ChangeFeedClientServerMigrationTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudAssetDetailClientTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)
 CloudCacheTests host talks to a host service (keychain, FileProvider, network, PhotoKit, server admin)

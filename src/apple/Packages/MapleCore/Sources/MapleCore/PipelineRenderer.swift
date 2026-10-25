@@ -129,6 +129,8 @@ public struct MapleSceneLinearImageData: Sendable {
   /// paths (no export) — matching `hasLensCorrections == false` there.
   public let lensCorrectionDistortionInert: Bool
   public let cameraSupport: RawCameraSupport?
+  /// The sized capture decode's refine base (#5381); `nil` for every other path.
+  public let captureBase: CaptureBase?
 
   public var pixelCount: Int { width * height }
 
@@ -147,8 +149,10 @@ public struct MapleSceneLinearImageData: Sendable {
     hasLensCorrections: Bool = false,
     lensCorrectionCaInert: Bool = true,
     lensCorrectionDistortionInert: Bool = true,
-    cameraSupport: RawCameraSupport? = nil
+    cameraSupport: RawCameraSupport? = nil,
+    captureBase: CaptureBase? = nil
   ) {
+    self.captureBase = captureBase
     self.width = width
     self.height = height
     self.channels = channels
@@ -703,46 +707,14 @@ public struct PipelineRenderer: Sendable {
         ptr, UInt(len), hintPtr.baseAddress,
         xmpCStr, quality.rawValue, cancel?.pointer, &capture)
     }
-    if rc == Self.rcCancelled {
-      throw PipelineError.cancelled
-    }
-    guard rc == 0 else {
-      let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
-      throw PipelineError.renderFailed(code: Int(rc), message: msg)
-    }
-    defer { maple_free_capture_buffer_f32(&capture) }
-    let buf = capture.scene
-    guard buf.len_bytes > 0, let bufPtr = buf.f32_rgba else {
-      throw PipelineError.renderFailed(code: Int(rc), message: "empty scene-linear buffer")
-    }
-    let data = mapleStage("decode result copy") {
-      Data(bytes: bufPtr, count: Int(buf.len_bytes))
-    }
-    // Extract noise profile before defer frees the buffer (PR #1709 fix).
-    let noiseProfile: [Float]? = {
-      guard buf.noise_profile_len > 0, let npPtr = buf.noise_profile_data else { return nil }
-      return Array(UnsafeBufferPointer(start: npPtr, count: Int(buf.noise_profile_len)))
-    }()
-    return MapleSceneLinearImageData(
-      width: Int(buf.width),
-      height: Int(buf.height),
-      channels: Int(buf.channels),
-      bytesPerPixel: Int(buf.bytes_per_pixel),
-      pixels: data,
-      noiseProfile: noiseProfile,
-      iso: buf.iso,
-      wbFrame: WbSliderFrame(buffer: buf, creative: CaptureCreative(capture.creative)),
-      aeGain: buf.ae_gain,
-      whitesAnchorEv: buf.whites_anchor_ev, nrSamplingScale: buf.nr_sampling_scale,
-      hasLensCorrections: buf.has_lens_corrections != 0,
-      lensCorrectionCaInert: buf.lens_correction_ca_inert != 0,
-      lensCorrectionDistortionInert: buf.lens_correction_distortion_inert != 0,
-      cameraSupport: RawCameraSupport.fromFFI(buf.camera_support_json.map { UnsafePointer($0) })
-    )
+    return try captureImageData(
+      &capture, rc: rc, base: nil, emptyMessage: "empty scene-linear buffer")
   }
 
   // MARK: Private helpers — scene-linear sized
 
+  /// The sized decode keeps its refine base (#5381) so a later chroma
+  /// prefilter, deep denoise or capture-sharpening edit refines on the GPU.
   private static func _renderSceneLinearSized(
     rawCStr: UnsafePointer<CChar>,
     xmpCStr: UnsafePointer<CChar>?,
@@ -750,48 +722,9 @@ public struct PipelineRenderer: Sendable {
     maxLongEdge: UInt32,
     cancel: CancelFlag?
   ) throws -> MapleSceneLinearImageData {
-    // Zero-filled by the imported C struct's implicit init: no frame and
-    // no creative stage until the FFI writes them.
-    var capture = MapleCaptureBufferF32()
-    let rc = maple_render_file_capture_sized_f32(
-      rawCStr, xmpCStr, maxLongEdge, quality.rawValue, cancel?.pointer, &capture
-    )
-    if rc == Self.rcCancelled {
-      throw PipelineError.cancelled
-    }
-    guard rc == 0 else {
-      let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
-      throw PipelineError.renderFailed(code: Int(rc), message: msg)
-    }
-    defer { maple_free_capture_buffer_f32(&capture) }
-    let buf = capture.scene
-    guard buf.len_bytes > 0, let ptr = buf.f32_rgba else {
-      throw PipelineError.renderFailed(code: Int(rc), message: "empty sized buffer")
-    }
-    let data = mapleStage("decode result copy") {
-      Data(bytes: ptr, count: Int(buf.len_bytes))
-    }
-    // Extract noise profile before defer frees the buffer (PR #1709 fix).
-    let noiseProfile: [Float]? = {
-      guard buf.noise_profile_len > 0, let npPtr = buf.noise_profile_data else { return nil }
-      return Array(UnsafeBufferPointer(start: npPtr, count: Int(buf.noise_profile_len)))
-    }()
-    return MapleSceneLinearImageData(
-      width: Int(buf.width),
-      height: Int(buf.height),
-      channels: Int(buf.channels),
-      bytesPerPixel: Int(buf.bytes_per_pixel),
-      pixels: data,
-      noiseProfile: noiseProfile,
-      iso: buf.iso,
-      wbFrame: WbSliderFrame(buffer: buf, creative: CaptureCreative(capture.creative)),
-      aeGain: buf.ae_gain,
-      whitesAnchorEv: buf.whites_anchor_ev, nrSamplingScale: buf.nr_sampling_scale,
-      hasLensCorrections: buf.has_lens_corrections != 0,
-      lensCorrectionCaInert: buf.lens_correction_ca_inert != 0,
-      lensCorrectionDistortionInert: buf.lens_correction_distortion_inert != 0,
-      cameraSupport: RawCameraSupport.fromFFI(buf.camera_support_json.map { UnsafePointer($0) })
-    )
+    try renderCaptureBase(
+      rawCStr: rawCStr, xmpCStr: xmpCStr, quality: quality, maxLongEdge: maxLongEdge,
+      cancel: cancel)
   }
 
   private static func _renderSceneLinearSizedBytes(
@@ -803,51 +736,9 @@ public struct PipelineRenderer: Sendable {
     maxLongEdge: UInt32,
     cancel: CancelFlag?
   ) throws -> MapleSceneLinearImageData {
-    // Zero-filled by the imported C struct's implicit init: no frame and
-    // no creative stage until the FFI writes them.
-    var capture = MapleCaptureBufferF32()
-    let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
-      maple_render_bytes_capture_sized_f32(
-        ptr, UInt(len), hintPtr.baseAddress,
-        xmpCStr, maxLongEdge, quality.rawValue, cancel?.pointer, &capture
-      )
-    }
-    if rc == Self.rcCancelled {
-      throw PipelineError.cancelled
-    }
-    guard rc == 0 else {
-      let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
-      throw PipelineError.renderFailed(code: Int(rc), message: msg)
-    }
-    defer { maple_free_capture_buffer_f32(&capture) }
-    let buf = capture.scene
-    guard buf.len_bytes > 0, let bufPtr = buf.f32_rgba else {
-      throw PipelineError.renderFailed(code: Int(rc), message: "empty sized buffer")
-    }
-    let data = mapleStage("decode result copy") {
-      Data(bytes: bufPtr, count: Int(buf.len_bytes))
-    }
-    // Extract noise profile before defer frees the buffer (PR #1709 fix).
-    let noiseProfile: [Float]? = {
-      guard buf.noise_profile_len > 0, let npPtr = buf.noise_profile_data else { return nil }
-      return Array(UnsafeBufferPointer(start: npPtr, count: Int(buf.noise_profile_len)))
-    }()
-    return MapleSceneLinearImageData(
-      width: Int(buf.width),
-      height: Int(buf.height),
-      channels: Int(buf.channels),
-      bytesPerPixel: Int(buf.bytes_per_pixel),
-      pixels: data,
-      noiseProfile: noiseProfile,
-      iso: buf.iso,
-      wbFrame: WbSliderFrame(buffer: buf, creative: CaptureCreative(capture.creative)),
-      aeGain: buf.ae_gain,
-      whitesAnchorEv: buf.whites_anchor_ev, nrSamplingScale: buf.nr_sampling_scale,
-      hasLensCorrections: buf.has_lens_corrections != 0,
-      lensCorrectionCaInert: buf.lens_correction_ca_inert != 0,
-      lensCorrectionDistortionInert: buf.lens_correction_distortion_inert != 0,
-      cameraSupport: RawCameraSupport.fromFFI(buf.camera_support_json.map { UnsafePointer($0) })
-    )
+    try renderCaptureBase(
+      ptr: ptr, len: len, hintCStr: hintCStr, xmpCStr: xmpCStr, quality: quality,
+      maxLongEdge: maxLongEdge, cancel: cancel)
   }
 
   // MARK: - Tile rendering (Plan 3 — Ticket 06 M4)
@@ -2041,7 +1932,7 @@ public enum PipelineError: Error, LocalizedError {
 
 extension URL {
   /// Call `body` with a temporary UTF-8 C string of `path`.
-  fileprivate func withPathCString<R>(_ body: (UnsafePointer<CChar>) throws -> R) throws -> R {
+  func withPathCString<R>(_ body: (UnsafePointer<CChar>) throws -> R) throws -> R {
     let p = self.path
     guard let cstr = p.cString(using: .utf8) else {
       throw PipelineError.pathEncodingError(self)

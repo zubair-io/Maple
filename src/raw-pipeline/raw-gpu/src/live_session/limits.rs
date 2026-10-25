@@ -12,7 +12,7 @@ use crate::context::GpuContext;
 /// session's largest single binding is the whole-image RGBA f32 buffer
 /// (`w · h · 16` bytes); it must fit both the storage-binding and the
 /// buffer-size ceilings.
-pub(super) fn validate_dims(ctx: &GpuContext, width: u32, height: u32) -> Result<u64, String> {
+pub(crate) fn validate_dims(ctx: &GpuContext, width: u32, height: u32) -> Result<u64, String> {
     if width == 0 || height == 0 {
         return Err(format!("LiveSession: zero dimension {width}x{height}"));
     }
