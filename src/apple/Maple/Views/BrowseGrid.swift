@@ -672,7 +672,10 @@ private struct BrowseKeyboardShortcuts: ViewModifier {
       // `.ignored` when there's nothing to act on so this doesn't
       // swallow Enter for some other in-focus control.
       .onKeyPress(.return) {
-        guard !vm.isSelecting, let asset = vm.selectedAsset, let assetRename else {
+        guard !vm.isSelecting,
+          let asset = visibleAssets.first(where: { $0.id == vm.selectedID }),
+          let assetRename
+        else {
           return .ignored
         }
         assetRename.begin(asset)
@@ -742,8 +745,12 @@ private struct BrowseKeyboardShortcuts: ViewModifier {
   /// A primed session may not have loaded its sidecar yet; `setCulling`
   /// waits for it so a rating never rewrites saved edits as defaults (#4708).
   private func updateCulling(_ edit: @escaping (inout CullingState) -> Void) {
-    guard let id = vm.selectedID, let session = sessions[id] else { return }
+    guard let id = vm.selectedID,
+      visibleAssets.contains(where: { $0.id == id }),
+      let session = sessions[id]
+    else { return }
     Task { @MainActor in
+      guard vm.selectedVisibleAsset(sessions: sessions)?.id == id else { return }
       do {
         try await session.setCulling(edit)
       } catch {
