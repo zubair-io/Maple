@@ -16,6 +16,8 @@ export interface HostedSidecarBinding {
 export interface SidecarSource {
   readonly passthrough?: PassthroughBucket;
   readonly metadata?: XmpMetadata;
+  /** Exact document read for a confirmed batch target; null means no sidecar existed. */
+  readonly document?: string | null;
 }
 
 export interface PendingSidecarWrite {

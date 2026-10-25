@@ -5,7 +5,11 @@ import { TestBed } from '@angular/core/testing';
 import { expect, it } from 'vitest';
 import { DiskDirectory } from '../editor/copy-paste/testing/batch-test-files';
 import { FolderAccessService } from '../folder-access/folder-access.service';
-import { fsAccessWriteFile } from '../folder-access/fs-access-backend';
+import {
+  fsAccessListEntries,
+  fsAccessReadFile,
+  fsAccessWriteFile,
+} from '../folder-access/fs-access-backend';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpStoreService } from './xmp-store.service';
@@ -28,7 +32,16 @@ it('retains source languages and authors when ordinary hydration also caches typ
     </x:xmpmeta>`,
     );
     TestBed.configureTestingModule({
-      providers: [{ provide: FolderAccessService, useValue: { writeFile: fsAccessWriteFile } }],
+      providers: [
+        {
+          provide: FolderAccessService,
+          useValue: {
+            listEntries: fsAccessListEntries,
+            readFile: fsAccessReadFile,
+            writeFile: fsAccessWriteFile,
+          },
+        },
+      ],
     });
     const parser = TestBed.inject(XmpParserService);
     const store = TestBed.inject(XmpStoreService);
@@ -38,14 +51,16 @@ it('retains source languages and authors when ordinary hydration also caches typ
       new Map([['photo', source.passthrough]]),
       new Map([['photo', source.metadata]]),
     );
+    const folder = {
+      name: 'photos',
+      read: true,
+      write: true,
+      native: new DiskDirectory(root) as unknown as FileSystemDirectoryHandle,
+    };
+    store.replaceLoadedDocuments(folder, new Map([['photo.xmp', await fs.readFile(path, 'utf8')]]));
     store.scheduleWrite(
       'photo',
-      {
-        name: 'photos',
-        read: true,
-        write: true,
-        native: new DiskDirectory(root) as unknown as FileSystemDirectoryHandle,
-      },
+      folder,
       'photo.dng',
       { ...defaultAdjustmentModel(), exposure: 1 },
       { rating: 0, flag: 'unflagged', colorLabel: null },

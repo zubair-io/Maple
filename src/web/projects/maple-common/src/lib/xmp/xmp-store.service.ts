@@ -1,13 +1,4 @@
-// XmpStoreService — P6.
-//
-// Coordinates debounced, atomic sidecar writes for the Develop tab.
-//
-// - scheduleWrite()     debounces at 150ms then atomically writes the sidecar via
-//                       FolderAccessService (FS Access writable-stream close is
-//                       atomic on Chromium; fallback backend writes to IndexedDB).
-// - rememberPassthrough stores the passthrough bucket from the last load so that
-//                       subsequent writes can reproduce unknown content verbatim.
-// - flushAll()          cancels all pending timers (call on beforeunload).
+// Coordinates debounced sidecar writes and loaded XMP metadata for the Develop tab.
 
 import { Injectable, inject, DestroyRef } from '@angular/core';
 import type { AdjustmentModel } from '../models/adjustment-model';
@@ -31,6 +22,10 @@ import { XmpParserService } from './xmp-parser.service';
 import { HostedWorkflowWriterService } from './hosted-workflow-writer.service';
 import { WorkflowVariantStoreService } from './workflow-variant-store.service';
 import { SidecarDocumentWriterService } from './sidecar-document-writer.service';
+import {
+  HostedSidecarConflictError,
+  HostedSidecarFreshnessService,
+} from './hosted-sidecar-freshness.service';
 import { PRIMARY_VARIANT_ID, type SidecarWorkflow } from '../generated/workflow.generated';
 
 export type { HostedSidecarBinding } from './sidecar-binding';
@@ -44,6 +39,7 @@ export class XmpStoreService {
   private readonly hostedWriter = inject(HostedWorkflowWriterService);
   private readonly variants = inject(WorkflowVariantStoreService);
   private readonly documents = inject(SidecarDocumentWriterService);
+  private readonly freshness = inject(HostedSidecarFreshnessService);
   private readonly destroyRef = inject(DestroyRef, { optional: true });
   private readonly latestModels = new WeakMap<MapleFolderHandle, Map<AssetId, AdjustmentModel>>();
 
@@ -87,11 +83,13 @@ export class XmpStoreService {
           const xml = new TextDecoder('utf-8', { fatal: true }).decode(
             await this.folderAccess.readFile(folder, name),
           );
+          if (folder.native) this.freshness.assertUnchanged(folder, name, xml);
           const existing = await this.workflowCore.read(xml);
           if ((existing?.variantId ?? 'primary') !== 'primary')
             throw Error('Variant identity does not match the primary sidecar.');
           const output = await this.workflowCore.embed(workflow, xml);
           await this.folderAccess.writeFile(folder, name, new TextEncoder().encode(output));
+          this.freshness.remember(folder, name, output);
           this._passthroughs.set(assetId, this.parser.parseAdjustmentModel(output).passthrough);
         };
         if (folder.native && navigator.locks)
@@ -114,6 +112,10 @@ export class XmpStoreService {
 
   rememberMetadata(assetId: AssetId, metadata: XmpMetadata): void {
     this._metadata.set(assetId, metadata);
+  }
+
+  replaceLoadedDocuments(folder: MapleFolderHandle, documents: ReadonlyMap<string, string | null>) {
+    this.freshness.replaceFolder(folder, documents);
   }
 
   // ── Passthrough cache ───────────────────────────────────────────────────────
@@ -178,6 +180,7 @@ export class XmpStoreService {
     const xml = await this.variants.read(folder, primary, variantId);
     if (!currentSource()) throw Error('The editor source changed while loading this variant.');
     this.bindings.set(assetId, { folder, rawFilename, filename, variantId });
+    this.freshness.remember(folder, filename, xml);
     this.latestModels.get(folder)?.delete(this.modelKey(assetId, variantId));
     return this.adoptVariantDocument(assetId, xml);
   }
@@ -476,26 +479,33 @@ export class XmpStoreService {
           if (remaining.length === 0) this.retryWrites.delete(assetId);
           else this.retryWrites.set(assetId, remaining);
         } catch (error) {
-          this.retryWrites.set(assetId, [
-            ...unrelated(),
-            {
-              folder,
-              rawFilename,
-              binding,
-              run: () =>
-                this._startWrite(
-                  assetId,
-                  folder,
-                  rawFilename,
-                  model,
-                  culling,
-                  revision,
-                  passthrough,
-                  binding,
-                  source,
-                ),
-            },
-          ]);
+          const remaining = unrelated();
+          if (error instanceof HostedSidecarConflictError) {
+            // Retrying a stale full-document edit would block folder reload
+            // and could never be safe without adopting the external bytes.
+            if (remaining.length) this.retryWrites.set(assetId, remaining);
+            else this.retryWrites.delete(assetId);
+          } else
+            this.retryWrites.set(assetId, [
+              ...remaining,
+              {
+                folder,
+                rawFilename,
+                binding,
+                run: () =>
+                  this._startWrite(
+                    assetId,
+                    folder,
+                    rawFilename,
+                    model,
+                    culling,
+                    revision,
+                    passthrough,
+                    binding,
+                    source,
+                  ),
+              },
+            ]);
           throw error;
         }
       })
@@ -547,6 +557,7 @@ export class XmpStoreService {
         culling,
         currentPassthrough,
         metadata,
+        source?.document,
       );
       this._rememberWritten(assetId, written, currentSource());
       this.saveState.saved(assetId, revision);

@@ -283,6 +283,7 @@ export class LibraryFetch {
     const newAdjustments = new Map<AssetId, AdjustmentModel>();
     const newPassthroughs = new Map<AssetId, PassthroughBucket>();
     const newMetadata = new Map<AssetId, XmpMetadata>();
+    const newDocuments = new Map<string, string | null>();
     const sidecarLoadErrors = new Map<AssetId, string>();
     const previousAssetIds = this.store
       .assets()
@@ -317,6 +318,7 @@ export class LibraryFetch {
       // XMP sidecar is authoritative — parse both culling + full AdjustmentModel.
       const xmpName = primarySidecarFilename(filename);
       const binding = this.xmpStore.bindingFor(id, folder, filename);
+      newDocuments.set(binding.filename, null);
       try {
         // The selected workflow variant can outlive a folder switch. Read its
         // document instead of placing the primary model under its write binding.
@@ -327,6 +329,7 @@ export class LibraryFetch {
               )
             : await this.hostedVariants.read(folder, xmpName, binding.variantId);
         if (xmpText === null) throw Error('Selected variant sidecar is missing.');
+        newDocuments.set(binding.filename, xmpText);
         const xmpDocument = new DOMParser().parseFromString(xmpText, 'text/xml');
         if (
           hasXmlParseError(xmpDocument) ||
@@ -407,6 +410,7 @@ export class LibraryFetch {
       newPassthroughs,
       newMetadata,
     );
+    this.xmpStore.replaceLoadedDocuments(folder, newDocuments);
     this.sidecarErrors.errors.set(sidecarLoadErrors);
 
     // The handle becomes the active persistence target only after its assets
