@@ -44,6 +44,7 @@ import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { LIBRARY_SOURCE } from '../addressing/library-source';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { HostedPreviewResolver } from './hosted-preview-resolver.service';
+import { HostedSidecarErrors } from './hosted-sidecar-errors.service';
 import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import type { Asset, AssetId } from '../models/asset';
 
@@ -139,6 +140,31 @@ const settle = async (until: () => boolean, label: string, timeoutMs = 1000): Pr
 };
 
 describe('LibraryCache Hosted thumbs — writer destination === reader source (#2254)', () => {
+  it('bypasses a cached authored thumbnail while its XMP is unreadable', async () => {
+    const { svc, cache, folder, resolvePreview, restore } = setup();
+    try {
+      const payload = new Uint8Array([
+        0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66,
+      ]);
+      await cache.writeThumb(folder, FILENAME, new Blob([payload], { type: 'image/avif' }), 'avif');
+      TestBed.inject(HostedSidecarErrors).errors.set(new Map([[ASSET_ID, 'Unreadable XMP']]));
+      const readThumb = vi.spyOn(cache, 'readThumb');
+
+      svc.ensureThumbnailUrl({ id: ASSET_ID, filename: FILENAME } as Asset);
+      await settle(() => resolvePreview.mock.calls.length > 0, 'original thumbnail decode started');
+
+      expect(readThumb).not.toHaveBeenCalled();
+      expect(resolvePreview).toHaveBeenCalledWith(
+        ASSET_ID,
+        expect.any(Function),
+        expect.any(Function),
+        expect.any(Function),
+      );
+    } finally {
+      restore();
+    }
+  });
+
   it('composes the <folder>/.maple/thumbs/<filename.ext>.avif path', async () => {
     const { cache, files, folder, restore } = setup();
     try {
