@@ -35,13 +35,6 @@ public sealed class ThumbnailRendererSidecarTests(ITestOutputHelper output)
         return directory;
     }
 
-    private static string CopySupportedRaw(string directory)
-    {
-        var raw = Path.Combine(directory, "photo.dng");
-        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "source.dng"), raw);
-        return raw;
-    }
-
     [Fact]
     public void Only_authored_adjustments_count_as_render_adjustments()
     {
@@ -62,16 +55,16 @@ public sealed class ThumbnailRendererSidecarTests(ITestOutputHelper output)
     }
 
     [Theory]
-    [InlineData("photo.dng", "source")]
-    [InlineData("photo.x3f", "unsupported")]
-    public void Sidecars_without_render_adjustments_render_exactly_like_no_sidecar(string name, string kind)
+    [InlineData("photo.dng", true)]
+    [InlineData("photo.x3f", false)]
+    public void Sidecars_without_render_adjustments_render_exactly_like_no_sidecar(string name, bool decodable)
     {
         if (NativeUnavailable()) return;
         var directory = NewDirectory();
         try
         {
             var raw = Path.Combine(directory, name);
-            if (kind == "source") File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "source.dng"), raw);
+            if (decodable) File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "source.dng"), raw);
             else File.WriteAllBytes(raw, new byte[4096]);
             var cached = Path.Combine(directory, "thumb.avif");
             var baseline = RenderBytes(raw, cached);

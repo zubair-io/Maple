@@ -40,7 +40,7 @@ public static class ThumbnailRenderer
     {
         if (sidecarXml.Length == 0) return false;
         try { return RawFfi.maple_xmp_has_render_adjustments(sidecarXml) != 0; }
-        catch (Exception error) when (error is EntryPointNotFoundException or DllNotFoundException) { return true; }
+        catch (Exception error) when (error is EntryPointNotFoundException or DllNotFoundException or BadImageFormatException) { return true; }
     }
 
     private static int RenderUnedited(string rawPath, string outputPath, int maxPx, bool avif) => avif
