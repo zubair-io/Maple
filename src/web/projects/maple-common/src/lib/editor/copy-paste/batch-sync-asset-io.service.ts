@@ -257,7 +257,11 @@ export class BatchSyncAssetIO {
       binding,
       live ? this.library.adjustmentFor(currentId)() : { ...target.current, ...prepared.patch },
       live ? cullingOf(this.store.findAsset(currentId)!) : (target.culling ?? EMPTY_CULLING),
-      { passthrough: target.parsed?.passthrough, metadata: target.parsed?.metadata },
+      {
+        passthrough: target.parsed?.passthrough,
+        metadata: target.parsed?.metadata,
+        document: target.xml ?? null,
+      },
     );
   }
 
@@ -280,6 +284,7 @@ export class BatchSyncAssetIO {
       ? changedFields(beforeRead, this.library.adjustmentFor(currentId)())
       : {};
     return {
+      xml,
       parsed,
       model,
       authoredDuringRead,
@@ -305,6 +310,7 @@ export class BatchSyncAssetIO {
 }
 
 interface TargetDocument {
+  xml?: string;
   parsed?: ReturnType<XmpParserService['parseAdjustmentModel']>;
   model: AdjustmentModel;
   authoredDuringRead: Partial<AdjustmentModel>;

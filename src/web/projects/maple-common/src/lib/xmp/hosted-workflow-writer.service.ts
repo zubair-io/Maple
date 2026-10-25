@@ -11,6 +11,7 @@ import type { PassthroughBucket, XmpCulling, XmpMetadata } from './xmp.types';
 import { WorkflowXmpService } from './workflow-xmp.service';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpSerializerService } from './xmp-serializer.service';
+import { HostedSidecarFreshnessService } from './hosted-sidecar-freshness.service';
 
 interface CapturedAction {
   readonly id: string;
@@ -28,6 +29,7 @@ export class HostedWorkflowWriterService {
   private readonly core = inject(WorkflowXmpService);
   private readonly parser = inject(XmpParserService);
   private readonly serializer = inject(XmpSerializerService);
+  private readonly freshness = inject(HostedSidecarFreshnessService);
   private readonly actions = new WeakMap<MapleFolderHandle, Map<string, CapturedAction[]>>();
 
   capture(
@@ -66,11 +68,13 @@ export class HostedWorkflowWriterService {
     fallback?: PassthroughBucket,
     metadata?: XmpMetadata,
     variantId = PRIMARY_VARIANT_ID,
+    expectedDocument?: string | null,
   ): Promise<string> {
     // Validate the frozen binding before acquiring a lock or touching its file.
     await this.core.variantFilename(name, variantId);
     return navigator.locks.request('maple-workflow-variant:' + variantId, async () => {
-      const current = await this.readCurrent(folder, name);
+      const current = await this.freshness.readCurrent(folder, name);
+      this.freshness.assertUnchanged(folder, name, current, expectedDocument);
       const workflow = await this.selectedRecord(current, variantId);
       const passthrough =
         current === null ? fallback : this.parser.parseAdjustmentModel(current).passthrough;
@@ -84,7 +88,14 @@ export class HostedWorkflowWriterService {
         this.serializer.serialize(model, passthrough, culling, passthrough ? undefined : metadata),
       );
       const output = retained === null ? checkpoint : await this.core.embed(retained, checkpoint);
+      this.freshness.assertUnchanged(
+        folder,
+        name,
+        await this.freshness.readCurrent(folder, name),
+        current,
+      );
       await this.access.writeFile(folder, name, new TextEncoder().encode(output));
+      this.freshness.remember(folder, name, output);
       // Only a successful atomic close acknowledges these immutable captures.
       const published = new Set(pending.map((captured) => captured.id));
       const remaining = (this.actions.get(folder)?.get(name) ?? []).filter(
@@ -104,13 +115,6 @@ export class HostedWorkflowWriterService {
     if ((workflow?.variantId ?? PRIMARY_VARIANT_ID) !== variantId)
       throw Error('Variant identity does not match the selected sidecar.');
     return workflow;
-  }
-  private async readCurrent(folder: MapleFolderHandle, name: string): Promise<string | null> {
-    const entry = (await this.access.listEntries(folder)).find((item) => item.name === name);
-    if (entry && entry.kind !== 'file') throw Error(`Sidecar path is not a file: ${name}`);
-    return entry
-      ? new TextDecoder('utf-8', { fatal: true }).decode(await this.access.readFile(folder, name))
-      : null;
   }
 
   private async applyCapture(
