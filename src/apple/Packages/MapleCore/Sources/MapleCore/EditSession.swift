@@ -536,22 +536,11 @@ public final class EditSession {
     self.pipeline = pipeline
     self.nativeDetailRenderer = NativeDetailRenderer()
     self.renderActor = RenderActor(pipeline: pipeline, rawRenderSource: rawSource)
-    let localSidecarStore: XMPSidecarStore?
-    if let url = asset.primaryURL {
-      // Local-file asset — write to the .xmp sidecar next to the RAW.
-      let store = XMPSidecarStore(rawURL: url)
-      self.primarySidecarStore = store
-      localSidecarStore = store
-    } else if let remote = remoteSidecarStore {
-      // Cloud-backed (or PhotoKit) asset — caller injects a remote
-      // store that round-trips through the API.
-      self.primarySidecarStore = remote
-      localSidecarStore = nil
-    } else {
-      // Sourceless and no remote store wired — edits are session-local.
-      self.primarySidecarStore = nil
-      localSidecarStore = nil
-    }
+    // Local files own a revision-guarded XMP store; cloud/PhotoKit use the
+    // injected store, and sourceless sessions stay in memory.
+    let localSidecarStore = asset.primaryURL.map { XMPSidecarStore(rawURL: $0) }
+    self.primarySidecarStore =
+      localSidecarStore.map { $0 as any SidecarStoreProtocol } ?? remoteSidecarStore
 
     // Preview sink parallels the sidecar store (#2009): a local file next
     // to the RAW for URL-backed assets, else the injected cloud uploader,
