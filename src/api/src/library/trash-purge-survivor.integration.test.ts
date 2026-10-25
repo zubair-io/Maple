@@ -24,6 +24,11 @@ import { trashRoutes } from '../routes/assets/trash.ts';
 import { runTrashGcOnce } from '../workers/trash-gc.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
 import { trashAssetById } from './asset-trash.ts';
+import { chmod } from '../fs/mirrored.ts';
+import { keepSurvivingCopy } from '../db/repos/assets.trash-survivor.ts';
+import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
+import { findCoreInfoById } from '../db/repos/assets.repo.ts';
+import { drainLocalPurges } from './local-purge-drain.ts';
 import { searchFacets } from '../db/repos/search.facets.ts';
 import { searchPage } from '../db/repos/search.page.ts';
 import { buildSearchWhere, type SearchWhere } from '../db/repos/search.where.ts';
@@ -139,7 +144,12 @@ test.each(['route', 'retention'] as const)(
 
       if (outcome instanceof Response) {
         expect(outcome.status).toBe(200);
-        expect(await outcome.json()).toEqual({ asset_id: f.id, state: 'live', abs_path: keptRaw });
+        expect(await outcome.json()).toEqual({
+          asset_id: f.id,
+          state: 'live',
+          abs_path: keptRaw,
+          cleanup: 'done',
+        });
       } else expect(outcome).toEqual({ scanned: 1, purged: 1, errors: 0 });
 
       expect(await readFile(keptRaw, 'utf8')).toBe(RAW);
@@ -323,6 +333,79 @@ test('companions of a canonical trashed copy in another library leave with it, a
     expect(
       f.live.db.query(`SELECT ordinal, library_id FROM asset_locations WHERE asset_id = ?`).all(id),
     ).toEqual([{ ordinal: 0, library_id: idB }]);
+  } finally {
+    await f.close();
+  }
+});
+
+function obligations(db: { query: (sql: string) => { all: () => unknown[] } }) {
+  return db.query(`SELECT rel_path, kind FROM local_purge_obligations ORDER BY rel_path`).all();
+}
+
+test.skipIf(process.getuid?.() === 0)(
+  'a failed unlink stays owed and a later drain removes the trashed copy',
+  async () => {
+    const f = await fixture(['dupe', 'kept']);
+    const trashDir = path.dirname(f.trashedRaw);
+    try {
+      await chmod(trashDir, 0o555);
+      const res = (await f.purge('route')) as Response;
+
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { cleanup: string }).cleanup).toBe('pending');
+      expect(await readFile(f.trashedRaw, 'utf8')).toBe(RAW);
+      expect(obligations(f.live.db)).toEqual([
+        { rel_path: '.maple/trash/dupe/IMG_1.dng', kind: 'trash' },
+        { rel_path: '.maple/trash/dupe/IMG_1.xmp', kind: 'trash' },
+      ]);
+
+      await chmod(trashDir, 0o755);
+      expect(await drainLocalPurges({ now: Date.now() + 3_600_000 })).toEqual({
+        done: 2,
+        pending: 0,
+      });
+      expect(await gone(f.trashedRaw)).toBe(true);
+      expect(await gone(f.trashedXmp)).toBe(true);
+      expect(obligations(f.live.db)).toEqual([]);
+      expect(await readFile(path.join(f.library, 'kept', 'IMG_1.dng'), 'utf8')).toBe(RAW);
+    } finally {
+      await chmod(trashDir, 0o755).catch(() => {});
+      await f.close();
+    }
+  },
+);
+
+test('a crash after the photo is kept leaves the cleanup owed, and the next sweep finishes it', async () => {
+  const f = await fixture(['dupe', 'kept']);
+  try {
+    const info = (await findCoreInfoById(new ObjectId(f.id)))!;
+    const libraryId = (f.live.db.query(`SELECT id FROM folders`).get() as { id: string }).id;
+    const owner = '.maple/trash/dupe/IMG_1.dng';
+    const kept = await keepSurvivingCopy({
+      id: new ObjectId(f.id),
+      trashed: {
+        libraryId: new ObjectId(libraryId),
+        path: '.maple/trash/dupe',
+        filename: 'IMG_1.dng',
+      },
+      expected: capturedTrashPurge(info),
+      dropCompanions: false,
+      cleanup: [
+        { relPath: owner, ownerRelPath: owner, kind: 'trash' },
+        { relPath: '.maple/trash/dupe/IMG_1.xmp', ownerRelPath: owner, kind: 'trash' },
+      ],
+    });
+    expect(kept).toBe('kept');
+    expect(await readFile(f.trashedRaw, 'utf8')).toBe(RAW);
+
+    await runTrashGcOnce({ retentionDays: 30 });
+
+    expect(await gone(f.trashedRaw)).toBe(true);
+    expect(await gone(f.trashedXmp)).toBe(true);
+    expect(obligations(f.live.db)).toEqual([]);
+    expect(f.live.db.query(`SELECT deleted_at FROM assets WHERE id = ?`).get(f.id)).toEqual({
+      deleted_at: null,
+    });
   } finally {
     await f.close();
   }

@@ -42,6 +42,7 @@ import {
   type TrashedCopy,
 } from '../library/trashed-copy.ts';
 import { purgeKeepingSurvivor } from '../library/trash-purge-survivor.ts';
+import { drainLocalPurges } from '../library/local-purge-drain.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -50,6 +51,7 @@ const unlinkFailure = logPurgeFailure(log, 'purge unlink failed');
 const DAY_MS = 86_400_000;
 const DEFAULT_RETENTION_DAYS = 30;
 const DEFAULT_INTERVAL_MS = DAY_MS;
+const CLEANUP_INTERVAL_MS = 60_000;
 
 export interface TrashGcOptions {
   retentionDays?: number;
@@ -123,8 +125,8 @@ async function purgeTrashedAsset(
     );
     return { purged: false, errors: 1 };
   }
-  const kept = await purgeKeepingSurvivor(doc._id, doc, trashed, unlinkFailure);
-  if (kept.kind === 'kept') return { purged: true, errors: kept.errors };
+  const kept = await purgeKeepingSurvivor(doc._id, doc, trashed);
+  if (kept.kind === 'kept') return { purged: true, errors: kept.pendingCleanup };
   if (kept.kind === 'changed') return candidateChanged(doc);
   if (kept.kind === 'retry') {
     log.warn(
@@ -171,6 +173,7 @@ async function purgeWholeAsset(
 export async function runTrashGcOnce(opts: TrashGcOptions = {}): Promise<TrashGcSummary> {
   const retentionDays = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
   const cutoffIso = new Date(Date.now() - retentionDays * DAY_MS).toISOString();
+  await drainLocalPurges();
   const candidates = await listTrashedBefore(cutoffIso);
   // A library-root lookup that fails leaves every path unresolvable, which the
   // per-asset branch above reports and skips — better than aborting the pass,
@@ -213,6 +216,13 @@ export function startTrashGc(opts: TrashGcOptions & { intervalMs?: number } = {}
   const timer = setInterval(() => {
     void tick();
   }, intervalMs);
+  // Owed unlinks of kept-photo purges retry on the stage ladder, not daily.
+  const cleanupTimer = setInterval(() => {
+    if (!stopped)
+      void drainLocalPurges().catch((err) =>
+        log.warn({ err: String(err) }, 'purge cleanup drain failed'),
+      );
+  }, CLEANUP_INTERVAL_MS);
   // Fire once on startup so a freshly-booted server doesn't wait 24h
   // before its first sweep. Errors are swallowed by tick() so a stray
   // failure doesn't crash boot.
@@ -221,6 +231,7 @@ export function startTrashGc(opts: TrashGcOptions & { intervalMs?: number } = {}
     stop: () => {
       stopped = true;
       clearInterval(timer);
+      clearInterval(cleanupTimer);
     },
   };
 }
