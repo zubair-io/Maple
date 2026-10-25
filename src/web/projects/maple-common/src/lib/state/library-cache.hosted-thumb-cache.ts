@@ -26,7 +26,7 @@ export class HostedThumbCache {
   snapshot(folder: MapleFolderHandle, asset: Asset): Promise<string | null | undefined> {
     const location = previewLocation(asset.id);
     return location && !this.errors.errors().has(asset.id)
-      ? this._currentSidecar(folder, location)
+      ? this._currentSidecar(folder, location).catch(() => undefined)
       : Promise.resolve(undefined);
   }
 
@@ -39,6 +39,7 @@ export class HostedThumbCache {
   ): Promise<boolean> {
     if (!folder.write || this.errors.errors().has(asset.id)) return false;
     const location = previewLocation(asset.id);
+    if (location && sidecarBefore === undefined) return false;
     if (location && sidecarBefore !== (await this._currentSidecar(folder, location))) return false;
     await this.cache.writeThumb(
       folder,

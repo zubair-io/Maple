@@ -74,7 +74,7 @@ function setup() {
   const originalRevoke = URL.revokeObjectURL;
   URL.createObjectURL = vi.fn(() => 'blob:hosted-thumb');
   URL.revokeObjectURL = vi.fn();
-  const resolvePreview = vi.fn(async () => null);
+  const resolvePreview = vi.fn<HostedPreviewResolver['resolve']>(async () => null);
 
   TestBed.configureTestingModule({
     providers: [
@@ -140,6 +140,44 @@ const settle = async (until: () => boolean, label: string, timeoutMs = 1000): Pr
 };
 
 describe('LibraryCache Hosted thumbs — writer destination === reader source (#2254)', () => {
+  it('decodes an original RAW thumbnail when a late XMP read fails, without caching it', async () => {
+    const { svc, cache, files, resolvePreview, restore } = setup();
+    const originalCanvas = globalThis.OffscreenCanvas;
+    const originalBitmap = globalThis.createImageBitmap;
+    try {
+      files.set('2026/IMG_1234.xmp', new Uint8Array([0xff])); // Invalid UTF-8 after enumeration.
+      resolvePreview.mockResolvedValue(new Blob(['preview']));
+      vi.stubGlobal(
+        'createImageBitmap',
+        vi.fn(async () => ({ width: 32, height: 24, close: vi.fn() })),
+      );
+      vi.stubGlobal(
+        'OffscreenCanvas',
+        class {
+          constructor(_width: number, _height: number) {}
+          getContext() {
+            return { drawImage: vi.fn() };
+          }
+          async convertToBlob() {
+            return new Blob(['thumb'], { type: 'image/jpeg' });
+          }
+        },
+      );
+      const writeThumb = vi.spyOn(cache, 'writeThumb');
+      svc.ensureThumbnailUrl({ id: ASSET_ID, filename: FILENAME } as Asset);
+      await settle(
+        () => svc.thumbnailUrlFor(ASSET_ID as AssetId) === 'blob:hosted-thumb',
+        'RAW thumb decoded',
+      );
+      expect(resolvePreview).toHaveBeenCalledTimes(1);
+      expect(writeThumb).not.toHaveBeenCalled();
+    } finally {
+      vi.stubGlobal('OffscreenCanvas', originalCanvas);
+      vi.stubGlobal('createImageBitmap', originalBitmap);
+      restore();
+    }
+  });
+
   it('bypasses a cached authored thumbnail while its XMP is unreadable', async () => {
     const { svc, cache, folder, resolvePreview, restore } = setup();
     try {
