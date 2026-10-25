@@ -287,6 +287,10 @@
         "src/workers/discover/discover.idempotency.test.ts",
         "src/workers/discover/discover.skeleton.test.ts",
         "src/workers/discover/folder-hidden.test.ts",
+        // #5398: .mapleignore tests build their own temp library trees only.
+        "src/workers/discover/folder-ignore.test.ts",
+        "src/fs/mapleignore.test.ts",
+        "src/routes/folders.mapleignore.test.ts",
         "src/workers/discover/rename-reconcile.ts",
         "src/workers/discover/rename-reconcile.test.ts",
         "src/workers/discover/sweeper.test.ts",

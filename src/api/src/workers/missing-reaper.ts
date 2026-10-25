@@ -99,9 +99,11 @@ import {
   sameEntry,
   statKind,
   type MissingReaperSummary,
+  type StatKind,
 } from './missing-reaper.helpers.ts';
 import { reapRow, reconcileSurvivor } from './missing-reaper.reconcile.ts';
 import { makePausedPoller } from './paused-poller.ts';
+import { IgnoreVerdictMemo } from '../fs/mapleignore.ts';
 import { registerPausableWorker } from './pause-control.ts';
 
 const log = childLogger('missing-reaper');
@@ -164,6 +166,7 @@ export async function runMissingReaperOnce(
   };
 
   const allowDelete = opts.allowDelete ?? true;
+  const ignoreMemo = new IgnoreVerdictMemo();
   const summary: MissingReaperSummary = {
     scanned: 0,
     reaped: 0,
@@ -205,44 +208,13 @@ export async function runMissingReaperOnce(
     for (const doc of page) {
       summary.scanned++;
       try {
-        const tagged = missingFileInfos(doc.fileinfo);
-        const recover: FileInfo[] = []; // present again → clear missing_since
-        const prune: FileInfo[] = []; // confirmed gone (or orphan) AND aged → remove
-        // Aged + absent + non-orphan entries needing a near-match veto before any
-        // record delete. (Orphan/`deleted_at` entries skip the veto: a different
-        // file may legitimately sit at the path, so a near-match isn't a bug.)
-        const absentForVeto: FileInfo[] = [];
-        let cannotVerify = false;
-
-        for (const fi of tagged) {
-          const aged = (fi.missing_since ?? '') < opts.deleteBeforeIso;
-          if (fi.deleted_at) {
-            // Orphan / content-moved: dead, never re-stat. Prune once aged.
-            if (aged) prune.push(fi);
-            continue;
-          }
-          // Vanished-file entry: re-stat with the mount guard.
-          const libIdHex = fi.library_id.toHexString();
-          if ((await checkRoot(libIdHex)) === 'offline') {
-            cannotVerify = true;
-            break;
-          }
-          const root = libs.get(libIdHex)!;
-          const segments = fi.path === '' ? [] : fi.path.split('/');
-          const abs = path.join(root, ...segments, fi.filename);
-          const kind = await statKind(abs);
-          if (kind === 'present') recover.push(fi);
-          else if (kind === 'absent') {
-            if (aged) {
-              prune.push(fi);
-              absentForVeto.push(fi);
-            }
-          } else {
-            // Couldn't confirm the file is gone (EACCES/EIO/…) — skip the row.
-            cannotVerify = true;
-            break;
-          }
-        }
+        const { recover, prune, absentForVeto, cannotVerify } = await classifyTaggedEntries(
+          missingFileInfos(doc.fileinfo),
+          opts.deleteBeforeIso,
+          libs,
+          checkRoot,
+          ignoreMemo,
+        );
 
         if (cannotVerify) {
           summary.skippedMountOffline++;
@@ -348,6 +320,78 @@ export async function runMissingReaperOnce(
 
   if (summary.scanned > 0) log.info(summary, 'missing-reaper pass complete');
   return summary;
+}
+
+/** Per-entry verdicts for one tagged asset (see the module doc's
+ * "Per-entry classification"). `cannotVerify` means the row is skipped. */
+interface TaggedClassification {
+  /** present again → clear missing_since */
+  recover: FileInfo[];
+  /** confirmed gone (or orphan / `.mapleignore`-excluded) AND aged → remove */
+  prune: FileInfo[];
+  /** Aged + absent + non-orphan entries needing a near-match veto before any
+   * record delete. Orphan (`deleted_at`) entries skip the veto — a different
+   * file may legitimately sit at the path — and so do `.mapleignore`-excluded
+   * ones, whose file is deliberately still on disk. */
+  absentForVeto: FileInfo[];
+  cannotVerify: boolean;
+}
+
+async function classifyTaggedEntries(
+  tagged: readonly FileInfo[],
+  deleteBeforeIso: string,
+  libs: ReadonlyMap<string, string>,
+  checkRoot: (libIdHex: string) => Promise<'present' | 'offline'>,
+  ignoreMemo: IgnoreVerdictMemo,
+): Promise<TaggedClassification> {
+  const out: TaggedClassification = {
+    recover: [],
+    prune: [],
+    absentForVeto: [],
+    cannotVerify: false,
+  };
+  for (const fi of tagged) {
+    const aged = (fi.missing_since ?? '') < deleteBeforeIso;
+    if (fi.deleted_at) {
+      // Orphan / content-moved: dead, never re-stat. Prune once aged.
+      if (aged) out.prune.push(fi);
+      continue;
+    }
+    // Vanished-file entry: re-stat with the mount guard.
+    const libIdHex = fi.library_id.toHexString();
+    if ((await checkRoot(libIdHex)) === 'offline') return { ...out, cannotVerify: true };
+    const kind = await taggedEntryKind(libs.get(libIdHex)!, fi, ignoreMemo);
+    if (kind === 'error') {
+      // Couldn't confirm the file is gone (EACCES/EIO/…) — skip the row.
+      return { ...out, cannotVerify: true };
+    }
+    if (kind === 'present') out.recover.push(fi);
+    else if (aged) {
+      out.prune.push(fi);
+      if (kind === 'absent') out.absentForVeto.push(fi);
+    }
+  }
+  return out;
+}
+
+/**
+ * Re-stat one tagged location. A file that is present but sits under a
+ * `.mapleignore` folder (#5398) is `excluded` — gone from the library's point
+ * of view, so it ages out like a vanished file instead of being recovered. A
+ * marker check that errors is `error`, never `excluded`: the row is skipped
+ * this pass rather than pruned on unproven evidence.
+ */
+async function taggedEntryKind(
+  root: string,
+  fi: FileInfo,
+  ignoreMemo: IgnoreVerdictMemo,
+): Promise<StatKind | 'excluded'> {
+  const segments = fi.path === '' ? [] : fi.path.split('/');
+  const kind = await statKind(path.join(root, ...segments, fi.filename));
+  if (kind !== 'present') return kind;
+  const verdict = await ignoreMemo.verdict(root, fi.path);
+  if (verdict === 'unknown') return 'error';
+  return verdict === 'ignored' ? 'excluded' : 'present';
 }
 
 export interface MissingReaperHandle {

@@ -27,6 +27,8 @@ import {
 } from './rename-reconcile.ts';
 import { FOLDER_HIDDEN_MARKER, reconcileFolderHidden } from './folder-hidden.ts';
 import type { CleanupHidden } from './folder-hidden.ts';
+import { MAPLE_IGNORE_MARKER } from '../../fs/mapleignore.ts';
+import { excludeIgnoredDirectory } from './folder-ignore.ts';
 
 const log = child('discover');
 
@@ -58,6 +60,14 @@ export async function visitDirectory(
     entries = await readDir(dir.dir_path);
   } catch {
     // Vanished/unreadable dir: drop it from the frontier and move on.
+    await frontier.completeDir(dir._id);
+    return;
+  }
+
+  // `.mapleignore` (#5398): the directory and its subtree leave the index —
+  // nothing below is enqueued or ingested; see `folder-ignore.ts`.
+  if (entries.some((e) => e.name === MAPLE_IGNORE_MARKER)) {
+    await excludeIgnoredDirectory(folderId, root, dir.dir_path);
     await frontier.completeDir(dir._id);
     return;
   }

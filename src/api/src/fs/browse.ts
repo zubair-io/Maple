@@ -11,6 +11,7 @@ import type { Stats } from 'node:fs';
 import * as path from 'node:path';
 import { isWithinRoot, type OpResult } from './root.ts';
 import { parseRootList } from './root-list.ts';
+import { ignoreVerdictForDir } from './mapleignore.ts';
 import { ObjectId } from '../db/object-id.ts';
 import { findListingAssetsByFilenames } from '../db/repos/assets.by-filename.ts';
 import { listFolders } from '../db/repos/folders.repo.ts';
@@ -929,6 +930,8 @@ async function enqueueBrowseIndex(dirPath: string, paths: string[]): Promise<voi
     return;
   }
 
+  // A `.mapleignore` folder (#5398) is browsable as plain files, never indexed.
+  if ((await ignoreVerdictForDir(folder.root, dirPath)) !== 'indexed') return;
   const folderObjectId = new ObjectId(folder.id);
   for (const absPath of paths) {
     handleEvent({ kind: 'created', absPath }, folderObjectId, folder.root).catch((err) =>
