@@ -54,6 +54,11 @@ Release regression tests run only for changes to `tools/release_*`,
 CI selection regression tests run when CI configuration or shared tooling changes.
 Unknown inputs, unavailable diffs and release PRs select all suites. Shared Rust
 and fixture changes select the platform builds without unrelated release tests.
+The two sidecar contract evidence records are the exception (#5406): each
+selects only the suite that owns it (API or Swift) plus the codegen drift check,
+and `raw-pipeline.yml`'s path filter excludes them, because no platform build or
+GPU job reads them. A registry change they cause lands in committed generated
+files, which select their own platforms.
 The NLM table test follows codegen selection, and the Swift test inventory follows
 Swift selection. Formatting, secret scanning and repository budget checks remain
 cross-cutting checks.

@@ -58,6 +58,14 @@ class ClassificationTests(unittest.TestCase):
             "tools/ci_changes.py": ci.ALL,
             "tools/qualification/record.sh": ci.BUILDS,
             "test-fixtures/qualification/record.json": ci.BUILDS,
+            "test-fixtures/qualification/sidecar_contract_api.json": {
+                "api",
+                "codegen",
+            },
+            "test-fixtures/qualification/sidecar_contract_apple.json": {
+                "swift",
+                "codegen",
+            },
             "src/scripts/derive_agx_lut.py": ci.ALL,
             "src/apple/scripts/build-xcframework.sh": ci.ALL,
             "src/apple/ci_scripts/ci_post_clone.sh": ci.ALL,
