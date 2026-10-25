@@ -420,8 +420,7 @@ struct BrowseGrid: View {
           if vm.isSelecting {
             #if os(macOS)
               if NSEvent.modifierFlags.contains(.shift) {
-                vm.selectRange(from: selectionAnchorID, to: asset.id)
-                selectionAnchorID = asset.id
+                selectionAnchorID = vm.selectRange(from: selectionAnchorID, to: asset.id)
               } else {
                 vm.toggleSelected(asset.id)
                 selectionAnchorID = asset.id
