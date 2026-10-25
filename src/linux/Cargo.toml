@@ -27,6 +27,13 @@ keyring = { version = "3.6", features = ["sync-secret-service", "crypto-rust", "
 webbrowser = "1"
 dirs = "6"
 
+[dev-dependencies]
+raw-core = { path = "../raw-pipeline/raw-core", features = ["test-support"] }
+
+[features]
+# Runs the tests that read the gitignored test-fixtures/raws (#1082).
+fixtures = []
+
 # Keep the shared workspace's decoder safety patches in every native host.
 [patch.crates-io]
 rawler = { path = "../raw-pipeline/third_party/rawler" }
