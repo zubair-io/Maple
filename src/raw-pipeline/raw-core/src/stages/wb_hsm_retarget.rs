@@ -71,6 +71,30 @@ pub(crate) fn retarget_render_cct(
     ))
 }
 
+/// What a white-balance retarget re-interpolates in a dual-calibration render
+/// profile: its endpoints, the CCT it reads the target at and the
+/// ForwardMatrix there.
+pub(crate) struct RenderRetarget {
+    pub endpoints: dcp::CmEndpoints,
+    pub cct: f32,
+    pub forward_matrix: Option<Matrix3>,
+}
+
+pub(crate) fn render_retarget(
+    frame: &SliderFrame,
+    profile: &DcpProfile,
+    temperature: f32,
+    tint: f32,
+) -> Option<RenderRetarget> {
+    let endpoints = profile.cm_endpoints?;
+    let cct = retarget_render_cct(frame, &endpoints, temperature, tint)?;
+    Some(RenderRetarget {
+        endpoints,
+        cct,
+        forward_matrix: profile.forward_matrix_for_cct(cct),
+    })
+}
+
 fn scaled(m: Matrix3, k: f32) -> Matrix3 {
     Matrix3(m.0.map(|row| row.map(|v| v * k)))
 }

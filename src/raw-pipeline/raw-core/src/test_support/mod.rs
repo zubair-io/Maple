@@ -5,6 +5,7 @@
 
 pub mod canon_dcp;
 pub mod colorchecker;
+pub mod creative;
 pub mod fixtures;
 pub mod gain_map;
 pub mod hasselblad_dcp;

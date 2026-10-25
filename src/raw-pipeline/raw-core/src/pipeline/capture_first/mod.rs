@@ -18,13 +18,17 @@
 //! longer re-anchors exposure.
 
 mod creative;
+mod creative_plan;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_plan;
 #[cfg(test)]
 mod tests_signed;
 
 pub(crate) use creative::CaptureSpace;
 pub use creative::{CreativeAnchors, CreativeStage};
+pub use creative_plan::{CreativePlan, CreativeWire, PlanTable};
 
 use super::{capture_sharpening_helper::capture_sharpening_params_from_model, dump_after, stage};
 use crate::{
