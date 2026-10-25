@@ -17,6 +17,7 @@ final class WorkflowVariantCacheTests: XCTestCase {
         of: image(.blue), format: .RGBA8,
         colorSpace: CGColorSpaceCreateDeviceRGB(), options: [:]))
     try data.write(to: preview)
+    LocalDerivativeSourceStamp.record(preview, for: original)
     let session = EditSession(asset: AssetRef(url: original))
     let primarySeeded = await session.seedFromMapleSidecarPreview(for: session.asset)
     XCTAssertTrue(primarySeeded, "Exercise the actual primary derived image reader")
