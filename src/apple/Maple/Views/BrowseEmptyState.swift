@@ -49,7 +49,8 @@ struct BrowseEmptyState: View {
   private var primaryTitle: String {
     BrowseGridVM.emptyStatePrimaryTitle(
       photosAuthNeeded: vm.photosAuthNeeded,
-      photosAuthCanRequest: vm.photosAuthCanRequest
+      photosAuthCanRequest: vm.photosAuthCanRequest,
+      folderUnavailable: vm.loadError is BrowseFolderUnavailableError
     )
   }
 

@@ -19,95 +19,106 @@ import XCTest
 
 final class BrowseGridVMTests: XCTestCase {
 
-    // MARK: - Empty-state branch selection
+  // MARK: - Empty-state branch selection
 
-    func testUndecidedPhotosAuthSelectsTheConnectBranch() {
-        let secondary = BrowseGridVM.emptyStateSecondary(.init(
-            photosAuthNeeded: true,
-            photosAuthCanRequest: true,
-            isLoading: false,
-            hasLoadError: false,
-            hasCurrentSource: false
+  func testUndecidedPhotosAuthSelectsTheConnectBranch() {
+    let secondary = BrowseGridVM.emptyStateSecondary(
+      .init(
+        photosAuthNeeded: true,
+        photosAuthCanRequest: true,
+        isLoading: false,
+        hasLoadError: false,
+        hasCurrentSource: false
+      ))
+    XCTAssertEqual(secondary, .photosAuthConnect)
+  }
+
+  func testDeclinedPhotosAuthSelectsTheSettingsBranch() {
+    let secondary = BrowseGridVM.emptyStateSecondary(
+      .init(
+        photosAuthNeeded: true,
+        photosAuthCanRequest: false,
+        isLoading: false,
+        hasLoadError: false,
+        hasCurrentSource: false
+      ))
+    XCTAssertEqual(secondary, .photosAuthSettings)
+  }
+
+  /// The permission branch outranks loading/error/source — a user who owes
+  /// us access should see the panel, not a spinner over an empty grid.
+  func testPhotosAuthOutranksEveryOtherEmptyStateBranch() {
+    let secondary = BrowseGridVM.emptyStateSecondary(
+      .init(
+        photosAuthNeeded: true,
+        photosAuthCanRequest: true,
+        isLoading: true,
+        hasLoadError: true,
+        hasCurrentSource: true
+      ))
+    XCTAssertEqual(secondary, .photosAuthConnect)
+  }
+
+  func testNonPhotosEmptyStatesAreUnaffectedByTheCanRequestFlag() {
+    for canRequest in [true, false] {
+      let secondary = BrowseGridVM.emptyStateSecondary(
+        .init(
+          photosAuthNeeded: false,
+          photosAuthCanRequest: canRequest,
+          isLoading: true,
+          hasLoadError: false,
+          hasCurrentSource: false
         ))
-        XCTAssertEqual(secondary, .photosAuthConnect)
+      XCTAssertEqual(
+        secondary, .loading,
+        "canRequest=\(canRequest) must not leak into non-Photos branches")
     }
+  }
 
-    func testDeclinedPhotosAuthSelectsTheSettingsBranch() {
-        let secondary = BrowseGridVM.emptyStateSecondary(.init(
-            photosAuthNeeded: true,
-            photosAuthCanRequest: false,
-            isLoading: false,
-            hasLoadError: false,
-            hasCurrentSource: false
-        ))
-        XCTAssertEqual(secondary, .photosAuthSettings)
-    }
+  // MARK: - Panel copy
 
-    /// The permission branch outranks loading/error/source — a user who owes
-    /// us access should see the panel, not a spinner over an empty grid.
-    func testPhotosAuthOutranksEveryOtherEmptyStateBranch() {
-        let secondary = BrowseGridVM.emptyStateSecondary(.init(
-            photosAuthNeeded: true,
-            photosAuthCanRequest: true,
-            isLoading: true,
-            hasLoadError: true,
-            hasCurrentSource: true
-        ))
-        XCTAssertEqual(secondary, .photosAuthConnect)
-    }
+  func testConnectStateInvitesAndSettingsStateExplains() {
+    XCTAssertEqual(
+      BrowseGridVM.photosAuthTitle(canRequest: true),
+      "Connect your Photos library")
+    XCTAssertEqual(
+      BrowseGridVM.photosAuthTitle(canRequest: false),
+      "Photos access is turned off")
+  }
 
-    func testNonPhotosEmptyStatesAreUnaffectedByTheCanRequestFlag() {
-        for canRequest in [true, false] {
-            let secondary = BrowseGridVM.emptyStateSecondary(.init(
-                photosAuthNeeded: false,
-                photosAuthCanRequest: canRequest,
-                isLoading: true,
-                hasLoadError: false,
-                hasCurrentSource: false
-            ))
-            XCTAssertEqual(secondary, .loading,
-                           "canRequest=\(canRequest) must not leak into non-Photos branches")
-        }
-    }
+  func testButtonTitleMatchesWhatTheButtonCanActuallyDo() {
+    XCTAssertEqual(BrowseGridVM.photosAuthButtonTitle(canRequest: true), "Connect")
+    XCTAssertEqual(BrowseGridVM.photosAuthButtonTitle(canRequest: false), "Open Settings")
+  }
 
-    // MARK: - Panel copy
+  /// The undecided copy has to carry the non-destructive promise — it's the
+  /// reassurance the user is being asked to act on.
+  func testConnectBodyStatesOriginalsAreNeverModified() {
+    let body = BrowseGridVM.photosAuthBody(canRequest: true)
+    XCTAssertTrue(body.contains("never modified"), body)
+  }
 
-    func testConnectStateInvitesAndSettingsStateExplains() {
-        XCTAssertEqual(BrowseGridVM.photosAuthTitle(canRequest: true),
-                       "Connect your Photos library")
-        XCTAssertEqual(BrowseGridVM.photosAuthTitle(canRequest: false),
-                       "Photos access is turned off")
-    }
+  /// The declined copy has to say where to go, since the prompt is spent.
+  func testSettingsBodyPointsAtSettings() {
+    let body = BrowseGridVM.photosAuthBody(canRequest: false)
+    XCTAssertTrue(body.contains("Settings"), body)
+  }
 
-    func testButtonTitleMatchesWhatTheButtonCanActuallyDo() {
-        XCTAssertEqual(BrowseGridVM.photosAuthButtonTitle(canRequest: true), "Connect")
-        XCTAssertEqual(BrowseGridVM.photosAuthButtonTitle(canRequest: false), "Open Settings")
-    }
+  // MARK: - Primary title
 
-    /// The undecided copy has to carry the non-destructive promise — it's the
-    /// reassurance the user is being asked to act on.
-    func testConnectBodyStatesOriginalsAreNeverModified() {
-        let body = BrowseGridVM.photosAuthBody(canRequest: true)
-        XCTAssertTrue(body.contains("never modified"), body)
-    }
-
-    /// The declined copy has to say where to go, since the prompt is spent.
-    func testSettingsBodyPointsAtSettings() {
-        let body = BrowseGridVM.photosAuthBody(canRequest: false)
-        XCTAssertTrue(body.contains("Settings"), body)
-    }
-
-    // MARK: - Primary title
-
-    func testPrimaryTitleTracksThePanelStateAndFallsBackOtherwise() {
-        XCTAssertEqual(
-            BrowseGridVM.emptyStatePrimaryTitle(photosAuthNeeded: true, photosAuthCanRequest: true),
-            "Connect your Photos library")
-        XCTAssertEqual(
-            BrowseGridVM.emptyStatePrimaryTitle(photosAuthNeeded: true, photosAuthCanRequest: false),
-            "Photos access is turned off")
-        XCTAssertEqual(
-            BrowseGridVM.emptyStatePrimaryTitle(photosAuthNeeded: false, photosAuthCanRequest: true),
-            "No assets yet")
-    }
+  func testPrimaryTitleTracksThePanelStateAndFallsBackOtherwise() {
+    XCTAssertEqual(
+      BrowseGridVM.emptyStatePrimaryTitle(photosAuthNeeded: true, photosAuthCanRequest: true),
+      "Connect your Photos library")
+    XCTAssertEqual(
+      BrowseGridVM.emptyStatePrimaryTitle(photosAuthNeeded: true, photosAuthCanRequest: false),
+      "Photos access is turned off")
+    XCTAssertEqual(
+      BrowseGridVM.emptyStatePrimaryTitle(photosAuthNeeded: false, photosAuthCanRequest: true),
+      "No assets yet")
+    XCTAssertEqual(
+      BrowseGridVM.emptyStatePrimaryTitle(
+        photosAuthNeeded: false, photosAuthCanRequest: true, folderUnavailable: true),
+      "Folder unavailable")
+  }
 }
