@@ -218,4 +218,15 @@ describe('GET /folder/:slug/*', () => {
     expect(img).toBeDefined();
     expect(img!.address).toBe('testlib:My Album/x.jpg');
   });
+
+  test('omits a .mapleignore folder from its parent listing (#5398)', async () => {
+    await mkdir(path.join(tmpDir, 'kept'), { recursive: true });
+    await mkdir(path.join(tmpDir, 'ignored', 'nested'), { recursive: true });
+    await writeFile(path.join(tmpDir, 'ignored', '.mapleignore'), '');
+
+    const res = await app.handle(new Request('http://localhost/folder/testlib'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { folders: Array<{ name: string }> };
+    expect(body.folders.map((f) => f.name)).toEqual(['kept']);
+  });
 });
