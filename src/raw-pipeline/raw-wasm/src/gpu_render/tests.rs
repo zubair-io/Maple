@@ -4,8 +4,8 @@
 //! `render_bytes_gpu` is `#[wasm_bindgen]` (wasm-only) and its display path runs
 //! on WebGPU, which the headless CI/host environment can't drive. But everything
 //! the entry adds ON TOP of the merged-and-already-parity-proven P4b-core — the
-//! decode-boundary split (stripped-prefix develop → post-AE buffer), the Auto
-//! Profile fit plumbing, the absolute-WB `FullChainInputs`, the terminal dither,
+//! decode boundary (the stripped-prefix capture decode and its creative stage,
+//! #5379), the Auto Profile fit plumbing, the terminal dither,
 //! and the EXIF orient — is platform-neutral and runs on Metal via
 //! [`super::render_gpu_core`]. This test drives THAT core on a real (synthetic)
 //! DNG and compares its u8 surface to the CPU `render_from_raw_with_quality_and_source`

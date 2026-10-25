@@ -154,7 +154,7 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
 }
 
 #[path = "allocation_counter.rs"]
-mod allocations;
+pub(super) mod allocations;
 
 #[test]
 fn auto_scalar_ticks_retain_the_fitted_curve_allocation() {
@@ -170,7 +170,7 @@ fn auto_host_ticks_need_no_adapter() {
 fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
     use raw_core::{
         gpu_host::{
-            live_profile::LiveProfile, model::prefix_matches, prepare::develop_prefix_rgba,
+            capture::develop_capture_prefix_rgba, live_profile::LiveProfile, model::prefix_matches,
         },
         pipeline::RenderQuality,
         test_support::synth_dng::SyntheticGreyDng,
@@ -207,10 +207,15 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
             ]),
             ..Default::default()
         };
-        let (rgba, w, h, prefix, anchor, _, _) =
-            develop_prefix_rgba(&raw, &bytes, "dng", &model, 64).unwrap();
-        let gpu = ctx.map(|ctx| (ctx, raw_gpu::LiveSession::new(ctx, &rgba, w, h).unwrap()));
+        let capture = develop_capture_prefix_rgba(&raw, &bytes, "dng", &model, 64).unwrap();
+        let (prefix, anchor) = (&capture.prefix_model, capture.whites_anchor_ev);
+        let gpu = ctx.map(|ctx| {
+            let session =
+                raw_gpu::LiveSession::new(ctx, &capture.rgba, capture.width, capture.height);
+            (ctx, session.unwrap())
+        });
         let mut cached = LiveProfile::new(&raw, &bytes, "dng", &model, None, 0, anchor);
+        capture.creative.apply(&model, &mut cached.inputs).unwrap();
         // A curve-only entry is Auto 2's cache marker: nothing is applied, so
         // the achieved outcome is unfitted (#5000).
         assert_eq!(cached.auto_fit, Some(state == 2));
@@ -218,6 +223,7 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
         let lut = cached.inputs.residual_lut_data.as_ptr();
         model.exposure = 0.5;
         cached.update(&model);
+        capture.creative.apply(&model, &mut cached.inputs).unwrap();
         let before = gpu.as_ref().map(|(ctx, session)| {
             session
                 .render_chain_to_f32(ctx, &cached.inputs, &cancel)
@@ -228,9 +234,10 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
         for exposure in [1.0, -1.0, 0.5] {
             model.exposure = exposure;
             let count = allocations::count(|| {
-                assert!(prefix_matches(&model, &prefix, cached.effective_ae(&model)));
+                assert!(prefix_matches(&model, prefix, cached.effective_ae(&model)));
                 cached.set_film(None, 0);
                 cached.update(&model);
+                capture.creative.apply(&model, &mut cached.inputs).unwrap();
             });
             assert_eq!(count, 0, "Auto state {state} allocated on scalar tick");
             assert_eq!(curve, cached.inputs.profile_curve_flat.as_ptr());
@@ -245,8 +252,9 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
         if let Some((ctx, session)) = &gpu {
             assert_eq!(session.pool_alloc_count(ctx), before.unwrap());
         }
-        let (oracle, status) =
+        let (mut oracle, status) =
             super::chain_inputs_with_status(&raw, &bytes, "dng", &model, None, 0, anchor);
+        capture.creative.apply(&model, &mut oracle).unwrap();
         assert_eq!(cached.auto_fit, status);
         assert_eq!(cached.inputs.profile_curve_flat, oracle.profile_curve_flat);
         assert_eq!(cached.inputs.residual_lut_data, oracle.residual_lut_data);
@@ -270,9 +278,11 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
         };
         cached.set_film(Some(&film), 17);
         cached.update(&model);
+        capture.creative.apply(&model, &mut cached.inputs).unwrap();
         assert_eq!(cached.inputs.film_lut_data.as_ref(), film.data.as_slice());
-        let (film_oracle, _) =
+        let (mut film_oracle, _) =
             super::chain_inputs_with_status(&raw, &bytes, "dng", &model, Some(&film), 17, anchor);
+        capture.creative.apply(&model, &mut film_oracle).unwrap();
         if let Some((ctx, session)) = &gpu {
             assert_eq!(
                 session
@@ -294,6 +304,7 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
             allocations::count(|| {
                 cached.set_film(Some(&film), 17);
                 cached.update(&model);
+                capture.creative.apply(&model, &mut cached.inputs).unwrap();
             }),
             0
         );
@@ -322,7 +333,7 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
         ] {
             assert!(!prefix_matches(
                 &changed,
-                &prefix,
+                prefix,
                 cached.effective_ae(&changed)
             ));
             let rebuilt = LiveProfile::new(&raw, &bytes, "dng", &changed, None, 0, anchor);
