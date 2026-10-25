@@ -176,3 +176,36 @@ fn the_layout_keeps_the_table_pointer_aligned_after_the_numbers() {
     );
     assert_eq!(std::mem::size_of::<MapleCreativeTable>(), 20);
 }
+
+/// A CPU tick reuses its decode's creative stage instead of copying the
+/// tables again: the same stage at every slider pair, built once.
+#[test]
+fn a_cpu_tick_reuses_its_decode_stage_and_allocates_nothing() {
+    let stage = creative_stage(Tables::DualHueSatMapAndLook, 1.357_9);
+    let (header, wire) = stage
+        .transport(HighlightRecoveryMode::OklabChromaReduction)
+        .unwrap();
+    let tables = crate::wb_frame_flat::intern_table_wire(wire.floats());
+    let creative = MapleCaptureCreative::new(&header, tables);
+    let built = cpu_stage(&header, tables).unwrap();
+    for temperature in [2000.0, 4700.0, 6500.0, 50000.0] {
+        let mut reused = None;
+        let allocations = crate::allocation_counter::count(|| {
+            reused = Some(cpu_stage(&header, tables).unwrap());
+        });
+        assert_eq!(allocations, 0, "T={temperature}");
+        let p = crate::MapleAdjustmentParams {
+            temperature,
+            tint: 9.0,
+            creative_ptr: &creative,
+            ..crate::scene_linear_chain_tests::default_params()
+        };
+        let inputs = unsafe { crate::scene_linear_chain::chain_inputs_from_params(&p) }.unwrap();
+        assert!(Arc::ptr_eq(inputs.creative.as_ref().unwrap(), &built));
+        assert!(Arc::ptr_eq(&reused.unwrap(), &built));
+    }
+    let (other, _) = creative_stage(Tables::DualHueSatMapAndLook, 2.468)
+        .transport(HighlightRecoveryMode::OklabChromaReduction)
+        .unwrap();
+    assert!(!Arc::ptr_eq(&cpu_stage(&other, tables).unwrap(), &built));
+}
