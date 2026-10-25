@@ -225,9 +225,25 @@ public actor ThumbnailLoader {
       return nil
     }
 
-    // Cold RAWs with a sidecar must preserve the authored render, including
-    // film looks; extracting the camera JPEG would undo the edit (#3973).
-    if !NonRawImageExtensions.all.contains(ext) {
+    // A sidecar on either RAW or non-RAW sources is authoritative. Rebuild
+    // authored pixels before trying a camera-original thumbnail (#3973/#5346).
+    if NonRawImageExtensions.all.contains(ext) {
+      do {
+        if let data = try await renderNonRawSidecarDerivative(
+          at: assetURL,
+          targetLongEdge: CGFloat(MapleThumbCacheKey.onShareThumbLongEdgePx),
+          quality: MapleThumbCacheKey.onShareThumbAVIFQuality
+        ) {
+          await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
+          return data
+        }
+      } catch {
+        logger.error(
+          "non-RAW sidecar thumbnail failed for \(assetURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+        )
+        return nil
+      }
+    } else {
       do {
         if let data = try renderRawSidecarDerivative(
           at: assetURL,
