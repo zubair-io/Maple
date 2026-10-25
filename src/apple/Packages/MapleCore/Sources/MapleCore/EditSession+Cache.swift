@@ -20,6 +20,23 @@ import Foundation
 extension EditSession {
   // MARK: - Preview cache persistence
 
+  /// A render may finish after another application has replaced the XMP.
+  /// Do not stamp its pixels with that newer sidecar's cache revision.
+  func canPublishDerivedPixels() async -> Bool {
+    guard !sidecarWritesDisabled else { return false }
+    guard let localStore = sidecarStore as? XMPSidecarStore else { return true }
+    do {
+      try await localStore.requireObservedRevisionCurrent()
+      return !sidecarWritesDisabled
+    } catch {
+      sidecarError = error
+      if let conflict = error as? XMPStoreError, case .externalConflict = conflict {
+        sidecarWritesDisabled = true
+      }
+      return false
+    }
+  }
+
   /// Snapshot the current `renderedPreview` into `RenderedPreviewCache`
   /// so a future cold open of this asset can paint pixels instantly.
   /// Called from both the refine path (after refine publishes) and the
@@ -45,7 +62,8 @@ extension EditSession {
   /// disk for a write that must never happen.
   @discardableResult
   func persistCurrentPreviewToCache() -> Bool {
-    guard previewIsFullRender,
+    guard !sidecarWritesDisabled,
+      previewIsFullRender,
       !isFullQualityDecoding,
       let url = asset.primaryURL,
       let preview = renderedPreview
@@ -54,6 +72,7 @@ extension EditSession {
     let capturedWidth = Int(max(previewSize.width, 1))
     let capturedSidecar = asset.sidecarURL
     Task.detached(priority: .utility) {
+      guard await self.canPublishDerivedPixels() else { return }
       await RenderedPreviewCache.shared.storePreview(
         capturedImage, for: url, screenWidth: capturedWidth, sidecarURL: capturedSidecar
       )
