@@ -92,9 +92,13 @@ struct EditorCanvasView: View {
 
   private func canvasInsets(size: CGSize) -> EdgeInsets {
     if state.armedTool == .crop {
+      let controlsAtBottom = EditorCropGeometry.stacksControlsAtBottom(
+        size: size, isTablet: MapleShellKind.currentIdiom == .pad,
+        hasFilmstrip: hasFilmstrip)
       return EditorCropGeometry.insets(
         size: size, controlsFrame: wheelExclusionFrame,
-        isRegular: isRegular, hasFilmstrip: hasFilmstrip)
+        isRegular: isRegular, hasFilmstrip: hasFilmstrip,
+        controlsAtBottom: controlsAtBottom)
     }
     guard !isRegular, size.height > size.width else { return EdgeInsets() }
     let coveredHeight = wheelExclusionFrame.map { max(0, size.height - $0.minY) } ?? 0

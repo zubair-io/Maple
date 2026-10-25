@@ -36,4 +36,26 @@ final class EditorCropGeometryTests: XCTestCase {
     XCTAssertEqual(insets.leading, EditorCropGeometry.handleMargin)
     XCTAssertEqual(insets.trailing, EditorCropGeometry.handleMargin)
   }
+
+  func testTabletCropStacksControlsWhenSideLayoutWouldCrushCanvas() {
+    XCTAssertTrue(
+      EditorCropGeometry.stacksControlsAtBottom(
+        size: CGSize(width: 600, height: 1000), isTablet: true, hasFilmstrip: true))
+    XCTAssertFalse(
+      EditorCropGeometry.stacksControlsAtBottom(
+        size: CGSize(width: 900, height: 700), isTablet: true, hasFilmstrip: true))
+    XCTAssertFalse(
+      EditorCropGeometry.stacksControlsAtBottom(
+        size: CGSize(width: 600, height: 1000), isTablet: false, hasFilmstrip: true))
+
+    let size = CGSize(width: 600, height: 1000)
+    let bottomPanel = CGRect(x: 12, y: 560, width: 576, height: 428)
+    let insets = EditorCropGeometry.insets(
+      size: size, controlsFrame: bottomPanel, isRegular: true,
+      hasFilmstrip: true, controlsAtBottom: true)
+    XCTAssertEqual(insets.trailing, EditorCropGeometry.handleMargin)
+    XCTAssertLessThanOrEqual(size.height - insets.bottom + 14, bottomPanel.minY)
+    XCTAssertGreaterThan(size.width - insets.leading - insets.trailing, 300)
+    XCTAssertGreaterThan(size.height - insets.top - insets.bottom, 300)
+  }
 }

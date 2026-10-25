@@ -161,6 +161,7 @@ struct EditorSurface: View {
         } else {
           EditorControls(
             state: state, onPresetsTap: { presetsOpen = true },
+            hasFilmstrip: !filmstripAssets.isEmpty,
             usesSystemToolRail: usesDuoToolRail, showsScope: showsScope
           )
         }
