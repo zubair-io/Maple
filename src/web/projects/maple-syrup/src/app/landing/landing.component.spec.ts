@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { Router, provideRouter } from '@angular/router';
 import {
   FolderAccessService,
@@ -20,8 +21,12 @@ describe('LandingComponent', () => {
   };
   const folderAccess = {
     hasFsAccess: true,
+    persistedHandles: signal(
+      [] as { key: string; name: string; handle: FileSystemDirectoryHandle; accessedAt: number }[],
+    ),
     openFolder: vi.fn<() => Promise<MapleFolderHandle | null>>(),
     openDroppedFolder: vi.fn<(drop: DropSnapshot) => Promise<MapleFolderHandle | null>>(),
+    reopenPersistedHandle: vi.fn(),
   };
   const libraryState = {
     enterSingleFileWorkspace: vi.fn(),
@@ -32,6 +37,7 @@ describe('LandingComponent', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    folderAccess.persistedHandles.set([]);
     folderAccess.openFolder.mockResolvedValue(null);
     folderAccess.openDroppedFolder.mockResolvedValue(null);
     libraryState.openFolder.mockResolvedValue();
@@ -252,6 +258,47 @@ describe('LandingComponent', () => {
 
     expect(libraryState.openFolder).toHaveBeenCalledWith(folder);
     expect(router.navigate).toHaveBeenCalledWith(['/browse']);
+  });
+
+  it('shows a saved folder after reload and reconnects it through the normal workspace path', async () => {
+    const record = {
+      key: 'saved-raws',
+      name: 'Client RAWs',
+      handle: {} as FileSystemDirectoryHandle,
+      accessedAt: 1,
+    };
+    folderAccess.persistedHandles.set([record]);
+    folderAccess.reopenPersistedHandle.mockResolvedValue(folder);
+    fixture.detectChanges();
+
+    const recent = fixture.nativeElement.querySelector('[aria-label="Recent folders"]');
+    expect(recent.textContent).toContain('Client RAWs');
+    await component.reopenFolder(record);
+
+    expect(folderAccess.reopenPersistedHandle).toHaveBeenCalledWith(record);
+    expect(libraryState.openFolder).toHaveBeenCalledWith(folder);
+    expect(router.navigate).toHaveBeenCalledWith(['/browse']);
+  });
+
+  it('keeps a saved folder visible and explains lost permission', async () => {
+    const record = {
+      key: 'saved-raws',
+      name: 'Client RAWs',
+      handle: {} as FileSystemDirectoryHandle,
+      accessedAt: 1,
+    };
+    folderAccess.persistedHandles.set([record]);
+    folderAccess.reopenPersistedHandle.mockRejectedValue(folderPermissionError(record.name));
+    await component.reopenFolder(record);
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector('[aria-label="Recent folders"]').textContent,
+    ).toContain(record.name);
+    expect(fixture.nativeElement.querySelector('[role="alert"]').textContent).toContain(
+      'permission was denied or lost',
+    );
+    expect(router.navigate).not.toHaveBeenCalled();
   });
 
   it('names a denied folder and tells the user how to recover', async () => {
