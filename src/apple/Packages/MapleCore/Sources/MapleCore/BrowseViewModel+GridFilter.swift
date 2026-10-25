@@ -16,6 +16,7 @@ extension BrowseViewModel {
     gridFilterLoadGeneration &+= 1
     gridFilterMetadata = [:]
     gridFilterError = nil
+    gridFilterLoading = filter != .all
   }
 
   /// Load metadata for the whole listing before showing filtered results.

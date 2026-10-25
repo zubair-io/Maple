@@ -5,6 +5,16 @@ import Testing
 
 @MainActor
 struct GridFilterTests {
+  @Test("Changing filters enters loading state before the metadata task starts")
+  func selectionSetsLoadingSynchronously() {
+    let vm = BrowseViewModel()
+    vm.gridFilter = .all
+    vm.selectGridFilter(.picks)
+    #expect(vm.gridFilterLoading)
+    vm.selectGridFilter(.all)
+    #expect(!vm.gridFilterLoading)
+  }
+
   @Test("A new PhotoKit filter waits for the prior page drain to release its slot")
   func filterWaitsForActivePhotoKitDrain() async throws {
     let vm = BrowseViewModel()
