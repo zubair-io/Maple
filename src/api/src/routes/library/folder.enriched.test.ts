@@ -338,7 +338,7 @@ describe('unified enriched folder listing #4001', () => {
       await fs.writeFile(path.join(root, 'bad.xmp'), '<x:xmpmeta/>');
       const body = await listing();
       expect(body.images.map((entry) => entry.name)).toEqual(['good.dng']);
-      expect(body.images[0]?.edited).toBeUndefined();
+      expect(body.images[0]).not.toHaveProperty('edited');
       expect(body.sidecars).toEqual([]);
     } finally {
       await fs.rm(outside, { recursive: true, force: true });
