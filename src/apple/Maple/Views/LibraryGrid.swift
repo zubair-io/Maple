@@ -41,6 +41,8 @@
     /// Preview hero to grow out of.
     let onOpenEditor: (AssetRef, CGRect) -> Void
     let onPrimeSession: (AssetRef) async -> Void
+    var onReadGridFilterMetadata:
+      (@MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata)? = nil
     /// Tap on a sub-folder tile — drills the grid into that folder.
     let onNavigateFolder: (URL) -> Void
     /// Fired by the empty state's "Connect" button when `vm.photosAuthNeeded`
@@ -97,6 +99,10 @@
       vm.assets.isEmpty && vm.subfolders.isEmpty
     }
 
+    private var displayedAssets: [AssetRef] {
+      onReadGridFilterMetadata == nil ? vm.assets : vm.gridAssets(sessions: sessions)
+    }
+
     var body: some View {
       ZStack(alignment: .bottomLeading) {
         // Zero images and zero sub-folders — hand the surface to the
@@ -127,6 +133,13 @@
       ScrollViewReader { proxy in
         ScrollView {
           VStack(alignment: .leading, spacing: 0) {
+            if !vm.assets.isEmpty, let onReadGridFilterMetadata {
+              GridFilterBar(
+                vm: vm, readMetadata: onReadGridFilterMetadata,
+                matchingCount: displayedAssets.count
+              )
+              .padding(.vertical, 8)
+            }
             // Sub-folders first (Finder-style) in their own tile section
             // above the images (#3099) — the same `FolderTile` the desktop
             // BrowseGrid renders. Order stays reversed per #782 so the
@@ -141,7 +154,7 @@
               .accessibilityHidden(vm.isSelecting)
             }
             PhotoGrid(
-              data: vm.assets,
+              data: displayedAssets,
               columns: .fixed(columns, spacing: LibraryGridZoom.spacing),
               provider: provider,
               displayMode: displayMode,
@@ -261,7 +274,7 @@
 
     private func beginPinch(at startLocation: CGPoint) {
       let frame = scroll.gridFrame
-      let assets = vm.assets
+      let assets = displayedAssets
       guard frame.width > 0, !assets.isEmpty else { return }
       let geometry = LibraryGridZoom.Geometry(width: frame.width, count: assets.count)
       // The finger's point in grid coordinates, and the photo under it.
@@ -395,7 +408,7 @@
       // Clamped: a PhotoKit page can land (or a folder reload shrink the
       // list) while the pinch is live. The layout's first index is the
       // clamped one so the cells it lays out are the ones iterated.
-      let slice = session.slice.clamped(to: vm.assets.indices)
+      let slice = session.slice.clamped(to: displayedAssets.indices)
       InterpolatedGridLayout(
         geometry: session.geometry,
         from: interpolation.from,
@@ -403,7 +416,7 @@
         progress: interpolation.progress,
         firstIndex: slice.lowerBound
       ) {
-        ForEach(Array(vm.assets[slice])) { asset in
+        ForEach(Array(displayedAssets[slice])) { asset in
           PhotoThumbnailCell(
             item: makeItem(asset),
             provider: provider,

@@ -25,6 +25,13 @@ public final class BrowseViewModel {
   /// append), so grids know to return to the top.
   public internal(set) var listingGeneration: UInt64 = 0
   public var sortOrder: SortOrder = .nameAscending
+  public var gridFilter: GridFilter =
+    GridFilter(
+      rawValue: UserDefaults.standard.string(forKey: "cm.filter") ?? "all") ?? .all
+  public var gridFilterMetadata: [AssetRef.ID: GridFilterMetadata] = [:]
+  public var gridFilterLoading = false
+  public var gridFilterError: Error?
+  @ObservationIgnored var gridFilterLoadGeneration: UInt64 = 0
 
   // MARK: - Multi-select (M1 — #1236 / #1234)
 

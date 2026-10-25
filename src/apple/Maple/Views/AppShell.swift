@@ -937,6 +937,7 @@ struct AppShell: View {
       },
       onOpenEditor: { asset in openEditor(for: asset) },
       onPrimeSession: { asset in await primeBrowseSession(for: asset) },
+      onReadGridFilterMetadata: { asset in try await readGridFilterMetadata(for: asset) },
       onFullImageFallback: { mode = .browse },
       // S5 EditorView callbacks (#815). Dismiss returns to the browse
       // grid. Share (the export panel) is owned by `EditorView` itself
@@ -1388,6 +1389,7 @@ struct AppShell: View {
         onNavigateFolder: { url in navigateFolder(url) },
         onOpenEditor: { asset in openEditor(for: asset) },
         onPrimeSession: { asset in await primeBrowseSession(for: asset) },
+        onReadGridFilterMetadata: { asset in try await readGridFilterMetadata(for: asset) },
         makeEditSession: { asset in browseSession(for: asset) },
         onFullImageFallback: { mode = .browse },
         timelinePreviewSiblingAssets: { ref in timelinePreviewSiblingAssets(for: ref) },

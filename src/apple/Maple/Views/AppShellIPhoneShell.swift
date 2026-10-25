@@ -94,6 +94,7 @@
     /// A Library tile tap with the tile's window-space frame (Preview hero).
     var onOpenTile: (AssetRef, CGRect) -> Void = { _, _ in }
     let onPrimeSession: (AssetRef) async -> Void
+    let onReadGridFilterMetadata: @MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata
     let onFullImageFallback: () -> Void
     /// Live window-space frame of the grid's selected tile (Preview hero).
     var onSelectedTileFrameChange: ((CGRect) -> Void)? = nil
@@ -166,6 +167,7 @@
         onOpenEditor: onOpenEditor,
         onOpenTile: onOpenTile,
         onPrimeSession: onPrimeSession,
+        onReadGridFilterMetadata: onReadGridFilterMetadata,
         onFullImageFallback: onFullImageFallback,
         onMergePanorama: onMergePanorama,
         onEditMetadata: onEditMetadata,

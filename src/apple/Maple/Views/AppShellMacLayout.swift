@@ -84,6 +84,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
   var onDropAssetsOnFolder: ((URL, Data, Set<AssetRef.ID>?, Bool) -> Void)? = nil
   let onOpenEditor: (AssetRef) -> Void
   let onPrimeSession: (AssetRef) async -> Void
+  let onReadGridFilterMetadata: @MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata
   /// Recover from a vanished selection by flipping back to Browse.
   let onFullImageFallback: () -> Void
   /// S5 EditorView dismiss (back to browse) — #815.
@@ -230,6 +231,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
       onDropAssetsOnFolder: onDropAssetsOnFolder,
       onOpenEditor: onOpenEditor,
       onPrimeSession: onPrimeSession,
+      onReadGridFilterMetadata: onReadGridFilterMetadata,
       onFullImageFallback: onFullImageFallback,
       onEditorDismiss: onEditorDismiss,
       onEditorInfo: onEditorInfo,

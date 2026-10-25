@@ -113,6 +113,7 @@ struct AppShellCenterColumn: View {
   /// `onOpenEditor`.
   var onOpenTile: (AssetRef, CGRect) -> Void = { _, _ in }
   let onPrimeSession: (AssetRef) async -> Void
+  let onReadGridFilterMetadata: @MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata
   /// Recover from a vanished selection by flipping back to Browse.
   let onFullImageFallback: () -> Void
   /// S5 EditorView dismiss (back to browse). Only used when `isFullImage`
@@ -287,6 +288,7 @@ struct AppShellCenterColumn: View {
               displayMode: $browseDisplayMode,
               onOpenEditor: onOpenTile,
               onPrimeSession: onPrimeSession,
+              onReadGridFilterMetadata: onReadGridFilterMetadata,
               onNavigateFolder: onNavigateFolder,
               // #2924: the phone branch used to drop this on the
               // floor, leaving the Photos permission panel with a
@@ -314,6 +316,7 @@ struct AppShellCenterColumn: View {
               onDropAssetsOnFolder: onDropAssetsOnFolder,
               onOpenEditor: onOpenEditor,
               onPrimeSession: onPrimeSession,
+              onReadGridFilterMetadata: onReadGridFilterMetadata,
               onMergePanorama: onMergePanorama,
               onEditMetadata: onEditMetadata,
               onBatchRename: onBatchRename,
@@ -332,6 +335,7 @@ struct AppShellCenterColumn: View {
             onDropAssetsOnFolder: onDropAssetsOnFolder,
             onOpenEditor: onOpenEditor,
             onPrimeSession: onPrimeSession,
+            onReadGridFilterMetadata: onReadGridFilterMetadata,
             onMergePanorama: onMergePanorama,
             onEditMetadata: onEditMetadata,
             onBatchRename: onBatchRename,
