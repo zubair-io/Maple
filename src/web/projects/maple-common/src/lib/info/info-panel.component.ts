@@ -56,7 +56,13 @@ import { ImageCanvasService } from '../components/image-canvas/image-canvas.serv
 import { computeRgbHistograms } from '../raw-pipeline/image-utils';
 import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import { LibraryStateService } from '../state/library-state.service';
+import { ExifReaderService } from '../addressing/exif-reader.service';
 import { InfoFilenameRowComponent } from './info-filename-row.component';
+import {
+  HOSTED_INFO_EXIF_ENABLED,
+  HOSTED_INFO_EXIF_TAGS,
+  hostedInfoFields,
+} from './hosted-info-exif';
 import { MuiTextComponent } from '../ui/text/mui-text.component';
 import { INFO_PANEL_EXTENSION } from './info-panel-extension';
 import {
@@ -109,6 +115,8 @@ export class InfoPanelComponent {
   }
   private readonly state = inject(LibraryStateService);
   private readonly serverIo = inject(SERVER_LIBRARY_IO, { optional: true });
+  private readonly exifReader = inject(ExifReaderService);
+  private readonly hostedExifEnabled = inject(HOSTED_INFO_EXIF_ENABLED, { optional: true });
   private readonly canvas = inject(ImageCanvasService);
 
   /** Focused asset whose info to render. `null` keeps the layout stable
@@ -167,7 +175,14 @@ export class InfoPanelComponent {
 
   // ── EXIF / GPS grid — mui-label-value-grid wiring ────────────────────
 
-  protected readonly metadataRows = computed(() => cameraLocationRows(this.asset()));
+  private readonly hostedExif = signal<{ id: string; fields: Partial<Asset> } | null>(null);
+  protected readonly metadataRows = computed(() => {
+    const asset = this.asset();
+    const exif = this.hostedExif();
+    return cameraLocationRows(
+      asset && exif?.id === asset.id ? { ...asset, ...exif.fields } : asset,
+    );
+  });
   protected readonly cameraSupport = computed(() => {
     const asset = this.asset();
     return asset ? this.state.lensCorrectionsFor(asset.id).cameraSupport : undefined;
@@ -230,6 +245,27 @@ export class InfoPanelComponent {
   });
 
   constructor() {
+    // Hosted folder listings deliberately avoid reading EXIF from every RAW.
+    // Parse only the Info panel's selected photo, using bytes already held by
+    // the open-image cache when available. Ignore late results after a switch.
+    effect((onCleanup) => {
+      const id = this.assetId();
+      this.hostedExif.set(null);
+      if (!id || !this.hostedExifEnabled) return;
+      let cancelled = false;
+      onCleanup(() => {
+        cancelled = true;
+      });
+      void this.state
+        .bytesForAsset(id)
+        .then((bytes) => this.exifReader.parse(bytes, HOSTED_INFO_EXIF_TAGS))
+        .then((raw) => {
+          if (!cancelled) this.hostedExif.set({ id, fields: hostedInfoFields(raw) });
+        })
+        .catch(() => {
+          // Corrupt or unreadable files keep truthful placeholders in Info.
+        });
+    });
     // Refetch only when the logical asset ID changes. Preview enriches its
     // Asset record by object replacement, which must not restart this
     // native request for the same file.

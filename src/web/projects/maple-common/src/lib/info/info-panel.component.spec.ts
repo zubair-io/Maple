@@ -17,6 +17,8 @@ import { of } from 'rxjs';
 import { InfoPanelComponent } from './info-panel.component';
 import { provideInfoPanelExtension } from './info-panel-extension';
 import { LibraryStateService } from '../state/library-state.service';
+import { ExifReaderService } from '../addressing/exif-reader.service';
+import { HOSTED_INFO_EXIF_ENABLED } from './hosted-info-exif';
 import { SERVER_LIBRARY_IO } from '../workspace/server-library-io';
 import type { ServerLibraryIo, ApiHistogram } from '../workspace/server-library-io';
 import type { Asset } from '../models/asset';
@@ -53,6 +55,7 @@ class FakeLibraryStateService {
   focusedAssetId = signal<string | undefined>(undefined);
   focusedAsset = signal<Asset | null>(null);
   apiIdFor = vi.fn().mockReturnValue(undefined);
+  bytesForAsset = vi.fn().mockResolvedValue(new Uint8Array([1]));
 }
 
 @Component({ selector: 'app-test-info-extension', standalone: true, template: 'Extended info' })
@@ -64,12 +67,22 @@ function makeFixture(
     insideSheet?: boolean;
     extension?: boolean;
     serverHistogram?: ApiHistogram;
+    hostedExif?: Record<string, unknown>;
   } = {},
 ) {
   TestBed.configureTestingModule({
     imports: [InfoPanelComponent],
     providers: [
       { provide: LibraryStateService, useValue: new FakeLibraryStateService() },
+      ...(opts.hostedExif
+        ? [
+            { provide: HOSTED_INFO_EXIF_ENABLED, useValue: true },
+            {
+              provide: ExifReaderService,
+              useValue: { parse: vi.fn().mockResolvedValue(opts.hostedExif) },
+            },
+          ]
+        : []),
       ...(opts.extension ? [provideInfoPanelExtension(TestInfoExtensionComponent)] : []),
       ...(opts.serverHistogram
         ? [
@@ -99,6 +112,36 @@ describe('InfoPanelComponent', () => {
     expect(el.querySelector('mui-rating-flags')).not.toBeNull();
     expect(el.querySelector('mui-label-value-grid')).not.toBeNull();
     expect(el.querySelector('mui-keyword-row')).not.toBeNull();
+  });
+
+  it('fills Hosted camera rows from the selected file without indexing the folder', async () => {
+    const fixture = makeFixture({
+      asset: {
+        ...STUB_ASSET,
+        camera: undefined,
+        lens: undefined,
+        aperture: undefined,
+        shutter: undefined,
+        iso: undefined,
+        focalLength: undefined,
+      },
+      hostedExif: {
+        Model: 'Canon EOS 5DS R',
+        LensModel: 'EF50mm f/1.2L USM',
+        FNumber: 5.6,
+        ExposureTime: 0.004,
+        ISO: 200,
+        FocalLength: 50,
+      },
+    });
+    await vi.waitFor(() => {
+      fixture.detectChanges();
+      const rows = fixture.nativeElement.querySelector('mui-label-value-grid')?.textContent ?? '';
+      expect(rows).toContain('Canon EOS 5DS R');
+      expect(rows).toContain('EF50mm f/1.2L USM');
+      expect(rows).toContain('1/250');
+      expect(rows).toContain('50mm');
+    });
   });
 
   it('shows resolver-derived support reactively and removes it when switching to an unassessed asset', () => {
