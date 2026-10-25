@@ -614,7 +614,7 @@ tools/qualification/record.sh gpu_chain_parity_metal metal -- \
 bash tools/codegen.sh
 ```
 
-The Metal qualification requires `test-fixtures/raws/test_0006.DNG` and includes the otherwise ignored physical lossy-DNG white-balance case: all 24 cases must execute without skips.
+The Metal qualification requires `test-fixtures/raws/test_0006.DNG` and includes the otherwise ignored physical lossy-DNG white-balance case and the capture-first live-vs-refine gates on `test_0005.RAF` and `test_0007.DNG` (#5379): all 28 cases must execute without skips.
 
 The wrapper parses `cargo test`, `bun test`, `swift test`, and the colour harness's own `qualification: executed=… failed=… skipped=…` line, then calls `qualification-record` (`src/raw-pipeline/codegen/src/qualification_record.rs`) to stamp the expected count and corpus hash. Sources, accepted backends, expected counts, and corpora are all declared in `capability_registry/mod.rs`; adding a test to a suite means bumping its `expected_cases` there and re-recording in the same PR.
 

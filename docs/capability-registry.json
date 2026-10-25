@@ -963,7 +963,7 @@
       "description": "render_bytes_gpu vs render_bytes on Mesa lavapipe (#1973)",
       "covers": ["web"],
       "accepted_backends": ["vulkan-lavapipe"],
-      "expected_cases": 19,
+      "expected_cases": 21,
       "corpus": [
         "src/raw-pipeline/raw-wasm/src/gpu_render.rs",
         "src/raw-pipeline/raw-wasm/src/gpu_render",
@@ -978,23 +978,23 @@
       "description": "render_bytes_gpu vs render_bytes on Metal (#2315)",
       "covers": ["apple"],
       "accepted_backends": ["metal"],
-      "expected_cases": 24,
+      "expected_cases": 28,
       "corpus": [
         "src/raw-pipeline/raw-wasm/src/gpu_render.rs",
         "src/raw-pipeline/raw-wasm/src/gpu_render",
         "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
       ],
-      "corpus_hash": "blake3:58a5967e637d3d66950c9be1105cff8542cb407bb8ad96ab94bfc6be41e8f2e9",
+      "corpus_hash": "blake3:113de515cd3e63c0ac60e77a2734ca5ba4113d2c0c7c2c25ed085eade357a7ba",
       "status": "satisfied",
       "record": {
         "backend": "metal",
-        "corpus_hash": "blake3:58a5967e637d3d66950c9be1105cff8542cb407bb8ad96ab94bfc6be41e8f2e9",
-        "expected_cases": 24,
-        "executed_cases": 24,
+        "corpus_hash": "blake3:113de515cd3e63c0ac60e77a2734ca5ba4113d2c0c7c2c25ed085eade357a7ba",
+        "expected_cases": 28,
+        "executed_cases": 28,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "12bf1640967dcfcd6add4d1b8827f66ff9d531c4",
-        "recorded_at": "2026-10-25T13:35:54Z",
+        "git_sha": "149e2aef6507ebe51017ceb6c2c8b1c93fe29a53",
+        "recorded_at": "2026-10-25T22:52:01Z",
         "command": "bash -c cd\\ src/raw-pipeline\\ \\&\\&\\ MAPLE_REQUIRE_GPU=1\\ cargo\\ test\\ -p\\ raw-wasm\\ --features\\ gpu\\ gpu_render\\ --\\ --include-ignored"
       }
     },
