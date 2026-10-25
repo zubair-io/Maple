@@ -18,6 +18,10 @@ export const HOSTED_INFO_EXIF_TAGS = [
   'FocalLength',
   'GPSLatitude',
   'GPSLongitude',
+  'GPSLatitudeRef',
+  'GPSLongitudeRef',
+  'latitude',
+  'longitude',
 ] as const;
 
 function text(value: unknown): string | undefined {
@@ -79,8 +83,10 @@ export function hostedInfoFields(raw: Record<string, unknown> | undefined): Part
   const exposure = shutter(raw['ExposureTime']);
   const iso = number(raw['ISO']);
   const focalLength = number(raw['FocalLength']);
-  const lat = raw['GPSLatitude'];
-  const lon = raw['GPSLongitude'];
+  // exifr converts DMS arrays into signed coordinates only when both ref
+  // tags survive the pick filter.
+  const lat = raw['latitude'];
+  const lon = raw['longitude'];
   return {
     ...(camera ? { camera } : {}),
     ...(lens ? { lens } : {}),

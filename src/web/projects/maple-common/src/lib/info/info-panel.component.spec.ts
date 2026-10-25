@@ -65,6 +65,7 @@ function makeFixture(
   opts: {
     asset?: Asset | null;
     insideSheet?: boolean;
+    visible?: boolean;
     extension?: boolean;
     serverHistogram?: ApiHistogram;
     hostedExif?: Record<string, unknown>;
@@ -99,6 +100,7 @@ function makeFixture(
   const fixture = TestBed.createComponent(InfoPanelComponent);
   fixture.componentRef.setInput('asset', opts.asset === undefined ? STUB_ASSET : opts.asset);
   fixture.componentRef.setInput('insideSheet', opts.insideSheet ?? false);
+  fixture.componentRef.setInput('visible', opts.visible ?? true);
   fixture.detectChanges();
   return fixture;
 }
@@ -142,6 +144,19 @@ describe('InfoPanelComponent', () => {
       expect(rows).toContain('1/250');
       expect(rows).toContain('50mm');
     });
+  });
+
+  it('defers Hosted EXIF reads until a projected phone Info sheet opens', async () => {
+    const fixture = makeFixture({
+      insideSheet: true,
+      visible: false,
+      hostedExif: { Model: 'Canon' },
+    });
+    const svc = TestBed.inject(LibraryStateService) as unknown as FakeLibraryStateService;
+    expect(svc.bytesForAsset).not.toHaveBeenCalled();
+    fixture.componentRef.setInput('visible', true);
+    fixture.detectChanges();
+    await vi.waitFor(() => expect(svc.bytesForAsset).toHaveBeenCalledOnce());
   });
 
   it('shows resolver-derived support reactively and removes it when switching to an unassessed asset', () => {

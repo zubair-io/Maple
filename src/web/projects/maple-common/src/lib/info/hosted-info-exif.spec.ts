@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cameraLocationRows } from './info-panel.vm';
-import { hostedInfoFields } from './hosted-info-exif';
+import { HOSTED_INFO_EXIF_TAGS, hostedInfoFields } from './hosted-info-exif';
 import type { Asset } from '../models/asset';
 
 const base: Asset = {
@@ -60,5 +60,18 @@ describe('Hosted Preview Info EXIF', () => {
     expect(hostedInfoFields({ makerNote: note }).aperture).toBe('f/5.6');
     note[0] = 0;
     expect(hostedInfoFields({ makerNote: note }).aperture).toBeUndefined();
+  });
+
+  it('uses signed GPS shortcuts and retains hemisphere refs in the parser pick list', () => {
+    expect(HOSTED_INFO_EXIF_TAGS).toContain('GPSLatitudeRef');
+    expect(HOSTED_INFO_EXIF_TAGS).toContain('GPSLongitudeRef');
+    expect(
+      hostedInfoFields({
+        GPSLatitude: [33, 51, 0],
+        GPSLongitude: [118, 20, 0],
+        latitude: -33.85,
+        longitude: -118.33,
+      }).gps,
+    ).toEqual({ lat: -33.85, lon: -118.33 });
   });
 });
