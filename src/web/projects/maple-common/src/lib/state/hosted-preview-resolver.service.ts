@@ -121,16 +121,12 @@ export class HostedPreviewResolver {
     sourceBefore: PreviewSourceIdentity | null,
     getSourceSnapshot?: (id: AssetId) => Promise<HostedByteSnapshot>,
   ): Promise<Blob | null> {
-    let xml: string | null = null;
-    if (folder && location) {
-      try {
-        xml = await this.sidecars.read(folder, location);
-      } catch (error) {
-        if (!this.sidecarErrors.errors().has(id)) throw error;
-        // Enumeration already identified this sidecar as unreadable. Keep the
-        // original visible even if a second read fails for another reason.
-      }
-    }
+    // The selected workflow variant may be unreadable even when Primary is
+    // healthy. A known error always shows the original, never another variant.
+    const xml =
+      folder && location && !this.sidecarErrors.errors().has(id)
+        ? await this.sidecars.read(folder, location)
+        : null;
     try {
       const snapshot = await this._sourceSnapshot(id, getBytes, sourceBefore, getSourceSnapshot);
       const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
