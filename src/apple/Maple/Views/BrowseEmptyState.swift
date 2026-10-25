@@ -125,8 +125,7 @@ struct BrowseEmptyState: View {
           .multilineTextAlignment(.center)
           .frame(maxWidth: 360)
         Button("Retry") {
-          // Clear the error — the sidebar row-tap re-runs the load.
-          vm.loadError = nil
+          Task { await vm.retryLastLoad() }
         }
         .buttonStyle(.bordered)
       }

@@ -5,6 +5,10 @@ extension BrowseViewModel {
   /// Publish only if this request still owns the current folder generation.
   public func loadFolder(url: URL) async {
     guard !Task.isCancelled else { return }
+    retryLoader = { [weak self] in
+      guard let self else { return }
+      await self.loadFolder(url: url)
+    }
     loadGeneration &+= 1
     let gen = loadGeneration
 

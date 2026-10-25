@@ -218,7 +218,7 @@ struct BrowseGrid: View {
         if let err = vm.loadError {
           ErrorBanner(
             message: err.localizedDescription,
-            onRetry: { vm.loadError = nil },
+            onRetry: { Task { await vm.retryLastLoad() } },
             onDismiss: { vm.loadError = nil }
           )
           .padding(8)
