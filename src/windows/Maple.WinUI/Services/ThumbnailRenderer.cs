@@ -14,17 +14,15 @@ namespace Maple.WinUI.Services;
 /// through to the camera preview, which would discard the photographer's edits.</summary>
 public static class ThumbnailRenderer
 {
-    /// <summary>Only a genuinely absent sidecar permits an unedited RAW
-    /// recovery. File.Exists would hide access errors as absence.</summary>
+    /// <summary>An absent sidecar, or a readable one without render adjustments
+    /// (empty, or rating/flag/label/keywords only), permits an unedited RAW
+    /// recovery. Access errors and authored or invalid sidecars never do.</summary>
     public static bool CanDevelopUneditedFallback(string rawPath)
     {
-        try
-        {
-            _ = File.GetAttributes(SidecarStore.SidecarPathFor(rawPath));
-            return false;
-        }
+        try { return !HasRenderAdjustments(File.ReadAllText(SidecarStore.SidecarPathFor(rawPath))); }
         catch (FileNotFoundException) { return true; }
         catch (DirectoryNotFoundException) { return true; }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return false; }
     }
 
     public static bool IsFresh(string cachedPath, string rawPath)
@@ -36,6 +34,19 @@ public static class ThumbnailRenderer
             && (!File.Exists(sidecarPath) || cachedAt >= File.GetLastWriteTimeUtc(sidecarPath));
     }
 
+    /// <summary>A native library that cannot answer (an older build without the
+    /// export, or none loaded) counts as having edits and stays fail-closed.</summary>
+    public static bool HasRenderAdjustments(string sidecarXml)
+    {
+        if (sidecarXml.Length == 0) return false;
+        try { return RawFfi.maple_xmp_has_render_adjustments(sidecarXml) != 0; }
+        catch (Exception error) when (error is EntryPointNotFoundException or DllNotFoundException) { return true; }
+    }
+
+    private static int RenderUnedited(string rawPath, string outputPath, int maxPx, bool avif) => avif
+        ? RawFfi.maple_render_thumbnail_avif_to_file(rawPath, outputPath, (uint)maxPx, 0)
+        : RawFfi.maple_render_thumbnail_preview_jpeg_to_file(rawPath, outputPath, (uint)maxPx, 0);
+
     public static int Render(string rawPath, string outputPath, int maxPx, bool avif)
     {
         var stagingPath = Path.Combine(Path.GetTempPath(), "maple-thumb.tmp.develop." + Guid.NewGuid().ToString("N"));
@@ -44,12 +55,8 @@ public static class ThumbnailRenderer
         {
             string xml;
             try { xml = File.ReadAllText(SidecarStore.SidecarPathFor(rawPath)); }
-            catch (FileNotFoundException)
-            {
-                return avif
-                    ? RawFfi.maple_render_thumbnail_avif_to_file(rawPath, outputPath, (uint)maxPx, 0)
-                    : RawFfi.maple_render_thumbnail_preview_jpeg_to_file(rawPath, outputPath, (uint)maxPx, 0);
-            }
+            catch (FileNotFoundException) { return RenderUnedited(rawPath, outputPath, maxPx, avif); }
+            if (!HasRenderAdjustments(xml)) return RenderUnedited(rawPath, outputPath, maxPx, avif);
             _ = XDocument.Parse(xml);
             LensProfileStore.RestoreForSidecar(rawPath, xml);
             var recipe = new ExportRecipe
@@ -62,7 +69,11 @@ public static class ThumbnailRenderer
             };
             var rc = RawFfi.maple_export_recipe_to_file(rawPath, xml, JsonSerializer.Serialize(recipe),
                 Path.Combine(AppContext.BaseDirectory, "film-luts"), stagingPath);
-            if (rc != 0) return rc;
+            if (rc != 0)
+            {
+                DiagLog.Write($"[Thumbs] authored edits for {rawPath} could not be developed (rc {rc}); no camera preview substituted");
+                return rc;
+            }
             // The develop temp may be on another volume. Publish from a temp
             // beside the destination so the final move is an atomic rename.
             File.Copy(stagingPath, publicationPath);
