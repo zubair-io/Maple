@@ -25,6 +25,7 @@ import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { trashAssetById } from '../../library/asset-trash.ts';
 import { trashFolderRecursive } from '../../library/folder-trash.ts';
 import { runTrashGcOnce } from '../trash-gc.ts';
+import { moveBackupAsset } from '../migration/move-backup-asset.ts';
 import { refusesFileUnderMarker } from '../../fs/mapleignore-guard.ts';
 import { authorizeSidecarWrite, writeSidecarAtomic } from '../../fs/sidecar-io.ts';
 import { relocateAsset } from '../../library/relocate-asset.ts';
@@ -430,6 +431,39 @@ describe('.mapleignore — tag state never decides whether an original moves', (
     expect((await trashAssetById(toObjectId(id))).kind).toBe('no-location');
     expect((await relocateInto(id, 'keep')).kind).toBe('error');
     expect(readFileSync(raw)).toEqual(bytes);
+  });
+
+  it('a refile migration never moves a photo into a marked destination', async () => {
+    using library = await createDiscoverLibrary('maple-ignore-');
+    const raw = put(library.root, 'inbox/b.jpg');
+    const sweep = await sweeper(library);
+    await sweep();
+    const id = toObjectId(assetIdAt(library.db, 'inbox', 'b.jpg')!);
+    mkdirSync(join(library.root, '2024', 'Misc'), { recursive: true });
+    mark(library.root, '2024/Misc');
+    const bytes = readFileSync(raw);
+    const view = (await loadAssetLocationView(id))!;
+
+    const outcome = await moveBackupAsset(
+      {
+        id,
+        maple_id: undefined,
+        apple_rendered_path: null,
+        apple_live_video_path: null,
+        place: null,
+        is_screenshot: false,
+        exif: null,
+        fileinfo: view.fileinfo,
+      },
+      library.root,
+      '2024/Misc',
+    );
+
+    expect(outcome).toBe('skipped');
+    expect(readFileSync(raw)).toEqual(bytes);
+    expect(() => readFileSync(join(library.root, '2024', 'Misc', 'b.jpg'))).toThrow();
+    expect(locationsOf(library.db, id.toHexString()).map((l) => l.path)).toEqual(['inbox']);
+    expect(live(library, 'inbox', 'b.jpg')).toBe(true);
   });
 
   it('the on-disk check alone blocks trash, relocate and folder trash before any sweep', async () => {
