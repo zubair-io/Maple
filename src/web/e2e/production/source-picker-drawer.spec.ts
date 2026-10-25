@@ -1,16 +1,37 @@
 // SourcePickerDrawer — real Browse route and browser pointer-capture coverage (#4028).
 import type { Page } from '@playwright/test';
 import { test, expect } from '../support/production-test';
+import { installProductionFolderPicker } from '../support/production-folder-picker';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-test.beforeEach(({}, testInfo) => {
+let fixtureDirectory: string;
+
+test.beforeAll(async ({}, testInfo) => {
+  if (testInfo.project.name === 'chrome-hosted') {
+    fixtureDirectory = await mkdtemp(join(tmpdir(), 'maple-source-drawer-'));
+  }
+});
+
+test.afterAll(async ({}, testInfo) => {
+  if (testInfo.project.name === 'chrome-hosted' && fixtureDirectory) {
+    await rm(fixtureDirectory, { recursive: true, force: true });
+  }
+});
+
+test.beforeEach(async ({ page }, testInfo) => {
   test.skip(
     testInfo.project.name !== 'chrome-hosted',
     'Hosted Browse integration of the shared drawer',
   );
+  await installProductionFolderPicker(page, fixtureDirectory);
 });
 
 async function openDrawer(page: Page) {
-  await page.goto('/browse');
+  await page.goto('/');
+  await page.getByRole('button', { name: /open a folder/i }).click();
+  await expect(page).toHaveURL(/\/browse$/);
   await page.getByTestId('source-drawer-toggle').click();
   const drawer = page.getByRole('dialog', { name: 'Library', exact: true });
   await expect(drawer).toBeVisible();
