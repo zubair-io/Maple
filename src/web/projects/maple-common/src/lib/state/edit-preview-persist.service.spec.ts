@@ -1,18 +1,5 @@
-// EditPreviewPersistService — edit-time developed-preview persist (#2018).
-//
-// Covers the write-policy contract (idle debounce, not per-tick; flushAll
-// for exit/navigate-away/teardown), the non-RAW persistence gate (#3048 —
-// narrowed to Hosted only; Self-hosted persists non-RAW same as RAW), and the
-// Hosted-vs-server-backed branching (AVIF-when-possible, JPEG fallback on
-// both paths while Hosted records the actual local format). Real
-// `encodeDevelopedRenderToAvif`/`encodeDevelopedRenderToJpeg`
-// run (not mocked — this codebase's Angular unit-test system disallows
-// `vi.mock` on relative imports, same reason
-// `hosted-preview-resolver.service.spec.ts` doesn't mock the encoder
-// either), driven via `vi.stubGlobal` fakes for `OffscreenCanvas` and
-// `createImageBitmap` so both the AVIF and JPEG encode paths can be
-// exercised deterministically under jsdom (which has neither a working
-// canvas 2D context nor `createImageBitmap`).
+// Edit-time preview persistence: debounce, source gates and both backends.
+// The real encoders run against stubbed canvas APIs so AVIF/JPEG paths work in jsdom.
 
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -78,6 +65,7 @@ interface Setup {
   mapleCache?: Record<string, unknown>;
   api?: Record<string, unknown>;
   pipeline?: Record<string, unknown>;
+  sidecarFreshness?: Record<string, unknown>;
 }
 
 function setup(opts: Setup = {}) {
@@ -151,6 +139,7 @@ function setup(opts: Setup = {}) {
         useValue: {
           readCurrent: vi.fn(async () => canonicalDefaultXmp),
           assertUnchanged: vi.fn(),
+          ...opts.sidecarFreshness,
         },
       },
     ],
@@ -220,11 +209,7 @@ describe('EditPreviewPersistService — write policy (idle debounce, not per-tic
 
     svc.schedule('a' as AssetId);
     svc.flushAll();
-    // `flushAll` fires the persist's promise chain immediately (no further
-    // setTimeout involved) — `advanceTimersByTimeAsync(0)` drains the
-    // microtask queue robustly under fake timers, unlike a couple of bare
-    // `Promise.resolve()` hops which isn't deep enough for this chain
-    // (decode → encode → firstValueFrom).
+    // Drain the decode → encode → write chain immediately under fake timers.
     await vi.advanceTimersByTimeAsync(0);
 
     expect(api.putPreview).toHaveBeenCalledTimes(1);
@@ -237,18 +222,7 @@ describe('EditPreviewPersistService — write policy (idle debounce, not per-tic
 });
 
 describe('EditPreviewPersistService — non-RAW persistence (#3048)', () => {
-  // Since #3039, `RawPipelineService.decode()` genuinely develops non-RAW
-  // bytes with the current XMP applied (via the WASM `develop_non_raw`
-  // entry) — there is no decode-side reason left to skip a non-RAW asset.
-  // The per-branch target-resolution trace (#3048) found:
-  //   - Self-hosted: safe end to end — `absPathFor`, the `PUT /api/preview`
-  //     route, and its `GET /api/preview` reader are extension-agnostic —
-  //     so the blanket gate was removed for this branch.
-  //   - Hosted: still gated. Hosted's cache slot has exactly one reader,
-  //     `HostedPreviewResolver.resolve()`, which unconditionally skips
-  //     non-RAW assets before ever reading it back — persisting one here
-  //     would be a real decode+encode+disk write for a file nothing reads,
-  //     every idle debounce. The gate narrows to exactly this branch.
+  // Self Hosted reads persisted non-RAW previews; Hosted's resolver skips them.
 
   it('self-hosted: non-RAW asset decodes and PUTs to the SAME target a RAW asset would', async () => {
     convertToBlobImpl = async ({ type }) => new Blob(['x'], { type });
@@ -295,9 +269,7 @@ describe('EditPreviewPersistService — non-RAW persistence (#3048)', () => {
       mapleCache: { writePreview },
     });
 
-    // A real addressable, writable-folder location — so if the gate were
-    // gone, this WOULD reach `_persistHosted` (see the sibling RAW test
-    // above with the same shape). It must not.
+    // A writable location still cannot make a Hosted non-RAW cache useful.
     svc.schedule('lib:2026/a.jpg' as AssetId);
     await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
 
@@ -306,10 +278,7 @@ describe('EditPreviewPersistService — non-RAW persistence (#3048)', () => {
   });
 
   it('hosted single-file session (no folder handle, non-addressable id): non-RAW also no-ops', async () => {
-    // Mirrors `enterSingleFileWorkspace`'s real shape: `currentFolder()` is
-    // cleared to null and the asset id is a bare UUID (no ':') — this test
-    // asserts the non-RAW gate short-circuits before ever reaching that
-    // (already-safe) null-folder/no-location fallthrough.
+    // A single-file workspace has no writable folder or addressable asset id.
     const decode = vi.fn();
     const writePreview = vi.fn();
     const svc = setup({
@@ -390,6 +359,53 @@ describe('EditPreviewPersistService — server-backed (Self-Hosted)', () => {
 });
 
 describe('EditPreviewPersistService — Hosted (File System Access folder handle)', () => {
+  it('caches an unedited RAW when its sidecar is absent', async () => {
+    convertToBlobImpl = async ({ type }) => new Blob(['x'], { type });
+    const folder = { write: true };
+    const writePreview = vi.fn(async () => {});
+    const assertUnchanged = vi.fn();
+    const svc = setup({
+      store: { backend: 'hosted', currentFolder: () => folder },
+      mapleCache: { writePreview },
+      sidecarFreshness: { readCurrent: vi.fn(async () => null), assertUnchanged },
+    });
+
+    svc.schedule('lib:2026/a.dng' as AssetId);
+    await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
+    await svc.whenIdle();
+
+    expect(assertUnchanged).toHaveBeenCalledWith(folder, '2026/a.xmp', null);
+    expect(writePreview).toHaveBeenCalledWith(
+      folder,
+      '2026',
+      'a.dng',
+      expect.any(Blob),
+      { size: 3, lastModified: 1234 },
+      'absent',
+    );
+  });
+
+  it('does not cache unsaved edits as an absent-sidecar preview', async () => {
+    convertToBlobImpl = async ({ type }) => new Blob(['x'], { type });
+    const writePreview = vi.fn();
+    const folder = { write: true };
+    const svc = setup({
+      store: {
+        backend: 'hosted',
+        currentFolder: () => folder,
+        adjustmentFor: () => () => ({ ...defaultAdjustmentModel(), exposure: 1 }),
+      },
+      mapleCache: { writePreview },
+      sidecarFreshness: { readCurrent: vi.fn(async () => null) },
+    });
+
+    svc.schedule('lib:2026/a.dng' as AssetId);
+    await vi.advanceTimersByTimeAsync(PAST_DEBOUNCE_MS);
+    await svc.whenIdle();
+
+    expect(writePreview).not.toHaveBeenCalled();
+  });
+
   it('writes genuine AVIF via MapleCacheService when the folder is writable and the id resolves', async () => {
     convertToBlobImpl = async ({ type }) => new Blob(['x'], { type });
     const writePreview = vi.fn(
