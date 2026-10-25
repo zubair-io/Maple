@@ -62,7 +62,7 @@ public final class BrowseViewModel {
   /// The source feeding the grid. Nil until the user picks one.
   /// `@ObservationIgnored` — callers interested in changes should observe
   /// `assets` / `selectedID` which change together with the source.
-  @ObservationIgnored public private(set) var currentSource: (any ImageSource)?
+  @ObservationIgnored public internal(set) var currentSource: (any ImageSource)?
 
   /// Bookmark-resolved ancestor URL that covers the currently-open folder
   /// tree. AppShell sets this before calling `loadFolder(url:)` so each
@@ -97,12 +97,12 @@ public final class BrowseViewModel {
       folderEnumerationTask = nil
     }
   }
-  @ObservationIgnored private var pagedPhotoKitSource: PhotoKitSource?
-  @ObservationIgnored private var photoKitNextOffset = 0
-  @ObservationIgnored private var photoKitTotalCount = 0
-  @ObservationIgnored private var isLoadingPhotoKitPage = false
-  private static let photoKitPageSize = 42
-  private static let photoKitPrefetchDistance = 15
+  @ObservationIgnored var pagedPhotoKitSource: PhotoKitSource?
+  @ObservationIgnored var photoKitNextOffset = 0
+  @ObservationIgnored var photoKitTotalCount = 0
+  @ObservationIgnored var isLoadingPhotoKitPage = false
+  static let photoKitPageSize = 42
+  static let photoKitPrefetchDistance = 15
 
   public var selectedAsset: AssetRef? {
     assets.first { $0.id == selectedID }
@@ -229,94 +229,6 @@ public final class BrowseViewModel {
       guard gen == loadGeneration, !(error is CancellationError) else { return }
       loadError = error
     }
-  }
-
-  /// Publish two phone screens immediately, then retain PhotoKit's lazy
-  /// fetch result as the backing store for scroll-driven paging.
-  public func loadPhotoKitSource(_ source: PhotoKitSource) async {
-    retryLoader = { [weak self] in
-      guard let self else { return }
-      await self.loadPhotoKitSource(source)
-    }
-    loadGeneration &+= 1
-    let gen = loadGeneration
-    isLoading = true
-    pagedPhotoKitSource = source
-    photoKitNextOffset = 0
-    photoKitTotalCount = 0
-    isLoadingPhotoKitPage = false
-    defer { if gen == loadGeneration { isLoading = false } }
-
-    do {
-      async let total = source.imageCount()
-      async let firstPage = source.images(offset: 0, limit: Self.photoKitPageSize)
-      let (count, refs) = try await (total, firstPage)
-      guard gen == loadGeneration else { return }
-      assets = refs.map { makeAssetRef($0, source: source) }
-      photoKitNextOffset = refs.count
-      photoKitTotalCount = count
-      subfolders = []
-      selectedID = nil
-      currentSource = source
-      loadError = nil
-      photosAuthNeeded = false
-      listingGeneration &+= 1
-    } catch {
-      guard gen == loadGeneration else { return }
-      loadError = error
-    }
-  }
-
-  public func loadMorePhotoKitIfNeeded(appearing id: AssetRef.ID) async {
-    guard currentSource is PhotoKitSource,
-      let source = pagedPhotoKitSource,
-      !isLoadingPhotoKitPage,
-      photoKitNextOffset < photoKitTotalCount,
-      let index = assets.firstIndex(where: { $0.id == id }),
-      index >= max(0, assets.count - Self.photoKitPrefetchDistance)
-    else { return }
-
-    isLoadingPhotoKitPage = true
-    let gen = loadGeneration
-    let offset = photoKitNextOffset
-    defer { if gen == loadGeneration { isLoadingPhotoKitPage = false } }
-    do {
-      let refs = try await source.images(offset: offset, limit: Self.photoKitPageSize)
-      guard gen == loadGeneration else { return }
-      assets.append(contentsOf: refs.map { makeAssetRef($0, source: source) })
-      photoKitNextOffset += refs.count
-    } catch {
-      guard gen == loadGeneration else { return }
-      loadError = error
-    }
-  }
-
-  /// A metadata filter must cover the whole Photos listing even when none
-  /// of the first page's tiles match and therefore no paging tile appears.
-  public func loadRemainingPhotoKitForFilter() async throws {
-    guard gridFilter != .all, currentSource is PhotoKitSource,
-      let source = pagedPhotoKitSource, !isLoadingPhotoKitPage,
-      photoKitNextOffset < photoKitTotalCount
-    else { return }
-    isLoadingPhotoKitPage = true
-    let gen = loadGeneration
-    var offset = photoKitNextOffset
-    var remaining: [AssetRef] = []
-    defer { if gen == loadGeneration { isLoadingPhotoKitPage = false } }
-    while offset < photoKitTotalCount {
-      try Task.checkCancellation()
-      let refs = try await source.images(offset: offset, limit: Self.photoKitPageSize)
-      guard gen == loadGeneration else { throw CancellationError() }
-      guard !refs.isEmpty else {
-        throw ImageSourceError.notFound("The Photos listing ended before all photos were loaded")
-      }
-      remaining.append(contentsOf: refs.map { makeAssetRef($0, source: source) })
-      offset += refs.count
-    }
-    try Task.checkCancellation()
-    guard gen == loadGeneration else { throw CancellationError() }
-    assets.append(contentsOf: remaining)
-    photoKitNextOffset = offset
   }
 
   // MARK: - Merged PhotoKit + Cloud timeline
