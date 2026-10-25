@@ -106,6 +106,20 @@ final class ImageMetadataReaderTests: XCTestCase {
     }
   }
 
+  func testFFFCropInheritsRootOrientationInBothByteOrders() throws {
+    for littleEndian in [false, true] {
+      let data = syntheticFFFWithCrop(littleEndian: littleEndian, rootOrientation: 6)
+      let size = try XCTUnwrap(
+        ImageMetadataReader.readPixelSize(from: data, identifierHint: "fff"))
+      XCTAssertEqual(size.width, 5478)
+      XCTAssertEqual(size.height, 7304)
+
+      let entries = ImageMetadataReader.readExifProperties(
+        from: data, displayPath: "portrait.fff", identifierHint: "fff")
+      XCTAssertEqual(entries.first { $0.label == "Resolution" }?.value, "5478 × 7304")
+    }
+  }
+
   func testRealFFFInfoMatchesUsableRawCropWhenFixturePresent() throws {
     let fixture = repoRoot().appendingPathComponent("test-fixtures/raws/test_0004.fff")
     guard FileManager.default.fileExists(atPath: fixture.path) else {
@@ -192,7 +206,9 @@ final class ImageMetadataReaderTests: XCTestCase {
 
   /// An FFF-shaped TIFF: IFD0 is a 1217×913 preview; the RAW SubIFD is
   /// 7410×5586 with an inline SHORT DefaultCropSize of 7304×5478.
-  private func syntheticFFFWithCrop(littleEndian: Bool) -> Data {
+  private func syntheticFFFWithCrop(
+    littleEndian: Bool, rootOrientation: UInt16 = 1
+  ) -> Data {
     var bytes = [UInt8](repeating: 0, count: 160)
     func u16(_ value: UInt16, at offset: Int) {
       bytes[offset] = UInt8(truncatingIfNeeded: littleEndian ? value : value >> 8)
@@ -213,14 +229,16 @@ final class ImageMetadataReaderTests: XCTestCase {
     bytes[1] = bytes[0]
     u16(42, at: 2)
     u32(8, at: 4)
-    u16(3, at: 8)
+    u16(4, at: 8)
     entry(0x0100, 3, 1, at: 10)
     u16(1217, at: 18)
     entry(0x0101, 3, 1, at: 22)
     u16(913, at: 30)
-    entry(0x014A, 4, 1, at: 34)
-    u32(80, at: 42)
-    u32(0, at: 46)
+    entry(0x0112, 3, 1, at: 34)
+    u16(rootOrientation, at: 42)
+    entry(0x014A, 4, 1, at: 46)
+    u32(80, at: 54)
+    u32(0, at: 58)
     u16(3, at: 80)
     entry(0x0100, 4, 1, at: 82)
     u32(7410, at: 90)
