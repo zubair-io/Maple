@@ -316,6 +316,7 @@ impl Case {
                 sat_vs_sat: self.model.color_curve_sat_vs_sat.points.clone().into(),
                 sat_vs_luma: self.model.color_curve_sat_vs_luma.points.clone().into(),
             },
+            creative: None,
         }
     }
 }

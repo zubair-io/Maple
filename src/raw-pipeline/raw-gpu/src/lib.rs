@@ -272,6 +272,7 @@ mod present_web;
 // `present_chain.wgsl` + `present_chain_pipeline` with the Apple path.
 mod color_curves;
 mod color_grade;
+mod creative_dcp;
 mod grain;
 mod highlight_recovery;
 mod hsl;
@@ -308,6 +309,7 @@ pub use color_curves::{
 };
 pub use color_grade::{apply_color_grade, ColorGradePass, ColorGradeSliders};
 pub use context::GpuContext;
+pub use creative_dcp::{CreativeDcpPass, CreativeGainPass, CreativeInputs, CreativeTable};
 pub use defringe::{DefringeInputs, DefringePass};
 pub use dehaze::{apply_dehaze, compute_airlight, AirlightSource, DehazePass};
 pub use display_encode::{apply_display_encode, DisplayEncodePass};

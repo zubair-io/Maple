@@ -331,6 +331,7 @@ fn build_with_storage(
             sat_vs_sat: reuse_points(cc_svs, &model.color_curve_sat_vs_sat.points).into(),
             sat_vs_luma: reuse_points(cc_svl, &model.color_curve_sat_vs_luma.points).into(),
         },
+        creative: None,
     }
 }
 

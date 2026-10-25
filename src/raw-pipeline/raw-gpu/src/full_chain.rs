@@ -317,6 +317,10 @@ pub struct FullChainInputs<'a> {
     pub color_grade_highlight_edge: f32,
     /// Oklab secondary color curves (#5041, Stage 22b).
     pub color_curves: ColorCurveInputs<'a>,
+    /// `Some` marks the uploaded buffer as a capture result (#5376): the
+    /// live builder runs the creative stage in place of the white-balance
+    /// pass and leaves capture sharpening to the capture stage.
+    pub creative: Option<crate::CreativeInputs<'a>>,
 }
 
 mod shape;

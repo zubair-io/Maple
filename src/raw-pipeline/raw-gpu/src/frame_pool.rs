@@ -287,6 +287,12 @@ impl FramePool {
         self.alloc_count.get()
     }
 
+    /// Pooled data-buffer uploads so far: unchanged data costs none.
+    #[cfg(test)]
+    pub(crate) fn data_upload_count(&self) -> u64 {
+        self.data_upload_count.get()
+    }
+
     /// Bytes of every pooled buffer, which stay resident between renders.
     #[cfg(test)]
     pub(crate) fn retained_bytes(&self) -> u64 {

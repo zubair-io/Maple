@@ -225,6 +225,7 @@ fn gpu_live_render_p3_primaries_marshals_correctly() {
                 sat_vs_sat: model.color_curve_sat_vs_sat.points.clone().into(),
                 sat_vs_luma: model.color_curve_sat_vs_luma.points.clone().into(),
             },
+            creative: None,
         };
         let ctx = GpuContext::new_blocking().expect("gpu context");
         let session = LiveSession::new(&ctx, &input, w, h).expect("session");

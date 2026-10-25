@@ -119,6 +119,7 @@ pub(super) fn bench_inputs(layers_flat: Vec<f32>) -> FullChainInputs<'static> {
         film_lut_data: Vec::new().into(),
         display_tone_curves: crate::display_tone_curve::DisplayToneCurveInputs::default(),
         color_curves: crate::color_curves::ColorCurveInputs::default(),
+        creative: None,
     }
 }
 

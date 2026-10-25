@@ -77,6 +77,10 @@ pub fn chain_signature(inputs: &FullChainInputs, dims: (u32, u32), session_id: u
     // The residual-LUT edge drives the pooled grid buffer's byte length (#1079).
     // Hash as u64 so the signature is stable across usize widths.
     (inputs.residual_lut_size as u64).hash(&mut h);
+    // The creative stage's pooled table bindings change size with the profile (#5376).
+    if let Some(creative) = &inputs.creative {
+        creative.tables.len().hash(&mut h);
+    }
     // The film LUT's CONTENT identity (epic #2683, Task 7): `active_mask`
     // only tells us a look is on/off, not WHICH look — switching to a
     // different look at a constant mask/strength-band would otherwise reuse

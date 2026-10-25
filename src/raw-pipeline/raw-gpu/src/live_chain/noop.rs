@@ -23,6 +23,17 @@ pub(super) const EXPOSURE_EPS: f32 = 1e-6;
 pub(super) const WB_NEUTRAL_KELVIN: f32 = 6500.0;
 pub(super) const WB_SKIP_BAND: f32 = 0.5;
 
+/// The creative stage (#5376) when the uploaded buffer is a capture result.
+/// Shared by the builder and the mask so they cannot disagree.
+pub(super) fn creative_stage<'a>(
+    inputs: &'a FullChainInputs<'_>,
+) -> Option<&'a crate::CreativeInputs<'a>> {
+    inputs
+        .creative
+        .as_ref()
+        .filter(|_| inputs.input_shape == InputShape::PostDcpRec2020Fp16)
+}
+
 /// Whether the scene-tone-controls stage is a no-op for these sliders — the EXACT
 /// predicate from `raw_core::stages::scene_tone_controls::apply` identity
 /// short-circuit: exposure within `1e-6` AND brightness/highlights/shadows/

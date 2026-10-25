@@ -125,6 +125,7 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
         film_lut_data: Vec::new().into(),
         display_tone_curves: raw_gpu::DisplayToneCurveInputs::default(),
         color_curves: raw_gpu::ColorCurveInputs::default(),
+        creative: None,
     };
     let cancel = CancelToken::new();
 
