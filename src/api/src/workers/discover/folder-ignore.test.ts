@@ -23,6 +23,9 @@ import {
 import { runMissingReaperOnce } from '../missing-reaper.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { trashAssetById } from '../../library/asset-trash.ts';
+import { trashFolderRecursive } from '../../library/folder-trash.ts';
+import { relocateAsset } from '../../library/relocate-asset.ts';
+import { loadAssetLocationView } from '../../db/repos/assets.locations.repo.ts';
 import { toObjectId } from '../../db/repos/values.ts';
 import { readExif } from '../../indexer/exif.ts';
 import { makeExifTiff } from './rename-reconcile.test-helpers.ts';
@@ -333,5 +336,59 @@ describe('.mapleignore — a directory queued before its ancestor was marked', (
     expect(excluded!.filename).toBe('IMG_0001.dng');
     expect(excluded!.missing_reason).toBe('mapleignore');
     expect(readFileSync(sidecar, 'utf8')).toBe('<xmp>edited</xmp>');
+  });
+});
+
+describe('.mapleignore — explicit-entry moves of an excluded original', () => {
+  it('recursive trash of a parent folder leaves the ignored originals in place', async () => {
+    using library = await createDiscoverLibrary('maple-ignore-');
+    const kept = put(library.root, 'parent/kept.jpg');
+    const raw = put(library.root, 'parent/skip/b.jpg');
+    const nested = put(library.root, 'parent/skip/nested/c.jpg');
+    const sidecar = put(library.root, 'parent/skip/b.xmp', '<xmp>edited</xmp>');
+    const sweep = await sweeper(library);
+    await sweep();
+    mark(library.root, 'parent/skip');
+    await sweep();
+    const before = [raw, nested, sidecar].map((p) => readFileSync(p));
+
+    const summary = await trashFolderRecursive(library.folderId, library.root, 'parent');
+
+    expect(summary.succeeded).toBe(1);
+    expect(() => readFileSync(kept)).toThrow();
+    expect([raw, nested, sidecar].map((p) => readFileSync(p))).toEqual(before);
+    for (const [dir, name] of [
+      ['parent/skip', 'b.jpg'],
+      ['parent/skip/nested', 'c.jpg'],
+    ] as const) {
+      const id = assetIdAt(library.db, dir, name)!;
+      expect(assetRow(library.db, id)!.deleted_at).toBeNull();
+      expect(locationsOf(library.db, id)[0]!.missing_reason).toBe('mapleignore');
+    }
+  });
+
+  it('refuses a relocate whose explicit entry is excluded', async () => {
+    using library = await createDiscoverLibrary('maple-ignore-');
+    put(library.root, 'keep/a.jpg');
+    const raw = put(library.root, 'skip/b.jpg');
+    const sweep = await sweeper(library);
+    await sweep();
+    mark(library.root, 'skip');
+    await sweep();
+    const id = toObjectId(assetIdAt(library.db, 'skip', 'b.jpg')!);
+    const before = readFileSync(raw);
+    const excluded = (await loadAssetLocationView(id))!.fileinfo[0]!;
+
+    const outcome = await relocateAsset({
+      id,
+      mode: 'move',
+      collision: 'auto-suffix',
+      destinationPath: 'keep',
+      activeFileInfoOverride: excluded,
+    });
+
+    expect(outcome.kind).toBe('error');
+    expect(readFileSync(raw)).toEqual(before);
+    expect(() => readFileSync(join(library.root, 'keep', 'b.jpg'))).toThrow();
   });
 });

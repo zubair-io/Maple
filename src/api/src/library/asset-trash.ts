@@ -20,7 +20,7 @@
  * scope and pulling it in here would add an unused branch to every caller.
  */
 
-import { MAPLE_IGNORE_MISSING_REASON } from '../fs/mapleignore.ts';
+import { isExcludedLocation } from '../fs/mapleignore.ts';
 import * as path from 'node:path';
 // Read-only re-stat of the restored file — routed through `fs/mirrored.ts`
 // (which re-exports the full `node:fs/promises` surface) rather than a
@@ -82,10 +82,7 @@ function toEntrySpec(fi: FileInfo | null): AssetLocationEntry | null {
  * whatever shared module it settles on and delete this copy.
  */
 function activeFileInfo(fileinfo: FileInfo[] | undefined): FileInfo | null {
-  // An excluded location's file is still on disk in its ignored folder (#5398).
-  const live = (fileinfo ?? []).filter(
-    (entry) => !entry.deleted_at && entry.missing_reason !== MAPLE_IGNORE_MISSING_REASON,
-  );
+  const live = (fileinfo ?? []).filter((entry) => !entry.deleted_at && !isExcludedLocation(entry));
   return live.find((entry) => !entry.missing_since) ?? live[0] ?? null;
 }
 
@@ -107,7 +104,16 @@ function resolveEntrySpec(
   fileinfo: FileInfo[] | undefined,
   explicit?: AssetLocationEntry,
 ): AssetLocationEntry | null {
-  return explicit ?? toEntrySpec(activeFileInfo(fileinfo));
+  if (!explicit) return toEntrySpec(activeFileInfo(fileinfo));
+  // An explicit entry (folder trash, upload replacement) is held to the same
+  // `.mapleignore` exclusion as the default pick (#5398).
+  const recorded = (fileinfo ?? []).find(
+    (entry) =>
+      entry.library_id.equals(explicit.libraryId) &&
+      entry.path === explicit.path &&
+      entry.filename === explicit.filename,
+  );
+  return recorded && isExcludedLocation(recorded) ? null : explicit;
 }
 
 export type TrashAssetOutcome =

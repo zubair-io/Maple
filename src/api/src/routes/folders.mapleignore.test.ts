@@ -11,7 +11,9 @@ import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import {
   createLiveTestDatabase,
+  insertAsset,
   insertFolder,
+  insertLocation,
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
@@ -75,6 +77,29 @@ describe('folder routes under a .mapleignore folder', () => {
     // Outside the ignored folder the same upload is catalogued as usual.
     const indexed = await upload('keep/photo.dng', bytes);
     expect(((await indexed.json()) as { asset_id?: string }).asset_id).toMatch(/^[a-f0-9]{24}$/);
+  });
+
+  it('replaces an excluded original as an uncatalogued file, keeping its bytes in Trash', async () => {
+    const original = nodePath.join(root, 'skip', 'photo.dng');
+    await writeFile(original, 'old bytes');
+    const assetId = insertAsset(live.db);
+    insertLocation(live.db, {
+      assetId,
+      libraryId: folderId,
+      path: 'skip',
+      filename: 'photo.dng',
+      missingSince: '2026-10-25T00:00:00.000Z',
+    });
+    live.db.run(`UPDATE asset_locations SET missing_reason = 'mapleignore' WHERE asset_id = ?`, [
+      assetId,
+    ]);
+
+    const res = await upload('skip/photo.dng', new Uint8Array([1, 2, 3]));
+    expect(res.status).toBe(201);
+    expect(new Uint8Array(await readFile(original))).toEqual(new Uint8Array([1, 2, 3]));
+    const trashed = nodePath.join(root, '.maple', 'trash', 'skip', 'photo.dng');
+    expect(await readFile(trashed, 'utf8')).toBe('old bytes');
+    expect(count(`SELECT COUNT(*) AS n FROM assets WHERE deleted_at IS NOT NULL`)).toBe(0);
   });
 
   it('never indexes an ignored subtree during a rescan re-walk', async () => {
