@@ -157,6 +157,8 @@ public actor RenderActor {
   var decodedHasLensCorrections: Bool = false
   var decodedLensCorrectionCaInert: Bool = true
   var decodedLensCorrectionDistortionInert: Bool = true
+  /// The cached decode's refine base and the request it answered (#5381).
+  var decodedCaptureBase: (base: CaptureBase, request: CaptureRefineRequest)?
 
   /// Profile the cached `decodedImage` was developed for (#871). The
   /// decode buffer is now profile-dependent: `Profile::Auto` develops
@@ -201,14 +203,14 @@ public actor RenderActor {
   var decodeGeneration: UInt64 = 0
 
   /// (image, noiseProfile, iso, wbFrame, aeGain, whitesAnchorEv, nrSamplingScale, hasLensCorrections, lensCorrectionCaInert,
-  /// lensCorrectionDistortionInert, cameraSupport) — see `SceneLinearDecodeResult`'s doc for each field
-  /// (#1709 fix 4 / #1781 / #1167,#2070 / #2231,#3189). Non-RAW yields
-  /// (image, nil, 0, nil, 1.0, .nan, 1.0, false, true, true, nil).
+  /// lensCorrectionDistortionInert, cameraSupport, captureBase) — see `SceneLinearDecodeResult`'s doc for each field
+  /// (#1709 fix 4 / #1781 / #1167,#2070 / #2231,#3189 / #5381). Non-RAW yields
+  /// (image, nil, 0, nil, 1.0, .nan, 1.0, false, true, true, nil, nil).
   var decodeTask:
     Task<
       (
         CIImage, [Float]?, UInt32, WbSliderFrame?, Float, Float, Float, Bool, Bool, Bool,
-        RawCameraSupport?
+        RawCameraSupport?, CaptureBase?
       )?,
       Never
     >?

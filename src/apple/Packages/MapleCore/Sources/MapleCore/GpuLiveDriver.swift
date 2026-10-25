@@ -1,24 +1,19 @@
 // GpuLiveDriver.swift — the EditSession-owned driver for the wgpu live render
 // path (epic #925, P4b-apple / #1028).
 //
-// Always compiled, but only instantiated when the runtime flag is on
-// (`GpuLiveFlag.isEnabled` — `EditSession.gpuLiveDriver` is `nil` otherwise). Flag
-// OFF = the editor uses the CPU + Metal + CIColorCube path
-// (`processSceneLinear` → `renderedPreview` → `CIImageView`) byte-for-byte.
+// Only instantiated when `GpuLiveFlag.isEnabled`; flag OFF = the CPU + Metal +
+// CIColorCube path (`processSceneLinear` → `renderedPreview`) byte-for-byte.
 //
 // ## Role
 //
 // Bridges the EditSession two-phase scheduler to the serialized `GpuLiveSession`
-// + the `CAMetalLayer` the canvas view hosts. The CPU path publishes a `CIImage`
-// to `renderedPreview`; the GPU path instead presents directly to the layer (no
-// CIImage, no `renderedPreview` write). So this is a PARALLEL presentation path,
-// not a rewrite of `processSceneLinear` — which stays untouched (the flag-off
-// guarantee).
+// + the canvas `CAMetalLayer`: a PARALLEL presentation path (no CIImage, no
+// `renderedPreview` write), not a rewrite of `processSceneLinear`.
 //
 // ## What it owns
 //
 //   * the `GpuLiveSession` (upload-once per dims; re-opened on a viewport ⇄ full
-//     resize, pairing with the sized-fast / full-refine decode split);
+//     resize; a same-size re-decode replaces its pixels in place, #5381);
 //   * a weak reference to the registered `CAMetalLayer` (the view owns the layer's
 //     lifetime; the driver presents into it);
 //   * the per-image Auto Profile artifacts (fit once on open, via the session).
@@ -26,12 +21,9 @@
 // ## Serialization + cancellation
 //
 // `GpuLiveSession` is an `actor` (one render in flight — the `!Send` Rust
-// context). The driver's `present` calls hop onto it; the EditSession scheduler's
-// GENERATION GUARD (the same `gen == live` check the CPU path uses before
-// `renderedPreview = image`) decides whether a finished present is still current —
-// a stale present (superseded by a newer edit) is simply not the one that lands on
-// screen, exactly as today. A per-present `CancelFlag` lets a queued-but-stale
-// present bail at the FFI entry before burning a GPU cycle.
+// context). The EditSession scheduler's GENERATION GUARD (the CPU path's
+// `gen == live` check) decides whether a finished present is still current; a
+// per-present `CancelFlag` lets a queued-but-stale present bail at the FFI entry.
 
 import Foundation
 import QuartzCore
@@ -76,23 +68,23 @@ public final class GpuLiveDriver {
   /// on a dims change. Held strongly — it owns the uploaded image + GPU buffers.
   private(set) var session: GpuLiveSession?
   var sessionRevision: UInt64 = 0
-  private var sessionPreparation: Task<GpuLiveSession, Error>?
+  var sessionPreparation: Task<GpuLiveSession, Error>?
   // Shared teardown barrier: queued replacements retain no f32 readback.
   // Internal so concurrency tests can suspend teardown deterministically.
   var sessionTeardown: Task<Void, Never>?
   /// Dims the current `session` was opened at; a present that isn't COVERED by
   /// these dims (either axis smaller than requested) forces a re-open
   /// (upload-once-and-reuse is per-covering-dims, #2039 — see `isOpen`).
-  private var sessionDims: (width: Int, height: Int)?
+  var sessionDims: (width: Int, height: Int)?
 
   /// Identity of the pixels currently uploaded to `session` (#2039, #2049) —
   /// the decode generation + crop `open` was last called with. A present
   /// whose requested identity doesn't match this, even at covered dims,
   /// forces a re-open (see `GpuUploadIdentity`).
-  private var uploadedIdentity: GpuUploadIdentity?
+  var uploadedIdentity: GpuUploadIdentity?
   /// The capture decode's frame and creative stage for the uploaded pixels
   /// (#5377): every tick renders them through it, so it is set with them.
-  private(set) var uploadedWbFrame: WbSliderFrame?
+  var uploadedWbFrame: WbSliderFrame?
 
   /// The canvas layer to present into. Weak — the SwiftUI view owns it; if the
   /// view goes away the driver simply has nothing to present to.
@@ -190,7 +182,7 @@ public final class GpuLiveDriver {
   /// serializes the presents themselves (one render in flight), so this is
   /// purely the "supersede the one already queued" guard. Held weakly: it's
   /// owned for the duration of its present call by `present(...)` below.
-  private weak var inFlightCancel: CancelFlag?
+  weak var inFlightCancel: CancelFlag?
 
   public init() {}
 
@@ -251,6 +243,13 @@ public final class GpuLiveDriver {
   ) async throws {
     try Task.checkCancellation()
     guard !isOpen(coveringWidth: width, height: height, identity: identity) else { return }
+    let exports = GpuUploadExports(
+      noiseProfile: noiseProfile, iso: iso, whitesAnchorEv: whitesAnchorEv,
+      nrSamplingScale: nrSamplingScale)
+    if try await replaceUploadedImage(
+      width: width, height: height, inputShape: inputShape, identity: identity,
+      exports: exports, wbFrame: wbFrame, pixels: pixels)
+    { return }
     sessionRevision &+= 1
     let revision = sessionRevision
     beginSessionTeardown()

@@ -81,12 +81,12 @@ public actor GpuLiveSession {
   /// profile" (non-RAW assets, or a RAW whose DNG carries no NoiseProfile
   /// tag) — the WGSL NLM kernel falls back to the flat, non-modulated
   /// filter, bit-identical to before this ticket.
-  private let noiseProfile: [Float]
+  let noiseProfile: [Float]
   /// `RawImage::iso` for the uploaded pixels (#2342). `0` is raw-core's
   /// "unknown ISO" sentinel — the WGSL kernel's per-pixel modulation reads
   /// this alongside `noiseProfile` to compute the local sigma; both are
   /// meaningless without the other, so they travel together.
-  private let iso: UInt32
+  let iso: UInt32
   let whitesAnchorEv: Float
   let nrSamplingScale: Float
 

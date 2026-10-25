@@ -8,6 +8,7 @@
 
 use crate::buffers::MapleSceneLinearBufferF32;
 use crate::cancel::{token_from_ptr, MapleCancelFlag, SendCancelPtr};
+use crate::capture_base::MapleCaptureBase;
 use crate::capture_creative::{MapleCaptureBufferF32, MapleCaptureCreative};
 use crate::error::{set_last_error, with_large_stack};
 use crate::model::{
@@ -21,12 +22,12 @@ use raw_core::pipeline::{CaptureRender, RenderQuality};
 use raw_core::CancelToken;
 use std::ffi::{c_char, CStr};
 
-enum Source {
+pub(crate) enum Source {
     Path(String),
     Bytes { bytes: Vec<u8>, extension: String },
 }
 
-unsafe fn utf8(ptr: *const c_char, what: &str, rc: i32) -> Result<Option<String>, i32> {
+pub(crate) unsafe fn utf8(ptr: *const c_char, what: &str, rc: i32) -> Result<Option<String>, i32> {
     if ptr.is_null() {
         return Ok(None);
     }
@@ -41,9 +42,9 @@ unsafe fn utf8(ptr: *const c_char, what: &str, rc: i32) -> Result<Option<String>
 
 /// The demosaic quality code and the optional sized-decode edge.
 #[derive(Clone, Copy)]
-struct Develop {
-    quality_preview: i32,
-    max_long_edge: Option<u32>,
+pub(crate) struct Develop {
+    pub(crate) quality_preview: i32,
+    pub(crate) max_long_edge: Option<u32>,
 }
 
 fn quality(quality_preview: i32) -> RenderQuality {
@@ -55,15 +56,19 @@ fn quality(quality_preview: i32) -> RenderQuality {
     }
 }
 
-/// Decode, develop to the capture result and write `out`.
-unsafe fn capture_entry(
+/// Decode, develop to the capture result and write `out`. With `base_out`,
+/// also hand the host the decode's refine base (#5381).
+pub(crate) unsafe fn capture_entry(
     source: Source,
     xmp_path: Option<String>,
     develop: Develop,
     cancel: *const MapleCancelFlag,
-    out: *mut MapleCaptureBufferF32,
+    (out, base_out): (
+        *mut MapleCaptureBufferF32,
+        Option<*mut *mut MapleCaptureBase>,
+    ),
 ) -> i32 {
-    let out_ptr = out as usize;
+    let (out_ptr, base_out) = (out as usize, base_out.map(|p| p as usize));
     let cancel = SendCancelPtr(cancel);
     with_large_stack(move || {
         let cancel = cancel;
@@ -73,7 +78,7 @@ unsafe fn capture_entry(
             Some(p) => CancelToken::new(p.as_ref()),
             None => CancelToken::never(),
         };
-        let model = match load_xmp_model_owned(xmp_path.as_deref()) {
+        let loaded = match load_xmp_model_owned(xmp_path.as_deref()) {
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
@@ -81,7 +86,7 @@ unsafe fn capture_entry(
             Source::Path(path) => {
                 let path = std::path::Path::new(path);
                 match file_decode::decode_file_cached(path, token) {
-                    Ok(raw) => (raw, force_ae_off_if_auto_will_fit_path(&model, path)),
+                    Ok(raw) => (raw, force_ae_off_if_auto_will_fit_path(&loaded, path)),
                     Err(rc) => return rc,
                 }
             }
@@ -91,7 +96,7 @@ unsafe fn capture_entry(
                 }) {
                     Ok(raw) => (
                         raw,
-                        force_ae_off_if_auto_will_fit_bytes(&model, bytes, extension),
+                        force_ae_off_if_auto_will_fit_bytes(&loaded, bytes, extension),
                     ),
                     Err(e) => {
                         set_last_error(format!("decode: {e}"));
@@ -101,26 +106,75 @@ unsafe fn capture_entry(
             }
         };
         let quality = quality(develop.quality_preview);
-        let rendered = match develop.max_long_edge {
-            Some(edge) => raw_core::pipeline::render_capture_sized_from_raw_f32(
+        let rendered = match (base_out, develop.max_long_edge) {
+            (Some(_), edge) => raw_core::pipeline::render_capture_with_base_from_raw_f32(
+                &raw,
+                (&loaded, &model),
+                quality,
+                edge,
+                token,
+            )
+            .map(|(capture, base)| (capture, Some(base))),
+            (None, Some(edge)) => raw_core::pipeline::render_capture_sized_from_raw_f32(
                 &raw, &model, quality, edge, token,
-            ),
-            None => raw_core::pipeline::render_capture_from_raw_f32(&raw, &model, quality, token),
+            )
+            .map(|capture| (capture, None)),
+            (None, None) => {
+                raw_core::pipeline::render_capture_from_raw_f32(&raw, &model, quality, token)
+                    .map(|capture| (capture, None))
+            }
         };
-        let capture = match rendered {
-            Ok(capture) => capture,
+        let (capture, base) = match rendered {
+            Ok(rendered) => rendered,
             Err(CoreError::Cancelled) => return RC_CANCELLED,
             Err(e) => {
                 set_last_error(format!("render: {e}"));
                 return 8;
             }
         };
-        write_capture(out_ptr, &raw, capture);
+        let exports = DecodeExports::of(&raw);
+        write_capture(out_ptr, &exports, capture);
+        if let (Some(base_out), Some(base)) = (base_out, base) {
+            // SAFETY: the entry checked `base_out` non-null; the host owns it.
+            unsafe {
+                *(base_out as *mut *mut MapleCaptureBase) = MapleCaptureBase::boxed(base, exports)
+            };
+        }
         0
     })
 }
 
-fn write_capture(out_ptr: usize, raw: &raw_core::RawImage, capture: CaptureRender) {
+/// What a capture buffer reports about its RAW besides the pixels, kept with
+/// a refine base so a refine reports exactly what its decode did.
+pub(crate) struct DecodeExports {
+    noise_profile: Option<Vec<f32>>,
+    iso: u32,
+    frame: raw_core::stages::wb_camera::SliderFrameExport,
+    lens: (bool, bool, bool),
+    support_json: Option<std::ffi::CString>,
+}
+
+impl DecodeExports {
+    fn of(raw: &raw_core::RawImage) -> Self {
+        Self {
+            noise_profile: raw.noise_profile.clone(),
+            iso: raw.iso,
+            frame: wb_exports(raw).frame,
+            lens: (
+                raw.has_lens_corrections(),
+                raw.lens_correction_ca_inert(),
+                raw.lens_correction_distortion_inert(),
+            ),
+            support_json: raw_core::support_tiers::RenderSupport::resolve(raw)
+                .ok()
+                .map(|support| {
+                    std::ffi::CString::new(support.to_json()).expect("JSON escapes NUL")
+                }),
+        }
+    }
+}
+
+pub(crate) fn write_capture(out_ptr: usize, exports: &DecodeExports, capture: CaptureRender) {
     let CaptureRender {
         width,
         height,
@@ -138,23 +192,29 @@ fn write_capture(out_ptr: usize, raw: &raw_core::RawImage, capture: CaptureRende
         width,
         height,
         rgba,
-        raw.noise_profile.as_deref(),
-        raw.iso,
+        exports.noise_profile.as_deref(),
+        exports.iso,
         &WbExports {
-            frame: wb_exports(raw).frame,
+            frame: exports.frame,
             hsm: None,
         },
         creative.ae_gain,
         whites_anchor_ev,
         nr_sampling_scale,
-        raw.has_lens_corrections(),
-        raw.lens_correction_ca_inert(),
-        raw.lens_correction_distortion_inert(),
-        Some(raw),
+        exports.lens.0,
+        exports.lens.1,
+        exports.lens.2,
+        None,
     );
     let tables = crate::wb_frame_flat::intern_table_wire(tables.floats());
-    // SAFETY: as above.
-    unsafe { (*out).creative = MapleCaptureCreative::new(&creative, tables) };
+    // SAFETY: as above; the buffer's free releases the support JSON.
+    unsafe {
+        (*out).scene.camera_support_json = exports
+            .support_json
+            .clone()
+            .map_or(std::ptr::null_mut(), std::ffi::CString::into_raw);
+        (*out).creative = MapleCaptureCreative::new(&creative, tables);
+    }
 }
 
 /// The capture decode of a RAW file (the full-resolution sibling of
@@ -177,7 +237,7 @@ pub unsafe extern "C" fn maple_render_file_capture_f32(
             quality_preview,
             max_long_edge: None,
         };
-        file_entry(raw_path, xmp_path, develop, cancel, out)
+        file_entry(raw_path, xmp_path, develop, cancel, (out, None))
     })
 }
 
@@ -200,7 +260,7 @@ pub unsafe extern "C" fn maple_render_file_capture_sized_f32(
             quality_preview,
             max_long_edge: Some(max_long_edge),
         };
-        file_entry(raw_path, xmp_path, develop, cancel, out)
+        file_entry(raw_path, xmp_path, develop, cancel, (out, None))
     })
 }
 
@@ -228,7 +288,7 @@ pub unsafe extern "C" fn maple_render_bytes_capture_f32(
                 max_long_edge: None,
             },
             cancel,
-            out,
+            (out, None),
         )
     })
 }
@@ -258,19 +318,29 @@ pub unsafe extern "C" fn maple_render_bytes_capture_sized_f32(
                 max_long_edge: Some(max_long_edge),
             },
             cancel,
-            out,
+            (out, None),
         )
     })
 }
 
-unsafe fn file_entry(
+/// The capture buffer, and the slot for the refine base when one is wanted.
+pub(crate) type Outs = (
+    *mut MapleCaptureBufferF32,
+    Option<*mut *mut MapleCaptureBase>,
+);
+
+fn outs_null((out, base_out): Outs) -> bool {
+    out.is_null() || base_out.is_some_and(<*mut _>::is_null)
+}
+
+pub(crate) unsafe fn file_entry(
     raw_path: *const c_char,
     xmp_path: *const c_char,
     develop: Develop,
     cancel: *const MapleCancelFlag,
-    out: *mut MapleCaptureBufferF32,
+    outs: Outs,
 ) -> i32 {
-    if raw_path.is_null() || out.is_null() {
+    if raw_path.is_null() || outs_null(outs) {
         set_last_error("null pointer argument".into());
         return 1;
     }
@@ -286,17 +356,17 @@ unsafe fn file_entry(
         Ok(path) => path,
         Err(rc) => return rc,
     };
-    capture_entry(Source::Path(raw_path), xmp_path, develop, cancel, out)
+    capture_entry(Source::Path(raw_path), xmp_path, develop, cancel, outs)
 }
 
-unsafe fn bytes_entry(
+pub(crate) unsafe fn bytes_entry(
     (raw_bytes, raw_len, hint_ext): (*const u8, usize, *const c_char),
     xmp_path: *const c_char,
     develop: Develop,
     cancel: *const MapleCancelFlag,
-    out: *mut MapleCaptureBufferF32,
+    outs: Outs,
 ) -> i32 {
-    if raw_bytes.is_null() || out.is_null() {
+    if raw_bytes.is_null() || outs_null(outs) {
         set_last_error("null pointer argument".into());
         return 1;
     }
@@ -318,7 +388,7 @@ unsafe fn bytes_entry(
         xmp_path,
         develop,
         cancel,
-        out,
+        outs,
     )
 }
 

@@ -53,6 +53,7 @@ mod auto_tone;
 mod buffers;
 mod camera_support;
 mod cancel;
+mod capture_base;
 mod capture_creative;
 mod capture_f32;
 mod white_balance_sample;
