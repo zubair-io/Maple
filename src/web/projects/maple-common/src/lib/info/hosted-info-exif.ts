@@ -32,6 +32,12 @@ function number(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
+function apexAperture(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  const aperture = 2 ** (value / 2);
+  return aperture >= 0.5 && aperture <= 128 ? Math.round(aperture * 100) / 100 : undefined;
+}
+
 function shutter(value: unknown): string | undefined {
   const given = text(value);
   if (given) return given;
@@ -56,7 +62,7 @@ function isLeicaApertureTag(view: DataView, offset: number, littleEndian: boolea
 function leicaApertureEntry(view: DataView, littleEndian: boolean): number | undefined {
   const found: number[] = [];
   const count = view.getUint16(8, littleEndian);
-  if (count < 1 || count > 256 || 10 + count * 12 + 4 > view.byteLength) return undefined;
+  if (count < 1 || count > 256 || 10 + count * 12 > view.byteLength) return undefined;
   for (let i = 0; i < count; i++) {
     const offset = 10 + i * 12;
     if (!isLeicaApertureTag(view, offset, littleEndian)) continue;
@@ -82,10 +88,9 @@ export function hostedInfoFields(raw: Record<string, unknown> | undefined): Part
   if (!raw) return {};
   const camera = text(raw['Model']) ?? text(raw['Make']);
   const lens = text(raw['LensModel']) ?? text(raw['Lens']);
-  const apertureValue = number(raw['ApertureValue']);
   const aperture =
     number(raw['FNumber']) ??
-    (apertureValue === undefined ? undefined : Math.round(10 * 2 ** (apertureValue / 2)) / 10) ??
+    apexAperture(raw['ApertureValue']) ??
     leicaM10Aperture(raw['makerNote']);
   const exposure = shutter(raw['ExposureTime']);
   const iso = number(raw['ISO']);

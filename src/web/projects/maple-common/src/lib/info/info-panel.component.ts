@@ -253,7 +253,6 @@ export class InfoPanelComponent {
     // the open-image cache when available. Ignore late results after a switch.
     effect((onCleanup) => {
       const id = this.assetId();
-      this.hostedExif.set(null);
       if (!id || !this.hostedExifEnabled || !this.visible()) return;
       let cancelled = false;
       onCleanup(() => {
