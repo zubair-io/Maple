@@ -391,8 +391,8 @@ pub struct MapleGpuLiveParams {
     //     the HueSatMap at the target, as a develop does. Null/0 (a stale
     //     host) keeps the plain 3×3, bit-identical. Borrowed for the call.
     //     Only hosts still on the scene-linear decode use it; it goes when
-    //     Windows, Web and Android/Linux take the capture decode
-    //     (#5378/#5379/#5380). ---
+    //     Windows and Android/Linux take the capture decode
+    //     (#5378/#5380). ---
     pub wb_hsm_ptr: *const f32,
     pub wb_hsm_len: usize,
     /// The decode's `wb_hsm_as_shot_cct` and `ae_gain` (the auto-exposure

@@ -74,9 +74,9 @@ pub(crate) fn wb_frame_from_flat(
 
 /// The borrowed HueSatMap-endpoint wire (#5099) from a host `(ptr, len)`.
 /// Null, empty or malformed ⇒ `None` ⇒ the plain 3×3 delta. Kept only for
-/// the hosts still on the scene-linear decode — Windows, Web and
-/// Android/Linux — and removed when they take the capture decode (#5378,
-/// #5379, #5380); Apple runs the creative stage instead (#5377).
+/// the hosts still on the scene-linear decode — Windows and Android/Linux —
+/// and removed when they take the capture decode (#5378, #5380); Apple and
+/// Web run the creative stage instead (#5377, #5379).
 ///
 /// # Safety
 /// `ptr` must be valid for `len` `f32` reads for `'a`, or null.
@@ -133,27 +133,10 @@ pub(crate) fn gpu_hsm_inputs<'a>(
 /// shared by every decode of a body with the same profile tables. The decode
 /// buffer hands hosts this pointer and never frees it, so a host stores it
 /// with its decode and passes it back per tick without copying or pinning,
-/// and no render can outlive it. One entry per distinct wire, so the set
-/// stays as small as the set of camera profiles opened.
+/// and no render can outlive it. Shares raw-core's set
+/// ([`raw_core::pipeline::intern_creative_tables`]) with the Web host.
 pub(crate) fn intern_table_wire(wire: &[f32]) -> &'static [f32] {
-    static INTERNED: std::sync::Mutex<Vec<&'static [f32]>> = std::sync::Mutex::new(Vec::new());
-    let mut interned = INTERNED
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    // Bitwise, so a table holding a NaN still finds its earlier copy.
-    let same_bits = |known: &[f32]| {
-        known.len() == wire.len()
-            && known
-                .iter()
-                .zip(wire)
-                .all(|(a, b)| a.to_bits() == b.to_bits())
-    };
-    if let Some(existing) = interned.iter().find(|known| same_bits(known)) {
-        return existing;
-    }
-    let leaked: &'static [f32] = Box::leak(wire.to_vec().into_boxed_slice());
-    interned.push(leaked);
-    leaked
+    raw_core::pipeline::intern_creative_tables(wire)
 }
 
 #[cfg(test)]

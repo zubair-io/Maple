@@ -45,8 +45,8 @@ pub use inpaint_store::{patch_from_bytes, patch_to_bytes, patches_from_blob, pat
 mod inpaint_seam_tests;
 
 pub use capture_first::{
-    AsShotTable, CreativeAnchors, CreativeHeader, CreativePlan, CreativeStage, CreativeTick,
-    CreativeWire, PlanTable, ProfileCore, TableLayout, TableSpan,
+    intern_creative_tables, AsShotTable, CreativeAnchors, CreativeHeader, CreativePlan,
+    CreativeStage, CreativeTick, CreativeWire, PlanTable, ProfileCore, TableLayout, TableSpan,
 };
 pub use develop::{
     develop_scene_linear_from_raw_with_quality,
@@ -67,12 +67,12 @@ pub use pano::{
 pub use render::{
     cached_auto_profile_fit, decode_raster_base, fit_auto_profile_from_raw,
     fit_auto_profile_from_raw_at_cap, fit_profile_curve_from_raw, native_render_dims,
-    render_capture_from_raw_f32, render_capture_sized_from_raw_f32, render_detail_base,
-    render_detail_base_cancellable, render_detail_base_retained,
-    render_detail_base_retained_cancellable, render_detail_tile, render_detail_tile_cancellable,
-    render_export_f32, render_export_from_raw, render_export_from_raw_with_film,
-    render_export_raster, render_export_raster_cancellable, render_from_raw,
-    render_from_raw_with_auto_fit, render_from_raw_with_quality,
+    render_capture_from_raw_f32, render_capture_sized_from_raw_f32,
+    render_capture_sized_sensor_framed_f32, render_detail_base, render_detail_base_cancellable,
+    render_detail_base_retained, render_detail_base_retained_cancellable, render_detail_tile,
+    render_detail_tile_cancellable, render_export_f32, render_export_from_raw,
+    render_export_from_raw_with_film, render_export_raster, render_export_raster_cancellable,
+    render_from_raw, render_from_raw_with_auto_fit, render_from_raw_with_quality,
     render_from_raw_with_quality_and_source, render_from_raw_with_quality_source_and_film,
     render_from_scene_linear, render_from_scene_linear_with_chain,
     render_scene_linear_from_raw_with_quality, render_scene_linear_from_raw_with_quality_f32,

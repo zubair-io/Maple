@@ -304,8 +304,8 @@ pub struct MapleAdjustmentParams {
     /// passed back verbatim (#5099): the HueSatMap endpoints the WB delta
     /// re-lerps at the target. Null/0 (a stale host) keeps the plain 3×3
     /// delta. Borrowed for the call only. Only hosts still on the
-    /// scene-linear decode use it; it goes when Windows, Web and
-    /// Android/Linux take the capture decode (#5378/#5379/#5380).
+    /// scene-linear decode use it; it goes when Windows and Android/Linux
+    /// take the capture decode (#5378/#5380).
     pub wb_hsm_ptr: *const f32,
     pub wb_hsm_len: usize,
     /// The decode's `wb_hsm_as_shot_cct` and `ae_gain` (the auto-exposure

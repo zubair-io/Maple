@@ -71,7 +71,10 @@ pub use synthetic::{render_from_scene_linear, render_from_scene_linear_with_chai
 // Scene-linear (no-view-tail) render entries — fp16/f32 RGBA pack + orient
 // (#1170 size-budget split); re-exported so `pipeline::{…}` keeps resolving them.
 mod capture;
-pub use capture::{render_capture_from_raw_f32, render_capture_sized_from_raw_f32, CaptureRender};
+pub use capture::{
+    render_capture_from_raw_f32, render_capture_sized_from_raw_f32,
+    render_capture_sized_sensor_framed_f32, CaptureRender,
+};
 mod scene_linear;
 pub use scene_linear::{
     render_scene_linear_from_raw_with_quality, render_scene_linear_from_raw_with_quality_f32,

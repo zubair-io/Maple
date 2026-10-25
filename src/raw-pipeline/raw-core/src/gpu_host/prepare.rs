@@ -44,7 +44,8 @@ pub fn effective_ae_mode(model: &AdjustmentModel, raw: &[u8], ext: &str) -> Auto
 /// Derive the stripped-prefix model for `model` WITHOUT developing — the cheap
 /// change-detector the persistent browser/native live sessions uses
 /// to decide whether a render must re-develop + re-upload. Equal to the
-/// `prefix_model` [`develop_prefix_rgba`] returns (BOTH call `effective_ae_mode` +
+/// `prefix_model` [`develop_prefix_rgba`] (Android/Linux) and
+/// [`super::capture::develop_capture_prefix_rgba`] (Web) return (BOTH call `effective_ae_mode` +
 /// `stripped_prefix_model`, so the equivalence is by construction), making a
 /// compare against the cached prefix model the sound re-upload boundary. Pure model
 /// arithmetic + the `auto_will_fit` probe (a cache / embedded-JPEG check); no

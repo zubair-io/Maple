@@ -241,7 +241,8 @@ prefix_policy! {
         // `retouch_spots` (#3409 — a decode-product edit with no GPU pass of
         // its own, so it must stay in the prefix; placing a spot correctly
         // re-develops and re-uploads the base), and every other
-        // decode-upstream field — they shape the post-AE buffer the GPU chain
-        // consumes (so a change to any of them legitimately re-develops).
+        // decode-upstream field — they shape the uploaded buffer (the
+        // post-AE scene-linear prefix, or the capture decode and its creative
+        // stage) the GPU chain consumes (so a change to any of them legitimately re-develops).
     }
 }

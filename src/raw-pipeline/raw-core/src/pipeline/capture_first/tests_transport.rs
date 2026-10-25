@@ -12,7 +12,6 @@ use crate::pipeline::{
     render_capture_sized_from_raw_f32, render_capture_tile_cancellable_f32,
     render_scene_linear_tile_cancellable_f32, RenderQuality, TileRect,
 };
-use crate::stages::wb_camera;
 use crate::test_support::creative::{creative_stage, fallback_stage, Tables};
 use crate::types::WbMethod;
 use crate::xmp::HighlightRecoveryMode;
@@ -32,20 +31,6 @@ fn stages() -> Vec<CreativeStage> {
         .collect()
 }
 
-fn tick(stage: &CreativeStage, model: &AdjustmentModel) -> CreativeTick {
-    let (temperature, tint) = match &stage.frame {
-        Some(frame) => {
-            wb_camera::resolve_target_versioned(model, frame, &stage.profile, stage.as_shot_neutral)
-        }
-        None => crate::stages::white_balance::resolve_wb(model),
-    };
-    CreativeTick {
-        temperature,
-        tint,
-        wb_method: model.wb_method,
-    }
-}
-
 #[test]
 fn the_header_and_wire_rebuild_the_stage_exactly() {
     for stage in stages() {
@@ -63,15 +48,23 @@ fn the_header_and_wire_rebuild_the_stage_exactly() {
     }
 }
 
+/// Including an imported V1 pair, whose conversion reads the profile's
+/// matrices: the header's tick resolves it as the stage does.
 #[test]
 fn the_header_plan_is_the_stage_plan() {
+    let imported = AdjustmentModel {
+        temperature: 4300.0,
+        tint: 22.0,
+        temperature_seen: true,
+        tint_seen: true,
+        wb_scale_version: crate::types::WbScaleVersion::V1,
+        ..AdjustmentModel::default()
+    };
     for stage in stages() {
-        for model in models() {
+        for model in models().into_iter().chain([imported.clone()]) {
             let (header, wire) = stage.transport(model.highlight_recovery).unwrap();
             let want = stage.gpu_plan(&wire, &model).unwrap();
-            let got = header
-                .gpu_plan(wire.floats(), tick(&stage, &model))
-                .unwrap();
+            let got = header.gpu_plan(wire.floats(), header.tick(&model)).unwrap();
             assert_eq!(got.to_pro, want.to_pro);
             assert_eq!(got.from_pro, want.from_pro);
             assert_eq!(got.post, want.post);
