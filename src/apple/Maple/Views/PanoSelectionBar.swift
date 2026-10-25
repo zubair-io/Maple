@@ -46,6 +46,8 @@ struct PanoSelectionBar: View {
   /// at least one other checked asset are both present.
   var canSync: Bool = false
 
+  private var selectedAssets: [AssetRef] { vm.selectedAssets(in: displayedAssets) }
+
   var body: some View {
     VStack(spacing: 0) {
       Divider()
@@ -81,7 +83,7 @@ struct PanoSelectionBar: View {
           Text(countLabel)
             .font(.subheadline)
             .foregroundStyle(.secondary)
-            .accessibilityLabel("\(vm.selectedIDs.count) images selected")
+            .accessibilityLabel("\(selectedAssets.count) images selected")
 
           Spacer()
 
@@ -92,10 +94,10 @@ struct PanoSelectionBar: View {
               variant: .secondary,
               size: .sm,
               leadingIcon: "pencil.and.list.clipboard",
-              disabled: vm.selectedIDs.isEmpty,
+              disabled: selectedAssets.isEmpty,
               action: onEditMetadata
             )
-            .accessibilityLabel("Edit metadata for \(vm.selectedIDs.count) selected images")
+            .accessibilityLabel("Edit metadata for \(selectedAssets.count) selected images")
           }
 
           // Right: Batch Rename CTA (#2641, optional — nil suppresses the button)
@@ -105,11 +107,11 @@ struct PanoSelectionBar: View {
               variant: .secondary,
               size: .sm,
               leadingIcon: "textformat",
-              disabled: vm.selectedIDs.isEmpty,
+              disabled: selectedAssets.isEmpty,
               action: onBatchRename
             )
             .accessibilityIdentifier("pano-selection-bar-batch-rename")
-            .accessibilityLabel("Batch rename \(vm.selectedIDs.count) selected images")
+            .accessibilityLabel("Batch rename \(selectedAssets.count) selected images")
           }
 
           // Right: sync settings CTA (#944) — applies the focused image's
@@ -159,7 +161,7 @@ struct PanoSelectionBar: View {
               action: onPasteAdjustments
             )
             .accessibilityLabel(
-              "Paste all copied adjustments onto \(vm.selectedIDs.count) selected images"
+              "Paste all copied adjustments onto \(selectedAssets.count) selected images"
             )
             .accessibilityHint(
               canPaste
@@ -173,12 +175,12 @@ struct PanoSelectionBar: View {
             variant: .primary,
             size: .sm,
             leadingIcon: "photo.stack",
-            disabled: !vm.canMergePanorama,
+            disabled: selectedAssets.count < 2,
             action: onMerge
           )
-          .accessibilityLabel("Merge \(vm.selectedIDs.count) selected images into a panorama")
+          .accessibilityLabel("Merge \(selectedAssets.count) selected images into a panorama")
           .accessibilityHint(
-            vm.canMergePanorama
+            selectedAssets.count >= 2
               ? "Double tap to open panorama merge view"
               : "Select at least 2 images to enable")
         }
@@ -190,10 +192,10 @@ struct PanoSelectionBar: View {
   }
 
   private var countLabel: String {
-    switch vm.selectedIDs.count {
+    switch selectedAssets.count {
     case 0: return "Nothing selected"
     case 1: return "1 selected"
-    default: return "\(vm.selectedIDs.count) selected"
+    default: return "\(selectedAssets.count) selected"
     }
   }
 }

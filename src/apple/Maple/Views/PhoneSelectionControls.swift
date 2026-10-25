@@ -23,14 +23,14 @@
       guard let library = batchLibrary, let contents = clipboard?.contents,
         contents.scopeID == library.id
       else { return false }
-      return !vm.selectedAssets.isEmpty
+      return !vm.selectedAssets(in: displayedAssets).isEmpty
     }
 
     private var canSync: Bool {
       guard batchLibrary != nil, let source = vm.selectedAsset,
         source.adjustmentTransferTarget != nil
       else { return false }
-      return vm.selectedAssets.contains { $0.id != source.id }
+      return vm.selectedAssets(in: displayedAssets).contains { $0.id != source.id }
     }
 
     var body: some View {
@@ -76,7 +76,7 @@
 
     private func pasteSettings() {
       guard let source = clipboard?.contents else { return }
-      presentTransfer(source: source, assets: vm.selectedAssets)
+      presentTransfer(source: source, assets: vm.selectedAssets(in: displayedAssets))
     }
 
     private func syncSettings() {
@@ -85,7 +85,7 @@
         clipboard.batchTransfers.error = "Open a single library or folder to sync settings."
         return
       }
-      let targets = vm.selectedAssets.filter { $0.id != source.id }
+      let targets = vm.selectedAssets(in: displayedAssets).filter { $0.id != source.id }
       Task {
         do {
           _ = try library.store(source)

@@ -60,8 +60,12 @@ extension BrowseViewModel {
   /// Ordered list of checked AssetRefs, in the same order they appear in
   /// `assets` (not the order they were checked — `selectedIDs` is an
   /// unordered `Set`). Preserves `assets` order for stable stitching input.
-  public var selectedAssets: [AssetRef] {
-    gridAssets(sessions: [:]).filter { selectedIDs.contains($0.id) }
+  public func selectedAssets(in visibleAssets: [AssetRef]) -> [AssetRef] {
+    visibleAssets.filter { selectedIDs.contains($0.id) }
+  }
+
+  public func selectedAssets(sessions: [AssetRef.ID: EditSession]) -> [AssetRef] {
+    selectedAssets(in: gridAssets(sessions: sessions))
   }
 
   // MARK: - Single selection

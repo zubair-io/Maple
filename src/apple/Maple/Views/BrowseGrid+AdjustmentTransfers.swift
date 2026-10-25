@@ -4,7 +4,7 @@ import SwiftUI
 extension BrowseGrid {
   var canSyncSettings: Bool {
     guard let sourceID = vm.selectedID else { return false }
-    return vm.selectedIDs.contains { $0 != sourceID }
+    return vm.selectedAssets(sessions: sessions).contains { $0.id != sourceID }
   }
 
   func copyAdjustments() {
@@ -27,7 +27,9 @@ extension BrowseGrid {
 
   func pasteAdjustments() {
     guard let source = clipboard?.contents else { return }
-    let targets = vm.isSelecting ? vm.selectedAssets : (vm.selectedAsset.map { [$0] } ?? [])
+    let targets =
+      vm.isSelecting
+      ? vm.selectedAssets(sessions: sessions) : (vm.selectedAsset.map { [$0] } ?? [])
     presentTransfer(source: source, assets: targets)
   }
 
@@ -37,7 +39,7 @@ extension BrowseGrid {
       clipboard.batchTransfers.error = "Open a single library or folder to sync settings."
       return
     }
-    let targets = vm.selectedAssets.filter { $0.id != source.id }
+    let targets = vm.selectedAssets(sessions: sessions).filter { $0.id != source.id }
     Task {
       do {
         _ = try library.store(source)

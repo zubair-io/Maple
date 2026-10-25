@@ -255,7 +255,8 @@ struct BrowseGrid: View {
           onPasteAdjustments: clipboard != nil ? { pasteAdjustments() } : nil,
           onCopyAdjustments: clipboard != nil ? { copyAdjustments() } : nil,
           onSyncSettings: clipboard != nil ? { syncSettings() } : nil,
-          canPaste: (clipboard?.hasContents ?? false) && !vm.selectedIDs.isEmpty,
+          canPaste: (clipboard?.hasContents ?? false)
+            && !vm.selectedAssets(sessions: sessions).isEmpty,
           canSync: canSyncSettings
         )
       }
@@ -389,7 +390,11 @@ struct BrowseGrid: View {
           guard asset.thumbnailProvenance != .photoKit, !(vm.currentSource is PhotoKitSource) else {
             return nil
           }
-          let active = vm.isSelecting ? vm.selectedIDs : (vm.selectedID.map { Set([$0]) } ?? [])
+          let visible = Set(vm.gridAssets(sessions: sessions).map(\.id))
+          let active =
+            vm.isSelecting
+            ? vm.selectedIDs.intersection(visible)
+            : (vm.selectedID.flatMap { visible.contains($0) ? Set([$0]) : nil } ?? [])
           guard active.contains(asset.id), active.count > 1 else {
             return DraggedAssetPayload(ids: [asset.id], resolveAssets: { [asset] })
           }

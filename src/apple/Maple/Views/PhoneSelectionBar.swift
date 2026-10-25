@@ -25,7 +25,7 @@
     @State private var showingTrashConfirmation = false
     @State private var pendingTrashIDs: [AssetRef.ID] = []
 
-    private var selectedAssets: [AssetRef] { vm.selectedAssets }
+    private var selectedAssets: [AssetRef] { vm.selectedAssets(in: displayedAssets) }
 
     private var hasSelection: Bool { !selectedAssets.isEmpty }
 
@@ -62,7 +62,7 @@
       guard let sourceID = vm.selectedID,
         vm.selectedAsset?.adjustmentTransferTarget != nil
       else { return false }
-      return vm.selectedIDs.contains { $0 != sourceID }
+      return selectedAssets.contains { $0.id != sourceID }
     }
 
     private var allSelected: Bool {
@@ -71,7 +71,7 @@
 
     private var selectAllState: MuiCheckboxState {
       if allSelected { return .checked }
-      return vm.selectedIDs.isEmpty ? .unchecked : .indeterminate
+      return selectedAssets.isEmpty ? .unchecked : .indeterminate
     }
 
     private var canTrash: Bool {
@@ -97,7 +97,7 @@
           .accessibilityLabel(allSelected ? "Deselect all photos" : "Select all photos")
           .accessibilityIdentifier("phone-select-all")
 
-          Text("\(vm.selectedIDs.count) selected")
+          Text("\(selectedAssets.count) selected")
             .font(.subheadline)
             .frame(minHeight: 44)
             .padding(.horizontal, 12)
@@ -158,7 +158,7 @@
             }
             if let onMergePanorama {
               Button("Merge to Panorama…", systemImage: "photo.stack", action: onMergePanorama)
-                .disabled(!vm.canMergePanorama || !canExport)
+                .disabled(selectedAssets.count < 2 || !canExport)
             }
             if onTrashAssets != nil {
               Button("Move to Trash", systemImage: "trash", role: .destructive) {
@@ -184,7 +184,9 @@
         titleVisibility: .visible
       ) {
         Button("Move to Trash", role: .destructive) {
-          onTrashAssets?(pendingTrashIDs)
+          let visible = Set(selectedAssets.map(\.id))
+          let targets = pendingTrashIDs.filter { visible.contains($0) }
+          if !targets.isEmpty { onTrashAssets?(targets) }
           pendingTrashIDs = []
         }
       }

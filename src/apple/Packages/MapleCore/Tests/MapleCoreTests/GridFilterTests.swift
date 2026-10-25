@@ -44,13 +44,53 @@ struct GridFilterTests {
     let visible = vm.gridAssets(sessions: [:])
     vm.enterSelectMode()
     vm.selectedIDs = Set(visible.map(\.id))
-    #expect(vm.selectedAssets.map(\.id) == [vm.assets[2].id])
+    #expect(vm.selectedAssets(sessions: [:]).map(\.id) == [vm.assets[2].id])
     vm.selectedID = vm.assets[0].id
     vm.selectNext(in: visible)
     #expect(vm.selectedID == vm.assets[2].id)
     vm.selectGridFilter(.all)
     #expect(vm.selectedIDs.isEmpty)
     #expect(vm.selectedID == nil)
+  }
+
+  @Test("A renamed asset reloads metadata under its new identity")
+  func renamedAssetReloadsMetadata() async {
+    let vm = BrowseViewModel()
+    let original = AssetRef.preview(displayName: "before.jpg")
+    let renamed = AssetRef.preview(displayName: "after.jpg")
+    vm.assets = [original]
+    vm.selectGridFilter(.picks)
+    await vm.loadGridFilterMetadata { _ in
+      GridFilterMetadata(culling: CullingState(flag: .pick), hasEdits: false)
+    }
+    vm.assets = [renamed]
+    vm.invalidateGridFilterForAssetIdentityChange()
+    #expect(vm.gridAssets(sessions: [:]).isEmpty)
+    await vm.loadGridFilterMetadata { _ in
+      GridFilterMetadata(culling: CullingState(flag: .pick), hasEdits: false)
+    }
+    #expect(vm.gridAssets(sessions: [:]).map(\.id) == [renamed.id])
+  }
+
+  @Test("Bulk targets follow the same live culling state as visible tiles")
+  func selectedAssetsUseLiveCulling() async {
+    let vm = BrowseViewModel()
+    let assets = (0..<2).map { AssetRef.preview(displayName: "sample-\($0).jpg") }
+    vm.assets = assets
+    vm.selectGridFilter(.picks)
+    await vm.loadGridFilterMetadata { _ in
+      GridFilterMetadata(culling: CullingState(flag: .pick), hasEdits: false)
+    }
+    vm.enterSelectMode()
+    vm.selectedIDs = Set(assets.map(\.id))
+    let changedSession = EditSession(asset: assets[0])
+    changedSession.culling.flag = .none
+    changedSession.hasLoadedSidecar = true
+    let sessions = [assets[0].id: changedSession]
+    let visible = vm.gridAssets(sessions: sessions)
+    #expect(visible.map(\.id) == [assets[1].id])
+    #expect(vm.selectedAssets(sessions: sessions).map(\.id) == [assets[1].id])
+    #expect(vm.selectedAssets(in: visible).map(\.id) == [assets[1].id])
   }
 
   @Test("Tapping the active filter keeps its loaded results")
