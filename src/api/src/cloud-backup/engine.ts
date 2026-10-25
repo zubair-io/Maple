@@ -369,6 +369,12 @@ export class BackupEngine {
       await this.validateCurrentInventory(ctx, location, files);
       return await this.publishCatalog(ctx, location, objects);
     } catch (error) {
+      // The caller stopped (worker shutdown), so the failure says nothing about
+      // this entry; persisted checkpoints let the next claim resume it.
+      if (signal?.aborted) {
+        await repo.release(initial, owner);
+        return false;
+      }
       if (destinationOutage(error)) this.probeHealthy.delete(destination.id);
       await repo.fail(
         initial,

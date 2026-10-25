@@ -38,6 +38,7 @@ const google: BackupDestination = {
     blocked: 0,
     bytes: 84500000000,
     lastError: null,
+    lastErrorCount: 0,
   },
 };
 const folder: BackupDestination = {
@@ -147,6 +148,7 @@ export const EdgeCases: Story = {
                     purgePending: 4,
                     blocked: 14,
                     lastError: 'Reconnect Google to complete permanent-delete obligations.',
+                    lastErrorCount: 14,
                   },
                 },
               ]),

@@ -64,17 +64,24 @@ async function projection(row: BackupDestination) {
     trash: number;
     blocked: number;
     bytes: number;
-    lastError: string | null;
   }>(
     `SELECT COALESCE(SUM(CASE WHEN state!='purged' AND verified_sequence<sequence THEN 1 ELSE 0 END),0) AS pending,
       COALESCE(SUM(CASE WHEN state!='purged' AND verified_sequence=sequence THEN 1 ELSE 0 END),0) AS verified,
       COALESCE(SUM(CASE WHEN state='trash' THEN 1 ELSE 0 END),0) AS trash,
       COALESCE(SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END),0) AS blocked,
-      COALESCE(SUM((SELECT SUM(json_extract(value,'$.object.size')) FROM json_each(manifest,'$.files'))),0) AS bytes,
-      MAX(last_error) AS lastError FROM backup_entries WHERE destination_id=?`,
+      COALESCE(SUM((SELECT SUM(json_extract(value,'$.object.size')) FROM json_each(manifest,'$.files'))),0) AS bytes
+      FROM backup_entries WHERE destination_id=?`,
     [row.id],
   );
   if (!status) throw new Error('Backup status query failed');
+  // The error most entries share is what holds the queue; MAX() on text would
+  // surface whichever message sorts last alphabetically instead.
+  const [dominant] = await repo.db.read<{ message: string; count: number }>(
+    `SELECT last_error AS message,COUNT(*) AS count FROM backup_entries
+      WHERE destination_id=? AND last_error IS NOT NULL
+      GROUP BY last_error ORDER BY count DESC,MAX(retry_at) DESC LIMIT 1`,
+    [row.id],
+  );
   const purges = await repo.purges(row.id);
   const [coverage] = await repo.db.read<{
     pending: number;
@@ -110,7 +117,8 @@ async function projection(row: BackupDestination) {
       bytes: status.bytes,
       lastError: coverage.prepared
         ? 'Interrupted local move requires recovery or retry'
-        : status.lastError,
+        : (dominant?.message ?? null),
+      lastErrorCount: coverage.prepared ? coverage.prepared : (dominant?.count ?? 0),
       purgePending: purges.filter((p) => !p.completed).length,
     },
   };
