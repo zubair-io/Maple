@@ -23,6 +23,7 @@ import { isM2Asset, readAssetBytes } from './library-cache.byte-source';
 import { previewLoader } from './library-cache.preview-loader';
 import { HostedByteSnapshotCache } from './hosted-byte-snapshot-cache';
 import { decodeHostedThumb } from './library-cache.hosted-thumb';
+import { HostedSidecarErrors } from './hosted-sidecar-errors.service';
 import { ThumbLoadQueue, QUEUE_CLEARED_MESSAGE } from './library-cache.thumb-queue';
 
 @Injectable({ providedIn: 'root' })
@@ -35,6 +36,7 @@ export class LibraryCache {
   private readonly cache = inject(MapleCacheService);
   private readonly pipeline = inject(RawPipelineService);
   private readonly hostedPreview = inject(HostedPreviewResolver);
+  private readonly sidecarErrors = inject(HostedSidecarErrors);
   private readonly destroyRef = inject(DestroyRef, { optional: true });
 
   private _lastSelectedSourceId = this.selection.selectedSourceId();
@@ -453,6 +455,7 @@ export class LibraryCache {
   }
 
   private async _tryReadCachedThumb(folder: MapleFolderHandle, asset: Asset): Promise<boolean> {
+    if (this.sidecarErrors.errors().has(asset.id)) return false;
     try {
       const cached = await this.cache.readThumb(folder, asset.filename);
       if (cached) {
@@ -469,7 +472,6 @@ export class LibraryCache {
     asset: Asset,
     onThumbWritten?: (id: AssetId) => void,
   ): Promise<void> {
-    // 1. Hosted: try the .maple/thumbs/ on-disk cache first (local IndexedDB lookup, no network).
     if (this.store.backend !== 'self-hosted') {
       const folder = this.store.currentFolder();
       if (folder && (await this._tryReadCachedThumb(folder, asset))) {
@@ -542,7 +544,7 @@ export class LibraryCache {
     bitmap.close();
     const { blob, format } = await canvasToBlob(canvas);
     this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
-    if (folder?.write) {
+    if (folder?.write && !this.sidecarErrors.errors().has(asset.id)) {
       void this.cache
         .writeThumb(folder, asset.filename, blob, format)
         .then(() => onThumbWritten?.(asset.id));
