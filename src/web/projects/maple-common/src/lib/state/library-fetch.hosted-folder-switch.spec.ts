@@ -255,4 +255,42 @@ describe('Hosted openFolder with a stale focused asset (#4683)', () => {
     const primary = new TextDecoder().decode(await sidecarBytes(folderA));
     expect(TestBed.inject(XmpParserService).parseAdjustmentModel(primary).model.exposure).toBe(2);
   });
+
+  it('still opens a folder when a retained variant sidecar has disappeared', async () => {
+    const variantId = '0f4e2b6a-7c3d-4e5f-8a9b-0c1d2e3f4a5b';
+    const variantName = `photo.v${variantId}.xmp`;
+    await fs.writeFile(
+      join(folderA.persistedKey!, variantName),
+      workflow_embed_xmp(
+        JSON.stringify({
+          schemaVersion: 1,
+          variantId,
+          variantName: 'Edited',
+          snapshots: [],
+          history: [],
+        } satisfies SidecarWorkflow),
+        serializer.serialize({ ...defaultAdjustmentModel(), exposure: 4 }),
+      ),
+    );
+    await TestBed.inject(XmpStoreService).bindVariant(
+      'a:photo.dng',
+      folderA,
+      'photo.dng',
+      variantId,
+    );
+    await fs.writeFile(join(folderA.persistedKey!, 'other.dng'), RAW_BYTES);
+    await fs.writeFile(
+      join(folderA.persistedKey!, 'other.xmp'),
+      serializer.serialize({ ...defaultAdjustmentModel(), exposure: 6 }),
+    );
+
+    await library.openFolder(folderB);
+    await fs.rm(join(folderA.persistedKey!, variantName));
+    await library.openFolder(folderA);
+
+    expect(library.currentFolder()).toBe(folderA);
+    expect(library.assets().map((asset) => asset.id)).toContain('a:other.dng');
+    expect(library.adjustmentModels().get('a:other.dng')?.exposure).toBe(6);
+    expect(library.adjustmentModels().get('a:photo.dng')?.exposure).toBe(0);
+  });
 });
