@@ -3,6 +3,7 @@ import { createApplication } from '@angular/platform-browser';
 import { HostedRawSidecarService } from '../../projects/maple-common/src/lib/state/hosted-raw-sidecar.service';
 import { RawPipelineService } from '../../projects/maple-common/src/lib/raw-pipeline/raw-pipeline.service';
 import { HostedPreviewResolver } from '../../projects/maple-common/src/lib/state/hosted-preview-resolver.service';
+import { HostedSidecarErrors } from '../../projects/maple-common/src/lib/state/hosted-sidecar-errors.service';
 import { LibraryStore } from '../../projects/maple-common/src/lib/state/library-store.service';
 import { MapleCacheService } from '../../projects/maple-common/src/lib/maple-cache/maple-cache.service';
 import { GPU_LIVE_RENDER_ENABLED } from '../../projects/maple-common/src/lib/raw-pipeline/gpu-live-render.token';
@@ -256,6 +257,23 @@ export async function run(options: Options) {
     const resolver = app.injector.get(HostedPreviewResolver);
     const cache = app.injector.get(MapleCacheService);
     const settleWrites = trackWrites(cache);
+    if (options.failure === 'malformed') {
+      app.injector.get(HostedSidecarErrors).errors.set(new Map([[id, 'Unreadable XMP']]));
+      const blob = await resolver.resolve(id, fixture.bytes, fixture.source, fixture.snapshot);
+      const cacheExists = await fixture.album.getDirectoryHandle('.maple').then(
+        () => true,
+        () => false,
+      );
+      const sidecar = await (
+        await (await fixture.album.getFileHandle('photo.xmp')).getFile()
+      ).text();
+      return {
+        displayed: !!blob,
+        cacheExists,
+        originalUnchanged: equal(await fixture.bytes(), fixture.rawBytes),
+        xmpUnchanged: sidecar === fixture.xml,
+      };
+    }
     if (options.failure) return await rejection(resolver, fixture);
     if (options.race) return await changedSidecar(resolver, fixture, app);
     const blob = await resolver.resolve(id, fixture.bytes, fixture.source, fixture.snapshot);
