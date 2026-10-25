@@ -227,7 +227,8 @@ pub use frame_delta::SliderFrameExport;
 
 #[path = "wb_hsm_retarget.rs"]
 mod hsm_retarget;
-use hsm_retarget::retarget_render_cct;
+pub(crate) use hsm_retarget::render_retarget;
+use hsm_retarget::{retarget_render_cct, RenderRetarget};
 pub use hsm_retarget::{HsmLiveDelta, HsmRetargetView, WbHsmRetarget, HSM_INVERSE_ITERATIONS};
 
 // WB slider-scale migration (#1780): converts pre-#1756 (V1) stored
@@ -526,13 +527,15 @@ pub fn retargeted_render_profile(
     temperature: f32,
     tint: f32,
 ) -> DcpProfile {
-    let Some(e) = profile.cm_endpoints else {
-        return profile; // single-calibration render profile: nothing to re-interpolate
-    };
-    let Some(render_cct) = retarget_render_cct(frame, &e, temperature, tint) else {
+    // No retarget: a single-calibration profile, or the as-shot target.
+    let Some(RenderRetarget {
+        endpoints: e,
+        cct: render_cct,
+        forward_matrix,
+    }) = render_retarget(frame, &profile, temperature, tint)
+    else {
         return profile;
     };
-    let forward_matrix = profile.forward_matrix_for_cct(render_cct);
     let hsm = match (&profile.hsm_endpoints, forward_matrix) {
         (Some(h), Some(_)) => dcp::lerp_hsm_for_cct(
             Some(&h.cold),

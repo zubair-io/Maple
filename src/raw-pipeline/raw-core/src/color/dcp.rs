@@ -312,10 +312,20 @@ fn soft_floor(p: [f32; 3]) -> [f32; 3] {
 /// shares the exact dispatch `apply_with_post_pro` renders with — a second
 /// hand-rolled copy of this match would drift.
 pub(crate) fn camera_to_prophoto_matrix(profile: &DcpProfile) -> crate::Result<Matrix3> {
+    camera_to_prophoto_with_forward(profile, profile.forward_matrix)
+}
+
+/// [`camera_to_prophoto_matrix`] with the ForwardMatrix supplied, so a white
+/// balance retarget can name the matrix `wb_camera::retargeted_render_profile`
+/// would install without cloning the profile's tables.
+pub(crate) fn camera_to_prophoto_with_forward(
+    profile: &DcpProfile,
+    forward_matrix: Option<Matrix3>,
+) -> crate::Result<Matrix3> {
     let inv_pro = M_PRO_TO_XYZ_D50
         .inverse()
         .expect("ProPhoto matrix is invertible");
-    match (profile.forward_matrix, profile.wb_already_baked) {
+    match (forward_matrix, profile.wb_already_baked) {
         (Some(fm), true) => Ok(inv_pro.mul_mat(&fm)),
         _ => {
             // Non-FM / pre-gain-skipped path: invert CM here (lazily — the
@@ -624,6 +634,19 @@ pub fn interpolated_profile(
     }
 }
 
+/// The reciprocal-CCT weight of the warm table at `cct_target`, the same `t`
+/// `interpolate_cm` uses. `None` when the two calibrations are the same
+/// illuminant, where the cold table stands alone.
+pub(crate) fn hsm_lerp_weight(cct_cold: f32, cct_warm: f32, cct_target: f32) -> Option<f32> {
+    if (cct_cold - cct_warm).abs() < 1.0 {
+        return None;
+    }
+    let inv_t1 = 1.0 / cct_cold;
+    let inv_t2 = 1.0 / cct_warm;
+    let inv_target = 1.0 / cct_target;
+    Some(((inv_target - inv_t1) / (inv_t2 - inv_t1)).clamp(0.0, 1.0))
+}
+
 /// Pick or interpolate an HSM table for a target scene CCT, mirroring the
 /// reciprocal-CCT algorithm in `interpolate_cm`. Used by both
 /// `interpolated_profile` (dual-illuminant DCP path) and `profile_for`
@@ -640,20 +663,12 @@ pub(crate) fn lerp_hsm_for_cct(
     cct_target: f32,
 ) -> Option<HsmTable> {
     match (hsm_cold, hsm_warm) {
-        (Some(c), Some(w)) => {
-            // Same `t` formula used by `interpolate_cm`, kept inline so the
-            // two functions can drift together if the CCT model ever changes.
-            if (cct_cold - cct_warm).abs() < 1.0 {
-                return Some(c.clone());
-            }
-            let inv_t1 = 1.0 / cct_cold;
-            let inv_t2 = 1.0 / cct_warm;
-            let inv_target = 1.0 / cct_target;
-            let t = ((inv_target - inv_t1) / (inv_t2 - inv_t1)).clamp(0.0, 1.0);
+        (Some(c), Some(w)) => match hsm_lerp_weight(cct_cold, cct_warm, cct_target) {
+            None => Some(c.clone()),
             // If shapes don't match (rare malformed DNG), fall back to the
             // cold table — applying a same-shape mismatch ratio would crash.
-            hsm::lerp_tables(c, w, t).or_else(|| Some(c.clone()))
-        }
+            Some(t) => hsm::lerp_tables(c, w, t).or_else(|| Some(c.clone())),
+        },
         (Some(c), None) => Some(c.clone()),
         (None, Some(w)) => Some(w.clone()),
         (None, None) => None,
