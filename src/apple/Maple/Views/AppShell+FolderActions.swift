@@ -296,11 +296,26 @@ extension AppShell {
       currentRootBookmark = folder.bookmark
       // Scope-backed root for the VM so AssetRefs carry the token.
       browseVM.currentScopeRoot = folderURL
-      await ThumbnailDiskCache.shared.configure(folderURL: folderURL)
-      await RenderedPreviewCache.shared.configure(folderURL: folderURL)
-      guard librarySelection == .folder(path: folderURL.path) else { return }
-      await browseVM.loadFolder(url: folderURL)
-      guard librarySelection == .folder(path: folderURL.path) else { return }
+      // A bookmark may follow a moved folder to a different URL. The sidebar
+      // still identifies the saved selection by its original path, so compare
+      // against that identity rather than discarding the resolved load.
+      guard librarySelection == .folder(path: folder.path) else { return }
+      let prepareCache: @MainActor () async -> Void = {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDirectory),
+          isDirectory.boolValue
+        else { return }
+        // These caches create `.maple` inside their root. Never configure
+        // them while the source is absent: that would recreate a missing
+        // folder and turn a disconnect into a misleading empty listing.
+        await ThumbnailDiskCache.shared.configure(folderURL: folderURL)
+        await RenderedPreviewCache.shared.configure(folderURL: folderURL)
+      }
+      await prepareCache()
+      await browseVM.loadFolder(url: folderURL, prepareRetry: prepareCache)
+      guard librarySelection == .folder(path: folder.path), browseVM.loadError == nil else {
+        return
+      }
       pruneSessionsForNewAssetList()
       SourceSelectionStore.save(.filesystem(bookmark: folder.bookmark))
       SavedFolderStore.upsert(

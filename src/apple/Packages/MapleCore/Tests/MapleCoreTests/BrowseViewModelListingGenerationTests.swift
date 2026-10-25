@@ -47,7 +47,7 @@ struct BrowseViewModelListingGenerationTests {
 
     await vm.loadFolder(url: missing)
 
-    #expect(vm.loadError != nil)
+    #expect(vm.loadError is BrowseFolderUnavailableError)
     #expect(vm.listingGeneration == initial)
   }
 
@@ -57,17 +57,21 @@ struct BrowseViewModelListingGenerationTests {
       .appendingPathComponent("maple-retry-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: folder) }
     let vm = BrowseViewModel()
+    var preparationCalls = 0
 
-    await vm.loadFolder(url: folder)
-    #expect(vm.loadError != nil)
+    await vm.loadFolder(url: folder, prepareRetry: { preparationCalls += 1 })
+    #expect(vm.loadError is BrowseFolderUnavailableError)
+    #expect(preparationCalls == 0)
     await vm.retryLastLoad()
-    #expect(vm.loadError != nil)
+    #expect(vm.loadError is BrowseFolderUnavailableError)
+    #expect(preparationCalls == 1)
     #expect(vm.assets.isEmpty)
 
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     try Data([0xFF, 0xD8, 0xFF, 0xD9]).write(to: folder.appendingPathComponent("recovered.jpg"))
     await vm.retryLastLoad()
     #expect(vm.loadError == nil)
+    #expect(preparationCalls == 2)
     #expect(vm.assets.map(\.displayName) == ["recovered"])
   }
 

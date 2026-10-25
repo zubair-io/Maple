@@ -1,5 +1,11 @@
 import Foundation
 
+public struct BrowseFolderUnavailableError: LocalizedError {
+  public var errorDescription: String? {
+    "This folder is temporarily unavailable. Reconnect its storage, then Retry."
+  }
+}
+
 extension BrowseViewModel {
   /// Clear the previous source before folder setup suspends for cache or
   /// bookmark work. A PhotoKit filter must never page into the new folder.
@@ -22,11 +28,12 @@ extension BrowseViewModel {
 
   /// Enumerate and construct refs off MainActor, including NAS metadata reads.
   /// Publish only if this request still owns the current folder generation.
-  public func loadFolder(url: URL) async {
+  public func loadFolder(url: URL, prepareRetry: (@MainActor () async -> Void)? = nil) async {
     guard !Task.isCancelled else { return }
     retryLoader = { [weak self] in
       guard let self else { return }
-      await self.loadFolder(url: url)
+      await prepareRetry?()
+      await self.loadFolder(url: url, prepareRetry: prepareRetry)
     }
     beginLoadingFilesystemFolder()
     let gen = loadGeneration
@@ -48,14 +55,16 @@ extension BrowseViewModel {
         let accessing = scope.startAccessingSecurityScopedResource()
         defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
         let fm = FileManager.default
-        guard
-          let contents = try? fm.contentsOfDirectory(
+        let contents: [URL]
+        do {
+          contents = try fm.contentsOfDirectory(
             at: url,
             includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
             options: [.skipsHiddenFiles]
           )
-        else {
-          throw CocoaError(.fileReadUnknown)
+        } catch {
+          if !fm.fileExists(atPath: url.path) { throw BrowseFolderUnavailableError() }
+          throw error
         }
 
         // Partition into sub-folders (minus dotfolders like .maple/) and RAW
