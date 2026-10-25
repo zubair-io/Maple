@@ -184,20 +184,16 @@ public actor ThumbnailLoader {
     let accessing = scope.startAccessingSecurityScopedResource()
     defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
 
-    // ASSET-RELATIVE .maple/thumbs (#1365) — the same file step 1 reads,
-    // retried here under the claimed scope for callers whose step-1 read
-    // had none.
-    let relThumb = MapleSidecarPaths.thumbURL(for: assetURL)
-    if let data = MapleSidecarPaths.readDerivative(
-      at: relThumb, legacy: MapleSidecarPaths.legacyThumbURL(for: assetURL))
-    {
+    // Retry under the claimed scope, using the same original/XMP freshness
+    // gate as step 1. A raw derivative read here would re-stamp stale bytes
+    // after an external sidecar change (#5346).
+    if let data = await ThumbnailDiskCache.shared.thumbnailData(for: assetURL) {
       if Self.isUsableImageData(data) {
         guard !Task.isCancelled else { return nil }
-        await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
         return data
       }
       // A broken shared derivative should trigger source-based regeneration.
-      try? FileManager.default.removeItem(at: relThumb)
+      await ThumbnailDiskCache.shared.removeThumbnail(for: assetURL)
     }
 
     // VIDEO PATH — extract a poster frame via AVFoundation (#1642).

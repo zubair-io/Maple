@@ -26,10 +26,45 @@ final class ThumbnailLoaderSidecarTests: XCTestCase {
     let image = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 256, height: 128))
     let expected = try XCTUnwrap(ThumbnailLoader.encodeDisplayPreview(from: image))
     try expected.write(to: thumbURL)
+    LocalDerivativeSourceStamp.record(thumbURL, for: panoURL)
 
     let got = await ThumbnailLoader.shared.load(for: panoURL)
     XCTAssertEqual(got, expected)
 
+  }
+
+  func testRemovedSidecarCannotRestampOldThumbnailAsFresh() async throws {
+    let fm = FileManager.default
+    let folder = fm.temporaryDirectory.appendingPathComponent(
+      "external-xmp-thumb-\(UUID().uuidString)")
+    try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: folder) }
+    let asset = folder.appendingPathComponent("photo.png")
+    let blue = CIImage(color: .blue).cropped(to: CGRect(x: 0, y: 0, width: 320, height: 200))
+    let source = try XCTUnwrap(
+      CIContext().pngRepresentation(
+        of: blue, format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB()))
+    try source.write(to: asset)
+    let sidecar = SidecarPath.sidecarURL(for: asset)
+    try Data("<xmp>edited</xmp>".utf8).write(to: sidecar)
+
+    let staleImage = CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 256, height: 256))
+    let stale = try XCTUnwrap(ThumbnailLoader.encodeDisplayPreview(from: staleImage))
+    let thumb = MapleSidecarPaths.thumbURL(for: asset)
+    try fm.createDirectory(at: thumb.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try stale.write(to: thumb)
+    LocalDerivativeSourceStamp.record(thumb, for: asset)
+    let loader = ThumbnailLoader()
+    let beforeRemoval = await loader.load(for: asset)
+    XCTAssertEqual(beforeRemoval, stale)
+
+    try fm.removeItem(at: sidecar)
+    let afterRemoval = await loader.load(for: asset)
+    XCTAssertNotNil(afterRemoval)
+    XCTAssertNotEqual(
+      afterRemoval, stale, "the scoped retry must regenerate, not re-stamp old bytes")
+    XCTAssertEqual(try Data(contentsOf: thumb), afterRemoval)
+    XCTAssertTrue(LocalDerivativeSourceStamp.isFresh(thumb, for: asset))
   }
 
   func testLoadRejectsCorruptAssetRelativeCachedDerivative() async throws {
