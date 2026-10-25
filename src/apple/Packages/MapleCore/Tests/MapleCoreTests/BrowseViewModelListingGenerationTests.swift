@@ -51,6 +51,26 @@ struct BrowseViewModelListingGenerationTests {
     #expect(vm.listingGeneration == initial)
   }
 
+  @Test("Retry keeps a failed folder actionable and reloads it once access returns")
+  func retryFolderLoadAfterRecovery() async throws {
+    let folder = FileManager.default.temporaryDirectory
+      .appendingPathComponent("maple-retry-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let vm = BrowseViewModel()
+
+    await vm.loadFolder(url: folder)
+    #expect(vm.loadError != nil)
+    await vm.retryLastLoad()
+    #expect(vm.loadError != nil)
+    #expect(vm.assets.isEmpty)
+
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    try Data([0xFF, 0xD8, 0xFF, 0xD9]).write(to: folder.appendingPathComponent("recovered.jpg"))
+    await vm.retryLastLoad()
+    #expect(vm.loadError == nil)
+    #expect(vm.assets.map(\.displayName) == ["recovered"])
+  }
+
   @Test("selection changes inside a listing do not advance it")
   func selectionDoesNotAdvance() async throws {
     let dir = try makeFolder("selection")

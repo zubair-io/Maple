@@ -66,6 +66,16 @@ public final class BrowseViewModel {
   /// reads fail with EPERM.
   @ObservationIgnored public var currentScopeRoot: URL?
 
+  /// Replays the most recent source request when Browse offers Retry.
+  /// Kept outside observation and captured weakly by each loader so the
+  /// request cannot retain this view model after its screen is dismissed.
+  @ObservationIgnored var retryLoader: (@MainActor () async -> Void)?
+
+  public func retryLastLoad() async {
+    guard !isLoading, let retryLoader else { return }
+    await retryLoader()
+  }
+
   public enum SortOrder: Sendable { case nameAscending, nameDescending, dateDescending }
 
   /// Monotonically increasing load generation. Each `loadFolder` bumps it;
@@ -99,6 +109,10 @@ public final class BrowseViewModel {
   /// actor. Each `await` is followed by a generation check so that a folder
   /// switch mid-load cannot overwrite the newer selection.
   public func loadFolder(_ folderURL: URL, via source: FilesystemSource) async {
+    retryLoader = { [weak self] in
+      guard let self else { return }
+      await self.loadFolder(folderURL, via: source)
+    }
     loadGeneration &+= 1
     let gen = loadGeneration
     isLoading = true
@@ -138,6 +152,10 @@ public final class BrowseViewModel {
   /// (PhotoKit, SelfHosted) build a bytes-provider-backed AssetRef that
   /// calls `source.rawBytes(for:)` on demand — no synthetic URL kludge.
   public func loadSource(_ source: any ImageSource) async {
+    retryLoader = { [weak self] in
+      guard let self else { return }
+      await self.loadSource(source)
+    }
     loadGeneration &+= 1
     let gen = loadGeneration
     isLoading = true
@@ -209,6 +227,10 @@ public final class BrowseViewModel {
   /// Publish two phone screens immediately, then retain PhotoKit's lazy
   /// fetch result as the backing store for scroll-driven paging.
   public func loadPhotoKitSource(_ source: PhotoKitSource) async {
+    retryLoader = { [weak self] in
+      guard let self else { return }
+      await self.loadPhotoKitSource(source)
+    }
     loadGeneration &+= 1
     let gen = loadGeneration
     isLoading = true
@@ -308,6 +330,7 @@ public final class BrowseViewModel {
   /// wires up the native timeline view).
   public func clear() {
     loadGeneration &+= 1
+    retryLoader = nil
     assets = []
     subfolders = []
     selectedID = nil
@@ -435,6 +458,10 @@ public final class BrowseViewModel {
   /// `.path` is the absolute server path). The grid renders folders
   /// first, then images, just like the local Filesystem flow.
   public func loadCloudDir(_ source: CloudSource, absPath: String) async {
+    retryLoader = { [weak self] in
+      guard let self else { return }
+      await self.loadCloudDir(source, absPath: absPath)
+    }
     loadGeneration &+= 1
     let gen = loadGeneration
     isLoading = true
