@@ -68,6 +68,11 @@ extension BrowseViewModel {
     selectedAssets(in: gridAssets(sessions: sessions))
   }
 
+  /// The focused asset only counts as a grid action target while its tile is visible.
+  public func selectedVisibleAsset(sessions: [AssetRef.ID: EditSession]) -> AssetRef? {
+    gridAssets(sessions: sessions).first { $0.id == selectedID }
+  }
+
   // MARK: - Single selection
 
   public func selectNext() {

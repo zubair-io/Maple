@@ -3,12 +3,12 @@ import SwiftUI
 
 extension BrowseGrid {
   var canSyncSettings: Bool {
-    guard let sourceID = vm.selectedID else { return false }
+    guard let sourceID = vm.selectedVisibleAsset(sessions: sessions)?.id else { return false }
     return vm.selectedAssets(sessions: sessions).contains { $0.id != sourceID }
   }
 
   func copyAdjustments() {
-    guard let clipboard, let asset = vm.selectedAsset else { return }
+    guard let clipboard, let asset = vm.selectedVisibleAsset(sessions: sessions) else { return }
     guard let library = batchLibrary else {
       clipboard.batchTransfers.error = "Open a single library or folder to copy settings."
       return
@@ -29,12 +29,13 @@ extension BrowseGrid {
     guard let source = clipboard?.contents else { return }
     let targets =
       vm.isSelecting
-      ? vm.selectedAssets(sessions: sessions) : (vm.selectedAsset.map { [$0] } ?? [])
+      ? vm.selectedAssets(sessions: sessions)
+      : (vm.selectedVisibleAsset(sessions: sessions).map { [$0] } ?? [])
     presentTransfer(source: source, assets: targets)
   }
 
   func syncSettings() {
-    guard let clipboard, let source = vm.selectedAsset else { return }
+    guard let clipboard, let source = vm.selectedVisibleAsset(sessions: sessions) else { return }
     guard let library = batchLibrary else {
       clipboard.batchTransfers.error = "Open a single library or folder to sync settings."
       return

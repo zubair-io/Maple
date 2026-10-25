@@ -27,7 +27,8 @@
     }
 
     private var canSync: Bool {
-      guard batchLibrary != nil, let source = vm.selectedAsset,
+      guard batchLibrary != nil,
+        let source = displayedAssets.first(where: { $0.id == vm.selectedID }),
         source.adjustmentTransferTarget != nil
       else { return false }
       return vm.selectedAssets(in: displayedAssets).contains { $0.id != source.id }
@@ -80,7 +81,9 @@
     }
 
     private func syncSettings() {
-      guard let clipboard, let source = vm.selectedAsset else { return }
+      guard let clipboard,
+        let source = displayedAssets.first(where: { $0.id == vm.selectedID })
+      else { return }
       guard let library = batchLibrary else {
         clipboard.batchTransfers.error = "Open a single library or folder to sync settings."
         return

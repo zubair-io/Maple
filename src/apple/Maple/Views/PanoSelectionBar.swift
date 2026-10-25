@@ -47,6 +47,9 @@ struct PanoSelectionBar: View {
   var canSync: Bool = false
 
   private var selectedAssets: [AssetRef] { vm.selectedAssets(in: displayedAssets) }
+  private var focusedAsset: AssetRef? {
+    displayedAssets.first { $0.id == vm.selectedID }
+  }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -140,11 +143,11 @@ struct PanoSelectionBar: View {
               variant: .secondary,
               size: .sm,
               leadingIcon: "doc.on.doc",
-              disabled: vm.selectedAsset == nil,
+              disabled: focusedAsset == nil,
               action: onCopyAdjustments
             )
             .accessibilityLabel(
-              "Copy settings from \(vm.selectedAsset?.displayName ?? "the focused photo")"
+              "Copy settings from \(focusedAsset?.displayName ?? "the focused photo")"
             )
             .accessibilityIdentifier("batch-copy-settings")
           }
