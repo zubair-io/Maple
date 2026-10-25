@@ -569,7 +569,7 @@ Recording evidence:
 # run records failed_cases > 0, which is exactly what demotes the capabilities using it).
 tools/qualification/record.sh grey_adjustments cpu-reference -- bash src/scripts/test_grey_adjustments.sh
 tools/qualification/record.sh sidecar_contract_apple xctest-macos -- \
-  bash -c 'cd src/apple/Packages/MapleCore && swift test --filter SidecarTransactionContract'
+  swift test --package-path src/apple/Packages/MapleCore --filter SidecarTransactionContract
 tools/qualification/record.sh gpu_chain_parity_metal metal -- \
   bash -c 'cd src/raw-pipeline && MAPLE_REQUIRE_GPU=1 cargo test -p raw-wasm --features gpu gpu_render -- --include-ignored'
 # Retired ACR color_harness records are historical; run the Auto JPEG gate directly.

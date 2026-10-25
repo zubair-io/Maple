@@ -915,9 +915,9 @@
         "executed_cases": 12,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "bf379772355c74d8a85e108517615a42ed51cdac",
-        "recorded_at": "2026-10-24T21:40:13Z",
-        "command": "bash -c cd\\ src/apple/Packages/MapleCore\\ \\&\\&\\ swift\\ test\\ --filter\\ SidecarTransactionContract"
+        "git_sha": "483060d10d67f3a8b7ccf78bb7d60d7affad6c49",
+        "recorded_at": "2026-10-25T00:15:10Z",
+        "command": "swift test --package-path src/apple/Packages/MapleCore --filter SidecarTransactionContract"
       }
     },
     {
