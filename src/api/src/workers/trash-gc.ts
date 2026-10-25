@@ -1,12 +1,15 @@
 /**
  * Trash garbage collector — purges trashed assets older than the
  * retention window. Per asset where `deleted_at < now - retentionDays`:
- *   1. Resolve and unlink the recorded Apple-rendered companion, if present.
- *   2. Unlink the file at `abs_path` (already in .maple/trash/...).
- *   3. Unlink every paired sidecar.
- *   4. Delete the asset row from SQLite.
+ *   - Another copy of the photo survives outside Trash (#5403): drop only the
+ *     trashed location, unlink its file and sidecars, and return the photo to
+ *     the library with its row and backups intact (`library/trash-purge-survivor.ts`).
+ *   - Otherwise: unlink the recorded Apple companions, the trashed copy and
+ *     its sidecars, erase its backups, and delete the asset row.
+ * Every file unlink of a copy or sidecar refuses any path that does not
+ * resolve inside the library's `.maple/trash/` (`library/trashed-copy.ts`).
  * EXCEPT reaped rows (`deleted_reason: 'reaped'`, #2977): those have no
- * trashed copy — steps 1–3 are skipped entirely. Reaped rows with backup
+ * trashed copy, so no file is touched. Reaped rows with backup
  * entries remain until explicit permanent delete; elapsed absence does not
  * authorize backup erasure. Other reaped rows are DB-only cleanup, so a file
  * that quietly returned to the original location is never unlinked.
@@ -26,19 +29,24 @@
  */
 
 import { refusesFileUnderMarker } from '../fs/mapleignore-guard.ts';
-import { unlink } from 'node:fs/promises';
 import { listTrashedBefore, type TrashedAsset } from '../db/repos/assets.sweeps.ts';
 import { deleteReapedWithoutActiveBackup, hardDelete } from '../db/repos/assets.trash.ts';
 import { prepareTrashPurge } from '../cloud-backup/lifecycle.ts';
 import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
-import { listPairedSidecars } from '../fs/xmp-conflict.ts';
 import { oldNameEditUnreadable } from '../fs/legacy-backup-sidecar.ts';
-import { assetAbsPath, assetLibraryPath } from '../indexer/images.repo.ts';
-import { resolvePurgeCompanions } from '../library/purge-rendered-companion.ts';
+import {
+  logPurgeFailure,
+  purgeTrashedCopyCompanions,
+  resolveTrashedCopy,
+  unlinkTrashedCopy,
+  type TrashedCopy,
+} from '../library/trashed-copy.ts';
+import { purgeKeepingSurvivor } from '../library/trash-purge-survivor.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('trash-gc');
+const unlinkFailure = logPurgeFailure(log, 'purge unlink failed');
 const DAY_MS = 86_400_000;
 const DEFAULT_RETENTION_DAYS = 30;
 const DEFAULT_INTERVAL_MS = DAY_MS;
@@ -66,25 +74,6 @@ interface PurgeOutcome {
   errors: number;
 }
 
-/**
- * Unlink a path, treating "already gone" as success.
- *
- * ENOENT is the expected outcome for a sweep that re-runs over a row whose
- * files a previous pass removed before it crashed, and for a sidecar the user
- * deleted by hand. Counting it would make a retry look like a fault forever.
- */
-async function unlinkTolerantly(target: string, message: string): Promise<boolean> {
-  try {
-    await unlink(target);
-    return true;
-  } catch (err) {
-    const code = (err as { code?: string } | null)?.code;
-    if (code === 'ENOENT') return true;
-    log.warn({ target, err: err instanceof Error ? err.message : err }, message);
-    return false;
-  }
-}
-
 /** Missing/reaped assets have no user Trash intent, even after the local GC clock expires. */
 async function purgeReapedRow(doc: TrashedAsset): Promise<PurgeOutcome> {
   const result = await deleteReapedWithoutActiveBackup(doc._id, undefined, capturedTrashPurge(doc));
@@ -109,14 +98,15 @@ async function purgeTrashedAsset(
     return purgeReapedRow(doc);
   }
 
-  const absPath = assetAbsPath(doc, libs);
-  if (absPath === null) {
-    // Leave the row alone: without a resolvable path there is nothing to
-    // reclaim on disk, and an unregistered library is a condition that can be
-    // fixed, after which the next pass purges properly.
-    log.warn({ _id: doc._id.toHexString() }, 'purge skip — asset has no resolvable location');
+  const trashed = resolveTrashedCopy(doc.fileinfo, libs);
+  if (trashed === null) {
+    // Leave the row alone: with no location inside `.maple/trash/` there is no
+    // copy this purge is allowed to erase (#5403), and an unregistered library
+    // is a condition that can be fixed, after which the next pass purges.
+    log.warn({ _id: doc._id.toHexString() }, 'purge skip — asset has no copy in Trash');
     return { purged: false, errors: 1 };
   }
+  const absPath = trashed.absPath;
 
   // Never unlink a file under a `.mapleignore` folder (#5398), whatever the
   // row says; `.maple/trash/` itself is never under the guard.
@@ -124,6 +114,7 @@ async function purgeTrashedAsset(
     log.warn({ _id: doc._id.toHexString(), absPath }, 'purge skip — file is under .mapleignore');
     return { purged: false, errors: 1 };
   }
+
   // A purge would strand an old-name edit it can't read (#5063); keep both for a retry.
   if (await oldNameEditUnreadable(absPath)) {
     log.warn(
@@ -132,16 +123,38 @@ async function purgeTrashedAsset(
     );
     return { purged: false, errors: 1 };
   }
-  if (!(await prepareTrashPurge(doc._id.toHexString(), capturedTrashPurge(doc)))) {
-    log.info(
-      { assetId: doc._id.toHexString() },
-      'purge skip — Trash candidate changed or has an active move',
+  const kept = await purgeKeepingSurvivor(doc._id, doc, trashed, unlinkFailure);
+  if (kept.kind === 'kept') return { purged: true, errors: kept.errors };
+  if (kept.kind === 'changed') return candidateChanged(doc);
+  if (kept.kind === 'retry') {
+    log.warn(
+      { _id: doc._id.toHexString(), err: String(kept.error) },
+      'purge skip — backup cleanup of the trashed copy requires retry',
     );
-    return { purged: false, errors: 0 };
+    return { purged: false, errors: 1 };
+  }
+  return purgeWholeAsset(doc, trashed, libs);
+}
+
+function candidateChanged(doc: TrashedAsset): PurgeOutcome {
+  log.info(
+    { assetId: doc._id.toHexString() },
+    'purge skip — Trash candidate changed or has an active move',
+  );
+  return { purged: false, errors: 0 };
+}
+
+/** No other copy survives: erase the trashed copy, its companions and backups, and the row. */
+async function purgeWholeAsset(
+  doc: TrashedAsset,
+  trashed: TrashedCopy,
+  libs: ReadonlyMap<string, string>,
+): Promise<PurgeOutcome> {
+  if (!(await prepareTrashPurge(doc._id.toHexString(), capturedTrashPurge(doc)))) {
+    return candidateChanged(doc);
   }
   try {
-    const companions = await resolvePurgeCompanions(assetLibraryPath(doc, libs)!, doc, absPath);
-    for (const companion of companions) await unlink(companion);
+    await purgeTrashedCopyCompanions(trashed, doc, libs);
   } catch (error) {
     log.warn(
       { _id: doc._id.toHexString(), err: String(error) },
@@ -149,16 +162,9 @@ async function purgeTrashedAsset(
     );
     return { purged: false, errors: 1 };
   }
-  const originalOk = await unlinkTolerantly(absPath, 'purge unlink failed');
-  const sidecarResults: boolean[] = [];
-  for (const sidecar of await listPairedSidecars(absPath)) {
-    sidecarResults.push(await unlinkTolerantly(sidecar, 'purge sidecar unlink failed'));
-  }
+  const errors = await unlinkTrashedCopy(trashed, unlinkFailure);
   await hardDelete(doc._id);
-  return {
-    purged: true,
-    errors: (originalOk ? 0 : 1) + sidecarResults.filter((ok) => !ok).length,
-  };
+  return { purged: true, errors };
 }
 
 /** One pass. Exported for tests + callable from setInterval. */

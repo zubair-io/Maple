@@ -189,6 +189,8 @@
         "src/library/relocate-asset.collision.test.ts",
         "src/library/relocate-asset.test.ts",
         "src/library/batch-rename.test.ts",
+        // #5403: stages a disposable temp library to prove purge leaves untrashed copies byte-identical.
+        "src/library/trashed-copy.test.ts",
         "src/people/clustering-quality-harness.ts",
         "src/routes/assets.changes.integration.test.ts",
         "src/routes/xmp.records-change.test.ts",

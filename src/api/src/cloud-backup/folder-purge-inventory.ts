@@ -123,6 +123,7 @@ async function inventoryLocation(
   location: RecordedLocation,
   history: BackupEntry[],
   repo: BackupRepository,
+  withCompanions: boolean,
 ): Promise<void> {
   relativeBackupPath(location.relative_path);
   const mirror = await mirrorRoot(destination, location);
@@ -134,12 +135,15 @@ async function inventoryLocation(
     location.ordinal,
     location.relative_path,
   );
-  const previous = retained(entry).localFiles ?? [];
+  const recordedCompanions = appleCompanionPaths(location);
+  const previous = (retained(entry).localFiles ?? []).filter(
+    (file) => withCompanions || !recordedCompanions.includes(file.path),
+  );
   // Apple companions belong to the primary location's library root; a
   // deduplicated copy in another library must not erase that root's namesake.
   const companions =
-    location.ordinal === location.primary_ordinal
-      ? appleCompanionPaths(location).map(relativeBackupPath)
+    withCompanions && location.ordinal === location.primary_ordinal
+      ? recordedCompanions.map(relativeBackupPath)
       : [];
   const paths = [
     ...new Set([
@@ -160,10 +164,13 @@ async function inventoryLocation(
 }
 
 /** Erasure follows recorded paths, including missing/reaped locations, rather
- * than the live-source admission rules used by outbound backup uploads. */
+ * than the live-source admission rules used by outbound backup uploads. With
+ * `only`, just that library-relative location is inventoried, and the photo's
+ * Apple companions only when they leave with it (#5403). */
 export async function inventoryFolderPurges(
   assetId: string,
   repo: BackupRepository,
+  only?: { libraryId: string; relativePath: string; withCompanions: boolean },
 ): Promise<void> {
   const locations = await repo.db.read<RecordedLocation>(
     `SELECT l.ordinal,(SELECT MIN(ordinal) FROM asset_locations WHERE asset_id=l.asset_id) AS primary_ordinal,
@@ -178,8 +185,20 @@ export async function inventoryFolderPurges(
     assetId,
   ]);
   for (const destination of (await repo.destinations()).filter((item) => item.kind === 'folder')) {
-    for (const location of locations.filter((item) => item.library_id === destination.libraryId)) {
-      await inventoryLocation(assetId, destination, location, history, repo);
+    for (const location of locations.filter(
+      (item) =>
+        item.library_id === destination.libraryId &&
+        (only === undefined ||
+          (item.library_id === only.libraryId && item.relative_path === only.relativePath)),
+    )) {
+      await inventoryLocation(
+        assetId,
+        destination,
+        location,
+        history,
+        repo,
+        only === undefined || only.withCompanions,
+      );
     }
   }
 }

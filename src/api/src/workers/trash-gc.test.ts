@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'bun:test';
-import { existsSync, mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Database } from 'bun:sqlite';
@@ -79,6 +79,8 @@ function registerLibrary(db: Database, root: string): string {
   return libraryId;
 }
 
+const TRASH_REL = '.maple/trash';
+
 function trashedAsset(
   db: Database,
   args: { libraryId: string; filename: string; deletedAt: string; reason?: string },
@@ -87,13 +89,21 @@ function trashedAsset(
   if (args.reason !== undefined) {
     run(db, `UPDATE assets SET deleted_reason = ? WHERE id = ?`, args.reason, id);
   }
+  // Trash repoints the moved location into `.maple/trash/`; a reaped row keeps
+  // its original address (#2977).
   insertLocation(db, {
     assetId: id,
     libraryId: args.libraryId,
-    path: '',
+    path: args.reason === 'reaped' ? '' : TRASH_REL,
     filename: args.filename,
   });
   return id;
+}
+
+function trashDir(root: string): string {
+  const dir = join(root, ...TRASH_REL.split('/'));
+  mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 function assetIds(db: Database): string[] {
@@ -147,7 +157,7 @@ describe('runTrashGcOnce', () => {
     const libraryId = registerLibrary(live.db, root);
     const now = Date.now();
 
-    for (const name of ['old.jpg', 'new.jpg']) writeFileSync(join(root, name), 'x');
+    for (const name of ['old.jpg', 'new.jpg']) writeFileSync(join(trashDir(root), name), 'x');
 
     const old = trashedAsset(live.db, {
       libraryId,
@@ -167,8 +177,8 @@ describe('runTrashGcOnce', () => {
 
     expect(assetIds(live.db).sort()).toEqual([fresh, liveAsset].sort());
     expect(assetIds(live.db)).not.toContain(old);
-    expect(existsSync(join(root, 'old.jpg'))).toBe(false);
-    expect(existsSync(join(root, 'new.jpg'))).toBe(true);
+    expect(existsSync(join(trashDir(root), 'old.jpg'))).toBe(false);
+    expect(existsSync(join(trashDir(root), 'new.jpg'))).toBe(true);
   });
 
   it('unlinks the paired sidecars alongside the purged original', async () => {
@@ -176,19 +186,19 @@ describe('runTrashGcOnce', () => {
     const root = mkdtempSync(join(tmpdir(), 'maple-trash-gc-sidecars-'));
     const libraryId = registerLibrary(live.db, root);
 
-    writeFileSync(join(root, 'shot.dng'), 'x');
-    writeFileSync(join(root, 'shot.xmp'), '<xmp/>');
+    writeFileSync(join(trashDir(root), 'shot.dng'), 'x');
+    writeFileSync(join(trashDir(root), 'shot.xmp'), '<xmp/>');
     const variant = 'shot.v00000000-0000-0000-0000-000000000064.xmp';
-    writeFileSync(join(root, variant), '<xmp/>');
-    writeFileSync(join(root, 'shot.v2.xmp'), '<xmp>foreign version</xmp>');
+    writeFileSync(join(trashDir(root), variant), '<xmp/>');
+    writeFileSync(join(trashDir(root), 'shot.v2.xmp'), '<xmp>foreign version</xmp>');
     // A neighbour that merely starts with the same stem is not a paired
     // sidecar and must survive the purge.
-    writeFileSync(join(root, 'shot (2).xmp'), '<xmp/>');
+    writeFileSync(join(trashDir(root), 'shot (2).xmp'), '<xmp/>');
     // Its pre-#5021 backup edit goes with it (#5063); another tool's never does.
     const maple = '<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/"/>';
-    writeFileSync(join(root, 'shot.dng.xmp'), maple);
-    writeFileSync(join(root, 'other.dng'), 'y');
-    writeFileSync(join(root, 'other.dng.xmp'), '<x:xmpmeta xmlns:darktable="x"/>');
+    writeFileSync(join(trashDir(root), 'shot.dng.xmp'), maple);
+    writeFileSync(join(trashDir(root), 'other.dng'), 'y');
+    writeFileSync(join(trashDir(root), 'other.dng.xmp'), '<x:xmpmeta xmlns:darktable="x"/>');
 
     trashedAsset(live.db, {
       libraryId,
@@ -199,13 +209,13 @@ describe('runTrashGcOnce', () => {
     const summary = await runTrashGcOnce({ retentionDays: 30 });
     expect(summary).toEqual({ scanned: 1, purged: 1, errors: 0 });
 
-    expect(existsSync(join(root, 'shot.dng'))).toBe(false);
-    expect(existsSync(join(root, 'shot.xmp'))).toBe(false);
-    expect(existsSync(join(root, variant))).toBe(false);
-    expect(existsSync(join(root, 'shot.v2.xmp'))).toBe(true);
-    expect(existsSync(join(root, 'shot (2).xmp'))).toBe(true);
-    expect(existsSync(join(root, 'shot.dng.xmp'))).toBe(false);
-    expect(existsSync(join(root, 'other.dng.xmp'))).toBe(true);
+    expect(existsSync(join(trashDir(root), 'shot.dng'))).toBe(false);
+    expect(existsSync(join(trashDir(root), 'shot.xmp'))).toBe(false);
+    expect(existsSync(join(trashDir(root), variant))).toBe(false);
+    expect(existsSync(join(trashDir(root), 'shot.v2.xmp'))).toBe(true);
+    expect(existsSync(join(trashDir(root), 'shot (2).xmp'))).toBe(true);
+    expect(existsSync(join(trashDir(root), 'shot.dng.xmp'))).toBe(false);
+    expect(existsSync(join(trashDir(root), 'other.dng.xmp'))).toBe(true);
   });
 
   it.skipIf(process.getuid?.() === 0)(
@@ -214,8 +224,8 @@ describe('runTrashGcOnce', () => {
       using live = await createLiveTestDatabase();
       const root = mkdtempSync(join(tmpdir(), 'maple-trash-gc-old-name-unreadable-'));
       const libraryId = registerLibrary(live.db, root);
-      writeFileSync(join(root, 'shot.dng'), 'x');
-      const legacy = join(root, 'shot.dng.xmp');
+      writeFileSync(join(trashDir(root), 'shot.dng'), 'x');
+      const legacy = join(trashDir(root), 'shot.dng.xmp');
       writeFileSync(legacy, '<x:xmpmeta xmlns:papp="http://ns.justmaple.app/photo/1.0/"/>');
       chmodSync(legacy, 0o000);
       trashedAsset(live.db, {
@@ -230,7 +240,7 @@ describe('runTrashGcOnce', () => {
       } finally {
         chmodSync(legacy, 0o644);
       }
-      expect(existsSync(join(root, 'shot.dng'))).toBe(true);
+      expect(existsSync(join(trashDir(root), 'shot.dng'))).toBe(true);
       expect(existsSync(legacy)).toBe(true);
     },
   );

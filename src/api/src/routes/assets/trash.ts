@@ -31,19 +31,23 @@
 import { refusesFileUnderMarker } from '../../fs/mapleignore-guard.ts';
 import { Elysia, t } from 'elysia';
 import type { ObjectId } from '../../db/object-id.ts';
-import { unlink } from 'node:fs/promises';
-import { listPairedSidecars } from '../../fs/xmp-conflict.ts';
 import { oldNameEditUnreadable } from '../../fs/legacy-backup-sidecar.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { trashAssetById, restoreAssetById } from '../../library/asset-trash.ts';
 import { prepareTrashPurge } from '../../cloud-backup/lifecycle.ts';
 import { capturedTrashPurge } from '../../cloud-backup/trash-purge-admission.ts';
-import { assetLibraryPath } from '../../indexer/images.repo.ts';
-import { resolvePurgeCompanions } from '../../library/purge-rendered-companion.ts';
+import {
+  logPurgeFailure,
+  purgeTrashedCopyCompanions,
+  resolveTrashedCopy,
+  unlinkTrashedCopy,
+} from '../../library/trashed-copy.ts';
+import { purgeKeepingSurvivor } from '../../library/trash-purge-survivor.ts';
+import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import type { RestoreAssetOutcome } from '../../library/asset-trash.ts';
 import { findCoreInfoById, hardDelete, parseAssetId } from '../../db/assets.repo.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
-import { resolveAssetAbsPathOrRespond } from './_shared.ts';
+import { assetsLog } from './_shared.ts';
 
 /** Map a `restoreAssetById` outcome to its HTTP status + body. Split out of
  * the route handler below purely to keep that handler's own cyclomatic
@@ -93,17 +97,26 @@ function restoreOutcomeResponse(
   }
 }
 
+const unlinkFailure = logPurgeFailure(assetsLog, 'permanent delete unlink failed');
+
+/** Answered when the purge kept the photo through its surviving copy (#5403). */
+interface SurvivorKeptBody {
+  asset_id: string;
+  state: 'live';
+  abs_path: string | null;
+}
+
 /** The permanent-purge branch of DELETE /:id — the asset is already
- * trashed; unlink the file + sidecars, hard-delete the doc, emit the
- * File Provider delete change. Extracted from the route handler purely
- * for unit-size; behavior is unchanged and it still has no folder-level
- * analogue (#2630).
+ * trashed. With another copy surviving outside Trash, only the trashed
+ * copy goes and the photo returns to the library (200). Otherwise unlink
+ * its `.maple/trash/` copy + sidecars, hard-delete the doc, emit the File
+ * Provider delete change (204). It has no folder-level analogue (#2630).
  */
 async function purgeTrashedAsset(
   id: ObjectId,
   info: NonNullable<Awaited<ReturnType<typeof findCoreInfoById>>>,
   set: { status?: number | string },
-): Promise<{ error: string } | undefined> {
+): Promise<{ error: string } | SurvivorKeptBody | undefined> {
   // A reaped row (#2977) has NO trashed copy — its fileinfo paths point at
   // ORIGINAL library locations, where a file may have quietly returned.
   // Explicit permanent delete authorizes backup erasure, but never unlink a
@@ -121,9 +134,15 @@ async function purgeTrashedAsset(
     }).catch(() => {});
     return;
   }
-  const located = await resolveAssetAbsPathOrRespond(info, set);
-  if ('error' in located) return located;
-  const { absPath, libs } = located;
+  const libs = await loadLibraryRoots();
+  const trashed = resolveTrashedCopy(info.fileinfo, libs);
+  if (trashed === null) {
+    // Only the copy the trash action moved into `.maple/trash/` may be erased
+    // (#5403); without one there is nothing this purge is allowed to unlink.
+    set.status = 404;
+    return { error: 'Asset has no copy in Trash' };
+  }
+  const absPath = trashed.absPath;
   if (await refusesFileUnderMarker(absPath)) {
     set.status = 409;
     return { error: 'The file is under a .mapleignore folder — it is never deleted from there' };
@@ -134,26 +153,28 @@ async function purgeTrashedAsset(
     set.status = 500;
     return { error: "The photo's old-name backup edit can't be read — retry once it can" };
   }
+  const kept = await purgeKeepingSurvivor(id, info, trashed, unlinkFailure);
+  if (kept.kind === 'kept') {
+    set.status = 200;
+    return { asset_id: id.toHexString(), state: 'live', abs_path: kept.survivor.absPath };
+  }
+  if (kept.kind === 'changed') {
+    set.status = 409;
+    return { error: 'Trash state changed — refresh before deleting' };
+  }
+  if (kept.kind === 'retry') {
+    set.status = 500;
+    return { error: 'Backup cleanup of the trashed copy requires retry' };
+  }
   if (!(await admitTrashPurge(id, info, set)))
     return { error: 'Trash state changed — refresh before deleting' };
   try {
-    const companions = await resolvePurgeCompanions(assetLibraryPath(info, libs)!, info, absPath);
-    for (const companion of companions) await unlink(companion);
+    await purgeTrashedCopyCompanions(trashed, info, libs);
   } catch {
     set.status = 500;
     return { error: 'Apple-rendered companion cleanup requires retry' };
   }
-  try {
-    await unlink(absPath);
-  } catch {
-    /* file may already be gone */
-  }
-  const sidecars = await listPairedSidecars(absPath);
-  for (const sidecar of sidecars) {
-    try {
-      await unlink(sidecar);
-    } catch {}
-  }
+  await unlinkTrashedCopy(trashed, unlinkFailure);
   await hardDelete(id);
   set.status = 204;
   // Emit a delete change so the File Provider extension drops this
