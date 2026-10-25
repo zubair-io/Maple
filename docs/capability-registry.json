@@ -906,7 +906,7 @@
         "src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPPassthroughTests.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/XmpMetadata+Empty.swift"
       ],
-      "corpus_hash": "blake3:c3695586a5520f232822e57f44f91e7bd821813c000125755bb5642ef742196c",
+      "corpus_hash": "blake3:b34d2a5d5e4bd4d511226309175219fcda72355ab66042018c97df550d1f18d1",
       "status": "stale_corpus",
       "record": {
         "backend": "xctest-macos",
