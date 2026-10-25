@@ -107,7 +107,11 @@ Colour tokens and adjustment ranges/defaults/wire
 keys come directly from raw-core.
 
 RAW previews, including all eight EXIF orientations, use the shared resident GPU chain on the
-worker. The native UI registers the resulting texture on that same device,
+worker. The resident upload is the capture decode (#5380): capture stages run
+once in the fixed as-shot basis, and each tick renders it through the decode's
+creative stage (white balance, camera profile, highlight recovery, exposure
+gain), so a white-balance drag matches the refined render within one 8-bit step
+without re-developing. The native UI registers the resulting texture on that same device,
 without a CPU readback or pixel upload per tick. The shared presentation shader
 writes encoded sRGB bytes into a UNORM attachment; egui samples a compatible
 sRGB view over that same allocation, so its compositor receives linear samples.

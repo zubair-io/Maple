@@ -2,22 +2,25 @@
 //! Owned by one render worker on the native UI's shared device.
 use raw_core::{
     gpu_host::{
-        live_profile::LiveProfile, model::prefix_matches, prepare::develop_prefix_rgba_cancellable,
-        GpuWhiteBalance,
+        capture::{develop_capture_prefix_rgba_cancellable, LiveCreative},
+        live_profile::LiveProfile,
+        model::prefix_matches,
     },
     types::adjustment::AdjustmentModel,
     ExifOrientation, RawImage,
 };
 use raw_gpu::{CancelToken, GpuContext, LiveSession, PresentGeometry, PresentTexture};
 
+/// The resident upload is the capture decode (#5380) in sensor framing, and
+/// every tick binds the decode's creative stage in place of the
+/// white-balance pass.
 pub struct GpuPreview {
     session: LiveSession,
     target: PresentTexture,
     prefix: AdjustmentModel,
-    white_balance: GpuWhiteBalance,
+    creative: LiveCreative,
     profile: LiveProfile,
     sampling_scale: f32,
-    ae_gain: f32,
     long_edge: u32,
     uploads: u64,
 }
@@ -67,19 +70,19 @@ impl GpuPreview {
         let long_edge = long_edge
             .max(1)
             .min(ctx.device.limits().max_texture_dimension_2d);
-        let (pixels, width, height, prefix, whites_anchor, sampling_scale, ae_gain) =
-            develop_prefix_rgba_cancellable(
-                raw,
-                bytes,
-                ext,
-                model,
-                long_edge,
-                raw_core::CancelToken::new(cancel.flag()),
-            )?;
+        let capture = develop_capture_prefix_rgba_cancellable(
+            raw,
+            bytes,
+            ext,
+            model,
+            long_edge,
+            raw_core::CancelToken::new(cancel.flag()),
+        )?;
         if cancel.is_cancelled() {
             return Err("Preview cancelled".into());
         }
-        let session = LiveSession::new(ctx, &pixels, width, height)?;
+        let (width, height) = (capture.width, capture.height);
+        let session = LiveSession::new(ctx, &capture.rgba, width, height)?;
         let film = crate::film::resolve(&model.film_look)?;
         let display_dims = if raw.orientation.swaps_wh() {
             (height, width)
@@ -99,16 +102,15 @@ impl GpuPreview {
             model,
             film.as_ref().map(|film| film.lut),
             film.as_ref().map_or(0, |film| film.key),
-            whites_anchor,
+            capture.whites_anchor_ev,
         );
         Ok(Self {
             session,
             target,
-            prefix,
-            white_balance: GpuWhiteBalance::resolve(raw)?,
+            prefix: capture.prefix_model,
+            creative: capture.creative,
             profile,
-            sampling_scale,
-            ae_gain,
+            sampling_scale: capture.nr_sampling_scale,
             long_edge,
             uploads: 1,
         })
@@ -199,8 +201,7 @@ impl GpuPreview {
                 film.as_ref().map_or(&[], |film| film.lut.data.as_slice()),
             );
         }
-        self.white_balance
-            .apply(model, self.ae_gain, &mut self.profile.inputs);
+        self.creative.apply(model, &mut self.profile.inputs)?;
         self.profile.inputs.nr_sampling_scale = self.sampling_scale;
         self.profile.inputs.target_primaries = 0; // Native UNORM texture carries sRGB display bytes.
         let Some(index) = self
@@ -243,6 +244,10 @@ fn present_geometry(
         PresentGeometry::from_inverse(composed.0)
     }
 }
+
+#[cfg(test)]
+#[path = "gpu_preview_capture_tests.rs"]
+mod capture_tests;
 
 #[cfg(test)]
 mod present_geometry_tests {
