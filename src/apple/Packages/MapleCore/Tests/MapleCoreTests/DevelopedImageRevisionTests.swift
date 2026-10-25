@@ -117,6 +117,26 @@ final class DevelopedImageRevisionTests: XCTestCase {
       revisions.decodedKey(for: localRef.id, source: .photoKit(localID: localRef.id)))
   }
 
+  func testExternalSidecarRemovalChangesDecodedBitmapIdentity() throws {
+    let folder = FileManager.default.temporaryDirectory
+      .appendingPathComponent("maple-revision-sidecar-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let asset = folder.appendingPathComponent("photo.jpg")
+    let sidecar = SidecarPath.sidecarURL(for: asset)
+    try Data([0x01]).write(to: asset)
+    try Data("<xmp>crop</xmp>".utf8).write(to: sidecar)
+
+    let revisions = DevelopedImageRevision()
+    let withEdit = revisions.decodedKey(for: "photo", url: asset)
+    try FileManager.default.removeItem(at: sidecar)
+    let withoutEdit = revisions.decodedKey(for: "photo", url: asset)
+    XCTAssertNotEqual(withEdit, withoutEdit)
+
+    try Data("<xmp>crop</xmp>".utf8).write(to: sidecar)
+    XCTAssertNotEqual(withoutEdit, revisions.decodedKey(for: "photo", url: asset))
+  }
+
   /// #5033: byte-identical copies in two saved folders share a content-derived
   /// id, but each has its own sidecar and thumbnail, so their Timeline tiles
   /// must not share a decoded bitmap.

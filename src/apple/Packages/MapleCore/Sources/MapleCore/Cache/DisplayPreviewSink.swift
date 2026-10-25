@@ -32,13 +32,16 @@ public protocol DisplayPreviewSink: Sendable {
 /// local RAW — the on-disk sibling of how `XMPSidecarStore` writes the `.xmp`.
 public struct LocalDisplayPreviewSink: DisplayPreviewSink {
   let previewURL: URL
+  let assetURL: URL?
   let scopeParentURL: URL?
   let sidecarStore: XMPSidecarStore?
 
   public init(
-    previewURL: URL, scopeParentURL: URL? = nil, sidecarStore: XMPSidecarStore? = nil
+    previewURL: URL, assetURL: URL? = nil, scopeParentURL: URL? = nil,
+    sidecarStore: XMPSidecarStore? = nil
   ) {
     self.previewURL = previewURL
+    self.assetURL = assetURL
     self.scopeParentURL = scopeParentURL
     self.sidecarStore = sidecarStore
   }
@@ -58,7 +61,9 @@ public struct LocalDisplayPreviewSink: DisplayPreviewSink {
     try? FileManager.default.createDirectory(
       at: previewURL.deletingLastPathComponent(),
       withIntermediateDirectories: true)
-    try? bytes.write(to: previewURL, options: .atomic)
+    if (try? bytes.write(to: previewURL, options: .atomic)) != nil, let assetURL {
+      LocalDerivativeSourceStamp.record(previewURL, for: assetURL)
+    }
   }
 }
 

@@ -127,7 +127,7 @@ final class ThumbnailDiskCacheKeyTests: XCTestCase {
     XCTAssertEqual(onDisk, payload)
   }
 
-  func testMissAdoptsTheLegacyV25ThumbByRenaming() async throws {
+  func testUnstampedLegacyThumbIsNotServed() async throws {
     let cache = ThumbnailDiskCache()
     await cache.configure(folderURL: tmp)
     let asset = tmp.appendingPathComponent("IMG_1234.dng")
@@ -139,9 +139,35 @@ final class ThumbnailDiskCacheKeyTests: XCTestCase {
 
     let fetched = await cache.thumbnailData(for: asset)
 
-    XCTAssertEqual(fetched, payload)
-    XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
-    XCTAssertEqual(try Data(contentsOf: thumbs.appendingPathComponent("IMG_1234.dng.avif")), payload)
+    XCTAssertNil(fetched, "legacy bytes cannot prove which sidecar produced them")
+    XCTAssertTrue(FileManager.default.fileExists(atPath: legacy.path))
+    XCTAssertFalse(
+      FileManager.default.fileExists(
+        atPath: thumbs.appendingPathComponent("IMG_1234.dng.avif").path))
+  }
+
+  func testExternalSidecarRemovalInvalidatesWarmAndColdThumbnails() async throws {
+    let asset = tmp.appendingPathComponent("photo.jpg")
+    try Data([0x01]).write(to: asset)
+    let sidecar = SidecarPath.sidecarURL(for: asset)
+    try Data("<xmp>A</xmp>".utf8).write(to: sidecar)
+    let cache = ThumbnailDiskCache()
+    let first = Data([0x0A])
+    await cache.storeThumbnailData(first, for: asset)
+    let warmBeforeRemoval = await cache.thumbnailData(for: asset)
+    XCTAssertEqual(warmBeforeRemoval, first)
+
+    try FileManager.default.removeItem(at: sidecar)
+    let warmAfterRemoval = await cache.thumbnailData(for: asset)
+    XCTAssertNil(warmAfterRemoval, "warm bytes must expire after removal")
+    let coldCache = ThumbnailDiskCache()
+    let coldAfterRemoval = await coldCache.thumbnailData(for: asset)
+    XCTAssertNil(coldAfterRemoval, "disk bytes must expire after relaunch")
+
+    let regenerated = Data([0x0B])
+    await coldCache.storeThumbnailData(regenerated, for: asset)
+    let fresh = await coldCache.thumbnailData(for: asset)
+    XCTAssertEqual(fresh, regenerated)
   }
 
   // MARK: - Files outside the open folder (#5033)
