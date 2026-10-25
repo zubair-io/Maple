@@ -37,8 +37,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -136,8 +136,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -271,8 +271,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -374,8 +374,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -456,8 +456,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -519,8 +519,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -636,8 +636,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -688,8 +688,8 @@
       "integration": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -700,8 +700,8 @@
       "qualification": [
         {
           "source": "sidecar_contract_apple",
-          "status": "satisfied",
-          "detail": "satisfied"
+          "status": "stale_corpus",
+          "detail": "corpus changed since the record"
         },
         {
           "source": "sidecar_contract_api",
@@ -906,17 +906,17 @@
         "src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPPassthroughTests.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/XmpMetadata+Empty.swift"
       ],
-      "corpus_hash": "blake3:dc52556eb020f2ab084505c2e9bec351f6364c1b824bf6ee4afadfddf80da8bf",
-      "status": "satisfied",
+      "corpus_hash": "blake3:819b107ceb24a2caaea8b2c215ac85af20218e7471070d29271351426f2cfc4b",
+      "status": "stale_corpus",
       "record": {
         "backend": "xctest-macos",
-        "corpus_hash": "blake3:dc52556eb020f2ab084505c2e9bec351f6364c1b824bf6ee4afadfddf80da8bf",
+        "corpus_hash": "blake3:95c8e997a92319575e44e13fb54e53c5dadf49e017fb4af2910ca79b6d6f8ead",
         "expected_cases": 12,
         "executed_cases": 12,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "1c6eed9d0264fe33f1a64dfb59626473346359dc",
-        "recorded_at": "2026-10-25T01:08:09Z",
+        "git_sha": "121ed00e9f3e4a59a0e9a0d860e4b89392ed8c3e",
+        "recorded_at": "2026-10-25T01:13:24Z",
         "command": "swift test --package-path src/apple/Packages/MapleCore --filter SidecarTransactionContract"
       }
     },

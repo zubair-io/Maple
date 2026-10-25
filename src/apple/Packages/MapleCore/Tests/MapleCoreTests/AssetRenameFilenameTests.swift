@@ -110,7 +110,7 @@ final class AssetRenameFilenameTests: XCTestCase {
     // preserves both the pre-rename edits and the undo history.
     let newAsset = AssetRef(url: newURL)
     let newSession = EditSession(asset: newAsset)
-    newSession.adoptInFlightRenameEdits(from: oldSession)
+    await newSession.adoptInFlightRenameEdits(from: oldSession)
     await newSession.loadSidecar()
     XCTAssertEqual(newSession.model.exposure, 1.25, accuracy: 0.001)
     XCTAssertEqual(newSession.culling.stars, 4)
@@ -221,7 +221,7 @@ final class AssetRenameFilenameTests: XCTestCase {
     let newSidecarURL = SidecarPath.sidecarURL(for: newURL)
 
     let newSession = EditSession(asset: AssetRef(url: newURL))
-    newSession.adoptInFlightRenameEdits(from: oldSession)
+    await newSession.adoptInFlightRenameEdits(from: oldSession)
     XCTAssertTrue(newSession.canUndo)
     XCTAssertEqual(newSession.lastCommittedTransaction?.description, "Shadows")
     newSession.undo()
@@ -289,7 +289,7 @@ final class AssetRenameFilenameTests: XCTestCase {
     let newSidecarURL = SidecarPath.sidecarURL(for: newURL)
 
     let newSession = EditSession(asset: AssetRef(url: newURL))
-    newSession.adoptInFlightRenameEdits(from: oldSession)
+    await newSession.adoptInFlightRenameEdits(from: oldSession)
     try await newSession.flushPendingSidecarWriteConfirmed()
 
     XCTAssertFalse(fm.fileExists(atPath: oldSidecarURL.path))

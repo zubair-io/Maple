@@ -101,6 +101,38 @@ final class XMPSidecarExternalConflictTests: XCTestCase {
     XCTAssertEqual(try XMPParser.parse(String(contentsOf: sidecar, encoding: .utf8)).0.exposure, 1)
   }
 
+  func testPrimaryBindingKeepsTheObservedWriter() async throws {
+    let (raw, sidecar) = try fixture()
+    defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }
+    try xml(exposure: 0).write(to: sidecar, atomically: true, encoding: .utf8)
+    let store = XMPSidecarStore(rawURL: raw)
+    _ = try await store.loadIfPresent()
+    let binding = try await store.bindWorkflowVariant(WorkflowContract.primaryVariantID)
+    XCTAssertTrue(binding.writer === store)
+    try await store.requireObservedRevisionCurrent()
+  }
+
+  func testRenamedWriterInheritsObservedRevision() async throws {
+    let (raw, sidecar) = try fixture()
+    defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }
+    try xml(exposure: 0).write(to: sidecar, atomically: true, encoding: .utf8)
+    let oldStore = XMPSidecarStore(rawURL: raw)
+    _ = try await oldStore.loadIfPresent()
+    let renamed = raw.deletingLastPathComponent().appendingPathComponent("renamed.jpg")
+    let renamedSidecar = SidecarPath.sidecarURL(for: renamed)
+    try FileManager.default.moveItem(at: raw, to: renamed)
+    try FileManager.default.moveItem(at: sidecar, to: renamedSidecar)
+    let newStore = XMPSidecarStore(rawURL: renamed)
+    await newStore.adoptObservedRevision(from: oldStore)
+    try await newStore.requireObservedRevisionCurrent()
+
+    try xml(exposure: 2).write(to: renamedSidecar, atomically: true, encoding: .utf8)
+    do {
+      try await newStore.requireObservedRevisionCurrent()
+      XCTFail("Renaming must not accept a later external replacement")
+    } catch XMPStoreError.externalConflict {}
+  }
+
   func testIdlePreviewCannotReplaceExternalRevision() async throws {
     let (raw, sidecar) = try fixture()
     defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }

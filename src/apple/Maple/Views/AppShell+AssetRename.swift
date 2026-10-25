@@ -97,7 +97,7 @@ extension AppShell {
         }
         let newAsset = try await performRename(
           asset: asset, to: newFilename, smbSource: smbSource)
-        applyRenamed(oldID: asset.id, newAsset: newAsset, smbSource: smbSource)
+        await applyRenamed(oldID: asset.id, newAsset: newAsset, smbSource: smbSource)
         renamingAssetID = nil
         renameError = nil
       } catch {
@@ -194,7 +194,7 @@ extension AppShell {
   /// right remote sidecar store per source kind and calls `loadSidecar()`,
   /// so the session hydrates from the sidecar the relocate engine already
   /// moved rather than needing its in-memory state hand-carried over.
-  private func applyRenamed(oldID: AssetRef.ID, newAsset: AssetRef, smbSource: SMBSource?) {
+  private func applyRenamed(oldID: AssetRef.ID, newAsset: AssetRef, smbSource: SMBSource?) async {
     if let idx = browseVM.assets.firstIndex(where: { $0.id == oldID }) {
       browseVM.assets[idx] = newAsset
     }
@@ -207,7 +207,7 @@ extension AppShell {
     // In-flight edits follow the rename to its own share, not whichever is open now (#4987).
     let newSession = browseSession(for: newAsset, smbSource: smbSource)
     if let departing {
-      newSession.adoptInFlightRenameEdits(from: departing)
+      await newSession.adoptInFlightRenameEdits(from: departing)
       Task { await departing.setSidecarWritesEnabled(false) }
     }
     if !newSession.hasLoadedSidecar {
