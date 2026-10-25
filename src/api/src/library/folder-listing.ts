@@ -1,17 +1,17 @@
-import * as path from 'node:path';
-import * as fs from '../fs/mirrored.ts';
+import * as path from "node:path";
+import * as fs from "../fs/mirrored.ts";
 import {
   listDirectoryAssets,
   listTrashedDirectoryFilenames,
   type DirectoryAsset,
-} from '../db/repos/assets.address.ts';
-import type { ResolvedAddress } from './address.ts';
+} from "../db/repos/assets.address.ts";
+import type { ResolvedAddress } from "./address.ts";
 import {
   canonicalBaseFromSidecarFilename,
   decodeCursor,
   encodeCursor,
   isUnderRoot,
-} from '../fs/browse.ts';
+} from "../fs/browse.ts";
 import {
   RAW_EXTENSIONS,
   BITMAP_EXTENSIONS,
@@ -19,25 +19,31 @@ import {
   isVideoFilename,
   isAudioFilename,
   isStubImageFilename,
-} from '../indexer/media-types.ts';
-import { child as childLogger } from '../log.ts';
-import { xmpSidecarPath } from '../fs/xmp-sidecar-path.ts';
-import { readSidecarNoFollow } from '../fs/sidecar-io.ts';
-import { parseXmpMetadata } from '../xmp/metadata-parser.ts';
+} from "../indexer/media-types.ts";
+import { child as childLogger } from "../log.ts";
+import { xmpSidecarPath } from "../fs/xmp-sidecar-path.ts";
+import { readSidecarNoFollow } from "../fs/sidecar-io.ts";
+import { parseXmpMetadata } from "../xmp/metadata-parser.ts";
+import { descriptions, xmlSpans } from "../xmp/transfer-document.ts";
 
-const log = childLogger('library/folder-listing');
-const IMAGE_EXTENSIONS = new Set([...RAW_EXTENSIONS, ...BITMAP_EXTENSIONS, ...PSD_HDR_EXTENSIONS]);
+const log = childLogger("library/folder-listing");
+const IMAGE_EXTENSIONS = new Set([
+  ...RAW_EXTENSIONS,
+  ...BITMAP_EXTENSIONS,
+  ...PSD_HDR_EXTENSIONS,
+]);
 
 function addressOf(slug: string, relPath: string, name?: string): string {
-  const relative = name === undefined ? relPath : relPath === '' ? name : `${relPath}/${name}`;
+  const relative =
+    name === undefined ? relPath : relPath === "" ? name : `${relPath}/${name}`;
   return `${slug}:${relative}`;
 }
 function visibleName(name: string): boolean {
   return (
-    !name.startsWith('.') &&
-    !name.endsWith('.hidden') &&
-    !name.includes('/') &&
-    !name.includes('\\')
+    !name.startsWith(".") &&
+    !name.endsWith(".hidden") &&
+    !name.includes("/") &&
+    !name.includes("\\")
   );
 }
 function isMedia(name: string): boolean {
@@ -60,7 +66,10 @@ async function diskNames(absPath: string): Promise<string[]> {
   try {
     return await fs.readdir(absPath);
   } catch (error) {
-    log.warn({ absPath, error: String(error) }, 'directory unavailable; returning catalog entries');
+    log.warn(
+      { absPath, error: String(error) },
+      "directory unavailable; returning catalog entries",
+    );
     return [];
   }
 }
@@ -77,7 +86,7 @@ interface ImageEntry extends Entry {
   mapleId: string | null;
   indexed: boolean;
   id?: string;
-  exif?: DirectoryAsset['exif'];
+  exif?: DirectoryAsset["exif"];
   width?: number;
   height?: number;
   capturedAt?: string;
@@ -86,7 +95,7 @@ interface ImageEntry extends Entry {
   isStub?: true;
   edited?: boolean;
   rating?: number;
-  flag?: 'pick' | 'reject';
+  flag?: "pick" | "reject";
   colorLabel?: string;
 }
 interface SidecarEntry extends Entry {
@@ -147,7 +156,7 @@ async function scanEntry(
       path: path.join(resolved.absPath, name),
       size: stat?.size ?? catalog!.size,
       mtime: new Date(stat?.mtimeMs ?? catalog!.mtime).toISOString(),
-      ext: stat?.isDirectory() ? '' : path.extname(name).slice(1).toLowerCase(),
+      ext: stat?.isDirectory() ? "" : path.extname(name).slice(1).toLowerCase(),
     },
     stat,
     catalog,
@@ -167,7 +176,8 @@ function imageEntry(scanned: Scanned): ImageEntry {
           exif: catalog.exif,
           width: catalog.width ?? undefined,
           height: catalog.height ?? undefined,
-          capturedAt: catalog.captured_at ?? catalog.exif?.captured_at ?? undefined,
+          capturedAt:
+            catalog.captured_at ?? catalog.exif?.captured_at ?? undefined,
         }
       : {}),
   };
@@ -194,11 +204,15 @@ async function pairedAsset(
 
 /** Build once per directory, rather than scanning its complete catalog for
  * each XMP on the requested page. A large folder stays O(rows + page). */
-function sidecarCandidates(rows: readonly DirectoryAsset[]): Map<string, DirectoryAsset[]> {
+function sidecarCandidates(
+  rows: readonly DirectoryAsset[],
+): Map<string, DirectoryAsset[]> {
   const byBase = new Map<string, DirectoryAsset[]>();
   for (const row of rows) {
     if (!visibleName(row.filename)) continue;
-    const key = isVideoFilename(row.filename) ? row.filename : path.parse(row.filename).name;
+    const key = isVideoFilename(row.filename)
+      ? row.filename
+      : path.parse(row.filename).name;
     const candidates = byBase.get(key) ?? [];
     candidates.push(row);
     byBase.set(key, candidates);
@@ -231,27 +245,65 @@ interface FolderEntries {
   sidecars: SidecarEntry[];
 }
 
-type ImageCulling = Partial<Pick<ImageEntry, 'edited' | 'rating' | 'flag' | 'colorLabel'>>;
+type ImageCulling = Partial<
+  Pick<ImageEntry, "edited" | "rating" | "flag" | "colorLabel">
+>;
+
+/** Match the browser's merging of direct RDF description siblings for the
+ * same subject. A sidecar can put culling in a later description. */
+function sidecarCulling(xml: string): ReturnType<typeof parseXmpMetadata> {
+  try {
+    const blocks = descriptions(xmlSpans(xml));
+    if (blocks.length < 2) return parseXmpMetadata(xml);
+    const subject = (block: (typeof blocks)[number]) =>
+      ["rdf:about", "rdf:nodeID", "xml:lang", "xml:base"]
+        .map((name) => block.tag.attributes[name]?.value ?? "")
+        .join("\0");
+    const firstSubject = subject(blocks[0]);
+    const merged: ReturnType<typeof parseXmpMetadata> = {};
+    for (const block of blocks) {
+      if (subject(block) !== firstSubject) continue;
+      const parsed = parseXmpMetadata(xml.slice(block.start, block.openEnd));
+      for (const key of ["rating", "flag", "colorLabel"] as const) {
+        if (merged[key] === undefined && parsed[key] !== undefined) {
+          Object.assign(merged, { [key]: parsed[key] });
+        }
+      }
+    }
+    return merged;
+  } catch {
+    // Preserve the existing tolerant parser for incomplete sidecars.
+    return parseXmpMetadata(xml);
+  }
+}
 
 /** Read the canonical sidecar during the folder walk. The catalog can lag behind
  * a newly registered directory, and filters must work before Preview hydrates
  * each photo individually. Avoid I/O for the common sidecar-free case. */
-async function imageCulling(child: Scanned, state: FolderState): Promise<ImageCulling> {
+async function imageCulling(
+  child: Scanned,
+  state: FolderState,
+): Promise<ImageCulling> {
   const sidecar = xmpSidecarPath(child.entry.path);
   const name = path.basename(sidecar);
-  if (!state.onDisk.has(name) || !(await state.resolveChild(name))) return {};
+  const checked = state.onDisk.has(name)
+    ? await state.resolveChild(name)
+    : null;
+  if (!checked || path.extname(checked).toLowerCase() !== ".xmp") return {};
   try {
-    const parsed = parseXmpMetadata(await readSidecarNoFollow(sidecar));
+    const parsed = sidecarCulling(await readSidecarNoFollow(checked));
     return {
       edited: true,
       ...(parsed.rating !== undefined ? { rating: parsed.rating } : {}),
       ...(parsed.flag !== undefined ? { flag: parsed.flag } : {}),
-      ...(parsed.colorLabel !== undefined ? { colorLabel: parsed.colorLabel } : {}),
+      ...(parsed.colorLabel !== undefined
+        ? { colorLabel: parsed.colorLabel }
+        : {}),
     };
   } catch (error) {
     log.warn(
       { sidecar, error: String(error) },
-      'could not read sidecar culling for folder listing',
+      "could not read sidecar culling for folder listing",
     );
     return {};
   }
@@ -272,7 +324,7 @@ async function appendEntry(
     entries.images.push({ ...imageEntry(child), ...culling });
     return;
   }
-  if (child.entry.ext !== 'xmp') {
+  if (child.entry.ext !== "xmp") {
     entries.files.push(child.entry);
     return;
   }
@@ -292,11 +344,18 @@ async function scanPage(
   page: readonly string[],
   state: FolderState,
 ): Promise<FolderEntries> {
-  const entries: FolderEntries = { folders: [], images: [], files: [], sidecars: [] };
+  const entries: FolderEntries = {
+    folders: [],
+    images: [],
+    files: [],
+    sidecars: [],
+  };
   // Bound filesystem fanout for both a page and the legacy complete listing.
   for (let start = 0; start < page.length; start += 32) {
     const scanned = await Promise.all(
-      page.slice(start, start + 32).map((name) => scanEntry(name, slug, relPath, resolved, state)),
+      page
+        .slice(start, start + 32)
+        .map((name) => scanEntry(name, slug, relPath, resolved, state)),
     );
     const culling = await Promise.all(
       scanned.map((child) =>
@@ -324,20 +383,26 @@ export async function listUnifiedFolder(
   resolved: ResolvedAddress,
   options: FolderPageOptions,
 ) {
-  const offset = options.cursor === undefined ? 0 : decodeCursor(options.cursor);
+  const offset =
+    options.cursor === undefined ? 0 : decodeCursor(options.cursor);
   const paged = options.cursor !== undefined || options.limit !== undefined;
   const limit = Math.max(1, Math.min(2000, options.limit ?? 500));
   const state = await directoryState(resolved, relPath);
-  const page = paged ? state.allNames.slice(offset, offset + limit) : state.allNames;
+  const page = paged
+    ? state.allNames.slice(offset, offset + limit)
+    : state.allNames;
   const entries = await scanPage(slug, relPath, resolved, page, state);
   const parentRel = path.posix.dirname(relPath);
   return {
     address: addressOf(slug, relPath),
-    parent: relPath === '' ? null : addressOf(slug, parentRel === '.' ? '' : parentRel),
+    parent:
+      relPath === ""
+        ? null
+        : addressOf(slug, parentRel === "." ? "" : parentRel),
     path: resolved.absPath,
     // Recursive consumers use physical identity to stop in-library symlink cycles.
     realPath: await fs.realpath(resolved.absPath).catch(() => null),
-    parentPath: relPath === '' ? null : path.dirname(resolved.absPath),
+    parentPath: relPath === "" ? null : path.dirname(resolved.absPath),
     ...entries,
     ...(paged && offset + limit < state.allNames.length
       ? { next_cursor: encodeCursor(offset + limit) }
