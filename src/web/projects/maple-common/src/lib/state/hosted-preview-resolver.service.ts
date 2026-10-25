@@ -37,11 +37,11 @@ export class HostedPreviewResolver {
   /**
    * Resolve the best available authored or embedded preview blob for `id`, or `null` on
    * unsupported assets or an embedded-preview miss (see raw_core::preview).
-   * Authored-sidecar failures reject, preventing an unedited RAW retry.
    *
    * A present XMP is developed through Rust/WASM with its film LUT. Sidecar
-   * read/validation/develop failures reject so thumbnails cannot retry without
-   * the authored edits. An absent sidecar retains the embedded JPEG fast path.
+   * read/validation failures show the original with a visible sidecar warning
+   * and no cache write. Other authored develop failures still reject rather
+   * than silently dropping edits. An absent sidecar keeps the embedded JPEG fast path.
    * The returned display blob declares the actual encoded format.
    * A cache write happens as a fire-and-forget side effect on a real miss.
    * Embedded JPEGs are stored directly; developed previews use genuine AVIF
@@ -77,7 +77,7 @@ export class HostedPreviewResolver {
     // on-disk location to key off. Absent either (a direct deep-link before a
     // listing populated the folder, or an in-memory import) ⇒ skip straight to
     // a one-shot extraction — a performance-only miss, not a correctness one.
-    if (folder && location) {
+    if (folder && location && !this.store.sidecarLoadErrors().has(id)) {
       try {
         const source = await getSourceIdentity(id);
         sourceBefore = source;
@@ -107,7 +107,7 @@ export class HostedPreviewResolver {
   }
 
   /** Snapshot authored XMP and coherent RAW bytes, develop or extract through
-   * WASM, then schedule actual-format persistence. Authored failures reject;
+   * WASM, then schedule actual-format persistence. Authored develop failures reject;
    * absent-sidecar extraction failures return null for the normal RAW retry. */
   private async _extractAndCache(
     id: AssetId,
@@ -119,7 +119,16 @@ export class HostedPreviewResolver {
     sourceBefore: PreviewSourceIdentity | null,
     getSourceSnapshot?: (id: AssetId) => Promise<HostedByteSnapshot>,
   ): Promise<Blob | null> {
-    const xml = folder && location ? await this.sidecars.read(folder, location) : null;
+    let xml: string | null = null;
+    if (folder && location) {
+      try {
+        xml = await this.sidecars.read(folder, location);
+      } catch (error) {
+        if (!this.store.sidecarLoadErrors().has(id)) throw error;
+        // Enumeration already identified this sidecar as unreadable. Keep the
+        // original visible even if a second read fails for another reason.
+      }
+    }
     try {
       const snapshot = await this._sourceSnapshot(id, getBytes, sourceBefore, getSourceSnapshot);
       const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
@@ -155,7 +164,7 @@ export class HostedPreviewResolver {
     getSourceIdentity: (id: AssetId) => Promise<PreviewSourceIdentity>,
     xml: string | null,
   ): void {
-    if (!folder?.write || !location || !source) return;
+    if (!folder?.write || !location || !source || this.store.sidecarLoadErrors().has(id)) return;
     void this._writeWhenCurrent(folder, location, blob, source, id, getSourceIdentity, xml);
   }
 

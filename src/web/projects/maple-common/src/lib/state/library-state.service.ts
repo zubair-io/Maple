@@ -337,7 +337,12 @@ export class LibraryStateService {
     return this.store.adjustmentFor(id);
   }
 
+  sidecarLoadError(id: AssetId): string | null {
+    return this.store.sidecarLoadErrors().get(id) ?? null;
+  }
+
   updateAdjustment(id: AssetId, patch: Partial<AdjustmentModel>): void {
+    if (this.sidecarLoadError(id)) return;
     const authoredPatch = this.store.setAdjustment(id, patch);
     // Schedule debounced sidecar write.
     this.fetch_.scheduleSidecarWrite(id, authoredPatch);
@@ -364,16 +369,19 @@ export class LibraryStateService {
 
   // ── Culling mutations (+ trigger debounced index write) ────────────────────
   setRating(id: AssetId, rating: number): void {
+    if (this.sidecarLoadError(id)) return;
     this.store.setCulling(id, { rating });
     this.fetch_.scheduleSidecarWrite(id);
   }
 
   setFlag(id: AssetId, flag: Flag): void {
+    if (this.sidecarLoadError(id)) return;
     this.store.setCulling(id, { flag });
     this.fetch_.scheduleSidecarWrite(id);
   }
 
   setColorLabel(id: AssetId, colorLabel: ColorLabel): void {
+    if (this.sidecarLoadError(id)) return;
     this.store.setCulling(id, { colorLabel });
     this.fetch_.scheduleSidecarWrite(id);
   }
@@ -388,6 +396,7 @@ export class LibraryStateService {
    * round-trip into a desync).
    */
   setKeywords(id: AssetId, keywords: readonly string[]): void {
+    if (this.sidecarLoadError(id)) return;
     const seen = new Set<string>();
     const deduped: string[] = [];
     for (const raw of keywords) {

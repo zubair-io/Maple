@@ -22,7 +22,14 @@
       HIDDEN
     </div>
   }
-  @if (!url && thumbnailFailed()) {
+  @if (sidecarError()) {
+    <div
+      mediaCellTopLeft
+      class="flex h-[14px] px-1 items-center justify-center rounded-[3px] border-[0.5px] border-error-text bg-error-bg/90 backdrop-blur-[4px] text-[8px] font-semibold text-error-text"
+    >
+      XMP UNREADABLE
+    </div>
+  } @else if (!url && thumbnailFailed()) {
     <div
       mediaCellTopLeft
       class="flex h-[14px] px-1 items-center justify-center rounded-[3px] border-[0.5px] border-error-text bg-error-bg/90 backdrop-blur-[4px] text-[8px] font-semibold text-error-text"

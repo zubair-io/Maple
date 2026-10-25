@@ -52,6 +52,7 @@ export class AssetTileComponent {
   thumbClick = output<MouseEvent>();
 
   private state = inject(LibraryStateService);
+  readonly sidecarError = computed(() => this.state.sidecarLoadError?.(this.asset().id) ?? null);
   /** Interface, not the concrete `AssetRenameService` — see
    * `asset-rename-capability.ts`'s module doc for why this indirection
    * exists (keeping Self-Hosted-only code out of Hosted's bundle). */

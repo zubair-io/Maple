@@ -14,7 +14,8 @@ import { XmpParserService } from '../xmp/xmp-parser.service';
 import type { PreviewLocation } from './preview-location';
 
 /** Cold RAW derivatives use the actual authored sidecar, including its film LUT.
- * Missing sidecars permit embedded extraction; all other failures stay failures. */
+ * Missing or malformed sidecars permit original extraction; the folder listing
+ * records malformed sidecars and blocks edits. Other read failures propagate. */
 @Injectable({ providedIn: 'root' })
 export class HostedRawSidecarService {
   private readonly folders = inject(FolderAccessService);
@@ -32,11 +33,23 @@ export class HostedRawSidecarService {
       if (error instanceof DOMException && error.name === 'NotFoundError') return null;
       throw error;
     }
-    const xml = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    let xml: string;
+    try {
+      xml = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch {
+      return null;
+    }
     const document = new DOMParser().parseFromString(xml, 'text/xml');
     // Chromium may keep the input's root and append parsererror underneath it.
     if (hasXmlParseError(document) || document.getElementsByTagName('parsererror').length > 0) {
-      throw new Error(`Malformed RAW sidecar: ${path}`);
+      // Folder enumeration records the sidecar error and blocks edits. Decode
+      // the original RAW so a damaged XMP cannot make the photo disappear.
+      return null;
+    }
+    try {
+      this.parser.parseAdjustmentModel(xml);
+    } catch {
+      return null;
     }
     return xml;
   }

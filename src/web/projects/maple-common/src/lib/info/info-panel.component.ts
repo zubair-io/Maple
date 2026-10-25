@@ -140,7 +140,13 @@ export class InfoPanelComponent {
   // methods), so the two-way `[(rating)]`/`[(flag)]` models below commit
   // straight through — no local draft state to reconcile.
 
-  protected readonly ratingFlagsDisabled = computed(() => this.asset() === null);
+  protected readonly sidecarError = computed(() => {
+    const id = this.asset()?.id;
+    return id ? (this.state.sidecarLoadError?.(id) ?? null) : null;
+  });
+  protected readonly ratingFlagsDisabled = computed(
+    () => this.asset() === null || this.sidecarError() !== null,
+  );
   protected readonly currentRating = computed(() => this.asset()?.rating ?? 0);
   protected readonly currentFlagState = computed(() =>
     toMuiFlagState(this.asset()?.flag ?? 'unflagged'),

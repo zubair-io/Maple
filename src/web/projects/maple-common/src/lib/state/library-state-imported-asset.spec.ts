@@ -34,6 +34,7 @@ import { FolderAccessService } from '../folder-access/folder-access.service';
 import { FolderEntry } from '../folder-access/folder-access.types';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import { LibraryFetch } from './library-fetch.service';
+import { HostedRawSidecarService } from './hosted-raw-sidecar.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { selectSidebarEntry } from '../shells/browse-shell/source-selection';
 
@@ -182,6 +183,55 @@ describe('LibraryStateService.addImportedAsset', () => {
     expect(svc.assets()).toEqual([
       expect.objectContaining({ id: 'summer-photos:IMG_0001.DNG', filename: 'IMG_0001.DNG' }),
     ]);
+  });
+
+  it('shows the original but blocks edits while a Hosted RAW sidecar is malformed', async () => {
+    const folderAccess = TestBed.inject(FolderAccessService);
+    const folder = { name: 'Raws', read: true, write: true };
+    const entry: FolderEntry = {
+      name: 'A.DNG',
+      kind: 'file',
+      getFile: async () => new File([new Uint8Array([1])], 'A.DNG'),
+      getSubFolder: async () => {
+        throw new Error('not a folder');
+      },
+    };
+    vi.spyOn(folderAccess, 'listEntries').mockResolvedValue([entry]);
+    let sidecar = '<x:xmpmeta><rdf:RDF';
+    vi.spyOn(folderAccess, 'readFile').mockImplementation(async (_folder, path) => {
+      if (path === '.maple/index.json') {
+        return new TextEncoder().encode(
+          JSON.stringify({
+            version: '1.0',
+            assets: [{ filename: 'A.DNG', culling: { rating: 3, flag: 'pick' } }],
+          }),
+        );
+      }
+      if (path === 'A.xmp') return new TextEncoder().encode(sidecar);
+      throw new Error(`unexpected read: ${path}`);
+    });
+
+    await svc.openFolder(folder);
+    const id = 'raws:A.DNG';
+    expect(svc.sidecarLoadError(id)).toContain('XMP sidecar');
+    expect(
+      await TestBed.inject(HostedRawSidecarService).read(folder, { filename: 'A.DNG', dir: '' }),
+    ).toBeNull();
+    svc.setRating(id, 3);
+    svc.setFlag(id, 'pick');
+    svc.updateAdjustment(id, { exposure: 1 });
+    expect(svc.assets().find((asset) => asset.id === id)).toMatchObject({
+      rating: 0,
+      flag: 'unflagged',
+    });
+    expect(svc.adjustmentModels().get(id)?.exposure).toBe(0);
+
+    sidecar =
+      '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description /></rdf:RDF></x:xmpmeta>';
+    await svc.openFolder(folder);
+    expect(svc.sidecarLoadError(id)).toBeNull();
+    svc.setRating(id, 3);
+    expect(svc.assets().find((asset) => asset.id === id)?.rating).toBe(3);
   });
 
   it('keeps distinct fallback folders in separate address namespaces', async () => {
