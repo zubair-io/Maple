@@ -23,7 +23,7 @@ export async function openDisposableHostedEditor(page: Page, ledgerName: string)
   await mkdir(folder, { recursive: true });
   await copyFile(join(manifest.freshFolder, EDITOR_ACTION_FILENAME), rawPath);
   const originalHash = await sha256File(rawPath);
-  await installProductionFolderPicker(page, folder);
+  const picker = await installProductionFolderPicker(page, folder);
   await openHostedFolderEditor(page, EDITOR_ACTION_FILENAME);
-  return { folder, rawPath, originalHash };
+  return { folder, rawPath, originalHash, picker };
 }

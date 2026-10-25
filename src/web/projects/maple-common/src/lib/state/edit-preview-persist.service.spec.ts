@@ -38,6 +38,7 @@ import { defaultAdjustmentModel } from '../models/adjustment-model';
 // detail); advance well past it.
 const PAST_DEBOUNCE_MS = 2100;
 const settle = (): Promise<void> => Promise.resolve().then(() => Promise.resolve());
+const canonicalDefaultXmp = new XmpSerializerService().serialize(defaultAdjustmentModel());
 
 class FakeCtx {
   drawImage(): void {}
@@ -137,8 +138,8 @@ function setup(opts: Setup = {}) {
         provide: RawPipelineService,
         useValue: { decode: vi.fn(async () => fakeDecodedImage()), ...opts.pipeline },
       },
-      { provide: XmpSerializerService, useValue: { serialize: () => '<xmp/>' } },
-      { provide: XmpParserService, useValue: { parseAdjustmentModel: () => ({ model: {} }) } },
+      XmpSerializerService,
+      XmpParserService,
       {
         provide: XmpStoreService,
         useValue: {
@@ -148,7 +149,7 @@ function setup(opts: Setup = {}) {
       {
         provide: HostedSidecarFreshnessService,
         useValue: {
-          readCurrent: vi.fn(async () => '<xmp/>'),
+          readCurrent: vi.fn(async () => canonicalDefaultXmp),
           assertUnchanged: vi.fn(),
         },
       },
@@ -414,7 +415,7 @@ describe('EditPreviewPersistService — Hosted (File System Access folder handle
         size: 3,
         lastModified: 1234,
       },
-      await hostedSidecarFingerprint('<xmp/>'),
+      await hostedSidecarFingerprint(canonicalDefaultXmp),
     );
     const written = writePreview.mock.calls[0][3];
     expect(written.type).toBe('image/avif');
@@ -440,7 +441,7 @@ describe('EditPreviewPersistService — Hosted (File System Access folder handle
       'a.dng',
       expect.any(Blob),
       { size: 3, lastModified: 1234 },
-      await hostedSidecarFingerprint('<xmp/>'),
+      await hostedSidecarFingerprint(canonicalDefaultXmp),
     );
     expect(writePreview.mock.calls[0][3].type).toBe('image/jpeg');
   });
