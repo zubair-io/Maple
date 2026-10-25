@@ -390,9 +390,8 @@ pub struct MapleGpuLiveParams {
     //     verbatim. With a present `wb_frame_*` block the WB pass re-lerps
     //     the HueSatMap at the target, as a develop does. Null/0 (a stale
     //     host) keeps the plain 3×3, bit-identical. Borrowed for the call.
-    //     Only hosts still on the scene-linear decode use it; it goes when
-    //     Windows and Android/Linux take the capture decode
-    //     (#5378/#5380). ---
+    //     No live host sets it any more (#5377–#5380); it goes with the
+    //     legacy retarget. ---
     pub wb_hsm_ptr: *const f32,
     pub wb_hsm_len: usize,
     /// The decode's `wb_hsm_as_shot_cct` and `ae_gain` (the auto-exposure
