@@ -64,8 +64,9 @@ extension BrowseViewModel {
   /// A metadata filter must cover the whole Photos listing even when none
   /// of the first page's tiles match and therefore no paging tile appears.
   public func loadRemainingPhotoKitForFilter() async throws {
-    guard gridFilter != .all, currentSource is PhotoKitSource,
-      let source = pagedPhotoKitSource, !isLoadingPhotoKitPage,
+    guard gridFilter != .all, currentSource is PhotoKitSource else { return }
+    try await waitForActivePhotoKitPage()
+    guard let source = pagedPhotoKitSource,
       photoKitNextOffset < photoKitTotalCount
     else { return }
     isLoadingPhotoKitPage = true
@@ -87,5 +88,15 @@ extension BrowseViewModel {
     guard gen == loadGeneration else { throw CancellationError() }
     assets.append(contentsOf: remaining)
     photoKitNextOffset = offset
+  }
+
+  /// A previous filter's cancelled drain still owns the page slot until its
+  /// deferred cleanup runs. Wait for that cleanup before starting a new drain.
+  func waitForActivePhotoKitPage() async throws {
+    while isLoadingPhotoKitPage {
+      try Task.checkCancellation()
+      try await Task.sleep(for: .milliseconds(25))
+    }
+    try Task.checkCancellation()
   }
 }
