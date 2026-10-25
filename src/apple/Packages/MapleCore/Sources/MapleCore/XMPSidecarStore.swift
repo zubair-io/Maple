@@ -30,6 +30,11 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   private let afterPublication: (@Sendable () throws -> Void)?
 
   private var cached: (AdjustmentModel, CullingState)?
+  // Exact bytes last loaded or published by this store. The editor can hold a
+  // model while another writer replaces the file; never publish that stale
+  // model over a newer sidecar (#5348).
+  private var observedSidecarXML: String?
+  private var hasObservedSidecar = false
   private var pendingTask: Task<Void, Never>?
   private var pendingModel: AdjustmentModel?
   private var pendingCulling: CullingState?
@@ -87,6 +92,8 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     if let cached { return cached }
     guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
       try requirePrimaryAbsence()
+      observedSidecarXML = nil
+      hasObservedSidecar = true
       return nil
     }
     let result = try readFromDisk()
@@ -290,12 +297,17 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   private func readFromDisk() throws -> (AdjustmentModel, CullingState) {
     guard FileManager.default.fileExists(atPath: sidecarURL.path) else {
       try requirePrimaryAbsence()
+      observedSidecarXML = nil
+      hasObservedSidecar = true
       return (.default, CullingState())
     }
     let data = try Data(contentsOf: sidecarURL)
-    _ = try WorkflowSidecarCore.variantWorkflow(
-      xmp: String(decoding: data, as: UTF8.self), variantId: variantId)
-    return try XMPParser.parse(data: data)
+    let xml = String(decoding: data, as: UTF8.self)
+    _ = try WorkflowSidecarCore.variantWorkflow(xmp: xml, variantId: variantId)
+    let result = try XMPParser.parse(data: data)
+    observedSidecarXML = xml
+    hasObservedSidecar = true
+    return result
   }
 
   private func writePending() async {
@@ -377,6 +389,9 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
       result = Result {
         let existing = try self.existingSidecarXML(at: url)
         if existing == nil { try self.requirePrimaryAbsence() }
+        if self.hasObservedSidecar, existing != self.observedSidecarXML {
+          throw XMPStoreError.externalConflict(self.sidecarURL)
+        }
         return try write(url, existing)
       }
     }
@@ -420,6 +435,8 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     _ xml: String, at destination: URL, durable: Bool
   ) throws {
     try XMPSidecarFilePublication.publish(xml, at: destination, durable: durable)
+    observedSidecarXML = xml
+    hasObservedSidecar = true
     try afterPublication?()
   }
 }
@@ -428,11 +445,15 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
 public enum XMPStoreError: Error, LocalizedError {
   case encodingError
+  case externalConflict(URL)
   case publishedContentMismatch(URL)
 
   public var errorDescription: String? {
     switch self {
     case .encodingError: return "XMP serialization produced non-UTF8 data"
+    case .externalConflict(let url):
+      return
+        "Sidecar \(url.lastPathComponent) changed outside Maple. Your edit was not saved; restart Maple to load the newer version."
     case .publishedContentMismatch(let url):
       return "Sidecar \(url.lastPathComponent) no longer holds the bytes that were published"
     }

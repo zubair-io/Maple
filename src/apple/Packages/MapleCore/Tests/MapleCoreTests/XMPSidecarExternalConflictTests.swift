@@ -1,0 +1,102 @@
+import Foundation
+import XCTest
+
+@testable import MapleCore
+
+final class XMPSidecarExternalConflictTests: XCTestCase {
+  private func fixture() throws -> (URL, URL) {
+    let directory = try SidecarContractIO.makeTempDirectory(prefix: "external-xmp-conflict")
+    let raw = directory.appendingPathComponent("photo.jpg")
+    try Data("disposable original".utf8).write(to: raw)
+    return (raw, SidecarPath.sidecarURL(for: raw))
+  }
+
+  private func xml(exposure: Double) -> String {
+    XMPSerializer.serialize(model: AdjustmentModel(exposure: exposure), culling: CullingState())
+  }
+
+  func testConfirmedSavePreservesExternallyReplacedSidecar() async throws {
+    let (raw, sidecar) = try fixture()
+    defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }
+    try xml(exposure: 0).write(to: sidecar, atomically: true, encoding: .utf8)
+    let store = XMPSidecarStore(rawURL: raw)
+    _ = try await store.loadIfPresent()
+
+    let external = xml(exposure: 2)
+    try external.write(to: sidecar, atomically: true, encoding: .utf8)
+    do {
+      try await store.writeConfirmed(
+        model: AdjustmentModel(exposure: 0.01), culling: CullingState())
+      XCTFail("A stale editor must not overwrite a newer external XMP")
+    } catch XMPStoreError.externalConflict(let url) {
+      XCTAssertEqual(url, sidecar)
+    }
+    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), external)
+  }
+
+  func testDebouncedSaveKeepsPendingEditAndExternalBytes() async throws {
+    let (raw, sidecar) = try fixture()
+    defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }
+    try xml(exposure: 0).write(to: sidecar, atomically: true, encoding: .utf8)
+    let store = XMPSidecarStore(rawURL: raw)
+    _ = try await store.loadIfPresent()
+
+    let external = xml(exposure: 2)
+    try external.write(to: sidecar, atomically: true, encoding: .utf8)
+    await store.update(model: AdjustmentModel(exposure: 0.01), culling: CullingState())
+    await store.flush()
+    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), external)
+    do {
+      try await store.writeConfirmed(
+        model: AdjustmentModel(exposure: 0.01), culling: CullingState())
+      XCTFail("The failed debounce must remain unconfirmed")
+    } catch XMPStoreError.externalConflict {}
+    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), external)
+  }
+
+  func testSidecarRemovalAfterLoadIsAConflict() async throws {
+    let (raw, sidecar) = try fixture()
+    defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }
+    try xml(exposure: 0).write(to: sidecar, atomically: true, encoding: .utf8)
+    let store = XMPSidecarStore(rawURL: raw)
+    _ = try await store.loadIfPresent()
+    try FileManager.default.removeItem(at: sidecar)
+
+    do {
+      try await store.writeConfirmed(
+        model: AdjustmentModel(exposure: 0.01), culling: CullingState())
+      XCTFail("External removal must not be silently undone")
+    } catch XMPStoreError.externalConflict {}
+    XCTAssertFalse(FileManager.default.fileExists(atPath: sidecar.path))
+  }
+
+  func testSidecarCreationAfterAbsentLoadIsAConflict() async throws {
+    let (raw, sidecar) = try fixture()
+    defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }
+    let store = XMPSidecarStore(rawURL: raw)
+    let loaded = try await store.loadIfPresent()
+    XCTAssertNil(loaded)
+    let external = xml(exposure: 2)
+    try external.write(to: sidecar, atomically: true, encoding: .utf8)
+
+    do {
+      try await store.writeConfirmed(
+        model: AdjustmentModel(exposure: 0.01), culling: CullingState())
+      XCTFail("A newly created external sidecar must not be replaced")
+    } catch XMPStoreError.externalConflict {}
+    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), external)
+  }
+
+  func testOwnSequentialWritesAdvanceObservedRevision() async throws {
+    let (raw, sidecar) = try fixture()
+    defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }
+    try xml(exposure: 0).write(to: sidecar, atomically: true, encoding: .utf8)
+    let store = XMPSidecarStore(rawURL: raw)
+    _ = try await store.loadIfPresent()
+    try await store.writeConfirmed(
+      model: AdjustmentModel(exposure: 0.5), culling: CullingState())
+    try await store.writeConfirmed(
+      model: AdjustmentModel(exposure: 1), culling: CullingState())
+    XCTAssertEqual(try XMPParser.parse(String(contentsOf: sidecar, encoding: .utf8)).0.exposure, 1)
+  }
+}
