@@ -98,8 +98,14 @@ export async function moveBackupAsset(
     return stamped ? 'noop' : 'skipped';
   }
 
-  // The on-disk `.mapleignore` guard (#5398): an ignored original never moves.
-  if (await refusesMoveUnderMarker(libRoot, oldDir)) return 'skipped';
+  // The on-disk `.mapleignore` guard (#5398): nothing moves out of or into an
+  // ignored folder; the asset stays in place and is retried later.
+  if (
+    (await refusesMoveUnderMarker(libRoot, oldDir)) ||
+    (await refusesMoveUnderMarker(libRoot, newDir))
+  ) {
+    return 'skipped';
+  }
 
   // 1. Copy + verify the file and its companions into the new dir. Sources are
   //    NOT deleted yet.
