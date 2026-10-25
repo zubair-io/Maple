@@ -53,11 +53,89 @@ namespace Maple.WinUI.Native
         public byte* camera_support_json;
         public float whites_anchor_ev;
         public float nr_sampling_scale;
-        // HueSatMap endpoint wire (#5099): kept by the core for the life of
-        // the process (not freed with this buffer), so hosts keep the pointer.
+        // HueSatMap endpoint wire (#5099). Always null from a capture decode;
+        // Windows never reads it and mirrors it only to keep the layout.
         public float* wb_hsm_data;
         public nuint wb_hsm_len;
         public float wb_hsm_as_shot_cct;
+    }
+
+    /// <summary>
+    /// C-ABI mirror of raw-ffi's MapleCreativeTable (capture_creative.rs,
+    /// #5377): one table's float offset into the creative wire, its
+    /// hue/saturation/value divisions and its value-axis encoding. All-zero
+    /// dims means the table is absent.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct MapleCreativeTable
+    {
+        public uint offset;
+        public fixed uint dims[3];
+        public uint srgb;
+    }
+
+    /// <summary>
+    /// C-ABI mirror of raw-ffi's MapleCaptureCreative (capture_creative.rs,
+    /// #5377): the creative stage of one capture decode. The host copies it
+    /// verbatim and points every tick's <c>creative_ptr</c> at the copy; the
+    /// table wire is interned per profile for the life of the process, so
+    /// the copy owns nothing and is never freed field by field.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public unsafe struct MapleCaptureCreative
+    {
+        public uint present;
+        public uint highlight_recovery;
+        public float ae_gain;
+        public fixed float as_shot_neutral[3];
+        public uint illuminant;
+        public uint illuminant_cct;
+        public fixed float color_matrix[9];
+        public uint has_forward_matrix;
+        public fixed float forward_matrix[9];
+        public float scene_cct;
+        public fixed float scene_white_xyz[3];
+        public uint wb_already_baked;
+        public uint has_cm_endpoints;
+        public fixed float cm_cold[9];
+        public float cct_cold;
+        public fixed float cm_warm[9];
+        public float cct_warm;
+        public uint has_fm_cold;
+        public fixed float fm_cold[9];
+        public uint has_fm_warm;
+        public fixed float fm_warm[9];
+        public uint has_frame;
+        public uint frame_has_endpoints;
+        public fixed float frame_m_cold[9];
+        public float frame_cct_cold;
+        public fixed float frame_m_warm[9];
+        public float frame_cct_warm;
+        public fixed float frame_cm_as_shot[9];
+        public float frame_scene_cct;
+        public float frame_scene_tint;
+        public fixed float frame_render_cm[9];
+        public uint as_shot_table;         // 0 none, 1 hsm, 2 endpoints lerped at scene_cct
+        public MapleCreativeTable hsm;
+        public MapleCreativeTable cold;
+        public MapleCreativeTable warm;
+        public MapleCreativeTable look;
+        public float* tables;              // process-lifetime; never freed by the host
+        public nuint tables_len;
+    }
+
+    /// <summary>
+    /// C-ABI mirror of raw-ffi's MapleCaptureBufferF32 (capture_creative.rs,
+    /// #5377), populated by maple_render_*_capture*_f32: the capture result
+    /// in the fixed as-shot basis plus the creative stage that renders it.
+    /// <c>scene.ae_gain</c> is the creative stage's gain, which the pixels do
+    /// not carry. Free with RawFfi.maple_free_capture_buffer_f32.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MapleCaptureBufferF32
+    {
+        public MapleSceneLinearBufferF32 scene;
+        public MapleCaptureCreative creative;
     }
 
     /// <summary>

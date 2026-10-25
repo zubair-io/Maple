@@ -26,7 +26,7 @@ public class ChainCurvesWiringTests
         var image = new DecodedImage
         {
             Pixels = new float[4], Width = 1, Height = 1, NoiseProfile = [], Iso = 100, AeGain = 1, WhitesAnchorEv = float.NaN,
-            DecodedTemperature = 6500, DecodedTint = 0, WbFrame = new float[82],
+            DecodedTemperature = 6500, DecodedTint = 0,
         };
         var model = new AdjustmentState { WbMethod = WbMethod.DiagonalRec2020 };
         var cpu = MapleAdjustmentParams.From(model, 6500, 0, 100, float.NaN);
@@ -59,7 +59,7 @@ public class ChainCurvesWiringTests
         var image = new DecodedImage
         {
             Pixels = new float[4], Width = 1, Height = 1, NoiseProfile = [], Iso = 100, AeGain = 1, WhitesAnchorEv = float.NaN,
-            DecodedTemperature = 6500, DecodedTint = 0, WbFrame = new float[82],
+            DecodedTemperature = 6500, DecodedTint = 0,
         };
         var model = new AdjustmentState();
         var curves = RenderEngine.ToneCurvesFrom(model);

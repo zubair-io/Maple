@@ -219,21 +219,22 @@ namespace Maple.WinUI.Native
         public nuint color_curve_sat_vs_sat_len;
         public float* color_curve_sat_vs_luma_ptr;
         public nuint color_curve_sat_vs_luma_len;
-        // Retargeted HueSatMap (#5099): the decode's wb_hsm_data/wb_hsm_len,
-        // passed back verbatim (process-lifetime, no pinning needed).
+        // The legacy HueSatMap retarget (#5099). Windows renders RAWs through
+        // creative_ptr and leaves these zero; mirrored for the layout only.
         public float* wb_hsm_ptr;
         public nuint wb_hsm_len;
         public float wb_hsm_as_shot_cct;
         public float wb_hsm_exposure_gain;
-        // The capture decode's creative stage (#5377): null keeps the
-        // scene-linear decode's white-balance delta above. Windows takes the
-        // capture decode in #5378.
-        public void* creative_ptr;
+        // The capture decode's creative stage (#5377), pinned for the call:
+        // the chain renders it at the absolute temperature/tint and ignores
+        // decoded_*, wb_frame_* and wb_hsm_*. Null (a raster) keeps the
+        // scene-linear white-balance delta.
+        public MapleCaptureCreative* creative_ptr;
 
         /// <summary>
         /// Build live-chain params from the canonical model + decode exports.
-        /// The wb_frame block is applied separately (WriteWbFrame) and the
-        /// noise-profile pointer is set inside the render call's fixed scope.
+        /// The creative-stage and noise-profile pointers are set inside the
+        /// render call's fixed scope.
         /// </summary>
         public static MapleGpuLiveParams From(
             AdjustmentState m, DecodedImage image)
@@ -345,38 +346,7 @@ namespace Maple.WinUI.Native
                 perspective_x = (float)m.PerspectiveX,
                 perspective_y = (float)m.PerspectiveY,
             };
-            WriteWbFrame(ref p, image.WbFrame);
-            p.wb_hsm_ptr = (float*)image.WbHueSatMap;
-            p.wb_hsm_len = image.WbHueSatMapLength;
-            p.wb_hsm_as_shot_cct = image.WbHueSatMapAsShotCct;
-            p.wb_hsm_exposure_gain = image.AeGain;
             return p;
-        }
-
-        /// <summary>Apply the 82-float decode-exported wb_frame block (same field
-        /// order as MapleAdjustmentParams / MapleSceneLinearBufferF32).</summary>
-        private static void WriteWbFrame(ref MapleGpuLiveParams p, float[] f)
-        {
-            var i = 0;
-            fixed (MapleGpuLiveParams* pp = &p)
-            {
-                for (var k = 0; k < 9; k++) pp->wb_frame_m_cold[k] = f[i++];
-                pp->wb_frame_cct_cold = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_m_warm[k] = f[i++];
-                pp->wb_frame_cct_warm = f[i++];
-                pp->wb_frame_scene_cct = f[i++];
-                pp->wb_frame_as_shot_tint = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_cm[k] = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_forward_matrix[k] = f[i++];
-                for (var k = 0; k < 3; k++) pp->wb_frame_render_scene_white_xyz[k] = f[i++];
-                pp->wb_frame_render_wb_already_baked = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_cm_cold[k] = f[i++];
-                pp->wb_frame_render_cct_cold = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_cm_warm[k] = f[i++];
-                pp->wb_frame_render_cct_warm = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_fm_cold[k] = f[i++];
-                for (var k = 0; k < 9; k++) pp->wb_frame_render_fm_warm[k] = f[i++];
-            }
         }
     }
 }

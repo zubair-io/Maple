@@ -11,7 +11,8 @@ namespace Maple.WinUI.Services;
 public readonly record struct NativeDetailRegion(uint X, uint Y, uint Width, uint Height);
 public sealed record NativeDetailImage(NativeDetailRegion Region, MapleRawGeometry Geometry, DecodedImage Image);
 
-// #3876: retained mosaic and bounded scene-linear patches; viewport composition is tracked separately in the issue.
+// #3876: retained mosaic and bounded capture patches (#5377), rendered with the
+// anchor decode's creative stage; viewport composition is tracked separately in the issue.
 public sealed class NativeDetailDecoder : IAsyncDisposable
 {
     public const uint MaximumPatchEdge = 16384;
@@ -93,12 +94,14 @@ public sealed class NativeDetailDecoder : IAsyncDisposable
             || region.Width > MaximumPatchEdge || region.Height > MaximumPatchEdge
             || (ulong)region.Width * region.Height > MaximumPatchPixels)
             throw new ArgumentOutOfRangeException(nameof(region), "Native detail patch exceeds the source or memory bounds.");
+        if (anchor.Creative == null)
+            throw new InvalidDataException("Native detail needs the anchor's capture decode creative stage.");
         var buffer = new MapleSceneLinearBufferF32();
         try
         {
-            var rc = RawFfi.maple_render_handle_scene_linear_tile_ae_f32(_handle!,
+            var rc = RawFfi.maple_render_handle_capture_tile_f32(_handle!,
                 _geometry.CropX + region.X, _geometry.CropY + region.Y,
-                region.Width, region.Height, region.Width, region.Height, 0, 0, 0, anchor.AeGain, &buffer);
+                region.Width, region.Height, region.Width, region.Height, 0, &buffer);
             if (rc != 0) throw new InvalidDataException($"Native detail unavailable ({rc}): {RawFfi.LastError()}");
             if (buffer.width != region.Width || buffer.height != region.Height || buffer.channels != 4
                 || buffer.bytes_per_pixel != 16 || buffer.len_bytes != (nuint)((ulong)region.Width * region.Height * 16)
@@ -111,9 +114,7 @@ public sealed class NativeDetailDecoder : IAsyncDisposable
                 NoiseProfile = anchor.NoiseProfile, Iso = anchor.Iso,
                 AeGain = anchor.AeGain, WhitesAnchorEv = anchor.WhitesAnchorEv,
                 DecodedTemperature = anchor.DecodedTemperature, DecodedTint = anchor.DecodedTint,
-                WbFrame = anchor.WbFrame,
-                WbHueSatMap = anchor.WbHueSatMap, WbHueSatMapLength = anchor.WbHueSatMapLength,
-                WbHueSatMapAsShotCct = anchor.WbHueSatMapAsShotCct,
+                Creative = anchor.Creative,
                 CameraSupport = anchor.CameraSupport, LensProfile = anchor.LensProfile,
                 ProfileCurve = anchor.ProfileCurve, ResidualLut = anchor.ResidualLut, ResidualLutSize = anchor.ResidualLutSize,
                 DisplayLut = anchor.DisplayLut, DisplayLutN = anchor.DisplayLutN,

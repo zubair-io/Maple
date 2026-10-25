@@ -130,16 +130,17 @@ namespace Maple.WinUI.Native
         public float color_grade_blending;
         public float color_grade_shadow_edge;
         public float color_grade_highlight_edge;
-        // Retargeted HueSatMap (#5099): the decode's wb_hsm_data/wb_hsm_len,
-        // passed back verbatim (process-lifetime, no pinning needed).
+        // The legacy HueSatMap retarget (#5099). Windows renders RAWs through
+        // creative_ptr and leaves these zero; mirrored for the layout only.
         public float* wb_hsm_ptr;
         public nuint wb_hsm_len;
         public float wb_hsm_as_shot_cct;
         public float wb_hsm_exposure_gain;
-        // The capture decode's creative stage (#5377): null keeps the
-        // scene-linear decode's white-balance delta above. Windows takes the
-        // capture decode in #5378.
-        public void* creative_ptr;
+        // The capture decode's creative stage (#5377), pinned for the call:
+        // the chain renders it at the absolute temperature/tint and ignores
+        // decoded_*, wb_frame_* and wb_hsm_*. Null (a raster) keeps the
+        // scene-linear white-balance delta.
+        public MapleCaptureCreative* creative_ptr;
 
         /// <summary>
         /// Build params from the canonical model, mirroring the Swift reference

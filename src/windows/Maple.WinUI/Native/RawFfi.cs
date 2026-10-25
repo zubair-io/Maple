@@ -14,16 +14,25 @@ namespace Maple.WinUI.Native
         private const string Dll = "raw_ffi.dll";
 
         /// <summary>
-        /// Guards the hand-mirrored struct layouts against drift from the Rust
-        /// declarations (fields are append-only at the tail). Call once at startup.
+        /// Guards the hand-mirrored struct sizes against drift from the Rust
+        /// declarations (fields are append-only at the tail). Call once at
+        /// startup; RawFfiLayoutTests checks every field offset.
         /// </summary>
         public static void VerifyAbi()
         {
-            var paramsSize = sizeof(MapleAdjustmentParams);
-            if (paramsSize != 752)
+            RequireSize(sizeof(MapleAdjustmentParams), 752, "MapleAdjustmentParams", "scene_linear_chain.rs");
+            RequireSize(sizeof(MapleGpuLiveParams), 1136, "MapleGpuLiveParams", "gpu_live/repr.rs");
+            RequireSize(sizeof(MapleSceneLinearBufferF32), 432, "MapleSceneLinearBufferF32", "buffers.rs");
+            RequireSize(sizeof(MapleCaptureCreative), 560, "MapleCaptureCreative", "capture_creative.rs");
+            RequireSize(sizeof(MapleCaptureBufferF32), 992, "MapleCaptureBufferF32", "capture_creative.rs");
+        }
+
+        private static void RequireSize(int actual, int expected, string name, string rustFile)
+        {
+            if (actual != expected)
                 throw new InvalidOperationException(
-                    $"MapleAdjustmentParams is {paramsSize} bytes; the Rust ABI expects 752. " +
-                    "The C# mirror has drifted from raw-ffi/src/scene_linear_chain.rs.");
+                    $"{name} is {actual} bytes; the Rust ABI expects {expected}. " +
+                    $"The C# mirror has drifted from raw-ffi/src/{rustFile}.");
         }
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
@@ -35,16 +44,24 @@ namespace Maple.WinUI.Native
             return ptr == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(ptr);
         }
 
-        // --- Decode: scene-linear f32 (preferred family; supports cancellation) ---
+        // --- Decode: the capture decode (#5377; supports cancellation). The
+        //     pixels stop before white balance and the camera profile; the
+        //     returned creative stage renders them on every tick. ---
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int maple_render_file_scene_linear_sized_f32(
+        public static extern int maple_render_file_capture_sized_f32(
             [MarshalAs(UnmanagedType.LPUTF8Str)] string rawPath,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string? xmpPath,
             uint maxLongEdge,
             int qualityPreview,
             IntPtr cancelFlag,
-            MapleSceneLinearBufferF32* outBuffer);
+            MapleCaptureBufferF32* outBuffer);
+
+        /// <summary>Frees the pixels and noise profile of a capture buffer.
+        /// The creative tables are shared and stay valid.</summary>
+        [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void maple_free_capture_buffer_f32(
+            MapleCaptureBufferF32* buffer);
 
         [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
         public static extern void maple_free_scene_linear_buffer_f32(

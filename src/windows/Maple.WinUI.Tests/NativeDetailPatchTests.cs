@@ -101,7 +101,7 @@ public class NativeDetailPatchTests
     private static DecodedImage Anchor() => new()
     {
         Pixels = [], Width = 0, Height = 0, NoiseProfile = [], Iso = 100, AeGain = 1,
-        WhitesAnchorEv = 0, DecodedTemperature = 6500, DecodedTint = 0, WbFrame = [],
+        WhitesAnchorEv = 0, DecodedTemperature = 6500, DecodedTint = 0,
     };
 
     private static float[] TexturedFrame()
