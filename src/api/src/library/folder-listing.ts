@@ -22,7 +22,9 @@ import {
 } from '../indexer/media-types.ts';
 import { child as childLogger } from '../log.ts';
 import { xmpSidecarPath } from '../fs/xmp-sidecar-path.ts';
-import { readSidecarNoFollow } from '../fs/sidecar-io.ts';
+import { authorizeSidecarRead, readSidecarNoFollow } from '../fs/sidecar-io.ts';
+import { readFileWithFailover } from '../fs/mirror-read.ts';
+import { errnoCode } from '../fs/errno-code.ts';
 import { parseFolderCulling } from '../xmp/folder-culling.ts';
 
 const log = childLogger('library/folder-listing');
@@ -242,7 +244,11 @@ async function imageCulling(child: Scanned, state: FolderState): Promise<ImageCu
   const checked = state.onDisk.has(name) ? await state.resolveChild(name) : null;
   if (!checked || path.extname(checked).toLowerCase() !== '.xmp') return {};
   try {
-    const parsed = parseFolderCulling(await readSidecarNoFollow(checked));
+    const allowed = await authorizeSidecarRead(sidecar);
+    if (!allowed.ok) return {};
+    const parsed = parseFolderCulling(
+      await readFileWithFailover(allowed.data ?? checked, readSidecarNoFollow),
+    );
     return {
       edited: true,
       ...(parsed.rating !== undefined ? { rating: parsed.rating } : {}),
@@ -250,10 +256,12 @@ async function imageCulling(child: Scanned, state: FolderState): Promise<ImageCu
       ...(parsed.colorLabel !== undefined ? { colorLabel: parsed.colorLabel } : {}),
     };
   } catch (error) {
-    log.warn(
-      { sidecar, error: String(error) },
-      'could not read sidecar culling for folder listing',
-    );
+    if (errnoCode(error) !== 'ENOENT' && errnoCode(error) !== 'ELOOP') {
+      log.warn(
+        { sidecar, error: String(error) },
+        'could not read sidecar culling for folder listing',
+      );
+    }
     return {};
   }
 }
