@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, test } from '../support/production-test';
 import { openDisposableHostedEditor, sha256File } from '../support/production-editor-actions';
@@ -39,6 +39,45 @@ async function establishedEdit(
     .toBe(fingerprint(xml));
   return xml;
 }
+
+test('Hosted caches an unedited RAW preview with an absent sidecar stamp', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chrome-hosted');
+  testInfo.annotations.push({ type: 'expected-console-error', description: expectedSaveError });
+  const { folder, rawPath, originalHash, picker } = await openDisposableHostedEditor(
+    page,
+    'preview-absent-xmp',
+  );
+  const sidecarPath = join(folder, sidecarName);
+  await expect(readFile(sidecarPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  // Preview may already have warmed its own cache while navigating to Editor.
+  // Remove that descriptor, then trigger the Editor's separate idle writer
+  // with a round-trip adjustment that returns to the unedited default model.
+  await rm(join(folder, descriptorName), { force: true });
+  picker.clear();
+  picker.setDeniedWritePaths([sidecarName]);
+  const exposure = page.getByRole('slider', { name: 'Exposure' });
+  await exposure.focus();
+  await exposure.press('ArrowRight');
+  await exposure.press('ArrowLeft');
+  await expect(exposure).toHaveAttribute('aria-valuenow', '0');
+
+  await expect
+    .poll(
+      async () =>
+        picker.operations.some(({ kind, path }) => kind === 'write' && path === descriptorName),
+      { timeout: 90_000 },
+    )
+    .toBe(true);
+  await expect
+    .poll(async () => (await readDescriptor(folder).catch(() => null))?.sidecarFingerprint, {
+      timeout: 90_000,
+    })
+    .toBe('absent');
+  await expect(readFile(sidecarPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  expect(await sha256File(rawPath)).toBe(originalHash);
+});
 
 test('Hosted skips a developed preview when the edit cannot be saved to its real XMP', async ({
   page,

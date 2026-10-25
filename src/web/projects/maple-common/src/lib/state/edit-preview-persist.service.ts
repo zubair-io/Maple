@@ -316,13 +316,12 @@ export class EditPreviewPersistService {
     const binding = this.sidecars.bindingFor(id, target.folder, target.location.filename);
     const path = [target.location.dir, binding.filename].filter(Boolean).join('/');
     const xml = await this.sidecarFreshness.readCurrent(target.folder, path);
-    if (xml === null) return;
     this.sidecarFreshness.assertUnchanged(target.folder, path, xml);
     // A sidecar write may still be pending or may have failed. Only publish a
     // preview if the bytes on disk represent the model used for its pixels.
     const persistedModel = {
       ...defaultAdjustmentModel(),
-      ...this.xmpParser.parseAdjustmentModel(xml).model,
+      ...(xml === null ? {} : this.xmpParser.parseAdjustmentModel(xml).model),
     };
     if (this.xmpSerializer.serialize(persistedModel) !== renderedXmp) return;
     if (this.isDestroyed || !current()) return;

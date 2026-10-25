@@ -28,6 +28,10 @@ import {
   type WorkflowSnapshot,
 } from '../generated/workflow.generated';
 import { SidecarSaveStateService } from './sidecar-save-state.service';
+import {
+  HostedSidecarConflictError,
+  HostedSidecarFreshnessService,
+} from './hosted-sidecar-freshness.service';
 import { HostedWorkflowWriterService } from './hosted-workflow-writer.service';
 import { WorkflowVariantStoreService } from './workflow-variant-store.service';
 import { WorkflowXmpService } from './workflow-xmp.service';
@@ -144,6 +148,19 @@ describe('Hosted sidecar external-change protection', () => {
     expect(await fs.readFile(path(), 'utf8')).toContain('xmp:Rating="3"');
     expect(TestBed.inject(SidecarSaveStateService).phase()).toBe('saved');
     expect(new Uint8Array(await fs.readFile(join(root, 'photo.dng')))).toEqual(raw);
+  });
+
+  it('distinguishes an unchanged absent sidecar from one removed outside Maple', async () => {
+    const freshness = TestBed.inject(HostedSidecarFreshnessService);
+    await fs.rm(path());
+    const absent = await freshness.readCurrent(folder, 'photo.xmp');
+    expect(absent).toBeNull();
+    expect(() => freshness.assertUnchanged(folder, 'photo.xmp', absent)).toThrow(
+      HostedSidecarConflictError,
+    );
+
+    store.replaceLoadedDocuments(folder, new Map([['photo.xmp', null]]));
+    expect(() => freshness.assertUnchanged(folder, 'photo.xmp', absent)).not.toThrow();
   });
 
   it('accepts an edit after Maple publishes a workflow snapshot', async () => {
