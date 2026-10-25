@@ -1,6 +1,6 @@
 //! Pure CPU refinement owns immutable source Arcs; it never borrows GPU state.
 use super::*;
-use raw_core::gpu_host::{prefix::pixel_prefix_matches, prepare::develop_prefix_rgba_cancellable};
+use raw_core::gpu_host::prefix::pixel_prefix_matches;
 
 pub struct Preparation {
     raw: Arc<RawImage>,
@@ -8,22 +8,17 @@ pub struct Preparation {
     ext: String,
     model: AdjustmentModel,
     edge: u32,
-    prepare_fast: bool,
     result: Option<Prepared>,
 }
 
-struct FrameData {
+struct Prepared {
     pixels: Vec<f32>,
     width: u32,
     height: u32,
     prefix: AdjustmentModel,
     inputs: FullChainInputs<'static>,
     sampling: f32,
-    exposure: f32,
-}
-struct Prepared {
-    full: FrameData,
-    fast: Option<FrameData>,
+    creative: LiveCreative,
     auto_fit: bool,
 }
 
@@ -44,19 +39,12 @@ impl Session {
         if !self.needs_preparation() {
             return None;
         }
-        let raw = self.raw.as_ref()?;
-        let fast_model = without_capture(&self.model);
-        let prepare_fast = self.model.profile != self.profile
-            || self.fast.as_ref().is_none_or(|fast| {
-                !pixel_prefix_matches(&fast_model, &fast.prefix, self.effective_ae())
-            });
         Some(Preparation {
-            raw: Arc::clone(raw),
+            raw: Arc::clone(self.raw.as_ref()?),
             bytes: Arc::clone(&self.bytes),
             ext: self.ext.clone(),
             model: self.model.clone(),
             edge: self.edge,
-            prepare_fast,
             result: None,
         })
     }
@@ -78,109 +66,57 @@ impl Session {
         let Some(prepared) = preparation.result.take() else {
             return Ok(false);
         };
-        let full = prepared.full;
-        let live = LiveSession::new(&self.ctx, &full.pixels, full.width, full.height)?;
-        let fast = prepared
-            .fast
-            .map(|fast| {
-                FastPreview::new(
-                    &self.ctx,
-                    &fast.pixels,
-                    fast.width,
-                    fast.height,
-                    fast.prefix,
-                    fast.inputs,
-                    (fast.sampling, fast.exposure),
-                )
-            })
-            .transpose()?;
+        let live = LiveSession::new(&self.ctx, &prepared.pixels, prepared.width, prepared.height)?;
         if cancel.is_cancelled() {
             return Ok(false);
         }
         self.live = live;
-        self.inputs = full.inputs;
-        self.prefix = full.prefix;
-        self.sampling = full.sampling;
-        self.exposure = full.exposure;
+        self.inputs = prepared.inputs;
+        self.prefix = prepared.prefix;
+        self.sampling = prepared.sampling;
+        self.creative = Some(prepared.creative);
         self.auto_fit = prepared.auto_fit;
         self.profile = self.model.profile;
-        if let Some(fast) = fast {
-            self.fast = Some(fast);
-        }
-        self.active_fast = false;
         Ok(true)
     }
 }
 
 impl Preparation {
-    fn frame(
-        &self,
-        model: &AdjustmentModel,
-        edge: u32,
-        cancel: &CancelToken,
-    ) -> Result<FrameData, String> {
-        let (pixels, width, height, prefix, anchor, sampling, exposure) =
-            develop_prefix_rgba_cancellable(
-                &self.raw,
-                &self.bytes,
-                &self.ext,
-                model,
-                edge,
-                raw_core::CancelToken::new(cancel.flag()),
-            )?;
-        if cancel.is_cancelled() {
-            return Err("Preparation cancelled".into());
-        }
-        let film = crate::film::resolve(&model.film_look)?;
-        let inputs = chain_inputs_with_status(
-            &self.raw,
-            &self.bytes,
-            &self.ext,
-            model,
-            film.map(|f| f.0),
-            film.map_or(0, |f| f.1),
-            anchor,
-        )
-        .0;
-        Ok(FrameData {
-            pixels,
-            width,
-            height,
-            prefix,
-            inputs,
-            sampling,
-            exposure,
-        })
-    }
     pub fn run(&mut self, cancel: &CancelToken) -> Result<bool, String> {
         if cancel.is_cancelled() {
             return Ok(false);
         }
-        let fast = if self.prepare_fast {
-            let frame = self.frame(
-                &without_capture(&self.model),
-                fast_preview::FAST_EDGE.min(self.edge),
-                cancel,
-            );
-            if cancel.is_cancelled() {
-                return Ok(false);
-            }
-            Some(frame?)
-        } else {
-            None
-        };
-        let full = self.frame(&self.model, self.edge, cancel);
+        let capture = develop_capture_prefix_rgba_cancellable(
+            &self.raw,
+            &self.bytes,
+            &self.ext,
+            &self.model,
+            self.edge,
+            raw_core::CancelToken::new(cancel.flag()),
+        );
         if cancel.is_cancelled() {
             return Ok(false);
         }
-        let full = full?;
+        let capture = capture?;
+        let inputs = capture_inputs(
+            &self.raw,
+            &self.bytes,
+            &self.ext,
+            &self.model,
+            capture.whites_anchor_ev,
+        )?;
         let auto_fit = auto_will_fit(&self.model, &self.bytes, &self.ext);
         if cancel.is_cancelled() {
             return Ok(false);
         }
         self.result = Some(Prepared {
-            full,
-            fast,
+            pixels: capture.rgba,
+            width: capture.width,
+            height: capture.height,
+            prefix: capture.prefix_model,
+            inputs,
+            sampling: capture.nr_sampling_scale,
+            creative: capture.creative,
             auto_fit,
         });
         Ok(true)
