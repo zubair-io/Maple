@@ -14,6 +14,9 @@
 // "Switch". A confirmed managed HTTPS hostname is preferred automatically.
 
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { NavigationEnd, Router } from '@angular/router';
+import { filter, map } from 'rxjs';
 import { MuiButtonComponent } from '../ui/button/mui-button.component';
 import { AuthService } from '../auth/auth.service';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
@@ -33,9 +36,17 @@ export class LanSwitchBannerComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly libraryBackend = inject(LIBRARY_BACKEND);
   private readonly lanSwitch = inject(LanSwitchService);
+  private readonly router = inject(Router);
 
   private candidate: LanSwitchCandidate | null = null;
   protected readonly phase = signal<Phase>('hidden');
+  protected readonly isPreview = toSignal(
+    this.router.events.pipe(
+      filter((event): event is NavigationEnd => event instanceof NavigationEnd),
+      map((event) => event.urlAfterRedirects.startsWith('/view/')),
+    ),
+    { initialValue: this.router.url.startsWith('/view/') },
+  );
 
   ngOnInit(): void {
     // No server, no LAN concept, on the Hosted (browser-only) build.
