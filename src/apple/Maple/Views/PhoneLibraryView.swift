@@ -76,6 +76,7 @@
     /// The photo whose tile is blanked while the Preview hero carries it.
     var hiddenTileID: AssetRef.ID? = nil
     let onPrimeSession: (AssetRef) async -> Void
+    let onReadGridFilterMetadata: @MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata
     let makeEditSession: (AssetRef) -> EditSession
     let onFullImageFallback: () -> Void
     /// Resolves the iPhone Preview sibling list for a Timeline-opened asset
@@ -128,6 +129,7 @@
         onOpenEditor: onOpenEditor,
         onOpenTile: onOpenTile,
         onPrimeSession: onPrimeSession,
+        onReadGridFilterMetadata: onReadGridFilterMetadata,
         onFullImageFallback: onFullImageFallback,
         onSelectedTileFrameChange: onSelectedTileFrameChange,
         hiddenTileID: hiddenTileID,

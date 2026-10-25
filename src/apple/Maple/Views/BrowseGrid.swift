@@ -72,6 +72,8 @@ struct BrowseGrid: View {
   /// lazily create per-asset `EditSession`s only when their cell scrolls
   /// into view, instead of eagerly priming every asset in the folder.
   var onPrimeSession: ((AssetRef) async -> Void)? = nil
+  var onReadGridFilterMetadata:
+    (@MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata)? = nil
   /// Fired when the user taps "Merge to Panorama…" from the selection bar
   /// (≥2 assets selected). `nil` suppresses the bar entirely (e.g. previews).
   var onMergePanorama: (() -> Void)? = nil
@@ -149,6 +151,13 @@ struct BrowseGrid: View {
 
   var body: some View {
     VStack(spacing: 0) {
+      if !vm.isMerged, !vm.assets.isEmpty, let onReadGridFilterMetadata {
+        GridFilterBar(
+          vm: vm, readMetadata: onReadGridFilterMetadata,
+          matchingCount: vm.gridAssets(sessions: sessions).count
+        )
+        .padding(.vertical, 8)
+      }
       ZStack(alignment: .top) {
         // The grid itself — always in the hierarchy so SwiftUI doesn't
         // tear it down when assets briefly go empty during a source
@@ -343,7 +352,7 @@ struct BrowseGrid: View {
         }
       }
       PhotoGrid(
-        data: vm.assets,
+        data: onReadGridFilterMetadata == nil ? vm.assets : vm.gridAssets(sessions: sessions),
         columns: .responsiveBySizeClass,
         provider: localProvider,
         displayMode: resolvedDisplayMode,

@@ -169,6 +169,7 @@
     let onNavigateFolder: (URL) -> Void
     let onOpenEditor: (AssetRef) -> Void
     let onPrimeSession: (AssetRef) async -> Void
+    let onReadGridFilterMetadata: @MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata
     /// Synchronous source-aware session factory (`AppShell.browseSession`)
     /// for the editor's unprimed fallback (#4712).
     let makeEditSession: (AssetRef) -> EditSession
@@ -301,6 +302,7 @@
               onSelectedTileFrameChange: { selectedTileFrame = $0 },
               hiddenTileID: hero == nil || heroPhase == .open ? nil : hero?.asset.id,
               onPrimeSession: onPrimeSession,
+              onReadGridFilterMetadata: onReadGridFilterMetadata,
               makeEditSession: makeEditSession,
               onFullImageFallback: onFullImageFallback,
               timelinePreviewSiblingAssets: timelinePreviewSiblingAssets,

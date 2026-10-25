@@ -323,6 +323,24 @@ extension AppShell {
     await session.loadSidecar()
   }
 
+  /// Read filter facts without creating an EditSession or decoding image
+  /// metadata for every asset in a large folder. The same source-aware
+  /// store resolver used by editing covers PhotoKit, SMB, and cloud assets.
+  func readGridFilterMetadata(for asset: AssetRef) async throws -> GridFilterMetadata {
+    let store: any SidecarStoreProtocol
+    if let url = asset.primaryURL {
+      store = XMPSidecarStore(rawURL: url)
+    } else if let remote = remoteSidecarStore(for: asset) {
+      store = remote
+    } else {
+      throw ImageSourceError.unsupported("No sidecar reader for \(asset.displayName)")
+    }
+    let persisted = try await store.loadIfPresent()
+    return GridFilterMetadata(
+      culling: persisted?.1 ?? CullingState(),
+      hasEdits: persisted != nil)
+  }
+
   func browseSession(for asset: AssetRef, smbSource: SMBSource? = nil) -> EditSession {
     AppShellVM.ensureSession(
       for: asset,
