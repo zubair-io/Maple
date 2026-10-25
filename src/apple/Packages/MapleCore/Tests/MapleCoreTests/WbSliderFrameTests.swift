@@ -119,11 +119,11 @@ final class WbSliderFrameTests: XCTestCase {
         XCTAssertEqual(session.originalModel.tint, -100, accuracy: 0.01)
     }
 
-    /// #5377: a capture decode with no slider frame renders the slider pair
-    /// as an absolute post-DCP white balance, so an untouched placeholder
-    /// model re-seeds to the develop's identity, and a second decode with
-    /// the same pair replaces the frame without re-seeding.
-    func testAdoptReSeedsAFramelessCaptureToTheDevelopIdentity() {
+    /// #5377: a capture decode with no slider frame (an uncalibrated tier)
+    /// renders the model's slider pair as the develop does, so adopting it
+    /// keeps its creative stage and leaves the model alone — re-seeding
+    /// would change the photo's revision mid-export.
+    func testAdoptKeepsAFramelessCaptureWithoutReSeeding() {
         let session = rawSession()
         session.wbSeedTemperature = 5000
         session.wbSeedTint = 10
@@ -131,17 +131,18 @@ final class WbSliderFrameTests: XCTestCase {
         session.model.tint = 10
         session.originalModel.temperature = 5000
         session.originalModel.tint = 10
+        let model = session.model
 
-        session.adoptDecodedWbFrame(WbSliderFrame(sceneCCT: 0, asShotTint: 0, creative: creative()))
+        let first = WbSliderFrame(sceneCCT: 0, asShotTint: 0, creative: creative())
+        session.adoptDecodedWbFrame(first)
 
-        XCTAssertEqual(session.model.temperature, 6500)
-        XCTAssertEqual(session.model.tint, 0)
-        XCTAssertEqual(session.originalModel.temperature, 6500)
+        XCTAssertEqual(session.model, model)
+        XCTAssertEqual(session.originalModel.temperature, 5000)
+        XCTAssertEqual(session.wbSliderFrame, first)
 
-        session.model.temperature = 6000
         let next = WbSliderFrame(sceneCCT: 0, asShotTint: 0, creative: creative())
         session.adoptDecodedWbFrame(next)
-        XCTAssertEqual(session.model.temperature, 6000, "the same pair must not re-seed")
+        XCTAssertEqual(session.model, model)
         XCTAssertEqual(session.wbSliderFrame, next, "the newer decode's stage must replace the old")
     }
 

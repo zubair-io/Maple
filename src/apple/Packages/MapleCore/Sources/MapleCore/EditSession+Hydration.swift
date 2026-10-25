@@ -222,14 +222,18 @@ extension EditSession {
   /// post-DCP white balance, and that pair is the develop's identity.
   func adoptDecodedWbFrame(_ frame: WbSliderFrame?) {
     guard let frame, asset.isRaw, frame.isPresent || frame.creative != nil else { return }
-    let asShotPair = { (f: WbSliderFrame) -> (Double, Double) in
-      f.isPresent ? (Double(f.sceneCCT), Double(f.asShotTint)) : (6500.0, 0.0)
-    }
-    let (newCCT, newTint) = asShotPair(frame)
     // Every decode carries its own creative stage; only the as-shot pair
-    // drives adoption.
-    let unchanged = wbSliderFrame.map { asShotPair($0) == (newCCT, newTint) } ?? false
+    // drives adoption. A frameless (uncalibrated) decode has no as-shot pair
+    // of its own, so the model and its seed stay as hydrated.
+    let previous = wbSliderFrame
     wbSliderFrame = frame
+    guard frame.isPresent else { return }
+    let newCCT = Double(frame.sceneCCT)
+    let newTint = Double(frame.asShotTint)
+    let unchanged =
+      previous.map {
+        $0.isPresent && Double($0.sceneCCT) == newCCT && Double($0.asShotTint) == newTint
+      } ?? false
     guard !unchanged else { return }
     let oldCCT = wbSeedTemperature
     let oldTint = wbSeedTint
