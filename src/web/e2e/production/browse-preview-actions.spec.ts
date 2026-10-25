@@ -239,3 +239,45 @@ test('Hosted welcome one-RAW import opens Editor without a filmstrip', async ({
   await expect(page.getByText(/Download XMP/i)).toBeVisible();
   await verifyOriginalRawHashes(manifest);
 });
+
+test('Hosted cache refreshes Browse and Preview after an external XMP change', async ({
+  page,
+}, testInfo) => {
+  hostedOnly(testInfo.project.name);
+  test.setTimeout(240_000);
+  const manifest = await readProductionFixtureManifest();
+  await resetWritableFixtureFolder(manifest.writableFolder);
+  await writeFile(join(manifest.writableFolder, 'test_0006.xmp'), seedXmp(2));
+  const picker = await installNativeProductionFolderPicker(page, manifest.writableFolder);
+  await openBrowseFolder(page);
+
+  const tile = page
+    .locator('app-asset-grid maple-asset-tile')
+    .filter({ has: page.getByRole('button', { name: SOURCE, exact: true }) });
+  const tileImage = tile.locator('img');
+  await expect(tileImage).toBeVisible({ timeout: 60_000 });
+  const editedThumb = await tileImage.screenshot();
+  await page.getByRole('button', { name: SOURCE, exact: true }).click();
+  const preview = page.locator(PREVIEW_IMAGE_SELECTOR).last();
+  await expectPreviewPixels(preview);
+  const editedPreview = await preview.screenshot();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+
+  await picker.writeText('test_0006.xmp', seedXmp(0));
+  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await expectAssets(page);
+  await expect(async () => {
+    await expect(tileImage).toBeVisible();
+    expect((await tileImage.screenshot()).equals(editedThumb)).toBe(false);
+  }).toPass({ timeout: 60_000 });
+  await page.getByRole('button', { name: SOURCE, exact: true }).click();
+  await expectPreviewPixels(preview);
+  await expect(async () => {
+    await expectPreviewPixels(preview);
+    expect((await preview.screenshot()).equals(editedPreview)).toBe(false);
+  }).toPass({ timeout: 60_000 });
+
+  await picker.verifyRawHashes();
+  await verifyOriginalRawHashes(manifest);
+  await verifyStagedRawHashes(manifest);
+});

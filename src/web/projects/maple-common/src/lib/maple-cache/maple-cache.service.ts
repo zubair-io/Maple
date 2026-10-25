@@ -11,7 +11,7 @@ import { FolderAccessService } from '../folder-access/folder-access.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex, IndexedAsset } from './maple-cache.types';
 import { ThumbFormat } from '../raw-pipeline/image-utils';
-import { sha256Prefix16 } from './sha';
+import { sha256BytesHex, sha256Prefix16 } from './sha';
 import {
   hasCacheImageSignature,
   PREVIEW_CACHE_FORMATS,
@@ -131,7 +131,21 @@ export class MapleCacheService {
    * invalidates one. Only when no entry exists under that name is the frozen
    * legacy `<sha256Prefix16(filename)>.v25` name tried, and a hit there is
    * renamed into place rather than regenerated. */
-  async readThumb(folder: MapleFolderHandle, filename: string): Promise<Blob | null> {
+  async readThumb(
+    folder: MapleFolderHandle,
+    filename: string,
+    sidecarFingerprint?: string,
+  ): Promise<Blob | null> {
+    if (sidecarFingerprint !== undefined) {
+      for (const { ext, mime } of MapleCacheService.THUMB_READ_ORDER) {
+        const bytes = await this._readOptional(folder, MapleCacheService.thumbPath(filename, ext));
+        if (!bytes || !hasCacheImageSignature(bytes, ext === 'avif' ? 'avif' : 'jpeg')) continue;
+        if (await this._thumbStampMatches(folder, filename, { ext, bytes }, sidecarFingerprint)) {
+          return new Blob([copyToArrayBuffer(bytes)], { type: mime });
+        }
+      }
+      return null;
+    }
     const current = await this._readThumbAt(folder, (ext) =>
       MapleCacheService.thumbPath(filename, ext),
     );
@@ -168,6 +182,7 @@ export class MapleCacheService {
     filename: string,
     blob: Blob,
     format: ThumbFormat = 'jpeg',
+    sidecarFingerprint?: string,
   ): Promise<void> {
     if (!folder.write) return;
     const ext = format === 'avif' ? 'avif' : 'jpg';
@@ -179,6 +194,15 @@ export class MapleCacheService {
       }
       await this.fs.ensureSubdirectory(folder, '.maple/thumbs');
       await this.fs.writeFile(folder, MapleCacheService.thumbPath(filename, ext), bytes);
+      if (sidecarFingerprint !== undefined) {
+        await this.fs.writeFile(
+          folder,
+          `${MapleCacheService.thumbPath(filename, ext)}.source.json`,
+          new TextEncoder().encode(
+            JSON.stringify({ sidecarFingerprint, imageFingerprint: await sha256BytesHex(bytes) }),
+          ),
+        );
+      }
     } catch (err) {
       console.warn(`MapleCacheService: failed to write thumb ${filename}`, err);
     }
@@ -200,6 +224,31 @@ export class MapleCacheService {
     return sawEntry ? 'rejected' : 'absent';
   }
 
+  private async _thumbStampMatches(
+    folder: MapleFolderHandle,
+    filename: string,
+    hit: { ext: string; bytes: Uint8Array },
+    sidecarFingerprint: string,
+  ): Promise<boolean> {
+    const marker = await this._readOptional(
+      folder,
+      `${MapleCacheService.thumbPath(filename, hit.ext)}.source.json`,
+    );
+    if (!marker) return false;
+    try {
+      const stamp = JSON.parse(new TextDecoder().decode(marker)) as {
+        sidecarFingerprint?: string;
+        imageFingerprint?: string;
+      };
+      return (
+        stamp.sidecarFingerprint === sidecarFingerprint &&
+        stamp.imageFingerprint === (await sha256BytesHex(hit.bytes))
+      );
+    } catch {
+      return false;
+    }
+  }
+
   // ── Previews (unedited embedded-RAW-preview tier, #2010 / epic #1993) ──────
 
   /** Read a Hosted-private preview descriptor and its declared artifact.
@@ -214,8 +263,20 @@ export class MapleCacheService {
     relDir: string,
     filename: string,
     source: PreviewSourceIdentity,
+    sidecarFingerprint?: string,
   ): Promise<Blob | null> {
     try {
+      if (sidecarFingerprint !== undefined) {
+        const current = await this._readPreviewNamed(
+          folder,
+          relDir,
+          filename,
+          source,
+          '',
+          sidecarFingerprint,
+        );
+        return current === 'absent' || current === 'rejected' ? null : current.blob;
+      }
       return await this._readWithLegacyFallback(folder, (naming) =>
         this._readPreviewNamed(folder, relDir, filename, source, naming),
       );
@@ -233,6 +294,7 @@ export class MapleCacheService {
     filename: string,
     blob: Blob,
     source: PreviewSourceIdentity,
+    sidecarFingerprint?: string,
   ): Promise<void> {
     if (!folder.write) return;
     try {
@@ -258,6 +320,9 @@ export class MapleCacheService {
         mimeType: PREVIEW_CACHE_FORMATS[format].mimeType,
         source,
         artifactLastModified,
+        sidecarFingerprint,
+        artifactFingerprint:
+          sidecarFingerprint === undefined ? undefined : await sha256BytesHex(bytes),
       };
       await this.fs.writeFile(
         folder,
@@ -275,16 +340,20 @@ export class MapleCacheService {
     filename: string,
     source: PreviewSourceIdentity,
     naming: DerivativeNaming,
+    sidecarFingerprint?: string,
   ): Promise<CacheHit | NamedRead> {
     const descriptorBytes = await this._readOptional(
       folder,
       previewDescriptorPath(relDir, filename, naming),
     );
     if (descriptorBytes === null) {
+      if (sidecarFingerprint !== undefined) return 'rejected';
       return this._readCanonicalAvifPreview(folder, relDir, filename, source, naming);
     }
     const descriptor = parsePreviewDescriptor(descriptorBytes);
     if (!descriptor || !samePreviewSource(descriptor.source, source)) return 'rejected';
+    if (sidecarFingerprint !== undefined && descriptor.sidecarFingerprint !== sidecarFingerprint)
+      return 'rejected';
 
     // Apple and the Self-Hosted API intentionally keep writing the portable
     // fixed-name AVIF without this Hosted-only descriptor. Do not let an
@@ -292,7 +361,7 @@ export class MapleCacheService {
     // cross-platform develop. This adds one metadata lookup only for the
     // browser-native formats; the normal artifact read remains unchanged.
     const canonical =
-      descriptor.format === 'avif'
+      descriptor.format === 'avif' || sidecarFingerprint !== undefined
         ? null
         : await this._readNewerCanonicalAvif(
             folder,
@@ -307,6 +376,11 @@ export class MapleCacheService {
       previewArtifactPath(relDir, filename, descriptor.format, n);
     const bytes = await this.fs.readFile(folder, artifactPath(naming));
     if (!hasCacheImageSignature(bytes, descriptor.format)) return 'rejected';
+    if (
+      sidecarFingerprint !== undefined &&
+      descriptor.artifactFingerprint !== (await sha256BytesHex(bytes))
+    )
+      return 'rejected';
     return {
       blob: new Blob([bytes as unknown as BlobPart], { type: descriptor.mimeType }),
       files: [
