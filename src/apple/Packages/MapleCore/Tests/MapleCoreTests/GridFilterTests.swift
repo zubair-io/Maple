@@ -166,6 +166,10 @@ struct GridFilterTests {
     #expect(visible.map(\.id) == [assets[1].id])
     #expect(vm.selectedAssets(sessions: sessions).map(\.id) == [assets[1].id])
     #expect(vm.selectedAssets(in: visible).map(\.id) == [assets[1].id])
+    vm.selectedID = assets[0].id
+    #expect(vm.selectedVisibleAsset(sessions: sessions) == nil)
+    vm.selectedID = assets[1].id
+    #expect(vm.selectedVisibleAsset(sessions: sessions)?.id == assets[1].id)
   }
 
   @Test("Tapping the active filter keeps its loaded results")

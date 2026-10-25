@@ -60,7 +60,7 @@
 
     private var hasSyncSourceAndTarget: Bool {
       guard let sourceID = vm.selectedID,
-        vm.selectedAsset?.adjustmentTransferTarget != nil
+        displayedAssets.first(where: { $0.id == sourceID })?.adjustmentTransferTarget != nil
       else { return false }
       return selectedAssets.contains { $0.id != sourceID }
     }
