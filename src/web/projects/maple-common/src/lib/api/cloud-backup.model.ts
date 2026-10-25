@@ -5,7 +5,9 @@ export interface BackupDestinationStatus {
   purgePending: number;
   blocked: number;
   bytes: number;
+  /** The error shared by the most blocked entries, and how many share it. */
   lastError: string | null;
+  lastErrorCount: number;
   missing?: number;
   prepared?: number;
 }

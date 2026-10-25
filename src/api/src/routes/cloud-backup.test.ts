@@ -260,3 +260,64 @@ test('Google Drive destination coverage preserves pending and missing counts', a
     process.env.MAPLE_JWT_SECRET = previous;
   }
 });
+
+test('Google Drive status reports the error most blocked entries share, not the alphabetically last', async () => {
+  using live = await createLiveTestDatabase();
+  const previous = process.env.MAPLE_JWT_SECRET;
+  const secret = 'backup-destination-error-test-secret';
+  process.env.MAPLE_JWT_SECRET = secret;
+  try {
+    const app = buildApp({ stageNames: [] });
+    const owner = await signAccessToken(
+      {
+        sub: '111111111111111111111111',
+        email: null,
+        role: 'owner',
+        file_access: true,
+      },
+      secret,
+    );
+    const libraryId = insertFolder(live.db);
+    const repo = new BackupRepository(live.handle);
+    const destination = await repo.createDestination({
+      libraryId,
+      kind: 'google-drive',
+      name: 'Drive',
+      path: null,
+    });
+    const failed = async (filename: string, error: string) => {
+      const assetId = insertAsset(live.db);
+      insertLocation(live.db, { assetId, libraryId, filename });
+      const entry = await repo.ensureEntry(destination.id, assetId, 0, filename);
+      run(live.db, `UPDATE backup_entries SET last_error=? WHERE id=?`, error, entry.id);
+    };
+    const expired = 'Authorization expired or revoked; reconnect Google Drive.';
+    await failed('a.dng', expired);
+    await failed('b.dng', expired);
+    await failed('c.dng', expired);
+    await failed('d.dng', 'The operation was aborted.');
+
+    const response = await app.handle(
+      new Request('http://localhost/api/cloud-backup/destinations', {
+        headers: { Authorization: `Bearer ${owner}` },
+      }),
+    );
+    const body = (await response.json()) as {
+      destinations: Array<{
+        id: string;
+        status: {
+          blocked: number;
+          lastError: string | null;
+          lastErrorCount: number;
+        };
+      }>;
+    };
+    expect(body.destinations.find((item) => item.id === destination.id)?.status).toMatchObject({
+      blocked: 4,
+      lastError: expired,
+      lastErrorCount: 3,
+    });
+  } finally {
+    process.env.MAPLE_JWT_SECRET = previous;
+  }
+});

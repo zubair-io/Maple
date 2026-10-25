@@ -138,6 +138,8 @@
                 </div>
                 @if (destination.status.lastError) {
                   <p role="alert" class="text-error-text text-[12px]">
+                    {{ destination.status.lastErrorCount }}
+                    {{ destination.status.lastErrorCount === 1 ? 'entry' : 'entries' }}:
                     {{ destination.status.lastError }}
                   </p>
                 }

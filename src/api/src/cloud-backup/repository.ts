@@ -322,6 +322,13 @@ export class BackupRepository {
       ],
     );
   }
+  /** Hand an interrupted claim back untouched: no error, no spent attempt, no backoff. */
+  async release(entry: BackupEntry, owner: string): Promise<void> {
+    await this.db.write(
+      `UPDATE backup_entries SET lease_owner=NULL,lease_until=0 WHERE id=? AND lease_owner=?`,
+      [entry.id, owner],
+    );
+  }
   /** Whether any unleased entry is parked on a connection failure. */
   async hasParkedConnectionErrors(destinationId: string): Promise<boolean> {
     const [pending] = await this.db.read<{ found: number }>(

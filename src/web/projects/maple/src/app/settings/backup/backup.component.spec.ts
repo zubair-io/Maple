@@ -38,6 +38,7 @@ const destination: BackupDestination = {
     blocked: 0,
     bytes: 500,
     lastError: null,
+    lastErrorCount: 0,
   },
 };
 describe('BackupComponent', () => {
@@ -136,6 +137,25 @@ describe('BackupComponent', () => {
     await settle();
     expect(button('Remove destination').disabled).toBe(true);
     expect(api.removeDestination).not.toHaveBeenCalled();
+  });
+  it('names how many entries share the reported backup error', async () => {
+    api.destinations.mockReturnValue(
+      of([
+        {
+          ...destination,
+          status: {
+            ...destination.status,
+            blocked: 3,
+            lastError: 'Authorization expired or revoked; reconnect Google Drive.',
+            lastErrorCount: 3,
+          },
+        },
+      ]),
+    );
+    await settle();
+    expect(el().querySelector('[role="alert"]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      '3 entries: Authorization expired or revoked; reconnect Google Drive.',
+    );
   });
   it('shows indexed gaps and interrupted moves and explains untracked erasure on removal', async () => {
     api.destinations.mockReturnValue(
