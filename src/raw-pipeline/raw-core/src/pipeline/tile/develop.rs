@@ -32,21 +32,38 @@ use crate::{
     xmp::AdjustmentModel,
 };
 
-use super::colour::{develop_colour, TileColour};
+use super::colour::{capture_colour, develop_colour, TileColour};
 use super::region::{clip_to_default_crop, trim_image_to_inner, TileWindow};
 use crate::pipeline::{
     develop::effective_quality_divisor, native_render_dims, stage, RenderQuality,
 };
 use crate::stages::{local_adjustments, vignette};
 
+/// What a tile develop produces.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum TileOutput {
+    /// The developed scene, with the host-measured anchors described at
+    /// [`develop_scene_linear_from_padded_mosaic`].
+    Scene {
+        decoded_wb_anchor: Option<(f32, f32)>,
+        ae_gain: f32,
+    },
+    /// The capture result in the fixed as-shot basis (#5377), for a host
+    /// that runs the creative stage per tick.
+    Capture,
+}
+
+impl TileOutput {
+    pub(crate) fn develops_scene(self) -> bool {
+        matches!(self, TileOutput::Scene { .. })
+    }
+}
+
 /// The per-render values the tile entry threads into the chain besides the
 /// mosaic and the model: the host-measured anchors (WB delta anchor, #1725;
 /// auto-exposure gain, #1167) and the tile's window in the frame (#1157).
 pub(super) struct TileAnchors<'a> {
-    /// See [`develop_scene_linear_from_padded_mosaic`].
-    pub decoded_wb_anchor: Option<(f32, f32)>,
-    /// See [`develop_scene_linear_from_padded_mosaic`].
-    pub ae_gain: f32,
+    pub output: TileOutput,
     /// Where the padded crop sits in the developed frame — the anchor for
     /// vignette's ellipse and the local-adjustment masks.
     pub window: TileWindow,
@@ -122,8 +139,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     cancel: crate::CancelToken<'_>,
 ) -> Result<DevelopedTile> {
     let TileAnchors {
-        decoded_wb_anchor,
-        ae_gain,
+        output,
         window,
         inner,
         active_area,
@@ -226,6 +242,18 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     });
     let (profile, profile_source) =
         stage("tile_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
+    let (decoded_wb_anchor, ae_gain) = match output {
+        TileOutput::Scene {
+            decoded_wb_anchor,
+            ae_gain,
+        } => (decoded_wb_anchor, ae_gain),
+        TileOutput::Capture => {
+            return Ok(DevelopedTile {
+                image: capture_colour(camera_rgb, &profile, model, window, cancel)?,
+                inner,
+            })
+        }
+    };
     let mut scene = develop_colour(
         camera_rgb,
         TileColour {

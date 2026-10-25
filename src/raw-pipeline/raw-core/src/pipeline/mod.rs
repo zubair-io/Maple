@@ -44,7 +44,10 @@ pub use inpaint_store::{patch_from_bytes, patch_to_bytes, patches_from_blob, pat
 #[path = "inpaint_seam_tests.rs"]
 mod inpaint_seam_tests;
 
-pub use capture_first::{CreativeAnchors, CreativePlan, CreativeStage, CreativeWire, PlanTable};
+pub use capture_first::{
+    AsShotTable, CreativeAnchors, CreativeHeader, CreativePlan, CreativeStage, CreativeTick,
+    CreativeWire, PlanTable, ProfileCore, TableLayout, TableSpan,
+};
 pub use develop::{
     develop_scene_linear_from_raw_with_quality,
     develop_scene_linear_from_raw_with_quality_cancellable,
@@ -64,7 +67,8 @@ pub use pano::{
 pub use render::{
     cached_auto_profile_fit, decode_raster_base, fit_auto_profile_from_raw,
     fit_auto_profile_from_raw_at_cap, fit_profile_curve_from_raw, native_render_dims,
-    render_detail_base, render_detail_base_cancellable, render_detail_base_retained,
+    render_capture_from_raw_f32, render_capture_sized_from_raw_f32, render_detail_base,
+    render_detail_base_cancellable, render_detail_base_retained,
     render_detail_base_retained_cancellable, render_detail_tile, render_detail_tile_cancellable,
     render_export_f32, render_export_from_raw, render_export_from_raw_with_film,
     render_export_raster, render_export_raster_cancellable, render_from_raw,
@@ -81,9 +85,9 @@ pub use render::{
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_anchors,
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain,
     render_sized_from_raw_with_quality_and_source,
-    render_sized_from_raw_with_quality_source_and_film, validate_raster_adjustments, CpuPreview,
-    DetailContext, DetailRenderOptions, ExportDepth, ExportPixels, FitCap, RasterDetailImage,
-    RawInput,
+    render_sized_from_raw_with_quality_source_and_film, validate_raster_adjustments, CaptureRender,
+    CpuPreview, DetailContext, DetailRenderOptions, ExportDepth, ExportPixels, FitCap,
+    RasterDetailImage, RawInput,
 };
 pub use scene_linear_chain::{
     apply_scene_linear_chain, apply_scene_linear_chain_f32, apply_scene_linear_chain_f32_scoped,
@@ -95,7 +99,8 @@ pub use scene_linear_chain::{
     scene_linear_chain_window_reach_px, ChainOptions, ChainWindow,
 };
 pub use tile::{
-    reject_untileable_tile, render_scene_linear_tile_cancellable_f32,
+    reject_untileable_tile, render_capture_tile_cancellable_f32,
+    render_capture_tile_from_frame_context_f32, render_scene_linear_tile_cancellable_f32,
     render_scene_linear_tile_from_frame_context, render_scene_linear_tile_from_frame_context_f32,
     render_scene_linear_tile_from_raw_with_quality,
     render_scene_linear_tile_from_raw_with_quality_and_wb_anchor,

@@ -19,16 +19,24 @@
 
 mod creative;
 mod creative_plan;
+mod export;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_plan;
 #[cfg(test)]
 mod tests_signed;
+#[cfg(test)]
+mod tests_transport;
+mod transport;
 
 pub(crate) use creative::CaptureSpace;
 pub use creative::{CreativeAnchors, CreativeStage};
-pub use creative_plan::{CreativePlan, CreativeWire, PlanTable};
+pub use creative_plan::{
+    AsShotTable, CreativePlan, CreativeWire, PlanTable, TableLayout, TableSpan,
+};
+pub(crate) use export::{capture_in_basis, export_capture};
+pub use transport::{CreativeHeader, CreativeTick, ProfileCore};
 
 use super::{capture_sharpening_helper::capture_sharpening_params_from_model, dump_after, stage};
 use crate::{

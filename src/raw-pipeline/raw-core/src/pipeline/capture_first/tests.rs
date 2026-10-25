@@ -30,7 +30,7 @@ const PATCHES: [[f32; 3]; 6] = [
 /// A 96×96 RGGB chart of saturated, near-clipping and near-black patches with
 /// a ripple, under an embedded ColorMatrix, so the calibrated camera-WB path,
 /// soft floor and highlight handling all see real work.
-fn chart_raw() -> RawImage {
+pub(super) fn chart_raw() -> RawImage {
     const SIDE: u32 = 96;
     const WHITE: u32 = 65535;
     let raw_data = (0..SIDE)
@@ -79,7 +79,7 @@ fn develop(raw: &RawImage, model: &AdjustmentModel) -> (Image, f32) {
     develop_scene_linear_from_raw_with_quality_with_gain(raw, model, RenderQuality::Full).unwrap()
 }
 
-fn warm_white_balance() -> AdjustmentModel {
+pub(super) fn warm_white_balance() -> AdjustmentModel {
     AdjustmentModel {
         temperature: 3600.0,
         tint: 18.0,
@@ -89,7 +89,7 @@ fn warm_white_balance() -> AdjustmentModel {
     }
 }
 
-fn engaged_capture() -> AdjustmentModel {
+pub(super) fn engaged_capture() -> AdjustmentModel {
     AdjustmentModel {
         chroma_prefilter: 60.0,
         capture_sharpening_amount: 80.0,
@@ -97,7 +97,7 @@ fn engaged_capture() -> AdjustmentModel {
     }
 }
 
-fn max_relative_difference(a: &Image, b: &Image) -> f32 {
+pub(super) fn max_relative_difference(a: &Image, b: &Image) -> f32 {
     a.pixels
         .iter()
         .zip(&b.pixels)

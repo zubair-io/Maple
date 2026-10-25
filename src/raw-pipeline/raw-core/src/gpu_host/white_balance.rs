@@ -16,7 +16,10 @@ pub struct GpuWhiteBalance {
         wb_camera::SliderFrameExport,
     )>,
     /// The HueSatMap endpoints (#5099) and their two tables, shared with
-    /// every tick's GPU inputs rather than copied.
+    /// every tick's GPU inputs rather than copied. Kept only for the hosts
+    /// still on the scene-linear decode — Windows, Web and Android/Linux —
+    /// and removed when they take the capture decode (#5378, #5379, #5380);
+    /// Apple runs the creative stage instead (#5377).
     hsm: Option<(wb_camera::WbHsmRetarget, std::sync::Arc<[f32]>)>,
     as_shot_neutral: [f32; 3],
 }

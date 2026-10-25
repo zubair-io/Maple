@@ -222,7 +222,7 @@ mod frame;
 #[path = "wb_frame_delta.rs"]
 mod frame_delta;
 
-pub use frame::SliderFrame;
+pub use frame::{SliderFrame, SliderFrameParts};
 pub use frame_delta::SliderFrameExport;
 
 #[path = "wb_hsm_retarget.rs"]

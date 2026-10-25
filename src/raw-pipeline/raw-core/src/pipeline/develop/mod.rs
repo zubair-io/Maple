@@ -48,7 +48,7 @@ mod colour;
 mod geometry;
 
 use super::capture_first::Chain;
-pub(crate) use colour::{develop_colour, ColourInput};
+pub(crate) use colour::{capture_colour, develop_colour, CameraReady};
 
 pub(super) use geometry::{
     crop_to_default, effective_quality_divisor, highlight_active_area, lateral_ca,
@@ -90,6 +90,23 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     let model = &*crate::types::with_brush_rasters(model, frame_w, frame_h);
     // Before any full-density buffer exists, so the two develops never coexist.
     let haze = super::develop_sized::frame_haze(raw, model, cancel)?;
+    let (camera_rgb, input) =
+        develop_camera(raw, model, quality, cancel)?.colour(raw, model, Chain::Full, cancel);
+    let (scene, ae_gain) = develop_colour(camera_rgb, input)?;
+    develop_after_colour(scene, raw, model, haze.as_ref(), cancel).map(|scene| (scene, ae_gain))
+}
+
+/// Everything before the colour segment: the RAW decoded to the
+/// profile-ready camera buffer.
+pub(crate) fn develop_camera(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    cancel: CancelToken<'_>,
+) -> Result<CameraReady> {
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
     let mut camera_rgb = match raw.cfa {
         crate::image::CfaPattern::LinearRgb => {
             // LinearRaw DNG: data is already 3-channel RGB. Skip the
@@ -275,19 +292,22 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     let (profile, profile_source) =
         stage("dcp::profile_for", || dcp::profile_for_with_source(raw))?;
     let whites_anchor_ev = dcp::scene_white_anchor(&camera_rgb, &profile)?;
-    let (mut scene, ae_gain) = develop_colour(
+    Ok(CameraReady {
         camera_rgb,
-        ColourInput {
-            raw,
-            model,
-            profile,
-            profile_source,
-            skip_pre_gain,
-            whites_anchor_ev,
-            chain: Chain::Full,
-            cancel,
-        },
-    )?;
+        profile,
+        profile_source,
+        skip_pre_gain,
+        whites_anchor_ev,
+    })
+}
+
+fn develop_after_colour(
+    mut scene: crate::image::Image,
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    haze: Option<&dehaze::FrameHaze>,
+    cancel: CancelToken<'_>,
+) -> Result<crate::image::Image> {
     stage("scene_tone_controls", || {
         scene_tone_controls::apply(&mut scene, model)
     });
@@ -315,7 +335,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     stage("texture", || texture::apply(&mut scene, model.texture));
     dump_after("11_texture", &scene);
     stage("dehaze", || {
-        dehaze::apply_whole_frame(&mut scene, model.dehaze, haze.as_ref())
+        dehaze::apply_whole_frame(&mut scene, model.dehaze, haze)
     });
     dump_after("12_dehaze", &scene);
     // Defringe (#3411) — Oklab, between dehaze and local adjustments so a
@@ -330,7 +350,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
             &model.mask_rasters,
             raw.orientation,
         );
-        local_adjustments::apply_with_frame_haze(&mut scene, &layers, &rasters, haze.as_ref())
+        local_adjustments::apply_with_frame_haze(&mut scene, &layers, &rasters, haze)
     });
     dump_after("12b_local_adjustments", &scene);
     // Vignette (#1109, tone/zoom design § 10.1) — scene-linear radial gain,
@@ -388,7 +408,7 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable_with_gain(
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
-    Ok((scene, ae_gain))
+    Ok(scene)
 }
 
 #[cfg(test)]

@@ -10,7 +10,7 @@ use crate::stages::highlight_recovery_oklab;
 use crate::test_support::creative::{creative_stage, fallback_stage, Tables};
 use crate::xmp::HighlightRecoveryMode;
 
-fn capture_pixels() -> Image {
+pub(super) fn capture_pixels() -> Image {
     let mut img = Image::new(16, 12, ColorSpace::SceneLinearRec2020);
     let mut state = 0x9e37_79b9_u32;
     let mut next = || {
@@ -82,7 +82,7 @@ fn through(plan: &CreativePlan<'_>, p: [f32; 3], mode: HighlightRecoveryMode) ->
     plan.post.mul_vec(one.pixels[0])
 }
 
-fn models() -> Vec<AdjustmentModel> {
+pub(super) fn models() -> Vec<AdjustmentModel> {
     let custom = |temperature: f32, tint: f32, recovery: HighlightRecoveryMode| AdjustmentModel {
         temperature,
         tint,
@@ -151,14 +151,23 @@ fn the_plan_reproduces_the_uncalibrated_tiers_post_dcp_white_balance() {
 }
 
 #[test]
-fn a_blended_table_appears_only_off_the_as_shot_white_balance() {
+fn the_as_shot_table_is_the_endpoints_blended_at_the_as_shot_cct() {
     let stage = creative_stage(Tables::DualHueSatMap { srgb: false }, 1.0);
     let wire = stage.gpu_wire();
-    let as_shot = stage.gpu_plan(&wire, &AdjustmentModel::default()).unwrap();
-    assert!(as_shot.hsm.unwrap().warm_offset.is_none());
-    let warm = stage.gpu_plan(&wire, &models()[1]).unwrap();
-    let table = warm.hsm.unwrap();
-    assert!(table.warm_offset.is_some() && (0.0..=1.0).contains(&table.warm_weight));
+    let e = stage.profile.cm_endpoints.unwrap();
+    let as_shot = stage
+        .gpu_plan(&wire, &AdjustmentModel::default())
+        .unwrap()
+        .hsm
+        .unwrap();
+    assert_eq!(
+        Some(as_shot.warm_weight),
+        dcp::hsm_lerp_weight(e.cct_cold, e.cct_warm, stage.profile.scene_cct)
+    );
+    let warm = stage.gpu_plan(&wire, &models()[1]).unwrap().hsm.unwrap();
+    assert_eq!(warm.warm_offset, as_shot.warm_offset);
+    assert!(warm.warm_offset.is_some() && (0.0..=1.0).contains(&warm.warm_weight));
+    assert_ne!(warm.warm_weight, as_shot.warm_weight);
 }
 
 #[test]

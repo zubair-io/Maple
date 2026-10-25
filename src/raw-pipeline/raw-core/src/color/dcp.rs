@@ -112,7 +112,7 @@ pub struct HsmEndpoints {
 /// codebase's sort-by-CCT convention: "cold" = the LOWER-CCT calibration
 /// illuminant (e.g. StdA 2856 K), "warm" = the higher-CCT one (e.g. D65
 /// 6504 K) — matching `profile_from_embedded`'s cold/warm pairing.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct CmEndpoints {
     /// ColorMatrix calibrated under the lower-CCT illuminant.
     pub m_cold: Matrix3,
