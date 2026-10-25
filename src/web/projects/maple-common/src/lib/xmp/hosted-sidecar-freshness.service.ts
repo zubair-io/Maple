@@ -23,13 +23,14 @@ export class HostedSidecarFreshnessService {
   }
 
   async readCurrent(folder: MapleFolderHandle, filename: string): Promise<string | null> {
-    const entry = (await this.access.listEntries(folder)).find((item) => item.name === filename);
-    if (entry && entry.kind !== 'file') throw Error(`Sidecar path is not a file: ${filename}`);
-    return entry
-      ? new TextDecoder('utf-8', { fatal: true }).decode(
-          await this.access.readFile(folder, filename),
-        )
-      : null;
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(
+        await this.access.readFile(folder, filename),
+      );
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'NotFoundError') return null;
+      throw error;
+    }
   }
 
   assertUnchanged(

@@ -72,7 +72,9 @@ describe('Hosted sidecar external-change protection', () => {
   let folder: MapleFolderHandle;
   let store: XmpStoreService;
   let writeFile: ReturnType<typeof vi.fn<typeof fsAccessWriteFile>>;
+  let caseFold: boolean;
   const path = () => join(root, 'photo.xmp');
+  const physicalName = (name: string) => (caseFold && name === 'photo.xmp' ? 'photo.XMP' : name);
 
   beforeAll(() => {
     initSync({
@@ -86,6 +88,7 @@ describe('Hosted sidecar external-change protection', () => {
     });
   });
   beforeEach(async () => {
+    caseFold = false;
     root = await fs.mkdtemp(join(tmpdir(), 'maple-hosted-conflict-'));
     await fs.writeFile(join(root, 'photo.dng'), raw);
     await fs.writeFile(path(), sidecar(0));
@@ -95,13 +98,20 @@ describe('Hosted sidecar external-change protection', () => {
       write: true,
       native: new DiskDirectory(root) as unknown as FileSystemDirectoryHandle,
     };
-    writeFile = vi.fn(fsAccessWriteFile);
+    writeFile = vi.fn((target: MapleFolderHandle, name: string, bytes: Uint8Array) =>
+      fsAccessWriteFile(target, physicalName(name), bytes),
+    );
     TestBed.configureTestingModule({
       providers: [
         { provide: WorkflowXmpService, useClass: InProcessWorkflowXmp },
         {
           provide: FolderAccessService,
-          useValue: { listEntries: fsAccessListEntries, readFile: fsAccessReadFile, writeFile },
+          useValue: {
+            listEntries: fsAccessListEntries,
+            readFile: (target: MapleFolderHandle, name: string) =>
+              fsAccessReadFile(target, physicalName(name)),
+            writeFile,
+          },
         },
       ],
     });
@@ -181,5 +191,13 @@ describe('Hosted sidecar external-change protection', () => {
     const final = await fs.readFile(path(), 'utf8');
     expect(final).toContain('xmp:Rating="3"');
     expect(JSON.parse(workflow_read_xmp(final))).toBeNull();
+  });
+
+  it('saves a sidecar whose physical filename differs only by case', async () => {
+    await fs.rename(path(), join(root, 'photo.XMP'));
+    caseFold = true;
+    store.scheduleWrite('asset', folder, 'photo.dng', defaultAdjustmentModel(), culling(2));
+    await store.flushAll();
+    expect(await fs.readFile(join(root, 'photo.XMP'), 'utf8')).toContain('xmp:Rating="2"');
   });
 });
