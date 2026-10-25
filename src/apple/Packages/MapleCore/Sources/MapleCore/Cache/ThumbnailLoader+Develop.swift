@@ -21,8 +21,10 @@ extension ThumbnailLoader {
     // Preserve the camera fast path for those sidecars; a WB-only external
     // edit remains ambiguous until the XMP records an explicit edit intent.
     guard parsedModel.isVisuallyEditedBeyondWhiteBalance else { return nil }
+    let resolved = try await ImportedWhiteBalanceResolver.resolve(
+      asset: AssetRef(url: url), model: parsedModel, isRawOverride: false)
     let maskSession = await EditSession(asset: AssetRef(url: url))
-    let model = await maskSession.rehydratedMaskRasters(in: parsedModel)
+    let model = await maskSession.rehydratedMaskRasters(in: resolved)
     let rasterIDs = Set(model.localAdjustments.flatMap(\.mask.registeredRasterIds))
     defer { rasterIDs.forEach(MaskRasterRegistry.release) }
     guard

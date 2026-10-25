@@ -258,6 +258,27 @@ final class PartialWhiteBalanceTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: png), bytes)
   }
 
+  func testColdNonRawDerivativeResolvesLegacyPartialTint() async throws {
+    let root = try SidecarContractIO.makeTempDirectory(prefix: "partial-wb-cold-bitmap")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let png = root.appendingPathComponent("photo.png")
+    let original = try SidecarContractIO.makeSyntheticOriginal(at: png)
+    let sidecar = SidecarPath.sidecarURL(for: png)
+    var derivatives: [Data] = []
+    for version in [2, 5] {
+      let attrs =
+        #"crs:Tint="40" crs:Exposure2012="1.25" xmlns:papp="http://ns.justmaple.app/photo/1.0/" papp:WbScaleVersion="\#(version)""#
+      try xml(attrs).write(to: sidecar, atomically: true, encoding: .utf8)
+      let rendered = try await ThumbnailLoader.renderNonRawSidecarDerivative(
+        at: png, targetLongEdge: 256, quality: 0.7)
+      derivatives.append(try XCTUnwrap(rendered))
+    }
+    XCTAssertNotEqual(
+      derivatives[0], derivatives[1],
+      "V2 Tint=40 must render with its converted value, not V5's literal tint")
+    XCTAssertEqual(try Data(contentsOf: png), original)
+  }
+
   func testUnreadableRawPreservesImportedFieldsAndReportsResolutionFailure() async throws {
     let root = try SidecarContractIO.makeTempDirectory(prefix: "partial-wb-error")
     defer { try? FileManager.default.removeItem(at: root) }
