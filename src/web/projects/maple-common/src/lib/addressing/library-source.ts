@@ -10,6 +10,7 @@
 import { InjectionToken } from '@angular/core';
 import type { MapleAddress } from './maple-address';
 import type { DownloadProgress } from '../api/filesystem-browse.service';
+import type { ColorLabelValue } from '../models/color-label';
 
 /** A sub-folder entry returned by `LibrarySource.listFolder`. */
 export interface LibraryFolderEntry {
@@ -22,6 +23,11 @@ export interface ImageEntry {
   address: string;
   mapleId: string | null;
   indexed: boolean;
+  /** Canonical on-disk XMP culling, available before the photo is opened. */
+  edited?: boolean;
+  rating?: number;
+  flag?: 'pick' | 'reject';
+  colorLabel?: ColorLabelValue;
   width?: number;
   height?: number;
   capturedAt?: string;

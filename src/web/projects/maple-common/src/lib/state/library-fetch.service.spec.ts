@@ -108,6 +108,22 @@ describe('M2 addressing — library-source FolderListing contract', () => {
 });
 
 describe('Self-Hosted indexed Info metadata', () => {
+  it('hydrates saved grid filters from the folder response before Preview', () => {
+    const asset = selfHostedAssetFromImage(
+      {
+        ...makeImage('edited.jpg', 'edited.jpg'),
+        edited: true,
+        rating: 4,
+        flag: 'pick',
+        colorLabel: 'red',
+      },
+      `${LIB_SLUG}:`,
+    );
+    expect(asset).toMatchObject({ edited: true, rating: 4, flag: 'pick', colorLabel: 'red' });
+    const plain = selfHostedAssetFromImage(makeImage('plain.jpg', 'plain.jpg'), `${LIB_SLUG}:`);
+    expect(plain).toMatchObject({ edited: false, rating: 0, flag: 'unflagged', colorLabel: null });
+  });
+
   it('projects the folder response EXIF into the Preview Info rows', () => {
     const image: ImageEntry = {
       ...makeImage('test_0003.CR2', 'test_0003.CR2'),

@@ -21,6 +21,9 @@ import {
   isStubImageFilename,
 } from '../indexer/media-types.ts';
 import { child as childLogger } from '../log.ts';
+import { xmpSidecarPath } from '../fs/xmp-sidecar-path.ts';
+import { readSidecarNoFollow } from '../fs/sidecar-io.ts';
+import { parseXmpMetadata } from '../xmp/metadata-parser.ts';
 
 const log = childLogger('library/folder-listing');
 const IMAGE_EXTENSIONS = new Set([...RAW_EXTENSIONS, ...BITMAP_EXTENSIONS, ...PSD_HDR_EXTENSIONS]);
@@ -81,6 +84,10 @@ interface ImageEntry extends Entry {
   isVideo?: true;
   isAudio?: true;
   isStub?: true;
+  edited?: boolean;
+  rating?: number;
+  flag?: 'pick' | 'reject';
+  colorLabel?: string;
 }
 interface SidecarEntry extends Entry {
   asset_id: string;
@@ -224,14 +231,45 @@ interface FolderEntries {
   sidecars: SidecarEntry[];
 }
 
-async function appendEntry(child: Scanned | null, entries: FolderEntries, state: FolderState) {
+type ImageCulling = Partial<Pick<ImageEntry, 'edited' | 'rating' | 'flag' | 'colorLabel'>>;
+
+/** Read the canonical sidecar during the folder walk. The catalog can lag behind
+ * a newly registered directory, and filters must work before Preview hydrates
+ * each photo individually. Avoid I/O for the common sidecar-free case. */
+async function imageCulling(child: Scanned, state: FolderState): Promise<ImageCulling> {
+  const sidecar = xmpSidecarPath(child.entry.path);
+  const name = path.basename(sidecar);
+  if (!state.onDisk.has(name) || !(await state.resolveChild(name))) return {};
+  try {
+    const parsed = parseXmpMetadata(await readSidecarNoFollow(sidecar));
+    return {
+      edited: true,
+      ...(parsed.rating !== undefined ? { rating: parsed.rating } : {}),
+      ...(parsed.flag !== undefined ? { flag: parsed.flag } : {}),
+      ...(parsed.colorLabel !== undefined ? { colorLabel: parsed.colorLabel } : {}),
+    };
+  } catch (error) {
+    log.warn(
+      { sidecar, error: String(error) },
+      'could not read sidecar culling for folder listing',
+    );
+    return {};
+  }
+}
+
+async function appendEntry(
+  child: Scanned | null,
+  entries: FolderEntries,
+  state: FolderState,
+  culling: ImageCulling,
+) {
   if (!child) return;
   if (child.stat?.isDirectory()) {
     entries.folders.push({ ...child.entry, realPath: child.realPath });
     return;
   }
   if (isMedia(child.entry.name) || child.catalog) {
-    entries.images.push(imageEntry(child));
+    entries.images.push({ ...imageEntry(child), ...culling });
     return;
   }
   if (child.entry.ext !== 'xmp') {
@@ -260,7 +298,16 @@ async function scanPage(
     const scanned = await Promise.all(
       page.slice(start, start + 32).map((name) => scanEntry(name, slug, relPath, resolved, state)),
     );
-    for (const child of scanned) await appendEntry(child, entries, state);
+    const culling = await Promise.all(
+      scanned.map((child) =>
+        child && (isMedia(child.entry.name) || child.catalog)
+          ? imageCulling(child, state)
+          : Promise.resolve({}),
+      ),
+    );
+    for (const [index, child] of scanned.entries()) {
+      await appendEntry(child, entries, state, culling[index] ?? {});
+    }
   }
   return entries;
 }
