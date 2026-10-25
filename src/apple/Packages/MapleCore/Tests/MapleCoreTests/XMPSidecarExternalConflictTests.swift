@@ -149,6 +149,24 @@ final class XMPSidecarExternalConflictTests: XCTestCase {
     XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), external)
   }
 
+  func testDerivativeWriteChecksObservedRevisionInsideFileCoordination() async throws {
+    let (raw, sidecar) = try fixture()
+    defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }
+    try xml(exposure: 0).write(to: sidecar, atomically: true, encoding: .utf8)
+    let store = XMPSidecarStore(rawURL: raw)
+    _ = try await store.loadIfPresent()
+    let derivative = raw.deletingLastPathComponent().appendingPathComponent("derivative.avif")
+    try xml(exposure: 2).write(to: sidecar, atomically: true, encoding: .utf8)
+
+    do {
+      try await store.writeDerivativeIfCurrent {
+        try Data("stale preview".utf8).write(to: derivative)
+      }
+      XCTFail("A changed XMP must stop derivative publication")
+    } catch XMPStoreError.externalConflict {}
+    XCTAssertFalse(FileManager.default.fileExists(atPath: derivative.path))
+  }
+
   @MainActor
   func testExitWithoutLocalEditRejectsStalePreview() async throws {
     let (raw, sidecar) = try fixture()

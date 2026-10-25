@@ -292,22 +292,16 @@ public final class BatchMetadataViewModel: Identifiable {
       throw UnsupportedSourceError(assetName: asset.displayName)
     }
 
-    let sidecarURL = SidecarPath.sidecarURL(for: url)
-    let existingXml = (try? String(contentsOf: sidecarURL, encoding: .utf8)) ?? ""
-    var merged = XMPParser.parseMetadata(existingXml)
-    Self.applyTouched(touchedMetadata, into: &merged)
-
-    // Video assets have no AdjustmentModel — write a metadata-only sidecar
-    // so no bogus crs: block is emitted. Mirrors the API's metadataOnly path.
-    // Keywords are skipped for video (M5 scope).
+    // Video gets metadata-only XMP; keywords remain out of M5 scope.
     if SidecarPath.isVideo(url) {
-      try XMPSidecarFilePublication.publish(
-        XMPSerializer.serializeMetadataOnly(metadata: merged), at: sidecarURL, durable: true)
+      let store = XMPSidecarStore(rawURL: url)
+      let merged = try await mergedMetadata(from: store)
+      try await store.writeMetadataOnly(merged)
       return
     }
 
     guard let session = sessions[asset.id] else {
-      try await applyToPrimary(XMPSidecarStore(rawURL: url), metadata: merged)
+      try await applyToPrimary(XMPSidecarStore(rawURL: url))
       return
     }
     // A live session's state is only trusted once its sidecar has loaded (#4708).
@@ -315,15 +309,14 @@ public final class BatchMetadataViewModel: Identifiable {
     guard session.hasLoadedSidecar else {
       throw session.sidecarError ?? CancellationError()
     }
-    // A session showing a variant holds that variant's model; the batch
-    // targets the Primary sidecar, so Primary keeps its own develop state.
+    // Batch metadata targets Primary even when another variant is selected.
     guard session.workflow.selectedVariantId == WorkflowContract.primaryVariantID,
       let store = session.sidecarStore as? XMPSidecarStore
     else {
       let primary =
         (session.primarySidecarStore as? XMPSidecarStore)
         ?? XMPSidecarStore(rawURL: url)
-      try await applyToPrimary(primary, metadata: merged)
+      try await applyToPrimary(primary)
       return
     }
     // Ordered with every other culling edit on this session, and the live
@@ -331,6 +324,7 @@ public final class BatchMetadataViewModel: Identifiable {
     let touched = touchedMetadata
     try await session.setCulling { Self.applyTouchedCulling(touched, to: &$0) }
     await session.sidecarUpdateTask?.value
+    let merged = try await mergedMetadata(from: store)
     await store.update(model: session.model, culling: session.culling, metadata: merged)
     try await store.writeConfirmed(model: session.model, culling: session.culling)
   }
@@ -404,12 +398,20 @@ public final class BatchMetadataViewModel: Identifiable {
 
   /// A sidecar that exists but can't be read fails this asset; it is never
   /// replaced with defaults.
-  private func applyToPrimary(_ store: XMPSidecarStore, metadata: XmpMetadata) async throws {
+  private func applyToPrimary(_ store: XMPSidecarStore) async throws {
     let (model, culling) = try await store.loadIfPresent() ?? (.default, CullingState())
+    let metadata = try await mergedMetadata(from: store)
     await store.update(
       model: model, culling: applyingTouchedCulling(to: culling), metadata: metadata)
     try await store.writeConfirmed(
       model: model, culling: applyingTouchedCulling(to: culling))
+  }
+
+  private func mergedMetadata(from store: XMPSidecarStore) async throws -> XmpMetadata {
+    let xml = try await store.readWorkflowXML() ?? ""
+    var merged = XMPParser.parseMetadata(xml)
+    Self.applyTouched(touchedMetadata, into: &merged)
+    return merged
   }
 
   private func applyingTouchedCulling(to base: CullingState) -> CullingState {

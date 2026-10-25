@@ -235,6 +235,14 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     return xml
   }
 
+  /// Publish a video metadata sidecar against the exact revision last read.
+  public func writeMetadataOnly(_ metadata: XmpMetadata) throws {
+    try coordinateSidecarWrite { destination, _ in
+      let xml = XMPSerializer.serializeMetadataOnly(metadata: metadata)
+      try self.publishSidecarXML(xml, at: destination, durable: true)
+    }
+  }
+
   private func observeWorkflowRead(_ xml: String?) throws {
     if hasObservedSidecar {
       guard xml == observedSidecarXML else {
@@ -431,12 +439,21 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   /// Keep the observed XMP revision stable while a local derivative is written.
   func writeDerivativeIfCurrent(_ write: @Sendable () throws -> Void) throws {
     guard hasObservedSidecar else { throw CancellationError() }
-    try coordinateSidecarWrite { _, _ in try write() }
+    try coordinateSidecarWrite { _, existing in
+      guard existing == self.observedSidecarXML else {
+        throw XMPStoreError.externalConflict(self.sidecarURL)
+      }
+      try write()
+    }
   }
 
   func requireObservedRevisionCurrent() throws {
     guard hasObservedSidecar else { throw CancellationError() }
-    try coordinateSidecarWrite { _, _ in }
+    try coordinateSidecarWrite { _, existing in
+      guard existing == self.observedSidecarXML else {
+        throw XMPStoreError.externalConflict(self.sidecarURL)
+      }
+    }
   }
 
   private func serializedSidecar(
