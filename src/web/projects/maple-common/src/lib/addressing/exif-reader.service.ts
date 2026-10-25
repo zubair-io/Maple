@@ -48,13 +48,17 @@ export class ExifReaderService {
    * local calendar fields back out. `reviveValues: false` stays so date
    * callers receive the raw EXIF wall-clock string; Hosted Info also uses
    * this wrapper for numeric exposure tags, which exifr returns as numbers.
+   * Only the selected Hosted Info photo opts into raw MakerNote bytes.
    */
   async parse(
     data: File | Uint8Array,
     pick: readonly string[],
+    includeMakerNote = false,
   ): Promise<Record<string, unknown> | undefined> {
-    return resolveExifr().parse(data, { pick: [...pick], reviveValues: false }) as Promise<
-      Record<string, unknown> | undefined
-    >;
+    return resolveExifr().parse(data, {
+      pick: [...pick],
+      reviveValues: false,
+      makerNote: includeMakerNote,
+    }) as Promise<Record<string, unknown> | undefined>;
   }
 }

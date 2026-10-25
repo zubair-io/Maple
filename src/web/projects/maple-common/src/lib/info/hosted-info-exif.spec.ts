@@ -47,4 +47,18 @@ describe('Hosted Preview Info EXIF', () => {
   it('uses standard APEX aperture metadata when FNumber is absent', () => {
     expect(hostedInfoFields({ ApertureValue: 2 * Math.log2(5.6) }).aperture).toBe('f/5.6');
   });
+
+  it('reads a Leica M10 FNumber only from a validated maker-note entry', () => {
+    const note = new Uint8Array(26);
+    note.set([0x4c, 0x45, 0x49, 0x43, 0x41, 0, 2, 0]);
+    const view = new DataView(note.buffer);
+    view.setUint16(8, 1, true);
+    view.setUint16(10, 0x035a, true);
+    view.setUint16(12, 9, true);
+    view.setUint32(14, 1, true);
+    view.setInt32(18, 5600, true);
+    expect(hostedInfoFields({ makerNote: note }).aperture).toBe('f/5.6');
+    note[0] = 0;
+    expect(hostedInfoFields({ makerNote: note }).aperture).toBeUndefined();
+  });
 });

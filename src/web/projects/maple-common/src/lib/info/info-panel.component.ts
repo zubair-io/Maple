@@ -258,7 +258,7 @@ export class InfoPanelComponent {
       });
       void this.state
         .bytesForAsset(id)
-        .then((bytes) => this.exifReader.parse(bytes, HOSTED_INFO_EXIF_TAGS))
+        .then((bytes) => this.exifReader.parse(bytes, HOSTED_INFO_EXIF_TAGS, true))
         .then((raw) => {
           if (!cancelled) this.hostedExif.set({ id, fields: hostedInfoFields(raw) });
         })
