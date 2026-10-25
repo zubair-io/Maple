@@ -25,7 +25,7 @@ import { xmpSidecarPath } from '../fs/xmp-sidecar-path.ts';
 import { authorizeSidecarRead, readSidecarNoFollow } from '../fs/sidecar-io.ts';
 import { readFileWithFailover } from '../fs/mirror-read.ts';
 import { errnoCode } from '../fs/errno-code.ts';
-import { parseFolderCulling } from '../xmp/folder-culling.ts';
+import { parseFolderCulling } from './folder-culling.ts';
 
 const log = childLogger('library/folder-listing');
 const IMAGE_EXTENSIONS = new Set([...RAW_EXTENSIONS, ...BITMAP_EXTENSIONS, ...PSD_HDR_EXTENSIONS]);

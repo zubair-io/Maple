@@ -1,6 +1,6 @@
-import { adobeLabelColor, VALID_COLOR_LABELS, type ColorLabel } from './color-label.ts';
-import { parseXmpMetadata } from './metadata-parser.ts';
-import { descriptions, xmlSpans, type XmlSpan } from './transfer-document.ts';
+import { adobeLabelColor, VALID_COLOR_LABELS, type ColorLabel } from '../xmp/color-label.ts';
+import { parseXmpMetadata } from '../xmp/metadata-parser.ts';
+import { descriptions, xmlSpans, type XmlSpan } from '../xmp/transfer-document.ts';
 
 const RDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 const XML = 'http://www.w3.org/XML/1998/namespace';
