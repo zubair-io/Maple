@@ -233,6 +233,7 @@ final class GpuLiveNoiseProfileTests: XCTestCase {
             model.profile = .neutral
             model.nrLuminance = 40
             model.nrColor = 40
+            model = decodeResult.atAsShot(model)
 
             // GPU-live: the exact readback → open → renderToBuffer path
             // `presentViaGpuLive` drives, with the profile/ISO now wired.
@@ -241,14 +242,16 @@ final class GpuLiveNoiseProfileTests: XCTestCase {
             let session = try GpuLiveSession(
                 pixels: buf.pixels, width: buf.width, height: buf.height,
                 noiseProfile: noiseProfile, iso: decodeResult.iso)
-            guard let gpuOut = try await session.renderToBuffer(model: model) else { continue }
+            guard let gpuOut = try await session.renderToBuffer(
+                model: model, wbFrame: decodeResult.wbFrame)
+            else { continue }
 
             // CPU refine: the same call `EditSession+Render.swift`'s CPU
             // fallback branch makes, with the SAME profile/ISO.
             let ctx = CIContext()
             let cpuImage = pipeline.processSceneLinear(
                 decoded: decodeResult.image, model: model,
-                noiseProfile: noiseProfile, iso: decodeResult.iso)
+                noiseProfile: noiseProfile, iso: decodeResult.iso, wbFrame: decodeResult.wbFrame)
             let cpuRGB = rgbBytes(from: cpuImage, context: ctx)
 
             // Widen the GPU's packed RGB u8 to match extents (both were

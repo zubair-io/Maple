@@ -1,249 +1,101 @@
-// WbSliderFrame.swift — Swift carrier of the decode-exported WB slider frame
-// (#1781).
+// WbSliderFrame.swift — Swift carrier of what a capture decode hands the
+// per-tick chains (#1781, #5377).
 //
-// raw-core's develop chain interprets the temperature/tint sliders in a
+// raw-core's develop interprets the temperature/tint sliders in a
 // camera-specific calibration frame (`wb_camera::SliderFrame`, #1727/#1756).
-// The scene-linear decode FFI exports the resolved frame's data on
-// `MapleSceneLinearBufferF32` (`wb_frame_*` tail fields); this struct carries
-// it through the Swift session so:
+// The capture decode (`maple_render_*_capture*_f32`) returns the capture
+// result — the RAW developed up to, but not including, white balance and the
+// camera profile — together with the creative stage that renders it
+// (`MapleCaptureCreative`). This struct carries both through the Swift
+// session so:
 //
-//   * the GPU live chain (`MapleGpuLiveParams.wb_frame_*`) and the CPU
-//     per-tick chain (`MapleAdjustmentParams.wb_frame_*`) derive their WB
-//     delta in the SAME frame the full develop uses — closing the
-//     live-vs-refine seam (#1781's TestFlight band);
+//   * the GPU live chain (`MapleGpuLiveParams.creative_ptr`) and the CPU
+//     per-tick chain (`MapleAdjustmentParams.creative_ptr`) run the same
+//     creative stage the full develop runs, at the absolute slider pair —
+//     live equals refine by construction (#5213);
 //   * the editor seeds its As-Shot slider values from raw-core's own
 //     `(sceneCCT, asShotTint)` estimate instead of the `CIRAWFilter`
 //     pre-decode placeholder (whose numbers live in a DIFFERENT frame —
 //     4522 K vs the slider frame's ~5520 K on test_0002).
 //
-// `isPresent == false` (all-zero export: `RawlerFallback` body, lossy
-// LinearRaw, non-RAW asset, or a pre-#1781 Rust core) means "no frame" —
-// every consumer then keeps its legacy behaviour unchanged.
+// `isPresent == false` (`RawlerFallback` body, lossy LinearRaw) means the
+// body has no slider frame; its creative stage still renders the decode.
 
 import Foundation
 import RawPipeline
 
-/// The decode-exported WB slider frame: two calibration endpoints
-/// (XYZ→camera, row-major 3×3 as 9 floats), their CCTs, and the frame's
-/// as-shot `(sceneCCT, asShotTint)` estimate.
+/// A capture decode's creative stage (#5377), copied out of the decode
+/// buffer once and pointed at by every tick's params. Immutable after init;
+/// its tables pointer is valid for the life of the process, so the box is
+/// safe to share across actors.
+public final class CaptureCreative: @unchecked Sendable {
+    let pointer: UnsafeMutablePointer<MapleCaptureCreative>
+
+    /// `nil` unless the decode wrote a creative stage (`present == 1`).
+    init?(_ creative: MapleCaptureCreative) {
+        guard creative.present == 1 else { return nil }
+        pointer = .allocate(capacity: 1)
+        pointer.initialize(to: creative)
+    }
+
+    deinit {
+        pointer.deinitialize(count: 1)
+        pointer.deallocate()
+    }
+
+    /// The exposure gain the creative stage applies, measured on the
+    /// as-shot render.
+    public var aeGain: Float { pointer.pointee.ae_gain }
+}
+
+extension CaptureCreative: Equatable {
+    /// One box per decode: identity is the decode's identity.
+    public static func == (lhs: CaptureCreative, rhs: CaptureCreative) -> Bool {
+        lhs === rhs
+    }
+}
+
+/// The decode's slider frame as-shot pair and its creative stage.
 public struct WbSliderFrame: Sendable, Equatable {
-    /// Cold calibration endpoint, row-major 9 floats.
-    public let mCold: [Float]
-    public let cctCold: Float
-    /// Warm calibration endpoint, row-major 9 floats (equal to `mCold`,
-    /// with equal CCTs, for a single-calibration frame).
-    public let mWarm: [Float]
-    public let cctWarm: Float
     /// The frame's as-shot CCT — the slider's identity temperature.
     public let sceneCCT: Float
     /// The frame's as-shot tint (in-frame estimate; may sit at the ±100
     /// rail for bodies whose as-shot chromaticity is far off the locus).
     public let asShotTint: Float
-    /// The RENDER PROFILE's CM (row-major 9 floats, XYZ→camera — the
-    /// conjugation basis the GPU-live WB delta is built in (#1904 seam
-    /// fix) when the #1967 fields below are absent. Empty ⇒ absent; the
-    /// Rust side then falls back to the value frame (pre-#1904 behaviour).
-    public let renderCm: [Float]
+    /// The capture decode's creative stage; `nil` only for frames built
+    /// without a decode.
+    public let creative: CaptureCreative?
 
-    // ---- #1967: render-profile linear-core detail, enabling the Rust
-    // side to compute an EXACT per-target/per-anchor conjugation basis
-    // instead of the single fixed `renderCm`. Empty/zero ⇒ absent ⇒ the
-    // Rust side falls back to `renderCm` — see `SliderFrameExport`'s
-    // matching fields for the exact semantics each of these mirrors. ----
-    /// `profile.forward_matrix`, row-major 9 floats. Empty ⇒ `None`.
-    public let renderForwardMatrix: [Float]
-    /// `profile.scene_white_xyz`, 3 floats, Y-normalized.
-    public let renderSceneWhiteXYZ: [Float]
-    /// `profile.wb_already_baked` as a 0.0/1.0 flag.
-    public let renderWbAlreadyBaked: Float
-    /// Render profile's own dual-illuminant CM pair (distinct from
-    /// `mCold`/`mWarm` above, which are the VALUE frame's).
-    public let renderCmCold: [Float]
-    public let renderCctCold: Float
-    public let renderCmWarm: [Float]
-    public let renderCctWarm: Float
-    /// Render profile's FM pair (optional per side). Empty ⇒ that side's
-    /// FM is absent.
-    public let renderFmCold: [Float]
-    public let renderFmWarm: [Float]
-
-    /// The profile's HueSatMap endpoint wire (#5099): the address and float
-    /// count of `MapleSceneLinearBufferF32.wb_hsm_data`, which the Rust
-    /// core keeps for the life of the process, so the frame carries the
-    /// pointer itself and every tick passes it back unchanged. Zero ⇒ the
-    /// profile's HueSatMap does not move with white balance.
-    public let hueSatMapAddress: UInt
-    public let hueSatMapCount: Int
-    /// This photo's render-profile as-shot CCT (the anchor table's weight)
-    /// and the auto-exposure gain the decode baked in after DCP; per photo,
-    /// so they ride beside the shared wire.
-    public let hueSatMapAsShotCCT: Float
-    public let hueSatMapExposureGain: Float
-
-    /// Whether the export carries a real frame (`sceneCCT > 0`). All-zero
-    /// exports read as absent — consumers keep legacy behaviour.
+    /// Whether the export carries a real slider frame (`sceneCCT > 0`).
     public var isPresent: Bool { sceneCCT.isFinite && sceneCCT > 0 }
 
-    public init(
-        mCold: [Float], cctCold: Float,
-        mWarm: [Float], cctWarm: Float,
-        sceneCCT: Float, asShotTint: Float,
-        renderCm: [Float] = [],
-        renderForwardMatrix: [Float] = [],
-        renderSceneWhiteXYZ: [Float] = [],
-        renderWbAlreadyBaked: Float = 0,
-        renderCmCold: [Float] = [],
-        renderCctCold: Float = 0,
-        renderCmWarm: [Float] = [],
-        renderCctWarm: Float = 0,
-        renderFmCold: [Float] = [],
-        renderFmWarm: [Float] = [],
-        hueSatMapAddress: UInt = 0,
-        hueSatMapCount: Int = 0,
-        hueSatMapAsShotCCT: Float = 0,
-        hueSatMapExposureGain: Float = 1
-    ) {
-        self.mCold = mCold
-        self.cctCold = cctCold
-        self.mWarm = mWarm
-        self.cctWarm = cctWarm
+    public init(sceneCCT: Float, asShotTint: Float, creative: CaptureCreative? = nil) {
         self.sceneCCT = sceneCCT
         self.asShotTint = asShotTint
-        self.renderCm = renderCm
-        self.renderForwardMatrix = renderForwardMatrix
-        self.renderSceneWhiteXYZ = renderSceneWhiteXYZ
-        self.renderWbAlreadyBaked = renderWbAlreadyBaked
-        self.renderCmCold = renderCmCold
-        self.renderCctCold = renderCctCold
-        self.renderCmWarm = renderCmWarm
-        self.renderCctWarm = renderCctWarm
-        self.renderFmCold = renderFmCold
-        self.renderFmWarm = renderFmWarm
-        self.hueSatMapAddress = hueSatMapAddress
-        self.hueSatMapCount = hueSatMapCount
-        self.hueSatMapAsShotCCT = hueSatMapAsShotCCT
-        self.hueSatMapExposureGain = hueSatMapExposureGain
+        self.creative = creative
     }
 
-    /// Read the export off a decode buffer. Returns `nil` when the buffer
-    /// carries no frame (`wb_frame_scene_cct <= 0` or non-finite — the
-    /// same presence predicate as Rust's `SliderFrameExport::is_present`).
-    init?(buffer: MapleSceneLinearBufferF32) {
-        guard buffer.wb_frame_scene_cct.isFinite, buffer.wb_frame_scene_cct > 0 else { return nil }
-        self.mCold = Self.array9(buffer.wb_frame_m_cold)
-        self.cctCold = buffer.wb_frame_cct_cold
-        self.mWarm = Self.array9(buffer.wb_frame_m_warm)
-        self.cctWarm = buffer.wb_frame_cct_warm
-        self.sceneCCT = buffer.wb_frame_scene_cct
-        self.asShotTint = buffer.wb_frame_as_shot_tint
-        self.renderCm = Self.array9(buffer.wb_frame_render_cm)
-        self.renderForwardMatrix = Self.array9(buffer.wb_frame_render_forward_matrix)
-        self.renderSceneWhiteXYZ = Self.array3(buffer.wb_frame_render_scene_white_xyz)
-        self.renderWbAlreadyBaked = buffer.wb_frame_render_wb_already_baked
-        self.renderCmCold = Self.array9(buffer.wb_frame_render_cm_cold)
-        self.renderCctCold = buffer.wb_frame_render_cct_cold
-        self.renderCmWarm = Self.array9(buffer.wb_frame_render_cm_warm)
-        self.renderCctWarm = buffer.wb_frame_render_cct_warm
-        self.renderFmCold = Self.array9(buffer.wb_frame_render_fm_cold)
-        self.renderFmWarm = Self.array9(buffer.wb_frame_render_fm_warm)
-        self.hueSatMapAddress = UInt(bitPattern: buffer.wb_hsm_data)
-        self.hueSatMapCount = Int(buffer.wb_hsm_len)
-        self.hueSatMapAsShotCCT = buffer.wb_hsm_as_shot_cct
-        self.hueSatMapExposureGain = buffer.ae_gain
-    }
-
-    /// The imported C `float[9]` (a 9-tuple in Swift) as an array.
-    static func array9(
-        _ t: (Float, Float, Float, Float, Float, Float, Float, Float, Float)
-    ) -> [Float] {
-        [t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8]
-    }
-
-    /// An array back to the imported C `float[9]` 9-tuple shape. Missing
-    /// lanes read 0 (defensive; the initializers above always carry 9).
-    static func tuple9(
-        _ a: [Float]
-    ) -> (Float, Float, Float, Float, Float, Float, Float, Float, Float) {
-        let v = { (i: Int) -> Float in i < a.count ? a[i] : 0 }
-        return (v(0), v(1), v(2), v(3), v(4), v(5), v(6), v(7), v(8))
-    }
-
-    /// The imported C `float[3]` (a 3-tuple in Swift) as an array.
-    static func array3(_ t: (Float, Float, Float)) -> [Float] {
-        [t.0, t.1, t.2]
-    }
-
-    /// An array back to the imported C `float[3]` 3-tuple shape. Missing
-    /// lanes read 0 (defensive).
-    static func tuple3(_ a: [Float]) -> (Float, Float, Float) {
-        let v = { (i: Int) -> Float in i < a.count ? a[i] : 0 }
-        return (v(0), v(1), v(2))
+    /// Read the frame off a capture decode buffer. `nil` when the decode
+    /// carries neither a slider frame nor a creative stage.
+    init?(buffer: MapleSceneLinearBufferF32, creative: CaptureCreative?) {
+        let present = buffer.wb_frame_scene_cct.isFinite && buffer.wb_frame_scene_cct > 0
+        guard present || creative != nil else { return nil }
+        self.sceneCCT = present ? buffer.wb_frame_scene_cct : 0
+        self.asShotTint = present ? buffer.wb_frame_as_shot_tint : 0
+        self.creative = creative
     }
 }
 
 extension WbSliderFrame {
-    /// Fill the `wb_frame_*` tail fields of the per-tick CPU chain params.
-    /// Absent frame ⇒ the fields stay zero (the legacy path).
+    /// Point the per-tick CPU chain params at the creative stage. The frame
+    /// must outlive the FFI call the params are passed to.
     func fill(_ p: inout MapleAdjustmentParams) {
-        p.wb_frame_m_cold = Self.tuple9(mCold)
-        p.wb_frame_cct_cold = cctCold
-        p.wb_frame_m_warm = Self.tuple9(mWarm)
-        p.wb_frame_cct_warm = cctWarm
-        p.wb_frame_scene_cct = sceneCCT
-        p.wb_frame_as_shot_tint = asShotTint
-        p.wb_frame_render_cm = Self.tuple9(renderCm)
-        p.wb_frame_render_forward_matrix = Self.tuple9(renderForwardMatrix)
-        p.wb_frame_render_scene_white_xyz = Self.tuple3(renderSceneWhiteXYZ)
-        p.wb_frame_render_wb_already_baked = renderWbAlreadyBaked
-        p.wb_frame_render_cm_cold = Self.tuple9(renderCmCold)
-        p.wb_frame_render_cct_cold = renderCctCold
-        p.wb_frame_render_cm_warm = Self.tuple9(renderCmWarm)
-        p.wb_frame_render_cct_warm = renderCctWarm
-        p.wb_frame_render_fm_cold = Self.tuple9(renderFmCold)
-        p.wb_frame_render_fm_warm = Self.tuple9(renderFmWarm)
-        p.wb_hsm_ptr = hueSatMap
-        p.wb_hsm_len = UInt(hueSatMapCount)
-        p.wb_hsm_as_shot_cct = hueSatMapAsShotCCT
-        p.wb_hsm_exposure_gain = hueSatMapExposureGain
+        p.creative_ptr = creative.map { UnsafePointer($0.pointer) }
     }
 
-    /// Fill the `wb_frame_*` tail fields of the GPU live params.
+    /// Point the GPU live params at the creative stage. The frame must
+    /// outlive the FFI call the params are passed to.
     func fill(_ p: inout MapleGpuLiveParams) {
-        p.wb_frame_m_cold = Self.tuple9(mCold)
-        p.wb_frame_cct_cold = cctCold
-        p.wb_frame_m_warm = Self.tuple9(mWarm)
-        p.wb_frame_cct_warm = cctWarm
-        p.wb_frame_scene_cct = sceneCCT
-        p.wb_frame_as_shot_tint = asShotTint
-        p.wb_frame_render_cm = Self.tuple9(renderCm)
-        p.wb_frame_render_forward_matrix = Self.tuple9(renderForwardMatrix)
-        p.wb_frame_render_scene_white_xyz = Self.tuple3(renderSceneWhiteXYZ)
-        p.wb_frame_render_wb_already_baked = renderWbAlreadyBaked
-        p.wb_frame_render_cm_cold = Self.tuple9(renderCmCold)
-        p.wb_frame_render_cct_cold = renderCctCold
-        p.wb_frame_render_cm_warm = Self.tuple9(renderCmWarm)
-        p.wb_frame_render_cct_warm = renderCctWarm
-        p.wb_frame_render_fm_cold = Self.tuple9(renderFmCold)
-        p.wb_frame_render_fm_warm = Self.tuple9(renderFmWarm)
-        p.wb_hsm_ptr = hueSatMap
-        p.wb_hsm_len = UInt(hueSatMapCount)
-        p.wb_hsm_as_shot_cct = hueSatMapAsShotCCT
-        p.wb_hsm_exposure_gain = hueSatMapExposureGain
+        p.creative_ptr = creative.map { UnsafePointer($0.pointer) }
     }
-
-    /// The interned HueSatMap wire, or nil when the frame carries none.
-    var hueSatMap: UnsafePointer<Float>? {
-        hueSatMapCount > 0 ? UnsafePointer(bitPattern: hueSatMapAddress) : nil
-    }
-
-    // NOTE (#1976): there is deliberately NO decode-bake constant here.
-    // The strip-XMP decode OMITS the WB fields (`omitWhiteBalance`,
-    // #1883), so the buffer is an As-Shot develop — the per-tick delta
-    // anchor is this frame's own `(sceneCCT, asShotTint)` pair
-    // (`EditSession.wbDeltaAnchor`), which is also what seeds the sliders,
-    // making the untouched-open delta exact identity. The old
-    // `decodeBakeAnchor = (6500, 0)` constant described the pre-#1894
-    // slider encoding of that same develop; after #1894 moved the identity
-    // position to the as-shot pair it silently became a false statement
-    // about the buffer and produced the global cyan overcool.
 }

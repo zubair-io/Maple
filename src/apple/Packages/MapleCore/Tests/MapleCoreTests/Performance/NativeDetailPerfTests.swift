@@ -91,12 +91,6 @@ final class NativeDetailPerfTests: XCTestCase {
   /// pan-reuse margin + filter halo, exactly as the live session does.
   private static let viewportSize = CGSize(width: 1920, height: 1080)
 
-  /// Auto's decode contract disables auto-exposure, so its exported
-  /// `MapleSceneLinearImageData.aeGain` is always 1.0 — the value the live
-  /// session threads into the tile for an Auto-profile image. Native-detail
-  /// is gated to RAW + Auto, so 1.0 is the correct (and only) AE anchor here.
-  private static let autoAEGain: Float = 1.0
-
   // MARK: - Fixture discovery
 
   /// Resolve the non-OpcodeList3 synthetic 100MP fixture. Mirrors
@@ -195,8 +189,7 @@ final class NativeDetailPerfTests: XCTestCase {
       warm = try await renderer.render(
         asset: asset,
         sourceRect: developRect,
-        model: model,
-        aeGain: Self.autoAEGain
+        model: model
       )
     } catch {
       XCTFail(
@@ -253,8 +246,7 @@ final class NativeDetailPerfTests: XCTestCase {
       let patch = try await renderer.render(
         asset: asset,
         sourceRect: shifted,
-        model: model,
-        aeGain: Self.autoAEGain
+        model: model
       )
       let end = ContinuousClock.now
       // The develop must produce the full requested patch (size held

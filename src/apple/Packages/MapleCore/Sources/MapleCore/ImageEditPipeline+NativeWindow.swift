@@ -33,14 +33,13 @@ extension ImageEditPipeline {
     guard w > 0, h > 0 else {
       throw PipelineError.renderFailed(code: 2, message: "native detail: empty patch")
     }
-    let frame = (wbFrame?.isPresent == true) ? wbFrame : nil
     let params = PipelineRenderer.makeParams(
       from: model,
       decodedTemperature: asShot?.temperature ?? 6500.0,
       decodedTint: asShot?.tint ?? 0.0,
       skipAgX: false,
       iso: iso,
-      wbFrame: frame, whitesAnchorEv: whitesAnchorEv, nrSamplingScale: 1
+      wbFrame: wbFrame, whitesAnchorEv: whitesAnchorEv, nrSamplingScale: 1
     )
     let curves = PipelineRenderer.ChainToneCurves(model: model)
     let haze = try hazeMap(

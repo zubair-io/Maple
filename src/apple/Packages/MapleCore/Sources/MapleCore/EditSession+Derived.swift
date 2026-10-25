@@ -67,10 +67,9 @@ extension EditSession {
     return CropImageStage.croppedSize(effectiveCrop, nativeSize: nativeImageSize)
   }
 
-  /// The WB delta anchor: the WB actually baked into the buffer. The
-  /// strip decode OMITS WB (#1883) → As-Shot develop → the frame's own
-  /// pair when present, else the legacy estimate. NOT 6500/0 (#1976):
-  /// post-#1894 that mislabel overcooled every settled render to cyan.
+  /// The as-shot pair: the frame's own when present, else the legacy
+  /// estimate. A RAW renders through its capture decode's creative stage
+  /// (#5377), which reads no anchor, so this only seeds and labels.
   var wbDeltaAnchor: ImageEditPipeline.AsShotWB? {
     if let frame = wbSliderFrame, frame.isPresent {
       return ImageEditPipeline.AsShotWB(

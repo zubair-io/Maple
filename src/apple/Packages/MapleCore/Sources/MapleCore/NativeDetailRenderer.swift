@@ -159,8 +159,7 @@ actor NativeDetailRenderer {
   func render(
     asset: AssetRef,
     sourceRect: CGRect,
-    model: AdjustmentModel,
-    aeGain: Float
+    model: AdjustmentModel
   ) throws -> CIImage {
     guard !Task.isCancelled else { throw CancellationError() }
     guard let url = asset.primaryURL else { throw PipelineError.noByteSource }
@@ -222,41 +221,18 @@ actor NativeDetailRenderer {
     }
 
     guard !Task.isCancelled else { throw CancellationError() }
-    // #1945: use the f32 tile entry so this zoomed-in refinement path
-    // carries the same working precision as the whole-image scene-linear
-    // path (`ImageEditPipeline` uses `.RGBAf` end to end since #487). The
-    // fp16 the tile path previously produced could bias shadows or band
-    // the AgX shoulder specifically in the tile vs the full image.
-    // NO decoded WB anchor (#1976): the handle's model is the STRIPPED
-    // model, whose WB fields were omitted (`omitWhiteBalance`, #1883)
-    // and therefore parse to the (6500, 0) defaults — NOT the live
-    // slider values the #1725 anchor contract assumed ("the caller
-    // hydrated the model to explicit values"). With an anchor, the
-    // tile's camera-WB stage computes `wb(6500-default) / wb(anchor)`:
-    // the old 6500/0 anchor made that identity only by accidental
-    // cancellation (while still retargeting the DCP at 6500 instead of
-    // as-shot), and any truthful anchor turns it into a warm cast. With
-    // NO anchor the tile resolves WB exactly like the whole-image strip
-    // decode — an As-Shot bake with the As-Shot DCP retarget — and the
-    // live WB delta is applied once, downstream, by the per-tick chain
-    // (`processSceneLinear`, anchored at `wbDeltaAnchor`). This matches
-    // every other tile caller (preview tiles).
-    //
-    // `aeGain` (#1167/#2070): the caller passes the SAME `ae_gain` the
-    // full-image (or sized) decode of this model exported, so the tile
-    // reproduces the full-image auto-exposure brightness instead of
-    // omitting the stage — the bug that gated this whole path to
-    // `Profile::Auto` only (Auto's decode contract disables AE, so its
-    // exported gain is always 1.0 and this call is a no-op for it;
-    // Neutral/ACR-Match now get a real gain instead of falling back to
-    // the bounded whole-image refine).
-    let imageData = try PipelineRenderer.renderTileF32(
+    // The capture tile (#5377): the patch's capture result in the fixed
+    // as-shot basis, f32 like the whole-image decode (#1945). White
+    // balance, the camera profile, Oklab recovery and auto exposure are the
+    // creative stage, which the windowed per-tick chain runs with the
+    // whole-image decode's creative stage — so the patch matches the fit
+    // view at every white balance, with no anchor to thread through here.
+    let imageData = try PipelineRenderer.renderCaptureTileF32(
       handle: rawHandle,
       srcX: UInt32(x), srcY: UInt32(y),
       srcW: UInt32(width), srcH: UInt32(height),
       outW: UInt32(width), outH: UInt32(height),
-      quality: .full,
-      aeGain: aeGain
+      quality: .full
     )
     guard imageData.bytesPerPixel == 16 else {
       throw PipelineError.renderFailed(

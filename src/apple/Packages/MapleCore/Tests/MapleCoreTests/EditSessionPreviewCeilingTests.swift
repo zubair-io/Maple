@@ -207,8 +207,7 @@ final class EditSessionPreviewCeilingTests: XCTestCase {
     let driver = try XCTUnwrap(session.gpuLiveDriver)
     let anchor = session.wbDeltaAnchor
     let frame = await driver.renderCurrentFrameBytes(
-      model: session.model, asShotCCT: anchor?.temperature, asShotTint: anchor?.tint,
-      wbFrame: session.wbSliderFrame)
+      model: session.model, asShotCCT: anchor?.temperature, asShotTint: anchor?.tint)
     let pixels = try XCTUnwrap(frame)
     XCTAssertEqual(pixels.bytes.count, pixels.width * pixels.height * 3)
     return CGSize(width: pixels.width, height: pixels.height)

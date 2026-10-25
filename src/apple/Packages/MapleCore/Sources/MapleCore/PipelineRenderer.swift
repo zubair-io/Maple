@@ -614,22 +614,22 @@ public struct PipelineRenderer: Sendable {
     quality: Quality,
     cancel: CancelFlag?
   ) throws -> MapleSceneLinearImageData {
-    // Zero-filled by the imported C struct's implicit init — includes the
-    // #1781 `wb_frame_*` tail (absent until the FFI writes a frame).
-    var buf = MapleSceneLinearBufferF32()
+    // Zero-filled by the imported C struct's implicit init: no frame and
+    // no creative stage until the FFI writes them.
+    var capture = MapleCaptureBufferF32()
     let rawPath = String(cString: rawCStr)
     let lastSlash =
       rawPath.lastIndex(of: "/").map { rawPath.index(after: $0) } ?? rawPath.startIndex
     let fileName = String(rawPath[lastSlash...])
     pipelineLog.notice(
-      "→ Rust FFI maple_render_file_scene_linear_f32 START: \(fileName, privacy: .public) quality=\(quality.rawValue)"
+      "→ Rust FFI maple_render_file_capture_f32 START: \(fileName, privacy: .public) quality=\(quality.rawValue)"
     )
     // Derive the raw cancel pointer from the live `CancelFlag` AT the call
     // site (#951). `cancel` is held strongly by the caller across this
     // synchronous FFI call, so the Rust worker that reads the pointer never
     // sees freed memory. `nil` ⇒ null ⇒ never-cancel.
-    let rc = maple_render_file_scene_linear_f32(
-      rawCStr, xmpCStr, quality.rawValue, cancel?.pointer, &buf)
+    let rc = maple_render_file_capture_f32(
+      rawCStr, xmpCStr, quality.rawValue, cancel?.pointer, &capture)
     if rc == Self.rcCancelled {
       throw PipelineError.cancelled
     }
@@ -637,7 +637,8 @@ public struct PipelineRenderer: Sendable {
       let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
       throw PipelineError.renderFailed(code: Int(rc), message: msg)
     }
-    defer { maple_free_scene_linear_buffer_f32(&buf) }
+    defer { maple_free_capture_buffer_f32(&capture) }
+    let buf = capture.scene
     guard buf.len_bytes > 0, let ptr = buf.f32_rgba else {
       throw PipelineError.renderFailed(code: Int(rc), message: "empty scene-linear buffer")
     }
@@ -661,7 +662,7 @@ public struct PipelineRenderer: Sendable {
       }
     }
     pipelineLog.notice(
-      "← Rust FFI maple_render_file_scene_linear_f32 OK: \(buf.width)x\(buf.height) center scene-linear RGB=(\(centerR, format: .fixed(precision: 4)), \(centerG, format: .fixed(precision: 4)), \(centerB, format: .fixed(precision: 4)))"
+      "← Rust FFI maple_render_file_capture_f32 OK: \(buf.width)x\(buf.height) center capture RGB=(\(centerR, format: .fixed(precision: 4)), \(centerG, format: .fixed(precision: 4)), \(centerB, format: .fixed(precision: 4)))"
     )
     // Extract noise profile before defer frees the buffer (PR #1709 fix).
     let noiseProfile: [Float]? = {
@@ -676,7 +677,7 @@ public struct PipelineRenderer: Sendable {
       pixels: data,
       noiseProfile: noiseProfile,
       iso: buf.iso,
-      wbFrame: WbSliderFrame(buffer: buf),
+      wbFrame: WbSliderFrame(buffer: buf, creative: CaptureCreative(capture.creative)),
       aeGain: buf.ae_gain,
       whitesAnchorEv: buf.whites_anchor_ev, nrSamplingScale: buf.nr_sampling_scale,
       hasLensCorrections: buf.has_lens_corrections != 0,
@@ -694,13 +695,13 @@ public struct PipelineRenderer: Sendable {
     quality: Quality,
     cancel: CancelFlag?
   ) throws -> MapleSceneLinearImageData {
-    // Zero-filled by the imported C struct's implicit init — includes the
-    // #1781 `wb_frame_*` tail (absent until the FFI writes a frame).
-    var buf = MapleSceneLinearBufferF32()
+    // Zero-filled by the imported C struct's implicit init: no frame and
+    // no creative stage until the FFI writes them.
+    var capture = MapleCaptureBufferF32()
     let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
-      maple_render_bytes_scene_linear_f32(
+      maple_render_bytes_capture_f32(
         ptr, UInt(len), hintPtr.baseAddress,
-        xmpCStr, quality.rawValue, cancel?.pointer, &buf)
+        xmpCStr, quality.rawValue, cancel?.pointer, &capture)
     }
     if rc == Self.rcCancelled {
       throw PipelineError.cancelled
@@ -709,7 +710,8 @@ public struct PipelineRenderer: Sendable {
       let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
       throw PipelineError.renderFailed(code: Int(rc), message: msg)
     }
-    defer { maple_free_scene_linear_buffer_f32(&buf) }
+    defer { maple_free_capture_buffer_f32(&capture) }
+    let buf = capture.scene
     guard buf.len_bytes > 0, let bufPtr = buf.f32_rgba else {
       throw PipelineError.renderFailed(code: Int(rc), message: "empty scene-linear buffer")
     }
@@ -729,7 +731,7 @@ public struct PipelineRenderer: Sendable {
       pixels: data,
       noiseProfile: noiseProfile,
       iso: buf.iso,
-      wbFrame: WbSliderFrame(buffer: buf),
+      wbFrame: WbSliderFrame(buffer: buf, creative: CaptureCreative(capture.creative)),
       aeGain: buf.ae_gain,
       whitesAnchorEv: buf.whites_anchor_ev, nrSamplingScale: buf.nr_sampling_scale,
       hasLensCorrections: buf.has_lens_corrections != 0,
@@ -748,11 +750,11 @@ public struct PipelineRenderer: Sendable {
     maxLongEdge: UInt32,
     cancel: CancelFlag?
   ) throws -> MapleSceneLinearImageData {
-    // Zero-filled by the imported C struct's implicit init — includes the
-    // #1781 `wb_frame_*` tail (absent until the FFI writes a frame).
-    var buf = MapleSceneLinearBufferF32()
-    let rc = maple_render_file_scene_linear_sized_f32(
-      rawCStr, xmpCStr, maxLongEdge, quality.rawValue, cancel?.pointer, &buf
+    // Zero-filled by the imported C struct's implicit init: no frame and
+    // no creative stage until the FFI writes them.
+    var capture = MapleCaptureBufferF32()
+    let rc = maple_render_file_capture_sized_f32(
+      rawCStr, xmpCStr, maxLongEdge, quality.rawValue, cancel?.pointer, &capture
     )
     if rc == Self.rcCancelled {
       throw PipelineError.cancelled
@@ -761,7 +763,8 @@ public struct PipelineRenderer: Sendable {
       let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
       throw PipelineError.renderFailed(code: Int(rc), message: msg)
     }
-    defer { maple_free_scene_linear_buffer_f32(&buf) }
+    defer { maple_free_capture_buffer_f32(&capture) }
+    let buf = capture.scene
     guard buf.len_bytes > 0, let ptr = buf.f32_rgba else {
       throw PipelineError.renderFailed(code: Int(rc), message: "empty sized buffer")
     }
@@ -781,7 +784,7 @@ public struct PipelineRenderer: Sendable {
       pixels: data,
       noiseProfile: noiseProfile,
       iso: buf.iso,
-      wbFrame: WbSliderFrame(buffer: buf),
+      wbFrame: WbSliderFrame(buffer: buf, creative: CaptureCreative(capture.creative)),
       aeGain: buf.ae_gain,
       whitesAnchorEv: buf.whites_anchor_ev, nrSamplingScale: buf.nr_sampling_scale,
       hasLensCorrections: buf.has_lens_corrections != 0,
@@ -800,13 +803,13 @@ public struct PipelineRenderer: Sendable {
     maxLongEdge: UInt32,
     cancel: CancelFlag?
   ) throws -> MapleSceneLinearImageData {
-    // Zero-filled by the imported C struct's implicit init — includes the
-    // #1781 `wb_frame_*` tail (absent until the FFI writes a frame).
-    var buf = MapleSceneLinearBufferF32()
+    // Zero-filled by the imported C struct's implicit init: no frame and
+    // no creative stage until the FFI writes them.
+    var capture = MapleCaptureBufferF32()
     let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
-      maple_render_bytes_scene_linear_sized_f32(
+      maple_render_bytes_capture_sized_f32(
         ptr, UInt(len), hintPtr.baseAddress,
-        xmpCStr, maxLongEdge, quality.rawValue, cancel?.pointer, &buf
+        xmpCStr, maxLongEdge, quality.rawValue, cancel?.pointer, &capture
       )
     }
     if rc == Self.rcCancelled {
@@ -816,7 +819,8 @@ public struct PipelineRenderer: Sendable {
       let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
       throw PipelineError.renderFailed(code: Int(rc), message: msg)
     }
-    defer { maple_free_scene_linear_buffer_f32(&buf) }
+    defer { maple_free_capture_buffer_f32(&capture) }
+    let buf = capture.scene
     guard buf.len_bytes > 0, let bufPtr = buf.f32_rgba else {
       throw PipelineError.renderFailed(code: Int(rc), message: "empty sized buffer")
     }
@@ -836,7 +840,7 @@ public struct PipelineRenderer: Sendable {
       pixels: data,
       noiseProfile: noiseProfile,
       iso: buf.iso,
-      wbFrame: WbSliderFrame(buffer: buf),
+      wbFrame: WbSliderFrame(buffer: buf, creative: CaptureCreative(capture.creative)),
       aeGain: buf.ae_gain,
       whitesAnchorEv: buf.whites_anchor_ev, nrSamplingScale: buf.nr_sampling_scale,
       hasLensCorrections: buf.has_lens_corrections != 0,
@@ -1124,6 +1128,42 @@ public struct PipelineRenderer: Sendable {
     )
   }
 
+  /// A tile of the handle's capture result (#5377,
+  /// `maple_render_handle_capture_tile_f32`): f32 RGBA in the fixed as-shot
+  /// basis, with no white balance, camera profile or exposure gain applied.
+  /// The per-tick chain renders it with the whole-image capture decode's
+  /// creative stage.
+  public static func renderCaptureTileF32(
+    handle: MapleRawHandle,
+    srcX: UInt32, srcY: UInt32, srcW: UInt32, srcH: UInt32,
+    outW: UInt32, outH: UInt32,
+    quality: Quality = .full
+  ) throws -> MapleSceneLinearImageData {
+    var buf = MapleSceneLinearBufferF32()
+    let rc = maple_render_handle_capture_tile_f32(
+      handle.pointer, srcX, srcY, srcW, srcH, outW, outH, quality.rawValue, &buf)
+    guard rc == 0 else {
+      let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+      throw PipelineError.renderFailed(code: Int(rc), message: msg)
+    }
+    defer { maple_free_scene_linear_buffer_f32(&buf) }
+    guard buf.len_bytes > 0, let ptr = buf.f32_rgba else {
+      throw PipelineError.renderFailed(code: Int(rc), message: "empty capture tile buffer")
+    }
+    let data = mapleStage("capture tile f32 result copy") {
+      Data(bytes: ptr, count: Int(buf.len_bytes))
+    }
+    return MapleSceneLinearImageData(
+      width: Int(buf.width),
+      height: Int(buf.height),
+      channels: Int(buf.channels),
+      bytesPerPixel: Int(buf.bytes_per_pixel),
+      pixels: data,
+      noiseProfile: nil,
+      iso: 0
+    )
+  }
+
   /// One-shot tile render directly from a RAW file + optional XMP —
   /// no handle lifecycle. Useful for export / one-off tile renders
   /// where the caller doesn't want to keep the decoded mosaic alive.
@@ -1346,10 +1386,8 @@ extension PipelineRenderer {
   /// XMP was applied, else 6500/0). `skipAgX` flips off the AgX view
   /// transform tail — used by the non-RAW path so we don't double-
   /// tone-map already-display-encoded JPEG / HEIF input.
-  /// `wbFrame` (#1781): the decode-exported WB slider frame. When present
-  /// the Rust chain derives its WB delta in that frame (the same math the
-  /// full develop uses); `nil` leaves the `wb_frame_*` tail zeroed — the
-  /// legacy generic-CAT16 delta, bit-identical to pre-#1781.
+  /// `wbFrame` (#5377): the capture decode's frame; its creative stage
+  /// replaces the white-balance delta. `nil` (non-RAW) keeps the delta.
   public static func makeParams(
     from model: AdjustmentModel,
     decodedTemperature: Double = 6500.0,
@@ -1527,12 +1565,10 @@ extension PipelineRenderer {
     params.defringe_green_amount = Float(model.defringeGreenAmount)
     params.defringe_green_hue_lo = Float(model.defringeGreenHueLo)
     params.defringe_green_hue_hi = Float(model.defringeGreenHueHi)
-    // WB slider frame (#1781) — appended at the struct tail; absent
-    // (`nil`, or a frame that reads !isPresent) leaves the zero-filled
-    // legacy state.
-    if let wbFrame, wbFrame.isPresent {
-      wbFrame.fill(&params)
-    }
+    // The capture decode's creative stage (#5377): the chain renders the
+    // capture result at the absolute slider pair. The frame must outlive
+    // the FFI call these params are passed to.
+    wbFrame?.fill(&params)
     return params
   }
 

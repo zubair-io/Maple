@@ -20,8 +20,7 @@ extension EditSession {
       let frame = await driver.renderCurrentFrameBytes(
         model: model,
         asShotCCT: resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500,
-        asShotTint: resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0,
-        wbFrame: resolvedIsRaw ? wbSliderFrame : nil)
+        asShotTint: resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0)
     else { return nil }
     return Self.ciImageFromGpuRgb(frame.bytes, width: frame.width, height: frame.height)
   }

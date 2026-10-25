@@ -90,6 +90,9 @@ public final class GpuLiveDriver {
   /// whose requested identity doesn't match this, even at covered dims,
   /// forces a re-open (see `GpuUploadIdentity`).
   private var uploadedIdentity: GpuUploadIdentity?
+  /// The capture decode's frame and creative stage for the uploaded pixels
+  /// (#5377): every tick renders them through it, so it is set with them.
+  private(set) var uploadedWbFrame: WbSliderFrame?
 
   /// The canvas layer to present into. Weak — the SwiftUI view owns it; if the
   /// view goes away the driver simply has nothing to present to.
@@ -243,6 +246,7 @@ public final class GpuLiveDriver {
     identity: GpuUploadIdentity, noiseProfile: [Float]? = nil, iso: UInt32 = 0,
     whitesAnchorEv: Float = .nan,
     nrSamplingScale: Float = 1,
+    wbFrame: WbSliderFrame? = nil,
     pixels: @escaping @Sendable () throws -> [Float]
   ) async throws {
     try Task.checkCancellation()
@@ -294,6 +298,7 @@ public final class GpuLiveDriver {
     self.session = s
     self.sessionDims = (width, height)
     self.uploadedIdentity = identity
+    self.uploadedWbFrame = wbFrame
     self.autoProfileFit = nil
     self.inputShape = inputShape
     if let filmLut {
@@ -316,6 +321,7 @@ public final class GpuLiveDriver {
     session = nil
     sessionDims = nil
     uploadedIdentity = nil
+    uploadedWbFrame = nil
     autoProfileFit = nil
     let previous = sessionTeardown
     sessionTeardown = Task {
@@ -355,7 +361,6 @@ public final class GpuLiveDriver {
     model: AdjustmentModel,
     asShotCCT: Double? = nil,
     asShotTint: Double? = nil,
-    wbFrame: WbSliderFrame? = nil,
     scopeEnabled: Bool = false,
     scopeLayer: Int32 = -1,
     onError: (Error) -> Void
@@ -411,7 +416,7 @@ public final class GpuLiveDriver {
           asShotCCT: asShotCCT, asShotTint: asShotTint,
           inputShape: self.inputShape,
           surfaceGeneration: submittedSurfaceGeneration,
-          wbFrame: wbFrame,
+          wbFrame: uploadedWbFrame,
           targetColorSpace: colorSpace,
           scopeEnabled: scopeEnabled,
           scopeLayer: scopeLayer
@@ -468,8 +473,7 @@ public final class GpuLiveDriver {
   public func renderCurrentFrameBytes(
     model: AdjustmentModel,
     asShotCCT: Double? = nil,
-    asShotTint: Double? = nil,
-    wbFrame: WbSliderFrame? = nil
+    asShotTint: Double? = nil
   ) async -> (bytes: [UInt8], width: Int, height: Int)? {
     guard let s = session, let dims = sessionDims else { return nil }
     guard !Task.isCancelled else { return nil }
@@ -481,7 +485,7 @@ public final class GpuLiveDriver {
           asShotCCT: asShotCCT,
           asShotTint: asShotTint,
           inputShape: inputShape,
-          wbFrame: wbFrame, targetColorSpace: .srgb
+          wbFrame: uploadedWbFrame, targetColorSpace: .srgb
         )
       else { return nil }
       guard !Task.isCancelled, revision == sessionRevision else { return nil }

@@ -266,7 +266,7 @@ extension EditSession {
           decoded: gpuCached, targetSize: gpuTarget, gen: gen,
           decodeGeneration: snapshot.decodeGeneration, appliedCrop: appliedCrop,
           noiseProfile: cachedNoiseProfile, iso: cachedISO, whitesAnchorEv: snapshot.whitesAnchorEv,
-          nrSamplingScale: snapshot.nrSamplingScale
+          nrSamplingScale: snapshot.nrSamplingScale, wbFrame: cachedWbFrame
         ) {
           return
         }
@@ -404,7 +404,7 @@ extension EditSession {
           decodeGeneration: freshSnapshot.decodeGeneration, appliedCrop: appliedCrop,
           noiseProfile: freshNoiseProfile, iso: freshISO,
           whitesAnchorEv: freshSnapshot.whitesAnchorEv,
-          nrSamplingScale: freshSnapshot.nrSamplingScale
+          nrSamplingScale: freshSnapshot.nrSamplingScale, wbFrame: freshWbFrame
         ) {
           return
         }
