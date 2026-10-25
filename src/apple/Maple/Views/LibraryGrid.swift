@@ -116,7 +116,7 @@
           grid
         }
         PhoneSelectionControls(
-          vm: vm, clipboard: clipboard,
+          vm: vm, displayedAssets: displayedAssets, clipboard: clipboard,
           onMergePanorama: onMergePanorama, onEditMetadata: onEditMetadata,
           onBatchRename: onBatchRename, onTrashAssets: onTrashAssets,
           onExport: onExport, onMove: onMove

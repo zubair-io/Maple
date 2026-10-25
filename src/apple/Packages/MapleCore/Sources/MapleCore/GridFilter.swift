@@ -27,4 +27,9 @@ public struct GridFilterMetadata: Sendable {
     self.culling = culling
     self.hasEdits = hasEdits
   }
+
+  public static func read(from store: any SidecarStoreProtocol) async throws -> Self {
+    let persisted = try await store.loadIfPresent()
+    return Self(culling: persisted?.1 ?? CullingState(), hasEdits: persisted != nil)
+  }
 }

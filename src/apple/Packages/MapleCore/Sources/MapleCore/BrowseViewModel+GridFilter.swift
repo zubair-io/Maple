@@ -2,7 +2,10 @@ import Foundation
 
 extension BrowseViewModel {
   public func selectGridFilter(_ filter: GridFilter) {
+    guard gridFilter != filter else { return }
     gridFilter = filter
+    selectedIDs = []
+    selectedID = nil
     UserDefaults.standard.set(filter.rawValue, forKey: "cm.filter")
     gridFilterLoadGeneration &+= 1
     gridFilterMetadata = [:]
@@ -48,6 +51,7 @@ extension BrowseViewModel {
       else { return }
       gridFilterMetadata = result
       gridFilterLoading = false
+      selectedIDs.formIntersection(Set(gridAssets(sessions: [:]).map(\.id)))
     } catch {
       guard generation == gridFilterLoadGeneration, listing == listingGeneration,
         !Task.isCancelled

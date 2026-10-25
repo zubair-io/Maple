@@ -7,6 +7,7 @@
   /// the selection so it survives a size-class change and a tab re-layout.
   struct PhoneSelectionBar: View {
     let vm: BrowseViewModel
+    let displayedAssets: [AssetRef]
     let onMergePanorama: (() -> Void)?
     let onEditMetadata: (() -> Void)?
     let onBatchRename: (() -> Void)?
@@ -65,7 +66,7 @@
     }
 
     private var allSelected: Bool {
-      !vm.assets.isEmpty && vm.assets.allSatisfy { vm.selectedIDs.contains($0.id) }
+      !displayedAssets.isEmpty && displayedAssets.allSatisfy { vm.selectedIDs.contains($0.id) }
     }
 
     private var selectAllState: MuiCheckboxState {
@@ -83,12 +84,12 @@
           MuiCheckbox(
             state: selectAllState,
             label: allSelected ? "Deselect All" : "Select All",
-            disabled: vm.assets.isEmpty
+            disabled: displayedAssets.isEmpty
           ) {
             if allSelected {
               vm.clearSelection()
             } else {
-              vm.selectedIDs = Set(vm.assets.map(\.id))
+              vm.selectedIDs = Set(displayedAssets.map(\.id))
             }
           }
           .padding(.horizontal, 12)

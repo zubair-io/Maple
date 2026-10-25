@@ -247,6 +247,8 @@ struct BrowseGrid: View {
       if vm.isSelecting, let onMergePanorama {
         PanoSelectionBar(
           vm: vm,
+          displayedAssets: onReadGridFilterMetadata == nil
+            ? vm.assets : vm.gridAssets(sessions: sessions),
           onMerge: onMergePanorama,
           onEditMetadata: onEditMetadata,
           onBatchRename: onBatchRename,
@@ -281,6 +283,8 @@ struct BrowseGrid: View {
     .keyboardShortcuts(
       vm: vm,
       sessions: sessions,
+      visibleAssets: onReadGridFilterMetadata == nil
+        ? vm.assets : vm.gridAssets(sessions: sessions),
       // #944: ⌘C/⌘V are only claimed when a clipboard is wired
       // (production always wires one; previews don't).
       onCopyAdjustments: clipboard != nil ? { copyAdjustments() } : nil,
@@ -488,7 +492,11 @@ struct BrowseGrid: View {
   /// the focused single asset. Same shape as the drag-payload "active
   /// selection" computation above.
   private func activeSelectionIDs() -> [AssetRef.ID] {
-    vm.isSelecting ? Array(vm.selectedIDs) : (vm.selectedID.map { [$0] } ?? [])
+    let visible = Set(
+      (onReadGridFilterMetadata == nil ? vm.assets : vm.gridAssets(sessions: sessions)).map(\.id))
+    return vm.isSelecting
+      ? vm.selectedIDs.filter { visible.contains($0) }
+      : vm.selectedID.flatMap { visible.contains($0) ? [$0] : nil } ?? []
   }
 
   /// "Move to Trash" context-menu item for one cell. If the right-clicked
@@ -625,6 +633,7 @@ private struct ErrorBanner: View {
 private struct BrowseKeyboardShortcuts: ViewModifier {
   let vm: BrowseViewModel
   let sessions: [AssetRef.ID: EditSession]
+  let visibleAssets: [AssetRef]
   /// #944: ⌘C copies the focused image's adjustments; ⌘V pastes the
   /// clipboard's adjustments onto every checked asset. `nil` leaves the
   /// shortcut unclaimed (no clipboard wired — e.g. previews).
@@ -641,11 +650,11 @@ private struct BrowseKeyboardShortcuts: ViewModifier {
     content
       // Arrow navigation
       .onKeyPress(.rightArrow) {
-        vm.selectNext()
+        vm.selectNext(in: visibleAssets)
         return .handled
       }
       .onKeyPress(.leftArrow) {
-        vm.selectPrev()
+        vm.selectPrev(in: visibleAssets)
         return .handled
       }
       // #2638: inline rename entry point. Single-select only — Enter
@@ -740,6 +749,7 @@ extension View {
   fileprivate func keyboardShortcuts(
     vm: BrowseViewModel,
     sessions: [AssetRef.ID: EditSession],
+    visibleAssets: [AssetRef],
     onCopyAdjustments: (() -> Void)? = nil,
     onPasteAdjustments: (() -> Void)? = nil
   ) -> some View {
@@ -747,6 +757,7 @@ extension View {
       BrowseKeyboardShortcuts(
         vm: vm,
         sessions: sessions,
+        visibleAssets: visibleAssets,
         onCopyAdjustments: onCopyAdjustments,
         onPasteAdjustments: onPasteAdjustments
       ))
