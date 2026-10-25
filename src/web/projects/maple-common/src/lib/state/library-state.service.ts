@@ -31,12 +31,14 @@ import { BrowsePreferencesService } from './browse-preferences.service';
 import type { BrowseViewMode } from './browse-preferences.service';
 import { EditPreviewPersistService } from './edit-preview-persist.service';
 import { XmpAdjustmentRestoreService } from '../xmp/xmp-adjustment-restore.service';
+import { HostedSidecarErrors } from './hosted-sidecar-errors.service';
 
 // Re-export RAW-extension helpers for callers that import from this module.
 export { SUPPORTED_RAW_EXTENSIONS, isSupportedRaw } from './library-fetch.service';
 
 @Injectable({ providedIn: 'root' })
 export class LibraryStateService {
+  private readonly sidecarErrors = inject(HostedSidecarErrors);
   private readonly store = inject(LibraryStore);
   private readonly selection = inject(LibrarySelection);
   private readonly cache_ = inject(LibraryCache);
@@ -338,7 +340,7 @@ export class LibraryStateService {
   }
 
   sidecarLoadError(id: AssetId): string | null {
-    return this.store.sidecarLoadErrors().get(id) ?? null;
+    return this.sidecarErrors.errors().get(id) ?? null;
   }
 
   updateAdjustment(id: AssetId, patch: Partial<AdjustmentModel>): void {

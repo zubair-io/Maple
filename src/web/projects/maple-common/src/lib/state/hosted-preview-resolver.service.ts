@@ -19,6 +19,7 @@ import { EmbeddedPreviewService } from '../raw-pipeline/embedded-preview.service
 import { isSupportedRaw } from './raw-extensions';
 import { HostedRawSidecarService } from './hosted-raw-sidecar.service';
 import { LibraryStore } from './library-store.service';
+import { HostedSidecarErrors } from './hosted-sidecar-errors.service';
 import type { HostedByteSnapshot } from './hosted-byte-snapshot-cache';
 import { previewLocation, type PreviewLocation } from './preview-location';
 
@@ -29,6 +30,7 @@ import { previewLocation, type PreviewLocation } from './preview-location';
  * displayed but not persisted. */
 @Injectable({ providedIn: 'root' })
 export class HostedPreviewResolver {
+  private readonly sidecarErrors = inject(HostedSidecarErrors);
   private readonly store = inject(LibraryStore);
   private readonly cache = inject(MapleCacheService);
   private readonly previewExtractor = inject(EmbeddedPreviewService);
@@ -77,7 +79,7 @@ export class HostedPreviewResolver {
     // on-disk location to key off. Absent either (a direct deep-link before a
     // listing populated the folder, or an in-memory import) ⇒ skip straight to
     // a one-shot extraction — a performance-only miss, not a correctness one.
-    if (folder && location && !this.store.sidecarLoadErrors().has(id)) {
+    if (folder && location && !this.sidecarErrors.errors().has(id)) {
       try {
         const source = await getSourceIdentity(id);
         sourceBefore = source;
@@ -124,7 +126,7 @@ export class HostedPreviewResolver {
       try {
         xml = await this.sidecars.read(folder, location);
       } catch (error) {
-        if (!this.store.sidecarLoadErrors().has(id)) throw error;
+        if (!this.sidecarErrors.errors().has(id)) throw error;
         // Enumeration already identified this sidecar as unreadable. Keep the
         // original visible even if a second read fails for another reason.
       }
@@ -164,7 +166,7 @@ export class HostedPreviewResolver {
     getSourceIdentity: (id: AssetId) => Promise<PreviewSourceIdentity>,
     xml: string | null,
   ): void {
-    if (!folder?.write || !location || !source || this.store.sidecarLoadErrors().has(id)) return;
+    if (!folder?.write || !location || !source || this.sidecarErrors.errors().has(id)) return;
     void this._writeWhenCurrent(folder, location, blob, source, id, getSourceIdentity, xml);
   }
 
