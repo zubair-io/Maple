@@ -163,6 +163,31 @@ final class ThumbnailLoaderDisplayPreviewTests: XCTestCase {
     XCTAssertTrue(LocalDerivativeSourceStamp.isFresh(previewURL, for: assetURL))
   }
 
+  func testEditedPixelsRemainVisibleWhenDisposableCacheCannotBeWritten() async throws {
+    let asset = try writeJPEG(named: "blocked-cache.jpg", width: 2400, height: 1600)
+    try writeSidecar(
+      for: asset,
+      model: AdjustmentModel(
+        exposure: 0.5,
+        crop: Crop(top: 0.125, left: 0, bottom: 0.875, right: 1, angle: 0)))
+    // A regular file prevents creation of .maple/previews and .maple/thumbs.
+    try Data("blocked".utf8).write(to: tmpDir.appendingPathComponent(".maple"))
+
+    let previewData = await ThumbnailLoader.shared.loadDisplayPreview(for: AssetRef(url: asset))
+    let thumbnailData = await ThumbnailLoader.shared.load(for: asset)
+    let preview = try XCTUnwrap(previewData)
+    let thumbnail = try XCTUnwrap(thumbnailData)
+    let previewSize = try dimensions(of: preview)
+    let thumbnailSize = try dimensions(of: thumbnail)
+    XCTAssertEqual(previewSize.width / previewSize.height, 2, accuracy: 0.03)
+    XCTAssertEqual(
+      thumbnailSize.width / thumbnailSize.height, 2, accuracy: 0.03)
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: MapleSidecarPaths.previewURL(for: asset).path))
+    XCTAssertFalse(
+      FileManager.default.fileExists(atPath: MapleSidecarPaths.thumbURL(for: asset).path))
+  }
+
   func testPreviewSupersededByNewerEditedSidecarIsNotServed() async throws {
     let assetURL = try writeJPEG(named: "g.jpg", width: 2400, height: 1600)
     // A camera-original preview exists, then a visually-edited sidecar
