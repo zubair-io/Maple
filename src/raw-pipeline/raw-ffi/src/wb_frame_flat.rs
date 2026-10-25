@@ -73,10 +73,8 @@ pub(crate) fn wb_frame_from_flat(
 }
 
 /// The borrowed HueSatMap-endpoint wire (#5099) from a host `(ptr, len)`.
-/// Null, empty or malformed ⇒ `None` ⇒ the plain 3×3 delta. Kept only for
-/// the hosts still on the scene-linear decode — Windows and Android/Linux —
-/// and removed when they take the capture decode (#5378, #5380); Apple and
-/// Web run the creative stage instead (#5377, #5379).
+/// Null, empty or malformed ⇒ `None` ⇒ the plain 3×3 delta. No live host
+/// passes one any more (#5377–#5380); it goes with the legacy retarget.
 ///
 /// # Safety
 /// `ptr` must be valid for `len` `f32` reads for `'a`, or null.
