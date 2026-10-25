@@ -75,7 +75,13 @@ extension EditSession {
     defer { if accessing { scope?.stopAccessingSecurityScopedResource() } }
     // Cache variants use the sidecar mtime: commit the final transaction
     // before capturing pixels and their cache revision.
-    await flushPendingSidecarWrite()
+    do {
+      try await flushPendingSidecarWriteConfirmed()
+    } catch {
+      // A changed external sidecar must not acquire a new preview/thumbnail
+      // stamped as if the stale editor model had been saved (#5348).
+      return
+    }
     _ = await latestRenderSchedule?.value
     await renderActor.awaitCurrentRenderIfInFlight()
     guard !sidecarWritesDisabled, model == exitModel else { return }

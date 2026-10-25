@@ -21,6 +21,12 @@ struct EditorSidecarLoadNotice: View {
       .background(.ultraThinMaterial, in: Capsule())
       .accessibilityElement(children: .contain)
       .accessibilityIdentifier("editor-sidecar-load-failed")
+    } else if let error = session.sidecarError {
+      MuiStatusText(state: .error, text: error.localizedDescription)
+        .padding(.horizontal, MuiTokens.spacingMd)
+        .padding(.vertical, MuiTokens.spacingSm)
+        .background(.ultraThinMaterial, in: Capsule())
+        .accessibilityIdentifier("editor-sidecar-save-failed")
     }
   }
 }
