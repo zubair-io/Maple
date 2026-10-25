@@ -36,8 +36,8 @@ enum EditorSeedThumbnailVM {
   /// sharing the key turns the seed into a cache hit on an already-decoded
   /// bitmap instead of a second decode of identical bytes under a second
   /// entry.
-  @MainActor static func decodeKey(for asset: AssetRef) -> String {
-    DevelopedImageRevision.shared.decodedKey(
+  @MainActor static func decodeKey(for asset: AssetRef) async -> String {
+    await DevelopedImageRevision.shared.decodedKeyAsync(
       for: asset.stableID ?? asset.id.uuidString, source: .local(asset, source: nil))
   }
 }

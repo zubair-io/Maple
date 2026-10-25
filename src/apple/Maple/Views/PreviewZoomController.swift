@@ -13,6 +13,7 @@
 
     private let source: ThumbnailSource
     private let provider: ThumbnailProvider
+    private let seedKey: String
     private let scrollView = UIScrollView()
     private let imageView = UIImageView()
     /// Shown while the first bytes are in flight (#2377). Until now this page
@@ -31,14 +32,13 @@
     /// gating the spinner behind this keeps it from flashing there.
     private static let spinnerDelayNanoseconds: UInt64 = 250_000_000
     private var thumbnailTask: Task<Void, Never>?
+    private var seedTask: Task<Void, Never>?
     private var refinementTask: Task<Void, Never>?
     private var refinementActive = false
     private var loadedMaxDimension: CGFloat = 256
     private var requestedMaxDimension: CGFloat = 0
     private var refinementGeneration: UInt64 = 0
     private var revisionObserver: NSObjectProtocol?
-    /// The grid tile's already-decoded bitmap, if the cell cached one.
-    private let seedImage: UIImage?
     var isAtFitZoom: Bool {
       abs(scrollView.zoomScale - scrollView.minimumZoomScale) < 0.01
     }
@@ -60,9 +60,7 @@
       self.assetID = assetID
       self.source = source
       self.provider = provider
-      let decodedKey = DevelopedImageRevision.shared.decodedKey(
-        for: seedKey, source: source)
-      self.seedImage = ThumbnailDecoder.cachedImage(forKey: decodedKey).map { UIImage(cgImage: $0) }
+      self.seedKey = seedKey
       super.init(nibName: nil, bundle: nil)
     }
 
@@ -85,7 +83,6 @@
 
       imageView.contentMode = .scaleAspectFit
       imageView.clipsToBounds = true
-      imageView.image = seedImage
       scrollView.addSubview(imageView)
 
       // Both status views sit on the controller's view, not inside the
@@ -112,6 +109,7 @@
         failureView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
         failureView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
       ])
+      loadSeedImage()
       startSpinnerDelay()
       loadThumbnail()
       revisionObserver = NotificationCenter.default.addObserver(
@@ -227,6 +225,7 @@
     }
 
     private func reloadDevelopedImage() {
+      seedTask?.cancel()
       thumbnailTask?.cancel()
       refinementTask?.cancel()
       refinementGeneration &+= 1
@@ -235,11 +234,26 @@
       loadThumbnail()
     }
 
+    /// A cached grid bitmap is an optional first paint. Resolve its source
+    /// stamp away from the main actor, and never replace pixels that the
+    /// normal thumbnail request has already delivered.
+    private func loadSeedImage() {
+      seedTask = Task { [weak self] in
+        guard let self else { return }
+        let key = await DevelopedImageRevision.shared.decodedKeyAsync(
+          for: seedKey, source: source)
+        guard !Task.isCancelled, imageView.image == nil,
+          let image = ThumbnailDecoder.cachedImage(forKey: key)
+        else { return }
+        imageView.image = UIImage(cgImage: image)
+        hideStatusViews()
+        view.setNeedsLayout()
+      }
+    }
+
     /// Reveal the spinner only if the first bytes are still outstanding once
     /// the delay elapses.
     private func startSpinnerDelay() {
-      // A seeded tile is already on screen; no spinner over it.
-      guard seedImage == nil else { return }
       spinnerDelayTask = Task { [weak self] in
         try? await Task.sleep(nanoseconds: Self.spinnerDelayNanoseconds)
         guard let self, !Task.isCancelled, imageView.image == nil,
@@ -302,6 +316,7 @@
     deinit {
       if let revisionObserver { NotificationCenter.default.removeObserver(revisionObserver) }
       thumbnailTask?.cancel()
+      seedTask?.cancel()
       refinementTask?.cancel()
       spinnerDelayTask?.cancel()
     }

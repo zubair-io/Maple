@@ -80,6 +80,7 @@
     /// grid stays live beneath it and none of the stack root's toolbars is
     /// laid out under it.
     @State private var hero: PreviewHeroSubject?
+    @State private var heroSeedTask: Task<Void, Never>?
     /// The tapped tile's window-space frame — where the hero grows from;
     /// nil for a Timeline / Search / deep-link push (it grows from centre).
     @State private var heroTileFrame: CGRect?
@@ -353,6 +354,7 @@
             // the entry going away (back from a popped editor, a
             // reset) drops it.
             guard let entry else {
+              heroSeedTask?.cancel()
               hero = nil
               heroClose = nil
               return
@@ -360,12 +362,7 @@
             guard hero?.asset.id != entry.id else { return }
             selectedTileFrame = nil
             if hero == nil { heroPhase = .opening }
-            hero = PreviewHeroSubject(
-              asset: entry,
-              image: ThumbnailDecoder.cachedImage(
-                forKey: DevelopedImageRevision.shared.decodedKey(
-                  for: entry.stableID ?? entry.id.uuidString,
-                  source: .local(entry, source: nil))))
+            showHero(for: entry, fallback: nil)
           }
         }
 
@@ -480,19 +477,29 @@
           // on close) is the photo actually on screen (#4714). A sibling
           // whose thumbnail is not cached keeps the previous still rather
           // than closing on the grey 1×1 placeholder.
-          hero = PreviewHeroSubject(
-            asset: asset,
-            image: ThumbnailDecoder.cachedImage(
-              forKey: DevelopedImageRevision.shared.decodedKey(
-                for: asset.stableID ?? asset.id.uuidString,
-                source: .local(asset, source: nil)))
-              ?? hero?.image)
+          showHero(for: asset, fallback: hero?.image)
           // Prime the real session the moment a lazily-built sibling
           // becomes the shown asset, so a later Edit tap reuses it
           // (idempotent, matches `onPrimeSession`'s BrowseGrid contract).
           Task { await onPrimeSession(asset) }
         }
       )
+    }
+
+    /// Keep the preview transition responsive even when the image lives on
+    /// a slow mounted folder. A late seed belongs only to its current asset.
+    private func showHero(for asset: AssetRef, fallback: CGImage?) {
+      heroSeedTask?.cancel()
+      hero = PreviewHeroSubject(asset: asset, image: fallback)
+      heroSeedTask = Task {
+        let key = await DevelopedImageRevision.shared.decodedKeyAsync(
+          for: asset.stableID ?? asset.id.uuidString,
+          source: .local(asset, source: nil))
+        guard !Task.isCancelled, hero?.asset.id == asset.id,
+          let image = ThumbnailDecoder.cachedImage(forKey: key)
+        else { return }
+        hero = PreviewHeroSubject(asset: asset, image: image)
+      }
     }
 
     /// Remove the `.preview` entry once the hero has closed. Everything
