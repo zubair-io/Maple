@@ -1,3 +1,4 @@
+import CoreImage
 import Foundation
 import XCTest
 
@@ -98,5 +99,41 @@ final class XMPSidecarExternalConflictTests: XCTestCase {
     try await store.writeConfirmed(
       model: AdjustmentModel(exposure: 1), culling: CullingState())
     XCTAssertEqual(try XMPParser.parse(String(contentsOf: sidecar, encoding: .utf8)).0.exposure, 1)
+  }
+
+  func testIdlePreviewCannotReplaceExternalRevision() async throws {
+    let (raw, sidecar) = try fixture()
+    defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }
+    try xml(exposure: 0).write(to: sidecar, atomically: true, encoding: .utf8)
+    let store = XMPSidecarStore(rawURL: raw)
+    _ = try await store.loadIfPresent()
+    let preview = MapleSidecarPaths.previewURL(for: raw)
+    let sink = LocalDisplayPreviewSink(previewURL: preview, sidecarStore: store)
+    let external = xml(exposure: 2)
+    try external.write(to: sidecar, atomically: true, encoding: .utf8)
+
+    await sink.write(Data("stale preview".utf8))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: preview.path))
+    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), external)
+  }
+
+  @MainActor
+  func testExitWithoutLocalEditRejectsStalePreview() async throws {
+    let (raw, sidecar) = try fixture()
+    defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }
+    try xml(exposure: 0).write(to: sidecar, atomically: true, encoding: .utf8)
+    let session = EditSession(asset: AssetRef(url: raw))
+    await session.loadSidecar()
+    session.scheduleDisplayPreviewPersist(
+      CIImage(color: CIColor(red: 1, green: 0, blue: 0)).cropped(
+        to: CGRect(x: 0, y: 0, width: 8, height: 8)))
+    let external = xml(exposure: 2)
+    try external.write(to: sidecar, atomically: true, encoding: .utf8)
+
+    await session.persistDisplayPreviewOnExit()
+    let preview = MapleSidecarPaths.previewURL(for: raw)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: preview.path))
+    XCTAssertNotNil(session.sidecarError)
+    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), external)
   }
 }

@@ -906,17 +906,17 @@
         "src/apple/Packages/MapleCore/Tests/MapleCoreTests/XMPPassthroughTests.swift",
         "src/apple/Packages/MapleCore/Sources/MapleCore/XmpMetadata+Empty.swift"
       ],
-      "corpus_hash": "blake3:2c7532ec1daa186ac1a4246e839cacbc4799897eaf37b542481d701459e6004b",
+      "corpus_hash": "blake3:351da340992e832bc240c06b7ba3da275a6a1754c5d0f4cbaef5ef0791f226d4",
       "status": "satisfied",
       "record": {
         "backend": "xctest-macos",
-        "corpus_hash": "blake3:2c7532ec1daa186ac1a4246e839cacbc4799897eaf37b542481d701459e6004b",
+        "corpus_hash": "blake3:351da340992e832bc240c06b7ba3da275a6a1754c5d0f4cbaef5ef0791f226d4",
         "expected_cases": 12,
         "executed_cases": 12,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "9ed3861a6f0f5673cd3f4137cef08e057acf6a0f",
-        "recorded_at": "2026-10-25T00:59:16Z",
+        "git_sha": "e4aa7a0aba71d5f66ddc47eb8d81ec76e417459a",
+        "recorded_at": "2026-10-25T01:04:50Z",
         "command": "swift test --package-path src/apple/Packages/MapleCore --filter SidecarTransactionContract"
       }
     },

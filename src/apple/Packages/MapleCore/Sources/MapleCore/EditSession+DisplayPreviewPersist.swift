@@ -77,9 +77,14 @@ extension EditSession {
     // before capturing pixels and their cache revision.
     do {
       try await flushPendingSidecarWriteConfirmed()
+      if let localStore = sidecarStore as? XMPSidecarStore {
+        try await localStore.requireObservedRevisionCurrent()
+      }
     } catch {
       // A changed external sidecar must not acquire a new preview/thumbnail
       // stamped as if the stale editor model had been saved (#5348).
+      sidecarError = error
+      previewPersistence.discardPendingImage()
       return
     }
     _ = await latestRenderSchedule?.value

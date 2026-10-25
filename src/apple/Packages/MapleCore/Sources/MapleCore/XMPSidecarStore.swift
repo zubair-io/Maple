@@ -403,6 +403,17 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
     return try result.get()
   }
 
+  /// Keep the observed XMP revision stable while a local derivative is written.
+  func writeDerivativeIfCurrent(_ write: @Sendable () throws -> Void) throws {
+    guard hasObservedSidecar else { throw CancellationError() }
+    try coordinateSidecarWrite { _, _ in try write() }
+  }
+
+  func requireObservedRevisionCurrent() throws {
+    guard hasObservedSidecar else { throw CancellationError() }
+    try coordinateSidecarWrite { _, _ in }
+  }
+
   private func serializedSidecar(
     model: AdjustmentModel, culling: CullingState, existingXML: String?
   ) -> String {
