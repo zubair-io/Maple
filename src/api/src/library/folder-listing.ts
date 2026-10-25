@@ -23,8 +23,7 @@ import {
 import { child as childLogger } from '../log.ts';
 import { xmpSidecarPath } from '../fs/xmp-sidecar-path.ts';
 import { readSidecarNoFollow } from '../fs/sidecar-io.ts';
-import { parseXmpMetadata } from '../xmp/metadata-parser.ts';
-import { descriptions, xmlSpans } from '../xmp/transfer-document.ts';
+import { parseFolderCulling } from '../xmp/folder-culling.ts';
 
 const log = childLogger('library/folder-listing');
 const IMAGE_EXTENSIONS = new Set([...RAW_EXTENSIONS, ...BITMAP_EXTENSIONS, ...PSD_HDR_EXTENSIONS]);
@@ -234,34 +233,6 @@ interface FolderEntries {
 
 type ImageCulling = Partial<Pick<ImageEntry, 'edited' | 'rating' | 'flag' | 'colorLabel'>>;
 
-/** Match the browser's merging of direct RDF description siblings for the
- * same subject. A sidecar can put culling in a later description. */
-function sidecarCulling(xml: string): ReturnType<typeof parseXmpMetadata> {
-  try {
-    const blocks = descriptions(xmlSpans(xml));
-    if (blocks.length < 2) return parseXmpMetadata(xml);
-    const subject = (block: (typeof blocks)[number]) =>
-      ['rdf:about', 'rdf:nodeID', 'xml:lang', 'xml:base']
-        .map((name) => block.tag.attributes[name]?.value ?? '')
-        .join('\0');
-    const firstSubject = subject(blocks[0]);
-    const merged: ReturnType<typeof parseXmpMetadata> = {};
-    for (const block of blocks) {
-      if (subject(block) !== firstSubject) continue;
-      const parsed = parseXmpMetadata(xml.slice(block.start, block.openEnd));
-      for (const key of ['rating', 'flag', 'colorLabel'] as const) {
-        if (merged[key] === undefined && parsed[key] !== undefined) {
-          Object.assign(merged, { [key]: parsed[key] });
-        }
-      }
-    }
-    return merged;
-  } catch {
-    // Preserve the existing tolerant parser for incomplete sidecars.
-    return parseXmpMetadata(xml);
-  }
-}
-
 /** Read the canonical sidecar during the folder walk. The catalog can lag behind
  * a newly registered directory, and filters must work before Preview hydrates
  * each photo individually. Avoid I/O for the common sidecar-free case. */
@@ -271,7 +242,7 @@ async function imageCulling(child: Scanned, state: FolderState): Promise<ImageCu
   const checked = state.onDisk.has(name) ? await state.resolveChild(name) : null;
   if (!checked || path.extname(checked).toLowerCase() !== '.xmp') return {};
   try {
-    const parsed = sidecarCulling(await readSidecarNoFollow(checked));
+    const parsed = parseFolderCulling(await readSidecarNoFollow(checked));
     return {
       edited: true,
       ...(parsed.rating !== undefined ? { rating: parsed.rating } : {}),
