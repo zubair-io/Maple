@@ -44,30 +44,37 @@ function shutter(value: unknown): string | undefined {
     : `${seconds}s`;
 }
 
-/** Leica M10/S MakerNote format 9 stores FNumber as an inline int32 / 1000.
- * Other maker-note layouts must not produce a plausible but false aperture. */
+/** Leica M10/S MakerNote format 9 stores FNumber as an inline int32 / 1000. */
+function isLeicaApertureTag(view: DataView, offset: number, littleEndian: boolean): boolean {
+  return (
+    view.getUint16(offset, littleEndian) === 0x035a &&
+    view.getUint16(offset + 2, littleEndian) === 9 &&
+    view.getUint32(offset + 4, littleEndian) === 1
+  );
+}
+
+function leicaApertureEntry(view: DataView, littleEndian: boolean): number | undefined {
+  const found: number[] = [];
+  const count = view.getUint16(8, littleEndian);
+  if (count < 1 || count > 256 || 10 + count * 12 + 4 > view.byteLength) return undefined;
+  for (let i = 0; i < count; i++) {
+    const offset = 10 + i * 12;
+    if (!isLeicaApertureTag(view, offset, littleEndian)) continue;
+    const aperture = view.getInt32(offset + 8, littleEndian) / 1000;
+    if (aperture >= 0.5 && aperture <= 128) found.push(Math.round(aperture * 10) / 10);
+  }
+  return found.length === 1 ? found[0] : undefined;
+}
+
+/** Other maker-note layouts must not produce a plausible but false aperture. */
 function leicaM10Aperture(value: unknown): number | undefined {
   if (!(value instanceof Uint8Array) || value.length < 22) return undefined;
   const header = [0x4c, 0x45, 0x49, 0x43, 0x41, 0, 2, 0]; // LEICA\0\x02\0
   if (header.some((byte, i) => value[i] !== byte)) return undefined;
   const view = new DataView(value.buffer, value.byteOffset, value.byteLength);
-  const found: number[] = [];
-  for (const littleEndian of [true, false]) {
-    const count = view.getUint16(8, littleEndian);
-    if (count < 1 || count > 256 || 10 + count * 12 + 4 > value.length) continue;
-    for (let i = 0; i < count; i++) {
-      const offset = 10 + i * 12;
-      if (
-        view.getUint16(offset, littleEndian) !== 0x035a ||
-        view.getUint16(offset + 2, littleEndian) !== 9 ||
-        view.getUint32(offset + 4, littleEndian) !== 1
-      )
-        continue;
-      const aperture = view.getInt32(offset + 8, littleEndian) / 1000;
-      if (aperture >= 0.5 && aperture <= 128) found.push(Math.round(aperture * 10) / 10);
-    }
-  }
-  return found.length === 1 ? found[0] : undefined;
+  const little = leicaApertureEntry(view, true);
+  const big = leicaApertureEntry(view, false);
+  return little !== undefined && big !== undefined ? undefined : (little ?? big);
 }
 
 /** Convert exifr's raw values to the Asset fields consumed by Info. */
