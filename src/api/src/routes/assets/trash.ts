@@ -104,6 +104,8 @@ interface SurvivorKeptBody {
   asset_id: string;
   state: 'live';
   abs_path: string | null;
+  /** `pending` while removing the trashed copy's files still awaits a retry. */
+  cleanup: 'done' | 'pending';
 }
 
 /** The permanent-purge branch of DELETE /:id — the asset is already
@@ -153,10 +155,15 @@ async function purgeTrashedAsset(
     set.status = 500;
     return { error: "The photo's old-name backup edit can't be read — retry once it can" };
   }
-  const kept = await purgeKeepingSurvivor(id, info, trashed, unlinkFailure);
+  const kept = await purgeKeepingSurvivor(id, info, trashed);
   if (kept.kind === 'kept') {
     set.status = 200;
-    return { asset_id: id.toHexString(), state: 'live', abs_path: kept.survivor.absPath };
+    return {
+      asset_id: id.toHexString(),
+      state: 'live',
+      abs_path: kept.survivor.absPath,
+      cleanup: kept.pendingCleanup > 0 ? 'pending' : 'done',
+    };
   }
   if (kept.kind === 'changed') {
     set.status = 409;

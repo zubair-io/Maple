@@ -11,28 +11,28 @@
  * trashed copy's original folder, would resolve against the wrong library
  * once the survivor becomes canonical, and are erased with the trashed copy.
  * They never move between libraries.
+ *
+ * The files to unlink are recorded as obligations in the same transaction
+ * that takes the photo out of Trash, then drained (`local-purge-drain.ts`),
+ * so a failed unlink or a crash in between is retried rather than orphaned.
  */
 
+import * as path from 'node:path';
 import { appleCompanionPaths } from '../db/apple-companions.ts';
 import type { ObjectId } from '../db/object-id.ts';
 import { recordAndPublishAssetChange } from '../db/repos/changes.repo.ts';
 import { keepSurvivingCopy } from '../db/repos/assets.trash-survivor.ts';
+import type { LocalPurgeTarget } from '../db/repos/local-purge.repo.ts';
 import { inventoryFolderPurges } from '../cloud-backup/folder-purge-inventory.ts';
 import { BackupRepository } from '../cloud-backup/repository.ts';
 import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
-import { refusesFileUnderMarker } from '../fs/mapleignore-guard.ts';
-import { unlinkPrimaryForPurge } from '../fs/mirrored.ts';
 import { errnoCode } from '../fs/relocate-publish.ts';
-import { resolvePurgeCompanions } from './purge-rendered-companion.ts';
-import {
-  unlinkTrashedCopy,
-  type CopyAddress,
-  type PurgeFailureSink,
-  type TrashedCopy,
-} from './trashed-copy.ts';
+import { listPairedSidecarsStrict } from '../fs/xmp-conflict.ts';
+import { drainLocalPurges } from './local-purge-drain.ts';
+import type { CopyAddress, TrashedCopy } from './trashed-copy.ts';
 
 export type SurvivorPurgeOutcome =
-  | { kind: 'kept'; survivor: CopyAddress; errors: number }
+  | { kind: 'kept'; survivor: CopyAddress; pendingCleanup: number }
   | { kind: 'changed' }
   | { kind: 'retry'; error: unknown }
   | { kind: 'full-purge' };
@@ -51,30 +51,40 @@ function companionsLeaveWithTrashedCopy(
   );
 }
 
-async function unlinkCompanion(target: string, onFailure: PurgeFailureSink): Promise<boolean> {
-  try {
-    if (!(await refusesFileUnderMarker(target))) await unlinkPrimaryForPurge(target);
-    return true;
-  } catch (error) {
-    if (errnoCode(error) === 'ENOENT') return true;
-    onFailure(target, error);
-    return false;
-  }
-}
+const posixRelative = (root: string, target: string): string =>
+  path.relative(root, target).split(path.sep).join('/');
 
-async function unlinkCompanions(
-  targets: readonly string[],
-  onFailure: PurgeFailureSink,
-): Promise<number> {
-  const results = await Promise.all(targets.map((target) => unlinkCompanion(target, onFailure)));
-  return results.filter((ok) => !ok).length;
+/** Everything the purge owes the disk: the trashed copy, its sidecars, and
+ * the companions when they leave with it. Recorded before any unlink. */
+async function cleanupTargets(
+  info: PurgeInfo,
+  copy: TrashedCopy,
+  dropCompanions: boolean,
+): Promise<LocalPurgeTarget[]> {
+  const ownerRelPath = posixRelative(copy.libraryRoot, copy.absPath);
+  const sidecars = await listPairedSidecarsStrict(copy.absPath).catch((error: unknown) => {
+    if (errnoCode(error) === 'ENOENT') return [];
+    throw error;
+  });
+  const trashFiles = [copy.absPath, ...sidecars].map((target) => ({
+    relPath: posixRelative(copy.libraryRoot, target),
+    ownerRelPath,
+    kind: 'trash' as const,
+  }));
+  const companions = dropCompanions
+    ? appleCompanionPaths(info).map((relPath) => ({
+        relPath,
+        ownerRelPath: relPath,
+        kind: 'companion' as const,
+      }))
+    : [];
+  return [...trashFiles, ...companions];
 }
 
 export async function purgeKeepingSurvivor(
   id: ObjectId,
   info: PurgeInfo,
   copy: TrashedCopy,
-  onFailure: PurgeFailureSink,
 ): Promise<SurvivorPurgeOutcome> {
   const survivor = copy.survivor;
   if (survivor === null) return { kind: 'full-purge' };
@@ -90,7 +100,7 @@ export async function purgeKeepingSurvivor(
       relativePath: trashed.path === '' ? trashed.filename : `${trashed.path}/${trashed.filename}`,
       withCompanions: dropCompanions,
     }),
-    dropCompanions ? resolvePurgeCompanions(copy.libraryRoot, info, copy.absPath) : [],
+    cleanupTargets(info, copy, dropCompanions),
   ]).catch((error: unknown) => ({ error }));
   if ('error' in prepared) return { kind: 'retry', error: prepared.error };
 
@@ -99,16 +109,16 @@ export async function purgeKeepingSurvivor(
     trashed,
     expected: capturedTrashPurge(info),
     dropCompanions,
+    cleanup: prepared[1],
   });
   if (outcome === 'purge-in-flight') return { kind: 'full-purge' };
   if (outcome === 'changed') return { kind: 'changed' };
-  const errors =
-    (await unlinkTrashedCopy(copy, onFailure)) + (await unlinkCompanions(prepared[1], onFailure));
+  const { pending } = await drainLocalPurges({ assetId: id.toHexString() });
   await recordAndPublishAssetChange({
     kind: 'restore',
     asset_id: id,
     folder_id: survivor.libraryId,
     abs_path: survivor.absPath,
   });
-  return { kind: 'kept', survivor, errors };
+  return { kind: 'kept', survivor, pendingCleanup: pending };
 }

@@ -20,6 +20,7 @@ import {
   relocateCacheRearmStatements,
 } from './assets.stage-rearm.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
+import { recordLocalPurgeStatements, type LocalPurgeTarget } from './local-purge.repo.ts';
 import type { LocationSource } from './assets.trash.ts';
 
 const ASSERT_CONSTRAINT = 'keep_surviving_copy';
@@ -67,6 +68,8 @@ export async function keepSurvivingCopy(
     expected: TrashPurgeCandidate;
     /** Clear the Apple companion paths, which the caller erases with the trashed copy. */
     dropCompanions: boolean;
+    /** Files in the trashed copy's library the purge still owes the disk. */
+    cleanup: readonly LocalPurgeTarget[];
   },
   dbOverride?: SqliteDb,
 ): Promise<KeepSurvivingCopyOutcome> {
@@ -148,6 +151,7 @@ export async function keepSurvivingCopy(
             },
           ]
         : []),
+      ...recordLocalPurgeStatements(hex, location[0], args.cleanup),
       ...searchRearmStatements(hex),
       ...searchBlobRearmStatements(hex),
       ...relocateCacheRearmStatements(hex),
