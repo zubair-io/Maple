@@ -6,6 +6,7 @@ import SwiftUI
 struct EditorControls: View {
   @Bindable var state: EditorState
   let onPresetsTap: () -> Void
+  var hasFilmstrip = false
   var usesSystemToolRail = false
   var showsScope = false
   @Environment(\.mapleLayout) private var layout
@@ -16,6 +17,10 @@ struct EditorControls: View {
       let isBottom =
         layout == .phone
         || (MapleShellKind.currentIdiom == .phone && geometry.size.height > geometry.size.width)
+        || (state.armedTool == .crop
+          && EditorCropGeometry.stacksControlsAtBottom(
+            size: geometry.size, isTablet: MapleShellKind.currentIdiom == .pad,
+            hasFilmstrip: hasFilmstrip))
       let arrangement =
         isBottom
         ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
