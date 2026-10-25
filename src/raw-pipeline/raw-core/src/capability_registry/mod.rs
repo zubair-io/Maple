@@ -445,11 +445,13 @@ impl EvidenceSource {
             EvidenceSource::SidecarContractApi => 4,
             // 19: the high-amount sharpen undershoot case (#4112) joins the 18
             // raw-wasm gpu_render parity cases; the Auto-fit regressions (#4171)
-            // now run with the shared gpu_host in raw-core.
-            EvidenceSource::GpuChainParityLavapipe => 19,
-            // Metal qualification also runs the physical lossy-DNG/WB case
-            // with --include-ignored; all 24 current cases must execute.
-            EvidenceSource::GpuChainParityMetal => 24,
+            // now run with the shared gpu_host in raw-core; the capture-first
+            // synthetic live-vs-refine gate and white-balance tick (#5379) add 2.
+            EvidenceSource::GpuChainParityLavapipe => 21,
+            // Metal qualification also runs the physical lossy-DNG/WB case and
+            // the capture-first live-vs-refine gates on test_0005/test_0007
+            // (#5379) with --include-ignored; all 28 current cases must execute.
+            EvidenceSource::GpuChainParityMetal => 28,
             EvidenceSource::AppleCanvasGolden => 1,
         }
     }
