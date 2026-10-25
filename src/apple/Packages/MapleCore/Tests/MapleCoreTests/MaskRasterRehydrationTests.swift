@@ -130,4 +130,25 @@ final class MaskRasterRehydrationTests: XCTestCase {
       developed, unmasked,
       "a saved bitmap adjustment must affect the cold derivative pixels")
   }
+
+  func testNonRawDerivativeAllowsEmptyBrushLayer() async throws {
+    let asset = try await stage()
+    defer { try? FileManager.default.removeItem(at: asset.deletingLastPathComponent()) }
+    let store = XMPSidecarStore(rawURL: asset)
+    let (loaded, culling) = try await store.load()
+    var model = loaded
+    model.localAdjustments = [
+      LocalAdjustment(
+        mask: .brush(dabs: [], digest: BrushRaster.digest([]), rasterId: 0),
+        range: nil,
+        adjustments: PartialAdjustments(exposure: 2.0))
+    ]
+    model.crop.left = 0.01
+    await store.update(model: model, culling: culling)
+    await store.flush()
+
+    let data = try await ThumbnailLoader.renderNonRawSidecarDerivative(
+      at: asset, targetLongEdge: 256, quality: 0.7)
+    XCTAssertNotNil(data, "an empty brush contributes no weight and needs no raster")
+  }
 }
