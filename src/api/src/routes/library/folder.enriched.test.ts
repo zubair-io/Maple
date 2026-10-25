@@ -174,10 +174,11 @@ describe('unified enriched folder listing #4001', () => {
     await fs.writeFile(
       path.join(root, 'metadata.xmp'),
       '<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" ' +
-        'xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:xmp="http://ns.adobe.com/xap/1.0/" ' +
-        'xmlns:papp="http://ns.justmaple.app/photo/1.0/"><rdf:RDF>' +
+        'xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:z="http://ns.adobe.com/xap/1.0/" ' +
+        'xmlns:m="http://ns.justmaple.app/photo/1.0/"><rdf:RDF>' +
+        '<rdf:Description rdf:about="#foreign" z:Rating="1"/>' +
         '<rdf:Description rdf:about="" dc:format="image/jpeg"/>' +
-        '<rdf:Description rdf:about="" xmp:Rating="4" papp:Flag="pick" xmp:Label="Blue"/>' +
+        '<rdf:Description rdf:about="" z:Rating="4" m:Flag="pick" z:Label="Blue"/>' +
         '</rdf:RDF></x:xmpmeta>',
     );
     await fs.symlink(path.join(root, 'metadata.xmp'), path.join(root, 'linked.xmp'));
