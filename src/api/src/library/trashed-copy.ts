@@ -7,7 +7,9 @@
  */
 
 import * as path from 'node:path';
-import { realpath, unlinkPrimaryForPurge } from '../fs/mirrored.ts';
+import { lstat, realpath, unlinkPrimaryForPurge } from '../fs/mirrored.ts';
+import { isLegacyBackupSidecarOf } from '../fs/legacy-backup-sidecar.ts';
+import { sidecarStemOwnedByAnotherFile } from '../fs/sidecar-ownership.ts';
 import { errnoCode } from '../fs/relocate-publish.ts';
 import { refusesFileUnderMarker } from '../fs/mapleignore-guard.ts';
 import { isWithinRoot } from '../fs/root.ts';
@@ -15,6 +17,7 @@ import { listPairedSidecars } from '../fs/xmp-conflict.ts';
 import type { AppleCompanionSlot } from '../db/apple-companions.ts';
 import type { ObjectId } from '../db/object-id.ts';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';
+import type { FileStamp } from '../db/repos/local-purge.repo.ts';
 import { assetLibraryPath, isLiveFileInfo } from '../indexer/images.repo.ts';
 import { resolvePurgeCompanions } from './purge-rendered-companion.ts';
 
@@ -102,8 +105,11 @@ async function realpathOrNull(target: string): Promise<string | null> {
  * The canonical path to unlink for `target`: its real directory plus its own
  * name. Throws `OutsideTrashError` unless it lies inside
  * `<libraryRoot>/.maple/trash/`, both as written and with symlinked
- * directories followed. Null means the directory holding it no longer exists.
- * The last component is never followed, so a symlink there loses only the link.
+ * directories followed, and with `.maple/trash` itself a real directory of
+ * the real library root. Null means the directory holding it no longer
+ * exists. An unreachable library root throws, so the caller retries rather
+ * than mistaking an unmounted volume for a removed file. The last component
+ * is never followed, so a symlink there loses only the link.
  */
 export async function checkTrashPurgeTarget(
   target: string,
@@ -112,13 +118,52 @@ export async function checkTrashPurgeTarget(
   const trashRoot = path.resolve(libraryRoot, ...TRASH_SEGMENTS);
   const resolved = path.resolve(target);
   if (!isStrictlyInside(trashRoot, resolved)) throw new OutsideTrashError(target, libraryRoot);
+  const realRoot = await realpath(libraryRoot);
   const [realTrashRoot, realParent] = await Promise.all([
     realpathOrNull(trashRoot),
     realpathOrNull(path.dirname(resolved)),
   ]);
   if (realTrashRoot === null || realParent === null) return null;
-  if (!isWithinRoot(realTrashRoot, realParent)) throw new OutsideTrashError(target, libraryRoot);
+  if (
+    realTrashRoot !== path.join(realRoot, ...TRASH_SEGMENTS) ||
+    !isWithinRoot(realTrashRoot, realParent)
+  ) {
+    throw new OutsideTrashError(target, libraryRoot);
+  }
   return path.join(realParent, path.basename(resolved));
+}
+
+/** A file's identity on disk without following a final symlink, or null when gone. */
+export async function fileStampOf(target: string): Promise<FileStamp | null> {
+  try {
+    const st = await lstat(target, { bigint: true });
+    return {
+      dev: String(st.dev),
+      ino: String(st.ino),
+      size: String(st.size),
+      mtimeNs: String(st.mtimeNs),
+    };
+  } catch (error) {
+    if (errnoCode(error) === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+/** The trashed copy's own sidecars: a stem it shares with another file keeps
+ * the shared XMP, and only the copy's legacy `<name>.<ext>.xmp` goes. */
+export async function ownSidecarsOf(
+  absPath: string,
+  list: (absPath: string) => Promise<string[]> = listPairedSidecars,
+): Promise<string[]> {
+  const sidecars = await list(absPath);
+  if (sidecars.length === 0) return sidecars;
+  const shared = await sidecarStemOwnedByAnotherFile(absPath).catch((error: unknown) => {
+    if (errnoCode(error) === 'ENOENT') return false;
+    throw error;
+  });
+  return shared
+    ? sidecars.filter((sidecar) => isLegacyBackupSidecarOf(absPath, sidecar))
+    : sidecars;
 }
 
 export type PurgeFailureSink = (target: string, error: unknown) => void;
@@ -145,7 +190,7 @@ export async function unlinkTrashedCopy(
   copy: TrashedCopy,
   onFailure: PurgeFailureSink,
 ): Promise<number> {
-  const sidecars = await listPairedSidecars(copy.absPath);
+  const sidecars = await ownSidecarsOf(copy.absPath);
   const originalOk = await unlinkInsideTrash(copy.absPath, copy.libraryRoot, onFailure);
   const sidecarOk = await Promise.all(
     sidecars.map((sidecar) => unlinkInsideTrash(sidecar, copy.libraryRoot, onFailure)),

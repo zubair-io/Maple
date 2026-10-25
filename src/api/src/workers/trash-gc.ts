@@ -169,11 +169,30 @@ async function purgeWholeAsset(
   return { purged: true, errors };
 }
 
+/** One asset's failure is counted and logged; it never stops the pass. */
+function purgeCrashed(doc: TrashedAsset, err: unknown): PurgeOutcome {
+  log.error({ _id: doc._id.toHexString(), err: String(err) }, 'purge failed — retrying next pass');
+  return { purged: false, errors: 1 };
+}
+
+let draining: Promise<void> | null = null;
+
+/** Drain owed purge unlinks; overlapping calls share the one in flight. */
+function drainCleanup(): Promise<void> {
+  draining ??= drainLocalPurges()
+    .then(() => undefined)
+    .catch((err: unknown) => log.warn({ err: String(err) }, 'purge cleanup drain failed'))
+    .finally(() => {
+      draining = null;
+    });
+  return draining;
+}
+
 /** One pass. Exported for tests + callable from setInterval. */
 export async function runTrashGcOnce(opts: TrashGcOptions = {}): Promise<TrashGcSummary> {
   const retentionDays = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
   const cutoffIso = new Date(Date.now() - retentionDays * DAY_MS).toISOString();
-  await drainLocalPurges();
+  await drainCleanup();
   const candidates = await listTrashedBefore(cutoffIso);
   // A library-root lookup that fails leaves every path unresolvable, which the
   // per-asset branch above reports and skips — better than aborting the pass,
@@ -182,7 +201,9 @@ export async function runTrashGcOnce(opts: TrashGcOptions = {}): Promise<TrashGc
 
   const outcomes: PurgeOutcome[] = [];
   for (const doc of candidates) {
-    outcomes.push(await purgeTrashedAsset(doc, libs));
+    outcomes.push(
+      await purgeTrashedAsset(doc, libs).catch((err: unknown) => purgeCrashed(doc, err)),
+    );
   }
 
   const summary = outcomes.reduce<TrashGcSummary>(
@@ -218,10 +239,7 @@ export function startTrashGc(opts: TrashGcOptions & { intervalMs?: number } = {}
   }, intervalMs);
   // Owed unlinks of kept-photo purges retry on the stage ladder, not daily.
   const cleanupTimer = setInterval(() => {
-    if (!stopped)
-      void drainLocalPurges().catch((err) =>
-        log.warn({ err: String(err) }, 'purge cleanup drain failed'),
-      );
+    if (!stopped) void drainCleanup();
   }, CLEANUP_INTERVAL_MS);
   // Fire once on startup so a freshly-booted server doesn't wait 24h
   // before its first sweep. Errors are swallowed by tick() so a stray

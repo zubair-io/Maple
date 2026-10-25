@@ -29,6 +29,8 @@ import { keepSurvivingCopy } from '../db/repos/assets.trash-survivor.ts';
 import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
 import { findCoreInfoById } from '../db/repos/assets.repo.ts';
 import { drainLocalPurges } from './local-purge-drain.ts';
+import { fileStampOf } from './trashed-copy.ts';
+import { rm } from '../fs/mirrored.ts';
 import { searchFacets } from '../db/repos/search.facets.ts';
 import { searchPage } from '../db/repos/search.page.ts';
 import { buildSearchWhere, type SearchWhere } from '../db/repos/search.where.ts';
@@ -45,8 +47,8 @@ const RAW = 'kept-raw-bytes';
 const COMPANION = 'kept/IMG_E1.jpg';
 const OLD = '2000-01-01T00:00:00.000Z';
 
-/** `copies` in location order; the first one is trashed, so it is the primary. */
-async function fixture(copies: readonly string[]) {
+/** `copies` in location order; `copies[trashedIndex]` is trashed (by default the primary). */
+async function fixture(copies: readonly string[], trashedIndex = 0) {
   const f = await recoveryFixture();
   const library = path.join(f.root, 'library');
   const mirror = path.join(f.root, 'mirror');
@@ -96,7 +98,7 @@ async function fixture(copies: readonly string[]) {
   for (const [ordinal, dir] of copies.entries())
     await backupEngine.repo.ensureEntry(destination.id, id, ordinal, `${dir}/IMG_1.dng`);
 
-  const trashedDir = copies[0]!;
+  const trashedDir = copies[trashedIndex]!;
   const outcome = await trashAssetById(new ObjectId(id), {
     entry: { libraryId: new ObjectId(libraryId), path: trashedDir, filename: 'IMG_1.dng' },
   });
@@ -391,8 +393,18 @@ test('a crash after the photo is kept leaves the cleanup owed, and the next swee
       expected: capturedTrashPurge(info),
       dropCompanions: false,
       cleanup: [
-        { relPath: owner, ownerRelPath: owner, kind: 'trash' },
-        { relPath: '.maple/trash/dupe/IMG_1.xmp', ownerRelPath: owner, kind: 'trash' },
+        {
+          relPath: owner,
+          ownerRelPath: owner,
+          kind: 'trash',
+          stamp: (await fileStampOf(f.trashedRaw))!,
+        },
+        {
+          relPath: '.maple/trash/dupe/IMG_1.xmp',
+          ownerRelPath: owner,
+          kind: 'trash',
+          stamp: (await fileStampOf(f.trashedXmp))!,
+        },
       ],
     });
     expect(kept).toBe('kept');
@@ -410,3 +422,80 @@ test('a crash after the photo is kept leaves the cleanup owed, and the next swee
     await f.close();
   }
 });
+
+test('a kept purge survives an earlier removal that left ordinal 0 empty with a stale backup entry', async () => {
+  const f = await fixture(['gone', 'dupe', 'kept'], 1);
+  try {
+    run(f.live.db, `DELETE FROM asset_locations WHERE asset_id = ? AND path = 'gone'`, f.id);
+    await rm(path.join(f.library, 'gone'), { recursive: true });
+
+    expect(await runTrashGcOnce({ retentionDays: 30 })).toEqual({
+      scanned: 1,
+      purged: 1,
+      errors: 0,
+    });
+
+    expect(
+      f.live.db.query(`SELECT ordinal, path FROM asset_locations WHERE asset_id = ?`).all(f.id),
+    ).toEqual([{ ordinal: 0, path: 'kept' }]);
+    const entries = await backupEngine.repo.entries(f.destination.id, f.id);
+    const byOrdinal = Object.fromEntries(entries.map((entry) => [entry.ordinal, entry]));
+    expect(byOrdinal[0]!.source_path).toBe('kept/IMG_1.dng');
+    expect(byOrdinal[0]!.state).not.toBe('purged');
+    expect(entries.filter((entry) => entry.source_path === 'gone/IMG_1.dng')).toHaveLength(1);
+    expect(await readFile(path.join(f.library, 'kept', 'IMG_1.dng'), 'utf8')).toBe(RAW);
+  } finally {
+    await f.close();
+  }
+});
+
+test('a kept purge leaves an XMP that another trashed photo shares', async () => {
+  const f = await fixture(['dupe', 'kept']);
+  try {
+    const otherJpg = path.join(path.dirname(f.trashedRaw), 'IMG_1.jpg');
+    await writeFile(otherJpg, 'other-photo');
+    const other = insertAsset(f.live.db, { deletedAt: new Date().toISOString() });
+    const libraryId = (f.live.db.query(`SELECT id FROM folders`).get() as { id: string }).id;
+    insertLocation(f.live.db, {
+      assetId: other,
+      libraryId,
+      path: '.maple/trash/dupe',
+      filename: 'IMG_1.jpg',
+    });
+
+    const res = (await f.purge('route')) as Response;
+
+    expect(res.status).toBe(200);
+    expect(await gone(f.trashedRaw)).toBe(true);
+    expect(await readFile(f.trashedXmp, 'utf8')).toBe('<x:xmpmeta>dupe edit</x:xmpmeta>');
+    expect(await readFile(otherJpg, 'utf8')).toBe('other-photo');
+  } finally {
+    await f.close();
+  }
+});
+
+test.skipIf(process.getuid?.() === 0)(
+  'an owed unlink never removes a different file that later took the same Trash path',
+  async () => {
+    const f = await fixture(['dupe', 'kept']);
+    const trashDir = path.dirname(f.trashedRaw);
+    try {
+      await chmod(trashDir, 0o555);
+      expect(
+        ((await ((await f.purge('route')) as Response).json()) as { cleanup: string }).cleanup,
+      ).toBe('pending');
+      await chmod(trashDir, 0o755);
+      await rm(f.trashedRaw);
+      await writeFile(f.trashedRaw, 'a-newer-file-at-the-same-path');
+
+      await drainLocalPurges({ now: Date.now() + 3_600_000 });
+
+      expect(await readFile(f.trashedRaw, 'utf8')).toBe('a-newer-file-at-the-same-path');
+      expect(await gone(f.trashedXmp)).toBe(true);
+      expect(obligations(f.live.db)).toEqual([]);
+    } finally {
+      await chmod(trashDir, 0o755).catch(() => {});
+      await f.close();
+    }
+  },
+);

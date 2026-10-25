@@ -40,12 +40,12 @@ const TRASHED_ENTRY = `e.asset_id = ? AND e.state != 'purged' AND e.ordinal =
 
 /**
  * Ordinal 0 is the canonical location that search sorts, facets and caches
- * read. When the trashed copy held it, the purged backup entries that share it
- * move to an ordinal no location or entry has used (so it is never reused),
- * and the lowest-ordinal surviving copy and its entries take ordinal 0.
+ * read. Once the trashed location is gone, if no location holds ordinal 0 —
+ * the trashed copy held it, or an earlier removal left it empty — every
+ * backup entry still at ordinal 0 moves to an ordinal no location or entry has
+ * used (so it is never reused or paired with another copy), and the
+ * lowest-ordinal surviving copy and its own entries take ordinal 0.
  */
-const TRASHED_IS_CANONICAL = `(SELECT ordinal FROM asset_locations
-  WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?) = 0`;
 const NEXT_FREE_ORDINAL = `(SELECT MAX(used) + 1 FROM (
   SELECT ordinal AS used FROM asset_locations WHERE asset_id = ?
   UNION ALL SELECT ordinal FROM backup_entries WHERE asset_id = ?))`;
@@ -118,14 +118,14 @@ export async function keepSurvivingCopy(
         params: trashedEntryParams,
       },
       {
-        sql: `UPDATE backup_entries SET ordinal = ${NEXT_FREE_ORDINAL}
-               WHERE asset_id = ? AND ordinal = 0 AND ${TRASHED_IS_CANONICAL}`,
-        params: [hex, hex, hex, hex, ...location],
-      },
-      {
         sql: `DELETE FROM asset_locations
                WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?`,
         params: [hex, ...location],
+      },
+      {
+        sql: `UPDATE backup_entries SET ordinal = ${NEXT_FREE_ORDINAL}
+               WHERE asset_id = ? AND ordinal = 0 AND ${NO_CANONICAL_LOCATION}`,
+        params: [hex, hex, hex, hex],
       },
       {
         sql: `UPDATE backup_entries SET ordinal = 0

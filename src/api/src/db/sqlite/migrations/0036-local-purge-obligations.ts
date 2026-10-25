@@ -4,7 +4,9 @@ import type { Migration, MigrationDb } from '../migrate.ts';
  * 0036 — files a kept-photo purge still owes the disk (#5403). Written in the
  * same transaction that takes the photo out of Trash, and drained until every
  * unlink lands, so a failed unlink or a crash never orphans a trashed copy.
- * `owner_rel_path` is the file whose reuse by any asset cancels the obligation.
+ * `owner_rel_path` is the file whose reuse by any asset cancels the obligation,
+ * and the recorded identity (`dev`, `ino`, `size`, `mtime_ns`) must still match
+ * on disk, so a file that has since been replaced at that path is never removed.
  */
 export const localPurgeObligationsMigration: Migration = {
   id: '0036-local-purge-obligations',
@@ -16,6 +18,10 @@ export const localPurgeObligationsMigration: Migration = {
       rel_path        TEXT NOT NULL,
       owner_rel_path  TEXT NOT NULL,
       kind            TEXT NOT NULL CHECK (kind IN ('trash', 'companion')),
+      dev             TEXT NOT NULL,
+      ino             TEXT NOT NULL,
+      size            TEXT NOT NULL,
+      mtime_ns        TEXT NOT NULL,
       attempts        INTEGER NOT NULL DEFAULT 0,
       next_attempt_at INTEGER NOT NULL DEFAULT 0,
       last_error      TEXT,

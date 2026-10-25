@@ -29,7 +29,7 @@ import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
 import { errnoCode } from '../fs/relocate-publish.ts';
 import { listPairedSidecarsStrict } from '../fs/xmp-conflict.ts';
 import { drainLocalPurges } from './local-purge-drain.ts';
-import type { CopyAddress, TrashedCopy } from './trashed-copy.ts';
+import { fileStampOf, ownSidecarsOf, type CopyAddress, type TrashedCopy } from './trashed-copy.ts';
 
 export type SurvivorPurgeOutcome =
   | { kind: 'kept'; survivor: CopyAddress; pendingCleanup: number }
@@ -62,10 +62,12 @@ async function cleanupTargets(
   dropCompanions: boolean,
 ): Promise<LocalPurgeTarget[]> {
   const ownerRelPath = posixRelative(copy.libraryRoot, copy.absPath);
-  const sidecars = await listPairedSidecarsStrict(copy.absPath).catch((error: unknown) => {
-    if (errnoCode(error) === 'ENOENT') return [];
-    throw error;
-  });
+  const sidecars = await ownSidecarsOf(copy.absPath, listPairedSidecarsStrict).catch(
+    (error: unknown) => {
+      if (errnoCode(error) === 'ENOENT') return [];
+      throw error;
+    },
+  );
   const trashFiles = [copy.absPath, ...sidecars].map((target) => ({
     relPath: posixRelative(copy.libraryRoot, target),
     ownerRelPath,
@@ -78,7 +80,15 @@ async function cleanupTargets(
         kind: 'companion' as const,
       }))
     : [];
-  return [...trashFiles, ...companions];
+  const stamped = await Promise.all(
+    [...trashFiles, ...companions].map(async (target) => ({
+      ...target,
+      stamp: await fileStampOf(path.join(copy.libraryRoot, ...target.relPath.split('/'))),
+    })),
+  );
+  return stamped.flatMap((target) =>
+    target.stamp === null ? [] : [{ ...target, stamp: target.stamp }],
+  );
 }
 
 export async function purgeKeepingSurvivor(
@@ -113,7 +123,10 @@ export async function purgeKeepingSurvivor(
   });
   if (outcome === 'purge-in-flight') return { kind: 'full-purge' };
   if (outcome === 'changed') return { kind: 'changed' };
-  const { pending } = await drainLocalPurges({ assetId: id.toHexString() });
+  const pending = await drainLocalPurges({ assetId: id.toHexString() }).then(
+    (summary) => summary.pending,
+    () => 1,
+  );
   await recordAndPublishAssetChange({
     kind: 'restore',
     asset_id: id,
