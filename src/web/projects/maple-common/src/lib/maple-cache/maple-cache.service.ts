@@ -131,6 +131,7 @@ export class MapleCacheService {
    * invalidates one. Only when no entry exists under that name is the frozen
    * legacy `<sha256Prefix16(filename)>.v25` name tried, and a hit there is
    * renamed into place rather than regenerated. */
+  // fallow-ignore-next-line complexity
   async readThumb(
     folder: MapleFolderHandle,
     filename: string,
@@ -334,6 +335,7 @@ export class MapleCacheService {
     }
   }
 
+  // fallow-ignore-next-line complexity
   private async _readPreviewNamed(
     folder: MapleFolderHandle,
     relDir: string,

@@ -2,6 +2,7 @@ import { cacheFormatMatches } from '../support/cache-image-signature';
 import { RESOLVED_PREVIEW_SELECTOR } from '../support/preview-surface';
 import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { test, expect } from '../support/production-test';
 import {
   readProductionFixtureManifest,
@@ -351,6 +352,8 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   const developedDescriptor = JSON.parse(await readFile(descriptorPath, 'utf8')) as {
     format: 'avif' | 'jpeg' | 'webp' | 'png';
     artifactLastModified: number;
+    sidecarFingerprint: string;
+    artifactFingerprint: string;
   };
   expect(developedDescriptor.artifactLastModified).toBeGreaterThan(
     beforeEditDescriptor.artifactLastModified,
@@ -358,6 +361,14 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   const developedArtifactName = `test_0006.DNG.${extensions[developedDescriptor.format]}`;
   const developedBytes = await readFile(
     join(manifest.writableFolder, '.maple', 'previews', developedArtifactName),
+  );
+  expect(developedDescriptor.sidecarFingerprint).toBe(
+    createHash('sha256')
+      .update(await readFile(sidecar))
+      .digest('hex'),
+  );
+  expect(developedDescriptor.artifactFingerprint).toBe(
+    createHash('sha256').update(developedBytes).digest('hex'),
   );
   expect(developedBytes.equals(beforeEditBytes), 'the post-edit preview pixels must change').toBe(
     false,
@@ -427,21 +438,19 @@ test('Hosted writable folder writes XMP and restores it after a reload and re-op
   await expect.poll(() => expectedErrors).toHaveLength(1);
   picker.setWritePermission(true);
   await restoredExposure.press('ArrowRight');
-  const recoveredExposureAttribute = await restoredExposure.getAttribute('aria-valuenow');
-  const recoveredExposure = Number(recoveredExposureAttribute);
-  expect(recoveredExposureAttribute).not.toBeNull();
-  expect(Number.isFinite(recoveredExposure)).toBe(true);
-  expect(
-    recoveredExposure,
-    'the ArrowRight after write permission returns must move Exposure again',
-  ).not.toBe(Number(editedExposure));
   await expect
     .poll(async () => {
       const xml = await readFile(sidecar, 'utf8').catch(() => '');
       const serialized = /crs:Exposure2012="([^"]+)"/.exec(xml)?.[1];
-      return serialized === undefined ? null : Number(serialized);
+      const editorValue = Number(await restoredExposure.getAttribute('aria-valuenow'));
+      return (
+        serialized !== undefined &&
+        Number.isFinite(editorValue) &&
+        editorValue !== Number(editedExposure) &&
+        Math.abs(Number(serialized) - editorValue) < 0.005
+      );
     })
-    .toBeCloseTo(recoveredExposure, 2);
+    .toBe(true);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 test('Hosted opens one RAW directly and downloads its XMP without a filmstrip', async ({
