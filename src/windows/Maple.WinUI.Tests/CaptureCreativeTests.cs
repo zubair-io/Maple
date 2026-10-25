@@ -5,7 +5,6 @@ using Xunit;
 
 namespace Maple.WinUI.Tests;
 
-// #5378: how a capture decode's creative stage reaches every tick's params.
 public sealed unsafe class CaptureCreativeTests
 {
     private static CaptureCreative Creative(float aeGain) =>
