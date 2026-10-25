@@ -27,6 +27,8 @@ import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { AuthService } from '../auth/auth.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
+import { WorkflowVariantStoreService } from '../xmp/workflow-variant-store.service';
+import { PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
 import { SidecarStore } from '../xmp/sidecar.store';
 import { SelfHostedWorkflowWriterService } from '../xmp/self-hosted-workflow-writer.service';
@@ -110,6 +112,7 @@ export class LibraryFetch {
   private readonly mapleCache = inject(MapleCacheService);
   private readonly xmpParser = inject(XmpParserService);
   private readonly xmpStore = inject(XmpStoreService);
+  private readonly hostedVariants = inject(WorkflowVariantStoreService);
   private readonly xmpSerializer = inject(XmpSerializerService);
   private readonly sidecarStore = inject(SidecarStore);
   private readonly workflowWriter = inject(SelfHostedWorkflowWriterService);
@@ -199,6 +202,9 @@ export class LibraryFetch {
    */
   // fallow-ignore-next-line complexity
   async openFolder(folder: MapleFolderHandle): Promise<void> {
+    // A re-open must observe the latest authored sidecars, including a debounce
+    // that has not fired yet. Leave the old workspace active if publication fails.
+    if (this.store.currentFolder()) await this.xmpStore.flushAll();
     // Detach the previous workspace before doing any asynchronous I/O. If the
     // new handle has lost permission (or enumeration otherwise fails), keeping
     // it current would let edits from the still-rendered previous view write a
@@ -258,9 +264,15 @@ export class LibraryFetch {
 
       // XMP sidecar is authoritative — parse both culling + full AdjustmentModel.
       const xmpName = primarySidecarFilename(filename);
+      const binding = this.xmpStore.bindingFor(id, folder, filename);
       try {
-        const xmpBytes = await this.fs.readFile(folder, xmpName);
-        const xmpText = new TextDecoder().decode(xmpBytes);
+        // The selected workflow variant can outlive a folder switch. Read its
+        // document instead of placing the primary model under its write binding.
+        const xmpText =
+          binding.variantId === PRIMARY_VARIANT_ID
+            ? new TextDecoder().decode(await this.fs.readFile(folder, xmpName))
+            : await this.hostedVariants.read(folder, xmpName, binding.variantId);
+        if (xmpText === null) throw Error('Selected variant sidecar is missing.');
 
         // Culling fields (P5) + IPTC keywords (#632).
         const culling = this.xmpParser.parseCulling(xmpText);
@@ -277,7 +289,8 @@ export class LibraryFetch {
         newMetadata.set(id, metadata);
 
         edited = true;
-      } catch {
+      } catch (error) {
+        if (binding.variantId !== PRIMARY_VARIANT_ID) throw error;
         // No sidecar or unreadable — keep cache values, no adjustment override.
       }
 

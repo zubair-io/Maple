@@ -24,7 +24,9 @@ import {
 } from '../folder-access/fs-access-backend';
 import { DiskDirectory } from '../editor/copy-paste/testing/batch-test-files';
 import { XmpSerializerService } from '../xmp/xmp-serializer.service';
+import { XmpParserService } from '../xmp/xmp-parser.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
+import { WorkflowVariantStoreService } from '../xmp/workflow-variant-store.service';
 import { SidecarSaveStateService } from '../xmp/sidecar-save-state.service';
 import { defaultAdjustmentModel } from '../models/adjustment-model';
 import { LibraryStateService } from './library-state.service';
@@ -119,5 +121,49 @@ describe('Hosted openFolder with a stale focused asset (#4683)', () => {
     expect(await sidecarBytes(folderA)).toEqual(originalA);
     expect(writeFile).not.toHaveBeenCalledWith(folderB, 'photo.xmp', expect.anything());
     expect(TestBed.inject(SidecarSaveStateService).phase()).toBe('error');
+  });
+
+  it('publishes a pending edit before switching away and reloads it on return', async () => {
+    library.updateAdjustment('a:photo.dng', { exposure: 3 });
+
+    await library.openFolder(folderB);
+    await library.openFolder(folderA);
+
+    expect(library.adjustmentModels().get('a:photo.dng')?.exposure).toBe(3);
+    const saved = new TextDecoder().decode(await sidecarBytes(folderA));
+    expect(TestBed.inject(XmpParserService).parseAdjustmentModel(saved).model.exposure).toBe(3);
+  });
+
+  it('keeps the edited folder active when its pending sidecar cannot be saved', async () => {
+    library.updateAdjustment('a:photo.dng', { exposure: 3 });
+    writeFile.mockRejectedValueOnce(new Error('Permission revoked'));
+
+    await expect(library.openFolder(folderB)).rejects.toThrow('Permission revoked');
+
+    expect(library.currentFolder()).toBe(folderA);
+    expect(library.adjustmentModels().get('a:photo.dng')?.exposure).toBe(3);
+    expect(library.selectedSourceId()).toBe('f-a');
+  });
+
+  it('reloads the selected variant model instead of primary under its retained binding', async () => {
+    const variantId = '0f4e2b6a-7c3d-4e5f-8a9b-0c1d2e3f4a5b';
+    const variantXml = serializer.serialize({ ...defaultAdjustmentModel(), exposure: 4 });
+    const xmpStore = TestBed.inject(XmpStoreService);
+    const variants = TestBed.inject(WorkflowVariantStoreService);
+    const originalBindingFor = xmpStore.bindingFor.bind(xmpStore);
+    vi.spyOn(xmpStore, 'bindingFor').mockImplementation((id, folder, filename) =>
+      id === 'a:photo.dng' && folder === folderA
+        ? { folder, rawFilename: filename, filename: `photo.v${variantId}.xmp`, variantId }
+        : originalBindingFor(id, folder, filename),
+    );
+    vi.spyOn(variants, 'read').mockResolvedValue(variantXml);
+
+    await library.openFolder(folderB);
+    await library.openFolder(folderA);
+
+    expect(variants.read).toHaveBeenCalledWith(folderA, 'photo.xmp', variantId);
+    expect(library.adjustmentModels().get('a:photo.dng')?.exposure).toBe(4);
+    const primary = new TextDecoder().decode(await sidecarBytes(folderA));
+    expect(TestBed.inject(XmpParserService).parseAdjustmentModel(primary).model.exposure).toBe(2);
   });
 });
