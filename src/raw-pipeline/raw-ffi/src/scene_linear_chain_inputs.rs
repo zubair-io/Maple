@@ -26,8 +26,8 @@ pub(crate) struct ChainInputs<'a> {
     pub iso: u32,
     pub whites_anchor_ev: f32,
     pub nr_sampling_scale: f32,
-    /// The capture decode's creative stage (#5377), rebuilt with its tables.
-    pub creative: Option<raw_core::pipeline::CreativeStage>,
+    /// The capture decode's creative stage (#5377), shared across ticks.
+    pub creative: Option<std::sync::Arc<raw_core::pipeline::CreativeStage>>,
 }
 
 impl<'a> ChainInputs<'a> {
@@ -51,7 +51,7 @@ impl<'a> ChainInputs<'a> {
                 .is_finite()
                 .then_some(self.whites_anchor_ev),
             haze_map: None,
-            creative: self.creative.as_ref(),
+            creative: self.creative.as_deref(),
         }
     }
 }
@@ -59,7 +59,8 @@ impl<'a> ChainInputs<'a> {
 /// # Safety
 /// `p` must be a valid `MapleAdjustmentParams`; when `noise_profile_len > 0`
 /// its `noise_profile_ptr` must be valid and aligned for that many `f32`s for
-/// the duration of `'a`, and `creative_ptr` null or valid with its tables.
+/// the duration of `'a`, and `creative_ptr` null or a capture decode's struct,
+/// whose tables are its interned wire.
 /// Fails only on creative inputs that are not a capture decode's.
 pub(crate) unsafe fn chain_inputs_from_params(
     p: &MapleAdjustmentParams,
@@ -284,7 +285,8 @@ pub(crate) unsafe fn chain_inputs_from_params(
         render_fm_cold: &p.wb_frame_render_fm_cold,
         render_fm_warm: &p.wb_frame_render_fm_warm,
     });
-    let creative = crate::capture_creative::creative_from_ptr(p.creative_ptr)?;
+    // A capture decode's tables are its interned, process-lifetime wire.
+    let creative = crate::capture_creative::creative_from_ptr::<'static>(p.creative_ptr)?;
     let model = match &creative {
         Some((header, _)) => raw_core::xmp::AdjustmentModel {
             highlight_recovery: if header.highlight_recovery {
@@ -297,7 +299,7 @@ pub(crate) unsafe fn chain_inputs_from_params(
         None => model,
     };
     let creative = creative
-        .map(|(header, tables)| header.stage(tables).map_err(|e| e.to_string()))
+        .map(|(header, tables)| crate::capture_creative::cpu_stage(&header, tables))
         .transpose()?;
     Ok(ChainInputs {
         model,

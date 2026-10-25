@@ -9,9 +9,10 @@
 use raw_core::{
     color::{dcp::CmEndpoints, illuminant::Illuminant},
     math::Matrix3,
-    pipeline::{AsShotTable, CreativeHeader, ProfileCore, TableLayout, TableSpan},
+    pipeline::{AsShotTable, CreativeHeader, CreativeStage, ProfileCore, TableLayout, TableSpan},
     stages::wb_camera::SliderFrameParts,
 };
+use std::sync::Arc;
 
 /// One table of [`MapleCaptureCreative::tables`]. All-zero `dims` means the
 /// table is absent.
@@ -375,7 +376,38 @@ pub(crate) unsafe fn gpu_plan<'a>(
         .map_err(|e| e.to_string())
 }
 
-/// A capture decode: the capture result in the fixed as-shot basis and its
+/// Decodes whose CPU creative stage stays built; one per open editor is
+/// plenty, and a miss only rebuilds.
+const CPU_STAGES: usize = 4;
+
+type CpuStageKey = (CreativeHeader, usize, usize);
+
+static CPU_STAGE_CACHE: std::sync::Mutex<Vec<(CpuStageKey, Arc<CreativeStage>)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// The CPU creative stage of one capture decode. Building it copies the
+/// tables out of the wire, so it is built once per decode and shared by
+/// every tick: the stage depends only on the header and its interned wire,
+/// never on the slider pair.
+pub(crate) fn cpu_stage(
+    header: &CreativeHeader,
+    tables: &'static [f32],
+) -> Result<Arc<CreativeStage>, String> {
+    let key = (*header, tables.as_ptr() as usize, tables.len());
+    let mut cache = CPU_STAGE_CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(hit) = cache.iter().position(|(k, _)| *k == key) {
+        cache[..=hit].rotate_right(1);
+        return Ok(Arc::clone(&cache[0].1));
+    }
+    let stage = Arc::new(header.stage(tables).map_err(|e| e.to_string())?);
+    cache.truncate(CPU_STAGES - 1);
+    cache.insert(0, (key, Arc::clone(&stage)));
+    Ok(stage)
+}
+
+/// A capture decode:the capture result in the fixed as-shot basis and its
 /// creative stage. `scene.wb_hsm_data` is always null; `scene.ae_gain` is the
 /// creative stage's gain, which the pixels do not carry.
 #[repr(C)]
