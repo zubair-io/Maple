@@ -22,6 +22,15 @@ enum LocalDerivativeSourceStamp {
       to: stampURL(for: derivativeURL), atomically: true, encoding: .utf8)
   }
 
+  static func matches(_ expected: String, for assetURL: URL) -> Bool {
+    signature(for: assetURL) == expected
+  }
+
+  static func record(_ derivativeURL: URL, sourceSignature: String) throws {
+    try sourceSignature.write(
+      to: stampURL(for: derivativeURL), atomically: true, encoding: .utf8)
+  }
+
   static func remove(_ derivativeURL: URL) {
     try? FileManager.default.removeItem(at: stampURL(for: derivativeURL))
   }

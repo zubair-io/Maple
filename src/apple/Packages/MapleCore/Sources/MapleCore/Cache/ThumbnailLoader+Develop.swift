@@ -16,11 +16,21 @@ extension ThumbnailLoader {
     } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
       return nil
     }
-    let (model, _) = try XMPParser.parse(data: xml)
+    let (parsedModel, _) = try XMPParser.parse(data: xml)
     // Rating/flag saves seed as-shot WB without authoring a visual edit.
     // Preserve the camera fast path for those sidecars; a WB-only external
     // edit remains ambiguous until the XMP records an explicit edit intent.
-    guard model.isVisuallyEditedBeyondWhiteBalance else { return nil }
+    guard parsedModel.isVisuallyEditedBeyondWhiteBalance else { return nil }
+    let maskSession = await EditSession(asset: AssetRef(url: url))
+    let model = await maskSession.rehydratedMaskRasters(in: parsedModel)
+    let rasterIDs = Set(model.localAdjustments.flatMap(\.mask.registeredRasterIds))
+    defer { rasterIDs.forEach(MaskRasterRegistry.release) }
+    guard
+      model.localAdjustments.allSatisfy({ layer in
+        layer.mask.bitmapMasks.allSatisfy { $0.rasterId != 0 }
+          && layer.mask.brushMasks.allSatisfy { $0.rasterId != 0 }
+      })
+    else { throw RawSidecarDerivativeError.maskUnavailable }
     let crop = model.crop
     let fraction = min(crop.right - crop.left, crop.bottom - crop.top)
     let decodeEdge = min(4_096, targetLongEdge / CGFloat(max(fraction, 0.125)))
@@ -134,4 +144,5 @@ extension ThumbnailLoader {
 private enum RawSidecarDerivativeError: Error {
   case decodeFailed
   case encodeFailed
+  case maskUnavailable
 }

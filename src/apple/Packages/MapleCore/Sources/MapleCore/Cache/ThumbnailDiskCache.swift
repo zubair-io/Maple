@@ -218,6 +218,31 @@ public actor ThumbnailDiskCache {
     }
   }
 
+  /// A sidecar render may outlive an external XMP replacement. Publish only
+  /// under the signature captured before its source was read, never under a
+  /// newer signature sampled after pixels were produced.
+  public func storeThumbnailDataIfCurrent(
+    _ data: Data, for assetURL: URL, sourceSignature: String
+  ) -> Bool {
+    guard LocalDerivativeSourceStamp.matches(sourceSignature, for: assetURL) else { return false }
+    let key = Self.memoryKey(for: assetURL, sourceSignature: sourceSignature)
+    let fileURL = thumbFileURL(for: assetURL, creatingDirectory: true)
+    LocalDerivativeSourceStamp.remove(fileURL)
+    guard (try? data.write(to: fileURL, options: .atomic)) != nil,
+      LocalDerivativeSourceStamp.matches(sourceSignature, for: assetURL),
+      (try? LocalDerivativeSourceStamp.record(fileURL, sourceSignature: sourceSignature)) != nil,
+      LocalDerivativeSourceStamp.matches(sourceSignature, for: assetURL)
+    else {
+      LocalDerivativeSourceStamp.remove(fileURL)
+      try? fm.removeItem(at: fileURL)
+      return false
+    }
+    evictIfNeeded()
+    dataMemCache[key] = data
+    syncPeekCache.setObject(data as NSData, forKey: key as NSString)
+    return true
+  }
+
   /// Store pre-encoded AVIF bytes under an opaque stable key. Sibling of the
   /// URL-keyed overload — used for sourceless assets keyed by `AssetRef.id`.
   public func storeThumbnailData(_ data: Data, forKey key: String) {
@@ -266,8 +291,12 @@ public actor ThumbnailDiskCache {
   /// full-path hash, so same-named files from two folders never share an entry
   /// and a file keeps one key whichever folder is open (#5033).
   public static func memoryKey(for url: URL) -> String {
+    memoryKey(for: url, sourceSignature: LocalDerivativeSourceStamp.signature(for: url))
+  }
+
+  private static func memoryKey(for url: URL, sourceSignature: String) -> String {
     MapleThumbCacheKey.sha256Prefix16(
-      "path:" + url.standardizedFileURL.path + "|" + LocalDerivativeSourceStamp.signature(for: url))
+      "path:" + url.standardizedFileURL.path + "|" + sourceSignature)
   }
 
   /// File stem and memory key for a sourceless asset's opaque stable id.

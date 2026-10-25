@@ -131,6 +131,7 @@ extension ThumbnailLoader {
     if let cached = freshDisplayPreviewData(previewURL: previewURL, assetURL: url) {
       return cached
     }
+    let sourceSignature = LocalDerivativeSourceStamp.signature(for: url)
     let developed: Data?
     do {
       if isRaw {
@@ -152,13 +153,22 @@ extension ThumbnailLoader {
     if !isRaw && developed == nil && sidecarHasVisualEdits(assetURL: url) {
       return nil
     }
+    guard LocalDerivativeSourceStamp.matches(sourceSignature, for: url) else { return nil }
     guard let data = developed ?? displayPreviewAVIF(at: url, isRaw: isRaw) else { return nil }
     try? FileManager.default.createDirectory(
       at: previewURL.deletingLastPathComponent(),
       withIntermediateDirectories: true
     )
-    if (try? data.write(to: previewURL, options: .atomic)) != nil {
-      LocalDerivativeSourceStamp.record(previewURL, for: url)
+    LocalDerivativeSourceStamp.remove(previewURL)
+    guard (try? data.write(to: previewURL, options: .atomic)) != nil,
+      LocalDerivativeSourceStamp.matches(sourceSignature, for: url),
+      (try? LocalDerivativeSourceStamp.record(
+        previewURL, sourceSignature: sourceSignature)) != nil,
+      LocalDerivativeSourceStamp.matches(sourceSignature, for: url)
+    else {
+      LocalDerivativeSourceStamp.remove(previewURL)
+      try? FileManager.default.removeItem(at: previewURL)
+      return nil
     }
     return data
   }
