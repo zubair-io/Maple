@@ -337,6 +337,9 @@ interface TaggedClassification {
   cannotVerify: boolean;
 }
 
+/** What one tagged entry contributes to its asset's classification. */
+type EntryVerdict = 'recover' | 'prune' | 'prune-after-veto' | 'keep' | 'skip-row';
+
 async function classifyTaggedEntries(
   tagged: readonly FileInfo[],
   deleteBeforeIso: string,
@@ -351,27 +354,34 @@ async function classifyTaggedEntries(
     cannotVerify: false,
   };
   for (const fi of tagged) {
-    const aged = (fi.missing_since ?? '') < deleteBeforeIso;
-    if (fi.deleted_at) {
-      // Orphan / content-moved: dead, never re-stat. Prune once aged.
-      if (aged) out.prune.push(fi);
-      continue;
-    }
-    // Vanished-file entry: re-stat with the mount guard.
-    const libIdHex = fi.library_id.toHexString();
-    if ((await checkRoot(libIdHex)) === 'offline') return { ...out, cannotVerify: true };
-    const kind = await taggedEntryKind(libs.get(libIdHex)!, fi, ignoreMemo);
-    if (kind === 'error') {
-      // Couldn't confirm the file is gone (EACCES/EIO/…) — skip the row.
-      return { ...out, cannotVerify: true };
-    }
-    if (kind === 'present') out.recover.push(fi);
-    else if (aged) {
-      out.prune.push(fi);
-      if (kind === 'absent') out.absentForVeto.push(fi);
-    }
+    const verdict = await entryVerdict(fi, deleteBeforeIso, libs, checkRoot, ignoreMemo);
+    if (verdict === 'skip-row') return { ...out, cannotVerify: true };
+    if (verdict === 'recover') out.recover.push(fi);
+    if (verdict === 'prune' || verdict === 'prune-after-veto') out.prune.push(fi);
+    if (verdict === 'prune-after-veto') out.absentForVeto.push(fi);
   }
   return out;
+}
+
+async function entryVerdict(
+  fi: FileInfo,
+  deleteBeforeIso: string,
+  libs: ReadonlyMap<string, string>,
+  checkRoot: (libIdHex: string) => Promise<'present' | 'offline'>,
+  ignoreMemo: IgnoreVerdictMemo,
+): Promise<EntryVerdict> {
+  const aged = (fi.missing_since ?? '') < deleteBeforeIso;
+  // Orphan / content-moved: dead, never re-stat. Prune once aged.
+  if (fi.deleted_at) return aged ? 'prune' : 'keep';
+  // Vanished-file entry: re-stat with the mount guard. An unverifiable entry
+  // (offline root, EACCES/EIO, a marker stat error) skips the whole row.
+  const libIdHex = fi.library_id.toHexString();
+  if ((await checkRoot(libIdHex)) === 'offline') return 'skip-row';
+  const kind = await taggedEntryKind(libs.get(libIdHex)!, fi, ignoreMemo);
+  if (kind === 'error') return 'skip-row';
+  if (kind === 'present') return 'recover';
+  if (!aged) return 'keep';
+  return kind === 'absent' ? 'prune-after-veto' : 'prune';
 }
 
 /**
