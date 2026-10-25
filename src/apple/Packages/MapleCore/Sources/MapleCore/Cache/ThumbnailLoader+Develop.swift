@@ -28,7 +28,7 @@ extension ThumbnailLoader {
     guard
       model.localAdjustments.allSatisfy({ layer in
         layer.mask.bitmapMasks.allSatisfy { $0.rasterId != 0 }
-          && layer.mask.brushMasks.allSatisfy { $0.rasterId != 0 }
+          && layer.mask.brushMasks.allSatisfy { $0.dabs.isEmpty || $0.rasterId != 0 }
       })
     else { throw RawSidecarDerivativeError.maskUnavailable }
     let crop = model.crop
