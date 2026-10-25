@@ -111,11 +111,12 @@ struct InfoPanelView: View {
         RatingFlagsRow(session: session)
         if let session, let error = session.sidecarError {
           VStack(alignment: .leading, spacing: 8) {
-            Label(
-              session.hasLoadedSidecar
-                ? "Changes could not be saved" : "Photo settings could not be loaded",
-              systemImage: "exclamationmark.triangle.fill"
-            )
+            HStack(spacing: 6) {
+              MuiIcon(name: "warning", size: .sm, filled: true)
+              Text(
+                session.hasLoadedSidecar
+                  ? "Changes could not be saved" : "Photo settings could not be loaded")
+            }
             .font(.subheadline.weight(.semibold))
             .accessibilityIdentifier("sidecar-save-error")
             Text(error.localizedDescription)
