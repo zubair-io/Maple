@@ -291,6 +291,34 @@ public final class BrowseViewModel {
     }
   }
 
+  /// A metadata filter must cover the whole Photos listing even when none
+  /// of the first page's tiles match and therefore no paging tile appears.
+  public func loadRemainingPhotoKitForFilter() async throws {
+    guard gridFilter != .all, currentSource is PhotoKitSource,
+      let source = pagedPhotoKitSource, !isLoadingPhotoKitPage,
+      photoKitNextOffset < photoKitTotalCount
+    else { return }
+    isLoadingPhotoKitPage = true
+    let gen = loadGeneration
+    var offset = photoKitNextOffset
+    var remaining: [AssetRef] = []
+    defer { if gen == loadGeneration { isLoadingPhotoKitPage = false } }
+    while offset < photoKitTotalCount {
+      try Task.checkCancellation()
+      let refs = try await source.images(offset: offset, limit: Self.photoKitPageSize)
+      guard gen == loadGeneration else { throw CancellationError() }
+      guard !refs.isEmpty else {
+        throw ImageSourceError.notFound("The Photos listing ended before all photos were loaded")
+      }
+      remaining.append(contentsOf: refs.map { makeAssetRef($0, source: source) })
+      offset += refs.count
+    }
+    try Task.checkCancellation()
+    guard gen == loadGeneration else { throw CancellationError() }
+    assets.append(contentsOf: remaining)
+    photoKitNextOffset = offset
+  }
+
   // MARK: - Merged PhotoKit + Cloud timeline
 
   /// When set, BrowseGrid renders MergedCellView tiles instead of plain

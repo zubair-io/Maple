@@ -335,10 +335,7 @@ extension AppShell {
     } else {
       throw ImageSourceError.unsupported("No sidecar reader for \(asset.displayName)")
     }
-    let persisted = try await store.loadIfPresent()
-    return GridFilterMetadata(
-      culling: persisted?.1 ?? CullingState(),
-      hasEdits: persisted != nil)
+    return try await GridFilterMetadata.read(from: store)
   }
 
   func browseSession(for asset: AssetRef, smbSource: SMBSource? = nil) -> EditSession {

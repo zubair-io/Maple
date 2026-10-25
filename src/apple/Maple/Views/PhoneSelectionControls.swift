@@ -7,6 +7,7 @@
   /// used by desktop Browse; neither action writes to an unverified source.
   struct PhoneSelectionControls: View {
     let vm: BrowseViewModel
+    let displayedAssets: [AssetRef]
     let clipboard: AdjustmentClipboard?
     let onMergePanorama: (() -> Void)?
     let onEditMetadata: (() -> Void)?
@@ -41,6 +42,7 @@
         if vm.isSelecting {
           PhoneSelectionBar(
             vm: vm,
+            displayedAssets: displayedAssets,
             onMergePanorama: onMergePanorama,
             onEditMetadata: onEditMetadata,
             onBatchRename: onBatchRename,

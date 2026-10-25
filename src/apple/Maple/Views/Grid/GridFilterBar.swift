@@ -48,7 +48,7 @@ struct GridFilterBar: View {
       } else if let error = vm.gridFilterError {
         HStack {
           Text("Couldn’t read photo ratings: \(error.localizedDescription)")
-          Button("Retry") { Task { await vm.loadGridFilterMetadata(read: readMetadata) } }
+          Button("Retry") { Task { await loadFilter() } }
         }
         .font(.caption)
         .padding(.horizontal, 8)
@@ -65,7 +65,21 @@ struct GridFilterBar: View {
       }
     }
     .task(id: loadKey) {
+      await loadFilter()
+    }
+  }
+
+  @MainActor
+  private func loadFilter() async {
+    if vm.gridFilter != .all { vm.gridFilterLoading = true }
+    do {
+      try await vm.loadRemainingPhotoKitForFilter()
+      try Task.checkCancellation()
       await vm.loadGridFilterMetadata(read: readMetadata)
+    } catch {
+      guard !Task.isCancelled else { return }
+      vm.gridFilterLoading = false
+      vm.gridFilterError = error
     }
   }
 }

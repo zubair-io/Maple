@@ -25,6 +25,7 @@ import SwiftUI
 
 struct PanoSelectionBar: View {
   let vm: BrowseViewModel
+  let displayedAssets: [AssetRef]
   /// Fired when the user taps "Merge to panorama…" with ≥2 selected.
   let onMerge: () -> Void
   /// Fired when the user taps "Edit Metadata…". nil hides the button.
@@ -54,17 +55,19 @@ struct PanoSelectionBar: View {
           // Guard on !assets.isEmpty: when both selectedIDs.count and
           // assets.count are 0 the condition is vacuously true and
           // "Deselect All" would appear with nothing to deselect.
-          let allSelected = !vm.assets.isEmpty && vm.selectedIDs.count == vm.assets.count
+          let allSelected =
+            !displayedAssets.isEmpty
+            && displayedAssets.allSatisfy { vm.selectedIDs.contains($0.id) }
           MuiButton(
             label: allSelected ? "Deselect All" : "Select All",
             variant: .ghost,
             size: .sm,
-            disabled: vm.assets.isEmpty
+            disabled: displayedAssets.isEmpty
           ) {
             if allSelected {
               vm.clearSelection()
             } else {
-              for asset in vm.assets { vm.select(asset.id) }
+              for asset in displayedAssets { vm.select(asset.id) }
             }
           }
           .accessibilityLabel(
