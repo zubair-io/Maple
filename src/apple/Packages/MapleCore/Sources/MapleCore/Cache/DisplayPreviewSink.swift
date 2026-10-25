@@ -33,14 +33,22 @@ public protocol DisplayPreviewSink: Sendable {
 public struct LocalDisplayPreviewSink: DisplayPreviewSink {
   let previewURL: URL
   let scopeParentURL: URL?
+  let sidecarStore: XMPSidecarStore?
 
-  public init(previewURL: URL, scopeParentURL: URL? = nil) {
+  public init(
+    previewURL: URL, scopeParentURL: URL? = nil, sidecarStore: XMPSidecarStore? = nil
+  ) {
     self.previewURL = previewURL
     self.scopeParentURL = scopeParentURL
+    self.sidecarStore = sidecarStore
   }
 
   public func write(_ bytes: Data) async {
-    writeLocally(bytes)
+    if let sidecarStore {
+      try? await sidecarStore.writeDerivativeIfCurrent { writeLocally(bytes) }
+    } else {
+      writeLocally(bytes)
+    }
   }
 
   /// Keep scope acquisition, filesystem I/O and release in one synchronous operation.

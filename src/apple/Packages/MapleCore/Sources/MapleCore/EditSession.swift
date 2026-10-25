@@ -536,16 +536,21 @@ public final class EditSession {
     self.pipeline = pipeline
     self.nativeDetailRenderer = NativeDetailRenderer()
     self.renderActor = RenderActor(pipeline: pipeline, rawRenderSource: rawSource)
+    let localSidecarStore: XMPSidecarStore?
     if let url = asset.primaryURL {
       // Local-file asset — write to the .xmp sidecar next to the RAW.
-      self.primarySidecarStore = XMPSidecarStore(rawURL: url)
+      let store = XMPSidecarStore(rawURL: url)
+      self.primarySidecarStore = store
+      localSidecarStore = store
     } else if let remote = remoteSidecarStore {
       // Cloud-backed (or PhotoKit) asset — caller injects a remote
       // store that round-trips through the API.
       self.primarySidecarStore = remote
+      localSidecarStore = nil
     } else {
       // Sourceless and no remote store wired — edits are session-local.
       self.primarySidecarStore = nil
+      localSidecarStore = nil
     }
 
     // Preview sink parallels the sidecar store (#2009): a local file next
@@ -554,7 +559,8 @@ public final class EditSession {
     if let url = asset.primaryURL {
       self.previewPersistence = DisplayPreviewPersistence(
         sink: LocalDisplayPreviewSink(
-          previewURL: MapleSidecarPaths.previewURL(for: url), scopeParentURL: asset.scopeParentURL))
+          previewURL: MapleSidecarPaths.previewURL(for: url), scopeParentURL: asset.scopeParentURL,
+          sidecarStore: localSidecarStore))
     } else {
       self.previewPersistence = DisplayPreviewPersistence(sink: remotePreviewSink)
     }
