@@ -61,7 +61,7 @@ jobs:
     if: needs.changes.outputs.ci == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -74,7 +74,7 @@ jobs:
     if: needs.changes.outputs.codegen == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -86,7 +86,7 @@ jobs:
     if: needs.changes.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -98,7 +98,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           # Need history back to the merge base (PR) or previous push SHA so
           # we can diff to compute the changed-files list. Cheap on GH runners.
@@ -185,7 +185,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -205,7 +205,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       # The script + allowlist land in #205. Until that merges, skip-pass so
       # cross.yml stays green on main. Once #205 lands the guard is a no-op.
@@ -236,7 +236,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           # Need history back to the merge base of the PR.
           fetch-depth: 0
@@ -281,7 +281,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           # Need history back to the merge base of the PR.
           fetch-depth: 0
@@ -471,7 +471,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           # Need history back to the merge base of the PR (same rationale as
           # allowlist-shrinks-only above). Harmless on push.
@@ -572,7 +572,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -631,7 +631,7 @@ jobs:
     name: maple-ui-contracts (component-contract docs are complete)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - name: Run contract linter self-test
         run: bash tools/check-maple-ui-contracts.test.sh
@@ -651,7 +651,7 @@ jobs:
     name: editor-parity-manifest (editor surface matches the parity manifest)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -671,7 +671,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           # Need history back to the merge base so fallow can scope its
           # audit to files changed in this PR/push (same rationale as
@@ -710,7 +710,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           # Need history back to the merge base so fallow can scope its
           # audit to files changed in this PR/push (same rationale as
@@ -768,7 +768,7 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           # Full history so we can resolve the merge-base / pushed range below.
           # The scan itself is bounded to this PR/push's own commits via
@@ -877,7 +877,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - run: >-
           python3 tools/ci_result.py
           ci-selection-tests=ci nlm-exp-tests=codegen release-handoff-tests=release

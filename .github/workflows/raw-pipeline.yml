@@ -102,7 +102,7 @@ jobs:
     name: WASM NLM SIMD scalar bit parity
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -130,7 +130,7 @@ jobs:
     name: build-raw-ffi (host compile gate)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo registry + raw-pipeline target
         uses: actions/cache@v4
@@ -347,7 +347,7 @@ jobs:
       MAPLE_REQUIRE_GPU: '1'
       RUST_BACKTRACE: '1'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo registry + raw-pipeline target
         uses: actions/cache@v4
@@ -490,7 +490,7 @@ jobs:
     env:
       RUST_BACKTRACE: '1'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache cargo registry + raw-pipeline target
         uses: actions/cache@v4
@@ -534,7 +534,7 @@ jobs:
     name: rust-tests (cargo test -p raw-core + grey gates)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v7
         with:
@@ -631,7 +631,7 @@ jobs:
     name: color-pipeline (Auto vs embedded JPEG)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       # Auto needs RAWs and their embedded previews, not external references.
       - name: Probe fixtures
@@ -708,7 +708,7 @@ jobs:
     name: pano-pipeline (test_pano_pipeline.sh)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - name: Probe fixtures
         id: probe

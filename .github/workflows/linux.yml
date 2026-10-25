@@ -42,7 +42,7 @@ jobs:
       CARGO_PROFILE_TEST_DEBUG: '0'
       XDG_RUNTIME_DIR: /tmp/maple-linux-runtime
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy

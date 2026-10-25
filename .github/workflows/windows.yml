@@ -20,7 +20,7 @@ jobs:
     if: needs.changes.outputs.windows == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Test Windows build wrapper contracts
         run: python3 src/windows/scripts/test_build_windows.py
       - uses: actions/setup-python@v7
@@ -51,7 +51,7 @@ jobs:
     env:
       WINDOWS_TARGET: ${{ matrix.target }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -126,7 +126,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - run: python3 tools/ci_result.py windows-wrapper-contract=windows windows-build-and-test=windows
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
