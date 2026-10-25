@@ -453,10 +453,15 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
 
   /** True once an asset is loaded — both controls need one to act on. */
   readonly hasFocusedAsset = computed<boolean>(() => this.state.focusedAssetId() != null);
+  readonly sidecarLoadError = computed(() => {
+    const id = this.state.focusedAssetId();
+    return id ? (this.state.sidecarLoadError?.(id) ?? null) : null;
+  });
 
   readonly autoDisabled = computed<boolean>(
     () =>
       !isSupportedRaw(this.state.focusedAsset()?.filename ?? '') ||
+      this.sidecarLoadError() !== null ||
       this.editorState.autoInFlight() ||
       this.editorState.wbSampleInFlight(),
   );

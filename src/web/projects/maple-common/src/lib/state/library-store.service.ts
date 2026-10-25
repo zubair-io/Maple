@@ -106,6 +106,8 @@ export function buildLibrariesById(folders: readonly ApiFolder[]): ReadonlyMap<s
 
 @Injectable({ providedIn: 'root' })
 export class LibraryStore {
+  /** Hosted assets whose existing XMP could not be read. Never author over it. */
+  readonly sidecarLoadErrors = signal(new Map<AssetId, string>());
   readonly workflowVariants = new LibraryWorkflowVariants(() =>
     this.assets().map((asset) => asset.id),
   );

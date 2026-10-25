@@ -95,6 +95,14 @@
     class="pointer-events-none absolute inset-0 z-10 transition-opacity [transition-duration:var(--pro-motion-recede)]"
     [class]="chromeLayerOpacityClass()"
   >
+    @if (sidecarLoadError(); as error) {
+      <p
+        role="alert"
+        class="absolute top-12 left-1/2 z-20 w-[min(90vw,32rem)] -translate-x-1/2 rounded bg-black/85 px-4 py-2 text-center text-sm text-white"
+      >
+        {{ error }}
+      </p>
+    }
     <!-- ── Top bar ────────────────────────────────────────────────── -->
     <!-- Stable IA regions (#2449): every primary job has one named home on
          every breakpoint — `data-editor-region` is the hook the cross-width

@@ -24,6 +24,7 @@
           [iconOnly]="true"
           iconLeading="flag"
           ariaLabel="Flag"
+          [disabled]="!!sidecarLoadError()"
           [ariaExpanded]="flagOpen()"
           ariaControls="preview-flag-popover"
           (pressed)="flagOpen.set(!flagOpen())"
@@ -34,6 +35,7 @@
           [iconOnly]="true"
           iconLeading="edit"
           ariaLabel="Edit"
+          [disabled]="!!sidecarLoadError()"
           (pressed)="edit()"
         />
         <mui-button
@@ -96,9 +98,17 @@
             />
           }
         }
-        @if (imageUnavailable()) {
+        @if (imageUnavailable() && !sidecarLoadError()) {
           <p role="status" class="max-w-sm px-6 text-center text-sm text-white/80">
             Preview unavailable. This file may be corrupt or unsupported.
+          </p>
+        }
+        @if (sidecarLoadError(); as error) {
+          <p
+            role="alert"
+            class="pointer-events-none absolute bottom-24 max-w-md rounded bg-black/80 px-4 py-2 text-center text-sm text-white"
+          >
+            {{ error }}
           </p>
         }
       }
@@ -121,6 +131,7 @@
         class="[&_button]:min-h-11 [&_button]:min-w-14"
         icon="flag"
         label="Flag"
+        [disabled]="!!sidecarLoadError()"
         orientation="stacked"
         [selected]="null"
         [ariaExpanded]="flagOpen()"
@@ -131,6 +142,7 @@
         class="[&_button]:min-h-11 [&_button]:min-w-14"
         icon="edit"
         label="Edit"
+        [disabled]="!!sidecarLoadError()"
         orientation="stacked"
         [selected]="null"
         (pressed)="edit()"

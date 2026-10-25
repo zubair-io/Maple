@@ -81,6 +81,10 @@ export class PreviewShellComponent implements OnDestroy {
 
   readonly thumbUrl = signal<string | undefined>(undefined);
   readonly previewUrl = signal<string | undefined>(undefined);
+  readonly sidecarLoadError = computed(() => {
+    const id = this.state.focusedAssetId();
+    return id ? (this.state.sidecarLoadError?.(id) ?? null) : null;
+  });
   readonly imageUnavailable = computed(() => {
     const id = this.state.focusedAssetId();
     return !!id && !this.thumbUrl() && !this.previewUrl() && this.state.thumbnailFailed(id);
@@ -206,6 +210,7 @@ export class PreviewShellComponent implements OnDestroy {
   }
   edit(): void {
     const id = this.state.focusedAssetId();
+    if (this.sidecarLoadError()) return;
     // The canvas-first editor reached feature parity and the S5 editor was
     // retired (epic #1807) — Edit now goes straight to it.
     if (id) void this.router.navigate(editRouteCommands(id));

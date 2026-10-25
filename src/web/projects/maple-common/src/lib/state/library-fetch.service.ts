@@ -27,6 +27,7 @@ import { parseAddress, formatAddress, type MapleAddress } from '../addressing/ma
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { AuthService } from '../auth/auth.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
+import { hasXmlParseError } from '../xmp/xmp-dom-utils';
 import { XmpStoreService } from '../xmp/xmp-store.service';
 import { WorkflowVariantStoreService } from '../xmp/workflow-variant-store.service';
 import { PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
@@ -280,6 +281,7 @@ export class LibraryFetch {
     const newAdjustments = new Map<AssetId, AdjustmentModel>();
     const newPassthroughs = new Map<AssetId, PassthroughBucket>();
     const newMetadata = new Map<AssetId, XmpMetadata>();
+    const sidecarLoadErrors = new Map<AssetId, string>();
     const previousAssetIds = this.store
       .assets()
       .filter((asset) => asset.folderId === folderId)
@@ -318,9 +320,18 @@ export class LibraryFetch {
         // document instead of placing the primary model under its write binding.
         const xmpText =
           binding.variantId === PRIMARY_VARIANT_ID
-            ? new TextDecoder().decode(await this.fs.readFile(folder, xmpName))
+            ? new TextDecoder('utf-8', { fatal: true }).decode(
+                await this.fs.readFile(folder, xmpName),
+              )
             : await this.hostedVariants.read(folder, xmpName, binding.variantId);
         if (xmpText === null) throw Error('Selected variant sidecar is missing.');
+        const xmpDocument = new DOMParser().parseFromString(xmpText, 'text/xml');
+        if (
+          hasXmlParseError(xmpDocument) ||
+          xmpDocument.getElementsByTagName('parsererror').length > 0
+        ) {
+          throw new Error(`Malformed XMP sidecar: ${xmpName}`);
+        }
 
         // Culling fields (P5) + IPTC keywords (#632).
         const culling = this.xmpParser.parseCulling(xmpText);
@@ -337,8 +348,21 @@ export class LibraryFetch {
         newMetadata.set(id, metadata);
 
         edited = true;
-      } catch {
-        // No sidecar or unreadable — keep cache values, no adjustment override.
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'NotFoundError')) {
+          // The index is a cache. A failed save can leave optimistic culling
+          // there even though the authored sidecar was never changed.
+          rating = 0;
+          flag = 'unflagged';
+          colorLabel = null;
+          keywords = [];
+          sidecarLoadErrors.set(
+            id,
+            `The XMP sidecar for ${filename} is unreadable. Maple is showing the original without edits. Repair the sidecar before editing.`,
+          );
+        }
+        // A missing sidecar is normal. An unreadable one stays untouched and
+        // is guarded from edits; neither can supply adjustment overrides.
       }
 
       const asset: Asset = {
@@ -381,6 +405,7 @@ export class LibraryFetch {
       newPassthroughs,
       newMetadata,
     );
+    this.store.sidecarLoadErrors.set(sidecarLoadErrors);
 
     // The handle becomes the active persistence target only after its assets
     // and sidecars have finished loading. Until this point the previous view

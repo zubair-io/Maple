@@ -29,7 +29,7 @@ function setup(
   TestBed.configureTestingModule({
     providers: [
       HostedPreviewResolver,
-      { provide: LibraryStore, useValue: store },
+      { provide: LibraryStore, useValue: { sidecarLoadErrors: () => new Map(), ...store } },
       { provide: MapleCacheService, useValue: mapleCache },
       { provide: EmbeddedPreviewService, useValue: previewExtractor },
     ],
@@ -166,6 +166,34 @@ describe('HostedPreviewResolver.resolve', () => {
     expect(blob).toBe(cached);
     expect(getBytes).not.toHaveBeenCalled();
     expect(extractEmbeddedPreview).not.toHaveBeenCalled();
+    expect(writePreview).not.toHaveBeenCalled();
+  });
+
+  it('unreadable XMP bypasses a cached authored preview and does not cache the original', async () => {
+    const cached = new Blob(['old authored pixels'], { type: 'image/avif' });
+    const original = new Blob(['original'], { type: 'image/jpeg' });
+    const readPreview = vi.fn(async () => cached);
+    const writePreview = vi.fn();
+    const extractEmbeddedPreview = vi.fn(async () => ({ width: 8, height: 6, blob: original }));
+    const id = 'lib:2026/a.dng' as AssetId;
+    const resolver = setup(
+      {
+        findAsset: () => rawAsset(),
+        currentFolder: () => ({ write: true }),
+        sidecarLoadErrors: () => new Map([[id, 'Unreadable XMP']]),
+      },
+      { readPreview, writePreview },
+      { extractEmbeddedPreview },
+    );
+
+    const blob = await resolver.resolve(
+      id,
+      vi.fn(async () => new Uint8Array([1])),
+    );
+    await settle();
+
+    expect(blob).toBe(original);
+    expect(readPreview).not.toHaveBeenCalled();
     expect(writePreview).not.toHaveBeenCalled();
   });
 
