@@ -65,6 +65,7 @@ extension ImageMetadataReader {
     var visited = Set<Int>()
     var bestArea: Double = -1
     var bestSize: PixelSize? = nil
+    var rootOrientation: Int? = nil
 
     while !queue.isEmpty && visited.count < 32 {
       let offset = queue.removeFirst()
@@ -159,6 +160,10 @@ extension ImageMetadataReader {
         entryOffset += 12
       }
 
+      if offset == Int(ifd0Offset) {
+        rootOrientation = ifdOrient
+      }
+
       if let nextIfd = readU32(at: entryOffset), nextIfd > 0 {
         queue.append(Int(nextIfd))
       }
@@ -173,7 +178,8 @@ extension ImageMetadataReader {
           size = PixelSize(width: w, height: h)
         }
         let oriented = orientedPixelSize(
-          width: size.width, height: size.height, orientationValue: ifdOrient)
+          width: size.width, height: size.height,
+          orientationValue: ifdOrient ?? rootOrientation)
         let area = w * h
         if area > bestArea {
           bestArea = area
