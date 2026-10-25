@@ -62,7 +62,7 @@ struct PreviewImage: View {
   }
 
   private var loadID: String {
-    DevelopedImageRevision.shared.decodedKey(for: sourceID, source: source)
+    DevelopedImageRevision.shared.reloadKey(for: sourceID, source: source)
   }
 
   var body: some View {
@@ -103,7 +103,7 @@ struct PreviewImage: View {
     .background(MapleTokens.bg)
     .clipped()
     .simultaneousGesture(pinchGesture)
-    .task(id: loadID) { await load(for: loadID) }
+    .task(id: loadID) { await load() }
     // Separate task so the delay races the load rather than serialising
     // behind it. Cancelled and restarted on every source change.
     .task(id: loadID) {
@@ -118,7 +118,9 @@ struct PreviewImage: View {
     }
   }
 
-  private func load(for id: String) async {
+  private func load() async {
+    let id = await DevelopedImageRevision.shared.decodedKeyAsync(for: sourceID, source: source)
+    guard !Task.isCancelled else { return }
     // Already showing this source — nothing to do.
     if loadedID == id, decodedImage != nil { return }
     phase = .loading

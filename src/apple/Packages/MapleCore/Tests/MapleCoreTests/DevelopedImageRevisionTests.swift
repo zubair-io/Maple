@@ -137,6 +137,27 @@ final class DevelopedImageRevisionTests: XCTestCase {
     XCTAssertNotEqual(withoutEdit, revisions.decodedKey(for: "photo", url: asset))
   }
 
+  func testAsyncSourceKeyChangesWithoutMainThreadTaskKeyIO() async throws {
+    let folder = FileManager.default.temporaryDirectory
+      .appendingPathComponent("maple-async-revision-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let assetURL = folder.appendingPathComponent("photo.jpg")
+    try Data([0x01]).write(to: assetURL)
+    let source = ThumbnailSource.local(AssetRef(url: assetURL), source: nil)
+    let revisions = DevelopedImageRevision()
+    let taskKey = revisions.reloadKey(for: "photo", source: source)
+    let before = await revisions.decodedKeyAsync(for: "photo", source: source)
+    XCTAssertEqual(before, revisions.decodedKey(for: "photo", source: source))
+
+    let sidecar = SidecarPath.sidecarURL(for: assetURL)
+    try Data("<xmp>crop</xmp>".utf8).write(to: sidecar)
+    XCTAssertEqual(taskKey, revisions.reloadKey(for: "photo", source: source))
+    let after = await revisions.decodedKeyAsync(for: "photo", source: source)
+    XCTAssertNotEqual(before, after)
+    XCTAssertEqual(after, revisions.decodedKey(for: "photo", source: source))
+  }
+
   /// #5033: byte-identical copies in two saved folders share a content-derived
   /// id, but each has its own sidecar and thumbnail, so their Timeline tiles
   /// must not share a decoded bitmap.

@@ -80,9 +80,17 @@ struct PhotoThumbnailCell: View {
   /// Final pixels retained by this tile can outlive the shared cache entry.
   @State private var decodedRevision: String?
 
-  private var decodedKey: String {
-    DevelopedImageRevision.shared.decodedKey(
+  private var reloadKey: String {
+    DevelopedImageRevision.shared.reloadKey(
       for: item.id, source: item.thumbnailSource)
+  }
+
+  /// A local decoded bitmap needs a fresh source stamp before reuse. Cloud
+  /// and PhotoKit keys have no local filesystem metadata and remain safe to
+  /// peek synchronously for an immediate scroll-back image.
+  private var hotImage: CGImage? {
+    guard item.thumbnailSource.localAssetURL == nil else { return nil }
+    return ThumbnailDecoder.cachedImage(forKey: reloadKey)
   }
 
   /// Multi-select-aware accessibility label — restores the per-cell
@@ -124,11 +132,11 @@ struct PhotoThumbnailCell: View {
 
   var body: some View {
     // Render the decoded bitmap. `decoded` is set by the async `.task`; the
-    // sync `cachedImage(forKey:)` peek (an O(1) string lookup) shows a
-    // previously-decoded tile immediately on scroll-back, with no
-    // placeholder flash and no main-thread decode.
+    // sync `cachedImage(forKey:)` peek shows sourceless assets immediately.
+    // Local assets wait for an off-main source-stamp check before cached
+    // pixels can be reused, so external XMP changes never show stale edits.
     ThumbnailImage(
-      image: decoded ?? ThumbnailDecoder.cachedImage(forKey: decodedKey),
+      image: decoded ?? hotImage,
       displayMode: displayMode
     )
     .opacity(item.overlays.hidden ? 0.4 : 1.0)
@@ -181,7 +189,7 @@ struct PhotoThumbnailCell: View {
     .modifier(
       DragPayloadModifier(
         payload: dragPayload,
-        thumbnail: decoded ?? ThumbnailDecoder.cachedImage(forKey: decodedKey))
+        thumbnail: decoded ?? hotImage)
     )
     .onAppear { onAppear?() }
     .modifier(OptionalContextMenu(items: contextMenuItems))
@@ -197,8 +205,14 @@ struct PhotoThumbnailCell: View {
     // thumbnail's children must not discard its VoiceOver press action.
     .modifier(TapWithFrame(onTap: onTap, onFrameChange: onFrameChange))
     .task(id: item.id) { await onLoad?() }
-    .task(id: decodedKey) {
-      let key = decodedKey
+    .task(id: reloadKey) {
+      if item.thumbnailSource.localAssetURL != nil {
+        decoded = nil
+        decodedRevision = nil
+      }
+      let key = await DevelopedImageRevision.shared.decodedKeyAsync(
+        for: item.id, source: item.thumbnailSource)
+      guard !Task.isCancelled else { return }
       // Lazy grids retain cell state beyond the viewport. A cache eviction
       // must not make that cell discard and reload its own final bitmap.
       if decodedRevision == key, decoded != nil { return }
