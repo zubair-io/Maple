@@ -11,14 +11,18 @@ import { tmpdir } from 'node:os';
 import * as nodePath from 'node:path';
 import {
   createLiveTestDatabase,
-  insertAsset,
   insertFolder,
-  insertLocation,
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { invalidateLibraryRoots } from '../indexer/libraries.cache.ts';
 import { foldersRoutes } from './folders.ts';
 import { fakeAuth } from '../../tests/helpers/test-auth.ts';
+import { toObjectId } from '../db/repos/values.ts';
+import { hashFileForId } from '../indexer/id.ts';
+import { handleEvent } from '../workers/discover/handle-event.ts';
+import * as frontier from '../workers/discover/frontier.repo.ts';
+import { SweeperLoop } from '../workers/discover/sweeper.ts';
+import { runMissingReaperOnce } from '../workers/missing-reaper.ts';
 
 describe('folder routes under a .mapleignore folder', () => {
   let live: LiveTestDatabase;
@@ -79,27 +83,62 @@ describe('folder routes under a .mapleignore folder', () => {
     expect(((await indexed.json()) as { asset_id?: string }).asset_id).toMatch(/^[a-f0-9]{24}$/);
   });
 
-  it('replaces an excluded original as an uncatalogued file, keeping its bytes in Trash', async () => {
-    const original = nodePath.join(root, 'skip', 'photo.dng');
-    await writeFile(original, 'old bytes');
-    const assetId = insertAsset(live.db);
-    insertLocation(live.db, {
-      assetId,
-      libraryId: folderId,
-      path: 'skip',
-      filename: 'photo.dng',
-      missingSince: '2026-10-25T00:00:00.000Z',
+  async function sweepGeneration(gen: number): Promise<void> {
+    invalidateLibraryRoots();
+    const library = toObjectId(folderId);
+    await frontier.seedRoot(library, root, gen);
+    const loop = new SweeperLoop({
+      folderId: library,
+      root,
+      startGen: gen,
+      deps: { folderId: library, handleEvent },
+      loadConfig: async () => ({ paused: false, sweepDirIntervalMs: 0 }),
+      sleep: async () => {},
     });
-    live.db.run(`UPDATE asset_locations SET missing_reason = 'mapleignore' WHERE asset_id = ?`, [
-      assetId,
-    ]);
+    await loop.runUntilIdleOrPaused();
+  }
 
-    const res = await upload('skip/photo.dng', new Uint8Array([1, 2, 3]));
+  function assetAt(dir: string, filename: string): string | null {
+    const row = live.db
+      .query(`SELECT asset_id FROM asset_locations WHERE path = ? AND filename = ?`)
+      .get(dir, filename) as { asset_id: string } | null;
+    return row?.asset_id ?? null;
+  }
+
+  it('an upload over an excluded original retires its claim, so unignoring ingests a new asset', async () => {
+    const marker = nodePath.join(root, 'skip', '.mapleignore');
+    await rm(marker);
+    const original = nodePath.join(root, 'skip', 'photo.jpg');
+    await writeFile(original, 'old photo bytes');
+    await sweepGeneration(1);
+    const oldId = assetAt('skip', 'photo.jpg')!;
+    expect(oldId).not.toBeNull();
+
+    await writeFile(marker, '');
+    await sweepGeneration(2);
+    const res = await upload('skip/photo.jpg', new TextEncoder().encode('new photo bytes'));
     expect(res.status).toBe(201);
-    expect(new Uint8Array(await readFile(original))).toEqual(new Uint8Array([1, 2, 3]));
-    const trashed = nodePath.join(root, '.maple', 'trash', 'skip', 'photo.dng');
-    expect(await readFile(trashed, 'utf8')).toBe('old bytes');
-    expect(count(`SELECT COUNT(*) AS n FROM assets WHERE deleted_at IS NOT NULL`)).toBe(0);
+    expect(((await res.json()) as { asset_id?: string }).asset_id).toBeUndefined();
+    const trashed = nodePath.join(root, '.maple', 'trash', 'skip', 'photo.jpg');
+    expect(await readFile(trashed, 'utf8')).toBe('old photo bytes');
+
+    await rm(marker);
+    await sweepGeneration(3);
+    await runMissingReaperOnce({ deleteBeforeIso: '2000-01-01T00:00:00.000Z' });
+
+    const newId = assetAt('skip', 'photo.jpg');
+    expect(newId).not.toBeNull();
+    expect(newId).not.toBe(oldId);
+    const { sha1_head } = await hashFileForId(original);
+    const row = live.db.query(`SELECT sha1_head FROM assets WHERE id = ?`).get(newId!) as {
+      sha1_head: string;
+    };
+    expect(row.sha1_head).toBe(sha1_head);
+    const oldPaths = live.db
+      .query(`SELECT path FROM asset_locations WHERE asset_id = ?`)
+      .all(oldId) as Array<{ path: string }>;
+    expect(oldPaths.map((l) => l.path)).toEqual(['.maple/trash/skip']);
+    expect(await readFile(trashed, 'utf8')).toBe('old photo bytes');
   });
 
   it('never indexes an ignored subtree during a rescan re-walk', async () => {

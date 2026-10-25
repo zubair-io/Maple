@@ -32,6 +32,8 @@ export interface UploadReplacement {
   filename: string;
   /** Media (indexed or not) carries its `.xmp` sidecars into Trash; a plain file moves alone. */
   pairedWithSidecars: boolean;
+  /** The target sits under `.mapleignore` (#5398). */
+  ignored: boolean;
 }
 
 export async function trashUploadReplacement(replacement: UploadReplacement) {
@@ -43,6 +45,7 @@ export async function trashUploadReplacement(replacement: UploadReplacement) {
   }
   const result = await trashAssetById(existingId, {
     entry: { libraryId, path: relativeDirectory, filename },
+    ...(replacement.ignored ? { allowExcluded: true as const } : {}),
   });
   if (result.kind === 'ok') return { kind: 'ok' as const, newAbsPath: result.newAbsPath };
   return {
