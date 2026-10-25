@@ -342,6 +342,9 @@ final class BatchMetadataSessionSafetyTests: EditorTestCase {
     XCTAssertEqual(model.contrast, 25, accuracy: 1e-9)
     XCTAssertEqual(culling.flag, .pick)
     XCTAssertEqual(culling.stars, 4)
+    await session.workflow.selectVariant(WorkflowContract.primaryVariantID, session: session)
+    XCTAssertNil(session.workflow.errorText)
+    XCTAssertEqual(session.culling.stars, 4)
   }
 
   /// A culling change that lands while the batch waits on the session's
