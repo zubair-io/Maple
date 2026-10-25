@@ -175,7 +175,7 @@ extension EditSession {
 
   /// Carry over undo history and any edits made on `departing` while its
   /// sidecar writes were disabled during an in-flight rename (#4711).
-  public func adoptInFlightRenameEdits(from departing: EditSession) {
+  public func adoptInFlightRenameEdits(from departing: EditSession) async {
     if let pendingPreview = departing.previewPersistence.takePendingImage() {
       scheduleDisplayPreviewPersist(pendingPreview)
     }
@@ -188,6 +188,11 @@ extension EditSession {
     guard departing.hasLoadedSidecar else {
       queuedCullingPatch = departing.queuedCullingPatch
       return
+    }
+    if let oldStore = departing.primarySidecarStore as? XMPSidecarStore,
+      let newStore = primarySidecarStore as? XMPSidecarStore
+    {
+      await newStore.adoptObservedRevision(from: oldStore)
     }
     departing.sidecarDirtyWhileDisabled = false
     departing.confirmedSidecarGeneration = departing.sidecarUpdateGeneration

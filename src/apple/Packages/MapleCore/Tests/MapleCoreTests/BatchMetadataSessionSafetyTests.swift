@@ -91,6 +91,25 @@ final class BatchMetadataSessionSafetyTests: EditorTestCase {
     XCTAssertEqual(metadata.title, "Kept")
   }
 
+  func testLiveBatchReportsExternalSidecarConflict() async throws {
+    let raw = try makeRaw()
+    try await saveSidecar(exposure: 0, stars: 1, title: "Original", beside: raw)
+    let session = EditSession(asset: AssetRef(url: raw))
+    await session.loadSidecar()
+    let sidecar = SidecarPath.sidecarURL(for: raw)
+    let external = XMPSerializer.serialize(
+      model: AdjustmentModel(exposure: 2), culling: CullingState(stars: 3))
+    try external.write(to: sidecar, atomically: true, encoding: .utf8)
+
+    do {
+      try await rate(4, [session.asset], sessions: [session.asset.id: session])
+      XCTFail("The batch must report an externally changed Primary sidecar")
+    } catch {
+      XCTAssertEqual(failedAssets(error), [session.asset.id])
+    }
+    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), external)
+  }
+
   func testUnreadableSidecarWithoutASessionIsAFailureNotADefaultsWrite() async throws {
     let raw = try makeRaw()
     let sidecar = SidecarPath.sidecarURL(for: raw)

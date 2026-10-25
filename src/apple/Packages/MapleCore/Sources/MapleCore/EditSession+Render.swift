@@ -517,7 +517,7 @@ extension EditSession {
       // refine that ran off the seeded decode would push camera-JPEG-
       // derived pixels to the thumbnail; the decode's completion re-kicks
       // a render, so the thumbnail still refreshes from real pixels.
-      if phase == .refine, !isFullQualityDecoding {
+      if phase == .refine, !isFullQualityDecoding, !sidecarWritesDisabled {
         // Use the cropped `displayImage` so the browse thumbnail +
         // rendered-preview cache reflect what the user sees (#638).
         let thumbSource = displayImage

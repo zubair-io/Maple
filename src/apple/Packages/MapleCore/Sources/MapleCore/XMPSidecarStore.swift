@@ -191,7 +191,9 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
 
   /// Workflow operations share the actor and primary path with adjustment writes.
   public func readWorkflow() throws -> SidecarWorkflow? {
-    guard let xml = try existingSidecarXML(at: sidecarURL) else {
+    let current = try existingSidecarXML(at: sidecarURL)
+    try observeWorkflowRead(current)
+    guard let xml = current else {
       try requirePrimaryAbsence()
       return nil
     }
@@ -227,9 +229,32 @@ public actor XMPSidecarStore: WorkflowSidecarStoreProtocol {
   public func readWorkflowXML() throws -> String? {
     try settleWorkflowWrites()
     let xml = try existingSidecarXML(at: sidecarURL)
+    try observeWorkflowRead(xml)
     if xml == nil { try requirePrimaryAbsence() }
     if let xml { try requireVariantWorkflow(in: xml) }
     return xml
+  }
+
+  private func observeWorkflowRead(_ xml: String?) throws {
+    if hasObservedSidecar {
+      guard xml == observedSidecarXML else {
+        throw XMPStoreError.externalConflict(sidecarURL)
+      }
+    } else {
+      observedSidecarXML = xml
+      hasObservedSidecar = true
+    }
+  }
+
+  func adoptObservedRevision(from source: XMPSidecarStore) async {
+    let (observed, xml) = await source.observedRevisionSnapshot()
+    guard observed else { return }
+    observedSidecarXML = xml
+    hasObservedSidecar = true
+  }
+
+  private func observedRevisionSnapshot() -> (Bool, String?) {
+    (hasObservedSidecar, observedSidecarXML)
   }
 
   public func publishWorkflow(_ command: WorkflowPublication) throws -> String {
