@@ -16,10 +16,14 @@ struct BrowseViewModelRangeSelectionTests {
     let anchor = vm.assets[1].id
     vm.select(anchor)
 
-    vm.selectRange(from: anchor, to: vm.assets[4].id)
+    let retainedAnchor = vm.selectRange(from: anchor, to: vm.assets[4].id)
+    #expect(retainedAnchor == anchor)
     #expect(vm.selectedIDs == Set(vm.assets[1...4].map(\.id)))
 
-    vm.selectRange(from: anchor, to: vm.assets[0].id)
+    #expect(vm.selectRange(from: retainedAnchor, to: vm.assets[3].id) == anchor)
+    #expect(vm.selectedIDs == Set(vm.assets[1...3].map(\.id)))
+
+    vm.selectRange(from: retainedAnchor, to: vm.assets[0].id)
     #expect(vm.selectedIDs == Set(vm.assets[0...1].map(\.id)))
   }
 
@@ -31,7 +35,7 @@ struct BrowseViewModelRangeSelectionTests {
     vm.exitSelectMode()
     vm.enterSelectMode()
 
-    vm.selectRange(from: anchor, to: vm.assets[4].id)
+    #expect(vm.selectRange(from: anchor, to: vm.assets[4].id) == vm.assets[4].id)
     #expect(vm.selectedIDs == Set([vm.assets[4].id]))
   }
 
@@ -42,7 +46,7 @@ struct BrowseViewModelRangeSelectionTests {
     vm.select(anchor)
     vm.assets = (0..<3).map { AssetRef.preview(displayName: "other_\($0).dng") }
 
-    vm.selectRange(from: anchor, to: vm.assets[2].id)
+    #expect(vm.selectRange(from: anchor, to: vm.assets[2].id) == vm.assets[2].id)
     #expect(vm.selectedIDs == Set([vm.assets[2].id]))
   }
 }
