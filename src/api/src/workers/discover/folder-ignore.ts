@@ -18,7 +18,9 @@ import {
   type IgnoredLiveLocation,
 } from '../../db/repos/assets.mapleignore.ts';
 import {
+  ignoreVerdictForDir,
   ignoreVerdictForFile,
+  listingHasIgnoreMarker,
   MAPLE_IGNORE_MARKER,
   MAPLE_IGNORE_MISSING_REASON,
 } from '../../fs/mapleignore.ts';
@@ -31,11 +33,40 @@ const log = child('discover');
 const BATCH_SIZE = 500;
 
 /**
+ * The sweep's gate, run before anything else in a directory visit: true when
+ * the visit must stop. A marked directory is excluded here. A directory under
+ * a marked ancestor (queued before the marker appeared), or whose chain cannot
+ * be checked, is skipped outright — the visit's rename reconciliation moves
+ * sidecars on disk, so it must never run under a marker. The marked
+ * ancestor's own visit tags this subtree.
+ */
+export async function skipsIgnoredDirectory(
+  folderId: ObjectId,
+  root: string,
+  dirPath: string,
+  entries: readonly { name: string }[],
+): Promise<boolean> {
+  if (
+    await listingHasIgnoreMarker(
+      dirPath,
+      entries.map((e) => e.name),
+    )
+  ) {
+    await excludeIgnoredDirectory(folderId, root, dirPath);
+    return true;
+  }
+  const verdict = await ignoreVerdictForDir(root, dirPath);
+  if (verdict === 'indexed') return false;
+  log.info({ dir: dirPath, verdict }, 'sweep: directory under a .mapleignore folder — skipping');
+  return true;
+}
+
+/**
  * Exclude the marked directory `dirPath` and its subtree. The marker was just
  * listed, but the library-root availability guard still runs first, so a
  * half-mounted share can never turn into a mass exclusion.
  */
-export async function excludeIgnoredDirectory(
+async function excludeIgnoredDirectory(
   folderId: ObjectId,
   root: string,
   dirPath: string,
@@ -104,8 +135,8 @@ async function tagExcluded(
  * sweep (imports, browse indexing, pano on-demand, rescans) reaches the catalog
  * through. An `unknown` verdict also refuses: the event is dropped and the
  * next sweep retries the file. `removed` passes, since tagging a vanished file
- * is right either way, and so does a sweep event whose directory chain the
- * sweep already checked once for the whole directory.
+ * is right either way, and so does a sweep event: the sweep's gate already
+ * checked the directory chain before the visit did anything.
  */
 export async function refusesIgnoredTreeEvent(
   event: Pick<WatchEvent, 'kind' | 'absPath' | 'markerChainChecked'>,

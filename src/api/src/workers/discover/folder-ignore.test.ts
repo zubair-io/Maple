@@ -11,7 +11,7 @@ import { describe, expect, it } from 'bun:test';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { handleEvent } from './handle-event.ts';
-import { SweeperLoop } from './sweeper.ts';
+import { SweeperLoop, visitDirectory } from './sweeper.ts';
 import * as frontier from './frontier.repo.ts';
 import {
   assetIdAt,
@@ -24,6 +24,8 @@ import { runMissingReaperOnce } from '../missing-reaper.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { trashAssetById } from '../../library/asset-trash.ts';
 import { toObjectId } from '../../db/repos/values.ts';
+import { readExif } from '../../indexer/exif.ts';
+import { makeExifTiff } from './rename-reconcile.test-helpers.ts';
 
 const LONG_AGO = '2000-01-01T00:00:00.000Z';
 const FAR_FUTURE = '2999-01-01T00:00:00.000Z';
@@ -287,5 +289,49 @@ describe('.mapleignore — library root availability', () => {
       renameSync(parked, library.root);
     }
     expect(readFileSync(raw)).toEqual(before);
+  });
+});
+
+describe('.mapleignore — a directory queued before its ancestor was marked', () => {
+  it('runs no rename reconciliation: the sidecar stays put and the location is excluded', async () => {
+    using library = await createDiscoverLibrary('maple-ignore-');
+    put(library.root, 'keep/a.jpg');
+    const bytes = makeExifTiff({ captureDate: '2024:06:01 12:00:00', serial: 'CAM-A-001' });
+    const oldAbs = put(library.root, 'skip/sub/IMG_0001.dng');
+    writeFileSync(oldAbs, bytes);
+    const sweep = await sweeper(library);
+    await sweep();
+    const id = assetIdAt(library.db, 'skip/sub', 'IMG_0001.dng')!;
+    // Stand in for the exif stage: the rename fingerprint reads this field.
+    library.db.run(`UPDATE assets SET exif = json(?) WHERE id = ?`, [
+      JSON.stringify(await readExif(oldAbs)),
+      id,
+    ]);
+    const sidecar = put(library.root, 'skip/sub/IMG_0001.xmp', '<xmp>edited</xmp>');
+
+    // The descendant is already on the frontier when the ancestor gains its
+    // marker, and the photo is then renamed in place outside Maple.
+    const subDir = join(library.root, 'skip', 'sub');
+    await frontier.seedRoot(library.folderId, subDir, 99);
+    mark(library.root, 'skip');
+    rmSync(oldAbs);
+    writeFileSync(join(subDir, 'renamed.dng'), bytes);
+
+    const queued = await frontier.claimNextDir(library.folderId, 99, 60_000);
+    expect(queued!.dir_path).toBe(subDir);
+    await visitDirectory(queued!, library.root, { handleEvent, folderId: library.folderId });
+
+    expect(readFileSync(sidecar, 'utf8')).toBe('<xmp>edited</xmp>');
+    expect(() => readFileSync(join(subDir, 'renamed.xmp'))).toThrow();
+    const [location] = locationsOf(library.db, id);
+    expect(location!.filename).toBe('IMG_0001.dng');
+    expect(assetIdAt(library.db, 'skip/sub', 'renamed.dng')).toBeNull();
+
+    // The marked ancestor's own visit then excludes the location.
+    await sweep();
+    const [excluded] = locationsOf(library.db, id);
+    expect(excluded!.filename).toBe('IMG_0001.dng');
+    expect(excluded!.missing_reason).toBe('mapleignore');
+    expect(readFileSync(sidecar, 'utf8')).toBe('<xmp>edited</xmp>');
   });
 });
