@@ -201,7 +201,8 @@ final class SceneLinearChainCache: @unchecked Sendable {
   ///  11. grain:          `grainAmount`, `grainSize`, `grainRoughness`
   ///  12. FFI params:     `decodedTemperature`, `decodedTint`, `skipAgX`
   ///  13. AgX flags:      `highlightRecovery`, `look`, `profile`
-  ///  14. WB frame:       `wbFrame.sceneCCT`, `wbFrame.asShotTint`
+  ///  14. WB frame:       `wbFrame.sceneCCT`, `wbFrame.asShotTint`, the
+  ///      identity and exposure gain of `wbFrame.creative`
   ///
   /// Every scalar above is a `Double` folded in via `bitPattern`; the
   /// enums (`highlightRecovery` / `look` / `profile`) and the `Bool`
@@ -394,6 +395,10 @@ final class SceneLinearChainCache: @unchecked Sendable {
     // per-asset constant once present.
     h.combine(wbFrame?.sceneCCT.bitPattern ?? 0)
     h.combine(wbFrame?.asShotTint.bitPattern ?? 0)
+    // One creative stage per capture decode (#5377): its exposure gain and
+    // tables differ between decodes with the same as-shot pair.
+    h.combine(wbFrame?.creative.map(ObjectIdentifier.init))
+    h.combine(wbFrame?.creative?.aeGain.bitPattern)
 
     return Key(
       assetID: assetID,

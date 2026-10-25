@@ -30,13 +30,8 @@ extension RenderActor {
     /// Decode-exported WB slider frame (#1781). `nil` for seeded /
     /// non-RAW buffers or frame-less bodies.
     public let wbFrame: WbSliderFrame?
-    /// Decode-exported auto-exposure gain (#1167/#2070). `1.0` for
-    /// seeded / non-RAW buffers or frame-less bodies (see
-    /// `MapleSceneLinearImageData.aeGain`) — never optional, unlike
-    /// `wbFrame`, since `1.0` is itself a meaningful no-op gain.
-    /// `NativeDetailRenderer.render` takes this as its `aeGain`
-    /// parameter so a native-detail tile matches the full-image AE
-    /// brightness of the buffer currently on screen.
+    /// The capture decode's auto-exposure gain (#5377), which its creative
+    /// stage applies; `1.0` for seeded / non-RAW buffers.
     public let aeGain: Float
     /// Full-frame Whites anchor; retain this when a tile buffer exports NaN.
     public let whitesAnchorEv: Float

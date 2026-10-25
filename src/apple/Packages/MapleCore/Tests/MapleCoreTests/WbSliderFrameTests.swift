@@ -1,14 +1,15 @@
-// WbSliderFrameTests.swift — #1781: the decode-exported WB slider frame.
+// WbSliderFrameTests.swift — the decode-exported slider frame and creative
+// stage (#1781, #5377).
 //
-// Covers the Swift half of the live-vs-refine WB parity fix:
-//   * `WbSliderFrame` presence semantics + the flat-C-array round trip,
-//   * `fill(_:)` writing the `wb_frame_*` tails of both params structs,
+// Covers:
+//   * `WbSliderFrame` presence semantics,
+//   * `fill(_:)` pointing both params structs at the capture decode's
+//     creative stage, and leaving them null without one,
 //   * `EditSession.adoptDecodedWbFrame` — the decode's numbers win over the
 //     `CIRAWFilter` placeholder for an untouched As-Shot model, and only
 //     then,
-//   * `EditSession.wbDeltaAnchor` — the frame's own as-shot pair (the WB
-//     the strip-XMP decode actually baked, #1976) when a frame is present,
-//     the legacy as-shot estimate otherwise.
+//   * `EditSession.wbDeltaAnchor` — the frame's own as-shot pair when a
+//     frame is present, the legacy as-shot estimate otherwise.
 
 import XCTest
 import RawPipeline
@@ -17,14 +18,14 @@ import RawPipeline
 @MainActor
 final class WbSliderFrameTests: XCTestCase {
     private func frame(sceneCCT: Float = 5520, asShotTint: Float = -12) -> WbSliderFrame {
-        WbSliderFrame(
-            mCold: [0.89, -0.10, 0.08, -0.43, 1.21, 0.22, -0.03, 0.14, 0.76],
-            cctCold: 2856,
-            mWarm: [0.75, -0.06, -0.05, -0.43, 1.21, 0.22, -0.09, 0.23, 0.65],
-            cctWarm: 6504,
-            sceneCCT: sceneCCT,
-            asShotTint: asShotTint
-        )
+        WbSliderFrame(sceneCCT: sceneCCT, asShotTint: asShotTint)
+    }
+
+    private func creative() -> CaptureCreative {
+        var flat = MapleCaptureCreative()
+        flat.present = 1
+        flat.ae_gain = 1.7
+        return CaptureCreative(flat)!
     }
 
     private func rawSession() -> EditSession {
@@ -34,7 +35,7 @@ final class WbSliderFrameTests: XCTestCase {
         ))
     }
 
-    // MARK: - Presence + round trip
+    // MARK: - Presence + creative stage
 
     func testPresenceRequiresPositiveSceneCCT() {
         XCTAssertTrue(frame().isPresent)
@@ -43,76 +44,55 @@ final class WbSliderFrameTests: XCTestCase {
         XCTAssertFalse(frame(sceneCCT: .nan).isPresent)
     }
 
-    func testTupleArrayRoundTrip() {
-        let a: [Float] = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-        XCTAssertEqual(WbSliderFrame.array9(WbSliderFrame.tuple9(a)), a)
+    func testOnlyACaptureDecodeMakesACreativeStage() {
+        XCTAssertNil(CaptureCreative(MapleCaptureCreative()))
+        XCTAssertEqual(creative().aeGain, 1.7)
     }
 
-    func testFillWritesAdjustmentParamsTail() {
-        let f = frame()
-        var p = MapleAdjustmentParams()
-        f.fill(&p)
-        XCTAssertEqual(p.wb_frame_scene_cct, 5520)
-        XCTAssertEqual(p.wb_frame_as_shot_tint, -12)
-        XCTAssertEqual(p.wb_frame_cct_cold, 2856)
-        XCTAssertEqual(p.wb_frame_cct_warm, 6504)
-        XCTAssertEqual(WbSliderFrame.array9(p.wb_frame_m_cold), f.mCold)
-        XCTAssertEqual(WbSliderFrame.array9(p.wb_frame_m_warm), f.mWarm)
+    func testABufferWithoutAFrameKeepsItsCreativeStage() {
+        let stage = creative()
+        let fromBuffer = WbSliderFrame(buffer: MapleSceneLinearBufferF32(), creative: stage)
+        XCTAssertNotNil(fromBuffer)
+        XCTAssertFalse(fromBuffer?.isPresent ?? true)
+        XCTAssertTrue(fromBuffer?.creative === stage)
+        XCTAssertNil(WbSliderFrame(buffer: MapleSceneLinearBufferF32(), creative: nil))
     }
 
-    func testFillWritesGpuLiveParamsTail() {
-        let f = frame()
-        var p = MapleGpuLiveParams()
-        f.fill(&p)
-        XCTAssertEqual(p.wb_frame_scene_cct, 5520)
-        XCTAssertEqual(p.wb_frame_as_shot_tint, -12)
-        XCTAssertEqual(WbSliderFrame.array9(p.wb_frame_m_cold), f.mCold)
-    }
-
-    /// #5099: the decode's process-lifetime HueSatMap wire rides both
-    /// params tails verbatim, and a frame without one leaves them null.
-    func testFillPassesTheHueSatMapWireThrough() {
-        let wire = UnsafeMutablePointer<Float>.allocate(capacity: 4)
-        defer { wire.deallocate() }
-        let base = frame()
-        let f = WbSliderFrame(
-            mCold: base.mCold, cctCold: base.cctCold, mWarm: base.mWarm, cctWarm: base.cctWarm,
-            sceneCCT: base.sceneCCT, asShotTint: base.asShotTint,
-            hueSatMapAddress: UInt(bitPattern: wire), hueSatMapCount: 4,
-            hueSatMapAsShotCCT: 4100, hueSatMapExposureGain: 1.8
-        )
+    /// #5377: both params structs point at the decode's creative stage;
+    /// a frame without one leaves them null.
+    func testFillPointsBothParamsAtTheCreativeStage() {
+        let stage = creative()
+        let f = WbSliderFrame(sceneCCT: 5520, asShotTint: -12, creative: stage)
         var cpu = MapleAdjustmentParams()
         var gpu = MapleGpuLiveParams()
         f.fill(&cpu)
         f.fill(&gpu)
-        XCTAssertEqual(cpu.wb_hsm_ptr, UnsafePointer(wire))
-        XCTAssertEqual(cpu.wb_hsm_len, 4)
-        XCTAssertEqual(gpu.wb_hsm_ptr, UnsafePointer(wire))
-        XCTAssertEqual(gpu.wb_hsm_len, 4)
-        XCTAssertEqual(cpu.wb_hsm_as_shot_cct, 4100)
-        XCTAssertEqual(gpu.wb_hsm_as_shot_cct, 4100)
-        XCTAssertEqual(cpu.wb_hsm_exposure_gain, 1.8)
-        XCTAssertEqual(gpu.wb_hsm_exposure_gain, 1.8)
+        XCTAssertEqual(cpu.creative_ptr, UnsafePointer(stage.pointer))
+        XCTAssertEqual(gpu.creative_ptr, UnsafePointer(stage.pointer))
+        XCTAssertEqual(cpu.creative_ptr?.pointee.ae_gain, 1.7)
 
         var none = MapleGpuLiveParams()
-        base.fill(&none)
-        XCTAssertNil(none.wb_hsm_ptr)
-        XCTAssertEqual(none.wb_hsm_len, 0)
+        frame().fill(&none)
+        XCTAssertNil(none.creative_ptr)
     }
 
-    func testMakeParamsLeavesTailZeroWithoutFrame() {
-        let p = PipelineRenderer.makeParams(from: .default)
-        XCTAssertEqual(p.wb_frame_scene_cct, 0)
-        XCTAssertEqual(WbSliderFrame.array9(p.wb_frame_m_cold), Array(repeating: 0, count: 9))
+    func testMakeParamsCarriesTheCreativeStage() {
+        let stage = creative()
+        let f = WbSliderFrame(sceneCCT: 5520, asShotTint: -12, creative: stage)
+        XCTAssertNil(PipelineRenderer.makeParams(from: .default).creative_ptr)
+        XCTAssertEqual(
+            PipelineRenderer.makeParams(from: .default, wbFrame: f).creative_ptr,
+            UnsafePointer(stage.pointer))
+        XCTAssertEqual(
+            PipelineRenderer.makeGpuLiveParams(from: .default, wbFrame: f).creative_ptr,
+            UnsafePointer(stage.pointer))
     }
 
-    func testMakeGpuLiveParamsCarriesFrame() {
-        let p = PipelineRenderer.makeGpuLiveParams(
-            from: .default, asShotCCT: 6500, asShotTint: 0, wbFrame: frame()
-        )
-        XCTAssertEqual(p.wb_frame_scene_cct, 5520)
-        XCTAssertEqual(p.decoded_temperature, 6500)
-        XCTAssertEqual(p.decoded_tint, 0)
+    func testFramesOfDifferentDecodesDiffer() {
+        XCTAssertEqual(frame(), frame())
+        XCTAssertNotEqual(
+            WbSliderFrame(sceneCCT: 5520, asShotTint: -12, creative: creative()),
+            WbSliderFrame(sceneCCT: 5520, asShotTint: -12, creative: creative()))
     }
 
     // MARK: - Adoption (#1781 scope addition: the decode's number wins)
@@ -137,6 +117,32 @@ final class WbSliderFrameTests: XCTestCase {
         XCTAssertEqual(session.model.tint, -100, accuracy: 0.01)
         XCTAssertEqual(session.originalModel.temperature, 5520, accuracy: 0.01)
         XCTAssertEqual(session.originalModel.tint, -100, accuracy: 0.01)
+    }
+
+    /// #5377: a capture decode with no slider frame renders the slider pair
+    /// as an absolute post-DCP white balance, so an untouched placeholder
+    /// model re-seeds to the develop's identity, and a second decode with
+    /// the same pair replaces the frame without re-seeding.
+    func testAdoptReSeedsAFramelessCaptureToTheDevelopIdentity() {
+        let session = rawSession()
+        session.wbSeedTemperature = 5000
+        session.wbSeedTint = 10
+        session.model.temperature = 5000
+        session.model.tint = 10
+        session.originalModel.temperature = 5000
+        session.originalModel.tint = 10
+
+        session.adoptDecodedWbFrame(WbSliderFrame(sceneCCT: 0, asShotTint: 0, creative: creative()))
+
+        XCTAssertEqual(session.model.temperature, 6500)
+        XCTAssertEqual(session.model.tint, 0)
+        XCTAssertEqual(session.originalModel.temperature, 6500)
+
+        session.model.temperature = 6000
+        let next = WbSliderFrame(sceneCCT: 0, asShotTint: 0, creative: creative())
+        session.adoptDecodedWbFrame(next)
+        XCTAssertEqual(session.model.temperature, 6000, "the same pair must not re-seed")
+        XCTAssertEqual(session.wbSliderFrame, next, "the newer decode's stage must replace the old")
     }
 
     /// A bytes-backed RAW (no `primaryURL`) never gets the `CIRAWFilter`

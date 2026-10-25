@@ -226,6 +226,7 @@ enum SliderTickPerfHarness {
     static func measureDrag(
         pipeline: ImageEditPipeline,
         decoded: CIImage,
+        wbFrame: WbSliderFrame? = nil,
         asShot: ImageEditPipeline.AsShotWB?,
         assetID: UUID,
         ctx: CIContext,
@@ -246,7 +247,8 @@ enum SliderTickPerfHarness {
             targetSize: viewportSize,
             asShot: asShot,
             decodedAtModel: decodedAtModel ?? warmModel,
-            assetID: assetID
+            assetID: assetID,
+            wbFrame: wbFrame
         )
         forceRender(
             warmProcessed,
@@ -272,7 +274,8 @@ enum SliderTickPerfHarness {
                 targetSize: viewportSize,
                 asShot: asShot,
                 decodedAtModel: decodedAtModel ?? model,
-                assetID: assetID
+                assetID: assetID,
+                wbFrame: wbFrame
             )
             let processEnd = ContinuousClock.now
             forceRender(

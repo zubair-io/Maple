@@ -216,14 +216,21 @@ extension EditSession {
   /// cheap fast re-render is scheduled instead so the canvas converges
   /// on the frame-correct rendering.
   ///
-  /// Idempotent (guards on frame equality); no-op for frame-less decodes
-  /// and non-RAW assets — those keep today's behaviour end to end.
+  /// Idempotent on the as-shot pair; a no-op for non-RAW assets. A capture
+  /// decode with no slider frame (`RawlerFallback`, lossy LinearRaw) adopts
+  /// (6500 K, 0): its creative stage applies the slider pair as an absolute
+  /// post-DCP white balance, and that pair is the develop's identity.
   func adoptDecodedWbFrame(_ frame: WbSliderFrame?) {
-    guard let frame, frame.isPresent, asset.isRaw else { return }
-    guard wbSliderFrame != frame else { return }
+    guard let frame, asset.isRaw, frame.isPresent || frame.creative != nil else { return }
+    let asShotPair = { (f: WbSliderFrame) -> (Double, Double) in
+      f.isPresent ? (Double(f.sceneCCT), Double(f.asShotTint)) : (6500.0, 0.0)
+    }
+    let (newCCT, newTint) = asShotPair(frame)
+    // Every decode carries its own creative stage; only the as-shot pair
+    // drives adoption.
+    let unchanged = wbSliderFrame.map { asShotPair($0) == (newCCT, newTint) } ?? false
     wbSliderFrame = frame
-    let newCCT = Double(frame.sceneCCT)
-    let newTint = Double(frame.asShotTint)
+    guard !unchanged else { return }
     let oldCCT = wbSeedTemperature
     let oldTint = wbSeedTint
     asShotCCT = newCCT

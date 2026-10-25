@@ -258,15 +258,14 @@ final class AppleRenderHarnessTests: XCTestCase {
             return m
         }()
 
-        // The "live model" the kernel chain processes against is the same
-        // model the FFI used at decode time (since this harness simulates a
-        // single-frame "open file with sidecar applied" scenario, not a
-        // mid-edit slider state). The WB kernel's identity short-circuit
-        // therefore takes effect: live_temp == decoded_temp, live_tint ==
-        // decoded_tint, so WB is a no-op delta. This intentionally puts
-        // every other Metal kernel on a "default-state" exercise — they
-        // all run, but with the model already baked into the FFI buffer.
-        let liveModel = decodedAtModel
+        // The live model is the sidecar's (an "open file with sidecar
+        // applied" scenario, not a mid-edit slider state). The creative
+        // stage (#5377) reads the slider pair as absolute, so a sidecar that
+        // authors no temperature renders at the decode frame's as-shot pair,
+        // as the editor seeds it.
+        let authorsWhiteBalance =
+            (try? String(contentsOf: xmpURL, encoding: .utf8))?.contains("crs:Temperature") ?? false
+        let liveModel = authorsWhiteBalance ? decodedAtModel : decodeResult.atAsShot(decodedAtModel)
 
         // As-shot WB — read from the file metadata, same as the live app.
         // Pass via the `asShot` argument so the WB kernel has the same
@@ -307,7 +306,12 @@ final class AppleRenderHarnessTests: XCTestCase {
             targetSize: targetSize,
             asShot: asShot,
             decodedAtModel: decodedAtModel,
-            profileLUT: profileLUT
+            profileLUT: profileLUT,
+            noiseProfile: decodeResult.noiseProfile,
+            iso: decodeResult.iso,
+            wbFrame: decodeResult.wbFrame,
+            whitesAnchorEv: decodeResult.whitesAnchorEv,
+            nrSamplingScale: decodeResult.nrSamplingScale
         )
 
         // CIContext mirrors `ImageEditPipeline.init` (and therefore

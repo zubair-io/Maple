@@ -192,41 +192,14 @@ extension EditSessionDecodedCacheTests {
       "an Auto decode after a Neutral one must RE-KEY the cache to Auto "
         + "(not serve the cached Neutral buffer) — #871")
 
-    // The Auto buffer (AE-Off) must be meaningfully darker than the
-    // Neutral buffer (AE-On). If the profile param were ignored / the
-    // cache served the same buffer, the two means would be equal.
-    func meanGreen(_ ci: CIImage) -> Double {
-      let ctx = CIContext(options: [
-        .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!,
-        .workingFormat: CIFormat.RGBAf,
-      ])
-      let e = ci.extent
-      let w = 48
-      let h = 48
-      var px = [Float](repeating: 0, count: w * h * 4)
-      px.withUnsafeMutableBytes { buf in
-        ctx.render(
-          ci.transformed(
-            by: CGAffineTransform(
-              scaleX: CGFloat(w) / e.width, y: CGFloat(h) / e.height)),
-          toBitmap: buf.baseAddress!, rowBytes: w * 16,
-          bounds: CGRect(x: 0, y: 0, width: w, height: h),
-          format: .RGBAf,
-          colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-        )
-      }
-      var s = 0.0
-      for i in 0..<(w * h) { s += Double(px[i * 4 + 1]) }
-      return s / Double(w * h)
-    }
-    let aMean = meanGreen(auto)
-    let nMean = meanGreen(neutral)
-    XCTAssertLessThan(
-      aMean, nMean * 0.95,
-      "Auto buffer (AE-Off) must be darker than Neutral (AE-On) — equal means the "
-        + "profile param didn't route to a distinct decode / cache served the wrong buffer "
-        + "(auto=\(aMean) neutral=\(nMean))."
-    )
+    // The Auto decode develops AE Off and the Neutral one AE On; the
+    // capture decode (#5377) carries that as its creative gain. Equal gains
+    // mean the profile param didn't route to a distinct decode or the cache
+    // served the wrong buffer.
+    XCTAssertEqual(snapAuto.aeGain, 1.0, "the Auto decode carries no exposure gain")
+    XCTAssertGreaterThan(snapNeutral.aeGain, 1.05, "the Neutral decode carries its gain")
+    XCTAssertFalse(snapAuto.wbFrame?.creative === snapNeutral.wbFrame?.creative)
+    _ = (auto, neutral)
   }
 
 }

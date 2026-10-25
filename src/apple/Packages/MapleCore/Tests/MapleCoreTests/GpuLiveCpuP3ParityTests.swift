@@ -129,14 +129,18 @@ final class GpuLiveCpuP3ParityTests: XCTestCase {
 
                 var model = AdjustmentModel()
                 model.profile = .neutral
+                model = decodeResult.atAsShot(model)
 
                 guard let buf = pipeline.sceneLinearFloats(from: decodeResult.image, targetSize: nil)
                 else { continue }
                 let session = try GpuLiveSession(pixels: buf.pixels, width: buf.width, height: buf.height)
-                guard let gpuOut = try await session.renderToBuffer(model: model) else { continue }
+                guard let gpuOut = try await session.renderToBuffer(
+                    model: model, wbFrame: decodeResult.wbFrame)
+                else { continue }
 
                 let ctx = CIContext()
-                let cpuImage = pipeline.processSceneLinear(decoded: decodeResult.image, model: model)
+                let cpuImage = pipeline.processSceneLinear(
+                    decoded: decodeResult.image, model: model, wbFrame: decodeResult.wbFrame)
                 let p3 = CGColorSpace(name: CGColorSpace.displayP3)!
                 let cpuRGB = rgbBytes(from: cpuImage, context: ctx, targetColorSpace: p3)
 

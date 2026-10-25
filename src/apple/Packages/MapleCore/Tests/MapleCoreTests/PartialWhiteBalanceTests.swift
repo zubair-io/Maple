@@ -5,10 +5,7 @@ import XCTest
 
 @MainActor
 final class PartialWhiteBalanceTests: XCTestCase {
-  private let frame = WbSliderFrame(
-    mCold: [0.89, -0.10, 0.08, -0.43, 1.21, 0.22, -0.03, 0.14, 0.76], cctCold: 2856,
-    mWarm: [0.75, -0.06, -0.05, -0.43, 1.21, 0.22, -0.09, 0.23, 0.65], cctWarm: 6504,
-    sceneCCT: 5520.125, asShotTint: -43.79)
+  private let frame = WbSliderFrame(sceneCCT: 5520.125, asShotTint: -43.79)
 
   private func xml(_ attrs: String) -> String {
     """

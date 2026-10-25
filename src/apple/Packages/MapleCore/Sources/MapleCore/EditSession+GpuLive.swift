@@ -111,7 +111,8 @@ extension EditSession {
     noiseProfile: [Float]? = nil,
     iso: UInt32 = 0,
     whitesAnchorEv: Float = .nan,
-    nrSamplingScale: Float = 1
+    nrSamplingScale: Float = 1,
+    wbFrame: WbSliderFrame? = nil
   ) async -> Bool {
     let fitRevision = autoFitRevision
     let fitAssetID = asset.id
@@ -202,7 +203,8 @@ extension EditSession {
           width: dims.width, height: dims.height,
           inputShape: inputShape, identity: uploadIdentity,
           noiseProfile: noiseProfile, iso: iso, whitesAnchorEv: whitesAnchorEv,
-          nrSamplingScale: uploadNrSamplingScale
+          nrSamplingScale: uploadNrSamplingScale,
+          wbFrame: resolvedIsRaw ? wbFrame : nil
         ) {
           try Task.checkCancellation()
           guard let buf = pipeline.sceneLinearFloats(from: decoded, targetSize: targetSize) else {
@@ -287,20 +289,13 @@ extension EditSession {
     editSessionLogger.notice(
       "GPU-TRACE present begin gen=\(gen ?? 0) dims=\(dims.width)x\(dims.height)")
     var presentErr: Error? = nil
-    // #1781/#1976: with a decode-exported slider frame the delta
-    // anchors at the frame's own as-shot pair (`wbDeltaAnchor` — the
-    // WB the strip-XMP decode actually baked) and the FFI derives the
-    // matrix with the frame's own calibration — matching the CPU tick
-    // chain and a fresh full develop. Frame-less RAW keeps the legacy
-    // pre-decode as-shot anchor; non-RAW keeps the D65 baseline
-    // (#1734).
-    let liveWbFrame = resolvedIsRaw ? wbSliderFrame : nil
+    // A RAW renders through the uploaded decode's creative stage (#5377),
+    // which ignores the anchor; non-RAW keeps the D65 delta baseline (#1734).
     let anchor = wbDeltaAnchor
     let didPresent = await driver.present(
       model: m,
       asShotCCT: resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500.0,
       asShotTint: resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0.0,
-      wbFrame: liveWbFrame,
       scopeEnabled: scopeEnabled,
       scopeLayer: scopeLayerIndex
     ) { [weak self] error in

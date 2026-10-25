@@ -111,8 +111,7 @@ extension EditSession {
     // the actual `apply` below.
     let filmLattice = filmLutStore.lattice(for: exportModel.filmLook)
     let filmActive = filmLattice != nil && exportModel.filmStrength > 0
-    // #1781: decode-bake anchor with a present frame; the export
-    // decode's own frame export rides processSceneLinear(wbFrame:).
+    // The export decode's own creative stage rides processSceneLinear(wbFrame:).
     let image = try await renderActor.renderForExport(
       asset: asset, model: exportModel, asShot: wbDeltaAnchor,
       targetSize: targetSize,

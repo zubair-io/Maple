@@ -1534,18 +1534,11 @@ public actor ImageEditPipeline {
   /// `asShot` is unused in Plan 1; reserved for the WB Metal kernel
   /// in Plan 2.
   ///
-  /// Plan 2 M3 — `decodedAtModel` is the model the Rust FFI used during
-  /// decode (parsed from the sidecar on disk, or `.default` when no
-  /// sidecar exists). The WhiteBalance kernel uses it to apply only the
-  /// live-vs-decoded WB delta so opening a saved sidecar doesn't
-  /// double-apply WB between the Rust path and the Apple kernel.
-  /// `wbFrame` (#1781): the decode-exported WB slider frame. When present
-  /// the chain's WB delta is derived with the frame's own calibration —
-  /// anchored, like the frame-absent path, at the caller's `asShot`
-  /// (`wbDeltaAnchor`: the frame's as-shot pair, the WB the strip-XMP
-  /// decode actually baked — #1976) — so this CPU tick path agrees with
-  /// both the GPU live chain and a fresh full develop of the same model.
-  /// `nil` keeps the legacy asShot-anchored generic delta bit-for-bit.
+  /// `decodedAtModel` is unused.
+  /// `wbFrame` (#5377): the capture decode's slider frame and creative
+  /// stage. The decoded buffer is a capture result, so the chain runs the
+  /// creative stage at the model's absolute slider pair — the same stage a
+  /// fresh develop runs — and `asShot` no longer anchors anything.
   nonisolated public func processSceneLinear(
     decoded: CIImage,
     model: AdjustmentModel,
@@ -1583,43 +1576,12 @@ public actor ImageEditPipeline {
     // pipeline's algorithmic decisions verbatim, which closes the
     // drift between Apple and Rust on every cheap stage.
     //
-    // WB contract (paired with `RawCoreBridge.stripAppleGPUStages`):
-    //
-    //   1. The FFI scene-linear decode OMITS the WB fields from the
-    //      strip XMP (`omitWhiteBalance`, #1883), so raw-core resolves
-    //      the develop at the image's As-Shot WB. The cached buffer is
-    //      the as-shot develop (post-DCP reference) regardless of
-    //      sidecar contents. This eliminates the "first-open at
-    //      as-shot, post-sidecar at user-temp" inconsistency that
-    //      surfaced as a magenta cast on every slider write.
-    //
-    //   2. Apple's chain passes `decodedTemp = asShot.temperature`
-    //      (NOT 6500). The chain's `apply_delta(live, decoded)`
-    //      computes `wb_gains(live) / wb_gains(asShot)`, which is
-    //      identity at `live == asShot` — matching the reference renderer's "As Shot"
-    //      UX where the default slider value produces zero WB shift
-    //      (the post-DCP buffer is already at D65, viewed as the
-    //      camera's intended scene rendering). Moving the slider
-    //      applies a relative shift from asShot.
-    //
-    //   Why NOT pass decodedTemp=6500: on test_0002 (Hasselblad
-    //   H5D-40, asShotCCT=4522, asShotTint=-43.7),
-    //   `wb_gains(4522, -43.7) ≈ (1.04, 1.0, 2.13)` — applied to
-    //   the D65 buffer the B channel doubles, producing a uniform
-    //   magenta cast. The relative-to-asShot formula (g_live /
-    //   g_asShot) cancels this 2.13× B amplification at slider
-    //   = asShot.
-    //
-    // `decodedAtModel` is unused; kept on the signature so a future
-    // saved-WB sidecar workflow can re-thread per-asset baselines.
+    // White balance (#5377): the decode is a capture result, which no
+    // white balance has touched, and the chain's creative stage renders it
+    // at the model's slider pair. For a RAW, `asShot` only feeds the log
+    // and the chain cache key.
     let _ = decodedAtModel
-    // #1976: the anchor is `asShot` (the caller's `wbDeltaAnchor` — the
-    // frame's as-shot pair when a frame is present) in BOTH branches:
-    // the strip-XMP decode omits WB, so the buffer is always an
-    // as-shot develop. The old frame-present override to an explicit
-    // 6500/0 described a warm develop that never existed post-#1894
-    // and overcooled every settled render into cyan.
-    let frame = (wbFrame?.isPresent == true) ? wbFrame : nil
+    let frame = wbFrame
     let decodedTemp = asShot?.temperature ?? 6500.0
     let decodedTint = asShot?.tint ?? 0.0
     if let asShot {

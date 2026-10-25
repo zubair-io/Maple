@@ -23,7 +23,6 @@ extension EditSession {
       layer = -1
     }
     let anchor = wbDeltaAnchor
-    let frame = wbSliderFrame
     let resolvedIsRaw = await renderActor.resolvedIsRaw(for: asset.id) ?? asset.isRaw
     if gpuFramePresented, !gpuPresentFailed, let driver = gpuLiveDriver {
       let crop = effectiveCrop
@@ -34,7 +33,7 @@ extension EditSession {
         model: gpuModel,
         asShotCCT: resolvedIsRaw ? (anchor?.temperature ?? asShotCCT) : 6500,
         asShotTint: resolvedIsRaw ? (anchor?.tint ?? asShotTint) : 0,
-        wbFrame: resolvedIsRaw ? frame : nil, layer: layer, region: region)
+        layer: layer, region: region)
     }
     let cpuFrame = try await agentCPUFrame(maskID: maskID)
     let context = pipeline.context
