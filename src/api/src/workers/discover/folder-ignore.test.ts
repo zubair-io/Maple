@@ -22,6 +22,8 @@ import {
 } from './discover.test-helpers.ts';
 import { runMissingReaperOnce } from '../missing-reaper.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { trashAssetById } from '../../library/asset-trash.ts';
+import { toObjectId } from '../../db/repos/values.ts';
 
 const LONG_AGO = '2000-01-01T00:00:00.000Z';
 const FAR_FUTURE = '2999-01-01T00:00:00.000Z';
@@ -174,6 +176,23 @@ describe('.mapleignore — an already-indexed folder', () => {
     expect(library.db.query(`SELECT COUNT(*) AS n FROM asset_changes`).get()).toEqual(
       changesBefore,
     );
+  });
+
+  it('refuses to trash an excluded location still inside the prune window', async () => {
+    using library = await createDiscoverLibrary('maple-ignore-');
+    put(library.root, 'keep/a.jpg');
+    const raw = put(library.root, 'skip/b.jpg');
+    const sweep = await sweeper(library);
+    await sweep();
+    const id = assetIdAt(library.db, 'skip', 'b.jpg')!;
+    mark(library.root, 'skip');
+    await sweep();
+    const before = readFileSync(raw);
+
+    // A stale client deleting the photo must not move the ignored original
+    // into `.maple/trash/`.
+    expect((await trashAssetById(toObjectId(id))).kind).toBe('no-location');
+    expect(readFileSync(raw)).toEqual(before);
   });
 
   it('keeps a deduplicated asset live on its other copy and prunes only the ignored one', async () => {

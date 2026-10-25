@@ -1,6 +1,6 @@
 /** `.mapleignore` verdicts (#5398) against real temporary directories. */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -9,6 +9,7 @@ import {
   ignoreVerdict,
   ignoreVerdictForDir,
   ignoreVerdictForFile,
+  listingHasIgnoreMarker,
 } from './mapleignore.ts';
 
 const roots: string[] = [];
@@ -71,6 +72,18 @@ describe('ignoreVerdict', () => {
     expect(await ignoreVerdictForDir(root, join(root, '..'))).toBe('indexed');
     expect(await directoryHasIgnoreMarker(join(root, 'a'))).toBe(true);
     expect(await directoryHasIgnoreMarker(root)).toBe(false);
+  });
+
+  it('counts only a regular file: not a directory, not a symlink', async () => {
+    const root = tree('dir/.mapleignore', 'link');
+    expect(await ignoreVerdict(root, 'dir')).toBe('indexed');
+    symlinkSync(join(root, 'nowhere'), join(root, 'link', '.mapleignore'));
+    expect(await ignoreVerdict(root, 'link')).toBe('indexed');
+    expect(await listingHasIgnoreMarker(join(root, 'link'), ['.mapleignore'])).toBe(false);
+    const marked = tree('m');
+    writeFileSync(join(marked, 'm', '.mapleignore'), '');
+    expect(await listingHasIgnoreMarker(join(marked, 'm'), ['a.jpg', '.mapleignore'])).toBe(true);
+    expect(await listingHasIgnoreMarker(join(marked, 'm'), ['a.jpg'])).toBe(false);
   });
 
   it('memoizes per root and directory', async () => {

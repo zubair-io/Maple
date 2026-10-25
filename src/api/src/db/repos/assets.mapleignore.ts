@@ -1,12 +1,8 @@
 /**
  * The read behind the `.mapleignore` exclusion pass (#5398,
  * `workers/discover/folder-ignore.ts`): the live locations an ignored
- * directory still holds, so each can be tagged missing through the ordinary
- * `tagLocationMissing` verb.
- *
- * Steady state matters as much as the first pass. Once a folder's locations
- * are tagged they stop being live, so every later sweep's visit to the marked
- * directory matches nothing here and writes nothing.
+ * directory still holds. Once they are tagged they stop being live, so every
+ * later visit matches nothing and writes nothing.
  */
 
 import type { ObjectId } from '../object-id.ts';
@@ -14,50 +10,57 @@ import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toHex } from './values.ts';
 
 export interface IgnoredLiveLocation {
-  /** Location row id — the keyset the pass pages by. */
-  id: number;
   path: string;
   filename: string;
 }
 
 /**
- * The directory itself or any descendant, spelled as a range rather than a
- * `substr` prefix test so the `(library_id, path, filename)` index can seek.
- * `'0'` is the character after `'/'`, so `[rel/, rel0)` is exactly the paths
- * starting `rel/` — a sibling such as `photos2` is not under `photos`.
+ * A run of `path` values the `(library_id, path, filename)` index can seek.
+ * The directory itself and its descendants are two separate runs rather than
+ * one `OR`: with the `OR` the planner falls back to scanning every live
+ * location in the library on every page. `'0'` is the character after `'/'`,
+ * so `[rel/, rel0)` is exactly the paths under `rel/` — a sibling such as
+ * `rel-2024` sorts between `rel` and `rel/` and is in neither run.
  */
-function subtreePredicate(relDir: string): { sql: string; params: string[] } {
-  if (relDir === '') return { sql: '1', params: [] };
-  return {
-    sql: '(l.path = ? OR (l.path >= ? AND l.path < ?))',
-    params: [relDir, `${relDir}/`, `${relDir}0`],
-  };
+type PathRun = { equals: string } | { from: string; before: string | null };
+
+export function subtreeRuns(relDir: string): PathRun[] {
+  if (relDir === '') return [{ from: '', before: null }];
+  return [{ equals: relDir }, { from: `${relDir}/`, before: `${relDir}0` }];
+}
+
+function runPredicate(run: PathRun): { sql: string; params: string[] } {
+  if ('equals' in run) return { sql: 'l.path = ?', params: [run.equals] };
+  if (run.before === null) return { sql: 'l.path >= ?', params: [run.from] };
+  return { sql: 'l.path >= ? AND l.path < ?', params: [run.from, run.before] };
 }
 
 /**
- * Live locations of non-trashed assets in `relDir` and its subtree, in
- * location-id order after `afterId`. Trashed assets are left alone: their
+ * One page of live locations of non-trashed assets in `run`, in index order
+ * after the `(path, filename)` cursor. Trashed assets are left alone: their
  * locations already point into `.maple/trash/`, which belongs to the trash
- * retention window, not to the folder they came from.
+ * retention window.
  */
-export async function listLiveLocationsUnder(
+export async function listLiveLocationsIn(
   libraryId: ObjectId,
-  relDir: string,
-  afterId: number,
+  run: PathRun,
+  after: IgnoredLiveLocation | null,
   limit: number,
   dbOverride?: SqliteDb,
 ): Promise<IgnoredLiveLocation[]> {
-  const subtree = subtreePredicate(relDir);
+  const range = runPredicate(run);
+  const cursor = after
+    ? { sql: 'AND (l.path, l.filename) > (?, ?)', params: [after.path, after.filename] }
+    : { sql: '', params: [] };
   return sqliteDb(dbOverride).read<IgnoredLiveLocation>(
-    `SELECT l.id, l.path, l.filename
-       FROM asset_locations l
+    `SELECT l.path, l.filename
+       FROM asset_locations l INDEXED BY asset_locations_lib_path_name
        JOIN assets a ON a.id = l.asset_id
-      WHERE l.library_id = ? AND ${subtree.sql}
+      WHERE l.library_id = ? AND ${range.sql} ${cursor.sql}
         AND l.deleted_at IS NULL AND l.missing_since IS NULL
         AND a.deleted_at IS NULL
-        AND l.id > ?
-      ORDER BY l.id
+      ORDER BY l.path, l.filename
       LIMIT ?`,
-    [toHex(libraryId), ...subtree.params, afterId, limit],
+    [toHex(libraryId), ...range.params, ...cursor.params, limit],
   );
 }

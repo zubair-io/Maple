@@ -62,7 +62,6 @@ export async function handleEvent(
   // Reserved trees (`.maple/` cache, `_duplicates/` quarantine) must never be
   // indexed, whatever the producer — see `reserved-trees.ts` for why.
   if (refusesReservedTreeEvent(event, libraryRoot)) return;
-  // A `.mapleignore` folder (#5398) is never ingested, whatever the producer.
   if (await refusesIgnoredTreeEvent(event, libraryRoot)) return;
 
   if (kind === 'removed') return handleRemoved(absPath, folderId, libraryRoot);

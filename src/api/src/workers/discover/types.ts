@@ -32,6 +32,9 @@ export interface WatchEvent {
   absPath: string;
   /** Only set for renames — previous absolute path. */
   fromPath?: string;
+  /** Set by the sweep once it has checked this file's directory chain for a
+   * `.mapleignore` marker, so the chokepoint need not repeat it per file. */
+  markerChainChecked?: true;
 }
 
 // Sibling .hidden marker files (for photo hiding) are implicitly skipped because

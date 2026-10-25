@@ -39,7 +39,7 @@ import { requireFileAccessBeforeHandle } from '../auth/middleware.ts';
 import { handleEvent } from '../workers/discover/index.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { isCataloguedFilename } from '../indexer/media-types.ts';
-import { MAPLE_IGNORE_MARKER } from '../fs/mapleignore.ts';
+import { listingHasIgnoreMarker } from '../fs/mapleignore.ts';
 import { slugify, dedupeSlug } from '../library/slug.ts';
 import { realpathJailCheck } from '../library/address.ts';
 import { safeObjectId } from '../db/object-id.ts';
@@ -962,8 +962,8 @@ async function scanFolderAndDiscover(
         } catch {
           return; // permission denied or not a directory
         }
-        // A `.mapleignore` folder (#5398) and its subtree are never indexed.
-        if (entries.some((e) => (e.name as unknown as string) === MAPLE_IGNORE_MARKER)) return;
+        const names = entries.map((e) => e.name as unknown as string);
+        if (await listingHasIgnoreMarker(dir, names)) return;
         for (const entry of entries) {
           const entryName = entry.name as unknown as string;
           // Skip dotdirs (`.maple`, `.thumbnails`, …) and the DeDuplicate

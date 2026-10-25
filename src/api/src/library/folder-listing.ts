@@ -228,7 +228,6 @@ interface FolderEntries {
 async function appendEntry(child: Scanned | null, entries: FolderEntries, state: FolderState) {
   if (!child) return;
   if (child.stat?.isDirectory()) {
-    // A `.mapleignore` folder (#5398) is not part of the library.
     if (await directoryHasIgnoreMarker(child.realPath)) return;
     entries.folders.push({ ...child.entry, realPath: child.realPath });
     return;

@@ -930,7 +930,6 @@ async function enqueueBrowseIndex(dirPath: string, paths: string[]): Promise<voi
     return;
   }
 
-  // A `.mapleignore` folder (#5398) is browsable as plain files, never indexed.
   if ((await ignoreVerdictForDir(folder.root, dirPath)) !== 'indexed') return;
   const folderObjectId = new ObjectId(folder.id);
   for (const absPath of paths) {
