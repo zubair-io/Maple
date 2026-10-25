@@ -156,7 +156,7 @@ pub(crate) fn visit_live_chain<'a>(
     // sharpening to apply. `PostDcpRec2020Fp16` is the historic default,
     // preserving the existing RAW behaviour exactly.
     let is_raw_shape = inputs.input_shape == InputShape::PostDcpRec2020Fp16;
-    let creative = creative_stage(inputs);
+    let creative = active_creative(inputs);
     if is_raw_shape && creative.is_none() {
         if let Some(params) = inputs.capture_sharpening {
             // Already `Option`-gated in `build_split`; `Some` === develop ran the stage.

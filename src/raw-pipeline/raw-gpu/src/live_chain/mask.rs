@@ -5,7 +5,7 @@
 //! uses, so the mask can't disagree with which passes actually get pushed.
 
 use super::noop::{
-    creative_stage, scene_tone_is_noop, tone_curves_is_noop, wb_is_noop, SLIDER_EPS,
+    active_creative, scene_tone_is_noop, tone_curves_is_noop, wb_is_noop, SLIDER_EPS,
 };
 use crate::auto_profile_curve::profile_curve_is_active;
 use crate::color_curves::color_curves_is_identity;
@@ -129,7 +129,7 @@ pub(crate) fn active_mask(inputs: &FullChainInputs) -> u32 {
     // rather than UB. See also the compile-time assert below.
     m |= ((inputs.input_shape as u32) & 0b11) << 30;
     // Bit 0: capture_sharpening — RAW-only (#1331); always 0 for non-RAW shapes.
-    let creative = creative_stage(inputs);
+    let creative = active_creative(inputs);
     if is_raw_shape && creative.is_none() && inputs.capture_sharpening.is_some() {
         m |= bit::CAPTURE_SHARPENING;
     }

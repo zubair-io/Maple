@@ -25,7 +25,7 @@ pub(super) const WB_SKIP_BAND: f32 = 0.5;
 
 /// The creative stage (#5376) when the uploaded buffer is a capture result.
 /// Shared by the builder and the mask so they cannot disagree.
-pub(super) fn creative_stage<'a>(
+pub(super) fn active_creative<'a>(
     inputs: &'a FullChainInputs<'_>,
 ) -> Option<&'a crate::CreativeInputs<'a>> {
     inputs
