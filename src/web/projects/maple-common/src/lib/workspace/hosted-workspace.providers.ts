@@ -5,6 +5,7 @@ import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { HOSTED_WORKSPACE_POLICY, WORKSPACE_CAPABILITIES } from './workspace-capabilities';
 import { SERVER_WORKSPACE_PERSISTENCE } from './workspace-persistence';
 import { SERVER_LIBRARY_IO } from './server-library-io';
+import { HOSTED_INFO_EXIF_ENABLED } from '../info/hosted-info-exif';
 
 export function provideHostedWorkspace(): EnvironmentProviders {
   return makeEnvironmentProviders([
@@ -13,5 +14,6 @@ export function provideHostedWorkspace(): EnvironmentProviders {
     { provide: WORKSPACE_CAPABILITIES, useValue: HOSTED_WORKSPACE_POLICY },
     { provide: SERVER_WORKSPACE_PERSISTENCE, useValue: null },
     { provide: SERVER_LIBRARY_IO, useValue: null },
+    { provide: HOSTED_INFO_EXIF_ENABLED, useValue: true },
   ]);
 }

@@ -45,19 +45,15 @@ export class ExifReaderService {
    * `captured-at.ts`'s `asIsoDate` was fixed to stop doing.
    *
    * `asIsoDate`'s `Date` branch is now (#2154) also fixed to read those same
-   * local calendar fields back out, which correctly un-biases exactly this
-   * kind of locally-constructed `Date` — so a revived `Date` reaching it
-   * would no longer misformat. `reviveValues: false` stays anyway: it keeps
-   * this service's output on the plain "raw EXIF string" code path (the one
-   * actually fixed to use `Date.UTC(...)`), rather than leaning on the
-   * newer, more narrowly-scoped contract that a `Date` reaching `asIsoDate`
-   * always encodes a timezone-naive wall clock via local fields. Since this
-   * service only ever picks DateTimeOriginal/CreateDate (no GPS, no other
-   * revived tags), disabling revival globally for this call has no other
-   * side effects to worry about.
+   * local calendar fields back out. `reviveValues: false` stays so date
+   * callers receive the raw EXIF wall-clock string; Hosted Info also uses
+   * this wrapper for numeric exposure tags, which exifr returns as numbers.
    */
-  async parse(file: File, pick: readonly string[]): Promise<Record<string, unknown> | undefined> {
-    return resolveExifr().parse(file, { pick: [...pick], reviveValues: false }) as Promise<
+  async parse(
+    data: File | Uint8Array,
+    pick: readonly string[],
+  ): Promise<Record<string, unknown> | undefined> {
+    return resolveExifr().parse(data, { pick: [...pick], reviveValues: false }) as Promise<
       Record<string, unknown> | undefined
     >;
   }
