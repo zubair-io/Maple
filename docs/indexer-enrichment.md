@@ -66,7 +66,7 @@ There is no filesystem watcher. `workers/discover/sweeper.ts` runs a breadth-fir
 
 Each directory visit (`visitDirectory`):
 
-1. Lists the directory. Subdirectories are pushed onto a database-backed frontier queue (`workers/discover/frontier.repo.ts`), skipping dotdirs (notably `.maple/`, our own derivative cache — indexing it would create a self-feeding `.maple/.maple/…` loop) and the `_duplicates/` quarantine.
+1. Lists the directory. A directory holding a `.mapleignore` marker stops here and is excluded instead (see [Excluding a folder](#excluding-a-folder-mapleignore)). Otherwise, subdirectories are pushed onto a database-backed frontier queue (`workers/discover/frontier.repo.ts`), skipping dotdirs (notably `.maple/`, our own derivative cache — indexing it would create a self-feeding `.maple/.maple/…` loop) and the `_duplicates/` quarantine.
 2. Does **one** indexed read for the assets already recorded in that directory, and diffs it against what is on disk. Files on disk with no row are "new candidates"; recorded entries absent from the listing are "missing candidates".
 3. Re-stats every missing candidate before believing it. A `readdir` on an SMB share can succeed and return an incomplete listing; only a genuine ENOENT counts, and if the library root itself is unavailable the whole visit confirms nothing rather than mass-tagging present files.
 4. Runs rename reconciliation, then emits ordinary `created` / `removed` events for whatever is left.
@@ -96,11 +96,11 @@ The match signal is a cheap fingerprint — file size + EXIF capture time + came
 
 Three tags govern an asset's participation in the pipeline, and all three are enforced in one place — the stage claim in `db/repos/stage-claim.ts`:
 
-| Signal                    | Set by                                                                           | Effect                                                                                                     |
-| ------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| per-entry `missing_since` | discover `removed`, a file-reading stage's ENOENT, the content-changed guard     | that location is non-live; an asset with no live location drops out of reads and every stage's claim query |
-| per-entry `deleted_at`    | content replaced in place                                                        | same — the entry is dead, and is never re-stat'd (a different file may sit at that path)                   |
-| root `damaged.since`      | a file-reading stage that exhausts retries, or a handler returning `{ damaged }` | the asset parks out of **every** stage and appears in the Workers "Damaged" list                           |
+| Signal                    | Set by                                                                                                | Effect                                                                                                     |
+| ------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| per-entry `missing_since` | discover `removed`, a file-reading stage's ENOENT, the content-changed guard, a `.mapleignore` marker | that location is non-live; an asset with no live location drops out of reads and every stage's claim query |
+| per-entry `deleted_at`    | content replaced in place                                                                             | same — the entry is dead, and is never re-stat'd (a different file may sit at that path)                   |
+| root `damaged.since`      | a file-reading stage that exhausts retries, or a handler returning `{ damaged }`                      | the asset parks out of **every** stage and appears in the Workers "Damaged" list                           |
 
 Tagging is the only automatic step. `workers/missing-reaper.ts` then reconciles, on a 60 s interval in batches of 200:
 
@@ -110,7 +110,20 @@ Tagging is the only automatic step. `workers/missing-reaper.ts` then reconciles,
 
 Safety properties, all load-bearing: the reaper boots **paused** and its paused state persists in `worker_config`, but pausing suspends only the record soft-delete — recovery and sibling-prune keep running. An unregistered library, an absent mount point, or an unstattable path skips the row entirely. Before a soft-delete, the parent directory is listed and a case/Unicode near-match vetoes the delete (a stored-path bug, not a deleted file). A pass that soft-deletes more than 25 rows _and_ more than half of what it scanned surfaces a persistent worker error as a systemic-misdetection tripwire.
 
+A file that is still on disk but sits under a `.mapleignore` folder is not recovered: the reaper treats it as gone, so it ages through the same prune and soft-delete as a vanished file. It also skips the near-match veto, because the file is deliberately still there under its recorded name. If the marker check itself fails (a permission or I/O error), the row is skipped for that pass.
+
 The prune window resolves DB row → `MAPLE_REAPER_PRUNE_HOURS` → 12 h default, clamped to 1 h–1 year, and is editable at `PATCH /api/workers/missing-reaper/prune-window`.
+
+### Excluding a folder: `.mapleignore`
+
+An empty `.mapleignore` file in a library directory excludes that directory and its whole subtree (#5398). It is an operator signal: Maple never writes, moves or deletes it, nor any file it covers.
+
+1. **The sweep stops at the marker.** `visitDirectory` sees the marker in the listing and calls `excludeIgnoredDirectory` (`workers/discover/folder-ignore.ts`) instead of reconciling the directory. Nothing below it is enqueued or ingested.
+2. **Indexed files leave the way deleted files do.** Every live location still recorded in the directory or its subtree is tagged `missing_since` with `missing_reason: 'mapleignore'`, and a `delete` (last live location) or `update` (a deduplicated copy survives elsewhere) change event is published. The missing-reaper takes over from there, unchanged: the asset leaves reads at once and is pruned or soft-deleted (`deleted_reason: 'reaped'`) after the prune window. Thumbnails, search and cloud-backup bookkeeping follow the reaper's existing rules. In the steady state, once everything is tagged, the visit matches nothing and writes nothing.
+3. **Every other producer is refused at the chokepoint.** `handleEvent` checks the marker chain (the library root and every ancestor of the file's directory, `fs/mapleignore.ts`) before any created/modified/renamed event. That covers the import hand-off, browse indexing, the pano on-demand path and the folder rescan walk; the rescan walk also skips marked directories outright. An upload into an ignored folder is stored on disk but not catalogued. The library folder listing (`library/folder-listing.ts`) omits ignored subfolders. `/api/fs/dir`, which the File Provider reads, still lists their files as plain un-indexed files and does not start indexing for them.
+4. **Removing the marker** needs no special path. The next sweep descends again, the reaper recovers locations still in their window, and content-dedup revives assets it already soft-deleted.
+
+Safety: only a marker that stats present counts. A stat error is "unknown", never "ignored", and each caller resolves it safely (the chokepoint drops the event until the next sweep; the reaper skips the row). The library-root availability guard runs before anything is tagged, so an unmounted volume cannot look ignored. A marker at the library root excludes the whole library and is logged as a warning on every sweep. A large exclusion also trips the reaper's circuit breaker, which shows as a worker error on Settings → Workers.
 
 ## The stage machinery
 
