@@ -315,9 +315,10 @@ export class EditPreviewPersistService {
       return;
     const binding = this.sidecars.bindingFor(id, target.folder, target.location.filename);
     const path = [target.location.dir, binding.filename].filter(Boolean).join('/');
-    const xml = await this.sidecarFreshness.readCurrent(target.folder, path);
+    let xml: string | null;
     let persistedModel;
     try {
+      xml = await this.sidecarFreshness.readCurrent(target.folder, path);
       this.sidecarFreshness.assertUnchanged(target.folder, path, xml);
       persistedModel = {
         ...defaultAdjustmentModel(),
