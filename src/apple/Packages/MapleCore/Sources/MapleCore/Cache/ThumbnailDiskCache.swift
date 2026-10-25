@@ -228,15 +228,17 @@ public actor ThumbnailDiskCache {
     let key = Self.memoryKey(for: assetURL, sourceSignature: sourceSignature)
     let fileURL = thumbFileURL(for: assetURL, creatingDirectory: true)
     LocalDerivativeSourceStamp.remove(fileURL)
-    guard (try? data.write(to: fileURL, options: .atomic)) != nil,
-      LocalDerivativeSourceStamp.matches(sourceSignature, for: assetURL),
-      (try? LocalDerivativeSourceStamp.record(fileURL, sourceSignature: sourceSignature)) != nil,
-      LocalDerivativeSourceStamp.matches(sourceSignature, for: assetURL)
-    else {
+    let persisted =
+      (try? data.write(to: fileURL, options: .atomic)) != nil
+      && LocalDerivativeSourceStamp.matches(sourceSignature, for: assetURL)
+      && (try? LocalDerivativeSourceStamp.record(
+        fileURL, sourceSignature: sourceSignature)) != nil
+    if !persisted {
       LocalDerivativeSourceStamp.remove(fileURL)
       try? fm.removeItem(at: fileURL)
-      return false
     }
+    // Cache persistence is optional; a current render is still usable now.
+    guard LocalDerivativeSourceStamp.matches(sourceSignature, for: assetURL) else { return false }
     evictIfNeeded()
     dataMemCache[key] = data
     syncPeekCache.setObject(data as NSData, forKey: key as NSString)

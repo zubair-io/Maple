@@ -160,16 +160,17 @@ extension ThumbnailLoader {
       withIntermediateDirectories: true
     )
     LocalDerivativeSourceStamp.remove(previewURL)
-    guard (try? data.write(to: previewURL, options: .atomic)) != nil,
-      LocalDerivativeSourceStamp.matches(sourceSignature, for: url),
-      (try? LocalDerivativeSourceStamp.record(
-        previewURL, sourceSignature: sourceSignature)) != nil,
-      LocalDerivativeSourceStamp.matches(sourceSignature, for: url)
-    else {
+    let persisted =
+      (try? data.write(to: previewURL, options: .atomic)) != nil
+      && LocalDerivativeSourceStamp.matches(sourceSignature, for: url)
+      && (try? LocalDerivativeSourceStamp.record(
+        previewURL, sourceSignature: sourceSignature)) != nil
+    if !persisted {
       LocalDerivativeSourceStamp.remove(previewURL)
       try? FileManager.default.removeItem(at: previewURL)
-      return nil
     }
+    // Only changed-source pixels are rejected; disk-cache writes are best-effort.
+    guard LocalDerivativeSourceStamp.matches(sourceSignature, for: url) else { return nil }
     return data
   }
 
