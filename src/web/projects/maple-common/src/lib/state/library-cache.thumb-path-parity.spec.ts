@@ -58,7 +58,7 @@ function setup() {
   const fakeFs = {
     async readFile(_f: MapleFolderHandle, path: string): Promise<Uint8Array> {
       const bytes = files.get(path);
-      if (!bytes) throw new Error(`ENOENT ${path}`);
+      if (!bytes) throw new DOMException(`Missing ${path}`, 'NotFoundError');
       return bytes;
     },
     async writeFile(_f: MapleFolderHandle, path: string, data: Uint8Array): Promise<void> {
@@ -189,7 +189,13 @@ describe('LibraryCache Hosted thumbs — writer destination === reader source (#
       const payload = new Uint8Array([
         0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66,
       ]);
-      await cache.writeThumb(folder, FILENAME, new Blob([payload], { type: 'image/avif' }), 'avif');
+      await cache.writeThumb(
+        folder,
+        FILENAME,
+        new Blob([payload], { type: 'image/avif' }),
+        'avif',
+        'absent',
+      );
       expect(files.has(`.maple/thumbs/${FILENAME}.avif`)).toBe(true);
 
       const asset = { id: ASSET_ID, filename: FILENAME } as unknown as Asset;

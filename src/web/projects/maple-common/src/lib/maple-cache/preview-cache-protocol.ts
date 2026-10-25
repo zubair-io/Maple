@@ -24,6 +24,8 @@ export interface PreviewCacheDescriptor {
   /** Filesystem mtime of the declared artifact. A newer canonical AVIF written
    * by Apple/API supersedes the Hosted-private slot. */
   artifactLastModified: number;
+  sidecarFingerprint?: string;
+  artifactFingerprint?: string;
 }
 
 export function previewCacheDir(relDir: string): string {
@@ -76,7 +78,11 @@ export function parsePreviewDescriptor(bytes: Uint8Array): PreviewCacheDescripto
       !isPreviewCacheFormat(descriptor.format) ||
       PREVIEW_CACHE_FORMATS[descriptor.format].mimeType !== descriptor.mimeType ||
       !validPreviewSource(descriptor.source) ||
-      !Number.isFinite(descriptor.artifactLastModified)
+      !Number.isFinite(descriptor.artifactLastModified) ||
+      (descriptor.sidecarFingerprint !== undefined &&
+        !/^(absent|[0-9a-f]{64})$/.test(descriptor.sidecarFingerprint)) ||
+      (descriptor.artifactFingerprint !== undefined &&
+        !/^[0-9a-f]{64}$/.test(descriptor.artifactFingerprint))
     ) {
       return null;
     }

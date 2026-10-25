@@ -15,6 +15,7 @@ import { Injectable, inject } from '@angular/core';
 import type { Asset, AssetId } from '../models/asset';
 import { MapleCacheService, type PreviewSourceIdentity } from '../maple-cache/maple-cache.service';
 import { samePreviewSource } from '../maple-cache/preview-cache-protocol';
+import { hostedSidecarFingerprint } from '../maple-cache/hosted-sidecar-fingerprint';
 import { EmbeddedPreviewService } from '../raw-pipeline/embedded-preview.service';
 import { isSupportedRaw } from './raw-extensions';
 import { HostedRawSidecarService } from './hosted-raw-sidecar.service';
@@ -74,6 +75,7 @@ export class HostedPreviewResolver {
     const location = previewLocation(id);
     const folder = this.store.currentFolder();
     let sourceBefore: PreviewSourceIdentity | null = null;
+    let sidecarBefore: string | null | undefined;
 
     // Cache read: only possible with both a folder handle AND an addressable
     // on-disk location to key off. Absent either (a direct deep-link before a
@@ -83,11 +85,13 @@ export class HostedPreviewResolver {
       try {
         const source = await getSourceIdentity(id);
         sourceBefore = source;
+        sidecarBefore = await this.sidecars.read(folder, location);
         const cached = await this.cache.readPreview(
           folder,
           location.dir,
           location.filename,
           source,
+          await hostedSidecarFingerprint(sidecarBefore),
         );
         if (cached) return cached;
       } catch {
@@ -105,6 +109,7 @@ export class HostedPreviewResolver {
       getSourceIdentity,
       sourceBefore,
       getSourceSnapshot,
+      sidecarBefore,
     );
   }
 
@@ -120,13 +125,16 @@ export class HostedPreviewResolver {
     getSourceIdentity: (id: AssetId) => Promise<PreviewSourceIdentity>,
     sourceBefore: PreviewSourceIdentity | null,
     getSourceSnapshot?: (id: AssetId) => Promise<HostedByteSnapshot>,
+    sidecarBefore?: string | null,
   ): Promise<Blob | null> {
     // The selected workflow variant may be unreadable even when Primary is
     // healthy. A known error always shows the original, never another variant.
     const xml =
-      folder && location && !this.sidecarErrors.errors().has(id)
-        ? await this.sidecars.read(folder, location)
-        : null;
+      sidecarBefore !== undefined
+        ? sidecarBefore
+        : folder && location && !this.sidecarErrors.errors().has(id)
+          ? await this.sidecars.read(folder, location)
+          : null;
     try {
       const snapshot = await this._sourceSnapshot(id, getBytes, sourceBefore, getSourceSnapshot);
       const ext = asset.filename.split('.').pop()?.toLowerCase() ?? '';
@@ -178,7 +186,14 @@ export class HostedPreviewResolver {
     try {
       if (!samePreviewSource(source, await getSourceIdentity(id))) return;
       if (xml !== (await this.sidecars.read(folder, location))) return;
-      await this.cache.writePreview(folder, location.dir, location.filename, blob, source);
+      await this.cache.writePreview(
+        folder,
+        location.dir,
+        location.filename,
+        blob,
+        source,
+        await hostedSidecarFingerprint(xml),
+      );
     } catch {
       // Cache writes are best-effort and never block the displayed preview.
     }
