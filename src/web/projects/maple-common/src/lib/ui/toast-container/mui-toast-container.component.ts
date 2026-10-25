@@ -15,7 +15,11 @@ export interface MuiToastEntry {
   readonly autoDismissMs?: number | null;
 }
 
-export type MuiToastContainerPosition = 'top-right' | 'bottom-right' | 'bottom-center';
+export type MuiToastContainerPosition =
+  | 'top-right'
+  | 'top-center-below-header'
+  | 'bottom-right'
+  | 'bottom-center';
 
 const EXIT_STAGGER_MS = 60;
 
@@ -41,7 +45,9 @@ export class MuiToastContainerComponent {
   readonly exitStaggerMs = EXIT_STAGGER_MS;
 
   private static readonly POSITION_CLASS: Record<MuiToastContainerPosition, string> = {
-    'top-right': 'position-top-right top-20 right-6 items-end max-w-sm',
+    'top-right': 'position-top-right top-6 right-6 items-end',
+    'top-center-below-header':
+      'position-top-center-below-header top-44 left-1/2 -translate-x-1/2 items-stretch w-[calc(100vw-3rem)] max-w-sm',
     'bottom-right': 'position-bottom-right bottom-6 right-6 items-end flex-col-reverse',
     'bottom-center':
       'position-bottom-center bottom-6 left-1/2 -translate-x-1/2 items-center flex-col-reverse',
