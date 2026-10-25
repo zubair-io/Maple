@@ -60,6 +60,10 @@ export class HostedWorkflowWriterService {
     this.actions.set(folder, files);
   }
 
+  discard(folder: MapleFolderHandle, name: string): void {
+    this.actions.get(folder)?.delete(name);
+  }
+
   async write(
     folder: MapleFolderHandle,
     name: string,

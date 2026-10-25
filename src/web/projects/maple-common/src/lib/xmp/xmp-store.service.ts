@@ -1,5 +1,4 @@
 // Coordinates debounced sidecar writes and loaded XMP metadata for the Develop tab.
-
 import { Injectable, inject, DestroyRef } from '@angular/core';
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { XmpCulling, PassthroughBucket, XmpMetadata } from './xmp.types';
@@ -481,6 +480,7 @@ export class XmpStoreService {
         } catch (error) {
           const remaining = unrelated();
           if (error instanceof HostedSidecarConflictError) {
+            this.hostedWriter.discard(folder, binding.filename);
             // Retrying a stale full-document edit would block folder reload
             // and could never be safe without adopting the external bytes.
             if (remaining.length) this.retryWrites.set(assetId, remaining);
