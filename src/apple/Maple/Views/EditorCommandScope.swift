@@ -115,8 +115,15 @@ struct EditorCommandScope: ViewModifier {
     #endif
     if knotInput {
       #if os(iOS)
-        if let toneCurveKeyPress, case .handled = toneCurveKeyPress(press) {
-          return .handled
+        if let toneCurveKeyPress {
+          let result = toneCurveKeyPress(press)
+          if case .handled = result { return .handled }
+          // Boundary Tab resigns the native knot and returns .ignored so
+          // UIKit can traverse focus. Redispatching it through the bridge
+          // would focus the first/last knot again in the same key event.
+          if press.key == .tab || press.key == KeyEquivalent("\u{19}") {
+            return result
+          }
         }
         if let handler = toneCurveKeyboardBridge.handle, case .handled = handler(press) {
           return .handled
