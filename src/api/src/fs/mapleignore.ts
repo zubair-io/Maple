@@ -22,6 +22,12 @@ export const MAPLE_IGNORE_MARKER = '.mapleignore';
  * disk, so nothing may treat the location as one to act on. */
 export const MAPLE_IGNORE_MISSING_REASON = 'mapleignore';
 
+/** True for a location the marker excluded: its original still sits in the
+ * ignored folder, so no trash, move or rename may pick it. */
+export function isExcludedLocation(entry: { missing_reason?: string | null }): boolean {
+  return entry.missing_reason === MAPLE_IGNORE_MISSING_REASON;
+}
+
 export type IgnoreVerdict = 'ignored' | 'indexed' | 'unknown';
 
 type MarkerStat = 'present' | 'absent' | 'error';

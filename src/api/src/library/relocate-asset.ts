@@ -32,7 +32,7 @@
  * day-dir-refile migration (`workers/migration/refile-legacy-daydir.ts`).
  */
 
-import { MAPLE_IGNORE_MISSING_REASON } from '../fs/mapleignore.ts';
+import { isExcludedLocation } from '../fs/mapleignore.ts';
 import * as path from 'node:path';
 import type { ObjectId } from '../db/object-id.ts';
 import type { AppleCompanionSlot } from '../db/apple-companions.ts';
@@ -140,10 +140,7 @@ export type RelocateAssetResult =
  * of the live one. */
 export function activeFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInfo | null {
   const list = asset.fileinfo ?? [];
-  // An excluded location's file is still on disk in its ignored folder (#5398).
-  const live = list.filter(
-    (entry) => !entry.deleted_at && entry.missing_reason !== MAPLE_IGNORE_MISSING_REASON,
-  );
+  const live = list.filter((entry) => !entry.deleted_at && !isExcludedLocation(entry));
   return live.find((entry) => !entry.missing_since) ?? live[0] ?? null;
 }
 
@@ -324,6 +321,10 @@ export async function relocateAsset(input: RelocateAssetInput): Promise<Relocate
 
   const primary = input.activeFileInfoOverride ?? activeFileInfo(view);
   if (!primary) return { kind: 'error', error: 'asset has no live location' };
+  // An override (geo-relocate) is held to the `.mapleignore` exclusion too (#5398).
+  if (isExcludedLocation(primary)) {
+    return { kind: 'error', error: 'location is excluded by .mapleignore' };
+  }
 
   const plan = await resolveDestinationPlan(input, primary);
   if ('kind' in plan) return plan;
