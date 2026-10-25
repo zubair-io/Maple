@@ -135,6 +135,40 @@ describe('unified enriched folder listing #4001', () => {
       exif: { camera_make: 'Hasselblad', width: 100 },
     });
   });
+  test('loads pre-existing XMP filters for unindexed photos before Preview, even across pages', async () => {
+    await fs.writeFile(path.join(root, 'edited.jpg'), 'original bytes');
+    await fs.writeFile(
+      path.join(root, 'edited.xmp'),
+      '<rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" ' +
+        'xmlns:papp="http://ns.justmaple.app/photo/1.0/" ' +
+        'xmp:Rating="4" papp:Flag="pick" xmp:Label="Red"/>',
+    );
+    await fs.writeFile(path.join(root, 'plain.jpg'), 'original bytes');
+
+    const first = await listing('', '?limit=1');
+    expect(first.images).toMatchObject([
+      {
+        name: 'edited.jpg',
+        indexed: false,
+        edited: true,
+        rating: 4,
+        flag: 'pick',
+        colorLabel: 'red',
+      },
+    ]);
+    const all = await listing();
+    expect(all.images.find((entry) => entry.name === 'plain.jpg')).not.toHaveProperty('edited');
+    expect(all.images.find((entry) => entry.name === 'edited.jpg')).toMatchObject({
+      edited: true,
+      rating: 4,
+      flag: 'pick',
+    });
+    await fs.unlink(path.join(root, 'edited.xmp'));
+    const withoutSidecar = await listing();
+    expect(withoutSidecar.images.find((entry) => entry.name === 'edited.jpg')).not.toHaveProperty(
+      'edited',
+    );
+  });
   test('lists documents, extensionless files and video/stub/audio flags', async () => {
     for (const name of ['notes.txt', 'README', 'clip.MOV', 'sound.wav', 'design.afphoto']) {
       await fs.writeFile(path.join(root, name), name);
@@ -304,6 +338,7 @@ describe('unified enriched folder listing #4001', () => {
       await fs.writeFile(path.join(root, 'bad.xmp'), '<x:xmpmeta/>');
       const body = await listing();
       expect(body.images.map((entry) => entry.name)).toEqual(['good.dng']);
+      expect(body.images[0]?.edited).toBeUndefined();
       expect(body.sidecars).toEqual([]);
     } finally {
       await fs.rm(outside, { recursive: true, force: true });
