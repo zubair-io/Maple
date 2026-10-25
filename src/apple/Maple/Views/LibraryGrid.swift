@@ -104,7 +104,8 @@
     }
 
     var body: some View {
-      ZStack(alignment: .bottomLeading) {
+      let visibleAssets = displayedAssets
+      return ZStack(alignment: .bottomLeading) {
         // Zero images and zero sub-folders — hand the surface to the
         // shared overlay, which explains WHY it's empty (permission
         // panel / spinner / load error / no source picked). Before
@@ -113,10 +114,10 @@
         if isEmpty {
           BrowseEmptyState(vm: vm, onGrantPhotosAccess: onGrantPhotosAccess)
         } else {
-          grid
+          grid(visibleAssets: visibleAssets)
         }
         PhoneSelectionControls(
-          vm: vm, displayedAssets: displayedAssets, clipboard: clipboard,
+          vm: vm, displayedAssets: visibleAssets, clipboard: clipboard,
           onMergePanorama: onMergePanorama, onEditMetadata: onEditMetadata,
           onBatchRename: onBatchRename, onTrashAssets: onTrashAssets,
           onExport: onExport, onMove: onMove
@@ -129,14 +130,14 @@
       .background(MapleTokens.bg.ignoresSafeArea())
     }
 
-    private var grid: some View {
+    private func grid(visibleAssets: [AssetRef]) -> some View {
       ScrollViewReader { proxy in
         ScrollView {
           VStack(alignment: .leading, spacing: 0) {
             if !vm.assets.isEmpty, let onReadGridFilterMetadata {
               GridFilterBar(
                 vm: vm, readMetadata: onReadGridFilterMetadata,
-                matchingCount: displayedAssets.count
+                matchingCount: visibleAssets.count
               )
               .padding(.vertical, 8)
             }
@@ -154,7 +155,7 @@
               .accessibilityHidden(vm.isSelecting)
             }
             PhotoGrid(
-              data: displayedAssets,
+              data: visibleAssets,
               columns: .fixed(columns, spacing: LibraryGridZoom.spacing),
               provider: provider,
               displayMode: displayMode,
@@ -193,7 +194,7 @@
             .accessibilityHidden(pinch != nil)
             .overlay(alignment: .topLeading) {
               if let pinch {
-                pinchOverlay(pinch)
+                pinchOverlay(pinch, assets: visibleAssets)
               }
             }
             .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.scrollSpace)) }) {
@@ -390,14 +391,14 @@
     }
 
     @ViewBuilder
-    private func pinchOverlay(_ session: PinchSession) -> some View {
+    private func pinchOverlay(_ session: PinchSession, assets: [AssetRef]) -> some View {
       let interpolation = session.interpolation
       let focalNow = session.focalPoint(at: interpolation)
       let baseHeight = session.geometry.gridHeight(columns: session.baseColumns)
       // Clamped: a PhotoKit page can land (or a folder reload shrink the
       // list) while the pinch is live. The layout's first index is the
       // clamped one so the cells it lays out are the ones iterated.
-      let slice = session.slice.clamped(to: displayedAssets.indices)
+      let slice = session.slice.clamped(to: assets.indices)
       InterpolatedGridLayout(
         geometry: session.geometry,
         from: interpolation.from,
@@ -405,7 +406,7 @@
         progress: interpolation.progress,
         firstIndex: slice.lowerBound
       ) {
-        ForEach(Array(displayedAssets[slice])) { asset in
+        ForEach(Array(assets[slice])) { asset in
           PhotoThumbnailCell(
             item: makeItem(asset),
             provider: provider,

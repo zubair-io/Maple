@@ -150,11 +150,15 @@ struct BrowseGrid: View {
   private static let topAnchorID = "browse-grid-top"
 
   var body: some View {
-    VStack(spacing: 0) {
+    let visibleAssets =
+      onReadGridFilterMetadata == nil
+      ? vm.assets : vm.gridAssets(sessions: sessions)
+    let visibleIDs = Set(visibleAssets.map(\.id))
+    return VStack(spacing: 0) {
       if !vm.isMerged, !vm.assets.isEmpty, let onReadGridFilterMetadata {
         GridFilterBar(
           vm: vm, readMetadata: onReadGridFilterMetadata,
-          matchingCount: vm.gridAssets(sessions: sessions).count
+          matchingCount: visibleAssets.count
         )
         .padding(.vertical, 8)
       }
@@ -171,7 +175,7 @@ struct BrowseGrid: View {
                 if vm.isMerged {
                   mergedGrid
                 } else {
-                  normalGrid
+                  normalGrid(visibleAssets: visibleAssets, visibleIDs: visibleIDs)
                 }
               }
               // UITest sentinel — the harness uses
@@ -247,8 +251,7 @@ struct BrowseGrid: View {
       if vm.isSelecting, let onMergePanorama {
         PanoSelectionBar(
           vm: vm,
-          displayedAssets: onReadGridFilterMetadata == nil
-            ? vm.assets : vm.gridAssets(sessions: sessions),
+          displayedAssets: visibleAssets,
           onMerge: onMergePanorama,
           onEditMetadata: onEditMetadata,
           onBatchRename: onBatchRename,
@@ -284,8 +287,7 @@ struct BrowseGrid: View {
     .keyboardShortcuts(
       vm: vm,
       sessions: sessions,
-      visibleAssets: onReadGridFilterMetadata == nil
-        ? vm.assets : vm.gridAssets(sessions: sessions),
+      visibleAssets: visibleAssets,
       // #944: ⌘C/⌘V are only claimed when a clipboard is wired
       // (production always wires one; previews don't).
       onCopyAdjustments: clipboard != nil ? { copyAdjustments() } : nil,
@@ -336,7 +338,9 @@ struct BrowseGrid: View {
   /// Renders when `vm.isMerged` is false. Includes folder cells in the
   /// `leading:` slot, desktop badge overlays, multi-select, and session priming.
   @ViewBuilder
-  private var normalGrid: some View {
+  private func normalGrid(
+    visibleAssets: [AssetRef], visibleIDs: Set<AssetRef.ID>
+  ) -> some View {
     VStack(alignment: .leading, spacing: 0) {
       // Sub-folders first — Finder-style — in their own tile section
       // above the images (#3099). Hidden during multi-select so only
@@ -357,7 +361,7 @@ struct BrowseGrid: View {
         }
       }
       PhotoGrid(
-        data: onReadGridFilterMetadata == nil ? vm.assets : vm.gridAssets(sessions: sessions),
+        data: visibleAssets,
         columns: .responsiveBySizeClass,
         provider: localProvider,
         displayMode: resolvedDisplayMode,
@@ -390,11 +394,10 @@ struct BrowseGrid: View {
           guard asset.thumbnailProvenance != .photoKit, !(vm.currentSource is PhotoKitSource) else {
             return nil
           }
-          let visible = Set(vm.gridAssets(sessions: sessions).map(\.id))
           let active =
             vm.isSelecting
-            ? vm.selectedIDs.intersection(visible)
-            : (vm.selectedID.flatMap { visible.contains($0) ? Set([$0]) : nil } ?? [])
+            ? vm.selectedIDs.intersection(visibleIDs)
+            : (vm.selectedID.flatMap { visibleIDs.contains($0) ? Set([$0]) : nil } ?? [])
           guard active.contains(asset.id), active.count > 1 else {
             return DraggedAssetPayload(ids: [asset.id], resolveAssets: { [asset] })
           }
