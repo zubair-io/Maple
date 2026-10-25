@@ -86,6 +86,7 @@ struct AppShell: View {
   // and discard the user's in-progress edits. nil = sheet closed.
   #if os(macOS)
     @State var nativeExportSelection: NativeExportRecipeSelection?
+    @State private var exportRecipesFocusRequest = 0
   #endif
   @State private var batchMetadataVM: BatchMetadataViewModel?
   /// Batch rename sheet (#2641). Same "held in @State, not built inside
@@ -1007,7 +1008,12 @@ struct AppShell: View {
       clipboard: adjustmentClipboard
     )
     #if os(macOS)
-      .sheet(item: $nativeExportSelection) { selection in
+      .sheet(
+        item: $nativeExportSelection,
+        onDismiss: {
+          exportRecipesFocusRequest += 1
+        }
+      ) { selection in
         NativeExportRecipePanel(assets: selection.assets) { asset in
           guard let session = selection.sessions[asset.id] else {
             throw NativeExportError.message("Could not prepare this photo for export.")
@@ -1566,14 +1572,13 @@ struct AppShell: View {
     )
     #if os(macOS)
       ToolbarItem {
-        Button("Export recipes…") {
+        NativeExportRecipesToolbarButton(focusRequest: exportRecipesFocusRequest) {
           let assets = nativeExportAssets
           for asset in assets { ensureSession(for: asset) }
           nativeExportSelection = NativeExportRecipeSelection(
             assets: assets,
             sessions: sessions.filter { entry in assets.contains(where: { $0.id == entry.key }) })
         }
-        .accessibilityIdentifier("browse-export-recipes")
       }
     #endif
   }

@@ -5,6 +5,34 @@ import XCTest
 #if os(macOS)
   /// Uses the existing staged-fixture launch path and real native folder picker (#4113).
   final class NativeExportRecipeUITests: XCTestCase {
+    func testRecipeSheetReturnsKeyboardFocusToBrowseTrigger() throws {
+      continueAfterFailure = false
+      let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appending(path: "Fixtures/layout/rgb-gradient.png")
+      let app = XCUIApplication()
+      app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = fixture.lastPathComponent
+      app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = fixture.deletingLastPathComponent().path
+      app.launchArguments = ["--uitest-browse"]
+      app.launch()
+      defer { app.terminate() }
+
+      let trigger = app.buttons["browse-export-recipes"]
+      let done = app.buttons["native-recipe-close"]
+      XCTAssertTrue(trigger.waitForExistence(timeout: 30))
+      trigger.click()
+      XCTAssertTrue(done.waitForExistence(timeout: 10))
+      let disappeared = NSPredicate(format: "exists == false")
+      app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
+      wait(for: [expectation(for: disappeared, evaluatedWith: done)], timeout: 5)
+      app.typeKey(" ", modifierFlags: [])
+      XCTAssertTrue(done.waitForExistence(timeout: 10))
+
+      done.click()
+      wait(for: [expectation(for: disappeared, evaluatedWith: done)], timeout: 5)
+      app.typeKey(" ", modifierFlags: [])
+      XCTAssertTrue(done.waitForExistence(timeout: 10))
+    }
+
     func testBrowseRecipeCapturesTwoSelectedPhotosOnFirstPresentation() throws {
       continueAfterFailure = false
       let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
