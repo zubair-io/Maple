@@ -118,7 +118,7 @@ async function projection(row: BackupDestination) {
       lastError: coverage.prepared
         ? 'Interrupted local move requires recovery or retry'
         : (dominant?.message ?? null),
-      lastErrorCount: coverage.prepared ? coverage.prepared : (dominant?.count ?? 0),
+      lastErrorCount: coverage.prepared || (dominant?.count ?? 0),
       purgePending: purges.filter((p) => !p.completed).length,
     },
   };
