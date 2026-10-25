@@ -240,10 +240,10 @@ type ImageCulling = Partial<Pick<ImageEntry, 'edited' | 'rating' | 'flag' | 'col
  * each photo individually. Avoid I/O for the common sidecar-free case. */
 async function imageCulling(child: Scanned, state: FolderState): Promise<ImageCulling> {
   const sidecar = xmpSidecarPath(child.entry.path);
-  const name = path.basename(sidecar);
-  const checked = state.onDisk.has(name) ? await state.resolveChild(name) : null;
-  if (!checked || path.extname(checked).toLowerCase() !== '.xmp') return {};
   try {
+    const name = path.basename(sidecar);
+    const checked = state.onDisk.has(name) ? await state.resolveChild(name) : null;
+    if (!checked || path.extname(checked).toLowerCase() !== '.xmp') return {};
     const allowed = await authorizeSidecarRead(sidecar);
     if (!allowed.ok) return {};
     const parsed = parseFolderCulling(
