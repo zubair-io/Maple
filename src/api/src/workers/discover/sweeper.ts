@@ -27,8 +27,7 @@ import {
 } from './rename-reconcile.ts';
 import { FOLDER_HIDDEN_MARKER, reconcileFolderHidden } from './folder-hidden.ts';
 import type { CleanupHidden } from './folder-hidden.ts';
-import { ignoreVerdictForDir, listingHasIgnoreMarker } from '../../fs/mapleignore.ts';
-import { excludeIgnoredDirectory } from './folder-ignore.ts';
+import { skipsIgnoredDirectory } from './folder-ignore.ts';
 
 const log = child('discover');
 
@@ -64,13 +63,8 @@ export async function visitDirectory(
     return;
   }
 
-  if (
-    await listingHasIgnoreMarker(
-      dir.dir_path,
-      entries.map((e) => e.name),
-    )
-  ) {
-    await excludeIgnoredDirectory(folderId, root, dir.dir_path);
+  // Before any other work: rename reconciliation below moves sidecars on disk.
+  if (await skipsIgnoredDirectory(folderId, root, dir.dir_path, entries)) {
     await frontier.completeDir(dir._id);
     return;
   }
@@ -201,14 +195,8 @@ async function emitUnreconciledEvents(
   root: string,
   deps: ReconcileDeps,
 ): Promise<void> {
-  const created = newCandidates.filter((c) => !reconciled.reconciledNewFilenames.has(c.filename));
-  // One `.mapleignore` chain check for the whole directory instead of one per
-  // file in the chokepoint (#5398). A directory queued before an ancestor
-  // gained its marker gets no creates; the ancestor's visit excludes it.
-  const ingest =
-    created.length > 0 &&
-    (await ignoreVerdictForDir(root, path.dirname(created[0]!.absPath))) === 'indexed';
-  for (const c of ingest ? created : []) {
+  for (const c of newCandidates) {
+    if (reconciled.reconciledNewFilenames.has(c.filename)) continue;
     await deps.handleEvent(
       { kind: 'created', absPath: c.absPath, markerChainChecked: true },
       deps.folderId,

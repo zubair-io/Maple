@@ -32,8 +32,8 @@ export interface WatchEvent {
   absPath: string;
   /** Only set for renames — previous absolute path. */
   fromPath?: string;
-  /** Set by the sweep once it has checked this file's directory chain for a
-   * `.mapleignore` marker, so the chokepoint need not repeat it per file. */
+  /** Set by the sweep, whose per-visit gate already checked this file's
+   * directory chain for a `.mapleignore` marker. */
   markerChainChecked?: true;
 }
 
