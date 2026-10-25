@@ -1,6 +1,8 @@
 @if (phase() !== 'hidden') {
   <div
-    class="fixed left-1/2 bottom-48 z-[1000] -translate-x-1/2 flex items-center gap-3 px-4 py-2.5 rounded-lg border border-border bg-surface-alt text-text-main text-sm shadow-lg max-w-[calc(100vw-2rem)]"
+    class="fixed left-1/2 z-[1000] -translate-x-1/2 flex items-center gap-3 px-4 py-2.5 rounded-lg border border-border bg-surface-alt text-text-main text-sm shadow-lg max-w-[calc(100vw-2rem)]"
+    [class.bottom-4]="!isPreview()"
+    [class.bottom-48]="isPreview()"
     role="status"
     aria-live="polite"
   >
