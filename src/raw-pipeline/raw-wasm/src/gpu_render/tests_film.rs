@@ -55,9 +55,9 @@ fn chain_inputs_fold_film_lut_size_key_and_data() {
         ..AdjustmentModel::default()
     };
 
-    let whites_anchor_ev = super::develop_prefix_rgba(&raw_img, &bytes, ext, &model, 16)
+    let whites_anchor_ev = super::develop_capture_prefix_rgba(&raw_img, &bytes, ext, &model, 16)
         .expect("prefix anchor")
-        .4;
+        .whites_anchor_ev;
     let (no_look, _) =
         super::chain_inputs_with_status(&raw_img, &bytes, ext, &model, None, 0, whites_anchor_ev);
     assert_eq!(no_look.whites_anchor_ev, whites_anchor_ev);
@@ -129,26 +129,35 @@ fn set_and_clear_film_lut_round_trips_through_the_same_session() {
 
     let ctx = pollster::block_on(GpuContext::new_async()).expect("gpu context");
     let target = super::effective_target_long_edge(None, &ctx);
-    let (rgba, w, h, _prefix, whites_anchor_ev, _nr_sampling_scale, _ae_gain) =
-        super::develop_prefix_rgba(&raw_img, &bytes, ext, &model, target).expect("develop");
-    let session = LiveSession::new(&ctx, &rgba, w, h).expect("session upload");
+    let prefix =
+        super::develop_capture_prefix_rgba(&raw_img, &bytes, ext, &model, target).expect("develop");
+    let whites_anchor_ev = prefix.whites_anchor_ev;
+    let session =
+        LiveSession::new(&ctx, &prefix.rgba, prefix.width, prefix.height).expect("session upload");
+    let inputs_for = |film: Option<&raw_core::film::FilmLut>, key: u32| {
+        let (mut inputs, _) = super::chain_inputs_with_status(
+            &raw_img,
+            &bytes,
+            ext,
+            &model,
+            film,
+            key,
+            whites_anchor_ev,
+        );
+        prefix
+            .creative
+            .apply(&model, &mut inputs)
+            .expect("creative");
+        inputs
+    };
 
-    let (no_look_inputs, _) =
-        super::chain_inputs_with_status(&raw_img, &bytes, ext, &model, None, 0, whites_anchor_ev);
+    let no_look_inputs = inputs_for(None, 0);
     let baseline = pollster::block_on(session.render_async(&ctx, &no_look_inputs, None))
         .expect("baseline render ok")
         .expect("baseline render");
 
     let lut = solid_red_lut();
-    let (loaded_inputs, _) = super::chain_inputs_with_status(
-        &raw_img,
-        &bytes,
-        ext,
-        &model,
-        Some(&lut),
-        7,
-        whites_anchor_ev,
-    );
+    let loaded_inputs = inputs_for(Some(&lut), 7);
     let with_look = pollster::block_on(session.render_async(&ctx, &loaded_inputs, None))
         .expect("with-look render ok")
         .expect("with-look render");
@@ -170,8 +179,7 @@ fn set_and_clear_film_lut_round_trips_through_the_same_session() {
 
     // Clear ⇒ back to `(None, 0)` inputs ⇒ byte-identical to the baseline —
     // the same session, same develop, only the film fields reverted.
-    let (cleared_inputs, _) =
-        super::chain_inputs_with_status(&raw_img, &bytes, ext, &model, None, 0, whites_anchor_ev);
+    let cleared_inputs = inputs_for(None, 0);
     let cleared = pollster::block_on(session.render_async(&ctx, &cleared_inputs, None))
         .expect("cleared render ok")
         .expect("cleared render");

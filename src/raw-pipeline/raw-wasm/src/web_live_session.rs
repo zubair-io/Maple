@@ -12,18 +12,21 @@
 //!
 //! ## The render lifecycle: open → render(xmp)* → drop
 //!
-//! - [`WebLiveSession::open`] decodes the RAW ONCE, develops the stripped prefix to
-//!   the post-`auto_exposure` scene-linear buffer, fits the Auto Profile artifacts,
-//!   uploads the buffer to a [`LiveSession`], and configures the canvas surface.
+//! - [`WebLiveSession::open`] decodes the RAW ONCE, runs the capture decode of the
+//!   stripped prefix (#5379: the capture result in the fixed as-shot basis plus
+//!   the creative stage that renders it), fits the Auto Profile artifacts,
+//!   uploads the capture result to a [`LiveSession`], and configures the canvas
+//!   surface.
 //!   The develop is VIEWPORT-SIZED (#1080): the caller passes its canvas/viewport
 //!   `max_long_edge` (real pixels) and the buffer + canvas are fit to it — never
 //!   full sensor res, which on a 100 MP frame exceeds the downlevel 2048 texture
 //!   baseline (black canvas) and burns ~2.8 GB of transient f32 in the wasm heap.
 //! - [`WebLiveSession::render`] re-applies the user's WB / tone / … on the GPU and
 //!   presents. It re-develops + re-uploads ONLY when a prefix-affecting field
-//!   changes (see below); the hot-path sliders just rebuild [`FullChainInputs`] and
-//!   re-run the resident chain — allocating zero new GPU buffers and recompiling no
-//!   pipelines (the CLAUDE.md render-loop invariant; the zero-alloc re-render is
+//!   changes (see below). The hot-path sliders just rebuild [`FullChainInputs`],
+//!   white balance included as the session-held creative stage's plan over the
+//!   interned tables, and re-run the resident chain, allocating zero new GPU
+//!   buffers and recompiling no pipelines (the CLAUDE.md render-loop invariant; the zero-alloc re-render is
 //!   proven on the shared `raw_gpu::LiveSession` substrate in
 //!   `raw-gpu/src/live_session/tests.rs`).
 //! - Drop releases the GPU context + session.
@@ -43,8 +46,8 @@
 //!
 //! ## Parity
 //!
-//! `render` rides the IDENTICAL develop + fit + chain as the one-shot
-//! `render_bytes_gpu` (shared [`crate::gpu_render::develop_prefix_rgba`] /
+//! `render` rides the IDENTICAL capture decode + fit + chain as the one-shot
+//! `render_bytes_gpu` (shared [`crate::gpu_render::develop_capture_prefix_rgba`] /
 //! [`crate::gpu_render::chain_inputs_with_status`]), then the same f32 chain
 //! ([`LiveSession::render_chain_to_f32_async`]) the headless C4 path runs; the
 //! surface present applies the same `dither_and_quantize` math `dither.wgsl` does
@@ -55,10 +58,11 @@
 //! the #1029-W3 maintainer checkpoint.
 
 use crate::gpu_render::{
-    develop_prefix_rgba, effective_target_long_edge, inferred_auto_will_fit,
-    model_from_live_params, resolve_target_color_space, session_prefix_matches, GpuWhiteBalance,
+    develop_capture_prefix_rgba, effective_target_long_edge, inferred_auto_will_fit,
+    model_from_live_params, resolve_target_color_space, session_prefix_matches, CapturePrefix,
 };
 use crate::web_live_geometry::presentation;
+use raw_core::gpu_host::capture::LiveCreative;
 use raw_core::xmp::AdjustmentModel;
 use raw_gpu::{GpuContext, LiveSession, WebPresentSurface};
 use wasm_bindgen::prelude::*;
@@ -103,10 +107,11 @@ pub struct WebLiveSession {
     auto_will_fit_cache: Option<bool>,
     /// Pre-AE anchor measured alongside the uploaded prefix, reused on every tick.
     whites_anchor_ev: f32,
-    white_balance: GpuWhiteBalance,
     nr_sampling_scale: f32,
-    /// Auto-exposure gain baked into the uploaded prefix after DCP (#5099).
-    ae_gain: f32,
+    /// The uploaded capture decode's creative stage (#5379): white balance,
+    /// the camera profile, Oklab recovery and the exposure gain the pixels do
+    /// not carry. Replaced with the upload, never per tick.
+    creative: LiveCreative,
     /// The EFFECTIVE develop long-edge cap (#1080): the caller's viewport target
     /// normalized + clamped to the device texture cap in `open`. Fixed for the
     /// session's lifetime, so a prefix re-develop reproduces the same dims and
@@ -215,7 +220,6 @@ impl WebLiveSession {
         let ((as_shot_temperature, as_shot_tint), camera_support) =
             crate::open_metadata::assess(&raw_img);
         let model = parse_model(&xmp).map_err(|e| JsError::new(&e))?;
-        let white_balance = GpuWhiteBalance::resolve(&raw_img).map_err(|e| JsError::new(&e))?;
 
         // Context BEFORE develop: the effective develop target clamps to this
         // device's texture cap (#1080, composing with #1079's adapter-clamped
@@ -232,9 +236,16 @@ impl WebLiveSession {
         // cached for the re-develop check. Native dims ride the handle so the
         // editor's zoom math stays full-res-aware (#1101 contract).
         let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
-        let (rgba, width, height, prefix_model, whites_anchor_ev, nr_sampling_scale, ae_gain) =
-            develop_prefix_rgba(&raw_img, &raw, &ext, &model, target_long_edge)
-                .map_err(|e| JsError::new(&e))?;
+        let CapturePrefix {
+            rgba,
+            width,
+            height,
+            prefix_model,
+            whites_anchor_ev,
+            nr_sampling_scale,
+            creative,
+        } = develop_capture_prefix_rgba(&raw_img, &raw, &ext, &model, target_long_edge)
+            .map_err(|e| JsError::new(&e))?;
 
         // Fallible (#1079): an image past the device's buffer/binding limits
         // surfaces as a JsError for the same CPU fallback.
@@ -268,9 +279,8 @@ impl WebLiveSession {
             live_profile: None,
             auto_will_fit_cache,
             whites_anchor_ev,
-            white_balance,
             nr_sampling_scale,
-            ae_gain,
+            creative,
             target_long_edge,
             width,
             height,
@@ -452,15 +462,15 @@ impl WebLiveSession {
             &self.ext,
             &mut self.auto_will_fit_cache,
         ) {
-            let (rgba, w, h, prefix_model, whites_anchor_ev, nr_sampling_scale, ae_gain) =
-                develop_prefix_rgba(
-                    &self.raw_img,
-                    &self.raw,
-                    &self.ext,
-                    model,
-                    self.target_long_edge,
-                )
-                .map_err(|e| JsError::new(&e))?;
+            let prefix = develop_capture_prefix_rgba(
+                &self.raw_img,
+                &self.raw,
+                &self.ext,
+                model,
+                self.target_long_edge,
+            )
+            .map_err(|e| JsError::new(&e))?;
+            let (w, h) = (prefix.width, prefix.height);
             if (w, h) != self.session.dims() {
                 return Err(JsError::new(&format!(
                     "WebLiveSession::render: re-develop dims {w}x{h} != {}x{} (canvas not resized)",
@@ -468,15 +478,15 @@ impl WebLiveSession {
                     self.session.dims().1
                 )));
             }
-            if let Some(fits) = inferred_auto_will_fit(model, &prefix_model) {
+            if let Some(fits) = inferred_auto_will_fit(model, &prefix.prefix_model) {
                 self.auto_will_fit_cache = Some(fits);
             }
-            self.session.update_image(&self.ctx, &rgba);
-            self.prefix_model = prefix_model;
+            self.session.update_image(&self.ctx, &prefix.rgba);
+            self.prefix_model = prefix.prefix_model;
             self.live_profile = None;
-            self.whites_anchor_ev = whites_anchor_ev;
-            self.nr_sampling_scale = nr_sampling_scale;
-            self.ae_gain = ae_gain;
+            self.whites_anchor_ev = prefix.whites_anchor_ev;
+            self.nr_sampling_scale = prefix.nr_sampling_scale;
+            self.creative = prefix.creative;
             self.lens_profile_json = crate::lens_profile::metadata(&self.raw_img, model);
         }
         self.present_for_model(model)
@@ -500,7 +510,7 @@ impl WebLiveSession {
         profile.update(model);
         let auto_fit = profile.auto_fit;
         let inputs = &mut profile.inputs;
-        self.white_balance.apply(model, self.ae_gain, inputs);
+        self.creative.apply(model, inputs)?;
         inputs.nr_sampling_scale = self.nr_sampling_scale;
         // Masks are authored upright; the resident chain remains sensor-framed.
         inputs.mask_orientation = self.raw_img.orientation.exif_tag();

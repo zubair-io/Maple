@@ -64,11 +64,11 @@ fn effective_target_long_edge_clamps_to_device_texture_cap() {
     );
 }
 
-/// The sized develop actually SHRINKS the buffer: a 16-px cap on the 64×64
-/// fixture develops to 16×16 with an exactly-sized RGBA pack. Generated fixture,
-/// no GPU needed (the develop + pack are pure CPU).
+/// The sized capture decode actually SHRINKS the buffer: a 16-px cap on the
+/// 64×64 fixture decodes to 16×16 with an exactly-sized RGBA pack. Generated
+/// fixture, no GPU needed (the decode + pack are pure CPU).
 #[test]
-fn develop_prefix_rgba_caps_long_edge() {
+fn develop_capture_prefix_rgba_caps_long_edge() {
     let bytes = raw_core::test_support::synth_dng::SyntheticGreyDng {
         width: 64,
         height: 64,
@@ -79,8 +79,14 @@ fn develop_prefix_rgba_caps_long_edge() {
     let raw_img = raw_core::decode::decode_bytes(&bytes, ext).expect("decode synthetic DNG");
     let model = AdjustmentModel::default();
 
-    let (rgba, w, h, _prefix, _whites_anchor_ev, nr_sampling_scale, _ae_gain) =
-        super::develop_prefix_rgba(&raw_img, &bytes, ext, &model, 16).expect("sized develop");
+    let super::CapturePrefix {
+        rgba,
+        width: w,
+        height: h,
+        nr_sampling_scale,
+        ..
+    } = super::develop_capture_prefix_rgba(&raw_img, &bytes, ext, &model, 16)
+        .expect("sized capture decode");
     assert_eq!(
         (w, h),
         (16, 16),
@@ -102,13 +108,13 @@ fn develop_prefix_rgba_caps_long_edge() {
 }
 
 /// THE NO-OP CLAIM: a cap at/above the source long edge is bit-identical to the
-/// pre-#1080 full-res develop (raw-core's `downsample_image_area` early-returns;
-/// the sized chain runs the same stage math under `sized_*` labels). This is what
-/// keeps the W1 parity gate above meaningful and the small-image path unchanged.
-/// Generated fixture, no GPU needed.
+/// full-resolution capture decode (raw-core's `downsample_image_area`
+/// early-returns; the sized chain runs the same stage math under `sized_*`
+/// labels). This is what keeps the W1 parity gate above meaningful and the
+/// small-image path unchanged. Generated fixture, no GPU needed.
 #[test]
-fn develop_prefix_rgba_uncapped_matches_unsized_develop() {
-    use raw_core::pipeline::develop_scene_linear_from_raw_with_quality;
+fn develop_capture_prefix_rgba_uncapped_matches_unsized_decode() {
+    use raw_core::pipeline::render_capture_from_raw_f32;
 
     let bytes = raw_core::test_support::synth_dng::SyntheticGreyDng {
         width: 64,
@@ -120,34 +126,35 @@ fn develop_prefix_rgba_uncapped_matches_unsized_develop() {
     let raw_img = raw_core::decode::decode_bytes(&bytes, ext).expect("decode synthetic DNG");
     let model = AdjustmentModel::default();
 
-    let (rgba, w, h, prefix, whites_anchor_ev, nr_sampling_scale, _ae_gain) =
-        super::develop_prefix_rgba(
-            &raw_img,
-            &bytes,
-            ext,
-            &model,
-            super::DEFAULT_TARGET_LONG_EDGE,
-        )
-        .expect("sized develop");
+    let prefix = super::develop_capture_prefix_rgba(
+        &raw_img,
+        &bytes,
+        ext,
+        &model,
+        super::DEFAULT_TARGET_LONG_EDGE,
+    )
+    .expect("sized capture decode");
 
-    // The pre-#1080 reference: the UNSIZED develop of the same stripped prefix,
-    // packed the same way.
-    let scene = develop_scene_linear_from_raw_with_quality(&raw_img, &prefix, RenderQuality::Full)
-        .expect("unsized develop");
+    // The full-resolution capture decode of the same stripped prefix; the
+    // fixture is upright, so its orientation pass is the identity.
+    let full = render_capture_from_raw_f32(
+        &raw_img,
+        &prefix.prefix_model,
+        RenderQuality::Amaze,
+        raw_core::CancelToken::never(),
+    )
+    .expect("unsized capture decode");
     assert_eq!(
-        (w, h),
-        (scene.width, scene.height),
+        (prefix.width, prefix.height),
+        (full.width, full.height),
         "cap ≥ source must not change dims"
     );
-    assert_eq!(Some(whites_anchor_ev), scene.whites_anchor_ev);
-    assert_eq!(nr_sampling_scale, 1.0);
-    let mut reference: Vec<f32> = Vec::with_capacity(scene.pixels.len() * 4);
-    for p in &scene.pixels {
-        reference.extend_from_slice(&[p[0], p[1], p[2], 1.0]);
-    }
+    assert_eq!(prefix.whites_anchor_ev, full.whites_anchor_ev);
+    assert_eq!(prefix.nr_sampling_scale, 1.0);
+    assert_eq!(prefix.creative.header, full.creative);
     assert_eq!(
-        rgba, reference,
-        "cap ≥ source long edge must be BIT-IDENTICAL to the unsized develop"
+        prefix.rgba, full.rgba,
+        "cap ≥ source long edge must be BIT-IDENTICAL to the unsized decode"
     );
 }
 

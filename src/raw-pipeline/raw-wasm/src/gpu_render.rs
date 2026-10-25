@@ -2,8 +2,8 @@
 //! P4b-web / #1029).
 //!
 //! The WASM counterpart of [`crate::render_bytes`]: decodes a RAW from bytes and
-//! produces the SAME u8 RGB display surface, but routes the scene-linear-subset +
-//! view-tail + dither through the merged wgpu+WGSL chain ([`raw_gpu::LiveSession`])
+//! produces the SAME u8 RGB display surface, but routes the creative stage, the
+//! scene-linear sliders, the view tail and the dither through the merged wgpu+WGSL chain ([`raw_gpu::LiveSession`])
 //! instead of `raw-core`'s CPU pipeline. Gated behind `raw-wasm`'s `gpu` feature
 //! (off by default; the CPU `render_bytes` + WebGL2 paths remain the fallback —
 //! deletion is P5).
@@ -15,21 +15,21 @@
 //! inside wasm32's permanently-grown heap. No target ⇒ the
 //! [`DEFAULT_TARGET_LONG_EDGE`] (2048) cap.
 //!
-//! ## The decode boundary (why two develops, and where the split lands)
+//! ## The decode boundary: the capture decode (#5379)
 //!
-//! The GPU chain re-applies `white_balance` → … → `nr_color` + the view tail, so
-//! its INPUT must be the post-`auto_exposure` (develop stage 05), pre-`white_balance`
-//! (stage 06) scene-linear Rec.2020 buffer. raw-core exposes no such split point,
-//! so we obtain it by developing through the EXISTING
-//! [`develop_scene_linear_sized_from_raw_with_quality`] with a STRIPPED model: the
-//! stages the GPU chain re-runs (WB / tone / vibrance / … / sharpen / nr) are set
-//! to their no-op defaults so each `apply` short-circuits BIT-EXACTLY, while the
-//! upstream stages the GPU chain does NOT do (`highlight_recovery`,
-//! `capture_sharpening`, `profile`, the `auto_exposure` MODE) keep the real
-//! model's values. The develop output then IS the post-AE buffer (zero-drift —
-//! identical upstream math), and the GPU chain re-applies the real model's WB /
-//! tone / … absolutely. `capture_sharpening` is baked in this prefix, so the GPU
-//! chain gets `capture_sharpening: None` (the Apple decode-boundary contract).
+//! The upload is raw-core's capture decode (docs/pipeline.md § "The capture
+//! decode"), left in sensor framing: the RAW developed through the capture
+//! stages (retouch, chroma pre-filter, BM3D, capture sharpening) into the fixed
+//! as-shot Rec.2020 basis, with no white balance, camera profile, Oklab recovery
+//! or exposure gain applied. It is decoded from a STRIPPED model: the stages the
+//! GPU chain re-runs (tone / vibrance / … / sharpen / nr) are pinned to their
+//! no-op defaults and white balance to the as-shot sentinel, while the upstream
+//! fields (`highlight_recovery`, `capture_sharpening`, `profile`, the
+//! `auto_exposure` MODE, …) keep the real model's values. The decode also returns
+//! its creative stage, which the GPU chain runs in place of the white-balance
+//! pass with the real model's white balance; every other slider runs as before.
+//! `capture_sharpening` is baked in the capture, so the GPU chain gets
+//! `capture_sharpening: None`.
 //!
 //! ## auto-exposure decision (the one wholesale-parity risk)
 //!
@@ -47,13 +47,13 @@
 // (`render_bytes_gpu`) is wasm-only — its macro expansion references
 // `wasm_bindgen_futures`, a wasm-only dep.
 #[cfg(any(target_arch = "wasm32", test))]
+pub(crate) use raw_core::gpu_host::capture::{develop_capture_prefix_rgba, CapturePrefix};
+#[cfg(any(target_arch = "wasm32", test))]
 pub(crate) use raw_core::gpu_host::model::prefix_matches;
 #[cfg(test)]
 pub(crate) use raw_core::gpu_host::prepare::fit_profile_artifacts_with_status;
 #[cfg(any(target_arch = "wasm32", test))]
-pub(crate) use raw_core::gpu_host::prepare::{
-    auto_will_fit, chain_inputs_with_status, develop_prefix_rgba,
-};
+pub(crate) use raw_core::gpu_host::prepare::{auto_will_fit, chain_inputs_with_status};
 #[cfg(any(target_arch = "wasm32", test))]
 use raw_core::xmp::AdjustmentModel;
 #[cfg(any(target_arch = "wasm32", test))]
@@ -108,10 +108,6 @@ pub(crate) fn effective_target_long_edge(requested: Option<u32>, ctx: &GpuContex
 
 #[cfg(test)]
 use raw_core::gpu_host::model::stripped_prefix_model;
-#[cfg(any(target_arch = "wasm32", test))]
-use raw_core::gpu_host::white_balance;
-#[cfg(any(target_arch = "wasm32", test))]
-pub(crate) use white_balance::GpuWhiteBalance;
 
 /// Select the display-encode `target_primaries` (`display_encode.wgsl`: 0 = sRGB,
 /// 1 = Display P3) that MATCHES the canvas colour-space tag the present surface
@@ -359,7 +355,7 @@ mod primaries_tests {
 /// This is the ONE-SHOT u8-readback path (the W1 parity gate + the gpu-off-bundle
 /// fallback). The persistent zero-readback path
 /// ([`crate::web_live_session::WebLiveSession`]) reuses the SAME
-/// [`develop_prefix_rgba`] / [`chain_inputs_with_status`] helpers but uploads once
+/// [`develop_capture_prefix_rgba`] / [`chain_inputs_with_status`] helpers but uploads once
 /// and presents to a surface instead of reading back.
 ///
 /// `max_long_edge` (#1080): optional viewport target from the JS caller, in real
@@ -397,20 +393,20 @@ async fn render_gpu_core_with_status(
         .map_err(|e| format!("render_bytes_gpu: {e}"))?;
     let target = effective_target_long_edge(max_long_edge, &ctx);
 
-    let (rgba, w, h, _prefix_model, whites_anchor_ev, nr_sampling_scale, ae_gain) =
-        develop_prefix_rgba(raw_img, raw, ext, model, target)?;
+    let prefix = develop_capture_prefix_rgba(raw_img, raw, ext, model, target)?;
+    let (rgba, w, h) = (&prefix.rgba, prefix.width, prefix.height);
     // Film looks are session-resident; one-shot renders have no uploaded LUT.
     let (mut inputs, auto_fit) =
-        chain_inputs_with_status(raw_img, raw, ext, model, None, 0, whites_anchor_ev);
-    GpuWhiteBalance::resolve(raw_img)?.apply(model, ae_gain, &mut inputs);
-    inputs.nr_sampling_scale = nr_sampling_scale;
+        chain_inputs_with_status(raw_img, raw, ext, model, None, 0, prefix.whites_anchor_ev);
+    prefix.creative.apply(model, &mut inputs)?;
+    inputs.nr_sampling_scale = prefix.nr_sampling_scale;
 
     // Upload ONCE, run the gated live chain + the WGSL terminal dither, read the
     // u8 RGB surface back. wasm has no blocking poll, so we await the async core.
     // Every GPU step is fallible (#1079): dims past the device's limits, a failed
     // readback — each surfaces as an Err for the same CPU fallback.
     let session =
-        LiveSession::new(&ctx, &rgba, w, h).map_err(|e| format!("render_bytes_gpu: {e}"))?;
+        LiveSession::new(&ctx, rgba, w, h).map_err(|e| format!("render_bytes_gpu: {e}"))?;
     let rgb = session
         .render_async(&ctx, &inputs, None)
         .await
@@ -427,10 +423,11 @@ async fn render_gpu_core_with_status(
 /// (epic #925, P4b-web / #1029) — the GPU-resident counterpart of
 /// [`crate::render_bytes`], returning the SAME [`MapleRender`] shape.
 ///
-/// Pipeline: decode → develop the STRIPPED prefix (post-`auto_exposure`,
-/// pre-`white_balance` scene-linear Rec.2020 buffer) → fit the Auto Profile
+/// Pipeline: decode → the capture decode of the STRIPPED prefix (the fixed
+/// as-shot basis plus its creative stage, #5379) → fit the Auto Profile
 /// curve + residual LUT → upload to a [`LiveSession`] → drive the gated live
-/// chain + the WGSL terminal dither (async; wasm uses `GpuContext::new_async` +
+/// chain (the creative stage in place of white balance) + the WGSL terminal
+/// dither (async; wasm uses `GpuContext::new_async` +
 /// `LiveSession::render_async`) → EXIF-orient → u8 RGB.
 ///
 /// The fresh-open WB substitution + as-shot derivation match `render_bytes`
@@ -526,3 +523,7 @@ mod tests_mask_raster;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "gpu_render/tests_sharpen.rs"]
 mod tests_sharpen;
+// The capture-first live-vs-refine gate and white-balance tick (#5379).
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "gpu_render/tests_capture.rs"]
+mod tests_capture;
