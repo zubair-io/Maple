@@ -100,6 +100,11 @@ struct CameraLocationGrid: View {
           }
           : nil
       )
+      // SwiftUI can retain the grid's old combined accessibility text when
+      // filmstrip navigation replaces the photo but reuses the same row IDs.
+      // Recreate only the metadata grid when its values change so VoiceOver
+      // reads the details of the photo currently shown in Preview.
+      .id(rows.map { "\($0.id):\($0.value)" })
     }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("info-panel-camera-location")
