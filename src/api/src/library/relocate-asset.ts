@@ -32,7 +32,8 @@
  * day-dir-refile migration (`workers/migration/refile-legacy-daydir.ts`).
  */
 
-import { isExcludedLocation, refusesMoveUnderMarker } from '../fs/mapleignore.ts';
+import { isExcludedLocation } from '../fs/mapleignore.ts';
+import { refusesMoveUnderMarker } from '../fs/mapleignore-guard.ts';
 import * as path from 'node:path';
 import type { ObjectId } from '../db/object-id.ts';
 import type { AppleCompanionSlot } from '../db/apple-companions.ts';

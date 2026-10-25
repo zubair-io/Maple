@@ -33,7 +33,7 @@
  * `node:fs` write in this module to swap.
  */
 
-import { refusesMoveUnderMarker } from '../../fs/mapleignore.ts';
+import { refusesMoveUnderMarker } from '../../fs/mapleignore-guard.ts';
 import * as path from 'node:path';
 import type { FileInfo } from '../../db/schema.ts';
 import type { MigrationCandidate, MigrationMarker } from '../../db/repos/assets.migrations.ts';

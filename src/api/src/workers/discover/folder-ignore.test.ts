@@ -8,7 +8,7 @@
  * compares bytes.
  */
 import { describe, expect, it } from 'bun:test';
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { handleEvent } from './handle-event.ts';
 import { SweeperLoop, visitDirectory } from './sweeper.ts';
@@ -26,6 +26,7 @@ import { trashAssetById } from '../../library/asset-trash.ts';
 import { trashFolderRecursive } from '../../library/folder-trash.ts';
 import { runTrashGcOnce } from '../trash-gc.ts';
 import { refusesFileUnderMarker } from '../../fs/mapleignore-guard.ts';
+import { authorizeSidecarWrite, writeSidecarAtomic } from '../../fs/sidecar-io.ts';
 import { relocateAsset } from '../../library/relocate-asset.ts';
 import { loadAssetLocationView } from '../../db/repos/assets.locations.repo.ts';
 import { toObjectId } from '../../db/repos/values.ts';
@@ -464,6 +465,25 @@ describe('.mapleignore — path-only writers and purges', () => {
     );
     rmSync(join(library.root, '.mapleignore'));
     expect(await refusesFileUnderMarker(join(library.root, 'a', 'b.xmp'))).toBe(false);
+  });
+
+  it('refuses a sidecar write through a symlink that leads into an ignored folder', async () => {
+    using library = await createDiscoverLibrary('maple-ignore-');
+    invalidateLibraryRoots();
+    // The marker sits on an ancestor of the link's target, so the logical
+    // path `linked/photo.xmp` passes no marker at all — only its real path does.
+    put(library.root, 'ignored/sub/photo.jpg');
+    const sidecar = put(library.root, 'ignored/sub/photo.xmp', '<xmp>original</xmp>');
+    mark(library.root, 'ignored');
+    symlinkSync(join(library.root, 'ignored', 'sub'), join(library.root, 'linked'));
+    const throughLink = join(library.root, 'linked', 'photo.xmp');
+
+    expect(await refusesFileUnderMarker(throughLink)).toBe(true);
+    const allowed = await authorizeSidecarWrite(throughLink);
+    expect(allowed.ok).toBe(false);
+    const written = await writeSidecarAtomic(throughLink, '<xmp>changed</xmp>', 'test write');
+    expect(written.ok).toBe(false);
+    expect(readFileSync(sidecar, 'utf8')).toBe('<xmp>original</xmp>');
   });
 
   it('a Trash purge never unlinks a live copy that sits under a marker', async () => {

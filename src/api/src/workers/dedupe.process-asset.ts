@@ -34,7 +34,7 @@ import { stageRearmStatements, RELOCATE_CACHE_STAGES } from '../db/repos/assets.
 import { child as childLogger } from '../log.ts';
 import { statKind, libraryRootAvailable } from './missing-reaper.helpers.ts';
 import { moveToDuplicates, directoryHasKeepFile } from '../fs/duplicates.ts';
-import { refusesMoveUnderMarker } from '../fs/mapleignore.ts';
+import { refusesMoveUnderMarker } from '../fs/mapleignore-guard.ts';
 import { cleanPreviewsCacheForLocation } from '../fs/preview-cache-cleanup.ts';
 import { folderKey, sameEntry, selectKeeper, type DeDuplicateSummary } from './dedupe.helpers.ts';
 
