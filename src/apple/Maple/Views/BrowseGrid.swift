@@ -115,6 +115,9 @@ struct BrowseGrid: View {
   /// Local fallback when no parent binding is supplied (e.g. previews).
   /// Real toolbar wiring lives on `AppShell`.
   @State private var localDisplayMode: GridDisplayMode = .fill
+  /// The last plain-clicked tile anchors macOS Shift-click ranges. A stale
+  /// anchor from another folder is ignored by `selectRange`.
+  @State private var selectionAnchorID: AssetRef.ID?
 
   /// Resolved mode — parent binding wins; otherwise the local @State.
   private var resolvedDisplayMode: GridDisplayMode {
@@ -415,8 +418,17 @@ struct BrowseGrid: View {
         renameOverlay: { asset in AnyView(GridCellRenameCaption(asset: asset)) },
         onTap: { asset, _ in
           if vm.isSelecting {
-            // Multi-select mode: tap toggles check.
-            vm.toggleSelected(asset.id)
+            #if os(macOS)
+              if NSEvent.modifierFlags.contains(.shift) {
+                vm.selectRange(from: selectionAnchorID, to: asset.id)
+                selectionAnchorID = asset.id
+              } else {
+                vm.toggleSelected(asset.id)
+                selectionAnchorID = asset.id
+              }
+            #else
+              vm.toggleSelected(asset.id)
+            #endif
           } else {
             // Normal mode: tap opens the editor.
             vm.selectedID = asset.id
