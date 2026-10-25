@@ -227,7 +227,7 @@ async function indexUploadedMedia(
   }
 }
 async function insideIgnoredFolder(input: UploadTarget): Promise<boolean> {
-  return (await ignoreVerdict(input.folder.path, relativeDirectory(input.target))) === 'ignored';
+  return (await ignoreVerdict(input.folder.path, relativeDirectory(input.target))) !== 'indexed';
 }
 async function announceUploadedFile(input: UploadTarget, assetId: ObjectId | null): Promise<void> {
   await recordAndPublishAssetChange({
@@ -264,8 +264,6 @@ async function finalizeUpload(input: UploadTarget) {
     // A replaced asset the indexer had catalogued (e.g. a video) is re-indexed
     // even when the extension is outside the direct-upload set, so the
     // replacement does not vanish from the catalog until the next sweep.
-    // A `.mapleignore` folder (#5398) stores the bytes but never catalogues
-    // them — the upload lands like any other un-indexed file.
     const catalogued =
       (input.isMedia || trashed !== undefined) && !(await insideIgnoredFolder(input));
     const assetId = catalogued ? await indexUploadedMedia(input, info.size, info.mtimeMs) : null;

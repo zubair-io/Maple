@@ -1,25 +1,26 @@
 /**
- * The `.mapleignore` folder marker (#5398): an operator-created file whose
- * presence in a library directory excludes that directory and its whole
- * subtree from the index.
+ * The `.mapleignore` folder marker (#5398): an operator-created file that
+ * excludes its directory and the whole subtree from the index.
  *
- * This module is the shared "is this directory ignored?" vocabulary — the
- * discover sweep, the `handleEvent` chokepoint, the missing-reaper, the upload
- * route and the library folder listing all ask it. It stays free of database
- * imports for the same reason `workers/missing-reaper.helpers.ts` does.
+ * One rule decides what counts as a marker everywhere: an `lstat` of the exact
+ * name that finds a regular file. A directory or a symlink of that name is not
+ * a marker, and case matching follows the volume — so the sweep, the ingest
+ * chokepoint, the reaper and the listings can never disagree about one folder.
  *
- * The verdict is three-valued on purpose. Only a marker that stats present is
- * evidence of "ignored"; a stat error (EACCES, EIO, a share timing out) is
- * `unknown`, and each caller resolves `unknown` in its own safe direction —
- * the reaper keeps the row, the ingest chokepoint skips the event until the
- * next sweep. A transient error can therefore never read as "ignored".
+ * The verdict is three-valued on purpose. A marker stat that errors (EACCES,
+ * EIO, a share timing out) is `unknown`, never `ignored`; each caller resolves
+ * `unknown` in its own safe direction, so a transient error can never read as
+ * an exclusion.
  */
 import * as path from 'node:path';
 import * as fs from './mirrored.ts';
 import { errnoCode } from './errno-code.ts';
 
-/** Exact name of the folder-level ignore marker. */
 export const MAPLE_IGNORE_MARKER = '.mapleignore';
+
+/** `missing_reason` on a location the marker excluded. Its file is still on
+ * disk, so nothing may treat the location as one to act on. */
+export const MAPLE_IGNORE_MISSING_REASON = 'mapleignore';
 
 export type IgnoreVerdict = 'ignored' | 'indexed' | 'unknown';
 
@@ -27,8 +28,7 @@ type MarkerStat = 'present' | 'absent' | 'error';
 
 async function markerIn(dir: string): Promise<MarkerStat> {
   try {
-    await fs.stat(path.join(dir, MAPLE_IGNORE_MARKER));
-    return 'present';
+    return (await fs.lstat(path.join(dir, MAPLE_IGNORE_MARKER))).isFile() ? 'present' : 'absent';
   } catch (err) {
     return errnoCode(err) === 'ENOENT' ? 'absent' : 'error';
   }
@@ -36,26 +36,21 @@ async function markerIn(dir: string): Promise<MarkerStat> {
 
 /**
  * Whether the library directory `relDir` (POSIX, relative to `root`, `''` for
- * the root itself) sits under a `.mapleignore` marker — checked at the root and
- * at every ancestor down to `relDir` itself. A directory that does not exist
- * yet (an upload about to create it) simply finds no marker below the last
- * existing ancestor.
+ * the root) sits under a marker at the root or any ancestor down to itself. A
+ * directory that does not exist yet finds no marker below its last existing
+ * ancestor.
  */
 export async function ignoreVerdict(root: string, relDir: string): Promise<IgnoreVerdict> {
   const segments = relDir === '' ? [] : relDir.split('/');
   const dirs = [root, ...segments.map((_, i) => path.join(root, ...segments.slice(0, i + 1)))];
-  let uncertain = false;
-  for (const dir of dirs) {
-    const marker = await markerIn(dir);
-    if (marker === 'present') return 'ignored';
-    if (marker === 'error') uncertain = true;
-  }
-  return uncertain ? 'unknown' : 'indexed';
+  const markers = await Promise.all(dirs.map(markerIn));
+  if (markers.includes('present')) return 'ignored';
+  return markers.includes('error') ? 'unknown' : 'indexed';
 }
 
-/** As {@link ignoreVerdict}, for an absolute directory under `root`. A path
- * outside `root` has no marker chain to consult and answers `indexed`; callers
- * reject an escaping path through their own containment check. */
+/** As {@link ignoreVerdict}, for an absolute directory. A path outside `root`
+ * answers `indexed`; callers reject an escaping path through their own
+ * containment check. */
 export async function ignoreVerdictForDir(root: string, absDir: string): Promise<IgnoreVerdict> {
   const relDir = path.relative(root, absDir);
   if (relDir === '..' || relDir.startsWith(`..${path.sep}`) || path.isAbsolute(relDir)) {
@@ -64,29 +59,37 @@ export async function ignoreVerdictForDir(root: string, absDir: string): Promise
   return ignoreVerdict(root, relDir.split(path.sep).join('/'));
 }
 
-/** As {@link ignoreVerdictForDir}, for the directory holding `absPath`. */
 export function ignoreVerdictForFile(root: string, absPath: string): Promise<IgnoreVerdict> {
   return ignoreVerdictForDir(root, path.dirname(absPath));
 }
 
-/** True when `dir`'s own marker stats present (no ancestor walk). */
+/** `dir`'s own marker only, no ancestor walk. */
 export async function directoryHasIgnoreMarker(dir: string): Promise<boolean> {
   return (await markerIn(dir)) === 'present';
 }
 
-/**
- * Per-pass memo for callers that ask about many files sharing directories
- * (the reaper examines up to thousands of tagged entries a pass).
- */
+/** For walkers that already hold `dir`'s listing: the listing only nominates
+ * a candidate (case-insensitively, since the volume may be), and the shared
+ * `lstat` rule decides, so the common no-marker case costs no extra I/O. */
+export async function listingHasIgnoreMarker(
+  dir: string,
+  names: readonly string[],
+): Promise<boolean> {
+  return (
+    names.some((name) => name.toLowerCase() === MAPLE_IGNORE_MARKER) &&
+    directoryHasIgnoreMarker(dir)
+  );
+}
+
+/** Per-pass memo for the reaper, which can ask about thousands of entries
+ * sharing a handful of directories. */
 export class IgnoreVerdictMemo {
   private readonly verdicts = new Map<string, Promise<IgnoreVerdict>>();
 
   verdict(root: string, relDir: string): Promise<IgnoreVerdict> {
     const key = `${root}\0${relDir}`;
-    const cached = this.verdicts.get(key);
-    if (cached) return cached;
-    const pending = ignoreVerdict(root, relDir);
-    this.verdicts.set(key, pending);
-    return pending;
+    const cached = this.verdicts.get(key) ?? ignoreVerdict(root, relDir);
+    this.verdicts.set(key, cached);
+    return cached;
   }
 }
