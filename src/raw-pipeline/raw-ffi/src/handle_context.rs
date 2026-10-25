@@ -90,6 +90,27 @@ impl MapleRawHandleInner {
             ),
         }
     }
+
+    /// The tile's capture result in the fixed as-shot basis (#5377).
+    pub(crate) fn render_capture_tile_f32(
+        &self,
+        rect: TileRect,
+        quality: RenderQuality,
+    ) -> Result<(u32, u32, Vec<f32>)> {
+        pipeline::reject_untileable_tile(&self.raw, &self.model, rect)?;
+        match self.frame_context(quality)? {
+            Some(context) => {
+                pipeline::render_capture_tile_from_frame_context_f32(&context, &self.model, rect)
+            }
+            None => pipeline::render_capture_tile_cancellable_f32(
+                &self.raw,
+                &self.model,
+                rect,
+                quality,
+                raw_core::CancelToken::never(),
+            ),
+        }
+    }
 }
 
 #[cfg(test)]

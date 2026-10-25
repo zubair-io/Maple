@@ -291,6 +291,14 @@ mod gpu_live_wb_hsm_tests;
 #[cfg(test)]
 #[path = "gpu_live_wb_seam_tests.rs"]
 mod gpu_live_wb_seam_tests;
+// The capture-first live chain (#5377): creative-stage parity, the WB drag's
+// allocations, and the fixture-gated live-vs-refine gate.
+#[cfg(test)]
+#[path = "gpu_live_capture_seam_tests.rs"]
+mod gpu_live_capture_seam_tests;
+#[cfg(test)]
+#[path = "gpu_live_capture_tests.rs"]
+mod gpu_live_capture_tests;
 // Film-look tail host parity (epic #2683, Task 8) — split out per the
 // 600-LOC budget; reuses `gpu_live_tests`' + `gpu_live_wb_frame_tests`'
 // `pub(super)` helpers the same way the other siblings above do.

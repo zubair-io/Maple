@@ -34,7 +34,7 @@ pub(crate) fn write_scene_linear_buf_f32(
     let wb_frame = &wb.frame;
     let (hsm_ptr, hsm_len, hsm_as_shot_cct) = match &wb.hsm {
         Some(hsm) => {
-            let wire = crate::wb_frame_flat::intern_hsm_wire(hsm.wire());
+            let wire = crate::wb_frame_flat::intern_table_wire(hsm.wire());
             (wire.as_ptr(), wire.len(), hsm.as_shot_cct())
         }
         None => (std::ptr::null(), 0, 0.0),

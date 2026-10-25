@@ -10,15 +10,15 @@ fn wb_method_params_field_selects_the_rec2020_diagonal_gains() {
     use raw_core::types::WbMethod;
     let mut p = default_params();
     p.wb_method = 1;
-    let diagonal = unsafe { crate::scene_linear_chain::chain_inputs_from_params(&p) };
+    let diagonal = unsafe { crate::scene_linear_chain::chain_inputs_from_params(&p) }.unwrap();
     assert_eq!(diagonal.model.wb_method, WbMethod::DiagonalRec2020);
     p.wb_method = 0;
-    let cat16 = unsafe { crate::scene_linear_chain::chain_inputs_from_params(&p) };
+    let cat16 = unsafe { crate::scene_linear_chain::chain_inputs_from_params(&p) }.unwrap();
     assert_eq!(cat16.model.wb_method, WbMethod::Cat16);
     // Anything a newer host might send that this build does not know is the
     // default, never a crash.
     p.wb_method = 99;
-    let unknown = unsafe { crate::scene_linear_chain::chain_inputs_from_params(&p) };
+    let unknown = unsafe { crate::scene_linear_chain::chain_inputs_from_params(&p) }.unwrap();
     assert_eq!(unknown.model.wb_method, WbMethod::Cat16);
 }
 

@@ -32,11 +32,23 @@ struct HazeKey {
     decoded: (f32, f32),
     wb_frame: raw_core::stages::wb_camera::SliderFrameExport,
     wb_hsm: u64,
+    creative: u64,
     whites_anchor_ev: Option<f32>,
     nr_sampling_scale: f32,
 }
 
 static LAST: Mutex<Option<(HazeKey, Arc<FrameHaze>)>> = Mutex::new(None);
+
+/// # Safety
+/// `p.creative_ptr` null or valid for the call.
+unsafe fn creative_digest(p: &MapleAdjustmentParams) -> u64 {
+    use std::hash::Hasher;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    if let Some(creative) = p.creative_ptr.as_ref() {
+        creative.hash_into(&mut h);
+    }
+    h.finish()
+}
 
 fn digest(frame: &[f32]) -> u64 {
     frame.iter().fold(0xcbf2_9ce4_8422_2325, |h, v| {
@@ -90,7 +102,13 @@ pub unsafe extern "C" fn maple_scene_linear_chain_haze_map_f32(
             return 2;
         };
         let p = &*params;
-        let mut ci = chain_inputs_from_params(p);
+        let mut ci = match chain_inputs_from_params(p) {
+            Ok(ci) => ci,
+            Err(e) => {
+                set_last_error(e);
+                return 8;
+            }
+        };
         if !curves.is_null() {
             inject_tone_curves(&mut ci.model, &*curves);
         }
@@ -106,6 +124,7 @@ pub unsafe extern "C" fn maple_scene_linear_chain_haze_map_f32(
             decoded: (options.decoded_temp, options.decoded_tint),
             wb_frame: ci.wb_frame,
             wb_hsm: wb_hsm_digest(p),
+            creative: creative_digest(p),
             whites_anchor_ev: options.whites_anchor_ev,
             nr_sampling_scale: options.nr_sampling_scale,
         };

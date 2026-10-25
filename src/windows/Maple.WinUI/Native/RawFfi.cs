@@ -20,9 +20,9 @@ namespace Maple.WinUI.Native
         public static void VerifyAbi()
         {
             var paramsSize = sizeof(MapleAdjustmentParams);
-            if (paramsSize != 744)
+            if (paramsSize != 752)
                 throw new InvalidOperationException(
-                    $"MapleAdjustmentParams is {paramsSize} bytes; the Rust ABI expects 744. " +
+                    $"MapleAdjustmentParams is {paramsSize} bytes; the Rust ABI expects 752. " +
                     "The C# mirror has drifted from raw-ffi/src/scene_linear_chain.rs.");
         }
 

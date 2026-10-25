@@ -20,7 +20,8 @@ use super::*;
 /// it. The on-GPU reduction that removes that per-tick readback is C5b.
 ///
 /// Returns 0 on success. Non-zero on error (call `maple_last_error`):
-///   -1 handle/params/out null · -3 the GPU render returned no buffer
+///   -1 handle/params/out null, or `creative_ptr` set to inputs that are not
+///   a capture decode's · -3 the GPU render returned no buffer
 ///   (cancelled internally) · -4 the GPU render failed (init/readback error) ·
 ///   -5 internal output-size mismatch (`out_ptr` is NOT written) ·
 ///   99 a Rust-side panic was contained.
@@ -50,7 +51,13 @@ pub unsafe extern "C" fn maple_gpu_live_render(
 
     // Panic barrier (#1079) — see `maple_gpu_live_open`.
     catch_panic_rc("gpu_live_render", || {
-        let inputs = params::inputs_from_params(p);
+        let inputs = match params::inputs_from_params(p) {
+            Ok(inputs) => inputs,
+            Err(e) => {
+                set_last_error(format!("gpu_live_render: {e}"));
+                return -1;
+            }
+        };
         let cancel = CancelToken::new();
         let shared = lock_shared();
         let ctx = match shared.as_ref() {

@@ -303,7 +303,9 @@ pub struct MapleAdjustmentParams {
     /// The decode's `MapleSceneLinearBufferF32.wb_hsm_data`/`wb_hsm_len`,
     /// passed back verbatim (#5099): the HueSatMap endpoints the WB delta
     /// re-lerps at the target. Null/0 (a stale host) keeps the plain 3×3
-    /// delta. Borrowed for the call only.
+    /// delta. Borrowed for the call only. Only hosts still on the
+    /// scene-linear decode use it; it goes when Windows, Web and
+    /// Android/Linux take the capture decode (#5378/#5379/#5380).
     pub wb_hsm_ptr: *const f32,
     pub wb_hsm_len: usize,
     /// The decode's `wb_hsm_as_shot_cct` and `ae_gain` (the auto-exposure
@@ -311,6 +313,12 @@ pub struct MapleAdjustmentParams {
     /// gain reads as 1; a zero as-shot CCT disables the HueSatMap (plain 3×3).
     pub wb_hsm_as_shot_cct: f32,
     pub wb_hsm_exposure_gain: f32,
+    /// The capture decode's creative stage (#5377), or null. When set, the
+    /// buffer is a capture result and the chain runs the creative stage at
+    /// `temperature`/`tint` in place of the white-balance delta, so
+    /// `decoded_*`, `wb_frame_*` and `wb_hsm_*` are not read. Borrowed for
+    /// the call.
+    pub creative_ptr: *const crate::capture_creative::MapleCaptureCreative,
 }
 
 /// Decode the local-adjustment layer stack (#1698) out of the C params, and
@@ -403,7 +411,13 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
 
         // Slider -> model + chain-input mapping is shared with the f32 entry and
         // the `_with_patches` siblings (#1486); see `scene_linear_chain_inputs.rs`.
-        let ci = chain_inputs_from_params(p);
+        let ci = match chain_inputs_from_params(p) {
+            Ok(ci) => ci,
+            Err(e) => {
+                set_last_error(e);
+                return 8;
+            }
+        };
         let opts = ci.options(p.skip_agx != 0);
 
         let in_slice = std::slice::from_raw_parts(in_ptr, lanes);

@@ -19,6 +19,7 @@ pub(super) fn default_params() -> MapleAdjustmentParams {
         wb_hsm_len: 0,
         wb_hsm_as_shot_cct: 0.0,
         wb_hsm_exposure_gain: 0.0,
+        creative_ptr: std::ptr::null(),
         whites_anchor_ev: f32::NAN,
         temperature: 5500.0,
         tint: 0.0,

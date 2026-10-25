@@ -389,7 +389,10 @@ pub struct MapleGpuLiveParams {
     //     `MapleSceneLinearBufferF32.wb_hsm_data`/`wb_hsm_len`, passed back
     //     verbatim. With a present `wb_frame_*` block the WB pass re-lerps
     //     the HueSatMap at the target, as a develop does. Null/0 (a stale
-    //     host) keeps the plain 3×3, bit-identical. Borrowed for the call. ---
+    //     host) keeps the plain 3×3, bit-identical. Borrowed for the call.
+    //     Only hosts still on the scene-linear decode use it; it goes when
+    //     Windows, Web and Android/Linux take the capture decode
+    //     (#5378/#5379/#5380). ---
     pub wb_hsm_ptr: *const f32,
     pub wb_hsm_len: usize,
     /// The decode's `wb_hsm_as_shot_cct` and `ae_gain` (the auto-exposure
@@ -397,4 +400,11 @@ pub struct MapleGpuLiveParams {
     /// gain reads as 1; a zero as-shot CCT disables the HueSatMap (plain 3×3).
     pub wb_hsm_as_shot_cct: f32,
     pub wb_hsm_exposure_gain: f32,
+    /// The capture decode's creative stage (#5377), or null. When set, the
+    /// uploaded buffer is a capture result and the chain runs the creative
+    /// stage at `temperature`/`tint` (the absolute slider pair in the
+    /// decode's slider frame) in place of the white-balance delta, so
+    /// `decoded_*`, `wb_frame_*` and `wb_hsm_*` are not read. Borrowed for
+    /// the call.
+    pub creative_ptr: *const crate::capture_creative::MapleCaptureCreative,
 }

@@ -53,6 +53,8 @@ mod auto_tone;
 mod buffers;
 mod camera_support;
 mod cancel;
+mod capture_creative;
+mod capture_f32;
 mod white_balance_sample;
 // Colour-range eyedropper for the mask panel (#362): same transport as the
 // white-balance sampler above, reads the pixel entering the local-adjustments

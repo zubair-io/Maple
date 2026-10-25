@@ -166,3 +166,32 @@ fn every_scene_curve_is_hashed_and_display_curves_are_not() {
         );
     }
 }
+
+/// The creative stage runs before the maps (#5377): another decode's stage,
+/// a different exposure gain or no stage at all is another key.
+#[test]
+fn the_creative_stage_is_hashed() {
+    use crate::capture_creative::MapleCaptureCreative;
+    use raw_core::test_support::creative::{creative_stage, Tables};
+    let flat = dehaze_layer();
+    let creative = |ae_gain: f32| {
+        let (header, wire) = creative_stage(Tables::DualHueSatMapAndLook, ae_gain)
+            .transport(raw_core::xmp::HighlightRecoveryMode::Off)
+            .unwrap();
+        MapleCaptureCreative::new(
+            &header,
+            crate::wb_frame_flat::intern_table_wire(wire.floats()),
+        )
+    };
+    let (a, b) = (creative(1.4), creative(1.6));
+    let key = |creative: Option<&MapleCaptureCreative>| {
+        let p = MapleAdjustmentParams {
+            creative_ptr: creative.map_or(std::ptr::null(), |c| c as *const _),
+            ..layered(&flat)
+        };
+        unsafe { maple_scene_linear_chain_haze_key(&p, std::ptr::null()) }
+    };
+    assert_eq!(key(Some(&a)), key(Some(&creative(1.4))));
+    assert_ne!(key(Some(&a)), key(Some(&b)));
+    assert_ne!(key(Some(&a)), key(None));
+}
