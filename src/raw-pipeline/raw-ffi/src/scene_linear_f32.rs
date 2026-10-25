@@ -20,7 +20,7 @@ use crate::model::{
 use raw_core::decode_cache::{decode_bytes_cached, CacheKey};
 
 #[path = "scene_linear_f32/file_decode.rs"]
-mod file_decode;
+pub(crate) mod file_decode;
 use raw_core::error::Error as CoreError;
 use raw_core::CancelToken;
 use std::ffi::{c_char, CStr};
@@ -29,7 +29,7 @@ use std::ffi::{c_char, CStr};
 /// every other rc here (1/2/3 = arg errors, 6/7/8 = read/decode/render
 /// failures, 9 = bad size) so Swift maps it to the silent "dropped" path
 /// instead of a render error — only when a non-null cancel flag was set.
-const RC_CANCELLED: i32 = 4;
+pub(crate) const RC_CANCELLED: i32 = 4;
 
 /// f32 sibling of [`maple_render_file_scene_linear`]. Identical inputs and
 /// error codes; the output buffer is [`MapleSceneLinearBufferF32`] (16

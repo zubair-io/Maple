@@ -153,6 +153,7 @@ pub(super) fn make_params(
         wb_hsm_len: 0,
         wb_hsm_as_shot_cct: 0.0,
         wb_hsm_exposure_gain: 0.0,
+        creative_ptr: std::ptr::null(),
         whites_anchor_ev: input_whites_anchor(input),
         temperature: model.temperature,
         tint: model.tint,

@@ -73,7 +73,10 @@ pub(crate) fn wb_frame_from_flat(
 }
 
 /// The borrowed HueSatMap-endpoint wire (#5099) from a host `(ptr, len)`.
-/// Null, empty or malformed ⇒ `None` ⇒ the plain 3×3 delta.
+/// Null, empty or malformed ⇒ `None` ⇒ the plain 3×3 delta. Kept only for
+/// the hosts still on the scene-linear decode — Windows, Web and
+/// Android/Linux — and removed when they take the capture decode (#5378,
+/// #5379, #5380); Apple runs the creative stage instead (#5377).
 ///
 /// # Safety
 /// `ptr` must be valid for `len` `f32` reads for `'a`, or null.
@@ -125,13 +128,14 @@ pub(crate) fn gpu_hsm_inputs<'a>(
     ))
 }
 
-/// The process-lifetime copy of a HueSatMap endpoint wire (#5099), shared by
-/// every decode of a body with the same profile tables. The decode buffer
-/// hands hosts this pointer and never frees it, so a host stores it with
-/// its decode and passes it back per tick without copying or pinning, and
-/// no render can outlive it. One entry per distinct profile table pair, so
-/// the set stays as small as the set of camera profiles opened.
-pub(crate) fn intern_hsm_wire(wire: &[f32]) -> &'static [f32] {
+/// The process-lifetime copy of a profile's table wire — the HueSatMap
+/// endpoint wire (#5099) or the capture-first creative tables (#5377) —
+/// shared by every decode of a body with the same profile tables. The decode
+/// buffer hands hosts this pointer and never frees it, so a host stores it
+/// with its decode and passes it back per tick without copying or pinning,
+/// and no render can outlive it. One entry per distinct wire, so the set
+/// stays as small as the set of camera profiles opened.
+pub(crate) fn intern_table_wire(wire: &[f32]) -> &'static [f32] {
     static INTERNED: std::sync::Mutex<Vec<&'static [f32]>> = std::sync::Mutex::new(Vec::new());
     let mut interned = INTERNED
         .lock()
@@ -156,16 +160,16 @@ pub(crate) fn intern_hsm_wire(wire: &[f32]) -> &'static [f32] {
 mod tests {
     #[test]
     fn interning_shares_one_copy_per_distinct_wire() {
-        let a = super::intern_hsm_wire(&[1.0, 2.0, 3.0]);
-        let b = super::intern_hsm_wire(&[1.0, 2.0, 3.0]);
-        let c = super::intern_hsm_wire(&[1.0, 2.0, 4.0]);
+        let a = super::intern_table_wire(&[1.0, 2.0, 3.0]);
+        let b = super::intern_table_wire(&[1.0, 2.0, 3.0]);
+        let c = super::intern_table_wire(&[1.0, 2.0, 4.0]);
         assert_eq!(a.as_ptr(), b.as_ptr());
         assert_ne!(a.as_ptr(), c.as_ptr());
         assert_eq!(c, &[1.0, 2.0, 4.0]);
-        let nan = super::intern_hsm_wire(&[f32::NAN, 9.0]);
+        let nan = super::intern_table_wire(&[f32::NAN, 9.0]);
         assert_eq!(
             nan.as_ptr(),
-            super::intern_hsm_wire(&[f32::NAN, 9.0]).as_ptr()
+            super::intern_table_wire(&[f32::NAN, 9.0]).as_ptr()
         );
     }
 }

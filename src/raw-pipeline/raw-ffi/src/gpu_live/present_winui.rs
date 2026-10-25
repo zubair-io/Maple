@@ -124,7 +124,13 @@ pub unsafe extern "C" fn maple_gpu_present_chain_winui_scaled(
     // Panic barrier (#1079): wgpu validation panics must not unwind through this
     // extern "C" frame.
     catch_panic_rc("gpu_present_chain_winui", || {
-        let mut inputs = params::inputs_from_params(p);
+        let mut inputs = match params::inputs_from_params(p) {
+            Ok(inputs) => inputs,
+            Err(e) => {
+                set_last_error(format!("gpu_present_chain_winui: {e}"));
+                return -1;
+            }
+        };
         let token = CancelToken::new();
         let mut shared = lock_shared();
         let state = match shared.as_mut() {

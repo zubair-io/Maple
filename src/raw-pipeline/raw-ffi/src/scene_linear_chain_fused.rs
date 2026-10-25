@@ -302,7 +302,13 @@ pub unsafe extern "C" fn maple_apply_chain_and_encode_display_scoped_f32(
             }
         };
         let p = &*params;
-        let ci = crate::scene_linear_chain::chain_inputs_from_params(p);
+        let ci = match crate::scene_linear_chain::chain_inputs_from_params(p) {
+            Ok(ci) => ci,
+            Err(e) => {
+                set_last_error(e);
+                return 8;
+            }
+        };
         let opts = ci.options(p.skip_agx != 0);
         let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
         let scope_target = if scope_layer >= 0 {

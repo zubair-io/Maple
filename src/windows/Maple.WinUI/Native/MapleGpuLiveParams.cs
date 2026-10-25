@@ -225,6 +225,10 @@ namespace Maple.WinUI.Native
         public nuint wb_hsm_len;
         public float wb_hsm_as_shot_cct;
         public float wb_hsm_exposure_gain;
+        // The capture decode's creative stage (#5377): null keeps the
+        // scene-linear decode's white-balance delta above. Windows takes the
+        // capture decode in #5378.
+        public void* creative_ptr;
 
         /// <summary>
         /// Build live-chain params from the canonical model + decode exports.

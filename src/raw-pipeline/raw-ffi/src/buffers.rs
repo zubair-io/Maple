@@ -214,7 +214,7 @@ pub struct MapleSceneLinearBufferF32 {
     /// flat wire (#5099), passed back verbatim as the per-tick paths'
     /// `wb_hsm_ptr`/`wb_hsm_len`. Null when the profile's HueSatMap does not
     /// move with white balance. Valid for the life of the process (shared
-    /// per profile, `wb_frame_flat::intern_hsm_wire`): NOT freed with the
+    /// per profile, `wb_frame_flat::intern_table_wire`): NOT freed with the
     /// buffer, so a host keeps the pointer itself rather than a copy.
     pub wb_hsm_data: *const f32,
     pub wb_hsm_len: usize,

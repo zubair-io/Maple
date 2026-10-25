@@ -71,10 +71,17 @@ pub(super) use super::present_geometry::present_geometry_from_params;
 /// short editable point-curve arrays are owned. The host keeps all pointers live
 /// until the FFI call returns; GPU uploads copy into independently owned buffers.
 ///
+/// With `creative_ptr` set the buffer is a capture result and the creative
+/// stage replaces the white-balance pass (#5377); deriving its plan
+/// allocates nothing. Fails only on creative inputs that are not a capture
+/// decode's.
+///
 /// # Safety
 /// `p` and every non-null `(ptr, len)` it carries must remain valid and immutable
 /// for the returned inputs' lifetime (bounded by the synchronous FFI call).
-pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInputs<'_> {
+pub(super) unsafe fn inputs_from_params(
+    p: &MapleGpuLiveParams,
+) -> Result<FullChainInputs<'_>, String> {
     use raw_gpu::{CurveMode, ToneCurveInputs};
 
     let wb_method = match p.wb_method {
@@ -168,7 +175,15 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             }
         }
     };
-    let wb_hsm = frame_delta_engaged
+    let creative = crate::capture_creative::gpu_plan(
+        p.creative_ptr,
+        raw_core::pipeline::CreativeTick {
+            temperature: p.temperature,
+            tint: p.tint,
+            wb_method,
+        },
+    )?;
+    let wb_hsm = (frame_delta_engaged && creative.is_none())
         .then(|| crate::wb_frame_flat::gpu_hsm_inputs(p, &wb_frame, wb_matrix))
         .flatten();
     // Live-builder WB gate values (#1781). `build_live_chain` gates the WB
@@ -179,13 +194,19 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
     // predicate test exactly that: `6500 + (live − decoded)` Kelvin and
     // `live − decoded` tint. Legacy paths (no frame) pass the raw live
     // values through unchanged — bit-identical gating to pre-#1781.
-    let (gate_temperature, gate_tint) = if frame_delta_engaged {
+    let legacy_gate = if frame_delta_engaged {
         (
             6500.0 + (p.temperature - p.decoded_temperature),
             p.tint - p.decoded_tint,
         )
     } else {
         (p.temperature, p.tint)
+    };
+    // The creative stage replaces the white-balance pass, so its inputs read
+    // as the pass's no-op.
+    let (wb_matrix, (gate_temperature, gate_tint)) = match creative {
+        Some(_) => (raw_core::math::Matrix3::IDENTITY.0, (6500.0, 0.0)),
+        None => (wb_matrix, legacy_gate),
     };
 
     let capture_sharpening = if p.capture_sharpening_enabled != 0 {
@@ -214,7 +235,7 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
     let local_flat = read_floats(p.local_adjustments_ptr, p.local_adjustments_len);
     let (_, mask_rasters) = crate::mask_registry::layers_and_rasters_from_flat(&local_flat);
 
-    FullChainInputs {
+    Ok(FullChainInputs {
         nr_sampling_scale: p.nr_sampling_scale,
         whites_anchor_ev: p.whites_anchor_ev,
         wb_matrix,
@@ -427,8 +448,10 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             },
             enabled: p.scope_enabled != 0,
         },
-        creative: None,
-    }
+        creative: creative
+            .as_ref()
+            .map(raw_core::gpu_host::creative::creative_inputs),
+    })
 }
 
 /// The host-declared film LUT edge + grid, or `(0, empty)` ("off") when the

@@ -315,7 +315,13 @@ unsafe fn chain_with_film(
 
     // Same shared slider -> model mapping as every chain entry (#1486), then
     // inject the point curves the scalar ABI cannot carry.
-    let mut ci = chain_inputs_from_params(p);
+    let mut ci = match chain_inputs_from_params(p) {
+        Ok(ci) => ci,
+        Err(e) => {
+            set_last_error(e);
+            return 8;
+        }
+    };
     ci.model.film_strength = strength;
     if !curves.is_null() {
         inject_tone_curves(&mut ci.model, &*curves);

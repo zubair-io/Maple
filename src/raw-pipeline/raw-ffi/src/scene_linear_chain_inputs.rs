@@ -26,6 +26,8 @@ pub(crate) struct ChainInputs<'a> {
     pub iso: u32,
     pub whites_anchor_ev: f32,
     pub nr_sampling_scale: f32,
+    /// The capture decode's creative stage (#5377), rebuilt with its tables.
+    pub creative: Option<raw_core::pipeline::CreativeStage>,
 }
 
 impl<'a> ChainInputs<'a> {
@@ -49,8 +51,7 @@ impl<'a> ChainInputs<'a> {
                 .is_finite()
                 .then_some(self.whites_anchor_ev),
             haze_map: None,
-            // The capture-first decode product reaches hosts in #5213 S3.
-            creative: None,
+            creative: self.creative.as_ref(),
         }
     }
 }
@@ -58,8 +59,11 @@ impl<'a> ChainInputs<'a> {
 /// # Safety
 /// `p` must be a valid `MapleAdjustmentParams`; when `noise_profile_len > 0`
 /// its `noise_profile_ptr` must be valid and aligned for that many `f32`s for
-/// the duration of `'a`.
-pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> ChainInputs<'_> {
+/// the duration of `'a`, and `creative_ptr` null or valid with its tables.
+/// Fails only on creative inputs that are not a capture decode's.
+pub(crate) unsafe fn chain_inputs_from_params(
+    p: &MapleAdjustmentParams,
+) -> Result<ChainInputs<'_>, String> {
     // Build an AdjustmentModel from the C-ABI params. Fields the chain
     // uses get copied across; sharpen + nr_color stay default (they're
     // applied on the GPU after this call returns) and other fields keep
@@ -280,7 +284,22 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
         render_fm_cold: &p.wb_frame_render_fm_cold,
         render_fm_warm: &p.wb_frame_render_fm_warm,
     });
-    ChainInputs {
+    let creative = crate::capture_creative::creative_from_ptr(p.creative_ptr)?;
+    let model = match &creative {
+        Some((header, _)) => raw_core::xmp::AdjustmentModel {
+            highlight_recovery: if header.highlight_recovery {
+                raw_core::xmp::HighlightRecoveryMode::OklabChromaReduction
+            } else {
+                raw_core::xmp::HighlightRecoveryMode::Off
+            },
+            ..model
+        },
+        None => model,
+    };
+    let creative = creative
+        .map(|(header, tables)| header.stage(tables).map_err(|e| e.to_string()))
+        .transpose()?;
+    Ok(ChainInputs {
         model,
         decoded_temp,
         decoded_tint,
@@ -300,7 +319,8 @@ pub(crate) unsafe fn chain_inputs_from_params(p: &MapleAdjustmentParams) -> Chai
         iso,
         whites_anchor_ev: p.whites_anchor_ev,
         nr_sampling_scale: p.nr_sampling_scale,
-    }
+        creative,
+    })
 }
 
 /// The three parametric split fields read as a group: ALL THREE exactly

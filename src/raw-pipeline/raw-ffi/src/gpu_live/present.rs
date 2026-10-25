@@ -56,7 +56,8 @@ const RC_PRESENT_CANCELLED: i32 = 4;
 ///
 /// Returns 0 on a successful present. Non-zero on error (call `maple_last_error`
 /// for the message):
-///   -1 handle/params/layer null or a closed handle ·
+///   -1 handle/params/layer null, a closed handle, or `creative_ptr` set to
+///   inputs that are not a capture decode's ·
 ///    4 superseded (see [`RC_PRESENT_CANCELLED`]) ·
 ///   -3 the shared GPU context was missing ·
 ///   -4 the GPU chain or present (surface size/configure/draw) failed ·
@@ -105,7 +106,13 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
             Ok(shared) => shared,
             Err(rc) => return rc,
         };
-        let inputs = params::inputs_from_params(p);
+        let inputs = match params::inputs_from_params(p) {
+            Ok(inputs) => inputs,
+            Err(e) => {
+                set_last_error(format!("gpu_present_chain: {e}"));
+                return -1;
+            }
+        };
         let state = match shared.as_mut() {
             Some(s) => s,
             None => {

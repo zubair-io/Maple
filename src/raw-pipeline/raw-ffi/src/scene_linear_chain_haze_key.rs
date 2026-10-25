@@ -25,13 +25,14 @@ fn floats(h: &mut impl Hasher, values: &[f32]) {
 /// frame's pixels, so a host can keep a [`super::MapleHazeMap`] per (frame,
 /// digest) and skip rendering and handing over its frame on a hit. Hashes the
 /// stages upstream of the maps (white balance with the decode's anchors,
-/// slider frame and HueSatMap, tone, curves, HSL, B&W mix, clarity, texture,
+/// slider frame and HueSatMap, or the capture decode's creative stage, tone, curves, HSL, B&W mix, clarity, texture,
 /// the layers [`dehaze::hash_haze_layers`] keeps) and leaves out the stages
 /// after them and the amounts no map depends on, like `dehaze::haze_key`.
 /// `0` when no dehaze is engaged, or for a null argument. Allocates nothing.
 ///
 /// # Safety
-/// `params` null or a valid `MapleAdjustmentParams` (its pointers valid);
+/// `params` null or a valid `MapleAdjustmentParams` (its pointers, including
+/// `creative_ptr`, valid);
 /// `curves` null or a valid `MapleToneCurves`.
 #[no_mangle]
 pub unsafe extern "C" fn maple_scene_linear_chain_haze_key(
@@ -136,6 +137,10 @@ pub unsafe extern "C" fn maple_scene_linear_chain_haze_key(
         ]
         .iter()
         .for_each(|values| floats(&mut h, values));
+        match p.creative_ptr.as_ref() {
+            Some(creative) => creative.hash_into(&mut h),
+            None => h.write_u32(0),
+        }
         [
             p.skip_agx,
             u32::from(p.look_mode),

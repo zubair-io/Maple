@@ -107,10 +107,9 @@ pub unsafe extern "C" fn maple_scene_linear_chain_window_reach_px(
 ) -> u32 {
     crate::error::catch_panic("maple_scene_linear_chain_window_reach_px", 0, || {
         match (params.as_ref(), window.as_ref()) {
-            (Some(params), Some(window)) => raw_core::pipeline::scene_linear_chain_window_reach_px(
-                &chain_inputs_from_params(params).model,
-                window.into(),
-            ),
+            (Some(params), Some(window)) => chain_inputs_from_params(params).map_or(0, |ci| {
+                raw_core::pipeline::scene_linear_chain_window_reach_px(&ci.model, window.into())
+            }),
             _ => 0,
         }
     })
@@ -161,7 +160,13 @@ unsafe fn chain_and_encode_target(
         }
     };
     let p = &*params;
-    let mut ci = chain_inputs_from_params(p);
+    let mut ci = match chain_inputs_from_params(p) {
+        Ok(ci) => ci,
+        Err(e) => {
+            set_last_error(e);
+            return 8;
+        }
+    };
     if !curves.is_null() {
         inject_tone_curves(&mut ci.model, &*curves);
     }

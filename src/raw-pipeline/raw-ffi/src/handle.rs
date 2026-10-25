@@ -61,7 +61,7 @@ pub(crate) struct MapleRawHandleInner {
 pub struct MapleRawHandle {
     /// Opaque pointer to a heap-allocated `MapleRawHandleInner`. Not
     /// introspected by callers.
-    inner: *mut std::ffi::c_void,
+    pub(crate) inner: *mut std::ffi::c_void,
 }
 
 /// Open a RAW + optional XMP sidecar into an opaque handle suitable for
@@ -484,26 +484,9 @@ unsafe fn render_handle_scene_linear_tile_f32_impl(
         // caller (actor-isolated RawImageCache) keeps the handle alive for the
         // call; the references live in the heap-boxed `MapleRawHandleInner`.
         let inner = unsafe { &*(inner_addr as *const MapleRawHandleInner) };
-        let model = &inner.model;
         let (w, h, f32_rgba) = match inner.render_tile_f32(rect, quality, wb_anchor, ae_gain) {
             Ok(t) => t,
-            Err(e) => {
-                let msg = format!("{}", e);
-                set_last_error(msg.clone());
-                if crate::model::is_untileable_model_error(&msg) {
-                    return 10;
-                }
-                if msg.contains("tile source rectangle") {
-                    return 9;
-                }
-                if msg.contains("upscale") || msg.contains("downscale-only") {
-                    return 11;
-                }
-                if msg.contains("matching aspect") {
-                    return 12;
-                }
-                return 8;
-            }
+            Err(e) => return tile_error_rc(e),
         };
         let raw_img = &inner.raw;
         crate::scene_linear_f32::write_scene_linear_buf_f32(
@@ -524,6 +507,23 @@ unsafe fn render_handle_scene_linear_tile_f32_impl(
         );
         0
     })
+}
+
+/// Record a tile render failure and map it to the tile entries' return code.
+pub(crate) fn tile_error_rc(error: raw_core::error::Error) -> i32 {
+    let msg = format!("{}", error);
+    set_last_error(msg.clone());
+    if crate::model::is_untileable_model_error(&msg) {
+        10
+    } else if msg.contains("tile source rectangle") {
+        9
+    } else if msg.contains("upscale") || msg.contains("downscale-only") {
+        11
+    } else if msg.contains("matching aspect") {
+        12
+    } else {
+        8
+    }
 }
 
 /// Free a `MapleRawHandle` and its inner `RawImage` + `AdjustmentModel`.

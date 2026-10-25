@@ -28,6 +28,9 @@ fn exported_layouts_are_ordered_and_bounded() {
         "MapleAdjustmentParams",
         "MapleToneCurves",
         "MapleSceneLinearBufferF32",
+        "MapleCreativeTable",
+        "MapleCaptureCreative",
+        "MapleCaptureBufferF32",
         "MapleAutoAdjustments",
         "MapleWbSample",
         #[cfg(feature = "gpu")]
@@ -55,13 +58,10 @@ fn exported_layouts_are_ordered_and_bounded() {
     }
     let (size, fields) = parse(&describe("MapleAdjustmentParams").unwrap());
     assert_eq!(
-        size, 744,
-        "RawFfi.VerifyAbi pins MapleAdjustmentParams at 744 bytes (#5040 appended 3 f32s, #5099 the wb_hsm tail)"
+        size, 752,
+        "RawFfi.VerifyAbi pins MapleAdjustmentParams at 752 bytes (#5040 appended 3 f32s, #5099 the wb_hsm tail, #5377 creative_ptr)"
     );
-    assert_eq!(
-        fields.last().map(|f| f.0.as_str()),
-        Some("wb_hsm_exposure_gain")
-    );
+    assert_eq!(fields.last().map(|f| f.0.as_str()), Some("creative_ptr"));
     let (_, curve_fields) = parse(&describe("MapleToneCurves").unwrap());
     assert_eq!(
         curve_fields.last().map(|f| f.0.as_str()),

@@ -119,7 +119,13 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_with_patches(
             Err(rc) => return rc,
         };
         let p = &*params;
-        let ci = chain_inputs_from_params(p);
+        let ci = match chain_inputs_from_params(p) {
+            Ok(ci) => ci,
+            Err(e) => {
+                set_last_error(e);
+                return 8;
+            }
+        };
         let opts = ci.options(p.skip_agx != 0);
         let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
 
@@ -177,7 +183,13 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32_with_patches(
             Err(rc) => return rc,
         };
         let p = &*params;
-        let ci = chain_inputs_from_params(p);
+        let ci = match chain_inputs_from_params(p) {
+            Ok(ci) => ci,
+            Err(e) => {
+                set_last_error(e);
+                return 8;
+            }
+        };
         let opts = ci.options(p.skip_agx != 0);
         let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
 

@@ -7,7 +7,7 @@ use std::sync::Arc;
 /// A warm mosaic avoids both the full RAW read and rawler demux. The path key
 /// is captured before I/O; content changed afterward cannot be stored under a
 /// newer modification time. Error codes remain the existing file FFI contract.
-pub(super) fn decode_file_cached(
+pub(crate) fn decode_file_cached(
     path: &Path,
     cancel: CancelToken<'_>,
 ) -> Result<Arc<RawImage>, i32> {

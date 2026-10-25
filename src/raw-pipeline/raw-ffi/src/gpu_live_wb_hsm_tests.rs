@@ -129,7 +129,7 @@ fn hsm_params_reach_the_wb_pass_only_on_a_frame_anchored_drag() {
     let drag = (anchor.0 + 900.0, anchor.1 - 15.0);
 
     let p = params_for(drag, &wire);
-    let inputs = unsafe { params::inputs_from_params(&p) };
+    let inputs = unsafe { params::inputs_from_params(&p) }.unwrap();
     let hsm = inputs
         .wb_hsm
         .as_ref()
@@ -163,7 +163,10 @@ fn hsm_params_reach_the_wb_pass_only_on_a_frame_anchored_drag() {
 
     let p = params_for(anchor, &wire);
     assert!(
-        unsafe { params::inputs_from_params(&p) }.wb_hsm.is_none(),
+        unsafe { params::inputs_from_params(&p) }
+            .unwrap()
+            .wb_hsm
+            .is_none(),
         "identity band"
     );
 
@@ -171,27 +174,39 @@ fn hsm_params_reach_the_wb_pass_only_on_a_frame_anchored_drag() {
     p.wb_hsm_ptr = std::ptr::null();
     p.wb_hsm_len = 0;
     assert!(
-        unsafe { params::inputs_from_params(&p) }.wb_hsm.is_none(),
+        unsafe { params::inputs_from_params(&p) }
+            .unwrap()
+            .wb_hsm
+            .is_none(),
         "stale host"
     );
 
     let p = params_for(drag, &wire[..wire.len() - 3]);
     assert!(
-        unsafe { params::inputs_from_params(&p) }.wb_hsm.is_none(),
+        unsafe { params::inputs_from_params(&p) }
+            .unwrap()
+            .wb_hsm
+            .is_none(),
         "malformed wire"
     );
 
     let mut p = params_for(drag, &wire);
     p.input_shape = 1;
     assert!(
-        unsafe { params::inputs_from_params(&p) }.wb_hsm.is_none(),
+        unsafe { params::inputs_from_params(&p) }
+            .unwrap()
+            .wb_hsm
+            .is_none(),
         "non-RAW input"
     );
 
     let mut p = params_for(drag, &wire);
     p.decoded_temperature = 0.0;
     assert!(
-        unsafe { params::inputs_from_params(&p) }.wb_hsm.is_none(),
+        unsafe { params::inputs_from_params(&p) }
+            .unwrap()
+            .wb_hsm
+            .is_none(),
         "absolute contract"
     );
 }
@@ -511,7 +526,7 @@ fn decode_exports_the_hsm_wire_and_the_cpu_chain_entry_uses_it_test_0007() {
     p.wb_hsm_len = wire_len;
     p.wb_hsm_as_shot_cct = as_shot_cct;
     p.wb_hsm_exposure_gain = ae_gain;
-    let inputs = unsafe { crate::scene_linear_chain::chain_inputs_from_params(&p) };
+    let inputs = unsafe { crate::scene_linear_chain::chain_inputs_from_params(&p) }.unwrap();
     let view = inputs.wb_hsm.expect("the chain entry reads the wire");
     assert_eq!(
         view.tables.as_ptr(),
