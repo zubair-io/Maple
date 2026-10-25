@@ -9,7 +9,7 @@ struct GridFilterBar: View {
   let matchingCount: Int
 
   private var loadKey: String {
-    "\(vm.gridFilter.rawValue)-\(vm.listingGeneration)-\(vm.assets.count)"
+    "\(vm.gridFilter.rawValue)-\(vm.listingGeneration)-\(vm.assets.count)-\(vm.gridFilterAssetIdentityGeneration)"
   }
 
   var body: some View {

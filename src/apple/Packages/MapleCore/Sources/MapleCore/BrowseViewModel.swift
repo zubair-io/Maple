@@ -32,6 +32,7 @@ public final class BrowseViewModel {
   public var gridFilterLoading = false
   public var gridFilterError: Error?
   @ObservationIgnored var gridFilterLoadGeneration: UInt64 = 0
+  public var gridFilterAssetIdentityGeneration: UInt64 = 0
 
   // MARK: - Multi-select (M1 — #1236 / #1234)
 

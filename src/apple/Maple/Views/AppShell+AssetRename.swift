@@ -197,6 +197,7 @@ extension AppShell {
   private func applyRenamed(oldID: AssetRef.ID, newAsset: AssetRef, smbSource: SMBSource?) async {
     if let idx = browseVM.assets.firstIndex(where: { $0.id == oldID }) {
       browseVM.assets[idx] = newAsset
+      browseVM.invalidateGridFilterForAssetIdentityChange()
     }
     let wasSelected = browseVM.selectedID == oldID
     if browseVM.selectedIDs.contains(oldID) {

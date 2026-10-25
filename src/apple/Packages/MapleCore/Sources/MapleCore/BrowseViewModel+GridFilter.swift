@@ -1,6 +1,12 @@
 import Foundation
 
 extension BrowseViewModel {
+  public func invalidateGridFilterForAssetIdentityChange() {
+    gridFilterAssetIdentityGeneration &+= 1
+    gridFilterLoadGeneration &+= 1
+    if gridFilter != .all { gridFilterLoading = true }
+  }
+
   public func selectGridFilter(_ filter: GridFilter) {
     guard gridFilter != filter else { return }
     gridFilter = filter

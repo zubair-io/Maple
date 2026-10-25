@@ -1055,7 +1055,7 @@ struct AppShell: View {
       )
     ) {
       PanoMergeView(
-        assets: browseVM.selectedAssets,
+        assets: browseVM.selectedAssets(sessions: sessions),
         session: panoMergeSession,
         onDismiss: { dismissPanoramaMerge() },
         // M5 (#1234): inject the stitched PNG into the library so it
@@ -1193,7 +1193,7 @@ struct AppShell: View {
           copy: isCopy)
       },
       selectedAssetCount: browseVM.isSelecting
-        ? browseVM.selectedIDs.count : (browseVM.selectedID != nil ? 1 : 0),
+        ? browseVM.selectedAssets(sessions: sessions).count : (browseVM.selectedID != nil ? 1 : 0),
       folderRefreshGeneration: folderRefreshGeneration,
       onPickPhotosFilter: { filter in
         loadPhotos(filter: filter)
@@ -1414,7 +1414,7 @@ struct AppShell: View {
         )
       ) {
         PanoMergeView(
-          assets: browseVM.selectedAssets,
+          assets: browseVM.selectedAssets(sessions: sessions),
           session: panoMergeSession,
           onDismiss: { dismissPanoramaMerge() },
           // M5 (#1234): inject the stitched PNG into the library.
@@ -1557,7 +1557,7 @@ struct AppShell: View {
         Button("Export recipes…") {
           let assets =
             browseVM.isSelecting
-            ? browseVM.selectedAssets
+            ? browseVM.selectedAssets(sessions: sessions)
             : (selectedSession.map { [$0.asset] } ?? browseVM.selectedAsset.map { [$0] } ?? [])
           for asset in assets { ensureSession(for: asset) }
           nativeExportSelection = NativeExportRecipeSelection(
@@ -1587,11 +1587,11 @@ struct AppShell: View {
 
   /// Open the batch metadata editor with the currently-selected assets.
   private func openBatchMetadata() {
-    guard !browseVM.selectedIDs.isEmpty else { return }
+    guard !browseVM.selectedAssets(sessions: sessions).isEmpty else { return }
     // Snapshot the selection + sessions once, at open time. Presenting via
     // .sheet(item:) keeps this instance alive for the sheet's lifetime.
     batchMetadataVM = BatchMetadataViewModel(
-      assets: browseVM.selectedAssets,
+      assets: browseVM.selectedAssets(sessions: sessions),
       sessions: sessions
     )
   }
@@ -1604,8 +1604,8 @@ struct AppShell: View {
   /// decided once for the whole selection here, then baked into the
   /// `BatchRenameViewModel` the sheet is handed.
   private func openBatchRename() {
-    guard !browseVM.selectedIDs.isEmpty else { return }
-    let assets = browseVM.selectedAssets
+    guard !browseVM.selectedAssets(sessions: sessions).isEmpty else { return }
+    let assets = browseVM.selectedAssets(sessions: sessions)
     switch batchRenameRouting(for: assets) {
     case .unsupported(let reason):
       batchRenameVM = BatchRenameViewModel(assets: assets, routing: .unsupported(reason))
