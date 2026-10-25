@@ -44,7 +44,7 @@ async function expectAssets(page: Page): Promise<void> {
 
 async function openBrowseFolder(page: Page): Promise<void> {
   await page.goto('/browse');
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page.getByRole('button', { name: /Open (?:a )?folder/ }).click();
   await expectAssets(page);
 }
 
@@ -220,7 +220,7 @@ test('Hosted Browse and Preview visible actions work in installed Chrome', async
   await verifyStagedRawHashes(manifest);
 });
 
-test('Hosted Browse one-RAW import previews before editing without an editor filmstrip', async ({
+test('Hosted welcome one-RAW import opens Editor without a filmstrip', async ({
   page,
 }, testInfo) => {
   hostedOnly(testInfo.project.name);
@@ -229,15 +229,11 @@ test('Hosted Browse one-RAW import previews before editing without an editor fil
   const raw = manifest.sourceHashes.find(({ path }) => basename(path) === 'test_0004.fff');
   expect(raw).toBeDefined();
 
-  await page.goto('/browse');
+  await page.goto('/');
   const chooser = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: 'Import RAW files' }).click();
+  await page.getByRole('button', { name: /Open a photo/ }).click();
   await (await chooser).setFiles(raw!.path);
 
-  await expect(page).toHaveURL(/\/view\//);
-  await expect(page.getByTestId('preview-filename')).toHaveText('test_0004.fff');
-  await expectPreviewPixels(page.locator(PREVIEW_IMAGE_SELECTOR).last());
-  await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page).toHaveURL(/\/edit\//);
   await expect(page.locator('editor-filmstrip')).toHaveCount(0);
   await expect(page.getByText(/Download XMP/i)).toBeVisible();
