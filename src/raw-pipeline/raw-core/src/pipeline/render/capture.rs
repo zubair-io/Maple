@@ -5,7 +5,7 @@
 
 use crate::cancel::CancelToken;
 use crate::error::Result;
-use crate::image::{Image, RawImage};
+use crate::image::{ExifOrientation, Image, RawImage};
 use crate::pipeline::capture_first::{Chain, CreativeHeader, CreativeStage, CreativeWire};
 use crate::pipeline::develop::{capture_colour, develop_camera};
 use crate::pipeline::develop_sized::develop_sized_camera;
@@ -34,7 +34,7 @@ pub fn render_capture_from_raw_f32(
 ) -> Result<CaptureRender> {
     let (camera, input) =
         develop_camera(raw, model, quality, cancel)?.colour(raw, model, Chain::Full, cancel);
-    finish(raw, model, capture_colour(camera, input)?)
+    finish(model, capture_colour(camera, input)?, raw.orientation)
 }
 
 /// The capture decode downsampled to `max_long_edge` before the capture
@@ -46,19 +46,43 @@ pub fn render_capture_sized_from_raw_f32(
     max_long_edge: u32,
     cancel: CancelToken<'_>,
 ) -> Result<CaptureRender> {
+    let capture = sized_capture(raw, model, quality, max_long_edge, cancel)?;
+    finish(model, capture, raw.orientation)
+}
+
+/// [`render_capture_sized_from_raw_f32`] left in sensor framing, for a host
+/// whose live chain orients at present (Web).
+pub fn render_capture_sized_sensor_framed_f32(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+    cancel: CancelToken<'_>,
+) -> Result<CaptureRender> {
+    let capture = sized_capture(raw, model, quality, max_long_edge, cancel)?;
+    finish(model, capture, ExifOrientation::Normal)
+}
+
+fn sized_capture(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+    cancel: CancelToken<'_>,
+) -> Result<(Image, CreativeStage)> {
     let (camera, input) = develop_sized_camera(raw, model, quality, max_long_edge, cancel)?.colour(
         raw,
         model,
         Chain::Sized,
         cancel,
     );
-    finish(raw, model, capture_colour(camera, input)?)
+    capture_colour(camera, input)
 }
 
 fn finish(
-    raw: &RawImage,
     model: &AdjustmentModel,
     (capture, creative): (Image, CreativeStage),
+    orientation: ExifOrientation,
 ) -> Result<CaptureRender> {
     let (header, tables) = creative.transport(model.highlight_recovery)?;
     let rgba = stage("pack_capture_rgba_f32", || {
@@ -73,9 +97,13 @@ fn finish(
         }
         v
     });
-    let (width, height, rgba) = stage("apply_orientation_capture_rgba", || {
-        apply_orientation_f32_rgba(&rgba, capture.width, capture.height, raw.orientation)
-    });
+    let (width, height, rgba) = if orientation == ExifOrientation::Normal {
+        (capture.width, capture.height, rgba)
+    } else {
+        stage("apply_orientation_capture_rgba", || {
+            apply_orientation_f32_rgba(&rgba, capture.width, capture.height, orientation)
+        })
+    };
     Ok(CaptureRender {
         width,
         height,

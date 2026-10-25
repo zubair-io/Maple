@@ -36,7 +36,7 @@ pub use creative_plan::{
     AsShotTable, CreativePlan, CreativeWire, PlanTable, TableLayout, TableSpan,
 };
 pub(crate) use export::{capture_in_basis, export_capture};
-pub use transport::{CreativeHeader, CreativeTick, ProfileCore};
+pub use transport::{intern_creative_tables, CreativeHeader, CreativeTick, ProfileCore};
 
 use super::{capture_sharpening_helper::capture_sharpening_params_from_model, dump_after, stage};
 use crate::{

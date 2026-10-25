@@ -13,9 +13,9 @@
 // the develop's DCP exit does. The two tables are session-constant storage;
 // a tick only changes the uniform.
 //
-// Kept only for the hosts still on the scene-linear decode — Windows, Web and
-// Android/Linux — and removed when they take the capture decode (#5378, #5379,
-// #5380); Apple runs the creative stage instead (#5377).
+// Kept only for the hosts still on the scene-linear decode — Windows and
+// Android/Linux — and removed when they take the capture decode (#5378,
+// #5380); Apple and Web run the creative stage instead (#5377, #5379).
 //
 // Matrices arrive as vec4 ROWS (see white_balance.wgsl for why not mat3x3).
 

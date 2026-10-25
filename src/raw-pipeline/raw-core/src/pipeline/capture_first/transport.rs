@@ -14,9 +14,12 @@ use crate::{
     },
     error::{Error, Result},
     math::Matrix3,
-    stages::wb_camera::{SliderFrame, SliderFrameParts},
+    stages::{
+        wb_camera::{self, SliderFrame, SliderFrameParts},
+        white_balance,
+    },
     types::WbMethod,
-    xmp::HighlightRecoveryMode,
+    xmp::{AdjustmentModel, HighlightRecoveryMode},
 };
 
 /// The DCP profile without its tables (and without the `ProfileToneCurve`,
@@ -109,7 +112,51 @@ impl CreativeStage {
     }
 }
 
+/// One shared copy of a creative table wire for the life of the process, so
+/// a host keeps a header and its tables by value with no owner for the
+/// pointer. One entry per distinct wire, so the set stays as small as the
+/// set of camera profiles opened.
+pub fn intern_creative_tables(wire: &[f32]) -> &'static [f32] {
+    static INTERNED: std::sync::Mutex<Vec<&'static [f32]>> = std::sync::Mutex::new(Vec::new());
+    let mut interned = INTERNED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // Bitwise, so a table holding a NaN still finds its earlier copy.
+    let same_bits = |known: &[f32]| {
+        known.len() == wire.len()
+            && known
+                .iter()
+                .zip(wire)
+                .all(|(a, b)| a.to_bits() == b.to_bits())
+    };
+    if let Some(existing) = interned.iter().find(|known| same_bits(known)) {
+        return existing;
+    }
+    let leaked: &'static [f32] = Box::leak(wire.to_vec().into_boxed_slice());
+    interned.push(leaked);
+    leaked
+}
+
 impl CreativeHeader {
+    /// `model`'s tick: its white balance in this decode's slider frame, an
+    /// imported pair converted as the develop converts it. Allocates nothing.
+    pub fn tick(&self, model: &AdjustmentModel) -> CreativeTick {
+        let (temperature, tint) = match self.frame {
+            Some(parts) => wb_camera::resolve_target_versioned(
+                model,
+                &SliderFrame::from_parts(parts),
+                &self.profile.bare(),
+                self.as_shot_neutral,
+            ),
+            None => white_balance::resolve_wb(model),
+        };
+        CreativeTick {
+            temperature,
+            tint,
+            wb_method: model.wb_method,
+        }
+    }
+
     /// The GPU plan for one tick. Allocates nothing.
     pub fn gpu_plan<'t>(&self, tables: &'t [f32], tick: CreativeTick) -> Result<CreativePlan<'t>> {
         self.check(tables)?;
