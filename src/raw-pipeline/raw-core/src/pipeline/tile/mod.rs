@@ -29,12 +29,19 @@
 mod colour;
 mod context;
 mod develop;
+mod entries;
 mod guards;
 mod highlight_frame;
 pub(crate) use context::render_scene_linear_tile_from_frame_context_cancellable_f32;
 pub use context::{
+    render_capture_tile_cancellable_f32, render_capture_tile_from_frame_context_f32,
     render_scene_linear_tile_from_frame_context, render_scene_linear_tile_from_frame_context_f32,
     HighlightFrameContext,
+};
+pub(crate) use entries::render_scene_linear_tile_with_haze_cancellable_f32;
+pub use entries::{
+    render_scene_linear_tile_cancellable_f32,
+    render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32,
 };
 pub(in crate::pipeline) use highlight_frame::recover_full_frame;
 mod overlap;
@@ -66,7 +73,7 @@ use super::{
     orient::apply_orientation_f32_rgba, stage, RenderQuality,
 };
 
-use develop::{develop_scene_linear_from_padded_mosaic, full_frame_long_edge};
+use develop::{develop_scene_linear_from_padded_mosaic, full_frame_long_edge, TileOutput};
 
 /// Conservative native-pixel overlap for the shared raster window chain.
 pub(crate) fn raster_window_overlap(model: &AdjustmentModel, long_edge: u32) -> u32 {
@@ -223,8 +230,10 @@ fn develop_tile_oriented_f32(
         model,
         rect,
         quality,
-        decoded_wb_anchor,
-        ae_gain,
+        TileOutput::Scene {
+            decoded_wb_anchor,
+            ae_gain,
+        },
         None,
         None,
         cancel,
@@ -237,8 +246,7 @@ fn develop_tile_with_frame(
     model: &AdjustmentModel,
     rect: TileRect,
     quality: RenderQuality,
-    decoded_wb_anchor: Option<(f32, f32)>,
-    ae_gain: f32,
+    output: TileOutput,
     frame: Option<&HighlightFrameContext>,
     haze: Option<&crate::stages::dehaze::FrameHaze>,
     cancel: crate::CancelToken<'_>,
@@ -292,8 +300,10 @@ fn develop_tile_with_frame(
     // A caller without a retained map pays for the frame's proxy develop on
     // this tile; `DetailContext` measures it once per edit instead.
     let measured_haze = match haze {
-        None => crate::pipeline::develop_sized::frame_haze(raw, model, cancel)?,
-        Some(_) => None,
+        None if output.develops_scene() => {
+            crate::pipeline::develop_sized::frame_haze(raw, model, cancel)?
+        }
+        _ => None,
     };
     let haze = haze.or(measured_haze.as_ref());
     if haze.is_some_and(|haze| !haze.covers(model)) {
@@ -349,8 +359,7 @@ fn develop_tile_with_frame(
         model,
         quality,
         develop::TileAnchors {
-            decoded_wb_anchor,
-            ae_gain,
+            output,
             window,
             inner,
             active_area,
@@ -491,72 +500,6 @@ pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32(
         1.0,
         crate::CancelToken::never(),
     )
-}
-
-/// f32 (16 B/px) counterpart to
-/// [`render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32`],
-/// additionally accepting the auto-exposure anchor gain (#1167) a full-image
-/// (or sized) develop of the same model already measured — see
-/// `pipeline::develop::develop_scene_linear_from_raw_with_quality_with_gain`
-/// (or the sized sibling) for how to obtain it. `ae_gain = 1.0` is a
-/// bit-identical no-op, so this entry is a strict superset of
-/// [`render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_f32`], kept
-/// as a separate function (rather than widening that one's arity) so
-/// existing callers — including the Apple FFI entry point that predates this
-/// ticket — are untouched.
-pub fn render_scene_linear_tile_from_raw_with_quality_and_wb_anchor_and_ae_gain_f32(
-    raw: &RawImage,
-    model: &AdjustmentModel,
-    rect: TileRect,
-    quality: RenderQuality,
-    decoded_wb_anchor: Option<(f32, f32)>,
-    ae_gain: f32,
-) -> Result<(u32, u32, Vec<f32>)> {
-    develop_tile_oriented_f32(
-        raw,
-        model,
-        rect,
-        quality,
-        decoded_wb_anchor,
-        ae_gain,
-        crate::CancelToken::never(),
-    )
-}
-
-/// Cooperative cancellation through tile demosaic, repair, sharpening and NR.
-/// Existing entries use a never-cancel token and retain identical pixel math.
-pub fn render_scene_linear_tile_cancellable_f32(
-    raw: &RawImage,
-    model: &AdjustmentModel,
-    rect: TileRect,
-    quality: RenderQuality,
-    decoded_wb_anchor: Option<(f32, f32)>,
-    ae_gain: f32,
-    cancel: crate::CancelToken<'_>,
-) -> Result<(u32, u32, Vec<f32>)> {
-    develop_tile_oriented_f32(
-        raw,
-        model,
-        rect,
-        quality,
-        decoded_wb_anchor,
-        ae_gain,
-        cancel,
-    )
-}
-
-/// [`render_scene_linear_tile_cancellable_f32`] with the frame's retained
-/// haze map (#3287), so the tile need not measure it.
-pub(crate) fn render_scene_linear_tile_with_haze_cancellable_f32(
-    raw: &RawImage,
-    model: &AdjustmentModel,
-    rect: TileRect,
-    quality: RenderQuality,
-    ae_gain: f32,
-    haze: Option<&crate::stages::dehaze::FrameHaze>,
-    cancel: crate::CancelToken<'_>,
-) -> Result<(u32, u32, Vec<f32>)> {
-    develop_tile_with_frame(raw, model, rect, quality, None, ae_gain, None, haze, cancel)
 }
 
 fn pack_fp16(pixels: &[f32]) -> Vec<u16> {

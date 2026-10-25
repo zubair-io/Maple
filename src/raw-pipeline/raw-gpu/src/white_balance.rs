@@ -69,7 +69,10 @@ pub fn apply_white_balance(buf: &mut [f32], matrix: [[f32; 3]; 3]) {
 /// live drag (#5099): the per-tick constants of raw-core's
 /// `wb_camera::HsmRetargetView::live_delta` plus the session-constant
 /// endpoint tables. With it the WB pass runs `white_balance_hsm.wgsl`
-/// instead of the plain matmul.
+/// instead of the plain matmul. Kept only for the hosts still on the
+/// scene-linear decode — Windows, Web and Android/Linux — and removed when
+/// they take the capture decode (#5378, #5379, #5380); Apple runs the
+/// creative stage instead (#5377).
 #[derive(Clone, Debug)]
 pub struct WbHsmInputs<'a> {
     /// `[hue_divs, sat_divs, val_divs]` of each table.

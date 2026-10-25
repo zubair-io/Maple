@@ -26,6 +26,22 @@ pub(super) struct TileColour<'a> {
     pub cancel: CancelToken<'a>,
 }
 
+/// The tile's capture result in the fixed as-shot basis (#5377): the half of
+/// [`develop_colour`] a host's per-tick creative stage does not run.
+pub(super) fn capture_colour(
+    camera_rgb: Image,
+    profile: &DcpProfile,
+    model: &AdjustmentModel,
+    window: TileWindow,
+    cancel: CancelToken<'_>,
+) -> Result<Image> {
+    let site = Site::Window {
+        origin: window.origin,
+        full: window.full,
+    };
+    capture_first::capture_in_basis(camera_rgb, profile, model, site, Chain::Tile, cancel)
+}
+
 pub(super) fn develop_colour(camera_rgb: Image, input: TileColour<'_>) -> Result<Image> {
     let TileColour {
         raw,

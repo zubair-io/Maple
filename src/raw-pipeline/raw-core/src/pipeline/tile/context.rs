@@ -138,11 +138,53 @@ pub(crate) fn render_scene_linear_tile_from_frame_context_cancellable_f32(
         model,
         rect,
         context.quality(),
-        decoded_wb_anchor,
-        ae_gain,
+        super::TileOutput::Scene {
+            decoded_wb_anchor,
+            ae_gain,
+        },
         Some(context),
         haze,
         cancel,
+    )
+}
+
+/// The capture result of a tile in the fixed as-shot basis (#5377): what a
+/// host's per-tick creative stage renders, using the creative stage of the
+/// whole-frame capture decode. Oriented f32 RGBA, like the scene tiles.
+pub fn render_capture_tile_cancellable_f32(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    rect: TileRect,
+    quality: RenderQuality,
+    cancel: crate::CancelToken<'_>,
+) -> Result<(u32, u32, Vec<f32>)> {
+    super::develop_tile_with_frame(
+        raw,
+        model,
+        rect,
+        quality,
+        super::TileOutput::Capture,
+        None,
+        None,
+        cancel,
+    )
+}
+
+/// [`render_capture_tile_cancellable_f32`] from captured frame evidence.
+pub fn render_capture_tile_from_frame_context_f32(
+    context: &HighlightFrameContext,
+    model: &AdjustmentModel,
+    rect: TileRect,
+) -> Result<(u32, u32, Vec<f32>)> {
+    super::develop_tile_with_frame(
+        context.raw(),
+        model,
+        rect,
+        context.quality(),
+        super::TileOutput::Capture,
+        Some(context),
+        None,
+        crate::CancelToken::never(),
     )
 }
 

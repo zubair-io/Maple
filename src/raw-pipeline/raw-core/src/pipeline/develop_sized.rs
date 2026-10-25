@@ -28,7 +28,7 @@ use crate::{
 use super::{
     capture_first::Chain,
     develop::{
-        crop_to_default, develop_colour, effective_quality_divisor, lateral_ca, ColourInput,
+        crop_to_default, develop_colour, effective_quality_divisor, lateral_ca, CameraReady,
     },
     downsample::downsample_image_area,
     dump_after, stage, RenderQuality,
@@ -220,6 +220,21 @@ fn develop_sized_to_dehaze(
     max_long_edge: u32,
     cancel: CancelToken<'_>,
 ) -> Result<(crate::image::Image, f32)> {
+    let (camera_rgb, input) = develop_sized_camera(raw, model, quality, max_long_edge, cancel)?
+        .colour(raw, model, Chain::Sized, cancel);
+    let (scene, ae_gain) = develop_colour(camera_rgb, input)?;
+    develop_sized_after_colour(scene, model, cancel).map(|scene| (scene, ae_gain))
+}
+
+/// The sized develop up to the colour segment: the RAW decoded, downsampled
+/// to `max_long_edge` and profile-ready.
+pub(crate) fn develop_sized_camera(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+    cancel: CancelToken<'_>,
+) -> Result<CameraReady> {
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
@@ -378,19 +393,20 @@ fn develop_sized_to_dehaze(
         dcp::profile_for_with_source(raw)
     })?;
     let whites_anchor_ev = dcp::scene_white_anchor(&camera_rgb, &profile)?;
-    let (mut scene, ae_gain) = develop_colour(
+    Ok(CameraReady {
         camera_rgb,
-        ColourInput {
-            raw,
-            model,
-            profile,
-            profile_source,
-            skip_pre_gain,
-            whites_anchor_ev,
-            chain: Chain::Sized,
-            cancel,
-        },
-    )?;
+        profile,
+        profile_source,
+        skip_pre_gain,
+        whites_anchor_ev,
+    })
+}
+
+fn develop_sized_after_colour(
+    mut scene: crate::image::Image,
+    model: &AdjustmentModel,
+    cancel: CancelToken<'_>,
+) -> Result<crate::image::Image> {
     stage("sized_scene_tone_controls", || {
         scene_tone_controls::apply(&mut scene, model)
     });
@@ -428,7 +444,7 @@ fn develop_sized_to_dehaze(
     if cancel.is_cancelled() {
         return Err(Error::Cancelled);
     }
-    Ok((scene, ae_gain))
+    Ok(scene)
 }
 
 fn develop_sized_after_dehaze(

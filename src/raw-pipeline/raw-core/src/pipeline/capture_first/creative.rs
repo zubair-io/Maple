@@ -9,6 +9,7 @@ use crate::{
     color::dcp::{self, DcpProfile},
     error::Result,
     image::{ColorSpace, Image},
+    math::Matrix3,
     stages::{
         auto_exposure, highlight_recovery_oklab,
         wb_camera::{self, SliderFrame},
@@ -89,7 +90,7 @@ impl CreativeStage {
                     && !wb_camera::is_as_shot_target(frame, temperature, tint) =>
             {
                 Some(stage(label!(chain, "creative_as_shot_anchor"), || {
-                    as_shot_anchor_gain(&camera, &self.profile, model)
+                    as_shot_anchor_gain(&camera, None, &self.profile, model)
                 })?)
             }
             _ => None,
@@ -166,8 +167,11 @@ impl CreativeStage {
 /// 5 on #5213), measured without materialising that render: rows go through
 /// the as-shot DCP and Oklab recovery a slab at a time and only their luma is
 /// kept, which is the list `compute_scene_anchor_gain` would rank.
-fn as_shot_anchor_gain(
+/// `to_camera`, when given, first maps each slab from the capture basis back
+/// to camera space.
+pub(super) fn as_shot_anchor_gain(
     camera: &Image,
+    to_camera: Option<&Matrix3>,
     profile: &DcpProfile,
     model: &AdjustmentModel,
 ) -> Result<f32> {
@@ -180,7 +184,10 @@ fn as_shot_anchor_gain(
         let camera_slab = Image {
             width: camera.width,
             height: (slab.len() / width.max(1)) as u32,
-            pixels: slab.to_vec(),
+            pixels: match to_camera {
+                Some(m) => slab.iter().map(|&p| m.mul_vec(p)).collect(),
+                None => slab.to_vec(),
+            },
             space: ColorSpace::CameraNativeLinearRgb,
             whites_anchor_ev: None,
             nr_sampling_scale: camera.nr_sampling_scale,

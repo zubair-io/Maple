@@ -61,6 +61,7 @@ use crate::{
 /// not a bug in the glue code wiring this frame together: the Robertson
 /// solve here is a self-consistent round trip (`temp_tint_to_xy` of the
 /// result reproduces the measured xy to ~1e-4).
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SliderFrame {
     /// Dual-illuminant endpoints `(m_cold, cct_cold, m_warm, cct_warm)`
     /// when the frame has two calibrations; `None` for a single-CM frame.
@@ -96,7 +97,38 @@ pub struct SliderFrame {
     pub(super) render_cm: Matrix3,
 }
 
+/// A [`SliderFrame`]'s fields, so a decode can hand the frame to a host and
+/// take it back unchanged (#5377).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SliderFrameParts {
+    pub endpoints: Option<(Matrix3, f32, Matrix3, f32)>,
+    pub cm_as_shot: Matrix3,
+    pub scene_cct: f32,
+    pub scene_tint: f32,
+    pub render_cm: Matrix3,
+}
+
 impl SliderFrame {
+    pub fn parts(&self) -> SliderFrameParts {
+        SliderFrameParts {
+            endpoints: self.endpoints,
+            cm_as_shot: self.cm_as_shot,
+            scene_cct: self.scene_cct,
+            scene_tint: self.scene_tint,
+            render_cm: self.render_cm,
+        }
+    }
+
+    pub fn from_parts(parts: SliderFrameParts) -> SliderFrame {
+        SliderFrame {
+            endpoints: parts.endpoints,
+            cm_as_shot: parts.cm_as_shot,
+            scene_cct: parts.scene_cct,
+            scene_tint: parts.scene_tint,
+            render_cm: parts.render_cm,
+        }
+    }
+
     /// Resolve the slider frame for a source: the DNG's own embedded
     /// (non-identity — ticket #424's guarantee applies here too)
     /// dual-illuminant `ColorMatrix` PAIR when it ships one, a single
