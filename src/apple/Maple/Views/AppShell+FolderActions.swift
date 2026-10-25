@@ -301,6 +301,8 @@ extension AppShell {
       // against that identity rather than discarding the resolved load.
       guard librarySelection == .folder(path: folder.path) else { return }
       let prepareCache: @MainActor () async -> Void = {
+        let accessing = folderURL.startAccessingSecurityScopedResource()
+        defer { if accessing { folderURL.stopAccessingSecurityScopedResource() } }
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDirectory),
           isDirectory.boolValue
