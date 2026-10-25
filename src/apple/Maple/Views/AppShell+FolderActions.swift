@@ -310,7 +310,7 @@ extension AppShell {
       }
       await prepareCache()
       await browseVM.loadFolder(url: folderURL, prepareRetry: prepareCache)
-      guard librarySelection == .folder(path: folder.path), browseVM.loadError == nil else {
+      guard librarySelection == .folder(path: folder.path) else {
         return
       }
       pruneSessionsForNewAssetList()
