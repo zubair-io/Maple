@@ -16,7 +16,7 @@ public sealed class ThumbnailRendererTests(ITestOutputHelper output)
         "xmlns:papp=\"http://ns.justmaple.app/photo/1.0/\" papp:FilmLook=\"black_white_ilford_delta_100\" papp:FilmStrength=\"100\"/></rdf:RDF>";
 
     [Fact]
-    public void Unedited_recovery_requires_absent_sidecar_even_when_sidecar_is_invalid()
+    public void Unedited_recovery_requires_no_authored_edits_and_rejects_invalid_sidecars()
     {
         var directory = Path.Combine(Path.GetTempPath(), "maple-thumb-recovery-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -25,12 +25,14 @@ public sealed class ThumbnailRendererTests(ITestOutputHelper output)
             var raw = Path.Combine(directory, "photo.dng");
             var sidecar = SidecarStore.SidecarPathFor(raw);
             Assert.True(ThumbnailRenderer.CanDevelopUneditedFallback(raw));
-            foreach (var content in new[] { Edited, Film, "<broken", "" })
+            foreach (var content in new[] { Edited, Film, "<broken" })
             {
                 File.WriteAllText(sidecar, content);
                 Assert.False(ThumbnailRenderer.CanDevelopUneditedFallback(raw));
                 Assert.Equal(content, File.ReadAllText(sidecar));
             }
+            File.WriteAllText(sidecar, "");
+            Assert.True(ThumbnailRenderer.CanDevelopUneditedFallback(raw));
             File.Delete(sidecar);
             Directory.CreateDirectory(sidecar);
             Assert.False(ThumbnailRenderer.CanDevelopUneditedFallback(raw));
@@ -59,7 +61,7 @@ public sealed class ThumbnailRendererTests(ITestOutputHelper output)
             var sidecar = SidecarStore.SidecarPathFor(raw);
             var cached = ThumbCachePaths.SharedThumbPathFor(raw);
             Directory.CreateDirectory(Path.GetDirectoryName(cached)!);
-            File.WriteAllText(sidecar, "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description/></rdf:RDF>");
+            File.WriteAllText(sidecar, Edited.Replace("-2", "0.5"));
             var firstRc = ThumbnailRenderer.Render(raw, cached, 512, avif: true);
             Assert.True(firstRc == 0, Maple.WinUI.Native.RawFfi.LastError());
             var defaultBytes = File.ReadAllBytes(cached);
