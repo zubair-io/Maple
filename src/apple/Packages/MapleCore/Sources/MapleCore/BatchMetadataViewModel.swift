@@ -365,7 +365,12 @@ public final class BatchMetadataViewModel: Identifiable {
       livePhotoKitStore != nil || reboundPrimaryStore != nil
     else {
       await session.sidecarUpdateTask?.value
-      let primary = try Self.makePhotoKitStore(id: id, root: photoKitSidecarRoot)
+      let primary: PhotoKitSidecarStore
+      if let activePrimary = session.primarySidecarStore as? PhotoKitSidecarStore {
+        primary = activePrimary
+      } else {
+        primary = try Self.makePhotoKitStore(id: id, root: photoKitSidecarRoot)
+      }
       try await applyToPhotoKitPrimary(primary, metadata: merged)
       return
     }
