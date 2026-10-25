@@ -14,7 +14,7 @@ extension BrowseViewModel {
     pagedPhotoKitSource = source
     photoKitNextOffset = 0
     photoKitTotalCount = 0
-    isLoadingPhotoKitPage = false
+    finishPhotoKitPageLoad()
     defer { if gen == loadGeneration { isLoading = false } }
 
     do {
@@ -49,7 +49,7 @@ extension BrowseViewModel {
     isLoadingPhotoKitPage = true
     let gen = loadGeneration
     let offset = photoKitNextOffset
-    defer { if gen == loadGeneration { isLoadingPhotoKitPage = false } }
+    defer { if gen == loadGeneration { finishPhotoKitPageLoad() } }
     do {
       let refs = try await source.images(offset: offset, limit: Self.photoKitPageSize)
       guard gen == loadGeneration else { return }
@@ -73,10 +73,10 @@ extension BrowseViewModel {
     let gen = loadGeneration
     var offset = photoKitNextOffset
     var remaining: [AssetRef] = []
-    defer { if gen == loadGeneration { isLoadingPhotoKitPage = false } }
+    defer { if gen == loadGeneration { finishPhotoKitPageLoad() } }
     while offset < photoKitTotalCount {
       try Task.checkCancellation()
-      let refs = try await source.images(offset: offset, limit: Self.photoKitPageSize)
+      let refs = try await source.images(offset: offset, limit: Self.photoKitFilterDrainPageSize)
       guard gen == loadGeneration else { throw CancellationError() }
       guard !refs.isEmpty else {
         throw ImageSourceError.notFound("The Photos listing ended before all photos were loaded")
@@ -91,12 +91,24 @@ extension BrowseViewModel {
   }
 
   /// A previous filter's cancelled drain still owns the page slot until its
-  /// deferred cleanup runs. Wait for that cleanup before starting a new drain.
+  /// deferred cleanup runs. Suspend without polling until it releases the slot.
   func waitForActivePhotoKitPage() async throws {
     while isLoadingPhotoKitPage {
       try Task.checkCancellation()
-      try await Task.sleep(for: .milliseconds(25))
+      let token = UUID()
+      let released = AsyncStream<Void> { continuation in
+        photoKitPageWaiters[token] = continuation
+      }
+      for await _ in released {}
+      photoKitPageWaiters.removeValue(forKey: token)
     }
     try Task.checkCancellation()
+  }
+
+  func finishPhotoKitPageLoad() {
+    isLoadingPhotoKitPage = false
+    let waiters = Array(photoKitPageWaiters.values)
+    photoKitPageWaiters.removeAll()
+    for waiter in waiters { waiter.finish() }
   }
 }

@@ -24,7 +24,7 @@ struct GridFilterTests {
       return vm.isLoadingPhotoKitPage
     }
     try await Task.sleep(for: .milliseconds(50))
-    vm.isLoadingPhotoKitPage = false
+    vm.finishPhotoKitPageLoad()
     #expect(try await waiter.value == false)
   }
 
@@ -33,8 +33,13 @@ struct GridFilterTests {
     let vm = BrowseViewModel()
     vm.isLoadingPhotoKitPage = true
     let waiter = Task { try await vm.waitForActivePhotoKitPage() }
+    for _ in 0..<100 where vm.photoKitPageWaiters.isEmpty {
+      await Task.yield()
+    }
+    #expect(vm.photoKitPageWaiters.count == 1)
     waiter.cancel()
     await #expect(throws: CancellationError.self) { try await waiter.value }
+    #expect(vm.photoKitPageWaiters.isEmpty)
   }
 
   @Test("Real XMP sidecars filter an offscreen pick and keep missing sidecars unedited")

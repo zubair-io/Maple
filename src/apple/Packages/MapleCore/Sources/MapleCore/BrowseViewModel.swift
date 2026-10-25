@@ -102,7 +102,9 @@ public final class BrowseViewModel {
   @ObservationIgnored var photoKitNextOffset = 0
   @ObservationIgnored var photoKitTotalCount = 0
   @ObservationIgnored var isLoadingPhotoKitPage = false
+  @ObservationIgnored var photoKitPageWaiters: [UUID: AsyncStream<Void>.Continuation] = [:]
   static let photoKitPageSize = 42
+  static let photoKitFilterDrainPageSize = 1_000
   static let photoKitPrefetchDistance = 15
 
   public var selectedAsset: AssetRef? {

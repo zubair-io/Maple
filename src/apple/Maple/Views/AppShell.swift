@@ -1587,11 +1587,12 @@ struct AppShell: View {
 
   /// Open the batch metadata editor with the currently-selected assets.
   private func openBatchMetadata() {
-    guard !browseVM.selectedAssets(sessions: sessions).isEmpty else { return }
+    let assets = browseVM.selectedAssets(sessions: sessions)
+    guard !assets.isEmpty else { return }
     // Snapshot the selection + sessions once, at open time. Presenting via
     // .sheet(item:) keeps this instance alive for the sheet's lifetime.
     batchMetadataVM = BatchMetadataViewModel(
-      assets: browseVM.selectedAssets(sessions: sessions),
+      assets: assets,
       sessions: sessions
     )
   }
@@ -1604,8 +1605,8 @@ struct AppShell: View {
   /// decided once for the whole selection here, then baked into the
   /// `BatchRenameViewModel` the sheet is handed.
   private func openBatchRename() {
-    guard !browseVM.selectedAssets(sessions: sessions).isEmpty else { return }
     let assets = browseVM.selectedAssets(sessions: sessions)
+    guard !assets.isEmpty else { return }
     switch batchRenameRouting(for: assets) {
     case .unsupported(let reason):
       batchRenameVM = BatchRenameViewModel(assets: assets, routing: .unsupported(reason))
