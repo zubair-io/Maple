@@ -152,6 +152,9 @@ test('Hosted Browse and Preview visible actions work in installed Chrome', async
   await expect(page.getByRole('button', { name: 'Filter: 4+ stars' })).toBeVisible();
   await expect(page.getByRole('button', { name: SOURCE, exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Filter: 4+ stars' }).click();
+  await expect(page.getByRole('button', { name: 'Filter: Edited' })).toBeVisible();
+  await expectAssets(page);
+  await page.getByRole('button', { name: 'Filter: Edited' }).click();
   await expect(page.getByRole('button', { name: 'Filter: All' })).toBeVisible();
   await expectAssets(page);
 
