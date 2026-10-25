@@ -24,15 +24,18 @@ struct AsyncThumbnail<Content: View>: View {
   /// own empty state. Decoded off the main actor (never in `body`).
   @State private var decoded: CGImage?
 
-  private var decodedKey: String {
-    DevelopedImageRevision.shared.decodedKey(
+  private var reloadKey: String {
+    DevelopedImageRevision.shared.reloadKey(
       for: asset.stableID ?? asset.id.uuidString, source: .local(asset, source: nil))
   }
 
   var body: some View {
     content(decoded)
-      .task(id: decodedKey) {
-        await load(key: decodedKey)
+      .task(id: reloadKey) {
+        let key = await DevelopedImageRevision.shared.decodedKeyAsync(
+          for: asset.stableID ?? asset.id.uuidString, source: .local(asset, source: nil))
+        guard !Task.isCancelled else { return }
+        await load(key: key)
       }
   }
 

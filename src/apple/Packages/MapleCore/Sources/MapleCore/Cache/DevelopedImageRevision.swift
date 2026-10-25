@@ -33,6 +33,32 @@ public final class DevelopedImageRevision {
   /// Cloud asset IDs name paths within a server, not globally unique images.
   /// Cells, warmers and retained preview seeds must share this same namespace.
   public func decodedKey(for id: String, source: ThumbnailSource) -> String {
+    decodedKey(for: cacheIdentity(for: id, source: source), url: source.localAssetURL)
+  }
+
+  /// Stable task identity for a view load. Source stamps are deliberately
+  /// excluded: reading them while SwiftUI evaluates a grid cell can block the
+  /// main thread on a network-backed folder.
+  public func reloadKey(for id: String, source: ThumbnailSource) -> String {
+    let identity = cacheIdentity(for: id, source: source)
+    let revision = revision(for: source.localAssetURL)
+    return revision == 0 ? identity : "\(identity):developed:\(revision)"
+  }
+
+  /// Resolve the same decoded key as `decodedKey(for:source:)` after the view
+  /// starts its load, with filesystem metadata work on a utility executor.
+  public func decodedKeyAsync(for id: String, source: ThumbnailSource) async -> String {
+    let base = reloadKey(for: id, source: source)
+    guard let url = source.localAssetURL, url.isFileURL else { return base }
+    let sourceStamp = await Task.detached(priority: .utility) { () -> String? in
+      guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+      return LocalDerivativeSourceStamp.signature(for: url)
+    }.value
+    guard let sourceStamp else { return base }
+    return "\(base):source:\(MapleThumbCacheKey.sha256Prefix16(sourceStamp))"
+  }
+
+  private func cacheIdentity(for id: String, source: ThumbnailSource) -> String {
     let host: String?
     switch source.resolvedBackend() {
     case .cloudThumb(_, let cloudHost): host = cloudHost
@@ -46,8 +72,7 @@ public final class DevelopedImageRevision {
       }
     case .photoKit: host = nil
     }
-    let identity = host.map { "cloud:\($0.utf8.count):\($0):\(id)" } ?? id
-    return decodedKey(for: identity, url: source.localAssetURL)
+    return host.map { "cloud:\($0.utf8.count):\($0):\(id)" } ?? id
   }
 
   /// Publish only after both derived-image writes have completed, so a reload
