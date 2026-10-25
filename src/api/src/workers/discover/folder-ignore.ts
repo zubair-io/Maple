@@ -14,6 +14,7 @@ import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { tagLocationMissing } from '../../db/repos/assets.discover.ts';
 import {
   listLiveLocationsIn,
+  relabelMissingAsExcluded,
   subtreeRuns,
   type IgnoredLiveLocation,
 } from '../../db/repos/assets.mapleignore.ts';
@@ -89,6 +90,7 @@ async function excludeIgnoredDirectory(
       (after) => listLiveLocationsIn(folderId, run, after, BATCH_SIZE),
       (location) => tagExcluded(folderId, root, location),
     );
+    tagged += await relabelMissingAsExcluded(folderId, run);
   }
   if (tagged > 0) {
     log.info({ dir: dirPath, count: tagged }, '.mapleignore: excluded indexed files from library');

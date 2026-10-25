@@ -24,6 +24,8 @@ import { runMissingReaperOnce } from '../missing-reaper.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { trashAssetById } from '../../library/asset-trash.ts';
 import { trashFolderRecursive } from '../../library/folder-trash.ts';
+import { runTrashGcOnce } from '../trash-gc.ts';
+import { refusesFileUnderMarker } from '../../fs/mapleignore-guard.ts';
 import { relocateAsset } from '../../library/relocate-asset.ts';
 import { loadAssetLocationView } from '../../db/repos/assets.locations.repo.ts';
 import { toObjectId } from '../../db/repos/values.ts';
@@ -390,5 +392,98 @@ describe('.mapleignore — explicit-entry moves of an excluded original', () => 
     expect(outcome.kind).toBe('error');
     expect(readFileSync(raw)).toEqual(before);
     expect(() => readFileSync(join(library.root, 'keep', 'b.jpg'))).toThrow();
+  });
+});
+
+describe('.mapleignore — tag state never decides whether an original moves', () => {
+  async function relocateInto(id: string, destinationPath: string) {
+    return relocateAsset({
+      id: toObjectId(id),
+      mode: 'move',
+      collision: 'auto-suffix',
+      destinationPath,
+    });
+  }
+
+  it('relabels a location already tagged watch-removed, keeping its missing time', async () => {
+    using library = await createDiscoverLibrary('maple-ignore-');
+    put(library.root, 'keep/a.jpg');
+    const raw = put(library.root, 'skip/b.jpg');
+    const sweep = await sweeper(library);
+    await sweep();
+    const id = assetIdAt(library.db, 'skip', 'b.jpg')!;
+    const bytes = readFileSync(raw);
+    rmSync(raw);
+    await handleEvent({ kind: 'removed', absPath: raw }, library.folderId, library.root);
+    const [removed] = locationsOf(library.db, id);
+    expect(removed!.missing_reason).toBe('watch-removed');
+
+    // The file comes back under a newly added marker before the reaper runs.
+    writeFileSync(raw, bytes);
+    mark(library.root, 'skip');
+    await sweep();
+
+    const [relabeled] = locationsOf(library.db, id);
+    expect(relabeled!.missing_reason).toBe('mapleignore');
+    expect(relabeled!.missing_since).toBe(removed!.missing_since);
+    expect((await trashAssetById(toObjectId(id))).kind).toBe('no-location');
+    expect((await relocateInto(id, 'keep')).kind).toBe('error');
+    expect(readFileSync(raw)).toEqual(bytes);
+  });
+
+  it('the on-disk check alone blocks trash, relocate and folder trash before any sweep', async () => {
+    using library = await createDiscoverLibrary('maple-ignore-');
+    put(library.root, 'parent/keep.jpg');
+    const raw = put(library.root, 'parent/skip/b.jpg');
+    const sweep = await sweeper(library);
+    await sweep();
+    const id = assetIdAt(library.db, 'parent/skip', 'b.jpg')!;
+    const bytes = readFileSync(raw);
+
+    // Marker added, but no sweep yet: the location is still live and untagged.
+    mark(library.root, 'parent/skip');
+    expect(live(library, 'parent/skip', 'b.jpg')).toBe(true);
+
+    const trash = await trashAssetById(toObjectId(id));
+    expect(trash.kind).toBe('error');
+    expect((await relocateInto(id, 'parent')).kind).toBe('error');
+    const folder = await trashFolderRecursive(library.folderId, library.root, 'parent');
+    expect(folder.succeeded).toBe(1);
+    expect(readFileSync(raw)).toEqual(bytes);
+    expect(live(library, 'parent/skip', 'b.jpg')).toBe(true);
+  });
+});
+
+describe('.mapleignore — path-only writers and purges', () => {
+  it("refuses any path under a marker except inside Maple's own .maple tree", async () => {
+    using library = await createDiscoverLibrary('maple-ignore-');
+    mark(library.root, '');
+    expect(await refusesFileUnderMarker(join(library.root, 'a', 'b.xmp'))).toBe(true);
+    expect(await refusesFileUnderMarker(join(library.root, '.maple', 'trash', 'b.jpg'))).toBe(
+      false,
+    );
+    rmSync(join(library.root, '.mapleignore'));
+    expect(await refusesFileUnderMarker(join(library.root, 'a', 'b.xmp'))).toBe(false);
+  });
+
+  it('a Trash purge never unlinks a live copy that sits under a marker', async () => {
+    using library = await createDiscoverLibrary('maple-ignore-');
+    const ignored = put(library.root, 'a-ignored/same.jpg', 'identical bytes');
+    put(library.root, 'z-kept/same.jpg', 'identical bytes');
+    const sweep = await sweeper(library);
+    await sweep();
+    const id = assetIdAt(library.db, 'a-ignored', 'same.jpg')!;
+    expect(assetIdAt(library.db, 'z-kept', 'same.jpg')).toBe(id);
+
+    // Trash the other copy; the purge later resolves the asset's first live
+    // location, which is the copy in the folder that then gains a marker.
+    const trashed = await trashAssetById(toObjectId(id), {
+      entry: { libraryId: library.folderId, path: 'z-kept', filename: 'same.jpg' },
+    });
+    expect(trashed.kind).toBe('ok');
+    mark(library.root, 'a-ignored');
+
+    await runTrashGcOnce({ retentionDays: 0 });
+    expect(readFileSync(ignored, 'utf8')).toBe('identical bytes');
   });
 });

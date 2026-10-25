@@ -34,6 +34,7 @@
  * is deleted there too.
  */
 
+import { refusesFileUnderMarker } from './mapleignore-guard.ts';
 import * as path from 'node:path';
 import { randomBytes } from 'node:crypto';
 // Mirror-aware drop-in — see `mirrored.ts`.
@@ -116,7 +117,9 @@ async function requireSidecarResolution(
  * and refuses any target that is not itself an `.xmp` file inside a library
  * root (#4749). */
 export async function authorizeSidecarWrite(destPath: string): Promise<OpResult<string>> {
-  return requireSidecarResolution(destPath, await safeWriteAllowed(destPath));
+  const resolution = await requireSidecarResolution(destPath, await safeWriteAllowed(destPath));
+  if (!resolution.ok || !(await refusesFileUnderMarker(destPath))) return resolution;
+  return { ok: false, error: `Sidecar path "${destPath}" is under a .mapleignore folder` };
 }
 
 /** Jail check for a sidecar about to be read — same rules as writes, so a

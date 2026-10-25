@@ -8,6 +8,7 @@
 import type { ObjectId } from '../object-id.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { toHex } from './values.ts';
+import { MAPLE_IGNORE_MISSING_REASON } from '../../fs/mapleignore.ts';
 
 export interface IgnoredLiveLocation {
   path: string;
@@ -63,4 +64,29 @@ export async function listLiveLocationsIn(
       LIMIT ?`,
     [toHex(libraryId), ...range.params, ...cursor.params, limit],
   );
+}
+
+/**
+ * Re-label locations in `run` that were already tagged missing for another
+ * reason (a `removed` event, a stage's ENOENT) as excluded. Their file may
+ * have come back under the marker, and only the excluded label keeps trash
+ * and relocate off it. `missing_since` is left alone so the reaper's prune
+ * window keeps its original start. Matches nothing in the steady state.
+ */
+export async function relabelMissingAsExcluded(
+  libraryId: ObjectId,
+  run: PathRun,
+  dbOverride?: SqliteDb,
+): Promise<number> {
+  const range = runPredicate(run);
+  const result = await sqliteDb(dbOverride).write(
+    `UPDATE asset_locations AS l INDEXED BY asset_locations_lib_path_name
+        SET missing_reason = ?
+      WHERE l.library_id = ? AND ${range.sql}
+        AND l.deleted_at IS NULL AND l.missing_since IS NOT NULL
+        AND l.missing_reason IS NOT ?
+        AND EXISTS (SELECT 1 FROM assets a WHERE a.id = l.asset_id AND a.deleted_at IS NULL)`,
+    [MAPLE_IGNORE_MISSING_REASON, toHex(libraryId), ...range.params, MAPLE_IGNORE_MISSING_REASON],
+  );
+  return result.changes;
 }
