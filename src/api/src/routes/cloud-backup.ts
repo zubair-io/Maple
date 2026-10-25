@@ -57,6 +57,25 @@ async function validateMirror(libraryId: string, target: string) {
     throw new BackupRequestError('Mirror path overlaps a library or another destination');
   return canonical;
 }
+async function reportedError(
+  destinationId: string,
+  prepared: number,
+): Promise<{ lastError: string | null; lastErrorCount: number }> {
+  if (prepared)
+    return {
+      lastError: 'Interrupted local move requires recovery or retry',
+      lastErrorCount: prepared,
+    };
+  // The error most entries share is what holds the queue; MAX() on text would
+  // surface whichever message sorts last alphabetically instead.
+  const [dominant] = await repo.db.read<{ message: string; count: number }>(
+    `SELECT last_error AS message,COUNT(*) AS count FROM backup_entries
+      WHERE destination_id=? AND last_error IS NOT NULL
+      GROUP BY last_error ORDER BY count DESC,MAX(retry_at) DESC LIMIT 1`,
+    [destinationId],
+  );
+  return { lastError: dominant?.message ?? null, lastErrorCount: dominant?.count ?? 0 };
+}
 async function projection(row: BackupDestination) {
   const [status] = await repo.db.read<{
     pending: number;
@@ -74,14 +93,6 @@ async function projection(row: BackupDestination) {
     [row.id],
   );
   if (!status) throw new Error('Backup status query failed');
-  // The error most entries share is what holds the queue; MAX() on text would
-  // surface whichever message sorts last alphabetically instead.
-  const [dominant] = await repo.db.read<{ message: string; count: number }>(
-    `SELECT last_error AS message,COUNT(*) AS count FROM backup_entries
-      WHERE destination_id=? AND last_error IS NOT NULL
-      GROUP BY last_error ORDER BY count DESC,MAX(retry_at) DESC LIMIT 1`,
-    [row.id],
-  );
   const purges = await repo.purges(row.id);
   const [coverage] = await repo.db.read<{
     pending: number;
@@ -115,10 +126,7 @@ async function projection(row: BackupDestination) {
       trash: status.trash,
       blocked: status.blocked + coverage.prepared,
       bytes: status.bytes,
-      lastError: coverage.prepared
-        ? 'Interrupted local move requires recovery or retry'
-        : (dominant?.message ?? null),
-      lastErrorCount: coverage.prepared || (dominant?.count ?? 0),
+      ...(await reportedError(row.id, coverage.prepared)),
       purgePending: purges.filter((p) => !p.completed).length,
     },
   };

@@ -357,36 +357,54 @@ export class BackupEngine {
     let files: CapturedFiles | undefined;
     try {
       files = await captureInventory(location, lease.signal);
-      const entry = await repo.reserveSnapshot(initial, owner, snapshotHash(location, files));
-      lease.update(entry);
-      if (!(await repo.fence(entry, destination, owner)))
-        throw new Error('Backup configuration or lifecycle changed');
-      const provider = await this.provider(destination);
-      await provider.probe(lease.signal);
-      await this.rearmConnectionFailures(destination);
-      const ctx = { destination, entry, owner, provider, signal: lease.signal };
-      const objects = await this.publishFiles(ctx, files);
-      await this.validateCurrentInventory(ctx, location, files);
-      return await this.publishCatalog(ctx, location, objects);
+      return await this.publishCaptured(destination, location, initial, owner, lease, files);
     } catch (error) {
-      // The caller stopped (worker shutdown), so the failure says nothing about
-      // this entry; persisted checkpoints let the next claim resume it.
-      if (signal?.aborted) {
-        await repo.release(initial, owner);
-        return false;
-      }
-      if (destinationOutage(error)) this.probeHealthy.delete(destination.id);
-      await repo.fail(
-        initial,
-        owner,
-        error instanceof Error ? error.message : 'Backup transfer failed',
-        connectionFailure(error) ? 'connection' : null,
-      );
+      await this.recordTransferFailure(destination, initial, owner, error, signal);
       return false;
     } finally {
       lease.stop();
       if (files) await releaseCapture(files);
     }
+  }
+  private async publishCaptured(
+    destination: BackupDestination,
+    location: InventoryLocation,
+    initial: BackupEntry,
+    owner: string,
+    lease: ReturnType<typeof startEntryLease>,
+    files: CapturedFiles,
+  ): Promise<boolean> {
+    const repo: BackupRepository = this.repo;
+    const entry = await repo.reserveSnapshot(initial, owner, snapshotHash(location, files));
+    lease.update(entry);
+    if (!(await repo.fence(entry, destination, owner)))
+      throw new Error('Backup configuration or lifecycle changed');
+    const provider = await this.provider(destination);
+    await provider.probe(lease.signal);
+    await this.rearmConnectionFailures(destination);
+    const ctx = { destination, entry, owner, provider, signal: lease.signal };
+    const objects = await this.publishFiles(ctx, files);
+    await this.validateCurrentInventory(ctx, location, files);
+    return this.publishCatalog(ctx, location, objects);
+  }
+  private async recordTransferFailure(
+    destination: BackupDestination,
+    initial: BackupEntry,
+    owner: string,
+    error: unknown,
+    callerSignal?: AbortSignal,
+  ): Promise<void> {
+    // The caller stopped (worker shutdown), so the failure says nothing about
+    // this entry; persisted checkpoints let the next claim resume it.
+    const repo: BackupRepository = this.repo;
+    if (callerSignal?.aborted) return repo.release(initial, owner);
+    if (destinationOutage(error)) this.probeHealthy.delete(destination.id);
+    await repo.fail(
+      initial,
+      owner,
+      error instanceof Error ? error.message : 'Backup transfer failed',
+      connectionFailure(error) ? 'connection' : null,
+    );
   }
   // A probe that just succeeded proves the destination healthy for every entry
   // still parked on a connection failure. The repository call is one partial-
