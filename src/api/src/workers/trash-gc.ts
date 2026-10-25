@@ -35,6 +35,7 @@ import { prepareTrashPurge } from '../cloud-backup/lifecycle.ts';
 import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
 import { oldNameEditUnreadable } from '../fs/legacy-backup-sidecar.ts';
 import {
+  libraryReachable,
   logPurgeFailure,
   purgeTrashedCopyCompanions,
   resolveTrashedCopy,
@@ -109,6 +110,12 @@ async function purgeTrashedAsset(
     return { purged: false, errors: 1 };
   }
   const absPath = trashed.absPath;
+
+  // An offline volume makes every file look gone; keep the row until it is back.
+  if (!(await libraryReachable(trashed.libraryRoot))) {
+    log.warn({ _id: doc._id.toHexString() }, 'purge skip — the library is unreachable');
+    return { purged: false, errors: 1 };
+  }
 
   // Never unlink a file under a `.mapleignore` folder (#5398), whatever the
   // row says; `.maple/trash/` itself is never under the guard.

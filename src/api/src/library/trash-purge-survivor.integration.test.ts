@@ -30,7 +30,7 @@ import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
 import { findCoreInfoById } from '../db/repos/assets.repo.ts';
 import { drainLocalPurges } from './local-purge-drain.ts';
 import { fileStampOf } from './trashed-copy.ts';
-import { rm } from '../fs/mirrored.ts';
+import { rename, rm } from '../fs/mirrored.ts';
 import { searchFacets } from '../db/repos/search.facets.ts';
 import { searchPage } from '../db/repos/search.page.ts';
 import { buildSearchWhere, type SearchWhere } from '../db/repos/search.where.ts';
@@ -495,6 +495,70 @@ test.skipIf(process.getuid?.() === 0)(
       expect(obligations(f.live.db)).toEqual([]);
     } finally {
       await chmod(trashDir, 0o755).catch(() => {});
+      await f.close();
+    }
+  },
+);
+
+test.each(['route', 'retention'] as const)(
+  '%s purge leaves the photo in Trash while its library is offline, then completes once it is back',
+  async (mode) => {
+    const f = await fixture(['dupe', 'kept']);
+    const offline = `${f.library}-offline`;
+    try {
+      await rename(f.library, offline);
+
+      const outcome = await f.purge(mode);
+
+      if (outcome instanceof Response) expect(outcome.status).toBe(503);
+      else expect(outcome).toEqual({ scanned: 1, purged: 0, errors: 1 });
+      expect(
+        f.live.db
+          .query(`SELECT deleted_at, apple_rendered_path FROM assets WHERE id = ?`)
+          .get(f.id),
+      ).toEqual({ deleted_at: OLD, apple_rendered_path: COMPANION });
+      expect(
+        f.live.db.query(`SELECT COUNT(*) AS n FROM asset_locations WHERE asset_id = ?`).get(f.id),
+      ).toEqual({ n: 2 });
+      expect(obligations(f.live.db)).toEqual([]);
+      expect(f.live.db.query(`SELECT COUNT(*) AS n FROM backup_purges`).get()).toEqual({ n: 0 });
+
+      await rename(offline, f.library);
+      const again = await f.purge(mode);
+
+      if (again instanceof Response) expect(again.status).toBe(200);
+      else expect(again).toEqual({ scanned: 1, purged: 1, errors: 0 });
+      expect(await gone(f.trashedRaw)).toBe(true);
+      expect(await gone(f.trashedXmp)).toBe(true);
+      expect(obligations(f.live.db)).toEqual([]);
+      expect(await readFile(path.join(f.library, 'kept', 'IMG_1.dng'), 'utf8')).toBe(RAW);
+    } finally {
+      await rename(offline, f.library).catch(() => {});
+      await f.close();
+    }
+  },
+);
+
+test.each(['route', 'retention'] as const)(
+  '%s full purge keeps the row while its library is offline',
+  async (mode) => {
+    const f = await fixture(['solo']);
+    const offline = `${f.library}-offline`;
+    try {
+      await rename(f.library, offline);
+
+      const outcome = await f.purge(mode);
+
+      if (outcome instanceof Response) expect(outcome.status).toBe(503);
+      else expect(outcome).toEqual({ scanned: 1, purged: 0, errors: 1 });
+      expect(f.live.db.query(`SELECT id FROM assets WHERE id = ?`).get(f.id)).toEqual({ id: f.id });
+      expect(
+        f.live.db.query(`SELECT COUNT(*) AS n FROM backup_lifecycle WHERE kind = 'purge'`).get(),
+      ).toEqual({ n: 0 });
+      await rename(offline, f.library);
+      expect(await readFile(f.trashedRaw, 'utf8')).toBe(RAW);
+    } finally {
+      await rename(offline, f.library).catch(() => {});
       await f.close();
     }
   },

@@ -207,7 +207,7 @@ test.each(['route', 'retention'] as const)(
       const displaced = path.join(f.root, 'temporarily-offline-library');
       await rename(f.library, displaced);
       const outcome = await f.purge(mode);
-      if (outcome instanceof Response) expect(outcome.status).toBe(500);
+      if (outcome instanceof Response) expect(outcome.status).toBe(503);
       else expect(outcome).toEqual({ scanned: 1, purged: 0, errors: 1 });
       expect(await readFile(path.join(displaced, f.relativeCompanion), 'utf8')).toBe(
         'apple-rendered-photo-bytes',

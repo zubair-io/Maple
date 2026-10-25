@@ -29,7 +29,13 @@ import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
 import { errnoCode } from '../fs/relocate-publish.ts';
 import { listPairedSidecarsStrict } from '../fs/xmp-conflict.ts';
 import { drainLocalPurges } from './local-purge-drain.ts';
-import { fileStampOf, ownSidecarsOf, type CopyAddress, type TrashedCopy } from './trashed-copy.ts';
+import {
+  fileStampOf,
+  ownSidecarsOf,
+  realLibraryRoot,
+  type CopyAddress,
+  type TrashedCopy,
+} from './trashed-copy.ts';
 
 export type SurvivorPurgeOutcome =
   | { kind: 'kept'; survivor: CopyAddress; pendingCleanup: number }
@@ -55,7 +61,9 @@ const posixRelative = (root: string, target: string): string =>
   path.relative(root, target).split(path.sep).join('/');
 
 /** Everything the purge owes the disk: the trashed copy, its sidecars, and
- * the companions when they leave with it. Recorded before any unlink. */
+ * the companions when they leave with it. Recorded before any unlink, and
+ * only once the library root is confirmed reachable, so a file is taken as
+ * already gone only when its volume is actually there. */
 async function cleanupTargets(
   info: PurgeInfo,
   copy: TrashedCopy,
@@ -104,14 +112,19 @@ export async function purgeKeepingSurvivor(
     path: copy.location.path,
     filename: copy.location.filename,
   };
-  const prepared = await Promise.all([
-    inventoryFolderPurges(id.toHexString(), new BackupRepository(), {
-      libraryId: trashed.libraryId.toHexString(),
-      relativePath: trashed.path === '' ? trashed.filename : `${trashed.path}/${trashed.filename}`,
-      withCompanions: dropCompanions,
-    }),
-    cleanupTargets(info, copy, dropCompanions),
-  ]).catch((error: unknown) => ({ error }));
+  const prepared = await realLibraryRoot(copy.libraryRoot)
+    .then(() =>
+      Promise.all([
+        inventoryFolderPurges(id.toHexString(), new BackupRepository(), {
+          libraryId: trashed.libraryId.toHexString(),
+          relativePath:
+            trashed.path === '' ? trashed.filename : `${trashed.path}/${trashed.filename}`,
+          withCompanions: dropCompanions,
+        }),
+        cleanupTargets(info, copy, dropCompanions),
+      ]),
+    )
+    .catch((error: unknown) => ({ error }));
   if ('error' in prepared) return { kind: 'retry', error: prepared.error };
 
   const outcome = await keepSurvivingCopy({
