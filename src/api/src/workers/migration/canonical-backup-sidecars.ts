@@ -15,6 +15,7 @@
  * old-name file is removed only once its edit is safe, and only if it still
  * holds the bytes that were read.
  */
+import { refusesFileUnderMarker } from '../../fs/mapleignore-guard.ts';
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
 import type { ObjectId } from '../../db/object-id.ts';
@@ -220,6 +221,8 @@ async function canonicalizeEdit(
   found: { legacy: string; bytes: Buffer },
 ): Promise<LocationOutcome> {
   try {
+    // Never rewrite sidecars under a `.mapleignore` folder (#5398); retried later.
+    if (await refusesFileUnderMarker(primary)) return 'error';
     const { legacy, bytes: legacyBytes } = found;
     if (await supersededByASend(assetId, location, primary, legacyBytes)) {
       // A device send landed and kept this edit aside, but couldn't remove the file.

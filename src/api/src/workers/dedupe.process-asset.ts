@@ -34,6 +34,7 @@ import { stageRearmStatements, RELOCATE_CACHE_STAGES } from '../db/repos/assets.
 import { child as childLogger } from '../log.ts';
 import { statKind, libraryRootAvailable } from './missing-reaper.helpers.ts';
 import { moveToDuplicates, directoryHasKeepFile } from '../fs/duplicates.ts';
+import { refusesMoveUnderMarker } from '../fs/mapleignore.ts';
 import { cleanPreviewsCacheForLocation } from '../fs/preview-cache-cleanup.ts';
 import { folderKey, sameEntry, selectKeeper, type DeDuplicateSummary } from './dedupe.helpers.ts';
 
@@ -296,7 +297,9 @@ export async function moveEntriesToDuplicates(
 
     // `moveToDuplicates` returns an error (never throws) if the source vanished
     // in the small window since we stat'd it — counted and skipped, not fatal.
-    const res = await moveToDuplicates(abs, root);
+    const res = (await refusesMoveUnderMarker(root, entry.path))
+      ? { kind: 'error' as const, error: 'under a .mapleignore folder' }
+      : await moveToDuplicates(abs, root);
     if (res.kind === 'error') {
       summary.errors++;
       log.warn({ _id: String(doc._id), abs, err: res.error }, 'deduplicate: move failed');

@@ -944,17 +944,17 @@
         "src/api/src/fs/xmp.ts",
         "src/api/src/fs/xmp-sidecar-path.ts"
       ],
-      "corpus_hash": "blake3:b1d30678f4d65fc0943037b29ad60c9266f4c2662df485b354ac21e75e1af55e",
+      "corpus_hash": "blake3:d19635259f3e55f5abcce090bad053c7466b9b8009871672c18ba8191fa96aef",
       "status": "satisfied",
       "record": {
         "backend": "bun",
-        "corpus_hash": "blake3:b1d30678f4d65fc0943037b29ad60c9266f4c2662df485b354ac21e75e1af55e",
+        "corpus_hash": "blake3:d19635259f3e55f5abcce090bad053c7466b9b8009871672c18ba8191fa96aef",
         "expected_cases": 4,
         "executed_cases": 4,
         "failed_cases": 0,
         "skipped_cases": 0,
-        "git_sha": "a5e26bbf2286024a15465e6748892d081dc08f50",
-        "recorded_at": "2026-10-25T17:47:17Z",
+        "git_sha": "c78f4a653cc4ef9b556a5c90284f6dcd3c0f7561",
+        "recorded_at": "2026-10-25T18:17:30Z",
         "command": "bash -c cd\\ src/api\\ \\&\\&\\ bun\\ test\\ src/routes/xmp.sidecar-contract.test.ts\\ --timeout\\ 30000"
       }
     },

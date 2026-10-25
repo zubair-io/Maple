@@ -33,6 +33,7 @@
  * `node:fs` write in this module to swap.
  */
 
+import { refusesMoveUnderMarker } from '../../fs/mapleignore.ts';
 import * as path from 'node:path';
 import type { FileInfo } from '../../db/schema.ts';
 import type { MigrationCandidate, MigrationMarker } from '../../db/repos/assets.migrations.ts';
@@ -96,6 +97,9 @@ export async function moveBackupAsset(
     const stamped = await stampMarkerIfUnmoved(doc.id, primary, marker.name, marker.version);
     return stamped ? 'noop' : 'skipped';
   }
+
+  // The on-disk `.mapleignore` guard (#5398): an ignored original never moves.
+  if (await refusesMoveUnderMarker(libRoot, oldDir)) return 'skipped';
 
   // 1. Copy + verify the file and its companions into the new dir. Sources are
   //    NOT deleted yet.

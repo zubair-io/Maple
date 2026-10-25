@@ -39,6 +39,7 @@ import {
   type FolderLocationMatch,
 } from '../db/repos/assets.locations.repo.ts';
 import { trashAssetById, restoreAssetById } from './asset-trash.ts';
+import { IgnoreVerdictMemo } from '../fs/mapleignore.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('library/folder-trash');
@@ -185,11 +186,13 @@ export async function trashFolderRecursive(
   relPath: string,
 ): Promise<FolderBatchSummary> {
   const matches = await listLiveAssetLocationsUnderFolder(folderId, relPath);
+  const ignoreMemo = new IgnoreVerdictMemo();
   const items = await processFolderBatch(
     matches,
     (match) =>
       trashAssetById(match.assetId, {
         entry: { libraryId: folderId, path: match.path, filename: match.filename },
+        ignoreMemo,
       }),
     ['ok', 'already-trashed'],
     { folderId, relPath, verb: 'folder-trash' },

@@ -87,6 +87,21 @@ export async function listingHasIgnoreMarker(
   );
 }
 
+/**
+ * The on-disk guard every operation that moves, renames or trashes an
+ * original runs right before acting: true unless the file's directory chain
+ * verifiably holds no marker. It reads the disk, not the location's tag, so a
+ * tag that is stale or wrong can never let an ignored original move.
+ */
+export async function refusesMoveUnderMarker(
+  root: string,
+  relDir: string,
+  memo?: IgnoreVerdictMemo,
+): Promise<boolean> {
+  const verdict = await (memo ? memo.verdict(root, relDir) : ignoreVerdict(root, relDir));
+  return verdict !== 'indexed';
+}
+
 /** Per-pass memo for the reaper, which can ask about thousands of entries
  * sharing a handful of directories. */
 export class IgnoreVerdictMemo {

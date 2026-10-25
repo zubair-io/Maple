@@ -36,6 +36,7 @@
  * cannot be written in the first place, so the race is prevented rather than
  * repaired. See `db/repos/assets.refile.ts`.
  */
+import { isExcludedLocation, refusesMoveUnderMarker } from '../fs/mapleignore.ts';
 import type { WithId } from '../db/object-id.ts';
 import * as path from 'node:path';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';
@@ -245,6 +246,14 @@ export async function relocateGeoAsset(
 ): Promise<GeoMoveOutcome> {
   const oldDir = primary.path;
   if (newDir === oldDir) return 'skipped';
+  // The `.mapleignore` guards (#5398): by tag, and on disk for both ends.
+  if (
+    isExcludedLocation(primary) ||
+    (await refusesMoveUnderMarker(libRoot, oldDir)) ||
+    (await refusesMoveUnderMarker(libRoot, newDir))
+  ) {
+    return 'skipped';
+  }
 
   const oldDirAbs = path.join(libRoot, oldDir);
   const sourceAbsPath = path.join(libRoot, oldDir, primary.filename);

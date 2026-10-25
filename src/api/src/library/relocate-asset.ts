@@ -32,7 +32,7 @@
  * day-dir-refile migration (`workers/migration/refile-legacy-daydir.ts`).
  */
 
-import { isExcludedLocation } from '../fs/mapleignore.ts';
+import { isExcludedLocation, refusesMoveUnderMarker } from '../fs/mapleignore.ts';
 import * as path from 'node:path';
 import type { ObjectId } from '../db/object-id.ts';
 import type { AppleCompanionSlot } from '../db/apple-companions.ts';
@@ -249,6 +249,10 @@ async function resolveDestinationAbsPath(
   return path.join(destDir, destFilename);
 }
 
+function posixDir(rel: string): string {
+  return rel === '' ? '' : rel.split(path.sep).join('/');
+}
+
 async function resolveDestinationPlan(
   input: RelocateAssetInput,
   primary: FileInfo,
@@ -260,6 +264,16 @@ async function resolveDestinationPlan(
   const destAbsPath = await resolveDestinationAbsPath(input, primary, destLibRoot);
   if (typeof destAbsPath !== 'string') return destAbsPath;
 
+  // The on-disk `.mapleignore` guard (#5398), whatever the location's tag says.
+  if (
+    (await refusesMoveUnderMarker(libRoot, primary.path)) ||
+    (await refusesMoveUnderMarker(
+      destLibRoot,
+      posixDir(path.relative(destLibRoot, path.dirname(destAbsPath))),
+    ))
+  ) {
+    return { kind: 'error', error: 'source or destination is under a .mapleignore folder' };
+  }
   const sourceAbsPath = path.join(libRoot, primary.path, primary.filename);
   return { destLibraryId, destLibRoot, sourceAbsPath, destAbsPath };
 }

@@ -28,6 +28,7 @@
  * inline here.
  */
 
+import { refusesFileUnderMarker } from '../../fs/mapleignore-guard.ts';
 import { Elysia, t } from 'elysia';
 import type { ObjectId } from '../../db/object-id.ts';
 import { unlink } from 'node:fs/promises';
@@ -123,6 +124,10 @@ async function purgeTrashedAsset(
   const located = await resolveAssetAbsPathOrRespond(info, set);
   if ('error' in located) return located;
   const { absPath, libs } = located;
+  if (await refusesFileUnderMarker(absPath)) {
+    set.status = 409;
+    return { error: 'The file is under a .mapleignore folder — it is never deleted from there' };
+  }
   // A purge would strand an old-name edit it can't read (#5063); the user retries.
   // Not 409: clients read that as "restored elsewhere".
   if (await oldNameEditUnreadable(absPath)) {

@@ -20,7 +20,11 @@
  * scope and pulling it in here would add an unused branch to every caller.
  */
 
-import { isExcludedLocation } from '../fs/mapleignore.ts';
+import {
+  isExcludedLocation,
+  refusesMoveUnderMarker,
+  type IgnoreVerdictMemo,
+} from '../fs/mapleignore.ts';
 import * as path from 'node:path';
 // Read-only re-stat of the restored file — routed through `fs/mirrored.ts`
 // (which re-exports the full `node:fs/promises` surface) rather than a
@@ -44,7 +48,7 @@ import {
   lifecycleCommit,
   fenceLifecycleMove,
 } from '../cloud-backup/lifecycle.ts';
-import type { FileInfo } from '../db/schema.ts';
+import type { FileInfo, FolderWithId } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('library/asset-trash');
@@ -148,6 +152,29 @@ export interface TrashAssetOptions {
    * bytes go to Trash with their asset, so the stale claim on the path is
    * retired instead of being recovered onto the replacement later. */
   allowExcluded?: true;
+  /** Shared across one batch (folder trash) so each directory's marker chain
+   * is walked once. */
+  ignoreMemo?: IgnoreVerdictMemo;
+}
+
+/** The entry a trash call acts on and its library, or the outcome to return
+ * instead. Unless `allowExcluded`, the entry's directory is checked on disk
+ * for a `.mapleignore` chain right before anything moves (#5398). */
+async function trashTarget(
+  fileinfo: FileInfo[] | undefined,
+  opts: TrashAssetOptions,
+): Promise<{ entrySpec: AssetLocationEntry; folder: FolderWithId } | TrashAssetOutcome> {
+  const entrySpec = resolveEntrySpec(fileinfo, opts.entry, opts.allowExcluded);
+  if (!entrySpec) return { kind: 'no-location' };
+  const folder = await findFolderById(entrySpec.libraryId);
+  if (!folder) return { kind: 'no-folder' };
+  if (
+    !opts.allowExcluded &&
+    (await refusesMoveUnderMarker(folder.path, entrySpec.path, opts.ignoreMemo))
+  ) {
+    return { kind: 'error', error: 'the file is under a .mapleignore folder' };
+  }
+  return { entrySpec, folder };
 }
 
 /**
@@ -170,12 +197,10 @@ export async function trashAssetById(
   // repoint, folder-root lookup, change-feed folder) derives from THIS,
   // never from `info.folder_id` (the asset's globally-primary library,
   // which can differ for a multi-location asset).
-  const entrySpec = resolveEntrySpec(info.fileinfo, opts.entry, opts.allowExcluded);
-  if (!entrySpec) return { kind: 'no-location' };
+  const resolvedTarget = await trashTarget(info.fileinfo, opts);
+  if ('kind' in resolvedTarget) return resolvedTarget;
+  const { entrySpec, folder } = resolvedTarget;
   const { libraryId, path: entryPath, filename: entryFilename } = entrySpec;
-
-  const folder = await findFolderById(libraryId);
-  if (!folder) return { kind: 'no-folder' };
   const absPathResolved = path.join(folder.path, entryPath, entryFilename);
   const originalAbsPath = absPathResolved;
 

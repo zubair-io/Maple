@@ -25,6 +25,7 @@
  * Started from `src/api/src/index.ts` via setInterval.
  */
 
+import { refusesFileUnderMarker } from '../fs/mapleignore-guard.ts';
 import { unlink } from 'node:fs/promises';
 import { listTrashedBefore, type TrashedAsset } from '../db/repos/assets.sweeps.ts';
 import { deleteReapedWithoutActiveBackup, hardDelete } from '../db/repos/assets.trash.ts';
@@ -117,6 +118,12 @@ async function purgeTrashedAsset(
     return { purged: false, errors: 1 };
   }
 
+  // Never unlink a file under a `.mapleignore` folder (#5398), whatever the
+  // row says; `.maple/trash/` itself is never under the guard.
+  if (await refusesFileUnderMarker(absPath)) {
+    log.warn({ _id: doc._id.toHexString(), absPath }, 'purge skip — file is under .mapleignore');
+    return { purged: false, errors: 1 };
+  }
   // A purge would strand an old-name edit it can't read (#5063); keep both for a retry.
   if (await oldNameEditUnreadable(absPath)) {
     log.warn(
