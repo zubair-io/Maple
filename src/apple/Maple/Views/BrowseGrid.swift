@@ -419,7 +419,7 @@ struct BrowseGrid: View {
         onTap: { asset, _ in
           if vm.isSelecting {
             #if os(macOS)
-              if NSEvent.modifierFlags.contains(.shift) {
+              if (NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags).contains(.shift) {
                 selectionAnchorID = vm.selectRange(from: selectionAnchorID, to: asset.id)
               } else {
                 vm.toggleSelected(asset.id)
