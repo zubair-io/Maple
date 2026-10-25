@@ -199,10 +199,7 @@
             .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.scrollSpace)) }) {
               frame in
               scroll.gridFrame = frame
-              // A rotation or split-view resize mid-pinch: the
-              // overlay's geometry is for the old width, so hand
-              // straight back to the lazy grid at the tier the
-              // pinch was heading for.
+              // Drop stale overlay geometry after rotation or resize.
               if let pinch, abs(frame.width - pinch.width) > 0.5 {
                 abandonPinch(pinch)
               }
@@ -252,12 +249,7 @@
       MagnifyGesture(minimumScaleDelta: 0.01)
         .updating($isMagnifying) { _, state, _ in state = true }
         .onChanged { value in
-          // A new pinch while the last one is still springing: hand
-          // the settled tier to the lazy grid now (a small jump to
-          // where the spring was heading, never back to the old tier)
-          // and start fresh on the next tick, once the grid has laid
-          // out at that tier so the focal photo is read from live
-          // geometry.
+          // Finish the old spring before reading live geometry for a new pinch.
           if let settling = pinch, settling.isSettling {
             swapPinchOut(settling, columns: settling.interpolation.settledColumns)
             return
@@ -280,10 +272,7 @@
       // The finger's point in grid coordinates, and the photo under it.
       let focal = CGPoint(x: startLocation.x - frame.minX, y: startLocation.y - frame.minY)
       guard let cell = geometry.focalCell(at: focal, columns: columns) else { return }
-      // Draw, for every tier, the cells within two viewports of where that
-      // tier puts the focal photo — the overlay keeps it under the fingers,
-      // so nothing further away can come on screen, and the fingers may
-      // pan a little.
+      // Draw cells within two viewports of the focal photo at each tier.
       guard
         let slice = geometry.overlaySlice(
           focalIndex: cell.index, focalFraction: cell.fraction,
