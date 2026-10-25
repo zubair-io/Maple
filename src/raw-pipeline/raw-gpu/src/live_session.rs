@@ -483,6 +483,10 @@ mod tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests_pool.rs"]
 mod tests_pool;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_session/tests_creative.rs"]
+mod tests_creative;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests_preparation.rs"]
 mod tests_preparation;

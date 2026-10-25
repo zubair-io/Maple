@@ -55,4 +55,4 @@ web-sys = { version = "0.3", features = ["HtmlCanvasElement", "OffscreenCanvas"]
 [dev-dependencies]
 rayon.workspace = true
 half = "=2.7.1"
-raw-core = { path = "../raw-core", default-features = false }
+raw-core = { path = "../raw-core", default-features = false, features = ["test-support"] }

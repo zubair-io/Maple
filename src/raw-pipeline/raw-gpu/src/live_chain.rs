@@ -90,6 +90,7 @@ use crate::tone_curves::ToneCurvesPass;
 use crate::vibrance::VibrancePass;
 use crate::vignette::VignettePass;
 use crate::white_balance::WhiteBalancePass;
+use crate::{CreativeDcpPass, CreativeGainPass, PostDcpHighlightPass};
 
 mod builder;
 pub use builder::{build_live_chain, build_live_split};
@@ -195,6 +196,18 @@ mod tests_scope;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_chain/tests_capacity.rs"]
 mod tests_capacity;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_chain/tests_creative.rs"]
+pub(crate) mod tests_creative;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_chain/tests_creative_chain.rs"]
+mod tests_creative_chain;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_chain/tests_creative_physical.rs"]
+mod tests_creative_physical;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_chain/tests_mask_bits.rs"]

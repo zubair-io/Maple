@@ -156,10 +156,24 @@ pub(crate) fn visit_live_chain<'a>(
     // sharpening to apply. `PostDcpRec2020Fp16` is the historic default,
     // preserving the existing RAW behaviour exactly.
     let is_raw_shape = inputs.input_shape == InputShape::PostDcpRec2020Fp16;
-    if is_raw_shape {
+    let creative = creative_stage(inputs);
+    if is_raw_shape && creative.is_none() {
         if let Some(params) = inputs.capture_sharpening {
             // Already `Option`-gated in `build_split`; `Some` === develop ran the stage.
             sink.push(CaptureSharpeningPass { params });
+        }
+    }
+    // A capture result already went through capture sharpening; the creative
+    // stage (#5376) takes WB's slot and applies the exposure gain last.
+    if let Some(creative) = creative {
+        sink.push(CreativeDcpPass { inputs: creative });
+        if creative.highlight_recovery {
+            sink.push(PostDcpHighlightPass);
+        }
+        if !creative.gain_is_identity() {
+            sink.push(CreativeGainPass {
+                matrix: creative.post,
+            });
         }
     }
     // WB stays engaged for ALL input shapes (#1331): for non-RAW assets the
@@ -167,7 +181,7 @@ pub(crate) fn visit_live_chain<'a>(
     // so that `apply_delta(live, decoded=6500/0)` is IDENTITY when the slider
     // is at default (6500K/0), but SHIFTS correctly as the user drags temp/tint.
     // Skipping WB for non-RAW would make the temperature/tint sliders inert.
-    if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
+    if creative.is_none() && !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
         sink.push(WhiteBalancePass {
             matrix: inputs.wb_matrix,
             hsm: inputs.wb_hsm.as_ref(),

@@ -4,7 +4,9 @@
 //! uses the exact same predicate the corresponding `if` in `build_live_split`
 //! uses, so the mask can't disagree with which passes actually get pushed.
 
-use super::noop::{scene_tone_is_noop, tone_curves_is_noop, wb_is_noop, SLIDER_EPS};
+use super::noop::{
+    creative_stage, scene_tone_is_noop, tone_curves_is_noop, wb_is_noop, SLIDER_EPS,
+};
 use crate::auto_profile_curve::profile_curve_is_active;
 use crate::color_curves::color_curves_is_identity;
 use crate::color_grade::color_grade_is_identity;
@@ -57,8 +59,11 @@ pub(super) mod bit {
     pub(super) const RESIDUAL_LUT: u32 = 1 << 21;
     pub(super) const COLOR_CURVES: u32 = 1 << 22;
     pub(super) const WB_HUE_SAT_MAP: u32 = 1 << 23;
+    pub(in crate::live_chain) const CREATIVE_DCP: u32 = 1 << 24;
+    pub(in crate::live_chain) const POST_DCP_HIGHLIGHT: u32 = 1 << 25;
+    pub(in crate::live_chain) const CREATIVE_GAIN: u32 = 1 << 26;
 
-    pub(super) const ALL: [u32; 24] = [
+    pub(super) const ALL: [u32; 27] = [
         CAPTURE_SHARPENING,
         WHITE_BALANCE,
         SCENE_TONE,
@@ -83,6 +88,9 @@ pub(super) mod bit {
         RESIDUAL_LUT,
         COLOR_CURVES,
         WB_HUE_SAT_MAP,
+        CREATIVE_DCP,
+        POST_DCP_HIGHLIGHT,
+        CREATIVE_GAIN,
     ];
 }
 
@@ -121,12 +129,24 @@ pub(crate) fn active_mask(inputs: &FullChainInputs) -> u32 {
     // rather than UB. See also the compile-time assert below.
     m |= ((inputs.input_shape as u32) & 0b11) << 30;
     // Bit 0: capture_sharpening — RAW-only (#1331); always 0 for non-RAW shapes.
-    if is_raw_shape && inputs.capture_sharpening.is_some() {
+    let creative = creative_stage(inputs);
+    if is_raw_shape && creative.is_none() && inputs.capture_sharpening.is_some() {
         m |= bit::CAPTURE_SHARPENING;
+    }
+    // Bits 24-26: the creative stage replaces WB for a capture result (#5376);
+    // each is the builder's own predicate for that pass.
+    if let Some(creative) = creative {
+        m |= bit::CREATIVE_DCP;
+        if creative.highlight_recovery {
+            m |= bit::POST_DCP_HIGHLIGHT;
+        }
+        if !creative.gain_is_identity() {
+            m |= bit::CREATIVE_GAIN;
+        }
     }
     // Bit 1: WB — engaged for ALL shapes when the slider is outside the skip
     // band (the builder now includes WB unconditionally for non-RAW too).
-    if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
+    if creative.is_none() && !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
         m |= bit::WHITE_BALANCE;
         // The HueSatMap variant binds a fourth (table) buffer (#5099).
         if inputs.wb_hsm.is_some() {

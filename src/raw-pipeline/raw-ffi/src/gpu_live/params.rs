@@ -427,6 +427,7 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             },
             enabled: p.scope_enabled != 0,
         },
+        creative: None,
     }
 }
 

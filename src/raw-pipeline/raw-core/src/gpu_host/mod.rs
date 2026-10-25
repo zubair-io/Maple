@@ -1,6 +1,7 @@
 //! Shared native/browser GPU adjustment binding (#4317).
 //! The existing browser model mapping and camera-frame white balance live here
 //! so hosts use one implementation with the shared raw-gpu chain.
+pub mod creative;
 pub mod live_profile;
 pub mod model;
 pub mod white_balance;
