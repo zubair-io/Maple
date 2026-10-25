@@ -88,6 +88,8 @@ export class XmpStoreService {
           if ((existing?.variantId ?? 'primary') !== 'primary')
             throw Error('Variant identity does not match the primary sidecar.');
           const output = await this.workflowCore.embed(workflow, xml);
+          const disk = folder.native ? await this.freshness.readCurrent(folder, name) : xml;
+          if (folder.native) this.freshness.assertUnchanged(folder, name, disk, xml);
           await this.folderAccess.writeFile(folder, name, new TextEncoder().encode(output));
           this.freshness.remember(folder, name, output);
           this._passthroughs.set(assetId, this.parser.parseAdjustmentModel(output).passthrough);
@@ -103,10 +105,8 @@ export class XmpStoreService {
     await write;
   }
 
-  /** Latest serialized write chain for each asset. */
   private readonly _inFlightWrites = new Map<AssetId, Promise<void>>();
 
-  /** Per-asset passthrough buckets loaded from the source sidecar. */
   private _passthroughs = new Map<AssetId, PassthroughBucket>();
   private readonly _metadata = new Map<AssetId, XmpMetadata>();
 
