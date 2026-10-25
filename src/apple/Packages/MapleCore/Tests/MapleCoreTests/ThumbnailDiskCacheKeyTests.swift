@@ -127,6 +127,27 @@ final class ThumbnailDiskCacheKeyTests: XCTestCase {
     XCTAssertEqual(onDisk, payload)
   }
 
+  func testSidecarRenderCannotBeStampedAgainstNewerXMP() async throws {
+    let cache = ThumbnailDiskCache()
+    await cache.configure(folderURL: tmp)
+    let asset = tmp.appendingPathComponent("snapshot.png")
+    let sidecar = SidecarPath.sidecarURL(for: asset)
+    try Data([1, 2, 3]).write(to: asset)
+    try Data("old".utf8).write(to: sidecar)
+    let renderedFrom = LocalDerivativeSourceStamp.signature(for: asset)
+    try FileManager.default.removeItem(at: sidecar)
+    try Data("newer sidecar".utf8).write(to: sidecar)
+
+    let accepted = await cache.storeThumbnailDataIfCurrent(
+      Data([4, 5, 6]), for: asset, sourceSignature: renderedFrom)
+    XCTAssertFalse(accepted)
+    let cached = await cache.thumbnailData(for: asset)
+    XCTAssertNil(cached)
+    XCTAssertFalse(
+      FileManager.default.fileExists(
+        atPath: MapleSidecarPaths.thumbURL(for: asset).path))
+  }
+
   func testUnstampedLegacyThumbIsNotServed() async throws {
     let cache = ThumbnailDiskCache()
     await cache.configure(folderURL: tmp)

@@ -227,6 +227,7 @@ public actor ThumbnailLoader {
 
     // A sidecar on either RAW or non-RAW sources is authoritative. Rebuild
     // authored pixels before trying a camera-original thumbnail (#3973/#5346).
+    let sourceSignature = LocalDerivativeSourceStamp.signature(for: assetURL)
     if NonRawImageExtensions.all.contains(ext) {
       do {
         if let data = try await renderNonRawSidecarDerivative(
@@ -234,8 +235,8 @@ public actor ThumbnailLoader {
           targetLongEdge: CGFloat(MapleThumbCacheKey.onShareThumbLongEdgePx),
           quality: MapleThumbCacheKey.onShareThumbAVIFQuality
         ) {
-          await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
-          return data
+          return await ThumbnailDiskCache.shared.storeThumbnailDataIfCurrent(
+            data, for: assetURL, sourceSignature: sourceSignature) ? data : nil
         }
       } catch {
         logger.error(
@@ -250,8 +251,8 @@ public actor ThumbnailLoader {
           targetLongEdge: CGFloat(MapleThumbCacheKey.onShareThumbLongEdgePx),
           quality: MapleThumbCacheKey.onShareThumbAVIFQuality
         ) {
-          await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
-          return data
+          return await ThumbnailDiskCache.shared.storeThumbnailDataIfCurrent(
+            data, for: assetURL, sourceSignature: sourceSignature) ? data : nil
         }
       } catch {
         logger.error(
@@ -260,6 +261,7 @@ public actor ThumbnailLoader {
         return nil
       }
     }
+    guard LocalDerivativeSourceStamp.matches(sourceSignature, for: assetURL) else { return nil }
 
     // FAST PATH — the shared Rust extractor reads the camera JPEG for
     // RAWs; ImageIO handles ordinary bitmaps. Neither synthesizes an
