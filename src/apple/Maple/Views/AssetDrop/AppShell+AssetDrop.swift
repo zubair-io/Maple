@@ -50,7 +50,11 @@ extension AppShell {
   }
 
   private func currentGridSelectionIDs() -> [AssetRef.ID] {
-    browseVM.isSelecting ? Array(browseVM.selectedIDs) : (browseVM.selectedID.map { [$0] } ?? [])
+    let visibleAssets = browseVM.gridAssets(sessions: sessions)
+    if browseVM.isSelecting {
+      return browseVM.selectedAssets(in: visibleAssets).map(\.id)
+    }
+    return visibleAssets.filter { $0.id == browseVM.selectedID }.map(\.id)
   }
 
   // MARK: - Entry point

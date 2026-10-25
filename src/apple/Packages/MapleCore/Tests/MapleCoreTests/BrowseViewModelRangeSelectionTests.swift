@@ -49,4 +49,16 @@ struct BrowseViewModelRangeSelectionTests {
     #expect(vm.selectRange(from: anchor, to: vm.assets[2].id) == vm.assets[2].id)
     #expect(vm.selectedIDs == Set([vm.assets[2].id]))
   }
+
+  @Test("Filtered Shift range excludes intervening hidden assets")
+  func filteredRangeExcludesHiddenAssets() {
+    let vm = makeVM()
+    let visible = [vm.assets[0], vm.assets[2], vm.assets[4]]
+    let anchor = visible[0].id
+    vm.select(anchor)
+
+    #expect(vm.selectRange(from: anchor, to: visible[2].id, in: visible) == anchor)
+    #expect(vm.selectedIDs == Set(visible.map(\.id)))
+    #expect(vm.selectedAssets(in: visible).map(\.id) == visible.map(\.id))
+  }
 }

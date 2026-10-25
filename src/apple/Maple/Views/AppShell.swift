@@ -1193,7 +1193,8 @@ struct AppShell: View {
           copy: isCopy)
       },
       selectedAssetCount: browseVM.isSelecting
-        ? browseVM.selectedAssets(sessions: sessions).count : (browseVM.selectedID != nil ? 1 : 0),
+        ? browseVM.selectedAssets(sessions: sessions).count
+        : browseVM.gridAssets(sessions: sessions).filter { $0.id == browseVM.selectedID }.count,
       folderRefreshGeneration: folderRefreshGeneration,
       onPickPhotosFilter: { filter in
         loadPhotos(filter: filter)
