@@ -111,10 +111,7 @@ async function trashExistingUpload(input: UploadTarget): Promise<TrashedReplacem
     await stat(absPath);
     refuseSidecarReplacement(target, filename);
     const directory = relativeDirectory(target);
-    // Under `.mapleignore` the old file is replaced as an uncatalogued one.
-    const existing = (await insideIgnoredFolder(input))
-      ? null
-      : await findAssetToReplaceAtAddress(folder._id, directory, filename);
+    const existing = await findAssetToReplaceAtAddress(folder._id, directory, filename);
     const moved = await trashUploadReplacement({
       existingId: existing?._id,
       root: folder.path,
@@ -123,6 +120,7 @@ async function trashExistingUpload(input: UploadTarget): Promise<TrashedReplacem
       relativeDirectory: directory,
       filename,
       pairedWithSidecars: input.isMedia || isVideoFilename(filename),
+      ignored: await insideIgnoredFolder(input),
     });
     if (moved.kind === 'ok')
       return existing ? { docId: existing._id, newAbsPath: moved.newAbsPath } : undefined;

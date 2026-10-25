@@ -103,6 +103,7 @@ function activeFileInfo(fileinfo: FileInfo[] | undefined): FileInfo | null {
 function resolveEntrySpec(
   fileinfo: FileInfo[] | undefined,
   explicit?: AssetLocationEntry,
+  allowExcluded = false,
 ): AssetLocationEntry | null {
   if (!explicit) return toEntrySpec(activeFileInfo(fileinfo));
   // An explicit entry (folder trash, upload replacement) is held to the same
@@ -113,7 +114,7 @@ function resolveEntrySpec(
       entry.path === explicit.path &&
       entry.filename === explicit.filename,
   );
-  return recorded && isExcludedLocation(recorded) ? null : explicit;
+  return recorded && isExcludedLocation(recorded) && !allowExcluded ? null : explicit;
 }
 
 export type TrashAssetOutcome =
@@ -142,6 +143,11 @@ export interface TrashAssetOptions {
    * single-asset HTTP route, which falls back to `activeFileInfo`.
    */
   entry?: AssetLocationEntry;
+  /** Let `entry` name a `.mapleignore`-excluded location (#5398). Only the
+   * upload route sets it, when new bytes replace that exact path: the old
+   * bytes go to Trash with their asset, so the stale claim on the path is
+   * retired instead of being recovered onto the replacement later. */
+  allowExcluded?: true;
 }
 
 /**
@@ -164,7 +170,7 @@ export async function trashAssetById(
   // repoint, folder-root lookup, change-feed folder) derives from THIS,
   // never from `info.folder_id` (the asset's globally-primary library,
   // which can differ for a multi-location asset).
-  const entrySpec = resolveEntrySpec(info.fileinfo, opts.entry);
+  const entrySpec = resolveEntrySpec(info.fileinfo, opts.entry, opts.allowExcluded);
   if (!entrySpec) return { kind: 'no-location' };
   const { libraryId, path: entryPath, filename: entryFilename } = entrySpec;
 
