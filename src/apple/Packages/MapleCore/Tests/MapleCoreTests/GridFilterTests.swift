@@ -5,6 +5,28 @@ import Testing
 
 @MainActor
 struct GridFilterTests {
+  @Test("A new PhotoKit filter waits for the prior page drain to release its slot")
+  func filterWaitsForActivePhotoKitDrain() async throws {
+    let vm = BrowseViewModel()
+    vm.isLoadingPhotoKitPage = true
+    let waiter = Task {
+      try await vm.waitForActivePhotoKitPage()
+      return vm.isLoadingPhotoKitPage
+    }
+    try await Task.sleep(for: .milliseconds(50))
+    vm.isLoadingPhotoKitPage = false
+    #expect(try await waiter.value == false)
+  }
+
+  @Test("Cancelling a replacement filter stops its wait for the old drain")
+  func cancelledFilterStopsWaitingForPhotoKitDrain() async throws {
+    let vm = BrowseViewModel()
+    vm.isLoadingPhotoKitPage = true
+    let waiter = Task { try await vm.waitForActivePhotoKitPage() }
+    waiter.cancel()
+    await #expect(throws: CancellationError.self) { try await waiter.value }
+  }
+
   @Test("Real XMP sidecars filter an offscreen pick and keep missing sidecars unedited")
   func realSidecarRoundTrip() async throws {
     let directory = try SidecarContractIO.makeTempDirectory(prefix: "grid-filter-xmp")
