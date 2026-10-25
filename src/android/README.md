@@ -244,12 +244,13 @@ decoding work remain concurrent. Original-cache leases also span library instanc
 Slider ticks replay the resident GPU image (up to 2048 pixels) without CPU
 preparation. HSL, B&W, defringe, parametric splits and present geometry are GPU
 owned, so their controls do not re-develop the sensor or apply a stage twice.
-Capture sharpening immediately uses the existing GPU pass on a separate,
-prewarmed 512-pixel zero-capture upload. Amount/sigma changes update pooled
-uniforms and a fixed-capacity kernel buffer. This small preview is an
-interactive approximation; the final preview uses capture-before-AE CPU order
-and disables GPU capture, so a stage is never applied twice. Clearing capture
-returns to the untouched fast upload immediately.
+The resident image is the capture decode (#5380): the capture stages run once
+in the fixed as-shot basis, and every tick renders it through the decode's
+creative stage (white balance, camera profile, highlight recovery, exposure
+gain), so a white-balance drag matches the refined render within one 8-bit
+step and never re-develops. The GPU never re-runs a capture stage over that
+image; a capture-stage edit keeps the current image until its refine lands,
+and GPU capture-stage feedback is the capture refine of #5381.
 CPU prefix changes such as capture sharpening and lens corrections refine after
 150 ms of quiet on a separate serial CPU worker. Preparation holds immutable
 source Arcs, shares the host cancellation signal with the core, and transfers

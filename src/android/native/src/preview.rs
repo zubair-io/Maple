@@ -1,8 +1,8 @@
 use raw_core::{
     gpu_host::{
+        capture::{develop_capture_prefix_rgba_cancellable, LiveCreative},
         model::{build_full_chain_inputs, update_chain_inputs, NoiseProfileInputs},
-        prepare::{auto_will_fit, chain_inputs_with_status, develop_prefix_rgba},
-        GpuWhiteBalance,
+        prepare::{auto_will_fit, chain_inputs_with_status},
     },
     types::AdjustmentModel,
     ExifOrientation, RawImage,
@@ -13,10 +13,10 @@ use std::{rc::Rc, sync::Arc};
 #[path = "prefix_preparation.rs"]
 mod preparation;
 pub use preparation::Preparation;
-#[path = "fast_preview.rs"]
-mod fast_preview;
-use fast_preview::{without_capture, FastPreview};
 
+/// A RAW photo uploads its capture decode (#5380) in sensor framing and binds
+/// the decode's creative stage to every tick; a raster uploads its upright
+/// pixels and keeps the white-balance pass.
 pub struct Session {
     pub ctx: Rc<GpuContext>,
     pub model: AdjustmentModel,
@@ -25,16 +25,13 @@ pub struct Session {
     ext: String,
     detail: std::sync::OnceLock<crate::native_detail::SharedDetail>,
     prefix: AdjustmentModel,
-    wb: Option<GpuWhiteBalance>,
+    creative: Option<LiveCreative>,
     live: LiveSession,
     inputs: FullChainInputs<'static>,
     sampling: f32,
-    exposure: f32,
     edge: u32,
     auto_fit: bool,
     profile: raw_core::types::Profile,
-    fast: Option<FastPreview>,
-    active_fast: bool,
     pub target_primaries: u32,
     #[cfg(target_os = "android")]
     pub surface: Option<raw_gpu::AndroidPresentSurface>,
@@ -43,6 +40,9 @@ pub struct Session {
 #[cfg(test)]
 #[path = "capture_preview_tests.rs"]
 mod capture_preview_tests;
+#[cfg(test)]
+#[path = "capture_seam_tests.rs"]
+mod capture_seam_tests;
 #[cfg(test)]
 #[path = "preview_interactive_tests.rs"]
 mod interactive_tests;
@@ -73,6 +73,67 @@ pub fn is_raw(ext: &str) -> bool {
     )
 }
 
+/// The model the first frame is decoded at: capture sharpening refines on
+/// the CPU after open, so opening never waits for it.
+#[allow(deprecated)]
+fn without_capture(model: &AdjustmentModel) -> AdjustmentModel {
+    let defaults = AdjustmentModel::default();
+    AdjustmentModel {
+        capture_sharpening_amount: 0.,
+        capture_sharpening_sigma: defaults.capture_sharpening_sigma,
+        capture_sharpening_radius: defaults.capture_sharpening_radius,
+        ..model.clone()
+    }
+}
+
+fn capture_inputs(
+    raw: &RawImage,
+    bytes: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+    whites_anchor_ev: f32,
+) -> Result<FullChainInputs<'static>, String> {
+    let film = crate::film::resolve(&model.film_look)?;
+    Ok(chain_inputs_with_status(
+        raw,
+        bytes,
+        ext,
+        model,
+        film.map(|f| f.0),
+        film.map_or(0, |f| f.1),
+        whites_anchor_ev,
+    )
+    .0)
+}
+
+/// The slider pair `model` resolves to in the decode's slider frame.
+fn slider_values(creative: &LiveCreative, model: &AdjustmentModel) -> (f32, f32) {
+    let tick = creative.header.tick(model);
+    (tick.temperature, tick.tint)
+}
+
+/// One tick's inputs. Allocates nothing beyond the reused curve and layer
+/// storage `update_chain_inputs` refreshes in place.
+fn update_inputs(
+    model: &AdjustmentModel,
+    inputs: &mut FullChainInputs<'static>,
+    creative: Option<&LiveCreative>,
+    sampling: f32,
+    target: u32,
+) -> Result<(), String> {
+    update_chain_inputs(model, inputs);
+    let film = crate::film::resolve(&model.film_look)?;
+    inputs.film_lut_size = film.map_or(0, |f| f.0.size as u32);
+    inputs.film_lut_key = film.map_or(0, |f| f.1);
+    inputs.film_lut_data = std::borrow::Cow::Borrowed(film.map_or(&[], |f| f.0.data.as_slice()));
+    if let Some(creative) = creative {
+        creative.apply(model, inputs)?;
+    }
+    inputs.nr_sampling_scale = sampling;
+    inputs.target_primaries = target;
+    Ok(())
+}
+
 impl Session {
     pub fn detail_source(&self) -> crate::native_detail::SharedDetail {
         Arc::clone(self.detail.get_or_init(|| {
@@ -87,28 +148,29 @@ impl Session {
         self.raw.is_some()
     }
     pub fn white_balance_values(&self) -> (f32, f32) {
-        self.wb
+        self.creative
             .as_ref()
-            .map_or((self.model.temperature, self.model.tint), |wb| {
-                wb.slider_values(&self.model)
+            .map_or((self.model.temperature, self.model.tint), |creative| {
+                slider_values(creative, &self.model)
             })
     }
 
     pub fn as_shot_white_balance_values(&self) -> (f32, f32) {
         let as_shot = AdjustmentModel::default();
-        self.wb
+        self.creative
             .as_ref()
-            .map_or((as_shot.temperature, as_shot.tint), |wb| {
-                wb.slider_values(&as_shot)
+            .map_or((as_shot.temperature, as_shot.tint), |creative| {
+                slider_values(creative, &as_shot)
             })
+    }
+    fn orientation(&self) -> ExifOrientation {
+        self.raw
+            .as_ref()
+            .map_or(ExifOrientation::Normal, |raw| raw.orientation)
     }
     fn oriented_dims(&self) -> (u32, u32) {
         let (w, h) = self.live.dims();
-        let orientation = self
-            .raw
-            .as_ref()
-            .map_or(ExifOrientation::Normal, |raw| raw.orientation);
-        if orientation.swaps_wh() {
+        if self.orientation().swaps_wh() {
             (h, w)
         } else {
             (w, h)
@@ -165,78 +227,61 @@ impl Session {
         } else {
             None
         };
-        let base_model = without_capture(&model);
-        let (pixels, w, h, prefix, anchor, sampling, exposure) = if let Some(raw) = &raw {
-            develop_prefix_rgba(raw, &bytes, &ext, &base_model, edge)?
-        } else {
-            raw_core::pipeline::validate_raster_adjustments(&model).map_err(|e| e.to_string())?;
-            let (w, h, pixels) = raw_core::pipeline::decode_raster_base(
-                &bytes,
-                edge,
-                raw_core::CancelToken::never(),
-            )
-            .map_err(|e| e.to_string())?;
-            (pixels, w, h, model.clone(), 0.0, 1.0, 1.0)
-        };
-        let film = crate::film::resolve(&model.film_look)?;
-        let inputs = if let Some(raw) = &raw {
-            chain_inputs_with_status(
-                raw,
-                &bytes,
-                &ext,
-                &model,
-                film.map(|f| f.0),
-                film.map_or(0, |f| f.1),
-                anchor,
-            )
-            .0
-        } else {
-            let mut inputs = build_full_chain_inputs(
-                &model,
-                vec![],
-                0,
-                vec![],
-                NoiseProfileInputs {
-                    profile: vec![],
-                    iso: 0,
-                },
-                film.map(|f| f.0),
-                film.map_or(0, |f| f.1),
-                0.0,
-                1,
-            );
-            inputs.input_shape = raw_gpu::InputShape::LinearRec2020Fp16;
-            inputs
-        };
-        let wb = raw
-            .as_ref()
-            .map(|raw| GpuWhiteBalance::resolve(raw))
-            .transpose()?;
-        let live = LiveSession::new(&ctx, &pixels, w, h)?;
-        let fast = raw
-            .as_ref()
-            .map(|raw| {
-                let inputs = chain_inputs_with_status(
+        let (live, prefix, inputs, sampling, creative) = match &raw {
+            Some(raw) => {
+                let capture = develop_capture_prefix_rgba_cancellable(
                     raw,
                     &bytes,
                     &ext,
-                    &base_model,
-                    film.map(|f| f.0),
-                    film.map_or(0, |f| f.1),
-                    anchor,
-                )
-                .0;
-                FastPreview::new(
-                    &ctx,
-                    &pixels,
-                    w,
-                    h,
-                    prefix.clone(),
+                    &without_capture(&model),
+                    edge,
+                    raw_core::CancelToken::never(),
+                )?;
+                let inputs = capture_inputs(raw, &bytes, &ext, &model, capture.whites_anchor_ev)?;
+                (
+                    LiveSession::new(&ctx, &capture.rgba, capture.width, capture.height)?,
+                    capture.prefix_model,
                     inputs,
-                    (sampling, exposure),
+                    capture.nr_sampling_scale,
+                    Some(capture.creative),
                 )
-            })
-            .transpose()?;
+            }
+            None => {
+                raw_core::pipeline::validate_raster_adjustments(&model)
+                    .map_err(|e| e.to_string())?;
+                let (w, h, pixels) = raw_core::pipeline::decode_raster_base(
+                    &bytes,
+                    edge,
+                    raw_core::CancelToken::never(),
+                )
+                .map_err(|e| e.to_string())?;
+                let film = crate::film::resolve(&model.film_look)?;
+                let inputs = FullChainInputs {
+                    input_shape: raw_gpu::InputShape::LinearRec2020Fp16,
+                    ..build_full_chain_inputs(
+                        &model,
+                        vec![],
+                        0,
+                        vec![],
+                        NoiseProfileInputs {
+                            profile: vec![],
+                            iso: 0,
+                        },
+                        film.map(|f| f.0),
+                        film.map_or(0, |f| f.1),
+                        0.0,
+                        1,
+                    )
+                };
+                (
+                    LiveSession::new(&ctx, &pixels, w, h)?,
+                    model.clone(),
+                    inputs,
+                    1.0,
+                    None,
+                )
+            }
+        };
         let auto_fit = auto_will_fit(&model, &bytes, &ext);
         let profile = model.profile;
         Ok(Self {
@@ -247,16 +292,13 @@ impl Session {
             ext,
             prefix,
             detail: std::sync::OnceLock::new(),
-            wb,
+            creative,
             live,
             inputs,
             sampling,
-            exposure,
             edge,
             auto_fit,
             profile,
-            fast,
-            active_fast: false,
             target_primaries: 0,
             #[cfg(target_os = "android")]
             surface: None,
@@ -274,60 +316,33 @@ impl Session {
             .ok_or_else(|| "Render cancelled".into())
     }
 
+    /// Renders the resident decode; a pending CPU preparation keeps showing
+    /// the last prepared capture until it lands. GPU capture-stage feedback
+    /// during that wait is the capture refine of #5381.
     pub fn update_gpu(&mut self, cancel: &CancelToken) -> Result<Option<usize>, String> {
         if cancel.is_cancelled() {
             return Ok(None);
         }
-        self.active_fast = self.needs_preparation() && self.fast.is_some();
-        if self.active_fast {
-            let fast = self.fast.as_mut().unwrap();
-            fast_preview::update_inputs(
-                &self.model,
-                &mut fast.inputs,
-                self.wb.as_ref(),
-                (fast.sampling, fast.exposure),
-                self.target_primaries,
-                true,
-            )?;
-            fast.live
-                .render_chain_to_f32(&self.ctx, &fast.inputs, cancel)
-        } else {
-            fast_preview::update_inputs(
-                &self.model,
-                &mut self.inputs,
-                self.wb.as_ref(),
-                (self.sampling, self.exposure),
-                self.target_primaries,
-                false,
-            )?;
-            self.live
-                .render_chain_to_f32(&self.ctx, &self.inputs, cancel)
-        }
+        update_inputs(
+            &self.model,
+            &mut self.inputs,
+            self.creative.as_ref(),
+            self.sampling,
+            self.target_primaries,
+        )?;
+        self.live
+            .render_chain_to_f32(&self.ctx, &self.inputs, cancel)
     }
 
     pub fn frame_parts(&self) -> (&LiveSession, &FullChainInputs<'static>) {
-        if self.active_fast {
-            let fast = self.fast.as_ref().unwrap();
-            (&fast.live, &fast.inputs)
-        } else {
-            (&self.live, &self.inputs)
-        }
+        (&self.live, &self.inputs)
     }
 
     pub fn geometry(&self) -> PresentGeometry {
         use raw_core::stages::perspective::{aspect_ratio, Homography, Perspective};
-        let orientation = self
-            .raw
-            .as_ref()
-            .map_or(ExifOrientation::Normal, |raw| raw.orientation);
-        let (w, h) = self.frame_parts().0.dims();
-        let (w, h) = if orientation.swaps_wh() {
-            (h, w)
-        } else {
-            (w, h)
-        };
+        let (w, h) = self.oriented_dims();
         let crop = raw_core::stages::crop::CropPresentation::new(&self.model.crop, w, h);
-        let transform = Homography(orientation.display_to_sensor_matrix())
+        let transform = Homography(self.orientation().display_to_sensor_matrix())
             .mul(&Perspective::from_model(&self.model).inverse_matrix(aspect_ratio(w, h)))
             .mul(&crop.inverse);
         if transform == Homography::IDENTITY {
@@ -347,7 +362,7 @@ impl Session {
         }
         self.surface.as_ref().ok_or("No Android surface")?.present(
             &self.ctx,
-            self.frame_parts().0,
+            &self.live,
             index,
             self.geometry(),
         )?;

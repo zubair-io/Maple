@@ -90,7 +90,7 @@ fn cancelled_refine_preserves_resident_prefix_and_final_refine_applies_cpu_contr
     assert!(session.update_gpu(&token).unwrap().is_some());
     assert_eq!(
         session.prefix, prefix,
-        "fast phase must stay on the resident viewport"
+        "a pending refine must keep the resident decode"
     );
     let mut preparation = session.preparation().unwrap();
     token.cancel();
