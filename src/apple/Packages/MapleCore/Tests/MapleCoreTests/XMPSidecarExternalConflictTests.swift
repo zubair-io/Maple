@@ -186,4 +186,23 @@ final class XMPSidecarExternalConflictTests: XCTestCase {
     XCTAssertNotNil(session.sidecarError)
     XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), external)
   }
+
+  @MainActor
+  func testRefineCannotPublishDerivedPixelsAfterExternalReplacement() async throws {
+    let (raw, sidecar) = try fixture()
+    defer { try? FileManager.default.removeItem(at: raw.deletingLastPathComponent()) }
+    try xml(exposure: 0).write(to: sidecar, atomically: true, encoding: .utf8)
+    let session = EditSession(asset: AssetRef(url: raw))
+    await session.loadSidecar()
+    let initiallyCurrent = await session.canPublishDerivedPixels()
+    XCTAssertTrue(initiallyCurrent)
+
+    let external = xml(exposure: 2)
+    try external.write(to: sidecar, atomically: true, encoding: .utf8)
+    let currentAfterReplacement = await session.canPublishDerivedPixels()
+    XCTAssertFalse(currentAfterReplacement)
+    XCTAssertTrue(session.sidecarWritesDisabled)
+    XCTAssertNotNil(session.sidecarError)
+    XCTAssertEqual(try String(contentsOf: sidecar, encoding: .utf8), external)
+  }
 }

@@ -517,13 +517,14 @@ extension EditSession {
       // refine that ran off the seeded decode would push camera-JPEG-
       // derived pixels to the thumbnail; the decode's completion re-kicks
       // a render, so the thumbnail still refreshes from real pixels.
-      if phase == .refine, !isFullQualityDecoding, !sidecarWritesDisabled {
+      if phase == .refine, !isFullQualityDecoding, await canPublishDerivedPixels() {
         // Use the cropped `displayImage` so the browse thumbnail +
         // rendered-preview cache reflect what the user sees (#638).
         let thumbSource = displayImage
         if let url = asset.primaryURL {
           if workflow.selectedVariantId == WorkflowContract.primaryVariantID {
             Task.detached(priority: .utility) {
+              guard await self.canPublishDerivedPixels() else { return }
               await ThumbnailLoader.shared.updateThumbnailFromRender(thumbSource, for: url)
             }
           }

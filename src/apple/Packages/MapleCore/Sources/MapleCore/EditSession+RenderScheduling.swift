@@ -134,7 +134,9 @@ extension EditSession {
     if let fast = fastTargetSize, let refine = refinedTargetSize,
       refine.width <= fast.width + 1 && refine.height <= fast.height + 1
     {
-      persistCurrentPreviewToCache()
+      if await canPublishDerivedPixels() {
+        persistCurrentPreviewToCache()
+      }
       return
     }
     // The former visible-region refine branch (crop the cached decode to

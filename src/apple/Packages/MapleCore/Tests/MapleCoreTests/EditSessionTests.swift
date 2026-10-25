@@ -173,6 +173,7 @@ final class EditSessionTests: XCTestCase {
 
     let asset = AssetRef(url: assetURL)
     let session = await EditSession(asset: asset)
+    await session.loadSidecar()
 
     // Manually drive a fast-only render: previewSize set, pixelScale=0
     // (fit mode), seed `renderedPreview`, then exercise the public
