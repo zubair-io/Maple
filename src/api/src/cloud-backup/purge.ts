@@ -101,18 +101,24 @@ function purgeClaim(
   signal?: AbortSignal,
 ): PurgeClaim {
   let claimed: Promise<number> | null = null;
+  // The pool discards RETURNING rows and runs the read on another connection,
+  // so the claim is a compare-and-swap on the revision it read: a concurrent
+  // bump (another drain, a saved object) fails the swap instead of being
+  // folded into the revision this drain later completes against.
   const claim = async (): Promise<number> => {
     signal?.throwIfAborted();
-    const result = await engine.repo.db.write(
-      `UPDATE backup_purges SET revision=revision+1 WHERE destination_id=? AND entry_id=? AND completed=0`,
-      [destinationId, entryId],
-    );
-    if (!matchedOne(result.changes)) throw new Error('Purge row was retired or completed');
     const [row] = await engine.repo.db.read<{ revision: number }>(
-      `SELECT revision FROM backup_purges WHERE destination_id=? AND entry_id=?`,
+      `SELECT revision FROM backup_purges WHERE destination_id=? AND entry_id=? AND completed=0`,
       [destinationId, entryId],
     );
-    return row!.revision;
+    if (!row) throw new Error('Purge row was retired or completed');
+    const result = await engine.repo.db.write(
+      `UPDATE backup_purges SET revision=? WHERE destination_id=? AND entry_id=? AND completed=0
+        AND revision=?`,
+      [row.revision + 1, destinationId, entryId, row.revision],
+    );
+    if (!matchedOne(result.changes)) throw new Error('Purge row changed before its claim');
+    return row.revision + 1;
   };
   return () => (claimed ??= claim());
 }
