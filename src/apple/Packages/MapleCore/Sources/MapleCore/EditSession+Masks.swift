@@ -75,8 +75,13 @@ extension EditSession {
     }
     let recipe = BitmapRecipe(
       person: person.id, facialSkin: facialSkin, bodySkin: bodySkin, model: modelId, digest: digest)
+    let range =
+      asset.isRaw
+      ? PersonSkinRangeInitializer.initialRange(
+        image: image, maskWidth: w, maskHeight: h, maskBytes: bytes)
+      : .skinTone
     let layer = LocalAdjustment(
-      mask: .bitmap(recipe: recipe, rasterId: rasterId), range: .skinTone,
+      mask: .bitmap(recipe: recipe, rasterId: rasterId), range: range,
       adjustments: PartialAdjustments())
     return layer
   }
@@ -433,9 +438,23 @@ extension EditSession {
       else {
         throw PipelineError.renderFailed(code: -1, message: "mask segmentation decode failed")
       }
+      var effectiveModel = model
+      let frameAsShot: ImageEditPipeline.AsShotWB? = {
+        guard let frame = decoded.wbFrame, frame.isPresent else { return wbDeltaAnchor }
+        return ImageEditPipeline.AsShotWB(
+          temperature: Double(frame.sceneCCT), tint: Double(frame.asShotTint))
+      }()
+      if asShotCCT == nil,
+        let asShot = frameAsShot,
+        model.temperature == AdjustmentModel.default.temperature,
+        model.tint == AdjustmentModel.default.tint
+      {
+        effectiveModel.temperature = asShot.temperature
+        effectiveModel.tint = asShot.tint
+      }
       ciImage = pipeline.processSceneLinear(
-        decoded: decoded.image, model: model, targetSize: nil,
-        asShot: nil, decodedAtModel: nil, profileLUT: nil,
+        decoded: decoded.image, model: effectiveModel, targetSize: nil,
+        asShot: frameAsShot, decodedAtModel: nil, profileLUT: nil,
         assetID: asset.id, noiseProfile: decoded.noiseProfile, iso: decoded.iso,
         wbFrame: decoded.wbFrame, whitesAnchorEv: decoded.whitesAnchorEv,
         nrSamplingScale: decoded.nrSamplingScale

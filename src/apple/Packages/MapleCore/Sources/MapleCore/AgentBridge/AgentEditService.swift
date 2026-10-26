@@ -232,7 +232,8 @@ public final class AgentEditService {
         ? AgentError(
           code: "sidecar_unavailable",
           message:
-            "Maple couldn't read this photo's saved edits (\(activeSession.sidecarError?.localizedDescription ?? "read failed")). Nothing can be changed until it reloads.")
+            "Maple couldn't read this photo's saved edits (\(activeSession.sidecarError?.localizedDescription ?? "read failed")). Nothing can be changed until it reloads."
+        )
         : AgentError(
           code: "not_ready", message: "The photo's saved edits are still loading. Retry shortly.")
     }
@@ -289,7 +290,7 @@ public final class AgentEditService {
             "is_selected": .bool(session.selectedMaskId == layer.id),
             "enabled": .bool(session.isMaskEnabled(id: layer.id)),
           ]
-          if layer.range == .skinTone {
+          if layer.range == .skinTone || layer.kindName == "person_skin" {
             m["is_skin_tone"] = .bool(true)
           }
           return .object(m)
