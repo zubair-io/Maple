@@ -87,8 +87,11 @@ extension PipelineRenderer {
 
   /// Whether a decode capped at `maxLongEdge` can ever be refined here, and
   /// so is worth keeping a refine base for (a whole extra image in memory).
-  static func keepsRefineBase(maxLongEdge: UInt32) -> Bool {
-    maxLongEdge <= CaptureRefineBudget.current.max_long_edge
+  /// The GPU kill switch (`MAPLE_GPU_LIVE=0`) turns the refine off too.
+  static func keepsRefineBase(maxLongEdge: UInt32, gpuEnabled: Bool = GpuLiveFlag.isEnabled)
+    -> Bool
+  {
+    gpuEnabled && maxLongEdge <= CaptureRefineBudget.current.max_long_edge
   }
 
   /// The sized capture decode, with its refine base when the device could

@@ -62,6 +62,8 @@ extension RenderActor {
 
   internal func _testDecodedIsFull() -> Bool { decodedIsFull }
 
+  internal func _testSetCaptureRefineEnabled(_ enabled: Bool) { captureRefineEnabled = enabled }
+
   internal func _testDecodeGeneration() -> UInt64 { decodeGeneration }
 
   internal func _testDecodedCachePopulated(forAsset asset: AssetRef) -> Bool {
