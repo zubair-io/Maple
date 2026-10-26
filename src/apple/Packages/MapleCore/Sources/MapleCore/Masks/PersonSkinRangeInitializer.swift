@@ -10,7 +10,8 @@ enum PersonSkinRangeInitializer {
     asShot: ImageEditPipeline.AsShotWB?,
     maskWidth: Int,
     maskHeight: Int,
-    maskBytes: [UInt8]
+    maskBytes: [UInt8],
+    faceSkinMaskBytes: [UInt8]
   ) -> RangeRefinement {
     guard
       let decodedBytes = makeDecodedRec2020Bytes(
@@ -25,7 +26,8 @@ enum PersonSkinRangeInitializer {
         asShot: asShot,
         maskWidth: maskWidth,
         maskHeight: maskHeight,
-        maskBytes: maskBytes
+        maskBytes: maskBytes,
+        faceSkinMaskBytes: faceSkinMaskBytes
       )
     else {
       return .skinTone
@@ -76,11 +78,13 @@ enum PersonSkinRangeInitializer {
     asShot: ImageEditPipeline.AsShotWB?,
     maskWidth: Int,
     maskHeight: Int,
-    maskBytes: [UInt8]
+    maskBytes: [UInt8],
+    faceSkinMaskBytes: [UInt8]
   ) -> MaskRangeSample? {
     let pixelCount = maskWidth * maskHeight
     guard maskWidth > 0, maskHeight > 0,
       maskBytes.count == pixelCount,
+      faceSkinMaskBytes.count == pixelCount,
       decodedRec2020RGBAf.count == pixelCount * 16
     else {
       return nil
@@ -108,16 +112,21 @@ enum PersonSkinRangeInitializer {
           guard let floats = rawBuffer.bindMemory(to: Float.self).baseAddress else { return 2 }
           return maskBytes.withUnsafeBufferPointer { maskPtr -> Int32 in
             guard let maskBase = maskPtr.baseAddress else { return 2 }
-            return maple_seed_skin_mask_range_if_default_inert(
-              floats,
-              UInt(maskWidth),
-              UInt(maskHeight),
-              &p,
-              curvesPtr,
-              maskBase,
-              UInt(maskBytes.count),
-              &output
-            )
+            return faceSkinMaskBytes.withUnsafeBufferPointer { facePtr -> Int32 in
+              guard let faceBase = facePtr.baseAddress else { return 2 }
+              return maple_seed_skin_mask_range_if_default_inert(
+                floats,
+                UInt(maskWidth),
+                UInt(maskHeight),
+                &p,
+                curvesPtr,
+                maskBase,
+                UInt(maskBytes.count),
+                faceBase,
+                UInt(faceSkinMaskBytes.count),
+                &output
+              )
+            }
           }
         }
       }
@@ -135,11 +144,14 @@ enum PersonSkinRangeInitializer {
     stageInputRec2020RGBAf: Data,
     maskWidth: Int,
     maskHeight: Int,
-    maskBytes: [UInt8]
+    maskBytes: [UInt8],
+    faceSkinMaskBytes: [UInt8]? = nil
   ) -> MaskRangeSample? {
+    let faceMask = faceSkinMaskBytes ?? maskBytes
     let pixelCount = maskWidth * maskHeight
     guard maskWidth > 0, maskHeight > 0,
       maskBytes.count == pixelCount,
+      faceMask.count == pixelCount,
       stageInputRec2020RGBAf.count == pixelCount * 16
     else {
       return nil
@@ -149,16 +161,21 @@ enum PersonSkinRangeInitializer {
       guard let floats = rawBuffer.bindMemory(to: Float.self).baseAddress else { return 2 }
       return maskBytes.withUnsafeBufferPointer { maskPtr -> Int32 in
         guard let maskBase = maskPtr.baseAddress else { return 2 }
-        return maple_seed_skin_mask_range_if_default_inert(
-          floats,
-          UInt(maskWidth),
-          UInt(maskHeight),
-          nil,
-          nil,
-          maskBase,
-          UInt(maskBytes.count),
-          &output
-        )
+        return faceMask.withUnsafeBufferPointer { facePtr -> Int32 in
+          guard let faceBase = facePtr.baseAddress else { return 2 }
+          return maple_seed_skin_mask_range_if_default_inert(
+            floats,
+            UInt(maskWidth),
+            UInt(maskHeight),
+            nil,
+            nil,
+            maskBase,
+            UInt(maskBytes.count),
+            faceBase,
+            UInt(faceMask.count),
+            &output
+          )
+        }
       }
     }
     guard code == 0 else { return nil }

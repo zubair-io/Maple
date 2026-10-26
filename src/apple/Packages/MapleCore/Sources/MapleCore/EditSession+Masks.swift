@@ -75,6 +75,18 @@ extension EditSession {
     }
     let recipe = BitmapRecipe(
       person: person.id, facialSkin: facialSkin, bodySkin: bodySkin, model: modelId, digest: digest)
+    let faceSkinBytes: [UInt8] = try await {
+      if facialSkin && !bodySkin {
+        return bytes
+      }
+      let faceRequest = SkinRasterRequest(person: person.id, facialSkin: true, bodySkin: false)
+      let faceDigest = Self.maskDigest(
+        assetKey: assetIdentityKey(), request: faceRequest, model: modelId)
+      let (fw, fh, faceBytes) = try await maskRasterStore.raster(for: faceDigest, model: modelId) {
+        try await self.personSkinMaskService.makeRaster(image: seg.image, request: faceRequest)
+      }
+      return (fw == w && fh == h) ? faceBytes : [UInt8](repeating: 0, count: w * h)
+    }()
     let range: RangeRefinement = {
       guard let rawDecoded = seg.rawDecoded else { return .skinTone }
       return PersonSkinRangeInitializer.initialRange(
@@ -83,7 +95,8 @@ extension EditSession {
         asShot: seg.asShot,
         maskWidth: w,
         maskHeight: h,
-        maskBytes: bytes
+        maskBytes: bytes,
+        faceSkinMaskBytes: faceSkinBytes
       )
     }()
     let layer = LocalAdjustment(
