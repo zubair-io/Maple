@@ -10,9 +10,9 @@ import {
 import { insertPerson } from '../../db/repos/people.test-helpers.ts';
 import { EMBEDDER_TEMPLATE_SHAPE_VERSION } from '../../enrichment/embedder-document.ts';
 import { decodeVector } from '../../enrichment/vector-codec.ts';
-import embedStage, { embedHandler, setEmbedBatchForTests } from './embed.ts';
-import { rearmForBundledEmbedder, sweepEmbedderChange } from '../embed/embedder-rearm.ts';
-import { BUNDLED_EMBEDDER } from '../embed/local-embedder.ts';
+import embedStage, { embedHandler } from './embed.ts';
+import { rearmForBundledEmbedder, sweepForeignVectors } from '../embed/embedder-rearm.ts';
+import { BUNDLED_EMBEDDER, setDocumentEmbedder } from '../embed/bundled-embedder.ts';
 import { upsertAssetVectorStatement } from '../../db/repos/asset-vectors.repo.ts';
 import { WorkerConfigRepo } from '../../db/repos/worker-config.repo.ts';
 import { seedClaimableAsset, stageRow } from '../../db/repos/stage-runtime.test-helpers.ts';
@@ -49,7 +49,7 @@ function recordingEmbedder(answer?: (texts: readonly string[]) => EmbedOutcome):
   inputs: string[][];
 } {
   const recorded: { inputs: string[][] } = { inputs: [] };
-  setEmbedBatchForTests(async (texts) => {
+  setDocumentEmbedder(async (texts) => {
     recorded.inputs.push([...texts]);
     return answer?.(texts) ?? { ok: true, vectors: texts.map((_, index) => unit(index % 3)) };
   });
@@ -57,7 +57,7 @@ function recordingEmbedder(answer?: (texts: readonly string[]) => EmbedOutcome):
 }
 
 afterEach(() => {
-  setEmbedBatchForTests(null);
+  setDocumentEmbedder(null);
 });
 
 describe('embedHandler', () => {
@@ -172,7 +172,7 @@ describe('rearmForBundledEmbedder', () => {
   });
 });
 
-describe('sweepEmbedderChange', () => {
+describe('sweepForeignVectors', () => {
   it('re-arms another model’s rows on the next interval even while the stage is busy', async () => {
     using live = await createLiveTestDatabase();
     const assetId = seedClaimableAsset(live.db, { stages: { embed: { version: 8 } } });
@@ -189,16 +189,16 @@ describe('sweepEmbedderChange', () => {
     ]);
     const start = 1_800_000_000_000;
 
-    await sweepEmbedderChange(5, false, start);
+    await sweepForeignVectors(5, false, start);
     expect(stageRow(live.db, assetId, 'embed')?.version).toBe(0);
 
     live.db.run(`UPDATE stage_state SET version = 8 WHERE asset_id = ? AND stage = 'embed'`, [
       assetId,
     ]);
-    await sweepEmbedderChange(5, false, start + 30_000);
+    await sweepForeignVectors(5, false, start + 30_000);
     expect(stageRow(live.db, assetId, 'embed')?.version).toBe(8);
 
-    await sweepEmbedderChange(5, false, start + 61_000);
+    await sweepForeignVectors(5, false, start + 61_000);
     expect(stageRow(live.db, assetId, 'embed')?.version).toBe(0);
   });
 });

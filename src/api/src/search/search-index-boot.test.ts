@@ -111,7 +111,7 @@ test('an index from another version is deleted before the engine opens it', () =
   expect(existsSync(indexDir)).toBe(true);
 });
 
-test('with no vector of the configured model the child reports empty, never ready', async () => {
+test('with no bge-m3 vector yet the child reports empty, never ready', async () => {
   live.db.run(`DELETE FROM asset_vectors`);
   const states: SearchChildState[] = [];
 

@@ -69,7 +69,10 @@ interface QueryJob {
   k: number;
   settled: boolean;
   resolve: (hits: FusedSearchHit[] | null) => void;
-  timer: ReturnType<typeof setTimeout>;
+  /** Falls the caller back to the database {@link QUERY_TIMEOUT_MS} after it asked. */
+  giveUp: ReturnType<typeof setTimeout>;
+  /** Restarts the child when the query itself runs past {@link QUERY_TIMEOUT_MS}. */
+  wedged: ReturnType<typeof setTimeout> | null;
 }
 
 interface EmbedJob {
@@ -78,7 +81,7 @@ interface EmbedJob {
   texts: string[];
   settled: boolean;
   resolve: (outcome: EmbedOutcome) => void;
-  timer: ReturnType<typeof setTimeout> | null;
+  wedged: ReturnType<typeof setTimeout> | null;
 }
 
 type Job = QueryJob | EmbedJob;
@@ -154,7 +157,8 @@ export class SearchChildPool implements InProcessSearch {
         k,
         settled: false,
         resolve,
-        timer: setTimeout(() => this.expire(job), QUERY_TIMEOUT_MS),
+        giveUp: setTimeout(() => this.giveUp(job), QUERY_TIMEOUT_MS),
+        wedged: null,
       };
       this.waiting.push(job);
       this.pump();
@@ -167,6 +171,10 @@ export class SearchChildPool implements InProcessSearch {
    * call that can include the model's first download, which no batch deadline may cut short.
    */
   embed(texts: readonly string[]): Promise<EmbedOutcome> {
+    if (this.phase === 'failed') {
+      const reason = this.childState.error ?? 'unknown error';
+      return Promise.resolve(notEmbedding(`the search engine could not start: ${reason}`));
+    }
     if (!this.worker) return Promise.resolve(notEmbedding('the search engine is not running'));
     if (this.phase !== 'ready' && this.phase !== 'empty') {
       return Promise.resolve(notEmbedding('the search engine is still loading'));
@@ -181,7 +189,7 @@ export class SearchChildPool implements InProcessSearch {
         texts: [...texts],
         settled: false,
         resolve,
-        timer: null,
+        wedged: null,
       });
       this.pump();
     });
@@ -224,6 +232,7 @@ export class SearchChildPool implements InProcessSearch {
     const job = this.current;
     if (job?.kind !== 'query' || job.id !== message.id) return;
     this.current = null;
+    if (job.wedged) clearTimeout(job.wedged);
     if (!message.ok) log.warn({ err: message.error }, 'in-process search query failed');
     this.settle(job, message.ok ? (message.hits ?? []) : null);
     this.pump();
@@ -241,7 +250,7 @@ export class SearchChildPool implements InProcessSearch {
     if (worker !== this.worker) return;
     worker?.terminate();
     this.worker = null;
-    this.abandonAll();
+    this.abandonAll(reason);
     if (Date.now() - this.spawnedAt >= HEALTHY_UPTIME_MS) this.restartMs = RESTART_MIN_MS;
     const delayMs = this.restartMs;
     this.restartMs = Math.min(this.restartMs * 2, RESTART_MAX_MS);
@@ -257,50 +266,65 @@ export class SearchChildPool implements InProcessSearch {
     const next = this.waiting.shift() ?? this.embedsWaiting.shift();
     if (!next) return;
     this.current = next;
+    const limit = next.kind === 'query' ? QUERY_TIMEOUT_MS : EMBED_TIMEOUT_MS;
+    next.wedged = setTimeout(() => this.wedge(next, limit), limit);
     if (next.kind === 'query') {
       this.worker.postMessage({ type: 'query', id: next.id, query: next.query, k: next.k });
       return;
     }
-    next.timer = setTimeout(() => this.expire(next), EMBED_TIMEOUT_MS);
     this.worker.postMessage({ type: 'embed', id: next.id, texts: next.texts });
   }
 
-  private expire(job: Job): void {
-    if (job === this.current) {
-      const limit = job.kind === 'query' ? QUERY_TIMEOUT_MS : EMBED_TIMEOUT_MS;
-      this.onDeath(this.worker, `a ${job.kind} request did not answer within ${limit} ms`);
-      return;
-    }
-    if (job.kind !== 'query') return;
+  /** A request still running at its own deadline is a wedged native call. */
+  private wedge(job: Job, limitMs: number): void {
+    if (job !== this.current) return;
+    this.onDeath(this.worker, `a ${job.kind} request did not answer within ${limitMs} ms`);
+  }
+
+  /** The caller falls back; a query already running keeps its place until it answers. */
+  private giveUp(job: QueryJob): void {
     const queued = this.waiting.indexOf(job);
     if (queued >= 0) this.waiting.splice(queued, 1);
     this.settle(job, null);
   }
 
   private settle(job: QueryJob, hits: FusedSearchHit[] | null): void {
-    clearTimeout(job.timer);
+    clearTimeout(job.giveUp);
     if (job.settled) return;
     job.settled = true;
     job.resolve(hits);
   }
 
   private settleEmbed(job: EmbedJob, outcome: EmbedOutcome): void {
-    if (job.timer) clearTimeout(job.timer);
+    if (job.wedged) clearTimeout(job.wedged);
     if (job.settled) return;
     job.settled = true;
     job.resolve(outcome);
   }
 
-  private abandonAll(): void {
+  /**
+   * Settles everything outstanding. With a `death` reason, the batch that was running when the
+   * child died or wedged fails — a document that kills the engine must spend its retries and
+   * dead-letter, not come back every 30 s — while the batches behind it only wait.
+   */
+  private abandonAll(death: string | null = null): void {
+    const running = this.current;
+    if (running?.wedged) clearTimeout(running.wedged);
     const jobs = [
-      ...(this.current ? [this.current] : []),
+      ...(running ? [running] : []),
       ...this.waiting.splice(0),
       ...this.embedsWaiting.splice(0),
     ];
     this.current = null;
     for (const job of jobs) {
       if (job.kind === 'query') this.settle(job, null);
-      else this.settleEmbed(job, notEmbedding('the search engine restarted'));
+      else if (job === running && death !== null) {
+        this.settleEmbed(job, {
+          ok: false,
+          waiting: false,
+          error: `the search engine stopped while embedding this batch: ${death}`,
+        });
+      } else this.settleEmbed(job, notEmbedding('the search engine restarted'));
     }
   }
 }

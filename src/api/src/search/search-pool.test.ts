@@ -187,11 +187,49 @@ test('a loading, stopped or restarted engine asks the stage to wait', async () =
   });
   expect(await inFlight).toMatchObject({ ok: false, waiting: true });
 
-  const abandoned = pool.embed(['b']);
+  const running = pool.embed(['b']);
+  const queued = pool.embed(['c']);
   children[0]!.crash();
-  expect(await abandoned).toEqual({
+  expect(await running).toMatchObject({
+    ok: false,
+    waiting: false,
+    error: expect.stringContaining('stopped while embedding this batch'),
+  });
+  expect(await queued).toEqual({
     ok: false,
     waiting: true,
     error: 'the search engine restarted',
   });
+});
+
+test('a failed engine says why it cannot embed', async () => {
+  const { pool, children } = readyPool();
+  children[0]!.reply({
+    type: 'state',
+    state: { phase: 'failed', vectors: 0, texts: 0, textReady: false, error: 'no ORT' },
+  });
+  expect(await pool.embed(['a'])).toEqual({
+    ok: false,
+    waiting: true,
+    error: 'the search engine could not start: no ORT',
+  });
+});
+
+test('a query waiting behind a long batch falls back without restarting the child', async () => {
+  const { pool, children } = readyPool();
+  const child = children[0]!;
+  const batch = pool.embed(['a long transcript']);
+  const query = pool.search('harbour', 10);
+
+  await Bun.sleep(QUERY_TIMEOUT_MS + 100);
+  expect(await query).toBeNull();
+  expect(child.terminated).toBe(false);
+  child.reply({ type: 'embed', id: 1, ok: true, vectors: [vectorToBase64(unit(0))] });
+  expect((await batch).ok).toBe(true);
+  expect(child.queries()).toEqual([]);
+
+  const next = pool.search('kitchen', 10);
+  child.reply({ type: 'query', id: 3, ok: true, hits: [] });
+  expect(await next).toEqual([]);
+  expect(child.terminated).toBe(false);
 });

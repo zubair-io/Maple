@@ -13,9 +13,9 @@ import {
 import type { EmbedOutcome } from './search-protocol.ts';
 import {
   embedDocuments,
-  chunkByBytes,
+  chunkByCost,
   setDocumentEmbedder,
-} from '../workers/embed/local-embedder.ts';
+} from '../workers/embed/bundled-embedder.ts';
 
 afterEach(() => setDocumentEmbedder(null));
 
@@ -143,17 +143,24 @@ describe('embedDocuments', () => {
   });
 });
 
-describe('chunkByBytes', () => {
+describe('chunkByCost', () => {
   it('keeps consecutive texts together up to the limit and never splits one text', () => {
-    expect(chunkByBytes(['aa', 'bb', 'cc', 'dddddd'], 4)).toEqual([
+    expect(chunkByCost(['aa', 'bb', 'cc', 'dddddd'], 4)).toEqual([
       ['aa', 'bb'],
       ['cc'],
       ['dddddd'],
     ]);
-    expect(chunkByBytes([], 4)).toEqual([]);
+    expect(chunkByCost([], 4)).toEqual([]);
+  });
+
+  it('prices a chunk by its longest text, since every text is padded to it', () => {
+    const transcript = 'x'.repeat(5_000);
+    const captions = Array.from({ length: 7 }, (_, i) => `caption ${i}`);
+    expect(chunkByCost([transcript, ...captions]).map((chunk) => chunk.length)).toEqual([1, 7]);
+    expect(chunkByCost([...captions, transcript]).map((chunk) => chunk.length)).toEqual([7, 1]);
   });
 
   it('counts UTF-8 bytes, not characters', () => {
-    expect(chunkByBytes(['éé', 'a'], 4)).toEqual([['éé'], ['a']]);
+    expect(chunkByCost(['éé', 'a'], 4)).toEqual([['éé'], ['a']]);
   });
 });

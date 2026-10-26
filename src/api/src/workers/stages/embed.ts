@@ -29,13 +29,8 @@ import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import type { AssetFaceDoc, Place, TranscriptDoc } from '../../db/schema.ts';
 import type { EmbedOutcome } from '../../search/search-protocol.ts';
 import { createBatcher } from '../embed/batcher.ts';
-import { sweepEmbedderChange } from '../embed/embedder-rearm.ts';
-import {
-  BUNDLED_ENDPOINT,
-  embedDocuments,
-  LOCAL_EMBED_BATCH,
-  type DocumentEmbedder,
-} from '../embed/local-embedder.ts';
+import { sweepForeignVectors } from '../embed/embedder-rearm.ts';
+import { BUNDLED_ENDPOINT, embedDocuments, EMBED_BATCH } from '../embed/bundled-embedder.ts';
 import { loadNamedPeople, peopleNamesForFaces } from '../../people/asset-person-names.ts';
 
 const EMBED_STAGE_VERSION = EMBEDDER_TEMPLATE_SHAPE_VERSION;
@@ -59,8 +54,6 @@ type EmbeddedText =
   | { ok: true; vector: Float32Array }
   | { ok: false; waiting: boolean; error: string };
 
-let embedBatchImpl: DocumentEmbedder = embedDocuments;
-
 function perText(outcome: EmbedOutcome, count: number): EmbeddedText[] {
   return outcome.ok
     ? outcome.vectors.map((vector) => ({ ok: true, vector }))
@@ -68,14 +61,9 @@ function perText(outcome: EmbedOutcome, count: number): EmbeddedText[] {
 }
 
 const batcher = createBatcher(
-  async (texts: readonly string[]) => perText(await embedBatchImpl(texts), texts.length),
-  { maxBatch: LOCAL_EMBED_BATCH, lingerMs: BATCH_LINGER_MS },
+  async (texts: readonly string[]) => perText(await embedDocuments(texts), texts.length),
+  { maxBatch: EMBED_BATCH, lingerMs: BATCH_LINGER_MS },
 );
-
-/** Test-only seam for the search child. Call with `null` to restore the real one. */
-export function setEmbedBatchForTests(impl: DocumentEmbedder | null): void {
-  embedBatchImpl = impl ?? embedDocuments;
-}
 
 export async function embedHandler(image: ImageDoc, ctx: StageContext): Promise<StageResult> {
   if (ctx.lease === undefined) throw new Error('embed: the runner did not pass the claim lease');
@@ -124,7 +112,7 @@ const embedStage = defineStage({
     pausedOnFirstBoot: false,
   },
   handler: embedHandler,
-  onProgress: sweepEmbedderChange,
+  onProgress: sweepForeignVectors,
 });
 
 export default embedStage;
