@@ -1,5 +1,6 @@
 import XCTest
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// Regression tests for the SSE reconnect backoff policy. The bug these
 /// guard against: a clean (non-throwing) server close used to reset the

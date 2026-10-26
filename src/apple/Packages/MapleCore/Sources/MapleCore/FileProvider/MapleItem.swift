@@ -391,7 +391,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     self.isDirectory = false
     self.size = nil
     self.modified = modified
-    self.utType = UTType(filenameExtension: "avif") ?? ThumbnailEncoder.utType
+    self.utType = UTType(filenameExtension: "avif") ?? UTType(importedAs: "public.avif")
     // Read-only — `.maple/thumbs/` is a derived cache. Deletes
     // here would leak through to the server-side cache and the
     // next enumeration would just regenerate the entry.
@@ -437,7 +437,7 @@ public final class MapleItem: NSObject, NSFileProviderItem {
     self.isDirectory = false
     self.size = nil
     self.modified = modified
-    self.utType = UTType(filenameExtension: "avif") ?? ThumbnailEncoder.utType
+    self.utType = UTType(filenameExtension: "avif") ?? UTType(importedAs: "public.avif")
     self.writeCapabilities = [.allowsReading]
     self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
     self.parentItemIdentifier = parentIdentifier

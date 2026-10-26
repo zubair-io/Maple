@@ -1,5 +1,6 @@
 import XCTest
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 final class LibraryRootCacheTests: XCTestCase {
     private func freshDefaults() -> UserDefaults {

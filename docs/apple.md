@@ -30,7 +30,8 @@ Which package products each target links (from `Maple.xcodeproj/project.pbxproj`
 | Maple TV                                                  | MapleCloudKit only — deliberately no RawPipeline, no MapleCore |
 | Maple Watch Watch App                                     | MapleWatch, which links only MapleCloudKit                     |
 | MapleWidget                                               | MapleCloudKit                                                  |
-| MapleFileProvider / MapleFileProviderIOS / MapleQuickLook | MapleCore                                                      |
+| MapleFileProvider / MapleFileProviderIOS                  | MapleFileProviderCore (+ MapleCloudKit) — no RawPipeline       |
+| MapleQuickLook                                            | MapleCore                                                      |
 | MapleBackupAgent                                          | MapleCore, MapleBackup                                         |
 
 Three schemes are committed under `Maple.xcodeproj/xcshareddata/xcschemes/`: **Maple** (which also owns the MapleTests + MapleUITests test action, neither skipped), **MapleBackupAgent**, and **Maple Watch** (the Watch app and its tests). The Maple scheme's test action pre-sets `MAPLE_UITEST_FIXTURE_ROOT` to the repo's `test-fixtures/raws` and `MAPLE_UITEST_GOLDENS_ROOT` to `MapleUITests/Goldens`, so a test run from Xcode finds fixtures without extra arguments.
@@ -51,10 +52,11 @@ The app's entitlements (`Maple/Maple.entitlements`) request the sandbox, the App
 
 ### MapleCore
 
-`src/apple/Packages/MapleCore` — swift-tools-version 6.1, language mode pinned to Swift 5. Two library products:
+`src/apple/Packages/MapleCore` — swift-tools-version 6.1, language mode pinned to Swift 5. Three library products:
 
 - **MapleCore** — the domain core. Depends on the `RawPipeline` binary target, AMSMB2 (SMB 2/3 client), MapleBackup, and swift-otel (OTLP/HTTP trait only, which keeps the deployment floor at macOS 14 / iOS 17).
 - **MapleCloudKit** — deliberately dependency-free networking/auth/admin layer so the tvOS app can link it without pulling in RawPipeline.
+- **MapleFileProviderCore** — the File Provider implementation (`Sources/MapleCore/FileProvider/`), depending only on MapleCloudKit so the extensions stay small (see [File Provider memory budget](#file-provider-memory-budget)). MapleCore excludes that directory and re-exports the module, so app code still imports MapleCore alone.
 
 MapleCore's top-level directories map to subsystems: `Editor` (adjustment state, presets, crop geometry, tone curves, canvas zoom), `Cache` (thumbnail memory/disk, rendered-preview, decoded-RAW, tile manager, per-folder index), `Cloud` (self-hosted/hosted source, timeline view models, cloud sidecar store), `Sources` (the filesystem / SMB / PhotoKit adapters and bookmark store), `Browse` (merged-timeline math), `FileOperations` (local + SMB rename/move/trash, collision resolution, filename templates), `FileProvider` (the whole replicated-extension implementation), `Panorama` (stitcher protocol, Rust FFI stitcher, ML-runtime provisioning), `Auth`, `Observability` (OTel wiring), `Layout`, `Grid`, and `Generated` (codegen output — see below). Loose files at the package root hold the render path, the XMP serializer, and the FFI wrapper.
 
@@ -232,13 +234,28 @@ Serialization lives in the `XMPSerialization+*.swift` family, with `XMPPassthrou
 
 ## File Provider and Quick Look
 
-The macOS and iOS File Provider extensions are both three-line subclasses (`FileProviderExtension`, `FileProviderExtensionIOS`) whose entire behaviour is `MapleCore.FileProviderExtensionCore`, an `NSFileProviderReplicatedExtension`. Configuration crosses the process boundary as JSON files in the App Group container at `~/Library/Group Containers/group.app.justmaple.aperture/FileProviderConfig/<domain>.json` — `UserDefaults(suiteName:)` was abandoned because CFPreferences rejects `kCFPreferencesAnyUser` with a container. Missing the App Group entitlement is survivable: the config falls back to the caches directory, logs an error, and the extension boots dormant.
+The macOS and iOS File Provider extensions are both three-line subclasses (`FileProviderExtension`, `FileProviderExtensionIOS`) whose entire behaviour is `MapleFileProviderCore.FileProviderExtensionCore`, an `NSFileProviderReplicatedExtension`. Configuration crosses the process boundary as JSON files in the App Group container at `~/Library/Group Containers/group.app.justmaple.aperture/FileProviderConfig/<domain>.json` — `UserDefaults(suiteName:)` was abandoned because CFPreferences rejects `kCFPreferencesAnyUser` with a container. Missing the App Group entitlement is survivable: the config falls back to the caches directory, logs an error, and the extension boots dormant.
 
 `FileProviderIdentifier` is the item vocabulary: assets, folders, non-indexed files, sidecars (including `(conflict from <device>).xmp` copies), and synthetic `.maple/`, `.maple/thumbs/` and `.maple/previews/` directories the extension fabricates client-side because the server hides dotdirs from `/api/folder/:slug/*` (previews are `<filename>.avif`, fetched from `GET /api/preview/:slug/*`; both derived entries are versioned by the asset's sidecar mtime so a server-side edit refetches them). Thumbnail filenames inside them come from `MapleThumbCacheKey.sha256Prefix16(basename)` — the first 16 hex chars of SHA-256 over the _filename_, not the path, which is what lets `.maple/` travel with the photos. That helper is the single source of truth shared with `Cache/ThumbnailDiskCache.swift`, the Bun server, and the web cache.
 
 `RemoteCatalog` fetches listings from the server with ETag caching; `ChangeFeedClient` holds an SSE subscription to `/api/changes/subscribe`, resuming from a stored cursor and reconnecting with exponential backoff capped at 16 s. On a 409 (stale cursor) it purges the ETag cache and signals `.workingSet` so the OS re-enumerates from scratch. `WorkingSet` is a bounded table of warm identifiers with kind-aware eviction: sidecars and favourites are eviction-immune, explicitly-requested items go next, and recency entries (last 30 days) are dropped first.
 
 `MapleQuickLook` hooks Finder's spacebar preview. Given the local cache URL of a File Provider file, it resolves back to `(domain, assetID)` through the shared `FileProviderMetaStore` SQLite mirror and fetches the pre-baked AVIF from `GET /api/assets/<id>/thumb`, which is orders of magnitude cheaper than materializing and decoding a 40–150 MB RAW. Any failure throws, and the Quick Look runtime falls back to the system default — never worse than not having the extension.
+
+### File Provider memory budget
+
+iOS runs `MapleFileProviderIOS` under a hard 20 MB memory limit (`ActiveHard 20 MB (fatal)` in the device log): the kernel kills the process the moment its footprint crosses it, and every upload in flight is lost. The extension stays under the limit by design (#5456):
+
+- **Lean binary.** Both File Provider extensions link the `MapleFileProviderCore` product, not `MapleCore`. That target is the `Sources/MapleCore/FileProvider/` directory plus `MapleCloudKit` and nothing else — no RawPipeline (Rust core), AMSMB2, MapleBackup, OpenTelemetry or render code. MapleCore excludes the directory and re-exports the module, so app code keeps writing `import MapleCore`. Code added under `FileProvider/` must not reach back into MapleCore; the target fails to compile if it does.
+- **Bounded transfers.** File uploads (`createItem`, content-changing `modifyItem`) run at most `FileProviderExtensionCore.writeConcurrency` (3) at a time, and `fetchContents` downloads at most `fetchConcurrency` (3). Folder creates, renames, moves and XMP writes are small requests and skip the queue, so they never wait behind a bulk drop. Work waiting for a permit holds only its task continuation: no open file, request or buffer. Cancelling the OS's `Progress` while an item waits removes it from the queue, and cancelling a running fetch stops its download.
+- **Bounded change enumeration.** Every `enumerateChanges` (working set and folders) pages the global change feed and builds items for each row; after a relaunch all observed containers ask at once. At most two run together, with 200-row pages on iOS (500 on macOS).
+- **Streaming bodies.** Uploads stream from disk (`URLSession.upload(for:fromFile:)`); RAW, file, thumbnail and preview downloads stream to disk (`URLSession.download(for:)`). Only small JSON bodies and XMP sidecars are read into memory.
+- **One ephemeral session.** All requests share one `URLSession` with no URL cache, cookie or credential storage. Its per-host connection cap leaves room for every bounded transfer plus listing traffic, so no transfer waits in the session's own queue while its timeout runs.
+- **Bounded caches.** `RemoteCatalog`'s ETag cache holds at most `extensionETagCacheByteBudget` (1 MB of response bodies, a few MB decoded) in the extension. Working-set seeding fetches its three lists one at a time, each capped at the platform working-set capacity (2,500 on iOS, so a library with more favourites or XMP-bearing photos than that seeds only 2,500 of each into the iOS working set; they still appear in their folders), and hands items to the OS in batches of 200. Folder listings page 200 children at a time on iOS. The Quick Look mirror's SQLite page cache is 256 KB.
+
+**Recovery after a kill.** The OS redelivers `createItem` for anything that had not completed. When the target already holds a file with the same name, size and modification time (the upload stamps the time), or the OS sets `.mayAlreadyExist` and name and size match, the extension reports the stored file instead of uploading again. `modifyItem` echoes changes the server does not store (dates, tags, extended attributes) for every item kind, and replaces a non-indexed file's bytes when they change; the server moves the previous copy to the Maple trash.
+
+When changing the extension, measure its footprint in **Release** on a device (Xcode's memory gauge or `footprint MapleFileProviderIOS`) at idle and during a burst of a few hundred drops. Debug builds add a large `.debug.dylib` and are not representative.
 
 ## Other targets
 

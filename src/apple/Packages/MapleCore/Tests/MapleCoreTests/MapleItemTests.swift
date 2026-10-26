@@ -2,6 +2,7 @@ import FileProvider
 import XCTest
 
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 final class MapleItemTests: XCTestCase {
   // MARK: - itemVersion / modifyItem precondition contract

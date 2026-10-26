@@ -160,7 +160,7 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
 
     /// Per-call cap on rows pulled from `/api/changes`. Mirrors
     /// `WorkingSetEnumerator.changesPageLimit` / `DeferredFolderEnumerator`.
-    private static let changesPageLimit = 500
+    private static let changesPageLimit = FileProviderChangeEnumeration.pageLimit
 
     /// `pageSize` is sent as the `?limit=` query param on every request.
     /// Defaults to 500 on macOS and 200 on iOS; the host extension picks
@@ -312,6 +312,8 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
         let since = FolderChangeMatching.parseAnchor(anchor)
         Task { [weak self] in
             guard let self else { return }
+            guard await FileProviderChangeEnumeration.acquire(for: observer) else { return }
+            defer { FileProviderChangeEnumeration.release() }
             do {
                 let page = try await catalog.listChanges(since: since,
                                                          limit: Self.changesPageLimit)

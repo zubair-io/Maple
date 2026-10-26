@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// Regression coverage for #2532: `createXMPItem` used to pass
 /// `ifMtimeMatches: nil` unconditionally, which skips the server's

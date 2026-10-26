@@ -2,6 +2,7 @@
 import XCTest
 import Foundation
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// #2538 (modify side): a `modifyItem` redelivery for the same sidecar
 /// edit arrives with `priorMtime` still pointing at the PRE-write mtime,

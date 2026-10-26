@@ -14,6 +14,7 @@
 import FileProvider
 import XCTest
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 final class WorkingSetEnumeratorFileChangesTests: XCTestCase {
     private func root(id: String, path: String) -> LibraryRoot {

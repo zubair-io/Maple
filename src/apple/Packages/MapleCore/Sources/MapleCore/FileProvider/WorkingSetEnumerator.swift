@@ -75,13 +75,15 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
                 // and search; with real parents, items show up only in
                 // their owning folder.
                 let roots = (try? await rootCache?.roots()) ?? []
-                let items = entries.map { e -> MapleItem in
-                    let parent = Self.resolveParent(folderID: e.folderID,
-                                                     absPath: e.absPath,
-                                                     roots: roots)
-                    return MapleItem(workingSetEntry: e, parent: parent)
+                for start in stride(from: 0, to: entries.count, by: Self.enumerationBatchSize) {
+                    let batch = entries[start..<min(start + Self.enumerationBatchSize, entries.count)]
+                    observer.didEnumerate(batch.map { e -> MapleItem in
+                        let parent = Self.resolveParent(folderID: e.folderID,
+                                                         absPath: e.absPath,
+                                                         roots: roots)
+                        return MapleItem(workingSetEntry: e, parent: parent)
+                    })
                 }
-                observer.didEnumerate(items)
                 observer.finishEnumerating(upTo: nil)
             } catch {
                 log.error("workingSet enumerate failed: \(error.localizedDescription, privacy: .public)")
@@ -95,12 +97,18 @@ final class WorkingSetEnumerator: NSObject, NSFileProviderEnumerator {
     /// OS will call `enumerateChanges` again from the new anchor; the
     /// remaining backlog is then drained in a second (and third, …)
     /// round-trip.
-    private static let changesPageLimit = 500
+    private static let changesPageLimit = FileProviderChangeEnumeration.pageLimit
+
+    /// Items handed to the OS per `didEnumerate` call, so the extension
+    /// never holds every working-set item at once (#5456).
+    static let enumerationBatchSize = 200
 
     func enumerateChanges(for observer: NSFileProviderChangeObserver,
                           from anchor: NSFileProviderSyncAnchor) {
         let since = Self.parseAnchor(anchor)
         Task {
+            guard await FileProviderChangeEnumeration.acquire(for: observer) else { return }
+            defer { FileProviderChangeEnumeration.release() }
             do {
                 let page = try await catalog.listChanges(since: since, limit: Self.changesPageLimit)
                 // Prefetch the library roots ONCE per call. Each row
@@ -274,12 +282,21 @@ public actor WorkingSetListCache {
     private var cachedAt: Date?
     private let ttl: TimeInterval
     private let now: () -> Date
+    private let limit: Int
 
     /// `now` is injectable so tests can advance the clock deterministically
-    /// instead of sleeping past a real TTL window.
-    init(catalog: RemoteCatalog, ttl: TimeInterval = 5 * 60, now: @escaping () -> Date = Date.init) {
+    /// instead of sleeping past a real TTL window. `limit` caps each of the
+    /// three queries at the platform's working-set capacity (#5456): on iOS
+    /// three 20,000-row responses alone would exceed the extension's 20 MB
+    /// limit. A library with more favourites or XMP-bearing photos than
+    /// that seeds only `limit` of each; the rest still enumerate through
+    /// their folders.
+    init(catalog: RemoteCatalog, ttl: TimeInterval = 5 * 60,
+         limit: Int = WorkingSet.defaultCapacity,
+         now: @escaping () -> Date = Date.init) {
         self.catalog = catalog
         self.ttl = ttl
+        self.limit = limit
         self.now = now
     }
 
@@ -287,20 +304,17 @@ public actor WorkingSetListCache {
         if let c = cached, let cachedAt, now().timeIntervalSince(cachedAt) < ttl {
             return c
         }
-        // Pull all three filters and merge by id. Cap each query at 20k
-        // (server-side ceiling) — the working set itself is capped at
-        // 20k, so we never need more across the union.
-        async let favs = catalog.listAssets(ratingGTE: 1, limit: 20_000)
-        async let xmps = catalog.listAssets(hasXMP: true, limit: 20_000)
-        let thirtyDaysAgo = Date().addingTimeInterval(-30 * 86_400)
-        async let recents = catalog.listAssets(capturedAfter: thirtyDaysAgo, limit: 20_000)
-        let (a, b, c) = try await (favs.assets, xmps.assets, recents.assets)
-        var byId: [String: AssetListEntry] = [:]
+        // One query at a time, so only one response body is ever decoding.
         // Later writes win — we want favourite/xmp metadata if the same
-        // asset appears in multiple result sets, so order the merge to
-        // put recent first, then the eviction-immune kinds.
-        for e in c { byId[e.id] = e }
-        for e in a + b { byId[e.id] = e }
+        // asset appears in multiple result sets, so merge recent first,
+        // then the eviction-immune kinds.
+        var byId: [String: AssetListEntry] = [:]
+        let thirtyDaysAgo = Date().addingTimeInterval(-30 * 86_400)
+        for e in try await catalog.listAssets(capturedAfter: thirtyDaysAgo, limit: limit).assets {
+            byId[e.id] = e
+        }
+        for e in try await catalog.listAssets(ratingGTE: 1, limit: limit).assets { byId[e.id] = e }
+        for e in try await catalog.listAssets(hasXMP: true, limit: limit).assets { byId[e.id] = e }
         let merged = Array(byId.values)
         cached = merged
         cachedAt = now()

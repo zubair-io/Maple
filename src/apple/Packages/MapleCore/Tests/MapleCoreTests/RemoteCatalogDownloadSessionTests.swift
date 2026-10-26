@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// Issue #3 of PR #66 review: the default download session must be
 /// `.ephemeral` (no shared URLCache, no cookies, no credential storage)

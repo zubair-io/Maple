@@ -2,6 +2,7 @@
 import FileProvider
 import XCTest
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// Direct `deleteItem` and `enumerator(for:)` dispatch coverage for
 /// #2552. Neither entry point had ever been driven through a real

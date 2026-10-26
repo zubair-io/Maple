@@ -6,7 +6,12 @@ import UniformTypeIdentifiers
 
 open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtension {
     private let domain: NSFileProviderDomain
-    private let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "extension")
+    let log = Logger(subsystem: "app.justmaple.aperture.fileprovider", category: "extension")
+    /// Bounds file uploads and content downloads, so a burst
+    /// of OS calls cannot outgrow iOS's 20 MB extension limit (#5456). See
+    /// `FileProviderExtensionCore+Transfers.swift`.
+    let writePermits = BoundedAsyncSemaphore(value: FileProviderExtensionCore.writeConcurrency)
+    let fetchPermits = BoundedAsyncSemaphore(value: FileProviderExtensionCore.fetchConcurrency)
     private let dormant: Bool
     private let catalog: RemoteCatalog?
     private let rootCache: LibraryRootCache?
@@ -183,7 +188,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             log.notice("init dormant — no config for domain \(domain.identifier.rawValue, privacy: .public)")
             return
         }
-        let session = URLSession(configuration: .default)
+        let session = Self.makeURLSession()
         let domainID = domain.identifier.rawValue
         let http = AuthenticatedHTTPClient(
             server: cfg.serverURL,
@@ -197,7 +202,9 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             // extension-process counterpart to the app's `BackgroundExecution`.
             refreshExecutor: ExpiringActivityRefreshExecutor()
         )
-        let catalog = RemoteCatalog(http: http, server: cfg.serverURL)
+        let catalog = RemoteCatalog(
+            http: http, server: cfg.serverURL, downloadURLSession: session,
+            etagCacheByteBudget: RemoteCatalog.extensionETagCacheByteBudget)
         let resolvedWorkingSet = WorkingSet(capacity: WorkingSet.defaultCapacity)
         let resolvedCursorStore = ChangeCursorStore()
         // LibraryRootCache primes from App Group `UserDefaults` so the
@@ -798,7 +805,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             progress.completedUnitCount = 1
             return progress
         }
-        Task {
+        startBounded(by: fetchPermits, progress: progress,
+                     cancelled: { completionHandler(nil, nil, Self.userCancelledError()) }) { [self] in
             defer { progress.completedUnitCount = 1 }
             do {
                 let parsed = try FileProviderIdentifier(rawValue: itemIdentifier.rawValue)
@@ -846,7 +854,11 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                             code: NSFileProviderError.noSuchItem.rawValue))
                         return
                     }
-                    try await downloadTask.value
+                    try await withTaskCancellationHandler {
+                        try await downloadTask.value
+                    } onCancel: {
+                        downloadTask.cancel()
+                    }
                     self.recordMeta(domain: self.domain.identifier.rawValue,
                                     localBasename: localURL.lastPathComponent,
                                     assetID: id,
@@ -991,7 +1003,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // reader) can identify it by basename.
                     let localURL = tmpDir.appendingPathComponent(UUID().uuidString + ".avif")
                     async let metaTask = catalog.getAsset(assetID: assetID)
-                    let bytesTask = Task { try await catalog.getThumb(assetID: assetID) }
+                    let bytesTask = Task { try await catalog.downloadThumb(assetID: assetID, to: localURL) }
                     defer { bytesTask.cancel() }
                     let resolved: AssetMetadata?
                     do {
@@ -999,6 +1011,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     } catch {
                         bytesTask.cancel()
                         _ = try? await bytesTask.value
+                        try? FileManager.default.removeItem(at: localURL)
                         throw error
                     }
                     // If the underlying asset is gone (server deleted,
@@ -1009,12 +1022,16 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         log.notice("fetchContents thumb \(assetID, privacy: .public) — missing or trashed")
                         bytesTask.cancel()
                         _ = try? await bytesTask.value
+                        try? FileManager.default.removeItem(at: localURL)
                         completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                             code: NSFileProviderError.noSuchItem.rawValue))
                         return
                     }
-                    let bytes = try await bytesTask.value
-                    try bytes.write(to: localURL, options: .atomic)
+                    try await withTaskCancellationHandler {
+                        try await bytesTask.value
+                    } onCancel: {
+                        bytesTask.cancel()
+                    }
                     let thumbName = MapleThumbCacheKey.thumbFilename(forRawBasename: resolved.filename)
                     let parentIdent = try await Self.resolveThumbParent(meta: resolved,
                                                                         rootCache: self.rootCache)
@@ -1024,7 +1041,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         modified: resolved.xmpMtime ?? resolved.contentModificationDate,
                         parentIdentifier: parentIdent
                     )
-                    log.notice("fetchContents thumb \(assetID, privacy: .public) ok bytes=\(bytes.count, privacy: .public)")
+                    log.notice("fetchContents thumb \(assetID, privacy: .public) ok")
                     completionHandler(localURL, item, nil)
                     return
                 case .preview(let assetID):
@@ -1038,15 +1055,14 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         return
                     }
                     let localURL = tmpDir.appendingPathComponent(UUID().uuidString + ".avif")
-                    let bytes = try await catalog.getPreview(absPath: resolved.absPath)
-                    try bytes.write(to: localURL, options: .atomic)
+                    try await catalog.downloadPreview(absPath: resolved.absPath, to: localURL)
                     let parentIdent = try await Self.resolveDerivedParent(
                         meta: resolved, rootCache: self.rootCache, kind: .previews)
                     let item = MapleDerivedKind.previews.item(
                         assetID: assetID, rawBasename: resolved.filename,
                         modified: resolved.xmpMtime ?? resolved.contentModificationDate,
                         parentIdentifier: parentIdent)
-                    log.notice("fetchContents preview \(assetID, privacy: .public) ok bytes=\(bytes.count, privacy: .public)")
+                    log.notice("fetchContents preview \(assetID, privacy: .public) ok")
                     completionHandler(localURL, item, nil)
                     return
                 case .file(let folderID, let relativePath):
@@ -1451,38 +1467,27 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         }
         let filename = itemTemplate.filename
         let targetRel = parentRelative.isEmpty ? filename : "\(parentRelative)/\(filename)"
+        let templateMtime = itemTemplate.contentModificationDate ?? nil
         let progress = Progress(totalUnitCount: 1)
-        Task {
+        startBounded(by: writePermits, progress: progress,
+                     cancelled: { completionHandler(nil, [], false, Self.userCancelledError()) }) { [self] in
             defer { progress.completedUnitCount = 1 }
             do {
-                // #2538: `uploadFile` trashes-and-recreates on a name
-                // collision (see its doc comment), which is exactly
-                // wrong for a `.mayAlreadyExist` redelivery — the OS is
-                // telling us this item may already be synced, not asking
-                // us to duplicate it. Precheck the parent listing and
-                // skip straight to reporting the existing item when name
-                // + size both match; a size mismatch is a genuine
-                // collision and falls through to the normal upload.
-                // Size is REQUIRED for the precheck, never defaulted. A
-                // failed `stat` (or a missing `.size`) used to fall back to
-                // 0, which can match an unrelated empty entry on the server
-                // and skip an upload the user actually made — silently
-                // losing the file. When we can't read the local size we
-                // simply don't take the shortcut and fall through to the
-                // normal upload, whose own collision handling is correct.
-                if options.contains(.mayAlreadyExist),
-                   let localSize = (try? FileManager.default
-                       .attributesOfItem(atPath: contentsURL.path))?[.size]
-                       .flatMap({ ($0 as? NSNumber)?.int64Value }) {
-                    if let parentAbs = await Self.resolveAbsolutePath(
-                        folderID: folderID, relativePath: parentRelative, rootCache: self.rootCache),
-                       let existing = try await Self.matchExistingUpload(
-                           catalog: catalog, parentAbsolutePath: parentAbs, filename: filename,
-                           localSize: localSize, folderID: folderID, targetRelativePath: targetRel,
-                           parentIdentifier: parentID, log: self.log) {
-                        completionHandler(existing, [], false, nil)
-                        return
-                    }
+                // #2538 / #5456: `uploadFile` trashes-and-recreates on a
+                // name collision, which is wrong for a redelivery of an
+                // upload that already landed (`.mayAlreadyExist`, or the
+                // OS retrying after the extension was killed before it
+                // heard back). `existingUpload` reports the stored file
+                // instead; see its doc comment for the matching rules.
+                if let existing = try await Self.existingUpload(
+                    catalog: catalog, rootCache: self.rootCache, options: options,
+                    localURL: contentsURL,
+                    templateMtime: templateMtime,
+                    folderID: folderID, parentRelativePath: parentRelative,
+                    targetRelativePath: targetRel, filename: filename,
+                    parentIdentifier: parentID, log: self.log) {
+                    completionHandler(existing, [], false, nil)
+                    return
                 }
                 // folderID is a server-side opaque ObjectId so it's
                 // safe to surface; targetRel + bytes-from are user-
@@ -1492,7 +1497,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     folderID: folderID,
                     targetRelativePath: targetRel,
                     fileURL: contentsURL,
-                    mtime: itemTemplate.contentModificationDate ?? nil,
+                    mtime: templateMtime,
                 )
                 self.log.notice("upload outcome=\(String(describing: outcome), privacy: .public)")
                 switch outcome {
@@ -1569,6 +1574,19 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                 NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
             return Progress()
         }
+        log.notice("modifyItem id=\(item.itemIdentifier.rawValue, privacy: .private) fields=\(changedFields.rawValue, privacy: .public) contents=\(newContents != nil, privacy: .public)")
+
+        // The server tracks only bytes, name and location. Any other
+        // change (last-used date, Finder tags, extended attributes,
+        // creation or modification dates, favourite rank) is echoed back
+        // so the OS records it locally; returning featureUnsupported for
+        // it badged freshly opened RAWs, dropped-in folders and videos
+        // with a permanent "upload error" (#5456).
+        let tracked = changedFields.intersection(Self.serverTrackedFields)
+        if tracked.isEmpty {
+            completionHandler(item, [], false, nil)
+            return Progress()
+        }
 
         // Folder rename / move. The folder identifier encodes its path
         // (`folder/<libraryID>:<b64(relativePath)>`), so a rename or move
@@ -1582,8 +1600,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         // (and cross-library moves) falls through to featureUnsupported.
         if case .folder(let folderID, let sourceRelative) = parsed {
             let renameOrMove: NSFileProviderItemFields = [.filename, .parentItemIdentifier]
-            guard !changedFields.intersection(renameOrMove).isEmpty,
-                  changedFields.isSubset(of: renameOrMove) else {
+            guard tracked.isSubset(of: renameOrMove) else {
                 completionHandler(nil, [], false,
                     NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
                 return Progress()
@@ -1664,9 +1681,13 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         // (cross-library move, or any changed field beyond
         // filename/parent) falls through to featureUnsupported.
         if case .file(let folderID, let sourceRelative) = parsed {
+            if tracked == .contents, let newContents {
+                return replaceFileContents(of: item, folderID: folderID, relativePath: sourceRelative,
+                                           contents: newContents, catalog: catalog,
+                                           completionHandler: completionHandler)
+            }
             let renameOrMove: NSFileProviderItemFields = [.filename, .parentItemIdentifier]
-            guard !changedFields.intersection(renameOrMove).isEmpty,
-                  changedFields.isSubset(of: renameOrMove) else {
+            guard tracked.isSubset(of: renameOrMove) else {
                 completionHandler(nil, [], false,
                     NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
                 return Progress()
@@ -1780,29 +1801,8 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             return progress
         }
 
-        // Asset: accept benign metadata-only edits
-        // silently. After fetchContents materialises a RAW, the OS often
-        // surfaces a modifyItem call carrying `.lastUsedDate`,
-        // `.extendedAttributes` (quarantine, Spotlight metadata), Finder
-        // `.tagData`, or `.favoriteRank` — none of which the Maple server
-        // tracks. Returning featureUnsupported here makes Finder badge
-        // every freshly-opened RAW with a persistent "upload error". Echo
-        // the input item back instead so the OS records the local
-        // metadata change without re-trying.
-        //
-        // Genuine in-place edits (changedFields ⊇ `.contents`), renames
-        // (`.filename`), and moves (`.parentItemIdentifier`) still fall
-        // through to featureUnsupported — those operations would silently
-        // drop user work if accepted, so a clear error is correct.
-        if case .asset = parsed {
-            let unsupportedAssetFields: NSFileProviderItemFields =
-                [.contents, .filename, .parentItemIdentifier]
-            if changedFields.intersection(unsupportedAssetFields).isEmpty {
-                completionHandler(item, [], false, nil)
-                return Progress()
-            }
-        }
-
+        // Assets: in-place RAW edits, renames and moves stay unsupported —
+        // accepting them would silently drop the user's work.
         guard case .sidecar(let assetID, let conflictBasename) = parsed,
               let contentsURL = newContents else {
             completionHandler(nil, [], false,
@@ -2394,7 +2394,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
         return s
     }
 
-    private func signalEnumeratorReload(parent: NSFileProviderItemIdentifier) async {
+    func signalEnumeratorReload(parent: NSFileProviderItemIdentifier) async {
         guard let mgr = NSFileProviderManager(for: domain) else { return }
         try? await mgr.signalEnumerator(for: parent)
     }
@@ -2434,7 +2434,7 @@ public final class DeferredFolderEnumerator: NSObject, NSFileProviderEnumerator 
     /// Per-call cap on rows pulled from `/api/changes`. Mirrors
     /// `WorkingSetEnumerator.changesPageLimit`: on a full page we report
     /// `moreComing: true` and the OS loops back from the new anchor.
-    private static let changesPageLimit = 500
+    private static let changesPageLimit = FileProviderChangeEnumeration.pageLimit
 
     public init(catalog: RemoteCatalog,
                 rootCache: LibraryRootCache,
@@ -2490,6 +2490,8 @@ public final class DeferredFolderEnumerator: NSObject, NSFileProviderEnumerator 
         let since = FolderChangeMatching.parseAnchor(anchor)
         Task { [weak self] in
             guard let self else { return }
+            guard await FileProviderChangeEnumeration.acquire(for: observer) else { return }
+            defer { FileProviderChangeEnumeration.release() }
             do {
                 let page = try await self.catalog.listChanges(since: since,
                                                                limit: Self.changesPageLimit)
