@@ -15,6 +15,10 @@
  * The files to unlink are recorded as obligations in the same transaction
  * that takes the photo out of Trash, then drained (`local-purge-drain.ts`),
  * so a failed unlink or a crash in between is retried rather than orphaned.
+ *
+ * A whole-photo purge an earlier attempt recorded does not stop this (#5419):
+ * the photo is still kept, and backups whose erasure had already started are
+ * logged as lost, to be made again from the surviving copy.
  */
 
 import * as path from 'node:path';
@@ -28,6 +32,7 @@ import { BackupRepository } from '../cloud-backup/repository.ts';
 import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
 import { errnoCode } from '../fs/relocate-publish.ts';
 import { listPairedSidecarsStrict } from '../fs/xmp-conflict.ts';
+import { child as childLogger } from '../log.ts';
 import { drainLocalPurges } from './local-purge-drain.ts';
 import {
   fileStampOf,
@@ -44,6 +49,8 @@ export type SurvivorPurgeOutcome =
   | { kind: 'full-purge' };
 
 type PurgeInfo = Parameters<typeof capturedTrashPurge>[0];
+
+const log = childLogger('trash-purge-survivor');
 
 function companionsLeaveWithTrashedCopy(
   info: PurgeInfo,
@@ -134,8 +141,12 @@ export async function purgeKeepingSurvivor(
     dropCompanions,
     cleanup: prepared[1],
   });
-  if (outcome === 'purge-in-flight') return { kind: 'full-purge' };
-  if (outcome === 'changed') return { kind: 'changed' };
+  if (outcome.kind === 'changed') return { kind: 'changed' };
+  if (outcome.erasedBackups > 0)
+    log.warn(
+      { assetId: id.toHexString(), erasedBackups: outcome.erasedBackups },
+      'kept photo lost backups an earlier whole-photo purge had already erased; they are made again from the surviving copy',
+    );
   const pending = await drainLocalPurges({ assetId: id.toHexString() }).then(
     (summary) => summary.pending,
     () => 1,

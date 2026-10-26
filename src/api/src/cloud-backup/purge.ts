@@ -4,6 +4,7 @@ import { type BackupEngine, jsonSource, entryPrefix } from './engine.ts';
 import type { PurgeRecord, BackupObject, UploadCheckpoint, BackupProvider } from './provider.ts';
 import { relativeBackupPath, fileHash, jailedFile } from './inventory.ts';
 import type { BackupDestination, BackupRepository } from './repository.ts';
+import { releasedOrdinalStatements } from '../db/repos/assets.trash-survivor-intent.ts';
 
 async function removeLocal(
   root: string,
@@ -73,12 +74,37 @@ export async function drainPurges(
     signal?.throwIfAborted();
     const record: PurgeRecord = JSON.parse(row.record);
     try {
+      const revision = await claimPurge(engine, destination.id, row.entry_id, signal);
+      if (revision === null) continue;
       await purgeFolder(engine, destination, row.entry_id, signal);
-      await completePurge(engine, destination.id, record.entryId, row.revision, signal);
+      await completePurge(engine, destination.id, record.entryId, revision, signal);
     } catch {
       await retryPurge(engine, destination.id, record.entryId, signal);
     }
   }
+}
+/**
+ * Mark a row's erasure as started before its first destructive step, so a
+ * whole-photo purge retired because the photo kept a copy (#5419) can tell
+ * the rows nothing was erased for. Null when the row was retired or completed.
+ */
+async function claimPurge(
+  engine: BackupEngine,
+  destinationId: string,
+  entryId: string,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  signal?.throwIfAborted();
+  const claimed = await engine.repo.db.write(
+    `UPDATE backup_purges SET revision=revision+1 WHERE destination_id=? AND entry_id=? AND completed=0`,
+    [destinationId, entryId],
+  );
+  if (!claimed.changes) return null;
+  const [row] = await engine.repo.db.read<{ revision: number }>(
+    `SELECT revision FROM backup_purges WHERE destination_id=? AND entry_id=?`,
+    [destinationId, entryId],
+  );
+  return row?.revision ?? null;
 }
 async function completePurge(
   engine: BackupEngine,
@@ -88,11 +114,14 @@ async function completePurge(
   signal?: AbortSignal,
 ) {
   signal?.throwIfAborted();
-  await engine.repo.db.write(
-    `UPDATE backup_purges SET completed=1,last_error=NULL WHERE destination_id=? AND entry_id=?
-      AND revision=? AND NOT EXISTS (SELECT 1 FROM backup_entries WHERE id=? AND lease_until>?)`,
-    [destinationId, entryId, revision, entryId, Date.now()],
-  );
+  await engine.repo.db.transaction([
+    {
+      sql: `UPDATE backup_purges SET completed=1,last_error=NULL WHERE destination_id=? AND entry_id=?
+        AND revision=? AND NOT EXISTS (SELECT 1 FROM backup_entries WHERE id=? AND lease_until>?)`,
+      params: [destinationId, entryId, revision, entryId, Date.now()],
+    },
+    ...releasedOrdinalStatements(entryId),
+  ]);
 }
 async function retryPurge(
   engine: BackupEngine,
@@ -126,6 +155,7 @@ async function drainRemoteBatch(
         const record: PurgeRecord = JSON.parse(row.record);
         if (record.libraryId !== destination.libraryId || record.entryId !== row.entry_id)
           throw new Error('Purge identity does not match its destination entry');
+        if ((await claimPurge(engine, destination.id, row.entry_id, signal)) === null) continue;
         const revision = await publishPurgeMarker(engine, destination, provider, record, signal);
         const prefix = entryPrefix(record.libraryId, record.entryId);
         await removeSavedRemoteObjects(engine, destination.id, provider, prefix, signal);

@@ -19,7 +19,7 @@
  * best-effort behavior: failures are logged before the row is deleted.
  *
  * The candidate query and the delete both live in the repositories
- * (`listTrashedBefore`, `hardDelete`) rather than here, so the one thing this
+ * (`listTrashedBefore`, `hardDeleteAdmittedPurge`) rather than here, so the one thing this
  * sweep must get right about the database — reaching the `assets_trashed`
  * index instead of scanning every asset on a daily timer — is stated beside
  * the table and not re-derived at each call site (#3787).
@@ -30,7 +30,10 @@
 
 import { refusesFileUnderMarker } from '../fs/mapleignore-guard.ts';
 import { listTrashedBefore, type TrashedAsset } from '../db/repos/assets.sweeps.ts';
-import { deleteReapedWithoutActiveBackup, hardDelete } from '../db/repos/assets.trash.ts';
+import {
+  deleteReapedWithoutActiveBackup,
+  hardDeleteAdmittedPurge,
+} from '../db/repos/assets.trash.ts';
 import { prepareTrashPurge } from '../cloud-backup/lifecycle.ts';
 import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
 import { oldNameEditUnreadable } from '../fs/legacy-backup-sidecar.ts';
@@ -172,7 +175,8 @@ async function purgeWholeAsset(
     return { purged: false, errors: 1 };
   }
   const errors = await unlinkTrashedCopy(trashed, unlinkFailure);
-  await hardDelete(doc._id);
+  const deleted = await hardDeleteAdmittedPurge(doc._id);
+  if (!deleted.deletedCount) return candidateChanged(doc);
   return { purged: true, errors };
 }
 
