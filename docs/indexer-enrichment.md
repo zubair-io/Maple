@@ -20,12 +20,15 @@ Connection concurrency caps each worker's pool; Describe's stage
 concurrency is derived from its assigned pool. Generated search chooses its own
 text-generation connection/model: an Ollama server (grammar-constrained `/api/generate`)
 or an OpenAI-compatible server (`<base URL>/chat/completions` with a `json_schema`
-response format and the connection's bearer key). Semantic search
-chooses its own embedding connection/model, reachable from the API host: an Ollama
-server (`/api/embed`) or an OpenAI-compatible server (`<base URL>/embeddings` with the
-connection's bearer key). Either way the model must be bge-m3, because in-process
-search embeds queries with bge-m3. A saved embedding endpoint override is always an
-Ollama server. Their settings no longer follow Describe after the first unified save.
+response format and the connection's bearer key). Its setting no longer follows
+Describe after the first unified save.
+
+Semantic search has no assignment: the `embed` stage computes document vectors with the
+bundled bge-m3 on the server's CPU, in the same search child that embeds queries (see
+[Search](#search)). Settings → AI shows it as a
+read-only "Semantic search" section with the engine's status. Migration 0037 dropped the
+former `embedder_url`/`embedder_model` settings and any saved `semantic-search` assignment,
+and a save from an older client that still sends one ignores it.
 
 An OpenAI connection has an optional base URL. Blank means `https://api.openai.com/v1`;
 any other value points the same protocol and bearer key at an OpenAI-compatible server
@@ -39,8 +42,8 @@ generated-search model override. Reading does not rewrite existing settings. Sav
 snapshots independent assignments atomically. Legacy AI/enrichment writes that
 would compete with the registry return 409 after migration. Worker processes pick
 up connection, credential and assignment changes through the existing two-second
-config refresh; the API also refreshes its search client after a save. Assignments
-do not bump stage versions or reprocess existing assets automatically.
+config refresh. Assignments do not bump stage versions or reprocess existing assets
+automatically.
 
 ## Where it runs
 
@@ -271,7 +274,11 @@ What a person types is not forwarded to that index verbatim. `db/repos/search.ft
 
 **The in-process engine ranks text queries above it.** A `search` child process (see [api](api.md#in-process-search-4463)) holds the bge-m3 query model, every stored vector from the `embed` stage and a Tantivy keyword index, and answers a fused ranking in tens of milliseconds. `embed` renders each asset's text with `enrichment/embedder-document.ts` — the single source of truth for the document template and its byte ceiling — and stores the vector in `asset_vectors`; the child indexes the same rendered text for its keyword leg, so the two legs describe one document, and beside it the asset's `search_blob` as a second, half-weighted field, so vision tags the template leaves out still match by keyword (#4512). `EMBEDDER_TEMPLATE_SHAPE_VERSION` is the `embed` stage's `targetVersion` and the version of the child's on-disk index: a template change re-queues every asset and rebuilds the index. Template field order is load-bearing, because the rendered text is truncated before embedding, so the highest-value fields (filename, media type, people, place) come first.
 
-When the child is loading, restarting, failed, slower than 2 s, `incompatible-embedder` or `empty`, the request is answered from the database layer instead. A search never fails because the engine is unavailable. The engine's ranking is paginated by offset, as relevance is not a stored value a seek cursor could record; the database layer paginates the same way for a text query and by seek cursor for the default capture-time sorts.
+**Documents are embedded by the same model, in the same child (#5445).** The `embed` stage runs in the worker tier, but the bundled bge-m3 lives in the API's search child, so a document batch travels worker → API → child over the IPC channels that already exist (`search/remote-embed.ts`, `workers/embed/local-embedder.ts`) and never runs on either event loop. The stage gathers up to 8 documents, cuts the batch into runs of at most 6,000 bytes, and sends one run at a time; the child serves waiting searches before the next run, so a search waits behind at most one. On an M-series laptop a typical document takes about 50 ms of CPU and a 5,000-byte one (a long transcript) about 800 ms. While the child is not running or still loading the model (a first boot downloads ~2.2 GB), a claim is deferred for 30 s without spending a retry. The model's token window is bge-m3's full 8,192, as Ollama served it, so a long document is not cut at 512 tokens; the vectors match the Ollama bge-m3 vectors recorded in `search/__fixtures__/bge-m3-ollama-reference.json` to cosine 0.99999.
+
+**A bge-m3 vector stays current whoever wrote it.** Rows Ollama wrote are tagged `bge-m3:latest` with the Ollama URL as their endpoint; rows the bundled model writes are tagged `bge-m3` with endpoint `bundled`. Neither the search child nor the stage's once-a-minute sweep compares endpoints, and both accept either spelling of the model, so switching a library from Ollama to the bundled model re-embeds nothing. The sweep re-queues only rows another model wrote (an old `nomic-embed-text` library, say). The first sweep after the switch also revives dead-lettered `embed` rows once, as `worker_config.ai_model` changes to `bge-m3 (bundled)`.
+
+When the child is loading, restarting, failed, slower than 2 s, or `empty`, the request is answered from the database layer instead. A search never fails because the engine is unavailable. The engine's ranking is paginated by offset, as relevance is not a stored value a seek cursor could record; the database layer paginates the same way for a text query and by seek cursor for the default capture-time sorts.
 
 ## People and face clustering
 
@@ -329,7 +336,7 @@ On the web side, `settings/workers/workers.vm.ts` supplies `STAGE_META` — grou
 
 ## Configuration
 
-Per-worker runtime knobs (`concurrency`, `maxAttempts`, `paused`, a `pause_reason` when a stage paused itself, plus discover's `sweepDirIntervalMs`) live in the `worker_config` table keyed by name. Domain configuration — Nominatim URL and rate limit, describe server list, whisper tier, face model directory and download URLs, the `embed` stage's endpoint and model — lives in the `enrichment` row in `app_settings`, resolved by `enrichment/enrichment-config.resolve.ts` with environment variables only as a fallback for existing deploys. Per-feature settings (missing-reaper prune window, dedupe, derivative audit, map tiles, display) each get their own `app_settings` row.
+Per-worker runtime knobs (`concurrency`, `maxAttempts`, `paused`, a `pause_reason` when a stage paused itself, plus discover's `sweepDirIntervalMs`) live in the `worker_config` table keyed by name. Domain configuration — Nominatim URL and rate limit, describe server list, whisper tier, face model directory and download URLs — lives in the `enrichment` row in `app_settings`, resolved by `enrichment/enrichment-config.resolve.ts` with environment variables only as a fallback for existing deploys. Per-feature settings (missing-reaper prune window, dedupe, derivative audit, map tiles, display) each get their own `app_settings` row.
 
 New tunables belong in this settings system, not in new environment variables: a DB-backed setting is operator-toggleable at runtime and visible in the UI. Environment variables are reserved for bootstrap that must be known before the database is open — `MAPLE_SQLITE_PATH`, the port, secrets, and `MAPLE_INDEXER_AUTOSTART`.
 
@@ -359,5 +366,6 @@ Describe and Video Describe accept mixed local/cloud connections, rotate request
 among healthy connections with capacity, and retain per-connection concurrency and retry failover.
 Each request uses the selected connection's model and records its provider/model in result metadata.
 Older assignments without `connection_models` retain their shared model until edited.
-Generated search and semantic search remain single-connection workers; each accepts Ollama or an
-OpenAI-compatible server.
+Generated search remains a single-connection worker; it accepts Ollama or an OpenAI-compatible
+server (Strata, vLLM, llama.cpp), picked with its model on Settings → AI like Describe's.
+Semantic search takes no assignment; see [Search](#search).
