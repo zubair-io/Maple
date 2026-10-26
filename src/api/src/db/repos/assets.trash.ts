@@ -254,18 +254,19 @@ export async function hardDelete(id: ObjectId, dbOverride?: SqliteDb): Promise<D
   return deleteOutcome(matchedOne(result.changes));
 }
 
-/** `hardDelete` for a purge, only while its whole-photo purge intent still
- * stands: an attempt that kept the photo through another copy meanwhile
- * retires that intent (#5419), and the row then stays. */
+/** `hardDelete` for a Trash purge, only while this caller still holds its
+ * whole-photo purge record: an attempt that kept the photo through another
+ * copy retires that record (#5419), and the row then stays. */
 export async function hardDeleteAdmittedPurge(
   id: ObjectId,
+  lease: { id: string; owner: string },
   dbOverride?: SqliteDb,
 ): Promise<DeleteOutcome> {
-  const hex = id.toHexString();
   const result = await sqliteDb(dbOverride).write(
     `DELETE FROM assets WHERE id = ? AND EXISTS
-      (SELECT 1 FROM backup_lifecycle WHERE asset_id = ? AND kind = 'purge')`,
-    [hex, hex],
+      (SELECT 1 FROM backup_lifecycle WHERE id = ? AND asset_id = ? AND kind = 'purge'
+        AND lease_owner = ? AND lease_until > unixepoch('subsec') * 1000)`,
+    [id.toHexString(), lease.id, id.toHexString(), lease.owner],
   );
   return deleteOutcome(matchedOne(result.changes));
 }

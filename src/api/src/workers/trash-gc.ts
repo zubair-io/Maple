@@ -34,7 +34,11 @@ import {
   deleteReapedWithoutActiveBackup,
   hardDeleteAdmittedPurge,
 } from '../db/repos/assets.trash.ts';
-import { prepareTrashPurge, releaseTrashPurge } from '../cloud-backup/lifecycle.ts';
+import {
+  holdsTrashPurge,
+  prepareTrashPurge,
+  releaseTrashPurge,
+} from '../cloud-backup/lifecycle.ts';
 import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
 import { oldNameEditUnreadable } from '../fs/legacy-backup-sidecar.ts';
 import {
@@ -162,21 +166,35 @@ async function purgeWholeAsset(
   trashed: TrashedCopy,
   libs: ReadonlyMap<string, string>,
 ): Promise<PurgeOutcome> {
-  if (!(await prepareTrashPurge(doc._id.toHexString(), capturedTrashPurge(doc)))) {
-    return candidateChanged(doc);
-  }
+  const lease = await prepareTrashPurge(doc._id.toHexString(), capturedTrashPurge(doc));
+  if (!lease) return candidateChanged(doc);
   try {
-    await purgeTrashedCopyCompanions(trashed, doc, libs);
+    return await eraseWholeAsset(doc, trashed, libs, lease);
+  } finally {
+    await releaseTrashPurge(lease);
+  }
+}
+
+/** Every unlink and the row delete first confirm the purge lease is still held (#5419). */
+async function eraseWholeAsset(
+  doc: TrashedAsset,
+  trashed: TrashedCopy,
+  libs: ReadonlyMap<string, string>,
+  lease: NonNullable<Awaited<ReturnType<typeof prepareTrashPurge>>>,
+): Promise<PurgeOutcome> {
+  const held = () => holdsTrashPurge(lease);
+  try {
+    await purgeTrashedCopyCompanions(trashed, doc, libs, held);
   } catch (error) {
-    await releaseTrashPurge(doc._id.toHexString());
     log.warn(
       { _id: doc._id.toHexString(), err: String(error) },
       'purge companion cleanup requires retry',
     );
     return { purged: false, errors: 1 };
   }
-  const errors = await unlinkTrashedCopy(trashed, unlinkFailure);
-  const deleted = await hardDeleteAdmittedPurge(doc._id);
+  const errors = await unlinkTrashedCopy(trashed, unlinkFailure, held).catch(() => null);
+  if (errors === null) return candidateChanged(doc);
+  const deleted = await hardDeleteAdmittedPurge(doc._id, lease);
   if (!deleted.deletedCount) return candidateChanged(doc);
   return { purged: true, errors };
 }
