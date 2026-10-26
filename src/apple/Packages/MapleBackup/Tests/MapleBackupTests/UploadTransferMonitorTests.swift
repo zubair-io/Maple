@@ -91,4 +91,32 @@ final class UploadTransferMonitorTests: XCTestCase {
     reportSent(monitor, moving, bytes: 1 << 20)
     XCTAssertEqual(monitor.secondsSinceBytesSent(at: start.addingTimeInterval(55)), 5)
   }
+
+  func test_manyFinishedRequests_neverAsked_stayBoundedByInFlight() {
+    let monitor = makeMonitor()
+    for _ in 0..<200 {
+      let task = uploadTask()
+      monitor.urlSession(session, didCreateTask: task)
+      reportSent(monitor, task, bytes: 1 << 20)
+      task.cancel()
+    }
+    XCTAssertLessThanOrEqual(monitor.trackedTransferCount, 1)
+  }
+
+  func test_slowRequest_amongManyFinished_isStillReported() {
+    let monitor = makeMonitor()
+    let slow = uploadTask()
+    monitor.urlSession(session, didCreateTask: slow)
+    advance(to: 10)
+    reportSent(monitor, slow, bytes: 1 << 20)
+    for second in 11..<111 {
+      advance(to: TimeInterval(second))
+      let finished = uploadTask()
+      monitor.urlSession(session, didCreateTask: finished)
+      finished.cancel()
+    }
+    XCTAssertLessThanOrEqual(monitor.trackedTransferCount, 2)
+    XCTAssertEqual(monitor.secondsSinceBytesSent(at: start.addingTimeInterval(120)), 110)
+    XCTAssertEqual(monitor.trackedTransferCount, 1)
+  }
 }
