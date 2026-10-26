@@ -62,9 +62,13 @@ extension ThumbnailLoader {
     }
 
     guard !Task.isCancelled else { return nil }
+    let cacheKey = ThumbnailDiskCache.memoryKey(for: url) as NSString
+    if let cached = cameraPreviewCache.object(forKey: cacheKey) as Data? {
+      return cached
+    }
     let key = "camera-preview:" + url.absoluteString
     let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
-    let task = cameraPreviewTask(key: key, url: url, scope: scope)
+    let task = cameraPreviewTask(key: key, cacheKey: cacheKey, url: url, scope: scope)
     let waiter = UUID()
     cameraPreviewWaiters[key, default: []].insert(waiter)
     let data = await withTaskCancellationHandler {
@@ -76,14 +80,20 @@ extension ThumbnailLoader {
     return Task.isCancelled ? nil : data
   }
 
-  private func cameraPreviewTask(key: String, url: URL, scope: URL) -> Task<Data?, Never> {
+  private func cameraPreviewTask(
+    key: String, cacheKey: NSString, url: URL, scope: URL
+  ) -> Task<Data?, Never> {
     if let existing = inFlight[key], !existing.isCancelled { return existing }
     let gate = cameraPreviewGate
+    let cache = cameraPreviewCache
     let task = Task.detached(priority: .userInitiated) { () -> Data? in
       do { try await gate.acquire() } catch { return nil }
       let accessing = scope.startAccessingSecurityScopedResource()
       let data = Task.isCancelled ? nil : Self.embeddedCameraJPEG(at: url)
       if accessing { scope.stopAccessingSecurityScopedResource() }
+      if let data {
+        cache.setObject(data as NSData, forKey: cacheKey)
+      }
       await gate.release()
       // The synchronous Rust extractor cannot be interrupted mid-call.
       // Always release its permit, then discard canceled extraction results.

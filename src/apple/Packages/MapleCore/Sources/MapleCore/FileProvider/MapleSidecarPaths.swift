@@ -102,6 +102,7 @@ public enum MapleSidecarPaths {
   public static func removeDerivative(
     at derivativeURL: URL, legacy: URL, fileManager fm: FileManager = .default
   ) {
+    LocalDerivativeSourceStamp.remove(derivativeURL)
     try? fm.removeItem(at: derivativeURL)
     try? fm.removeItem(at: legacy)
   }

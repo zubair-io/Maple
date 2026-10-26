@@ -123,11 +123,11 @@ extension AppShell {
       // Fall back to a plain loadFolder — works for folders inside the
       // user's security-scope, fails silently for sandboxed reads.
       // Keep whatever scope root is already active.
-      Task.detached { await ThumbnailLoader.shared.cancelAll() }
       librarySelection = .folder(path: url.path)
       libraryTitle = url.lastPathComponent
       browseVM.beginLoadingFilesystemFolder()
       Task { @MainActor in
+        await ThumbnailLoader.shared.cancelAll()
         guard librarySelection == .folder(path: url.path) else { return }
         await browseVM.loadFolder(url: url)
         guard librarySelection == .folder(path: url.path) else { return }
@@ -256,13 +256,13 @@ extension AppShell {
     currentRootBookmark = nil
     mode = .browse
     browseVM.beginLoadingFilesystemFolder()
-    Task.detached { await ThumbnailLoader.shared.cancelAll() }
     // Resolve the bookmark, claim security scope, then run the native
     // filesystem walker (which populates `subfolders` + `assets`). We
     // deliberately avoid `loadSource(fs)` here — that path is for sources
     // without a URL model (PhotoKit / SelfHosted) and doesn't surface
     // sub-folders.
     Task { @MainActor in
+      await ThumbnailLoader.shared.cancelAll()
       var isStale = false
       let url: URL?
       #if os(macOS)

@@ -223,7 +223,7 @@ struct PhotoThumbnailCell: View {
         decodedRevision = key
         return
       }
-      decoded = nil
+      decoded = ThumbnailDecoder.cachedImage(forKey: "camera:" + key)
       decodedRevision = nil
       // Fetch bytes, then decode — both OFF the main actor. The whole
       // load is keyed on the asset id + saved revision, and it is

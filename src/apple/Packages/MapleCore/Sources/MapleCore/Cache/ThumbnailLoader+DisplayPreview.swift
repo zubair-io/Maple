@@ -102,20 +102,10 @@ extension ThumbnailLoader {
 
     let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
     let isRaw = asset.isRaw
-    let task = Task.detached(priority: .utility) { () -> Data? in
-      do { try await self.acquireDecodeSlot() } catch { return nil }
-      let result = await Self.produceDisplayPreview(url: url, scope: scope, isRaw: isRaw)
-      await self.releaseDecodeSlot()
-      return result
+    let task = startLocalProducer(key: coalescingKey) {
+      await Self.produceDisplayPreview(url: url, scope: scope, isRaw: isRaw)
     }
-    inFlight[coalescingKey] = task
-    let result = await awaitThumbnail(task)
-    // Conditional removal — same `cancelAll()` re-registration edge as
-    // the two `load` paths in ThumbnailLoader.swift (Jules, PR #1911).
-    if inFlight[coalescingKey] == task {
-      inFlight.removeValue(forKey: coalescingKey)
-    }
-    return result
+    return await awaitThumbnail(task)
   }
 
   /// The synchronous produce path: serve the fresh cached tier, develop a RAW
