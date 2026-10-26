@@ -11,13 +11,15 @@ final class BackupScreenPolicyTests: XCTestCase {
   private func state(
     running: Bool = true,
     sinceUpload: TimeInterval? = 0,
+    sinceBytes: TimeInterval? = nil,
     power: DevicePower = .pluggedIn,
     idle: TimeInterval = 0,
     assisted: Bool = false,
     preferences: BackupScreenPreferences? = nil
   ) -> BackupScreenState {
     BackupScreenState(
-      backupRunning: running, secondsSinceUpload: sinceUpload, power: power,
+      backupRunning: running, secondsSinceUpload: sinceUpload,
+      secondsSinceBytesSent: sinceBytes, power: power,
       secondsSinceInteraction: idle, assistedInputActive: assisted,
       preferences: preferences ?? enabled)
   }
@@ -84,6 +86,37 @@ final class BackupScreenPolicyTests: XCTestCase {
   func test_stalledUpload_releasesAfterTheGrace() {
     let decision = BackupScreenPolicy.decide(
       state(sinceUpload: BackupScreenPolicy.uploadGrace + 1, idle: 600))
+    XCTAssertEqual(decision, .released)
+  }
+
+  func test_slowChunkStillSendingBytes_staysUploading() {
+    let decision = BackupScreenPolicy.decide(
+      state(sinceUpload: 64, sinceBytes: 16, idle: 600))
+    XCTAssertEqual(decision, BackupScreenDecision(keepScreenAwake: true, showScreenSaver: true))
+  }
+
+  func test_requestJustStarted_beforeAnyPhotoProgress_staysUploading() {
+    let decision = BackupScreenPolicy.decide(state(sinceUpload: nil, sinceBytes: 0, idle: 600))
+    XCTAssertTrue(decision.keepScreenAwake)
+  }
+
+  func test_requestWithoutByteMovementPastTheCutoff_isStalled() {
+    let atCutoff = BackupScreenPolicy.decide(
+      state(sinceUpload: 90, sinceBytes: BackupScreenPolicy.transferStallCutoff, idle: 600))
+    let pastCutoff = BackupScreenPolicy.decide(
+      state(sinceUpload: 90, sinceBytes: BackupScreenPolicy.transferStallCutoff + 1, idle: 600))
+    XCTAssertTrue(atCutoff.keepScreenAwake)
+    XCTAssertEqual(pastCutoff, .released)
+  }
+
+  func test_finishedBackup_releasesEvenWithRecentBytes() {
+    XCTAssertEqual(
+      BackupScreenPolicy.decide(state(running: false, sinceBytes: 0, idle: 600)), .released)
+  }
+
+  func test_failedUploadWithNoRequestInFlight_releasesAfterTheGrace() {
+    let decision = BackupScreenPolicy.decide(
+      state(sinceUpload: BackupScreenPolicy.uploadGrace + 1, sinceBytes: nil, idle: 600))
     XCTAssertEqual(decision, .released)
   }
 

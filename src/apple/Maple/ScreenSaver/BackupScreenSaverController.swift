@@ -5,6 +5,7 @@
 // foreground; leaving it releases the screen and closes the screen saver.
 
 #if os(iOS)
+  import MapleBackup
   import MapleCore
   import SwiftUI
   import UIKit
@@ -67,6 +68,7 @@
       let state = BackupScreenState(
         backupRunning: progress.phase == .running,
         secondsSinceUpload: progress.lastUploadActivity.map { now.timeIntervalSince($0) },
+        secondsSinceBytesSent: backupTransfers.secondsSinceBytesSent(at: now),
         power: Self.currentPower(),
         secondsSinceInteraction: now.timeIntervalSince(lastInteraction),
         assistedInputActive: keyboardVisible || UIAccessibility.isVoiceOverRunning
