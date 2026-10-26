@@ -22,7 +22,13 @@
  */
 
 import * as path from 'node:path';
-import { appleCompanionPaths } from '../db/apple-companions.ts';
+import {
+  APPLE_COMPANION_SLOTS,
+  appleCompanionPaths,
+  type AppleCompanionSlot,
+} from '../db/apple-companions.ts';
+import { assetLibraryPath } from '../indexer/images.repo.ts';
+import { lstat } from '../fs/mirrored.ts';
 import type { ObjectId } from '../db/object-id.ts';
 import { recordAndPublishAssetChange } from '../db/repos/changes.repo.ts';
 import { keepSurvivingCopy } from '../db/repos/assets.trash-survivor.ts';
@@ -106,10 +112,47 @@ async function cleanupTargets(
   );
 }
 
+/**
+ * Companions that stay with the photo but are already gone from disk: an
+ * earlier whole-photo purge attempt erased them before it stopped (#5419).
+ * Their recorded paths are cleared, or every backup of the kept photo would
+ * fail on the missing file. Only consulted while such a record exists.
+ */
+async function lostCompanions(
+  id: ObjectId,
+  info: PurgeInfo,
+  libraries: ReadonlyMap<string, string>,
+  dropCompanions: boolean,
+): Promise<AppleCompanionSlot[]> {
+  const root = assetLibraryPath({ fileinfo: info.fileinfo ?? [] }, libraries);
+  if (dropCompanions || root === null || appleCompanionPaths(info).length === 0) return [];
+  const [record] = await new BackupRepository().db.read<{ recorded: number }>(
+    `SELECT EXISTS (SELECT 1 FROM backup_lifecycle WHERE asset_id = ? AND kind = 'purge') AS recorded`,
+    [id.toHexString()],
+  );
+  if (!record?.recorded) return [];
+  const reachableRoot = await realLibraryRoot(root);
+  const gone = await Promise.all(
+    APPLE_COMPANION_SLOTS.map(async (slot) => {
+      const relative = info[slot];
+      if (!relative) return false;
+      return lstat(path.join(reachableRoot, ...relative.split('/'))).then(
+        () => false,
+        (error: unknown) => {
+          if (errnoCode(error) === 'ENOENT') return true;
+          throw error;
+        },
+      );
+    }),
+  );
+  return APPLE_COMPANION_SLOTS.filter((_, index) => gone[index]);
+}
+
 export async function purgeKeepingSurvivor(
   id: ObjectId,
   info: PurgeInfo,
   copy: TrashedCopy,
+  libraries: ReadonlyMap<string, string>,
 ): Promise<SurvivorPurgeOutcome> {
   const survivor = copy.survivor;
   if (survivor === null) return { kind: 'full-purge' };
@@ -129,6 +172,7 @@ export async function purgeKeepingSurvivor(
           withCompanions: dropCompanions,
         }),
         cleanupTargets(info, copy, dropCompanions),
+        lostCompanions(id, info, libraries, dropCompanions),
       ]),
     )
     .catch((error: unknown) => ({ error }));
@@ -139,6 +183,7 @@ export async function purgeKeepingSurvivor(
     trashed,
     expected: capturedTrashPurge(info),
     dropCompanions,
+    lostCompanions: prepared[2],
     cleanup: prepared[1],
   });
   if (outcome.kind === 'changed') return { kind: 'changed' };

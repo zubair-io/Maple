@@ -4,12 +4,14 @@
  * attempt marked every backup entry of the photo as purged; a kept-photo purge
  * (#5403) erases only the trashed copy's entries, so the rest are handed back.
  *
- * An entry is handed back only while its erasure provably never started: the
- * purge drain claims a row (bumps `revision`) before any destructive step, so
- * a row still at revision 0, unpublished, uncompleted, error-free and without
- * a saved purge marker has erased nothing, and deleting it in this writer
- * transaction cannot race the drain. Its backups stay and the entry is armed
- * to verify again.
+ * An entry of another indexed copy is handed back only while its erasure
+ * provably never started: the purge drain claims a row (bumps `revision`)
+ * immediately before its first destructive step, so a row still at revision
+ * 0, unpublished, uncompleted and without a saved purge marker has erased
+ * nothing, and deleting it in this writer transaction cannot race the drain.
+ * Its backups stay and the entry is armed to verify again; a manifest the
+ * earlier attempt's mirror inventory overwrote is dropped, to be rebuilt.
+ * Entries of copies no longer indexed stay purged, as that attempt left them.
  *
  * An entry whose erasure already started cannot be handed back. Its purge is
  * left to finish, and the entry is moved off its copy's ordinal once it has —
@@ -23,11 +25,6 @@ import type { SqlStatement } from '../sqlite/protocol.ts';
 
 const INTENT = 'keep_surviving_copy_intent';
 
-/** Index, in `retireWholePhotoPurgeStatements`, of the insert counting every recorded entry. */
-export const RECORDED_STATEMENT = 1;
-/** Index of the delete counting the entries handed back. */
-export const HANDED_BACK_STATEMENT = 3;
-
 const UNUSED_ORDINAL_BASE = `(SELECT MAX(used) FROM (
   SELECT ordinal AS used FROM asset_locations WHERE asset_id = ?
   UNION ALL SELECT ordinal FROM backup_entries WHERE asset_id = ?))`;
@@ -40,8 +37,14 @@ const UNUSED_ORDINAL_BASE = `(SELECT MAX(used) FROM (
 export function retireWholePhotoPurgeStatements(
   hex: string,
   location: readonly [string, string, string],
-): SqlStatement[] {
-  return [
+): {
+  statements: SqlStatement[];
+  /** Index of the insert counting every recorded entry of another copy. */
+  recordedAt: number;
+  /** Index of the delete counting the entries handed back. */
+  handedBackAt: number;
+} {
+  const statements = [
     {
       sql: `CREATE TEMP TABLE ${INTENT}(
         destination_id TEXT NOT NULL, entry_id TEXT NOT NULL, untouched INTEGER NOT NULL)`,
@@ -49,12 +52,13 @@ export function retireWholePhotoPurgeStatements(
     {
       sql: `INSERT INTO ${INTENT}(destination_id, entry_id, untouched)
         SELECT p.destination_id, p.entry_id,
-          p.revision = 0 AND p.published = 0 AND p.completed = 0 AND p.last_error IS NULL
+          p.revision = 0 AND p.published = 0 AND p.completed = 0
             AND NOT EXISTS (SELECT 1 FROM backup_objects o WHERE o.destination_id = p.destination_id
               AND o.key = 'purges/' || p.entry_id || '.json')
           FROM backup_purges p
           JOIN backup_entries e ON e.id = p.entry_id AND e.destination_id = p.destination_id
          WHERE e.asset_id = ?
+           AND EXISTS (SELECT 1 FROM asset_locations l WHERE l.asset_id = e.asset_id AND l.ordinal = e.ordinal)
            AND e.ordinal != (SELECT ordinal FROM asset_locations
              WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?)
            AND json_extract(p.record, '$.purgedAt') IN
@@ -64,7 +68,8 @@ export function retireWholePhotoPurgeStatements(
     {
       sql: `UPDATE backup_entries SET state = 'active', sequence = sequence + 1,
               snapshot_hash = NULL, retry_at = 0, attempts = 0, last_error = NULL,
-              lease_owner = NULL, lease_until = 0
+              lease_owner = NULL, lease_until = 0,
+              manifest = CASE WHEN json_type(manifest, '$.files') IS NULL THEN NULL ELSE manifest END
              WHERE id IN (SELECT entry_id FROM ${INTENT} WHERE untouched)`,
     },
     {
@@ -83,6 +88,7 @@ export function retireWholePhotoPurgeStatements(
     { sql: `DELETE FROM backup_lifecycle WHERE asset_id = ? AND kind = 'purge'`, params: [hex] },
     { sql: `DROP TABLE ${INTENT}` },
   ];
+  return { statements, recordedAt: 1, handedBackAt: 3 };
 }
 
 /**

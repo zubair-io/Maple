@@ -34,7 +34,7 @@ import type { ObjectId } from '../../db/object-id.ts';
 import { oldNameEditUnreadable } from '../../fs/legacy-backup-sidecar.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { trashAssetById, restoreAssetById } from '../../library/asset-trash.ts';
-import { prepareTrashPurge } from '../../cloud-backup/lifecycle.ts';
+import { prepareTrashPurge, releaseTrashPurge } from '../../cloud-backup/lifecycle.ts';
 import { capturedTrashPurge } from '../../cloud-backup/trash-purge-admission.ts';
 import {
   LibraryUnreachableError,
@@ -169,12 +169,13 @@ async function purgeTrashedAsset(
   const absPath = trashed.absPath;
   const refusal = await purgeRefusal(trashed, set);
   if (refusal) return refusal;
-  const kept = await purgeKeepingSurvivor(id, info, trashed);
+  const kept = await purgeKeepingSurvivor(id, info, trashed, libs);
   if (kept.kind !== 'full-purge') return survivorResponse(id, kept, set);
   if (!(await admitTrashPurge(id, info, set))) return TRASH_CHANGED;
   try {
     await purgeTrashedCopyCompanions(trashed, info, libs);
   } catch {
+    await releaseTrashPurge(id.toHexString());
     set.status = 500;
     return { error: 'Apple-rendered companion cleanup requires retry' };
   }

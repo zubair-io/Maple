@@ -16,6 +16,7 @@ import {
   type TrashPurgeCandidate,
 } from '../../cloud-backup/trash-purge-admission.ts';
 import type { ObjectId } from '../object-id.ts';
+import type { AppleCompanionSlot } from '../apple-companions.ts';
 import {
   searchBlobRearmStatements,
   searchRearmStatements,
@@ -23,17 +24,11 @@ import {
 } from './assets.stage-rearm.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
 import { changesAt, sqliteDb, type SqliteDb } from './db-handle.ts';
-import {
-  HANDED_BACK_STATEMENT,
-  RECORDED_STATEMENT,
-  retireWholePhotoPurgeStatements,
-} from './assets.trash-survivor-intent.ts';
+import { retireWholePhotoPurgeStatements } from './assets.trash-survivor-intent.ts';
 import { recordLocalPurgeStatements, type LocalPurgeTarget } from './local-purge.repo.ts';
 import type { LocationSource } from './assets.trash.ts';
 
 const ASSERT_CONSTRAINT = 'keep_surviving_copy';
-/** The retirement statements follow the three that assert the guard. */
-const RETIREMENT_AT = 3;
 
 /** A copy outside Trash that is neither deleted nor missing, in SQL. */
 const SURVIVING = `s.deleted_at IS NULL AND s.missing_since IS NULL
@@ -101,6 +96,8 @@ export async function keepSurvivingCopy(
     expected: TrashPurgeCandidate;
     /** Clear the Apple companion paths, which the caller erases with the trashed copy. */
     dropCompanions: boolean;
+    /** Companion slots whose files an earlier whole-photo purge already erased. */
+    lostCompanions?: readonly AppleCompanionSlot[];
     /** Files in the trashed copy's library the purge still owes the disk. */
     cleanup: readonly LocalPurgeTarget[];
   },
@@ -115,22 +112,26 @@ export async function keepSurvivingCopy(
     args.trashed.filename,
   ] as const;
   const trashedEntryParams = [hex, hex, ...location];
-  try {
-    const results = await db.transaction([
-      {
-        sql: `CREATE TEMP TABLE keep_surviving_copy_assert(
+  const assertion = [
+    {
+      sql: `CREATE TEMP TABLE keep_surviving_copy_assert(
           valid INTEGER NOT NULL CONSTRAINT ${ASSERT_CONSTRAINT} CHECK (valid = 1))`,
-      },
-      {
-        sql: `INSERT INTO keep_surviving_copy_assert(valid) SELECT EXISTS
+    },
+    {
+      sql: `INSERT INTO keep_surviving_copy_assert(valid) SELECT EXISTS
           (SELECT 1 FROM assets a WHERE a.id = ? ${guard.sql}
             AND EXISTS (SELECT 1 FROM asset_locations t WHERE t.asset_id = a.id
               AND t.library_id = ? AND t.path = ? AND t.filename = ?)
             AND ${SURVIVOR_EXISTS} AND ${NO_PENDING_LIFECYCLE})`,
-        params: [hex, ...guard.params, ...location],
-      },
-      { sql: `DROP TABLE keep_surviving_copy_assert` },
-      ...retireWholePhotoPurgeStatements(hex, location),
+      params: [hex, ...guard.params, ...location],
+    },
+    { sql: `DROP TABLE keep_surviving_copy_assert` },
+  ];
+  const retirement = retireWholePhotoPurgeStatements(hex, location);
+  try {
+    const results = await db.transaction([
+      ...assertion,
+      ...retirement.statements,
       {
         sql: `INSERT INTO backup_purges(destination_id, entry_id, record)
           SELECT e.destination_id, e.id, json_object('version', 1, 'libraryId', d.library_id,
@@ -165,13 +166,17 @@ export async function keepSurvivingCopy(
             },
           ]
         : []),
+      ...(args.lostCompanions ?? []).map((slot) => ({
+        sql: `UPDATE assets SET ${slot} = NULL WHERE id = ?`,
+        params: [hex],
+      })),
       ...recordLocalPurgeStatements(hex, location[0], args.cleanup),
       ...searchRearmStatements(hex),
       ...searchBlobRearmStatements(hex),
       ...relocateCacheRearmStatements(hex),
     ]);
-    const recorded = changesAt(results, RETIREMENT_AT + RECORDED_STATEMENT);
-    const handedBack = changesAt(results, RETIREMENT_AT + HANDED_BACK_STATEMENT);
+    const recorded = changesAt(results, assertion.length + retirement.recordedAt);
+    const handedBack = changesAt(results, assertion.length + retirement.handedBackAt);
     return { kind: 'kept', erasedBackups: recorded - handedBack };
   } catch (error) {
     if (error instanceof Error && error.message.includes(ASSERT_CONSTRAINT))

@@ -34,7 +34,7 @@ import {
   deleteReapedWithoutActiveBackup,
   hardDeleteAdmittedPurge,
 } from '../db/repos/assets.trash.ts';
-import { prepareTrashPurge } from '../cloud-backup/lifecycle.ts';
+import { prepareTrashPurge, releaseTrashPurge } from '../cloud-backup/lifecycle.ts';
 import { capturedTrashPurge } from '../cloud-backup/trash-purge-admission.ts';
 import { oldNameEditUnreadable } from '../fs/legacy-backup-sidecar.ts';
 import {
@@ -135,7 +135,7 @@ async function purgeTrashedAsset(
     );
     return { purged: false, errors: 1 };
   }
-  const kept = await purgeKeepingSurvivor(doc._id, doc, trashed);
+  const kept = await purgeKeepingSurvivor(doc._id, doc, trashed, libs);
   if (kept.kind === 'kept') return { purged: true, errors: kept.pendingCleanup };
   if (kept.kind === 'changed') return candidateChanged(doc);
   if (kept.kind === 'retry') {
@@ -168,6 +168,7 @@ async function purgeWholeAsset(
   try {
     await purgeTrashedCopyCompanions(trashed, doc, libs);
   } catch (error) {
+    await releaseTrashPurge(doc._id.toHexString());
     log.warn(
       { _id: doc._id.toHexString(), err: String(error) },
       'purge companion cleanup requires retry',
