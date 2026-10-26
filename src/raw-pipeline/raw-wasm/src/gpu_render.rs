@@ -383,7 +383,15 @@ async fn render_gpu_core_with_status(
     ext: &str,
     model: &AdjustmentModel,
     max_long_edge: Option<u32>,
-) -> Result<(u32, u32, Vec<u8>, Option<bool>), String> {
+) -> Result<
+    (
+        u32,
+        u32,
+        Vec<u8>,
+        Option<raw_core::view::auto_profile::AutoFitOutcome>,
+    ),
+    String,
+> {
     // Context FIRST: the effective develop target clamps to this device's
     // texture cap, so the device must exist before the sized develop runs.
     // Fallible (#1079): no adapter / device surfaces as an Err so the worker

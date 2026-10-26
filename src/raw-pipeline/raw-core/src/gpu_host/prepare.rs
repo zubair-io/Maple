@@ -1,9 +1,9 @@
 //! Shared RAW preparation for native and browser GPU sessions (#4317).
 //! The prefix, AE probe and Auto fit are the existing browser implementation.
 use super::model::{build_full_chain_inputs, stripped_prefix_model, NoiseProfileInputs};
-use crate::pipeline::{fit_auto_profile_from_raw, RawInput, RenderQuality};
+use crate::pipeline::{fit_auto_profile_from_raw, FitArtifacts, RawInput, RenderQuality};
 use crate::types::adjustment::{AutoExposureMode, Profile};
-use crate::view::auto_profile;
+use crate::view::auto_profile::{self, AutoFitOutcome};
 use crate::xmp::AdjustmentModel;
 use raw_gpu::FullChainInputs;
 
@@ -62,8 +62,8 @@ pub fn prefix_model_for(
 /// Fit the Auto Profile curve + residual LUT against the embedded JPEG (the SAME
 /// entry `apply_auto_profile` shares a cache with — see #924 / #972) and flatten
 /// them into the `(profile_curve_flat, residual_lut_size, residual_lut_data)` shape
-/// [`build_full_chain_inputs`] consumes, plus the achieved Auto outcome (#4096):
-/// `Some(fitted)` for `Profile::Auto`, `None` otherwise. An absent curve or LUT
+/// [`build_full_chain_inputs`] consumes, plus the achieved Auto outcome (#4096,
+/// #5458): `Some(outcome)` for `Profile::Auto`, `None` otherwise. An absent curve or LUT
 /// stays ABSENT (empty flat / size-0 LUT) so the chain omits that look pass
 /// (#4216), matching raw-core's `if let Some` skips; never substitute identity,
 /// whose curve knee crushes white 1.0 → 0.975. The fit is keyed on the RAW BYTES
@@ -73,8 +73,8 @@ pub fn fit_profile_artifacts_with_status(
     raw: &[u8],
     ext: &str,
     model: &AdjustmentModel,
-) -> (Vec<f32>, usize, Vec<f32>, Option<bool>) {
-    let (curve, lut) = match model.profile {
+) -> (Vec<f32>, usize, Vec<f32>, Option<AutoFitOutcome>) {
+    let fit = match model.profile {
         // AMaZE develop/export quality (#4092): matches the quality used by
         // browser CPU render/export and the live session prefix develop.
         Profile::Auto => fit_auto_profile_from_raw(
@@ -83,18 +83,20 @@ pub fn fit_profile_artifacts_with_status(
             RenderQuality::Amaze,
             RawInput::Bytes { bytes: raw, ext },
         )
-        .unwrap_or((None, None)),
-        _ => (None, None),
+        .map_err(Some),
+        _ => Err(None),
     };
-    flatten_profile_artifacts(curve, lut, model.profile)
+    flatten_profile_artifacts(fit)
 }
 
+/// Flatten a fit result; `Err(None)` stands for a non-Auto profile.
 pub(crate) fn flatten_profile_artifacts(
-    curve: Option<auto_profile::curve::ProfileCurve>,
-    lut: Option<auto_profile::lut::ColorLut>,
-    profile: Profile,
-) -> (Vec<f32>, usize, Vec<f32>, Option<bool>) {
-    let auto_fit = (profile == Profile::Auto).then_some(curve.is_some() || lut.is_some());
+    fit: Result<FitArtifacts, Option<AutoFitOutcome>>,
+) -> (Vec<f32>, usize, Vec<f32>, Option<AutoFitOutcome>) {
+    let (auto_fit, (curve, lut)) = match fit {
+        Ok(pair) => (Some(AutoFitOutcome::Applied), pair),
+        Err(outcome) => (outcome, (None, None)),
+    };
     let profile_curve_flat = curve.map(|c| c.to_flat()).unwrap_or_default();
     let (residual_lut_size, residual_lut_data) = lut.map_or((0, Vec::new()), |l| (l.size, l.data));
     (
@@ -124,7 +126,7 @@ pub fn chain_inputs_with_status(
     film_lut: Option<&crate::film::FilmLut>,
     film_lut_key: u32,
     whites_anchor_ev: f32,
-) -> (FullChainInputs<'static>, Option<bool>) {
+) -> (FullChainInputs<'static>, Option<AutoFitOutcome>) {
     let (profile_curve_flat, residual_lut_size, residual_lut_data, auto_fit) =
         fit_profile_artifacts_with_status(raw_img, raw, ext, model);
     let inputs = build_full_chain_inputs(

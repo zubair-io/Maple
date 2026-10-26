@@ -138,7 +138,7 @@ pub struct WebLiveSession {
     /// Resolver facts for the imported LCP profile the model names (#3479),
     /// refreshed whenever a prefix re-develop consumes a new selection.
     lens_profile_json: Option<String>,
-    auto_fit: std::cell::Cell<Option<bool>>,
+    auto_fit: std::cell::Cell<Option<raw_core::view::auto_profile::AutoFitOutcome>>,
     /// The session-resident baked film-look grid (epic #2683, Task 9), decoded
     /// via [`raw_core::film::decode_mlut`] and folded into every tick's
     /// [`raw_gpu::FullChainInputs`] by [`WebLiveSession::present_for_model`].
@@ -416,8 +416,10 @@ impl WebLiveSession {
     /// (#3479) — see [`crate::render::MapleRender::lens_profile_json`]. Read
     /// after `open` and after every `render` that re-developed the prefix.
     #[wasm_bindgen(getter, js_name = autoFit)]
-    pub fn auto_fit(&self) -> Option<bool> {
-        self.auto_fit.get()
+    pub fn auto_fit(&self) -> Option<String> {
+        self.auto_fit
+            .get()
+            .map(|outcome| outcome.as_str().to_owned())
     }
 
     #[wasm_bindgen(getter, js_name = lensProfileJson)]

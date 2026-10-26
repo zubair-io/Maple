@@ -35,7 +35,7 @@ pub struct MapleRender {
     lens_correction_ca_inert: bool,
     camera_support: Option<raw_core::support_tiers::RenderSupport>,
     lens_profile_json: Option<String>,
-    auto_fit: Option<bool>,
+    auto_fit: Option<raw_core::view::auto_profile::AutoFitOutcome>,
 }
 
 impl MapleRender {
@@ -63,7 +63,7 @@ impl MapleRender {
         lens_correction_ca_inert: bool,
         camera_support: Option<raw_core::support_tiers::RenderSupport>,
         lens_profile_json: Option<String>,
-        auto_fit: Option<bool>,
+        auto_fit: Option<raw_core::view::auto_profile::AutoFitOutcome>,
     ) -> Self {
         Self {
             width,
@@ -147,10 +147,11 @@ impl MapleRender {
     /// Resolver facts for the imported LCP profile the model named, as JSON
     /// (`crate::lens_profile::metadata`, #3479) — `None` when no profile is
     /// selected or the named profile is not registered. Read once per reply.
-    /// Actual outcome of this render's Auto fit, never an extraction prediction.
+    /// Actual outcome of this render's Auto fit, never an extraction prediction:
+    /// `"applied"`, `"no-preview"` or `"unfitted"` (#5458); absent for Neutral.
     #[wasm_bindgen(getter)]
-    pub fn auto_fit(&self) -> Option<bool> {
-        self.auto_fit
+    pub fn auto_fit(&self) -> Option<String> {
+        self.auto_fit.map(|outcome| outcome.as_str().to_owned())
     }
 
     #[wasm_bindgen(getter)]
@@ -467,7 +468,8 @@ pub fn develop_non_raw(
         lens_correction_ca_inert: true,
         camera_support: None,
         lens_profile_json: None,
-        auto_fit: (model.profile == raw_core::xmp::Profile::Auto).then_some(false),
+        auto_fit: (model.profile == raw_core::xmp::Profile::Auto)
+            .then_some(raw_core::view::auto_profile::AutoFitOutcome::Unfitted),
     })
 }
 

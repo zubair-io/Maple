@@ -24,7 +24,11 @@ fn inactive_film_metadata_matches_deselected_look_and_retained_ticks() {
         None,
     )
     .unwrap();
-    assert_eq!(baseline.3, Some(true), "real Auto fit must engage");
+    assert_eq!(
+        baseline.3,
+        Some(crate::view::auto_profile::AutoFitOutcome::Applied),
+        "real Auto fit must engage"
+    );
     for (strength, supplied) in [(0., Some(&film)), (0., None), (100., None)] {
         let model = AdjustmentModel {
             film_look: "loaded-look".into(),
@@ -57,7 +61,7 @@ fn inactive_film_metadata_matches_deselected_look_and_retained_ticks() {
             "inactive film differs from deselected look: strength={strength}, supplied={}",
             supplied.is_some()
         );
-        let (mut preview, w, h, first, fit) = CpuPreview::open(
+        let (mut preview, (w, h, first, fit)) = CpuPreview::open(
             &raw,
             source,
             model.clone(),
@@ -111,7 +115,7 @@ fn real_default_auto_film_hot_repeat_matches_first_render() {
             .collect(),
     };
     let model = AdjustmentModel::default();
-    let (mut resident, w, h, first, fit) = CpuPreview::open(
+    let (mut resident, (w, h, first, fit)) = CpuPreview::open(
         &raw,
         source,
         model.clone(),
@@ -120,7 +124,11 @@ fn real_default_auto_film_hot_repeat_matches_first_render() {
         Some(&film),
     )
     .unwrap();
-    assert_eq!(fit, Some(true), "the real embedded-JPEG fit must engage");
+    assert_eq!(
+        fit,
+        Some(crate::view::auto_profile::AutoFitOutcome::Applied),
+        "the real embedded-JPEG fit must engage"
+    );
     assert!(resident.context.profile_curve.is_some());
     assert!(resident.context.profile_lut.is_some());
     let prefix = resident.prefix.pixels.as_ptr();

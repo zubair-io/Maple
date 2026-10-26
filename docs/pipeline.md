@@ -395,21 +395,22 @@ The script runs `wasm-pack build --target web --release --features gpu,parallel 
 
 The headless reference renderer. Subcommands (`maple-cli/src/commands/`):
 
-| Subcommand                       | What it does                                                                                                                       |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `render`                         | RAW + optional XMP → PNG/JPEG/TIFF. `--demosaic` (`amaze` default), `--profile` (`xmp`/`auto`/`neutral`), `--film-lut-dir`.        |
-| `batch`                          | Renders every case in a JSON manifest — the engine behind the colour-parity gate.                                                  |
-| `diff`                           | Two PNGs through `compare_images.py`; prints JSON, exits non-zero past `--budget`.                                                 |
-| `inspect`                        | Parsed `AdjustmentModel` for an `.xmp`, or RAW metadata for a RAW.                                                                 |
-| `tile`                           | One source-pixel tile to PNG — validates the tile math without a UI.                                                               |
-| `extract-preview`                | The camera's embedded preview JPEG. Exit 3 means "readable RAW, no preview" so harnesses can skip.                                 |
-| `auto-tone` / `auto-adjustments` | JSON slider recommendations.                                                                                                       |
-| `auto-tail-ramp`                 | Auto Profile tail ramps + stage dumps for the banding gate (needs `--features stage-dump`).                                        |
-| `synthetic`                      | Synthetic scene-linear input through the view transform or the slider chain — drives the banding / hue-stability / halo harnesses. |
-| `fit-acr`                        | Solves view-transform parameters against ACR-rendered charts (needs `--features test-support`).                                    |
-| `film-pack`                      | Ingests an external `.cube` pack into the committed `.mlut` pack + `film_catalog.rs`.                                              |
-| `transcode-dcp`                  | Repacks a v1 `profiles.bin` into the v3 split layout.                                                                              |
-| `pano`                           | Panorama stitching (needs `--features pano`).                                                                                      |
+| Subcommand                       | What it does                                                                                                                                   |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `render`                         | RAW + optional XMP → PNG/JPEG/TIFF. `--demosaic` (`amaze` default), `--profile` (`xmp`/`auto`/`neutral`), `--film-lut-dir`.                    |
+| `batch`                          | Renders every case in a JSON manifest — the engine behind the colour-parity gate.                                                              |
+| `diff`                           | Two PNGs through `compare_images.py`; prints JSON, exits non-zero past `--budget`.                                                             |
+| `inspect`                        | Parsed `AdjustmentModel` for an `.xmp`, or RAW metadata for a RAW.                                                                             |
+| `tile`                           | One source-pixel tile to PNG — validates the tile math without a UI.                                                                           |
+| `extract-preview`                | The camera's embedded preview JPEG. Exit 3 means "readable RAW, no preview" so harnesses can skip.                                             |
+| `preview-coverage`               | Audits which embedded-preview source Auto Profile fits against, per RAW and per camera ([auto-preview-coverage.md](auto-preview-coverage.md)). |
+| `auto-tone` / `auto-adjustments` | JSON slider recommendations.                                                                                                                   |
+| `auto-tail-ramp`                 | Auto Profile tail ramps + stage dumps for the banding gate (needs `--features stage-dump`).                                                    |
+| `synthetic`                      | Synthetic scene-linear input through the view transform or the slider chain — drives the banding / hue-stability / halo harnesses.             |
+| `fit-acr`                        | Solves view-transform parameters against ACR-rendered charts (needs `--features test-support`).                                                |
+| `film-pack`                      | Ingests an external `.cube` pack into the committed `.mlut` pack + `film_catalog.rs`.                                                          |
+| `transcode-dcp`                  | Repacks a v1 `profiles.bin` into the v3 split layout.                                                                                          |
+| `pano`                           | Panorama stitching (needs `--features pano`).                                                                                                  |
 
 ## codegen
 
