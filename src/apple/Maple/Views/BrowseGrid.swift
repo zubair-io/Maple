@@ -85,6 +85,8 @@ struct BrowseGrid: View {
   var onBatchRename: (() -> Void)? = nil
   /// macOS Export recipes for the checked selection (#5435). `nil` hides the button.
   var onExportRecipes: (() -> Void)? = nil
+  /// iPad: the floating one-row header that replaces the navigation bar (#5435).
+  var header: BrowseHeaderModel? = nil
   /// Delete key / "Move to Trash" context-menu item (#2653). Fires with
   /// the currently-active selection (multi-select checked set, or just
   /// the focused single asset). `nil` disables both the Delete-key
@@ -115,6 +117,9 @@ struct BrowseGrid: View {
   /// consumer in this file).
   @Environment(\.assetRename) private var assetRename
   @Environment(\.batchAdjustmentLibrary) var batchLibrary
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  #endif
 
   /// Local fallback when no parent binding is supplied (e.g. previews).
   /// Real toolbar wiring lives on `AppShell`.
@@ -126,6 +131,24 @@ struct BrowseGrid: View {
   /// Resolved mode — parent binding wins; otherwise the local @State.
   private var resolvedDisplayMode: GridDisplayMode {
     displayMode?.wrappedValue ?? localDisplayMode
+  }
+
+  /// The floating header only replaces the navigation bar at regular width; a
+  /// compact (collapsed split view) column keeps its bar and back button.
+  private var activeHeader: BrowseHeaderModel? {
+    #if os(iOS)
+      horizontalSizeClass == .regular ? header : nil
+    #else
+      nil
+    #endif
+  }
+
+  @ViewBuilder
+  private func filterBar(matchingCount: Int, axis: Axis) -> some View {
+    if !vm.isMerged, !vm.assets.isEmpty, let onReadGridFilterMetadata {
+      GridFilterBar(
+        vm: vm, readMetadata: onReadGridFilterMetadata, matchingCount: matchingCount, axis: axis)
+    }
   }
 
   /// True when the current folder has neither sub-folders nor images. The
@@ -156,13 +179,11 @@ struct BrowseGrid: View {
       onReadGridFilterMetadata == nil
       ? vm.assets : vm.gridAssets(sessions: sessions)
     let visibleIDs = Set(visibleAssets.map(\.id))
+    let floatingHeader = activeHeader
     return VStack(spacing: 0) {
-      if !vm.isMerged, !vm.assets.isEmpty, let onReadGridFilterMetadata {
-        GridFilterBar(
-          vm: vm, readMetadata: onReadGridFilterMetadata,
-          matchingCount: visibleAssets.count
-        )
-        .padding(.vertical, 8)
+      if floatingHeader == nil {
+        filterBar(matchingCount: visibleAssets.count, axis: .vertical)
+          .padding(.vertical, 8)
       }
       ZStack(alignment: .top) {
         // The grid itself — always in the hierarchy so SwiftUI doesn't
@@ -243,6 +264,13 @@ struct BrowseGrid: View {
         }
 
       }
+      .safeAreaInset(edge: .top, spacing: 0) {
+        if let floatingHeader {
+          BrowseHeaderBar(model: floatingHeader, vm: vm) {
+            filterBar(matchingCount: visibleAssets.count, axis: .horizontal)
+          }
+        }
+      }
 
       if let controller = clipboard?.batchTransfers {
         BatchAdjustmentProgressView(controller: controller, library: batchLibrary)
@@ -267,6 +295,9 @@ struct BrowseGrid: View {
         )
       }
     }
+    #if os(iOS)
+      .toolbar(floatingHeader != nil ? .hidden : .automatic, for: .navigationBar)
+    #endif
     .sheet(item: $adjustmentDraft) { draft in
       AdjustmentGroupPickerSheet(
         draft: draft,

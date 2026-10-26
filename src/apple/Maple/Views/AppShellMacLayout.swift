@@ -111,6 +111,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
   var onBatchRename: (() -> Void)? = nil
   /// #5435: macOS "Export with Recipe…" from the BrowseGrid selection bar.
   var onExportRecipes: (() -> Void)? = nil
+  /// #5435: iPad Browse's floating header, which also owns the sidebar toggle.
+  var browseHeader: BrowseHeaderModel? = nil
   /// #2653: Delete key / "Move to Trash" context-menu item, forwarded
   /// through to BrowseGrid.
   var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
@@ -189,10 +191,30 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     .navigationSplitViewStyle(.balanced)
   }
 
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  #endif
+  @Environment(\.mapleLayout) private var layout
+
+  /// Mirrors when `BrowseGrid` shows the header: regular width and not the
+  /// sub-768pt layout, which renders `LibraryGrid` instead.
+  private var showsBrowseHeader: Bool {
+    #if os(iOS)
+      browseHeader != nil && horizontalSizeClass == .regular && layout != .phone
+    #else
+      false
+    #endif
+  }
+
   private var browse: some View {
     NavigationSplitView(columnVisibility: $columnVisibility) {
       sidebar()
         .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
+        #if os(iOS)
+          // The header carries the only toggle; the sidebar column itself
+          // always reports compact, so the width is decided here.
+          .toolbar(removing: showsBrowseHeader ? .sidebarToggle : nil)
+        #endif
     } detail: {
       centerColumn
         .navigationTitle("Library — \(libraryTitle)")
@@ -244,6 +266,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
       onEditMetadata: onEditMetadata,
       onBatchRename: onBatchRename,
       onExportRecipes: onExportRecipes,
+      browseHeader: browseHeader,
       onTrashAssets: onTrashAssets,
       clipboard: clipboard
     )

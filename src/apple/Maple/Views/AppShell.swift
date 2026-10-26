@@ -462,6 +462,33 @@ struct AppShell: View {
     browseVM.selectedID.flatMap { sessions[$0] }
   }
 
+  /// iPad Browse puts the folder name, filters and controls on one floating
+  /// row (#5435); the Mac keeps its window toolbar. Only the folder grid gets
+  /// it: search, the map and the timelines keep the navigation bar and its
+  /// sidebar toggle.
+  private var browseHeaderModel: BrowseHeaderModel? {
+    #if os(iOS)
+      let showsFolderGrid =
+        !(isSearchActive && searchVM != nil) && mapVM == nil && mapUnavailableReason == nil
+        && allSourcesTimelineVM == nil && cloudTimelineVM == nil
+      let isSidebarVisible = columnVisibility == .all || columnVisibility == .doubleColumn
+      return showsFolderGrid
+        ? BrowseHeaderModel(
+          title: libraryTitle,
+          displayMode: $browseDisplayMode,
+          searchAvailable: searchAvailable,
+          isSidebarVisible: isSidebarVisible,
+          onOpenSearch: { toggleSearch() },
+          onSettings: { showAppSettings() },
+          onToggleSidebar: {
+            withAnimation { columnVisibility = isSidebarVisible ? .detailOnly : .all }
+          }
+        ) : nil
+    #else
+      return nil
+    #endif
+  }
+
   /// Export recipes is macOS-only; the selection bar hides it elsewhere (#5435).
   private var browseExportRecipesAction: (() -> Void)? {
     #if os(macOS)
@@ -1010,6 +1037,7 @@ struct AppShell: View {
       // #2641 batch rename.
       onBatchRename: { openBatchRename() },
       onExportRecipes: browseExportRecipesAction,
+      browseHeader: browseHeaderModel,
       // #2653: grid Delete-key/context-menu trash.
       onTrashAssets: { ids in trashSelectedAssets(ids: Set(ids)) },
       // #944 copy/paste/sync adjustments.

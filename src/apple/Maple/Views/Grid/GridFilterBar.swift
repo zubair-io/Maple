@@ -7,13 +7,19 @@ struct GridFilterBar: View {
   let vm: BrowseViewModel
   let readMetadata: @MainActor @Sendable (AssetRef) async throws -> GridFilterMetadata
   let matchingCount: Int
+  /// `.horizontal` keeps the status beside the chips, for the one-row iPad header (#5435).
+  var axis: Axis = .vertical
 
   private var loadKey: String {
     "\(vm.gridFilter.rawValue)-\(vm.listingGeneration)-\(vm.assets.count)-\(vm.gridFilterAssetIdentityGeneration)"
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
+    let layout =
+      axis == .vertical
+      ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+      : AnyLayout(HStackLayout(spacing: 8))
+    return layout {
       ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 8) {
           ForEach(GridFilter.allCases, id: \.self) { filter in
@@ -48,6 +54,7 @@ struct GridFilterBar: View {
       } else if let error = vm.gridFilterError {
         HStack {
           Text("Couldn’t read photo ratings: \(error.localizedDescription)")
+            .lineLimit(axis == .vertical ? nil : 1)
           Button("Retry") { Task { await loadFilter() } }
         }
         .font(.caption)
