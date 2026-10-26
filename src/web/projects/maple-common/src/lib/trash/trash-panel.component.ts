@@ -387,12 +387,15 @@ export class TrashPanelComponent implements OnInit {
       kept.map((entry) => entry.filename),
       kept.some((entry) => entry.outcome.cleanupPending),
     );
-    this.notify(
+    const deletedClause =
       failed > 0
-        ? `Permanently deleted ${deleted} of ${targets.length} item(s) — ${failed} failed.${keptNote}${restoredNote}${moreNote}`
-        : `Permanently deleted ${deleted} item(s).${keptNote}${restoredNote}${moreNote}`,
-      failed > 0 ? 'warning' : kept.length + restoredElsewhere.length > 0 ? 'info' : 'success',
-    );
+        ? `Permanently deleted ${deleted} of ${targets.length} item(s) — ${failed} failed.`
+        : deleted === 0 && kept.length > 0
+          ? ''
+          : `Permanently deleted ${deleted} item(s).`;
+    const variant: MuiToastVariant =
+      failed > 0 ? 'warning' : kept.length + restoredElsewhere.length > 0 ? 'info' : 'success';
+    this.notify(`${deletedClause}${keptNote}${restoredNote}${moreNote}`.trim(), variant);
     this.trash.notifyLibraryMutated(this.libraryId());
     this.refreshVisibleFolderAfterKeep(kept.map((entry) => entry.outcome));
   }

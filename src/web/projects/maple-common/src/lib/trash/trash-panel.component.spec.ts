@@ -191,10 +191,21 @@ describe('TrashPanelComponent', () => {
       fixture.componentInstance.onConfirmDelete();
       await vi.waitFor(() => expect(fixture.componentInstance.confirmBusy()).toBe(false));
       expect(fixture.componentInstance.toast()).toBe(
-        `Permanently deleted 1 item(s). 1 kept because another copy exists (${ITEM_A.filename}). File cleanup will finish shortly.`,
+        `Permanently deleted 1 item(s). 1 photo was kept because another copy exists (${ITEM_A.filename}). File cleanup will finish shortly.`,
       );
       expect(fixture.componentInstance.toastVariant()).toBe('info');
       expect(refreshFolderListingSpy).toHaveBeenCalledWith('photos:Vacation/Kept');
+    });
+
+    it('Empty Trash that kept every photo does not lead with zero deletions', async () => {
+      const fixture = setup([ITEM_A, ITEM_B]);
+      deleteAssetSpy.mockReturnValue(kept(false));
+      fixture.componentInstance.requestDeleteAll();
+      fixture.componentInstance.onConfirmDelete();
+      await vi.waitFor(() => expect(fixture.componentInstance.confirmBusy()).toBe(false));
+      expect(fixture.componentInstance.toast()).toBe(
+        `2 photos were kept because another copy exists (${ITEM_A.filename}, ${ITEM_B.filename}).`,
+      );
     });
   });
 
