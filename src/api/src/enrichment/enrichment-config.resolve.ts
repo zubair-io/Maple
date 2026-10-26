@@ -223,7 +223,7 @@ export function resolveEnrichmentConfig(
   // The saved server list is authoritative when present: its first entry
   // IS the default server, so `describe_provider_url` is mirrored from it
   // rather than resolved independently. That keeps the one endpoint every
-  // other service reads (semantic-search embedder, generated-search) in
+  // other service reads (the legacy generated-search fallback) in
   // lockstep with what the operator marked default in Settings → Workers.
   const savedServers = normalizeDescribeServers(db?.describe_servers);
   const describeServers: DescribeServerConfig[] = savedServers ?? [

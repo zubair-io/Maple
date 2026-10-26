@@ -37,6 +37,13 @@ fn ids(hits: &[FusedHit]) -> Vec<&str> {
 }
 
 #[test]
+fn a_query_is_embedded_from_its_first_two_thousand_characters() {
+    let long = "é".repeat(MAX_QUERY_CHARS + 50);
+    assert_eq!(query_prefix(&long).chars().count(), MAX_QUERY_CHARS);
+    assert_eq!(query_prefix("harbour at dawn"), "harbour at dawn");
+}
+
+#[test]
 fn fuses_both_legs_and_reports_each_rank() {
     let dir = tempfile::tempdir().unwrap();
     let engine = engine(&dir);

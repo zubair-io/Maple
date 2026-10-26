@@ -18,11 +18,6 @@ function stillLoading(view: SearchEngineView | null): boolean {
   return view !== null && !(view.status.phase === 'ready' && view.status.textReady);
 }
 
-/** The stored model names the engine counts as its own, e.g. `bge-m3 or bge-m3:latest`. */
-function modelIdentity(status: SearchEngineView['status']): string {
-  return status.matchedModels?.join(' or ') ?? status.model ?? 'bge-m3';
-}
-
 /** One line on how far the in-process search engine has loaded. */
 export function engineStatusLine(view: SearchEngineView | null): string | null {
   if (!view) return null;
@@ -34,14 +29,13 @@ export function engineStatusLine(view: SearchEngineView | null): string | null {
         status.textReady
           ? `Ready — ${vectors} photos indexed`
           : `Ready — ${vectors} photos; keyword index still building`,
-        status.model ? ` with vectors tagged ${modelIdentity(status)}` : '',
         status.skippedVectors
-          ? `; ${status.skippedVectors.toLocaleString()} vectors from other models skipped`
+          ? `; ${status.skippedVectors.toLocaleString()} photos from an older embedding model wait to be re-embedded`
           : '',
         '.',
       ].join('');
     case 'empty':
-      return `No search vectors tagged ${modelIdentity(status)} yet — the embed stage on Settings → Workers builds them. Searches use the keyword index until then.`;
+      return 'No photos embedded yet — the embed stage on Settings → Workers builds the search vectors. Searches use the keyword index until then.';
     case 'failed':
       return `Could not start: ${status.error ?? 'unknown error'}. Searches use the keyword index until it does.`;
     case 'stopped':

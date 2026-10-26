@@ -34,7 +34,7 @@ export interface VectorChangeRow {
 const LATEST_TAG = ':latest';
 
 /** A model name without Ollama's implicit `:latest` tag, so `bge-m3` and `bge-m3:latest` are one model. */
-export function normalisedModel(model: string): string {
+function normalisedModel(model: string): string {
   const trimmed = model.trim();
   return trimmed.endsWith(LATEST_TAG) ? trimmed.slice(0, -LATEST_TAG.length) : trimmed;
 }

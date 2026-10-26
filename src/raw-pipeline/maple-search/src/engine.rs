@@ -65,11 +65,14 @@ impl SearchEngine {
         self.text.num_docs()
     }
 
+    /// Embeds at most [`MAX_QUERY_CHARS`] of `query`: the model's window is
+    /// sized for stored documents, and attention cost grows with the square
+    /// of the length, so a pasted page must not hold the engine for seconds.
     pub fn embed_query(&self, query: &str) -> Result<Vec<f32>> {
         self.embedder
             .as_ref()
             .ok_or(SearchError::NoEmbedder)?
-            .embed(query)
+            .embed(query_prefix(query))
     }
 
     /// The `embed` stage's document vectors, from the model that embeds queries.
@@ -191,6 +194,17 @@ impl SearchEngine {
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
+}
+
+/// About 512 bge-m3 tokens of English, the window queries had before the
+/// document path raised it (#5445).
+pub const MAX_QUERY_CHARS: usize = 2_000;
+
+fn query_prefix(query: &str) -> &str {
+    query
+        .char_indices()
+        .nth(MAX_QUERY_CHARS)
+        .map_or(query, |(cut, _)| &query[..cut])
 }
 
 pub fn fuse(vector_hits: &[ScoredId], text_hits: &[ScoredId], k: usize) -> Vec<FusedHit> {

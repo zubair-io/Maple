@@ -1,10 +1,10 @@
 /**
- * How the `embed` stage reaches the bundled bge-m3 (#5445): through the API's search child, over
- * the bridge `worker-main.ts` installs (`search/remote-embed.ts`).
+ * How the `embed` stage reaches the bundled bge-m3 (#5445): the API's search child, over the bridge
+ * `worker-main.ts` installs (`search/remote-embed.ts`).
  *
- * Batches go out one at a time and are cut to {@link CHUNK_BYTES} of text, because each one holds
- * the search child for its whole length and queries wait behind it. A typical document embeds in
- * about 50 ms on a laptop CPU, a 5,000-byte one (a long transcript) in about 800 ms.
+ * Each batch holds the child for its whole run while searches wait, so batches go one at a time
+ * and are cut by cost. The tokenizer pads a batch to its longest text, so a batch costs its size
+ * times its longest text, not the sum of its texts.
  */
 
 import type { EmbedOutcome } from '../../search/search-protocol.ts';
@@ -16,9 +16,10 @@ export const BUNDLED_EMBEDDER = 'bge-m3 (bundled)';
 export const BUNDLED_ENDPOINT = 'bundled';
 
 /** Texts per stage batch. */
-export const LOCAL_EMBED_BATCH = 8;
+export const EMBED_BATCH = 8;
 
-const CHUNK_BYTES = 6_000;
+/** Texts times the longest text's UTF-8 bytes: a lone 5,000-byte transcript, or eight captions. */
+const CHUNK_COST = 6_000;
 
 export type DocumentEmbedder = (texts: readonly string[]) => Promise<EmbedOutcome>;
 
@@ -31,17 +32,18 @@ export function setDocumentEmbedder(embedder: DocumentEmbedder | null): void {
   state.embedder = embedder;
 }
 
-/** Consecutive runs of texts, each at most {@link CHUNK_BYTES} long unless one text is longer. */
-export function chunkByBytes(texts: readonly string[], limit: number = CHUNK_BYTES): string[][] {
-  return texts.reduce<{ chunks: string[][]; bytes: number }>(
-    ({ chunks, bytes }, text) => {
+/** Consecutive runs of texts whose count times longest text stays within `limit`, or one text. */
+export function chunkByCost(texts: readonly string[], limit: number = CHUNK_COST): string[][] {
+  return texts.reduce<{ chunks: string[][]; longest: number }>(
+    ({ chunks, longest }, text) => {
       const size = Buffer.byteLength(text, 'utf-8');
       const last = chunks.at(-1);
-      return last && bytes + size <= limit
-        ? { chunks: [...chunks.slice(0, -1), [...last, text]], bytes: bytes + size }
-        : { chunks: [...chunks, [text]], bytes: size };
+      const widened = Math.max(longest, size);
+      return last && (last.length + 1) * widened <= limit
+        ? { chunks: [...chunks.slice(0, -1), [...last, text]], longest: widened }
+        : { chunks: [...chunks, [text]], longest: size };
     },
-    { chunks: [], bytes: 0 },
+    { chunks: [], longest: 0 },
   ).chunks;
 }
 
@@ -68,7 +70,7 @@ export function embedDocuments(texts: readonly string[]): Promise<EmbedOutcome> 
       error: 'this process has no channel to the search engine',
     });
   }
-  const run = state.lane.then(() => embedChunks(embedder, chunkByBytes(texts)));
+  const run = state.lane.then(() => embedChunks(embedder, chunkByCost(texts)));
   state.lane = run.catch(() => undefined);
   return run;
 }

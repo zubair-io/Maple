@@ -54,7 +54,7 @@ function capError(cap: number | null | undefined): string | null {
 /** The URL and the server list resolve together: a supplied list is
  * authoritative for the default endpoint too — entry 0's URL becomes
  * `describe_provider_url`, so the services that read that single field
- * (semantic-search embedder, generated-search) follow the operator's
+ * (the legacy generated-search fallback) follow the operator's
  * chosen default. */
 function resolveEndpoints(
   body: DescribePatchBody,

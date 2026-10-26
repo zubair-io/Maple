@@ -10,6 +10,8 @@ import {
 } from '../test-sqlite.test-helpers.ts';
 
 const ID = '0026-remove-meilisearch';
+/** The settings these tests read are dropped again by 0037 (#5445). */
+const THROUGH_0026 = ALL_MIGRATIONS.filter((migration) => migration.id <= ID);
 
 async function migratedUpTo25(): Promise<TestDatabase> {
   const handle = createBlankTestDatabase('file');
@@ -105,7 +107,7 @@ test('the saved Meilisearch embedding model becomes the embedder model and the r
     search_engine: 'in-process',
   });
 
-  await runMigrations(handle.migrationDb, ALL_MIGRATIONS);
+  await runMigrations(handle.migrationDb, THROUGH_0026);
 
   expect(savedConfig(handle)).toEqual({
     describe_model: 'qwen2.5vl',
@@ -125,8 +127,8 @@ test('an embedder model that is already set, or a semantic-search assignment, is
     },
   });
 
-  await runMigrations(explicit.migrationDb, ALL_MIGRATIONS);
-  await runMigrations(assigned.migrationDb, ALL_MIGRATIONS);
+  await runMigrations(explicit.migrationDb, THROUGH_0026);
+  await runMigrations(assigned.migrationDb, THROUGH_0026);
 
   expect(savedConfig(explicit)).toEqual({ embedder_model: 'mine' });
   expect(savedConfig(assigned).embedder_model).toBeUndefined();

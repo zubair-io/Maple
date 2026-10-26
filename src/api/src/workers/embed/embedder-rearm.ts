@@ -1,7 +1,7 @@
 import { EMBED_STAGE } from '../../db/repos/assets.stage-rearm.ts';
 import { rearmEmbedForForeignVectors } from '../../db/repos/asset-vectors.repo.ts';
 import { WorkerConfigRepo } from '../../db/repos/worker-config.repo.ts';
-import { BUNDLED_EMBEDDER } from './local-embedder.ts';
+import { BUNDLED_EMBEDDER } from './bundled-embedder.ts';
 
 const SWEEP_INTERVAL_MS = 60_000;
 
@@ -20,7 +20,7 @@ export async function rearmForBundledEmbedder(): Promise<void> {
 }
 
 /** The stage's per-tick hook: checks for foreign vectors at most once a minute, busy or idle. */
-export async function sweepEmbedderChange(
+export async function sweepForeignVectors(
   _processedThisTick: number,
   _idle: boolean,
   now: number = Date.now(),
