@@ -231,28 +231,32 @@ fn signed_circular_delta_deg(a: f32, b: f32) -> f32 {
     }
 }
 
-/// Evaluate [`SKIN_TONE_RANGE`] across `mask_bytes` on the pre-`local_adjustments`
-/// scene-linear Rec.2020 `RGBAf` buffer (`width * height * 4` floats). Returns
-/// `None` when the default `55° ± 25°` skin-tone range already covers the
-/// masked skin pixels, or `Some(RangeSeed)` anchored on the masked skin median
-/// when the default range is effectively inert (#5317).
+/// Evaluate [`SKIN_TONE_RANGE`] for a person-skin mask on the pre-`local_adjustments`
+/// scene-linear Rec.2020 `RGBAf` buffer (`width * height * 4` floats).
+///
+/// The candidate skin seed is derived exclusively from `face_skin_mask_bytes`
+/// (the person's face region, never torso/clothing pixels) and applied only
+/// when [`SKIN_TONE_RANGE`] (`55° ± 25°`) is inert on the face skin and the
+/// face-seeded range improves coverage on `target_mask_bytes` (#5317).
 pub fn seed_skin_mask_range_if_default_inert(
     rgba_rec2020: &[f32],
     width: usize,
     height: usize,
-    mask_bytes: &[u8],
+    target_mask_bytes: &[u8],
+    face_skin_mask_bytes: &[u8],
 ) -> Option<RangeSeed> {
     let pixel_count = width.checked_mul(height)?;
     if width == 0
         || height == 0
-        || mask_bytes.len() != pixel_count
+        || target_mask_bytes.len() != pixel_count
+        || face_skin_mask_bytes.len() != pixel_count
         || rgba_rec2020.len() != pixel_count.checked_mul(4)?
     {
         return None;
     }
 
-    let step = (width.min(height) / 256).max(1);
-    let mut default_weight_sum = 0.0_f32;
+    let step = (width.min(height) / 512).max(1);
+    let mut face_default_weight_sum = 0.0_f32;
     let mut hues = Vec::new();
     let mut chromas = Vec::new();
     let mut lightnesses = Vec::new();
@@ -263,7 +267,7 @@ pub fn seed_skin_mask_range_if_default_inert(
         let row_offset = y * width;
         for x in (0..width).step_by(step) {
             let idx = row_offset + x;
-            if mask_bytes[idx] < 128 {
+            if face_skin_mask_bytes[idx] < 128 {
                 continue;
             }
             let base = idx * 4;
@@ -278,7 +282,7 @@ pub fn seed_skin_mask_range_if_default_inert(
             if !(l.is_finite()
                 && chroma.is_finite()
                 && (0.08..=0.98).contains(&l)
-                && chroma >= 0.015)
+                && (0.015..=0.18).contains(&chroma))
             {
                 continue;
             }
@@ -286,7 +290,7 @@ pub fn seed_skin_mask_range_if_default_inert(
             if !(-55.0..=95.0).contains(&hue_deg) {
                 continue;
             }
-            default_weight_sum += range::weight(&SKIN_TONE_RANGE, rgb);
+            face_default_weight_sum += range::weight(&SKIN_TONE_RANGE, rgb);
             hues.push(hue_deg);
             chromas.push(chroma);
             lightnesses.push(l);
@@ -299,7 +303,7 @@ pub fn seed_skin_mask_range_if_default_inert(
     if hues.is_empty() {
         return None;
     }
-    if default_weight_sum / (hues.len() as f32) >= MIN_DEFAULT_SKIN_COVERAGE_WEIGHT {
+    if face_default_weight_sum / (hues.len() as f32) >= MIN_DEFAULT_SKIN_COVERAGE_WEIGHT {
         return None;
     }
 
@@ -321,6 +325,30 @@ pub fn seed_skin_mask_range_if_default_inert(
     let mut seed = RangeSeed::from_sample(&sample);
     seed.l_min = seed.l_min.min(0.15);
     seed.l_max = seed.l_max.max(0.95);
+    let adapted_range = SKIN_TONE_RANGE.with_seed(&seed);
+
+    let mut target_default_weight_sum = 0.0_f32;
+    let mut target_adapted_weight_sum = 0.0_f32;
+    for y in (0..height).step_by(step) {
+        let row_offset = y * width;
+        for x in (0..width).step_by(step) {
+            let idx = row_offset + x;
+            if target_mask_bytes[idx] < 128 {
+                continue;
+            }
+            let base = idx * 4;
+            let rgb = [
+                rgba_rec2020[base],
+                rgba_rec2020[base + 1],
+                rgba_rec2020[base + 2],
+            ];
+            target_default_weight_sum += range::weight(&SKIN_TONE_RANGE, rgb);
+            target_adapted_weight_sum += range::weight(&adapted_range, rgb);
+        }
+    }
+    if target_adapted_weight_sum <= target_default_weight_sum {
+        return None;
+    }
     Some(seed)
 }
 
