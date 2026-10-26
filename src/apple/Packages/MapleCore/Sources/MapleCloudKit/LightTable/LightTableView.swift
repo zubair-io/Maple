@@ -37,8 +37,9 @@ public struct LightTableView<PrintImage: View>: View {
   /// A plain (unstructured) `Task`, not a child of the `.task` that seeds the
   /// stage: it must outlive that closure, so `.onDisappear` cancels it.
   @State private var cycleTask: Task<Void, Never>?
-  /// The Retry button's in-flight reload, cancelled on disappear so a reload
-  /// resolving off-screen can't start a glide loop nothing will cancel.
+  /// The in-flight reload after a load error (tvOS Retry button, or the
+  /// phone/tablet retry timer), cancelled on disappear so a reload resolving
+  /// off-screen can't start a glide loop nothing will cancel.
   @State private var retryTask: Task<Void, Never>?
   /// Ever-increasing stacking counter — see `StagePrint.z`.
   @State private var spawnSeq: Double = 0
@@ -118,6 +119,20 @@ public struct LightTableView<PrintImage: View>: View {
       guard !Task.isCancelled else { return }
       startCycle()
     }
+    #if !os(tvOS)
+      // A touch dismisses the screen saver before a button could take it, so
+      // retry on a timer instead. The timer is owned here, not by the error
+      // view: a reload swaps that view for the loading view, which would
+      // cancel a task attached to it mid-request.
+      .onChange(of: isShowingError, initial: true) { _, showing in
+        guard showing else { return }
+        retryTask = Task {
+          try? await Task.sleep(for: Self.errorRetryDelay)
+          guard !Task.isCancelled, isShowingError else { return }
+          await reload()
+        }
+      }
+    #endif
     .onDisappear {
       stopCycle()
       retryTask?.cancel()
@@ -130,6 +145,10 @@ public struct LightTableView<PrintImage: View>: View {
 
   private var cycleMetrics: LightTableMetrics? {
     fixedMetrics ?? stageSize.map(LightTableMetrics.fitting)
+  }
+
+  private var isShowingError: Bool {
+    viewModel.loadError != nil && stage.isEmpty
   }
 
   @ViewBuilder
@@ -176,15 +195,6 @@ public struct LightTableView<PrintImage: View>: View {
       #endif
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    #if !os(tvOS)
-      // A touch dismisses the screen saver before a button could take it,
-      // so retry on a timer instead.
-      .task {
-        try? await Task.sleep(for: Self.errorRetryDelay)
-        guard !Task.isCancelled else { return }
-        await reload()
-      }
-    #endif
   }
 
   private func emptyView(_ metrics: LightTableMetrics) -> some View {

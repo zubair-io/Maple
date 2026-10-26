@@ -70,6 +70,40 @@ final class LightTableMetricsTests: XCTestCase {
     }
   }
 
+  func test_retainedAnchors_stayOnScreenAcrossRotation() {
+    let rotations: [(CGSize, CGSize)] = [
+      (CGSize(width: 874, height: 402), CGSize(width: 402, height: 874)),
+      (CGSize(width: 402, height: 874), CGSize(width: 874, height: 402)),
+      (CGSize(width: 1376, height: 1032), CGSize(width: 1032, height: 1376)),
+      (CGSize(width: 1032, height: 1376), CGSize(width: 1376, height: 1032)),
+    ]
+    for (laidOut, rotated) in rotations {
+      let before = LightTableMetrics.fitting(laidOut)
+      let after = LightTableMetrics.fitting(rotated)
+      let halfPrint = after.imageSize / 2 + after.matPadding
+      for slot in 0..<before.slotCount {
+        for _ in 0..<20 {
+          let offset = after.offset(for: before.anchor(forSlot: slot))
+          XCTAssertLessThanOrEqual(
+            abs(offset.width) + halfPrint, rotated.width / 2, "\(laidOut) -> \(rotated)")
+          XCTAssertLessThanOrEqual(
+            abs(offset.height) + halfPrint, rotated.height / 2, "\(laidOut) -> \(rotated)")
+        }
+      }
+    }
+  }
+
+  func test_offset_leavesCurrentGridAnchorsUnclamped() {
+    for metrics in [LightTableMetrics.television] + screens.map(LightTableMetrics.fitting) {
+      for slot in 0..<metrics.slotCount {
+        let anchor = metrics.anchor(forSlot: slot)
+        let offset = metrics.offset(for: anchor)
+        XCTAssertEqual(offset.width, anchor.x * metrics.stageHalfWidth, accuracy: 1e-6)
+        XCTAssertEqual(offset.height, anchor.y * metrics.stageHalfHeight, accuracy: 1e-6)
+      }
+    }
+  }
+
   func test_fittedStage_keepsPrintSizeAcrossRotation() {
     let portrait = LightTableMetrics.fitting(CGSize(width: 1032, height: 1376))
     let landscape = LightTableMetrics.fitting(CGSize(width: 1376, height: 1032))
