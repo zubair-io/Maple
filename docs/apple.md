@@ -24,15 +24,15 @@ Thirteen native targets, three committed schemes.
 
 Which package products each target links (from `Maple.xcodeproj/project.pbxproj`):
 
-| Target                                                    | Links                                                          |
-| --------------------------------------------------------- | -------------------------------------------------------------- |
-| Maple                                                     | MapleCore, MapleUI, MapleBackup                                |
-| Maple TV                                                  | MapleCloudKit only — deliberately no RawPipeline, no MapleCore |
-| Maple Watch Watch App                                     | MapleWatch, which links only MapleCloudKit                     |
-| MapleWidget                                               | MapleCloudKit                                                  |
-| MapleFileProvider / MapleFileProviderIOS                  | MapleFileProviderCore (+ MapleCloudKit) — no RawPipeline       |
-| MapleQuickLook                                            | MapleCore                                                      |
-| MapleBackupAgent                                          | MapleCore, MapleBackup                                         |
+| Target                                   | Links                                                          |
+| ---------------------------------------- | -------------------------------------------------------------- |
+| Maple                                    | MapleCore, MapleUI, MapleBackup                                |
+| Maple TV                                 | MapleCloudKit only — deliberately no RawPipeline, no MapleCore |
+| Maple Watch Watch App                    | MapleWatch, which links only MapleCloudKit                     |
+| MapleWidget                              | MapleCloudKit                                                  |
+| MapleFileProvider / MapleFileProviderIOS | MapleFileProviderCore (+ MapleCloudKit) — no RawPipeline       |
+| MapleQuickLook                           | MapleCore                                                      |
+| MapleBackupAgent                         | MapleCore, MapleBackup                                         |
 
 Three schemes are committed under `Maple.xcodeproj/xcshareddata/xcschemes/`: **Maple** (which also owns the MapleTests + MapleUITests test action, neither skipped), **MapleBackupAgent**, and **Maple Watch** (the Watch app and its tests). The Maple scheme's test action pre-sets `MAPLE_UITEST_FIXTURE_ROOT` to the repo's `test-fixtures/raws` and `MAPLE_UITEST_GOLDENS_ROOT` to `MapleUITests/Goldens`, so a test run from Xcode finds fixtures without extra arguments.
 
@@ -253,7 +253,7 @@ iOS runs `MapleFileProviderIOS` under a hard 20 MB memory limit (`ActiveHard 20 
 - **One ephemeral session.** All requests share one `URLSession` with no URL cache, cookie or credential storage. Its per-host connection cap leaves room for every bounded transfer plus listing traffic, so no transfer waits in the session's own queue while its timeout runs.
 - **Bounded caches.** `RemoteCatalog`'s ETag cache holds at most `extensionETagCacheByteBudget` (1 MB of response bodies, a few MB decoded) in the extension. Working-set seeding fetches its three lists one at a time, each capped at the platform working-set capacity (2,500 on iOS, so a library with more favourites or XMP-bearing photos than that seeds only 2,500 of each into the iOS working set; they still appear in their folders), and hands items to the OS in batches of 200. Folder listings page 200 children at a time on iOS. The Quick Look mirror's SQLite page cache is 256 KB.
 
-**Recovery after a kill.** The OS redelivers `createItem` for anything that had not completed. When the target already holds a file with the same name, size and modification time (the upload stamps the time), or the OS sets `.mayAlreadyExist` and name and size match, the extension reports the stored file instead of uploading again. `modifyItem` echoes changes the server does not store (dates, tags, extended attributes) for every item kind, and replaces a non-indexed file's bytes when they change; the server moves the previous copy to the Maple trash.
+**Recovery after a kill.** The OS redelivers `createItem` for anything that had not completed, and a redelivered create uploads again: the server keeps no content hash, so a same-name file with the same size and time could still hold different bytes, and the upload moves the replaced copy to the Maple trash. With at most three uploads in flight, a kill costs at most three re-uploads. Only when the OS sets `.mayAlreadyExist` and the name and size match does the extension report the stored file instead of uploading. `modifyItem` echoes changes the server does not store (dates, tags, extended attributes) for every item kind, and replaces a non-indexed file's bytes when they change; the server moves the previous copy to the Maple trash.
 
 When changing the extension, measure its footprint in **Release** on a device (Xcode's memory gauge or `footprint MapleFileProviderIOS`) at idle and during a burst of a few hundred drops. Debug builds add a large `.debug.dylib` and are not representative.
 

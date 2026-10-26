@@ -8,7 +8,8 @@ import XCTest
 /// drop of ~1,000 photos and videos used to start one upload per
 /// `createItem` at once. These tests drive real `createItem` bursts over
 /// real temp files and assert the transfers stay bounded, queued items
-/// hold no request, and a redelivery after a kill does not upload twice.
+/// hold no request, and only a `.mayAlreadyExist` redelivery reuses the
+/// stored file instead of uploading.
 final class FileProviderUploadBurstTests: XCTestCase {
   override func setUp() {
     super.setUp()
@@ -55,7 +56,8 @@ final class FileProviderUploadBurstTests: XCTestCase {
 
   private func create(
     _ core: FileProviderExtensionCore, filename: String, contents: URL,
-    mtime: Date? = nil, done: @escaping (NSFileProviderItem?, Error?) -> Void
+    mtime: Date? = nil, options: NSFileProviderCreateItemOptions = [],
+    done: @escaping (NSFileProviderItem?, Error?) -> Void
   ) -> Progress {
     let template = FakeFileProviderItem(
       itemIdentifier: NSFileProviderItemIdentifier("pending-\(filename)"),
@@ -64,7 +66,7 @@ final class FileProviderUploadBurstTests: XCTestCase {
       contentModificationDate: mtime
     )
     return core.createItem(
-      basedOn: template, fields: [], contents: contents, options: [],
+      basedOn: template, fields: [], contents: contents, options: options,
       request: NSFileProviderRequest(),
       completionHandler: { item, _, _, error in done(item, error) })
   }
@@ -136,17 +138,39 @@ final class FileProviderUploadBurstTests: XCTestCase {
 
   /// The extension was killed after the server stored the file but before
   /// the OS heard back, so the OS redelivers the same `createItem` without
-  /// `.mayAlreadyExist`. Same name, size and modification time on the
-  /// server means the bytes already landed: report that file, no upload.
-  func testRedeliveredCreateAfterKillReusesTheStoredFile() throws {
+  /// `.mayAlreadyExist`. Same name, size and modification time is not proof
+  /// of the same bytes (the server keeps no content hash), so it uploads
+  /// again; the server moves the replaced copy to the Maple trash.
+  func testUnflaggedCreateOverSameNameSizeAndTimeStillUploads() throws {
     let mtime = Date(timeIntervalSince1970: 1_790_000_000)
     let name = "DJI_0001.MP4"
     let file = try makeLocalFile(named: name, bytes: 2048)
     GatedUploadURLProtocol.existingFile = (name: name, size: 2048, mtime: mtime)
     let core = makeCore()
     let done = expectation(description: "create completed")
+    var failure: Error?
+    _ = create(core, filename: name, contents: file, mtime: mtime) { _, error in
+      failure = error
+      done.fulfill()
+    }
+    wait(for: [done], timeout: 5)
+
+    XCTAssertNil(failure)
+    XCTAssertEqual(GatedUploadURLProtocol.uploadsStarted, 1)
+  }
+
+  /// With `.mayAlreadyExist` the OS says the item may already be synced:
+  /// a stored file with the same name and size is it, so no upload.
+  func testMayAlreadyExistCreateReusesTheStoredFile() throws {
+    let mtime = Date(timeIntervalSince1970: 1_790_000_000)
+    let name = "DJI_0003.MP4"
+    let file = try makeLocalFile(named: name, bytes: 2048)
+    GatedUploadURLProtocol.existingFile = (name: name, size: 2048, mtime: mtime)
+    let core = makeCore()
+    let done = expectation(description: "create completed")
     var result: (NSFileProviderItem?, Error?)
-    _ = create(core, filename: name, contents: file, mtime: mtime) { item, error in
+    _ = create(core, filename: name, contents: file, mtime: mtime, options: [.mayAlreadyExist]) {
+      item, error in
       result = (item, error)
       done.fulfill()
     }
