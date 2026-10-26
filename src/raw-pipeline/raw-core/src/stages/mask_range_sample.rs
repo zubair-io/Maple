@@ -118,7 +118,7 @@ pub fn sample_mask_range(
 /// `model` with the local-adjustment stack and every stage after it
 /// switched off, so the scene-linear develop ends with the buffer that
 /// stage reads. Each of those stages is a bit-identical no-op at zero.
-pub(crate) fn stage_input_model(model: &AdjustmentModel) -> AdjustmentModel {
+pub fn stage_input_model(model: &AdjustmentModel) -> AdjustmentModel {
     AdjustmentModel {
         local_adjustments: Vec::new(),
         mask_rasters: Vec::new(),
@@ -126,6 +126,20 @@ pub(crate) fn stage_input_model(model: &AdjustmentModel) -> AdjustmentModel {
         sharpen_amount: 0.0,
         nr_luminance: 0.0,
         nr_color: 0.0,
+        display_tone_curve_luma: Default::default(),
+        display_tone_curve_red: Default::default(),
+        display_tone_curve_green: Default::default(),
+        display_tone_curve_blue: Default::default(),
+        split_tone_shadow_saturation: 0.0,
+        split_tone_highlight_saturation: 0.0,
+        color_grade_shadow_luminance: 0.0,
+        color_grade_midtone_saturation: 0.0,
+        color_grade_midtone_luminance: 0.0,
+        color_grade_highlight_luminance: 0.0,
+        color_grade_global_saturation: 0.0,
+        color_grade_global_luminance: 0.0,
+        grain_amount: 0.0,
+        film_strength: 0.0,
         ..model.clone()
     }
 }
