@@ -12,7 +12,7 @@ use eframe::egui;
 use raw_core::{
     pipeline::{self, ExportDepth, ExportPixels, RawInput},
     types::adjustment::AdjustmentModel,
-    view::encode::TargetPrimaries,
+    view::{auto_profile::AutoFitOutcome, encode::TargetPrimaries},
 };
 
 use crate::{
@@ -44,7 +44,13 @@ pub enum Event {
         u64,
         Result<(Box<SidecarDocument>, crate::white_balance::WhiteBalance), String>,
     ),
-    Rendered(u64, u64, Result<egui::ColorImage, String>),
+    /// The CPU frame plus the Auto fit outcome that frame actually achieved.
+    Rendered(
+        u64,
+        u64,
+        Result<egui::ColorImage, String>,
+        Option<AutoFitOutcome>,
+    ),
     GpuRendered(u64, u64, crate::gpu_texture::GpuFrame),
     GpuFallback(u64, u64, String),
     Detail(u64, u64, Result<crate::detail::DetailFrame, String>),
@@ -141,11 +147,15 @@ impl Session {
         }
     }
 
-    fn render(&self, model: &AdjustmentModel, long_edge: u32) -> Result<egui::ColorImage, String> {
+    fn render(
+        &self,
+        model: &AdjustmentModel,
+        long_edge: u32,
+    ) -> Result<(egui::ColorImage, Option<AutoFitOutcome>), String> {
         let (model, film) = crate::film::renderable(model)?;
         let model = model.as_ref();
         let result = if let Some(raw) = &self.raw {
-            pipeline::render_sized_from_raw_with_quality_source_and_film(
+            pipeline::render_from_raw_with_auto_fit(
                 raw,
                 model,
                 pipeline::RenderQuality::Preview,
@@ -158,7 +168,7 @@ impl Session {
                         .and_then(|v| v.to_str())
                         .unwrap_or("dng"),
                 }),
-                long_edge,
+                Some(long_edge),
                 film.as_ref().map(|film| film.lut),
             )
         } else {
@@ -171,12 +181,17 @@ impl Session {
                 film.as_ref().map(|film| film.lut),
             )
             .map(|(w, h, pixels)| match pixels {
-                ExportPixels::Eight(rgb) => (w, h, rgb),
+                ExportPixels::Eight(rgb) => (w, h, rgb, None),
                 ExportPixels::Sixteen(_) => unreachable!("requested eight bits"),
             })
         };
         result
-            .map(|(w, h, rgb)| egui::ColorImage::from_rgb([w as usize, h as usize], &rgb))
+            .map(|(w, h, rgb, auto_fit)| {
+                (
+                    egui::ColorImage::from_rgb([w as usize, h as usize], &rgb),
+                    auto_fit,
+                )
+            })
             .map_err(|e| e.to_string())
     }
 }
@@ -246,7 +261,8 @@ impl Worker {
                             .as_ref()
                             .filter(|session| session.id == id)
                             .ok_or_else(|| "The comparison image is no longer open".to_owned())
-                            .and_then(|session| session.render(&model, 1600));
+                            .and_then(|session| session.render(&model, 1600))
+                            .map(|(image, _)| image);
                         Event::Comparison(id, Box::new(model), image)
                     }
                     Command::Auto(id, revision, model) => Event::Auto(
@@ -344,15 +360,13 @@ impl Worker {
                                 }
                             }
                         }
-                        Event::Rendered(
-                            id,
-                            generation,
-                            session
-                                .as_ref()
-                                .filter(|s| s.id == id)
-                                .ok_or_else(|| "Image session is no longer open".into())
-                                .and_then(|s| s.render(&model, 1600)),
-                        )
+                        let rendered = session
+                            .as_ref()
+                            .filter(|s| s.id == id)
+                            .ok_or_else(|| "Image session is no longer open".into())
+                            .and_then(|s| s.render(&model, 1600));
+                        let auto_fit = rendered.as_ref().ok().and_then(|(_, fit)| *fit);
+                        Event::Rendered(id, generation, rendered.map(|(image, _)| image), auto_fit)
                     }
                     Command::Save(id, document) => Event::Saved(
                         id,
@@ -469,7 +483,8 @@ impl ThumbnailWorker {
             for (generation, photo) in commands {
                 let path = photo.path.clone();
                 let image = Session::open(0, photo)
-                    .and_then(|(session, document)| session.render(&document.model, 256));
+                    .and_then(|(session, document)| session.render(&document.model, 256))
+                    .map(|(image, _)| image);
                 if results.send((generation, path, image)).is_err() {
                     break;
                 }

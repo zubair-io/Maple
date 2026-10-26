@@ -45,18 +45,18 @@ fn raster_native_dimensions_follow_opened_snapshot_and_exif_orientation() {
         std::fs::write(&path, &bytes).unwrap();
         let photo = Folder::scan(root.path()).unwrap().photos.remove(0);
         let (session, document) = Session::open(1, photo).unwrap();
-        let full = session.render(&document.model, u32::MAX).unwrap();
+        let full = session.render(&document.model, u32::MAX).unwrap().0;
         assert_eq!(
             session.native_size,
             (full.size[0] as u32, full.size[1] as u32)
         );
-        let bounded = session.render(&document.model, 8).unwrap();
+        let bounded = session.render(&document.model, 8).unwrap().0;
         assert!(bounded.size[0].max(bounded.size[1]) <= 8);
         assert_ne!(full.size, bounded.size);
         // Dimensions belong to the open snapshot, just like its pixels.
         std::fs::write(&path, b"externally replaced").unwrap();
         assert_eq!(
-            session.render(&document.model, u32::MAX).unwrap().pixels,
+            session.render(&document.model, u32::MAX).unwrap().0.pixels,
             full.pixels
         );
         assert_eq!(
