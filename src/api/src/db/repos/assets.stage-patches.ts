@@ -319,3 +319,34 @@ export function videoDescriptionStatements(
     },
   ];
 }
+
+/** What the `motion-photo` stage verified: the clip's byte range inside the original. */
+export interface MotionPhotoPatch {
+  start: number;
+  length: number;
+  mime: 'video/mp4' | 'video/quicktime';
+  sourceSize: number;
+}
+
+/**
+ * The `motion-photo` stage's output. `null` clears all four columns, which is
+ * how a re-run over an edited original retires a clip it no longer carries.
+ */
+export function motionPhotoStatements(
+  assetId: string,
+  clip: MotionPhotoPatch | null,
+): SqlStatement[] {
+  return [
+    {
+      sql: `UPDATE assets SET motion_video_start = ?, motion_video_length = ?,
+              motion_video_mime = ?, motion_source_size = ? WHERE id = ?`,
+      params: [
+        clip?.start ?? null,
+        clip?.length ?? null,
+        clip?.mime ?? null,
+        clip?.sourceSize ?? null,
+        assetId,
+      ],
+    },
+  ];
+}

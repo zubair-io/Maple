@@ -59,6 +59,14 @@ export const STAGE_META: Record<string, StageMeta> = {
     description:
       'Builds 1280-px preview cache used by the editor and enrichment LLM. A preview someone is waiting on (e.g. opening a photo) is rendered first, and the stage pauses new renders until it is done.',
   },
+  'motion-photo': {
+    id: 'motion-photo',
+    group: 'Ingest',
+    icon: 'image',
+    enrichment: null,
+    description:
+      'Finds the short video Android phones embed in Motion Photo JPEG and HEIC stills and records where it sits, so it can play in Full image. Reads metadata only; originals are never changed.',
+  },
   describe: {
     id: 'describe',
     group: 'Enrich',

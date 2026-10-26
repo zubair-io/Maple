@@ -21,6 +21,7 @@ export const ALL_STAGE_NAMES = [
   'cloud-backup',
   'person-segmentation',
   'embed',
+  'motion-photo',
 ] as const;
 
 export type StageName = (typeof ALL_STAGE_NAMES)[number];
