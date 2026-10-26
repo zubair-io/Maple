@@ -461,7 +461,10 @@ export async function restoreAssetById(
       trashedAbsPath,
       targetResolution.targetAbs,
       (target) => recordLifecycleTarget(intent, libraryRoot, trashedAbsPath, target),
-      () => fenceLifecycleMove(intent),
+      async () => {
+        await source.recheck();
+        await fenceLifecycleMove(intent);
+      },
       async (target) => {
         const { size, mtimeMs } = await restatRestoredFile(target, info.size);
         await restoreFromTrash({
