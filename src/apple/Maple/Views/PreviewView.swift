@@ -99,9 +99,9 @@ struct PreviewView: View {
   /// Finger travel of the pull-down (iPhone) — the still follows it.
   @State private var plainPullTranslation: CGSize = .zero
   @State private var isPlainPullDismissing = false
-  /// The embedded clip of an Android Motion Photo still, once the server
-  /// confirms it has one, and whether the user asked to play it (#5447).
-  @State private var motionClipURL: URL?
+  /// Whether the server has an Android Motion Photo clip for this still, and
+  /// whether the user asked to play it (#5447).
+  @State private var hasMotionClip = false
   @State private var playsMotionClip = false
   /// The open Duo can retain a compact size class. Use available width for
   /// Preview's rail/Info adaptation, not the size class or reference pixels.
@@ -172,9 +172,14 @@ struct PreviewView: View {
       ZStack {
         imageBody
           .overlay {
-            if playsMotionClip, let motionClipURL {
-              MotionClipPlayerView(url: motionClipURL) { playsMotionClip = false }
-                .background(MapleTokens.bg)
+            if playsMotionClip {
+              MotionClipPlayerView {
+                await PreviewMotionClip.clipURL(for: asset, source: source)
+              } onFinished: {
+                playsMotionClip = false
+              }
+              .id(asset.id)
+              .background(MapleTokens.bg)
             }
           }
           .background(photoAreaReporter)
@@ -239,7 +244,7 @@ struct PreviewView: View {
           .padding(.horizontal, 12)
           .accessibilityIdentifier("preview-filename")
       } trailing: {
-        if motionClipURL != nil {
+        if hasMotionClip {
           Button {
             playsMotionClip.toggle()
           } label: {
@@ -309,10 +314,10 @@ struct PreviewView: View {
     }
     .task(id: asset.id) {
       playsMotionClip = false
-      motionClipURL = nil
+      hasMotionClip = false
       let url = await PreviewMotionClip.clipURL(for: asset, source: source)
       guard !Task.isCancelled else { return }
-      motionClipURL = url
+      hasMotionClip = url != nil
     }
     // Re-prime the Info session whenever the pane is open — on first
     // appearance (the pane defaults to open, so no tap ever fires) and
