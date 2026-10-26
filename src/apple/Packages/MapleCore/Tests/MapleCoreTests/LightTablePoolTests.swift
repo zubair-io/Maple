@@ -1,12 +1,12 @@
 // LightTablePoolTests.swift
 //
 // `mergeDeduped` (MapleCloudKit/Cloud/LightTablePool.swift) is the pure
-// half of the Maple TV Light Table's source-pool selection (#2121 F2) —
-// see that file's header for why the async fetch orchestration stays in
-// the app-target `LightTableViewModel` while this piece is hoisted for
-// direct `swift test` coverage.
+// half of the Light Table's source-pool selection (#2121 F2) — see that
+// file's header for why it is split from the async fetch orchestration in
+// `LightTableViewModel`.
 
 import XCTest
+
 @testable import MapleCloudKit
 
 final class LightTablePoolTests: XCTestCase {
@@ -18,7 +18,8 @@ final class LightTablePoolTests: XCTestCase {
 
     let merged = mergeDeduped([a, b], [c])
 
-    XCTAssertEqual(merged.map(\.id), ["a", "b", "c"],
+    XCTAssertEqual(
+      merged.map(\.id), ["a", "b", "c"],
       "each list's own order must be preserved, earlier lists first")
   }
 
@@ -31,7 +32,8 @@ final class LightTablePoolTests: XCTestCase {
     let merged = mergeDeduped([pickCopy], [highRatedCopy])
 
     XCTAssertEqual(merged.count, 1)
-    XCTAssertEqual(merged.first?.filename, "from-picks.dng",
+    XCTAssertEqual(
+      merged.first?.filename, "from-picks.dng",
       "the first list's copy must win — later lists only contribute NEW ids")
   }
 
@@ -71,7 +73,8 @@ final class LightTablePoolTests: XCTestCase {
       [makeAsset(id: "b1"), makeAsset(id: "b2")],
     ])
 
-    XCTAssertEqual(result.map(\.id), ["a1", "b1", "a2", "b2"],
+    XCTAssertEqual(
+      result.map(\.id), ["a1", "b1", "a2", "b2"],
       "round-robin, not concatenation")
   }
 
@@ -105,7 +108,8 @@ final class LightTablePoolTests: XCTestCase {
   // MARK: - Fixtures
 
   private func makeAsset(id: String, filename: String? = nil) -> SearchAsset {
-    SearchAsset(id: id, folder_id: "lib-test",
-                abs_path: "/photos/\(id).dng", filename: filename ?? "\(id).dng")
+    SearchAsset(
+      id: id, folder_id: "lib-test",
+      abs_path: "/photos/\(id).dng", filename: filename ?? "\(id).dng")
   }
 }

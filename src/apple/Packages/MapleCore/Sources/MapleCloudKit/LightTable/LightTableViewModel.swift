@@ -1,6 +1,7 @@
-// src/apple/Maple TV/LightTableViewModel.swift
+// LightTableViewModel.swift
 //
-// Drives the Maple TV Light Table's ambient source pool (#2121 F2): a
+// Drives the Light Table's ambient source pool (#2121 F2) — on Maple TV and
+// as the iPhone/iPad backup screen saver (#5457): a
 // shuffled mix of the day's Memories, `flag=pick` and `rating>=4` assets,
 // and recent photos with faces — falling back to plain recent
 // (`captured_desc`) assets when that primary pool is too thin to sustain a
@@ -19,7 +20,7 @@
 // `baseItems()`) — there is no way to express "flag=pick OR rating>=4" as
 // one `/api/search` query. This issues two concurrent queries (one per
 // filter) and merges the results client-side via `mergeDeduped`
-// (MapleCloudKit/Cloud/LightTablePool.swift — hoisted there so its
+// (`Cloud/LightTablePool.swift` — hoisted there so its
 // selection policy is directly `swift test`-able; see that file's
 // header), in priority order — picks first, then high-rated — so an
 // asset that's both a pick AND rated ≥4 counts once, sourced from picks.
@@ -32,28 +33,27 @@
 // state").
 
 import Foundation
-import MapleCloudKit
 import Observation
 
 @MainActor
 @Observable
-final class LightTableViewModel {
+public final class LightTableViewModel {
   // MARK: - Published state
 
   /// The ambient display pool, shuffled. Empty while loading, or if the
   /// library genuinely has nothing to show.
-  private(set) var pool: [SearchAsset] = []
-  private(set) var isLoading: Bool = false
+  public private(set) var pool: [SearchAsset] = []
+  public private(set) var isLoading: Bool = false
   /// Set only when the pool ended up empty AND at least one of the
   /// underlying queries actually failed — a library with zero picks,
   /// zero high-rated, and zero recent assets (a real empty account) is a
   /// normal empty state, not an error, so a query that simply returns
   /// zero matches never sets this.
-  private(set) var loadError: Error?
+  public private(set) var loadError: Error?
 
   // MARK: - Dependencies
 
-  let libraryID: String
+  public let libraryID: String
   private let searchClient: CloudSearchClient
   private let generatedSearchClient: GeneratedSearchClient
 
@@ -95,7 +95,7 @@ final class LightTableViewModel {
   /// deep dive into one of them.
   private static let perMemoryLimit = 12
 
-  init(
+  public init(
     libraryID: String,
     searchClient: CloudSearchClient,
     generatedSearchClient: GeneratedSearchClient
@@ -107,7 +107,7 @@ final class LightTableViewModel {
 
   // MARK: - Loading
 
-  func load() async {
+  public func load() async {
     generation &+= 1
     let g = generation
     loadError = nil
@@ -129,7 +129,7 @@ final class LightTableViewModel {
   }
 
   /// Cancels a background revalidation (call from the screen's `.onDisappear`).
-  func cancelRefresh() {
+  public func cancelRefresh() {
     refreshTask?.cancel()
     refreshTask = nil
     memoriesFetchTask?.cancel()
@@ -268,7 +268,7 @@ final class LightTableViewModel {
   /// this returns no error alongside its assets, unlike `fetchOrEmpty`.
   private func fetchMemories() async -> [SearchAsset] {
     guard let collections = try? await generatedSearchClient.collections(libraryID: libraryID),
-          !collections.isEmpty
+      !collections.isEmpty
     else { return [] }
 
     return await withTaskGroup(of: [SearchAsset].self) { group in
@@ -287,7 +287,8 @@ final class LightTableViewModel {
     }
   }
 
-  private func fetchOrEmpty(_ params: SearchParams) async -> (assets: [SearchAsset], error: Error?) {
+  private func fetchOrEmpty(_ params: SearchParams) async -> (assets: [SearchAsset], error: Error?)
+  {
     do {
       let response = try await searchClient.search(params, page: 0, limit: Self.queryLimit)
       return (response.results, nil)
@@ -317,7 +318,7 @@ final class LightTableViewModel {
   /// re-shuffling) once every asset in the pool has been shown, so a
   /// long-running, uninteracted-with Light Table doesn't just replay the
   /// exact same order forever. `nil` when the pool is empty.
-  func next() -> SearchAsset? {
+  public func next() -> SearchAsset? {
     guard !pool.isEmpty else { return nil }
     if cursor >= pool.count {
       pool.shuffle()
