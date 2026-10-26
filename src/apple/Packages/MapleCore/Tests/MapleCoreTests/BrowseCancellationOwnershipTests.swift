@@ -150,6 +150,35 @@ final class BrowseCancellationOwnershipTests: XCTestCase {
     XCTAssertTrue(remainingProducerIDs.isEmpty)
   }
 
+  func testCancelledQueuedLocalProducerCleansUpInFlightAndTaskProducerID() async throws {
+    let loader = ThumbnailLoader()
+    for _ in 0..<ThumbnailLoader.maxConcurrentDecodes {
+      try await loader.acquireDecodeSlot()
+    }
+    let key = "local:" + UUID().uuidString
+    let task = await loader.startLocalProducer(key: key) { Data([0xCC]) }
+    let waiter = Task { await loader.awaitThumbnail(task) }
+    let queued = await loader.decodeSlots.waitForQueue(atLeast: 1, timeout: .seconds(5))
+    XCTAssertTrue(queued)
+
+    waiter.cancel()
+    let cancelledResult = await waiter.value
+    XCTAssertNil(cancelledResult)
+    for _ in 0..<10_000 {
+      let inFlightNil = await loader.inFlight[key] == nil
+      let idsEmpty = await loader.taskProducerIDs.isEmpty
+      if inFlightNil && idsEmpty { break }
+      await Task.yield()
+    }
+    for _ in 0..<ThumbnailLoader.maxConcurrentDecodes {
+      await loader.releaseDecodeSlot()
+    }
+    let remainingInFlight = await loader.inFlight[key]
+    let remainingProducerIDs = await loader.taskProducerIDs
+    XCTAssertNil(remainingInFlight)
+    XCTAssertTrue(remainingProducerIDs.isEmpty)
+  }
+
   @MainActor
   func testCancelledActualFolderEnumerationDoesNotPublishAbandonedFiles() async throws {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

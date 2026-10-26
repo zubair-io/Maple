@@ -64,7 +64,6 @@ extension ThumbnailLoader {
     thumbnailWaiters.removeValue(forKey: task)
     if cancelled, !isProducerActive(task) {
       task.cancel()
-      taskProducerIDs.removeValue(forKey: task)
     }
   }
 
