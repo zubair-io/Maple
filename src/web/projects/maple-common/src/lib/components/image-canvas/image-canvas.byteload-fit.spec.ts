@@ -65,7 +65,7 @@ describe('terminal byte-load Auto provenance', () => {
     await second.catch(() => undefined);
     await Promise.resolve();
     expect(h.host.byteLoadError()).not.toBeNull();
-    expect(h.capabilities.for(ASSET).autoFit).toBe(false);
+    expect(h.capabilities.for(ASSET).autoFit).toBe('unfitted');
   });
   it('retries retained input without requesting nonexistent backend bytes', async () => {
     const h = harness();
@@ -87,7 +87,7 @@ describe('terminal byte-load Auto provenance', () => {
     h.model.set({ ...h.model(), profile: 'Auto' });
     h.capabilities.resetAutoFit(ASSET);
     await h.fail({ status: 404 });
-    expect(h.capabilities.for(ASSET).autoFit).toBe(false);
+    expect(h.capabilities.for(ASSET).autoFit).toBe('unfitted');
   });
 
   for (const status of [403, 404, 0])
@@ -95,7 +95,7 @@ describe('terminal byte-load Auto provenance', () => {
       const h = harness();
       h.start();
       await h.fail({ status });
-      expect(h.capabilities.for(ASSET).autoFit).toBe(false);
+      expect(h.capabilities.for(ASSET).autoFit).toBe('unfitted');
       expect(h.host.loadReal).not.toHaveBeenCalled();
       expect(h.host.byteLoadError()).not.toBeNull();
     });
@@ -116,12 +116,16 @@ describe('terminal byte-load Auto provenance', () => {
         h.capabilities.seedProfile(
           ASSET,
           null,
-          newer === 'completed active',
+          newer === 'completed active' ? 'applied' : 'unfitted',
           h.capabilities.autoFitRevisionFor(ASSET),
         );
       await h.fail(new Error('terminal failure'));
       expect(h.capabilities.for(ASSET).autoFit).toBe(
-        newer === 'completed active' ? true : newer === 'completed unavailable' ? false : undefined,
+        newer === 'completed active'
+          ? 'applied'
+          : newer === 'completed unavailable'
+            ? 'unfitted'
+            : undefined,
       );
     });
 });

@@ -9,6 +9,7 @@ export type {
   AutoAdjustSuccess,
   AutoAdjustError,
 } from './raw-pipeline.auto-adjust.types';
+import type { AutoFitOutcome } from './auto-fit-outcome';
 import type { CameraSupport } from '../state/camera-support';
 import type {
   LensProfileError,
@@ -75,7 +76,7 @@ export interface DecodeSuccess {
    *  absent when it named none or the worker holds no copy of it. */
   lensProfile?: LensProfileResolution;
   /** Actual applied Auto artifacts; absent until evaluated or with Neutral. */
-  autoFit?: boolean;
+  autoFit?: AutoFitOutcome;
 }
 
 export interface DecodeError {
@@ -236,7 +237,7 @@ export interface OpenSessionSuccess {
   /** See `DecodeSuccess.lensProfile` (#3479). */
   lensProfile?: LensProfileResolution;
   /** Actual applied Auto artifacts; absent until evaluated or with Neutral. */
-  autoFit?: boolean;
+  autoFit?: AutoFitOutcome;
   /** Achieved canvas colour-space tag (`display-p3` / `srgb` / `unknown`). */
   colorSpace: string;
   /** Downsampled RGB readback of the first presented frame, for the scopes (#1045). */
@@ -255,7 +256,7 @@ export interface RenderSessionSuccess {
    *  re-developed for a new selection; absent on a scalar-params tick. */
   lensProfile?: LensProfileResolution;
   /** Actual applied Auto artifacts; absent until evaluated or with Neutral. */
-  autoFit?: boolean;
+  autoFit?: AutoFitOutcome;
   // No `scope` (#3397): published out-of-band so this reply never waits on a
   // GPU sync. See `ScopeSampleBroadcast`.
 }
@@ -486,7 +487,7 @@ export interface DecodedImage {
   cameraSupport?: CameraSupport;
   lensProfile?: LensProfileResolution;
   /** Actual applied Auto artifacts; absent until evaluated or with Neutral. */
-  autoFit?: boolean;
+  autoFit?: AutoFitOutcome;
 }
 
 export interface DecodeSceneLinearRequest {

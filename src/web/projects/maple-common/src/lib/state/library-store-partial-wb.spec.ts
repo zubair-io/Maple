@@ -69,25 +69,35 @@ describe('real editor and store partial WB authors (#3434)', () => {
 
   it('invalidates fit on profile transitions and preserves it on scalar edits or reselect', () => {
     load();
-    store.lensCorrections.seedProfile(ID, null, true, store.lensCorrections.autoFitRevisionFor(ID));
+    store.lensCorrections.seedProfile(
+      ID,
+      null,
+      'applied',
+      store.lensCorrections.autoFitRevisionFor(ID),
+    );
     store.setAdjustment(ID, { exposure: 1 });
-    expect(store.lensCorrections.for(ID).autoFit).toBe(true);
+    expect(store.lensCorrections.for(ID).autoFit).toBe('applied');
     store.setAdjustment(ID, { profile: 'Auto' });
-    expect(store.lensCorrections.for(ID).autoFit).toBe(true);
+    expect(store.lensCorrections.for(ID).autoFit).toBe('applied');
     store.setAdjustment(ID, { profile: 'Neutral' });
     expect(store.lensCorrections.for(ID).autoFit).toBeUndefined();
     store.lensCorrections.seedProfile(
       ID,
       null,
-      false,
+      'unfitted',
       store.lensCorrections.autoFitRevisionFor(ID),
     );
     store.setAdjustment(ID, { profile: 'Auto' });
     expect(store.lensCorrections.for(ID).autoFit).toBeUndefined();
     expect(store.adjustmentFor(ID)().profile).toBe('Auto');
-    store.lensCorrections.seedProfile(ID, null, true, store.lensCorrections.autoFitRevisionFor(ID));
+    store.lensCorrections.seedProfile(
+      ID,
+      null,
+      'applied',
+      store.lensCorrections.autoFitRevisionFor(ID),
+    );
     store.setAdjustment(ID, { tint: 2 });
-    expect(store.lensCorrections.for(ID).autoFit).toBe(true);
+    expect(store.lensCorrections.for(ID).autoFit).toBe('applied');
   });
 
   function load(attrs = 'crs:Temperature="8500"'): void {
@@ -139,24 +149,24 @@ describe('real editor and store partial WB authors (#3434)', () => {
         expect(store.adjustmentFor(ID)().profile).toBe(profile);
       };
       const oldRevision = caps.autoFitRevisionFor(ID);
-      caps.seedProfile(ID, null, true, oldRevision);
+      caps.seedProfile(ID, null, 'applied', oldRevision);
       replace('Neutral');
       expect(caps.autoFitRevisionFor(ID)).toBe(oldRevision + 1);
       expect(caps.for(ID).autoFit).toBeUndefined();
-      caps.seedProfile(ID, null, true, oldRevision);
+      caps.seedProfile(ID, null, 'applied', oldRevision);
       expect(caps.for(ID).autoFit).toBeUndefined();
       const neutralRevision = caps.autoFitRevisionFor(ID);
-      caps.seedProfile(ID, null, false, neutralRevision);
+      caps.seedProfile(ID, null, 'unfitted', neutralRevision);
       replace('Auto');
       expect(caps.autoFitRevisionFor(ID)).toBe(neutralRevision + 1);
       expect(caps.for(ID).autoFit).toBeUndefined();
-      caps.seedProfile(ID, null, false, neutralRevision);
+      caps.seedProfile(ID, null, 'unfitted', neutralRevision);
       expect(caps.for(ID).autoFit).toBeUndefined();
       const autoRevision = caps.autoFitRevisionFor(ID);
-      caps.seedProfile(ID, null, true, autoRevision);
+      caps.seedProfile(ID, null, 'applied', autoRevision);
       replace('Auto', 1.25);
       expect(caps.autoFitRevisionFor(ID)).toBe(autoRevision);
-      expect(caps.for(ID).autoFit).toBe(true);
+      expect(caps.for(ID).autoFit).toBe('applied');
     });
   }
 
@@ -164,7 +174,7 @@ describe('real editor and store partial WB authors (#3434)', () => {
     const caps = store.lensCorrections;
     const authored = store.setAdjustment(ID, { profile: 'Neutral' });
     const revision = caps.autoFitRevisionFor(ID);
-    caps.seedProfile(ID, null, false, revision);
+    caps.seedProfile(ID, null, 'unfitted', revision);
     writeFileSync(path, xml('papp:Profile="Auto"'));
     const original = readFileSync(path);
     const persisted = parser.parseAdjustmentModel(original.toString()).model;
@@ -172,7 +182,7 @@ describe('real editor and store partial WB authors (#3434)', () => {
     store.mergePersistedAdjustment(ID, persisted, authored);
     expect(store.adjustmentFor(ID)().profile).toBe('Neutral');
     expect(caps.autoFitRevisionFor(ID)).toBe(revision);
-    expect(caps.for(ID).autoFit).toBe(false);
+    expect(caps.for(ID).autoFit).toBe('unfitted');
     expect(readFileSync(path)).toEqual(original);
   });
 

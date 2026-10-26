@@ -31,7 +31,7 @@ function applyTransition(
     capabilities.seedProfile(
       ASSET,
       null,
-      outcome === 'completed active',
+      outcome === 'completed active' ? 'applied' : 'unfitted',
       capabilities.autoFitRevisionFor(ASSET),
     );
 }
@@ -93,9 +93,9 @@ describe('actual X3F normalization failure provenance', () => {
         outcome === 'pending' ||
           outcome === 'profile transition' ||
           outcome === 'completed unavailable'
-          ? false
+          ? 'unfitted'
           : outcome === 'completed active'
-            ? true
+            ? 'applied'
             : undefined,
       );
       expect(byteLoadError() !== null).toBe(outcome !== 'asset' && outcome !== 'reset');

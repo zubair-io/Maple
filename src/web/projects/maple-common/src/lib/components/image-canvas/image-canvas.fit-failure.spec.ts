@@ -1,6 +1,7 @@
 import { signal } from '@angular/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AssetId } from '../../models/asset';
+import type { AutoFitOutcome } from '../../raw-pipeline/auto-fit-outcome';
 import { defaultAdjustmentModel } from '../../models/adjustment-model';
 import { LensCorrectionCapabilities } from '../../state/library-store-lens-corrections';
 import { coldOpen2d, runRender2d, type Render2dHost } from './image-canvas.render2d';
@@ -47,14 +48,18 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
             ca: boolean,
             camera: undefined,
             profile: null,
-            autoFit?: boolean,
+            autoFit?: AutoFitOutcome,
             revision?: number,
           ) => capabilities.seed(id, has, ca, camera, profile, autoFit, revision),
           autoFitRevisionFor: (id: AssetId) => capabilities.autoFitRevisionFor(id),
           adjustmentFor: () => model,
           lensCorrectionsFor: (id: AssetId) => capabilities.for(id),
-          seedLensProfile: (id: AssetId, profile: null, autoFit?: boolean, revision?: number) =>
-            capabilities.seed(id, false, true, undefined, profile, autoFit, revision),
+          seedLensProfile: (
+            id: AssetId,
+            profile: null,
+            autoFit?: AutoFitOutcome,
+            revision?: number,
+          ) => capabilities.seed(id, false, true, undefined, profile, autoFit, revision),
         },
         pipeline: { decode: () => failed, renderLiveSession: () => failed },
         filmSync: { cpuLutBytesForCurrent: () => undefined },
@@ -86,7 +91,7 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
       const pending = h.run();
       h.reject(new Error('actual rejected renderer request'));
       await pending;
-      expect(h.capabilities.for(ASSET).autoFit).toBe(false);
+      expect(h.capabilities.for(ASSET).autoFit).toBe('unfitted');
     });
     for (const newer of ['revision', 'completed revision', 'generation', 'asset', 'Neutral']) {
       it(`does not publish an old failure after a newer ${newer}`, async () => {
@@ -101,7 +106,7 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
             true,
             undefined,
             null,
-            true,
+            'applied',
             h.capabilities.autoFitRevisionFor(ASSET),
           );
         if (newer === 'generation') h.host.renderGeneration++;
@@ -110,11 +115,11 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
         h.reject(new Error('superseded renderer request'));
         await pending;
         expect(h.capabilities.for(ASSET).autoFit).toBe(
-          newer === 'completed revision' ? true : undefined,
+          newer === 'completed revision' ? 'applied' : undefined,
         );
       });
     }
-    for (const achieved of [true, false]) {
+    for (const achieved of ['applied', 'no-preview', 'unfitted'] as const) {
       it(`retains a completed same-revision outcome ${achieved} arriving during failure`, async () => {
         const h = harness();
         const pending = h.run();
@@ -150,11 +155,11 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
           vi.fn().mockRejectedValue(new Error('bitmap creation failed')),
         );
         const pending = h.run();
-        h.resolve({ width: 1, height: 1, rgb: new Uint8Array([40, 60, 80]), autoFit: true });
+        h.resolve({ width: 1, height: 1, rgb: new Uint8Array([40, 60, 80]), autoFit: 'applied' });
         await pending;
         expect(h.host.markColdOpenDone).not.toHaveBeenCalled();
         expect(globalThis.createImageBitmap).toHaveBeenCalledOnce();
-        expect(h.capabilities.for(ASSET).autoFit).toBe(false);
+        expect(h.capabilities.for(ASSET).autoFit).toBe('unfitted');
         expect(h.host.imageBitmap()).toBeNull();
         expect(h.host.loading()).toBe(false);
       });
@@ -166,13 +171,13 @@ for (const route of ['CPU', 'GPU', 'cold CPU'] as const) {
         true,
         undefined,
         null,
-        true,
+        'applied',
         h.capabilities.autoFitRevisionFor(ASSET),
       );
       const pending = h.run();
       h.reject(new Error('scalar render failed'));
       await pending;
-      expect(h.capabilities.for(ASSET).autoFit).toBe(true);
+      expect(h.capabilities.for(ASSET).autoFit).toBe('applied');
     });
   });
 }

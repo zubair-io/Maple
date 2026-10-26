@@ -23,6 +23,7 @@ import { ApiFolder } from '../api/bun-api-backend.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { LibraryStore } from './library-store.service';
 import type { LensCorrectionCapability } from './library-store-lens-corrections';
+import type { AutoFitOutcome } from '../raw-pipeline/auto-fit-outcome';
 import { LibrarySelection } from './library-selection.service';
 import { LibraryCache } from './library-cache.service';
 import { LibraryFetch } from './library-fetch.service';
@@ -272,7 +273,7 @@ export class LibraryStateService {
     lensCorrectionCaInert: boolean,
     cameraSupport?: CameraSupport | null,
     lensProfile?: LensProfileResolution | null,
-    autoFit?: boolean,
+    autoFit?: AutoFitOutcome,
     fitRevision?: number,
   ): void {
     this.store.lensCorrections.seed(
@@ -290,7 +291,7 @@ export class LibraryStateService {
   seedLensProfile(
     id: AssetId,
     lensProfile: LensProfileResolution | null,
-    autoFit?: boolean,
+    autoFit?: AutoFitOutcome,
     fitRevision?: number,
   ): void {
     this.store.lensCorrections.seedProfile(id, lensProfile, autoFit, fitRevision);

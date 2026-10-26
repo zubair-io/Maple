@@ -28,7 +28,7 @@ import type {
   WorkerResponse,
   WorkerRequest,
 } from './raw-pipeline.types';
-import { ensureReady } from './raw-pipeline.worker-handlers';
+import { autoFitOutcomeFrom, ensureReady } from './raw-pipeline.worker-handlers';
 import {
   importLensProfile,
   lensProfileRestored,
@@ -319,7 +319,7 @@ function postLegacyDecodeSuccess(req: { id: number }, result: LegacyDecodeResult
   const lensCorrectionCaInert = result.lens_correction_ca_inert;
   const cameraSupport = cameraSupportFromJson(result.camera_support_json);
   const lensProfile = lensProfileFromJson(result.lens_profile_json); // #3479
-  const autoFit = result.auto_fit;
+  const autoFit = autoFitOutcomeFrom(result.auto_fit);
   const rgb = result.take_rgb();
   result.free();
   const buffer = new Uint8Array(rgb).buffer;
