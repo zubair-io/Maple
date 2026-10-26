@@ -253,6 +253,9 @@ public final class FileProviderMetaStore: @unchecked Sendable {
             log.error("PRAGMA synchronous=NORMAL failed rc=\(syncRc)")
             throw StoreError.stepFailed("PRAGMA synchronous=NORMAL", syncRc)
         }
+        // A few rows per fetched file; SQLite's default 2 MB page cache
+        // would be a tenth of the iOS extension's memory limit (#5456).
+        _ = sqlite3_exec(db, "PRAGMA cache_size=-256;", nil, nil, nil)
         let busyRc = sqlite3_exec(db, "PRAGMA busy_timeout=2000;", nil, nil, nil)
         if busyRc != SQLITE_OK {
             log.error("PRAGMA busy_timeout=2000 failed rc=\(busyRc)")

@@ -32,6 +32,7 @@ let package = Package(
   products: [
     .library(name: "MapleCore", targets: ["MapleCore"]),
     .library(name: "MapleCloudKit", targets: ["MapleCloudKit"]),
+    .library(name: "MapleFileProviderCore", targets: ["MapleFileProviderCore"]),
   ],
   dependencies: [
     // AMSMB2 — Swift SMB 2/3 client (MIT license; review before App Store submission).
@@ -59,10 +60,22 @@ let package = Package(
     // via MapleCore's re-export AND directly by the Maple TV target (tvOS),
     // which must not link RawPipeline. Keep this target dependency-free.
     .target(name: "MapleCloudKit"),
+    // The File Provider extensions' whole implementation (#5456). iOS runs
+    // the extension under a hard 20 MB memory limit, so it links only this
+    // target and MapleCloudKit: no RawPipeline, AMSMB2, MapleBackup, OTel or
+    // render code. It lives inside MapleCore's source tree (MapleCore
+    // excludes the directory and re-exports the module), so app code keeps
+    // importing MapleCore alone.
+    .target(
+      name: "MapleFileProviderCore",
+      dependencies: ["MapleCloudKit"],
+      path: "Sources/MapleCore/FileProvider"
+    ),
     .target(
       name: "MapleCore",
       dependencies: [
         "MapleCloudKit",
+        "MapleFileProviderCore",
         "RawPipeline",
         .product(name: "AMSMB2", package: "AMSMB2"),
         .product(name: "MapleBackup", package: "MapleBackup"),
@@ -70,6 +83,7 @@ let package = Package(
         .product(name: "MapleMCPHTTP", package: "MapleMCP", condition: .when(platforms: [.macOS])),
         .product(name: "OTel", package: "swift-otel"),
       ],
+      exclude: ["FileProvider"],
       resources: [
         // .metal files are CoreImage CIKernel sources, NOT standard
         // Metal libraries. They are read verbatim at runtime via
@@ -96,6 +110,7 @@ let package = Package(
       dependencies: [
         "MapleCore",
         "MapleCloudKit",
+        "MapleFileProviderCore",
         .product(name: "MapleBackup", package: "MapleBackup"),
         .product(name: "MapleAgentWire", package: "MapleMCP"),
         .product(name: "MapleMCPHTTP", package: "MapleMCP", condition: .when(platforms: [.macOS])),

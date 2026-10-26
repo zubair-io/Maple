@@ -4,6 +4,7 @@ import Foundation
 import XCTest
 
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// #2538 (create side): `RemoteCatalog.uploadFile`'s doc comment says a
 /// duplicate upload to an existing path trashes the prior file and

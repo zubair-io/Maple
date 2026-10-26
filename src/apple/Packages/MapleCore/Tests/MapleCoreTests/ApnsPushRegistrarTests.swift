@@ -13,6 +13,7 @@ import FileProvider
 import XCTest
 
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 final class ApnsPushRegistrarTests: XCTestCase {
     private func makeRegistrationClient(

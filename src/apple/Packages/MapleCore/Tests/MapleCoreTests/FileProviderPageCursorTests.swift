@@ -1,6 +1,7 @@
 import XCTest
 import FileProvider
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// #2989: the OS's initial-page sentinels are the literal UTF-8 strings
 /// "FPPageSortedByName"/"FPPageSortedByDate" — not opaque bytes — so a

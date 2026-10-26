@@ -4,6 +4,7 @@ import Foundation
 import XCTest
 
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// Shared construction helpers for `FileProviderExtensionCore` CRUD tests
 /// (#2552).

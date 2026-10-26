@@ -11,6 +11,7 @@ import XCTest
 
 @testable import MapleCloudKit
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 extension GeneratedSearchCollectionsCacheTests {
   func testFileProviderAssetDeleteRecordsAppliesAndClearsBeforeFirstRender() async throws {

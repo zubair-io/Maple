@@ -2,6 +2,7 @@
 import XCTest
 import FileProvider
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// #2541: `modifyItem`'s folder-move branch used to signal only the old
 /// and new PARENT identifiers, never the moved folder's own new

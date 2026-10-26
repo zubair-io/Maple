@@ -3,6 +3,7 @@ import FileProvider
 import XCTest
 
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// Direct `createItem` coverage for #2552 — the actual dispatching CRUD
 /// entry point (extension + folder/xmp/upload routing), not just the

@@ -1,6 +1,7 @@
 import FileProvider
 import XCTest
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 /// Coverage for the static parent-resolution helpers used by
 /// `WorkingSetEnumerator` (and mirrored on `FileProviderExtensionCore`).

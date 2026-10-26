@@ -629,6 +629,19 @@ public actor RemoteCatalog {
   private var etagCache: [String: ETagEntry] = [:]
   private var etagOrder: [String] = []
   private var etagGeneration = 0
+  private var etagCacheBytes = 0
+
+  /// Upper bound on the summed response-body bytes the ETag cache holds,
+  /// or nil for the entry-count cap alone. The File Provider extension
+  /// sets one (#5456): iOS kills it at 20 MB, and 256 cached listing pages
+  /// or thumbnails can exceed that on their own. An entry larger than the
+  /// whole budget is never cached.
+  private let etagCacheByteBudget: Int?
+
+  /// The budget the File Provider extension runs with. It counts JSON
+  /// bytes while the cache holds decoded values, typically two to four
+  /// times larger, so this bounds the resident cost at a few MB.
+  public static let extensionETagCacheByteBudget = 1024 * 1024
 
   /// Maximum number of entries the ETag cache holds. 256 is well above
   /// any realistic single-session enumeration (a typical Finder window
@@ -642,10 +655,12 @@ public actor RemoteCatalog {
   /// Lets `RemoteCatalogETagTests` assert the bound holds under load
   /// without poking at private state via `@testable` reflection.
   internal var _etagCacheCountForTesting: Int { etagCache.count }
+  internal var _etagCacheBytesForTesting: Int { etagCacheBytes }
 
   private struct ETagEntry {
     let etag: String
     let payload: Any
+    let bytes: Int
   }
 
   /// Look up an entry and promote it to MRU on hit. Returns the entry
@@ -660,16 +675,20 @@ public actor RemoteCatalog {
   /// have their payload replaced and are promoted to MRU. When inserting
   /// a new key past the cap, the LRU key is evicted first.
   private func etagCacheSet(_ key: String, _ entry: ETagEntry) {
-    if etagCache[key] != nil {
-      etagCache[key] = entry
-      etagOrderTouch(key)
-      return
+    if let previous = etagCache.removeValue(forKey: key) {
+      etagCacheBytes -= previous.bytes
+      etagOrder.removeAll { $0 == key }
     }
-    if etagCache.count >= Self.etagCacheCap, let lru = etagOrder.first {
+    if let budget = etagCacheByteBudget, entry.bytes > budget { return }
+    while let lru = etagOrder.first,
+      etagCache.count >= Self.etagCacheCap
+        || etagCacheBytes + entry.bytes > (etagCacheByteBudget ?? .max)
+    {
       etagOrder.removeFirst()
-      etagCache.removeValue(forKey: lru)
+      etagCacheBytes -= etagCache.removeValue(forKey: lru)?.bytes ?? 0
     }
     etagCache[key] = entry
+    etagCacheBytes += entry.bytes
     etagOrder.append(key)
   }
 
@@ -686,10 +705,12 @@ public actor RemoteCatalog {
 
   public init(
     http: AuthenticatedHTTPClient, server: URL,
-    downloadURLSession: URLSession? = nil
+    downloadURLSession: URLSession? = nil,
+    etagCacheByteBudget: Int? = nil
   ) {
     self.http = http
     self.server = server
+    self.etagCacheByteBudget = etagCacheByteBudget
     self.addresses = CloudAddressResolver(server: server, httpClient: http)
     // Default download session uses `.ephemeral` so RAW asset bodies are
     // never persisted to URLCache, cookie storage, or credential storage:
@@ -735,6 +756,7 @@ public actor RemoteCatalog {
     etagGeneration += 1
     etagCache.removeAll()
     etagOrder.removeAll()
+    etagCacheBytes = 0
   }
 
   /// Generic helper: send `If-None-Match` when we have a cached entry,
@@ -762,7 +784,7 @@ public actor RemoteCatalog {
     try Self.check2xx(resp, data: data, url: url)
     let value = try decoder.decode(T.self, from: data)
     if generation == etagGeneration, let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
-      etagCacheSet(key, ETagEntry(etag: etag, payload: value))
+      etagCacheSet(key, ETagEntry(etag: etag, payload: value, bytes: data.count))
     }
     return value
   }
@@ -804,16 +826,40 @@ public actor RemoteCatalog {
   /// refresh + one retry.
   public func downloadAsset(assetID: String, to localURL: URL) async throws {
     try Self.validateAssetID(assetID)
-    let req = URLRequest(url: server.appending(path: "/api/assets/\(assetID)/raw"))
+    try await streamDownload(
+      URLRequest(url: server.appending(path: "/api/assets/\(assetID)/raw")), to: localURL)
+  }
+
+  /// Streams an asset's pre-baked thumbnail to `localURL`. The File
+  /// Provider extension uses this instead of `getThumb` so the bytes never
+  /// sit in its memory or its ETag cache (#5456).
+  public func downloadThumb(assetID: String, to localURL: URL) async throws {
+    try Self.validateAssetID(assetID)
+    try await streamDownload(
+      URLRequest(url: server.appending(path: "/api/assets/\(assetID)/thumb")), to: localURL)
+  }
+
+  /// Streams the 1280 px preview at `absPath` to `localURL`; the streaming
+  /// counterpart of `getPreview`, for the same reason as `downloadThumb`.
+  public func downloadPreview(absPath: String, to localURL: URL) async throws {
+    let url = try await addresses.url(route: "preview", absPath: absPath)
+    try await streamDownload(URLRequest(url: url), to: localURL)
+  }
+
+  /// Downloads `request` through `URLSession.download(for:)`, so peak
+  /// memory is the session's transfer buffer rather than the body, and
+  /// moves the result to `localURL`, whose parent directory must exist.
+  private func streamDownload(_ request: URLRequest, to localURL: URL) async throws {
     let session = downloadURLSession
-    let (tmpURL, resp) = try await http.refreshIfNeededAndRetry(request: req) { injected in
+    let (tmpURL, resp) = try await http.refreshIfNeededAndRetry(request: request) { injected in
       try await session.download(for: injected)
     }
-    try Self.check2xx(resp, url: req.url)
-    // download() returns a tmp URL inside NSTemporaryDirectory; move it
-    // into place. The destination's parent directory must exist — the
-    // File Provider extension hands us a tmp dir from
-    // NSFileProviderManager.temporaryDirectoryURL().
+    do {
+      try Self.check2xx(resp, url: request.url)
+    } catch {
+      try? FileManager.default.removeItem(at: tmpURL)
+      throw error
+    }
     let fm = FileManager.default
     if fm.fileExists(atPath: localURL.path) {
       try fm.removeItem(at: localURL)
@@ -974,7 +1020,7 @@ public actor RemoteCatalog {
     }
     try Self.check2xx(resp, data: data, url: req.url)
     if let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
-      etagCacheSet(key, ETagEntry(etag: etag, payload: data))
+      etagCacheSet(key, ETagEntry(etag: etag, payload: data, bytes: data.count))
     }
     return data
   }
@@ -999,7 +1045,7 @@ public actor RemoteCatalog {
     }
     try Self.check2xx(resp, data: data, url: req.url)
     if generation == etagGeneration, let etag = httpResp?.value(forHTTPHeaderField: "ETag") {
-      etagCacheSet(key, ETagEntry(etag: etag, payload: data))
+      etagCacheSet(key, ETagEntry(etag: etag, payload: data, bytes: data.count))
     }
     return data
   }
@@ -1219,17 +1265,7 @@ public actor RemoteCatalog {
       url: server.appending(path: "/api/folders/\(folderID)/file"),
       resolvingAgainstBaseURL: false)!
     comps.queryItems = [.init(name: "path", value: relativePath)]
-    let req = URLRequest(url: comps.url!)
-    let session = downloadURLSession
-    let (tmpURL, resp) = try await http.refreshIfNeededAndRetry(request: req) { injected in
-      try await session.download(for: injected)
-    }
-    try Self.check2xx(resp, url: req.url)
-    let fm = FileManager.default
-    if fm.fileExists(atPath: localURL.path) {
-      try fm.removeItem(at: localURL)
-    }
-    try fm.moveItem(at: tmpURL, to: localURL)
+    try await streamDownload(URLRequest(url: comps.url!), to: localURL)
   }
 
   /// Stat a non-indexed file by its library-relative path. Lets `item(for:)`

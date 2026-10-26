@@ -16,6 +16,7 @@ import FileProvider
 import Foundation
 import XCTest
 @testable import MapleCore
+@testable import MapleFileProviderCore
 
 final class WorkingSetEnumeratorBatchResolutionTests: XCTestCase {
     /// Thread-safe request recorder — `stubbedSequence`'s provider runs on

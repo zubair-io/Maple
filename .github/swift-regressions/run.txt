@@ -453,3 +453,11 @@ PreviewRefinementBackoffTests
 BackupScreenPolicyTests
 LightTableMetricsTests
 LightTableViewModelTests
+
+# File Provider extension memory budget (#5456): bounded createItem bursts over
+# real temp files, ETag cache byte budget, metadata-only modifyItem, and
+# sequential working-set seeding.
+FileProviderUploadBurstTests
+RemoteCatalogETagByteBudgetTests
+FileProviderModifyItemMetadataTests
+WorkingSetSeedBoundTests
