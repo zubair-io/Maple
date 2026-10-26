@@ -167,11 +167,11 @@ export async function listLiveAssetLocationsUnderFolder(
  * Every trashed asset whose recorded `original_path` was under
  * `folderRoot/relPath`, with the location in `folderId` that trash repointed.
  *
- * The entry is matched on its library alone, with no liveness test, because a
- * trashed entry stays live by the per-entry definition — trash stamps the
- * asset's own `deleted_at` and rewrites the entry's address to the
- * `.maple/trash/` copy. Testing the entry would exclude exactly the rows this
- * query exists to find.
+ * The entry is matched on its library and its address inside `.maple/trash/`,
+ * because a trashed entry stays live by the per-entry definition — trash
+ * stamps the asset's own `deleted_at` and rewrites only the moved entry's
+ * address. A second copy of the photo in the same library is never the one
+ * a folder restore moves (#5405).
  */
 export async function listTrashedAssetLocationsUnderFolder(
   folderId: ObjectId,
@@ -190,6 +190,8 @@ export async function listTrashedAssetLocationsUnderFolder(
        FROM asset_locations l
        JOIN assets a ON a.id = l.asset_id
       WHERE l.library_id = ?
+        AND l.deleted_at IS NULL
+        AND (l.path = '.maple/trash' OR substr(l.path, 1, 13) = '.maple/trash/')
         AND a.deleted_at IS NOT NULL
         AND (a.original_path = ? OR substr(a.original_path, 1, length(?)) = ?)
       ORDER BY l.asset_id, l.ordinal`,

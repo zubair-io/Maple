@@ -19,6 +19,7 @@ import {
   searchRearmStatements,
   relocateCacheRearmStatements,
 } from './assets.stage-rearm.ts';
+import type { SqlStatement } from '../sqlite/protocol.ts';
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { recordLocalPurgeStatements, type LocalPurgeTarget } from './local-purge.repo.ts';
 import type { LocationSource } from './assets.trash.ts';
@@ -52,6 +53,27 @@ const NEXT_FREE_ORDINAL = `(SELECT MAX(used) + 1 FROM (
 const NO_CANONICAL_LOCATION = `NOT EXISTS (SELECT 1 FROM asset_locations WHERE asset_id = ? AND ordinal = 0)`;
 const NEW_CANONICAL_ORDINAL = `(SELECT MIN(ordinal) FROM asset_locations s
   WHERE s.asset_id = ? AND ${SURVIVING})`;
+
+/** Give the lowest-ordinal surviving copy ordinal 0 when no location holds it. */
+export function canonicalOrdinalStatements(hex: string): SqlStatement[] {
+  return [
+    {
+      sql: `UPDATE backup_entries SET ordinal = ${NEXT_FREE_ORDINAL}
+             WHERE asset_id = ? AND ordinal = 0 AND ${NO_CANONICAL_LOCATION}`,
+      params: [hex, hex, hex, hex],
+    },
+    {
+      sql: `UPDATE backup_entries SET ordinal = 0
+             WHERE asset_id = ? AND ordinal = ${NEW_CANONICAL_ORDINAL} AND ${NO_CANONICAL_LOCATION}`,
+      params: [hex, hex, hex],
+    },
+    {
+      sql: `UPDATE asset_locations SET ordinal = 0
+             WHERE asset_id = ? AND ordinal = ${NEW_CANONICAL_ORDINAL} AND ${NO_CANONICAL_LOCATION}`,
+      params: [hex, hex, hex],
+    },
+  ];
+}
 
 export type KeepSurvivingCopyOutcome = 'kept' | 'purge-in-flight' | 'changed';
 
@@ -122,21 +144,7 @@ export async function keepSurvivingCopy(
                WHERE asset_id = ? AND library_id = ? AND path = ? AND filename = ?`,
         params: [hex, ...location],
       },
-      {
-        sql: `UPDATE backup_entries SET ordinal = ${NEXT_FREE_ORDINAL}
-               WHERE asset_id = ? AND ordinal = 0 AND ${NO_CANONICAL_LOCATION}`,
-        params: [hex, hex, hex, hex],
-      },
-      {
-        sql: `UPDATE backup_entries SET ordinal = 0
-               WHERE asset_id = ? AND ordinal = ${NEW_CANONICAL_ORDINAL} AND ${NO_CANONICAL_LOCATION}`,
-        params: [hex, hex, hex],
-      },
-      {
-        sql: `UPDATE asset_locations SET ordinal = 0
-               WHERE asset_id = ? AND ordinal = ${NEW_CANONICAL_ORDINAL} AND ${NO_CANONICAL_LOCATION}`,
-        params: [hex, hex, hex],
-      },
+      ...canonicalOrdinalStatements(hex),
       {
         sql: `UPDATE assets SET deleted_at = NULL, deleted_reason = NULL, original_path = NULL
                WHERE id = ?`,

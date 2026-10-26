@@ -83,10 +83,18 @@ function restoreOutcomeResponse(
       return { status: 404, body: { error: 'Asset not found' } };
     case 'not-trashed':
       return { status: 409, body: { error: 'Asset is not trashed' } };
-    case 'no-location':
-      return { status: 404, body: { error: 'Asset has no resolvable location' } };
-    case 'no-folder':
-      return { status: 500, body: { error: "Asset's folder is missing" } };
+    case 'not-in-trash':
+      return { status: 404, body: { error: 'Asset has no copy in Trash' } };
+    case 'unreachable':
+      return {
+        status: 503,
+        body: { error: "The photo's library is unreachable — retry once it is back" },
+      };
+    case 'ignored':
+      return {
+        status: 409,
+        body: { error: 'The restore folder is under a .mapleignore folder — nothing moves there' },
+      };
     case 'cross-library':
       return {
         status: 400,
