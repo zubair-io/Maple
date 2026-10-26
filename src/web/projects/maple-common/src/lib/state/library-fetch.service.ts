@@ -867,7 +867,18 @@ export class LibraryFetch {
     this.store.assets.update((list) => {
       const others = list.filter((a) => a.folderId !== sourceId);
       const previous = list.filter((a) => a.folderId === sourceId);
-      const merged = mergePreservingRefs(previous, newAssets, assetsEqualForRender);
+      const previousById = new Map(previous.map((a) => [a.id, a]));
+      const hydratedAssets = newAssets.map((asset) => {
+        const prev = previousById.get(asset.id);
+        const cullingPatch = this.store.cullingPatchFor(asset.id);
+        return {
+          ...asset,
+          ...(prev?.keywords !== undefined ? { keywords: prev.keywords } : {}),
+          ...cullingPatch,
+          ...(prev?.edited ? { edited: true } : {}),
+        };
+      });
+      const merged = mergePreservingRefs(previous, hydratedAssets, assetsEqualForRender);
       return [...others, ...merged];
     });
 

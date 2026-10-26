@@ -35,6 +35,7 @@ import { LibrarySelection } from '../state/library-selection.service';
 import { XmpParserService } from './xmp-parser.service';
 import { XmpStoreService } from './xmp-store.service';
 import type { PassthroughBucket, XmpCulling, XmpMetadata } from './xmp.types';
+import type { BatchApplyEntry } from '../batch-metadata/batch-metadata.types';
 import { PRIMARY_VARIANT_ID } from '../generated/workflow.generated';
 
 export interface HydratedSidecar {
@@ -135,6 +136,23 @@ export class XmpAdjustmentRestoreService {
   invalidateForAsset(id: AssetId): void {
     this._attempted.delete(id);
     this._sidecars.delete(id);
+  }
+
+  /** Sync in-memory state and invalidate cached sidecars after `POST /api/xmp/batch` (#5295). */
+  applyBatchMetadata(
+    entries: readonly BatchApplyEntry[],
+    results: readonly { address: string; ok: boolean }[],
+  ): void {
+    const succeeded = new Set(results.filter((r) => r.ok).map((r) => r.address));
+    const focused = this.selection.focusedAssetId();
+    for (const entry of entries) {
+      if (!succeeded.has(entry.address)) continue;
+      this.store.applyBatchMetadata(entry.address, entry.metadata);
+      this.invalidateForAsset(entry.address);
+      if (focused === entry.address) {
+        void this.restoreForAsset(entry.address);
+      }
+    }
   }
 
   /** Self-Hosted `slug:relPath` assets not yet attempted this session. */
