@@ -61,6 +61,11 @@ extension EditorState {
         for sub in tool.subParams {
           reset[keyPath: sub.keyPath] = sub.defaultDisplayValue
         }
+        // Deep denoise may be hidden behind its patent gate (#5381); resetting
+        // Noise must still clear a value a sidecar or agent carried in.
+        if tool == .noise {
+          reset.deepDenoise = AdjustmentModel.default.deepDenoise
+        }
         if tool == .toneCurve {
           reset.toneCurveLuma = .identity
           reset.toneCurveRed = .identity

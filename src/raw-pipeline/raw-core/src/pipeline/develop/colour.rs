@@ -101,16 +101,13 @@ pub(crate) fn capture_base(
 ) -> Result<CaptureBase> {
     let orientation = input.raw.orientation;
     let (creative, rest) = creative_of(input);
-    let mut base = CaptureBase::develop(
+    CaptureBase::develop(
         camera_rgb,
         creative,
         (loaded, rest.model),
-        rest.chain,
-        rest.cancel,
-    )?;
-    base.image.whites_anchor_ev = Some(rest.whites_anchor_ev);
-    base.orientation = orientation;
-    Ok(base)
+        (orientation, rest.whites_anchor_ev),
+        (rest.chain, rest.cancel),
+    )
 }
 
 struct Rest<'a> {

@@ -47,7 +47,10 @@ impl CaptureRefinePasses {
 
 /// Refine `pixels` (interleaved RGBA f32, `width × height`, the sensor-frame
 /// capture base). `Ok(None)` when `cancel` fired. A frame with no engaged
-/// pass is returned unchanged without touching the GPU.
+/// pass is returned unchanged without touching the GPU. The pool stays in
+/// the refine's transient frame across the readback, so the caller must not
+/// render on `ctx` until this resolves (native callers block; a wasm caller
+/// serializes it with its live renders).
 pub async fn capture_refine_async(
     ctx: &GpuContext,
     pixels: &[f32],
@@ -69,6 +72,16 @@ pub async fn capture_refine_async(
         return Ok(Some((pixels.to_vec(), CaptureRefineUsage::default())));
     }
     let image_bytes = crate::live_session::limits::validate_dims(ctx, width, height)?;
+    // BM3D dispatches its patch cache indirectly; the iOS Simulator's Metal
+    // device lacks that, and wgpu would panic mid-encode instead of failing.
+    let indirect = ctx
+        .adapter
+        .get_downlevel_capabilities()
+        .flags
+        .contains(wgpu::DownlevelFlags::INDIRECT_EXECUTION);
+    if passes.deep_denoise >= 1e-3 && !indirect {
+        return Err("capture refine: BM3D needs indirect execution on this device".into());
+    }
     let chroma = ChromaPrefilterPass {
         strength: passes.chroma_prefilter,
     };
@@ -79,16 +92,14 @@ pub async fn capture_refine_async(
     let sharpen = passes
         .sharpening
         .map(|params| CaptureSharpeningPass { params });
-    let mut chain: Vec<&dyn Pass> = Vec::with_capacity(3);
-    if passes.chroma_prefilter >= 1e-3 {
-        chain.push(&chroma);
-    }
-    if passes.deep_denoise >= 1e-3 {
-        chain.push(&denoise);
-    }
-    if let Some(sharpen) = &sharpen {
-        chain.push(sharpen);
-    }
+    let chain: Vec<&dyn Pass> = [
+        (passes.chroma_prefilter >= 1e-3).then_some(&chroma as &dyn Pass),
+        (passes.deep_denoise >= 1e-3).then_some(&denoise as &dyn Pass),
+        sharpen.as_ref().map(|pass| pass as &dyn Pass),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     let image = GpuImage::upload(ctx, pixels, width, height);
     let frame = TransientFrame::begin(ctx);
     let result = ChainRunner::new(ctx, &image)

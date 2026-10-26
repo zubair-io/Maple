@@ -42,7 +42,7 @@ extension RenderActor {
     self.decodedHasLensCorrections = false
     self.decodedLensCorrectionCaInert = true
     self.decodedLensCorrectionDistortionInert = true
-    self.decodedCaptureBase = nil  // #5381: a seed has no refine base
+    self.decodedCaptureBase = nil
     // #2049: a seed is a cache WRITE — bump identity so a GPU-live
     // session uploaded from the previous buffer knows to re-upload.
     self.decodeGeneration &+= 1
@@ -75,7 +75,7 @@ extension RenderActor {
     self.decodedHasLensCorrections = false  // #2231/#3189 — see `seed(...)`
     self.decodedLensCorrectionCaInert = true
     self.decodedLensCorrectionDistortionInert = true
-    self.decodedCaptureBase = nil  // #5381: a seed has no refine base
+    self.decodedCaptureBase = nil
     self.decodeGeneration &+= 1  // #2049 — see `seed(...)`
     return true
   }

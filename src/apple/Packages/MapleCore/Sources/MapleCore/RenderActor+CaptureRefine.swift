@@ -53,7 +53,7 @@ extension RenderActor {
 extension CaptureRefineBudget {
   /// Whether `model` engages a stage the GPU capture refine re-runs.
   static func engagesRefinableStage(_ model: AdjustmentModel) -> Bool {
-    model.chromaPrefilter > 0 || model.deepDenoise > 0 || model.captureSharpeningAmount > 0
+    model.chromaPrefilter >= 1e-3 || model.deepDenoise >= 1e-3 || model.captureSharpeningAmount > 0
   }
 
   /// The iPhone capture edge (#5213 decision 7): while a refinable stage is

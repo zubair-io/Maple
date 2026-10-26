@@ -31,7 +31,7 @@ public enum CaptureRefineBudget {
 
   public static var current: MapleCaptureRefineBudget {
     #if os(macOS)
-      MapleCaptureRefineBudget(max_long_edge: 4096, bm3d_binding_cap_bytes: 128 << 20)
+      MapleCaptureRefineBudget(max_long_edge: 2560, bm3d_binding_cap_bytes: 128 << 20)
     #else
       MapleCaptureRefineBudget(max_long_edge: phoneLongEdge, bm3d_binding_cap_bytes: 32 << 20)
     #endif
@@ -85,30 +85,46 @@ extension PipelineRenderer {
     )
   }
 
-  /// The sized capture decode with its refine base (file source).
-  static func renderCaptureBase(
+  /// Whether a decode capped at `maxLongEdge` can ever be refined here, and
+  /// so is worth keeping a refine base for (a whole extra image in memory).
+  static func keepsRefineBase(maxLongEdge: UInt32) -> Bool {
+    maxLongEdge <= CaptureRefineBudget.current.max_long_edge
+  }
+
+  /// The sized capture decode, with its refine base when the device could
+  /// refine it (file source).
+  static func renderCaptureSized(
     rawCStr: UnsafePointer<CChar>, xmpCStr: UnsafePointer<CChar>?, quality: Quality,
     maxLongEdge: UInt32, cancel: CancelFlag?
   ) throws -> MapleSceneLinearImageData {
     var capture = MapleCaptureBufferF32()
     var base: OpaquePointer?
-    let rc = maple_render_file_capture_base_f32(
-      rawCStr, xmpCStr, maxLongEdge, quality.rawValue, cancel?.pointer, &capture, &base)
+    let rc =
+      keepsRefineBase(maxLongEdge: maxLongEdge)
+      ? maple_render_file_capture_base_f32(
+        rawCStr, xmpCStr, maxLongEdge, quality.rawValue, cancel?.pointer, &capture, &base)
+      : maple_render_file_capture_sized_f32(
+        rawCStr, xmpCStr, maxLongEdge, quality.rawValue, cancel?.pointer, &capture)
     return try captureImageData(
       &capture, rc: rc, base: base.map(CaptureBase.init), emptyMessage: "empty sized buffer")
   }
 
-  /// The sized capture decode with its refine base (bytes source).
-  static func renderCaptureBase(
+  /// The bytes-source sibling of `renderCaptureSized(rawCStr:…)`.
+  static func renderCaptureSized(
     ptr: UnsafePointer<UInt8>?, len: Int, hintCStr: [CChar], xmpCStr: UnsafePointer<CChar>?,
     quality: Quality, maxLongEdge: UInt32, cancel: CancelFlag?
   ) throws -> MapleSceneLinearImageData {
     var capture = MapleCaptureBufferF32()
     var base: OpaquePointer?
+    let keepBase = keepsRefineBase(maxLongEdge: maxLongEdge)
     let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
-      maple_render_bytes_capture_base_f32(
-        ptr, UInt(len), hintPtr.baseAddress, xmpCStr, maxLongEdge, quality.rawValue,
-        cancel?.pointer, &capture, &base)
+      keepBase
+        ? maple_render_bytes_capture_base_f32(
+          ptr, UInt(len), hintPtr.baseAddress, xmpCStr, maxLongEdge, quality.rawValue,
+          cancel?.pointer, &capture, &base)
+        : maple_render_bytes_capture_sized_f32(
+          ptr, UInt(len), hintPtr.baseAddress, xmpCStr, maxLongEdge, quality.rawValue,
+          cancel?.pointer, &capture)
     }
     return try captureImageData(
       &capture, rc: rc, base: base.map(CaptureBase.init), emptyMessage: "empty sized buffer")
