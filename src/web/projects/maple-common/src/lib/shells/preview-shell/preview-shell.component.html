@@ -18,6 +18,18 @@
         >{{ assetName() }}</span
       >
       <div class="preview-top-actions ml-auto flex items-center gap-1">
+        @if (motion.available()) {
+          <mui-button
+            class="[&_button]:h-11 [&_button]:w-11"
+            variant="ghost"
+            [iconOnly]="true"
+            iconLeading="play-circle"
+            ariaLabel="Play Motion Photo"
+            [ariaPressed]="motion.playing()"
+            [toggled]="motion.playing()"
+            (pressed)="motion.toggle()"
+          />
+        }
         <mui-button
           class="[&_button]:h-11 [&_button]:w-11"
           variant="ghost"
@@ -56,7 +68,14 @@
       data-testid="preview-surface"
       (pointerdown)="onImagePointerDown($event)"
     >
-      @if (videoUrl(); as video) {
+      @if (motion.src(); as clip) {
+        <maple-motion-clip-player
+          [src]="clip"
+          [poster]="previewUrl() ?? thumbUrl()"
+          label="Motion Photo clip"
+          (finished)="motion.stop()"
+        />
+      } @else if (videoUrl(); as video) {
         <video
           class="h-full w-full bg-black object-contain"
           [src]="video"
@@ -127,6 +146,17 @@
       role="toolbar"
       aria-label="Preview actions"
     >
+      @if (motion.available()) {
+        <mui-action-button
+          class="[&_button]:min-h-11 [&_button]:min-w-14"
+          icon="play-circle"
+          label="Motion"
+          title="Play Motion Photo"
+          orientation="stacked"
+          [selected]="motion.playing()"
+          (pressed)="motion.toggle()"
+        />
+      }
       <mui-action-button
         class="[&_button]:min-h-11 [&_button]:min-w-14"
         icon="flag"
