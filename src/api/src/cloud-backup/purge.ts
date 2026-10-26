@@ -5,6 +5,7 @@ import type { PurgeRecord, BackupObject, UploadCheckpoint, BackupProvider } from
 import { relativeBackupPath, fileHash, jailedFile } from './inventory.ts';
 import type { BackupDestination, BackupRepository } from './repository.ts';
 import { releasedOrdinalStatements } from '../db/repos/assets.trash-survivor-intent.ts';
+import { matchedOne } from '../db/repos/db-handle.ts';
 
 async function removeLocal(
   root: string,
@@ -106,7 +107,7 @@ function purgeClaim(
       `UPDATE backup_purges SET revision=revision+1 WHERE destination_id=? AND entry_id=? AND completed=0`,
       [destinationId, entryId],
     );
-    if (!result.changes) throw new Error('Purge row was retired or completed');
+    if (!matchedOne(result.changes)) throw new Error('Purge row was retired or completed');
     const [row] = await engine.repo.db.read<{ revision: number }>(
       `SELECT revision FROM backup_purges WHERE destination_id=? AND entry_id=?`,
       [destinationId, entryId],
