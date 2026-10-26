@@ -53,6 +53,51 @@ final class LightTableMetricsTests: XCTestCase {
     }
   }
 
+  func test_fittedStage_keepsTiltedPrintsInsideTheStage() {
+    let stages = [
+      CGSize(width: 874, height: 402), CGSize(width: 402, height: 874),
+      CGSize(width: 1376, height: 1032), CGSize(width: 1032, height: 1376),
+    ]
+    let tilts = [-LightTableMetrics.maxTilt, LightTableMetrics.maxTilt].map { $0 * .pi / 180 }
+    for size in stages {
+      let metrics = LightTableMetrics.fitting(size)
+      let halfSpan = metrics.imageSize / 2 + metrics.matPadding
+      let corners = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map {
+        CGPoint(x: $0.0 * halfSpan, y: $0.1 * halfSpan)
+      }
+      for slot in 0..<metrics.slotCount {
+        let centreX = (Double(slot % metrics.columns) + 0.5) / Double(metrics.columns) * 2 - 1
+        let centreY = (Double(slot / metrics.columns) + 0.5) / Double(metrics.rows) * 2 - 1
+        for jitterX in [-1.0, 1.0] {
+          for jitterY in [-1.0, 1.0] {
+            let anchor = CGPoint(
+              x: centreX + jitterX * metrics.slotJitter / metrics.stageHalfWidth,
+              y: centreY + jitterY * metrics.slotJitter / metrics.stageHalfHeight)
+            let offset = metrics.offset(for: anchor)
+            for tilt in tilts {
+              // Rotate about the print's own centre first, then position it.
+              let placed = corners.map {
+                CGPoint(
+                  x: $0.x * cos(tilt) - $0.y * sin(tilt) + offset.width,
+                  y: $0.x * sin(tilt) + $0.y * cos(tilt) + offset.height)
+              }
+              let label = "\(size) slot \(slot)"
+              XCTAssertLessThanOrEqual(placed.map { abs($0.x) }.max()!, size.width / 2, label)
+              XCTAssertLessThanOrEqual(placed.map { abs($0.y) }.max()!, size.height / 2, label)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  func test_tiltedHalfExtent_boundsTheRotatedSquare() {
+    let radians = LightTableMetrics.maxTilt * .pi / 180
+    XCTAssertEqual(
+      LightTableMetrics.tiltedHalfExtent(ofSpan: 100), 50 * (cos(radians) + sin(radians)),
+      accuracy: 1e-9)
+  }
+
   func test_anchor_staysInsideItsSlot() {
     for metrics in [LightTableMetrics.television] + screens.map(LightTableMetrics.fitting) {
       for slot in 0..<metrics.slotCount {
