@@ -463,7 +463,15 @@ extension EditSession {
     var rawDecoded: ImageEditPipeline.SceneLinearDecodeResult?
     var frameAsShot: ImageEditPipeline.AsShotWB?
     if asset.isRaw {
-      guard let decoded = await pipeline.decodeSceneLinearSized(asset: asset, targetSize: target)
+      let liveXMP = RawCoreBridge.writeStrippedModelXMP(
+        model, profileOverride: model.profile, autoExposureOverride: model.autoExposure)
+      defer { if let liveXMP { try? FileManager.default.removeItem(at: liveXMP) } }
+      guard
+        let liveXMP,
+        let decoded = await pipeline.decodeSceneLinearSized(
+          asset: asset, targetSize: target, xmpPath: liveXMP,
+          profileOverride: model.profile, autoExposureOverride: model.autoExposure
+        )
       else {
         throw PipelineError.renderFailed(code: -1, message: "mask segmentation decode failed")
       }
