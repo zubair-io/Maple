@@ -53,6 +53,14 @@ fn native_worker_publishes_resident_frames_and_saves_without_touching_raw() {
         _ => panic!("Profile change did not prepare a resident frame"),
     };
     assert!(!std::sync::Arc::ptr_eq(&second.view, &neutral.view));
+    assert!(
+        first.auto_fit.is_some(),
+        "an Auto frame carries its fit outcome"
+    );
+    assert_eq!(
+        neutral.auto_fit, None,
+        "a Neutral frame has no Auto outcome"
+    );
     document.model.crop.left = 0.375;
     document.model.crop.right = 0.625;
     worker.send(Command::Render(1, 4, document.model.clone()));
@@ -68,7 +76,7 @@ fn native_worker_publishes_resident_frames_and_saves_without_touching_raw() {
         _ => panic!("Two geometry resampling steps must not silently collapse"),
     }
     match receive(&worker) {
-        Event::Rendered(1, 5, Ok(image)) => assert!(image.size[0] > 0 && image.size[1] > 0),
+        Event::Rendered(1, 5, Ok(image), _) => assert!(image.size[0] > 0 && image.size[1] > 0),
         _ => panic!("Combined geometry fallback did not produce CPU pixels"),
     }
     worker.send(Command::Save(1, document));

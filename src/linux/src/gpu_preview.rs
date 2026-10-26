@@ -151,6 +151,9 @@ impl GpuPreview {
     pub fn target(&self) -> &PresentTexture {
         &self.target
     }
+    pub fn auto_fit(&self) -> Option<raw_core::view::auto_profile::AutoFitOutcome> {
+        self.profile.auto_fit
+    }
     pub fn upload_count(&self) -> u64 {
         self.uploads
     }

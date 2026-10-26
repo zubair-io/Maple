@@ -40,7 +40,7 @@ fn oversized_imported_curves_fall_back_save_exact_points_and_keep_worker_live() 
             document.model.tone_curve_luma.points.clone()
         };
         assert_eq!(points.len(), 40);
-        let expected = reference.render(&document.model, 1600).unwrap();
+        let expected = reference.render(&document.model, 1600).unwrap().0;
         let mut worker = Worker::with_gpu(
             egui::Context::default(),
             Some(raw_gpu::GpuContext::new_blocking().unwrap()),
@@ -51,7 +51,7 @@ fn oversized_imported_curves_fall_back_save_exact_points_and_keep_worker_live() 
         assert!(matches!(receive(&worker), Event::GpuFallback(1, 1, error)
             if error.contains("control-point capacity")));
         match receive(&worker) {
-            Event::Rendered(1, 1, Ok(frame)) => assert_eq!(frame.pixels, expected.pixels),
+            Event::Rendered(1, 1, Ok(frame), _) => assert_eq!(frame.pixels, expected.pixels),
             _ => panic!("CPU fallback must publish a real preview"),
         }
         worker.send(Command::Render(1, 2, AdjustmentModel::default()));

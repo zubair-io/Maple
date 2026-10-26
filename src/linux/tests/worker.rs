@@ -30,7 +30,14 @@ fn native_worker_opens_renders_and_persists_real_raw_without_touching_original()
     Control::Exposure.set(&mut document.model, 1.0).unwrap();
     worker.send(Command::Render(7, 2, document.model.clone()));
     let before = match receive(&worker) {
-        Event::Rendered(7, 2, Ok(image)) => image,
+        Event::Rendered(7, 2, Ok(image), fit) => {
+            assert_eq!(
+                fit,
+                Some(raw_core::view::auto_profile::AutoFitOutcome::NoPreview),
+                "the preview-less DNG must report why Auto shows Neutral"
+            );
+            image
+        }
         _ => panic!("render failed"),
     };
     assert!(before.size[0] > 0 && before.size[1] > 0);
@@ -45,7 +52,7 @@ fn native_worker_opens_renders_and_persists_real_raw_without_touching_original()
     assert_eq!(document.model.exposure, 1.0);
     worker.send(Command::Render(8, 1, document.model));
     let after = match receive(&worker) {
-        Event::Rendered(8, 1, Ok(image)) => image,
+        Event::Rendered(8, 1, Ok(image), _) => image,
         _ => panic!("rerender failed"),
     };
     assert_eq!(before.pixels, after.pixels);
@@ -105,7 +112,7 @@ fn rapid_slider_ticks_keep_latest_preview_and_preserve_save_order() {
     let mut latest = None;
     loop {
         match receive(&worker) {
-            Event::Rendered(1, generation, Ok(image)) => {
+            Event::Rendered(1, generation, Ok(image), _) => {
                 previews += 1;
                 latest = Some((generation, image));
             }
@@ -127,7 +134,7 @@ fn rapid_slider_ticks_keep_latest_preview_and_preserve_save_order() {
     assert_eq!(reopened.model.exposure, 1.0);
     worker.send(Command::Render(2, 1, reopened.model));
     let after = match receive(&worker) {
-        Event::Rendered(2, 1, Ok(image)) => image,
+        Event::Rendered(2, 1, Ok(image), _) => image,
         _ => panic!("reopened render failed"),
     };
     assert_eq!(before.pixels, after.pixels);
@@ -155,7 +162,7 @@ fn comparison_renders_an_independent_model_without_saving_or_rebinding_the_sessi
     Control::Exposure.set(&mut document.model, 1.0).unwrap();
     worker.send(Command::Render(1, 1, document.model.clone()));
     let after = match receive(&worker) {
-        Event::Rendered(1, 1, Ok(image)) => image,
+        Event::Rendered(1, 1, Ok(image), _) => image,
         _ => panic!("edited render failed"),
     };
     worker.send(Command::Comparison(1, before_model.clone()));
@@ -170,7 +177,7 @@ fn comparison_renders_an_independent_model_without_saving_or_rebinding_the_sessi
     assert_ne!(before.pixels, after.pixels);
     worker.send(Command::Render(1, 2, document.model));
     let retained = match receive(&worker) {
-        Event::Rendered(1, 2, Ok(image)) => image,
+        Event::Rendered(1, 2, Ok(image), _) => image,
         _ => panic!("live session no longer renders"),
     };
     assert_eq!(retained.pixels, after.pixels);
@@ -201,13 +208,13 @@ fn raster_worker_edits_saves_reopens_and_exports_without_modifying_source() {
         };
         worker.send(Command::Render(1, 1, document.model.clone()));
         let before = match receive(&worker) {
-            Event::Rendered(1, 1, Ok(image)) => image,
+            Event::Rendered(1, 1, Ok(image), _) => image,
             _ => panic!("Raster preview failed"),
         };
         Control::Exposure.set(&mut document.model, 1.0).unwrap();
         worker.send(Command::Render(1, 2, document.model.clone()));
         let edited = match receive(&worker) {
-            Event::Rendered(1, 2, Ok(image)) => image,
+            Event::Rendered(1, 2, Ok(image), _) => image,
             _ => panic!("Raster exposure render failed"),
         };
         assert_ne!(edited.pixels, before.pixels);
@@ -232,7 +239,7 @@ fn raster_worker_edits_saves_reopens_and_exports_without_modifying_source() {
         assert_eq!(document.model.exposure, 1.0);
         worker.send(Command::Render(2, 1, document.model));
         let reopened = match receive(&worker) {
-            Event::Rendered(2, 1, Ok(image)) => image,
+            Event::Rendered(2, 1, Ok(image), _) => image,
             _ => panic!("Raster saved edit render failed"),
         };
         assert_eq!(edited.pixels, reopened.pixels);
@@ -258,7 +265,7 @@ fn imported_film_preview_and_export_match_shared_core_without_touching_raw() {
     };
     worker.send(Command::Render(1, 1, document.model.clone()));
     let baseline = match receive(&worker) {
-        Event::Rendered(1, 1, Ok(image)) => image,
+        Event::Rendered(1, 1, Ok(image), _) => image,
         _ => panic!("baseline preview failed"),
     };
     let id = raw_core::film_catalog::FILM_CATALOG[0].id;
@@ -276,7 +283,7 @@ fn imported_film_preview_and_export_match_shared_core_without_touching_raw() {
     assert_eq!(model.film_strength, 100.0);
     worker.send(Command::Render(2, 2, model.clone()));
     let actual = match receive(&worker) {
-        Event::Rendered(2, 2, Ok(image)) => image,
+        Event::Rendered(2, 2, Ok(image), _) => image,
         _ => panic!("film preview failed"),
     };
     let raw = raw_core::decode::decode(&path).unwrap();

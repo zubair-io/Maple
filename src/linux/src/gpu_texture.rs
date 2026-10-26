@@ -10,6 +10,7 @@ pub struct GpuFrame {
     pub view: Arc<wgpu::TextureView>,
     pub device: Arc<wgpu::Device>,
     pub dims: (u32, u32),
+    pub auto_fit: Option<raw_core::view::auto_profile::AutoFitOutcome>,
 }
 
 impl GpuFrame {
@@ -21,6 +22,7 @@ impl GpuFrame {
             view: preview.target().srgb_view_handle(),
             device: ctx.device.clone(),
             dims: preview.target().dims(),
+            auto_fit: preview.auto_fit(),
         }
     }
 }

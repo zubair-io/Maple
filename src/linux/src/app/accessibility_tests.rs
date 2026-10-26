@@ -39,6 +39,18 @@ fn accessible_thumbnail_opens_named_photo_without_modifying_original_or_sidecar(
         std::thread::sleep(Duration::from_millis(5));
     }
     assert!(!app.browse);
+    assert_eq!(
+        app.auto_fit,
+        Some(raw_core::view::auto_profile::AutoFitOutcome::NoPreview)
+    );
+    let status = super::inspector::AUTO_NO_PREVIEW_STATUS;
+    let nodes = frame(&mut app, &context, Vec::new());
+    assert!(
+        nodes
+            .iter()
+            .any(|(_, node)| node.label() == Some(status) || node.value() == Some(status)),
+        "the no-preview Auto status must be exposed to assistive technology"
+    );
     assert_eq!(app.selected.as_ref().unwrap().path, path);
     assert!(app.history.is_empty());
     assert!(app.dirty.is_none());

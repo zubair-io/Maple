@@ -185,12 +185,13 @@ impl MapleApp {
                         self.error = Some(error);
                     }
                 },
-                Event::Rendered(id, generation, result)
+                Event::Rendered(id, generation, result, auto_fit)
                     if id == self.session && generation == self.generation =>
                 {
                     self.busy = false;
                     match result {
                         Ok(image) => {
+                            self.auto_fit = auto_fit;
                             self.gpu_texture = None;
                             self.texture = Some(context.load_texture(
                                 "Maple preview",
@@ -213,6 +214,7 @@ impl MapleApp {
                     if id == self.session && generation == self.generation =>
                 {
                     self.busy = false;
+                    self.auto_fit = frame.auto_fit;
                     if !self
                         .gpu_texture
                         .as_ref()

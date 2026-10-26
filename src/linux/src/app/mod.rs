@@ -50,6 +50,7 @@ pub struct MapleApp {
     launch_photo: Option<PathBuf>,
     document: Option<SidecarDocument>,
     white_balance: Option<crate::white_balance::WhiteBalance>,
+    auto_fit: Option<raw_core::view::auto_profile::AutoFitOutcome>,
     texture: Option<egui::TextureHandle>,
     gpu_texture: Option<crate::gpu_texture::NativeTexture>,
     gpu_state: Option<eframe::egui_wgpu::RenderState>,
@@ -129,6 +130,7 @@ impl MapleApp {
             launch_photo: None,
             document: None,
             white_balance: None,
+            auto_fit: None,
             texture: None,
             gpu_texture: None,
             gpu_state: None,
@@ -259,6 +261,7 @@ impl MapleApp {
         self.document = None;
         self.dirty = None;
         self.white_balance = None;
+        self.auto_fit = None;
         self.texture = None;
         self.gpu_texture = None;
         self.history.clear();
