@@ -111,9 +111,38 @@ public final class PanoMergeSession {
         }
     }
 
+    // MARK: - Output size (#5454)
+
+    /// The output size the next stitch uses: the user's choice, else
+    /// `.fitted` whenever a smaller output is on offer. Always `.full` when
+    /// it is not, so the merge sheet never selects an option it isn't showing.
+    public var outputSize: PanoOutputSize {
+        get {
+            guard case .fitted = memoryFit else { return .full }
+            return chosenOutputSize ?? .fitted
+        }
+        set { chosenOutputSize = newValue }
+    }
+
+    /// How the full stitch of the latest preview fits this device's memory,
+    /// read once when that preview lands so the sheet and the stitch agree;
+    /// `nil` before a preview, or where the platform has no per-process
+    /// memory limit (macOS). After a geometry change it describes the
+    /// previous geometry until the new preview lands.
+    public private(set) var memoryFit: PanoMemoryFit?
+
+    /// The canvas cap the next stitch will run with, `nil` for the default.
+    public var outputCanvasCap: Int? {
+        guard outputSize == .fitted, case .fitted(_, let pixels, _, _) = memoryFit else { return nil }
+        return pixels
+    }
+
     // MARK: - Private
 
     private let stitcher: any PanoStitching
+    private let memoryModel = PanoMemoryModel()
+    private let availableMemory: @Sendable () -> Int?
+    private var chosenOutputSize: PanoOutputSize?
     private let previewDebounce: Duration
     private var runGeneration: UInt64 = 0
     private var previewGeneration: UInt64 = 0
@@ -124,9 +153,14 @@ public final class PanoMergeSession {
     /// A composite-only option changed while a preview was matching.
     private var rePreviewWhenCurrentFinishes = false
 
-    public init(stitcher: any PanoStitching, previewDebounce: Duration = .milliseconds(600)) {
+    public init(
+        stitcher: any PanoStitching,
+        previewDebounce: Duration = .milliseconds(600),
+        availableMemory: @escaping @Sendable () -> Int? = { PanoAvailableMemory.current() }
+    ) {
         self.stitcher = stitcher
         self.previewDebounce = previewDebounce
+        self.availableMemory = availableMemory
     }
 
     // MARK: - Preview API
@@ -135,7 +169,11 @@ public final class PanoMergeSession {
     /// changes re-run it (debounced) until `cancel()` or a stitch starts.
     /// Fewer than two frames clears the preview.
     public func preview(assets: [AssetRef]) {
-        if assets.map(\.id) != previewAssets.map(\.id) { lastPreview = nil }
+        if assets.map(\.id) != previewAssets.map(\.id) {
+            lastPreview = nil
+            memoryFit = nil
+            chosenOutputSize = nil
+        }
         previewAssets = assets
         guard assets.count >= 2 else {
             cancelPreview()
@@ -175,6 +213,9 @@ public final class PanoMergeSession {
                 guard self.previewGeneration == gen else { return }
                 self.alignment = preview.alignment
                 self.lastPreview = preview
+                self.memoryFit = preview.stitchSizes.flatMap {
+                    self.memoryModel.fit(sizes: $0, availableBytes: self.availableMemory())
+                }
                 self.previewState = .ready
             } catch is CancellationError {
                 return
@@ -246,6 +287,7 @@ public final class PanoMergeSession {
                     assets: assets,
                     options: capturedOptions,
                     alignment: alignment,
+                    maxCanvasPixels: outputCanvasCap,
                     progress: { stage, stageFraction in
                         guard self.runGeneration == gen else { return }
                         self.state = .running(
@@ -275,6 +317,7 @@ public final class PanoMergeSession {
         state = .idle
         previewAssets = []
         lastPreview = nil
+        memoryFit = nil
         cancelPreview()
     }
 

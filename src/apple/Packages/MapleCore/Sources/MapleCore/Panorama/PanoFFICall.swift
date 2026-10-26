@@ -28,6 +28,7 @@ enum PanoFFICall {
         options: PanoOptions,
         engine: PanoFeatureEngine,
         alignment: PanoAlignment?,
+        maxCanvasPixels: Int?,
         atom: PanoProgressAtom,
         cancelFlag: CancelFlag
     ) throws -> PanoAlignmentOutcome {
@@ -36,12 +37,13 @@ enum PanoFFICall {
         let alignmentIn = try alignment.map { try scratch.write($0.json, named: "alignment-in.json") }
         let enums = CEnums(options, engine: engine)
 
-        panoFFILog.notice("maple_pano_stitch_aligned START: \(inputURLs.count) frames, \(engine.rawValue, privacy: .public) engine → \(outputURL.lastPathComponent, privacy: .public), alignment offered: \(alignment != nil)")
+        let canvasCap = UInt64(max(maxCanvasPixels ?? 0, 0))
+        panoFFILog.notice("maple_pano_stitch_aligned START: \(inputURLs.count) frames, \(engine.rawValue, privacy: .public) engine → \(outputURL.lastPathComponent, privacy: .public), alignment offered: \(alignment != nil), canvas cap: \(canvasCap) px")
         let rc = try withInputs(inputURLs, atom: atom) { paths, ctx in
             try withCString(outputURL) { outPath in
                 try withOptionalCString(alignmentIn) { alignmentInPath in
                     maple_pano_stitch_aligned(
-                        paths.baseAddress, UInt(paths.count), outPath, alignmentInPath,
+                        paths.baseAddress, UInt(paths.count), outPath, alignmentInPath, canvasCap,
                         enums.retention, enums.localAlign, enums.strategy, enums.featureEngine,
                         panoProgressTrampoline, ctx, cancelFlag.pointer
                     )
@@ -67,6 +69,7 @@ enum PanoFFICall {
         let alignmentOut = scratch.url.appendingPathComponent("alignment-out.json")
         let previewPNG = scratch.url.appendingPathComponent("preview.png")
         let enums = CEnums(options, engine: engine)
+        var sizes = MaplePanoPreviewSizes()
 
         panoFFILog.notice("maple_pano_preview START: \(inputURLs.count) frames, \(engine.rawValue, privacy: .public) engine, alignment offered: \(alignment != nil)")
         let rc = try withInputs(inputURLs, atom: atom) { paths, ctx in
@@ -75,7 +78,7 @@ enum PanoFFICall {
                     try withCString(alignmentOut) { alignmentOutPath in
                         maple_pano_preview(
                             paths.baseAddress, UInt(paths.count), pngPath,
-                            alignmentInPath, alignmentOutPath,
+                            alignmentInPath, alignmentOutPath, &sizes,
                             enums.retention, enums.localAlign, enums.strategy, enums.featureEngine,
                             panoProgressTrampoline, ctx, cancelFlag.pointer
                         )
@@ -86,8 +89,13 @@ enum PanoFFICall {
         let outcome = try outcome(rc: rc, call: "maple_pano_preview", offered: alignment != nil)
         let image = try decodeImage(at: previewPNG)
         let solved = PanoAlignment(json: try Data(contentsOf: alignmentOut))
-        panoFFILog.notice("maple_pano_preview OK: \(image.width)×\(image.height). \(outcome.summary, privacy: .public)")
-        return PanoPreview(image: image, alignment: solved, alignmentOutcome: outcome)
+        let stitchSizes = PanoStitchSizes(
+            canvasWidth: Int(sizes.full_width),
+            canvasHeight: Int(sizes.full_height),
+            largestFramePixels: Int(sizes.largest_frame_px)
+        )
+        panoFFILog.notice("maple_pano_preview OK: \(image.width)×\(image.height), full stitch ≈ \(stitchSizes.canvasWidth)×\(stitchSizes.canvasHeight). \(outcome.summary, privacy: .public)")
+        return PanoPreview(image: image, alignment: solved, alignmentOutcome: outcome, stitchSizes: stitchSizes)
     }
 
     // MARK: - Return codes

@@ -300,6 +300,7 @@ struct RustPanoStitcherProvisioningInjectionTests {
                 assets: [AssetRef(url: a), AssetRef(url: b)],
                 options: .default,
                 alignment: nil,
+                maxCanvasPixels: nil,
                 progress: { _, _ in }
             )
             Issue.record("Placeholder frames cannot stitch")

@@ -48,6 +48,15 @@ pub struct PanoPreview {
     pub strategy: Strategy,
     pub alignment: SolvedAlignment,
     pub reuse: AlignmentReuse,
+    /// Estimated `(width, height)` of the full stitch's canvas under the
+    /// same options: the preview's natural proxy canvas scaled up by the
+    /// proxies' mean full-resolution pixel ratio, then held to
+    /// `max_canvas_px`. Lets a caller size its memory budget before
+    /// committing to the full stitch.
+    pub full_canvas_estimate: (u32, u32),
+    /// Pixel count of the largest input frame at full resolution — the
+    /// unit refinement and the composite hold whole frames in.
+    pub largest_frame_px: u64,
     /// `[decode, features, match_graph, refine, solve, composite]` seconds;
     /// refine is always 0 (skipped), features and match_graph are 0 when
     /// the alignment was reused.
@@ -97,10 +106,21 @@ pub fn preview(
     }
     progress(3, 1.0);
 
-    let (image, solve_s, composite_s) = match &alignment.tile_graph {
+    let mean_area_scale = mean_area_scale(alignment.frames.iter().map(|f| f.proxy_scale));
+    let largest_frame_px = alignment
+        .frames
+        .iter()
+        .map(|f| {
+            let (w, h) = f.proxy_dims;
+            (w as f64 * f.proxy_scale.0 * h as f64 * f.proxy_scale.1).round() as u64
+        })
+        .max()
+        .unwrap_or(0);
+    let (image, natural_proxy_canvas, solve_s, composite_s) = match &alignment.tile_graph {
         Some(tile_graph) => {
             let cache = TileFrameCache::from_frames(proxies);
             let mut collector = CanvasCollector::default();
+            let mut natural = (0, 0);
             let TilePlaced {
                 solve_s,
                 composite_s,
@@ -111,12 +131,15 @@ pub fn preview(
                 &cache,
                 &alignment.lenses,
                 opts.local_align,
-                long_edge_pixel_cap,
+                |w, h| {
+                    natural = (w, h);
+                    long_edge_pixel_cap(w, h)
+                },
                 &mut collector,
                 &mut progress,
                 &is_cancelled,
             )?;
-            (collector.into_image(), solve_s, composite_s)
+            (collector.into_image(), natural, solve_s, composite_s)
         }
         None => rotation_preview(&alignment, proxies, opts, &mut progress, &is_cancelled)?,
     };
@@ -136,7 +159,28 @@ pub fn preview(
         ],
         alignment,
         reuse,
+        largest_frame_px,
+        full_canvas_estimate: full_canvas_estimate(
+            natural_proxy_canvas,
+            mean_area_scale,
+            opts.max_canvas_px,
+        ),
     })
+}
+
+/// Mean `sx · sy` (full-resolution pixels per proxy pixel) over `scales`.
+fn mean_area_scale(scales: impl ExactSizeIterator<Item = (f64, f64)>) -> f64 {
+    let n = scales.len().max(1) as f64;
+    scales.map(|(sx, sy)| sx * sy).sum::<f64>() / n
+}
+
+/// Scale a proxy-plane canvas to full resolution and hold it to `cap_px`
+/// the way `auto_canvas` / `apply_canvas_cap` do (uniform shrink to fit).
+fn full_canvas_estimate(proxy: (u32, u32), area_scale: f64, cap_px: usize) -> (u32, u32) {
+    let linear = area_scale.max(0.0).sqrt();
+    let (w, h) = (proxy.0 as f64 * linear, proxy.1 as f64 * linear);
+    let fit = (cap_px as f64 / (w * h).max(1.0)).sqrt().min(1.0);
+    ((w * fit).round() as u32, (h * fit).round() as u32)
 }
 
 /// The pixel cap that brings a `width × height` canvas's long edge down to
@@ -165,7 +209,7 @@ fn rotation_preview(
     opts: &StitchOptions,
     progress: &mut dyn FnMut(u32, f32),
     is_cancelled: &dyn Fn() -> bool,
-) -> Result<(PlanarImage, f64, f64), StitchError> {
+) -> Result<(PlanarImage, (u32, u32), f64, f64), StitchError> {
     let t4 = Instant::now();
     progress(4, 0.0);
     if is_cancelled() {
@@ -226,7 +270,7 @@ fn rotation_preview(
         ..Default::default()
     };
     reject_degenerate_canvas(&cameras, &natural_opts, &alignment.strategy_report, opts)?;
-    let canvas = preview_canvas(&cameras, &natural_opts)?;
+    let (natural_canvas, canvas) = preview_canvas(&cameras, &natural_opts)?;
 
     let kept_inputs: Vec<usize> = kept.iter().map(|k| k.input).collect();
     let (frames, local): (Vec<PlanarImage>, Vec<Option<LocalCorrection>>) =
@@ -258,24 +302,31 @@ fn rotation_preview(
     )
     .map_err(to_err)?;
     progress(5, 1.0);
-    Ok((image, solve_s, t5.elapsed().as_secs_f64()))
+    Ok((image, natural_canvas, solve_s, t5.elapsed().as_secs_f64()))
 }
 
-fn preview_canvas(cameras: &[Camera], natural: &CanvasOptions) -> Result<CanvasSpec, StitchError> {
+/// The natural proxy canvas's `(width, height)` and the preview canvas
+/// shrunk from it to the preview long edge.
+fn preview_canvas(
+    cameras: &[Camera],
+    natural: &CanvasOptions,
+) -> Result<((u32, u32), CanvasSpec), StitchError> {
     let to_err = |e: crate::error::PanoError| StitchError::Composite(e.to_string());
     let natural_canvas = auto_canvas(cameras, natural).map_err(to_err)?;
+    let natural_dims = (natural_canvas.width, natural_canvas.height);
     let cap = long_edge_pixel_cap(natural_canvas.width, natural_canvas.height);
     if cap >= natural_canvas.width as usize * natural_canvas.height as usize {
-        return Ok(natural_canvas);
+        return Ok((natural_dims, natural_canvas));
     }
-    auto_canvas(
+    let canvas = auto_canvas(
         cameras,
         &CanvasOptions {
             max_pixels: cap,
             ..natural.clone()
         },
     )
-    .map_err(to_err)
+    .map_err(to_err)?;
+    Ok((natural_dims, canvas))
 }
 
 #[cfg(test)]
@@ -291,5 +342,25 @@ mod tests {
     #[test]
     fn long_edge_cap_keeps_small_canvas_whole() {
         assert_eq!(long_edge_pixel_cap(1_000, 600), 600_000);
+    }
+
+    #[test]
+    fn full_estimate_scales_the_proxy_canvas_by_the_linear_ratio() {
+        assert_eq!(
+            full_canvas_estimate((2_000, 700), 16.0, usize::MAX),
+            (8_000, 2_800)
+        );
+    }
+
+    #[test]
+    fn full_estimate_shrinks_uniformly_to_the_cap() {
+        let (w, h) = full_canvas_estimate((2_000, 700), 16.0, 5_600_000);
+        assert_eq!((w, h), (4_000, 1_400));
+    }
+
+    #[test]
+    fn mean_area_scale_averages_per_frame_products() {
+        let scales = [(2.0, 2.0), (4.0, 4.0)];
+        assert_eq!(mean_area_scale(scales.into_iter()), 10.0);
     }
 }

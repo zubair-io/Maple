@@ -251,7 +251,8 @@ pub use gpu_live::{MapleGpuLiveParams, MapleGpuLiveSession};
 #[cfg(any(feature = "pano", feature = "pano-ios"))]
 pub use pano::{
     maple_pano_preview, maple_pano_stitch, maple_pano_stitch_aligned, MaplePanoFeatureEngine,
-    MaplePanoLocalAlign, MaplePanoProgressFn, MaplePanoRetention, MaplePanoStrategy,
+    MaplePanoLocalAlign, MaplePanoPreviewSizes, MaplePanoProgressFn, MaplePanoRetention,
+    MaplePanoStrategy,
 };
 // ORT smoke test entry (iOS + iOS-sim only, M6 #1244). Gated on `pano-ios`
 // AND `target_os = "ios"` — macOS uses load-dynamic ORT so `ort::init()` (no

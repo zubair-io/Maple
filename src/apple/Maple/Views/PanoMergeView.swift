@@ -19,7 +19,10 @@
 // preview's solved alignment stays in the session, and "Create Panorama"
 // hands it to the full stitch so matching is not repeated.
 //
-// Ticket: #1236 / Part of #1234 / #1241 / #4554 / #4579
+// Output size (#5454): on iPhone and iPad, PanoOutputSizeSection offers a
+// smaller output when the preview says full resolution would not fit.
+//
+// Ticket: #1236 / Part of #1234 / #1241 / #4554 / #4579 / #5454
 
 import MapleCore
 import MapleUI
@@ -60,6 +63,7 @@ struct PanoMergeView: View {
           onOpenPanoSettings: onOpenPanoSettings
         )
         optionsSection
+        PanoOutputSizeSection(session: session)
 
         switch session.state {
         case .idle:

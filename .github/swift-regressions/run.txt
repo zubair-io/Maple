@@ -416,6 +416,11 @@ SMBCopyOnlyRestoreTests
 # and alignment hand-off against an in-memory recording stitcher; no FFI.
 PanoMergePreviewTests
 
+# Panorama output size (#5454): memory-fit model and the merge session's
+# Full/Smaller choice against an in-memory recording stitcher; no FFI.
+PanoMemoryModelTests
+PanoOutputSizeSessionTests
+
 # RGB bias precision (#4667): generated large images, no external fixtures.
 CIEDE2000BiasTests
 
