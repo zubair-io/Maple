@@ -82,6 +82,29 @@ describe('TrashApiService', () => {
       call.flush(null, { status: 204, statusText: 'No Content' });
     });
 
+    // #5419 — a purge that kept the photo through another copy answers 200
+    // with `state: 'live'`; it must not read as a deletion.
+    it.each([
+      ['done', false],
+      ['pending', true],
+    ] as const)('maps a 200 state=live (cleanup %s) to a kept outcome', (cleanup, pending) => {
+      let outcome: unknown;
+      svc.deleteAsset('asset-1', 'purge').subscribe((o) => (outcome = o));
+      http
+        .expectOne((r) => r.url === '/api/assets/asset-1')
+        .flush({
+          asset_id: 'asset-1',
+          state: 'live',
+          abs_path: '/lib/kept/IMG_1.dng',
+          cleanup,
+        });
+      expect(outcome).toEqual({
+        kind: 'kept',
+        absPath: '/lib/kept/IMG_1.dng',
+        cleanupPending: pending,
+      });
+    });
+
     // #2749 — a 409 state mismatch resolves to a typed conflict outcome
     // instead of throwing, so every caller handles it as a first-class
     // per-item result rather than a generic HTTP error.

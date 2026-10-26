@@ -129,6 +129,75 @@ describe('TrashPanelComponent', () => {
     });
   });
 
+  // #5419 — a purge of a photo that has another copy outside Trash removes
+  // only the trashed copy (200 `state: 'live'`). The panel must not say
+  // "Permanently deleted" for a photo that is still in the library.
+  describe('a purge that kept the photo through another copy', () => {
+    const kept = (cleanupPending: boolean) =>
+      of({ kind: 'kept', absPath: '/x/Vacation/Kept/IMG_0001.CR3', cleanupPending });
+
+    it('says the trashed copy was removed and the photo kept, and drops the row', () => {
+      const fixture = setup([ITEM_A, ITEM_B]);
+      deleteAssetSpy.mockReturnValue(kept(false));
+      fixture.componentInstance.requestDeleteItem(ITEM_A);
+      fixture.componentInstance.onConfirmDelete();
+      expect(fixture.componentInstance.toast()).toBe(
+        `Removed the copy of "${ITEM_A.filename}" in Trash. The photo was kept because another copy exists.`,
+      );
+      expect(fixture.componentInstance.toast()).not.toMatch(/permanently deleted/i);
+      expect(fixture.componentInstance.toastVariant()).toBe('info');
+      expect(fixture.componentInstance.items()).toEqual([ITEM_B]);
+      expect(fixture.componentInstance.confirmError()).toBeNull();
+      expect(notifyLibraryMutatedSpy).toHaveBeenCalledWith('lib-1');
+    });
+
+    it('notes a pending file cleanup gently rather than as an error', () => {
+      const fixture = setup([ITEM_A]);
+      deleteAssetSpy.mockReturnValue(kept(true));
+      fixture.componentInstance.requestDeleteItem(ITEM_A);
+      fixture.componentInstance.onConfirmDelete();
+      expect(fixture.componentInstance.toast()).toMatch(
+        /kept because another copy exists\. Its file cleanup will finish shortly\.$/,
+      );
+      expect(fixture.componentInstance.toastVariant()).toBe('info');
+      expect(fixture.componentInstance.confirmError()).toBeNull();
+    });
+
+    it('refreshes the open folder that now shows the kept photo', () => {
+      const fixture = setup([ITEM_A]);
+      selectedSourceId.set('photos:Vacation/Kept');
+      deleteAssetSpy.mockReturnValue(kept(false));
+      fixture.componentInstance.requestDeleteItem(ITEM_A);
+      fixture.componentInstance.onConfirmDelete();
+      expect(refreshFolderListingSpy).toHaveBeenCalledWith('photos:Vacation/Kept');
+    });
+
+    it('does not refresh a folder that does not hold the kept photo', () => {
+      const fixture = setup([ITEM_A]);
+      selectedSourceId.set('photos:Vacation');
+      deleteAssetSpy.mockReturnValue(kept(false));
+      fixture.componentInstance.requestDeleteItem(ITEM_A);
+      fixture.componentInstance.onConfirmDelete();
+      expect(refreshFolderListingSpy).not.toHaveBeenCalled();
+    });
+
+    it('Empty Trash counts kept photos apart from deletions', async () => {
+      const fixture = setup([ITEM_A, ITEM_B]);
+      selectedSourceId.set('photos:Vacation/Kept');
+      deleteAssetSpy.mockImplementation((id: string) =>
+        id === ITEM_A.assetId ? kept(true) : of({ kind: 'ok' }),
+      );
+      fixture.componentInstance.requestDeleteAll();
+      fixture.componentInstance.onConfirmDelete();
+      await vi.waitFor(() => expect(fixture.componentInstance.confirmBusy()).toBe(false));
+      expect(fixture.componentInstance.toast()).toBe(
+        `Permanently deleted 1 item(s). 1 kept because another copy exists (${ITEM_A.filename}). File cleanup will finish shortly.`,
+      );
+      expect(fixture.componentInstance.toastVariant()).toBe('info');
+      expect(refreshFolderListingSpy).toHaveBeenCalledWith('photos:Vacation/Kept');
+    });
+  });
+
   describe('Empty Trash — intent=purge batch', () => {
     it('deletes every item and reports a clean success toast', async () => {
       const fixture = setup([ITEM_A, ITEM_B]);

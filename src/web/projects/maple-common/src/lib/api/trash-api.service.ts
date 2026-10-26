@@ -69,6 +69,15 @@ interface RestoreAssetWire {
   mtime: string;
 }
 
+/** A purge that kept the photo through another copy answers 200 with this;
+ * every other success is a bodyless 204. */
+interface KeptCopyBody {
+  asset_id: string;
+  state: 'live';
+  abs_path: string | null;
+  cleanup: 'done' | 'pending';
+}
+
 function toTrashItem(wire: TrashItemWire): TrashItem {
   return {
     assetId: wire.asset_id,
@@ -155,9 +164,20 @@ export class TrashApiService {
    * still propagates through the returned observable's error channel. */
   deleteAsset(assetId: AssetId, intent: 'trash' | 'purge'): Observable<TrashDeleteOutcome> {
     return this.http
-      .delete<void>(`${this.base}/assets/${encodeURIComponent(assetId)}`, { params: { intent } })
+      .delete<KeptCopyBody | null>(`${this.base}/assets/${encodeURIComponent(assetId)}`, {
+        params: { intent },
+      })
       .pipe(
-        map((): TrashDeleteOutcome => ({ kind: 'ok' })),
+        map(
+          (body): TrashDeleteOutcome =>
+            body?.state === 'live'
+              ? {
+                  kind: 'kept',
+                  absPath: body.abs_path ?? null,
+                  cleanupPending: body.cleanup === 'pending',
+                }
+              : { kind: 'ok' },
+        ),
         catchError((err: unknown) => {
           if (err instanceof HttpErrorResponse && err.status === 409) {
             const state = (err.error as { state?: 'trashed' | 'live' } | null)?.state ?? null;

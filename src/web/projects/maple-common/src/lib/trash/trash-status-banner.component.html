@@ -1,18 +1,11 @@
 @if (toast(); as message) {
-  <div
-    class="dlg-toast static mt-2 mx-4 translate-x-0 border-[0.5px] border-border bg-surface-hover text-text-main"
-    role="status"
-  >
-    <span>{{ message }}</span>
-    <mui-button
-      variant="ghost"
-      size="sm"
-      (pressed)="dismissToast.emit()"
-      ariaLabel="Dismiss"
-      [iconOnly]="true"
-      iconLeading="x"
-    ></mui-button>
-  </div>
+  <mui-toast
+    class="mt-2 mx-4"
+    [message]="message"
+    [variant]="toastVariant()"
+    [autoDismissMs]="null"
+    (dismissed)="dismissToast.emit()"
+  />
 }
 
 @if (loadError(); as error) {
