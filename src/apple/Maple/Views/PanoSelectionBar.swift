@@ -32,6 +32,8 @@ struct PanoSelectionBar: View {
   let onEditMetadata: (() -> Void)?
   /// Fired when the user taps "Batch Rename…" (#2641). nil hides the button.
   var onBatchRename: (() -> Void)? = nil
+  /// macOS: opens the Export recipes sheet for the selection (#5435). nil hides the button.
+  var onExportRecipes: (() -> Void)? = nil
   /// #944: pastes every adjustment group from the clipboard onto the
   /// checked selection. nil hides the button (clipboard not wired).
   var onPasteAdjustments: (() -> Void)? = nil
@@ -115,6 +117,19 @@ struct PanoSelectionBar: View {
             )
             .accessibilityIdentifier("pano-selection-bar-batch-rename")
             .accessibilityLabel("Batch rename \(selectedAssets.count) selected images")
+          }
+
+          if let onExportRecipes {
+            MuiButton(
+              label: "Export with Recipe\u{2026}",
+              variant: .secondary,
+              size: .sm,
+              leadingIcon: "square.and.arrow.up",
+              disabled: selectedAssets.isEmpty,
+              action: onExportRecipes
+            )
+            .accessibilityIdentifier("pano-selection-bar-export-recipes")
+            .accessibilityLabel("Export \(selectedAssets.count) selected images with a recipe")
           }
 
           // Right: sync settings CTA (#944) — applies the focused image's

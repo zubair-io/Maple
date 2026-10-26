@@ -149,6 +149,9 @@ struct AppShellCenterColumn: View {
   /// Called when the user taps "Batch Rename…" from the BrowseGrid
   /// multi-select action bar (#2641). nil hides the button.
   var onBatchRename: (() -> Void)? = nil
+  /// macOS Export recipes from the BrowseGrid multi-select action bar
+  /// (#5435). nil hides the button.
+  var onExportRecipes: (() -> Void)? = nil
   /// Delete key / "Move to Trash" context-menu item on BrowseGrid (#2653).
   /// nil disables both.
   var onTrashAssets: (([AssetRef.ID]) -> Void)? = nil
@@ -320,6 +323,7 @@ struct AppShellCenterColumn: View {
               onMergePanorama: onMergePanorama,
               onEditMetadata: onEditMetadata,
               onBatchRename: onBatchRename,
+              onExportRecipes: onExportRecipes,
               onTrashAssets: onTrashAssets,
               clipboard: clipboard
             )
@@ -339,6 +343,7 @@ struct AppShellCenterColumn: View {
             onMergePanorama: onMergePanorama,
             onEditMetadata: onEditMetadata,
             onBatchRename: onBatchRename,
+            onExportRecipes: onExportRecipes,
             onTrashAssets: onTrashAssets,
             clipboard: clipboard
           )

@@ -2,8 +2,8 @@
   import AppKit
   import SwiftUI
 
-  /// An AppKit control so the export sheet can return keyboard focus to its trigger.
-  struct NativeExportRecipesToolbarButton: NSViewRepresentable {
+  /// An AppKit control so the export sheet can return keyboard focus to its trigger (#5410).
+  struct NativeExportRecipesButton: NSViewRepresentable {
     let focusRequest: Int
     let action: () -> Void
 
@@ -13,8 +13,8 @@
       let button = ExportButton(
         title: "Export recipes…", target: context.coordinator,
         action: #selector(Coordinator.openRecipes))
-      button.bezelStyle = .texturedRounded
-      button.setAccessibilityIdentifier("browse-export-recipes")
+      button.bezelStyle = .push
+      button.setAccessibilityIdentifier("general.settings.exportRecipes")
       return button
     }
 

@@ -86,7 +86,6 @@ struct AppShell: View {
   // and discard the user's in-progress edits. nil = sheet closed.
   #if os(macOS)
     @State var nativeExportSelection: NativeExportRecipeSelection?
-    @State private var exportRecipesFocusRequest = 0
   #endif
   @State private var batchMetadataVM: BatchMetadataViewModel?
   /// Batch rename sheet (#2641). Same "held in @State, not built inside
@@ -463,14 +462,22 @@ struct AppShell: View {
     browseVM.selectedID.flatMap { sessions[$0] }
   }
 
+  /// Export recipes is macOS-only; the selection bar hides it elsewhere (#5435).
+  private var browseExportRecipesAction: (() -> Void)? {
+    #if os(macOS)
+      { openNativeExportRecipes() }
+    #else
+      nil
+    #endif
+  }
+
   #if os(macOS)
-    private var nativeExportAssets: [AssetRef] {
-      if mode == .browse {
-        return browseVM.isSelecting
-          ? browseVM.selectedAssets(sessions: sessions)
-          : (browseVM.selectedVisibleAsset(sessions: sessions).map { [$0] } ?? [])
-      }
-      return selectedSession.map { [$0.asset] } ?? browseVM.selectedAsset.map { [$0] } ?? []
+    private func openNativeExportRecipes() {
+      let assets = browseVM.selectedAssets(sessions: sessions)
+      for asset in assets { ensureSession(for: asset) }
+      nativeExportSelection = NativeExportRecipeSelection(
+        assets: assets,
+        sessions: sessions.filter { entry in assets.contains(where: { $0.id == entry.key }) })
     }
   #endif
 
@@ -1002,18 +1009,14 @@ struct AppShell: View {
       onEditMetadata: { openBatchMetadata() },
       // #2641 batch rename.
       onBatchRename: { openBatchRename() },
+      onExportRecipes: browseExportRecipesAction,
       // #2653: grid Delete-key/context-menu trash.
       onTrashAssets: { ids in trashSelectedAssets(ids: Set(ids)) },
       // #944 copy/paste/sync adjustments.
       clipboard: adjustmentClipboard
     )
     #if os(macOS)
-      .sheet(
-        item: $nativeExportSelection,
-        onDismiss: {
-          exportRecipesFocusRequest += 1
-        }
-      ) { selection in
+      .sheet(item: $nativeExportSelection) { selection in
         NativeExportRecipePanel(assets: selection.assets) { asset in
           guard let session = selection.sessions[asset.id] else {
             throw NativeExportError.message("Could not prepare this photo for export.")
@@ -1551,7 +1554,9 @@ struct AppShell: View {
       // `.editing` and `.preview` both own their chrome (back chevron,
       // export/share, filename), so the window toolbar suppresses every
       // browse control (fill/fit, select) and Settings — only search
-      // survives when available (#815, #4326; Fast Preview §1).
+      // survives when available (#815, #4326; Fast Preview §1). Both
+      // surfaces also hide the toolbar itself on Mac/iPad to run the photo
+      // to the top edge, so search returns with Browse (#5435).
       isEditing: mode == .editing || mode == .preview,
       isCompact: isCompactShell,
       searchAvailable: searchAvailable,
@@ -1570,17 +1575,6 @@ struct AppShell: View {
           }
         } : nil
     )
-    #if os(macOS)
-      ToolbarItem {
-        NativeExportRecipesToolbarButton(focusRequest: exportRecipesFocusRequest) {
-          let assets = nativeExportAssets
-          for asset in assets { ensureSession(for: asset) }
-          nativeExportSelection = NativeExportRecipeSelection(
-            assets: assets,
-            sessions: sessions.filter { entry in assets.contains(where: { $0.id == entry.key }) })
-        }
-      }
-    #endif
   }
 
   // MARK: - Settings navigation

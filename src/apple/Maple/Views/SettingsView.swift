@@ -357,6 +357,8 @@ struct GeneralSettingsTab: View {
       }
       .listRowBackground(MapleTokens.surface)
       #if os(macOS)
+        ExportRecipesSettingsSection()
+          .listRowBackground(MapleTokens.surface)
         AgentBridgeSettingsSection()
       #endif
     }
