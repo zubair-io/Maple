@@ -3,16 +3,16 @@
  *
  * The bundled bge-m3 lives in the API's search child, which already holds it for queries: a second
  * copy in the worker tier would double that memory, and `bun:ffi` would block the worker's event
- * loop for the whole batch. So the worker asks over the IPC channel the supervisor already holds
- * open (`runtime/worker-supervisor.ts`), the same way `remote-search.ts` ranks: a `search-embed`
- * request out, a `search-embed-reply` back. Vectors cross both hops as base64 f32 bytes.
- *
- * A missing channel, a child that is not running or still loading, and a reply that never comes
- * within {@link REMOTE_EMBED_TIMEOUT_MS} all answer `waiting`, so the stage tries again later
- * without spending a retry.
+ * loop for the whole batch. So the worker asks over the supervisor's IPC channel, as
+ * `remote-search.ts` does: a `search-embed` request out, a `search-embed-reply` back, vectors as
+ * base64 f32 bytes. Anything that keeps the engine from answering is `waiting`, which the stage
+ * defers without spending a retry.
  */
 
 import { vectorFromBase64, vectorToBase64 } from '../enrichment/vector-codec.ts';
+import { setDocumentEmbedder } from '../workers/embed/bundled-embedder.ts';
+import { pendingReplies } from './ipc-replies.ts';
+import { answerRemoteSearch } from './remote-search.ts';
 import { EMBED_TIMEOUT_MS, localSearchChildPool } from './search-pool.ts';
 import type { EmbedOutcome } from './search-protocol.ts';
 
@@ -61,7 +61,7 @@ function toWire(outcome: EmbedOutcome): WireOutcome {
   return outcome.ok ? { ok: true, vectors: outcome.vectors.map(vectorToBase64) } : outcome;
 }
 
-export interface RemoteDocumentEmbedder {
+interface RemoteDocumentEmbedder {
   embed(texts: readonly string[]): Promise<EmbedOutcome>;
   /** Hands a message from the API process to the waiting request, if it is a reply. */
   receive(message: unknown): void;
@@ -72,43 +72,28 @@ export function remoteDocumentEmbedder(
   send: (message: SearchEmbedRequest) => void,
   timeoutMs: number = REMOTE_EMBED_TIMEOUT_MS,
 ): RemoteDocumentEmbedder {
-  const waiting = new Map<number, (outcome: EmbedOutcome) => void>();
-  const sequence = { next: 1 };
+  const replies = pendingReplies<EmbedOutcome>();
   return {
-    async embed(texts) {
-      const id = sequence.next++;
-      const reply = new Promise<EmbedOutcome>((resolve) => waiting.set(id, resolve));
-      const clock: { timer?: ReturnType<typeof setTimeout> } = {};
-      const expiry = new Promise<EmbedOutcome>((resolve) => {
-        clock.timer = setTimeout(
-          () => resolve(waitingFor(`the search engine did not answer within ${timeoutMs} ms`)),
-          timeoutMs,
-        );
-        clock.timer.unref?.();
-      });
-      try {
-        send({ type: 'search-embed', id, texts: [...texts] });
-        return await Promise.race([reply, expiry]);
-      } catch (err) {
-        return waitingFor(err instanceof Error ? err.message : String(err));
-      } finally {
-        clearTimeout(clock.timer);
-        waiting.delete(id);
-      }
+    embed(texts) {
+      return replies.request(
+        (id) => send({ type: 'search-embed', id, texts: [...texts] }),
+        timeoutMs,
+        (reason) => waitingFor(`the search engine did not answer: ${reason}`),
+      );
     },
     receive(message) {
-      if (isReply(message)) waiting.get(message.id)?.(fromWire(message.outcome));
+      if (isReply(message)) replies.settle(message.id, fromWire(message.outcome));
     },
   };
 }
 
-/** Worker boot: the stage's embedder when this process has a channel to the API, else null. */
-export function installRemoteDocumentEmbedder(): RemoteDocumentEmbedder | null {
+/** Worker boot: the `embed` stage embeds through the API's child when there is a channel to it. */
+export function installRemoteDocumentEmbedder(): void {
   const send = process.send?.bind(process);
-  if (!send) return null;
+  if (!send) return;
   const remote = remoteDocumentEmbedder((message) => send(message));
   process.on('message', (message: unknown) => remote.receive(message));
-  return remote;
+  setDocumentEmbedder(remote.embed);
 }
 
 /**
@@ -147,4 +132,12 @@ export function answerRemoteEmbed(
     reply(waitingFor(err instanceof Error ? err.message : String(err))),
   );
   return true;
+}
+
+/** The supervisor's one entry for the search child's two worker requests: rank and embed. */
+export function answerSearchChildRequest(
+  worker: { postMessage(message: unknown): void },
+  message: unknown,
+): void {
+  if (!answerRemoteSearch(worker, message)) answerRemoteEmbed(worker, message);
 }

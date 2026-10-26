@@ -18,7 +18,6 @@ import { child as childLogger } from '../log.ts';
 import { installWorkerLibraryRootsSync } from '../indexer/libraries.cache.ts';
 import { installRemoteInProcessSearch } from '../search/remote-search.ts';
 import { installRemoteDocumentEmbedder } from '../search/remote-embed.ts';
-import { setDocumentEmbedder } from './embed/bundled-embedder.ts';
 import { installWorkerPreviewPriority } from './background-preview-gate.ts';
 
 installChildHardening('worker');
@@ -65,7 +64,7 @@ async function main(): Promise<void> {
   }
   installWorkerLibraryRootsSync();
   installRemoteInProcessSearch();
-  setDocumentEmbedder(installRemoteDocumentEmbedder()?.embed ?? null);
+  installRemoteDocumentEmbedder();
   await startWorkers();
   log.info('worker tier started');
   const shutdown = async () => {

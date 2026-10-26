@@ -56,7 +56,7 @@ describe('the remote document embedder', () => {
     expect(await closed.embed(['a'])).toEqual({
       ok: false,
       waiting: true,
-      error: 'channel closed',
+      error: 'the search engine did not answer: channel closed',
     });
   });
 
