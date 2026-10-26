@@ -127,11 +127,31 @@ extension CloudSource: ImageSource {
   /// folder's `.maple/previews/` (shared with the indexer's preview stage
   /// artifact) and caches it there. nil on 404, and on the route's 202
   /// "indexing" reply for a file that has no catalog row yet, so the
-  /// Preview screen keeps showing the thumbnail in both cases.
+  /// Preview screen keeps showing the thumbnail in both cases. Callers that
+  /// retry use ``previewOutcome(for:)`` instead.
   public func preview(for ref: ImageRef) async throws -> Data? {
-    let abs = Self.absPath(from: ref.id)
-    let previewURL = try await addresses.url(route: "preview", absPath: abs)
+    let previewURL = try await addresses.url(route: "preview", absPath: Self.absPath(from: ref.id))
     return try await getOrNilWhenUnavailable(previewURL)
+  }
+
+  /// The display tier, classified (#5432): bytes, indexing with the
+  /// server's `Retry-After`, not found, or a transient failure.
+  public func previewOutcome(for ref: ImageRef) async -> PreviewFetchOutcome {
+    let started = ContinuousClock.now
+    let outcome: PreviewFetchOutcome
+    do {
+      let previewURL = try await addresses.url(
+        route: "preview", absPath: Self.absPath(from: ref.id))
+      let (data, response) = try await httpClient.data(for: URLRequest(url: previewURL))
+      outcome = PreviewFetchOutcome.classify(data: data, response: response)
+    } catch {
+      outcome = PreviewFetchOutcome.classify(error: error)
+    }
+    PreviewLoadLog.record(
+      stage: .fetch, event: outcome.data == nil ? .fail : .finish, assetID: ref.id,
+      sourceKind: "cloud", bytes: outcome.data?.count,
+      elapsedMs: PreviewLoadLog.milliseconds(since: started), reason: outcome.reason)
+    return outcome
   }
 
   /// Original bytes via `/api/image/:slug/*`, with server-side mirror

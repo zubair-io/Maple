@@ -218,7 +218,7 @@ extension AppShell {
       // `CloudSource` for whichever asset the user TAPPED — and a
       // sibling on a different server 404'd, never upgrading past its
       // grid thumbnail.
-      displayPreviewProvider: { try await source.preview(for: imageRef) },
+      displayPreviewProvider: { await source.previewOutcome(for: imageRef) },
       catalog: CatalogRef(
         serverID: server,
         folderID: asset.folder_id,

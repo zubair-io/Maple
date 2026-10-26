@@ -55,7 +55,7 @@ final class ThumbnailProviderDisplayPreviewTests: XCTestCase {
     // different bytes. The asset's own resolver must be what paints.
     let ambient = RecordingImageSource(previewBytes: ambientBytes)
     let own = ownBytes
-    let ref = makeCloudRef(displayPreviewProvider: { own })
+    let ref = makeCloudRef(displayPreviewProvider: { .data(own) })
     let source = ThumbnailSource.local(ref, source: ImageSourceBox(ambient))
 
     let data = await ThumbnailProvider.local().preview(for: source)
@@ -73,7 +73,7 @@ final class ThumbnailProviderDisplayPreviewTests: XCTestCase {
     // resolves `fs:<abs_path>` against a different machine's filesystem, so
     // any bytes it returned would be wrong, not a graceful fallback.
     let ambient = RecordingImageSource(previewBytes: ambientBytes)
-    let ref = makeCloudRef(displayPreviewProvider: { nil })
+    let ref = makeCloudRef(displayPreviewProvider: { .notFound(reason: "http 404") })
     let source = ThumbnailSource.local(ref, source: ImageSourceBox(ambient))
 
     let data = await ThumbnailProvider.local().preview(for: source)
@@ -89,7 +89,7 @@ final class ThumbnailProviderDisplayPreviewTests: XCTestCase {
     // thumbnail", never to a request against the ambient host.
     let ambient = RecordingImageSource(previewBytes: ambientBytes)
     let ref = makeCloudRef(displayPreviewProvider: {
-      throw URLError(.timedOut)
+      PreviewFetchOutcome.classify(error: URLError(.timedOut))
     })
     let source = ThumbnailSource.local(ref, source: ImageSourceBox(ambient))
 
@@ -98,6 +98,20 @@ final class ThumbnailProviderDisplayPreviewTests: XCTestCase {
     XCTAssertNil(data)
     let ambientCalls = await ambient.previewCallCount
     XCTAssertEqual(ambientCalls, 0, "the ambient source must not be consulted at all")
+  }
+
+  func testDisplayPreviewOutcomeCarriesTheOwnProvidersIndexingAnswer() async {
+    // A 202 from the asset's own server is retryable; collapsing it to nil
+    // is what left a Preview page on its thumbnail for good (#5432).
+    let ambient = RecordingImageSource(previewBytes: ambientBytes)
+    let ref = makeCloudRef(displayPreviewProvider: { .indexing(retryAfter: 2) })
+    let source = ThumbnailSource.local(ref, source: ImageSourceBox(ambient))
+
+    let outcome = await ThumbnailProvider.local().previewOutcome(for: source)
+
+    XCTAssertEqual(outcome, .indexing(retryAfter: 2))
+    let ambientCalls = await ambient.previewCallCount
+    XCTAssertEqual(ambientCalls, 0)
   }
 
   // MARK: - Untagged refs keep the ambient route
