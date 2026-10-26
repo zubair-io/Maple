@@ -20,6 +20,7 @@
  * rejects a handler that tries (`assertNoStageState`).
  */
 
+import type { RecordedMotionClip } from '../../indexer/motion-photo/types.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
 import type {
   AssetDoc,
@@ -321,20 +322,13 @@ export function videoDescriptionStatements(
 }
 
 /** What the `motion-photo` stage verified: the clip's byte range inside the original. */
-export interface MotionPhotoPatch {
-  start: number;
-  length: number;
-  mime: 'video/mp4' | 'video/quicktime';
-  sourceSize: number;
-}
-
 /**
  * The `motion-photo` stage's output. `null` clears all four columns, which is
  * how a re-run over an edited original retires a clip it no longer carries.
  */
 export function motionPhotoStatements(
   assetId: string,
-  clip: MotionPhotoPatch | null,
+  clip: RecordedMotionClip | null,
 ): SqlStatement[] {
   return [
     {

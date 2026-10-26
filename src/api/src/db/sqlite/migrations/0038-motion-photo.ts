@@ -13,17 +13,21 @@ import type { Migration, MigrationDb } from '../migrate.ts';
  * edit that strips or replaces the clip can keep the first 64 KB the content
  * guard compares, so nothing else would ever revisit the recorded range.
  */
+const MOTION_COLUMNS = [
+  ['motion_video_start', 'INTEGER', '>= 0'],
+  ['motion_video_length', 'INTEGER', '> 0'],
+  ['motion_video_mime', 'TEXT', "IN ('video/mp4', 'video/quicktime')"],
+  ['motion_source_size', 'INTEGER', '> 0'],
+] as const;
+
 export const motionPhotoMigration: Migration = {
   id: '0038-motion-photo',
   async up(db: MigrationDb): Promise<void> {
-    await db.exec(`ALTER TABLE assets ADD COLUMN motion_video_start INTEGER
-      CHECK (motion_video_start IS NULL OR motion_video_start >= 0)`);
-    await db.exec(`ALTER TABLE assets ADD COLUMN motion_video_length INTEGER
-      CHECK (motion_video_length IS NULL OR motion_video_length > 0)`);
-    await db.exec(`ALTER TABLE assets ADD COLUMN motion_video_mime TEXT
-      CHECK (motion_video_mime IS NULL OR motion_video_mime IN ('video/mp4', 'video/quicktime'))`);
-    await db.exec(`ALTER TABLE assets ADD COLUMN motion_source_size INTEGER
-      CHECK (motion_source_size IS NULL OR motion_source_size > 0)`);
+    for (const [column, type, valid] of MOTION_COLUMNS) {
+      await db.exec(
+        `ALTER TABLE assets ADD COLUMN ${column} ${type} CHECK (${column} IS NULL OR ${column} ${valid})`,
+      );
+    }
     await db.exec(`INSERT INTO stage_state(asset_id,stage)
       SELECT id,'motion-photo' FROM assets WHERE true
       ON CONFLICT(asset_id,stage) DO NOTHING`);

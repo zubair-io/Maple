@@ -7,6 +7,11 @@ export interface MotionClip {
   mime: MotionVideoMime;
 }
 
+/** A clip as recorded on the asset: the range plus the original's size it was verified against. */
+export interface RecordedMotionClip extends MotionClip {
+  sourceSize: number;
+}
+
 /** A verified clip, or the reason the file is treated as a plain still. */
 export type MotionDetection = { motion: MotionClip } | { still: string };
 

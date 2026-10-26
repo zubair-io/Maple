@@ -7,7 +7,7 @@ import {
   insertFolder,
   insertLocation,
 } from '../test-sqlite.test-helpers.ts';
-import { ALL_STAGE_NAMES } from '../../../workers/stages/stage-names.ts';
+import { STAGES_AT_0030 } from './0030-seed-missing-stage-state.ts';
 
 const ID = '0030-seed-missing-stage-state';
 
@@ -21,7 +21,7 @@ test('assets stranded without stage rows are enrolled in every stage, existing p
   insertLocation(handle.db, { assetId: stranded, libraryId, path: '', filename: 'a.heic' });
   const seeded = insertAsset(handle.db);
   insertLocation(handle.db, { assetId: seeded, libraryId, path: '', filename: 'b.heic' });
-  for (const stage of ALL_STAGE_NAMES) {
+  for (const stage of STAGES_AT_0030) {
     handle.db.run(`INSERT INTO stage_state (asset_id, stage, version) VALUES (?, ?, ?)`, [
       seeded,
       stage,
@@ -38,8 +38,8 @@ test('assets stranded without stage rows are enrolled in every stage, existing p
         n: number;
       }
     ).n;
-  expect(count(stranded)).toBe(ALL_STAGE_NAMES.length);
-  expect(count(seeded)).toBe(ALL_STAGE_NAMES.length);
+  expect(count(stranded)).toBe(STAGES_AT_0030.length);
+  expect(count(seeded)).toBe(STAGES_AT_0030.length);
   const kept = handle.db
     .query(`SELECT MIN(version) AS v FROM stage_state WHERE asset_id = ?`)
     .get(seeded) as { v: number };
@@ -64,5 +64,5 @@ test('an empty stage_state table is still backfilled with every stage', async ()
   const stages = handle.db
     .query(`SELECT stage FROM stage_state WHERE asset_id = ? ORDER BY stage`)
     .all(stranded) as Array<{ stage: string }>;
-  expect(stages.map((row) => row.stage)).toEqual([...ALL_STAGE_NAMES].sort());
+  expect(stages.map((row) => row.stage)).toEqual([...STAGES_AT_0030].sort());
 });

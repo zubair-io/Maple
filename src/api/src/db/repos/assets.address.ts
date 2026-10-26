@@ -28,6 +28,7 @@
  * sites and hide that those are three different questions.
  */
 
+import type { RecordedMotionClip } from '../../indexer/motion-photo/types.ts';
 import type { ObjectId } from '../object-id.ts';
 import type { AssetExif, FileInfo } from '../schema.ts';
 import { newObjectIdHex } from '../object-id.ts';
@@ -84,21 +85,14 @@ export async function findAssetAtAddress(
 }
 
 /** The verified clip range the `motion-photo` stage recorded for a still. */
-export interface AddressedMotionClip {
-  start: number;
-  length: number;
-  mime: 'video/mp4' | 'video/quicktime';
-  sourceSize: number;
-}
-
 /** The embedded clip of the live asset at an address, or `null` for a plain still. */
 export async function findMotionClipAtAddress(
   libraryId: ObjectId,
   relPath: string,
   filename: string,
   dbOverride?: SqliteDb,
-): Promise<AddressedMotionClip | null> {
-  const rows = await sqliteDb(dbOverride).read<AddressedMotionClip>(
+): Promise<RecordedMotionClip | null> {
+  const rows = await sqliteDb(dbOverride).read<RecordedMotionClip>(
     `SELECT a.motion_video_start AS start, a.motion_video_length AS length,
             a.motion_video_mime AS mime, a.motion_source_size AS sourceSize
        FROM asset_locations l

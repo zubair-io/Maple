@@ -22,7 +22,7 @@ export class SourceChangedError extends Error {
   }
 }
 
-export function isInside(size: number, offset: number, length: number): boolean {
+function isInside(size: number, offset: number, length: number): boolean {
   return (
     Number.isSafeInteger(offset) &&
     Number.isSafeInteger(length) &&

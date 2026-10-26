@@ -110,6 +110,10 @@ describe('/api/motion/:slug/*', () => {
     expect((await request({ token: '' })).status).toBe(401);
   });
 
+  test('rejects a forged token', async () => {
+    expect((await request({ token: `${token}x` })).status).toBe(401);
+  });
+
   test('serves the whole clip, and only the clip', async () => {
     const response = await request();
     expect(response.status).toBe(200);
