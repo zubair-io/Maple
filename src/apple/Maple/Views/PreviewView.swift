@@ -21,7 +21,8 @@
 //
 // Layout (spec §4):
 //   ┌──────────────────────────────────────────────┐
-//   │  ‹  filename                Edit       Info    │  ← one floating header
+//   │  ‹  filename                Edit       Info    │  ← one floating header,
+//   │                                              │    over the photo (#5435)
 //   │  ┌──────┐                                     │
 //   │  │ film │            FIT IMAGE                │  ← body + Preview rail
 //   │  │ rail │                                     │    (larger widths; list toggle)
@@ -305,6 +306,8 @@ struct PreviewView: View {
     }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("preview-view")
+    // Before Info so the inspector column keeps its own safe area.
+    .modifier(PreviewTopBleed(isPhoneShell: isPhoneShell))
     // Info: inspector column (regular) / bottom sheet (compact), mirroring
     // how `AppShellMacLayout` / `DetailPanel` present the editor's own
     // Info inspector.

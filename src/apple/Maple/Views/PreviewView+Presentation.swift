@@ -1,5 +1,5 @@
-// PreviewView+Presentation.swift — Info presentation modifier
-// for `PreviewView` (Fast Preview epic, spec §4).
+// PreviewView+Presentation.swift — Info presentation and top-bleed
+// modifiers for `PreviewView` (Fast Preview epic, spec §4; #5435).
 //
 // Split out of PreviewView.swift for the file-size budget when the preview
 // picked up the editor's `FilmstripRail` (#3402). This modifier branches on
@@ -110,5 +110,27 @@ struct InfoPresentation: ViewModifier {
         }
       #endif
     }
+  }
+}
+
+/// The editor's full-bleed top (#5435): the photo runs behind the floating
+/// header. The Mac hides its window toolbar and extends under it; the iPad
+/// pane shell hides its navigation bar but keeps the status-bar inset. The
+/// iPhone shell's own navigation stack already hides its bar for Preview.
+struct PreviewTopBleed: ViewModifier {
+  let isPhoneShell: Bool
+
+  func body(content: Content) -> some View {
+    #if os(macOS)
+      content
+        .ignoresSafeArea(edges: .top)
+        .toolbar(.hidden, for: .windowToolbar)
+    #else
+      if isPhoneShell {
+        content
+      } else {
+        content.toolbar(.hidden, for: .navigationBar)
+      }
+    #endif
   }
 }
