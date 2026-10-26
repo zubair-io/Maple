@@ -30,7 +30,8 @@ pub struct PreviewCoverage {
     /// The RAW's display-oriented DefaultCrop size (what a full render
     /// produces), when the metadata yields one.
     pub sensor: Option<[u32; 2]>,
-    pub color_space: &'static str,
+    /// The embedded preview's colour space; `None` when no source yields one.
+    pub color_space: Option<&'static str>,
     /// Every source in extraction order, exiftool last.
     pub sources: Vec<SourceYield>,
 }
@@ -80,6 +81,13 @@ pub fn preview_coverage(path: &Path) -> Result<PreviewCoverage, String> {
         source: PreviewSource::Exiftool,
         size: extract_preview_via_exiftool(path).map(size_of),
     };
+    let sources: Vec<SourceYield> = in_process.chain(std::iter::once(exiftool)).collect();
+    let color_space = sources.iter().any(|s| s.size.is_some()).then(|| {
+        match detect_jpeg_color_space_from_rawsource(&src) {
+            JpegColorSpace::SRgb => "sRGB",
+            JpegColorSpace::AdobeRgb => "Adobe RGB",
+        }
+    });
     Ok(PreviewCoverage {
         make: meta.as_ref().map(|m| m.make.clone()).unwrap_or_default(),
         model: meta.as_ref().map(|m| m.model.clone()).unwrap_or_default(),
@@ -87,11 +95,8 @@ pub fn preview_coverage(path: &Path) -> Result<PreviewCoverage, String> {
             .as_ref()
             .map_or("unrecognised".into(), |d| format!("{:?}", d.format_hint())),
         sensor: crate::raw_dimensions::from_source(&src).ok(),
-        color_space: match detect_jpeg_color_space_from_rawsource(&src) {
-            JpegColorSpace::SRgb => "sRGB",
-            JpegColorSpace::AdobeRgb => "Adobe RGB",
-        },
-        sources: in_process.chain(std::iter::once(exiftool)).collect(),
+        color_space,
+        sources,
     })
 }
 
@@ -114,6 +119,7 @@ mod tests {
         assert_eq!(coverage.format, "DNG");
         assert!(coverage.sources.iter().all(|s| s.size.is_none()));
         assert!(coverage.winner(true).is_none() && coverage.winner(false).is_none());
+        assert_eq!(coverage.color_space, None);
         assert!(preview_coverage(&directory.path().join("missing.dng")).is_err());
     }
 }

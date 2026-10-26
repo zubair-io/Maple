@@ -30,7 +30,7 @@ cargo run --release --bin maple-cli -- preview-coverage <RAW or folder>...   # M
 cargo run --release --bin maple-cli -- preview-coverage --json <folder>      # One JSON record per RAW
 ```
 
-**What it reads.** Folders are walked recursively. A path you pass is followed even if it is a symlink, but symlinked folders inside it are not, so a link loop cannot recurse. Only extensions the RAW decoder supports are read. A file or folder that cannot be opened prints `skipped …` to stderr and is left out, and the command still exits 0. **Colour space** is the embedded preview's and shows `—` when there is no preview. Nothing is written next to the photos.
+**What it reads.** Folders are walked recursively. A path you pass is followed even if it is a symlink, but symlinked folders inside it are not, so a link loop cannot recurse. Only extensions the RAW decoder supports are read. A file or folder that cannot be opened prints `skipped …` to stderr and is left out, and the command still exits 0. **Colour space** is the embedded preview's: `—` in Markdown and `null` in JSON when no source yields a preview. Nothing is written next to the photos.
 
 **JSON output.** Each record contains:
 

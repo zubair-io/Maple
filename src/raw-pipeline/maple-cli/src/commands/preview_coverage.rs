@@ -20,8 +20,9 @@ const MIN_SENSOR_FRACTION: f64 = 0.25;
 
 #[derive(clap::Args)]
 pub struct Args {
-    /// RAW files and/or directories (walked recursively without following
-    /// directory symlinks; only extensions rawler decodes are read).
+    /// RAW files and/or directories. Arguments are followed even when they
+    /// are symlinks; folders are walked recursively without following nested
+    /// symlinked folders, and only extensions rawler decodes are read.
     #[arg(required = true)]
     paths: Vec<PathBuf>,
     /// Print one JSON object per RAW instead of the markdown tables.
@@ -64,7 +65,7 @@ impl Tally {
 }
 
 pub fn run(args: &Args) -> Result<i32, Box<dyn std::error::Error>> {
-    let files = collect_raws(&args.paths)?;
+    let files = collect_raws(&args.paths);
     let rows: Vec<Row> = files
         .iter()
         .filter_map(|path| match preview_coverage(path) {
@@ -98,16 +99,24 @@ pub fn run(args: &Args) -> Result<i32, Box<dyn std::error::Error>> {
     Ok(0)
 }
 
-fn collect_raws(paths: &[PathBuf]) -> std::io::Result<Vec<PathBuf>> {
-    let mut found: Vec<PathBuf> = paths
+fn collect_raws(paths: &[PathBuf]) -> Vec<PathBuf> {
+    let found: Vec<PathBuf> = paths
         .iter()
-        .map(|path| Ok(walk(path, std::fs::metadata(path)?.is_dir())))
-        .collect::<std::io::Result<Vec<_>>>()?
-        .into_iter()
-        .flatten()
+        .flat_map(|path| match std::fs::metadata(path) {
+            Ok(meta) => walk(path, meta.is_dir()),
+            Err(e) => skipped(path, &e),
+        })
         .collect();
-    found.sort();
-    Ok(found)
+    found
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn skipped(path: &Path, error: &std::io::Error) -> Vec<PathBuf> {
+    eprintln!("skipped {}: {error}", path.display());
+    Vec::new()
 }
 
 /// Arguments follow symlinks; descent does not, so a link loop can't recurse.
@@ -122,16 +131,15 @@ fn walk(path: &Path, is_dir: bool) -> Vec<PathBuf> {
     }
     match std::fs::read_dir(path) {
         Ok(entries) => entries
-            .filter_map(Result::ok)
-            .flat_map(|entry| {
-                let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
-                walk(&entry.path(), is_dir)
+            .flat_map(|entry| match entry {
+                Ok(entry) => {
+                    let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
+                    walk(&entry.path(), is_dir)
+                }
+                Err(e) => skipped(path, &e),
             })
             .collect(),
-        Err(e) => {
-            eprintln!("skipped {}: {e}", path.display());
-            Vec::new()
-        }
+        Err(e) => skipped(path, &e),
     }
 }
 
@@ -205,11 +213,7 @@ fn print_markdown(rows: &[Row]) {
             c.format,
             c.sensor
                 .map_or("?".into(), |s| format!("{}×{}", s[0], s[1])),
-            if c.winner(true).is_some() {
-                c.color_space
-            } else {
-                "—"
-            },
+            c.color_space.unwrap_or("—"),
             describe(server, c.sensor),
             describe(c.winner(false), c.sensor),
             if others.is_empty() {
@@ -251,7 +255,7 @@ mod tests {
             model: "Maple Test".into(),
             format: "DNG".into(),
             sensor: Some(sensor),
-            color_space: "sRGB",
+            color_space: Some("sRGB"),
             sources: PreviewSource::IN_PROCESS
                 .into_iter()
                 .zip(sizes)
@@ -284,6 +288,29 @@ mod tests {
             .for_each(|source| {
                 assert_eq!(serde_json::json!(source), source.label());
             });
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn walk_follows_arguments_not_nested_links_and_skips_what_it_cannot_read() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let library = root.path().join("library");
+        std::fs::create_dir_all(library.join("sub")).expect("folders");
+        ["a.dng", "notes.txt", "sub/b.DNG"]
+            .iter()
+            .for_each(|name| std::fs::write(library.join(name), b"").expect("file"));
+        std::os::unix::fs::symlink(&library, library.join("sub/loop")).expect("loop link");
+        let link = root.path().join("link");
+        std::os::unix::fs::symlink(&library, &link).expect("argument link");
+        let missing = root.path().join("missing");
+        assert_eq!(
+            collect_raws(&[link.clone(), missing, library.join("a.dng")]),
+            [
+                library.join("a.dng"),
+                link.join("a.dng"),
+                link.join("sub/b.DNG")
+            ]
+        );
     }
 
     #[test]
