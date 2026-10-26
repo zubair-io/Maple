@@ -65,13 +65,37 @@ pub fn develop_capture_prefix_rgba(
     model: &AdjustmentModel,
     max_long_edge: u32,
 ) -> Result<CapturePrefix, String> {
+    develop_capture_prefix_rgba_cancellable(
+        raw_img,
+        raw,
+        ext,
+        model,
+        max_long_edge,
+        crate::CancelToken::never(),
+    )
+}
+
+/// [`develop_capture_prefix_rgba`] observing a host's cancellation flag, for
+/// the native sessions that prepare a prefix off their render thread
+/// (Android, Linux; #5380).
+pub fn develop_capture_prefix_rgba_cancellable(
+    raw_img: &crate::image::RawImage,
+    raw: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+    max_long_edge: u32,
+    cancel: crate::CancelToken<'_>,
+) -> Result<CapturePrefix, String> {
+    if cancel.is_cancelled() {
+        return Err(crate::Error::Cancelled.to_string());
+    }
     let prefix_model = stripped_prefix_model(model, effective_ae_mode(model, raw, ext));
     let capture = render_capture_sized_sensor_framed_f32(
         raw_img,
         &prefix_model,
         RenderQuality::Amaze,
         max_long_edge,
-        crate::CancelToken::never(),
+        cancel,
     )
     .map_err(|e| e.to_string())?;
     Ok(CapturePrefix {
@@ -86,4 +110,66 @@ pub fn develop_capture_prefix_rgba(
         whites_anchor_ev: capture.whites_anchor_ev,
         nr_sampling_scale: capture.nr_sampling_scale,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::creative::{creative_stage, fallback_stage, Tables};
+
+    fn model(temperature: f32, tint: f32) -> AdjustmentModel {
+        AdjustmentModel {
+            temperature,
+            tint,
+            temperature_seen: true,
+            tint_seen: true,
+            ..AdjustmentModel::default()
+        }
+    }
+
+    #[test]
+    fn a_tick_binds_the_stage_plan_over_the_interned_tables() {
+        for stage in [
+            creative_stage(Tables::DualHueSatMapAndLook, 1.3),
+            fallback_stage(Tables::SingleHueSatMap, 0.8),
+        ] {
+            let (header, wire) = stage
+                .transport(crate::xmp::HighlightRecoveryMode::Off)
+                .unwrap();
+            let live = LiveCreative {
+                header,
+                tables: intern_creative_tables(wire.floats()),
+            };
+            for m in [
+                AdjustmentModel::default(),
+                model(3100.0, 8.0),
+                model(50000.0, -4.0),
+            ] {
+                let mut inputs = super::super::build_full_chain_inputs(
+                    &m,
+                    Vec::new(),
+                    0,
+                    Vec::new(),
+                    super::super::NoiseProfileInputs {
+                        profile: Vec::new(),
+                        iso: 0,
+                    },
+                    None,
+                    0,
+                    0.0,
+                    1,
+                );
+                live.apply(&m, &mut inputs).unwrap();
+                let got = inputs.creative.unwrap();
+                let want = creative_inputs(&stage.gpu_plan(&wire, &m).unwrap());
+                assert_eq!(got.tables.as_ptr(), live.tables.as_ptr());
+                assert_eq!(got.tables, want.tables);
+                assert_eq!(
+                    (got.to_pro, got.from_pro, got.post),
+                    (want.to_pro, want.from_pro, want.post)
+                );
+                assert_eq!(got.highlight_recovery, want.highlight_recovery);
+            }
+        }
+    }
 }
