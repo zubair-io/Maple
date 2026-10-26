@@ -30,9 +30,6 @@ pub struct ChainOptions<'a> {
     /// (or an absent export) keeps the legacy `white_balance::apply_delta`
     /// bit-identical.
     pub wb_frame: Option<&'a crate::stages::wb_camera::SliderFrameExport>,
-    /// The profile's HueSatMap endpoints (#5099): with `wb_frame`, the
-    /// delta also re-lerps the HueSatMap at the target as a develop does.
-    pub wb_hsm: Option<crate::stages::wb_camera::HsmRetargetView<'a>>,
     /// Flips off the AgX view-transform tail. Set true for the non-RAW
     /// input path, where the JPEG / HEIF input already has a tone curve
     /// baked in by the camera and applying AgX would double-tone-map.
@@ -78,7 +75,6 @@ impl Default for ChainOptions<'_> {
             decoded_temp: 6500.0,
             decoded_tint: 0.0,
             wb_frame: None,
-            wb_hsm: None,
             skip_agx: false,
             target_primaries: TargetPrimaries::Srgb,
             noise_profile: None,

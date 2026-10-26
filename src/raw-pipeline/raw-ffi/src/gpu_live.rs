@@ -291,9 +291,6 @@ mod gpu_live_wb_frame_tests;
 #[path = "gpu_live_chain_parity_tests.rs"]
 mod gpu_live_chain_parity_tests;
 #[cfg(test)]
-#[path = "gpu_live_wb_hsm_tests.rs"]
-mod gpu_live_wb_hsm_tests;
-#[cfg(test)]
 #[path = "gpu_live_wb_seam_tests.rs"]
 mod gpu_live_wb_seam_tests;
 // The capture-first live chain (#5377): creative-stage parity, the WB drag's

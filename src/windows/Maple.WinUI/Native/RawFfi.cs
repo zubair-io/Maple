@@ -20,11 +20,11 @@ namespace Maple.WinUI.Native
         /// </summary>
         public static void VerifyAbi()
         {
-            RequireSize(sizeof(MapleAdjustmentParams), 752, "MapleAdjustmentParams", "scene_linear_chain.rs");
-            RequireSize(sizeof(MapleGpuLiveParams), 1136, "MapleGpuLiveParams", "gpu_live/repr.rs");
-            RequireSize(sizeof(MapleSceneLinearBufferF32), 432, "MapleSceneLinearBufferF32", "buffers.rs");
+            RequireSize(sizeof(MapleAdjustmentParams), 728, "MapleAdjustmentParams", "scene_linear_chain.rs");
+            RequireSize(sizeof(MapleGpuLiveParams), 1112, "MapleGpuLiveParams", "gpu_live/repr.rs");
+            RequireSize(sizeof(MapleSceneLinearBufferF32), 408, "MapleSceneLinearBufferF32", "buffers.rs");
             RequireSize(sizeof(MapleCaptureCreative), 560, "MapleCaptureCreative", "capture_creative.rs");
-            RequireSize(sizeof(MapleCaptureBufferF32), 992, "MapleCaptureBufferF32", "capture_creative.rs");
+            RequireSize(sizeof(MapleCaptureBufferF32), 968, "MapleCaptureBufferF32", "capture_creative.rs");
         }
 
         private static void RequireSize(int actual, int expected, string name, string rustFile)

@@ -30,7 +30,6 @@ fn tick_inputs<'a>(
         wb_matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         wb_temperature: 6500.0,
         wb_tint: 0.0,
-        wb_hsm: None,
         tone: [0.0; 6],
         whites_anchor_ev: anchor,
         tone_curves: ToneCurveInputs {

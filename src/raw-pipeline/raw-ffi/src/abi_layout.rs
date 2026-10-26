@@ -146,10 +146,6 @@ pub(crate) fn describe(name: &str) -> Option<String> {
                 color_grade_blending,
                 color_grade_shadow_edge,
                 color_grade_highlight_edge,
-                wb_hsm_ptr,
-                wb_hsm_len,
-                wb_hsm_as_shot_cct,
-                wb_hsm_exposure_gain,
                 creative_ptr,
             }))
         }
@@ -224,9 +220,6 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             camera_support_json,
             whites_anchor_ev,
             nr_sampling_scale,
-            wb_hsm_data,
-            wb_hsm_len,
-            wb_hsm_as_shot_cct,
         })),
         "MapleCreativeTable" => Some(layout!(crate::capture_creative::MapleCreativeTable {
             offset,
@@ -463,10 +456,6 @@ pub(crate) fn describe(name: &str) -> Option<String> {
             color_curve_sat_vs_sat_len,
             color_curve_sat_vs_luma_ptr,
             color_curve_sat_vs_luma_len,
-            wb_hsm_ptr,
-            wb_hsm_len,
-            wb_hsm_as_shot_cct,
-            wb_hsm_exposure_gain,
             creative_ptr,
         })),
         #[cfg(feature = "gpu")]

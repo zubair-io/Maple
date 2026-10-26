@@ -300,23 +300,10 @@ pub struct MapleAdjustmentParams {
     pub color_grade_blending: f32,
     pub color_grade_shadow_edge: f32,
     pub color_grade_highlight_edge: f32,
-    /// The decode's `MapleSceneLinearBufferF32.wb_hsm_data`/`wb_hsm_len`,
-    /// passed back verbatim (#5099): the HueSatMap endpoints the WB delta
-    /// re-lerps at the target. Null/0 (a stale host) keeps the plain 3×3
-    /// delta. Borrowed for the call only. No live host sets it any more
-    /// (#5377–#5380); it goes with the legacy retarget.
-    pub wb_hsm_ptr: *const f32,
-    pub wb_hsm_len: usize,
-    /// The decode's `wb_hsm_as_shot_cct` and `ae_gain` (the auto-exposure
-    /// gain baked into the buffer after DCP), passed back verbatim. A zero
-    /// gain reads as 1; a zero as-shot CCT disables the HueSatMap (plain 3×3).
-    pub wb_hsm_as_shot_cct: f32,
-    pub wb_hsm_exposure_gain: f32,
     /// The capture decode's creative stage (#5377), or null. When set, the
     /// buffer is a capture result and the chain runs the creative stage at
     /// `temperature`/`tint` in place of the white-balance delta, so
-    /// `decoded_*`, `wb_frame_*` and `wb_hsm_*` are not read. Borrowed for
-    /// the call.
+    /// `decoded_*` and `wb_frame_*` are not read. Borrowed for the call.
     pub creative_ptr: *const crate::capture_creative::MapleCaptureCreative,
 }
 

@@ -105,7 +105,6 @@ pub fn apply_scene_linear_chain(
         decoded_temp,
         decoded_tint,
         wb_frame,
-        wb_hsm,
         skip_agx,
         target_primaries,
         noise_profile,
@@ -183,11 +182,10 @@ pub fn apply_scene_linear_chain(
             .0;
         }
         None => stage("ffi_chain_white_balance", || match wb_frame {
-            Some(frame) if frame.is_present() => frame.apply_delta_rec2020_with_hsm(
+            Some(frame) if frame.is_present() => frame.apply_delta_rec2020(
                 &mut img,
                 (model.temperature, model.tint),
                 (decoded_temp, decoded_tint),
-                wb_hsm,
             ),
             _ => white_balance::apply_delta(
                 &mut img,

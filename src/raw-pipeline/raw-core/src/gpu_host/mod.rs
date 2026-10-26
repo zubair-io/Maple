@@ -5,9 +5,7 @@ pub mod capture;
 pub mod creative;
 pub mod live_profile;
 pub mod model;
-pub mod white_balance;
 pub use model::{build_full_chain_inputs, stripped_prefix_model, NoiseProfileInputs};
-pub use white_balance::GpuWhiteBalance;
 pub mod prefix;
 pub mod prepare;
 #[cfg(test)]

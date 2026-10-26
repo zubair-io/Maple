@@ -95,7 +95,7 @@ fn gpu_live_vs_develop_refine_seam_test_0002() {
     let path = raw_core::test_support::fixtures::require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read test_0002.dng");
     let raw = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode test_0002");
-    let frame = crate::scene_linear_f32::wb_exports(&raw).frame;
+    let frame = crate::scene_linear_f32::wb_frame_export(&raw);
     assert!(frame.is_present(), "test_0002 must resolve a slider frame");
     let anchor = (frame.scene_cct, frame.as_shot_tint);
 
@@ -353,7 +353,7 @@ fn assert_exact_c_does_not_regress_vs_fixed_c(raw_name: &str, target: (f32, f32)
         .to_str()
         .unwrap();
     let raw = raw_core::decode::decode_bytes(&bytes, ext).expect("decode fixture");
-    let frame_exact = crate::scene_linear_f32::wb_exports(&raw).frame;
+    let frame_exact = crate::scene_linear_f32::wb_frame_export(&raw);
     assert!(
         frame_exact.is_present(),
         "{raw_name} must resolve a slider frame"

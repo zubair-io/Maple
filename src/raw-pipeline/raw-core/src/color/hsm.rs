@@ -467,7 +467,7 @@ fn signed_degrees(degrees: f32) -> f32 {
 
 #[path = "hsm_blend.rs"]
 mod blend;
-pub use blend::{apply_one_blended, invert_one_blended, LIFT_BISECTION_STEPS};
+pub use blend::apply_one_blended;
 
 #[cfg(test)]
 #[path = "hsm_tests.rs"]

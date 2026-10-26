@@ -208,7 +208,3 @@ mod tests_creative_chain;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_chain/tests_creative_physical.rs"]
 mod tests_creative_physical;
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-#[path = "live_chain/tests_mask_bits.rs"]
-mod tests_mask_bits;

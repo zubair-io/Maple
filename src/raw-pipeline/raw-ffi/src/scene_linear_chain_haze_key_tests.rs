@@ -64,13 +64,8 @@ fn dehaze_layer() -> Vec<f32> {
 #[test]
 fn computing_the_key_allocates_nothing() {
     let flat = dehaze_layer();
-    let wire = [0.5f32; 16];
     let curve = [0.0f32, 0.0, 0.5, 0.6, 1.0, 1.0];
-    let p = MapleAdjustmentParams {
-        wb_hsm_ptr: wire.as_ptr(),
-        wb_hsm_len: wire.len(),
-        ..layered(&flat)
-    };
+    let p = layered(&flat);
     let curves = MapleToneCurves {
         luma_ptr: curve.as_ptr(),
         luma_len: curve.len(),

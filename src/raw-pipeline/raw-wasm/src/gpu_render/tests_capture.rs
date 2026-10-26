@@ -321,7 +321,7 @@ fn white_balance_drag_allocates_nothing() {
             prefix.creative.apply(&tick, &mut inputs).unwrap();
         });
         assert_eq!(count, 0, "a white-balance tick allocated on the host");
-        assert!(inputs.creative.is_some() && inputs.wb_hsm.is_none());
+        assert!(inputs.creative.is_some());
         if let (Some((ctx, session)), Some((frame, allocs))) = (&gpu, &first) {
             session
                 .render_chain_to_f32(ctx, &inputs, &cancel)

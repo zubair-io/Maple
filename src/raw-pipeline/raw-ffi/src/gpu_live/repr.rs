@@ -385,25 +385,10 @@ pub struct MapleGpuLiveParams {
     pub color_curve_sat_vs_sat_len: usize,
     pub color_curve_sat_vs_luma_ptr: *const f32,
     pub color_curve_sat_vs_luma_len: usize,
-    // --- retargeted HueSatMap (#5099) — the decode's
-    //     `MapleSceneLinearBufferF32.wb_hsm_data`/`wb_hsm_len`, passed back
-    //     verbatim. With a present `wb_frame_*` block the WB pass re-lerps
-    //     the HueSatMap at the target, as a develop does. Null/0 (a stale
-    //     host) keeps the plain 3×3, bit-identical. Borrowed for the call.
-    //     No live host sets it any more (#5377–#5380); it goes with the
-    //     legacy retarget. ---
-    pub wb_hsm_ptr: *const f32,
-    pub wb_hsm_len: usize,
-    /// The decode's `wb_hsm_as_shot_cct` and `ae_gain` (the auto-exposure
-    /// gain baked into the buffer after DCP), passed back verbatim. A zero
-    /// gain reads as 1; a zero as-shot CCT disables the HueSatMap (plain 3×3).
-    pub wb_hsm_as_shot_cct: f32,
-    pub wb_hsm_exposure_gain: f32,
     /// The capture decode's creative stage (#5377), or null. When set, the
     /// uploaded buffer is a capture result and the chain runs the creative
     /// stage at `temperature`/`tint` (the absolute slider pair in the
     /// decode's slider frame) in place of the white-balance delta, so
-    /// `decoded_*`, `wb_frame_*` and `wb_hsm_*` are not read. Borrowed for
-    /// the call.
+    /// `decoded_*` and `wb_frame_*` are not read. Borrowed for the call.
     pub creative_ptr: *const crate::capture_creative::MapleCaptureCreative,
 }

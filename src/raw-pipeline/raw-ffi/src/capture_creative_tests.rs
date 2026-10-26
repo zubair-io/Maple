@@ -129,7 +129,6 @@ fn the_capture_entries_write_the_capture_and_its_creative_stage() {
         );
         for buffer in [&file, &sized, &from_bytes] {
             assert_eq!(buffer.creative.present, 1);
-            assert!(buffer.scene.wb_hsm_data.is_null());
             assert!(buffer.scene.whites_anchor_ev.is_finite());
             let (header, _) = buffer.creative.header().unwrap();
             assert_eq!(header.ae_gain, buffer.scene.ae_gain);

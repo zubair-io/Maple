@@ -372,18 +372,6 @@ fn the_haze_key_digest_ignores_amounts_and_stages_no_map_depends_on() {
             ..base
         })
     );
-    let (cold, warm) = ([0.5f32; 8], [0.25f32; 8]);
-    let with_wire = |wire: &[f32]| MapleAdjustmentParams {
-        wb_hsm_ptr: wire.as_ptr(),
-        wb_hsm_len: wire.len(),
-        wb_hsm_as_shot_cct: 5000.0,
-        ..base
-    };
-    assert_ne!(
-        key(&with_wire(&cold)),
-        key(&with_wire(&warm)),
-        "the HueSatMap the WB stage re-lerps sits upstream of every map"
-    );
 }
 
 /// An empty frame is refused with an error, never a panic or a divide by zero.

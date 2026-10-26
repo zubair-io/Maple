@@ -72,63 +72,8 @@ pub(crate) fn wb_frame_from_flat(
     }
 }
 
-/// The borrowed HueSatMap-endpoint wire (#5099) from a host `(ptr, len)`.
-/// Null, empty or malformed ⇒ `None` ⇒ the plain 3×3 delta. No live host
-/// passes one any more (#5377–#5380); it goes with the legacy retarget.
-///
-/// # Safety
-/// `ptr` must be valid for `len` `f32` reads for `'a`, or null.
-pub(crate) unsafe fn wb_hsm_from_flat<'a>(
-    ptr: *const f32,
-    len: usize,
-    as_shot_cct: f32,
-    exposure_gain: f32,
-) -> Option<raw_core::stages::wb_camera::HsmRetargetView<'a>> {
-    if ptr.is_null() || len == 0 {
-        return None;
-    }
-    raw_core::stages::wb_camera::HsmRetargetView::from_wire(
-        std::slice::from_raw_parts(ptr, len),
-        as_shot_cct,
-        exposure_gain,
-    )
-}
-
-/// The GPU WB pass's retargeted HueSatMap (#5099) for the GPU-live params,
-/// borrowing the host's wire for the call; `None` without a valid wire or
-/// inside the identity band. Callers engage it only on the frame-anchored
-/// delta, whose Rec.2020 matrix is `wb_matrix`.
-#[cfg(feature = "gpu")]
-pub(crate) fn gpu_hsm_inputs<'a>(
-    p: &'a crate::gpu_live::MapleGpuLiveParams,
-    wb_frame: &raw_core::stages::wb_camera::SliderFrameExport,
-    wb_matrix: [[f32; 3]; 3],
-) -> Option<raw_gpu::WbHsmInputs<'a>> {
-    // SAFETY: the host keeps `wb_hsm_ptr` valid for `wb_hsm_len` f32s for
-    // the synchronous render call that owns `p`.
-    let view = unsafe {
-        wb_hsm_from_flat(
-            p.wb_hsm_ptr,
-            p.wb_hsm_len,
-            p.wb_hsm_as_shot_cct,
-            p.wb_hsm_exposure_gain,
-        )
-    }?;
-    let tick = view.live_delta(
-        wb_frame,
-        raw_core::math::Matrix3(wb_matrix),
-        (p.temperature, p.tint),
-        (p.decoded_temperature, p.decoded_tint),
-    )?;
-    let tables = raw_gpu::WbHsmTables::Borrowed(view.tables);
-    Some(raw_core::gpu_host::white_balance::wb_hsm_inputs(
-        &view, tables, &tick,
-    ))
-}
-
-/// The process-lifetime copy of a profile's table wire — the HueSatMap
-/// endpoint wire (#5099) or the capture-first creative tables (#5377) —
-/// shared by every decode of a body with the same profile tables. The decode
+/// The process-lifetime copy of a profile's capture-first creative tables
+/// (#5377), shared by every decode of a body with the same profile tables. The decode
 /// buffer hands hosts this pointer and never frees it, so a host stores it
 /// with its decode and passes it back per tick without copying or pinning,
 /// and no render can outlive it. Shares raw-core's set

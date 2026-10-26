@@ -47,7 +47,6 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
         wb_matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         wb_temperature: 6500.0,
         wb_tint: 0.0,
-        wb_hsm: None,
         tone: [0.0; 6],
         tone_curves: ToneCurveInputs {
             parametric: [0.0; 4],

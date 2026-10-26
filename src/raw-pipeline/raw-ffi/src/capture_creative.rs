@@ -408,8 +408,8 @@ pub(crate) fn cpu_stage(
 }
 
 /// A capture decode:the capture result in the fixed as-shot basis and its
-/// creative stage. `scene.wb_hsm_data` is always null; `scene.ae_gain` is the
-/// creative stage's gain, which the pixels do not carry.
+/// creative stage. `scene.ae_gain` is the creative stage's gain, which the
+/// pixels do not carry.
 #[repr(C)]
 pub struct MapleCaptureBufferF32 {
     pub scene: crate::buffers::MapleSceneLinearBufferF32,
