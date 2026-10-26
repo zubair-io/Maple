@@ -1,32 +1,28 @@
 // DeepDenoiseFlag.swift — the patent-review gate on deep denoise (#5381,
 // #5213 decision 9).
 //
-// The BM3D patent review has not cleared, so the Deep denoise control is not
-// exposed in shipping builds: the flag defaults OFF everywhere. It follows
-// the per-feature runtime-flag pattern (`AmazeFlag`, `GpuLiveFlag`) that
-// replaced the #3773 `FeatureFlags` gate when #4567 retired it:
-//
-//   1. Launch environment `MAPLE_DEEP_DENOISE` — "1" forces on, "0" off;
-//      takes precedence (tests, CI, internal triage).
-//   2. UserDefaults key `enableDeepDenoise` — an internal opt-in only; no
-//      Settings toggle exposes it.
-//   3. Default: OFF.
+// The BM3D patent review has not cleared, so the Deep denoise control must
+// not be reachable in a shipping build. A Release build compiles the gate to
+// a constant `false`, so no setting, default or launch argument can open it;
+// a Debug build reads the internal toggle on Settings → General (Rendering).
+// The #3773 `FeatureFlags` gate is gone (#4567), so the build configuration
+// is the line between shipping and internal builds.
 //
 // The gate hides the control only. A sidecar that already carries
-// `papp:DeepDenoise` still renders exactly as it did, on the CPU decode or
-// the GPU capture refine.
+// `papp:DeepDenoise` still renders exactly as it did.
 
 import Foundation
 
 public enum DeepDenoiseFlag {
+  /// UserDefaults key behind the Debug-only Settings toggle.
   public static let defaultsKey = "enableDeepDenoise"
 
   /// Whether the Deep denoise control is shown. Re-read on every call.
   public static var isEnabled: Bool {
-    switch ProcessInfo.processInfo.environment["MAPLE_DEEP_DENOISE"] {
-    case "1": return true
-    case "0": return false
-    default: return UserDefaults.standard.bool(forKey: defaultsKey)
-    }
+    #if DEBUG
+      UserDefaults.standard.bool(forKey: defaultsKey)
+    #else
+      false
+    #endif
   }
 }

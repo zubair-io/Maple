@@ -175,7 +175,6 @@ Cloud and Panorama/early-feature rollout overrides are no longer read.
 | `MAPLE_GPU_DEBUG=1`                                 | GPU debug view (`GpuDebugView`)                                                           |
 | `MAPLE_AMAZE=1` / `=0`                              | force AMaZE demosaic on/off; otherwise the `useAmazeDemosaic` user default, defaulting on |
 | `MAPLE_AUTO1` (or `-MapleAuto1 1`)                  | restore the older Auto-profile fit                                                        |
-| `MAPLE_DEEP_DENOISE=1` / `=0`                       | show/hide the Deep denoise control; otherwise `enableDeepDenoise`, defaulting off (#5381) |
 | `MAPLE_UITEST_FIXTURE`, `MAPLE_UITEST_FIXTURE_ROOT` | UI-test harness fixture selection                                                         |
 
 ### Measuring editor latency
