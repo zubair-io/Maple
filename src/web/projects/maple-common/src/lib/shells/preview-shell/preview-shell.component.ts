@@ -50,6 +50,8 @@ import { previewKeyAction } from './preview-shell-keyboard';
 import { FilmstripComponent } from '../../components/filmstrip/filmstrip.component';
 import { STORAGE_KEYS, TypedStorage } from '../../util/typed-storage';
 import { PREVIEW_VIDEO_ACCESS } from './preview-video-access';
+import { PreviewMotionClip } from './preview-motion-clip';
+import { MotionClipPlayerComponent } from '../../components/motion-clip-player/motion-clip-player.component';
 import { addressForAbsPath } from '../../api/filesystem-browse.service';
 
 /** Horizontal swipe distance (px) past which a pointerdown→pointerup drag on
@@ -66,6 +68,7 @@ const SWIPE_THRESHOLD_PX = 40;
     InfoPanelComponent,
     MuiSheetShellComponent,
     FilmstripComponent,
+    MotionClipPlayerComponent,
   ],
   templateUrl: './preview-shell.component.html',
   styleUrl: './preview-shell.component.scss',
@@ -78,6 +81,7 @@ export class PreviewShellComponent implements OnDestroy {
   private router = inject(Router);
   private layoutService = inject(LayoutService);
   private videoAccess = inject(PREVIEW_VIDEO_ACCESS);
+  readonly motion = new PreviewMotionClip(this.state.focusedAsset, this.videoAccess);
 
   readonly thumbUrl = signal<string | undefined>(undefined);
   readonly previewUrl = signal<string | undefined>(undefined);
