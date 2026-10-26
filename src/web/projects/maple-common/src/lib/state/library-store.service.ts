@@ -32,8 +32,10 @@ import { ApiFolder } from '../api/bun-api-backend.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex } from '../maple-cache/maple-cache.types';
 import { rekeyAssetId } from './library-store-rename';
-import { applyBatchMetadataToStore } from './library-store-batch-metadata';
-import type { BatchApplyMetadata } from '../batch-metadata/batch-metadata.types';
+import {
+  applyBatchMetadataToStore,
+  type BatchMetadataStoreUpdate,
+} from './library-store-batch-metadata';
 import { AssetDimensionBatcher } from './library-store-dimensions';
 import { LensCorrectionCapabilities } from './library-store-lens-corrections';
 import { LibraryWorkflowVariants } from './library-workflow-variants';
@@ -335,11 +337,10 @@ export class LibraryStore {
     return merged;
   }
 
-  applyBatchMetadata(id: AssetId, meta: BatchApplyMetadata): void {
+  applyBatchMetadata(updates: readonly BatchMetadataStoreUpdate[]): void {
     applyBatchMetadataToStore(
       { assets: this.assets, sessionCullingPatches: this._sessionCullingPatches },
-      id,
-      meta,
+      updates,
     );
   }
 

@@ -144,11 +144,15 @@ export class XmpAdjustmentRestoreService {
     results: readonly { address: string; ok: boolean }[],
   ): void {
     const succeeded = new Set(results.filter((r) => r.ok).map((r) => r.address));
+    const eligible = entries.filter(
+      (entry) => succeeded.has(entry.address) && this._isPrimaryVariantActive(entry.address),
+    );
+    if (eligible.length === 0) return;
+    this.store.applyBatchMetadata(
+      eligible.map((entry) => ({ id: entry.address, metadata: entry.metadata })),
+    );
     const focused = this.selection.focusedAssetId();
-    for (const entry of entries) {
-      if (!succeeded.has(entry.address)) continue;
-      if (!this._isPrimaryVariantActive(entry.address)) continue;
-      this.store.applyBatchMetadata(entry.address, entry.metadata);
+    for (const entry of eligible) {
       this.invalidateForAsset(entry.address);
       if (focused === entry.address) {
         void this.restoreForAsset(entry.address);
