@@ -254,6 +254,22 @@ export async function hardDelete(id: ObjectId, dbOverride?: SqliteDb): Promise<D
   return deleteOutcome(matchedOne(result.changes));
 }
 
+/** `hardDelete` for a purge, only while its whole-photo purge intent still
+ * stands: an attempt that kept the photo through another copy meanwhile
+ * retires that intent (#5419), and the row then stays. */
+export async function hardDeleteAdmittedPurge(
+  id: ObjectId,
+  dbOverride?: SqliteDb,
+): Promise<DeleteOutcome> {
+  const hex = id.toHexString();
+  const result = await sqliteDb(dbOverride).write(
+    `DELETE FROM assets WHERE id = ? AND EXISTS
+      (SELECT 1 FROM backup_lifecycle WHERE asset_id = ? AND kind = 'purge')`,
+    [hex, hex],
+  );
+  return deleteOutcome(matchedOne(result.changes));
+}
+
 /** Retention may forget an unbacked reaped row, but cannot turn absence into backup erasure. */
 export async function deleteReapedWithoutActiveBackup(
   id: ObjectId,

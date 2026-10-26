@@ -407,7 +407,7 @@ test('a crash after the photo is kept leaves the cleanup owed, and the next swee
         },
       ],
     });
-    expect(kept).toBe('kept');
+    expect(kept).toEqual({ kind: 'kept', erasedBackups: 0 });
     expect(await readFile(f.trashedRaw, 'utf8')).toBe(RAW);
 
     await runTrashGcOnce({ retentionDays: 30 });

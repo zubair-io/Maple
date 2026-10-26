@@ -4,7 +4,9 @@
  * The photo stays: only the trashed location goes, the asset leaves Trash,
  * and every row-only field (faces, descriptions, edits, collections) is kept.
  * No asset-wide purge intent is recorded: only the trashed location's own
- * backup entries are purged, so backups of the surviving copy stay. Clearing
+ * backup entries are purged, so backups of the surviving copy stay. One an
+ * earlier attempt recorded for the whole photo is retired in the same
+ * transaction (`assets.trash-survivor-intent.ts`, #5419). Clearing
  * `deleted_at` dirties the remaining entries and re-arms the cloud-backup
  * stage through the `backup_asset_dirty` trigger.
  */
@@ -20,20 +22,27 @@ import {
   relocateCacheRearmStatements,
 } from './assets.stage-rearm.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
-import { sqliteDb, type SqliteDb } from './db-handle.ts';
+import { changesAt, sqliteDb, type SqliteDb } from './db-handle.ts';
+import {
+  HANDED_BACK_STATEMENT,
+  RECORDED_STATEMENT,
+  retireWholePhotoPurgeStatements,
+} from './assets.trash-survivor-intent.ts';
 import { recordLocalPurgeStatements, type LocalPurgeTarget } from './local-purge.repo.ts';
 import type { LocationSource } from './assets.trash.ts';
 
 const ASSERT_CONSTRAINT = 'keep_surviving_copy';
+/** The retirement statements follow the three that assert the guard. */
+const RETIREMENT_AT = 3;
 
 /** A copy outside Trash that is neither deleted nor missing, in SQL. */
 const SURVIVING = `s.deleted_at IS NULL AND s.missing_since IS NULL
   AND s.path != '.maple/trash' AND substr(s.path, 1, 13) != '.maple/trash/'`;
 const SURVIVOR_EXISTS = `EXISTS (SELECT 1 FROM asset_locations s WHERE s.asset_id = a.id AND ${SURVIVING})`;
 
-/** No backup lifecycle work — a purge intent above all — is pending or leased. */
+/** No trash or restore move, nor any other backup lifecycle work, is prepared or leased. */
 const NO_PENDING_LIFECYCLE = `NOT EXISTS (SELECT 1 FROM backup_lifecycle WHERE asset_id = a.id
-  AND (kind = 'purge' OR phase = 'prepared' OR lease_until > unixepoch('subsec') * 1000))`;
+  AND (phase = 'prepared' OR lease_until > unixepoch('subsec') * 1000))`;
 
 /** Backup entries of the trashed location alone, matched by its ordinal. */
 const TRASHED_ENTRY = `e.asset_id = ? AND e.state != 'purged' AND e.ordinal =
@@ -75,13 +84,15 @@ export function canonicalOrdinalStatements(hex: string): SqlStatement[] {
   ];
 }
 
-export type KeepSurvivingCopyOutcome = 'kept' | 'purge-in-flight' | 'changed';
+/** `erasedBackups` counts entries of other copies whose erasure an earlier
+ * whole-photo purge had already started, which could not be handed back. */
+export type KeepSurvivingCopyOutcome =
+  | { kind: 'kept'; erasedBackups: number }
+  | { kind: 'changed' };
 
 /**
  * Drop the trashed location and take the asset out of Trash, provided the
  * Trash state still matches `expected` and a surviving copy exists.
- * `'purge-in-flight'` means an earlier attempt already recorded a backup purge
- * intent, which cannot be undone, so the caller completes the full purge.
  */
 export async function keepSurvivingCopy(
   args: {
@@ -97,12 +108,6 @@ export async function keepSurvivingCopy(
 ): Promise<KeepSurvivingCopyOutcome> {
   const db = sqliteDb(dbOverride);
   const hex = args.id.toHexString();
-  const [intent] = await db.read<{ pending: number }>(
-    `SELECT EXISTS (SELECT 1 FROM backup_lifecycle WHERE asset_id = ? AND kind = 'purge') AS pending`,
-    [hex],
-  );
-  if (intent?.pending) return 'purge-in-flight';
-
   const guard = trashPurgeGuard(args.expected);
   const location = [
     args.trashed.libraryId.toHexString(),
@@ -111,7 +116,7 @@ export async function keepSurvivingCopy(
   ] as const;
   const trashedEntryParams = [hex, hex, ...location];
   try {
-    await db.transaction([
+    const results = await db.transaction([
       {
         sql: `CREATE TEMP TABLE keep_surviving_copy_assert(
           valid INTEGER NOT NULL CONSTRAINT ${ASSERT_CONSTRAINT} CHECK (valid = 1))`,
@@ -125,6 +130,7 @@ export async function keepSurvivingCopy(
         params: [hex, ...guard.params, ...location],
       },
       { sql: `DROP TABLE keep_surviving_copy_assert` },
+      ...retireWholePhotoPurgeStatements(hex, location),
       {
         sql: `INSERT INTO backup_purges(destination_id, entry_id, record)
           SELECT e.destination_id, e.id, json_object('version', 1, 'libraryId', d.library_id,
@@ -164,9 +170,12 @@ export async function keepSurvivingCopy(
       ...searchBlobRearmStatements(hex),
       ...relocateCacheRearmStatements(hex),
     ]);
-    return 'kept';
+    const recorded = changesAt(results, RETIREMENT_AT + RECORDED_STATEMENT);
+    const handedBack = changesAt(results, RETIREMENT_AT + HANDED_BACK_STATEMENT);
+    return { kind: 'kept', erasedBackups: recorded - handedBack };
   } catch (error) {
-    if (error instanceof Error && error.message.includes(ASSERT_CONSTRAINT)) return 'changed';
+    if (error instanceof Error && error.message.includes(ASSERT_CONSTRAINT))
+      return { kind: 'changed' };
     throw error;
   }
 }

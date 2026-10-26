@@ -51,7 +51,8 @@ import {
 } from '../../library/trash-purge-survivor.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import type { RestoreAssetOutcome } from '../../library/asset-trash.ts';
-import { findCoreInfoById, hardDelete, parseAssetId } from '../../db/assets.repo.ts';
+import { findCoreInfoById, parseAssetId } from '../../db/assets.repo.ts';
+import { hardDeleteAdmittedPurge } from '../../db/repos/assets.trash.ts';
 import { requireFileAccessBeforeHandle } from '../../auth/middleware.ts';
 import { assetsLog } from './_shared.ts';
 
@@ -112,6 +113,14 @@ function restoreOutcomeResponse(
 }
 
 const unlinkFailure = logPurgeFailure(assetsLog, 'permanent delete unlink failed');
+const TRASH_CHANGED = { error: 'Trash state changed — refresh before deleting' };
+
+/** False, with a 409, when another attempt kept the photo meanwhile (#5419). */
+async function deleteAdmittedRow(id: ObjectId, set: { status?: number | string }) {
+  const deleted = (await hardDeleteAdmittedPurge(id)).deletedCount > 0;
+  if (!deleted) set.status = 409;
+  return deleted;
+}
 
 /** Answered when the purge kept the photo through its surviving copy (#5403). */
 interface SurvivorKeptBody {
@@ -138,9 +147,8 @@ async function purgeTrashedAsset(
   // Explicit permanent delete authorizes backup erasure, but never unlink a
   // returned original at these stored local paths.
   if (info.deleted_reason === 'reaped') {
-    if (!(await admitTrashPurge(id, info, set)))
-      return { error: 'Trash state changed — refresh before deleting' };
-    await hardDelete(id);
+    if (!(await admitTrashPurge(id, info, set))) return TRASH_CHANGED;
+    if (!(await deleteAdmittedRow(id, set))) return TRASH_CHANGED;
     set.status = 204;
     await recordAndPublishAssetChange({
       kind: 'delete',
@@ -163,8 +171,7 @@ async function purgeTrashedAsset(
   if (refusal) return refusal;
   const kept = await purgeKeepingSurvivor(id, info, trashed);
   if (kept.kind !== 'full-purge') return survivorResponse(id, kept, set);
-  if (!(await admitTrashPurge(id, info, set)))
-    return { error: 'Trash state changed — refresh before deleting' };
+  if (!(await admitTrashPurge(id, info, set))) return TRASH_CHANGED;
   try {
     await purgeTrashedCopyCompanions(trashed, info, libs);
   } catch {
@@ -172,7 +179,7 @@ async function purgeTrashedAsset(
     return { error: 'Apple-rendered companion cleanup requires retry' };
   }
   await unlinkTrashedCopy(trashed, unlinkFailure);
-  await hardDelete(id);
+  if (!(await deleteAdmittedRow(id, set))) return TRASH_CHANGED;
   set.status = 204;
   // Emit a delete change so the File Provider extension drops this
   // item from its working set on the next pull.
@@ -223,7 +230,7 @@ function survivorResponse(
       };
     case 'changed':
       set.status = 409;
-      return { error: 'Trash state changed — refresh before deleting' };
+      return TRASH_CHANGED;
     case 'retry':
       set.status = kept.error instanceof LibraryUnreachableError ? 503 : 500;
       return { error: 'Backup cleanup of the trashed copy requires retry' };
