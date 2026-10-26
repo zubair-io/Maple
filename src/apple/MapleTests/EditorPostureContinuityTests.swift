@@ -64,28 +64,28 @@ final class EditorPostureContinuityTests: XCTestCase {
     let session = EditSession.preview()
     let state = EditorState(session: session, subParamMemory: ToolSubParamMemory())
     state.arm(tool: .noise)
-    state.arm(subParamId: "prefilter")
-    let before = session.model.chromaPrefilter
+    state.arm(subParamId: "deep")
+    let before = session.model.deepDenoise
     let slider = LivingSliderRow(state: state, tool: .noise).slider
 
     slider.onEditingChanged?(true)
     slider.value = before + 10
-    XCTAssertEqual(session.model.chromaPrefilter, before)
+    XCTAssertEqual(session.model.deepDenoise, before)
     XCTAssertEqual(state.deferredDisplayValue, before + 10)
 
     let openLayout = EditorLayout(
       width: 669, idiom: .phone, regularHorizontalSizeClass: true)
     XCTAssertFalse(openLayout.usesPhoneControls)
     XCTAssertEqual(state.armedTool, .noise)
-    XCTAssertEqual(state.armedSubParamId, "prefilter")
+    XCTAssertEqual(state.armedSubParamId, "deep")
 
     slider.onEditingChanged?(false)
-    XCTAssertEqual(session.model.chromaPrefilter, before + 10)
+    XCTAssertEqual(session.model.deepDenoise, before + 10)
     XCTAssertNil(state.deferredDisplayValue)
     XCTAssertEqual(session.undoHistory.count, 1)
     session.undo()
-    XCTAssertEqual(session.model.chromaPrefilter, before)
+    XCTAssertEqual(session.model.deepDenoise, before)
     session.redo()
-    XCTAssertEqual(session.model.chromaPrefilter, before + 10)
+    XCTAssertEqual(session.model.deepDenoise, before + 10)
   }
 }

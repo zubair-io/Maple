@@ -147,27 +147,18 @@ export const DETAIL_TOOLS: readonly ParityCapability[] = [
     copyPaste: 'detail',
     subParams: 'Radius, Detail and Masking ride the sub-param chip row',
   }),
-  {
-    ...sliderTool({
-      id: 'noise',
-      name: 'Noise',
-      group: 'detail',
-      order: 20,
-      field: 'nrLuminance',
-      units: '0–100',
-      copyPaste: 'detail',
-      subParams:
-        'Color, Deep and Prefilter ride the sub-param chip row; Deep and Prefilter commit on release (decode-product fields)',
-      featuresRow: 'Deep denoise / chroma prefilter',
-    }),
-    reachability: { apple: 'partial', web: 'released' },
-    exception: {
-      platform: 'apple',
-      rationale:
-        'Apple compiles the Deep sub-param out of Release builds until the BM3D patent review clears (#5381).',
-      ticket: '#5213',
-    },
-  },
+  sliderTool({
+    id: 'noise',
+    name: 'Noise',
+    group: 'detail',
+    order: 20,
+    field: 'nrLuminance',
+    units: '0–100',
+    copyPaste: 'detail',
+    subParams:
+      'Color, Deep and Prefilter ride the sub-param chip row; Deep and Prefilter commit on release (decode-product fields)',
+    featuresRow: 'Deep denoise / chroma prefilter',
+  }),
   sliderTool({
     id: 'colorNR',
     name: 'Color NR',

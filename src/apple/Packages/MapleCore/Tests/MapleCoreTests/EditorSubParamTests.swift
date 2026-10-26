@@ -251,20 +251,20 @@ final class EditorSubParamTests: XCTestCase {
     func testCommitOnReleaseSubParamWritesOncePerGesture() {
         let state = makeState()
         state.arm(tool: .noise)
-        state.arm(subParamId: "prefilter")
+        state.arm(subParamId: "deep")
         XCTAssertTrue(state.armedCommitsOnRelease)
 
         state.beginGesture()
         // 40 drag samples — the shape a real drag produces.
         for i in 1...40 { state.setArmedDisplayValue(Double(i)) }
         // The model (and therefore the decoded-buffer cache key) has NOT moved…
-        XCTAssertEqual(state.session.model.chromaPrefilter, 0, accuracy: 1e-9)
+        XCTAssertEqual(state.session.model.deepDenoise, 0, accuracy: 1e-9)
         // …but the slider tracks the finger.
         XCTAssertEqual(state.armedDisplayValue, 40, accuracy: 1e-9)
         XCTAssertEqual(state.deferredDisplayValue, 40)
 
         state.endGesture()
-        XCTAssertEqual(state.session.model.chromaPrefilter, 40, accuracy: 1e-9)
+        XCTAssertEqual(state.session.model.deepDenoise, 40, accuracy: 1e-9)
         XCTAssertNil(state.deferredDisplayValue)
     }
 
@@ -291,17 +291,17 @@ final class EditorSubParamTests: XCTestCase {
     func testCancelledOrReArmedGestureDropsTheDeferredValue() {
         let state = makeState()
         state.arm(tool: .noise)
-        state.arm(subParamId: "prefilter")
+        state.arm(subParamId: "deep")
         state.beginGesture()
         state.setArmedDisplayValue(70)
         state.cancelGesture()
-        XCTAssertEqual(state.session.model.chromaPrefilter, 0, accuracy: 1e-9)
+        XCTAssertEqual(state.session.model.deepDenoise, 0, accuracy: 1e-9)
 
         state.beginGesture()
         state.setArmedDisplayValue(55)
         state.arm(subParamId: "color") // arming elsewhere mid-gesture
         state.endGesture()
-        XCTAssertEqual(state.session.model.chromaPrefilter, 0, accuracy: 1e-9)
+        XCTAssertEqual(state.session.model.deepDenoise, 0, accuracy: 1e-9)
         XCTAssertEqual(state.session.model.nrColor, 25, accuracy: 1e-9)
     }
 
@@ -310,13 +310,13 @@ final class EditorSubParamTests: XCTestCase {
         // its value setter, so a repeated begin must not discard the value.
         let state = makeState()
         state.arm(tool: .noise)
-        state.arm(subParamId: "prefilter")
+        state.arm(subParamId: "deep")
         state.beginGesture()
         state.setArmedDisplayValue(30)
         state.beginGesture()
         XCTAssertEqual(state.deferredDisplayValue, 30)
         state.endGesture()
-        XCTAssertEqual(state.session.model.chromaPrefilter, 30, accuracy: 1e-9)
+        XCTAssertEqual(state.session.model.deepDenoise, 30, accuracy: 1e-9)
     }
 
     func testWheelDetentsParkThenFlushOnceTheBurstStops() async throws {
@@ -324,31 +324,31 @@ final class EditorSubParamTests: XCTestCase {
         // kick one re-decode each. The value parks and lands once, on idle.
         let state = makeState()
         state.arm(tool: .noise)
-        state.arm(subParamId: "prefilter")
+        state.arm(subParamId: "deep")
         let t0 = Date()
         for i in 0..<20 {
             state.wheelNudge(steps: 1, unit: 1, at: t0.addingTimeInterval(Double(i) * 0.01))
         }
-        XCTAssertEqual(state.session.model.chromaPrefilter, 0, accuracy: 1e-9)
+        XCTAssertEqual(state.session.model.deepDenoise, 0, accuracy: 1e-9)
         XCTAssertNotNil(state.deferredDisplayValue)
         let parked = try XCTUnwrap(state.deferredDisplayValue)
         XCTAssertGreaterThan(parked, 0)
 
         try await Task.sleep(for: .milliseconds(500))
-        XCTAssertEqual(state.session.model.chromaPrefilter, parked, accuracy: 1e-9)
+        XCTAssertEqual(state.session.model.deepDenoise, parked, accuracy: 1e-9)
         XCTAssertNil(state.deferredDisplayValue)
     }
 
     func testResetWritesThroughForACommitOnReleaseSubParam() {
         let state = makeState()
         state.arm(tool: .noise)
-        state.arm(subParamId: "prefilter")
+        state.arm(subParamId: "deep")
         state.beginGesture()
         state.setArmedDisplayValue(60)
         state.endGesture()
-        XCTAssertEqual(state.session.model.chromaPrefilter, 60, accuracy: 1e-9)
+        XCTAssertEqual(state.session.model.deepDenoise, 60, accuracy: 1e-9)
         state.resetArmedTool()
-        XCTAssertEqual(state.session.model.chromaPrefilter, 0, accuracy: 1e-9)
+        XCTAssertEqual(state.session.model.deepDenoise, 0, accuracy: 1e-9)
     }
 
     // MARK: - Chip formatting

@@ -325,7 +325,7 @@ Web is split into its two deployments because they differ substantially. Every c
 | Film looks                         | yes                                              | yes               | yes                | no                        | no        |
 | Presets                            | yes                                              | yes               | yes                | no                        | no        |
 | Capture sharpening (deconvolution) | yes                                              | yes               | yes                | yes                       | no        |
-| Deep denoise / chroma prefilter    | prefilter yes; Deep hidden by default (#5381)    | yes               | yes                | no                        | no        |
+| Deep denoise / chroma prefilter    | yes                                              | yes               | yes                | no                        | no        |
 | Lens corrections (DNG opcodes)     | yes                                              | yes               | yes                | no                        | no        |
 | Auto lateral CA / defringe         | yes                                              | yes               | yes                | yes                       | no        |
 | Crop + straighten                  | yes                                              | yes               | yes                | yes                       | no        |

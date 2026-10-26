@@ -6,13 +6,8 @@ import MapleAgentWire
 /// clamped so the agent never believes a value landed that did not.
 enum AgentAdjustmentPatch {
   /// Every numeric slider an agent may set, keyed by canonical snake_case
-  /// name. Deep denoise stays behind its patent gate like its control (#5381).
-  static var adjustableFields: [String: AdjustmentModel.FieldName] {
-    allNumericFields.filter { $0.value != .deepDenoise || DeepDenoiseFlag.isEnabled }
-  }
-
-  /// Fields with both a model key path and a generated range.
-  private static let allNumericFields: [String: AdjustmentModel.FieldName] = {
+  /// name. Only fields with both a model key path and a generated range.
+  static let adjustableFields: [String: AdjustmentModel.FieldName] = {
     var fields: [String: AdjustmentModel.FieldName] = [:]
     for field in AdjustmentModel.FieldName.allCases
     where field.numericKeyPath != nil && field.numericRange != nil {

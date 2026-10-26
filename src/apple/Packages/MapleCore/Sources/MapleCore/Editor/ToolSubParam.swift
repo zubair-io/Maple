@@ -338,10 +338,10 @@ extension Tool {
                              defaultDisplayValue: Self.defaults.nrColor,
                              decimals: 0),
                 // Tiers 3 and 1 of the § 3 noise architecture (#1153). Both
-                // live inside the DECODE PRODUCT, so both commit on release
-                // and refine on the GPU (#5381). Order follows spec § 10.0:
-                // "Luminance, Color (existing NLM), Deep, Prefilter". Deep
-                // (BM3D, #1105) is hidden until its patent review clears.
+                // live inside the DECODE PRODUCT, so both commit on release:
+                // Deep (BM3D, #1105) costs seconds per re-decode, Prefilter
+                // (#1104) rides the same decode. Order follows spec § 10.0:
+                // "Luminance, Color (existing NLM), Deep, Prefilter".
                 ToolSubParam(id: "deep", label: "Deep",
                              keyPath: \.deepDenoise, mapping: .linear,
                              range: AdjustmentModel.deepDenoiseRange,
@@ -354,7 +354,7 @@ extension Tool {
                              defaultDisplayValue: Self.defaults.chromaPrefilter,
                              decimals: 0,
                              commitsOnRelease: true),
-            ].filter { $0.id != "deep" || DeepDenoiseFlag.isEnabled }
+            ]
         case .filmLook:
             // Film (#2683) — the catalog pick (`AdjustmentModel.filmLook`)
             // is a string id chosen from `FilmSection`'s list, not a
