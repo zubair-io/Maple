@@ -7,6 +7,7 @@ use super::masks::voronoi_masks_region;
 use super::photometry;
 use super::*;
 use crate::blend::blend_multiband;
+use crate::composite::CanvasCollector;
 use crate::gain::GainOptions;
 use crate::ingest::{PlanarImage, ValidityMask};
 use crate::similarity::Similarity2d;
@@ -182,7 +183,8 @@ fn composite_with_far_frame_places_all_content() {
     // (test-only) seeds it with these synthetic frames.
     let full_dims: Vec<(u32, u32)> = frames.iter().map(|f| (f.width(), f.height())).collect();
     let cache = TileFrameCache::from_frames(frames);
-    let (out, _report) = composite_tile(
+    let mut collector = CanvasCollector::default();
+    composite_tile(
         &cache,
         &full_dims,
         &[],
@@ -192,8 +194,10 @@ fn composite_with_far_frame_places_all_content() {
         &crate::gain::LensGroups::ingest_corrected(full_dims.len()),
         &GainOptions::default(),
         Some(2),
+        &mut collector,
     )
     .expect("composite");
+    let out = collector.into_image();
 
     let cw = out.width() as usize;
     // Content is the canvas-space gradient, so expected value at canvas

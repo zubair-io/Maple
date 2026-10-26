@@ -1,14 +1,17 @@
-//! Bounded-memory save path for the finished composite (#5451): develop,
-//! quantize and PNG-encode a block of rows at a time, so saving never holds
-//! a second whole-canvas copy of the panorama.
+//! Bounded-memory save path for the finished composite: develop, quantize
+//! and PNG-encode a block of rows at a time (#5451), straight from the
+//! compositor's strips (#5452), so saving never holds a whole-canvas copy.
 
 use std::ops::Range;
-use std::path::Path;
+use std::path::PathBuf;
 
+use crate::composite::CanvasSink;
 use crate::error::PanoError;
 use crate::ingest::PlanarImage;
 use crate::png_output::PngRowWriter;
 use crate::render::PngMetadata;
+
+use super::sidecars::SidecarDownscaler;
 
 /// Rows developed per block: 128 rows of a 27k-wide canvas is ~40 MB of f32.
 pub(crate) const SAVE_BLOCK_ROWS: u32 = 128;
@@ -53,43 +56,95 @@ pub(crate) fn quantize_rows_linear(img: &PlanarImage, rows: Range<u32>) -> Vec<u
         .collect()
 }
 
-/// Write the finished, display-referred sRGB panorama PNG block by block.
-/// `on_rows` sees every developed block in order (the sidecar downscaler
-/// feeds on it), so nothing downstream needs the whole developed image.
-pub fn write_display_png(
-    img: &PlanarImage,
-    path: &Path,
-    meta: &PngMetadata,
-    on_rows: impl FnMut(&[u16]),
-) -> Result<(), PanoError> {
-    write_blocks(img, path, meta, develop_rows_for_display, on_rows)
+/// Streams the finished composite to PNG as the compositor hands over its
+/// strips (#5452). Each strip is developed and encoded a block of rows at a
+/// time, so neither the canvas nor its developed copy is ever whole in
+/// memory. Each PNG lands under its final name only in [`Self::finish`].
+pub struct PngCanvasSink {
+    display: Option<DisplayPng>,
+    linear: Option<PathBuf>,
+    open: Option<OpenOutputs>,
 }
 
-/// Write the scene-linear 16-bit carrier PNG block by block.
-pub fn write_scene_linear_png(img: &PlanarImage, path: &Path) -> Result<(), PanoError> {
-    write_blocks(
-        img,
-        path,
-        &PngMetadata::default(),
-        quantize_rows_linear,
-        |_| {},
-    )
+/// The finished, display-referred sRGB PNG.
+pub struct DisplayPng {
+    pub path: PathBuf,
+    pub meta: PngMetadata,
+    /// Also feed the developed rows to a [`SidecarDownscaler`].
+    pub sidecars: bool,
 }
 
-fn write_blocks(
-    img: &PlanarImage,
-    path: &Path,
-    meta: &PngMetadata,
-    encode_rows: fn(&PlanarImage, Range<u32>) -> Vec<u16>,
-    mut on_rows: impl FnMut(&[u16]),
-) -> Result<(), PanoError> {
-    let mut writer = PngRowWriter::create(path, img.width(), img.height(), meta)?;
-    for y0 in (0..img.height()).step_by(SAVE_BLOCK_ROWS as usize) {
-        let block = encode_rows(img, y0..(y0 + SAVE_BLOCK_ROWS).min(img.height()));
-        on_rows(&block);
-        writer.write_rows(&block)?;
+struct OpenOutputs {
+    display: Option<PngRowWriter>,
+    linear: Option<PngRowWriter>,
+    sidecars: Option<SidecarDownscaler>,
+}
+
+impl PngCanvasSink {
+    /// `linear` is the scene-linear carrier.
+    pub fn new(display: Option<DisplayPng>, linear: Option<PathBuf>) -> Self {
+        Self {
+            display,
+            linear,
+            open: None,
+        }
     }
-    writer.finish()
+
+    /// Close the PNGs and hand back the sidecar downscaler, if one was fed.
+    pub fn finish(self) -> Result<Option<SidecarDownscaler>, PanoError> {
+        let open = self.open.ok_or_else(|| {
+            PanoError::InvalidOptions("PNG sink finished before any canvas began".into())
+        })?;
+        open.display.map(PngRowWriter::finish).transpose()?;
+        open.linear.map(PngRowWriter::finish).transpose()?;
+        Ok(open.sidecars)
+    }
+}
+
+impl CanvasSink for PngCanvasSink {
+    fn begin(&mut self, width: u32, height: u32) -> Result<(), PanoError> {
+        let display = self
+            .display
+            .as_ref()
+            .map(|d| PngRowWriter::create(&d.path, width, height, &d.meta))
+            .transpose()?;
+        let linear = self
+            .linear
+            .as_ref()
+            .map(|path| PngRowWriter::create(path, width, height, &PngMetadata::default()))
+            .transpose()?;
+        let sidecars = self
+            .display
+            .as_ref()
+            .is_some_and(|d| d.sidecars)
+            .then(|| SidecarDownscaler::new(width, height));
+        self.open = Some(OpenOutputs {
+            display,
+            linear,
+            sidecars,
+        });
+        Ok(())
+    }
+
+    fn rows(&mut self, strip: &PlanarImage) -> Result<(), PanoError> {
+        let open = self.open.as_mut().ok_or_else(|| {
+            PanoError::InvalidOptions("PNG sink got rows before the canvas began".into())
+        })?;
+        for y0 in (0..strip.height()).step_by(SAVE_BLOCK_ROWS as usize) {
+            let block = y0..(y0 + SAVE_BLOCK_ROWS).min(strip.height());
+            if let Some(writer) = &mut open.display {
+                let developed = develop_rows_for_display(strip, block.clone());
+                if let Some(sidecars) = &mut open.sidecars {
+                    sidecars.push_rows(&developed);
+                }
+                writer.write_rows(&developed)?;
+            }
+            if let Some(writer) = &mut open.linear {
+                writer.write_rows(&quantize_rows_linear(strip, block))?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -149,7 +204,7 @@ mod tests {
         ))
     }
 
-    fn decode_rgb16(path: &Path) -> (u32, u32, Vec<u16>) {
+    fn decode_rgb16(path: &std::path::Path) -> (u32, u32, Vec<u16>) {
         let decoder =
             png::Decoder::new(std::io::BufReader::new(std::fs::File::open(path).unwrap()));
         let mut reader = decoder.read_info().unwrap();
@@ -173,36 +228,79 @@ mod tests {
         assert_eq!(blocks, develop_for_display(&pano));
     }
 
-    #[test]
-    fn display_png_decodes_to_the_whole_image_develop() {
-        let pano = ramp_pano(41, 290);
-        let path = tmp_png("display");
-        let mut seen = Vec::new();
-        write_display_png(
-            &pano,
-            &path,
-            &PngMetadata {
-                exif_blob: None,
-                tag_srgb: true,
-            },
-            |rows| seen.extend_from_slice(rows),
+    /// Rows `rows` of `img` as their own image, the way a compositor hands
+    /// over a strip.
+    fn strip_of(img: &PlanarImage, rows: Range<u32>) -> PlanarImage {
+        let w = img.width() as usize;
+        let span = rows.start as usize * w..rows.end as usize * w;
+        let h = rows.end - rows.start;
+        PlanarImage::from_planes(
+            img.width(),
+            h,
+            img.r[span.clone()].to_vec(),
+            img.g[span.clone()].to_vec(),
+            img.b[span].to_vec(),
+            ValidityMask::new_filled(img.width(), h, true),
         )
-        .unwrap();
-        let (w, h, samples) = decode_rgb16(&path);
-        let _ = std::fs::remove_file(&path);
-        assert_eq!((w, h), (41, 290));
-        let expected = develop_for_display(&pano);
-        assert_eq!(samples, expected);
-        assert_eq!(seen, expected, "on_rows must see every block in order");
+    }
+
+    /// Feed `img` to `sink` in strips of `strip_rows`, as a compositor would.
+    fn stream(img: &PlanarImage, strip_rows: u32, sink: &mut PngCanvasSink) {
+        sink.begin(img.width(), img.height()).unwrap();
+        for y0 in (0..img.height()).step_by(strip_rows as usize) {
+            let strip = strip_of(img, y0..(y0 + strip_rows).min(img.height()));
+            sink.rows(&strip).unwrap();
+        }
     }
 
     #[test]
-    fn scene_linear_png_decodes_to_the_whole_image_quantize() {
-        let pano = ramp_pano(23, 260);
-        let path = tmp_png("linear");
-        write_scene_linear_png(&pano, &path).unwrap();
-        let (_, _, samples) = decode_rgb16(&path);
-        let _ = std::fs::remove_file(&path);
-        assert_eq!(samples, quantize_to_u16(&pano, false));
+    fn streamed_pngs_decode_to_the_whole_image_develop() {
+        // 290-row strips taller than a block, and a ragged last strip.
+        let pano = ramp_pano(41, 700);
+        let (display, linear) = (tmp_png("display"), tmp_png("linear"));
+        let meta = PngMetadata {
+            exif_blob: None,
+            tag_srgb: true,
+        };
+        let mut sink = PngCanvasSink::new(
+            Some(DisplayPng {
+                path: display.clone(),
+                meta,
+                sidecars: true,
+            }),
+            Some(linear.clone()),
+        );
+        stream(&pano, 290, &mut sink);
+        assert!(!display.exists(), "the PNG lands only on finish");
+        let sidecars = sink.finish().unwrap();
+
+        let (w, h, shown) = decode_rgb16(&display);
+        let (_, _, carrier) = decode_rgb16(&linear);
+        let _ = std::fs::remove_file(&display);
+        let _ = std::fs::remove_file(&linear);
+        assert_eq!((w, h), (41, 700));
+        assert_eq!(shown, develop_for_display(&pano));
+        assert_eq!(carrier, quantize_to_u16(&pano, false));
+        assert!(sidecars.is_some(), "the downscaler was fed");
+    }
+
+    #[test]
+    fn a_short_stream_leaves_no_png_behind() {
+        let pano = ramp_pano(19, 300);
+        let path = tmp_png("short");
+        let mut sink = PngCanvasSink::new(None, Some(path.clone()));
+        sink.begin(pano.width(), pano.height()).unwrap();
+        sink.rows(&strip_of(&pano, 0..100)).unwrap();
+        assert!(sink.finish().is_err());
+        assert!(!path.exists());
+        assert!(!crate::png_output::partial_path(&path).exists());
+    }
+
+    #[test]
+    fn rows_before_begin_are_refused() {
+        let pano = ramp_pano(5, 4);
+        let mut sink = PngCanvasSink::new(None, Some(tmp_png("early")));
+        assert!(sink.rows(&pano).is_err());
+        assert!(PngCanvasSink::new(None, None).finish().is_err());
     }
 }

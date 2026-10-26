@@ -43,9 +43,7 @@ use clap::Subcommand;
 
 use maple_pano::exif_embed::build_exif_blob;
 use maple_pano::render::PngMetadata;
-use maple_pano::stitch::{
-    self, write_display_png, write_scene_linear_png, StitchOptions, StitchSuccess,
-};
+use maple_pano::stitch::{self, DisplayPng, PngCanvasSink, StitchOptions, StitchSuccess};
 use raw_core::read_exif;
 use serde_json::Value;
 
@@ -254,12 +252,16 @@ fn stitch_set(
     let t0 = Instant::now();
 
     // Build PNG metadata EARLY — before stitch/composite, when the only
-    // allocation is the source frame bytes needed to parse EXIF.  At this
-    // point RSS is at its lowest; after stitch() returns the composite
-    // buffer is still live in memory alongside the decoded frames.  Both
-    // the rotation path (below) and the tile path (tile.rs) receive this
-    // pre-computed value so neither path re-reads the RAW at peak RSS.
-    let display_meta = outs.display.as_ref().map(|_| display_png_meta(inputs));
+    // allocation is the source frame bytes needed to parse EXIF, so it is
+    // never re-read at peak RSS (#1349). The composite streams straight
+    // into both PNGs through the sink (#5452): the finished display PNG
+    // (AgX view tail like a RAW render, #1335) and the scene-linear carrier.
+    let display = outs.display.as_ref().map(|path| DisplayPng {
+        path: path.clone(),
+        meta: display_png_meta(inputs),
+        sidecars: false,
+    });
+    let mut sink = PngCanvasSink::new(display, Some(outs.linear.clone()));
 
     let opts = stitch_options(args, gate_budgets)?;
 
@@ -270,29 +272,19 @@ fn stitch_set(
         inputs,
         &opts,
         offered.as_ref(),
+        &mut sink,
         progress::stderr_progress(),
         || false,
     )
     .map_err(|e| e.to_string())?;
     preview::save_alignment(args.alignment_out.as_deref(), &run.alignment)?;
+    let t_out = Instant::now();
+    sink.finish().map_err(|e| e.to_string())?;
+    let write_s = t_out.elapsed().as_secs_f64();
+    let (width, height) = run.success.canvas_size();
     let alignment = preview::alignment_report(&preview::verdict(run.reuse, unreadable));
     let report = match run.success {
         StitchSuccess::Rotation(outcome) => {
-            // ---- write outputs -----------------------------------------------
-            let t_out = Instant::now();
-            write_scene_linear_png(&outcome.image, &outs.linear)
-                .map_err(|e| format!("{}: {e}", outs.linear.display()))?;
-            if let Some(display) = &outs.display {
-                // Finished, display-referred sRGB (#1335): AgX view tail like a RAW
-                // render, developed and encoded a block of rows at a time (#5451).
-                // EXIF + sRGB tag were computed BEFORE the stitch to avoid re-reading
-                // the source RAW at peak RSS (#1349 fix).
-                let meta = display_meta.expect("display_meta is Some when outs.display is Some");
-                write_display_png(&outcome.image, display, &meta, |_| {})
-                    .map_err(|e| format!("{}: {e}", display.display()))?;
-            }
-            let write_s = t_out.elapsed().as_secs_f64();
-
             eprintln!(
                 "pano: solve — mean {:.3}px max {:.3}px over {} rounds ({} LM iters), \
                  focal {:.1}px, dropped {:?}, leveled={}",
@@ -321,8 +313,8 @@ fn stitch_set(
             eprintln!(
                 "pano: wrote {} ({}x{}) in {:.1}s",
                 outs.linear.display(),
-                outcome.image.width(),
-                outcome.image.height(),
+                width,
+                height,
                 t0.elapsed().as_secs_f64()
             );
 
@@ -335,17 +327,11 @@ fn stitch_set(
                             .to_string_lossy()
                             .replace(".report.json", ".owner.png"),
                     );
-                    let data: Vec<u16> = owner
-                        .iter()
-                        .map(|&o| if o == u16::MAX { 0 } else { o + 1 })
-                        .collect();
-                    maple_pano::render::write_owner_png(
-                        &owner_path,
-                        outcome.image.width(),
-                        outcome.image.height(),
-                        &data,
-                    )
-                    .map_err(|e| format!("{}: {e}", owner_path.display()))?;
+                    let mut data = owner.to_dense();
+                    data.iter_mut()
+                        .for_each(|o| *o = if *o == u16::MAX { 0 } else { *o + 1 });
+                    maple_pano::render::write_owner_png(&owner_path, width, height, &data)
+                        .map_err(|e| format!("{}: {e}", owner_path.display()))?;
                 }
             }
 
@@ -387,12 +373,8 @@ fn stitch_set(
         StitchSuccess::Tile(tile_outcome) => tile::run_tile_from_outcome(tile::TileOutcomeArgs {
             outcome: tile_outcome,
             outs_linear: &outs.linear,
-            outs_display: outs.display.as_deref(),
             inputs,
-            // Pass the metadata computed BEFORE stitch() so the tile
-            // write path does not re-read the source RAW at peak RSS
-            // (#1349 fix).
-            display_meta,
+            write_s,
             t0,
         })?,
     };

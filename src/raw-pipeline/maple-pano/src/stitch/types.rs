@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use crate::ba::{self, BaSolution, RetentionPolicy};
 use crate::composite::CompositeReport;
-use crate::ingest::{FramePriors, PlanarImage};
+use crate::ingest::FramePriors;
 use crate::local_align::LocalCorrection;
 use crate::strategy::StrategyReport;
 
@@ -122,13 +122,10 @@ impl Default for StitchOptions {
 
 // ─── Output ──────────────────────────────────────────────────────────────────
 
-/// Everything `stitch` returns on success. The composited image is the
-/// primary product; all other fields are bookkeeping the CLI uses to
-/// assemble the `StitchReport` JSON (spec §6). The FFI caller ignores
-/// those fields.
+/// Everything `stitch` returns on success besides the composited canvas,
+/// which went to the caller's sink: bookkeeping the CLI uses to assemble
+/// the `StitchReport` JSON (spec §6). The FFI caller ignores it.
 pub struct StitchOutcome {
-    /// Scene-linear Rec.2020 composite (the value the PNG/DNG writer encodes).
-    pub image: PlanarImage,
     /// The compositing stage report (projection, canvas dims, gains, …).
     pub comp_report: CompositeReport,
     /// Bundle-adjustment solution (cameras, reproj stats, drops, …).
@@ -166,12 +163,10 @@ pub struct StitchOutcome {
 
 /// Everything [`stitch_tile`](super::stitch_tile) returns on success.
 ///
-/// The composited image is the primary product; all other fields are
-/// bookkeeping the CLI uses to assemble the tile `StitchReport` JSON
-/// (spec §8 / #1226). The FFI caller needs only `image`.
+/// The composited canvas went to the caller's sink; these are the
+/// bookkeeping fields the CLI uses to assemble the tile `StitchReport` JSON
+/// (spec §8 / #1226).
 pub struct TileStitchOutcome {
-    /// Scene-linear Rec.2020 composite (the value the PNG/DNG writer encodes).
-    pub image: PlanarImage,
     /// Tile composite report (canvas, placements, gains, residuals, …).
     pub tile_report: crate::tile::TileCompositeReport,
     /// Strategy-selection outcome (evidence + selection + optional warning).
@@ -215,8 +210,8 @@ pub struct TileStitchOutcome {
 /// rotation continues through BA → leveling → equirect composite;
 /// tile goes through planar placement → NCC refine → planar composite.
 ///
-/// Callers that only need the pixel output can use the blanket accessor
-/// [`StitchSuccess::image`] without matching on the strategy.
+/// [`StitchSuccess::canvas_size`] reads the output size without matching
+/// on the strategy.
 pub enum StitchSuccess {
     /// The rotation strategy ran (BA → leveling → equirect composite).
     Rotation(StitchOutcome),
@@ -225,11 +220,12 @@ pub enum StitchSuccess {
 }
 
 impl StitchSuccess {
-    /// The composited pixel output regardless of which strategy ran.
-    pub fn image(&self) -> &crate::ingest::PlanarImage {
+    /// The composited canvas `(width, height)` regardless of which
+    /// strategy ran.
+    pub fn canvas_size(&self) -> (u32, u32) {
         match self {
-            Self::Rotation(o) => &o.image,
-            Self::Tile(o) => &o.image,
+            Self::Rotation(o) => (o.comp_report.canvas.width, o.comp_report.canvas.height),
+            Self::Tile(o) => (o.tile_report.canvas.width, o.tile_report.canvas.height),
         }
     }
 }

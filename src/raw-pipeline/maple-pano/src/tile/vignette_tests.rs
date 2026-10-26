@@ -5,6 +5,7 @@
 use super::composite::composite_tile;
 use super::frame_cache::TileFrameCache;
 use super::placement::{TileCanvasSpec, TilePose};
+use crate::composite::CanvasCollector;
 use crate::gain::vignette::{falloff_gain, radius_squared};
 use crate::gain::{GainOptions, LensGroups};
 use crate::ingest::{PlanarImage, ValidityMask};
@@ -82,7 +83,8 @@ fn ripple(frames: Vec<PlanarImage>, lenses: &LensGroups) -> (f64, Vec<crate::gai
     let full_dims = vec![FRAME; MULS.len()];
     let cache = TileFrameCache::from_frames(frames);
     let canvas = canvas();
-    let (out, report) = composite_tile(
+    let mut collector = CanvasCollector::default();
+    let report = composite_tile(
         &cache,
         &full_dims,
         &[],
@@ -92,8 +94,10 @@ fn ripple(frames: Vec<PlanarImage>, lenses: &LensGroups) -> (f64, Vec<crate::gai
         lenses,
         &GainOptions::default(),
         Some(1),
+        &mut collector,
     )
     .expect("composite");
+    let out = collector.into_image();
     let cw = canvas.width as usize;
     let ratios: Vec<f64> = (0..out.pixel_count())
         .filter(|i| out.validity.get((i % cw) as u32, (i / cw) as u32))
@@ -139,6 +143,7 @@ fn tile_ingest_corrected_set_is_bit_identical() {
     let full_dims = vec![FRAME; MULS.len()];
     let run = |lenses: &LensGroups| {
         let cache = TileFrameCache::from_frames(planted(0.0));
+        let mut collector = CanvasCollector::default();
         composite_tile(
             &cache,
             &full_dims,
@@ -149,9 +154,10 @@ fn tile_ingest_corrected_set_is_bit_identical() {
             lenses,
             &GainOptions::default(),
             Some(1),
+            &mut collector,
         )
-        .expect("composite")
-        .0
+        .expect("composite");
+        collector.into_image()
     };
     let corrected = run(&lenses);
     let unknown_frames = run(&LensGroups {

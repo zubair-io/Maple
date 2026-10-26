@@ -31,18 +31,18 @@
 //! whole-canvas [`blend_multiband`] at the same band count for any
 //! `tile_rows`, while blend memory stays bounded by the window.
 //!
-//! Measured peak RSS on pano_01 (21 DJI DNGs, proxy_long_edge=1600,
-//! canvas_tile_rows=512): **17.83 GB** — dominated by the full-resolution
-//! refinement phase holding all decoded frames simultaneously before gains are
-//! solved (the `kept_frames_for_gain` clone in `stitch.rs` and the depths
-//! `Vec<Vec<f32>>` per frame are the primary drivers). The per-tile composite
-//! strip allocation itself is small, but it doesn't help while all frames are
-//! still resident. The real memory work — restructuring `depths: Vec<Vec<f32>>`,
-//! eliminating `kept_frames_for_gain` full-res clones, and streaming the
-//! refinement phase — is tracked in #1254.
+//! The finished canvas is handed to a [`CanvasSink`] one strip at a time, as
+//! soon as no later strip can change those rows (#5452), so a caller that
+//! develops and encodes as it goes never holds the whole canvas; Voronoi
+//! ownership is kept run-length encoded ([`OwnerRuns`]) for the same reason.
+//! Measured peaks per stage are in `docs/pano.md` § Memory.
 
+mod owner;
+mod sink;
 mod tiled;
 
+pub use owner::OwnerRuns;
+pub use sink::{CanvasCollector, CanvasSink};
 pub use tiled::{composite_tiled, composite_tiled_frames};
 
 use rayon::prelude::*;
@@ -93,7 +93,7 @@ pub struct CompositeReport {
     pub seam_strategy: SeamStrategy,
     /// The residual exposure field the tiled path applied, if any (#4521).
     pub exposure_field: Option<ExposureFieldSummary>,
-    pub owner: Option<Vec<u16>>,
+    pub owner: Option<OwnerRuns>,
 }
 
 /// Composite posed frames onto an automatically constructed canvas.

@@ -2,6 +2,7 @@
 //! `tile/mod.rs` for the file-size budget (#3086).
 
 use crate::blend::{blend_multiband, levels_for_overlap_width, MAX_LEVELS};
+use crate::composite::CanvasSink;
 use crate::error::PanoError;
 use crate::gain::{GainOptions, LensFalloff, LensGroups};
 use crate::ingest::PlanarImage;
@@ -139,7 +140,8 @@ pub(crate) fn composite_tile(
     lenses: &LensGroups,
     gain_opts: &GainOptions,
     levels_override: Option<usize>,
-) -> Result<(PlanarImage, TileCompositeReport), PanoError> {
+    sink: &mut dyn CanvasSink,
+) -> Result<TileCompositeReport, PanoError> {
     if poses.is_empty() {
         return Err(PanoError::InvalidOptions(
             "composite_tile: no frames".into(),
@@ -180,14 +182,10 @@ pub(crate) fn composite_tile(
         .clamp(1, MAX_LEVELS);
     let halo = halo_for_levels(levels);
 
-    // ── canvas output buffers ────────────────────────────────────────────────
+    // Output goes to `sink` one full-width band of tiles at a time (#5452).
     let cw = canvas.width as usize;
     let ch = canvas.height as usize;
-    let n = cw * ch;
-    let mut out_r = vec![0.0_f32; n];
-    let mut out_g = vec![0.0_f32; n];
-    let mut out_b = vec![0.0_f32; n];
-    let mut out_valid = vec![false; n];
+    sink.begin(canvas.width, canvas.height)?;
 
     // Per-frame canvas-space bounding boxes for spatial culling (#3086).
     // A similarity maps the frame rectangle to a convex quad, so the
@@ -222,6 +220,12 @@ pub(crate) fn composite_tile(
     let mut ty0 = 0usize;
     while ty0 < ch {
         let ty1 = (ty0 + TILE_PX).min(ch);
+        let band_n = cw * (ty1 - ty0);
+        let mut out_r = vec![0.0_f32; band_n];
+        let mut out_g = vec![0.0_f32; band_n];
+        let mut out_b = vec![0.0_f32; band_n];
+        let mut out_valid =
+            crate::ingest::ValidityMask::new_filled(canvas.width, (ty1 - ty0) as u32, false);
         let mut tx0 = 0usize;
         while tx0 < cw {
             let tx1 = (tx0 + TILE_PX).min(cw);
@@ -312,11 +316,11 @@ pub(crate) fn composite_tile(
                         continue;
                     }
                     let bi = by * bw + bx;
-                    let oi = oy * cw + ox;
+                    let oi = (oy - ty0) * cw + ox;
                     out_r[oi] = blended.r[bi];
                     out_g[oi] = blended.g[bi];
                     out_b[oi] = blended.b[bi];
-                    out_valid[oi] = true;
+                    out_valid.set(ox as u32, (oy - ty0) as u32, true);
                 }
             }
 
@@ -324,41 +328,36 @@ pub(crate) fn composite_tile(
             // the next tile iteration.
             tx0 = tx1;
         }
+        sink.rows(&PlanarImage::from_planes(
+            canvas.width,
+            (ty1 - ty0) as u32,
+            out_r,
+            out_g,
+            out_b,
+            out_valid,
+        ))?;
         ty0 = ty1;
     }
 
-    // Build output validity mask.
-    let mut validity = crate::ingest::ValidityMask::new_filled(canvas.width, canvas.height, false);
-    for (i, &v) in out_valid.iter().enumerate() {
-        if v {
-            validity.set((i % cw) as u32, (i / cw) as u32, true);
-        }
-    }
-    let output =
-        PlanarImage::from_planes(canvas.width, canvas.height, out_r, out_g, out_b, validity);
-
-    Ok((
-        output,
-        TileCompositeReport {
-            canvas: canvas.clone(),
-            placements: poses.to_vec(),
-            gains,
-            blend_levels: levels,
-            min_overlap_width_px: min_overlap,
-            mean_planar_residual_px: mean_planar,
-            max_planar_residual_px: residual_max,
-            mean_planar_before_local_px: mean_before,
-            max_planar_before_local_px: max_before,
-            local_correction_rms_px: corrections.map_or_else(
-                || vec![0.0; poses.len()],
-                |cs| cs.iter().map(|c| c.rms_px).collect(),
-            ),
-            halo_px: halo,
-            photometric_slope_x: phot_summary.slope_x,
-            photometric_slope_y: phot_summary.slope_y,
-            exposure_field_mean_abs_ev: phot_summary.field_mean_abs_ev,
-            exposure_field_max_abs_ev: phot_summary.field_max_abs_ev,
-            falloff: phot_summary.falloff,
-        },
-    ))
+    Ok(TileCompositeReport {
+        canvas: canvas.clone(),
+        placements: poses.to_vec(),
+        gains,
+        blend_levels: levels,
+        min_overlap_width_px: min_overlap,
+        mean_planar_residual_px: mean_planar,
+        max_planar_residual_px: residual_max,
+        mean_planar_before_local_px: mean_before,
+        max_planar_before_local_px: max_before,
+        local_correction_rms_px: corrections.map_or_else(
+            || vec![0.0; poses.len()],
+            |cs| cs.iter().map(|c| c.rms_px).collect(),
+        ),
+        halo_px: halo,
+        photometric_slope_x: phot_summary.slope_x,
+        photometric_slope_y: phot_summary.slope_y,
+        exposure_field_mean_abs_ev: phot_summary.field_mean_abs_ev,
+        exposure_field_max_abs_ev: phot_summary.field_max_abs_ev,
+        falloff: phot_summary.falloff,
+    })
 }

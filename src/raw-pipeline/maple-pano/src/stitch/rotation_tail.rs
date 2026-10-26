@@ -11,7 +11,7 @@ use std::time::Instant;
 use crate::ba::{self, BaOptions};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, ProjectionMode};
-use crate::composite::CompositeReport;
+use crate::composite::{CanvasSink, CompositeReport};
 use crate::leveling;
 use crate::local_align::LocalCorrection;
 use crate::robust::RobustOptions;
@@ -31,6 +31,7 @@ pub(super) fn rotation_tail(
     opts: &StitchOptions,
     alignment: &SolvedAlignment,
     head_timings: [f64; 3],
+    sink: &mut dyn CanvasSink,
     progress: &mut dyn FnMut(u32, f32),
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<StitchOutcome, StitchError> {
@@ -132,7 +133,7 @@ pub(super) fn rotation_tail(
         solve_kept_photometry(&kept_paths, &kept_cams, &alignment.lenses, &kept_inputs)?;
 
     let seam_constraints = seam_gate::for_kept_frames(&opts.seam_constraints, &kept_inputs)?;
-    let (image, tiled_report) = rotation_composite::composite(
+    let tiled_report = rotation_composite::composite(
         &kept_paths,
         &kept_cams,
         &photometry,
@@ -140,6 +141,7 @@ pub(super) fn rotation_tail(
         &canvas,
         opts,
         &seam_constraints,
+        sink,
     )?;
     let comp_report = CompositeReport {
         falloff,
@@ -150,7 +152,6 @@ pub(super) fn rotation_tail(
     progress(5, 1.0);
 
     Ok(StitchOutcome {
-        image,
         comp_report,
         solution,
         local_corrections,
