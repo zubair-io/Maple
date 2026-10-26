@@ -59,6 +59,7 @@ import { backupSidecarNameChecksMigration } from './0034-backup-sidecar-name-che
 import { appleLiveVideoPathMigration } from './0035-apple-live-video-path.ts';
 import { localPurgeObligationsMigration } from './0036-local-purge-obligations.ts';
 import { bundledEmbedderMigration } from './0037-bundled-embedder.ts';
+import { motionPhotoMigration } from './0038-motion-photo.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -98,4 +99,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   appleLiveVideoPathMigration,
   localPurgeObligationsMigration,
   bundledEmbedderMigration,
+  motionPhotoMigration,
 ];
