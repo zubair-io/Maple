@@ -154,6 +154,18 @@ fn downsample_preview_for_fit(
 /// extraction shared by the curve fit, the residual fit, and the render
 /// path's will-it-fit probe (#1085 perf companion: pre-fix the cold Auto
 /// render extracted + JPEG-decoded the preview three times).
+/// The outcome of an Auto fit that produced no artifacts. `NoPreview` only
+/// when the source opened and yielded nothing; an unreadable path is a read
+/// failure, not a missing preview.
+pub(super) fn unapplied_outcome(raw_source: &RawInput<'_>, preview_found: bool) -> AutoFitOutcome {
+    let unreadable = matches!(raw_source, RawInput::Path(p) if std::fs::File::open(p).is_err());
+    if preview_found || unreadable {
+        AutoFitOutcome::Unfitted
+    } else {
+        AutoFitOutcome::NoPreview
+    }
+}
+
 fn extract_preview_for_fit(raw_source: &RawInput<'_>) -> Option<ExtractedPreview> {
     match raw_source {
         RawInput::Path(p) => auto_profile::preview::extract_for_fit(p),
@@ -367,7 +379,7 @@ pub fn fit_auto_profile_from_raw_at_cap(
 
     let curve = render_curve(curve);
     if curve.is_none() && residual.is_none() {
-        return Err(AutoFitOutcome::of(false, preview_found));
+        return Err(unapplied_outcome(&raw_source, preview_found));
     }
     let k = auto_profile::lut::lut_strength_from_env();
     let residual = if k == 1.0 {

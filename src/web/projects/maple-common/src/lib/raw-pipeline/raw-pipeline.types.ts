@@ -75,7 +75,7 @@ export interface DecodeSuccess {
   /** Resolver facts for the imported LCP profile the sidecar named (#3479);
    *  absent when it named none or the worker holds no copy of it. */
   lensProfile?: LensProfileResolution;
-  /** Actual applied Auto artifacts; absent until evaluated or with Neutral. */
+  /** The core's actual Auto fit outcome (#5458); absent until evaluated or with Neutral. */
   autoFit?: AutoFitOutcome;
 }
 
@@ -236,7 +236,7 @@ export interface OpenSessionSuccess {
   cameraSupport?: CameraSupport;
   /** See `DecodeSuccess.lensProfile` (#3479). */
   lensProfile?: LensProfileResolution;
-  /** Actual applied Auto artifacts; absent until evaluated or with Neutral. */
+  /** The core's actual Auto fit outcome (#5458); absent until evaluated or with Neutral. */
   autoFit?: AutoFitOutcome;
   /** Achieved canvas colour-space tag (`display-p3` / `srgb` / `unknown`). */
   colorSpace: string;
@@ -255,7 +255,7 @@ export interface RenderSessionSuccess {
   /** See `DecodeSuccess.lensProfile` (#3479) — refreshed when the prefix
    *  re-developed for a new selection; absent on a scalar-params tick. */
   lensProfile?: LensProfileResolution;
-  /** Actual applied Auto artifacts; absent until evaluated or with Neutral. */
+  /** The core's actual Auto fit outcome (#5458); absent until evaluated or with Neutral. */
   autoFit?: AutoFitOutcome;
   // No `scope` (#3397): published out-of-band so this reply never waits on a
   // GPU sync. See `ScopeSampleBroadcast`.
@@ -486,7 +486,7 @@ export interface DecodedImage {
   lensCorrectionCaInert?: boolean;
   cameraSupport?: CameraSupport;
   lensProfile?: LensProfileResolution;
-  /** Actual applied Auto artifacts; absent until evaluated or with Neutral. */
+  /** The core's actual Auto fit outcome (#5458); absent until evaluated or with Neutral. */
   autoFit?: AutoFitOutcome;
 }
 

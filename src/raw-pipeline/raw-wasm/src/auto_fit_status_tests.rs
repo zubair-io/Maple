@@ -197,3 +197,11 @@ fn missing_fit_yields_absent_artifacts_not_identity() {
     assert_eq!(size, 0, "Neutral must leave the LUT size 0");
     assert!(data.is_empty(), "Neutral must leave the LUT data empty");
 }
+
+#[test]
+fn cpu_render_reports_no_preview_for_a_preview_less_dng_5458() {
+    let bytes = raw_core::test_support::synth_dng::SyntheticGreyDng::default().write_to_bytes();
+    let render = crate::render::render_bytes(&bytes, "dng", None)
+        .unwrap_or_else(|_| panic!("synthetic CPU render"));
+    assert_eq!(render.auto_fit().as_deref(), Some("no-preview"));
+}

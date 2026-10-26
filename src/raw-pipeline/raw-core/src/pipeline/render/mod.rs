@@ -483,10 +483,12 @@ fn render_display_scene_with_context_cancellable(
             active_model: active_model.clone(),
             ae_gain,
             whites_anchor_ev,
-            auto_fit: (model.profile == Profile::Auto).then(|| {
-                let applied = artifacts.0.is_some() || artifacts.1.is_some();
-                let preview_found = auto_will_fit || raw_source.is_none() || auto_profile_disabled;
-                AutoFitOutcome::of(applied, preview_found)
+            auto_fit: (model.profile == Profile::Auto).then(|| match &raw_source {
+                _ if artifacts.0.is_some() || artifacts.1.is_some() => AutoFitOutcome::Applied,
+                Some(source) if !auto_profile_disabled => {
+                    auto_fit::unapplied_outcome(source, auto_will_fit)
+                }
+                _ => AutoFitOutcome::Unfitted,
             }),
             profile_curve: artifacts.0,
             profile_lut: artifacts.1,

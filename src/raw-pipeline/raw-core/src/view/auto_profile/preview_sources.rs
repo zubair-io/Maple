@@ -12,7 +12,7 @@ use serde::Serialize;
 use super::preview::{is_tiff_container, largest_embedded_jpeg};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "snake_case")]
 pub enum PreviewSource {
     /// rawler `preview_image()`; unimplemented for every rawler 0.7.2 decoder,
     /// kept to pick up native support if a future rawler adds it.
@@ -25,6 +25,7 @@ pub enum PreviewSource {
     DngThumbnail,
     /// Largest colour JPEG in a non-TIFF container (e.g. Sigma X3F), gated so
     /// it can never return a TIFF RAW-as-JPEG (#930).
+    #[serde(rename = "jpeg_scan")]
     EmbeddedJpegScan,
     /// `exiftool -PreviewImage` / `-JpgFromRaw`; path variant only. Absent in
     /// the sandboxed Apple app, on iOS and on Web/WASM (#927).

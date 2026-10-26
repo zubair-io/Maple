@@ -33,7 +33,7 @@ export interface LensCorrectionCapability {
    *  consumed (#3479); absent when the sidecar named none or the worker
    *  held no copy of it. */
   lensProfile?: LensProfileResolution;
-  /** Actual Auto artifacts from the latest completed render (#4096). */
+  /** The core's actual Auto fit outcome from the latest completed render (#4096, #5458). */
   autoFit?: AutoFitOutcome;
 }
 
