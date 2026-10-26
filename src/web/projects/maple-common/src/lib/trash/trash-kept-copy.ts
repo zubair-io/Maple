@@ -16,7 +16,8 @@ export function keptCopyMessage(filename: string, cleanupPending: boolean): stri
 export function keptCopiesNote(filenames: readonly string[], cleanupPending: boolean): string {
   if (filenames.length === 0) return '';
   const pending = cleanupPending ? ' File cleanup will finish shortly.' : '';
-  return ` ${filenames.length} kept because another copy exists (${filenames.join(', ')}).${pending}`;
+  const count = filenames.length === 1 ? '1 photo was' : `${filenames.length} photos were`;
+  return ` ${count} kept because another copy exists (${filenames.join(', ')}).${pending}`;
 }
 
 /** The `slug:relPath` address of the folder holding `absPath`, resolved

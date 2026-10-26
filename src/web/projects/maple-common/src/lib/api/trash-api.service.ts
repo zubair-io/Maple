@@ -173,7 +173,7 @@ export class TrashApiService {
             body?.state === 'live'
               ? {
                   kind: 'kept',
-                  absPath: body.abs_path ?? null,
+                  absPath: body.abs_path,
                   cleanupPending: body.cleanup === 'pending',
                 }
               : { kind: 'ok' },

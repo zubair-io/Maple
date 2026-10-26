@@ -33,4 +33,10 @@ describe('keptCopiesNote', () => {
   it('is empty when nothing was kept', () => {
     expect(keptCopiesNote([], true)).toBe('');
   });
+
+  it('names the kept photos and notes a pending cleanup gently', () => {
+    expect(keptCopiesNote(['a.dng', 'b.dng'], true)).toBe(
+      ' 2 photos were kept because another copy exists (a.dng, b.dng). File cleanup will finish shortly.',
+    );
+  });
 });
