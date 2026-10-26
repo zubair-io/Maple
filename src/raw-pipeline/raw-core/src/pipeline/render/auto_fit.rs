@@ -26,6 +26,7 @@ use crate::view::auto_profile::cache::{CacheKey, FitOrigin};
 use crate::view::auto_profile::curve::ProfileCurve;
 use crate::view::auto_profile::lut::ColorLut;
 use crate::view::auto_profile::preview::ExtractedPreview;
+use crate::view::auto_profile::AutoFitOutcome;
 use crate::view::{agx, auto_profile, encode};
 use crate::xmp::AdjustmentModel;
 
@@ -252,9 +253,11 @@ pub fn fit_profile_curve_from_raw(
 /// full-strength fit, so the env value can never be baked into a cached LUT.
 ///
 /// Returns:
-/// - `None` when NEITHER stage applies — not `Profile::Auto`, or no embedded
-///   JPEG so both fits fail. The host renders plain AgX (= `Profile::Neutral`).
-/// - `Some((curve, residual))` otherwise, where EITHER element may be `None`:
+/// - `Err(outcome)` when NEITHER stage applies: [`AutoFitOutcome::NoPreview`]
+///   when no embedded preview could be extracted (#5458), otherwise
+///   [`AutoFitOutcome::Unfitted`] (including not `Profile::Auto`). The host
+///   renders plain AgX (= `Profile::Neutral`).
+/// - `Ok((curve, residual))` otherwise, where EITHER element may be `None`:
 ///   * `(Some, Some)` — the full tail; the host bakes `curve ∘ residual`.
 ///   * `(Some, None)` — curve only (too few residual pairs, or the residual
 ///     disabled); curve-only bake, byte-identical to the #812 cube.
@@ -269,9 +272,12 @@ pub fn fit_auto_profile_from_raw(
     model: &AdjustmentModel,
     quality: RenderQuality,
     raw_source: RawInput<'_>,
-) -> Option<(Option<ProfileCurve>, Option<ColorLut>)> {
+) -> std::result::Result<FitArtifacts, AutoFitOutcome> {
     fit_auto_profile_from_raw_at_cap(raw, model, quality, raw_source, FitCap::Proxy)
 }
+
+/// The `(curve, residual)` pair an Auto Profile fit hands its host.
+pub type FitArtifacts = (Option<ProfileCurve>, Option<ColorLut>);
 
 #[path = "auto_fit_cap.rs"]
 mod fit_cap;
@@ -288,9 +294,9 @@ pub fn fit_auto_profile_from_raw_at_cap(
     quality: RenderQuality,
     raw_source: RawInput<'_>,
     cap: FitCap,
-) -> Option<(Option<ProfileCurve>, Option<ColorLut>)> {
+) -> std::result::Result<FitArtifacts, AutoFitOutcome> {
     if model.profile != Profile::Auto || cap == FitCap::Render(0) {
-        return None;
+        return Err(AutoFitOutcome::Unfitted);
     }
     let auto_cache_key = match (cap, &raw_source) {
         (FitCap::Native, _) => None,
@@ -305,7 +311,7 @@ pub fn fit_auto_profile_from_raw_at_cap(
     });
 
     if let Some(pair) = cached_auto_profile_fit(model, auto_cache_key.as_ref()) {
-        return Some(pair);
+        return Ok(pair);
     }
 
     let lut_disabled = auto_profile::lut::lut_disabled_by_env();
@@ -322,7 +328,9 @@ pub fn fit_auto_profile_from_raw_at_cap(
     // residual (a legitimately-`None` residual can't be distinguished from
     // "never fit" via the cache, but the host caches the baked artifacts, so
     // this re-fits at most once per image).
-    let (curve, residual) = match extract_preview_for_fit(&raw_source) {
+    let preview = extract_preview_for_fit(&raw_source);
+    let preview_found = preview.is_some();
+    let (curve, residual) = match preview {
         // No embedded preview: nothing beyond the cache can be fit.
         None => (cached_curve, cached_lut),
         Some(preview) => {
@@ -340,7 +348,8 @@ pub fn fit_auto_profile_from_raw_at_cap(
             } else {
                 preview
             };
-            let mut scene = develop_display_for_auto_fit(raw, model, quality, mle).ok()?;
+            let mut scene = develop_display_for_auto_fit(raw, model, quality, mle)
+                .map_err(|_| AutoFitOutcome::Unfitted)?;
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
             auto_profile::apply_pipeline::fit_auto_profile_artifacts(
@@ -358,7 +367,7 @@ pub fn fit_auto_profile_from_raw_at_cap(
 
     let curve = render_curve(curve);
     if curve.is_none() && residual.is_none() {
-        return None;
+        return Err(AutoFitOutcome::of(false, preview_found));
     }
     let k = auto_profile::lut::lut_strength_from_env();
     let residual = if k == 1.0 {
@@ -366,7 +375,7 @@ pub fn fit_auto_profile_from_raw_at_cap(
     } else {
         residual.map(|l| l.with_strength(k))
     };
-    Some((curve, residual))
+    Ok((curve, residual))
 }
 
 /// Cache-only probe (#2035): the fully-resolved Auto Profile fit result for

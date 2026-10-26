@@ -12,6 +12,8 @@ use crate::{
     xmp::AdjustmentModel,
 };
 
+pub type PreviewFrame = (u32, u32, Vec<u8>, Option<auto_profile::AutoFitOutcome>);
+
 pub struct CpuPreview {
     prefix: Image,
     working: Image,
@@ -31,7 +33,7 @@ impl CpuPreview {
         quality: RenderQuality,
         cap: u32,
         film: Option<&FilmLut>,
-    ) -> Result<(Self, u32, u32, Vec<u8>, Option<bool>)> {
+    ) -> Result<(Self, PreviewFrame)> {
         let (working, context, prefix) = render_display_scene_with_context_cancellable(
             raw,
             &model,
@@ -67,7 +69,7 @@ impl CpuPreview {
             uncurved_details,
         };
         let (w, h, pixels, fit) = session.pack(raw);
-        Ok((session, w, h, pixels, fit))
+        Ok((session, (w, h, pixels, fit)))
     }
     pub fn render(
         &mut self,
@@ -78,7 +80,7 @@ impl CpuPreview {
         cap: u32,
         film: Option<&FilmLut>,
         cancel: CancelToken<'_>,
-    ) -> Result<(u32, u32, Vec<u8>, Option<bool>)> {
+    ) -> Result<PreviewFrame> {
         if cancel.is_cancelled() {
             return Err(Error::Cancelled);
         }
@@ -96,13 +98,13 @@ impl CpuPreview {
             // explicitly empty and the next request must prepare again.
             self.prefix.pixels = Vec::new();
             self.working.pixels = Vec::new();
-            let (replacement, w, h, pixels, fit) =
+            let (replacement, frame) =
                 Self::open(raw, source, with_amounts(key, amounts), quality, cap, film)?;
             if cancel.is_cancelled() {
                 return Err(Error::Cancelled);
             }
             *self = replacement;
-            return Ok((w, h, pixels, fit));
+            return Ok(frame);
         }
         let model = with_amounts(key, amounts);
         self.working.pixels.copy_from_slice(&self.prefix.pixels);
@@ -136,7 +138,7 @@ impl CpuPreview {
         self.context.model = model;
         Ok(self.pack(raw))
     }
-    fn pack(&mut self, raw: &RawImage) -> (u32, u32, Vec<u8>, Option<bool>) {
+    fn pack(&mut self, raw: &RawImage) -> PreviewFrame {
         let pixels = encode::dither_and_quantize(&mut self.working);
         let (w, h, pixels) = finish::apply_geometry(
             pixels,
@@ -146,8 +148,10 @@ impl CpuPreview {
             &crate::stages::perspective::Perspective::from_model(&self.context.model),
             &self.context.model.crop,
         );
-        let fit = (self.context.model.profile == crate::types::adjustment::Profile::Auto)
-            .then_some(self.context.profile_curve.is_some() || self.context.profile_lut.is_some());
+        let fit = self
+            .context
+            .auto_fit
+            .filter(|_| self.context.model.profile == crate::types::adjustment::Profile::Auto);
         (w, h, pixels, fit)
     }
 }

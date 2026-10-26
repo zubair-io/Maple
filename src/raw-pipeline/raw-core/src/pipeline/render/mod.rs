@@ -19,7 +19,7 @@ use crate::{
     film,
     image::{Image, RawImage},
     types::adjustment::{AutoExposureMode, Profile},
-    view::{auto_profile, encode},
+    view::{auto_profile, auto_profile::AutoFitOutcome, encode},
     xmp::AdjustmentModel,
 };
 
@@ -29,7 +29,7 @@ use crate::{
 mod auto_fit;
 pub use auto_fit::{
     cached_auto_profile_fit, fit_auto_profile_from_raw, fit_auto_profile_from_raw_at_cap,
-    fit_profile_curve_from_raw, FitCap,
+    fit_profile_curve_from_raw, FitArtifacts, FitCap,
 };
 
 // Sized display render + `native_render_dims` (#1101) — size-budget split.
@@ -192,9 +192,9 @@ fn render_display_from_raw(
         .map(|(w, h, bytes, _)| (w, h, bytes))
 }
 
-/// Display render with the actual Auto tail outcome (#4096). `None` means
-/// Auto was not selected; `Some(false)` means no usable fit was applied.
-/// Retains the existing render's result, without a second fit or source probe.
+/// Display render with the actual Auto tail outcome (#4096, #5458). `None`
+/// means Auto was not selected. Retains the existing render's result, without
+/// a second fit or source probe.
 pub fn render_from_raw_with_auto_fit(
     raw: &RawImage,
     model: &AdjustmentModel,
@@ -202,7 +202,7 @@ pub fn render_from_raw_with_auto_fit(
     raw_source: Option<RawInput<'_>>,
     max_long_edge: Option<u32>,
     film_lut: Option<&film::FilmLut>,
-) -> Result<(u32, u32, Vec<u8>, Option<bool>)> {
+) -> Result<(u32, u32, Vec<u8>, Option<AutoFitOutcome>)> {
     let (mut scene, context) = render_display_scene_with_context(
         raw,
         model,
@@ -216,8 +216,7 @@ pub fn render_from_raw_with_auto_fit(
     let bytes = stage("dither_and_quantize", || {
         encode::dither_and_quantize(&mut scene)
     });
-    let auto_fit = (model.profile == Profile::Auto)
-        .then_some(context.profile_curve.is_some() || context.profile_lut.is_some());
+    let auto_fit = context.auto_fit;
     let (w, h, bytes) = finish::apply_geometry(
         bytes,
         w,
@@ -484,6 +483,11 @@ fn render_display_scene_with_context_cancellable(
             active_model: active_model.clone(),
             ae_gain,
             whites_anchor_ev,
+            auto_fit: (model.profile == Profile::Auto).then(|| {
+                let applied = artifacts.0.is_some() || artifacts.1.is_some();
+                let preview_found = auto_will_fit || raw_source.is_none() || auto_profile_disabled;
+                AutoFitOutcome::of(applied, preview_found)
+            }),
             profile_curve: artifacts.0,
             profile_lut: artifacts.1,
             auto_guard: model.profile == Profile::Auto && raw_source.is_some(),

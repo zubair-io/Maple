@@ -190,7 +190,11 @@ fn cold_film_render_cannot_change_the_shared_no_film_auto_result() {
     cache::clear_for_test();
     cache::clear_lut_for_test();
     let baseline = render(None);
-    assert_eq!(baseline.3, Some(true), "physical Auto fit must engage");
+    assert_eq!(
+        baseline.3,
+        Some(crate::view::auto_profile::AutoFitOutcome::Applied),
+        "physical Auto fit must engage"
+    );
     let mut film = identity_lattice(17);
     for pixel in film.data.chunks_exact_mut(3) {
         pixel[0] *= 0.8;
@@ -200,7 +204,11 @@ fn cold_film_render_cannot_change_the_shared_no_film_auto_result() {
     cache::clear_for_test();
     cache::clear_lut_for_test();
     let filmed = render(Some(&film));
-    assert_eq!(filmed.3, Some(true), "film must retain the real Auto fit");
+    assert_eq!(
+        filmed.3,
+        Some(crate::view::auto_profile::AutoFitOutcome::Applied),
+        "film must retain the real Auto fit"
+    );
     let film_changed = warm_film
         .2
         .iter()

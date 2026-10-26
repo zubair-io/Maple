@@ -180,14 +180,7 @@ enum Cmd {
         quality: String,
     },
     /// Extract the embedded JPEG preview from a RAW file and write it to
-    /// disk (typically as PNG; format inferred from `--out` extension).
-    ///
-    /// Wraps `raw_core::view::auto_profile::preview::extract_preview`. Used
-    /// by `src/scripts/test_auto_profile_match.sh` to obtain the camera-
-    /// baked reference for the Auto Profile gate. Exits with the dedicated
-    /// sentinel code 3 when the RAW is readable but carries no embedded
-    /// preview (so the harness can SKIP cleanly); a missing / unreadable
-    /// RAW or a write failure exits with the generic error code 1.
+    /// disk. Exit 3 means the RAW is readable but has no embedded preview.
     ExtractPreview {
         /// Path to the RAW file.
         raw: PathBuf,
@@ -195,6 +188,8 @@ enum Cmd {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Audit which embedded-preview source Auto Profile fits against (#5458).
+    PreviewCoverage(commands::preview_coverage::Args),
     /// Compute Auto Tone slider values for a RAW file and print as JSON.
     ///
     /// Decodes the RAW, runs the development chain to scene-linear
@@ -474,6 +469,7 @@ fn main() -> ExitCode {
             &quality,
         )),
         Cmd::ExtractPreview { raw, out } => run_or_exit(commands::extract_preview::run(&raw, &out)),
+        Cmd::PreviewCoverage(args) => run_or_exit(commands::preview_coverage::run(&args)),
         Cmd::AutoTone { raw, params } => {
             run_or_exit(commands::auto_tone::run(&raw, params.as_deref()))
         }

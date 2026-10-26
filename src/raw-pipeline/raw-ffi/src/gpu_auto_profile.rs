@@ -83,9 +83,11 @@ const _: () = assert!(
 ///
 /// Returns:
 /// - `0` on success — at least one of curve / residual was fit and written.
-/// - `1` when no tail applies (not `Profile::Auto`, or no embedded JPEG so both
-///   stages fail). Out-params: `*curve_present = 0`, `*lut_size = 0`. The host
+/// - `1` when no tail applies (not `Profile::Auto`, or the fit produced no
+///   artifact). Out-params: `*curve_present = 0`, `*lut_size = 0`. The host
 ///   renders plain AgX (= `Profile::Neutral`).
+/// - [`crate::auto_profile::MAPLE_AUTO_FIT_NO_PREVIEW`] like `1`, but because no
+///   embedded camera preview could be extracted (#5458).
 /// - `2`/`3` when `raw_path` / `xmp_path` is non-UTF-8.
 /// - `6`/`7` when the RAW read / decode fails (`maple_last_error` is set).
 /// - `9` on an internal invariant failure — the fitted curve did not serialize to
@@ -220,7 +222,7 @@ unsafe fn fit_auto_profile(
             None
         };
         let fit_result = match cached {
-            Some(pair) => Some(pair),
+            Some(pair) => Ok(pair),
             None => {
                 // Miss (or no tail) — the pre-#2035 read + decode + fit path.
                 // Compute the decode-cache key BEFORE the read so a file
@@ -274,9 +276,8 @@ unsafe fn fit_auto_profile(
             }
         };
         let (curve_opt, residual_opt) = match fit_result {
-            Some(pair) => pair,
-            // Not Auto, or no embedded JPEG (both stages None) — host AgX.
-            None => return 1,
+            Ok(pair) => pair,
+            Err(outcome) => return crate::auto_profile::no_tail_rc(outcome),
         };
 
         // --- Curve: write the flat serialization iff a curve was fit. ---
@@ -346,3 +347,7 @@ mod sized;
 #[cfg(test)]
 #[path = "gpu_auto_profile_tests.rs"]
 mod gpu_auto_profile_tests;
+
+#[cfg(test)]
+#[path = "auto_fit_no_preview_tests.rs"]
+mod auto_fit_no_preview_tests;

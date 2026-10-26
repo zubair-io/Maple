@@ -13,7 +13,7 @@ use raw_gpu::FullChainInputs;
 
 pub struct LiveProfile {
     pub inputs: FullChainInputs<'static>,
-    pub auto_fit: Option<bool>,
+    pub auto_fit: Option<crate::view::auto_profile::AutoFitOutcome>,
     preview_capable: bool,
 }
 

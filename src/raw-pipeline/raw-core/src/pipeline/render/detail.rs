@@ -23,6 +23,7 @@ pub struct DetailContext {
     pub(super) active_model: AdjustmentModel,
     pub(super) ae_gain: f32,
     pub(super) whites_anchor_ev: Option<f32>,
+    pub(super) auto_fit: Option<auto_profile::AutoFitOutcome>,
     pub(super) profile_curve: Option<auto_profile::curve::ProfileCurve>,
     pub(super) profile_lut: Option<auto_profile::lut::ColorLut>,
     pub(super) auto_guard: bool,

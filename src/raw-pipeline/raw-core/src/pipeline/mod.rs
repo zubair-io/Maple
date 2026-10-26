@@ -88,8 +88,8 @@ pub use render::{
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable_with_gain,
     render_sized_from_raw_with_quality_and_source,
     render_sized_from_raw_with_quality_source_and_film, validate_raster_adjustments, CaptureRender,
-    CpuPreview, DetailContext, DetailRenderOptions, ExportDepth, ExportPixels, FitCap,
-    RasterDetailImage, RawInput,
+    CpuPreview, DetailContext, DetailRenderOptions, ExportDepth, ExportPixels, FitArtifacts,
+    FitCap, RasterDetailImage, RawInput,
 };
 pub use scene_linear_chain::{
     apply_scene_linear_chain, apply_scene_linear_chain_f32, apply_scene_linear_chain_f32_scoped,

@@ -110,11 +110,11 @@ impl CpuLiveSession {
                 )
                 .map_err(|e| JsError::new(&e.to_string()))?
         } else {
-            let (preview, w, h, rgb, fit) =
+            let (preview, frame) =
                 CpuPreview::open(&self.raw, source, model, quality, cap, self.film.as_ref())
                     .map_err(|e| JsError::new(&e.to_string()))?;
             self.preview = Some(preview);
-            (w, h, rgb, fit)
+            frame
         };
         let (full_w, full_h) = raw_core::pipeline::native_render_dims(&self.raw);
         Ok(MapleRender::new(

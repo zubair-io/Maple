@@ -12,7 +12,20 @@ use raw_core::pipeline::{
     RenderQuality,
 };
 use raw_core::view::auto_profile::cache::CacheKey as AutoCacheKey;
+use raw_core::view::auto_profile::AutoFitOutcome;
 use std::ffi::{c_char, CStr};
+
+/// Auto Profile fit return code: Auto was selected but no embedded camera
+/// preview could be extracted, so the host renders Neutral (#5458).
+pub const MAPLE_AUTO_FIT_NO_PREVIEW: i32 = 10;
+
+/// The return code an Auto fit with no applicable tail reports.
+pub(crate) fn no_tail_rc(outcome: AutoFitOutcome) -> i32 {
+    match outcome {
+        AutoFitOutcome::NoPreview => MAPLE_AUTO_FIT_NO_PREVIEW,
+        AutoFitOutcome::Applied | AutoFitOutcome::Unfitted => 1,
+    }
+}
 
 /// Same wire enum as `maple_render_file` (`render.rs`); the fit must develop at
 /// the quality the host decoded at, so AMaZE/Auto never collapse to Preview (#5158).
@@ -292,8 +305,10 @@ pub unsafe extern "C" fn maple_compute_profile_curve(
 ///
 /// Returns:
 /// - `0` on success — `out` holds `n * n * n * 3` f32.
-/// - `1` when no tail applies (not `Profile::Auto`, or no embedded JPEG so both
-///   stages fail). `out` is untouched; the host renders plain AgX.
+/// - `1` when no tail applies (not `Profile::Auto`, or the fit produced no
+///   artifact). `out` is untouched; the host renders plain AgX.
+/// - [`MAPLE_AUTO_FIT_NO_PREVIEW`] like `1`, but because no embedded camera
+///   preview could be extracted (#5458).
 /// - `2`/`3` when `raw_path` / `xmp_path` is non-UTF-8.
 /// - `6`/`7` when the RAW read / decode fails (`maple_last_error` is set).
 /// - `9` on an internal invariant failure — the baked LUT length did not equal
@@ -385,7 +400,7 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
         let fit_result = {
             let auto_key = AutoCacheKey::from_path(raw_path, quality);
             match cached_auto_profile_fit(&model, auto_key.as_ref()) {
-                Some(pair) => Some(pair),
+                Some(pair) => Ok(pair),
                 None => {
                     // Miss (or no tail) — the pre-#2035 read + decode + fit
                     // path. Compute the decode-cache key BEFORE reading — if
@@ -430,9 +445,8 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
             }
         };
         let (curve_opt, residual_opt) = match fit_result {
-            Some(pair) => pair,
-            // Not Auto, or no embedded JPEG (both stages None) — host AgX.
-            None => return 1,
+            Ok(pair) => pair,
+            Err(outcome) => return no_tail_rc(outcome),
         };
         // Compose curve ∘ residual into one cube (#4212, #4216). An absent curve
         // skips its highlight soft knee; an absent residual bakes the curve only;

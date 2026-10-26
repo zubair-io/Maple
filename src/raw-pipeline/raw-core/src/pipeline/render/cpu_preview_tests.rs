@@ -21,7 +21,7 @@ fn resident_detail_bytes_match_legacy_and_upstream_edits_rebuild() {
             profile,
             ..Default::default()
         };
-        let (mut resident, w, h, pixels, fit) = CpuPreview::open(
+        let (mut resident, (w, h, pixels, fit)) = CpuPreview::open(
             &raw,
             source,
             initial.clone(),
@@ -106,7 +106,7 @@ fn cancelled_tick_preserves_resident_prefix_and_next_render() {
         ext: "dng",
     };
     let model = AdjustmentModel::default();
-    let (mut resident, _, _, _, _) = CpuPreview::open(
+    let (mut resident, (_, _, _, _)) = CpuPreview::open(
         &raw,
         source,
         model.clone(),
@@ -173,7 +173,7 @@ fn real_fitted_auto_film_local_crop_and_orientation_match_legacy() {
         rgb[1] *= 0.87;
     }
     let base = AdjustmentModel::default();
-    let (mut resident, _, _, _, fit) = CpuPreview::open(
+    let (mut resident, (_, _, _, fit)) = CpuPreview::open(
         &raw,
         source,
         base.clone(),
@@ -184,7 +184,7 @@ fn real_fitted_auto_film_local_crop_and_orientation_match_legacy() {
     .unwrap();
     assert_eq!(
         fit,
-        Some(true),
+        Some(crate::view::auto_profile::AutoFitOutcome::Applied),
         "authentic embedded-JPEG Auto fit must engage"
     );
     assert!(resident.context.profile_curve.is_some());
@@ -265,7 +265,10 @@ fn real_fitted_auto_film_local_crop_and_orientation_match_legacy() {
             )
             .unwrap();
             assert_eq!(actual, legacy, "{orientation:?}, sharpen={amount}");
-            assert_eq!(actual.3, Some(true));
+            assert_eq!(
+                actual.3,
+                Some(crate::view::auto_profile::AutoFitOutcome::Applied)
+            );
         }
     }
     for rgb in film.data.chunks_exact_mut(3) {
@@ -323,7 +326,7 @@ fn replacement_source_rebuilds_before_detail_reuse() {
         ext: "dng",
     };
     let initial = AdjustmentModel::default();
-    let (mut resident, _, _, _, _) = CpuPreview::open(
+    let (mut resident, (_, _, _, _)) = CpuPreview::open(
         &first,
         first_source,
         initial.clone(),
@@ -373,7 +376,7 @@ fn real_default_auto_hot_repeat_and_edited_replay_match_legacy() {
         ext: "dng",
     };
     let model = AdjustmentModel::default();
-    let (mut resident, w, h, pixels, fit) = CpuPreview::open(
+    let (mut resident, (w, h, pixels, fit)) = CpuPreview::open(
         &raw,
         source,
         model.clone(),
@@ -382,7 +385,10 @@ fn real_default_auto_hot_repeat_and_edited_replay_match_legacy() {
         None,
     )
     .unwrap();
-    assert_eq!(fit, Some(true));
+    assert_eq!(
+        fit,
+        Some(crate::view::auto_profile::AutoFitOutcome::Applied)
+    );
     assert!(resident.context.profile_curve.is_some());
     assert!(resident.context.profile_lut.is_some());
     let initial = (w, h, pixels, fit);

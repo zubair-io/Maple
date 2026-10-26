@@ -30,15 +30,16 @@ and Apple EditSession lifecycle, shared state and existing test boundaries.
 The [native Linux shell](../src/linux/README.md) documents its Rust UI, local and
 cloud editor, build/package commands and current qualification limits.
 
-| Doc                                                | Covers                                                                                                                                                                                             |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [pipeline.md](pipeline.md)                         | The Rust workspace: decode, the develop chain stage by stage, the capture-first split, colour management, the view transform, the wgpu/WGSL GPU path, FFI and WASM surfaces, `maple-cli`, codegen. |
-| [xmp-canonical-format.md](xmp-canonical-format.md) | The sidecar contract shared by the Rust, Swift, TypeScript, and C# implementations: namespaces, byte-canonical form, every field, tone curves, passthrough, versioning, and the round-trip tests.  |
-| [lens-profiles.md](lens-profiles.md)               | Imported LCP lens profiles (#2435): matching rules, the supported calibration model, the `papp:LensProfile` reference and how Self Hosted restores it for renders.                                 |
-| [zoom.md](zoom.md)                                 | The shared `pixelScale` zoom model, fast/refine render targets, the native-detail tile path, and the gated deep-zoom tile compositor.                                                              |
-| [pano.md](pano.md)                                 | Panorama stitching in `maple-pano`: stages, ONNX models, the C ABI, and how Apple and the server drive it.                                                                                         |
-| [caching.md](caching.md)                           | Every cache on every platform, what keys it, and what invalidates it, including the `.maple/` folder cache shared across devices.                                                                  |
-| [performance.md](performance.md)                   | **Generated** — the committed per-device slider-tick, cold-open, and export benchmark table, the recording method and its caveats, and the local-only regression ratchet.                          |
+| Doc                                                  | Covers                                                                                                                                                                                             |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [pipeline.md](pipeline.md)                           | The Rust workspace: decode, the develop chain stage by stage, the capture-first split, colour management, the view transform, the wgpu/WGSL GPU path, FFI and WASM surfaces, `maple-cli`, codegen. |
+| [xmp-canonical-format.md](xmp-canonical-format.md)   | The sidecar contract shared by the Rust, Swift, TypeScript, and C# implementations: namespaces, byte-canonical form, every field, tone curves, passthrough, versioning, and the round-trip tests.  |
+| [auto-preview-coverage.md](auto-preview-coverage.md) | Which embedded camera preview Auto Profile fits against, per camera, how to audit a library with `maple-cli preview-coverage`, and what each client shows when no preview exists (#5458).          |
+| [lens-profiles.md](lens-profiles.md)                 | Imported LCP lens profiles (#2435): matching rules, the supported calibration model, the `papp:LensProfile` reference and how Self Hosted restores it for renders.                                 |
+| [zoom.md](zoom.md)                                   | The shared `pixelScale` zoom model, fast/refine render targets, the native-detail tile path, and the gated deep-zoom tile compositor.                                                              |
+| [pano.md](pano.md)                                   | Panorama stitching in `maple-pano`: stages, ONNX models, the C ABI, and how Apple and the server drive it.                                                                                         |
+| [caching.md](caching.md)                             | Every cache on every platform, what keys it, and what invalidates it, including the `.maple/` folder cache shared across devices.                                                                  |
+| [performance.md](performance.md)                     | **Generated** — the committed per-device slider-tick, cold-open, and export benchmark table, the recording method and its caveats, and the local-only regression ratchet.                          |
 
 ## Platforms
 

@@ -350,9 +350,13 @@ fn cancellable_prefix_matches_wrapper_and_observes_host_flag() {
 #[test]
 fn neutral_and_unavailable_auto_emit_absent_artifacts_with_truthful_status() {
     use super::prepare::flatten_profile_artifacts;
-    use crate::types::adjustment::Profile;
-    for (profile, status) in [(Profile::Neutral, None), (Profile::Auto, Some(false))] {
-        let (curve, size, lut, achieved) = flatten_profile_artifacts(None, None, profile);
+    use crate::view::auto_profile::AutoFitOutcome;
+    for status in [
+        None,
+        Some(AutoFitOutcome::NoPreview),
+        Some(AutoFitOutcome::Unfitted),
+    ] {
+        let (curve, size, lut, achieved) = flatten_profile_artifacts(Err(status));
         assert!(curve.is_empty());
         assert_eq!(achieved, status);
         assert_eq!(size, 0);
@@ -363,28 +367,25 @@ fn neutral_and_unavailable_auto_emit_absent_artifacts_with_truthful_status() {
 #[test]
 fn residual_only_is_active_without_inventing_a_curve() {
     use super::prepare::flatten_profile_artifacts;
-    use crate::types::adjustment::Profile;
     use crate::view::auto_profile;
     let residual = auto_profile::lut::ColorLut::identity(9);
     let expected = residual.data.clone();
-    let (curve, size, lut, achieved) =
-        flatten_profile_artifacts(None, Some(residual), Profile::Auto);
+    let (curve, size, lut, achieved) = flatten_profile_artifacts(Ok((None, Some(residual))));
     assert!(curve.is_empty());
     assert_eq!(size, 9);
     assert_eq!(lut, expected);
-    assert_eq!(achieved, Some(true));
+    assert_eq!(achieved, Some(auto_profile::AutoFitOutcome::Applied));
 }
 
 #[test]
 fn fitted_identity_curve_remains_present() {
     use super::prepare::flatten_profile_artifacts;
-    use crate::types::adjustment::Profile;
     use crate::view::auto_profile;
     let identity = auto_profile::curve::ProfileCurve::identity();
     let expected = identity.to_flat();
-    let (curve, _, _, achieved) = flatten_profile_artifacts(Some(identity), None, Profile::Auto);
+    let (curve, _, _, achieved) = flatten_profile_artifacts(Ok((Some(identity), None)));
     assert_eq!(curve, expected);
-    assert_eq!(achieved, Some(true));
+    assert_eq!(achieved, Some(auto_profile::AutoFitOutcome::Applied));
 }
 
 #[test]

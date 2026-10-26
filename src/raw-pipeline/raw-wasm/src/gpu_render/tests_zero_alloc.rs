@@ -5,6 +5,15 @@
 use super::tests::gpu_available;
 use raw_core::view::auto_profile;
 
+/// The synthetic DNG has no embedded preview, so only a fully cached fit applies.
+fn achieved(state: u32) -> auto_profile::AutoFitOutcome {
+    if state == 2 {
+        auto_profile::AutoFitOutcome::Applied
+    } else {
+        auto_profile::AutoFitOutcome::NoPreview
+    }
+}
+
 /// GPU ZERO-ALLOC on the f32 / PRESENT path (`render_chain_to_f32`), which the
 /// persistent `WebLiveSession` drives every tick — the surface present samples the
 /// resident f32 buffer this leaves, so it never reads back. `live_session/tests.rs`
@@ -217,7 +226,7 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
         capture.creative.apply(&model, &mut cached.inputs).unwrap();
         // A curve-only entry is Auto 2's cache marker: nothing is applied, so
         // the achieved outcome is unfitted (#5000).
-        assert_eq!(cached.auto_fit, Some(state == 2));
+        assert_eq!(cached.auto_fit, Some(achieved(state)));
         let curve = cached.inputs.profile_curve_flat.as_ptr();
         let lut = cached.inputs.residual_lut_data.as_ptr();
         model.exposure = 0.5;
@@ -338,7 +347,7 @@ fn exercise_auto_ticks(ctx: Option<&raw_gpu::GpuContext>) {
             let rebuilt = LiveProfile::new(&raw, &bytes, "dng", &changed, None, 0, anchor);
             assert_eq!(
                 rebuilt.auto_fit,
-                (changed.profile == Profile::Auto).then_some(state == 2)
+                (changed.profile == Profile::Auto).then_some(achieved(state))
             );
         }
     }

@@ -1,7 +1,7 @@
 //! Actual render outcomes and compatibility of the two public entry points (#4096).
 use super::*;
 
-fn qualify(name: &str, expected: bool) {
+fn qualify(name: &str, expected: AutoFitOutcome) {
     let path = crate::test_support::fixtures::require_raw(name);
     let original = std::fs::read(&path).expect("physical fixture");
     let raw = crate::decode::decode_bytes(&original, "dng").expect("physical decode");
@@ -60,11 +60,36 @@ fn qualify(name: &str, expected: bool) {
 #[test]
 #[ignore = "requires physical RAW; explicit invocation fails if absent"]
 fn actual_auto_status_active_physical_4096() {
-    qualify("test_0007.DNG", true);
+    qualify("test_0007.DNG", AutoFitOutcome::Applied);
 }
 
 #[test]
 #[ignore = "requires physical RAW; explicit invocation fails if absent"]
 fn actual_auto_status_unavailable_physical_4096() {
-    qualify("test_0018.dng", false);
+    qualify("test_0018.dng", AutoFitOutcome::NoPreview);
+}
+
+/// #5458: the synthetic DNG carries no embedded preview, so Auto must report
+/// exactly that, while a render with no RAW source cannot claim it.
+#[test]
+fn synthetic_preview_less_dng_reports_no_preview_5458() {
+    use crate::test_support::synth_dng::SyntheticGreyDng;
+    let bytes = SyntheticGreyDng::default().write_to_bytes();
+    let raw = crate::decode::decode_bytes(&bytes, "dng").expect("synthetic decode");
+    let auto = AdjustmentModel::default();
+    let source = RawInput::Bytes {
+        bytes: &bytes,
+        ext: "dng",
+    };
+    let render = |source| {
+        render_from_raw_with_auto_fit(&raw, &auto, RenderQuality::Preview, source, Some(64), None)
+            .expect("synthetic render")
+            .3
+    };
+    assert_eq!(render(Some(source)), Some(AutoFitOutcome::NoPreview));
+    assert_eq!(render(None), Some(AutoFitOutcome::Unfitted));
+    assert_eq!(
+        fit_auto_profile_from_raw(&raw, &auto, RenderQuality::Preview, source).err(),
+        Some(AutoFitOutcome::NoPreview)
+    );
 }

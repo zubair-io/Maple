@@ -98,7 +98,7 @@ fn render_cap_fit_matches_native_renderer_and_ignores_edits() {
         RawInput::Path(&path),
         FitCap::Render(0)
     )
-    .is_none());
+    .is_err());
     cache::clear_for_test();
     cache::clear_lut_for_test();
 }
@@ -150,7 +150,11 @@ fn display_p3_render_cannot_fit_the_shared_auto_tail_from_p3_pixels() {
     };
     cold();
     let srgb_cold = srgb();
-    assert_eq!(srgb_cold.3, Some(true), "physical Auto fit must engage");
+    assert_eq!(
+        srgb_cold.3,
+        Some(crate::view::auto_profile::AutoFitOutcome::Applied),
+        "physical Auto fit must engage"
+    );
     let p3_after_srgb = p3();
     cold();
     let p3_cold = p3();
