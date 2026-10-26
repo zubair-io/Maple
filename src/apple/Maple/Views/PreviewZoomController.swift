@@ -35,10 +35,19 @@
     private var seedTask: Task<Void, Never>?
     private var refinementTask: Task<Void, Never>?
     private var refinementActive = false
-    private var loadedMaxDimension: CGFloat = 256
+    private static let thumbnailDimension: CGFloat = 256
+    private var loadedMaxDimension: CGFloat = thumbnailDimension
     private var requestedMaxDimension: CGFloat = 0
     private var refinementGeneration: UInt64 = 0
+    private var refinementBackoff = PreviewRefinementBackoff()
+    /// The source answered "not found"; asking again on every zoom or
+    /// revisit would repeat the same 404.
+    private var displayTierUnavailable = false
     private var revisionObserver: NSObjectProtocol?
+    var isRefinementActive: Bool { refinementActive }
+    /// The display tier has replaced the grid thumbnail; nothing smaller
+    /// may paint over it again.
+    private var hasLandedRefinement: Bool { loadedMaxDimension > Self.thumbnailDimension }
     var isAtFitZoom: Bool {
       abs(scrollView.zoomScale - scrollView.minimumZoomScale) < 0.01
     }
@@ -143,16 +152,20 @@
       }
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+      super.viewDidAppear(animated)
+      requestRefinement(maxDimension: screenPreviewDimension)
+    }
+
     func setRefinementActive(_ active: Bool) {
+      if active != refinementActive { log(.refine, active ? .activate : .deactivate) }
       refinementActive = active
       if active {
         view.layoutIfNeeded()
         requestRefinement(maxDimension: screenPreviewDimension)
       } else {
-        refinementGeneration &+= 1
-        refinementTask?.cancel()
-        refinementTask = nil
-        requestedMaxDimension = loadedMaxDimension
+        cancelRefinement()
+        refinementBackoff.reset()
       }
     }
 
@@ -183,30 +196,47 @@
     private func loadThumbnail() {
       thumbnailTask = Task { [weak self] in
         guard let self else { return }
+        let started = ContinuousClock.now
+        log(.thumb, .start)
         let data = await provider.thumbnail(for: source) { [weak self] camera in
           guard let self, let image = await Self.image(from: camera),
-            !Task.isCancelled
+            !Task.isCancelled, !hasLandedRefinement
           else { return }
           imageView.image = image
           hideStatusViews()
           view.setNeedsLayout()
         }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else {
+          log(.thumb, .cancel, since: started)
+          return
+        }
         if let data, let image = await Self.image(from: data), !Task.isCancelled {
-          imageView.image = image
-          hideStatusViews()
-          view.setNeedsLayout()
+          log(.thumb, .finish, bytes: data.count, since: started)
+          if !hasLandedRefinement {
+            imageView.image = image
+            hideStatusViews()
+            view.setNeedsLayout()
+          }
           if refinementActive {
             requestRefinement(maxDimension: screenPreviewDimension)
           }
           return
         }
+        log(
+          .thumb, .fail, bytes: data?.count, since: started,
+          reason: data == nil ? "no thumbnail" : "undecodable")
 
         // A missing or undecodable grid thumbnail must not block Preview
         // from using its display tier. That tier can be cached independently
-        // or generated from the source's embedded preview.
+        // or generated from the source's embedded preview. A visible page
+        // on a single-tier source fetches (and retries) that same artifact
+        // as its refinement, so a second request here would only duplicate it.
+        guard !Task.isCancelled, !hasLandedRefinement else { return }
+        if refinementActive {
+          requestRefinement(maxDimension: screenPreviewDimension)
+          if source.hasFixedPreviewTier { return }
+        }
         guard
-          !Task.isCancelled,
           let previewData = await provider.preview(
             for: source, maxDimension: screenPreviewDimension),
           !Task.isCancelled,
@@ -217,6 +247,7 @@
           if imageView.image == nil { showFailure() }
           return
         }
+        guard !hasLandedRefinement else { return }
         imageView.image = image
         loadedMaxDimension = screenPreviewDimension
         hideStatusViews()
@@ -227,9 +258,10 @@
     private func reloadDevelopedImage() {
       seedTask?.cancel()
       thumbnailTask?.cancel()
-      refinementTask?.cancel()
-      refinementGeneration &+= 1
-      loadedMaxDimension = 256
+      cancelRefinement()
+      refinementBackoff.reset()
+      displayTierUnavailable = false
+      loadedMaxDimension = Self.thumbnailDimension
       requestedMaxDimension = 0
       loadThumbnail()
     }
@@ -248,6 +280,7 @@
         imageView.image = UIImage(cgImage: image)
         hideStatusViews()
         view.setNeedsLayout()
+        log(.seed, .finish, targetPx: CGFloat(max(image.width, image.height)))
       }
     }
 
@@ -282,30 +315,99 @@
 
     private func requestRefinement(maxDimension: CGFloat) {
       let target = max(2_048, maxDimension.rounded(.up))
-      guard refinementActive,
-        target > loadedMaxDimension * 1.2,
-        target > requestedMaxDimension * 1.1
-      else { return }
+      guard refinementActive, !displayTierUnavailable else { return }
+      if source.hasFixedPreviewTier {
+        // One artifact whatever size is asked for: a later, larger request
+        // (post-layout, after a zoom) would cancel and re-download it.
+        guard refinementTask == nil, !hasLandedRefinement else { return }
+      } else {
+        guard target > loadedMaxDimension * 1.2, target > requestedMaxDimension * 1.1 else {
+          return
+        }
+      }
+      startRefinement(target: target, after: 0)
+    }
 
-      refinementTask?.cancel()
-      refinementGeneration &+= 1
+    private func startRefinement(target: CGFloat, after delay: TimeInterval) {
+      cancelRefinement()
       let generation = refinementGeneration
       requestedMaxDimension = target
       refinementTask = Task { [weak self] in
-        guard let self else { return }
-        defer {
-          if refinementGeneration == generation { refinementTask = nil }
+        if delay > 0 {
+          try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
         }
-        guard let data = await provider.preview(for: source, maxDimension: target),
-          !Task.isCancelled, refinementActive,
-          refinementGeneration == generation,
-          let image = await Self.image(from: data),
-          !Task.isCancelled, refinementActive,
-          refinementGeneration == generation
-        else { return }
+        guard let self, isCurrentRefinement(generation) else { return }
+        // Covered (editor pushed) or backgrounded: park the retry until
+        // `viewDidAppear` asks again, instead of polling off screen.
+        guard delay == 0 || view.window != nil else {
+          refinementTask = nil
+          requestedMaxDimension = loadedMaxDimension
+          return
+        }
+        await runRefinement(target: target, generation: generation)
+      }
+    }
+
+    private func runRefinement(target: CGFloat, generation: UInt64) async {
+      let started = ContinuousClock.now
+      log(.refine, .start, targetPx: target)
+      let outcome = await provider.previewOutcome(for: source, maxDimension: target)
+      let image = await Self.image(from: outcome)
+      guard isCurrentRefinement(generation) else { return }
+      refinementTask = nil
+      if let image {
         imageView.image = image
         loadedMaxDimension = target
+        refinementBackoff.reset()
+        hideStatusViews()
+        view.setNeedsLayout()
+        log(.refine, .finish, targetPx: target, bytes: outcome.data?.count, since: started)
+        return
       }
+      let failure = outcome.data == nil ? outcome : .notFound(reason: "undecodable")
+      requestedMaxDimension = loadedMaxDimension
+      guard let delay = refinementBackoff.delay(after: failure) else {
+        displayTierUnavailable = true
+        log(
+          .refine, .fail, targetPx: target, since: started,
+          reason: "\(failure.reason ?? "unknown"); not retrying")
+        if imageView.image == nil { showFailure() }
+        return
+      }
+      log(
+        .refine, .fail, targetPx: target, since: started,
+        reason: "\(failure.reason ?? "unknown"); retry in \(Int(delay))s")
+      startRefinement(target: target, after: delay)
+    }
+
+    /// Supersede any in-flight or scheduled refinement. Bumping the
+    /// generation is what stops a fetch that has already returned from
+    /// writing; cancelling only stops the ones still waiting.
+    private func cancelRefinement() {
+      if refinementTask != nil { log(.refine, .cancel, targetPx: requestedMaxDimension) }
+      refinementGeneration &+= 1
+      refinementTask?.cancel()
+      refinementTask = nil
+      requestedMaxDimension = loadedMaxDimension
+    }
+
+    private func isCurrentRefinement(_ generation: UInt64) -> Bool {
+      !Task.isCancelled && refinementActive && refinementGeneration == generation
+    }
+
+    private func log(
+      _ stage: PreviewLoadLog.Stage, _ event: PreviewLoadLog.Event, targetPx: CGFloat? = nil,
+      bytes: Int? = nil, since start: ContinuousClock.Instant? = nil, reason: String? = nil
+    ) {
+      PreviewLoadLog.record(
+        stage: stage, event: event, assetID: seedKey, sourceKind: source.previewLogKind,
+        targetPx: targetPx.map { Int($0) }, bytes: bytes,
+        elapsedMs: start.map(PreviewLoadLog.milliseconds(since:)), reason: reason)
+    }
+
+    private static func image(from outcome: PreviewFetchOutcome) async -> UIImage? {
+      guard let data = outcome.data else { return nil }
+      return await image(from: data)
     }
 
     private static func image(from data: Data) async -> UIImage? {
