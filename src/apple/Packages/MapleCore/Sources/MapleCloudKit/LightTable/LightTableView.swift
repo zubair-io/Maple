@@ -227,8 +227,15 @@ public struct LightTableView<PrintImage: View>: View {
         ) {
           printImage(print.asset)
         }
-        .offset(metrics.offset(for: print.anchor))
-        .rotationEffect(print.rotation)
+        #if os(tvOS)
+          .offset(metrics.offset(for: print.anchor))
+          .rotationEffect(print.rotation)
+        #else
+          // Tilt about the print's own centre, then position it: rotating after
+          // the offset would swing an edge print around the stage centre.
+          .rotationEffect(print.rotation)
+          .offset(metrics.offset(for: print.anchor))
+        #endif
         .zIndex(print.z)
         #if os(tvOS)
           .focusable()
@@ -285,7 +292,7 @@ public struct LightTableView<PrintImage: View>: View {
     guard !stage.contains(where: { metrics.slot(containing: $0.anchor) == slot }) else { return }
     let print = StagePrint(
       asset: asset, anchor: metrics.anchor(forSlot: slot),
-      rotation: .degrees(.random(in: -8...8)),
+      rotation: .degrees(.random(in: -LightTableMetrics.maxTilt...LightTableMetrics.maxTilt)),
       z: spawnSeq,
       fallX: .random(in: -12...12), fallY: .random(in: -12...12), fallZ: .random(in: -6...6))
     let id = print.id

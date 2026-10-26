@@ -19,7 +19,7 @@ public struct LightTableMetrics: Equatable, Sendable {
   public let columns: Int
   public let rows: Int
   /// Half-extent of the area slot centres are spread across, inset so a
-  /// print in an edge slot (plus its rotation and shadow) is never clipped.
+  /// print in an edge slot (plus its tilt and shadow) is never clipped.
   public let stageHalfWidth: CGFloat
   public let stageHalfHeight: CGFloat
   /// How far a print may sit from its slot centre — well under the slot
@@ -37,6 +37,16 @@ public struct LightTableMetrics: Equatable, Sendable {
   public let messageWidth: CGFloat
 
   public var slotCount: Int { columns * rows }
+
+  /// The furthest a settled print is tilted either way, in degrees.
+  public static let maxTilt: Double = 8
+
+  /// Half-width of the axis-aligned box around a square print of `span`
+  /// points tilted by `maxTilt` about its own centre.
+  public static func tiltedHalfExtent(ofSpan span: CGFloat) -> CGFloat {
+    let radians = maxTilt * .pi / 180
+    return span / 2 * CGFloat(abs(cos(radians)) + abs(sin(radians)))
+  }
 
   public static let television = LightTableMetrics(
     columns: 4, rows: 3,
@@ -56,7 +66,7 @@ public struct LightTableMetrics: Equatable, Sendable {
     let columns = min(5, max(2, Int(size.width / slotPitch)))
     let rows = min(5, max(2, Int(size.height / slotPitch)))
     let jitter = (imageSize * 0.2).rounded()
-    let edgeClearance = printSpan / 2 + jitter + matPadding * 2
+    let edgeClearance = tiltedHalfExtent(ofSpan: printSpan) + jitter + matPadding
     return LightTableMetrics(
       columns: columns, rows: rows,
       stageHalfWidth: halfExtent(size.width / 2 - edgeClearance, bands: columns),
