@@ -58,12 +58,11 @@ pub(super) mod bit {
     pub(super) const PROFILE_CURVE: u32 = 1 << 20;
     pub(super) const RESIDUAL_LUT: u32 = 1 << 21;
     pub(super) const COLOR_CURVES: u32 = 1 << 22;
-    pub(super) const WB_HUE_SAT_MAP: u32 = 1 << 23;
-    pub(in crate::live_chain) const CREATIVE_DCP: u32 = 1 << 24;
-    pub(in crate::live_chain) const POST_DCP_HIGHLIGHT: u32 = 1 << 25;
-    pub(in crate::live_chain) const CREATIVE_GAIN: u32 = 1 << 26;
+    pub(in crate::live_chain) const CREATIVE_DCP: u32 = 1 << 23;
+    pub(in crate::live_chain) const POST_DCP_HIGHLIGHT: u32 = 1 << 24;
+    pub(in crate::live_chain) const CREATIVE_GAIN: u32 = 1 << 25;
 
-    pub(super) const ALL: [u32; 27] = [
+    pub(super) const ALL: [u32; 26] = [
         CAPTURE_SHARPENING,
         WHITE_BALANCE,
         SCENE_TONE,
@@ -87,7 +86,6 @@ pub(super) mod bit {
         PROFILE_CURVE,
         RESIDUAL_LUT,
         COLOR_CURVES,
-        WB_HUE_SAT_MAP,
         CREATIVE_DCP,
         POST_DCP_HIGHLIGHT,
         CREATIVE_GAIN,
@@ -148,10 +146,6 @@ pub(crate) fn active_mask(inputs: &FullChainInputs) -> u32 {
     // band (the builder now includes WB unconditionally for non-RAW too).
     if creative.is_none() && !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
         m |= bit::WHITE_BALANCE;
-        // The HueSatMap variant binds a fourth (table) buffer (#5099).
-        if inputs.wb_hsm.is_some() {
-            m |= bit::WB_HUE_SAT_MAP;
-        }
     }
     if !scene_tone_is_noop(&inputs.tone) {
         m |= bit::SCENE_TONE;

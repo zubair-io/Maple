@@ -153,7 +153,6 @@ fn build_with_storage(
         wb_matrix,
         wb_temperature: model.temperature,
         wb_tint: model.tint,
-        wb_hsm: None,
         tone: [
             model.exposure,
             model.brightness,
@@ -339,8 +338,7 @@ fn build_with_storage(
 /// Profile changes require a fresh `chain_inputs_with_status` at session preparation.
 /// Curve, layer and raster storage is reused while capacity permits (#4317).
 /// The rebuilt WB matrix is the unanchored one and no creative stage is set:
-/// callers re-apply `GpuWhiteBalance::apply` (scene-linear decode) or
-/// `capture::LiveCreative::apply` (capture decode) afterwards.
+/// callers re-apply `capture::LiveCreative::apply` afterwards.
 pub fn update_chain_inputs(model: &AdjustmentModel, inputs: &mut FullChainInputs<'static>) {
     let curve = std::mem::take(&mut inputs.profile_curve_flat).into_owned();
     let lut = std::mem::take(&mut inputs.residual_lut_data).into_owned();

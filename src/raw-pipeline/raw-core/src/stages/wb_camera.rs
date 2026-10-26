@@ -225,11 +225,10 @@ mod frame_delta;
 pub use frame::{SliderFrame, SliderFrameParts};
 pub use frame_delta::SliderFrameExport;
 
-#[path = "wb_hsm_retarget.rs"]
-mod hsm_retarget;
-pub(crate) use hsm_retarget::render_retarget;
-use hsm_retarget::{retarget_render_cct, RenderRetarget};
-pub use hsm_retarget::{HsmLiveDelta, HsmRetargetView, WbHsmRetarget, HSM_INVERSE_ITERATIONS};
+#[path = "wb_camera_retarget.rs"]
+mod retarget;
+pub(crate) use retarget::render_retarget;
+use retarget::RenderRetarget;
 
 // WB slider-scale migration (#1780): converts pre-#1756 (V1) stored
 // temperature/tint into this module's slider frame at develop time. Split
@@ -564,7 +563,3 @@ mod frame_tests;
 #[cfg(test)]
 #[path = "wb_camera_continuity_tests.rs"]
 mod continuity_tests;
-
-#[cfg(test)]
-#[path = "wb_hsm_live_fixture_tests.rs"]
-mod hsm_live_fixture_tests;

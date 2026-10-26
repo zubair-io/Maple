@@ -164,7 +164,6 @@ impl Pass for CreativeGainPass {
     ) {
         WhiteBalancePass {
             matrix: self.matrix,
-            hsm: None,
         }
         .encode(ctx, encoder, src, dst, dims);
     }

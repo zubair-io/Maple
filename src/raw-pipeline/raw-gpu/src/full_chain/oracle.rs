@@ -148,7 +148,6 @@ impl Case {
             wb_matrix: wb_matrix(self.model.temperature, self.model.tint, self.wb_method),
             wb_temperature: self.model.temperature,
             wb_tint: self.model.tint,
-            wb_hsm: None,
             whites_anchor_ev: 0.0,
             tone: [
                 self.model.exposure,

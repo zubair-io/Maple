@@ -361,7 +361,7 @@ pub use tone_curves::{
 };
 pub use vibrance::{apply_vibrance, VibrancePass};
 pub use vignette::{apply_vignette, VignetteOptions, VignettePass};
-pub use white_balance::{apply_white_balance, WbHsmInputs, WbHsmTables, WhiteBalancePass};
+pub use white_balance::{apply_white_balance, WhiteBalancePass};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use capture_refine::capture_refine;

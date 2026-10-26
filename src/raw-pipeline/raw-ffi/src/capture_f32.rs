@@ -15,7 +15,7 @@ use crate::model::{
     force_ae_off_if_auto_will_fit_bytes, force_ae_off_if_auto_will_fit_path, load_xmp_model_owned,
     LoadModel,
 };
-use crate::scene_linear_f32::{file_decode, wb_exports, WbExports, RC_CANCELLED};
+use crate::scene_linear_f32::{file_decode, wb_frame_export, RC_CANCELLED};
 use raw_core::decode_cache::{decode_bytes_cached, CacheKey};
 use raw_core::error::Error as CoreError;
 use raw_core::pipeline::{CaptureRender, RenderQuality};
@@ -159,7 +159,7 @@ impl DecodeExports {
         Self {
             noise_profile: raw.noise_profile.clone(),
             iso: raw.iso,
-            frame: wb_exports(raw).frame,
+            frame: wb_frame_export(raw),
             lens: (
                 raw.has_lens_corrections(),
                 raw.lens_correction_ca_inert(),
@@ -194,10 +194,7 @@ pub(crate) fn write_capture(out_ptr: usize, exports: &DecodeExports, capture: Ca
         rgba,
         exports.noise_profile.as_deref(),
         exports.iso,
-        &WbExports {
-            frame: exports.frame,
-            hsm: None,
-        },
+        &exports.frame,
         creative.ae_gain,
         whites_anchor_ev,
         nr_sampling_scale,
@@ -456,7 +453,7 @@ pub unsafe extern "C" fn maple_render_handle_capture_tile_f32(
             rgba,
             raw.noise_profile.as_deref(),
             raw.iso,
-            &WbExports::ABSENT,
+            &raw_core::stages::wb_camera::SliderFrameExport::ABSENT,
             1.0,
             f32::NAN,
             1.0,

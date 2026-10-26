@@ -183,9 +183,6 @@ pub(super) unsafe fn inputs_from_params(
             wb_method,
         },
     )?;
-    let wb_hsm = (frame_delta_engaged && creative.is_none())
-        .then(|| crate::wb_frame_flat::gpu_hsm_inputs(p, &wb_frame, wb_matrix))
-        .flatten();
     // Live-builder WB gate values (#1781). `build_live_chain` gates the WB
     // pass on `wb_is_noop(wb_temperature, wb_tint)` — the ABSOLUTE 6500/0
     // short-circuit predicate. Under the frame-anchored DELTA contract the
@@ -241,7 +238,6 @@ pub(super) unsafe fn inputs_from_params(
         wb_matrix,
         wb_temperature: gate_temperature,
         wb_tint: gate_tint,
-        wb_hsm,
         tone: [
             p.exposure,
             p.brightness,

@@ -1,5 +1,6 @@
 //! Shared RAW preparation regression on a committed real DNG (#4317).
-use super::prepare::{develop_prefix_rgba, prefix_model_for};
+use super::capture::develop_capture_prefix_rgba;
+use super::prepare::prefix_model_for;
 use crate::types::adjustment::AdjustmentModel;
 
 #[test]
@@ -9,11 +10,14 @@ fn hot_controls_reuse_the_exact_prefix_and_source_bytes() {
     let bytes = std::fs::read(&path).unwrap();
     let raw = crate::decode::decode(&path).unwrap();
     let model = AdjustmentModel::default();
-    let first = develop_prefix_rgba(&raw, &bytes, "dng", &model, 32).unwrap();
-    assert_eq!(first.3, prefix_model_for(&raw, &bytes, "dng", &model));
-    assert!(first.1.max(first.2) <= 32);
-    assert_eq!(first.0.len(), (first.1 * first.2 * 4) as usize);
-    assert!(first.0.iter().all(|v| v.is_finite()));
+    let first = develop_capture_prefix_rgba(&raw, &bytes, "dng", &model, 32).unwrap();
+    assert_eq!(
+        first.prefix_model,
+        prefix_model_for(&raw, &bytes, "dng", &model)
+    );
+    assert!(first.width.max(first.height) <= 32);
+    assert_eq!(first.rgba.len(), (first.width * first.height * 4) as usize);
+    assert!(first.rgba.iter().all(|v| v.is_finite()));
     let edited = AdjustmentModel {
         exposure: 2.0,
         temperature: 8500.0,
@@ -30,16 +34,20 @@ fn hot_controls_reuse_the_exact_prefix_and_source_bytes() {
         film_strength: 35.0,
         ..model.clone()
     };
-    let second = develop_prefix_rgba(&raw, &bytes, "dng", &edited, 32).unwrap();
+    let second = develop_capture_prefix_rgba(&raw, &bytes, "dng", &edited, 32).unwrap();
     assert_eq!(
-        first, second,
+        (first.rgba.as_slice(), &first.prefix_model),
+        (second.rgba.as_slice(), &second.prefix_model),
         "GPU-owned controls must not change the uploaded prefix"
     );
     let upstream = AdjustmentModel {
         capture_sharpening_amount: 65.0,
         ..model
     };
-    assert_ne!(first.3, prefix_model_for(&raw, &bytes, "dng", &upstream));
+    assert_ne!(
+        first.prefix_model,
+        prefix_model_for(&raw, &bytes, "dng", &upstream)
+    );
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
 }
 
@@ -303,7 +311,7 @@ fn borrowed_prefix_match_agrees_with_owned_policy_for_hot_and_upstream_edits() {
 
 #[test]
 fn cancellable_prefix_matches_wrapper_and_observes_host_flag() {
-    use super::prepare::develop_prefix_rgba_cancellable;
+    use super::capture::develop_capture_prefix_rgba_cancellable;
     use std::sync::atomic::{AtomicBool, Ordering};
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/batch-transfer/source.dng");
@@ -311,8 +319,8 @@ fn cancellable_prefix_matches_wrapper_and_observes_host_flag() {
     let raw = crate::decode::decode(&path).unwrap();
     let model = AdjustmentModel::default();
     let flag = AtomicBool::new(false);
-    let expected = develop_prefix_rgba(&raw, &bytes, "dng", &model, 32).unwrap();
-    let actual = develop_prefix_rgba_cancellable(
+    let expected = develop_capture_prefix_rgba(&raw, &bytes, "dng", &model, 32).unwrap();
+    let actual = develop_capture_prefix_rgba_cancellable(
         &raw,
         &bytes,
         "dng",
@@ -321,10 +329,11 @@ fn cancellable_prefix_matches_wrapper_and_observes_host_flag() {
         crate::CancelToken::new(&flag),
     )
     .unwrap();
-    assert_eq!(actual, expected);
+    assert_eq!(actual.rgba, expected.rgba);
+    assert_eq!(actual.prefix_model, expected.prefix_model);
     flag.store(true, Ordering::Relaxed);
     assert_eq!(
-        develop_prefix_rgba_cancellable(
+        develop_capture_prefix_rgba_cancellable(
             &raw,
             &bytes,
             "dng",
@@ -332,8 +341,8 @@ fn cancellable_prefix_matches_wrapper_and_observes_host_flag() {
             32,
             crate::CancelToken::new(&flag)
         )
-        .unwrap_err(),
-        crate::Error::Cancelled.to_string()
+        .err(),
+        Some(crate::Error::Cancelled.to_string())
     );
     assert_eq!(std::fs::read(path).unwrap(), bytes);
 }

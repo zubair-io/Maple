@@ -85,7 +85,7 @@ mod tests {
             let raw = raw_core::decode::decode(&path).unwrap();
             let expected = raw_core::color::dcp::estimate_as_shot_cct_tint(&raw).unwrap();
             assert!(
-                crate::scene_linear_f32::wb_exports(&raw).frame.scene_cct > 0.0,
+                crate::scene_linear_f32::wb_frame_export(&raw).scene_cct > 0.0,
                 "paired fixture must export a calibrated WB frame"
             );
             let c_path = std::ffi::CString::new(path.to_str().unwrap()).unwrap();

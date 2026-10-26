@@ -74,8 +74,6 @@ public sealed unsafe class CaptureCreativeTests
         Assert.Equal(-12f, gpu.tint);
         Assert.Equal(3100f, cpu.temperature);
         Assert.Equal(-12f, cpu.tint);
-        Assert.Equal(0u, gpu.wb_hsm_len);
-        Assert.True(gpu.wb_hsm_ptr == null && cpu.wb_hsm_ptr == null);
         Assert.Equal(0f, gpu.wb_frame_scene_cct);
     }
 

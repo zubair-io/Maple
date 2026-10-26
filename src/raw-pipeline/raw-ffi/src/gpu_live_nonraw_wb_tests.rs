@@ -84,10 +84,6 @@ fn cpu_params_nonraw() -> MapleAdjustmentParams {
     MapleAdjustmentParams {
         nr_sampling_scale: 1.0,
         wb_method: 0,
-        wb_hsm_ptr: std::ptr::null(),
-        wb_hsm_len: 0,
-        wb_hsm_as_shot_cct: 0.0,
-        wb_hsm_exposure_gain: 0.0,
         creative_ptr: std::ptr::null(),
         whites_anchor_ev: f32::NAN,
         temperature: LIVE_TEMP,

@@ -53,11 +53,6 @@ namespace Maple.WinUI.Native
         public byte* camera_support_json;
         public float whites_anchor_ev;
         public float nr_sampling_scale;
-        // HueSatMap endpoint wire (#5099). Always null from a capture decode;
-        // Windows never reads it and mirrors it only to keep the layout.
-        public float* wb_hsm_data;
-        public nuint wb_hsm_len;
-        public float wb_hsm_as_shot_cct;
     }
 
     /// <summary>

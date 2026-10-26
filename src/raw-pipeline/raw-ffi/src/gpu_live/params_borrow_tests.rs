@@ -103,7 +103,7 @@ fn deriving_a_tick_creative_plan_allocates_nothing_and_borrows_the_tables() {
         assert_eq!(plan.unwrap().tables.as_ptr(), tables.as_ptr());
     }
     let inputs = unsafe { inputs_from_params(&params) }.unwrap();
-    assert!(inputs.creative.is_some() && inputs.wb_hsm.is_none());
+    assert!(inputs.creative.is_some());
     let absent = crate::capture_creative::MapleCaptureCreative::ABSENT;
     params.creative_ptr = &absent;
     assert!(unsafe { inputs_from_params(&params) }.is_err());

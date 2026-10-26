@@ -184,7 +184,6 @@ pub(crate) fn visit_live_chain<'a>(
     if creative.is_none() && !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
         sink.push(WhiteBalancePass {
             matrix: inputs.wb_matrix,
-            hsm: inputs.wb_hsm.as_ref(),
         });
     }
     if !scene_tone_is_noop(&inputs.tone) {

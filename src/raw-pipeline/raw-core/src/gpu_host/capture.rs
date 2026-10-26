@@ -38,7 +38,6 @@ impl LiveCreative {
         inputs.wb_matrix = crate::math::Matrix3::IDENTITY.0;
         inputs.wb_temperature = 6500.0;
         inputs.wb_tint = 0.0;
-        inputs.wb_hsm = None;
         Ok(())
     }
 }

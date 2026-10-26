@@ -200,8 +200,7 @@ mod tests {
             let profile = raw_core::color::dcp::profile_for(&raw).unwrap();
             let frame = raw_core::stages::wb_camera::SliderFrame::resolve(&raw, &profile);
             assert!(
-                crate::scene_linear_f32::wb_exports(&raw)
-                    .frame
+                crate::scene_linear_f32::wb_frame_export(&raw)
                     .as_shot_tint
                     .abs()
                     > 0.5

@@ -7,7 +7,7 @@ namespace Maple.WinUI.Native
     /// C-ABI mirror of raw-ffi's MapleAdjustmentParams (scene_linear_chain.rs).
     /// Field order matches the Rust declaration byte-for-byte; fields are only
     /// ever appended at the tail (offset-stable ABI convention). Expected size
-    /// on x64: 752 bytes — asserted at startup by RawFfi.VerifyAbi().
+    /// on x64: 728 bytes — asserted at startup by RawFfi.VerifyAbi().
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct MapleAdjustmentParams
@@ -130,15 +130,9 @@ namespace Maple.WinUI.Native
         public float color_grade_blending;
         public float color_grade_shadow_edge;
         public float color_grade_highlight_edge;
-        // The legacy HueSatMap retarget (#5099). Windows renders RAWs through
-        // creative_ptr and leaves these zero; mirrored for the layout only.
-        public float* wb_hsm_ptr;
-        public nuint wb_hsm_len;
-        public float wb_hsm_as_shot_cct;
-        public float wb_hsm_exposure_gain;
         // The capture decode's creative stage (#5377), pinned for the call:
         // the chain renders it at the absolute temperature/tint and ignores
-        // decoded_*, wb_frame_* and wb_hsm_*. Null (a raster) keeps the
+        // decoded_* and wb_frame_*. Null (a raster) keeps the
         // scene-linear white-balance delta.
         public MapleCaptureCreative* creative_ptr;
 

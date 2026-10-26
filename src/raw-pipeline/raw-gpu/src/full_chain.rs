@@ -150,9 +150,6 @@ pub struct FullChainInputs<'a> {
     /// WB on raw-core's exact short-circuit predicate.
     pub wb_temperature: f32,
     pub wb_tint: f32,
-    /// The retargeted HueSatMap for the WB pass on a dual-HueSatMap
-    /// ForwardMatrix profile (#5099). `None` keeps the plain `wb_matrix`.
-    pub wb_hsm: Option<crate::WbHsmInputs<'a>>,
     /// Scene-tone-controls sliders (exposure / brightness / highlights /
     /// shadows / whites / blacks), each `[-100, 100]` (exposure in EV).
     pub tone: [f32; 6],
@@ -390,7 +387,6 @@ pub fn build_split<'a>(
     }
     prefix.push(Box::new(WhiteBalancePass {
         matrix: inputs.wb_matrix,
-        hsm: inputs.wb_hsm.as_ref(),
     }));
     prefix.push(Box::new(SceneToneControlsPass {
         exposure: inputs.tone[0],
