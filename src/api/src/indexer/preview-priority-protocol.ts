@@ -5,6 +5,8 @@
  * - `preview-interactive` (API → worker): whether any on-demand render is in
  *   flight. The stage stops admitting new renders while it is `true`, so the
  *   request a viewer is waiting on gets the CPU.
+ * - `preview-priority-ready` (worker → API): the worker is listening, so the
+ *   API sends it the current interactive state.
  * - `preview-stage-render` (worker → API): the stage started or finished
  *   rendering one preview path. An on-demand request for that path waits for
  *   the stage's render instead of starting a second one.
@@ -14,6 +16,8 @@ export interface PreviewInteractiveMessage {
   type: 'preview-interactive';
   active: boolean;
 }
+
+export const PREVIEW_PRIORITY_READY_MESSAGE = { type: 'preview-priority-ready' } as const;
 
 export interface PreviewStageRenderMessage {
   type: 'preview-stage-render';
@@ -37,4 +41,8 @@ export function isPreviewStageRenderMessage(
     typeof m.previewPath === 'string' &&
     (m.phase === 'start' || m.phase === 'end')
   );
+}
+
+export function isPreviewPriorityReadyMessage(message: unknown): boolean {
+  return (message as { type?: unknown } | null)?.type === PREVIEW_PRIORITY_READY_MESSAGE.type;
 }

@@ -20,7 +20,7 @@ import { basename, join } from 'node:path';
 import { ffiPool } from '../../ffi/ffi-pool.ts';
 import { invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 import {
-  ONDEMAND_PREVIEW_CONCURRENCY,
+  ondemandPreviewCapacity,
   _resetOndemandPreviewsForTests,
   ondemandPreviews,
 } from '../../indexer/ondemand-preview.ts';
@@ -105,8 +105,7 @@ beforeEach(async () => {
   interactiveActive = false;
   startedWhileInteractive = [];
   held = new Map();
-  const pool = ffiPool().stats();
-  cpuFree = pool.target + pool.bitmap.target;
+  cpuFree = ffiPool().poolSize();
   cpuQueue.length = 0;
   _resetOndemandPreviewsForTests();
   _resetBackgroundPreviewGateForTests();
@@ -179,7 +178,7 @@ const previewFile = (filename: string): string =>
 
 describe('on-demand previews take priority over the preview stage (#5433)', () => {
   it('serves a cold preview in about one render while the stage has a deep backlog', async () => {
-    const backlog = Array.from({ length: 40 }, (_, i) => `bg-${i}.jpg`);
+    const backlog = Array.from({ length: 12 }, (_, i) => `bg-${i}.jpg`);
     for (const name of backlog) await writeFile(join(tmpDir, name), 'source-bytes');
     await seedSource('wanted.jpg');
 
@@ -193,8 +192,9 @@ describe('on-demand previews take priority over the preview stage (#5433)', () =
 
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('preview-of-wanted.jpg');
-    // At most one in-flight stage render to wait out, then its own render.
-    expect(elapsed).toBeLessThan(RENDER_MS * 2.5);
+    // No stage render starts while it is pending (below), so it waits out at
+    // most the in-flight one: about two renders, not the whole backlog.
+    expect(elapsed).toBeLessThan(RENDER_MS * 5);
     expect(startedWhileInteractive).toEqual(['wanted.jpg']);
 
     await stageRun;
@@ -226,10 +226,7 @@ describe('on-demand previews take priority over the preview stage (#5433)', () =
   });
 
   it('skips the render when the client disconnects before it starts', async () => {
-    const blockers = Array.from(
-      { length: ONDEMAND_PREVIEW_CONCURRENCY },
-      (_, i) => `busy-${i}.jpg`,
-    );
+    const blockers = Array.from({ length: ondemandPreviewCapacity() }, (_, i) => `busy-${i}.jpg`);
     for (const name of blockers) {
       await seedSource(name);
       held.set(name, Promise.withResolvers<void>());

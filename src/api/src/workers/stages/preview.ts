@@ -24,6 +24,7 @@ import {
   PREVIEW_CACHE_SUFFIX,
 } from '../../indexer/previewer.ts';
 import { runBackgroundPreviewRender } from '../background-preview-gate.ts';
+import { assertDerivativeCacheDirectory } from '../../indexer/derivative-cache.ts';
 import { PREVIEW_TARGET_VERSION } from '../derivative-versions.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
@@ -101,6 +102,7 @@ const previewStage = defineStage({
     // needs no render slot. Otherwise the gate yields to on-demand requests
     // (#5433). An ENOENT (original gone) is tagged `missing_since` by the
     // runner — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
+    await assertDerivativeCacheDirectory(previewPath);
     if (!(await isPreviewCacheFresh(previewPath, absPath))) {
       await runBackgroundPreviewRender(previewPath, () => generatePreview(absPath, previewPath));
     }

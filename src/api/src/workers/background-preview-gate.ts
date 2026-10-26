@@ -3,17 +3,17 @@
  * child (#5433).
  *
  * The stage claims and dispatches up to its `concurrency` handlers (50 on a
- * busy install), but the FFI pool can only execute as many renders as it has
- * children; the rest queue inside the pool, where nothing can reprioritise
- * them. This gate holds that excess queue here instead, admitting at most as
- * many renders as the pool can run, and admitting none while the API process
+ * busy install), but the FFI pool's RAW lane can only execute as many renders
+ * as it has children; the rest queue inside the pool, where nothing can
+ * reprioritise them. This gate holds that excess queue here instead, admitting
+ * at most as many renders as the RAW lane can run, and admitting none while the API process
  * reports an on-demand render pending (`indexer/ondemand-preview.ts`). The
  * renders already running finish, so a viewer's preview waits for at most
  * about one render before it has the CPU.
  *
- * Yielding stops once the API has reported on-demand work continuously for
- * {@link MAX_YIELD_MS}, so continuous browsing, or an `active: false` that
- * never arrives, slows the backlog instead of stopping it.
+ * The stage pauses for at most {@link MAX_YIELD_MS} per run of continuous
+ * on-demand activity, so heavy browsing, or an `active: false` that never
+ * arrives, cannot stop the backlog.
  *
  * Each admitted render is announced to the API process (`start` / `end`), so an
  * on-demand request for the same path waits for it instead of rendering twice.
@@ -22,14 +22,11 @@
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import {
   isPreviewInteractiveMessage,
+  PREVIEW_PRIORITY_READY_MESSAGE,
   type PreviewStageRenderMessage,
 } from '../indexer/preview-priority-protocol.ts';
 
-export const MAX_YIELD_MS = 10_000;
-
-/** Re-check interval for a waiter blocked only on capacity, so a live resize
- * of the FFI pool is picked up even without a release to wake it. */
-const CAPACITY_RECHECK_MS = 1_000;
+const MAX_YIELD_MS = 10_000;
 
 /** When the current run of on-demand activity began, or `null` when idle. */
 let interactiveSince: number | null = null;
@@ -41,11 +38,9 @@ function wakeAll(): void {
 }
 
 function capacity(): number {
-  const stats = ffiPool().stats();
-  return Math.max(1, stats.target + stats.bitmap.target);
+  return Math.max(1, ffiPool().poolSize());
 }
 
-/** Apply the API process's latest interactive state. */
 export function setInteractivePreviewActive(active: boolean): void {
   if (!active) {
     interactiveSince = null;
@@ -59,11 +54,13 @@ function yieldRemainingMs(): number {
   return interactiveSince === null ? 0 : interactiveSince + MAX_YIELD_MS - Date.now();
 }
 
-/** Worker boot: listen for the API process's interactive-state messages. */
+/** Worker boot: listen for the API process's interactive state, then ask for
+ * it — a message sent before this listener existed was dropped. */
 export function installWorkerPreviewPriority(): void {
   process.on('message', (message: unknown) => {
     if (isPreviewInteractiveMessage(message)) setInteractivePreviewActive(message.active);
   });
+  send(PREVIEW_PRIORITY_READY_MESSAGE);
 }
 
 async function admit(): Promise<void> {
@@ -73,25 +70,19 @@ async function admit(): Promise<void> {
       running++;
       return;
     }
-    const timeoutMs = yieldMs > 0 ? yieldMs : CAPACITY_RECHECK_MS;
     const { promise, resolve } = Promise.withResolvers<void>();
     const wake = (): void => {
       clearTimeout(timer);
       waiters.delete(wake);
       resolve();
     };
-    const timer = setTimeout(wake, timeoutMs);
+    const timer = yieldMs > 0 ? setTimeout(wake, yieldMs) : undefined;
     waiters.add(wake);
     await promise;
   }
 }
 
-function announce(previewPath: string, phase: PreviewStageRenderMessage['phase']): void {
-  const message: PreviewStageRenderMessage = {
-    type: 'preview-stage-render',
-    previewPath,
-    phase,
-  };
+function send(message: unknown): void {
   try {
     process.send?.(message);
   } catch {
@@ -99,7 +90,10 @@ function announce(previewPath: string, phase: PreviewStageRenderMessage['phase']
   }
 }
 
-/** Run one background preview render once the gate admits it. */
+function announce(previewPath: string, phase: PreviewStageRenderMessage['phase']): void {
+  send({ type: 'preview-stage-render', previewPath, phase } satisfies PreviewStageRenderMessage);
+}
+
 export async function runBackgroundPreviewRender<T>(
   previewPath: string,
   render: () => Promise<T>,

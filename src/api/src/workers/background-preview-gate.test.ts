@@ -26,8 +26,7 @@ afterEach(() => {
 });
 
 function capacity(): number {
-  const stats = ffiPool().stats();
-  return stats.target + stats.bitmap.target;
+  return ffiPool().poolSize();
 }
 
 describe('background preview gate (#5433)', () => {
