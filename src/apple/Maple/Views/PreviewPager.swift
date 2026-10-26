@@ -72,11 +72,7 @@ struct PreviewPager: UIViewControllerRepresentable {
         context.coordinator.pager = pager
         pager.dataSource = context.coordinator
         pager.delegate = context.coordinator
-        if let initial = context.coordinator.controller(for: asset.id) {
-            pager.setViewControllers([initial], direction: .forward, animated: false)
-            initial.setRefinementActive(true)
-            context.coordinator.prune(around: asset.id)
-        }
+        context.coordinator.show(asset.id, in: pager)
         return pager
     }
 
@@ -89,10 +85,7 @@ struct PreviewPager: UIViewControllerRepresentable {
             onPlainPullChanged: onPlainPullChanged,
             onPlainPullEnded: onPlainPullEnded
         )
-        guard let target = context.coordinator.controller(for: asset.id),
-              pager.viewControllers?.first !== target else { return }
-        pager.setViewControllers([target], direction: .forward, animated: false)
-        context.coordinator.prune(around: asset.id)
+        context.coordinator.show(asset.id, in: pager)
     }
 
     @MainActor
@@ -201,6 +194,20 @@ struct PreviewPager: UIViewControllerRepresentable {
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool { gestureRecognizer === pullGate }
 
+        /// Only a page with refinement active asks for its display tier, so
+        /// every programmatic page change must hand it over (#5432). A no-op
+        /// while `id` is already visible, so a SwiftUI update mid-swipe never
+        /// re-arms the page being left.
+        func show(_ id: AssetRef.ID, in pager: UIPageViewController) {
+            guard let target = controller(for: id) else { return }
+            let previous = pager.viewControllers?.first
+            guard previous !== target else { return }
+            pager.setViewControllers([target], direction: .forward, animated: false)
+            prune(around: id)
+            (previous as? PreviewZoomController)?.setRefinementActive(false)
+            target.setRefinementActive(true)
+        }
+
         func controller(for id: AssetRef.ID) -> PreviewZoomController? {
             guard let index = assetIndexByID[id] else { return nil }
             return controller(at: index)
@@ -268,17 +275,17 @@ struct PreviewPager: UIViewControllerRepresentable {
             previousViewControllers: [UIViewController],
             transitionCompleted completed: Bool
         ) {
-            guard finished else { return }
-            if !completed {
-                (pageViewController.viewControllers?.first as? PreviewZoomController)?
-                    .setRefinementActive(true)
-                return
+            // `willTransitionTo` deactivated the page being left. Whatever
+            // ended up visible — the new page, or the old one after a
+            // cancelled or interrupted swipe — refines; anything else stops.
+            let visible = pageViewController.viewControllers?.first
+            for previous in previousViewControllers where previous !== visible {
+                (previous as? PreviewZoomController)?.setRefinementActive(false)
             }
-            guard let visible = pageViewController.viewControllers?.first,
-                  let index = index(of: visible) else { return }
+            (visible as? PreviewZoomController)?.setRefinementActive(true)
+            guard finished, completed, let visible, let index = index(of: visible) else { return }
             let selected = assets[index]
             prune(around: selected.id)
-            (visible as? PreviewZoomController)?.setRefinementActive(true)
             onSelectAsset?(selected)
         }
 
