@@ -13,15 +13,11 @@ fn packaging(name: &str) -> String {
 
 #[test]
 fn desktop_entry_associates_exactly_the_formats_the_library_opens() {
+    let mut seen = std::collections::HashSet::new();
     let expected: Vec<&str> = FILE_FORMATS
         .iter()
-        .enumerate()
-        .filter(|(index, format)| {
-            FILE_FORMATS[..*index]
-                .iter()
-                .all(|earlier| earlier.mime_type != format.mime_type)
-        })
-        .map(|(_, format)| format.mime_type)
+        .map(|format| format.mime_type)
+        .filter(|mime| seen.insert(*mime))
         .collect();
     let entry = packaging("app.justmaple.aperture.desktop");
     let declared = entry

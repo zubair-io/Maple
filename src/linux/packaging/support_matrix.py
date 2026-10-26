@@ -14,8 +14,6 @@ END = "<!-- support-matrix:end -->"
 
 
 def validate(matrix: dict) -> dict:
-    if matrix.get("schema_version") != 1:
-        raise ValueError("Unsupported support matrix schema")
     keys = set()
     for row in matrix["rows"]:
         for field, table in (

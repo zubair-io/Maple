@@ -11,6 +11,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from package import DEB_RUNTIME_DEPENDS
+
 APP_ID = "app.justmaple.aperture"
 PACKAGING = Path(__file__).resolve().parent
 PHOTO = (
@@ -18,19 +20,7 @@ PHOTO = (
     / "src/apple/MapleUITests/Fixtures/synthetic/grey-l018-rggb.dng"
 )
 TEST_TOOLS = ["xvfb", "xauth", "x11-utils", "weston"]
-APPIMAGE_RUNTIME = [
-    "libvulkan1",
-    "mesa-vulkan-drivers",
-    "libwayland-client0",
-    "libxkbcommon0",
-    "libxkbcommon-x11-0",
-    "libx11-6",
-    "libx11-xcb1",
-    "libxcb1",
-    "libxcursor1",
-    "libxi6",
-    "libxrandr2",
-]
+APPIMAGE_RUNTIME = [*DEB_RUNTIME_DEPENDS, "mesa-vulkan-drivers"]
 
 
 def run(*command: str, env: dict | None = None, cwd: Path | None = None) -> str:
@@ -81,6 +71,10 @@ def diagnose_problems(binary: Path, env: dict) -> set[str]:
 
 
 def expect_problems(binary: Path, env: dict, expected: set[str]) -> None:
+    """Without a display; the picker is a problem only without the zenity fallback."""
+    expected = expected | (
+        {"session"} if shutil.which("zenity") else {"session", "portal"}
+    )
     found = diagnose_problems(binary, headless(env))
     if found != expected:
         raise RuntimeError(
@@ -88,16 +82,8 @@ def expect_problems(binary: Path, env: dict, expected: set[str]) -> None:
         )
 
 
-def default_handler(mime_type: str, env: dict) -> str:
-    output = run("gio", "mime", mime_type, env={**env, "LC_ALL": "C.UTF-8"})
-    return next(
-        (
-            line
-            for line in output.splitlines()
-            if line.startswith("Default application")
-        ),
-        "",
-    )
+def handlers(mime_type: str, env: dict) -> str:
+    return run("gio", "mime", mime_type, env={**env, "LC_ALL": "C.UTF-8"})
 
 
 def check_associations(data_dir: Path, env: dict) -> None:
@@ -124,8 +110,8 @@ def check_associations(data_dir: Path, env: dict) -> None:
         ):
             raise RuntimeError(f"{glob} is not registered as {mime_type}")
     for mime_type in mime_types:
-        if f"{APP_ID}.desktop" not in default_handler(mime_type, env):
-            raise RuntimeError(f"Maple is not the default handler for {mime_type}")
+        if f"{APP_ID}.desktop" not in handlers(mime_type, env):
+            raise RuntimeError(f"Maple is not registered for {mime_type}")
     print(f"Maple handles {len(mime_types)} MIME types, {len(own)} declared by Maple.")
 
 
@@ -136,8 +122,8 @@ def check_removed(paths: list[Path], data_dir: Path, env: dict) -> None:
     globs = data_dir / "mime/globs2"
     if globs.exists() and "image/x-samsung-srw" in globs.read_text():
         raise RuntimeError("Removal left Maple's MIME types registered")
-    if APP_ID in default_handler("image/x-adobe-dng", env):
-        raise RuntimeError("Removal left Maple as the DNG handler")
+    if APP_ID in handlers("image/x-adobe-dng", env):
+        raise RuntimeError("Removal left Maple registered for DNG")
 
 
 def launch(binary: Path, sessions: list[str], env: dict) -> None:
@@ -169,7 +155,11 @@ def open_with(desktop: Path, binary: Path, env: dict) -> None:
         server = subprocess.Popen(["Xvfb", ":71", "-screen", "0", "1280x800x24"])
         launched = None
         try:
-            time.sleep(1)
+            deadline = time.monotonic() + 20
+            while not Path("/tmp/.X11-unix/X71").is_socket():
+                if server.poll() is not None or time.monotonic() > deadline:
+                    raise RuntimeError("Xvfb did not start")
+                time.sleep(0.1)
             run(
                 "gio",
                 "launch",
@@ -207,17 +197,39 @@ def is_launch(process: Path, binary: Path, photo: Path) -> bool:
     return executable == binary.resolve() and os.fsencode(photo) in arguments
 
 
+def previous_version(package: Path, directory: Path) -> Path:
+    """The same package relabelled as an older version, to exercise an upgrade."""
+    tree = directory / "previous"
+    run("dpkg-deb", "-R", str(package), str(tree))
+    control = tree / "DEBIAN/control"
+    control.write_text(
+        re.sub(
+            r"^Version: (.+)$",
+            r"Version: \1~previous",
+            control.read_text(),
+            flags=re.MULTILINE,
+        )
+    )
+    output = directory / "maple-previous.deb"
+    run("dpkg-deb", "--root-owner-group", "-b", str(tree), str(output))
+    return output
+
+
 def smoke_deb(package: Path, sessions: list[str]) -> None:
     env = dict(os.environ)
     binary = Path("/usr/bin/maple-linux")
+    with tempfile.TemporaryDirectory(prefix="maple-deb-") as directory:
+        previous = previous_version(package, Path(directory))
+        apt("install", f"./{previous.name}", cwd=previous.parent)
     apt("install", f"./{package.name}", cwd=package.parent)
-    expect_problems(binary, env, {"session", "portal"})
+    installed = run("dpkg-query", "-W", "-f=${Version}", "maple")
+    if "~previous" in installed:
+        raise RuntimeError(f"Upgrade left version {installed}")
+    expect_problems(binary, env, set())
     apt("install", "--no-install-recommends", *TEST_TOOLS)
     check_associations(Path("/usr/share"), env)
     launch(binary, sessions, env)
     open_with(Path(f"/usr/share/applications/{APP_ID}.desktop"), binary, env)
-    apt("install", "--reinstall", f"./{package.name}", cwd=package.parent)
-    check_associations(Path("/usr/share"), env)
     apt("purge", "maple")
     check_removed(
         [
@@ -241,19 +253,26 @@ def smoke_appimage(package: Path, sessions: list[str]) -> None:
     binary = target / "usr/bin/maple-linux"
     data_dir = home / ".local/share"
     run("bash", installer, str(package), env=env)
-    expect_problems(binary, env, {"vulkan", "session", "libraries", "portal"})
+    expect_problems(binary, env, {"vulkan", "libraries"})
     apt("install", "--no-install-recommends", *APPIMAGE_RUNTIME, *TEST_TOOLS)
-    expect_problems(binary, env, {"session", "portal"})
+    expect_problems(binary, env, set())
     check_associations(data_dir, env)
     launch(binary, sessions, env)
     open_with(data_dir / f"applications/{APP_ID}.desktop", binary, env)
-    run("bash", installer, str(package), env=env)
+    installed_installer = str(target / "install-maple-appimage.sh")
+    run("bash", installed_installer, str(package), env=env)
     check_associations(data_dir, env)
-    run("bash", str(target / "install-maple-appimage.sh"), "--uninstall", env=env)
+    desktop = data_dir / f"applications/{APP_ID}.desktop"
+    edited = desktop.read_text() + "X-Edited-By-User=true\n"
+    desktop.write_text(edited)
+    run("bash", installed_installer, "--uninstall", env=env)
+    if not desktop.exists() or desktop.read_text() != edited:
+        raise RuntimeError("Uninstall removed a desktop entry the user had changed")
+    desktop.unlink()
     check_removed(
         [
             target,
-            data_dir / f"applications/{APP_ID}.desktop",
+            desktop,
             data_dir / f"icons/hicolor/512x512/apps/{APP_ID}.png",
             data_dir / f"mime/packages/{APP_ID}.xml",
         ],

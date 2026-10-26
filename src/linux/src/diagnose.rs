@@ -3,7 +3,6 @@
 
 use eframe::egui_wgpu::wgpu;
 use std::ffi::{CString, OsString};
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -46,80 +45,94 @@ pub const X11_LIBRARIES: &[&str] = &[
     "libxcb.so.1",
     "libXcursor.so.1",
     "libXi.so.6",
-    "libXrandr.so.2",
     "libxkbcommon-x11.so.0",
 ];
 
-/// Mirrors winit's order: Wayland first, then X11. Remote X11 displays are not
-/// probed because that would need the network.
+enum X11Display {
+    Local(PathBuf),
+    Remote,
+    Invalid,
+}
+
+/// Mirrors winit 0.30: a configured Wayland display is used without falling
+/// back to X11. Remote X11 displays are not probed because that needs the network.
 pub fn session(
     env: impl Fn(&'static str) -> Option<OsString>,
     reachable: impl Fn(&Path) -> bool,
-) -> (Session, Vec<Finding>) {
-    let wayland = env("WAYLAND_DISPLAY").filter(|value| !value.is_empty());
-    let wayland_socket = wayland.map(|display| {
+) -> (Session, Finding) {
+    let set = |name| env(name).filter(|value| !value.is_empty());
+    let problem = |detail| Finding::new("session", Status::Problem, detail);
+    if set("WAYLAND_SOCKET").is_some() {
+        return (
+            Session::Wayland,
+            Finding::new(
+                "session",
+                Status::Ok,
+                "Wayland (inherited compositor socket)",
+            ),
+        );
+    }
+    if let Some(display) = set("WAYLAND_DISPLAY") {
         let display = PathBuf::from(display);
-        match env("XDG_RUNTIME_DIR") {
+        let socket = match set("XDG_RUNTIME_DIR") {
             Some(runtime) if !display.is_absolute() => PathBuf::from(runtime).join(display),
             _ => display,
-        }
-    });
-    let wayland_ok = wayland_socket.as_deref().is_some_and(&reachable);
-    let x11 = env("DISPLAY").filter(|value| !value.is_empty());
-    let x11_socket = x11.as_ref().and_then(local_x11_socket);
-    let x11_ok = x11_socket.as_deref().is_some_and(&reachable);
-    let x11_remote = x11.is_some() && x11_socket.is_none();
-    let wayland_finding = match (&wayland_socket, wayland_ok) {
-        (None, _) => Finding::new("wayland", Status::Note, "WAYLAND_DISPLAY is not set"),
-        (Some(_), true) => Finding::new("wayland", Status::Ok, "compositor socket reachable"),
-        (Some(_), false) => Finding::new(
-            "wayland",
-            Status::Note,
-            "WAYLAND_DISPLAY is set but its socket is not reachable",
+        };
+        return (
+            Session::Wayland,
+            if reachable(&socket) {
+                Finding::new(
+                    "session",
+                    Status::Ok,
+                    "Wayland (compositor socket reachable)",
+                )
+            } else {
+                problem(
+                    "WAYLAND_DISPLAY is set but its socket is not reachable; \
+                     Maple does not fall back to X11 while it is set",
+                )
+            },
+        );
+    }
+    match set("DISPLAY").map(|display| x11_display(&display)) {
+        None => (
+            Session::None,
+            problem("no Wayland or X11 display; start Maple from a graphical desktop session"),
         ),
-    };
-    let x11_finding = match (x11.is_some(), x11_ok, x11_remote) {
-        (false, _, _) => Finding::new("x11", Status::Note, "DISPLAY is not set"),
-        (true, true, _) => Finding::new("x11", Status::Ok, "local X server socket reachable"),
-        (true, false, true) => Finding::new(
-            "x11",
-            Status::Note,
-            "DISPLAY names a remote or unrecognised X server; not probed",
+        Some(X11Display::Invalid) => (Session::None, problem("DISPLAY is not a valid X11 display")),
+        Some(X11Display::Remote) => (
+            Session::X11,
+            Finding::new("session", Status::Ok, "X11 (remote display; not probed)"),
         ),
-        (true, false, false) => Finding::new(
-            "x11",
-            Status::Note,
-            "DISPLAY is set but its local socket is not reachable",
+        Some(X11Display::Local(socket)) => (
+            Session::X11,
+            if reachable(&socket) {
+                Finding::new(
+                    "session",
+                    Status::Ok,
+                    "X11 (local X server socket reachable)",
+                )
+            } else {
+                problem("DISPLAY is set but its local X server socket is not reachable")
+            },
         ),
-    };
-    let selected = if wayland_ok {
-        Session::Wayland
-    } else if x11_ok || x11_remote {
-        Session::X11
-    } else {
-        Session::None
-    };
-    let session_finding = match selected {
-        Session::Wayland => Finding::new("session", Status::Ok, "Maple will use Wayland"),
-        Session::X11 => Finding::new("session", Status::Ok, "Maple will use X11"),
-        Session::None => Finding::new(
-            "session",
-            Status::Problem,
-            "no reachable Wayland or X11 display; start Maple from a graphical desktop session",
-        ),
-    };
-    (
-        selected,
-        vec![session_finding, wayland_finding, x11_finding],
-    )
+    }
 }
 
-fn local_x11_socket(display: &OsString) -> Option<PathBuf> {
-    let display = display.to_str()?;
-    let local = display.strip_prefix("unix").unwrap_or(display);
-    let number = local.strip_prefix(':')?.split('.').next()?;
-    (!number.is_empty() && number.chars().all(|digit| digit.is_ascii_digit()))
-        .then(|| PathBuf::from(format!("/tmp/.X11-unix/X{number}")))
+fn x11_display(display: &OsString) -> X11Display {
+    let parsed = display.to_str().and_then(|display| {
+        let (host, rest) = display.rsplit_once(':')?;
+        let number = rest.split('.').next()?;
+        (!number.is_empty() && number.chars().all(|digit| digit.is_ascii_digit()))
+            .then_some((host, number))
+    });
+    match parsed {
+        None => X11Display::Invalid,
+        Some(("" | "unix", number)) => {
+            X11Display::Local(PathBuf::from(format!("/tmp/.X11-unix/X{number}")))
+        }
+        Some(_) => X11Display::Remote,
+    }
 }
 
 pub fn libraries(session: Session, loadable: impl Fn(&str) -> bool) -> Vec<Finding> {
@@ -205,6 +218,7 @@ pub fn gpu(adapter: Result<wgpu::AdapterInfo, String>) -> Vec<Finding> {
 #[derive(Debug)]
 pub enum Portal {
     Available(u32),
+    Activatable,
     Unavailable,
     NotProbed,
 }
@@ -215,6 +229,11 @@ pub fn portal(portal: Portal, zenity: bool) -> Finding {
             "portal",
             Status::Ok,
             format!("desktop portal file chooser (version {version})"),
+        ),
+        (Portal::Activatable, _) => Finding::new(
+            "portal",
+            Status::Ok,
+            "desktop portal installed; D-Bus starts it when the folder picker opens",
         ),
         (Portal::NotProbed, _) => Finding::new(
             "portal",
@@ -236,40 +255,51 @@ pub fn portal(portal: Portal, zenity: bool) -> Finding {
 }
 
 pub fn render(findings: &[Finding]) -> String {
-    let mut report = String::from(
-        "Maple diagnostics (no network access; environment values and photo paths are omitted)\n",
-    );
-    for finding in findings {
-        let label = match finding.status {
-            Status::Ok => "ok",
-            Status::Note => "note",
-            Status::Problem => "problem",
-        };
-        let _ = writeln!(report, "[{label}] {}: {}", finding.check, finding.detail);
-    }
+    let label = |status| match status {
+        Status::Ok => "ok",
+        Status::Note => "note",
+        Status::Problem => "problem",
+    };
     let problems = findings
         .iter()
         .filter(|finding| finding.status == Status::Problem)
         .count();
-    let _ = writeln!(report, "problems: {problems}");
-    report
+    std::iter::once(
+        "Maple diagnostics (no network access; environment values and photo paths are omitted)"
+            .to_string(),
+    )
+    .chain(findings.iter().map(|finding| {
+        format!(
+            "[{}] {}: {}",
+            label(finding.status),
+            finding.check,
+            finding.detail
+        )
+    }))
+    .chain(std::iter::once(format!("problems: {problems}")))
+    .map(|line| line + "\n")
+    .collect()
 }
 
 pub fn run() -> Vec<Finding> {
-    let (selected, session_findings) = session(std::env::var_os, |path| {
+    let (selected, session_finding) = session(std::env::var_os, |path| {
         std::os::unix::net::UnixStream::connect(path).is_ok()
     });
     let adapter = raw_gpu::GpuContext::new_blocking().map(|context| context.adapter.get_info());
     std::iter::once(system())
         .chain(gpu(adapter))
-        .chain(session_findings)
+        .chain(std::iter::once(session_finding))
         .chain(libraries(selected, loadable))
         .chain(std::iter::once(portal(probe_portal(), on_path("zenity"))))
         .collect()
 }
 
 fn system() -> Finding {
-    let release = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
+    system_from(&std::fs::read_to_string("/etc/os-release").unwrap_or_default())
+}
+
+/// Only plain identifier characters from os-release reach the report.
+pub fn system_from(release: &str) -> Finding {
     let field = |key: &str| {
         release
             .lines()
@@ -317,6 +347,9 @@ fn on_path(program: &str) -> bool {
     })
 }
 
+const PORTAL: &str = "org.freedesktop.portal.Desktop";
+
+/// Never auto-starts the portal: an inactive one is only reported as activatable.
 fn probe_portal() -> Portal {
     let local_bus = std::env::var_os("DBUS_SESSION_BUS_ADDRESS")
         .is_none_or(|address| address.to_string_lossy().starts_with("unix:"));
@@ -327,13 +360,26 @@ fn probe_portal() -> Portal {
         .map(|builder| builder.method_timeout(Duration::from_secs(10)))
         .and_then(|builder| builder.build())
         .and_then(|connection| {
-            zbus::blocking::Proxy::new(
+            let bus = zbus::blocking::fdo::DBusProxy::new(&connection)?;
+            if !bus.name_has_owner(zbus::names::BusName::try_from(PORTAL)?)? {
+                let activatable = bus
+                    .list_activatable_names()?
+                    .iter()
+                    .any(|name| name.as_str() == PORTAL);
+                return Ok(activatable.then_some(None));
+            }
+            let version = zbus::blocking::Proxy::new(
                 &connection,
-                "org.freedesktop.portal.Desktop",
+                PORTAL,
                 "/org/freedesktop/portal/desktop",
                 "org.freedesktop.portal.FileChooser",
             )?
-            .get_property::<u32>("version")
+            .get_property::<u32>("version")?;
+            Ok(Some(Some(version)))
         });
-    version.map_or(Portal::Unavailable, Portal::Available)
+    match version {
+        Ok(Some(Some(version))) => Portal::Available(version),
+        Ok(Some(None)) => Portal::Activatable,
+        _ => Portal::Unavailable,
+    }
 }

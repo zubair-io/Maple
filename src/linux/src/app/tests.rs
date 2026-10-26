@@ -72,6 +72,20 @@ fn launching_with_a_photo_path_opens_its_folder_and_that_photo() {
 }
 
 #[test]
+fn launching_with_a_folder_or_an_unsupported_file_browses_that_folder() {
+    let (directory, _) = fixture();
+    let notes = directory.path().join("notes.txt");
+    std::fs::write(&notes, b"not a photo").unwrap();
+    for path in [directory.path().to_path_buf(), notes] {
+        let mut app = MapleApp::from_context(egui::Context::default());
+        app.open_path(path);
+        pump(&mut app, |app| app.folder.is_some());
+        assert_eq!(app.folder.as_ref().unwrap().photos.len(), 1);
+        assert!(app.selected.is_none() && app.browse);
+    }
+}
+
+#[test]
 fn failed_save_stops_navigation_and_retains_edited_document() {
     let (directory, path) = fixture();
     let mut app = MapleApp::from_context(egui::Context::default());
