@@ -46,20 +46,20 @@ extension EditSession {
   /// when the GPU live present handles the frame it does its own fit —
   /// computing this before attempting the present burns that cost on a
   /// result the GPU path never uses (#2034). `AutoProfileLUT` caches the
-  /// baked cube keyed on URL+mtime+quality so slider ticks reuse it. Nil
-  /// for non-RAW, `Profile::Neutral`, or fit failure. The editor decode
-  /// path develops at `.preview` (RenderActor's sharedDecode +
+  /// baked cube keyed on URL+mtime+quality so slider ticks reuse it, and its
+  /// status is the core's actual fit outcome (#5458). The editor decode path develops at `.preview` (RenderActor's sharedDecode +
   /// decodeSceneLinear* default to `.preview`), so the curve is fit at
   /// `.preview` to match the displayed buffer (#844).
   func autoProfileLUTForCPURender(asset: AssetRef, model m: AdjustmentModel) async
-    -> CIFilter?
+    -> AutoProfileLUT.Resolution
   {
-    guard asset.isRaw, m.profile == .auto else { return nil }
-    guard let url = try? await renderActor.rawRenderSource.url(for: asset) else { return nil }
+    guard asset.isRaw, m.profile == .auto,
+      let url = try? await renderActor.rawRenderSource.url(for: asset)
+    else { return AutoProfileLUT.Resolution(filter: nil, status: .unavailable) }
     let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
     let accessing = scope.startAccessingSecurityScopedResource()
     defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-    return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile, quality: .preview)
+    return await AutoProfileLUT.shared.resolve(forRawAt: url, profile: m.profile, quality: .preview)
   }
 
   func decodeAndRender(targetSize: CGSize?, phase: RenderPhase, gen: UInt64? = nil) async {
@@ -228,7 +228,7 @@ extension EditSession {
 
     do {
       let image: CIImage
-      let achievedAutoFit: Bool
+      let autoFitOutcome: AutoFitStatus
       let isRaw = asset.isRaw
       let assetID = asset.id
       if let cached, cacheFresh {
@@ -288,8 +288,9 @@ extension EditSession {
         // for THIS (interactive canvas) path — `EditSession+
         // FilmExport.swift`'s non-RAW export path is untouched, still
         // tracked under #2713.
-        let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
-        achievedAutoFit = profileLUT != nil
+        let autoProfile = await autoProfileLUTForCPURender(asset: asset, model: m)
+        let profileLUT = autoProfile.filter
+        autoFitOutcome = autoProfile.status
         MemoryProbe.sample(
           "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
         // The fit is a multi-second suspension on a cold image, and the
@@ -422,8 +423,9 @@ extension EditSession {
         // FFI chain's display-encoded output rather than inside the
         // FFI struct itself, closing the gap for this (interactive
         // canvas) path.
-        let profileLUT = await autoProfileLUTForCPURender(asset: asset, model: m)
-        achievedAutoFit = profileLUT != nil
+        let autoProfile = await autoProfileLUTForCPURender(asset: asset, model: m)
+        let profileLUT = autoProfile.filter
+        autoFitOutcome = autoProfile.status
         MemoryProbe.sample(
           "after-fit phase=\(phase == .fast ? "fast" : "refine") auto=\(profileLUT != nil)")
         // Same bail as the cached branch: the fit suspension may have
@@ -484,7 +486,7 @@ extension EditSession {
           return
         }
       }
-      publishAutoFit(achievedAutoFit, assetID: asset.id, profile: m.profile, revision: fitRevision)
+      publishAutoFit(autoFitOutcome, assetID: asset.id, profile: m.profile, revision: fitRevision)
       // Provenance flags before the image, so the observed publish never
       // reads as a seed between the two writes (#4496 review).
       previewIsFullRender = true

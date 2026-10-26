@@ -116,7 +116,7 @@ public final class GpuLiveDriver {
   private var lastPresentedKey: (generation: UInt64, width: Int, height: Int)?
 
   /// The RAW path + decode quality for the Auto Profile fit (set on open).
-  private var autoProfileFit: Task<Bool, Never>?
+  private var autoProfileFit: Task<AutoFitStatus, Never>?
 
   /// The current film-look lattice (epic #2683, Task 10), if any — pushed by
   /// `EditSession` via `setFilmLut`/`clearFilmLut` whenever
@@ -336,14 +336,14 @@ public final class GpuLiveDriver {
   @discardableResult
   public func fitAutoProfileIfNeeded(
     rawPath: String, model: AdjustmentModel, quality: PipelineRenderer.Quality
-  ) async -> Bool? {
+  ) async -> AutoFitStatus? {
     guard let s = session, model.profile == .auto else { return nil }
     let revision = sessionRevision
     let fit = autoProfileFit ?? Task { await s.fitAutoProfile(rawPath: rawPath, quality: quality) }
     autoProfileFit = fit
-    let achieved = await fit.value
+    let outcome = await fit.value
     guard revision == sessionRevision else { return nil }
-    return achieved
+    return outcome
   }
 
   /// Present `model` to the registered layer via the GPU chain. SUPERSEDES

@@ -58,6 +58,10 @@ struct ColorAccessoryRow: View {
             .foregroundStyle(MapleTokens.textMuted)
             .lineLimit(1)
             .minimumScaleFactor(0.85)
+            .accessibilityLabel("Profile status")
+            .accessibilityValue(
+              state.session.autoFitStatus.description(profile: state.session.model.profile)
+            )
             .accessibilityIdentifier("profile-auto-fit-status")
         }
       } else {

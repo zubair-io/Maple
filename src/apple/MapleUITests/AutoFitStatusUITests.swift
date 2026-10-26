@@ -13,7 +13,7 @@ import XCTest
           ),
           (
             "test_0018.dng",
-            "Auto matching is unavailable for this image; camera-preview matching was not applied."
+            "Auto unavailable: no camera preview — showing Neutral."
           ),
         ] {
           let source = try UITestFixtureRoot.locate(name)

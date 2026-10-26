@@ -198,13 +198,14 @@ public actor GpuLiveSession {
   /// Fit (and cache on this session) the Auto Profile curve + residual LUT for
   /// `rawPath` under `Profile::Auto` — the A2 artifacts the chain's curve/LUT
   /// passes reapply every tick. A no-op (clears to `nil` → plain AgX) when the
-  /// model is not Auto or the RAW has no usable embedded JPEG. Cold per image
+  /// model is not Auto or the RAW has no usable embedded JPEG, returning
+  /// `.noPreview` only for the latter (#5458). Cold per image
   /// (JPEG extract + develop); call once per asset open, never per tick.
   ///
   /// `quality` MUST match the decode quality (the editor decodes at `.preview`),
   /// or the fitted curve won't match the displayed pixels.
   @discardableResult
-  public func fitAutoProfile(rawPath: String, quality: PipelineRenderer.Quality) -> Bool {
+  public func fitAutoProfile(rawPath: String, quality: PipelineRenderer.Quality) -> AutoFitStatus {
     let curveLen = Int(MAPLE_PROFILE_CURVE_FLAT_LEN)
     var curve = [Float](repeating: 0, count: curveLen)
     var present: Int32 = 0
@@ -245,14 +246,18 @@ public actor GpuLiveSession {
     }
 
     guard rc == 0 else {
-      if rc == 1 {
+      switch rc {
+      case 1:
         gpuLiveLog.notice("Auto Profile: no tail for \(rawPath, privacy: .public) — plain AgX")
-      } else {
+      case MAPLE_AUTO_FIT_NO_PREVIEW:
+        gpuLiveLog.notice(
+          "Auto Profile: no embedded camera preview in \(rawPath, privacy: .public) — plain AgX")
+      default:
         gpuLiveLog.error(
           "maple_gpu_fit_auto_profile rc=\(rc): \(Self.lastError() ?? "?", privacy: .public)")
       }
       autoProfile = nil
-      return false
+      return AutoFitStatus(failedFitReturnCode: rc)
     }
 
     let n = Int(lutSize)
@@ -264,7 +269,7 @@ public actor GpuLiveSession {
     gpuLiveLog.notice(
       "Auto Profile: fitted curve(present=\(present == 1)) + residual(edge=\(n)) for \(rawPath, privacy: .public)"
     )
-    return present == 1 || n > 0
+    return present == 1 || n > 0 ? .active : .unavailable
   }
 
   /// Render the gated chain for `model` (decode-boundary contract via
