@@ -90,10 +90,6 @@ remove_owned() {
 publish() {
 	local source=$1 destination=$2 staged
 	mkdir -p -- "$(dirname -- "$destination")"
-	if [[ -d $destination && ! -L $destination ]]; then
-		echo "Refusing to replace the directory $destination" >&2
-		return 1
-	fi
 	staged=$(mktemp "$(dirname -- "$destination")/.maple.XXXXXXXX")
 	cp -- "$source" "$staged"
 	chmod 644 -- "$staged"
@@ -120,23 +116,29 @@ integration=("$icon" "$mime" "$desktop")
 swapped=0
 committed=0
 # Until every file is published, a failure or interrupt restores the previous
-# application and integration files.
+# application first, so a failed integration restore can never strand it.
 cleanup() {
-	local status=$? index
+	local status=$? index unrestored=()
 	trap - EXIT
 	if [[ $swapped -eq 1 && $committed -eq 0 ]]; then
+		rm -rf -- "$target"
+		if [[ -e $work/previous ]] && ! mv -- "$work/previous" "$target"; then
+			echo "Could not restore the previous installation; it is kept in $work/previous" >&2
+			exit "$status"
+		fi
 		for index in "${!integration[@]}"; do
 			if [[ -e $work/integration-$index || -L $work/integration-$index ]]; then
-				mv -fT -- "$work/integration-$index" "${integration[index]}"
+				mv -fT -- "$work/integration-$index" "${integration[index]}" ||
+					unrestored+=("${integration[index]}")
 			else
-				rm -f -- "${integration[index]}"
+				rm -f -- "${integration[index]}" || unrestored+=("${integration[index]}")
 			fi
 		done
-		rm -rf -- "$target"
-		if [[ -e $work/previous ]]; then
-			mv -- "$work/previous" "$target"
+		if [[ ${#unrestored[@]} -eq 0 ]]; then
+			echo "Installation failed; the previous state was restored." >&2
+		else
+			echo "Installation failed; the previous application was restored, but not: ${unrestored[*]}" >&2
 		fi
-		echo "Installation failed; the previous state was restored." >&2
 	fi
 	rm -rf -- "$work"
 	exit "$status"
@@ -170,6 +172,12 @@ done <"$extracted/usr/share/applications/$app_id.desktop" >"$extracted/$marker.d
 chmod 755 -- "$extracted/install-maple-appimage.sh"
 : >"$extracted/$marker"
 
+for destination in "${integration[@]}"; do
+	if [[ -d $destination && ! -L $destination ]]; then
+		echo "Refusing to replace the directory $destination" >&2
+		exit 1
+	fi
+done
 for index in "${!integration[@]}"; do
 	if [[ -e ${integration[index]} || -L ${integration[index]} ]]; then
 		cp -a -- "${integration[index]}" "$work/integration-$index"
