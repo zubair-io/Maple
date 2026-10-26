@@ -141,6 +141,28 @@ final class CaptureRefineTests: XCTestCase {
     XCTAssertFalse(resized === redeveloped, "a decode at another size re-develops")
   }
 
+  func testTheGpuKillSwitchKeepsCaptureEditsOnTheCpu() async throws {
+    let raw = try fixture()
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let copy = dir.appendingPathComponent(raw.lastPathComponent)
+    try FileManager.default.copyItem(at: raw, to: copy)
+    let asset = AssetRef(url: copy)
+    let actor = RenderActor(pipeline: ImageEditPipeline())
+    await actor._testSetCaptureRefineEnabled(false)
+    for model in [AdjustmentModel(), denoised] {
+      let image = await actor.sharedDecode(
+        asset: asset, target: CGSize(width: 384, height: 256), profile: .neutral,
+        autoExposure: .on, liveModel: model, normalize: { image, _ in image })
+      XCTAssertNotNil(image, "the CPU re-develop still renders")
+    }
+    let attempts = await actor.captureRefineAttempts
+    let cached = await actor.decodedCaptureBase
+    XCTAssertEqual(attempts, 0, "no refine runs with MAPLE_GPU_LIVE=0")
+    XCTAssertNil(cached, "and no refine base is kept")
+  }
+
   @MainActor
   func testTheDriverReplacesASameSizeReDecodeInPlace() async throws {
     let (w, h) = (32, 24)

@@ -159,6 +159,10 @@ public actor RenderActor {
   var decodedLensCorrectionDistortionInert: Bool = true
   /// The cached decode's refine base and the request it answered (#5381).
   var decodedCaptureBase: (base: CaptureBase, request: CaptureRefineRequest)?
+  /// The GPU capture refine follows the GPU kill switch (`MAPLE_GPU_LIVE=0`).
+  var captureRefineEnabled = GpuLiveFlag.isEnabled
+  /// Refines attempted from a cached base, for the kill-switch test.
+  var captureRefineAttempts = 0
 
   /// Profile the cached `decodedImage` was developed for (#871). The
   /// decode buffer is now profile-dependent: `Profile::Auto` develops

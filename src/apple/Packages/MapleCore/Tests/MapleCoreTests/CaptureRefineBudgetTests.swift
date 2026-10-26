@@ -41,7 +41,10 @@ final class CaptureRefineBudgetTests: XCTestCase {
 
   func testABaseIsKeptOnlyForADecodeTheDeviceCanRefine() {
     let edge = CaptureRefineBudget.current.max_long_edge
-    XCTAssertTrue(PipelineRenderer.keepsRefineBase(maxLongEdge: edge))
-    XCTAssertFalse(PipelineRenderer.keepsRefineBase(maxLongEdge: edge + 1))
+    XCTAssertTrue(PipelineRenderer.keepsRefineBase(maxLongEdge: edge, gpuEnabled: true))
+    XCTAssertFalse(PipelineRenderer.keepsRefineBase(maxLongEdge: edge + 1, gpuEnabled: true))
+    XCTAssertFalse(
+      PipelineRenderer.keepsRefineBase(maxLongEdge: edge, gpuEnabled: false),
+      "the GPU kill switch keeps no base")
   }
 }

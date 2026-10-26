@@ -141,7 +141,9 @@ extension RenderActor {
         asset: asset, profile: decodeProfile, autoExposure: decodeAutoExposure,
         quality: decodeQuality, target: $0)
     }
-    let refineBase = extensionIsRaw ? refineRequest.flatMap(captureRefineBase(for:)) : nil
+    let refineBase =
+      extensionIsRaw && captureRefineEnabled ? refineRequest.flatMap(captureRefineBase(for:)) : nil
+    if refineBase != nil { captureRefineAttempts += 1 }
     let task:
       Task<
         (
@@ -435,7 +437,9 @@ extension RenderActor {
       decodedLensCorrectionCaInert = decodeLensCorrectionCaInert
       decodedLensCorrectionDistortionInert = decodeLensCorrectionDistortionInert
       decodedCameraSupport = decodeCameraSupport
-      decodedCaptureBase = decodeCaptureBase.flatMap { base in refineRequest.map { (base, $0) } }
+      decodedCaptureBase =
+        captureRefineEnabled
+        ? decodeCaptureBase.flatMap { base in refineRequest.map { (base, $0) } } : nil
       // #2049: identity bump — any real write means the uploaded GPU
       // buffer (if any) is now potentially stale even at unchanged dims.
       decodeGeneration &+= 1
