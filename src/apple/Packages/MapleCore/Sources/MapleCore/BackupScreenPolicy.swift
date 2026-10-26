@@ -6,7 +6,8 @@
 // the result.
 //
 //   - Nothing happens unless a backup is actually uploading and the user
-//     left "Keep screen on during backup" enabled.
+//     left "Keep screen on during backup" enabled. Uploading means a photo
+//     progressed recently, or a request is still sending its bytes.
 //   - Plugged in (charging or full): the screen stays on for as long as the
 //     upload runs, and after `screenSaverDelay` without a touch the screen
 //     saver appears (when enabled) — unless someone is using the app in a
@@ -48,6 +49,10 @@ public struct BackupScreenState: Equatable, Sendable {
   /// Seconds since a photo was last being read or uploaded in this run, or
   /// nil when nothing has uploaded since the engine started.
   public let secondsSinceUpload: TimeInterval?
+  /// Seconds since an upload request still in flight last sent body bytes,
+  /// or nil when no request is sending. A slow link can spend a minute on
+  /// one chunk without any photo-level progress in between.
+  public let secondsSinceBytesSent: TimeInterval?
   public let power: DevicePower
   public let secondsSinceInteraction: TimeInterval
   /// VoiceOver, Switch Control or the keyboard is in use.
@@ -55,12 +60,14 @@ public struct BackupScreenState: Equatable, Sendable {
   public let preferences: BackupScreenPreferences
 
   public init(
-    backupRunning: Bool, secondsSinceUpload: TimeInterval?, power: DevicePower,
+    backupRunning: Bool, secondsSinceUpload: TimeInterval?,
+    secondsSinceBytesSent: TimeInterval? = nil, power: DevicePower,
     secondsSinceInteraction: TimeInterval, assistedInputActive: Bool = false,
     preferences: BackupScreenPreferences
   ) {
     self.backupRunning = backupRunning
     self.secondsSinceUpload = secondsSinceUpload
+    self.secondsSinceBytesSent = secondsSinceBytesSent
     self.power = power
     self.secondsSinceInteraction = secondsSinceInteraction
     self.assistedInputActive = assistedInputActive
@@ -85,12 +92,19 @@ public enum BackupScreenPolicy {
   /// as uploading, so the screen doesn't flicker toward auto-lock between
   /// photos. A retry backoff or a Wi-Fi wait longer than this releases it.
   public static let uploadGrace: TimeInterval = 30
+  /// A request whose body hasn't moved for this long counts as stalled. It
+  /// matches URLSession's default idle timeout, after which the request
+  /// itself fails, and outlasts the gaps between URLSession's byte reports
+  /// (the first after ~2 MiB, then every ~1 MiB) on links down to ~35 KiB/s.
+  public static let transferStallCutoff: TimeInterval = 60
   public static let screenSaverDelay: TimeInterval = 120
   public static let batteryAwakeLimit: TimeInterval = 600
 
   public static func isUploading(_ state: BackupScreenState) -> Bool {
-    guard state.backupRunning, let since = state.secondsSinceUpload else { return false }
-    return since <= uploadGrace
+    guard state.backupRunning else { return false }
+    let photoProgressing = state.secondsSinceUpload.map { $0 <= uploadGrace } ?? false
+    let bytesMoving = state.secondsSinceBytesSent.map { $0 <= transferStallCutoff } ?? false
+    return photoProgressing || bytesMoving
   }
 
   public static func decide(_ state: BackupScreenState) -> BackupScreenDecision {

@@ -34,16 +34,26 @@ private let log = Logger(subsystem: "app.justmaple.aperture", category: "Backup.
 /// refresh throws *without* signing out, so a backup over a flaky link doesn't
 /// bounce the foreground session.
 func makeBackupTransport(server: URL) -> AuthorizingTransport {
-  let client = makeBackupHTTPClient(server: server)
+  let client = makeBackupHTTPClient(server: server, urlSession: backupUploadSession)
   return { try await client.data(for: $0) }
 }
 
+/// Sees the backup's request bodies leave the device, so the screen saver can
+/// tell a slow chunk that is still sending from a stalled one (#5457).
+let backupTransfers = UploadTransferMonitor()
+private let backupUploadSession = URLSession(
+  configuration: .default, delegate: backupTransfers, delegateQueue: nil)
+
 /// The authenticated client behind `makeBackupTransport`, also used by the
 /// backup screen saver to read the library it is backing up into (#5457).
-func makeBackupHTTPClient(server: URL) -> AuthenticatedHTTPClient {
+/// The screen saver's own reads stay off `backupUploadSession`, so they never
+/// count as backup traffic.
+func makeBackupHTTPClient(
+  server: URL, urlSession: URLSession = .shared
+) -> AuthenticatedHTTPClient {
   AuthenticatedHTTPClient(
     server: server,
-    urlSession: .shared,
+    urlSession: urlSession,
     tokensProvider: { try? TokenStore.load(server: server) },
     // Mirror rotations into the File Provider store too — see CloudTokenPersistence.
     onTokensRefreshed: { try CloudTokenPersistence.persistRotated($0, server: server) },
