@@ -13,15 +13,16 @@ enum PersonSkinRangeInitializer {
     maskBytes: [UInt8]
   ) -> RangeRefinement {
     guard
-      let stageInputBytes = makeStageInputRec2020Bytes(
+      let decodedBytes = makeDecodedRec2020Bytes(
         decoded: decoded,
-        model: model,
-        asShot: asShot,
         width: maskWidth,
         height: maskHeight
       ),
       let sample = adaptiveSampleIfDefaultInert(
-        stageInputRec2020RGBAf: stageInputBytes,
+        decodedRec2020RGBAf: decodedBytes,
+        decoded: decoded,
+        model: model,
+        asShot: asShot,
         maskWidth: maskWidth,
         maskHeight: maskHeight,
         maskBytes: maskBytes
@@ -32,20 +33,8 @@ enum PersonSkinRangeInitializer {
     return RangeRefinement.skinTone.seeded(with: sample)
   }
 
-  static func stageInputModel(_ model: AdjustmentModel) -> AdjustmentModel {
-    var out = model
-    out.localAdjustments = []
-    out.vignetteAmount = 0
-    out.sharpenAmount = 0
-    out.nrLuminance = 0
-    out.nrColor = 0
-    return out
-  }
-
-  static func makeStageInputRec2020Bytes(
+  static func makeDecodedRec2020Bytes(
     decoded: ImageEditPipeline.SceneLinearDecodeResult,
-    model: AdjustmentModel,
-    asShot: ImageEditPipeline.AsShotWB?,
     width: Int,
     height: Int
   ) -> Data? {
@@ -77,11 +66,27 @@ enum PersonSkinRangeInitializer {
       )
       return true
     }
-    guard rendered else { return nil }
+    return rendered ? inputBytes : nil
+  }
 
-    let stageModel = stageInputModel(model)
+  static func adaptiveSampleIfDefaultInert(
+    decodedRec2020RGBAf: Data,
+    decoded: ImageEditPipeline.SceneLinearDecodeResult,
+    model: AdjustmentModel,
+    asShot: ImageEditPipeline.AsShotWB?,
+    maskWidth: Int,
+    maskHeight: Int,
+    maskBytes: [UInt8]
+  ) -> MaskRangeSample? {
+    let pixelCount = maskWidth * maskHeight
+    guard maskWidth > 0, maskHeight > 0,
+      maskBytes.count == pixelCount,
+      decodedRec2020RGBAf.count == pixelCount * 16
+    else {
+      return nil
+    }
     let params = PipelineRenderer.makeParams(
-      from: stageModel,
+      from: model,
       decodedTemperature: asShot?.temperature ?? 6500.0,
       decodedTint: asShot?.tint ?? 0.0,
       skipAgX: true,
@@ -90,13 +95,39 @@ enum PersonSkinRangeInitializer {
       whitesAnchorEv: decoded.whitesAnchorEv,
       nrSamplingScale: decoded.nrSamplingScale
     )
-    return try? PipelineRenderer.applySceneLinearChain(
-      inputBytes: inputBytes,
-      width: width,
-      height: height,
-      params: params,
+    let curves = PipelineRenderer.ChainToneCurves(model: model)
+    var output = MapleRangeSeed()
+    let code = PipelineRenderer.withChainPointers(
+      params,
       noiseProfile: decoded.noiseProfile,
       localAdjustments: []
+    ) { bound in
+      var p = bound
+      return curves.withMapleToneCurves { curvesPtr in
+        decodedRec2020RGBAf.withUnsafeBytes { rawBuffer -> Int32 in
+          guard let floats = rawBuffer.bindMemory(to: Float.self).baseAddress else { return 2 }
+          return maskBytes.withUnsafeBufferPointer { maskPtr -> Int32 in
+            guard let maskBase = maskPtr.baseAddress else { return 2 }
+            return maple_seed_skin_mask_range_if_default_inert(
+              floats,
+              UInt(maskWidth),
+              UInt(maskHeight),
+              &p,
+              curvesPtr,
+              maskBase,
+              UInt(maskBytes.count),
+              &output
+            )
+          }
+        }
+      }
+    }
+    guard code == 0 else { return nil }
+    return MaskRangeSample(
+      hueDeg: Double(output.hue_deg),
+      chromaMin: Double(output.chroma_min),
+      lMin: Double(output.l_min),
+      lMax: Double(output.l_max)
     )
   }
 
@@ -122,6 +153,8 @@ enum PersonSkinRangeInitializer {
           floats,
           UInt(maskWidth),
           UInt(maskHeight),
+          nil,
+          nil,
           maskBase,
           UInt(maskBytes.count),
           &output
