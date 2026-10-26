@@ -1,10 +1,11 @@
 import type { Database } from 'bun:sqlite';
-import { encodeVector } from '../enrichment/ollama-embed-client.ts';
+import { encodeVector } from '../enrichment/vector-codec.ts';
 import type { SearchEngineOps } from './search-index-sync.ts';
 import type { SearchText } from './search-engine-ffi.ts';
 import type { ChildProcessWorker } from '../runtime/child-process-worker.ts';
 import { SearchChildPool, type InProcessSearch, type SearchEngineStatus } from './search-pool.ts';
 import type {
+  EmbedRequest,
   QueryRequest,
   SearchChildConfig,
   SearchChildRequest,
@@ -121,6 +122,7 @@ export interface FakeChild {
   reply(message: SearchChildResponse): void;
   crash(): void;
   queries(): QueryRequest[];
+  embeds(): EmbedRequest[];
 }
 
 function fakeChild(): { fake: FakeChild; worker: ChildProcessWorker } {
@@ -134,6 +136,7 @@ function fakeChild(): { fake: FakeChild; worker: ChildProcessWorker } {
     reply: (message) => listeners.message({ data: message }),
     crash: () => listeners.error({ message: 'search child died — signal=SIGSEGV' }),
     queries: () => fake.sent.filter((message): message is QueryRequest => message.type === 'query'),
+    embeds: () => fake.sent.filter((message): message is EmbedRequest => message.type === 'embed'),
   };
   const worker = {
     postMessage: (message: unknown) => fake.sent.push(message as SearchChildRequest),

@@ -1,6 +1,7 @@
 import type { AiAssignment, AiConnection } from './ai-connections.ts';
-import type { EmbedderSettingsInput } from './embedder-settings.ts';
-import { embedderPatch } from './embedder-settings.ts';
+
+/** Semantic search runs on the bundled bge-m3 (#5445); an older client may still send its assignment. */
+const RETIRED_ASSIGNMENTS = new Set(['semantic-search']);
 
 type IncomingConnection = Omit<AiConnection, 'api_key'> & { api_key?: string | null };
 
@@ -51,15 +52,10 @@ export function normalizeAssignments(
   incoming: Record<string, AiAssignment>,
 ): Record<string, AiAssignment> {
   return Object.fromEntries(
-    Object.entries(incoming).map(([id, a]) => [id, normalizeAssignment(a)]),
+    Object.entries(incoming)
+      .filter(([id]) => !RETIRED_ASSIGNMENTS.has(id))
+      .map(([id, a]) => [id, normalizeAssignment(a)]),
   );
-}
-
-/** The embedder fields to save (none when omitted) or the validation error that blocks the save. */
-export function embedderSaveOutcome(
-  input: EmbedderSettingsInput | undefined,
-): ReturnType<typeof embedderPatch> {
-  return input === undefined ? {} : embedderPatch(input);
 }
 
 /** The key to probe with: the one sent, else the saved key of the same connection and endpoint. */

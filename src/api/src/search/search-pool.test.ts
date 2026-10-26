@@ -2,6 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { QUERY_TIMEOUT_MS, type SearchChildPool } from './search-pool.ts';
 import type { SearchChildConfig, SearchChildState } from './search-protocol.ts';
 import { fakeChildPool } from './search.test-helpers.ts';
+import { vectorToBase64 } from '../enrichment/vector-codec.ts';
 
 const CONFIG: SearchChildConfig = {
   dbPath: '/tmp/maple.sqlite',
@@ -102,19 +103,6 @@ test('a child that cannot open its engine is reported failed and retried later',
   expect(children[0]!.terminated).toBe(true);
 });
 
-test('restart reloads a running child and leaves a stopped pool stopped', () => {
-  const { pool, children } = readyPool();
-  pool.restart();
-
-  expect(children[0]!.terminated).toBe(true);
-  expect(children.length).toBe(2);
-  expect(pool.status().phase).toBe('starting');
-
-  pool.stop();
-  pool.restart();
-  expect(children.length).toBe(2);
-});
-
 test('stop terminates the child and never respawns it', async () => {
   const { pool, children } = readyPool();
   pool.stop();
@@ -125,26 +113,85 @@ test('stop terminates the child and never respawns it', async () => {
   expect(pool.status().phase).toBe('stopped');
 });
 
-test('an incompatible or empty child counts as down', async () => {
+test('an empty child answers no query', async () => {
   const { pool, children } = readyPool();
-  for (const phase of ['incompatible-embedder', 'empty'] as const) {
-    children[0]!.reply({
-      type: 'state',
-      state: { phase, vectors: 0, texts: 0, textReady: false, error: 'not bge-m3' },
-    });
-    expect(pool.status().phase).toBe(phase);
-    expect(await pool.search('harbour', 100)).toBeNull();
-  }
+  children[0]!.reply({
+    type: 'state',
+    state: { phase: 'empty', vectors: 0, texts: 0, textReady: false },
+  });
+  expect(pool.status().phase).toBe('empty');
+  expect(await pool.search('harbour', 100)).toBeNull();
   expect(children[0]!.queries()).toEqual([]);
   expect(children[0]!.terminated).toBe(false);
 });
 
-test('a child that asks to reload is replaced at once, without the crash backoff', () => {
-  const { pool, children } = readyPool();
-  children[0]!.reply({ type: 'reload', reason: 'embedding model changed' });
+const unit = (axis: number) => Float32Array.from({ length: 1024 }, (_, i) => (i === axis ? 1 : 0));
 
-  expect(children[0]!.terminated).toBe(true);
-  expect(children.length).toBe(2);
-  expect(children[1]!.sent[0]?.type).toBe('start');
-  expect(pool.status()).toMatchObject({ phase: 'starting', restarts: 1 });
+test('embeds documents in an empty child, decoding the vectors in order', async () => {
+  const { pool, children } = readyPool();
+  children[0]!.reply({
+    type: 'state',
+    state: { phase: 'empty', vectors: 0, texts: 0, textReady: false },
+  });
+  const outcome = pool.embed(['harbour', 'kitchen']);
+
+  expect(children[0]!.embeds()).toEqual([{ type: 'embed', id: 1, texts: ['harbour', 'kitchen'] }]);
+  children[0]!.reply({
+    type: 'embed',
+    id: 1,
+    ok: true,
+    vectors: [vectorToBase64(unit(0)), vectorToBase64(unit(1))],
+  });
+  const result = await outcome;
+  expect(result.ok).toBe(true);
+  if (result.ok) expect(result.vectors.map((vector) => vector.indexOf(1))).toEqual([0, 1]);
+});
+
+test('a waiting query goes before a waiting document batch', async () => {
+  const { pool, children } = readyPool();
+  const child = children[0]!;
+  const firstBatch = pool.embed(['a']);
+  const secondBatch = pool.embed(['b']);
+  const query = pool.search('harbour', 10);
+
+  child.reply({ type: 'embed', id: 1, ok: true, vectors: [vectorToBase64(unit(0))] });
+  await firstBatch;
+  expect(child.sent.at(-1)).toMatchObject({ type: 'query', query: 'harbour' });
+  child.reply({ type: 'query', id: 3, ok: true, hits: [] });
+  expect(await query).toEqual([]);
+  expect(child.sent.at(-1)).toMatchObject({ type: 'embed', texts: ['b'] });
+  child.reply({ type: 'embed', id: 2, ok: false, error: 'tokenizer failed' });
+  expect(await secondBatch).toEqual({ ok: false, waiting: false, error: 'tokenizer failed' });
+});
+
+test('a loading, stopped or restarted engine asks the stage to wait', async () => {
+  const { pool, children } = fakeChildPool(() => CONFIG);
+  pools.push(pool);
+  expect(await pool.embed(['a'])).toMatchObject({ ok: false, waiting: true });
+  pool.start();
+  expect(await pool.embed(['a'])).toMatchObject({
+    ok: false,
+    waiting: true,
+    error: 'the search engine is still loading',
+  });
+  expect(children[0]!.embeds()).toEqual([]);
+
+  children[0]!.reply({ type: 'state', state: READY });
+  const inFlight = pool.embed(['a']);
+  children[0]!.reply({
+    type: 'embed',
+    id: 1,
+    ok: false,
+    loading: true,
+    error: 'search engine is not loaded',
+  });
+  expect(await inFlight).toMatchObject({ ok: false, waiting: true });
+
+  const abandoned = pool.embed(['b']);
+  children[0]!.crash();
+  expect(await abandoned).toEqual({
+    ok: false,
+    waiting: true,
+    error: 'the search engine restarted',
+  });
 });

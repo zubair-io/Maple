@@ -3,18 +3,21 @@
  * then whatever the `embed` stage wrote or the `search_blob` changed since, then the full id list
  * when the counts disagree.
  *
- * Only vectors of the engine's dimension written by the configured embedding model are read. The
- * query vector comes from bge-m3, so a row from any other model would rank by a meaningless
- * cosine; those rows are left out and counted instead (Settings → AI shows how many). The model is
- * compared without Ollama's implicit `:latest` (the stage records `bge-m3:latest` where the setting
- * may say `bge-m3`); the endpoint is not compared, since the 2026-10-09 audit found Ollama's and
- * fastembed's bge-m3 vectors identical.
+ * Only vectors of the engine's dimension written by bge-m3 are read. The query vector comes from
+ * bge-m3, so a row from any other model would rank by a meaningless cosine; those rows are left
+ * out and counted instead (Settings → AI shows how many). The model is compared without Ollama's
+ * implicit `:latest` (rows Ollama wrote say `bge-m3:latest`, the bundled model writes `bge-m3`);
+ * the endpoint is never compared, since the 2026-10-09 audit found Ollama's and fastembed's
+ * bge-m3 vectors identical.
  */
 
 import { sqliteDb, type SqliteDb } from './db-handle.ts';
 import { placeholders } from './values.ts';
 
 export const SEARCH_VECTOR_DIMS = 1024;
+
+/** The bundled model that embeds both queries and documents (#5445). */
+export const SEARCH_EMBEDDING_MODEL = 'bge-m3';
 
 export interface StoredVectorRow {
   maple_id: string;

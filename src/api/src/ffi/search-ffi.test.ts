@@ -14,6 +14,7 @@ import { findNativeLib } from 'maple';
 import type * as BunFfi from 'bun:ffi';
 
 const DIM = 1024;
+const RC_INVALID_ARGUMENT = 1;
 const RC_ENGINE_ERROR = 2;
 const RC_NEED_LARGER_BUFFER = 100;
 
@@ -55,6 +56,10 @@ function openSearchLibrary() {
       },
       maple_search_upsert: {
         args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.ptr],
+        returns: FFIType.i32,
+      },
+      maple_search_embed: {
+        args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.u64, FFIType.ptr],
         returns: FFIType.i32,
       },
       maple_search_delete: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
@@ -192,6 +197,33 @@ describe.skipIf(!lib)('maple_search C ABI', () => {
       );
       expect(noEmbedder).toBe(RC_ENGINE_ERROR);
       expect(lastError()).toContain('no query embedder');
+    } finally {
+      symbols.maple_search_close(handle);
+    }
+  });
+
+  test('sizes a document batch, then refuses it without an embedder', () => {
+    const config = JSON.stringify({ index_dir: path.join(dir, 'embed') });
+    const handle = symbols.maple_search_open(ptr(cstr(config)));
+    if (handle === null) throw new Error(`maple_search_open failed: ${lastError()}`);
+    try {
+      const texts = cstr(JSON.stringify(['a quiet harbour', 'bread on a counter']));
+      const outLen = new BigUint64Array(1);
+      expect(symbols.maple_search_embed(handle, ptr(texts), null, 0, ptr(outLen))).toBe(
+        RC_NEED_LARGER_BUFFER,
+      );
+      expect(outLen[0]).toBe(BigInt(2 * DIM));
+
+      const out = new Float32Array(2 * DIM);
+      expect(
+        symbols.maple_search_embed(handle, ptr(texts), ptr(out), out.length, ptr(outLen)),
+      ).toBe(RC_ENGINE_ERROR);
+      expect(lastError()).toContain('no query embedder');
+
+      const notJson = cstr('harbour');
+      expect(
+        symbols.maple_search_embed(handle, ptr(notJson), ptr(out), out.length, ptr(outLen)),
+      ).toBe(RC_INVALID_ARGUMENT);
     } finally {
       symbols.maple_search_close(handle);
     }

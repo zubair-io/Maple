@@ -9,6 +9,7 @@ import type * as BunFfi from 'bun:ffi';
 
 const RC_NEED_LARGER_BUFFER = 100;
 const INITIAL_RESULT_BYTES = 256 * 1024;
+const EMBEDDING_DIMS = 1024;
 
 export interface SearchEngineConfig {
   index_dir: string;
@@ -41,6 +42,8 @@ export interface SearchEngine {
   commit(): void;
   counts(): { vectors: number; texts: number };
   query(query: string, k: number): FusedSearchHit[];
+  /** One unit bge-m3 vector per text, in input order — the `embed` stage's document vectors. */
+  embed(texts: readonly string[]): Float32Array[];
   close(): void;
 }
 
@@ -68,6 +71,10 @@ function openLibrary(libPath: string) {
     },
     maple_search_upsert: {
       args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.ptr],
+      returns: FFIType.i32,
+    },
+    maple_search_embed: {
+      args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.u64, FFIType.ptr],
       returns: FFIType.i32,
     },
     maple_search_delete: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
@@ -168,6 +175,17 @@ export function openSearchEngine(config: SearchEngineConfig): SearchEngine {
         vectorRank: hit.vector_rank,
         textRank: hit.text_rank,
       }));
+    },
+    embed(texts) {
+      if (texts.length === 0) return [];
+      const textsJson = cstr(JSON.stringify(texts));
+      const out = new Float32Array(texts.length * EMBEDDING_DIMS);
+      const outLength = new BigUint64Array(1);
+      check(
+        'maple_search_embed',
+        symbols.maple_search_embed(handle, ptr(textsJson), ptr(out), out.length, ptr(outLength)),
+      );
+      return texts.map((_, row) => out.slice(row * EMBEDDING_DIMS, (row + 1) * EMBEDDING_DIMS));
     },
     close() {
       symbols.maple_search_close(handle);

@@ -11,7 +11,6 @@
 import { describe, it, expect, afterEach, beforeEach } from 'bun:test';
 import {
   DEFAULT_DESCRIBE_MODELS,
-  DEFAULT_EMBEDDER_MODEL,
   DESCRIBE_VISION_OLLAMA_TAG,
   loadEnrichmentConfig,
   saveEnrichmentConfig,
@@ -145,31 +144,6 @@ describe('resolveEnrichmentConfig — pure logic', () => {
     expect(r.source.nominatim_rate_limit_per_sec).toBe('env');
   });
 
-  it('embedder settings default to the describe endpoint and the built-in model', () => {
-    const r = resolveEnrichmentConfig(null, {});
-    expect(r.embedder_default_model).toBe(DEFAULT_EMBEDDER_MODEL);
-    expect(r.embedder_model).toBe(DEFAULT_EMBEDDER_MODEL);
-    expect(r.embedder_url).toBe(r.describe_provider_url);
-    expect(r.source.embedder_model).toBe('semantic-search');
-  });
-
-  it('a saved embedder override wins over the defaults', () => {
-    const r = resolveEnrichmentConfig(
-      {
-        nominatim_url: null,
-        geocode_worker_enabled: true,
-        embedder_url: 'http://embed.lan:11434',
-        embedder_model: 'custom-embedder',
-      },
-      {},
-    );
-    expect(r.embedder_url).toBe('http://embed.lan:11434');
-    expect(r.embedder_model).toBe('custom-embedder');
-    expect(r.embedder_default_model).toBe(DEFAULT_EMBEDDER_MODEL);
-    expect(r.source.embedder_url).toBe('db');
-    expect(r.source.embedder_model).toBe('db');
-  });
-
   it('derives a single describe server from describe_provider_url when no list is saved', () => {
     const r = resolveEnrichmentConfig(
       {
@@ -189,8 +163,8 @@ describe('resolveEnrichmentConfig — pure logic', () => {
         nominatim_url: null,
         geocode_worker_enabled: true,
         // Deliberately stale: the list is authoritative, so this value must
-        // not win — otherwise captioning and semantic search would talk to
-        // different boxes.
+        // not win — otherwise captioning and the legacy generated-search
+        // fallback would talk to different boxes.
         describe_provider_url: 'http://stale:11434',
         describe_servers: [
           { url: 'http://gpu-a:11434', concurrency: 4 },
@@ -204,7 +178,6 @@ describe('resolveEnrichmentConfig — pure logic', () => {
       { url: 'http://gpu-b:11434', concurrency: 1 },
     ]);
     expect(r.describe_provider_url).toBe('http://gpu-a:11434');
-    expect(r.embedder_url).toBe('http://gpu-a:11434');
     expect(r.source.describe_servers).toBe('db');
     expect(r.source.describe_provider_url).toBe('db');
   });
@@ -223,7 +196,7 @@ describe('resolveEnrichmentConfig — pure logic', () => {
     expect(r.describe_provider_url).toBe('http://ollama.lan:11434');
   });
 
-  it('reuses the Describe Ollama URL for the embedder, whichever provider describes', () => {
+  it('keeps the Describe Ollama URL, whichever provider describes', () => {
     const paidDescribeProvider = resolveEnrichmentConfig(
       {
         nominatim_url: null,
@@ -234,7 +207,6 @@ describe('resolveEnrichmentConfig — pure logic', () => {
       {},
     );
     expect(paidDescribeProvider.describe_provider_url).toBe('http://remote-ollama.lan:11434');
-    expect(paidDescribeProvider.embedder_url).toBe('http://remote-ollama.lan:11434');
   });
 
   it('face_min_detection_size defaults to 0.06 when no DB row', () => {
@@ -356,17 +328,6 @@ describe('saveEnrichmentConfig + loadEnrichmentConfig — SQLite round-trip', ()
     await saveEnrichmentConfig({ nominatim_rate_limit_per_sec: null });
     const c = await loadEnrichmentConfig();
     expect(c!.nominatim_rate_limit_per_sec).toBeNull();
-  });
-
-  it('embedder settings round-trip through save/load', async () => {
-    await saveEnrichmentConfig({
-      embedder_url: 'http://embed.lan:11434',
-      embedder_model: 'custom-embedder',
-    });
-    expect(await loadEnrichmentConfig()).toMatchObject({
-      embedder_url: 'http://embed.lan:11434',
-      embedder_model: 'custom-embedder',
-    });
   });
 
   it('maps legacy face_retinaface_* / face_mobilefacenet_* onto new keys at write time', async () => {

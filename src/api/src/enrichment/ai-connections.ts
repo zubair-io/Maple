@@ -42,14 +42,6 @@ const AI_WORKERS = [
     multiple: false,
     providers: ['ollama', 'openai'],
   },
-  {
-    id: 'semantic-search',
-    name: 'Semantic search',
-    detail:
-      'Document embeddings · Ollama or OpenAI-compatible embedding model · a changed connection or model reaches the search index only via Apply to index on Settings → Workers, which re-embeds every document',
-    multiple: false,
-    providers: ['ollama', 'openai'],
-  },
 ];
 
 /** Read-time import keeps upgrades non-destructive. First save snapshots independent assignments. */
@@ -102,10 +94,6 @@ export function importAiConnections(
       'generated-search': {
         connection_ids: [connections[0]!.id],
         model: generatedModel || cfg.describe_model,
-      },
-      'semantic-search': {
-        connection_ids: [connections[0]!.id],
-        model: cfg.embedder_model,
       },
     },
   };
