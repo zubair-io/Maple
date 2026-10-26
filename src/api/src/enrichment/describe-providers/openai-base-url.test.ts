@@ -15,7 +15,7 @@ function recordingFetch(): {
   const calls: Array<{ url: string; auth: string }> = [];
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
     const headers = (init?.headers ?? {}) as Record<string, string>;
-    calls.push({ url: String(url), auth: headers.authorization ?? '' });
+    calls.push({ url: String(url), auth: headers.authorization ?? headers.Authorization ?? '' });
     return new Response(
       JSON.stringify({
         choices: [{ message: { content: '{}' }, finish_reason: 'stop' }],
@@ -68,12 +68,13 @@ describe('OpenAI base URL with a deployment key', () => {
     globalThis.fetch = fetchImpl;
     try {
       const listed = await listProviderModels('openai', { url: 'http://lan:8080/v1' });
-      expect(listed.source).toBe('fallback');
-      expect(calls).toEqual([]);
+      expect(listed).toEqual({ models: ['qwen2.5-vl'], source: 'live' });
+      expect(calls).toEqual([{ url: 'http://lan:8080/v1/models', auth: '' }]);
       await getDescribeProvider('openai', { fetchImpl }).health();
-      expect(calls).toEqual([
-        { url: 'https://api.openai.com/v1/models', auth: 'Bearer environment-secret' },
-      ]);
+      expect(calls.at(-1)).toEqual({
+        url: 'https://api.openai.com/v1/models',
+        auth: 'Bearer environment-secret',
+      });
     } finally {
       globalThis.fetch = realFetch;
     }

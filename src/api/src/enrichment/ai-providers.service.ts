@@ -79,11 +79,11 @@ async function fetchModelIds(
 }
 
 /** OpenAI's own catalogue is narrowed to vision-capable names; a compatible server's is not. */
-async function fetchOpenAiModels(apiKey: string, url?: string | null): Promise<string[]> {
+async function fetchOpenAiModels(apiKey: string | null, url?: string | null): Promise<string[]> {
   const baseUrl = openAiBaseUrl(url);
   const all = await fetchModelIds(
     `${baseUrl}/models`,
-    { Authorization: `Bearer ${apiKey}` },
+    apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
     baseUrl === OPENAI_DEFAULT_BASE_URL ? 'OpenAI' : 'OpenAI-compatible server',
   );
   if (baseUrl !== OPENAI_DEFAULT_BASE_URL) return all.sort();
@@ -138,6 +138,9 @@ async function fetchLiveModels(
 ): Promise<string[]> {
   if (provider === 'ollama') {
     return await fetchOllamaModels(opts.url);
+  }
+  if (provider === 'openai' && !allowsEnvOpenAiKey(opts.url)) {
+    return await fetchOpenAiModels(apiKey, opts.url);
   }
   if (!apiKey) {
     throw new Error('No API key provided or found in environment');

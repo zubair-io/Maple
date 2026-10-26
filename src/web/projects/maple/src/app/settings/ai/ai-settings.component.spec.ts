@@ -143,9 +143,7 @@ describe('AI connections and assignments', () => {
     });
     probe.flush({ models: ['qwen3-32b', 'gemma-3-27b'] });
     fixture.detectChanges();
-    expect(component.config()?.assignments['generated-search']?.connection_ids).toEqual([
-      'strata',
-    ]);
+    expect(component.config()?.assignments['generated-search']?.connection_ids).toEqual(['strata']);
     expect(component.modelChoices('generated-search', CONFIG.connections[3]!)).toEqual([
       { value: '', label: 'Select a model' },
       { value: 'qwen3-32b', label: 'qwen3-32b' },

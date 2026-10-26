@@ -89,7 +89,8 @@
                       /></label>
                       <p class="hint wide">
                         Leave blank for OpenAI, or enter any OpenAI-compatible server, such as
-                        http://192.168.0.10:8080/v1. Changing it requires the key again.
+                        http://192.168.0.10:8080/v1. Changing it requires the key again. A server
+                        without authentication needs no key for Generated search.
                       </p>
                     }
                     <label class="wide"
@@ -140,8 +141,8 @@
           <p>
             Choose connections and a model for each. Vision workers rotate through the selected
             connections, respecting each connection’s concurrency limit. Each photo runs on one
-            connection. Generated search writes its collections with one Ollama or
-            OpenAI-compatible connection, such as Strata.
+            connection. Generated search writes its collections with one Ollama or OpenAI-compatible
+            connection.
           </p>
           <div class="assignments">
             @for (w of cfg.available_workers; track w.id) {
