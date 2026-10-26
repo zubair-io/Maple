@@ -43,7 +43,7 @@ public enum StageCatalog {
     "preview": StageMeta(
       group: .ingest, icon: "photo.on.rectangle",
       description:
-        "Builds the 1280-px preview cache used by the editor and enrichment. Concurrency also caps on-demand regeneration from cache-miss preview requests."
+        "Builds the 1280-px preview cache used by the editor and enrichment. A preview someone is waiting on is rendered first."
     ),
     "describe": StageMeta(
       group: .enrich, icon: "sparkles",

@@ -219,6 +219,15 @@ Describe and video-describe accumulate reported provider charges in their respec
 
 **`search-blob` depends only on the always-on stages,** so keyword search is available early. Every producer of the blob's text — describe, geocode, transcribe, video-describe, people renames — re-arms it when its output changes, and re-arms `embed` too, since the embedded text reads the same sources.
 
+### On-demand previews
+
+A cold-cache `GET /api/preview/:slug/*` renders the preview in the API process, ahead of the `preview` stage's backlog (#5433, `indexer/ondemand-preview.ts`):
+
+1. Concurrent requests for the same preview share one render. If the stage is already rendering that file, the request waits for the stage's render instead of starting a second one.
+2. On-demand renders have their own cap: a quarter of the cores, clamped to 2–4. The cap is a constant, not a setting, and the stage's concurrency does not affect it.
+3. While any on-demand render is pending, the API tells the worker child over IPC, and the stage stops admitting new renders (`workers/background-preview-gate.ts`). Renders already running finish, so a viewer waits for at most about one render before theirs gets the CPU. The gate also never admits more stage renders than the FFI pool can run, so extra work waits in the gate rather than in the pool's queue, where it could not be held back. The stage stops yielding after 10 s of continuous on-demand activity, so heavy browsing slows the backlog but never stops it.
+4. If every requester has disconnected by the time a render slot is free, the render is skipped. A render that has already started always finishes and writes its file, because the stage needs it anyway.
+
 ## Maintenance workers
 
 These are not per-asset version-claim stages. Each runs its own interval loop and registers into the same in-process registry, so the standard `/api/workers/<name>/{status,pause,resume}` surface controls it. All are started from `workers/maintenance.ts`.
@@ -314,7 +323,7 @@ GET   /api/workers/performance           # FFI decode-pool size + live pool stat
 PATCH /api/workers/performance           # clamped 1–16, resizes the pool live
 ```
 
-`pollIntervalMs` and `batchSize` are no longer knobs and a `PATCH` carrying either is rejected with a 400 rather than silently ignored. A `PATCH` to `preview`'s concurrency also resizes the on-demand preview limiter in the API process, since that path shares the setting.
+`pollIntervalMs` and `batchSize` are no longer knobs and a `PATCH` carrying either is rejected with a 400 rather than silently ignored. The `preview` stage's concurrency does not govern on-demand previews: those have their own small fixed cap and take priority over the stage (see [On-demand previews](#on-demand-previews)).
 
 On the web side, `settings/workers/workers.vm.ts` supplies `STAGE_META` — group (Ingest / Enrich / Index), icon, human description, and which enrichment config panel a row expands into. A stage the server reports but the map does not know still renders, at the bottom of Ingest with a generic icon, so adding a stage does not _require_ a UI change. That module also pins `FIXED_DESCRIBE_MODEL` to mirror the server's locked describe model, which is why the UI shows it read-only.
 

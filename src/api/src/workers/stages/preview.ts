@@ -18,7 +18,12 @@
  * Not `pausedOnFirstBoot` — this is purely local file IO, free, and downstream
  * stages need it.
  */
-import { generatePreview, PREVIEW_CACHE_SUFFIX } from '../../indexer/previewer.ts';
+import {
+  generatePreview,
+  isPreviewCacheFresh,
+  PREVIEW_CACHE_SUFFIX,
+} from '../../indexer/previewer.ts';
+import { runBackgroundPreviewRender } from '../background-preview-gate.ts';
 import { PREVIEW_TARGET_VERSION } from '../derivative-versions.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
@@ -92,9 +97,13 @@ const previewStage = defineStage({
     if (!previewPath || !absPath) {
       return noResolvableLocation(image as never, libs);
     }
-    // An ENOENT here (original gone) is tagged `missing_since` by the runner
-    // — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
-    await generatePreview(absPath, previewPath);
+    // A fresh file (an on-demand render, or a legacy name adopted in place)
+    // needs no render slot. Otherwise the gate yields to on-demand requests
+    // (#5433). An ENOENT (original gone) is tagged `missing_since` by the
+    // runner — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
+    if (!(await isPreviewCacheFresh(previewPath, absPath))) {
+      await runBackgroundPreviewRender(previewPath, () => generatePreview(absPath, previewPath));
+    }
     // The preview now lives on disk at the path-keyed location. We do NOT
     // persist that path on the asset: readers recompute it from (library
     // root, fileinfo[0].path, fileinfo[0].filename) via `cachePathForAsset`,

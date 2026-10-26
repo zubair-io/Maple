@@ -17,6 +17,7 @@ import {
 import { child as childLogger } from '../log.ts';
 import { installWorkerLibraryRootsSync } from '../indexer/libraries.cache.ts';
 import { installRemoteInProcessSearch } from '../search/remote-search.ts';
+import { installWorkerPreviewPriority } from './background-preview-gate.ts';
 
 installChildHardening('worker');
 // An uncaught exception or unhandled rejection flushes telemetry before the
@@ -61,6 +62,7 @@ async function main(): Promise<void> {
   }
   installWorkerLibraryRootsSync();
   installRemoteInProcessSearch();
+  installWorkerPreviewPriority();
   await startWorkers();
   log.info('worker tier started');
   const shutdown = async () => {

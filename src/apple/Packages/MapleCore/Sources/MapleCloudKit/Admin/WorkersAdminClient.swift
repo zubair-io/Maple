@@ -73,10 +73,6 @@ public actor WorkersAdminClient {
   // MARK: - Runtime config (#2770)
 
   /// Update a stage's concurrency / max attempts.
-  ///
-  /// For the `preview` stage this also resizes the on-demand preview
-  /// regeneration limiter in the API process — one setting, two effects, by
-  /// design (see preview-ondemand-limiter.ts).
   @discardableResult
   public func updateRuntime(stage: String, patch: StageRuntimePatch) async throws
     -> StageWorkerConfig?
