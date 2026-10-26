@@ -14,6 +14,8 @@ import { ObjectId } from '../db/object-id.ts';
 import { drainPurges } from '../cloud-backup/purge.ts';
 import { backupEngine } from '../cloud-backup/runtime.ts';
 import { hardDeleteAdmittedPurge } from '../db/repos/assets.trash.ts';
+import { holdsTrashPurge, releaseTrashPurge } from '../cloud-backup/lifecycle.ts';
+import { purgeUnlinkSeam } from './trashed-copy.ts';
 import { runTrashGcOnce } from '../workers/trash-gc.ts';
 import { COMPANION, OLD, RAW, twoCopyPhoto } from './trash-purge-survivor-intent.test-helpers.ts';
 
@@ -192,12 +194,13 @@ test('a full purge still running holds its record, so no other attempt keeps the
   const f = await twoCopyPhoto('google-drive');
   try {
     f.setKeptMissing(true);
-    await f.recordWholePhotoPurge({ stopped: false });
+    const lease = await f.recordWholePhotoPurge({ stopped: false });
     f.setKeptMissing(false);
 
     expect((await f.purgeRoute()).status).toBe(409);
     expect(purgeIntents(f)).toEqual({ n: 1 });
     expect(photoRow(f)).toEqual({ deleted_at: OLD, rating: 4, apple_rendered_path: COMPANION });
+    await releaseTrashPurge(lease);
   } finally {
     await f.close();
   }
@@ -225,13 +228,84 @@ test('an attempt still finishing a full purge cannot delete a photo another atte
   const f = await twoCopyPhoto('google-drive');
   try {
     f.setKeptMissing(true);
-    await f.recordWholePhotoPurge();
+    const lease = await f.recordWholePhotoPurge({ stopped: false });
+    f.expirePurgeLease();
     f.setKeptMissing(false);
     expect((await f.purgeRoute()).status).toBe(200);
 
-    expect((await hardDeleteAdmittedPurge(new ObjectId(f.id))).deletedCount).toBe(0);
+    await expect(holdsTrashPurge(lease)).rejects.toThrow();
+    expect((await hardDeleteAdmittedPurge(new ObjectId(f.id), lease)).deletedCount).toBe(0);
     expect(photoRow(f)).toEqual({ deleted_at: null, rating: 4, apple_rendered_path: COMPANION });
+    await releaseTrashPurge(lease);
   } finally {
+    await f.close();
+  }
+});
+
+/** Stalls the first purge unlink until `resume`, as an unresponsive mount would. */
+function stallFirstUnlink() {
+  let reached!: () => void;
+  let resume!: () => void;
+  const atStall = new Promise<void>((resolve) => (reached = resolve));
+  const resumed = new Promise<void>((resolve) => (resume = resolve));
+  let first = true;
+  purgeUnlinkSeam.stall = async () => {
+    if (!first) return;
+    first = false;
+    reached();
+    await resumed;
+  };
+  return { atStall, resume };
+}
+
+test('a purge whose lease ran out mid-cleanup never touches a photo another attempt kept', async () => {
+  const f = await twoCopyPhoto('google-drive');
+  const companion = path.join(f.library, COMPANION);
+  try {
+    f.setKeptMissing(true);
+    const stall = stallFirstUnlink();
+    const stalled = f.purgeRoute();
+    await stall.atStall;
+
+    f.expirePurgeLease();
+    f.setKeptMissing(false);
+    expect((await f.purgeRoute()).status).toBe(200);
+    stall.resume();
+
+    expect((await stalled).status).toBe(500);
+    expect(await readFile(companion, 'utf8')).toBe('rendered-edit');
+    expect(await readFile(f.keptRaw, 'utf8')).toBe(RAW);
+    expect(photoRow(f)).toEqual({ deleted_at: null, rating: 4, apple_rendered_path: COMPANION });
+    expect(purgeIntents(f)).toEqual({ n: 0 });
+  } finally {
+    purgeUnlinkSeam.stall = async () => {};
+    await f.close();
+  }
+});
+
+test('a full purge renews its lease at every unlink and finishes', async () => {
+  const f = await twoCopyPhoto('google-drive');
+  try {
+    f.setKeptMissing(true);
+    const seen: number[] = [];
+    purgeUnlinkSeam.stall = async () => {
+      if (seen.length === 0)
+        run(
+          f,
+          `UPDATE backup_lifecycle SET lease_until = unixepoch('subsec') * 1000 + 1000 WHERE asset_id = ? AND kind = 'purge'`,
+        );
+      seen.push(f.purgeLeaseUntil()!);
+    };
+
+    expect((await f.purgeRoute()).status).toBe(204);
+
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(seen[1]! - seen[0]!).toBeGreaterThan(60_000);
+    expect(f.live.db.query(`SELECT id FROM assets WHERE id = ?`).get(f.id)).toBeNull();
+    expect(await gone(f.trashedRaw)).toBe(true);
+    expect(await readFile(f.keptRaw, 'utf8')).toBe(RAW);
+  } finally {
+    purgeUnlinkSeam.stall = async () => {};
     await f.close();
   }
 });

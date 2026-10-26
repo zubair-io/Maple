@@ -34,7 +34,11 @@ import type { ObjectId } from '../../db/object-id.ts';
 import { oldNameEditUnreadable } from '../../fs/legacy-backup-sidecar.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { trashAssetById, restoreAssetById } from '../../library/asset-trash.ts';
-import { prepareTrashPurge, releaseTrashPurge } from '../../cloud-backup/lifecycle.ts';
+import {
+  holdsTrashPurge,
+  prepareTrashPurge,
+  releaseTrashPurge,
+} from '../../cloud-backup/lifecycle.ts';
 import { capturedTrashPurge } from '../../cloud-backup/trash-purge-admission.ts';
 import {
   LibraryUnreachableError,
@@ -115,11 +119,60 @@ function restoreOutcomeResponse(
 const unlinkFailure = logPurgeFailure(assetsLog, 'permanent delete unlink failed');
 const TRASH_CHANGED = { error: 'Trash state changed — refresh before deleting' };
 
-/** False, with a 409, when another attempt kept the photo meanwhile (#5419). */
-async function deleteAdmittedRow(id: ObjectId, set: { status?: number | string }) {
-  const deleted = (await hardDeleteAdmittedPurge(id)).deletedCount > 0;
+type TrashPurgeLease = NonNullable<Awaited<ReturnType<typeof prepareTrashPurge>>>;
+type CoreInfo = NonNullable<Awaited<ReturnType<typeof findCoreInfoById>>>;
+
+/** False, with a 409, when this attempt lost its purge lease (#5419). */
+async function deleteAdmittedRow(
+  id: ObjectId,
+  lease: TrashPurgeLease,
+  set: { status?: number | string },
+) {
+  const deleted = (await hardDeleteAdmittedPurge(id, lease)).deletedCount > 0;
   if (!deleted) set.status = 409;
   return deleted;
+}
+
+/** Runs `purge` holding the whole-photo purge lease, released afterwards. */
+async function withTrashPurge<T>(
+  id: ObjectId,
+  info: CoreInfo,
+  set: { status?: number | string },
+  purge: (lease: TrashPurgeLease) => Promise<T>,
+): Promise<T | typeof TRASH_CHANGED> {
+  const lease = await admitTrashPurge(id, info, set);
+  if (!lease) return TRASH_CHANGED;
+  try {
+    return await purge(lease);
+  } finally {
+    await releaseTrashPurge(lease);
+  }
+}
+
+/** Erase companions, the trashed copy and the row, checking the lease before
+ * each unlink and the row delete, so an attempt that lost it stops (#5419). */
+async function eraseTrashedPhoto(
+  id: ObjectId,
+  info: CoreInfo,
+  trashed: TrashedCopy,
+  libs: ReadonlyMap<string, string>,
+  lease: TrashPurgeLease,
+  set: { status?: number | string },
+): Promise<{ error: string } | null> {
+  const held = () => holdsTrashPurge(lease);
+  try {
+    await purgeTrashedCopyCompanions(trashed, info, libs, held);
+  } catch {
+    set.status = 500;
+    return { error: 'Apple-rendered companion cleanup requires retry' };
+  }
+  try {
+    await unlinkTrashedCopy(trashed, unlinkFailure, held);
+  } catch {
+    set.status = 409;
+    return TRASH_CHANGED;
+  }
+  return (await deleteAdmittedRow(id, lease, set)) ? null : TRASH_CHANGED;
 }
 
 /** Answered when the purge kept the photo through its surviving copy (#5403). */
@@ -147,8 +200,10 @@ async function purgeTrashedAsset(
   // Explicit permanent delete authorizes backup erasure, but never unlink a
   // returned original at these stored local paths.
   if (info.deleted_reason === 'reaped') {
-    if (!(await admitTrashPurge(id, info, set))) return TRASH_CHANGED;
-    if (!(await deleteAdmittedRow(id, set))) return TRASH_CHANGED;
+    const deleted = await withTrashPurge(id, info, set, (lease) =>
+      deleteAdmittedRow(id, lease, set),
+    );
+    if (deleted !== true) return TRASH_CHANGED;
     set.status = 204;
     await recordAndPublishAssetChange({
       kind: 'delete',
@@ -171,16 +226,10 @@ async function purgeTrashedAsset(
   if (refusal) return refusal;
   const kept = await purgeKeepingSurvivor(id, info, trashed, libs);
   if (kept.kind !== 'full-purge') return survivorResponse(id, kept, set);
-  if (!(await admitTrashPurge(id, info, set))) return TRASH_CHANGED;
-  try {
-    await purgeTrashedCopyCompanions(trashed, info, libs);
-  } catch {
-    await releaseTrashPurge(id.toHexString());
-    set.status = 500;
-    return { error: 'Apple-rendered companion cleanup requires retry' };
-  }
-  await unlinkTrashedCopy(trashed, unlinkFailure);
-  if (!(await deleteAdmittedRow(id, set))) return TRASH_CHANGED;
+  const refused = await withTrashPurge(id, info, set, (lease) =>
+    eraseTrashedPhoto(id, info, trashed, libs, lease, set),
+  );
+  if (refused) return refused;
   set.status = 204;
   // Emit a delete change so the File Provider extension drops this
   // item from its working set on the next pull.
@@ -240,12 +289,12 @@ function survivorResponse(
 
 async function admitTrashPurge(
   id: ObjectId,
-  info: NonNullable<Awaited<ReturnType<typeof findCoreInfoById>>>,
+  info: CoreInfo,
   set: { status?: number | string },
-): Promise<boolean> {
-  const admitted = await prepareTrashPurge(id.toHexString(), capturedTrashPurge(info));
-  if (!admitted) set.status = 409;
-  return admitted;
+): Promise<TrashPurgeLease | null> {
+  const lease = await prepareTrashPurge(id.toHexString(), capturedTrashPurge(info));
+  if (!lease) set.status = 409;
+  return lease;
 }
 
 // Trash/restore move files on disk — file-access-gated (#2893).

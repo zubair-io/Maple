@@ -206,16 +206,39 @@ export async function ownSidecarsOf(
 
 export type PurgeFailureSink = (target: string, error: unknown) => void;
 
+/** Awaited before each unlink; throws to stop a purge that lost its lease (#5419). */
+export type BeforePurgeUnlink = (target: string) => Promise<void>;
+
+/** Test seam, awaited before the lease check of each purge unlink, so a test
+ * can stall one unlink the way an unresponsive mount does (#5419). */
+export const purgeUnlinkSeam: { stall: (target: string) => Promise<void> } = {
+  stall: async () => {},
+};
+
+async function guardedUnlink(target: string, beforeUnlink: BeforePurgeUnlink): Promise<void> {
+  await purgeUnlinkSeam.stall(target);
+  await beforeUnlink(target);
+  await unlinkPrimaryForPurge(target);
+}
+
+class PurgeLeaseLost extends Error {}
+
 async function unlinkInsideTrash(
   target: string,
   libraryRoot: string,
   onFailure: PurgeFailureSink,
+  beforeUnlink: BeforePurgeUnlink,
 ): Promise<boolean> {
+  const held: BeforePurgeUnlink = (unlinkTarget) =>
+    beforeUnlink(unlinkTarget).catch((error: unknown) => {
+      throw new PurgeLeaseLost('Purge lease lost', { cause: error });
+    });
   try {
     const canonical = await checkTrashPurgeTarget(target, libraryRoot);
-    if (canonical !== null) await unlinkPrimaryForPurge(canonical);
+    if (canonical !== null) await guardedUnlink(canonical, held);
     return true;
   } catch (error) {
+    if (error instanceof PurgeLeaseLost) throw error.cause;
     if (errnoCode(error) === 'ENOENT') return true;
     onFailure(target, error);
     return false;
@@ -223,17 +246,19 @@ async function unlinkInsideTrash(
 }
 
 /** Unlink the trashed copy, then its paired sidecars, each only after it
- * passes the Trash jail. Returns how many unlinks failed or were refused. */
+ * passes the Trash jail and `beforeUnlink`. Returns how many unlinks failed or
+ * were refused; rethrows `beforeUnlink`'s error, stopping before the next. */
 export async function unlinkTrashedCopy(
   copy: TrashedCopy,
   onFailure: PurgeFailureSink,
+  beforeUnlink: BeforePurgeUnlink,
 ): Promise<number> {
   const sidecars = await ownSidecarsOf(copy.absPath);
-  const originalOk = await unlinkInsideTrash(copy.absPath, copy.libraryRoot, onFailure);
-  const sidecarOk = await Promise.all(
-    sidecars.map((sidecar) => unlinkInsideTrash(sidecar, copy.libraryRoot, onFailure)),
-  );
-  return [originalOk, ...sidecarOk].filter((ok) => !ok).length;
+  const targets = [copy.absPath, ...sidecars];
+  const outcomes: boolean[] = [];
+  for (const target of targets)
+    outcomes.push(await unlinkInsideTrash(target, copy.libraryRoot, onFailure, beforeUnlink));
+  return outcomes.filter((ok) => !ok).length;
 }
 
 /**
@@ -245,6 +270,7 @@ export async function purgeTrashedCopyCompanions(
   copy: TrashedCopy,
   asset: Partial<Record<AppleCompanionSlot, string | null>> & Pick<AssetDoc, 'fileinfo'>,
   libraries: ReadonlyMap<string, string>,
+  beforeUnlink: BeforePurgeUnlink,
 ): Promise<void> {
   if (copy.survivor !== null) return;
   const companions = await resolvePurgeCompanions(
@@ -253,7 +279,7 @@ export async function purgeTrashedCopyCompanions(
     copy.absPath,
   );
   for (const companion of companions) {
-    if (!(await refusesFileUnderMarker(companion))) await unlinkPrimaryForPurge(companion);
+    if (!(await refusesFileUnderMarker(companion))) await guardedUnlink(companion, beforeUnlink);
   }
 }
 

@@ -6,6 +6,8 @@ import { stat, realpath } from '../fs/mirrored.ts';
 import { ObjectId } from '../db/object-id.ts';
 import { relativeBackupPath } from './inventory.ts';
 import {
+  adoptLifecycleLease,
+  LIFECYCLE_LEASE_MS,
   createLifecycleLease,
   claimExpiredLifecycle,
   assertLifecycleLease,
@@ -185,31 +187,30 @@ export async function preparePurge(assetId: string, repo = new BackupRepository(
     throw new Error('Asset changed or has a pending backup lifecycle; retry permanent deletion.');
 }
 
-/** How long a Trash purge holds its record while it erases files and the row. */
-const TRASH_PURGE_LEASE_MS = 10 * 60_000;
-
 /** A stale Trash listing cannot authorize erasure after restore, reaping or relocation.
- * The record is leased while the caller finishes the purge, so a concurrent
- * attempt that finds a surviving copy cannot retire it mid-purge (#5419);
- * the caller releases the lease when it stops short. */
+ * The record is leased to this caller, renewed while it erases files and the
+ * row, so a concurrent attempt that finds a surviving copy cannot retire it
+ * mid-purge (#5419). The caller checks the lease before every destructive step
+ * (`holdsTrashPurge`) and releases it when done (`releaseTrashPurge`). */
 export async function prepareTrashPurge(
   assetId: string,
   expected: TrashPurgeCandidate,
   repo = new BackupRepository(),
-): Promise<boolean> {
+): Promise<LifecycleLease | null> {
   await inventoryFolderPurges(assetId, repo);
-  return recordPurgeIntent(assetId, repo, { trash: expected });
+  const lease = { id: crypto.randomUUID(), owner: crypto.randomUUID() };
+  return (await recordPurgeIntent(assetId, repo, { trash: expected }, lease))
+    ? adoptLifecycleLease(lease.id, lease.owner, repo)
+    : null;
 }
 
-/** A Trash purge that stopped before deleting the row no longer holds its record. */
-export async function releaseTrashPurge(
-  assetId: string,
-  repo = new BackupRepository(),
-): Promise<void> {
-  await repo.db.write(
-    `UPDATE backup_lifecycle SET lease_owner=NULL,lease_until=0 WHERE asset_id=? AND kind='purge'`,
-    [assetId],
-  );
+/** Renews the purge lease, or throws once another attempt took it over. */
+export function holdsTrashPurge(lease: LifecycleLease): Promise<void> {
+  return assertLifecycleClaim(lease);
+}
+
+export function releaseTrashPurge(lease: LifecycleLease): Promise<void> {
+  return releaseLifecycleClaim(lease);
 }
 
 /** An upload may discard a redundant RAW only while its sole Trash location
@@ -227,10 +228,11 @@ async function recordPurgeIntent(
   assetId: string,
   repo: BackupRepository,
   candidate?: { replacement: ReplacementLocation } | { trash: TrashPurgeCandidate },
+  lease?: { id: string; owner: string },
 ): Promise<boolean> {
   const at = new Date().toISOString();
-  const intentId = crypto.randomUUID();
-  const leaseUntil = candidate && 'trash' in candidate ? Date.now() + TRASH_PURGE_LEASE_MS : 0;
+  const intentId = lease?.id ?? crypto.randomUUID();
+  const leaseUntil = lease ? Date.now() + LIFECYCLE_LEASE_MS : 0;
   const guard =
     candidate && 'replacement' in candidate
       ? {
@@ -252,7 +254,7 @@ async function recordPurgeIntent(
         SELECT ?,a.id,'purge','applied',?,?,? FROM assets a WHERE a.id=? ${guard.sql}
         AND NOT EXISTS(SELECT 1 FROM backup_lifecycle WHERE asset_id=a.id
           AND (phase='prepared' OR lease_until>unixepoch('subsec')*1000))`,
-      params: [intentId, at, leaseUntil ? intentId : null, leaseUntil, assetId, ...guard.params],
+      params: [intentId, at, lease?.owner ?? null, leaseUntil, assetId, ...guard.params],
     },
     {
       sql: `INSERT INTO backup_purges(destination_id,entry_id,record)

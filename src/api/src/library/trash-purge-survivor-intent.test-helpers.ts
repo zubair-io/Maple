@@ -178,8 +178,25 @@ export async function twoCopyPhoto(kind: Kind) {
      * releases it as that attempt does when it fails short of the row delete. */
     async recordWholePhotoPurge({ stopped = true } = {}) {
       const info = (await findCoreInfoById(new ObjectId(id)))!;
-      expect(await prepareTrashPurge(id, capturedTrashPurge(info))).toBe(true);
-      if (stopped) await releaseTrashPurge(id);
+      const lease = await prepareTrashPurge(id, capturedTrashPurge(info));
+      expect(lease).not.toBeNull();
+      if (stopped) await releaseTrashPurge(lease!);
+      return lease!;
+    },
+    /** A stalled holder's lease running out. */
+    expirePurgeLease() {
+      run(
+        f.live.db,
+        `UPDATE backup_lifecycle SET lease_until = 0 WHERE asset_id = ? AND kind = 'purge'`,
+        id,
+      );
+    },
+    purgeLeaseUntil() {
+      return (
+        f.live.db
+          .query(`SELECT lease_until FROM backup_lifecycle WHERE asset_id = ? AND kind = 'purge'`)
+          .get(id) as { lease_until: number } | null
+      )?.lease_until;
     },
     purgeRoute() {
       return app.handle(
