@@ -1,18 +1,28 @@
 import CoreGraphics
+import CoreImage
 import Foundation
 
 enum PersonSkinRangeInitializer {
   static let minimumDefaultCoverageWeight: Double = 0.005
 
   static func initialRange(
-    image: CGImage,
+    decoded: ImageEditPipeline.SceneLinearDecodeResult,
+    model: AdjustmentModel,
+    asShot: ImageEditPipeline.AsShotWB?,
     maskWidth: Int,
     maskHeight: Int,
     maskBytes: [UInt8]
   ) -> RangeRefinement {
     guard
+      let stageInputBytes = makeStageInputRec2020Bytes(
+        decoded: decoded,
+        model: model,
+        asShot: asShot,
+        width: maskWidth,
+        height: maskHeight
+      ),
       let sample = adaptiveSampleIfDefaultInert(
-        image: image,
+        stageInputRec2020RGBAf: stageInputBytes,
         maskWidth: maskWidth,
         maskHeight: maskHeight,
         maskBytes: maskBytes
@@ -23,14 +33,84 @@ enum PersonSkinRangeInitializer {
     return RangeRefinement.skinTone.seeded(with: sample)
   }
 
+  static func stageInputModel(_ model: AdjustmentModel) -> AdjustmentModel {
+    var out = model
+    out.localAdjustments = []
+    out.vignetteAmount = 0
+    out.sharpenAmount = 0
+    out.nrLuminance = 0
+    out.nrColor = 0
+    return out
+  }
+
+  static func makeStageInputRec2020Bytes(
+    decoded: ImageEditPipeline.SceneLinearDecodeResult,
+    model: AdjustmentModel,
+    asShot: ImageEditPipeline.AsShotWB?,
+    width: Int,
+    height: Int
+  ) -> Data? {
+    guard width > 0, height > 0,
+      let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)
+    else {
+      return nil
+    }
+    let srcExtent = decoded.image.extent
+    guard srcExtent.width > 0, srcExtent.height > 0 else { return nil }
+    let sx = CGFloat(width) / srcExtent.width
+    let sy = CGFloat(height) / srcExtent.height
+    let scaled = decoded.image
+      .transformed(by: CGAffineTransform(translationX: -srcExtent.origin.x, y: -srcExtent.origin.y))
+      .transformed(by: CGAffineTransform(scaleX: sx, y: sy))
+
+    let rowBytes = width * 16
+    var inputBytes = Data(count: rowBytes * height)
+    let context = CIContext(options: [.workingColorSpace: space, .outputColorSpace: space])
+    let rendered = inputBytes.withUnsafeMutableBytes { buf -> Bool in
+      guard let base = buf.baseAddress else { return false }
+      context.render(
+        scaled,
+        toBitmap: base,
+        rowBytes: rowBytes,
+        bounds: CGRect(x: 0, y: 0, width: width, height: height),
+        format: .RGBAf,
+        colorSpace: space
+      )
+      return true
+    }
+    guard rendered else { return nil }
+
+    let stageModel = stageInputModel(model)
+    let params = PipelineRenderer.makeParams(
+      from: stageModel,
+      decodedTemperature: asShot?.temperature ?? 6500.0,
+      decodedTint: asShot?.tint ?? 0.0,
+      skipAgX: true,
+      iso: decoded.iso,
+      wbFrame: decoded.wbFrame,
+      whitesAnchorEv: decoded.whitesAnchorEv,
+      nrSamplingScale: decoded.nrSamplingScale
+    )
+    return try? PipelineRenderer.applySceneLinearChain(
+      inputBytes: inputBytes,
+      width: width,
+      height: height,
+      params: params,
+      noiseProfile: decoded.noiseProfile,
+      localAdjustments: []
+    )
+  }
+
   static func adaptiveSampleIfDefaultInert(
-    image: CGImage,
+    stageInputRec2020RGBAf: Data,
     maskWidth: Int,
     maskHeight: Int,
     maskBytes: [UInt8]
   ) -> MaskRangeSample? {
-    guard maskWidth > 0, maskHeight > 0, maskBytes.count == maskWidth * maskHeight,
-      let rgba = renderSRGBBytes(image: image, width: maskWidth, height: maskHeight)
+    let pixelCount = maskWidth * maskHeight
+    guard maskWidth > 0, maskHeight > 0,
+      maskBytes.count == pixelCount,
+      stageInputRec2020RGBAf.count == pixelCount * 16
     else {
       return nil
     }
@@ -43,29 +123,32 @@ enum PersonSkinRangeInitializer {
     var sumSin = 0.0
     var sumCos = 0.0
 
-    for y in stride(from: 0, to: maskHeight, by: step) {
-      let rowOffset = y * maskWidth
-      for x in stride(from: 0, to: maskWidth, by: step) {
-        let index = rowOffset + x
-        guard maskBytes[index] >= 128 else { continue }
-        let pixelOffset = index * 4
-        let r = srgbToLinear(Double(rgba[pixelOffset]) / 255.0)
-        let g = srgbToLinear(Double(rgba[pixelOffset + 1]) / 255.0)
-        let b = srgbToLinear(Double(rgba[pixelOffset + 2]) / 255.0)
-        let (l, okA, okB) = linearSRGBToOklab(r: r, g: g, b: b)
-        let chroma = hypot(okA, okB)
-        guard l.isFinite, chroma.isFinite, l >= 0.20, l <= 0.95, chroma >= 0.015 else {
-          continue
+    stageInputRec2020RGBAf.withUnsafeBytes { rawBuffer in
+      let floats = rawBuffer.bindMemory(to: Float.self)
+      for y in stride(from: 0, to: maskHeight, by: step) {
+        let rowOffset = y * maskWidth
+        for x in stride(from: 0, to: maskWidth, by: step) {
+          let index = rowOffset + x
+          guard maskBytes[index] >= 128 else { continue }
+          let floatOffset = index * 4
+          let r = Double(floats[floatOffset])
+          let g = Double(floats[floatOffset + 1])
+          let b = Double(floats[floatOffset + 2])
+          let (l, okA, okB) = rec2020ToOklab(r: r, g: g, b: b)
+          let chroma = hypot(okA, okB)
+          guard l.isFinite, chroma.isFinite, l >= 0.08, l <= 0.98, chroma >= 0.015 else {
+            continue
+          }
+          let hueDeg = atan2(okB, okA) * 180.0 / .pi
+          guard (-55.0...95.0).contains(hueDeg) else { continue }
+          defaultWeightSum += rangeWeight(.skinTone, l: l, chroma: chroma, hueDeg: hueDeg)
+          hues.append(hueDeg)
+          chromas.append(chroma)
+          lightnesses.append(l)
+          let rad = hueDeg * .pi / 180.0
+          sumSin += sin(rad)
+          sumCos += cos(rad)
         }
-        let hueDeg = atan2(okB, okA) * 180.0 / .pi
-        guard (-55.0...95.0).contains(hueDeg) else { continue }
-        defaultWeightSum += rangeWeight(.skinTone, l: l, chroma: chroma, hueDeg: hueDeg)
-        hues.append(hueDeg)
-        chromas.append(chroma)
-        lightnesses.append(l)
-        let rad = hueDeg * .pi / 180.0
-        sumSin += sin(rad)
-        sumCos += cos(rad)
       }
     }
 
@@ -84,8 +167,8 @@ enum PersonSkinRangeInitializer {
     return MaskRangeSample(
       hueDeg: round2(medianHue),
       chromaMin: max(0.01, floor2(medianChroma / 2.0)),
-      lMin: min(0.15, max(0.0, floor2(medianL - 0.35))),
-      lMax: min(1.0, max(0.95, ceil2(medianL + 0.35)))
+      lMin: min(0.15, max(0.0, floor2(medianL - 0.25))),
+      lMax: min(1.0, max(0.95, ceil2(medianL + 0.25)))
     )
   }
 
@@ -114,41 +197,13 @@ enum PersonSkinRangeInitializer {
     return chromaWeight * hueWeight * lWeight
   }
 
-  private static func renderSRGBBytes(image: CGImage, width: Int, height: Int) -> [UInt8]? {
-    guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
-    var bytes = [UInt8](repeating: 0, count: width * height * 4)
-    let ok = bytes.withUnsafeMutableBytes { ptr -> Bool in
-      guard
-        let base = ptr.baseAddress,
-        let ctx = CGContext(
-          data: base,
-          width: width,
-          height: height,
-          bitsPerComponent: 8,
-          bytesPerRow: width * 4,
-          space: space,
-          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        )
-      else {
-        return false
-      }
-      ctx.interpolationQuality = .low
-      ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-      return true
-    }
-    return ok ? bytes : nil
-  }
-
-  private static func srgbToLinear(_ v: Double) -> Double {
-    v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
-  }
-
-  private static func linearSRGBToOklab(r: Double, g: Double, b: Double) -> (
-    Double, Double, Double
-  ) {
-    let l = 0.41222147 * r + 0.53633254 * g + 0.05144599 * b
-    let m = 0.21190350 * r + 0.68069955 * g + 0.10739696 * b
-    let s = 0.08830246 * r + 0.28171884 * g + 0.62997870 * b
+  static func rec2020ToOklab(r: Double, g: Double, b: Double) -> (Double, Double, Double) {
+    let sr = 1.6605 * r - 0.5876 * g - 0.0728 * b
+    let sg = -0.1246 * r + 1.1329 * g - 0.0083 * b
+    let sb = -0.0182 * r - 0.1006 * g + 1.1187 * b
+    let l = 0.41222147 * sr + 0.53633254 * sg + 0.05144599 * sb
+    let m = 0.21190350 * sr + 0.68069955 * sg + 0.10739696 * sb
+    let s = 0.08830246 * sr + 0.28171884 * sg + 0.62997870 * sb
     let lCube = cbrt(l)
     let mCube = cbrt(m)
     let sCube = cbrt(s)
