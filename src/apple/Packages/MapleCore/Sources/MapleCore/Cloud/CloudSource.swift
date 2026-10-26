@@ -199,13 +199,12 @@ extension CloudSource: ImageSource {
 
   /// The clip an Android Motion Photo embeds in this still, as a seekable
   /// AVPlayer URL, or nil when the server has none (#5447). The HEAD probe
-  /// lets Full image decide whether to offer playback without fetching it.
+  /// lets Full image decide whether to offer playback without fetching it;
+  /// the URL carries a short-lived token, so mint it again at play time.
   public func motionClipURL(for refID: String) async throws -> URL? {
     let address = try await addresses.url(route: "motion", absPath: Self.absPath(from: refID))
     let token = try await httpClient.accessTokenForURL()
-    var components = URLComponents(url: address, resolvingAgainstBaseURL: false)
-    components?.queryItems = [URLQueryItem(name: "token", value: token)]
-    guard let clipURL = components?.url else { return nil }
+    let clipURL = address.appending(queryItems: [URLQueryItem(name: "token", value: token)])
     var probe = URLRequest(url: clipURL)
     probe.httpMethod = "HEAD"
     let (_, response) = try await httpClient.data(for: probe)
