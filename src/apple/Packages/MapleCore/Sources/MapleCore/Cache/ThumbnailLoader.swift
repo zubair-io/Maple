@@ -83,6 +83,13 @@ public actor ThumbnailLoader {
   // Multiple visible surfaces may share one producer. Cancellation owns a
   // consumer, not the producer, until the final consumer disappears.
   var thumbnailWaiters: [Task<Data?, Never>: Set<UUID>] = [:]
+  var activeProducers: Set<UUID> = []
+  var taskProducerIDs: [Task<Data?, Never>: UUID] = [:]
+  let cameraPreviewCache: NSCache<NSString, NSData> = {
+    let cache = NSCache<NSString, NSData>()
+    cache.countLimit = 128
+    return cache
+  }()
 
   // MARK: - Public API
 
@@ -132,24 +139,10 @@ public actor ThumbnailLoader {
     //    span of the FFI call so the mmap inside `std::fs::read` sees
     //    an active scope.
     let scope = scopeParentURL ?? assetURL.deletingLastPathComponent()
-    let task = Task.detached(priority: .utility) { () -> Data? in
-      // Gate concurrent thumbs so the browse grid doesn't fire N
-      // decodes in parallel when the user opens a big folder.
-      do { try await self.acquireDecodeSlot() } catch { return nil }
-      let result = await Self.produceThumbnail(assetURL: assetURL, scope: scope)
-      await self.releaseDecodeSlot()
-      return result
+    let task = startLocalProducer(key: coalescingKey) {
+      await Self.produceThumbnail(assetURL: assetURL, scope: scope)
     }
-    inFlight[coalescingKey] = task
-    let result = await awaitThumbnail(task)
-    // Conditional removal: `cancelAll()` may have cleared the map and a
-    // NEWER task may already be registered under this key — evicting it
-    // here would silently break coalescing for that asset until the new
-    // task completes (Jules review, PR #1911).
-    if inFlight[coalescingKey] == task {
-      inFlight.removeValue(forKey: coalescingKey)
-    }
-    return result
+    return await awaitThumbnail(task)
   }
 
   /// Check that ImageIO can decode the cached image, not just read its header.
@@ -326,6 +319,9 @@ public actor ThumbnailLoader {
     for task in inFlight.values { task.cancel() }
     inFlight.removeAll()
     cameraPreviewWaiters.removeAll()
+    thumbnailWaiters.removeAll()
+    activeProducers.removeAll()
+    taskProducerIDs.removeAll()
   }
 
   /// Shrink the in-memory cache to roughly 25% of capacity. Called on

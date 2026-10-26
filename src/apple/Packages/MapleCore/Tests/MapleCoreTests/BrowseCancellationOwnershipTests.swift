@@ -73,6 +73,50 @@ final class BrowseCancellationOwnershipTests: XCTestCase {
     XCTAssertEqual(try Data(contentsOf: fixture), bytes)
   }
 
+  func testActiveLocalProducerSurvivesViewTransitionCancellationSoNextSurfaceCoalesces()
+    async throws
+  {
+    let fence = BrowseFilesystemFence()
+    let loader = ThumbnailLoader()
+    let key = "local:" + UUID().uuidString
+    let expected = Data([0x01, 0x02, 0x03])
+    let task = await loader.startLocalProducer(key: key) {
+      await fence.enter()
+      return expected
+    }
+    let browseWaiter = Task { await loader.awaitThumbnail(task) }
+    for _ in 0..<10_000 {
+      if await loader.thumbnailWaiters[task]?.count == 1 { break }
+      await Task.yield()
+    }
+    await fulfillment(of: [fence.entered], timeout: 5)
+    browseWaiter.cancel()
+    for _ in 0..<10_000 {
+      if await loader.thumbnailWaiters[task] == nil { break }
+      await Task.yield()
+    }
+    let inFlightAfterBrowseUnmount = await loader.inFlight[key]
+    XCTAssertEqual(inFlightAfterBrowseUnmount, task)
+    XCTAssertFalse(task.isCancelled)
+
+    let previewWaiter = Task { await loader.awaitThumbnail(task) }
+    for _ in 0..<10_000 {
+      if await loader.thumbnailWaiters[task]?.count == 1 { break }
+      await Task.yield()
+    }
+    await fence.release()
+    let browseResult = await browseWaiter.value
+    let previewResult = await previewWaiter.value
+    XCTAssertNil(browseResult)
+    XCTAssertEqual(previewResult, expected)
+    for _ in 0..<10_000 {
+      if await loader.inFlight[key] == nil { break }
+      await Task.yield()
+    }
+    let remainingInFlight = await loader.inFlight[key]
+    XCTAssertNil(remainingInFlight)
+  }
+
   @MainActor
   func testCancelledActualFolderEnumerationDoesNotPublishAbandonedFiles() async throws {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

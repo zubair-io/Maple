@@ -5,144 +5,201 @@
 
 import CoreImage
 import XCTest
+
 @testable import MapleCore
 
 final class LocalFileOperationsCacheAndIndexTests: XCTestCase {
-    private var root: URL!
+  private var root: URL!
 
-    override func setUp() {
-        super.setUp()
-        root = FileOperationsTestSupport.makeTempDir()
-    }
+  override func setUp() {
+    super.setUp()
+    root = FileOperationsTestSupport.makeTempDir()
+  }
 
-    override func tearDown() {
-        FileOperationsTestSupport.cleanup(root)
-        root = nil
-        super.tearDown()
-    }
+  override func tearDown() {
+    FileOperationsTestSupport.cleanup(root)
+    root = nil
+    super.tearDown()
+  }
 
-    func testMoveClearsTheStaleThumbAndPreviewCacheAtTheOldLocation() async throws {
-        let source = FileOperationsTestSupport.write("pixels", to: root.appendingPathComponent("IMG_1.dng"))
-        let oldThumb = MapleSidecarPaths.thumbURL(for: source)
-        let oldPreview = MapleSidecarPaths.previewURL(for: source)
-        FileOperationsTestSupport.write("thumb-bytes", to: oldThumb)
-        FileOperationsTestSupport.write("preview-bytes", to: oldPreview)
+  func testMoveClearsTheStaleThumbAndPreviewCacheAtTheOldLocation() async throws {
+    let source = FileOperationsTestSupport.write(
+      "pixels", to: root.appendingPathComponent("IMG_1.dng"))
+    let oldThumb = MapleSidecarPaths.thumbURL(for: source)
+    let oldPreview = MapleSidecarPaths.previewURL(for: source)
+    FileOperationsTestSupport.write("thumb-bytes", to: oldThumb)
+    FileOperationsTestSupport.write("preview-bytes", to: oldPreview)
 
-        _ = try await LocalFileOperations.relocate(source, to: root.appendingPathComponent("Album"), mode: .move)
+    _ = try await LocalFileOperations.relocate(
+      source, to: root.appendingPathComponent("Album"), mode: .move)
 
-        XCTAssertFalse(FileOperationsTestSupport.exists(oldThumb))
-        XCTAssertFalse(FileOperationsTestSupport.exists(oldPreview))
-    }
+    XCTAssertFalse(FileOperationsTestSupport.exists(oldThumb))
+    XCTAssertFalse(FileOperationsTestSupport.exists(oldPreview))
+  }
 
-    func testCopyDoesNotTouchTheSourcesCache() async throws {
-        let source = FileOperationsTestSupport.write("pixels", to: root.appendingPathComponent("IMG_1.dng"))
-        let oldThumb = MapleSidecarPaths.thumbURL(for: source)
-        FileOperationsTestSupport.write("thumb-bytes", to: oldThumb)
+  func testCopyDoesNotTouchTheSourcesCache() async throws {
+    let source = FileOperationsTestSupport.write(
+      "pixels", to: root.appendingPathComponent("IMG_1.dng"))
+    let oldThumb = MapleSidecarPaths.thumbURL(for: source)
+    FileOperationsTestSupport.write("thumb-bytes", to: oldThumb)
 
-        _ = try await LocalFileOperations.relocate(source, to: root.appendingPathComponent("Album"), mode: .copy)
+    _ = try await LocalFileOperations.relocate(
+      source, to: root.appendingPathComponent("Album"), mode: .copy)
 
-        XCTAssertTrue(FileOperationsTestSupport.exists(oldThumb), "a copy leaves the original — and its cache — valid")
-    }
+    XCTAssertTrue(
+      FileOperationsTestSupport.exists(oldThumb),
+      "a copy leaves the original — and its cache — valid")
+  }
 
-    func testMoveRemovesTheOldFolderIndexEntryAndCarriesCullingToTheNewOne() async throws {
-        let sourceFolder = root.appendingPathComponent("Source")
-        let destFolder = root.appendingPathComponent("Dest")
-        let source = FileOperationsTestSupport.write("pixels", to: sourceFolder.appendingPathComponent("IMG_1.dng"))
+  func testMoveRemovesTheOldFolderIndexEntryAndCarriesCullingToTheNewOne() async throws {
+    let sourceFolder = root.appendingPathComponent("Source")
+    let destFolder = root.appendingPathComponent("Dest")
+    let source = FileOperationsTestSupport.write(
+      "pixels", to: sourceFolder.appendingPathComponent("IMG_1.dng"))
 
-        let sourceStore = LibraryIndexStore(folderURL: sourceFolder)
-        try await sourceStore.updateEntry(name: "IMG_1.dng", culling: CullingState(stars: 3, flag: .pick))
+    let sourceStore = LibraryIndexStore(folderURL: sourceFolder)
+    try await sourceStore.updateEntry(
+      name: "IMG_1.dng", culling: CullingState(stars: 3, flag: .pick))
 
-        _ = try await LocalFileOperations.relocate(source, to: destFolder, mode: .move)
+    _ = try await LocalFileOperations.relocate(source, to: destFolder, mode: .move)
 
-        // A FRESH store, so the read genuinely goes to disk rather than to
-        // `sourceStore`'s in-memory cache of its own earlier write — the
-        // relocate's internal store is a separate actor instance from
-        // `sourceStore` and only the on-disk file is shared between them.
-        let freshSourceStore = LibraryIndexStore(folderURL: sourceFolder)
-        let sourceIndex = try await freshSourceStore.load()
-        XCTAssertNil(sourceIndex?.entries["IMG_1.dng"], "the stale entry must be removed from the old folder's index")
+    // A FRESH store, so the read genuinely goes to disk rather than to
+    // `sourceStore`'s in-memory cache of its own earlier write — the
+    // relocate's internal store is a separate actor instance from
+    // `sourceStore` and only the on-disk file is shared between them.
+    let freshSourceStore = LibraryIndexStore(folderURL: sourceFolder)
+    let sourceIndex = try await freshSourceStore.load()
+    XCTAssertNil(
+      sourceIndex?.entries["IMG_1.dng"],
+      "the stale entry must be removed from the old folder's index")
 
-        let destStore = LibraryIndexStore(folderURL: destFolder)
-        let destIndex = try await destStore.load()
-        let entry = try XCTUnwrap(destIndex?.entries["IMG_1.dng"])
-        XCTAssertEqual(entry.stars, 3)
-        XCTAssertEqual(entry.flag, "pick")
-    }
+    let destStore = LibraryIndexStore(folderURL: destFolder)
+    let destIndex = try await destStore.load()
+    let entry = try XCTUnwrap(destIndex?.entries["IMG_1.dng"])
+    XCTAssertEqual(entry.stars, 3)
+    XCTAssertEqual(entry.flag, "pick")
+  }
 
-    /// #2847: a case-only rename (`IMG_1.dng` → `img_1.dng`) bypasses
-    /// `finalizeRelocate` entirely (`performCaseOnlyRename` is atomic and
-    /// has no finalize step), and used to skip the `LibraryIndex` repoint
-    /// that every other move gets — leaving the old casing in the index so
-    /// the next scan reconciled the user's own rename as an external one.
-    func testCaseOnlyRenameRepointsTheFolderIndexEntry() async throws {
-        let source = FileOperationsTestSupport.write("pixels", to: root.appendingPathComponent("IMG_1.dng"))
-        let store = LibraryIndexStore(folderURL: root)
-        try await store.updateEntry(name: "IMG_1.dng", culling: CullingState(stars: 4, flag: .pick))
+  /// #2847: a case-only rename (`IMG_1.dng` → `img_1.dng`) bypasses
+  /// `finalizeRelocate` entirely (`performCaseOnlyRename` is atomic and
+  /// has no finalize step), and used to skip the `LibraryIndex` repoint
+  /// that every other move gets — leaving the old casing in the index so
+  /// the next scan reconciled the user's own rename as an external one.
+  func testCaseOnlyRenameRepointsTheFolderIndexEntry() async throws {
+    let source = FileOperationsTestSupport.write(
+      "pixels", to: root.appendingPathComponent("IMG_1.dng"))
+    let store = LibraryIndexStore(folderURL: root)
+    try await store.updateEntry(name: "IMG_1.dng", culling: CullingState(stars: 4, flag: .pick))
 
-        let outcome = try await LocalFileOperations.relocate(source, to: root, newBasename: "img_1.dng", mode: .move)
+    let outcome = try await LocalFileOperations.relocate(
+      source, to: root, newBasename: "img_1.dng", mode: .move)
 
-        XCTAssertEqual(URL(fileURLWithPath: outcome.primaryPath).lastPathComponent, "img_1.dng")
-        // Fresh store — read from disk, not `store`'s own in-memory copy.
-        let index = try await LibraryIndexStore(folderURL: root).load()
-        XCTAssertNil(index?.entries["IMG_1.dng"], "the old casing must be gone from the index")
-        let entry = try XCTUnwrap(index?.entries["img_1.dng"], "the new casing must be indexed")
-        XCTAssertEqual(entry.stars, 4)
-        XCTAssertEqual(entry.flag, "pick")
-    }
+    XCTAssertEqual(URL(fileURLWithPath: outcome.primaryPath).lastPathComponent, "img_1.dng")
+    // Fresh store — read from disk, not `store`'s own in-memory copy.
+    let index = try await LibraryIndexStore(folderURL: root).load()
+    XCTAssertNil(index?.entries["IMG_1.dng"], "the old casing must be gone from the index")
+    let entry = try XCTUnwrap(index?.entries["img_1.dng"], "the new casing must be indexed")
+    XCTAssertEqual(entry.stars, 4)
+    XCTAssertEqual(entry.flag, "pick")
+  }
 
-    // MARK: - #2659: RenderedPreviewCache (docs/caching.md § 3) is a SEPARATE
-    // cache from the plain thumbURL/previewURL files above — its own
-    // {urlHash}_{variantHash}.jpg naming, plus a 20-entry in-memory front.
-    // `invalidateDerivedCaches` used to only remove the two files above and
-    // never touched this cache at all, so a move left the OLD entry (both
-    // the in-memory front AND the on-disk file) behind indefinitely — a
-    // genuine unbounded leak the #2659 verification pass caught. This test
-    // guards the fix (`invalidateDerivedCaches` now also awaits
-    // `RenderedPreviewCache.shared.invalidate(assetURL:)`).
+  // MARK: - #2659: RenderedPreviewCache (docs/caching.md § 3) is a SEPARATE
+  // cache from the plain thumbURL/previewURL files above — its own
+  // {urlHash}_{variantHash}.jpg naming, plus a 20-entry in-memory front.
+  // `invalidateDerivedCaches` used to only remove the two files above and
+  // never touched this cache at all, so a move left the OLD entry (both
+  // the in-memory front AND the on-disk file) behind indefinitely — a
+  // genuine unbounded leak the #2659 verification pass caught. This test
+  // guards the fix (`invalidateDerivedCaches` now also awaits
+  // `RenderedPreviewCache.shared.invalidate(assetURL:)`).
 
-    func testMoveInvalidatesTheOldLocationsRenderedPreviewCacheMemoryAndDisk() async throws {
-        let source = FileOperationsTestSupport.write("pixels", to: root.appendingPathComponent("IMG_1.dng"))
-        // `invalidateDerivedCaches` invalidates against `.shared`'s CURRENT
-        // configured folder — matches how the app actually configures this
-        // singleton once per opened folder, never per-call.
-        await RenderedPreviewCache.shared.configure(folderURL: root)
-        let swatch = CIImage(color: CIColor(red: 0.4, green: 0.5, blue: 0.6))
-            .cropped(to: CGRect(x: 0, y: 0, width: 64, height: 48))
-        await RenderedPreviewCache.shared.storePreview(swatch, for: source, screenWidth: 800)
+  func testMoveInvalidatesTheOldLocationsRenderedPreviewCacheMemoryAndDisk() async throws {
+    let source = FileOperationsTestSupport.write(
+      "pixels", to: root.appendingPathComponent("IMG_1.dng"))
+    // `invalidateDerivedCaches` invalidates against `.shared`'s CURRENT
+    // configured folder — matches how the app actually configures this
+    // singleton once per opened folder, never per-call.
+    await RenderedPreviewCache.shared.configure(folderURL: root)
+    let swatch = CIImage(color: CIColor(red: 0.4, green: 0.5, blue: 0.6))
+      .cropped(to: CGRect(x: 0, y: 0, width: 64, height: 48))
+    await RenderedPreviewCache.shared.storePreview(swatch, for: source, screenWidth: 800)
 
-        // Sanity: the preview really was cached (memory front) before the
-        // move — otherwise "gone after the move" would trivially pass.
-        let hitBefore = await RenderedPreviewCache.shared.preview(for: source, screenWidth: 800)
-        XCTAssertNotNil(hitBefore, "sanity: the preview was actually stored before the move")
+    // Sanity: the preview really was cached (memory front) before the
+    // move — otherwise "gone after the move" would trivially pass.
+    let hitBefore = await RenderedPreviewCache.shared.preview(for: source, screenWidth: 800)
+    XCTAssertNotNil(hitBefore, "sanity: the preview was actually stored before the move")
 
-        _ = try await LocalFileOperations.relocate(source, to: root.appendingPathComponent("Album"), mode: .move)
+    _ = try await LocalFileOperations.relocate(
+      source, to: root.appendingPathComponent("Album"), mode: .move)
 
-        let hitAfter = await RenderedPreviewCache.shared.preview(for: source, screenWidth: 800)
-        XCTAssertNil(hitAfter, "the OLD url's rendered-preview entry (memory AND disk) must not survive a move")
-    }
+    let hitAfter = await RenderedPreviewCache.shared.preview(for: source, screenWidth: 800)
+    XCTAssertNil(
+      hitAfter, "the OLD url's rendered-preview entry (memory AND disk) must not survive a move")
+  }
 
-    func testCopyDoesNotTouchTheSourcesRenderedPreviewCache() async throws {
-        let source = FileOperationsTestSupport.write("pixels", to: root.appendingPathComponent("IMG_1.dng"))
-        await RenderedPreviewCache.shared.configure(folderURL: root)
-        let swatch = CIImage(color: CIColor(red: 0.4, green: 0.5, blue: 0.6))
-            .cropped(to: CGRect(x: 0, y: 0, width: 64, height: 48))
-        await RenderedPreviewCache.shared.storePreview(swatch, for: source, screenWidth: 800)
+  func testCopyDoesNotTouchTheSourcesRenderedPreviewCache() async throws {
+    let source = FileOperationsTestSupport.write(
+      "pixels", to: root.appendingPathComponent("IMG_1.dng"))
+    await RenderedPreviewCache.shared.configure(folderURL: root)
+    let swatch = CIImage(color: CIColor(red: 0.4, green: 0.5, blue: 0.6))
+      .cropped(to: CGRect(x: 0, y: 0, width: 64, height: 48))
+    await RenderedPreviewCache.shared.storePreview(swatch, for: source, screenWidth: 800)
 
-        _ = try await LocalFileOperations.relocate(source, to: root.appendingPathComponent("Album"), mode: .copy)
+    _ = try await LocalFileOperations.relocate(
+      source, to: root.appendingPathComponent("Album"), mode: .copy)
 
-        let hit = await RenderedPreviewCache.shared.preview(for: source, screenWidth: 800)
-        XCTAssertNotNil(hit, "a copy leaves the original — and its rendered-preview cache — valid")
-    }
+    let hit = await RenderedPreviewCache.shared.preview(for: source, screenWidth: 800)
+    XCTAssertNotNil(hit, "a copy leaves the original — and its rendered-preview cache — valid")
+  }
 
-    func testMoveWithNoPriorIndexEntryStillCreatesAFreshOneAtTheDestination() async throws {
-        let sourceFolder = root.appendingPathComponent("Source")
-        let destFolder = root.appendingPathComponent("Dest")
-        let source = FileOperationsTestSupport.write("pixels", to: sourceFolder.appendingPathComponent("IMG_1.dng"))
+  func testMoveWithNoPriorIndexEntryStillCreatesAFreshOneAtTheDestination() async throws {
+    let sourceFolder = root.appendingPathComponent("Source")
+    let destFolder = root.appendingPathComponent("Dest")
+    let source = FileOperationsTestSupport.write(
+      "pixels", to: sourceFolder.appendingPathComponent("IMG_1.dng"))
 
-        _ = try await LocalFileOperations.relocate(source, to: destFolder, mode: .move)
+    _ = try await LocalFileOperations.relocate(source, to: destFolder, mode: .move)
 
-        let destStore = LibraryIndexStore(folderURL: destFolder)
-        let destIndex = try await destStore.load()
-        XCTAssertNotNil(destIndex?.entries["IMG_1.dng"])
-    }
+    let destStore = LibraryIndexStore(folderURL: destFolder)
+    let destIndex = try await destStore.load()
+    XCTAssertNotNil(destIndex?.entries["IMG_1.dng"])
+  }
+
+  func testKeepBothMoveCarriesFreshSourceStampedDerivativesToRenamedDestination() async throws {
+    let sourceFolder = root.appendingPathComponent("Source")
+    let destFolder = root.appendingPathComponent("Dest")
+    let source = FileOperationsTestSupport.write(
+      "raw-bytes", to: sourceFolder.appendingPathComponent("snapshot.dng"))
+    let xml = XMPSerializer.serialize(
+      model: AdjustmentModel(exposure: 0.75), culling: CullingState(stars: 4, flag: .pick))
+    FileOperationsTestSupport.write(xml, to: SidecarPath.sidecarURL(for: source))
+    let existingDest = FileOperationsTestSupport.write(
+      "raw-bytes", to: destFolder.appendingPathComponent("snapshot.dng"))
+    FileOperationsTestSupport.write(xml, to: SidecarPath.sidecarURL(for: existingDest))
+
+    let oldThumb = MapleSidecarPaths.thumbURL(for: source)
+    let oldPreview = MapleSidecarPaths.previewURL(for: source)
+    FileOperationsTestSupport.write("fresh-thumb-avif", to: oldThumb)
+    FileOperationsTestSupport.write("fresh-preview-avif", to: oldPreview)
+    LocalDerivativeSourceStamp.record(oldThumb, for: source)
+    LocalDerivativeSourceStamp.record(oldPreview, for: source)
+
+    let outcome = try await LocalFileOperations.relocate(
+      source, to: destFolder, mode: .move, collision: .autoSuffix)
+    let relocated = URL(fileURLWithPath: outcome.primaryPath)
+    XCTAssertEqual(relocated.lastPathComponent, "snapshot.1.dng")
+
+    XCTAssertFalse(FileOperationsTestSupport.exists(oldThumb))
+    XCTAssertFalse(FileOperationsTestSupport.exists(oldPreview))
+    XCTAssertFalse(LocalDerivativeSourceStamp.isFresh(oldThumb, for: source))
+
+    let newThumb = MapleSidecarPaths.thumbURL(for: relocated)
+    let newPreview = MapleSidecarPaths.previewURL(for: relocated)
+    XCTAssertEqual(FileOperationsTestSupport.contents(newThumb), "fresh-thumb-avif")
+    XCTAssertEqual(FileOperationsTestSupport.contents(newPreview), "fresh-preview-avif")
+    XCTAssertTrue(LocalDerivativeSourceStamp.isFresh(newThumb, for: relocated))
+    XCTAssertTrue(LocalDerivativeSourceStamp.isFresh(newPreview, for: relocated))
+    let cachedThumb = await ThumbnailDiskCache.shared.thumbnailData(for: relocated)
+    XCTAssertEqual(cachedThumb, Data("fresh-thumb-avif".utf8))
+  }
 }

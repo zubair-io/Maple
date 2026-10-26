@@ -233,7 +233,9 @@ public enum LocalFileOperations {
       renamedDueToCollision: plan.renamedDueToCollision,
       sidecarFollowed: plan.finalSidecarPath != nil || !plan.finalVariantPaths.isEmpty
     )
-    guard !plan.isNoop, plan.mode == .move else { return outcome }
+    guard !plan.isNoop else { return outcome }
+    carryFreshDerivatives(for: plan)
+    guard plan.mode == .move else { return outcome }
 
     let fm = FileManager.default
     do {

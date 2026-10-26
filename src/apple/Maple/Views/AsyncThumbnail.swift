@@ -40,8 +40,25 @@ struct AsyncThumbnail<Content: View>: View {
   }
 
   private func load(key: String) async {
+    if let cached = ThumbnailDecoder.cachedImage(forKey: key) {
+      decoded = cached
+      return
+    }
+    let cameraKey = "camera:" + key
+    if let cachedCamera = ThumbnailDecoder.cachedImage(forKey: cameraKey) {
+      decoded = cachedCamera
+    }
     let capturedAsset = asset
     let capturedSource = source
+    if decoded == nil,
+      let cameraBytes = await ThumbnailLoader.shared.loadCameraPreview(for: capturedAsset),
+      !Task.isCancelled,
+      let cameraImage = await ThumbnailDecoder.image(for: cameraBytes, key: cameraKey),
+      !Task.isCancelled
+    {
+      decoded = cameraImage
+    }
+    guard !Task.isCancelled else { return }
     let bytes = await ThumbnailLoader.shared.load(
       for: capturedAsset, from: capturedSource
     )
@@ -52,6 +69,8 @@ struct AsyncThumbnail<Content: View>: View {
     let image = await ThumbnailDecoder.image(
       for: bytes, key: key)
     guard !Task.isCancelled else { return }
-    decoded = image
+    if let image {
+      decoded = image
+    }
   }
 }
