@@ -7,6 +7,20 @@ namespace Maple.WinUI.ViewModels
 {
     public partial class EditSessionViewModel
     {
+        private AutoProfileStatusState _autoProfileStatus;
+
+        /// <summary>What the current decode's Auto fit achieved (#5458); null
+        /// until that decode lands, and for Neutral or raster sources.</summary>
+        public AutoProfileOutcome? AutoProfileOutcome => _autoProfileStatus.Outcome;
+
+        private void UpdateAutoProfileStatus(AutoProfileStatusState next)
+        {
+            var outcomeChanged = next.Outcome != _autoProfileStatus.Outcome;
+            _autoProfileStatus = next;
+            if (outcomeChanged)
+                OnPropertyChanged(nameof(AutoProfileOutcome));
+        }
+
         /// <summary>A profile choice is one discrete, undoable edit. Finish
         /// any pending slider gesture before recording the profile change.</summary>
         public void SelectProfile(ProfileMode profile)

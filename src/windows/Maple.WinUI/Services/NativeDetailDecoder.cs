@@ -120,6 +120,7 @@ public sealed class NativeDetailDecoder : IAsyncDisposable
                 DisplayLut = anchor.DisplayLut, DisplayLutN = anchor.DisplayLutN,
                 ProfileSource = anchor.ProfileSource,
                 ProfileFit = anchor.ProfileFit,
+                AutoProfileOutcome = anchor.AutoProfileOutcome,
             };
             return new NativeDetailImage(region, _geometry, image);
         }

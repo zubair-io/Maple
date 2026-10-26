@@ -113,6 +113,7 @@ public class ProfileArtifactNativeTests
                 Assert.True(decoded.ProfileCurve != null || decoded.ResidualLut != null,
                     "This fixture must engage Auto Profile; a no-tail render does not qualify artifact reuse.");
                 Assert.NotNull(decoded.DisplayLut);
+                Assert.Equal(AutoProfileOutcome.Applied, decoded.AutoProfileOutcome);
                 Assert.Equal(33, decoded.DisplayLutN);
                 var expected = new float[33 * 33 * 33 * 3];
                 fixed (float* curve = decoded.ProfileCurve)
@@ -241,11 +242,47 @@ public class ProfileArtifactNativeTests
         Assert.NotNull(decoded.ProfileSource);
         var reused = RenderEngine.Decode(source, model, 32, RefineDecodeQuality.Preview, IntPtr.Zero, decoded);
         Assert.Equal(decoded.ProfileSource, reused.ProfileSource);
+        Assert.Equal(AutoProfileOutcome.NoPreview, decoded.AutoProfileOutcome);
+        Assert.Equal(AutoProfileOutcome.NoPreview, reused.AutoProfileOutcome);
         await using var detail = new NativeDetailDecoder();
         var patch = await detail.DecodeAsync(source, model, decoded, new(0, 0, 16, 16), default);
         Assert.Equal(decoded.ProfileSource, patch.Image.ProfileSource);
         Assert.Equal(decoded.ProfileFit, patch.Image.ProfileFit);
         Assert.Null(patch.Image.DisplayLut);
+        Assert.Equal(AutoProfileOutcome.NoPreview, patch.Image.AutoProfileOutcome);
+    }
+
+    [NativeComposeFact]
+    public unsafe void PreviewlessRawFitReportsNoPreviewAndDecodeFallsBackToNeutral()
+    {
+        RuntimeHelpers.RunClassConstructor(typeof(RawFfiLayoutTests).TypeHandle);
+        var source = Path.Combine(AppContext.BaseDirectory, "Fixtures", "grey-l018-rggb.dng");
+        var curve = Enumerable.Repeat(-7f, 220).ToArray();
+        var residual = new float[33 * 33 * 33 * 3];
+        int present = -1;
+        uint size = uint.MaxValue;
+        fixed (float* curvePtr = curve)
+        fixed (float* residualPtr = residual)
+            Assert.Equal(RawFfi.MapleAutoFitNoPreview, RawFfi.maple_gpu_fit_auto_profile_at_render_size(
+                source, null, RefineDecodeQuality.Preview, 64,
+                curvePtr, &present, residualPtr, (nuint)residual.Length, &size));
+        Assert.Equal(0, present);
+        Assert.Equal(0u, size);
+
+        var auto = RenderEngine.Decode(source, new AdjustmentState { Profile = ProfileMode.Auto },
+            64, RefineDecodeQuality.Preview, IntPtr.Zero);
+        Assert.Equal(AutoProfileOutcome.NoPreview, auto.AutoProfileOutcome);
+        Assert.Null(auto.ProfileCurve);
+        Assert.Null(auto.ResidualLut);
+        Assert.Null(auto.DisplayLut);
+        Assert.NotNull(auto.ProfileSource);
+        Assert.Equal(AutoProfileOutcome.NoPreview, RenderEngine.DownsampleHalf(auto).AutoProfileOutcome);
+        Assert.Equal(AutoProfileStatus.NoPreviewText,
+            AutoProfileStatus.VisibleLine(ProfileMode.Auto, auto.AutoProfileOutcome));
+
+        var neutral = RenderEngine.Decode(source, new AdjustmentState { Profile = ProfileMode.Neutral },
+            64, RefineDecodeQuality.Preview, IntPtr.Zero);
+        Assert.Null(neutral.AutoProfileOutcome);
     }
 
     private sealed class ProfileArtifactFactAttribute : FactAttribute
