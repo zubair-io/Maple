@@ -58,6 +58,7 @@ import { workerStallThresholdMigration } from './0033-worker-stall-threshold.ts'
 import { backupSidecarNameChecksMigration } from './0034-backup-sidecar-name-checks.ts';
 import { appleLiveVideoPathMigration } from './0035-apple-live-video-path.ts';
 import { localPurgeObligationsMigration } from './0036-local-purge-obligations.ts';
+import { bundledEmbedderMigration } from './0037-bundled-embedder.ts';
 
 export const ALL_MIGRATIONS: readonly Migration[] = [
   initialSchemaMigration,
@@ -96,4 +97,5 @@ export const ALL_MIGRATIONS: readonly Migration[] = [
   backupSidecarNameChecksMigration,
   appleLiveVideoPathMigration,
   localPurgeObligationsMigration,
+  bundledEmbedderMigration,
 ];

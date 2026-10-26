@@ -100,18 +100,25 @@ describe('central AI connections', () => {
     expect(c.assignments['generated-search'].model).toBe('vision-model');
     expect((await loadEnrichmentConfig())?.ai_connections).toBeUndefined();
   });
-  it('saves independent selections used by vision pools, generated search and embeddings', async () => {
+  it('offers no semantic-search assignment: semantic search runs on the bundled model', async () => {
+    const c = await config();
+    expect(c.available_workers.map((w: { id: string }) => w.id)).toEqual([
+      'describe',
+      'video-describe',
+      'generated-search',
+    ]);
+    expect(c.assignments['semantic-search']).toBeUndefined();
+    expect(c.embedder).toBeUndefined();
+  });
+  it('saves independent selections used by vision pools and generated search', async () => {
     const c = await config();
     c.assignments['generated-search'] = { connection_ids: ['ollama-2'], model: 'text-model' };
-    c.assignments['semantic-search'] = { connection_ids: ['ollama-2'], model: 'embedding-model' };
     expect((await request('PUT', c)).status).toBe(200);
     const resolved = resolveEnrichmentConfig(await loadEnrichmentConfig());
     expect(assignedAiPool(resolved.ai_connections, 'describe')?.pool.capacity).toBe(3);
     expect(assignedAi(resolved.ai_connections, 'generated-search')?.primary.url).toBe(
       'http://gpu2:11434',
     );
-    expect(resolved.embedder_url).toBe('http://gpu2:11434');
-    expect(resolved.embedder_model).toBe('embedding-model');
     const oldFingerprint = workerEnrichmentFingerprint(resolved);
     c.assignments['video-describe'].model = 'new-video-model';
     await request('PUT', c);
@@ -182,51 +189,52 @@ describe('central AI connections', () => {
       concurrency: 1,
       api_key: 'secret',
     });
-    d.assignments['semantic-search'].connection_ids = ['cloud'];
+    d.connections.find((v: { id: string }) => v.id === 'cloud').provider = 'anthropic';
+    d.assignments['generated-search'] = { connection_ids: ['cloud'], model: 'claude' };
     expect((await request('PUT', d)).status).toBe(400);
     expect(await loadEnrichmentConfig()).toEqual(before);
   });
-  it('lets the embed stage override the embedder, defaulting to the semantic-search values', async () => {
+  it('lets generated search use an OpenAI-compatible connection such as Strata', async () => {
     const c = await config();
-    expect(c.embedder).toEqual({
-      url: '',
-      model: '',
-      default_url: 'http://gpu1:11434',
-      default_model: 'bge-m3',
+    c.connections.push({
+      id: 'strata',
+      name: 'Strata',
+      provider: 'openai',
+      url: 'http://strata.lan:8080/v1',
+      concurrency: 2,
+      api_key: 'sk-strata',
     });
-    expect(resolveEnrichmentConfig(await loadEnrichmentConfig())).toMatchObject({
-      embedder_url: 'http://gpu1:11434',
-      embedder_model: 'bge-m3',
-    });
-
-    const saved = await request('PUT', {
-      ...c,
-      embedder: { url: 'http://gpu3:11434/', model: ' qwen3-embedding ' },
-    });
+    c.assignments['generated-search'] = { connection_ids: ['strata'], model: 'qwen3-32b' };
+    const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      Response.json({ data: [{ id: 'qwen3-32b' }, { id: 'bge-m3' }] }),
+    );
+    const saved = await request('PUT', c);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe('http://strata.lan:8080/v1/models');
+    fetchSpy.mockRestore();
     expect(saved.status).toBe(200);
-    expect((await saved.json()).embedder).toMatchObject({
-      url: 'http://gpu3:11434',
-      model: 'qwen3-embedding',
-    });
-    expect(resolveEnrichmentConfig(await loadEnrichmentConfig())).toMatchObject({
-      embedder_url: 'http://gpu3:11434',
-      embedder_model: 'qwen3-embedding',
-      embedder_default_url: 'http://gpu1:11434',
-      embedder_default_model: 'bge-m3',
-    });
-
-    await request('PUT', { ...c, embedder: { url: '', model: '' } });
-    expect(resolveEnrichmentConfig(await loadEnrichmentConfig())).toMatchObject({
-      embedder_url: 'http://gpu1:11434',
-      embedder_model: 'bge-m3',
+    const assigned = assignedAi(
+      resolveEnrichmentConfig(await loadEnrichmentConfig()).ai_connections,
+      'generated-search',
+    );
+    expect(assigned).toMatchObject({
+      model: 'qwen3-32b',
+      primary: { provider: 'openai', url: 'http://strata.lan:8080/v1', api_key: 'sk-strata' },
     });
   });
-  it('rejects an invalid embedder URL before any write', async () => {
+  it('drops a semantic-search assignment an older client still sends', async () => {
     const c = await config();
-    const before = await loadEnrichmentConfig();
-    const response = await request('PUT', { ...c, embedder: { url: 'ftp://nope', model: null } });
-    expect(response.status).toBe(400);
-    expect(await loadEnrichmentConfig()).toEqual(before);
+    const saved = await request('PUT', {
+      ...c,
+      assignments: {
+        ...c.assignments,
+        'semantic-search': { connection_ids: ['ollama-1'], model: 'bge-m3' },
+      },
+      embedder: { url: 'http://gpu3:11434', model: 'bge-m3' },
+    });
+    expect(saved.status).toBe(200);
+    const stored = await loadEnrichmentConfig();
+    expect(stored?.ai_connections?.assignments['semantic-search']).toBeUndefined();
+    expect(stored).not.toHaveProperty('embedder_url');
   });
   it('probes a saved connection for models and for reachability, reporting failures', async () => {
     const c = await config();

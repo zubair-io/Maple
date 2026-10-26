@@ -8,7 +8,6 @@ const LEGACY_AI_FIELDS = [
   'openai_api_key',
   'anthropic_api_key',
   'gemini_api_key',
-  'embedder_model',
   'ai_provider',
   'ai_model',
   'model',

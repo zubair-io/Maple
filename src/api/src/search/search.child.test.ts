@@ -20,8 +20,24 @@ import {
   type LiveTestDatabase,
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import { searchChildConfig } from './search-child-config.ts';
-import { saveEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
+import { vectorFromBase64 } from '../enrichment/vector-codec.ts';
 import { withTestEnv } from '../test-support/env.test-helpers.ts';
+import ollamaReference from './__fixtures__/bge-m3-ollama-reference.json';
+
+/**
+ * Unit vectors Ollama 0.40.10's `bge-m3:latest` returned for a typical document and a 5,000-byte
+ * one (past the 512 tokens the query model used to stop at), recorded for #5445.
+ */
+const REFERENCES = Object.values(ollamaReference).map(({ text, vector }) => ({
+  text,
+  vector: vectorFromBase64(vector),
+}));
+
+const cosine = (a: Float32Array, b: Float32Array): number =>
+  a.reduce((sum, value, index) => sum + value * b[index]!, 0);
+
+const maxAbsDifference = (a: Float32Array, b: Float32Array): number =>
+  a.reduce((max, value, index) => Math.max(max, Math.abs(value - b[index]!)), 0);
 
 withTestEnv('MAPLE_JWT_SECRET', 'x'.repeat(32));
 import { SearchChildPool, type SearchEngineStatus } from './search-pool.ts';
@@ -111,20 +127,38 @@ describe.skipIf(!searchLibrary)('search child over the real library', () => {
     }
   }, 90_000);
 
-  test('reports an embedding model other than bge-m3 as incompatible and answers nothing', async () => {
-    await saveEnrichmentConfig({ embedder_model: 'nomic-embed-text' });
+  test('an engine without an embedder refuses a document batch as a failure, not a wait', async () => {
     const pool = new SearchChildPool(() => config(false));
     pool.start();
     try {
-      const status = await waitFor(pool, (s) => s.phase !== 'starting' && s.phase !== 'loading');
-      expect(status).toMatchObject({ phase: 'incompatible-embedder', model: 'nomic-embed-text' });
-      expect(status.error).toContain('bge-m3');
-      expect(await pool.search('harbour', 10)).toBeNull();
+      await waitFor(pool, (s) => s.phase === 'failed' || s.textReady);
+      expect(await pool.embed(['a quiet harbour'])).toMatchObject({ ok: false, waiting: false });
     } finally {
       pool.stop();
-      await saveEnrichmentConfig({ embedder_model: null });
     }
   }, 90_000);
+
+  test.skipIf(!hasModelCache)(
+    'embeds documents in the child as Ollama bge-m3 did, within float tolerance',
+    async () => {
+      const pool = new SearchChildPool(() => config(true));
+      pool.start();
+      try {
+        await waitFor(pool, (s) => s.phase === 'failed' || s.textReady);
+        const outcome = await pool.embed(REFERENCES.map((reference) => reference.text));
+        expect(outcome.ok).toBe(true);
+        if (!outcome.ok) return;
+        REFERENCES.forEach((reference, index) => {
+          const local = outcome.vectors[index]!;
+          expect(cosine(local, reference.vector)).toBeGreaterThan(0.9999);
+          expect(maxAbsDifference(local, reference.vector)).toBeLessThan(2e-3);
+        });
+      } finally {
+        pool.stop();
+      }
+    },
+    180_000,
+  );
 
   test.skipIf(!hasModelCache)(
     'ranks a query with the bge-m3 embedder and the keyword leg',

@@ -28,25 +28,12 @@ function strataConfig(url = STRATA_URL): AiConnectionsConfig {
       describe: { connection_ids: ['strata'], model: 'qwen2.5-vl' },
       'video-describe': { connection_ids: ['strata'], model: 'qwen2.5-vl' },
       'generated-search': { connection_ids: ['ollama-1'], model: 'gemma4:12b' },
-      'semantic-search': { connection_ids: ['strata'], model: 'BAAI/bge-m3' },
     },
   };
 }
 
-function resolved(ai: AiConnectionsConfig, embedderUrl: string | null = null) {
-  return resolveEnrichmentConfig(
-    {
-      nominatim_url: null,
-      geocode_worker_enabled: true,
-      ai_connections: ai,
-      embedder_url: embedderUrl,
-    },
-    {},
-  );
-}
-
 describe('OpenAI-compatible connections', () => {
-  it('accept a base URL and serve semantic search', () => {
+  it('accept a base URL', () => {
     expect(validateAiConnections(strataConfig())).toBeNull();
   });
 
@@ -65,30 +52,19 @@ describe('OpenAI-compatible connections', () => {
     expect(validateAiConnections(config)).toBeNull();
   });
 
-  it('embed over the OpenAI protocol with the connection key', () => {
-    const r = resolved(strataConfig());
-    expect(r.embedder_url).toBe(STRATA_URL);
-    expect(r.embedder_model).toBe('BAAI/bge-m3');
-    expect(r.embedder_protocol).toBe('openai');
-    expect(r.embedder_api_key).toBe('sk-strata');
+  it('no longer accept a semantic-search assignment: it runs on the bundled model', () => {
+    const config = strataConfig();
+    config.assignments['semantic-search'] = { connection_ids: ['strata'], model: 'bge-m3' };
+    expect(validateAiConnections(config)).toBe('Unknown worker assignment.');
   });
 
-  it('embed against OpenAI itself when the connection has no base URL', () => {
-    const r = resolved(strataConfig(''));
-    expect(r.embedder_url).toBe('https://api.openai.com/v1');
-    expect(r.embedder_protocol).toBe('openai');
-  });
-
-  it('treat a saved embedder endpoint override as an Ollama server without a key', () => {
-    const r = resolved(strataConfig(), 'http://embed.lan:11434');
-    expect(r.embedder_url).toBe('http://embed.lan:11434');
-    expect(r.embedder_protocol).toBe('ollama');
-    expect(r.embedder_api_key).toBeNull();
-  });
-
-  it('never expose the embedder key in the public enrichment config', async () => {
-    const pub = await toPublicConfig(resolved(strataConfig()));
-    expect('embedder_api_key' in pub).toBe(false);
+  it('never expose a connection key in the public enrichment config', async () => {
+    const pub = await toPublicConfig(
+      resolveEnrichmentConfig(
+        { nominatim_url: null, geocode_worker_enabled: true, ai_connections: strataConfig() },
+        {},
+      ),
+    );
     expect(JSON.stringify(pub)).not.toContain('sk-strata');
   });
 });

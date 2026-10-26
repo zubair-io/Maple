@@ -1,21 +1,19 @@
 /**
- * Embed stage. Renders the production embedder template for an asset, embeds it on the
- * configured Ollama host in batches, and stores the L2-normalised vector in `asset_vectors`.
+ * Embed stage. Renders the production embedder template for an asset, embeds it with the bundled
+ * bge-m3 — the same model the search child embeds queries with, running in that child — and
+ * stores the L2-normalised vector in `asset_vectors` (#5445).
  *
  * Derived data only: vectors live in SQLite, never in an XMP sidecar.
  *
- * `ai_model` on this stage's worker_config row records the endpoint and model the stage last ran
- * with, so a change also revives rows that dead-lettered under the previous one.
- *
  * Re-embedding is driven two ways. Bumping `EMBEDDER_TEMPLATE_SHAPE_VERSION` raises this stage's
- * target version, which re-queues every asset. Changing the embedding model leaves versions
- * alone, so `onProgress` sweeps for vectors written by another model or endpoint once a minute,
- * busy or idle (and the AI settings save runs the same check).
+ * target version, which re-queues every asset. And `onProgress` sweeps once a minute for vectors
+ * another model wrote (an Ollama `nomic-embed-text`, say) and re-queues those. A bge-m3 vector is
+ * current whoever wrote it, so a library Ollama's bge-m3 embedded is kept as it is.
  * Stages that change template text (describe, transcribe, geocode, ...) re-arm `embed` through
  * `invalidates`.
  *
- * `pausedOnFirstBoot: true` — a full library is tens of minutes of GPU time on the operator's
- * Ollama host, so the operator confirms the endpoint and model on Settings → AI, then resumes.
+ * While the search child is not running or is still loading the model (a first boot downloads
+ * ~2.2 GB), a claim is deferred rather than failed, so no asset dead-letters waiting for it.
  */
 
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
@@ -25,22 +23,27 @@ import {
   embedderDocumentFor,
   renderEmbedderDocument,
 } from '../../enrichment/embedder-document.ts';
-import {
-  EMBED_BATCH_SIZE,
-  embedTexts,
-  type EmbedTarget,
-} from '../../enrichment/ollama-embed-client.ts';
 import { upsertAssetVectorStatement } from '../../db/repos/asset-vectors.repo.ts';
+import { SEARCH_EMBEDDING_MODEL } from '../../db/repos/asset-vectors.search.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import type { AssetFaceDoc, Place, TranscriptDoc } from '../../db/schema.ts';
+import type { EmbedOutcome } from '../../search/search-protocol.ts';
 import { createBatcher } from '../embed/batcher.ts';
-import { currentEmbedderTarget, freshEmbedderTarget } from '../embed/embedder-target.ts';
 import { sweepEmbedderChange } from '../embed/embedder-rearm.ts';
+import {
+  BUNDLED_ENDPOINT,
+  embedDocuments,
+  LOCAL_EMBED_BATCH,
+  type DocumentEmbedder,
+} from '../embed/local-embedder.ts';
 import { loadNamedPeople, peopleNamesForFaces } from '../../people/asset-person-names.ts';
 
 const EMBED_STAGE_VERSION = EMBEDDER_TEMPLATE_SHAPE_VERSION;
 
 const BATCH_LINGER_MS = 25;
+
+/** How long a claim waits for the search engine before it is tried again. */
+const ENGINE_WAIT_MS = 30_000;
 
 interface EmbeddableImage {
   maple_id?: string;
@@ -52,34 +55,26 @@ interface EmbeddableImage {
   faces?: AssetFaceDoc[] | null;
 }
 
-interface EmbeddedText {
-  vector: Float32Array;
-  model: string;
-  endpoint: string;
+type EmbeddedText =
+  | { ok: true; vector: Float32Array }
+  | { ok: false; waiting: boolean; error: string };
+
+let embedBatchImpl: DocumentEmbedder = embedDocuments;
+
+function perText(outcome: EmbedOutcome, count: number): EmbeddedText[] {
+  return outcome.ok
+    ? outcome.vectors.map((vector) => ({ ok: true, vector }))
+    : Array.from({ length: count }, () => outcome);
 }
 
-type EmbedBatchFn = (target: EmbedTarget, inputs: readonly string[]) => Promise<Float32Array[]>;
+const batcher = createBatcher(
+  async (texts: readonly string[]) => perText(await embedBatchImpl(texts), texts.length),
+  { maxBatch: LOCAL_EMBED_BATCH, lingerMs: BATCH_LINGER_MS },
+);
 
-let embedBatchImpl: EmbedBatchFn = (target, inputs) => embedTexts(target, inputs);
-
-async function embedBatch(texts: readonly string[]): Promise<readonly EmbeddedText[]> {
-  const target = await currentEmbedderTarget();
-  const vectors = await embedBatchImpl(target, texts);
-  const latest = await freshEmbedderTarget();
-  if (latest.model !== target.model || latest.url !== target.url) {
-    throw new Error('embed: the embedder changed while a batch was in flight; retrying');
-  }
-  return vectors.map((vector) => ({ vector, model: target.model, endpoint: target.url }));
-}
-
-const batcher = createBatcher(embedBatch, {
-  maxBatch: EMBED_BATCH_SIZE,
-  lingerMs: BATCH_LINGER_MS,
-});
-
-/** Test-only seam for the Ollama call. Call with `null` to restore the real client. */
-export function setEmbedBatchForTests(impl: EmbedBatchFn | null): void {
-  embedBatchImpl = impl ?? ((target, inputs) => embedTexts(target, inputs));
+/** Test-only seam for the search child. Call with `null` to restore the real one. */
+export function setEmbedBatchForTests(impl: DocumentEmbedder | null): void {
+  embedBatchImpl = impl ?? embedDocuments;
 }
 
 export async function embedHandler(image: ImageDoc, ctx: StageContext): Promise<StageResult> {
@@ -94,7 +89,11 @@ export async function embedHandler(image: ImageDoc, ctx: StageContext): Promise<
   const faces = embeddable.faces ?? null;
   const people = peopleNamesForFaces(faces, await loadNamedPeople([faces]));
   const text = renderEmbedderDocument(embedderDocumentFor(embeddable, primary.filename, people));
-  const { vector, model, endpoint } = await batcher.submit(text);
+  const embedded = await batcher.submit(text);
+  if (!embedded.ok && embedded.waiting) {
+    return { defer: { reason: embedded.error, retryAt: new Date(Date.now() + ENGINE_WAIT_MS) } };
+  }
+  if (!embedded.ok) throw new Error(`embed: ${embedded.error}`);
 
   return {
     patch: [
@@ -102,9 +101,9 @@ export async function embedHandler(image: ImageDoc, ctx: StageContext): Promise<
         {
           mapleId,
           version: EMBED_STAGE_VERSION,
-          model,
-          endpoint,
-          vector,
+          model: SEARCH_EMBEDDING_MODEL,
+          endpoint: BUNDLED_ENDPOINT,
+          vector: embedded.vector,
           embeddedAt: new Date(),
         },
         { assetId: image._id.toHexString(), lease: ctx.lease },
@@ -118,11 +117,11 @@ const embedStage = defineStage({
   targetVersion: EMBED_STAGE_VERSION,
   dependsOn: ['exif'],
   defaults: {
-    concurrency: 1024,
+    concurrency: 64,
     maxAttempts: 3,
     paused: false,
     last_seen_target_version: 0,
-    pausedOnFirstBoot: true,
+    pausedOnFirstBoot: false,
   },
   handler: embedHandler,
   onProgress: sweepEmbedderChange,

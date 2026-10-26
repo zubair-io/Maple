@@ -10,8 +10,6 @@ import {
 } from '../db/sqlite/test-sqlite.test-helpers.ts';
 import {
   bootSearchIndex,
-  incompatibleEmbedderState,
-  matchesQueryEmbedder,
   readIndexState,
   reusableIndexState,
   SEARCH_INDEX_VERSION,
@@ -122,19 +120,4 @@ test('with no vector of the configured model the child reports empty, never read
   );
 
   expect(states.map((state) => state.phase)).toEqual(['empty', 'empty']);
-});
-
-test('only bge-m3, under any Ollama tag, is compatible with the query embedder', () => {
-  for (const model of ['bge-m3', 'bge-m3:latest', 'BGE-M3:567m', 'library/bge-m3']) {
-    expect(matchesQueryEmbedder(model)).toBe(true);
-    expect(incompatibleEmbedderState(model)).toBeNull();
-  }
-  for (const model of ['nomic-embed-text', 'bge-large', 'qwen3-embedding:8b', '']) {
-    expect(matchesQueryEmbedder(model)).toBe(false);
-  }
-  expect(incompatibleEmbedderState('nomic-embed-text')).toMatchObject({
-    phase: 'incompatible-embedder',
-    model: 'nomic-embed-text',
-    vectors: 0,
-  });
 });

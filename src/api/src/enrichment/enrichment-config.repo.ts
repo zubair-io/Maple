@@ -46,8 +46,6 @@ export function builtinModelDir(): string {
  * before and after the operator-configurable surface lands. */
 export const DEFAULT_NOMINATIM_RATE_LIMIT_PER_SEC = 10;
 export const DEFAULT_SERVICE_SEARCH_RATE_LIMIT_PER_MINUTE = 60;
-/** The embedding model when neither an `embedder_model` setting nor a `semantic-search` AI assignment names one. */
-export const DEFAULT_EMBEDDER_MODEL = 'bge-m3';
 
 /** Reject obviously broken values up-front. The lower bound is non-zero so
  * a misclick can't pause the worker silently; the upper bound is generous
@@ -198,8 +196,7 @@ export interface EnrichmentConfig {
   describe_daily_cap_usd?: number | null;
   /** Describe servers, in operator order. Entry 0 is the default server —
    * the resolver mirrors its URL onto `describe_provider_url`, which is
-   * what every other service (semantic-search embedder, generated-search)
-   * reads. `null`/missing → the single `describe_provider_url` server.
+   * what the legacy generated-search fallback reads. `null`/missing → the single `describe_provider_url` server.
    * Written whole (the UI owns the list); a partial patch is not a thing. */
   describe_servers?: DescribeServerConfig[] | null;
   /** Provider URL — only meaningful for Ollama. Ignored for paid
@@ -240,13 +237,6 @@ export interface EnrichmentConfig {
   face_retinaface_sha256?: string | null;
   face_mobilefacenet_url?: string | null;
   face_mobilefacenet_sha256?: string | null;
-  // ── Search index ───────────────────────────────────────────────────
-  /** Ollama endpoint the `embed` stage computes document vectors on. `null`/missing →
-   * the `semantic-search` AI assignment's endpoint, else the describe endpoint. */
-  embedder_url?: string | null;
-  /** Ollama embedding model of the `embed` stage. `null`/missing → the `semantic-search` AI
-   * assignment's model, else {@link DEFAULT_EMBEDDER_MODEL}. */
-  embedder_model?: string | null;
   /** Per-service-key request budget for the external asset-search endpoint.
    * DB-backed so operators can tune it at runtime from Settings → Workers. */
   service_search_rate_limit_per_minute?: number | null;
@@ -381,8 +371,6 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
   if (remapped.face_min_detection_size !== undefined) {
     set['config.face_min_detection_size'] = remapped.face_min_detection_size;
   }
-  if (remapped.embedder_url !== undefined) set['config.embedder_url'] = remapped.embedder_url;
-  if (remapped.embedder_model !== undefined) set['config.embedder_model'] = remapped.embedder_model;
   if (remapped.service_search_rate_limit_per_minute !== undefined) {
     set['config.service_search_rate_limit_per_minute'] =
       remapped.service_search_rate_limit_per_minute;

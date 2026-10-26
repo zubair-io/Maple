@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  embedderSaveOutcome,
   normalizeAssignments,
   normalizeConnections,
   probeApiKey,
@@ -59,16 +58,13 @@ describe('normalizeAssignments', () => {
     });
     expect(result['v']).toEqual({ connection_ids: ['a'], model: 'n' });
   });
-});
 
-describe('embedderSaveOutcome', () => {
-  it('saves nothing when omitted, reports a bad URL, and clears blanks', () => {
-    expect(embedderSaveOutcome(undefined)).toEqual({});
-    expect(embedderSaveOutcome({ url: 'ftp://x', model: null })).toHaveProperty('error');
-    expect(embedderSaveOutcome({ url: '', model: ' ' })).toEqual({
-      embedder_url: null,
-      embedder_model: null,
+  it('drops the retired semantic-search assignment an older client still sends', () => {
+    const result = normalizeAssignments({
+      'generated-search': { connection_ids: ['a'], model: 'qwen' },
+      'semantic-search': { connection_ids: ['a'], model: 'bge-m3' },
     });
+    expect(Object.keys(result)).toEqual(['generated-search']);
   });
 });
 

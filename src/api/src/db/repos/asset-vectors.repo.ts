@@ -1,8 +1,9 @@
 import { assetsDb, type SqliteDb } from './db-handle.ts';
-import { encodeVector } from '../../enrichment/ollama-embed-client.ts';
+import { encodeVector } from '../../enrichment/vector-codec.ts';
 import type { SqlStatement } from '../sqlite/protocol.ts';
 
 import { EMBED_STAGE } from './assets.stage-rearm.ts';
+import { modelSpellings, SEARCH_EMBEDDING_MODEL } from './asset-vectors.search.ts';
 
 export interface AssetVectorRecord {
   mapleId: string;
@@ -46,13 +47,13 @@ export function upsertAssetVectorStatement(
 }
 
 /**
- * Re-arms `embed` for every asset whose stored vector came from a different model or endpoint, so a
- * model or endpoint change re-embeds the library. With `includeDead`, assets that exhausted their retries are
- * re-armed too, because they failed under the previous endpoint or model and have no vector to
- * compare. Returns how many assets were re-armed.
+ * Re-arms `embed` for every asset whose stored vector another model wrote, so it is re-embedded
+ * with the bundled bge-m3. A bge-m3 row is current whoever wrote it — the bundled model or an
+ * Ollama server, under either spelling — so switching to the bundled model re-embeds nothing.
+ * With `includeDead`, assets that exhausted their retries are re-armed too, because they failed
+ * under the previous embedder. Returns how many assets were re-armed.
  */
-export async function rearmEmbedForEmbedderChange(
-  current: { model: string; url: string },
+export async function rearmEmbedForForeignVectors(
   options: { includeDead: boolean },
   dbOverride?: SqliteDb,
 ): Promise<number> {
@@ -63,9 +64,9 @@ export async function rearmEmbedForEmbedderChange(
       WHERE stage = ?
         AND ((version > 0 AND asset_id IN (
               SELECT a.id FROM asset_vectors v JOIN assets a ON a.maple_id = v.maple_id
-               WHERE v.model <> ? OR v.endpoint <> ?))
+               WHERE v.model NOT IN (?, ?)))
              OR (? = 1 AND dead = 1))`,
-    [EMBED_STAGE, current.model, current.url, options.includeDead ? 1 : 0],
+    [EMBED_STAGE, ...modelSpellings(SEARCH_EMBEDDING_MODEL), options.includeDead ? 1 : 0],
   );
   return result.changes;
 }

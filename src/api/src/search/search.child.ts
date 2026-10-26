@@ -1,8 +1,11 @@
 /**
- * Child-process entry that owns the in-process search engine (#4463): the bge-m3 query model, every
+ * Child-process entry that owns the in-process search engine (#4463): the bundled bge-m3, every
  * document vector and the Tantivy keyword index. A query is tens of milliseconds of synchronous
  * native work and the engine holds a few gigabytes, so it lives here rather than in the API
  * process; a crash kills only this child, which `search-pool.ts` restarts.
+ *
+ * The same model embeds the `embed` stage's documents (#5445), so query and document vectors come
+ * from one place and the model is loaded once.
  *
  * Reads the library through its own one-reader SQLite pool and never writes to it.
  */
@@ -11,13 +14,11 @@ import { installChildHardening } from '../runtime/child-process-worker.ts';
 import { reportMemoryToParent, startMemoryTelemetry } from '../runtime/memory-telemetry.ts';
 import { openSqlitePool } from '../db/sqlite/index.ts';
 import { child as childLogger } from '../log.ts';
-import { loadEnrichmentConfig } from '../enrichment/enrichment-config.repo.ts';
-import { resolveEnrichmentConfig } from '../enrichment/enrichment-config.resolve.ts';
+import { vectorToBase64 } from '../enrichment/vector-codec.ts';
 import { openSearchEngine, type SearchEngine } from './search-engine-ffi.ts';
-import { normalisedModel } from '../db/repos/asset-vectors.search.ts';
+import { SEARCH_EMBEDDING_MODEL } from '../db/repos/asset-vectors.search.ts';
 import {
   bootSearchIndex,
-  incompatibleEmbedderState,
   readyState,
   reusableIndexState,
   SEARCH_INDEX_VERSION,
@@ -54,53 +55,27 @@ function errorMessage(err: unknown): string {
 async function pollOnce(
   follower: VectorFollower,
   config: SearchChildConfig,
-  model: string,
   opened: SearchEngine,
 ): Promise<void> {
   if ((await follower.poll()) === 0) return;
   writeIndexState(config.stateFile, { version: SEARCH_INDEX_VERSION, ...follower.watermarks });
-  report(await readyState(opened, model, true));
+  report(await readyState(opened, SEARCH_EMBEDDING_MODEL, true));
 }
 
 function followChanges(
   follower: VectorFollower,
   config: SearchChildConfig,
-  model: string,
   opened: SearchEngine,
 ): void {
   let polling = false;
   setInterval(() => {
     if (polling) return;
     polling = true;
-    pollOnce(follower, config, model, opened)
+    pollOnce(follower, config, opened)
       .finally(() => {
         polling = false;
       })
       .catch((err: unknown) => log.warn({ err: errorMessage(err) }, 'search poll failed'));
-  }, POLL_INTERVAL_MS);
-}
-
-async function resolvedEmbedderModel(): Promise<string> {
-  return resolveEnrichmentConfig(await loadEnrichmentConfig()).embedder_model;
-}
-
-/**
- * Asks the parent for a fresh child once the embedding model this one loaded is no longer the
- * configured one. Read from the settings row itself, so it catches every way the model can
- * change — Settings → AI, the legacy enrichment-config endpoint, a semantic-search assignment —
- * without each writer having to remember to restart search.
- */
-function watchEmbedderModel(model: string): void {
-  const timer = setInterval(() => {
-    resolvedEmbedderModel()
-      .then((current) => {
-        if (normalisedModel(current) === normalisedModel(model)) return;
-        clearInterval(timer);
-        post({ type: 'reload', reason: `embedding model changed from "${model}" to "${current}"` });
-      })
-      .catch((err: unknown) =>
-        log.warn({ err: errorMessage(err) }, 'embedding model re-read failed'),
-      );
   }, POLL_INTERVAL_MS);
 }
 
@@ -110,17 +85,16 @@ async function start(config: SearchChildConfig): Promise<void> {
   try {
     await openSqlitePool({ path: config.dbPath, readers: 1 });
     const saved = reusableIndexState(config.stateFile, config.engine.index_dir);
-    const model = await resolvedEmbedderModel();
-    watchEmbedderModel(model);
-    const incompatible = incompatibleEmbedderState(model);
-    if (incompatible) {
-      report(incompatible);
-      return;
-    }
     const opened = openSearchEngine(config.engine);
     engine = opened;
-    const follower = await bootSearchIndex(opened, model, saved, config.stateFile, report);
-    followChanges(follower, config, model, opened);
+    const follower = await bootSearchIndex(
+      opened,
+      SEARCH_EMBEDDING_MODEL,
+      saved,
+      config.stateFile,
+      report,
+    );
+    followChanges(follower, config, opened);
   } catch (err) {
     const message = errorMessage(err);
     log.error({ err: message }, 'search engine failed to start');
@@ -140,8 +114,21 @@ function answer(id: number, query: string, k: number): void {
   }
 }
 
+function embed(id: number, texts: string[]): void {
+  if (!engine) {
+    post({ type: 'embed', id, ok: false, loading: true, error: 'search engine is not loaded' });
+    return;
+  }
+  try {
+    post({ type: 'embed', id, ok: true, vectors: engine.embed(texts).map(vectorToBase64) });
+  } catch (err) {
+    post({ type: 'embed', id, ok: false, error: errorMessage(err) });
+  }
+}
+
 function dispatch(request: SearchChildRequest): void {
   if (request.type === 'start') void start(request.config);
+  else if (request.type === 'embed') embed(request.id, request.texts);
   else answer(request.id, request.query, request.k);
 }
 

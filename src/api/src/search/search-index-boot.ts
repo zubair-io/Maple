@@ -15,11 +15,7 @@ import {
   type SearchEngineOps,
 } from './search-index-sync.ts';
 import type { SearchChildState } from './search-protocol.ts';
-import {
-  countSkippedVectors,
-  modelSpellings,
-  normalisedModel,
-} from '../db/repos/asset-vectors.search.ts';
+import { countSkippedVectors, modelSpellings } from '../db/repos/asset-vectors.search.ts';
 
 /**
  * The template shape the text is rendered with, then this layout's own revision: `.2` added the
@@ -59,29 +55,6 @@ export function reusableIndexState(stateFile: string, indexDir: string): SearchI
   if (saved?.version === SEARCH_INDEX_VERSION) return saved;
   rmSync(indexDir, { recursive: true, force: true });
   return null;
-}
-
-/** The model the engine embeds queries with; document vectors must come from the same one. */
-const QUERY_EMBEDDER_MODEL = 'bge-m3';
-
-/** Whether an Ollama model name (`bge-m3`, `bge-m3:latest`, `library/bge-m3:567m`) is bge-m3. */
-export function matchesQueryEmbedder(model: string): boolean {
-  const name = normalisedModel(model).toLowerCase().split('/').pop()!.split(':')[0];
-  return name === QUERY_EMBEDDER_MODEL;
-}
-
-/** Why the configured model cannot be searched in-process, or null when it can. */
-export function incompatibleEmbedderState(model: string): SearchChildState | null {
-  if (matchesQueryEmbedder(model)) return null;
-  return {
-    phase: 'incompatible-embedder',
-    vectors: 0,
-    texts: 0,
-    textReady: false,
-    model,
-    matchedModels: modelSpellings(model),
-    error: `the embed stage uses "${model}", but in-process search embeds queries with ${QUERY_EMBEDDER_MODEL}; choose ${QUERY_EMBEDDER_MODEL} as the embedding model on Settings → AI`,
-  };
 }
 
 /**

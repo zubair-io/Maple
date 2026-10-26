@@ -1,16 +1,19 @@
 /**
  * The API side of the search child (#4463): spawns it, mirrors the state it reports, sends it one
- * query at a time and restarts it when it dies.
+ * request at a time and restarts it when it dies.
  *
- * Every failure answers `null` rather than throwing — the child not running, still loading, dead
- * mid-query, a query queued past its deadline — and callers take that as "use the database
+ * Every query failure answers `null` rather than throwing — the child not running, still loading,
+ * dead mid-query, a query queued past its deadline — and callers take that as "use the database
  * path". A search never fails because the in-process engine is unavailable.
  *
- * One query in flight: a query already uses every thread the embedder and the vector scan are
+ * One request in flight: a query already uses every thread the embedder and the vector scan are
  * given, so a second concurrent one would only slow both. Waiting queries keep their place and
  * give up at {@link QUERY_TIMEOUT_MS} from when they arrived. An in-flight query that outlives
  * that deadline means a wedged native call that would hold the queue forever, so the child is
  * killed and restarted exactly as if it had crashed, and everything waiting falls back at once.
+ *
+ * The `embed` stage's document batches (#5445) share the queue behind every waiting query, so a
+ * search waits for at most the one batch in flight; the stage keeps its batches small for that.
  */
 
 import { child as childLogger } from '../log.ts';
@@ -19,8 +22,11 @@ import {
   childScriptPath,
   DEFAULT_NATIVE_CHILD_NICE,
 } from '../runtime/child-process-worker.ts';
+import { vectorFromBase64 } from '../enrichment/vector-codec.ts';
 import type { FusedSearchHit } from './search-engine-ffi.ts';
 import type {
+  EmbedOutcome,
+  EmbedResponse,
   QueryResponse,
   SearchChildConfig,
   SearchChildResponse,
@@ -31,7 +37,10 @@ const log = childLogger('search-pool');
 const SEARCH_CHILD_SCRIPT = childScriptPath(import.meta.url, './search.child.ts');
 
 export const QUERY_TIMEOUT_MS = 2_000;
+/** A document batch still running after this is a wedged native call, like a late query. */
+export const EMBED_TIMEOUT_MS = 120_000;
 const MAX_WAITING = 32;
+const MAX_EMBED_WAITING = 4;
 const RESTART_MIN_MS = 1_000;
 const RESTART_MAX_MS = 5 * 60_000;
 const HEALTHY_UPTIME_MS = 10 * 60_000;
@@ -53,7 +62,8 @@ export interface InProcessSearch extends InProcessRanker {
   status(): SearchEngineStatus;
 }
 
-interface Job {
+interface QueryJob {
+  kind: 'query';
   id: number;
   query: string;
   k: number;
@@ -62,7 +72,34 @@ interface Job {
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface EmbedJob {
+  kind: 'embed';
+  id: number;
+  texts: string[];
+  settled: boolean;
+  resolve: (outcome: EmbedOutcome) => void;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+type Job = QueryJob | EmbedJob;
+
 const STOPPED: SearchChildState = { phase: 'loading', vectors: 0, texts: 0, textReady: false };
+
+const notEmbedding = (error: string): EmbedOutcome => ({ ok: false, waiting: true, error });
+
+function embedOutcome(message: EmbedResponse, expected: number): EmbedOutcome {
+  if (!message.ok) {
+    return { ok: false, waiting: message.loading === true, error: message.error ?? 'embed failed' };
+  }
+  const vectors = (message.vectors ?? []).map(vectorFromBase64);
+  return vectors.length === expected
+    ? { ok: true, vectors }
+    : {
+        ok: false,
+        waiting: false,
+        error: `the engine returned ${vectors.length} vectors for ${expected} texts`,
+      };
+}
 
 export class SearchChildPool implements InProcessSearch {
   private worker: ChildProcessWorker | null = null;
@@ -75,7 +112,8 @@ export class SearchChildPool implements InProcessSearch {
   private spawnedAt = 0;
   private nextId = 1;
   private current: Job | null = null;
-  private readonly waiting: Job[] = [];
+  private readonly waiting: QueryJob[] = [];
+  private readonly embedsWaiting: EmbedJob[] = [];
 
   constructor(
     private readonly config: () => SearchChildConfig,
@@ -100,13 +138,6 @@ export class SearchChildPool implements InProcessSearch {
     this.abandonAll();
   }
 
-  /** Reloads a running child from scratch, e.g. after the embedding model changed. */
-  restart(): void {
-    if (!this.wanted) return;
-    this.stop();
-    this.start();
-  }
-
   status(): SearchEngineStatus {
     const { phase: _phase, ...counts } = this.childState;
     return { ...counts, phase: this.phase, restarts: this.restarts };
@@ -116,7 +147,8 @@ export class SearchChildPool implements InProcessSearch {
     if (this.phase !== 'ready' || !this.worker) return Promise.resolve(null);
     if (this.waiting.length >= MAX_WAITING) return Promise.resolve(null);
     return new Promise((resolve) => {
-      const job: Job = {
+      const job: QueryJob = {
+        kind: 'query',
         id: this.nextId++,
         query,
         k,
@@ -125,6 +157,32 @@ export class SearchChildPool implements InProcessSearch {
         timer: setTimeout(() => this.expire(job), QUERY_TIMEOUT_MS),
       };
       this.waiting.push(job);
+      this.pump();
+    });
+  }
+
+  /**
+   * Document vectors with the query model, in input order; see {@link EmbedOutcome}. Sent only
+   * once the child has loaded its model and vectors: opening the engine is one blocking native
+   * call that can include the model's first download, which no batch deadline may cut short.
+   */
+  embed(texts: readonly string[]): Promise<EmbedOutcome> {
+    if (!this.worker) return Promise.resolve(notEmbedding('the search engine is not running'));
+    if (this.phase !== 'ready' && this.phase !== 'empty') {
+      return Promise.resolve(notEmbedding('the search engine is still loading'));
+    }
+    if (this.embedsWaiting.length >= MAX_EMBED_WAITING) {
+      return Promise.resolve(notEmbedding('the search engine is busy embedding'));
+    }
+    return new Promise((resolve) => {
+      this.embedsWaiting.push({
+        kind: 'embed',
+        id: this.nextId++,
+        texts: [...texts],
+        settled: false,
+        resolve,
+        timer: null,
+      });
       this.pump();
     });
   }
@@ -152,14 +210,8 @@ export class SearchChildPool implements InProcessSearch {
   private onMessage(worker: ChildProcessWorker, message: SearchChildResponse): void {
     if (worker !== this.worker || !message) return;
     if (message.type === 'state') this.onState(worker, message.state);
-    else if (message.type === 'reload') this.onReload(message.reason);
+    else if (message.type === 'embed') this.onEmbedReply(message);
     else this.onQueryReply(message);
-  }
-
-  private onReload(reason: string): void {
-    log.info({ reason }, 'search child asked to reload');
-    this.restarts++;
-    this.restart();
   }
 
   private onState(worker: ChildProcessWorker, state: SearchChildState): void {
@@ -170,10 +222,18 @@ export class SearchChildPool implements InProcessSearch {
 
   private onQueryReply(message: QueryResponse): void {
     const job = this.current;
-    if (job?.id !== message.id) return;
+    if (job?.kind !== 'query' || job.id !== message.id) return;
     this.current = null;
     if (!message.ok) log.warn({ err: message.error }, 'in-process search query failed');
     this.settle(job, message.ok ? (message.hits ?? []) : null);
+    this.pump();
+  }
+
+  private onEmbedReply(message: EmbedResponse): void {
+    const job = this.current;
+    if (job?.kind !== 'embed' || job.id !== message.id) return;
+    this.current = null;
+    this.settleEmbed(job, embedOutcome(message, job.texts.length));
     this.pump();
   }
 
@@ -194,33 +254,54 @@ export class SearchChildPool implements InProcessSearch {
 
   private pump(): void {
     if (this.current || !this.worker) return;
-    const next = this.waiting.shift();
+    const next = this.waiting.shift() ?? this.embedsWaiting.shift();
     if (!next) return;
     this.current = next;
-    this.worker.postMessage({ type: 'query', id: next.id, query: next.query, k: next.k });
+    if (next.kind === 'query') {
+      this.worker.postMessage({ type: 'query', id: next.id, query: next.query, k: next.k });
+      return;
+    }
+    next.timer = setTimeout(() => this.expire(next), EMBED_TIMEOUT_MS);
+    this.worker.postMessage({ type: 'embed', id: next.id, texts: next.texts });
   }
 
   private expire(job: Job): void {
     if (job === this.current) {
-      this.onDeath(this.worker, `a query did not answer within ${QUERY_TIMEOUT_MS} ms`);
+      const limit = job.kind === 'query' ? QUERY_TIMEOUT_MS : EMBED_TIMEOUT_MS;
+      this.onDeath(this.worker, `a ${job.kind} request did not answer within ${limit} ms`);
       return;
     }
+    if (job.kind !== 'query') return;
     const queued = this.waiting.indexOf(job);
     if (queued >= 0) this.waiting.splice(queued, 1);
     this.settle(job, null);
   }
 
-  private settle(job: Job, hits: FusedSearchHit[] | null): void {
+  private settle(job: QueryJob, hits: FusedSearchHit[] | null): void {
     clearTimeout(job.timer);
     if (job.settled) return;
     job.settled = true;
     job.resolve(hits);
   }
 
+  private settleEmbed(job: EmbedJob, outcome: EmbedOutcome): void {
+    if (job.timer) clearTimeout(job.timer);
+    if (job.settled) return;
+    job.settled = true;
+    job.resolve(outcome);
+  }
+
   private abandonAll(): void {
-    const jobs = [...(this.current ? [this.current] : []), ...this.waiting.splice(0)];
+    const jobs = [
+      ...(this.current ? [this.current] : []),
+      ...this.waiting.splice(0),
+      ...this.embedsWaiting.splice(0),
+    ];
     this.current = null;
-    for (const job of jobs) this.settle(job, null);
+    for (const job of jobs) {
+      if (job.kind === 'query') this.settle(job, null);
+      else this.settleEmbed(job, notEmbedding('the search engine restarted'));
+    }
   }
 }
 
@@ -236,6 +317,11 @@ export function searchChildPool(config: () => SearchChildConfig): SearchChildPoo
 
 export function stopSearchChildPool(): void {
   pool?.stop();
+}
+
+/** The API's own pool, when this process runs one: what a worker's `embed` request reaches. */
+export function localSearchChildPool(): SearchChildPool | null {
+  return pool;
 }
 
 /** The engine the routes query: the test fake when one is installed, else the pool if created. */
