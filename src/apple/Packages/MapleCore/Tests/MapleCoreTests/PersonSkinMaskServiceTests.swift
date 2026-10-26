@@ -70,18 +70,41 @@ final class PersonSkinMaskServiceTests: XCTestCase {
     XCTAssertLessThanOrEqual(count(facial), count(both))
   }
 
-  func testNeutralPortraitKeepsDefaultSkinToneRange() async throws {
-    let image = try loadFixture("portrait-skin-test")
-    let service = PersonSkinMaskService()
-    let people = try await service.detectPersons(in: image)
-    let (w, h, bytes) = try await service.makeRaster(
-      image: image,
-      request: SkinRasterRequest(person: people[0].id, facialSkin: true, bodySkin: true)
+  func testNeutralPortraitKeepsDefaultSkinToneRange() throws {
+    let pixelCount = 64
+    let mask = [UInt8](repeating: 255, count: pixelCount)
+    var coveredFloats = [Float]()
+    coveredFloats.reserveCapacity(pixelCount * 4)
+    for _ in 0..<pixelCount {
+      coveredFloats.append(contentsOf: [0.35, 0.22, 0.14, 1.0])
+    }
+    let coveredData = coveredFloats.withUnsafeBufferPointer { Data(buffer: $0) }
+    XCTAssertNil(
+      PersonSkinRangeInitializer.adaptiveSampleIfDefaultInert(
+        stageInputRec2020RGBAf: coveredData,
+        maskWidth: 8,
+        maskHeight: 8,
+        maskBytes: mask
+      )
     )
-    let range = PersonSkinRangeInitializer.initialRange(
-      image: image, maskWidth: w, maskHeight: h, maskBytes: bytes
+
+    var shiftedFloats = [Float]()
+    shiftedFloats.reserveCapacity(pixelCount * 4)
+    for _ in 0..<pixelCount {
+      shiftedFloats.append(contentsOf: [0.32, 0.18, 0.24, 1.0])
+    }
+    let shiftedData = shiftedFloats.withUnsafeBufferPointer { Data(buffer: $0) }
+    let sample = try XCTUnwrap(
+      PersonSkinRangeInitializer.adaptiveSampleIfDefaultInert(
+        stageInputRec2020RGBAf: shiftedData,
+        maskWidth: 8,
+        maskHeight: 8,
+        maskBytes: mask
+      )
     )
-    XCTAssertEqual(range, .skinTone)
+    let adapted = RangeRefinement.skinTone.seeded(with: sample)
+    XCTAssertNotEqual(adapted, .skinTone)
+    XCTAssertLessThan(sample.hueDeg, 0.0)
   }
 
   func testBodySkinMaskOnWarmPortraitAdaptsRangeAndRespondsToLocalExposure() async throws {
