@@ -72,6 +72,14 @@ impl SearchEngine {
             .embed(query)
     }
 
+    /// The `embed` stage's document vectors, from the model that embeds queries.
+    pub fn embed_documents(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        self.embedder
+            .as_ref()
+            .ok_or(SearchError::NoEmbedder)?
+            .embed_many(texts)
+    }
+
     /// The fused top `k` for `query`. A blank query, or one with no positive
     /// term (`???`, `-boat`), finds nothing and is never embedded.
     pub fn search(&self, query: &str, k: usize) -> Result<Vec<FusedHit>> {

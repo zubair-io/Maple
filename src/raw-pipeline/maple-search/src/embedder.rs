@@ -1,6 +1,6 @@
-//! Query embedding: bge-m3 through fastembed on ONNX Runtime, CLS-pooled and
-//! L2-normalised, so a query vector is directly comparable with the document
-//! vectors the API's `embed` stage stores (same model, same normalisation).
+//! bge-m3 through fastembed on ONNX Runtime, CLS-pooled and L2-normalised.
+//! The one model embeds both search queries and the documents the API's
+//! `embed` stage stores, so the two are comparable by construction.
 
 use crate::error::{Result, SearchError};
 use crate::vectors::{normalise, DIM};
@@ -9,7 +9,9 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-pub const MAX_TOKENS: usize = 512;
+/// bge-m3's own window, as Ollama served it: a stored document reaches about
+/// 1,700 tokens, and the tokenizer pads a batch only to its longest input.
+pub const MAX_TOKENS: usize = 8192;
 const ORT_DYLIB_ENV: &str = "ORT_DYLIB_PATH";
 const MIN_ORT_MINOR: u32 = 23;
 
@@ -55,24 +57,40 @@ impl QueryEmbedder {
     }
 
     pub fn embed(&self, text: &str) -> Result<Vec<f32>> {
+        self.embed_many(&[text])?
+            .pop()
+            .ok_or_else(|| SearchError::Embedding("the model returned no embedding".into()))
+    }
+
+    /// One unit vector per text, in input order.
+    pub fn embed_many(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         let mut model = self
             .model
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut vector = model
-            .embed([text], None)
-            .map_err(|e| SearchError::Embedding(e.to_string()))?
-            .pop()
-            .ok_or_else(|| SearchError::Embedding("the model returned no embedding".into()))?;
-        if vector.len() != DIM {
-            return Err(SearchError::Dimension {
-                got: vector.len(),
-                expected: DIM,
-            });
+        let vectors = model
+            .embed(texts, None)
+            .map_err(|e| SearchError::Embedding(e.to_string()))?;
+        if vectors.len() != texts.len() {
+            return Err(SearchError::Embedding(format!(
+                "the model returned {} embeddings for {} texts",
+                vectors.len(),
+                texts.len()
+            )));
         }
-        normalise(&mut vector);
-        Ok(vector)
+        vectors.into_iter().map(unit_vector).collect()
     }
+}
+
+fn unit_vector(mut vector: Vec<f32>) -> Result<Vec<f32>> {
+    if vector.len() != DIM {
+        return Err(SearchError::Dimension {
+            got: vector.len(),
+            expected: DIM,
+        });
+    }
+    normalise(&mut vector);
+    Ok(vector)
 }
 
 fn init_runtime(explicit: Option<&Path>) -> Result<()> {
@@ -151,6 +169,23 @@ mod tests {
         assert!(matches!(
             QueryEmbedder::open(&config),
             Err(SearchError::RuntimeUnavailable(_))
+        ));
+    }
+
+    #[test]
+    fn a_document_vector_is_scaled_to_unit_length() {
+        let mut raw = vec![0.0; DIM];
+        raw[0] = 3.0;
+        raw[1] = 4.0;
+        let unit = unit_vector(raw).unwrap();
+        assert!((unit[0] - 0.6).abs() < 1e-6 && (unit[1] - 0.8).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_vector_of_the_wrong_dimension_is_an_error() {
+        assert!(matches!(
+            unit_vector(vec![1.0; DIM - 1]),
+            Err(SearchError::Dimension { got, expected }) if got == DIM - 1 && expected == DIM
         ));
     }
 
