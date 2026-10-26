@@ -68,36 +68,26 @@ extension FileProviderExtensionCore {
 
     /// The item already stored at the upload's target, when this
     /// `createItem` is a redelivery of an upload that landed — nil means
-    /// upload. Two cases qualify:
-    ///   - `.mayAlreadyExist`: the OS says the item may already be synced;
-    ///     an entry with the same name and size is it (#2538).
-    ///   - Otherwise only when the stored file also carries the template's
-    ///     modification time to the second (the upload stamps it), which
-    ///     is how a retry after the extension was killed mid-flight looks.
-    ///     A different time is a different file the user dropped.
-    /// A local file whose size can't be read never matches.
+    /// upload. Only `.mayAlreadyExist` qualifies: the OS says the item may
+    /// already be synced, and an entry with the same name and size is it
+    /// (#2538). Any other create uploads, even over a same-name, same-size,
+    /// same-mtime file: the server keeps no content hash, so that file
+    /// could hold different bytes, and the upload moves it to the Maple
+    /// trash rather than losing it. A local file whose size can't be read
+    /// never matches.
     static func existingUpload(catalog: RemoteCatalog,
                                rootCache: LibraryRootCache?,
                                options: NSFileProviderCreateItemOptions,
                                localURL: URL,
-                               templateMtime: Date?,
                                folderID: String,
                                parentRelativePath: String,
                                targetRelativePath: String,
                                filename: String,
                                parentIdentifier: NSFileProviderItemIdentifier,
                                log: Logger) async throws -> MapleItem? {
-        guard let localSize = (try? FileManager.default.attributesOfItem(atPath: localURL.path))?[.size]
-            .flatMap({ ($0 as? NSNumber)?.int64Value }) else { return nil }
-        if !options.contains(.mayAlreadyExist) {
-            guard let templateMtime,
-                  let stored = try? await catalog.statFile(folderID: folderID,
-                                                           relativePath: targetRelativePath),
-                  stored.size == localSize,
-                  Int64(stored.mtime.timeIntervalSince1970) == Int64(templateMtime.timeIntervalSince1970)
-            else { return nil }
-            log.notice("createItem redelivery: \(targetRelativePath, privacy: .private) already stored, skipping upload")
-        }
+        guard options.contains(.mayAlreadyExist),
+              let localSize = (try? FileManager.default.attributesOfItem(atPath: localURL.path))?[.size]
+                .flatMap({ ($0 as? NSNumber)?.int64Value }) else { return nil }
         guard let parentAbs = await resolveAbsolutePath(folderID: folderID,
                                                         relativePath: parentRelativePath,
                                                         rootCache: rootCache) else { return nil }

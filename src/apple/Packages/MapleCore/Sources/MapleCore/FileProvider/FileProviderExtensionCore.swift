@@ -1473,16 +1473,14 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                      cancelled: { completionHandler(nil, [], false, Self.userCancelledError()) }) { [self] in
             defer { progress.completedUnitCount = 1 }
             do {
-                // #2538 / #5456: `uploadFile` trashes-and-recreates on a
-                // name collision, which is wrong for a redelivery of an
-                // upload that already landed (`.mayAlreadyExist`, or the
-                // OS retrying after the extension was killed before it
-                // heard back). `existingUpload` reports the stored file
-                // instead; see its doc comment for the matching rules.
+                // #2538: `uploadFile` trashes-and-recreates on a name
+                // collision, which is wrong when the OS flags the create
+                // `.mayAlreadyExist`. `existingUpload` reports the stored
+                // file instead; every other create uploads (see its doc
+                // comment).
                 if let existing = try await Self.existingUpload(
                     catalog: catalog, rootCache: self.rootCache, options: options,
                     localURL: contentsURL,
-                    templateMtime: templateMtime,
                     folderID: folderID, parentRelativePath: parentRelative,
                     targetRelativePath: targetRel, filename: filename,
                     parentIdentifier: parentID, log: self.log) {
