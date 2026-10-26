@@ -51,7 +51,6 @@ import { FilmstripComponent } from '../../components/filmstrip/filmstrip.compone
 import { STORAGE_KEYS, TypedStorage } from '../../util/typed-storage';
 import { PREVIEW_VIDEO_ACCESS } from './preview-video-access';
 import { PreviewMotionClip } from './preview-motion-clip';
-import { MotionClipPlayerComponent } from '../../components/motion-clip-player/motion-clip-player.component';
 import { addressForAbsPath } from '../../api/filesystem-browse.service';
 
 /** Horizontal swipe distance (px) past which a pointerdown→pointerup drag on
@@ -68,7 +67,6 @@ const SWIPE_THRESHOLD_PX = 40;
     InfoPanelComponent,
     MuiSheetShellComponent,
     FilmstripComponent,
-    MotionClipPlayerComponent,
   ],
   templateUrl: './preview-shell.component.html',
   styleUrl: './preview-shell.component.scss',
