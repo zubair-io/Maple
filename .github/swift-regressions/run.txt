@@ -447,3 +447,8 @@ CloudTrashKeptCopyTests
 # Preview display-tier outcome + retry (#5432):
 PreviewFetchOutcomeTests
 PreviewRefinementBackoffTests
+
+# Backup keep-awake / screen saver (#5457): pure policy and Light Table stage
+# geometry, no host services or fixtures.
+BackupScreenPolicyTests
+LightTableMetricsTests

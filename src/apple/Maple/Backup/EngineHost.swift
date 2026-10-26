@@ -34,7 +34,14 @@ private let log = Logger(subsystem: "app.justmaple.aperture", category: "Backup.
 /// refresh throws *without* signing out, so a backup over a flaky link doesn't
 /// bounce the foreground session.
 func makeBackupTransport(server: URL) -> AuthorizingTransport {
-  let client = AuthenticatedHTTPClient(
+  let client = makeBackupHTTPClient(server: server)
+  return { try await client.data(for: $0) }
+}
+
+/// The authenticated client behind `makeBackupTransport`, also used by the
+/// backup screen saver to read the library it is backing up into (#5457).
+func makeBackupHTTPClient(server: URL) -> AuthenticatedHTTPClient {
+  AuthenticatedHTTPClient(
     server: server,
     urlSession: .shared,
     tokensProvider: { try? TokenStore.load(server: server) },
@@ -42,7 +49,6 @@ func makeBackupTransport(server: URL) -> AuthorizingTransport {
     onTokensRefreshed: { try CloudTokenPersistence.persistRotated($0, server: server) },
     onSignOut: { CloudTokenPersistence.clear(server: server) },
     refreshExecutor: BackgroundExecution())
-  return { try await client.data(for: $0) }
 }
 
 @MainActor
@@ -66,7 +72,7 @@ public final class EngineHost {
   private let lifecycle = SerialOperationQueue()
   /// A requested retry of failed photos survives a newer start superseding it.
   private var retryFailedRequested = false
-  private var activeSettings: BackupSettings?
+  public private(set) var activeSettings: BackupSettings?
   public private(set) var uploadAddress: URL?
   public private(set) var usesLocalAddress = false
 
