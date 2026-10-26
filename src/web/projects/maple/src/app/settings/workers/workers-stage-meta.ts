@@ -122,7 +122,7 @@ export const STAGE_META: Record<string, StageMeta> = {
     icon: 'search',
     enrichment: null,
     description:
-      'Embeds each asset’s caption, people, place, transcript and OCR text on the embedding model chosen in Settings → AI and stores the vector for semantic search. Starts paused — confirm the embedder there, then resume here.',
+      'Embeds each asset’s caption, people, place, transcript and OCR text with the bundled bge-m3 model on this server’s CPU and stores the vector for semantic search.',
   },
   'search-blob': {
     id: 'search-blob',
